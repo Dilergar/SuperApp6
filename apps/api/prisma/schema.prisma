@@ -1,0 +1,289 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// CORE: Users & Auth
+// ============================================================
+
+model User {
+  id         String   @id @default(uuid())
+  phone      String   @unique
+  password   String   // bcrypt hash
+  firstName  String   @map("first_name")
+  lastName   String?  @map("last_name")
+  avatar     String?
+  isVerified Boolean  @default(false) @map("is_verified")
+  locale     String   @default("ru")
+  timezone   String   @default("Asia/Almaty")
+  systemRole String   @default("user") @map("system_role") // user, moderator, admin
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  sessions          Session[]
+  ownedCircles      Circle[]
+  circleMemberships CircleMember[]
+  createdTasks      Task[]              @relation("TaskCreator")
+  assignedTasks     Task[]              @relation("TaskAssignee")
+  taskComments      TaskComment[]
+  calendarEvents    CalendarEvent[]
+  calendarShares    CalendarShare[]     @relation("CalendarOwner")
+  sharedCalendars   CalendarShare[]     @relation("CalendarSharedWith")
+  workspaceMembers  WorkspaceMember[]
+  ownedWorkspaces   Workspace[]
+
+  // Subscription
+  subscription Subscription?
+
+  @@index([phone])
+  @@map("users")
+}
+
+model Session {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  token      String   @unique // refresh token hash
+  deviceInfo String?  @map("device_info")
+  lastActive DateTime @default(now()) @map("last_active")
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("sessions")
+}
+
+model Subscription {
+  id        String   @id @default(uuid())
+  userId    String   @unique @map("user_id")
+  plan      String   @default("free") // free, personal, family, business
+  status    String   @default("trial") // active, trial, expired, cancelled
+  expiresAt DateTime @map("expires_at")
+  giftedBy  String?  @map("gifted_by") // user id who gifted
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}
+
+// ============================================================
+// CIRCLES: Окружение (contacts with roles)
+// ============================================================
+
+model Circle {
+  id        String   @id @default(uuid())
+  ownerId   String   @map("owner_id")
+  name      String   // "Семья", "Друзья", custom
+  icon      String?
+  color     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  owner   User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  members CircleMember[]
+
+  @@index([ownerId])
+  @@map("circles")
+}
+
+model CircleMember {
+  id           String   @id @default(uuid())
+  circleId     String   @map("circle_id")
+  userId       String?  @map("user_id") // null if not on platform yet
+  contactPhone String   @map("contact_phone")
+  contactName  String   @map("contact_name")
+  role         String   // "жена", "мама", "друг", custom
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  circle Circle @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([circleId, contactPhone])
+  @@index([userId])
+  @@index([contactPhone])
+  @@map("circle_members")
+}
+
+// ============================================================
+// TASKS: Task Manager
+// ============================================================
+
+model Task {
+  id          String    @id @default(uuid())
+  title       String
+  description String?
+  status      String    @default("todo") // todo, in_progress, done, cancelled
+  priority    String    @default("medium") // low, medium, high, urgent
+  dueDate     DateTime? @map("due_date")
+  startDate   DateTime? @map("start_date")
+
+  // Creator & Assignee
+  creatorId  String  @map("creator_id")
+  assigneeId String? @map("assignee_id")
+
+  // Hierarchy (subtasks)
+  parentId String? @map("parent_id")
+  parent   Task?   @relation("SubTasks", fields: [parentId], references: [id], onDelete: Cascade)
+  subtasks Task[]  @relation("SubTasks")
+
+  // Gamification
+  coinReward  Int @default(0) @map("coin_reward")
+  coinPenalty Int @default(0) @map("coin_penalty")
+
+  // Context
+  workspaceId String? @map("workspace_id") // null = personal
+
+  // Timestamps
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  completedAt DateTime? @map("completed_at")
+
+  // Relations
+  creator   User       @relation("TaskCreator", fields: [creatorId], references: [id])
+  assignee  User?      @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  workspace Workspace? @relation(fields: [workspaceId], references: [id])
+
+  comments      TaskComment[]
+  tags          TaskTag[]
+  calendarEvent CalendarEvent? @relation("TaskCalendarEvent")
+
+  @@index([creatorId])
+  @@index([assigneeId])
+  @@index([workspaceId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([parentId])
+  @@map("tasks")
+}
+
+model TaskComment {
+  id       String @id @default(uuid())
+  taskId   String @map("task_id")
+  authorId String @map("author_id")
+  content  String
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [authorId], references: [id])
+
+  @@index([taskId])
+  @@map("task_comments")
+}
+
+model TaskTag {
+  id     String @id @default(uuid())
+  taskId String @map("task_id")
+  name   String
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, name])
+  @@index([name])
+  @@map("task_tags")
+}
+
+// ============================================================
+// CALENDAR
+// ============================================================
+
+model CalendarEvent {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  startTime   DateTime @map("start_time")
+  endTime     DateTime @map("end_time")
+  allDay      Boolean  @default(false) @map("all_day")
+  color       String?
+  type        String   @default("event") // event, task, reminder, birthday
+
+  userId String @map("user_id")
+
+  // Linked task
+  taskId String? @unique @map("task_id")
+
+  // Google Calendar sync
+  googleEventId    String? @map("google_event_id")
+  googleCalendarId String? @map("google_calendar_id")
+
+  // Recurrence (RRULE format)
+  recurrenceRule String? @map("recurrence_rule")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task Task? @relation("TaskCalendarEvent", fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([startTime, endTime])
+  @@index([googleEventId])
+  @@map("calendar_events")
+}
+
+model CalendarShare {
+  id               String @id @default(uuid())
+  calendarOwnerId  String @map("calendar_owner_id")
+  sharedWithUserId String @map("shared_with_user_id")
+  permission       String @default("view") // view, edit
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  owner      User @relation("CalendarOwner", fields: [calendarOwnerId], references: [id], onDelete: Cascade)
+  sharedWith User @relation("CalendarSharedWith", fields: [sharedWithUserId], references: [id], onDelete: Cascade)
+
+  @@unique([calendarOwnerId, sharedWithUserId])
+  @@map("calendar_shares")
+}
+
+// ============================================================
+// WORKSPACES (Job platform foundation)
+// ============================================================
+
+model Workspace {
+  id       String  @id @default(uuid())
+  name     String
+  type     String  @default("business") // personal, business
+  logo     String?
+  ownerId  String  @map("owner_id")
+  isActive Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  owner   User              @relation(fields: [ownerId], references: [id])
+  members WorkspaceMember[]
+  tasks   Task[]
+
+  @@index([ownerId])
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id          String  @id @default(uuid())
+  workspaceId String  @map("workspace_id")
+  userId      String  @map("user_id")
+  role        String  @default("member") // owner, admin, manager, member, guest
+  department  String?
+  position    String?
+
+  joinedAt DateTime @default(now()) @map("joined_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@map("workspace_members")
+}
