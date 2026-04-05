@@ -72,6 +72,7 @@ SuperApp6/                       # Монорепо (pnpm + Turborepo)
 - **Prisma ORM**: типобезопасные запросы, автогенерация TypeScript типов из схемы БД
 - **Redis**: кэш профилей (5 мин), управление сессиями, будущий pub/sub для реалтайма
 - **Zustand + React Query**: стейт-менеджмент (auth) + серверные данные (задачи, события)
+- **Web auth**: `useAuthStore` (`apps/web/src/lib/stores/auth.ts`) — единственный источник правды, токены в localStorage но только через store. Защищённые страницы используют `useRequireAuth` hook (`apps/web/src/lib/hooks/useRequireAuth.ts`), не копипастят логику. Детали — в Serena memory `web_auth_pattern`.
 
 ### Безопасность
 - Пароли: bcrypt (12 раундов)
@@ -126,9 +127,12 @@ cd apps/api && pnpm db:studio
 - JwtAuthGuard зарегистрирован глобально как APP_GUARD
 - Prisma схема применена к БД (`db:push` выполнен)
 - GitHub репозиторий: `Old-senpai/SuperApp6` (private)
+- **Web auth foundation:** `useAuthStore` (Zustand) + `useRequireAuth` hook + авто-гидратация в `Providers`. Страницы login/register/dashboard используют store, не трогают localStorage напрямую
+- **Фундамент закрыт** — готов к vertical slices (Tasks → Circles → Calendar)
 
 ### Что нужно протестировать ⚠️
-- Circles, Tasks, Calendar эндпоинты — код написан, не тестировались
+- Circles, Tasks, Calendar эндпоинты — код написан, не тестировались end-to-end
+- EventBus в live-сценарии (task.created → calendar event) — подписки написаны, ни разу не срабатывало
 - Expo mobile app — не запускался
 
 ### MCP серверы
