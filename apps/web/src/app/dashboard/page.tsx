@@ -1,19 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api } from '../../lib/api';
-
-interface UserProfile {
-  id: string;
-  phone: string;
-  firstName: string;
-  lastName: string | null;
-  roles: Array<{ role: string; context: string; tenantId: string | null }>;
-  activeSubscription: { plan: string; status: string; expiresAt: string } | null;
-  circlesCount: number;
-  workspacesCount: number;
-}
+import { useAuthStore } from '@/lib/stores/auth';
+import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 
 const services = [
   { title: 'Окружение', description: 'Контакты с ролями', color: 'var(--primary-container)', href: '/circles' },
@@ -23,39 +12,21 @@ const services = [
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const token = localStorage.getItem('accessToken');
-    if (!token) { router.push('/login'); return; }
-
-    api.get('/users/me')
-      .then(({ data }) => setProfile(data.data))
-      .catch(() => router.push('/login'))
-      .finally(() => setLoading(false));
-  }, [router]);
+  const { isReady, user: profile } = useRequireAuth();
+  const logout = useAuthStore((s) => s.logout);
 
   const handleLogout = async () => {
-    try {
-      const refreshToken = localStorage.getItem('refreshToken');
-      await api.post('/auth/logout', { refreshToken });
-    } finally {
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
-      router.push('/login');
-    }
+    await logout();
+    router.push('/login');
   };
 
-  if (loading) {
+  if (!isReady || !profile) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <p className="label-md" style={{ fontSize: '1rem' }}>Загрузка...</p>
       </div>
     );
   }
-
-  if (!profile) return null;
 
   const greeting = () => {
     const hour = new Date().getHours();
@@ -189,8 +160,8 @@ export default function DashboardPage() {
           gap: 'var(--spacing-6)',
           marginTop: 'var(--spacing-12)',
         }}>
-          <StatCard label="Окружений" value={profile.circlesCount} />
-          <StatCard label="Пространств" value={profile.workspacesCount} />
+          <StatCard label="Окружений" value={profile.circlesCount ?? 0} />
+          <StatCard label="Пространств" value={profile.workspacesCount ?? 0} />
         </div>
       </div>
     </div>

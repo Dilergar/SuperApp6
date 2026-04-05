@@ -3,10 +3,11 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { api } from '../../lib/api';
+import { useAuthStore } from '@/lib/stores/auth';
 
 export default function LoginPage() {
   const router = useRouter();
+  const login = useAuthStore((s) => s.login);
   const [phone, setPhone] = useState('+7');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -18,9 +19,7 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const { data } = await api.post('/auth/login', { phone, password });
-      localStorage.setItem('accessToken', data.data.accessToken);
-      localStorage.setItem('refreshToken', data.data.refreshToken);
+      await login(phone, password);
       router.push('/dashboard');
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { message?: string } } };

@@ -3,10 +3,11 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { api } from '../../lib/api';
+import { useAuthStore } from '@/lib/stores/auth';
 
 export default function RegisterPage() {
   const router = useRouter();
+  const register = useAuthStore((s) => s.register);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('+7');
@@ -20,14 +21,12 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      const { data } = await api.post('/auth/register', {
+      await register({
         firstName,
         lastName: lastName || undefined,
         phone,
         password,
       });
-      localStorage.setItem('accessToken', data.data.accessToken);
-      localStorage.setItem('refreshToken', data.data.refreshToken);
       router.push('/dashboard');
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { message?: string } } };
