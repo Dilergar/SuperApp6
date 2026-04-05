@@ -2,6 +2,18 @@
 
 SuperApp6 — одно приложение, один аккаунт, всё что нужно. Суперапп для Казахстана (аналог WeChat).
 
+## Дизайн-система
+
+**ОБЯЗАТЕЛЬНО** читать `DESIGN.md` перед созданием/редактированием любого UI-компонента (web + mobile).
+
+Ключевое:
+- Светлая тема "скетчбук" — фон `#fdffda` (тёплая бумага), НЕ тёмная тема
+- Шрифты: **Epilogue** (заголовки), **Plus Jakarta Sans** (текст)
+- Цвета: primary `#c61a1e` (восковой красный), secondary `#326a8b` (голубой карандаш)
+- **Запрещено:** 1px бордеры, идеально ровные формы, серые тени, тесная компоновка
+- Разделение через цвет фона (surface layers), не через линии
+- Асимметрия, текстура бумаги, акварельные wash-эффекты, glassmorphism для навбаров
+
 ## Структура проекта
 
 ```
@@ -41,10 +53,22 @@ SuperApp6/                       # Монорепо (pnpm + Turborepo)
 ### Модульный монолит
 Каждый сервис — изолированный NestJS модуль. Модули общаются через **EventBus**, не через прямой импорт. Любой модуль можно вытащить в микросервис позже без переписывания.
 
+### Universal Identity
+Один `user_id` — навсегда. Роли не в users-таблице, а в отдельной `user_roles(user_id, role, context, tenant_id)`.
+Один человек может быть:
+- `user` в `system` (глобальная роль)
+- `staff` в `workspace:restaurant-A`
+- `guest` в `workspace:restaurant-B`
+- `owner` в `circle:my-family`
+
+При найме через Jobs Marketplace — не создаётся новый пользователь, просто добавляется запись в `user_roles`. При увольнении — `isActive = false`.
+
+Файлы: `apps/api/src/core/roles/` (RolesService, RolesModule), `apps/api/src/shared/guards/roles.guard.ts`, `apps/api/src/shared/decorators/roles.decorator.ts`
+
 ### Ключевые паттерны
 - **EventBus**: task.created → calendar автоматически создаёт событие; task.completed → коины начисляются
 - **@superapp/shared**: все типы и валидация в одном пакете, используется API + mobile + web
-- **JWT auth**: access token (15 мин) + refresh token (30 дн), ротация при обновлении
+- **JWT auth**: access token (15 мин) + refresh token (30 дн), ротация при обновлении, system role в payload
 - **Prisma ORM**: типобезопасные запросы, автогенерация TypeScript типов из схемы БД
 - **Redis**: кэш профилей (5 мин), управление сессиями, будущий pub/sub для реалтайма
 - **Zustand + React Query**: стейт-менеджмент (auth) + серверные данные (задачи, события)
@@ -58,6 +82,10 @@ SuperApp6/                       # Монорепо (pnpm + Turborepo)
 
 ## Команды
 
+> **ВАЖНО (Windows):** tsc НЕ работает из Git Bash на Windows — команды сборки нужно запускать через PowerShell.
+> Используй: `powershell -Command "cd path; command"`
+> PowerShell ExecutionPolicy уже настроен: `RemoteSigned`
+
 ```bash
 # 1. Запустить инфраструктуру (PostgreSQL + Redis)
 docker compose up -d
@@ -65,16 +93,19 @@ docker compose up -d
 # 2. Установить зависимости
 pnpm install
 
-# 3. Сгенерировать Prisma клиент и создать таблицы
+# 3. Собрать shared пакет (ОБЯЗАТЕЛЬНО перед запуском API)
+cd packages/shared && pnpm build   # или: powershell -Command "cd packages/shared; npx tsc"
+
+# 4. Сгенерировать Prisma клиент и создать таблицы
 cd apps/api && pnpm db:generate && pnpm db:push
 
-# 4. Запустить все приложения одновременно
+# 5. Запустить все приложения одновременно
 pnpm dev
 
-# Запустить отдельно:
-cd apps/api && pnpm dev      # API → http://localhost:3001
-cd apps/web && pnpm dev      # Web → http://localhost:3000
-cd apps/mobile && pnpm dev   # Expo dev server
+# Запустить отдельно (через PowerShell на Windows):
+powershell -Command "cd apps/api; npx nest start --watch"   # API → http://localhost:3001
+powershell -Command "cd apps/web; npx next dev"              # Web → http://localhost:3000
+cd apps/mobile && pnpm dev                                   # Expo dev server
 
 # Swagger API документация (только dev):
 # http://localhost:3001/api/docs
@@ -82,6 +113,56 @@ cd apps/mobile && pnpm dev   # Expo dev server
 # Prisma Studio (UI для БД):
 cd apps/api && pnpm db:studio
 ```
+
+## Статус разработки (апрель 2026)
+
+### Что работает ✅
+- Docker: PostgreSQL 16 (порт 5432) + Redis 7 (порт 6379)
+- NestJS API: запущен на порту 3001, Swagger на /api/docs
+- Next.js Web: запущен на порту 3000
+- Auth: register, login, refresh, logout — полностью работают
+- `GET /api/users/me` — возвращает профиль с ролями (Universal Identity)
+- Universal Identity: таблица `user_roles(user_id, role, context, tenant_id)`, RolesService, @Roles guard
+- JwtAuthGuard зарегистрирован глобально как APP_GUARD
+- Prisma схема применена к БД (`db:push` выполнен)
+- GitHub репозиторий: `Old-senpai/SuperApp6` (private)
+
+### Что нужно протестировать ⚠️
+- Circles, Tasks, Calendar эндпоинты — код написан, не тестировались
+- Expo mobile app — не запускался
+
+### MCP серверы
+- **GitHub MCP**: подключён (файл `.mcp.json` в корне проекта, в `.gitignore`)
+- **Serena MCP**: подключён (LSP-инструменты для навигации по коду) — см. раздел ниже
+- ~~PostgreSQL MCP~~: удалён (пакет `@modelcontextprotocol/server-postgres` deprecated). Для работы с БД — Prisma Studio или `docker exec -it superapp6-db psql -U superapp -d superapp6`
+
+## Serena MCP — обязательно использовать
+
+**Serena** — MCP-сервер с IDE-возможностями через LSP. Подключён в `.mcp.json`, работает с project-путём `SuperApp6`. После перезапуска Claude Code появляются инструменты `mcp__serena__*`.
+
+### Когда использовать Serena ВМЕСТО Read/Grep/Edit
+
+- **Навигация по символам** → `find_symbol`, `get_symbols_overview` вместо `Read` всего файла
+- **Поиск использований** → `find_referencing_symbols` вместо `Grep`
+- **Правка функции/класса** → `replace_symbol_body`, `insert_after_symbol` вместо `Edit`
+- **Обзор файла** → `get_symbols_overview` (outline) вместо чтения 300+ строк
+
+### Когда оставлять Read/Edit
+
+- Короткие файлы (<50 строк): конфиги, `.env`, `package.json`, markdown
+- Файлы без символов: CSS, JSON, YAML
+- Когда нужен контекст вокруг кода (комментарии, импорты)
+
+### Serena Memory — обновлять как CLAUDE.md
+
+У Serena есть собственная память проекта (`write_memory`, `read_memory`, `list_memories`). Она хранит контекст между сессиями **внутри репозитория** (папка `.serena/memories/`).
+
+**ПРАВИЛО:** после любых значимых правок в архитектуре / API / моделях БД — обновлять:
+1. `CLAUDE.md` — человекочитаемая документация проекта
+2. **Serena memory** — через `mcp__serena__write_memory` (ключевые факты: структура модулей, соглашения, решения)
+3. `~/.claude/.../memory/MEMORY.md` — персональная auto-memory Claude Code
+
+Три уровня документации должны быть синхронизированы. Если меняется схема Prisma, добавляется модуль, меняется auth — обновить все три.
 
 ## Как добавить новый модуль (сервис)
 

@@ -35,6 +35,14 @@ export class UsersService {
             giftedBy: true,
           },
         },
+        roles: {
+          where: { isActive: true },
+          select: {
+            role: true,
+            context: true,
+            tenantId: true,
+          },
+        },
         _count: {
           select: {
             ownedCircles: true,

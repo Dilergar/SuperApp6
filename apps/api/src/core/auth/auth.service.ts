@@ -35,36 +35,56 @@ export class AuthService {
     // Hash password
     const hashedPassword = await bcrypt.hash(data.password, 12);
 
-    // Create user
-    const user = await this.db.user.create({
-      data: {
-        phone: data.phone,
-        password: hashedPassword,
-        firstName: data.firstName,
-        lastName: data.lastName,
-      },
+    // Create user + system role + trial subscription in one transaction
+    const user = await this.db.$transaction(async (tx) => {
+      const newUser = await tx.user.create({
+        data: {
+          phone: data.phone,
+          password: hashedPassword,
+          firstName: data.firstName,
+          lastName: data.lastName,
+        },
+      });
+
+      // Assign default system role: "user"
+      await tx.userRole.create({
+        data: {
+          userId: newUser.id,
+          role: 'user',
+          context: 'system',
+          tenantId: null,
+        },
+      });
+
+      // Create default subscription (3 month trial)
+      const trialEnd = new Date();
+      trialEnd.setMonth(trialEnd.getMonth() + 3);
+
+      await tx.subscription.create({
+        data: {
+          userId: newUser.id,
+          plan: 'free',
+          status: 'trial',
+          expiresAt: trialEnd,
+        },
+      });
+
+      return newUser;
     });
 
-    // Create default subscription (3 month trial)
-    const trialEnd = new Date();
-    trialEnd.setMonth(trialEnd.getMonth() + 3);
-
-    await this.db.subscription.create({
-      data: {
-        userId: user.id,
-        plan: 'free',
-        status: 'trial',
-        expiresAt: trialEnd,
-      },
-    });
-
-    // Generate tokens
-    return this.generateTokens(user.id, user.phone, user.systemRole);
+    // Generate tokens — system role goes into JWT
+    return this.generateTokens(user.id, user.phone, 'user');
   }
 
   async login(phone: string, password: string) {
     const user = await this.db.user.findUnique({
       where: { phone },
+      include: {
+        roles: {
+          where: { context: 'system', isActive: true },
+          select: { role: true },
+        },
+      },
     });
 
     if (!user) {
@@ -77,7 +97,10 @@ export class AuthService {
       throw new UnauthorizedException('Неверный номер телефона или пароль');
     }
 
-    return this.generateTokens(user.id, user.phone, user.systemRole);
+    // Get highest system role
+    const systemRole = this.getHighestSystemRole(user.roles.map((r) => r.role));
+
+    return this.generateTokens(user.id, user.phone, systemRole);
   }
 
   async refreshToken(refreshToken: string) {
@@ -85,7 +108,16 @@ export class AuthService {
     const tokenHash = await this.hashToken(refreshToken);
     const session = await this.db.session.findUnique({
       where: { token: tokenHash },
-      include: { user: true },
+      include: {
+        user: {
+          include: {
+            roles: {
+              where: { context: 'system', isActive: true },
+              select: { role: true },
+            },
+          },
+        },
+      },
     });
 
     if (!session || session.expiresAt < new Date()) {
@@ -95,11 +127,11 @@ export class AuthService {
     // Rotate refresh token (security best practice)
     await this.db.session.delete({ where: { id: session.id } });
 
-    return this.generateTokens(
-      session.user.id,
-      session.user.phone,
-      session.user.systemRole,
+    const systemRole = this.getHighestSystemRole(
+      session.user.roles.map((r) => r.role),
     );
+
+    return this.generateTokens(session.user.id, session.user.phone, systemRole);
   }
 
   async logout(userId: string, refreshToken: string) {
@@ -113,6 +145,13 @@ export class AuthService {
     await this.db.session.deleteMany({ where: { userId } });
     // Invalidate all cached data for this user
     await this.redis.delPattern(`user:${userId}:*`);
+  }
+
+  private getHighestSystemRole(roles: string[]): string {
+    // Priority: admin > moderator > user
+    if (roles.includes('admin')) return 'admin';
+    if (roles.includes('moderator')) return 'moderator';
+    return 'user';
   }
 
   private async generateTokens(userId: string, phone: string, role: string) {

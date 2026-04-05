@@ -1,5 +1,7 @@
 export type WorkspaceType = 'personal' | 'business';
-export type WorkspaceRole = 'owner' | 'admin' | 'manager' | 'member' | 'guest';
+
+// WorkspaceRole определён в constants/roles.ts — реэкспортируем для обратной совместимости
+export { type WorkspaceRole } from '../constants/roles';
 
 export interface Workspace {
   id: string;
@@ -19,7 +21,7 @@ export interface WorkspaceMember {
   userId: string;
   userName: string;
   userAvatar: string | null;
-  role: WorkspaceRole;
+  role: import('../constants/roles').WorkspaceRole;
   department: string | null;
   position: string | null;
   joinedAt: string;
@@ -33,32 +35,7 @@ export interface CreateWorkspaceRequest {
 
 export interface InviteMemberRequest {
   phone: string;
-  role: WorkspaceRole;
+  role: import('../constants/roles').WorkspaceRole;
   department?: string;
   position?: string;
 }
-
-// Permissions per workspace role
-export const WORKSPACE_ROLE_PERMISSIONS: Record<WorkspaceRole, string[]> = {
-  owner: ['*'],
-  admin: [
-    'workspace.settings', 'workspace.members.manage',
-    'tasks.create', 'tasks.assign', 'tasks.delete',
-    'coins.manage', 'shop.manage',
-    'checklists.manage', 'courses.manage', 'tests.manage',
-  ],
-  manager: [
-    'tasks.create', 'tasks.assign',
-    'coins.give',
-    'checklists.manage',
-  ],
-  member: [
-    'tasks.view', 'tasks.update_own',
-    'coins.view', 'shop.view',
-    'checklists.complete',
-    'courses.view', 'tests.take',
-  ],
-  guest: [
-    'tasks.view_assigned',
-  ],
-};

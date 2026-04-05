@@ -25,6 +25,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Пользователь не найден');
     }
 
+    // role in JWT = system role (from login/refresh), kept for fast checks
     return payload;
   }
 }

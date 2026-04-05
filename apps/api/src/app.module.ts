@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 
 // Shared infrastructure
@@ -9,11 +10,14 @@ import { EventBusModule } from './shared/events/event-bus.module';
 // Core modules
 import { AuthModule } from './core/auth/auth.module';
 import { UsersModule } from './core/users/users.module';
+import { RolesModule } from './core/roles/roles.module';
 
 // Feature modules (MVP)
 import { CirclesModule } from './modules/circles/circles.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
+
+import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
 
 @Module({
   imports: [
@@ -41,14 +45,21 @@ import { CalendarModule } from './modules/calendar/calendar.module';
     RedisModule,
     EventBusModule,
 
-    // Core — auth & users
+    // Core — auth, users & universal identity
     AuthModule,
     UsersModule,
+    RolesModule,
 
     // Feature modules — each is self-contained
     CirclesModule,
     TasksModule,
     CalendarModule,
+  ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
   ],
 })
 export class AppModule {}

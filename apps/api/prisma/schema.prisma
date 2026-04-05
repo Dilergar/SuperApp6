@@ -21,12 +21,12 @@ model User {
   isVerified Boolean  @default(false) @map("is_verified")
   locale     String   @default("ru")
   timezone   String   @default("Asia/Almaty")
-  systemRole String   @default("user") @map("system_role") // user, moderator, admin
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
   // Relations
   sessions          Session[]
+  roles             UserRole[]
   ownedCircles      Circle[]
   circleMemberships CircleMember[]
   createdTasks      Task[]              @relation("TaskCreator")
@@ -43,6 +43,31 @@ model User {
 
   @@index([phone])
   @@map("users")
+}
+
+// ============================================================
+// UNIVERSAL IDENTITY: Роли привязаны к контексту, не к пользователю
+// Один user_id → много ролей в разных контекстах (system, workspace, circle)
+// Пример: user A = ADMIN в system, STAFF в workspace X, GUEST в workspace Y
+// ============================================================
+
+model UserRole {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  role      String   // user, admin, moderator, owner, staff, manager, member, guest
+  context   String   // "system", "workspace", "circle"
+  tenantId  String?  @map("tenant_id") // null для system-ролей, workspace_id или circle_id для контекстных
+  grantedAt DateTime @default(now()) @map("granted_at")
+  grantedBy String?  @map("granted_by") // кто выдал роль (user_id)
+  isActive  Boolean  @default(true) @map("is_active")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, role, context, tenantId])
+  @@index([userId])
+  @@index([tenantId])
+  @@index([userId, context])
+  @@map("user_roles")
 }
 
 model Session {

@@ -8,6 +8,8 @@ dist/
 .expo/
 out/
 build/
+*.tsbuildinfo
+next-env.d.ts
 
 # Environment
 .env
@@ -44,3 +46,6 @@ apps/api/prisma/migrations/
 
 # Claude local settings (personal, not for team)
 .claude/settings.local.json
+
+# MCP config — contains tokens, never commit
+.mcp.json
