@@ -133,3 +133,7 @@ id, userId, type (dot-namespaced), title, body?, payload Json?, actionUrl?, read
 - Роли при приглашении: 13 пресетов (Жена, Муж, Мама, Папа, Сын, Дочь, Семья, Родственник, Друг, Коллега, Одноклассник, Однокурсник, Клиент) + свободный ввод. `relationshipType` автоопределяется из пресета (family/friend/professional/acquaintance/other).
 - `GET /api/users/lookup?phone=...` — поиск по номеру для формы приглашения (показывает имя до отправки).
 - InvitationCard — единый компонент для входящих/исходящих. Роли отображаются как "Я: Тренер" / "tester2: Клиент".
+- ContactUserCard расширен: +bio, +city, +email, +maritalStatus, +socialLinks. `toContactUserCard()` в contacts.service.ts применяет `resolveCardVisibility()` ко всем новым полям — скрытые возвращаются как null.
+- UserCardRow и userCardSelect() в contacts.service.ts обновлены для select новых полей из Prisma.
+- PersonCard compact в окружении показывает все видимые поля (город, био, дата рождения, семейное положение, email, соц. сети).
+- PersonCard full в профиле показывает все поля + тогглы видимости (ON=видно, OFF=opacity 0.3).

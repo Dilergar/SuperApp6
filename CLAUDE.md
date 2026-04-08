@@ -40,11 +40,16 @@ SuperApp6/                       # Монорепо (pnpm + Turborepo)
 │   │   └── src/                 # Stores, API client, hooks
 │   └── web/                     # Next.js 15 (веб-версия)
 │       └── src/app/             # App Router + Tailwind CSS v4
+│           ├── circles/         # ✅ "Моё окружение" + PersonCard.tsx (compact/full modes)
+│           ├── profile/         # ✅ Профиль пользователя (сайдбар + секции)
+│           ├── dashboard/       # Главная страница
+│           ├── login/           # Авторизация
+│           └── register/        # Регистрация
 ├── packages/
 │   └── shared/                  # Общие типы, Zod-валидация, утилиты
 │       └── src/
 │           ├── types/           # user, auth, contact, circle, notification, task, calendar, workspace, common
-│           ├── validation/      # Zod-схемы: auth, contact, circle, task, calendar
+│           ├── validation/      # Zod-схемы: auth, contact, circle, task, calendar, user
 │           ├── utils/           # phone.ts (нормализация), date.ts (относительное время)
 │           └── constants/       # roles, modules, contacts (templates+limits), card-visibility, notifications
 ├── docker-compose.yml           # PostgreSQL 16 + Redis 7
@@ -177,6 +182,12 @@ cd apps/api && pnpm db:studio
 - **PersonCard** (`apps/web/src/app/circles/PersonCard.tsx`) — карточка человека в стиле скетча: текстурная бумага (#F4F1E8), двойная рамка аватара, бейдж роли, мазки карандашами в углах, grid-сетка. Каждая карточка с уникальным наклоном.
 - **Форма приглашения** — поиск по номеру (показывает имя), два RolePicker ("Я" / "Он(а)") с пресетами (Жена, Муж, Мама, Папа, Сын, Дочь, Семья, Родственник, Друг, Коллега, Одноклассник, Однокурсник, Клиент + Свой вариант)
 - **InvitationCard** — единый компонент для входящих и исходящих приглашений (имя, телефон, роли "Я: / Имя:", дата истечения, кнопки)
+- **Профиль `/profile`** — страница с сайдбаром (6 секций): Моя карточка (PersonCard full + тогглы видимости + редактирование), Статистика, Мои роли, Подписка, Настройки (язык, часовой пояс, онлайн-статус), Безопасность (сессии + завершение)
+- **PersonCard** (`apps/web/src/app/circles/PersonCard.tsx`) — два режима:
+  - `compact` — карточка в grid окружения (имя, телефон, город, био, дата рождения, семейное положение, email, соц. сети, роль-бейдж, папки)
+  - `full` — большая карточка в профиле с тогглами приватности (ON/OFF затухание полей)
+- **Новые поля User** (Prisma): bio, city, email, maritalStatus, socialLinks (JSON), onlineStatusMode
+- **CardVisibility** расширен: +email (false по умолчанию), +socialLinks (true). ContactUserCard возвращает все поля с учётом видимости
 - **3 тестовых аккаунта**: tester1 (+77001234567), tester2 (+77012345678), tester3 (+77023456789) — пароль: Test1234!
 
 ### Social graph rebuild — Phase 1-5 ✅ DONE
@@ -253,9 +264,10 @@ cd apps/api && pnpm db:studio
 - `POST /logout-all` — выход со всех устройств
 
 ### Users (`/api/users/`)
-- `GET /me` — профиль текущего пользователя
-- `PATCH /me` — обновить профиль
+- `GET /me` — профиль (все поля: bio, city, email, maritalStatus, socialLinks, onlineStatusMode, cardVisibility resolved, roles, counts, subscription)
+- `PATCH /me` — обновить профиль (все поля + cardVisibility + Zod-валидация через `updateProfileSchema`)
 - `GET /me/sessions` — активные сессии
+- `DELETE /me/sessions/:id` — завершить конкретную сессию
 - `GET /lookup?phone=...` — поиск пользователя по номеру (для формы приглашения)
 
 ### Окружение — Social Graph (`/api/contacts/`) ✅

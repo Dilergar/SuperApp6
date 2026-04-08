@@ -49,6 +49,12 @@ SuperApp6 — WeChat-like super-app for Kazakhstan. Монорепо pnpm + Turb
   - Форма приглашения: поиск по номеру (`GET /users/lookup`), RolePicker ("Я" / "Он(а)") с 13 пресетами + "Свой вариант"
   - `InvitationCard` — единый компонент для входящих/исходящих (роли, дата истечения, кнопки)
   - `resendCooldownHours: 0.003` (10 сек для dev, менять на 24 для prod)
+  - `/profile` — страница профиля с сайдбаром: Моя карточка, Статистика, Роли, Подписка, Настройки, Безопасность + Выйти
+  - `PersonCard.tsx` два режима: compact (grid окружения) / full (профиль с тогглами видимости и редактированием)
+  - Новые поля User: bio, city, email, maritalStatus, socialLinks (JSON), onlineStatusMode
+  - CardVisibility расширен: +email, +socialLinks. ContactUserCard возвращает все поля с учётом visibility
+  - `DELETE /users/me/sessions/:id` — завершение сессии
+  - `updateProfileSchema` (Zod) в `packages/shared/src/validation/user.ts`
 - 3 тестовых аккаунта: tester1/2/3, пароль Test1234!
 - API: localhost:3001, Web: localhost:3000
 - **GitHub:** https://github.com/Dilergar/SuperApp6
