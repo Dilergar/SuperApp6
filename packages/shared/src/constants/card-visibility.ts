@@ -14,6 +14,8 @@ export const DEFAULT_CARD_VISIBILITY: CardVisibility = {
   maritalStatus: false,
   city: true,
   bio: true,
+  email: false, // private by default
+  socialLinks: true,
   extras: {},
 };
 

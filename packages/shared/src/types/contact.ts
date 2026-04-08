@@ -20,10 +20,14 @@ export interface ContactUserCard {
   firstName: string;
   lastName: string | null;
   avatar: string | null;
-  dateOfBirth: string | null; // visible only if card owner allowed it
-  // Visibility is resolved per-request — the server already applies
-  // the card owner's cardVisibility + blocks. Fields the viewer is
-  // not allowed to see are returned as null.
+  dateOfBirth: string | null;
+  bio: string | null;
+  city: string | null;
+  email: string | null;
+  maritalStatus: string | null;
+  socialLinks: { telegram?: string; instagram?: string } | null;
+  // Visibility is resolved per-request — the server applies
+  // the card owner's cardVisibility. Hidden fields returned as null.
 }
 
 export interface Contact {

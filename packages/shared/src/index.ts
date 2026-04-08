@@ -15,6 +15,7 @@ export * from './validation/task';
 export * from './validation/contact';
 export * from './validation/circle';
 export * from './validation/calendar';
+export * from './validation/user';
 
 // Utils
 export * from './utils/phone';

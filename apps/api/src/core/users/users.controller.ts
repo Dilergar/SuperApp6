@@ -1,7 +1,8 @@
-import { Controller, Get, Patch, Body } from '@nestjs/common';
+import { Controller, Get, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { updateProfileSchema } from '@superapp/shared';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -20,9 +21,10 @@ export class UsersController {
   @ApiOperation({ summary: 'Обновить профиль' })
   async updateProfile(
     @CurrentUser() user: JwtPayload,
-    @Body() body: { firstName?: string; lastName?: string; avatar?: string; locale?: string; timezone?: string },
+    @Body() body: unknown,
   ) {
-    const updated = await this.usersService.updateProfile(user.sub, body);
+    const data = updateProfileSchema.parse(body);
+    const updated = await this.usersService.updateProfile(user.sub, data);
     return { success: true, data: updated };
   }
 
@@ -31,5 +33,24 @@ export class UsersController {
   async getSessions(@CurrentUser() user: JwtPayload) {
     const sessions = await this.usersService.getSessions(user.sub);
     return { success: true, data: sessions };
+  }
+
+  @Delete('me/sessions/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Завершить сессию' })
+  async deleteSession(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') sessionId: string,
+  ) {
+    await this.usersService.deleteSession(user.sub, sessionId);
+    return { success: true };
+  }
+
+  @Get('lookup')
+  @ApiOperation({ summary: 'Найти пользователя по номеру телефона' })
+  async lookupByPhone(@Query('phone') phone: string) {
+    if (!phone) return { success: true, data: null };
+    const user = await this.usersService.findByPhone(phone);
+    return { success: true, data: user };
   }
 }

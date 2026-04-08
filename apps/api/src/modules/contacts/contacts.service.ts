@@ -686,6 +686,11 @@ export class ContactsService {
       lastName: true,
       avatar: true,
       dateOfBirth: true,
+      bio: true,
+      city: true,
+      email: true,
+      maritalStatus: true,
+      socialLinks: true,
       cardVisibility: true,
     } as const;
   }
@@ -762,6 +767,13 @@ export class ContactsService {
         visibility.dateOfBirth && row.dateOfBirth
           ? row.dateOfBirth.toISOString().slice(0, 10)
           : null,
+      bio: visibility.bio ? (row.bio ?? null) : null,
+      city: visibility.city ? (row.city ?? null) : null,
+      email: visibility.email ? (row.email ?? null) : null,
+      maritalStatus: visibility.maritalStatus ? (row.maritalStatus ?? null) : null,
+      socialLinks: visibility.socialLinks && row.socialLinks
+        ? (row.socialLinks as { telegram?: string; instagram?: string })
+        : null,
     };
   }
 
@@ -814,6 +826,11 @@ type UserCardRow = {
   lastName: string | null;
   avatar: string | null;
   dateOfBirth: Date | null;
+  bio: string | null;
+  city: string | null;
+  email: string | null;
+  maritalStatus: string | null;
+  socialLinks: Prisma.JsonValue | null;
   cardVisibility: Prisma.JsonValue | null;
 };
 

@@ -9,11 +9,24 @@ export interface User {
   lastName: string | null;
   dateOfBirth: string | null; // ISO date (YYYY-MM-DD)
   avatar: string | null;
+  bio: string | null;
+  city: string | null;
+  email: string | null;
+  maritalStatus: string | null; // single, married, relationship, divorced, widowed, null
+  socialLinks: SocialLinks | null;
+  onlineStatusMode: string; // everyone, contacts, nobody
   isVerified: boolean;
   locale: string;
   timezone: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SocialLinks {
+  telegram?: string;
+  instagram?: string;
+  linkedin?: string;
+  whatsapp?: string;
 }
 
 export interface UserProfile extends User {
@@ -22,6 +35,13 @@ export interface UserProfile extends User {
   contactsCount: number;
   activeSubscription: SubscriptionInfo | null;
   cardVisibility: CardVisibility; // always resolved (defaults merged in)
+  roles: UserRoleInfo[];
+}
+
+export interface UserRoleInfo {
+  role: string;
+  context: string;
+  tenantId: string | null;
 }
 
 export interface SubscriptionInfo {
@@ -47,6 +67,8 @@ export interface CardVisibility {
   maritalStatus: boolean;
   city: boolean;
   bio: boolean;
+  email: boolean;
+  socialLinks: boolean;
   // Future-proof extension bag — per-field flags added later without schema migration
   extras?: Record<string, boolean>;
 }

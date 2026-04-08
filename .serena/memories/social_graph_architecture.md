@@ -129,3 +129,7 @@ id, userId, type (dot-namespaced), title, body?, payload Json?, actionUrl?, read
 - Нет rejection reason на invitation — product решение.
 - Card visibility — 4 всегда видимых поля + остальное per-field через JSONB.
 - **"Контакты" как отдельная сущность/страница/слой — отклонено.** Всё через "Окружение".
+- PersonCard вынесен в отдельный файл `apps/web/src/app/circles/PersonCard.tsx` — стиль скетча на текстурной бумаге.
+- Роли при приглашении: 13 пресетов (Жена, Муж, Мама, Папа, Сын, Дочь, Семья, Родственник, Друг, Коллега, Одноклассник, Однокурсник, Клиент) + свободный ввод. `relationshipType` автоопределяется из пресета (family/friend/professional/acquaintance/other).
+- `GET /api/users/lookup?phone=...` — поиск по номеру для формы приглашения (показывает имя до отправки).
+- InvitationCard — единый компонент для входящих/исходящих. Роли отображаются как "Я: Тренер" / "tester2: Клиент".

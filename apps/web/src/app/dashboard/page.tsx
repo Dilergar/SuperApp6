@@ -45,13 +45,10 @@ export default function DashboardPage() {
       }}>
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <span className="title-md" style={{ color: 'var(--primary)' }}>SuperApp6</span>
-          <button
-            onClick={handleLogout}
-            className="btn-secondary"
-            style={{ padding: '0.4rem 1.2rem', fontSize: '0.8rem' }}
-          >
-            Выйти
-          </button>
+          <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
+            <a href="/profile" className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>Профиль</a>
+            <button onClick={handleLogout} className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>Выйти</button>
+          </div>
         </div>
       </nav>
 

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api } from '@/lib/api';
+import { PersonCard } from './PersonCard';
 
 // ============================================================
 // Types
@@ -61,13 +62,10 @@ interface Invitation {
 // Constants
 // ============================================================
 
-const RELATIONSHIP_OPTIONS = [
-  { value: 'family', label: 'Семья' },
-  { value: 'romantic', label: 'Партнёр' },
-  { value: 'friend', label: 'Друг' },
-  { value: 'professional', label: 'Коллега' },
-  { value: 'acquaintance', label: 'Знакомый' },
-  { value: 'other', label: 'Другое' },
+const ROLE_PRESETS = [
+  'Жена', 'Муж', 'Мама', 'Папа', 'Сын', 'Дочь',
+  'Семья', 'Родственник', 'Друг', 'Коллега',
+  'Одноклассник', 'Однокурсник', 'Клиент',
 ];
 
 const FOLDER_TEMPLATES = [
@@ -84,7 +82,11 @@ const FOLDER_COLORS = [
 ];
 
 function relLabel(value: string) {
-  return RELATIONSHIP_OPTIONS.find((r) => r.value === value)?.label || value;
+  const map: Record<string, string> = {
+    family: 'Семья', romantic: 'Партнёр', friend: 'Друг',
+    professional: 'Коллега', acquaintance: 'Знакомый', other: 'Другое',
+  };
+  return map[value] || value;
 }
 
 // ============================================================
@@ -105,9 +107,11 @@ export default function CirclesPage() {
   // Invite form
   const [showInvite, setShowInvite] = useState(false);
   const [invPhone, setInvPhone] = useState('+7');
-  const [invRelType, setInvRelType] = useState('friend');
-  const [invLabelForThem, setInvLabelForThem] = useState('');
-  const [invLabelForMe, setInvLabelForMe] = useState('');
+  const [invLookup, setInvLookup] = useState<{ id: string; firstName: string; lastName: string | null; phone: string } | null>(null);
+  const [invLookupLoading, setInvLookupLoading] = useState(false);
+  const [invLookupDone, setInvLookupDone] = useState(false);
+  const [invTheyForMe, setInvTheyForMe] = useState('');
+  const [invMeForThem, setInvMeForThem] = useState('');
   const [invMessage, setInvMessage] = useState('');
   const [sending, setSending] = useState(false);
 
@@ -174,26 +178,58 @@ export default function CirclesPage() {
   // Invitation actions
   // ============================================================
 
+  // Lookup user by phone
+  const handlePhoneLookup = async (phone: string) => {
+    setInvPhone(phone);
+    setInvLookup(null);
+    setInvLookupDone(false);
+    if (phone.length >= 12) {
+      setInvLookupLoading(true);
+      try {
+        const { data } = await api.get(`/users/lookup?phone=${encodeURIComponent(phone)}`);
+        setInvLookup(data.data);
+        setInvLookupDone(true);
+      } catch {
+        setInvLookupDone(true);
+      } finally {
+        setInvLookupLoading(false);
+      }
+    }
+  };
+
   const handleSendInvitation = async (e: React.FormEvent) => {
     e.preventDefault();
     clear();
     setSending(true);
     try {
+      // Auto-detect relationshipType from role presets
+      const familyRoles = ['Жена', 'Муж', 'Мама', 'Папа', 'Сын', 'Дочь', 'Семья', 'Родственник'];
+      const friendRoles = ['Друг'];
+      const proRoles = ['Коллега', 'Клиент'];
+      const eduRoles = ['Одноклассник', 'Однокурсник'];
+      const allLabels = [invTheyForMe, invMeForThem];
+      let relType = 'other';
+      if (allLabels.some((l) => familyRoles.includes(l))) relType = 'family';
+      else if (allLabels.some((l) => friendRoles.includes(l))) relType = 'friend';
+      else if (allLabels.some((l) => proRoles.includes(l))) relType = 'professional';
+      else if (allLabels.some((l) => eduRoles.includes(l))) relType = 'acquaintance';
+
       const payload: Record<string, unknown> = {
         toPhone: invPhone,
-        relationshipType: invRelType,
+        relationshipType: relType,
       };
-      if (invLabelForThem.trim()) payload.proposedLabelForRecipient = invLabelForThem.trim();
-      if (invLabelForMe.trim()) payload.proposedLabelForSender = invLabelForMe.trim();
+      if (invTheyForMe.trim()) payload.proposedLabelForRecipient = invTheyForMe.trim();
+      if (invMeForThem.trim()) payload.proposedLabelForSender = invMeForThem.trim();
       if (invMessage.trim()) payload.message = invMessage.trim();
 
       await api.post('/contacts/invitations', payload);
       setSuccessMsg('Приглашение отправлено!');
       setShowInvite(false);
       setInvPhone('+7');
-      setInvRelType('friend');
-      setInvLabelForThem('');
-      setInvLabelForMe('');
+      setInvLookup(null);
+      setInvLookupDone(false);
+      setInvTheyForMe('');
+      setInvMeForThem('');
       setInvMessage('');
       await fetchAll();
     } catch (err: unknown) {
@@ -337,7 +373,10 @@ export default function CirclesPage() {
       <nav className="fixed top-0 w-full z-50 px-6 py-4" style={{ background: 'rgba(245, 245, 220, 0.7)', backdropFilter: 'blur(10px)' }}>
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <Link href="/dashboard" className="title-md" style={{ color: 'var(--primary)' }}>SuperApp6</Link>
-          <Link href="/dashboard" className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>Главная</Link>
+          <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
+            <Link href="/profile" className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>Профиль</Link>
+            <Link href="/dashboard" className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>Главная</Link>
+          </div>
         </div>
       </nav>
 
@@ -377,46 +416,50 @@ export default function CirclesPage() {
           <form onSubmit={handleSendInvitation} className="card-elevated" style={{ marginBottom: 'var(--spacing-8)', padding: 'var(--spacing-6)' }}>
             <h3 className="title-md" style={{ marginBottom: 'var(--spacing-4)' }}>Добавить в окружение</h3>
 
-            <div style={{ marginBottom: 'var(--spacing-6)' }}>
-              <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Номер телефона *</label>
-              <input type="tel" value={invPhone} onChange={(e) => setInvPhone(e.target.value)} placeholder="+77001234567" className="input-sketch" autoFocus />
+            {/* Phone input + lookup */}
+            <div style={{ marginBottom: 'var(--spacing-4)' }}>
+              <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Номер телефона</label>
+              <input type="tel" value={invPhone} onChange={(e) => handlePhoneLookup(e.target.value)} placeholder="+77001234567" className="input-sketch" autoFocus />
             </div>
 
-            <div style={{ marginBottom: 'var(--spacing-6)' }}>
-              <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Кем является для вас</label>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)' }}>
-                {RELATIONSHIP_OPTIONS.map((opt) => (
-                  <button key={opt.value} type="button" onClick={() => setInvRelType(opt.value)}
-                    style={{
-                      padding: '0.3rem 0.8rem', fontSize: '0.8rem', borderRadius: 'var(--radius-sketch)',
-                      border: 'none', cursor: 'pointer', fontWeight: 500,
-                      background: invRelType === opt.value ? 'var(--secondary-container)' : 'var(--surface-container)',
-                      color: invRelType === opt.value ? 'var(--secondary)' : 'var(--on-surface-variant)',
-                    }}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+            {/* Lookup result */}
+            {invLookupLoading && <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)' }}>Поиск...</p>}
+            {invLookupDone && invLookup && (
+              <div className="wash-secondary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-6)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
+                <Avatar name={invLookup.firstName} size="sm" />
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{invLookup.firstName} {invLookup.lastName || ''}</div>
+                  <div className="label-sm">{invLookup.phone}</div>
+                </div>
               </div>
+            )}
+            {invLookupDone && !invLookup && (
+              <div className="wash-primary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-6)', fontSize: '0.85rem', color: 'var(--on-surface-variant)' }}>
+                Пользователь не найден — приглашение уйдёт на этот номер
+              </div>
+            )}
+
+            {/* Roles — two boxes with preset chips */}
+            <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)', marginBottom: 'var(--spacing-4)' }}>
+              <RolePicker
+                label="Я"
+                value={invMeForThem}
+                onChange={setInvMeForThem}
+              />
+              <RolePicker
+                label={invLookup ? invLookup.firstName : 'Он(а)'}
+                value={invTheyForMe}
+                onChange={setInvTheyForMe}
+              />
             </div>
 
-            <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)', marginBottom: 'var(--spacing-6)' }}>
-              <div>
-                <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Кем они вас назовут</label>
-                <input type="text" value={invLabelForMe} onChange={(e) => setInvLabelForMe(e.target.value)} placeholder="муж, подруга, коллега..." className="input-sketch" />
-              </div>
-              <div>
-                <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Как вы их назовёте</label>
-                <input type="text" value={invLabelForThem} onChange={(e) => setInvLabelForThem(e.target.value)} placeholder="жена, друг..." className="input-sketch" />
-              </div>
-            </div>
-
+            {/* Message */}
             <div style={{ marginBottom: 'var(--spacing-6)' }}>
               <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Сообщение</label>
               <input type="text" value={invMessage} onChange={(e) => setInvMessage(e.target.value)} placeholder="Привет! Давай добавимся..." className="input-sketch" />
             </div>
 
-            <button type="submit" disabled={sending} className="btn-primary" style={{ fontSize: '0.9rem', opacity: sending ? 0.6 : 1 }}>
+            <button type="submit" disabled={sending || invPhone.length < 12} className="btn-primary" style={{ fontSize: '0.9rem', opacity: (sending || invPhone.length < 12) ? 0.6 : 1 }}>
               {sending ? 'Отправка...' : 'Отправить приглашение'}
             </button>
           </form>
@@ -456,43 +499,21 @@ export default function CirclesPage() {
                 )}
                 {/* Incoming */}
                 {incoming.map((inv) => (
-                  <div key={inv.id} className="wash-secondary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
-                    <Avatar name={inv.from?.firstName || '?'} size="sm" />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>
-                        {inv.from?.firstName} {inv.from?.lastName || ''}
-                      </span>
-                      <span className="label-sm" style={{ marginLeft: '0.4rem' }}>
-                        хочет добавить вас
-                      </span>
-                      {inv.message && <span className="label-sm" style={{ marginLeft: '0.3rem', fontStyle: 'italic' }}> — &ldquo;{inv.message}&rdquo;</span>}
-                    </div>
-                    <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexShrink: 0 }}>
-                      <button onClick={() => handleAccept(inv.id)} className="btn-primary" style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem' }}>Принять</button>
-                      <button onClick={() => handleReject(inv.id)} className="btn-secondary" style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem' }}>Отклонить</button>
-                    </div>
-                  </div>
+                  <InvitationCard key={inv.id} inv={inv} direction="incoming"
+                    myLabel={inv.proposedLabelForRecipient} theirLabel={inv.proposedLabelForSender}
+                    theirName={inv.from?.firstName || '?'}
+                    theirPhone={inv.toPhone}
+                    onAccept={() => handleAccept(inv.id)} onReject={() => handleReject(inv.id)} />
                 ))}
 
                 {/* Outgoing */}
                 {outgoing.map((inv) => (
-                  <div key={inv.id} className="wash-primary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', opacity: 0.85 }}>
-                    <Avatar name={inv.to?.firstName || inv.toPhone.slice(-2)} size="sm" />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>
-                        {inv.to ? `${inv.to.firstName} ${inv.to.lastName || ''}` : inv.toPhone}
-                      </span>
-                      <span className="label-sm" style={{ marginLeft: '0.4rem' }}>
-                        — ждёт ответа
-                      </span>
-                    </div>
-                    <button onClick={() => handleCancel(inv.id)} style={{
-                      background: 'none', border: 'none', fontSize: '0.75rem', color: 'var(--danger)',
-                      cursor: 'pointer', fontWeight: 500, flexShrink: 0,
-                    }}>
-                      Отменить
-                    </button>
-                  </div>
+                  <InvitationCard key={inv.id} inv={inv} direction="outgoing"
+                    myLabel={inv.proposedLabelForSender} theirLabel={inv.proposedLabelForRecipient}
+                    theirName={inv.to?.firstName || inv.toPhone}
+                    theirPhone={inv.toPhone}
+                    registered={!!inv.to}
+                    onCancel={() => handleCancel(inv.id)} />
                 ))}
               </div>
             )}
@@ -611,7 +632,7 @@ export default function CirclesPage() {
             </p>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 'var(--spacing-6)' }}>
             {displayedContacts.map((c) => (
               <PersonCard
                 key={c.linkId}
@@ -634,115 +655,94 @@ export default function CirclesPage() {
 // PersonCard — single person in the list
 // ============================================================
 
-function PersonCard({
-  contact,
-  folders,
-  activeFolder,
-  onDelete,
-  onRemoveFromFolder,
-  onAddToFolder,
+function InvitationCard({
+  inv, direction, myLabel, theirLabel, theirName, theirPhone, registered = true,
+  onAccept, onReject, onCancel,
 }: {
-  contact: Contact;
-  folders: Folder[];
-  activeFolder: string | null;
-  onDelete: () => void;
-  onRemoveFromFolder: () => void;
-  onAddToFolder: (folderId: string) => void;
+  inv: Invitation; direction: 'incoming' | 'outgoing';
+  myLabel: string | null; theirLabel: string | null;
+  theirName: string; theirPhone: string; registered?: boolean;
+  onAccept?: () => void; onReject?: () => void; onCancel?: () => void;
 }) {
-  const [showFolderMenu, setShowFolderMenu] = useState(false);
-
-  // Folders this person is NOT in yet
-  const foldersNotIn = folders.filter((f) => !contact.myCircleIds.includes(f.id));
-  // Folders this person IS in
-  const foldersIn = folders.filter((f) => contact.myCircleIds.includes(f.id));
-
+  const isIncoming = direction === 'incoming';
   return (
-    <div className="card-elevated" style={{ padding: 'var(--spacing-4) var(--spacing-6)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-4)' }}>
-      <Avatar name={contact.them.firstName} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 600 }}>{contact.them.firstName} {contact.them.lastName || ''}</div>
-        <div className="label-sm">{contact.them.phone}</div>
-        <div style={{ display: 'flex', gap: 'var(--spacing-2)', marginTop: 'var(--spacing-1)', flexWrap: 'wrap', alignItems: 'center' }}>
-          {contact.myLabelForThem && (
-            <span className="ghost-border" style={{ padding: '0.1rem 0.5rem', fontSize: '0.7rem', color: 'var(--secondary)' }}>
-              {contact.myLabelForThem}
-            </span>
+    <div className={isIncoming ? 'wash-secondary' : 'wash-primary'} style={{ padding: 'var(--spacing-4)', borderRadius: 'var(--radius-sketch)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', marginBottom: 'var(--spacing-3)' }}>
+        <Avatar name={theirName} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{theirName}</div>
+          <div className="label-sm">{theirPhone}{!registered && ' — не зарегистрирован'}</div>
+        </div>
+        <span className="label-sm" style={{ color: isIncoming ? 'var(--secondary)' : 'var(--primary)', fontWeight: 600 }}>
+          {isIncoming ? 'Входящее' : 'Исходящее'}
+        </span>
+      </div>
+      <div style={{ display: 'flex', gap: 'var(--spacing-3)', marginBottom: 'var(--spacing-3)', flexWrap: 'wrap' }}>
+        {myLabel && <span className="label-sm">Я: <strong style={{ color: 'var(--secondary)' }}>{myLabel}</strong></span>}
+        {theirLabel && <span className="label-sm">{theirName}: <strong style={{ color: 'var(--secondary)' }}>{theirLabel}</strong></span>}
+      </div>
+      {inv.message && <p className="label-sm" style={{ marginBottom: 'var(--spacing-3)', fontStyle: 'italic' }}>&ldquo;{inv.message}&rdquo;</p>}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span className="label-sm">Истекает: {new Date(inv.expiresAt).toLocaleDateString('ru-RU')}</span>
+        <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
+          {isIncoming && onAccept && <button onClick={onAccept} className="btn-primary" style={{ padding: '0.3rem 0.9rem', fontSize: '0.8rem' }}>Принять</button>}
+          {isIncoming && onReject && <button onClick={onReject} className="btn-secondary" style={{ padding: '0.3rem 0.9rem', fontSize: '0.8rem' }}>Отклонить</button>}
+          {!isIncoming && onCancel && (
+            <button onClick={onCancel} style={{ background: 'none', border: 'none', fontSize: '0.8rem', color: 'var(--danger)', cursor: 'pointer', fontWeight: 500 }}>
+              Отменить
+            </button>
           )}
-          <Tag>{relLabel(contact.relationshipType)}</Tag>
-          {/* Folder tags */}
-          {foldersIn.map((f) => (
-            <span key={f.id} style={{
-              fontSize: '0.65rem', padding: '0.1rem 0.4rem', borderRadius: '0.3rem',
-              background: f.color || 'var(--surface-container-high)', opacity: 0.7,
-            }}>
-              {f.name}
-            </span>
-          ))}
         </div>
       </div>
+    </div>
+  );
+}
 
-      {/* Actions */}
-      <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center', flexShrink: 0 }}>
-        {/* Add to folder / remove from folder */}
-        {activeFolder ? (
-          <button onClick={onRemoveFromFolder} title="Убрать из папки"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.7rem', color: 'var(--on-surface-variant)', opacity: 0.5 }}
-            onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.5'; }}
+function RolePicker({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  const [showCustom, setShowCustom] = useState(false);
+  const isCustom = showCustom || (value !== '' && !ROLE_PRESETS.includes(value));
+
+  return (
+    <div className="card" style={{ padding: 'var(--spacing-4)' }}>
+      <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-3)' }}>{label}</label>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)' }}>
+        {ROLE_PRESETS.map((preset) => (
+          <button key={preset} type="button"
+            onClick={() => { onChange(preset); setShowCustom(false); }}
+            style={{
+              padding: '0.3rem 0.7rem', fontSize: '0.8rem', borderRadius: 'var(--radius-sketch)',
+              border: 'none', cursor: 'pointer', fontWeight: 500,
+              background: value === preset ? 'var(--secondary-container)' : 'var(--surface-container-low)',
+              color: value === preset ? 'var(--secondary)' : 'var(--on-surface-variant)',
+              transition: 'background 0.15s',
+            }}
           >
-            убрать
+            {preset}
           </button>
-        ) : (
-          <div style={{ position: 'relative' }}>
-            {folders.length > 0 && (
-              <button
-                onClick={() => setShowFolderMenu(!showFolderMenu)}
-                title="Добавить в папку"
-                style={{
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  fontSize: '0.85rem', color: 'var(--outline)', opacity: 0.4,
-                  padding: '0.2rem',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.8'; }}
-                onMouseLeave={(e) => { if (!showFolderMenu) e.currentTarget.style.opacity = '0.4'; }}
-              >
-                +
-              </button>
-            )}
-            {showFolderMenu && foldersNotIn.length > 0 && (
-              <div style={{
-                position: 'absolute', right: 0, top: '100%', zIndex: 10,
-                background: 'var(--surface-container-lowest)', borderRadius: 'var(--radius-md)',
-                boxShadow: '0 8px 32px rgba(56, 57, 45, 0.12)', padding: 'var(--spacing-2)',
-                minWidth: '120px',
-              }}>
-                {foldersNotIn.map((f) => (
-                  <button key={f.id} onClick={() => { onAddToFolder(f.id); setShowFolderMenu(false); }}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)',
-                      padding: '0.3rem 0.5rem', width: '100%', background: 'none', border: 'none',
-                      cursor: 'pointer', fontSize: '0.8rem', borderRadius: 'var(--radius-sm)',
-                      color: 'var(--on-surface)',
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--surface-container-low)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}
-                  >
-                    <span style={{ width: '0.6rem', height: '0.6rem', borderRadius: '0.2rem', background: f.color || 'var(--surface-container-high)' }} />
-                    {f.name}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        <button onClick={onDelete}
-          style={{ background: 'none', border: 'none', color: 'var(--outline)', cursor: 'pointer', fontSize: '1.1rem', padding: '0.3rem', opacity: 0.3 }}
-          onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.8'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.3'; }}
-          title="Удалить"
-        >×</button>
+        ))}
+        <button type="button"
+          onClick={() => { setShowCustom(true); onChange(''); }}
+          style={{
+            padding: '0.3rem 0.7rem', fontSize: '0.8rem', borderRadius: 'var(--radius-sketch)',
+            border: '1.5px dashed var(--outline-variant)', background: isCustom ? 'var(--tertiary-container)' : 'transparent',
+            cursor: 'pointer', fontWeight: 500,
+            color: isCustom ? 'var(--tertiary)' : 'var(--on-surface-variant)',
+          }}
+        >
+          Свой вариант
+        </button>
       </div>
+      {isCustom && (
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Введите свой вариант..."
+          className="input-sketch"
+          autoFocus
+          style={{ marginTop: 'var(--spacing-3)', fontSize: '0.85rem' }}
+        />
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
-import { resolveCardVisibility, type CardVisibility } from '@superapp/shared';
+import { resolveCardVisibility, type CardVisibility, type UpdateProfileInput } from '@superapp/shared';
 
 @Injectable()
 export class UsersService {
@@ -24,6 +24,12 @@ export class UsersService {
         lastName: true,
         dateOfBirth: true,
         avatar: true,
+        bio: true,
+        city: true,
+        email: true,
+        maritalStatus: true,
+        socialLinks: true,
+        onlineStatusMode: true,
         isVerified: true,
         locale: true,
         timezone: true,
@@ -81,19 +87,8 @@ export class UsersService {
     return profile;
   }
 
-  async updateProfile(
-    userId: string,
-    data: {
-      firstName?: string;
-      lastName?: string | null;
-      dateOfBirth?: string | null;
-      avatar?: string | null;
-      locale?: string;
-      timezone?: string;
-      cardVisibility?: Partial<CardVisibility> | null;
-    },
-  ) {
-    const { dateOfBirth, cardVisibility, ...rest } = data;
+  async updateProfile(userId: string, data: UpdateProfileInput) {
+    const { dateOfBirth, cardVisibility, socialLinks, ...rest } = data;
     const user = await this.db.user.update({
       where: { id: userId },
       data: {
@@ -104,6 +99,9 @@ export class UsersService {
         ...(cardVisibility !== undefined && {
           cardVisibility: cardVisibility as any,
         }),
+        ...(socialLinks !== undefined && {
+          socialLinks: socialLinks as any,
+        }),
       },
       select: {
         id: true,
@@ -112,6 +110,12 @@ export class UsersService {
         lastName: true,
         dateOfBirth: true,
         avatar: true,
+        bio: true,
+        city: true,
+        email: true,
+        maritalStatus: true,
+        socialLinks: true,
+        onlineStatusMode: true,
         locale: true,
         timezone: true,
       },
@@ -150,5 +154,15 @@ export class UsersService {
       },
       orderBy: { lastActive: 'desc' },
     });
+  }
+
+  async deleteSession(userId: string, sessionId: string) {
+    const session = await this.db.session.findUnique({
+      where: { id: sessionId },
+      select: { userId: true },
+    });
+    if (!session) throw new NotFoundException('Сессия не найдена');
+    if (session.userId !== userId) throw new ForbiddenException('Это не ваша сессия');
+    await this.db.session.delete({ where: { id: sessionId } });
   }
 }

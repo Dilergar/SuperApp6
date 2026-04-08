@@ -19,6 +19,12 @@ model User {
   lastName    String?   @map("last_name")
   dateOfBirth DateTime? @map("date_of_birth") @db.Date
   avatar      String?
+  bio         String?
+  city        String?
+  email       String?   @unique
+  maritalStatus String? @map("marital_status")
+  socialLinks Json?     @map("social_links")
+  onlineStatusMode String @default("everyone") @map("online_status_mode")
   isVerified  Boolean   @default(false) @map("is_verified")
   locale      String    @default("ru")
   timezone    String    @default("Asia/Almaty")

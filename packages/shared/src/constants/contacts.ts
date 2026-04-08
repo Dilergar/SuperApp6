@@ -64,5 +64,5 @@ export const CONTACT_LIMITS = {
   // Throttle: max invitations a user can send per 24h to prevent spam.
   maxInvitationsPer24h: 30,
   // Cooldown (in hours) before a cancelled/rejected invitation to the same phone can be resent.
-  resendCooldownHours: 24,
+  resendCooldownHours: 0.003, // ~10 seconds (for dev testing, change to 24 for prod)
 } as const;
