@@ -186,26 +186,21 @@ cd apps/api && pnpm db:studio
 - **PersonCard** (`apps/web/src/app/circles/PersonCard.tsx`) — два режима:
   - `compact` — карточка в grid окружения (имя, телефон, город, био, дата рождения, семейное положение, email, соц. сети, роль-бейдж, папки)
   - `full` — большая карточка в профиле с тогглами приватности (ON/OFF затухание полей)
-- **Новые поля User** (Prisma): bio, city, email, maritalStatus, socialLinks (JSON), onlineStatusMode
-- **CardVisibility** расширен: +email (false по умолчанию), +socialLinks (true). ContactUserCard возвращает все поля с учётом видимости. Каждое поле **полностью независимо**: dateOfBirth, age (вычисляется на бэке), onlineStatus (зелёная точка-каракуля на аватаре), maritalStatus, city, bio, email, socialLinks
-- **Код-ревью проведено**: типы импортируются из `@superapp/shared` (не дублируются), `as any` убран, `resolveCardVisibility` используется на фронте, debounce на phone lookup, валидация firstName
 - **3 тестовых аккаунта**: tester1 (+77001234567), tester2 (+77012345678), tester3 (+77023456789) — пароль: Test1234!
 
-### Social graph rebuild — Phase 1-5 ✅ DONE
+### Безопасность
+- JWT_SECRET обязателен — приложение не запускается без него
+- Refresh token: bcrypt cost 10
+- Rate limiting: `@Throttle` на login/register (5 попыток/15мин), отправка приглашений (10/мин)
+- XSS: Zod `.refine()` запрещает `<>` в именах, метках, био, сообщениях
+- Пароль: минимум 8 символов, заглавная + строчная + цифра + спецсимвол
+- Приглашения: TTL 24 часа, `ContactsCron` каждый час удаляет обработанные из БД (`@nestjs/schedule`)
+- Concurrent accept: P2002 handler предотвращает дубли ContactLink
+- Strict Zod: `.strict()` на socialLinks и cardVisibility — произвольные поля отклоняются
+- Error Boundary (providers.tsx): ловит render-ошибки, показывает fallback с кнопкой перезагрузки
+- Фронт типы импортируются из `@superapp/shared`, не дублируются
 
-Рефакторинг из простой "контактной книги" в полноценный **двусторонний подтверждённый социальный граф** завершён.
-
-**Phase 1** — Prisma: User расширен (dateOfBirth, cardVisibility), добавлены ContactLink, ContactInvitation, ContactBlock, Circle (новый), CircleMembership, Notification. `db:push --force-reset`.
-**Phase 2** — `@superapp/shared` пересобран: types (contact, circle, notification), validation (contact, circle), constants (contacts, card-visibility, notifications).
-**Phase 3** — `AuthService.register` + `UsersService.getProfile` + web `/register` адаптированы. Старый circles модуль удалён.
-**Phase 4** — `apps/api/src/modules/notifications/`: NotificationsService, NotificationsController, NotificationsEventsListener. `@Global()`.
-**Phase 5** — `apps/api/src/modules/contacts/` + `apps/api/src/modules/circles/` написаны с нуля. AuthService.register интегрирован. Все три модуля зарегистрированы в `app.module.ts`. `tsc --noEmit` + `nest build` чисто. API запускается, все маршруты видны.
-
-### Что нужно протестировать ⚠️
-- **Invitation flow end-to-end**: send invite → accept → обе стороны видят друг друга в окружении → notifications созданы
-- **External invitation flow**: invite незарегистрированный phone → register → invitation активируется
-- **Папки flow**: создать папку → добавить человека → убрать → удалить папку
-- **Block flow**: заблокировать → связь удаляется + pending invitations отменяются
+### Что ещё не протестировано
 - Tasks, Calendar эндпоинты — не тестировались end-to-end
 - Expo mobile app — не запускался
 

@@ -139,3 +139,4 @@ id, userId, type (dot-namespaced), title, body?, payload Json?, actionUrl?, read
 - PersonCard full в профиле показывает все поля + тогглы видимости (ON=видно, OFF=opacity 0.3).
 - Каждое поле visibility **полностью независимо**: dateOfBirth и age — разные тогглы. age вычисляется на бэкенде (calcAge в contacts.service.ts), отдаётся как число. showOnlineStatus контролирует зелёную точку-каракулю (SVG) на аватаре.
 - Типы на фронте импортируются из `@superapp/shared`, не дублируются. `as any` убран. `resolveCardVisibility()` используется на фронте.
+- Security audit: XSS фильтр в labels/names (Zod refine, запрет `<>`), @Throttle на invitations (10/мин), race condition P2002 handler на concurrent accept, invitation TTL 24ч + cron hourly cleanup (ContactsCron), strict Zod для JSON, составные индексы (fromUserId+status, toUserId+status).

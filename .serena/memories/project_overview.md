@@ -4,60 +4,38 @@ SuperApp6 — WeChat-like super-app for Kazakhstan. Монорепо pnpm + Turb
 
 ## Архитектура: модульный монолит
 - NestJS API (`apps/api`) — модули общаются через EventBus (RxJS), не через прямой импорт
-- `core/` = всегда загружены (auth, users, roles)
-- `modules/` = функциональные (notifications, contacts, circles, tasks, calendar) — все Phase 4-5 модули ✅ DONE
-- `shared/` = инфраструктура (database, redis, events, guards, decorators)
+- `core/` = auth, users, roles (всегда загружены)
+- `modules/` = notifications, contacts, circles, tasks, calendar
+- `shared/` = database, redis, events, guards, decorators
 - Каждый модуль можно вытащить в микросервис без переписывания
 
-## Окружение (Social Graph) — КЛЮЧЕВОЕ РЕШЕНИЕ
-> **"Контакты" как отдельная сущность НЕ СУЩЕСТВУЕТ для пользователя.** Всё — "Окружение".
+## Окружение (Social Graph)
+> **"Контакты" НЕ СУЩЕСТВУЕТ как отдельная сущность.** Для пользователя всё — "Окружение".
 
-- **Окружение** = у каждого пользователя одно. Плоский список всех людей с подтверждённой двусторонней связью.
-- **Папки** (Семья, Друзья, Коллеги...) = опциональная группировка внутри Окружения. Шаблоны + пользовательские названия.
-- **Flow:** Ввести номер → выбрать роли (из шаблонов или вручную) → отправить → принять → карточки появляются в окружениях обоих → каждый сам раскладывает по папкам.
-- Бэкенд: два модуля `contacts/` (связи, приглашения, блоки) + `circles/` (папки) — это внутренняя реализация.
-- Фронт: единая страница `/circles` = "Моё окружение" — люди + приглашения + папки-чипы. **Нет отдельной /contacts страницы.**
-- Prisma: ContactLink (связь), ContactInvitation (приглашение), ContactBlock (блок), Circle (папка), CircleMembership (M2M).
-- Card visibility: всегда firstName/lastName/phone + per-field JSONB через `resolveCardVisibility()`.
+- **Окружение** = одно на пользователя. Плоский список людей с подтверждённой двусторонней связью.
+- **Папки** = опциональная группировка (Семья, Друзья, Коллеги). Шаблоны + своё название.
+- **Flow:** Номер → роли (13 пресетов + свой) → приглашение → принятие → карточки у обоих → каждый раскладывает по папкам.
+- Приглашения живут 24 часа. Cron (`ContactsCron`) каждый час удаляет обработанные из БД.
+- Бэкенд: `contacts/` (связи, приглашения, блоки) + `circles/` (папки). Фронт: `/circles` = "Моё окружение".
 
-## Universal Identity
-Один `user_id` навсегда. Роли НЕ в users-таблице, а в отдельной `user_roles(user_id, role, context, tenant_id, is_active)`.
-- `context` = "system" | "workspace" | "circle"
-- `tenant_id` nullable (system-роли без тенанта)
-- Один человек: `user@system` + `staff@workspace:A` + `owner@circle:family`
-- При найме — новая запись в user_roles, НЕ новый user
-- При увольнении — `is_active = false`, не delete
-- `RolesService` (Redis-кешированный) + `@Roles()` декоратор + `RolesGuard`
-- `JwtAuthGuard` зарегистрирован глобально как `APP_GUARD` в `app.module.ts`
+## Web UI
+- `/circles` — окружение: PersonCard grid, панель приглашений, папки-чипы, форма добавления с phone lookup
+- `/profile` — профиль с сайдбаром: Моя карточка (PersonCard full + тогглы видимости), Статистика, Роли, Подписка, Настройки, Безопасность
+- `PersonCard.tsx` — два режима: compact (grid) / full (профиль с тогглами). Стиль скетча: текстурная бумага, двойная рамка, мазки карандашами, уникальный наклон.
+- `InvitationCard` — единый компонент для входящих/исходящих
 
-## Stack
-- Node 22, pnpm 9, Turborepo 2
-- Backend: NestJS 10 + Prisma 6 + PostgreSQL 16 + Redis 7
-- Web: Next.js 15 + Tailwind v4 + Zustand 5 + React Query 5
-- Mobile: React Native + Expo SDK 52 + Expo Router 4 (НЕ запускался ни разу)
-- Shared: `packages/shared` = types + Zod validation + constants
-- TypeScript 5.7 strict всюду
+## User модель
+Поля: phone, firstName, lastName, dateOfBirth, avatar, bio, city, email, maritalStatus, socialLinks (JSON), onlineStatusMode, cardVisibility (JSONB), locale, timezone.
+CardVisibility: каждое поле независимо (dateOfBirth, age, onlineStatus, maritalStatus, city, bio, email, socialLinks). age вычисляется на бэке. onlineStatus → зелёная точка-каракуля на аватаре.
 
-## Дизайн-система
-Обязательно читать `DESIGN.md`. Светлая "скетчбук" тема (`#fdffda` фон), Epilogue + Plus Jakarta Sans, primary `#c61a1e`, secondary `#326a8b`, НЕТ 1px бордеров, асимметрия, paper texture, glassmorphism.
+## Безопасность
+- JWT_SECRET обязателен (без фоллбэка). Bcrypt cost 10. @Throttle на auth (5/15мин), invitations (10/мин).
+- XSS: Zod refine запрещает `<>`. Пароль: uppercase + lowercase + digit + special.
+- Strict Zod на JSON полях. Error Boundary на фронте. Типы из @superapp/shared.
 
-## Текущий статус (2026-04-09)
-- Phase 1-5 backend ✅ DONE (закоммичено и запушено)
-- Phase 6 web UI ✅ IN PROGRESS:
-  - `/circles` = "Моё окружение" — единая страница: люди + приглашения + папки
-  - `PersonCard.tsx` — карточка в стиле скетча (текстурная бумага, двойная рамка, бейдж, мазки карандашами, grid-сетка)
-  - Форма приглашения: поиск по номеру (`GET /users/lookup`), RolePicker ("Я" / "Он(а)") с 13 пресетами + "Свой вариант"
-  - `InvitationCard` — единый компонент для входящих/исходящих (роли, дата истечения, кнопки)
-  - `resendCooldownHours: 0.003` (10 сек для dev, менять на 24 для prod)
-  - `/profile` — страница профиля с сайдбаром: Моя карточка, Статистика, Роли, Подписка, Настройки, Безопасность + Выйти
-  - `PersonCard.tsx` два режима: compact (grid окружения) / full (профиль с тогглами видимости и редактированием)
-  - Новые поля User: bio, city, email, maritalStatus, socialLinks (JSON), onlineStatusMode
-  - CardVisibility расширен: +email, +socialLinks. ContactUserCard возвращает все поля с учётом visibility
-  - `DELETE /users/me/sessions/:id` — завершение сессии
-  - `updateProfileSchema` (Zod) в `packages/shared/src/validation/user.ts`
-  - Код-ревью: типы из @superapp/shared (не дубли), as any убран, resolveCardVisibility на фронте, debounce lookup, independent visibility (age/dateOfBirth/onlineStatus каждый сам)
-  - Всё закоммичено и запушено на GitHub
-- 3 тестовых аккаунта: tester1/2/3, пароль Test1234!
+## Инфраструктура
 - API: localhost:3001, Web: localhost:3000
-- **GitHub:** https://github.com/Dilergar/SuperApp6
-- **Docker Hub:** Dilergar
+- GitHub: https://github.com/Dilergar/SuperApp6
+- Docker Hub: Dilergar
+- 3 тестовых аккаунта: tester1/2/3, пароль Test1234!
+- Mobile (Expo) не запускался
