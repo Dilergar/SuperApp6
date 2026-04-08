@@ -17,9 +17,7 @@ export class AuthController {
   @Public()
   @Post('register')
   @ApiOperation({ summary: 'Регистрация нового пользователя' })
-  async register(
-    @Body() body: { phone: string; password: string; firstName: string; lastName?: string },
-  ) {
+  async register(@Body() body: unknown) {
     const data = registerSchema.parse(body);
     const tokens = await this.authService.register(data);
     return { success: true, data: tokens };

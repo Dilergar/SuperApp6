@@ -7,6 +7,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
+import { ContactsService } from '../../modules/contacts/contacts.service';
 import type { JwtPayload } from '../../shared/decorators/current-user.decorator';
 
 @Injectable()
@@ -15,6 +16,7 @@ export class AuthService {
     private db: DatabaseService,
     private jwt: JwtService,
     private redis: RedisService,
+    private contacts: ContactsService,
   ) {}
 
   async register(data: {
@@ -22,6 +24,7 @@ export class AuthService {
     password: string;
     firstName: string;
     lastName?: string;
+    dateOfBirth?: string; // ISO YYYY-MM-DD
   }) {
     // Check if phone already exists
     const existing = await this.db.user.findUnique({
@@ -43,6 +46,7 @@ export class AuthService {
           password: hashedPassword,
           firstName: data.firstName,
           lastName: data.lastName,
+          dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
         },
       });
 
@@ -71,6 +75,11 @@ export class AuthService {
 
       return newUser;
     });
+
+    // Activate any pending invitations that targeted this phone while it
+    // was unregistered. Runs AFTER the transaction so we emit events only
+    // for rows that are fully committed.
+    await this.contacts.activatePendingInvitationsForNewUser(user.id, user.phone);
 
     // Generate tokens — system role goes into JWT
     return this.generateTokens(user.id, user.phone, 'user');

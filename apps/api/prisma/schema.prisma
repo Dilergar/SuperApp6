@@ -12,31 +12,50 @@ datasource db {
 // ============================================================
 
 model User {
-  id         String   @id @default(uuid())
-  phone      String   @unique
-  password   String   // bcrypt hash
-  firstName  String   @map("first_name")
-  lastName   String?  @map("last_name")
-  avatar     String?
-  isVerified Boolean  @default(false) @map("is_verified")
-  locale     String   @default("ru")
-  timezone   String   @default("Asia/Almaty")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  id          String    @id @default(uuid())
+  phone       String    @unique
+  password    String // bcrypt hash
+  firstName   String    @map("first_name")
+  lastName    String?   @map("last_name")
+  dateOfBirth DateTime? @map("date_of_birth") @db.Date
+  avatar      String?
+  isVerified  Boolean   @default(false) @map("is_verified")
+  locale      String    @default("ru")
+  timezone    String    @default("Asia/Almaty")
+
+  // Contact card visibility — per-field flags controlling what others see on your card
+  // Shape: { lastName: bool, dateOfBirth: bool, age: bool, onlineStatus: bool, maritalStatus: bool, extras: {...} }
+  // null means use defaults defined in shared/constants. Always-visible (regardless of this): firstName, lastName, phone, role.
+  cardVisibility Json? @map("card_visibility")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  sessions          Session[]
-  roles             UserRole[]
-  ownedCircles      Circle[]
-  circleMemberships CircleMember[]
-  createdTasks      Task[]              @relation("TaskCreator")
-  assignedTasks     Task[]              @relation("TaskAssignee")
-  taskComments      TaskComment[]
-  calendarEvents    CalendarEvent[]
-  calendarShares    CalendarShare[]     @relation("CalendarOwner")
-  sharedCalendars   CalendarShare[]     @relation("CalendarSharedWith")
-  workspaceMembers  WorkspaceMember[]
-  ownedWorkspaces   Workspace[]
+  sessions         Session[]
+  roles            UserRole[]
+  ownedCircles     Circle[]
+  createdTasks     Task[]            @relation("TaskCreator")
+  assignedTasks    Task[]            @relation("TaskAssignee")
+  taskComments     TaskComment[]
+  calendarEvents   CalendarEvent[]
+  calendarShares   CalendarShare[]   @relation("CalendarOwner")
+  sharedCalendars  CalendarShare[]   @relation("CalendarSharedWith")
+  workspaceMembers WorkspaceMember[]
+  ownedWorkspaces  Workspace[]
+
+  // Contacts / Circles / Invitations
+  contactLinksA       ContactLink[]       @relation("ContactLinkUserA")
+  contactLinksB       ContactLink[]       @relation("ContactLinkUserB")
+  sentInvitations     ContactInvitation[] @relation("InvitationSender")
+  receivedInvitations ContactInvitation[] @relation("InvitationRecipient")
+
+  // Blocks (unidirectional — A blocking B does not imply B blocking A)
+  blocksMade     ContactBlock[] @relation("ContactBlockBlocker")
+  blocksReceived ContactBlock[] @relation("ContactBlockBlocked")
+
+  // Notifications
+  notifications Notification[]
 
   // Subscription
   subscription Subscription?
@@ -54,8 +73,8 @@ model User {
 model UserRole {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")
-  role      String   // user, admin, moderator, owner, staff, manager, member, guest
-  context   String   // "system", "workspace", "circle"
+  role      String // user, admin, moderator, owner, staff, manager, member, guest
+  context   String // "system", "workspace", "circle"
   tenantId  String?  @map("tenant_id") // null для system-ролей, workspace_id или circle_id для контекстных
   grantedAt DateTime @default(now()) @map("granted_at")
   grantedBy String?  @map("granted_by") // кто выдал роль (user_id)
@@ -102,41 +121,155 @@ model Subscription {
 }
 
 // ============================================================
-// CIRCLES: Окружение (contacts with roles)
+// CONTACTS & CIRCLES: Bilateral confirmed social graph
 // ============================================================
+// Architecture:
+//   ContactLink       — a confirmed bilateral connection between two registered users
+//                       (canonical ordering: userAId < userBId to keep unique constraint symmetric)
+//                       Deleting a link is bilateral — the row is removed for both sides.
+//   ContactInvitation — a pending request from one user to another (or to an unregistered phone).
+//                       On acceptance, a ContactLink row is created and this row is marked accepted.
+//                       External invitations (toUserId=null) auto-activate when the phone registers.
+//   ContactBlock      — unidirectional block. A blocking B prevents B from inviting A again.
+//   Circle            — an owner-local grouping (folder) of their confirmed contacts ("Семья", "Работа").
+//                       A Circle belongs to one owner and contains ContactLinks via CircleMembership.
+//   CircleMembership  — M2M join row: a ContactLink placed into a Circle by its owner.
+//                       The SAME ContactLink can live in Circles owned by BOTH sides independently.
+//
+// Labels (roles like "жена", "друг") live on ContactLink as labelAForB / labelBForA —
+// asymmetric so each side names the other how they want.
+// Always-visible card fields: firstName, lastName, phone, role (label). Rest is per-field
+// customizable via users.cardVisibility JSON on the card owner's side.
+// ============================================================
+
+model ContactLink {
+  id               String   @id @default(uuid())
+  // Canonical ordering: service layer MUST ensure userAId < userBId (string compare)
+  // so (userAId, userBId) uniquely identifies the pair regardless of who initiated.
+  userAId          String   @map("user_a_id")
+  userBId          String   @map("user_b_id")
+  // Asymmetric labels: how each side labels the other on their own contact card.
+  labelAForB       String?  @map("label_a_for_b") // how A calls B (e.g. "жена")
+  labelBForA       String?  @map("label_b_for_a") // how B calls A (e.g. "муж")
+  // Broad category for filtering/UX: family, romantic, friend, professional, acquaintance
+  relationshipType String   @map("relationship_type")
+  // Who originally sent the invitation that created this link (user_id, not necessarily A)
+  initiatedBy      String   @map("initiated_by")
+  confirmedAt      DateTime @default(now()) @map("confirmed_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  userA       User               @relation("ContactLinkUserA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB       User               @relation("ContactLinkUserB", fields: [userBId], references: [id], onDelete: Cascade)
+  memberships CircleMembership[]
+
+  @@unique([userAId, userBId])
+  @@index([userAId])
+  @@index([userBId])
+  @@map("contact_links")
+}
+
+model ContactInvitation {
+  id         String  @id @default(uuid())
+  fromUserId String  @map("from_user_id")
+  // Null when recipient is NOT yet on the platform (invitation by phone only).
+  // Filled in when the phone registers → then the invitation is surfaced to them.
+  toUserId   String? @map("to_user_id")
+  toPhone    String  @map("to_phone") // normalized E.164
+
+  // Labels each side proposes. Either can be edited at accept-time by the recipient.
+  proposedLabelForSender    String? @map("proposed_label_for_sender") // how recipient should call sender
+  proposedLabelForRecipient String? @map("proposed_label_for_recipient") // how sender wants to call recipient
+  relationshipType          String  @map("relationship_type")
+  message                   String? // optional greeting text
+
+  // pending, accepted, rejected, cancelled, expired
+  status      String    @default("pending")
+  expiresAt   DateTime  @map("expires_at") // TTL — background job marks expired
+  respondedAt DateTime? @map("responded_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  fromUser User  @relation("InvitationSender", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUser   User? @relation("InvitationRecipient", fields: [toUserId], references: [id], onDelete: Cascade)
+
+  @@index([fromUserId])
+  @@index([toUserId])
+  @@index([toPhone])
+  @@index([status])
+  @@index([expiresAt])
+  @@map("contact_invitations")
+}
+
+model ContactBlock {
+  id        String   @id @default(uuid())
+  blockerId String   @map("blocker_id")
+  blockedId String   @map("blocked_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  blocker User @relation("ContactBlockBlocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("ContactBlockBlocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+  @@map("contact_blocks")
+}
 
 model Circle {
   id        String   @id @default(uuid())
   ownerId   String   @map("owner_id")
-  name      String   // "Семья", "Друзья", custom
+  name      String // "Семья", "Друзья", "Работа", custom
   icon      String?
   color     String?
+  sortOrder Int      @default(0) @map("sort_order")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  owner   User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  members CircleMember[]
+  owner       User               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  memberships CircleMembership[]
 
   @@index([ownerId])
   @@map("circles")
 }
 
-model CircleMember {
-  id           String   @id @default(uuid())
-  circleId     String   @map("circle_id")
-  userId       String?  @map("user_id") // null if not on platform yet
-  contactPhone String   @map("contact_phone")
-  contactName  String   @map("contact_name")
-  role         String   // "жена", "мама", "друг", custom
-  createdAt    DateTime @default(now()) @map("created_at")
+model CircleMembership {
+  id            String   @id @default(uuid())
+  circleId      String   @map("circle_id")
+  contactLinkId String   @map("contact_link_id")
+  addedAt       DateTime @default(now()) @map("added_at")
 
-  circle Circle @relation(fields: [circleId], references: [id], onDelete: Cascade)
-  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  circle      Circle      @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  contactLink ContactLink @relation(fields: [contactLinkId], references: [id], onDelete: Cascade)
 
-  @@unique([circleId, contactPhone])
-  @@index([userId])
-  @@index([contactPhone])
-  @@map("circle_members")
+  @@unique([circleId, contactLinkId])
+  @@index([contactLinkId])
+  @@map("circle_memberships")
+}
+
+// ============================================================
+// NOTIFICATIONS: generic cross-module notification feed
+// ============================================================
+// Used by every module. Type is a dot-namespaced string
+// (contact.invitation.received, contact.invitation.accepted, task.assigned, etc.).
+// Payload is a flexible JSON blob whose shape is defined per-type in @superapp/shared.
+
+model Notification {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  type      String // e.g. "contact.invitation.received"
+  title     String
+  body      String?
+  payload   Json? // flexible, shape depends on type
+  actionUrl String?   @map("action_url") // deep link the client opens on tap
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+  @@map("notifications")
 }
 
 // ============================================================

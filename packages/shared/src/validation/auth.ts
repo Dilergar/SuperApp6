@@ -12,6 +12,17 @@ export const passwordSchema = z
   .min(8, 'Пароль должен содержать минимум 8 символов')
   .max(100);
 
+// ISO date YYYY-MM-DD, sane human range (1900..today)
+export const dateOfBirthSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата рождения должна быть в формате YYYY-MM-DD')
+  .refine((s) => {
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return false;
+    const year = d.getUTCFullYear();
+    return year >= 1900 && d.getTime() <= Date.now();
+  }, 'Некорректная дата рождения');
+
 export const loginSchema = z.object({
   phone: phoneSchema,
   password: passwordSchema,
@@ -22,6 +33,7 @@ export const registerSchema = z.object({
   password: passwordSchema,
   firstName: z.string().min(1, 'Имя обязательно').max(50),
   lastName: z.string().max(50).optional(),
+  dateOfBirth: dateOfBirthSchema.optional(),
 });
 
 export const verifyOtpSchema = z.object({

@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
+import { resolveCardVisibility, type CardVisibility } from '@superapp/shared';
 
 @Injectable()
 export class UsersService {
@@ -21,10 +22,12 @@ export class UsersService {
         phone: true,
         firstName: true,
         lastName: true,
+        dateOfBirth: true,
         avatar: true,
         isVerified: true,
         locale: true,
         timezone: true,
+        cardVisibility: true,
         createdAt: true,
         updatedAt: true,
         subscription: {
@@ -47,6 +50,8 @@ export class UsersService {
           select: {
             ownedCircles: true,
             workspaceMembers: true,
+            contactLinksA: true,
+            contactLinksB: true,
           },
         },
       },
@@ -56,13 +61,18 @@ export class UsersService {
       throw new NotFoundException('Пользователь не найден');
     }
 
+    const { _count, subscription, cardVisibility, dateOfBirth, ...rest } = user;
+
     const profile = {
-      ...user,
-      circlesCount: user._count.ownedCircles,
-      workspacesCount: user._count.workspaceMembers,
-      activeSubscription: user.subscription,
-      _count: undefined,
-      subscription: undefined,
+      ...rest,
+      dateOfBirth: dateOfBirth ? dateOfBirth.toISOString().slice(0, 10) : null,
+      cardVisibility: resolveCardVisibility(
+        cardVisibility as Partial<CardVisibility> | null,
+      ),
+      circlesCount: _count.ownedCircles,
+      workspacesCount: _count.workspaceMembers,
+      contactsCount: _count.contactLinksA + _count.contactLinksB,
+      activeSubscription: subscription,
     };
 
     // Cache for 5 minutes
@@ -73,16 +83,34 @@ export class UsersService {
 
   async updateProfile(
     userId: string,
-    data: { firstName?: string; lastName?: string; avatar?: string; locale?: string; timezone?: string },
+    data: {
+      firstName?: string;
+      lastName?: string | null;
+      dateOfBirth?: string | null;
+      avatar?: string | null;
+      locale?: string;
+      timezone?: string;
+      cardVisibility?: Partial<CardVisibility> | null;
+    },
   ) {
+    const { dateOfBirth, cardVisibility, ...rest } = data;
     const user = await this.db.user.update({
       where: { id: userId },
-      data,
+      data: {
+        ...rest,
+        ...(dateOfBirth !== undefined && {
+          dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
+        }),
+        ...(cardVisibility !== undefined && {
+          cardVisibility: cardVisibility as any,
+        }),
+      },
       select: {
         id: true,
         phone: true,
         firstName: true,
         lastName: true,
+        dateOfBirth: true,
         avatar: true,
         locale: true,
         timezone: true,
@@ -92,7 +120,10 @@ export class UsersService {
     // Invalidate cache
     await this.redis.del(`user:${userId}:profile`);
 
-    return user;
+    return {
+      ...user,
+      dateOfBirth: user.dateOfBirth ? user.dateOfBirth.toISOString().slice(0, 10) : null,
+    };
   }
 
   async findByPhone(phone: string) {

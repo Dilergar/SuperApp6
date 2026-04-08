@@ -13,6 +13,8 @@ import { UsersModule } from './core/users/users.module';
 import { RolesModule } from './core/roles/roles.module';
 
 // Feature modules (MVP)
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { ContactsModule } from './modules/contacts/contacts.module';
 import { CirclesModule } from './modules/circles/circles.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
@@ -50,7 +52,11 @@ import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
     UsersModule,
     RolesModule,
 
-    // Feature modules — each is self-contained
+    // Feature modules — each is self-contained.
+    // Load order: Notifications → Contacts (@Global, consumed by AuthService)
+    // → Circles (depends on ContactsService).
+    NotificationsModule,
+    ContactsModule,
     CirclesModule,
     TasksModule,
     CalendarModule,

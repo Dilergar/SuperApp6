@@ -10,6 +10,7 @@ export default function RegisterPage() {
   const register = useAuthStore((s) => s.register);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
   const [phone, setPhone] = useState('+7');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -24,6 +25,7 @@ export default function RegisterPage() {
       await register({
         firstName,
         lastName: lastName || undefined,
+        dateOfBirth: dateOfBirth || undefined,
         phone,
         password,
       });
@@ -94,6 +96,21 @@ export default function RegisterPage() {
                 className="input-sketch"
               />
             </div>
+          </div>
+
+          <div style={{ marginBottom: 'var(--spacing-8)' }}>
+            <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>
+              Дата рождения
+              <span style={{ opacity: 0.6, marginLeft: '0.4rem', fontSize: '0.75rem' }}>
+                не обяз. — скрыта по умолчанию
+              </span>
+            </label>
+            <input
+              type="date"
+              value={dateOfBirth}
+              onChange={(e) => setDateOfBirth(e.target.value)}
+              className="input-sketch"
+            />
           </div>
 
           <div style={{ marginBottom: 'var(--spacing-8)' }}>

@@ -12,12 +12,14 @@ export interface UserProfile {
   phone: string;
   firstName: string;
   lastName?: string | null;
+  dateOfBirth?: string | null;
   avatar?: string | null;
   email?: string | null;
   roles: UserRole[];
   activeSubscription?: { plan: string; status: string; expiresAt: string } | null;
   circlesCount?: number;
   workspacesCount?: number;
+  contactsCount?: number;
 }
 
 interface AuthState {
@@ -28,7 +30,13 @@ interface AuthState {
   // Actions
   hydrate: () => Promise<void>;
   login: (phone: string, password: string) => Promise<void>;
-  register: (input: { phone: string; password: string; firstName: string; lastName?: string }) => Promise<void>;
+  register: (input: {
+    phone: string;
+    password: string;
+    firstName: string;
+    lastName?: string;
+    dateOfBirth?: string;
+  }) => Promise<void>;
   logout: () => Promise<void>;
   fetchProfile: () => Promise<void>;
 }

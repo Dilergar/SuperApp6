@@ -5,7 +5,7 @@ import { useAuthStore } from '@/lib/stores/auth';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 
 const services = [
-  { title: 'Окружение', description: 'Контакты с ролями', color: 'var(--primary-container)', href: '/circles' },
+  { title: 'Моё окружение', description: 'Люди, приглашения, папки', color: 'var(--primary-container)', href: '/circles' },
   { title: 'Задачи', description: 'Личные и назначенные', color: 'var(--secondary-container)', href: '/tasks' },
   { title: 'Календарь', description: 'События и расписание', color: 'var(--tertiary-container)', href: '/calendar' },
 ];

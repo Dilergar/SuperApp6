@@ -8,6 +8,7 @@ export interface RegisterRequest {
   password: string;
   firstName: string;
   lastName?: string;
+  dateOfBirth?: string; // ISO date YYYY-MM-DD
 }
 
 export interface AuthTokens {

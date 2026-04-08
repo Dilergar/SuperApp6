@@ -1,41 +1,51 @@
-// Circle = "Окружение" — группа контактов с ролями
+// ============================================================
+// Circles — owner-local groupings ("folders") of confirmed contacts
+// ============================================================
+// A Circle belongs to ONE owner and is just a way to organize
+// their ContactLinks (via CircleMembership M2M).
+// The same ContactLink can appear in Circles owned by BOTH sides independently.
+
+import type { Contact } from './contact';
+
 export interface Circle {
   id: string;
-  name: string; // "Семья", "Друзья", custom
+  ownerId: string;
+  name: string; // "Семья", "Друзья", "Работа", custom
   icon: string | null;
   color: string | null;
-  ownerId: string;
+  sortOrder: number;
   membersCount: number;
   createdAt: string;
+  updatedAt: string;
 }
 
-export interface CircleMember {
-  id: string;
-  circleId: string;
-  userId: string | null; // null if contact not on platform yet
-  contactPhone: string;
-  contactName: string;
-  role: string; // "жена", "мама", "друг", custom
-  avatar: string | null;
-  isOnPlatform: boolean; // true if user exists with this phone
-  createdAt: string;
+export interface CircleWithMembers extends Circle {
+  members: Contact[];
 }
+
+// ============================================================
+// Requests (DTOs)
+// ============================================================
 
 export interface CreateCircleRequest {
   name: string;
   icon?: string;
   color?: string;
+  sortOrder?: number;
 }
 
-export interface AddCircleMemberRequest {
-  contactPhone: string;
-  contactName: string;
-  role: string;
+export interface UpdateCircleRequest {
+  name?: string;
+  icon?: string | null;
+  color?: string | null;
+  sortOrder?: number;
 }
 
-// Predefined role suggestions (user can create custom)
-export const CIRCLE_ROLE_SUGGESTIONS = [
-  'жена', 'муж', 'мама', 'папа', 'сын', 'дочь',
-  'брат', 'сестра', 'бабушка', 'дедушка',
-  'друг', 'подруга', 'коллега', 'сосед',
-] as const;
+export interface AddToCircleRequest {
+  // The ContactLink to place into this circle.
+  contactLinkId: string;
+}
+
+export interface ReorderCirclesRequest {
+  circles: Array<{ id: string; sortOrder: number }>;
+}
