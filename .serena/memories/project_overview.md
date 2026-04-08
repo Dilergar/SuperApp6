@@ -55,6 +55,8 @@ SuperApp6 — WeChat-like super-app for Kazakhstan. Монорепо pnpm + Turb
   - CardVisibility расширен: +email, +socialLinks. ContactUserCard возвращает все поля с учётом visibility
   - `DELETE /users/me/sessions/:id` — завершение сессии
   - `updateProfileSchema` (Zod) в `packages/shared/src/validation/user.ts`
+  - Код-ревью: типы из @superapp/shared (не дубли), as any убран, resolveCardVisibility на фронте, debounce lookup, independent visibility (age/dateOfBirth/onlineStatus каждый сам)
+  - Всё закоммичено и запушено на GitHub
 - 3 тестовых аккаунта: tester1/2/3, пароль Test1234!
 - API: localhost:3001, Web: localhost:3000
 - **GitHub:** https://github.com/Dilergar/SuperApp6

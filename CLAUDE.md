@@ -187,7 +187,8 @@ cd apps/api && pnpm db:studio
   - `compact` — карточка в grid окружения (имя, телефон, город, био, дата рождения, семейное положение, email, соц. сети, роль-бейдж, папки)
   - `full` — большая карточка в профиле с тогглами приватности (ON/OFF затухание полей)
 - **Новые поля User** (Prisma): bio, city, email, maritalStatus, socialLinks (JSON), onlineStatusMode
-- **CardVisibility** расширен: +email (false по умолчанию), +socialLinks (true). ContactUserCard возвращает все поля с учётом видимости
+- **CardVisibility** расширен: +email (false по умолчанию), +socialLinks (true). ContactUserCard возвращает все поля с учётом видимости. Каждое поле **полностью независимо**: dateOfBirth, age (вычисляется на бэке), onlineStatus (зелёная точка-каракуля на аватаре), maritalStatus, city, bio, email, socialLinks
+- **Код-ревью проведено**: типы импортируются из `@superapp/shared` (не дублируются), `as any` убран, `resolveCardVisibility` используется на фронте, debounce на phone lookup, валидация firstName
 - **3 тестовых аккаунта**: tester1 (+77001234567), tester2 (+77012345678), tester3 (+77023456789) — пароль: Test1234!
 
 ### Social graph rebuild — Phase 1-5 ✅ DONE

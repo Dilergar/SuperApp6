@@ -135,5 +135,7 @@ id, userId, type (dot-namespaced), title, body?, payload Json?, actionUrl?, read
 - InvitationCard — единый компонент для входящих/исходящих. Роли отображаются как "Я: Тренер" / "tester2: Клиент".
 - ContactUserCard расширен: +bio, +city, +email, +maritalStatus, +socialLinks. `toContactUserCard()` в contacts.service.ts применяет `resolveCardVisibility()` ко всем новым полям — скрытые возвращаются как null.
 - UserCardRow и userCardSelect() в contacts.service.ts обновлены для select новых полей из Prisma.
-- PersonCard compact в окружении показывает все видимые поля (город, био, дата рождения, семейное положение, email, соц. сети).
+- PersonCard compact в окружении показывает все видимые поля (город, био, дата рождения, возраст, семейное положение, email, соц. сети, онлайн-точка).
 - PersonCard full в профиле показывает все поля + тогглы видимости (ON=видно, OFF=opacity 0.3).
+- Каждое поле visibility **полностью независимо**: dateOfBirth и age — разные тогглы. age вычисляется на бэкенде (calcAge в contacts.service.ts), отдаётся как число. showOnlineStatus контролирует зелёную точку-каракулю (SVG) на аватаре.
+- Типы на фронте импортируются из `@superapp/shared`, не дублируются. `as any` убран. `resolveCardVisibility()` используется на фронте.
