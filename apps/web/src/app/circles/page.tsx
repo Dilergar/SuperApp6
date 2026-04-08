@@ -1,62 +1,18 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api } from '@/lib/api';
 import { PersonCard } from './PersonCard';
-
-// ============================================================
-// Types
-// ============================================================
-
-interface ContactUserCard {
-  id: string;
-  phone: string;
-  firstName: string;
-  lastName: string | null;
-  avatar: string | null;
-  dateOfBirth: string | null;
-}
-
-interface Contact {
-  linkId: string;
-  relationshipType: string;
-  them: ContactUserCard;
-  myLabelForThem: string | null;
-  theirLabelForMe: string | null;
-  confirmedAt: string;
-  myCircleIds: string[];
-}
-
-interface Folder {
-  id: string;
-  name: string;
-  icon: string | null;
-  color: string | null;
-  sortOrder: number;
-  membersCount: number;
-}
-
-interface FolderDetail extends Folder {
-  members: Contact[];
-}
-
-interface Invitation {
-  id: string;
-  fromUserId: string;
-  toUserId: string | null;
-  toPhone: string;
-  proposedLabelForSender: string | null;
-  proposedLabelForRecipient: string | null;
-  relationshipType: string;
-  message: string | null;
-  status: string;
-  expiresAt: string;
-  createdAt: string;
-  from?: ContactUserCard;
-  to?: ContactUserCard | null;
-}
+import type {
+  Contact,
+  ContactUserCard,
+  IncomingInvitation,
+  OutgoingInvitation,
+  Circle,
+  CircleWithMembers,
+} from '@superapp/shared';
 
 // ============================================================
 // Constants
@@ -81,13 +37,7 @@ const FOLDER_COLORS = [
   '#e1bee7', '#ffccbc', '#b2dfdb', '#f0f4c3',
 ];
 
-function relLabel(value: string) {
-  const map: Record<string, string> = {
-    family: 'Семья', romantic: 'Партнёр', friend: 'Друг',
-    professional: 'Коллега', acquaintance: 'Знакомый', other: 'Другое',
-  };
-  return map[value] || value;
-}
+
 
 // ============================================================
 // Main page
@@ -97,9 +47,9 @@ export default function CirclesPage() {
   const { isReady } = useRequireAuth();
 
   const [contacts, setContacts] = useState<Contact[]>([]);
-  const [folders, setFolders] = useState<Folder[]>([]);
-  const [incoming, setIncoming] = useState<Invitation[]>([]);
-  const [outgoing, setOutgoing] = useState<Invitation[]>([]);
+  const [folders, setFolders] = useState<Circle[]>([]);
+  const [incoming, setIncoming] = useState<IncomingInvitation[]>([]);
+  const [outgoing, setOutgoing] = useState<OutgoingInvitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -123,7 +73,7 @@ export default function CirclesPage() {
 
   // Folder filter — null = show all, string = filter by folder
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
-  const [activeFolderData, setActiveFolderData] = useState<FolderDetail | null>(null);
+  const [activeFolderData, setActiveFolderData] = useState<CircleWithMembers | null>(null);
 
   // Invitations panel
   const [showInvitations, setShowInvitations] = useState(true);
@@ -178,22 +128,26 @@ export default function CirclesPage() {
   // Invitation actions
   // ============================================================
 
-  // Lookup user by phone
-  const handlePhoneLookup = async (phone: string) => {
+  // Lookup user by phone (debounced 500ms)
+  const lookupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handlePhoneLookup = (phone: string) => {
     setInvPhone(phone);
     setInvLookup(null);
     setInvLookupDone(false);
+    if (lookupTimer.current) clearTimeout(lookupTimer.current);
     if (phone.length >= 12) {
       setInvLookupLoading(true);
-      try {
-        const { data } = await api.get(`/users/lookup?phone=${encodeURIComponent(phone)}`);
-        setInvLookup(data.data);
-        setInvLookupDone(true);
-      } catch {
-        setInvLookupDone(true);
-      } finally {
-        setInvLookupLoading(false);
-      }
+      lookupTimer.current = setTimeout(async () => {
+        try {
+          const { data } = await api.get(`/users/lookup?phone=${encodeURIComponent(phone)}`);
+          setInvLookup(data.data);
+          setInvLookupDone(true);
+        } catch {
+          setInvLookupDone(true);
+        } finally {
+          setInvLookupLoading(false);
+        }
+      }, 500);
     }
   };
 
@@ -659,7 +613,7 @@ function InvitationCard({
   inv, direction, myLabel, theirLabel, theirName, theirPhone, registered = true,
   onAccept, onReject, onCancel,
 }: {
-  inv: Invitation; direction: 'incoming' | 'outgoing';
+  inv: IncomingInvitation | OutgoingInvitation; direction: 'incoming' | 'outgoing';
   myLabel: string | null; theirLabel: string | null;
   theirName: string; theirPhone: string; registered?: boolean;
   onAccept?: () => void; onReject?: () => void; onCancel?: () => void;
@@ -765,13 +719,6 @@ function Avatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md' }) {
   );
 }
 
-function Tag({ children }: { children: React.ReactNode }) {
-  return (
-    <span style={{ fontSize: '0.7rem', color: 'var(--on-surface-variant)', background: 'var(--surface-container)', padding: '0.1rem 0.5rem', borderRadius: 'var(--radius-sm)' }}>
-      {children}
-    </span>
-  );
-}
 
 function pluralize(n: number, one: string, few: string, many: string) {
   const abs = Math.abs(n) % 100;

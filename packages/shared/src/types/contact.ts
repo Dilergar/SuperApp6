@@ -26,6 +26,8 @@ export interface ContactUserCard {
   email: string | null;
   maritalStatus: string | null;
   socialLinks: { telegram?: string; instagram?: string } | null;
+  age: number | null; // calculated on backend, null if owner hides it
+  showOnlineStatus: boolean; // true if card owner allows online status to be visible
   // Visibility is resolved per-request — the server applies
   // the card owner's cardVisibility. Hidden fields returned as null.
 }

@@ -774,6 +774,8 @@ export class ContactsService {
       socialLinks: visibility.socialLinks && row.socialLinks
         ? (row.socialLinks as { telegram?: string; instagram?: string })
         : null,
+      age: visibility.age && row.dateOfBirth ? calcAge(row.dateOfBirth) : null,
+      showOnlineStatus: visibility.onlineStatus,
     };
   }
 
@@ -841,4 +843,12 @@ function canonical(a: string, b: string): [string, string] {
 
 function formatName(first: string, last: string | null): string {
   return last ? `${first} ${last}` : first;
+}
+
+function calcAge(dob: Date): number {
+  const now = new Date();
+  let age = now.getFullYear() - dob.getFullYear();
+  const m = now.getMonth() - dob.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < dob.getDate())) age--;
+  return age;
 }

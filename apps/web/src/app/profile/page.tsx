@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { useAuthStore } from '@/lib/stores/auth';
 import { api } from '@/lib/api';
+import { resolveCardVisibility } from '@superapp/shared';
 import { PersonCard } from '../circles/PersonCard';
 
 // ============================================================
@@ -69,7 +70,7 @@ export default function ProfilePage() {
   const [editing, setEditing] = useState(false);
   const [editData, setEditData] = useState({
     firstName: '', lastName: '', bio: '', city: '', email: '',
-    maritalStatus: '', telegram: '', instagram: '',
+    maritalStatus: '', telegram: '', instagram: '', linkedin: '', whatsapp: '',
     dateOfBirth: '',
   });
 
@@ -77,14 +78,16 @@ export default function ProfilePage() {
     if (profile) {
       setEditData({
         firstName: profile.firstName || '',
-        lastName: (profile as any).lastName || '',
-        bio: (profile as any).bio || '',
-        city: (profile as any).city || '',
-        email: (profile as any).email || '',
-        maritalStatus: (profile as any).maritalStatus || '',
-        telegram: (profile as any).socialLinks?.telegram || '',
-        instagram: (profile as any).socialLinks?.instagram || '',
-        dateOfBirth: (profile as any).dateOfBirth || '',
+        lastName: profile.lastName || '',
+        bio: profile.bio || '',
+        city: profile.city || '',
+        email: profile.email || '',
+        maritalStatus: profile.maritalStatus || '',
+        telegram: profile.socialLinks?.telegram || '',
+        instagram: profile.socialLinks?.instagram || '',
+        linkedin: profile.socialLinks?.linkedin || '',
+        whatsapp: profile.socialLinks?.whatsapp || '',
+        dateOfBirth: profile.dateOfBirth || '',
       });
     }
   }, [profile]);
@@ -98,9 +101,13 @@ export default function ProfilePage() {
 
   const handleSaveProfile = async () => {
     clear();
+    if (!editData.firstName.trim()) {
+      setError('Имя обязательно');
+      return;
+    }
     try {
       const payload: Record<string, unknown> = {};
-      if (editData.firstName.trim()) payload.firstName = editData.firstName.trim();
+      payload.firstName = editData.firstName.trim();
       payload.lastName = editData.lastName.trim() || null;
       payload.bio = editData.bio.trim() || null;
       payload.city = editData.city.trim() || null;
@@ -110,6 +117,8 @@ export default function ProfilePage() {
       const socialLinks: Record<string, string> = {};
       if (editData.telegram.trim()) socialLinks.telegram = editData.telegram.trim();
       if (editData.instagram.trim()) socialLinks.instagram = editData.instagram.trim();
+      if (editData.linkedin.trim()) socialLinks.linkedin = editData.linkedin.trim();
+      if (editData.whatsapp.trim()) socialLinks.whatsapp = editData.whatsapp.trim();
       payload.socialLinks = Object.keys(socialLinks).length > 0 ? socialLinks : null;
 
       await api.patch('/users/me', payload);
@@ -125,7 +134,7 @@ export default function ProfilePage() {
   const handleToggleVisibility = async (field: keyof CardVisibility, value: boolean) => {
     clear();
     try {
-      const current = (profile as any)?.cardVisibility || {};
+      const current = profile?.cardVisibility || {};
       await api.patch('/users/me', { cardVisibility: { ...current, [field]: value } });
       await fetchProfile();
     } catch {
@@ -166,7 +175,7 @@ export default function ProfilePage() {
     );
   }
 
-  const p = profile as any; // extended profile with new fields
+  const p = profile;
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--surface)' }}>
@@ -281,6 +290,14 @@ export default function ProfilePage() {
                           <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Instagram</label>
                           <input type="text" value={editData.instagram} onChange={(e) => setEditData({ ...editData, instagram: e.target.value })} className="input-sketch" placeholder="@username" />
                         </div>
+                        <div>
+                          <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>LinkedIn</label>
+                          <input type="text" value={editData.linkedin} onChange={(e) => setEditData({ ...editData, linkedin: e.target.value })} className="input-sketch" placeholder="linkedin.com/in/..." />
+                        </div>
+                        <div>
+                          <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>WhatsApp</label>
+                          <input type="text" value={editData.whatsapp} onChange={(e) => setEditData({ ...editData, whatsapp: e.target.value })} className="input-sketch" placeholder="+77001234567" />
+                        </div>
                       </div>
                       <button onClick={handleSaveProfile} className="btn-primary" style={{ marginTop: 'var(--spacing-2)' }}>Сохранить</button>
                     </div>
@@ -299,7 +316,7 @@ export default function ProfilePage() {
                       email: p.email,
                       maritalStatus: p.maritalStatus,
                       socialLinks: p.socialLinks,
-                      cardVisibility: p.cardVisibility || {},
+                      cardVisibility: resolveCardVisibility(p.cardVisibility ?? null),
                     }}
                     onToggleVisibility={handleToggleVisibility}
                   />
@@ -326,7 +343,7 @@ export default function ProfilePage() {
                 <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-6)' }}>Мои роли</h2>
                 {p.roles && p.roles.length > 0 ? (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-3)' }}>
-                    {p.roles.map((r: any, i: number) => (
+                    {p.roles.map((r, i) => (
                       <span key={i} className="sketch-role-badge">
                         {r.role}
                         <span style={{ opacity: 0.5, marginLeft: '0.3rem', fontSize: '0.7rem' }}>@ {r.context}</span>

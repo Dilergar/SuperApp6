@@ -18,6 +18,8 @@ interface ContactUserCard {
   email: string | null;
   maritalStatus: string | null;
   socialLinks: { telegram?: string; instagram?: string } | null;
+  age: number | null;
+  showOnlineStatus: boolean;
 }
 
 interface Contact {
@@ -160,16 +162,30 @@ function CompactCard({
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--spacing-3)' }}>
-        <div className="avatar-frame-outer">
-          <div className="avatar-frame-inner">{initial}</div>
+        {/* Avatar with online dot */}
+        <div style={{ position: 'relative', display: 'inline-flex' }}>
+          <div className="avatar-frame-outer">
+            <div className="avatar-frame-inner">{initial}</div>
+          </div>
+          {/* Online status dot — crayon style, only if owner allows */}
+          {contact.them.showOnlineStatus && <OnlineDot />}
         </div>
         <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.35rem', fontWeight: 700, letterSpacing: '0.05em', textAlign: 'center', color: 'var(--on-surface)', marginTop: 'var(--spacing-2)', textTransform: 'uppercase' }}>
           {contact.them.firstName} {contact.them.lastName || ''}
         </div>
         <div className="label-sm" style={{ textAlign: 'center', marginTop: '-0.3rem' }}>{contact.them.phone}</div>
+        {contact.them.dateOfBirth && (
+          <div className="label-sm" style={{ textAlign: 'center', fontSize: '0.7rem' }}>
+            {formatDate(contact.them.dateOfBirth)}
+          </div>
+        )}
+        {contact.them.age !== null && (
+          <div className="label-sm" style={{ textAlign: 'center', fontSize: '0.7rem' }}>
+            {contact.them.age} лет
+          </div>
+        )}
         {contact.them.city && <div className="label-sm" style={{ textAlign: 'center', fontSize: '0.7rem' }}>{contact.them.city}</div>}
         {contact.them.bio && <div className="label-sm" style={{ textAlign: 'center', fontSize: '0.7rem', fontStyle: 'italic', maxWidth: '180px' }}>{contact.them.bio}</div>}
-        {contact.them.dateOfBirth && <div className="label-sm" style={{ textAlign: 'center', fontSize: '0.7rem' }}>{formatDate(contact.them.dateOfBirth)}</div>}
         {contact.them.maritalStatus && <div className="label-sm" style={{ textAlign: 'center', fontSize: '0.7rem' }}>{MARITAL_LABELS[contact.them.maritalStatus] || contact.them.maritalStatus}</div>}
         {contact.them.email && <div className="label-sm" style={{ textAlign: 'center', fontSize: '0.7rem' }}>{contact.them.email}</div>}
         {contact.them.socialLinks && (contact.them.socialLinks.telegram || contact.them.socialLinks.instagram) && (
@@ -220,11 +236,20 @@ function FullCard({ profile, onToggleVisibility }: FullProps) {
       padding: 'var(--spacing-8)',
     } as React.CSSProperties}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--spacing-3)' }}>
-        {/* Avatar — large */}
-        <div className="avatar-frame-outer" style={{ padding: '6px' }}>
-          <div className="avatar-frame-inner" style={{ width: '160px', height: '160px', fontSize: '4rem' }}>
-            {initial}
+        {/* Avatar — large with online dot */}
+        <div style={{ position: 'relative', display: 'inline-flex' }}>
+          <div className="avatar-frame-outer" style={{ padding: '6px' }}>
+            <div className="avatar-frame-inner" style={{ width: '160px', height: '160px', fontSize: '4rem' }}>
+              {initial}
+            </div>
           </div>
+          {vis.onlineStatus && (
+            <svg width="22" height="22" viewBox="0 0 16 16"
+              style={{ position: 'absolute', bottom: 8, right: 8, zIndex: 2, filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.15))' }}>
+              <path d="M8 2 C10 1.8, 13 3.5, 13.5 6 C14 8.5, 13 12, 10 13.5 C7.5 14.5, 3.5 13, 2.5 10 C1.5 7, 2.5 3, 5 2.2 C6.5 1.8, 7.5 2, 8 2Z"
+                fill="var(--success)" stroke="var(--surface)" strokeWidth="1.5" />
+            </svg>
+          )}
         </div>
 
         {/* Name — always visible */}
@@ -259,6 +284,16 @@ function FullCard({ profile, onToggleVisibility }: FullProps) {
             <VisibilityRow label="Дата рождения" value={formatDate(profile.dateOfBirth)} visible={vis.dateOfBirth}
               onToggle={(v) => onToggleVisibility('dateOfBirth', v)} />
           )}
+
+          {/* Age (derived from DOB) */}
+          {profile.dateOfBirth && (
+            <VisibilityRow label="Возраст" value={`${calcAge(profile.dateOfBirth)} лет`} visible={vis.age}
+              onToggle={(v) => onToggleVisibility('age', v)} />
+          )}
+
+          {/* Online status */}
+          <VisibilityRow label="Онлайн-статус" value="Виден другим" visible={vis.onlineStatus}
+            onToggle={(v) => onToggleVisibility('onlineStatus', v)} />
 
           {/* Marital status */}
           {profile.maritalStatus && (
@@ -352,4 +387,34 @@ function VisibilityRow({ label, value, visible, onToggle }: {
 function formatDate(iso: string) {
   const d = new Date(iso);
   return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+function calcAge(iso: string): number {
+  const birth = new Date(iso);
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  const m = now.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age--;
+  return age;
+}
+
+function OnlineDot() {
+  return (
+    <svg
+      width="16" height="16"
+      viewBox="0 0 16 16"
+      style={{
+        position: 'absolute', bottom: 4, right: 4, zIndex: 2,
+        filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.15))',
+      }}
+    >
+      {/* Crayon-style irregular circle */}
+      <path
+        d="M8 2 C10 1.8, 13 3.5, 13.5 6 C14 8.5, 13 12, 10 13.5 C7.5 14.5, 3.5 13, 2.5 10 C1.5 7, 2.5 3, 5 2.2 C6.5 1.8, 7.5 2, 8 2Z"
+        fill="var(--success)"
+        stroke="var(--surface)"
+        strokeWidth="1.5"
+      />
+    </svg>
+  );
 }
