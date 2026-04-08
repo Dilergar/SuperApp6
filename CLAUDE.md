@@ -164,7 +164,7 @@ cd apps/api && pnpm db:studio
 - `GET /api/users/me` — возвращает профиль с ролями, **dateOfBirth, cardVisibility (resolved), contactsCount, circlesCount, workspacesCount**
 - Universal Identity: таблица `user_roles(user_id, role, context, tenant_id)`, RolesService, @Roles guard
 - JwtAuthGuard зарегистрирован глобально как APP_GUARD
-- GitHub репозиторий: `Old-senpai/SuperApp6` (private)
+- GitHub репозиторий: `Dilergar/SuperApp6`
 - **Web auth foundation:** `useAuthStore` (Zustand) + `useRequireAuth` hook + авто-гидратация в `Providers`. Страницы login/register/dashboard используют store
 - **Форма /register** принимает lastName + dateOfBirth (оба опциональны)
 - **@superapp/shared** полностью переписан под новый social graph: types, validation, constants

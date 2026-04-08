@@ -41,8 +41,10 @@ SuperApp6 — WeChat-like super-app for Kazakhstan. Монорепо pnpm + Turb
 ## Дизайн-система
 Обязательно читать `DESIGN.md`. Светлая "скетчбук" тема (`#fdffda` фон), Epilogue + Plus Jakarta Sans, primary `#c61a1e`, secondary `#326a8b`, НЕТ 1px бордеров, асимметрия, paper texture, glassmorphism.
 
-## Текущий статус (2026-04-07)
-- Phase 1-5 backend ✅ DONE (локально, не закоммичено)
+## Текущий статус (2026-04-08)
+- Phase 1-5 backend ✅ DONE (закоммичено и запушено)
 - Phase 6 web UI ✅ IN PROGRESS: `/circles` = "Моё окружение" готов
 - 3 тестовых аккаунта: tester1/2/3, пароль Test1234!
 - API: localhost:3001, Web: localhost:3000
+- **GitHub:** https://github.com/Dilergar/SuperApp6
+- **Docker Hub:** Dilergar
