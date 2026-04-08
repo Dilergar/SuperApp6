@@ -193,6 +193,6 @@ export class AuthService {
   }
 
   private async hashToken(token: string): Promise<string> {
-    return bcrypt.hash(token, 4); // Light hash for lookups
+    return bcrypt.hash(token, 10);
   }
 }

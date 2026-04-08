@@ -1,5 +1,6 @@
 import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { Public } from '../../shared/decorators/public.decorator';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
@@ -16,6 +17,7 @@ export class AuthController {
 
   @Public()
   @Post('register')
+  @Throttle({ default: { limit: 5, ttl: 900000 } })
   @ApiOperation({ summary: 'Регистрация нового пользователя' })
   async register(@Body() body: unknown) {
     const data = registerSchema.parse(body);
@@ -25,6 +27,7 @@ export class AuthController {
 
   @Public()
   @Post('login')
+  @Throttle({ default: { limit: 5, ttl: 900000 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Вход в аккаунт' })
   async login(@Body() body: { phone: string; password: string }) {

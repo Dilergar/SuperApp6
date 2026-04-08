@@ -1,5 +1,9 @@
 import { z } from 'zod';
 
+// XSS protection: reject HTML tags and dangerous characters
+const noHtml = (s: string) => !/[<>]/.test(s);
+const noHtmlMsg = 'Недопустимые символы';
+
 // Kazakhstan phone: +7 XXX XXX XX XX
 const phoneRegex = /^\+7\d{10}$/;
 
@@ -10,7 +14,11 @@ export const phoneSchema = z
 export const passwordSchema = z
   .string()
   .min(8, 'Пароль должен содержать минимум 8 символов')
-  .max(100);
+  .max(100)
+  .refine((p) => /[A-Z]/.test(p), 'Пароль должен содержать заглавную букву')
+  .refine((p) => /[a-z]/.test(p), 'Пароль должен содержать строчную букву')
+  .refine((p) => /\d/.test(p), 'Пароль должен содержать цифру')
+  .refine((p) => /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(p), 'Пароль должен содержать спецсимвол');
 
 // ISO date YYYY-MM-DD, sane human range (1900..today)
 export const dateOfBirthSchema = z
@@ -31,8 +39,8 @@ export const loginSchema = z.object({
 export const registerSchema = z.object({
   phone: phoneSchema,
   password: passwordSchema,
-  firstName: z.string().min(1, 'Имя обязательно').max(50),
-  lastName: z.string().max(50).optional(),
+  firstName: z.string().min(1, 'Имя обязательно').max(50).refine(noHtml, noHtmlMsg),
+  lastName: z.string().max(50).refine(noHtml, noHtmlMsg).optional(),
   dateOfBirth: dateOfBirthSchema.optional(),
 });
 

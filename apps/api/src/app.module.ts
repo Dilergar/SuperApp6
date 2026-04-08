@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 
 // Shared infrastructure
 import { DatabaseModule } from './shared/database/database.module';
@@ -41,6 +42,9 @@ import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
         limit: 200,
       },
     ]),
+
+    // Scheduler for cron jobs
+    ScheduleModule.forRoot(),
 
     // Shared infrastructure — available to all modules
     DatabaseModule,

@@ -10,14 +10,18 @@ export const relationshipTypeSchema = z.enum([
   'other',
 ]);
 
+const noHtml = (s: string) => !/[<>]/.test(s);
+
 const labelSchema = z
   .string()
   .min(1, 'Метка не может быть пустой')
-  .max(50, 'Метка слишком длинная');
+  .max(50, 'Метка слишком длинная')
+  .refine(noHtml, 'Недопустимые символы');
 
 const messageSchema = z
   .string()
-  .max(500, 'Сообщение слишком длинное');
+  .max(500, 'Сообщение слишком длинное')
+  .refine(noHtml, 'Недопустимые символы');
 
 // ============================================================
 // Invitations

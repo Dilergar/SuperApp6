@@ -108,6 +108,7 @@ model Session {
 
   @@index([userId])
   @@index([token])
+  @@index([expiresAt])
   @@map("sessions")
 }
 
@@ -205,6 +206,8 @@ model ContactInvitation {
   @@index([toPhone])
   @@index([status])
   @@index([expiresAt])
+  @@index([fromUserId, status])
+  @@index([toUserId, status])
   @@map("contact_invitations")
 }
 

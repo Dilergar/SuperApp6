@@ -151,6 +151,11 @@ export default function CirclesPage() {
     }
   };
 
+  // Cleanup lookup timer on unmount
+  useEffect(() => {
+    return () => { if (lookupTimer.current) clearTimeout(lookupTimer.current); };
+  }, []);
+
   const handleSendInvitation = async (e: React.FormEvent) => {
     e.preventDefault();
     clear();

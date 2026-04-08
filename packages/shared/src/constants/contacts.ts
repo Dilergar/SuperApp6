@@ -59,8 +59,8 @@ export const CONTACT_LIMITS = {
   maxMembersPerCircle: 500,
   // Max outstanding pending invitations a user can have OUTGOING.
   maxPendingOutgoingInvitations: 100,
-  // Invitation TTL in days.
-  invitationTtlDays: 30,
+  // Invitation TTL in days (24 hours).
+  invitationTtlDays: 1,
   // Throttle: max invitations a user can send per 24h to prevent spam.
   maxInvitationsPer24h: 30,
   // Cooldown (in hours) before a cancelled/rejected invitation to the same phone can be resent.

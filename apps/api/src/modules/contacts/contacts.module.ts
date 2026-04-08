@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { ContactsService } from './contacts.service';
 import { ContactsController } from './contacts.controller';
+import { ContactsCron } from './contacts.cron';
 
 /**
  * ContactsModule — bilateral confirmed social graph.
@@ -12,7 +13,7 @@ import { ContactsController } from './contacts.controller';
 @Global()
 @Module({
   controllers: [ContactsController],
-  providers: [ContactsService],
+  providers: [ContactsService, ContactsCron],
   exports: [ContactsService],
 })
 export class ContactsModule {}

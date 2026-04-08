@@ -357,7 +357,10 @@ export class ContactsService {
     const relationshipType = data.relationshipType ?? invitation.relationshipType;
 
     // Transaction: create link, mark invitation accepted, add to circles (recipient side only).
-    const link = await this.db.$transaction(async (tx) => {
+    // @@unique([userAId, userBId]) prevents duplicates from concurrent accepts.
+    let link;
+    try {
+    link = await this.db.$transaction(async (tx) => {
       const created = await tx.contactLink.create({
         data: {
           userAId: aId,
@@ -393,6 +396,12 @@ export class ContactsService {
 
       return created;
     });
+    } catch (err) {
+      if (err && typeof err === 'object' && 'code' in err && (err as { code?: string }).code === 'P2002') {
+        throw new ConflictException('Связь уже существует');
+      }
+      throw err;
+    }
 
     const recipient = await this.db.user.findUnique({
       where: { id: userId },
@@ -666,6 +675,23 @@ export class ContactsService {
       'contacts',
     );
     return block;
+  }
+
+  /**
+   * Cleanup: mark expired invitations and delete old non-pending ones.
+   * Called by a cron job or manually.
+   */
+  async cleanupInvitations() {
+    // Mark pending invitations past their TTL as expired
+    await this.db.contactInvitation.updateMany({
+      where: { status: 'pending', expiresAt: { lt: new Date() } },
+      data: { status: 'expired', respondedAt: new Date() },
+    });
+
+    // Delete all non-pending invitations (accepted/rejected/cancelled/expired)
+    await this.db.contactInvitation.deleteMany({
+      where: { status: { not: 'pending' } },
+    });
   }
 
   async unblockUser(userId: string, targetUserId: string) {

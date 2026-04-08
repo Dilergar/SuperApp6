@@ -10,6 +10,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { ContactsService } from './contacts.service';
 import {
   CurrentUser,
@@ -54,6 +55,7 @@ export class ContactsController {
   }
 
   @Post('invitations')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: 'Отправить приглашение в контакты' })
   async sendInvitation(
     @CurrentUser() user: JwtPayload,
