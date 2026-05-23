@@ -18,10 +18,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // Verify user still exists
     const user = await this.db.user.findUnique({
       where: { id: payload.sub },
-      select: { id: true },
+      select: { id: true, deletedAt: true, deletionScheduledAt: true },
     });
 
-    if (!user) {
+    // Block both permanently-anonymized and grace-window (pending) accounts —
+    // a pending account is "gone" until the user logs in again to restore it.
+    if (!user || user.deletedAt || user.deletionScheduledAt) {
       throw new UnauthorizedException('Пользователь не найден');
     }
 

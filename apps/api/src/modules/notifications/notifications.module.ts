@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsEventsListener } from './notifications.events';
+import { NotificationsCron } from './notifications.cron';
 
 /**
  * NotificationsModule — cross-cutting concern, marked @Global() so any
@@ -14,7 +15,7 @@ import { NotificationsEventsListener } from './notifications.events';
 @Global()
 @Module({
   controllers: [NotificationsController],
-  providers: [NotificationsService, NotificationsEventsListener],
+  providers: [NotificationsService, NotificationsEventsListener, NotificationsCron],
   exports: [NotificationsService],
 })
 export class NotificationsModule {}

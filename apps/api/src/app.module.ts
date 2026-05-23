@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 
 // Shared infrastructure
@@ -21,27 +21,23 @@ import { TasksModule } from './modules/tasks/tasks.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 
 import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
+import { RedisService } from './shared/redis/redis.service';
+import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storage';
 
 @Module({
   imports: [
-    // Rate limiting
-    ThrottlerModule.forRoot([
-      {
-        name: 'short',
-        ttl: 1000,
-        limit: 10,
-      },
-      {
-        name: 'medium',
-        ttl: 10000,
-        limit: 50,
-      },
-      {
-        name: 'long',
-        ttl: 60000,
-        limit: 200,
-      },
-    ]),
+    // Rate limiting — counters stored in Redis so limits hold across instances.
+    ThrottlerModule.forRootAsync({
+      inject: [RedisService],
+      useFactory: (redis: RedisService) => ({
+        throttlers: [
+          { name: 'short', ttl: 1000, limit: 10 },
+          { name: 'medium', ttl: 10000, limit: 50 },
+          { name: 'long', ttl: 60000, limit: 200 },
+        ],
+        storage: new RedisThrottlerStorage(redis),
+      }),
+    }),
 
     // Scheduler for cron jobs
     ScheduleModule.forRoot(),
@@ -66,6 +62,12 @@ import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
     CalendarModule,
   ],
   providers: [
+    // Order matters: throttler runs first so abusive traffic is rejected
+    // before we do any JWT/DB work.
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,

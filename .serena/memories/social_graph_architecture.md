@@ -1,142 +1,64 @@
-# Social Graph Architecture (Окружение + Папки + Notifications)
+# Social Graph Architecture (Окружение + Группы + Notifications)
 
-Фундаментальный модуль, на котором строятся Tasks, Calendar, Chat, Finance, Jobs Marketplace. Двусторонний подтверждённый соц. граф.
+Фундаментальный модуль, на котором строятся Tasks, Calendar, Chat, Finance, Jobs Marketplace. Двусторонний подтверждённый соц. граф. Tasks/Calendar пока к нему НЕ привязаны.
 
-> **ВАЖНО:** Слово "Контакты" НЕ используется в UI. Для пользователя — "Окружение". Бэкенд модули `contacts/` и `circles/` — внутренняя реализация. Фронт: единая страница `/circles` = "Моё окружение" (люди + приглашения + папки-чипы). Нет отдельной /contacts страницы.
+> Слово «Контакты» НЕ в UI — для пользователя «Окружение». Бэкенд-модули `contacts/` + `circles/` — реализация. Фронт: единая страница `/circles` = «Моё окружение» (люди + приглашения + чипы-Группы). Нет отдельной /contacts.
 
-## Prisma модели (apps/api/prisma/schema.prisma)
+## Модель (ВАЖНО — итог большого рефакторинга)
 
-### User (обновлён)
-Добавлены поля:
-- `dateOfBirth DateTime? @db.Date` — ISO date, опционально при регистрации
-- `cardVisibility Json? @map("card_visibility")` — per-field флаги видимости на карточке контакта, `null` = использовать дефолты
-Новые relations: `contactLinksA`, `contactLinksB`, `sentInvitations`, `receivedInvitations`, `blocksMade`, `blocksReceived`, `notifications`.
+- **Роль**: ровно ОДНА роль на сторону, асимметрично (ты ему «Муж», он тебе «Жена»). Реальная роль из жизни, показывается на карточке. **Нет** `relationshipType` (6 категорий) и **нет** «меток»/`label` — это убрано как лишнее.
+- **Группа** = `Circle` (пользователь создаёт и называет сам: «Семья», «Родственники»). Ручное членство через `CircleMembership`. Несёт `cardVisibility`.
+- **Видимость карточки — ПО ГРУППАМ**. Зритель в ≥1 Группе владельца → объединение их `cardVisibility` (`mergeVisibilities`, OR). Ни в одной → дефолт владельца `users.card_visibility` (одиночная `CardVisibility`). Всегда видны: firstName, lastName, phone, role.
 
-### ContactLink
-```
-id, userAId, userBId (канонический порядок: userAId < userBId лексикографически),
-labelAForB, labelBForA (асимметричные метки — как A называет B и наоборот),
-relationshipType (family|romantic|friend|professional|acquaintance|other),
-initiatedBy (user_id отправителя приглашения — аудит),
-confirmedAt, createdAt, updatedAt
-@@unique([userAId, userBId])
-```
-- Удаление — двустороннее (cascade на обе стороны).
-- Сервис-слой ОБЯЗАН enforce `userAId < userBId` перед вставкой.
-- Клиент получает структуру `{ linkId, them: ContactUserCard, myLabelForThem, theirLabelForMe, ... }` — сервис маппит me/them по requestingUserId.
+## Prisma (apps/api/prisma/schema.prisma)
 
-### ContactInvitation
-```
-id, fromUserId, toUserId (nullable!), toPhone (E.164),
-proposedLabelForSender, proposedLabelForRecipient (оба опц.),
-relationshipType, message (опц.),
-status: pending|accepted|rejected|cancelled|expired,
-expiresAt (TTL 30 дней — CONTACT_LIMITS.invitationTtlDays),
-respondedAt, createdAt, updatedAt
-```
-- `toUserId = null` — external invitation (номер ещё не зареган).
-- При регистрации: `AuthService.register` после создания user вызывает `ContactsService.activatePendingInvitationsForNewUser(userId, phone)` → все invitation с этим toPhone получают `toUserId = newUserId`, эмитится событие `contact.invitation.received` → NotificationsService пишет уведомление → отправитель видит, что получатель появился.
-- **Нет rejection reason** — product решение.
-- Cancel поддерживается отправителем; resend с cooldown 24ч (CONTACT_LIMITS.resendCooldownHours); throttle 30 invitations/24ч (CONTACT_LIMITS.maxInvitationsPer24h).
-- Фоновая задача помечает expired.
-
-### ContactBlock
-```
-id, blockerId, blockedId, createdAt
-@@unique([blockerId, blockedId])
-```
-- Односторонний. A блокирует B → B не может отправить invitation A. Обратный блок — отдельная строка.
-
-### Circle (новый, старый CircleMember удалён)
-```
-id, ownerId, name, icon?, color?, sortOrder, createdAt, updatedAt
-```
-- Это локальная папка у одного владельца ("Семья", "Работа", "Друзья"). НЕ групповой чат, НЕ чат-комната.
-- Один и тот же ContactLink может лежать в Circles у обеих сторон независимо (у A есть "Семья" со связью A-B, у B есть "Работа" со связью A-B).
-
-### CircleMembership
-```
-id, circleId, contactLinkId, addedAt
-@@unique([circleId, contactLinkId])
-```
-- M2M между Circle и ContactLink. Владелец Circle управляет membership только своей Circle; права — через ownerId.
-
-### Notification
-```
-id, userId, type (dot-namespaced), title, body?, payload Json?, actionUrl?, readAt?, createdAt
-@@index([userId, createdAt])
-@@index([userId, readAt])
-```
-- Generic для всех модулей. Types: `contact.invitation.received/accepted/rejected/cancelled`, `contact.linked/removed`, `task.assigned/completed/commented/due_soon`, `calendar.event.invited/reminder`, `system.welcome/announcement`.
+- `User.cardVisibility Json? @map("card_visibility")` — одиночная `CardVisibility` = видимость ПО УМОЛЧАНИЮ (для тех, кто не в Группе).
+- `ContactLink`: `userAId<userBId` (canonical, service-layer), `roleAForB` `@map("label_a_for_b")`, `roleBForA` `@map("label_b_for_a")` (Prisma-поля переименованы, DB-колонки те же → данные сохранены), `initiatedBy`, confirmedAt. `@@unique([userAId,userBId])`. Удаление двустороннее.
+- `ContactInvitation`: `proposedRoleForSender` `@map("proposed_label_for_sender")`, `proposedRoleForRecipient` `@map("proposed_label_for_recipient")`, `toUserId` nullable (external), status pending|accepted|rejected|cancelled|expired, `message`. БЕЗ relationshipType.
+- `ContactBlock`: односторонний, `@@unique([blockerId,blockedId])`.
+- `Circle`: ownerId, name, icon?, color?, sortOrder, **`cardVisibility Json? @map("card_visibility")`**.
+- `CircleMembership`: M2M Circle↔ContactLink, `@@unique([circleId,contactLinkId])`.
+- `Notification`: generic (userId, type dot-namespaced, title, body?, payload?, actionUrl?, readAt?).
+- **Миграции Prisma в репо НЕТ → только `db push`.** `relationship_type` (x2) удалён (данные категории потеряны — ок); label-колонки сохранены.
 
 ## @superapp/shared (packages/shared/src)
 
-### types/
-- `user.ts` — User, UserProfile (с dateOfBirth, cardVisibility, contactsCount), CardVisibility interface
-- `auth.ts` — RegisterRequest с dateOfBirth?
-- `contact.ts` — Contact (me/them view), ContactUserCard, ContactInvitation, IncomingInvitation, OutgoingInvitation, SendInvitationRequest, AcceptInvitationRequest, UpdateContactRequest, BlockUserRequest, RelationshipType
-- `circle.ts` — Circle, CircleWithMembers, CreateCircleRequest, UpdateCircleRequest, AddToCircleRequest, ReorderCirclesRequest
-- `notification.ts` — Notification<TPayload>, NotificationType (union), per-type payload интерфейсы, NotificationListResponse, MarkNotificationsReadRequest
+- `types/contact.ts` — `Contact { linkId, them, myRole, theirRole, initiatedBy, confirmedAt, myCircleIds }`; `ContactInvitation` с `proposedRoleForSender/Recipient`; DTO `SendInvitationRequest{toPhone,proposedRoleForRecipient?,proposedRoleForSender?,message?,autoAddToCircleIds?}`, `AcceptInvitationRequest{myRole?,theirRole?,autoAddToCircleIds?}`, `UpdateContactRequest{myRole?}`. **Нет типа `RelationshipType`.**
+- `types/user.ts` — `UserProfile.cardVisibility: CardVisibility` (одиночная). Нет `CardVisibilityByRole`.
+- `types/circle.ts` — `Circle.cardVisibility: CardVisibility`; `UpdateCircleRequest.cardVisibility?: Partial<CardVisibility>|null`.
+- `validation/card-visibility.ts` (общий) — `cardVisibilityObjectSchema` (`.strict()`); используется в `validation/user.ts` (updateProfileSchema.cardVisibility одиночная) и `validation/circle.ts` (updateCircleSchema.cardVisibility).
+- `validation/contact.ts` — `roleSchema` (1-50, noHtml), `sendInvitationSchema/acceptInvitationSchema/updateContactSchema` без relationshipType. Нет `relationshipTypeSchema`.
+- `constants/contacts.ts` — `ROLE_PRESETS: readonly string[]` (плоский: Муж/Жена/Мама/.../Клиент), `DEFAULT_CIRCLE_PRESETS`, `CONTACT_LIMITS` (invitationTtlDays=1, maxInvitationsPer24h=30, resendCooldownHours≈10сек dev). Нет `RELATIONSHIP_TEMPLATES`.
+- `constants/card-visibility.ts` — `DEFAULT_CARD_VISIBILITY`, `resolveCardVisibility`, `mergeVisibilities(list)` (база all-OFF, OR). Нет per-role резолверов.
 
-### validation/
-- `auth.ts` — registerSchema с dateOfBirthSchema (YYYY-MM-DD, 1900..today)
-- `contact.ts` — sendInvitationSchema, acceptInvitationSchema, updateContactSchema, blockUserSchema, relationshipTypeSchema
-- `circle.ts` — createCircleSchema, updateCircleSchema, addToCircleSchema, reorderCirclesSchema
+## Резолв видимости (contacts.service.ts)
 
-### constants/
-- `contacts.ts` — `RELATIONSHIP_TEMPLATES` (Record<RelationshipType, string[]> — примеры "жена/муж/друг" по категориям, пользователь может вводить custom), `DEFAULT_CIRCLE_PRESETS`, `CONTACT_LIMITS` (maxCirclesPerUser=50, maxMembersPerCircle=500, maxPendingOutgoingInvitations=100, invitationTtlDays=30, maxInvitationsPer24h=30, resendCooldownHours=24)
-- `card-visibility.ts` — `DEFAULT_CARD_VISIBILITY` (dateOfBirth false, age true, onlineStatus true, maritalStatus false, city true, bio true), `resolveCardVisibility(stored)` merger
-- `notifications.ts` — `NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta>` с шаблонами title/body/icon/pushByDefault/category для каждого типа, `NOTIFICATION_LIMITS` (pageSize 30, retentionDays 90)
+- `userCardSelect()` включает `cardVisibility` владельца (дефолт).
+- `membershipSelect()` = `{ circleId, circle:{ ownerId, cardVisibility } }`.
+- `resolveVisibilityForViewer(ownerId, ownerDefault, memberships)`: Группы владельца (`circle.ownerId===ownerId`), содержащие этот link → `mergeVisibilities`; иначе `resolveCardVisibility(ownerDefault)`.
+- `mapLinkToContact`: `them`=владелец карточки; myRole/theirRole из roleAForB/roleBForA по стороне; видимость через резолвер; `toContactUserCard(row, visibility: CardVisibility)` принимает готовую видимость. Группы тянутся в `listContacts`/`getContact` одним include (без N+1).
+- Инвайты (`listIncoming/OutgoingInvitations`): видимость = `resolveCardVisibility(user.card_visibility)` (групп ещё нет).
+- `CirclesService`: `listCircles/getCircle/serialize` отдают резолвнутый `cardVisibility`; `updateCircle` принимает `cardVisibility` (мердж в полную карту, `Prisma.JsonNull` при null); `assertOwned`/limits/ручное членство — как было. Сообщения «группа» вместо «окружение».
+- `UsersService.getProfile` → `cardVisibility: resolveCardVisibility(...)` (одиночная). `updateProfile` хранит одиночную.
 
-## Card visibility правило
-**Всегда видны** (независимо от флагов): `firstName`, `lastName`, `phone`, `role` (метка противоположной стороны на ContactLink).
-**Кастомизируется владельцем карточки**: dateOfBirth, age, onlineStatus, maritalStatus, city, bio, extras.
-`null` в БД = дефолты. UsersService.getProfile вызывает `resolveCardVisibility` чтобы всегда вернуть полный объект.
+## Web (apps/web/src)
 
-## Implementation (Phase 4-5, ✅ ALL DONE)
+- `/circles`: поток добавления — телефон → lookup имени → 2× `RolePicker` (Моя роль / Его роль; `ROLE_PRESETS` из shared + «Свой вариант»); шлёт `proposedRoleForRecipient`(=invTheyForMe)/`proposedRoleForSender`(=invMeForThem). «+ Группа», `GroupVisibilityEditor` (виден при выбранной Группе; debounced `PATCH /circles/:id {cardVisibility}`; оптимистично обновляет `groups`). InvitationCard читает `proposedRole*`.
+- `PersonCard.tsx`: локальный `Contact` без relationshipType; бейдж = `contact.myRole`. `FullProps.onToggleVisibility` опционально (без него read-only `ReadOnlyRow`).
+- `/profile`: сайдбар, «Моя карточка» первой и по умолчанию (read-only PersonCard + `<select>` «По умолчанию / Группа X», берёт `group.cardVisibility` из `/circles`); «Моя Анкета» (форма + блок «Видимость по умолчанию» — тумблеры одиночной `CardVisibility`, debounced `PATCH /users/me {cardVisibility}`).
+- `lib/stores/auth.ts`: `UserProfile.cardVisibility?: CardVisibility` (одиночная), импорт `CardVisibility` из shared.
 
-### Phase 4 — NotificationsModule (`apps/api/src/modules/notifications/`) ✅
-- `notifications.service.ts`: `notify(userId, type, payload)` — рендер `{{placeholder}}` шаблонов из NOTIFICATION_REGISTRY, cursor-пагинация `list()`, `markRead()`, `delete()`
-- `notifications.controller.ts`: `GET /api/notifications`, `POST /mark-read`, `DELETE /:id`
-- `notifications.events.ts`: `NotificationsEventsListener` подписан на `contact.*`, `task.*`, `calendar.*` через EventBus
-- `@Global()` модуль
+## Notifications / Invitations / Blocks (без изменений по сути)
 
-### Phase 5 — ContactsModule (`apps/api/src/modules/contacts/`) ✅
-- `contacts.service.ts`: canonical ordering, sendInvitation (throttle + cooldown + block check), accept (ContactLink + labels + auto-circle), reject/cancel/resend, removeContact (bilateral), listContacts (me/them mapping + cardVisibility), `activatePendingInvitationsForNewUser(userId, phone)`
-- `contacts.controller.ts`: все /api/contacts/* эндпоинты + /invitations/* + /blocks
-- Events: `contact.invitation.sent/activated/accepted/rejected/cancelled`, `contact.linked`, `contact.removed`, `contact.blocked`
-- `@Global()` — чтобы AuthService мог инжектить без циклической зависимости
+- `NotificationsEventsListener` подписан на `contact.*/task.*/calendar.*`, форвардит payload в `notify`. Шаблоны `NOTIFICATION_REGISTRY` используют только `{{fromName}}/{{message}}/{{byName}}/{{otherName}}` — переименование payload-ключей безопасно. `ContactInvitationReceivedPayload`: `proposedRoleForRecipient`, без relationshipType.
+- `AuthService.register` инжектит `ContactsService` (@Global) → `activatePendingInvitationsForNewUser`. Canonical userA<userB на service-layer. P2002 на concurrent accept. `ContactsCron` чистит инвайты.
 
-### Phase 5 — CirclesModule (`apps/api/src/modules/circles/`) ✅
-- `circles.service.ts`: CRUD Circle, addMember/removeMember CircleMembership, reorder, enforce ownerId + CONTACT_LIMITS
-- `circles.controller.ts`: /api/circles/* эндпоинты
+## Отвергнуто — НЕ возвращаться
 
-### Интеграция ✅
-- `AuthService.register` инжектит `ContactsService` напрямую (@Global) и вызывает `activatePendingInvitationsForNewUser(user.id, user.phone)` после транзакции создания user
-- Все три модуля зарегистрированы в `app.module.ts` в порядке: NotificationsModule → ContactsModule → CirclesModule → TasksModule → CalendarModule
-- `tsc --noEmit` + `nest build` проходят чисто. API запускается, все маршруты видны в Swagger
+- 6 авто-категорий `relationshipType` для видимости.
+- Системная папка «Незнакомец?» / per-folder с union+ensureDefaultCircle.
+- Двойные асимметричные «метки» + отдельный category. Теперь: ОДНА роль/сторона, видимость по Группам, дефолт `users.card_visibility`. Та же форма «сегмент→видимость» переносима на B2B/marketplace через Universal Identity (`UserRole.role`) + существующий NotificationsModule (рассылки).
 
-### Тестирование — ожидается end-to-end
-- 3 тестовых аккаунта созданы (см. memory `test_credentials`)
-- Нужно проверить: invitation send/accept flow, external invitation activation, circles CRUD, blocks
+## Статус
 
-## Ключевые решения (не менять без обсуждения)
-- Role templates — плоские строки, НЕ отдельная таблица. Примеры в RELATIONSHIP_TEMPLATES, пользователь может ввести любой custom текст.
-- lastName и dateOfBirth — опциональны при регистрации ("желательно, но не обязательно").
-- Canonical ordering userA<userB — на service layer, не через триггеры БД.
-- Circle — папка внутри Окружения у одного владельца, НЕ групповой чат. Групповые чаты будут отдельной сущностью в будущем.
-- Notifications — отдельный модуль с EventBus subscription, НЕ напрямую из каждого сервиса.
-- Нет rejection reason на invitation — product решение.
-- Card visibility — 4 всегда видимых поля + остальное per-field через JSONB.
-- **"Контакты" как отдельная сущность/страница/слой — отклонено.** Всё через "Окружение".
-- PersonCard вынесен в отдельный файл `apps/web/src/app/circles/PersonCard.tsx` — стиль скетча на текстурной бумаге.
-- Роли при приглашении: 13 пресетов (Жена, Муж, Мама, Папа, Сын, Дочь, Семья, Родственник, Друг, Коллега, Одноклассник, Однокурсник, Клиент) + свободный ввод. `relationshipType` автоопределяется из пресета (family/friend/professional/acquaintance/other).
-- `GET /api/users/lookup?phone=...` — поиск по номеру для формы приглашения (показывает имя до отправки).
-- InvitationCard — единый компонент для входящих/исходящих. Роли отображаются как "Я: Тренер" / "tester2: Клиент".
-- ContactUserCard расширен: +bio, +city, +email, +maritalStatus, +socialLinks. `toContactUserCard()` в contacts.service.ts применяет `resolveCardVisibility()` ко всем новым полям — скрытые возвращаются как null.
-- UserCardRow и userCardSelect() в contacts.service.ts обновлены для select новых полей из Prisma.
-- PersonCard compact в окружении показывает все видимые поля (город, био, дата рождения, возраст, семейное положение, email, соц. сети, онлайн-точка).
-- PersonCard full в профиле показывает все поля + тогглы видимости (ON=видно, OFF=opacity 0.3).
-- Каждое поле visibility **полностью независимо**: dateOfBirth и age — разные тогглы. age вычисляется на бэкенде (calcAge в contacts.service.ts), отдаётся как число. showOnlineStatus контролирует зелёную точку-каракулю (SVG) на аватаре.
-- Типы на фронте импортируются из `@superapp/shared`, не дублируются. `as any` убран. `resolveCardVisibility()` используется на фронте.
-- Security audit: XSS фильтр в labels/names (Zod refine, запрет `<>`), @Throttle на invitations (10/мин), race condition P2002 handler на concurrent accept, invitation TTL 24ч + cron hourly cleanup (ContactsCron), strict Zod для JSON, составные индексы (fromUserId+status, toUserId+status).
+Рефактор выполнен и проверен: `pnpm build` 4/4, `tsc --noEmit` api+web чисто, E2E (login/contacts/circles/visibility) OK. Данные 3 тест-аккаунтов сохранены (роли «Бог»/«Дог» уцелели через `@map`). Тест-аккаунты — см. memory `test_credentials`.

@@ -12,43 +12,52 @@ datasource db {
 // ============================================================
 
 model User {
-  id          String    @id @default(uuid())
-  phone       String    @unique
-  password    String // bcrypt hash
-  firstName   String    @map("first_name")
-  lastName    String?   @map("last_name")
-  dateOfBirth DateTime? @map("date_of_birth") @db.Date
-  avatar      String?
-  bio         String?
-  city        String?
-  email       String?   @unique
-  maritalStatus String? @map("marital_status")
-  socialLinks Json?     @map("social_links")
-  onlineStatusMode String @default("everyone") @map("online_status_mode")
-  isVerified  Boolean   @default(false) @map("is_verified")
-  locale      String    @default("ru")
-  timezone    String    @default("Asia/Almaty")
+  id               String    @id @default(uuid())
+  phone            String    @unique
+  password         String // bcrypt hash
+  firstName        String    @map("first_name")
+  lastName         String?   @map("last_name")
+  dateOfBirth      DateTime? @map("date_of_birth") @db.Date
+  avatar           String?
+  bio              String?
+  city             String?
+  email            String?   @unique
+  maritalStatus    String?   @map("marital_status")
+  socialLinks      Json?     @map("social_links")
+  onlineStatusMode String    @default("everyone") @map("online_status_mode")
+  isVerified       Boolean   @default(false) @map("is_verified")
+  locale           String    @default("ru")
+  timezone         String    @default("Asia/Almaty")
 
   // Contact card visibility — per-field flags controlling what others see on your card
   // Shape: { lastName: bool, dateOfBirth: bool, age: bool, onlineStatus: bool, maritalStatus: bool, extras: {...} }
   // null means use defaults defined in shared/constants. Always-visible (regardless of this): firstName, lastName, phone, role.
   cardVisibility Json? @map("card_visibility")
 
+  // Soft-deletion in two stages:
+  //   deletionScheduledAt — user requested deletion; account is in a recoverable
+  //     grace window (logging in restores it). Login via token is blocked.
+  //   deletedAt — set by the cron once the grace window elapses; the account is
+  //     permanently anonymized (PII scrubbed, phone freed) and login blocked forever.
+  // The row is kept so collaborative content (tasks/comments/workspaces) survives.
+  deletionScheduledAt DateTime? @map("deletion_scheduled_at")
+  deletedAt           DateTime? @map("deleted_at")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  sessions         Session[]
-  roles            UserRole[]
-  ownedCircles     Circle[]
-  createdTasks     Task[]            @relation("TaskCreator")
-  assignedTasks    Task[]            @relation("TaskAssignee")
-  taskComments     TaskComment[]
-  calendarEvents   CalendarEvent[]
-  calendarShares   CalendarShare[]   @relation("CalendarOwner")
-  sharedCalendars  CalendarShare[]   @relation("CalendarSharedWith")
-  workspaceMembers WorkspaceMember[]
-  ownedWorkspaces  Workspace[]
+  sessions           Session[]
+  roles              UserRole[]
+  ownedCircles       Circle[]
+  createdTasks       Task[]            @relation("TaskCreator")
+  taskParticipations TaskParticipant[] @relation("TaskParticipantUser")
+  taskComments       TaskComment[]
+  calendarEvents     CalendarEvent[]
+  calendarShares     CalendarShare[]   @relation("CalendarOwner")
+  sharedCalendars    CalendarShare[]   @relation("CalendarSharedWith")
+  workspaceMembers   WorkspaceMember[]
+  ownedWorkspaces    Workspace[]
 
   // Contacts / Circles / Invitations
   contactLinksA       ContactLink[]       @relation("ContactLinkUserA")
@@ -66,7 +75,6 @@ model User {
   // Subscription
   subscription Subscription?
 
-  @@index([phone])
   @@map("users")
 }
 
@@ -107,7 +115,6 @@ model Session {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-  @@index([token])
   @@index([expiresAt])
   @@map("sessions")
 }
@@ -124,6 +131,7 @@ model Subscription {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([status, expiresAt])
   @@map("subscriptions")
 }
 
@@ -150,29 +158,31 @@ model Subscription {
 // ============================================================
 
 model ContactLink {
-  id               String   @id @default(uuid())
+  id          String   @id @default(uuid())
   // Canonical ordering: service layer MUST ensure userAId < userBId (string compare)
   // so (userAId, userBId) uniquely identifies the pair regardless of who initiated.
-  userAId          String   @map("user_a_id")
-  userBId          String   @map("user_b_id")
-  // Asymmetric labels: how each side labels the other on their own contact card.
-  labelAForB       String?  @map("label_a_for_b") // how A calls B (e.g. "жена")
-  labelBForA       String?  @map("label_b_for_a") // how B calls A (e.g. "муж")
-  // Broad category for filtering/UX: family, romantic, friend, professional, acquaintance
-  relationshipType String   @map("relationship_type")
+  userAId     String   @map("user_a_id")
+  userBId     String   @map("user_b_id")
+  // Asymmetric role: how each side names the other on their card.
+  // ONE role per side. DB columns kept (label_*) to preserve data.
+  roleAForB   String?  @map("label_a_for_b") // role A gave B (e.g. "Жена")
+  roleBForA   String?  @map("label_b_for_a") // role B gave A (e.g. "Муж")
   // Who originally sent the invitation that created this link (user_id, not necessarily A)
-  initiatedBy      String   @map("initiated_by")
-  confirmedAt      DateTime @default(now()) @map("confirmed_at")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  initiatedBy String   @map("initiated_by")
+  confirmedAt DateTime @default(now()) @map("confirmed_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   userA       User               @relation("ContactLinkUserA", fields: [userAId], references: [id], onDelete: Cascade)
   userB       User               @relation("ContactLinkUserB", fields: [userBId], references: [id], onDelete: Cascade)
   memberships CircleMembership[]
 
   @@unique([userAId, userBId])
-  @@index([userAId])
-  @@index([userBId])
+  // Composite indexes also satisfy `ORDER BY confirmedAt DESC` on the hot
+  // "list my environment" query (which ORs over userAId / userBId). The
+  // @@unique above already covers userAId-leading lookups.
+  @@index([userAId, confirmedAt])
+  @@index([userBId, confirmedAt])
   @@map("contact_links")
 }
 
@@ -184,11 +194,11 @@ model ContactInvitation {
   toUserId   String? @map("to_user_id")
   toPhone    String  @map("to_phone") // normalized E.164
 
-  // Labels each side proposes. Either can be edited at accept-time by the recipient.
-  proposedLabelForSender    String? @map("proposed_label_for_sender") // how recipient should call sender
-  proposedLabelForRecipient String? @map("proposed_label_for_recipient") // how sender wants to call recipient
-  relationshipType          String  @map("relationship_type")
-  message                   String? // optional greeting text
+  // Roles each side proposes. Recipient can override at accept-time.
+  // DB columns kept (proposed_label_*) to preserve data.
+  proposedRoleForSender    String? @map("proposed_label_for_sender") // role recipient gives sender
+  proposedRoleForRecipient String? @map("proposed_label_for_recipient") // role sender gives recipient
+  message                  String? // optional greeting text
 
   // pending, accepted, rejected, cancelled, expired
   status      String    @default("pending")
@@ -204,10 +214,12 @@ model ContactInvitation {
   @@index([fromUserId])
   @@index([toUserId])
   @@index([toPhone])
-  @@index([status])
-  @@index([expiresAt])
   @@index([fromUserId, status])
   @@index([toUserId, status])
+  // Send-path: cooldown / existing-pending checks filter (fromUserId, toPhone, status).
+  @@index([fromUserId, toPhone, status])
+  // Cleanup cron: WHERE status='pending' AND expiresAt < now.
+  @@index([status, expiresAt])
   @@map("contact_invitations")
 }
 
@@ -226,17 +238,21 @@ model ContactBlock {
 }
 
 model Circle {
-  id        String   @id @default(uuid())
-  ownerId   String   @map("owner_id")
-  name      String // "Семья", "Друзья", "Работа", custom
-  icon      String?
-  color     String?
-  sortOrder Int      @default(0) @map("sort_order")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id             String   @id @default(uuid())
+  ownerId        String   @map("owner_id")
+  name           String // "Семья", "Родственники", "Работа", custom
+  icon           String?
+  color          String?
+  sortOrder      Int      @default(0) @map("sort_order")
+  // Per-group card visibility — what members of THIS group may see.
+  // null = use the owner's default (users.card_visibility).
+  cardVisibility Json?    @map("card_visibility")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
-  owner       User               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  memberships CircleMembership[]
+  owner         User               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  memberships   CircleMembership[]
+  assignedTasks Task[]             @relation("TaskAssignedCircle")
 
   @@index([ownerId])
   @@map("circles")
@@ -276,7 +292,9 @@ model Notification {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId, createdAt])
+  // (createdAt, id) keyset so cursor pagination never skips/dupes rows that
+  // share a created_at timestamp (EventBus fan-out can create several per ms).
+  @@index([userId, createdAt, id])
   @@index([userId, readAt])
   @@map("notifications")
 }
@@ -285,30 +303,53 @@ model Notification {
 // TASKS: Task Manager
 // ============================================================
 
+// Roles model (Bitrix24-style):
+//   Постановщик  = creator (Task.creatorId, always 1, sets the task and accepts the result)
+//   Исполнитель  = the single responsible executor          → TaskParticipant role="executor"
+//   Соисполнитель = helpers (N)                              → TaskParticipant role="co_executor"
+//   Наблюдатель   = watchers (N, read + chat only)           → TaskParticipant role="observer"
+// An individual task has exactly ONE executor participant. A GROUP task (assignedCircleId set)
+// has the circle members as co_executor participants — one shared task / one chat, but each
+// participant carries their OWN status (drives "3 of 10" progress and per-person acceptance).
 model Task {
   id          String    @id @default(uuid())
   title       String
   description String?
-  status      String    @default("todo") // todo, in_progress, done, cancelled
+  status      String    @default("todo") // todo, in_progress, on_review, done, cancelled
   priority    String    @default("medium") // low, medium, high, urgent
   dueDate     DateTime? @map("due_date")
   startDate   DateTime? @map("start_date")
+  allDay      Boolean   @default(false) @map("all_day")
 
-  // Creator & Assignee
-  creatorId  String  @map("creator_id")
-  assigneeId String? @map("assignee_id")
+  // Постановщик (creator). Other roles live in TaskParticipant.
+  creatorId String @map("creator_id")
+
+  // Group assignment: when set, the task targets a Circle (Группа). The Исполнитель field
+  // shows the circle's name; its members are co_executor participants. null = individual task.
+  // Snapshot semantics: participants are materialised at creation; this only keeps the label.
+  assignedCircleId String? @map("assigned_circle_id")
 
   // Hierarchy (subtasks)
   parentId String? @map("parent_id")
   parent   Task?   @relation("SubTasks", fields: [parentId], references: [id], onDelete: Cascade)
   subtasks Task[]  @relation("SubTasks")
 
-  // Gamification
-  coinReward  Int @default(0) @map("coin_reward")
-  coinPenalty Int @default(0) @map("coin_penalty")
+  // Reward — display-only INTENT for now (no wallet yet; real balance lands with the Store).
+  // Per-person semantics ("каждому по X"): coinReward is the amount each executor earns.
+  coinReward   Int     @default(0) @map("coin_reward")
+  coinPenalty  Int     @default(0) @map("coin_penalty")
+  giftRewardId String? @map("gift_reward_id") // future: a gift from the owner's Store
 
-  // Context
-  workspaceId String? @map("workspace_id") // null = personal
+  // Reminder (single reminder before the deadline for MVP; cron sends the notification).
+  reminderAt     DateTime? @map("reminder_at")
+  reminderSentAt DateTime? @map("reminder_sent_at")
+
+  // Recurrence (RRULE-light, e.g. "FREQ=DAILY"). Generated instances point back via parent id.
+  recurrenceRule     String? @map("recurrence_rule")
+  recurrenceParentId String? @map("recurrence_parent_id")
+
+  // Context — null = personal. workspaceId is the B2B tenant key (workspace assignment later).
+  workspaceId String? @map("workspace_id")
 
   // Timestamps
   createdAt   DateTime  @default(now()) @map("created_at")
@@ -316,21 +357,53 @@ model Task {
   completedAt DateTime? @map("completed_at")
 
   // Relations
-  creator   User       @relation("TaskCreator", fields: [creatorId], references: [id])
-  assignee  User?      @relation("TaskAssignee", fields: [assigneeId], references: [id])
-  workspace Workspace? @relation(fields: [workspaceId], references: [id])
+  creator        User       @relation("TaskCreator", fields: [creatorId], references: [id])
+  workspace      Workspace? @relation(fields: [workspaceId], references: [id])
+  assignedCircle Circle?    @relation("TaskAssignedCircle", fields: [assignedCircleId], references: [id], onDelete: SetNull)
 
+  participants  TaskParticipant[]
   comments      TaskComment[]
   tags          TaskTag[]
-  calendarEvent CalendarEvent? @relation("TaskCalendarEvent")
+  calendarEvent CalendarEvent?    @relation("TaskCalendarEvent")
 
   @@index([creatorId])
-  @@index([assigneeId])
   @@index([workspaceId])
   @@index([status])
   @@index([dueDate])
   @@index([parentId])
+  @@index([assignedCircleId])
+  // Reminder cron scans WHERE reminderAt <= now AND reminderSentAt IS NULL.
+  @@index([reminderAt])
   @@map("tasks")
+}
+
+model TaskParticipant {
+  id     String @id @default(uuid())
+  taskId String @map("task_id")
+  userId String @map("user_id")
+  role   String // executor (Исполнитель), co_executor (Соисполнитель), observer (Наблюдатель)
+
+  // Per-participant execution state. Acceptance is per-person, so a group task closes
+  // ("done") only when EVERY non-observer participant reaches "accepted".
+  //   pending → submitted (marked done) → accepted (creator accepted) | returned (sent back)
+  status      String    @default("pending")
+  submittedAt DateTime? @map("submitted_at")
+  acceptedAt  DateTime? @map("accepted_at")
+  returnedAt  DateTime? @map("returned_at")
+
+  // Reward snapshot for this participant ("каждому по X"). Display-only for now.
+  rewardCoins  Int     @default(0) @map("reward_coins")
+  giftRewardId String? @map("gift_reward_id")
+
+  addedAt DateTime @default(now()) @map("added_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation("TaskParticipantUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId]) // one role per user per task
+  @@index([userId, status]) // "tasks assigned to me" + filter by my state
+  @@index([taskId, role])
+  @@map("task_participants")
 }
 
 model TaskComment {

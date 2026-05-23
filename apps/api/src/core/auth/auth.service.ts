@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
+import { createHash } from 'node:crypto';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { ContactsService } from '../../modules/contacts/contacts.service';
@@ -32,6 +33,11 @@ export class AuthService {
     });
 
     if (existing) {
+      if (existing.deletionScheduledAt && !existing.deletedAt) {
+        throw new ConflictException(
+          'Этот номер привязан к аккаунту, помеченному на удаление. Войдите, чтобы восстановить его.',
+        );
+      }
       throw new ConflictException('Этот номер телефона уже зарегистрирован');
     }
 
@@ -100,21 +106,42 @@ export class AuthService {
       throw new UnauthorizedException('Неверный номер телефона или пароль');
     }
 
+    if (user.deletedAt) {
+      throw new UnauthorizedException('Аккаунт удалён');
+    }
+
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {
       throw new UnauthorizedException('Неверный номер телефона или пароль');
     }
 
+    // Logging in during the deletion grace window cancels the pending deletion.
+    // Conditional on deletedAt=null so we never "restore" (and issue tokens for)
+    // an account the cron permanently anonymized between our read and now.
+    let restored = false;
+    if (user.deletionScheduledAt) {
+      const { count } = await this.db.user.updateMany({
+        where: { id: user.id, deletedAt: null },
+        data: { deletionScheduledAt: null },
+      });
+      if (count === 0) {
+        throw new UnauthorizedException('Аккаунт удалён');
+      }
+      await this.redis.invalidateUserProfile(user.id);
+      restored = true;
+    }
+
     // Get highest system role
     const systemRole = this.getHighestSystemRole(user.roles.map((r) => r.role));
 
-    return this.generateTokens(user.id, user.phone, systemRole);
+    const tokens = await this.generateTokens(user.id, user.phone, systemRole);
+    return { ...tokens, restored };
   }
 
   async refreshToken(refreshToken: string) {
     // Find session by refresh token hash
-    const tokenHash = await this.hashToken(refreshToken);
+    const tokenHash = this.hashToken(refreshToken);
     const session = await this.db.session.findUnique({
       where: { token: tokenHash },
       include: {
@@ -144,7 +171,7 @@ export class AuthService {
   }
 
   async logout(userId: string, refreshToken: string) {
-    const tokenHash = await this.hashToken(refreshToken);
+    const tokenHash = this.hashToken(refreshToken);
     await this.db.session.deleteMany({
       where: { userId, token: tokenHash },
     });
@@ -173,7 +200,7 @@ export class AuthService {
       this.jwt.sign(payload, { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '30d' });
 
     // Store refresh token hash in DB
-    const tokenHash = await this.hashToken(refreshToken);
+    const tokenHash = this.hashToken(refreshToken);
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 30);
 
@@ -192,7 +219,14 @@ export class AuthService {
     };
   }
 
-  private async hashToken(token: string): Promise<string> {
-    return bcrypt.hash(token, 10);
+  /**
+   * Deterministic hash for refresh-token lookup. This MUST be deterministic
+   * (unlike bcrypt, which embeds a random salt per call) because the token is
+   * looked up by equality on the unique `session.token` column. The refresh
+   * token is a signed JWT with high entropy, so an unsalted SHA-256 is the
+   * correct primitive here — this is NOT a low-entropy password.
+   */
+  private hashToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
   }
 }

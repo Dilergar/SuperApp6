@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { cardVisibilityObjectSchema } from './card-visibility';
 
 const noHtml = (s: string) => !/[<>]/.test(s);
 const noHtmlMsg = 'Недопустимые символы';
@@ -21,16 +22,9 @@ export const updateProfileSchema = z.object({
   onlineStatusMode: z.enum(['everyone', 'contacts', 'nobody']).optional(),
   locale: z.enum(['ru', 'kk', 'en']).optional(),
   timezone: z.string().max(50).optional(),
-  cardVisibility: z.object({
-    dateOfBirth: z.boolean().optional(),
-    age: z.boolean().optional(),
-    onlineStatus: z.boolean().optional(),
-    maritalStatus: z.boolean().optional(),
-    city: z.boolean().optional(),
-    bio: z.boolean().optional(),
-    email: z.boolean().optional(),
-    socialLinks: z.boolean().optional(),
-  }).strict().nullable().optional(),
+  // Owner's DEFAULT card visibility (single object) — applied to contacts
+  // in none of the owner's groups. Per-group visibility is set via circles.
+  cardVisibility: cardVisibilityObjectSchema.nullable().optional(),
 });
 
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;

@@ -34,7 +34,9 @@ export interface UserProfile extends User {
   workspacesCount: number;
   contactsCount: number;
   activeSubscription: SubscriptionInfo | null;
-  cardVisibility: CardVisibility; // always resolved (defaults merged in)
+  /** Owner's DEFAULT card visibility — applied to contacts that are in
+   *  none of the owner's groups. Per-group visibility lives on Circle. */
+  cardVisibility: CardVisibility;
   roles: UserRoleInfo[];
 }
 

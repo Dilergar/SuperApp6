@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
@@ -35,9 +36,16 @@ export class ContactsController {
 
   @Get()
   @ApiOperation({ summary: 'Список моих контактов' })
-  async list(@CurrentUser() user: JwtPayload) {
-    const data = await this.contacts.listContacts(user.sub);
-    return { success: true, data };
+  async list(
+    @CurrentUser() user: JwtPayload,
+    @Query('cursor') cursor?: string,
+  ) {
+    const { items, nextCursor } = await this.contacts.listContacts(
+      user.sub,
+      cursor,
+    );
+    // `data` stays an array (backward compatible); nextCursor is a sibling.
+    return { success: true, data: items, nextCursor };
   }
 
   @Get('invitations/incoming')
@@ -55,7 +63,7 @@ export class ContactsController {
   }
 
   @Post('invitations')
-  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @Throttle({ long: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: 'Отправить приглашение в контакты' })
   async sendInvitation(
     @CurrentUser() user: JwtPayload,
@@ -160,7 +168,7 @@ export class ContactsController {
   }
 
   @Patch(':linkId')
-  @ApiOperation({ summary: 'Обновить свою метку / relationshipType' })
+  @ApiOperation({ summary: 'Обновить роль контакта (моя сторона)' })
   async updateContact(
     @CurrentUser() user: JwtPayload,
     @Param('linkId') linkId: string,

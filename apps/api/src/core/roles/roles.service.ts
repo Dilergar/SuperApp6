@@ -28,10 +28,12 @@ export class RolesService {
     if (existing) {
       // Reactivate if was deactivated
       if (!existing.isActive) {
-        return this.db.userRole.update({
+        const reactivated = await this.db.userRole.update({
           where: { id: existing.id },
           data: { isActive: true, grantedBy },
         });
+        await this.invalidate(userId);
+        return reactivated;
       }
       return existing;
     }
@@ -40,8 +42,7 @@ export class RolesService {
       data: { userId, role, context, tenantId, grantedBy },
     });
 
-    // Invalidate cached roles
-    await this.redis.del(`user:${userId}:roles`);
+    await this.invalidate(userId);
 
     return userRole;
   }
@@ -60,7 +61,13 @@ export class RolesService {
       data: { isActive: false },
     });
 
+    await this.invalidate(userId);
+  }
+
+  /** Bust both the roles cache and the profile cache (which embeds roles). */
+  private async invalidate(userId: string) {
     await this.redis.del(`user:${userId}:roles`);
+    await this.redis.invalidateUserProfile(userId);
   }
 
   /**

@@ -1,7 +1,18 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import * as bcrypt from 'bcryptjs';
+import { randomUUID } from 'node:crypto';
+import { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
-import { resolveCardVisibility, type CardVisibility, type UpdateProfileInput } from '@superapp/shared';
+import { resolveCardVisibility, type UpdateProfileInput } from '@superapp/shared';
+
+/** Days a deleted account stays recoverable before permanent anonymization. */
+export const ACCOUNT_GRACE_DAYS = 30;
 
 @Injectable()
 export class UsersService {
@@ -72,8 +83,10 @@ export class UsersService {
     const profile = {
       ...rest,
       dateOfBirth: dateOfBirth ? dateOfBirth.toISOString().slice(0, 10) : null,
+      // Owner's DEFAULT visibility — applied to contacts in none of the
+      // owner's groups. Per-group visibility lives on Circle.
       cardVisibility: resolveCardVisibility(
-        cardVisibility as Partial<CardVisibility> | null,
+        cardVisibility as Parameters<typeof resolveCardVisibility>[0],
       ),
       circlesCount: _count.ownedCircles,
       workspacesCount: _count.workspaceMembers,
@@ -122,12 +135,148 @@ export class UsersService {
     });
 
     // Invalidate cache
-    await this.redis.del(`user:${userId}:profile`);
+    await this.redis.invalidateUserProfile(userId);
 
     return {
       ...user,
       dateOfBirth: user.dateOfBirth ? user.dateOfBirth.toISOString().slice(0, 10) : null,
     };
+  }
+
+  /**
+   * Request account deletion. Nothing is destroyed yet — the account enters a
+   * recoverable grace window (logging in restores it; see AuthService.login).
+   * A cron permanently anonymizes accounts whose window elapses. Requires the
+   * current password to confirm.
+   */
+  async scheduleDeletion(userId: string, password: string) {
+    const user = await this.db.user.findUnique({ where: { id: userId } });
+    if (!user || user.deletedAt) {
+      throw new NotFoundException('Аккаунт не найден');
+    }
+    const ok = await bcrypt.compare(password, user.password);
+    if (!ok) {
+      throw new UnauthorizedException('Неверный пароль');
+    }
+    await this.db.user.update({
+      where: { id: userId },
+      data: { deletionScheduledAt: new Date() },
+    });
+    // Log out everywhere; the account stays hidden until restored via login.
+    await this.db.session.deleteMany({ where: { userId } });
+    await this.redis.invalidateUserProfile(userId);
+    return { scheduled: true, gracePeriodDays: ACCOUNT_GRACE_DAYS };
+  }
+
+  /** Cancel a pending deletion (called on login during the grace window). */
+  async restoreAccount(userId: string) {
+    await this.db.user.update({
+      where: { id: userId },
+      data: { deletionScheduledAt: null },
+    });
+    await this.redis.invalidateUserProfile(userId);
+  }
+
+  /** IDs of accounts whose grace window has elapsed — driven by the deletion cron. */
+  async findExpiredDeletions(graceDays: number): Promise<string[]> {
+    const cutoff = new Date(Date.now() - graceDays * 24 * 60 * 60 * 1000);
+    const rows = await this.db.user.findMany({
+      where: { deletionScheduledAt: { lt: cutoff }, deletedAt: null },
+      select: { id: true },
+    });
+    return rows.map((r) => r.id);
+  }
+
+  /**
+   * Permanently anonymize the account — "right to be forgotten". We do NOT
+   * delete the user row, so collaborative content others depend on (tasks
+   * assigned to them, comments, workspaces) survives. PII is scrubbed and the
+   * phone is freed for re-registration. Called by the cron after the grace
+   * window elapses.
+   */
+  async anonymizeAccount(userId: string) {
+    // Former contacts whose contactsCount changes — bust their caches afterwards.
+    const links = await this.db.contactLink.findMany({
+      where: { OR: [{ userAId: userId }, { userBId: userId }] },
+      select: { userAId: true, userBId: true },
+    });
+    const others = new Set<string>();
+    for (const l of links) {
+      others.add(l.userAId === userId ? l.userBId : l.userAId);
+    }
+
+    const deadHash = await bcrypt.hash(randomUUID(), 12);
+    const cutoff = new Date(Date.now() - ACCOUNT_GRACE_DAYS * 24 * 60 * 60 * 1000);
+
+    const anonymized = await this.db.$transaction(async (tx) => {
+      // Atomic claim: take the row ONLY if it's STILL pending past the grace
+      // window. If the user logged back in and restored it
+      // (deletionScheduledAt → null) — or re-scheduled — this matches 0 rows and
+      // we abort, touching nothing. This closes the race where the cron would
+      // otherwise wipe an account the user just recovered.
+      const claimed = await tx.user.updateMany({
+        where: { id: userId, deletedAt: null, deletionScheduledAt: { lt: cutoff } },
+        data: { deletedAt: new Date() },
+      });
+      if (claimed.count === 0) return false;
+
+      // Remove from everyone's environment (bilateral); clear pending invites/blocks.
+      await tx.contactLink.deleteMany({
+        where: { OR: [{ userAId: userId }, { userBId: userId }] },
+      });
+      await tx.contactInvitation.updateMany({
+        where: {
+          status: 'pending',
+          OR: [{ fromUserId: userId }, { toUserId: userId }],
+        },
+        data: { status: 'cancelled', respondedAt: new Date() },
+      });
+      await tx.contactBlock.deleteMany({
+        where: { OR: [{ blockerId: userId }, { blockedId: userId }] },
+      });
+      await tx.circle.deleteMany({ where: { ownerId: userId } }); // cascades memberships
+      await tx.session.deleteMany({ where: { userId } });
+      await tx.userRole.updateMany({
+        where: { userId },
+        data: { isActive: false },
+      });
+      await tx.subscription.updateMany({
+        where: { userId },
+        data: { status: 'cancelled' },
+      });
+
+      // Scrub PII; keep the row so tasks/comments/workspaces stay intact.
+      // (deletedAt was already set by the atomic claim above.)
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          firstName: 'Удалённый пользователь',
+          lastName: null,
+          phone: `deleted:${userId}`, // frees the real number for re-registration
+          email: null,
+          password: deadHash, // unusable
+          avatar: null,
+          bio: null,
+          city: null,
+          dateOfBirth: null,
+          maritalStatus: null,
+          socialLinks: Prisma.JsonNull,
+          cardVisibility: Prisma.JsonNull,
+          deletionScheduledAt: null,
+        },
+      });
+      return true;
+    });
+
+    // Restored / re-scheduled in the meantime → nothing was changed, skip.
+    if (!anonymized) return;
+
+    // Bust caches for the anonymized user and every former contact.
+    await this.redis.invalidateUserProfile(userId);
+    await this.redis.del(`user:${userId}:roles`);
+    await Promise.all(
+      [...others].map((id) => this.redis.invalidateUserProfile(id)),
+    );
   }
 
   async findByPhone(phone: string) {

@@ -49,3 +49,6 @@ apps/api/prisma/migrations/
 
 # MCP config — contains tokens, never commit
 .mcp.json
+
+# Личная шпаргалка с паролями — не коммитить
+acc.txt

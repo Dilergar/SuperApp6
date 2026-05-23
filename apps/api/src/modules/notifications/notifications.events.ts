@@ -120,32 +120,34 @@ export class NotificationsEventsListener implements OnModuleInit {
   }
 
   // ------------------------------------------------------------
-  // Tasks (stub for future wire-up)
+  // Tasks — every user-facing task.* event carries `recipientIds` and a
+  // payload templated by NOTIFICATION_REGISTRY ({{taskTitle}}, {{byName}}).
+  // task.created / task.updated / task.deleted are NOT notifications.
   // ------------------------------------------------------------
+  private static readonly TASK_NOTIFICATION_TYPES: NotificationType[] = [
+    'task.assigned',
+    'task.submitted',
+    'task.accepted',
+    'task.returned',
+    'task.completed',
+    'task.commented',
+    'task.due_soon',
+    'task.overdue',
+  ];
+
   private async handleTaskEvent(event: AppEvent) {
+    const type = event.type as NotificationType;
+    if (!NotificationsEventsListener.TASK_NOTIFICATION_TYPES.includes(type)) return;
+
     const payload = event.payload;
-    switch (event.type) {
-      case 'task.assigned': {
-        const assigneeId = payload['assigneeId'] as string | undefined;
-        if (!assigneeId) return;
-        await this.emit(assigneeId, 'task.assigned', payload);
-        return;
-      }
-      case 'task.completed': {
-        const creatorId = payload['creatorId'] as string | undefined;
-        if (!creatorId) return;
-        await this.emit(creatorId, 'task.completed', payload);
-        return;
-      }
-      case 'task.commented': {
-        const notifyUserIds = (payload['notifyUserIds'] as string[] | undefined) ?? [];
-        for (const uid of notifyUserIds) {
-          await this.emit(uid, 'task.commented', payload);
-        }
-        return;
-      }
-      default:
-        return;
+    const recipientIds = (payload['recipientIds'] as string[] | undefined) ?? [];
+    const actorId = payload['byUserId'] as string | undefined;
+    const taskId = payload['taskId'] as string | undefined;
+    const actionUrl = taskId ? `/tasks/${taskId}` : null;
+
+    for (const uid of [...new Set(recipientIds)]) {
+      if (uid === actorId) continue; // never notify the actor about their own action
+      await this.notifications.notify(uid, type, payload, { actionUrl });
     }
   }
 

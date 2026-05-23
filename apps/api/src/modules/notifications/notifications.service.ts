@@ -53,14 +53,21 @@ export class NotificationsService {
     const limit = NOTIFICATION_LIMITS.pageSize;
 
     const where: Prisma.NotificationWhereInput = { userId };
-    if (cursor) {
-      where.createdAt = { lt: new Date(cursor) };
+    const decoded = decodeCursor(cursor);
+    if (decoded) {
+      // Keyset on (createdAt, id): everything strictly "older" than the cursor.
+      // Using id as a tiebreaker prevents skipping/duplicating rows that share
+      // the same createdAt (EventBus fan-out can create several per millisecond).
+      where.OR = [
+        { createdAt: { lt: decoded.createdAt } },
+        { createdAt: decoded.createdAt, id: { lt: decoded.id } },
+      ];
     }
 
     const [items, unreadCount] = await Promise.all([
       this.db.notification.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: limit + 1,
       }),
       this.db.notification.count({
@@ -70,10 +77,9 @@ export class NotificationsService {
 
     const hasMore = items.length > limit;
     const page = hasMore ? items.slice(0, limit) : items;
+    const last = page[page.length - 1];
     const nextCursor =
-      hasMore && page.length > 0
-        ? page[page.length - 1].createdAt.toISOString()
-        : null;
+      hasMore && last ? encodeCursor(last.createdAt, last.id) : null;
 
     return {
       items: page.map((n) => ({
@@ -122,6 +128,20 @@ export class NotificationsService {
     }
     await this.db.notification.delete({ where: { id } });
   }
+
+  /**
+   * Prune notifications older than the retention window so the table stays
+   * bounded. Run by NotificationsCron. Returns the number of rows deleted.
+   */
+  async cleanupOld(): Promise<number> {
+    const cutoff = new Date(
+      Date.now() - NOTIFICATION_LIMITS.retentionDays * 24 * 60 * 60 * 1000,
+    );
+    const res = await this.db.notification.deleteMany({
+      where: { createdAt: { lt: cutoff } },
+    });
+    return res.count;
+  }
 }
 
 /**
@@ -135,4 +155,21 @@ function renderTemplate(template: string, payload: Record<string, unknown>): str
     if (value === undefined || value === null) return '';
     return String(value);
   });
+}
+
+/** Opaque keyset cursor: "<ISO createdAt>_<id>". Neither part contains '_'. */
+function encodeCursor(createdAt: Date, id: string): string {
+  return `${createdAt.toISOString()}_${id}`;
+}
+
+function decodeCursor(
+  cursor?: string,
+): { createdAt: Date; id: string } | null {
+  if (!cursor) return null;
+  const idx = cursor.indexOf('_');
+  if (idx === -1) return null; // malformed → treat as first page
+  const createdAt = new Date(cursor.slice(0, idx));
+  const id = cursor.slice(idx + 1);
+  if (Number.isNaN(createdAt.getTime()) || !id) return null;
+  return { createdAt, id };
 }

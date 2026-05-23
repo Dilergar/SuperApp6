@@ -7,66 +7,115 @@ import {
 } from '@nestjs/common';
 import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
+import { RedisService } from '../../shared/redis/redis.service';
 import {
   CONTACT_LIMITS,
   resolveCardVisibility,
+  mergeVisibilities,
   type CardVisibility,
-  type RelationshipType,
   type Contact,
   type ContactUserCard,
 } from '@superapp/shared';
 import type { Prisma } from '@prisma/client';
 
 /**
- * ContactsService — the bilateral social-graph core.
+ * ContactsService — the bilateral social-graph core ("Окружение").
  *
- * Responsibilities:
- *   - Canonical ordering (userAId < userBId) for every ContactLink write.
- *   - Invitation lifecycle: send / accept / reject / cancel / resend,
- *     including throttling and blocks.
- *   - External invitations: toUserId can be null until the recipient
- *     registers; activatePendingInvitationsForNewUser is called from
- *     AuthService.register and wires them back in.
- *   - Emits events on EventBus — modules like notifications hook in
- *     without any direct dependency on this service.
+ * Model:
+ *   - Each side assigns exactly ONE role to the other (asymmetric:
+ *     roleAForB = role A gave B, roleBForA = role B gave A). The role is
+ *     shown on the card. There is no separate category/label concept.
+ *   - Card visibility is configured PER GROUP (Circle) by the owner.
+ *     When a viewer is in several of the owner's groups → UNION of those
+ *     groups' visibility; in none → the owner's default
+ *     (users.card_visibility).
  *
  * Rules encoded here (not in Prisma):
  *   - Canonical ordering userA < userB.
- *   - Throttle: CONTACT_LIMITS.maxInvitationsPer24h outgoing / 24h.
- *   - Resend cooldown: CONTACT_LIMITS.resendCooldownHours.
- *   - Max pending outgoing: CONTACT_LIMITS.maxPendingOutgoingInvitations.
+ *   - Throttle / cooldown / max-pending from CONTACT_LIMITS.
  */
 @Injectable()
 export class ContactsService {
   constructor(
     private db: DatabaseService,
     private events: EventBusService,
+    private redis: RedisService,
   ) {}
 
   // ============================================================
   // Contacts — list / read / update / delete
   // ============================================================
 
-  /** All confirmed contacts for a user, mapped to the me/them view. */
-  async listContacts(userId: string): Promise<Contact[]> {
+  /**
+   * Confirmed contacts for a user (me/them view), newest first.
+   * Cursor-paginated on (confirmedAt, id) so the hottest list query in the
+   * app stays bounded regardless of how large an environment grows.
+   */
+  async listContacts(
+    userId: string,
+    cursor?: string,
+  ): Promise<{ items: Contact[]; nextCursor: string | null }> {
+    const limit = CONTACT_LIMITS.contactsPageSize;
+    const decoded = decodeLinkCursor(cursor);
+
+    const where: Prisma.ContactLinkWhereInput = {
+      OR: [{ userAId: userId }, { userBId: userId }],
+    };
+    if (decoded) {
+      // Keyset: rows strictly "older" than the cursor (confirmedAt, id).
+      where.AND = {
+        OR: [
+          { confirmedAt: { lt: decoded.confirmedAt } },
+          { confirmedAt: decoded.confirmedAt, id: { lt: decoded.id } },
+        ],
+      };
+    }
+
+    const links = await this.db.contactLink.findMany({
+      where,
+      include: {
+        userA: { select: this.userCardSelect() },
+        userB: { select: this.userCardSelect() },
+        memberships: { select: this.membershipSelect() },
+      },
+      orderBy: [{ confirmedAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+    });
+
+    const hasMore = links.length > limit;
+    const page = hasMore ? links.slice(0, limit) : links;
+    const last = page[page.length - 1];
+    const nextCursor =
+      hasMore && last ? encodeLinkCursor(last.confirmedAt, last.id) : null;
+
+    return {
+      items: page.map((link) => this.mapLinkToContact(link, userId)),
+      nextCursor,
+    };
+  }
+
+  /**
+   * Resolve a specific set of the user's links to the me/them view. Used by
+   * CirclesService to render one group's members WITHOUT loading the owner's
+   * entire environment.
+   */
+  async listContactsByLinkIds(
+    userId: string,
+    linkIds: string[],
+  ): Promise<Contact[]> {
+    if (linkIds.length === 0) return [];
     const links = await this.db.contactLink.findMany({
       where: {
+        id: { in: linkIds },
         OR: [{ userAId: userId }, { userBId: userId }],
       },
       include: {
-        userA: {
-          select: this.userCardSelect(),
-        },
-        userB: {
-          select: this.userCardSelect(),
-        },
-        memberships: {
-          select: { circleId: true, circle: { select: { ownerId: true } } },
-        },
+        userA: { select: this.userCardSelect() },
+        userB: { select: this.userCardSelect() },
+        memberships: { select: this.membershipSelect() },
       },
-      orderBy: { confirmedAt: 'desc' },
+      orderBy: [{ confirmedAt: 'desc' }, { id: 'desc' }],
     });
-
     return links.map((link) => this.mapLinkToContact(link, userId));
   }
 
@@ -76,9 +125,7 @@ export class ContactsService {
       include: {
         userA: { select: this.userCardSelect() },
         userB: { select: this.userCardSelect() },
-        memberships: {
-          select: { circleId: true, circle: { select: { ownerId: true } } },
-        },
+        memberships: { select: this.membershipSelect() },
       },
     });
     if (!link) throw new NotFoundException('Контакт не найден');
@@ -91,7 +138,7 @@ export class ContactsService {
   async updateContact(
     userId: string,
     linkId: string,
-    data: { myLabelForThem?: string | null; relationshipType?: RelationshipType },
+    data: { myRole?: string | null },
   ) {
     const link = await this.db.contactLink.findUnique({ where: { id: linkId } });
     if (!link) throw new NotFoundException('Контакт не найден');
@@ -99,14 +146,10 @@ export class ContactsService {
     if (!side) throw new ForbiddenException('Нет доступа к этому контакту');
 
     const patch: Prisma.ContactLinkUpdateInput = {};
-    if (data.myLabelForThem !== undefined) {
-      // Only my own label (the one I put on them on my card).
-      if (side === 'A') patch.labelAForB = data.myLabelForThem;
-      else patch.labelBForA = data.myLabelForThem;
-    }
-    if (data.relationshipType !== undefined) {
-      // relationshipType is shared — either side can update the broad bucket.
-      patch.relationshipType = data.relationshipType;
+    if (data.myRole !== undefined) {
+      // Only the role I gave them (shown on my card for them).
+      if (side === 'A') patch.roleAForB = data.myRole;
+      else patch.roleBForA = data.myRole;
     }
 
     const updated = await this.db.contactLink.update({
@@ -115,9 +158,7 @@ export class ContactsService {
       include: {
         userA: { select: this.userCardSelect() },
         userB: { select: this.userCardSelect() },
-        memberships: {
-          select: { circleId: true, circle: { select: { ownerId: true } } },
-        },
+        memberships: { select: this.membershipSelect() },
       },
     });
     return this.mapLinkToContact(updated, userId);
@@ -141,6 +182,11 @@ export class ContactsService {
       },
       'contacts',
     );
+
+    await Promise.all([
+      this.redis.invalidateUserProfile(link.userAId),
+      this.redis.invalidateUserProfile(link.userBId),
+    ]);
   }
 
   // ============================================================
@@ -151,9 +197,8 @@ export class ContactsService {
     fromUserId: string,
     data: {
       toPhone: string;
-      relationshipType: RelationshipType;
-      proposedLabelForRecipient?: string;
-      proposedLabelForSender?: string;
+      proposedRoleForRecipient?: string;
+      proposedRoleForSender?: string;
       message?: string;
       autoAddToCircleIds?: string[];
     },
@@ -193,7 +238,7 @@ export class ContactsService {
         where: { userAId_userBId: { userAId: a, userBId: b } },
       });
       if (existingLink) {
-        throw new ConflictException('Этот пользователь уже в ваших контактах');
+        throw new ConflictException('Этот пользователь уже в вашем окружении');
       }
 
       const existingPending = await this.db.contactInvitation.findFirst({
@@ -270,9 +315,8 @@ export class ContactsService {
         fromUserId,
         toUserId: recipient?.id ?? null,
         toPhone: data.toPhone,
-        proposedLabelForRecipient: data.proposedLabelForRecipient ?? null,
-        proposedLabelForSender: data.proposedLabelForSender ?? null,
-        relationshipType: data.relationshipType,
+        proposedRoleForRecipient: data.proposedRoleForRecipient ?? null,
+        proposedRoleForSender: data.proposedRoleForSender ?? null,
         message: data.message ?? null,
         status: 'pending',
         expiresAt,
@@ -288,8 +332,7 @@ export class ContactsService {
         fromPhone: sender.phone,
         toUserId: recipient?.id ?? null,
         toPhone: data.toPhone,
-        proposedLabelForRecipient: invitation.proposedLabelForRecipient,
-        relationshipType: invitation.relationshipType,
+        proposedRoleForRecipient: invitation.proposedRoleForRecipient,
         message: invitation.message,
       },
       'contacts',
@@ -302,9 +345,8 @@ export class ContactsService {
     userId: string,
     invitationId: string,
     data: {
-      myLabelForThem?: string;
-      theirLabelForMe?: string;
-      relationshipType?: RelationshipType;
+      myRole?: string;
+      theirRole?: string;
       autoAddToCircleIds?: string[];
     },
   ) {
@@ -342,60 +384,58 @@ export class ContactsService {
       throw new ForbiddenException('Принятие приглашения заблокировано');
     }
 
-    // Resolve labels. Sender's side is proposedLabelForRecipient (how sender calls recipient).
-    // Recipient's side is proposedLabelForSender (how recipient calls sender).
-    const senderLabelForRecipient =
-      data.theirLabelForMe ?? invitation.proposedLabelForRecipient ?? null;
-    const recipientLabelForSender =
-      data.myLabelForThem ?? invitation.proposedLabelForSender ?? null;
+    // Resolve roles. Sender's view of recipient = proposedRoleForRecipient
+    // (recipient may override via theirRole). Recipient's view of sender =
+    // proposedRoleForSender (recipient may override via myRole).
+    const senderRoleForRecipient =
+      data.theirRole ?? invitation.proposedRoleForRecipient ?? null;
+    const recipientRoleForSender =
+      data.myRole ?? invitation.proposedRoleForSender ?? null;
 
     const [aId, bId] = canonical(invitation.fromUserId, userId);
     const senderIsA = aId === invitation.fromUserId;
-    const labelAForB = senderIsA ? senderLabelForRecipient : recipientLabelForSender;
-    const labelBForA = senderIsA ? recipientLabelForSender : senderLabelForRecipient;
+    const roleAForB = senderIsA ? senderRoleForRecipient : recipientRoleForSender;
+    const roleBForA = senderIsA ? recipientRoleForSender : senderRoleForRecipient;
 
-    const relationshipType = data.relationshipType ?? invitation.relationshipType;
-
-    // Transaction: create link, mark invitation accepted, add to circles (recipient side only).
+    // Transaction: create link, mark invitation accepted, add to groups (recipient side only).
     // @@unique([userAId, userBId]) prevents duplicates from concurrent accepts.
     let link;
     try {
-    link = await this.db.$transaction(async (tx) => {
-      const created = await tx.contactLink.create({
-        data: {
-          userAId: aId,
-          userBId: bId,
-          labelAForB,
-          labelBForA,
-          relationshipType,
-          initiatedBy: invitation.fromUserId,
-        },
-      });
-
-      await tx.contactInvitation.update({
-        where: { id: invitation.id },
-        data: { status: 'accepted', respondedAt: new Date() },
-      });
-
-      // Recipient can auto-add new link to their own circles.
-      if (data.autoAddToCircleIds && data.autoAddToCircleIds.length > 0) {
-        const myCircles = await tx.circle.findMany({
-          where: { id: { in: data.autoAddToCircleIds }, ownerId: userId },
-          select: { id: true },
+      link = await this.db.$transaction(async (tx) => {
+        const created = await tx.contactLink.create({
+          data: {
+            userAId: aId,
+            userBId: bId,
+            roleAForB,
+            roleBForA,
+            initiatedBy: invitation.fromUserId,
+          },
         });
-        if (myCircles.length > 0) {
-          await tx.circleMembership.createMany({
-            data: myCircles.map((c) => ({
-              circleId: c.id,
-              contactLinkId: created.id,
-            })),
-            skipDuplicates: true,
-          });
-        }
-      }
 
-      return created;
-    });
+        await tx.contactInvitation.update({
+          where: { id: invitation.id },
+          data: { status: 'accepted', respondedAt: new Date() },
+        });
+
+        // Recipient can auto-add new link to their own groups.
+        if (data.autoAddToCircleIds && data.autoAddToCircleIds.length > 0) {
+          const myCircles = await tx.circle.findMany({
+            where: { id: { in: data.autoAddToCircleIds }, ownerId: userId },
+            select: { id: true },
+          });
+          if (myCircles.length > 0) {
+            await tx.circleMembership.createMany({
+              data: myCircles.map((c) => ({
+                circleId: c.id,
+                contactLinkId: created.id,
+              })),
+              skipDuplicates: true,
+            });
+          }
+        }
+
+        return created;
+      });
     } catch (err) {
       if (err && typeof err === 'object' && 'code' in err && (err as { code?: string }).code === 'P2002') {
         throw new ConflictException('Связь уже существует');
@@ -419,6 +459,12 @@ export class ContactsService {
       },
       'contacts',
     );
+
+    // Both sides gained a contact → bust cached /users/me (contactsCount).
+    await Promise.all([
+      this.redis.invalidateUserProfile(invitation.fromUserId),
+      this.redis.invalidateUserProfile(userId),
+    ]);
 
     const senderName = formatName(
       invitation.fromUser.firstName,
@@ -530,9 +576,8 @@ export class ContactsService {
     // Simply create a new invitation with the same details.
     return this.sendInvitation(userId, {
       toPhone: invitation.toPhone,
-      relationshipType: invitation.relationshipType as RelationshipType,
-      proposedLabelForRecipient: invitation.proposedLabelForRecipient ?? undefined,
-      proposedLabelForSender: invitation.proposedLabelForSender ?? undefined,
+      proposedRoleForRecipient: invitation.proposedRoleForRecipient ?? undefined,
+      proposedRoleForSender: invitation.proposedRoleForSender ?? undefined,
       message: invitation.message ?? undefined,
     });
   }
@@ -541,13 +586,18 @@ export class ContactsService {
     const invitations = await this.db.contactInvitation.findMany({
       where: { toUserId: userId, status: 'pending' },
       orderBy: { createdAt: 'desc' },
+      take: 200, // safety cap; pending invitations are bounded in practice
       include: {
         fromUser: { select: this.userCardSelect() },
       },
     });
     return invitations.map((inv) => ({
       ...this.serializeInvitation(inv),
-      from: this.toContactUserCard(inv.fromUser, {}),
+      // No link/groups yet → sender's default visibility.
+      from: this.toContactUserCard(
+        inv.fromUser,
+        resolveCardVisibility(inv.fromUser.cardVisibility as Partial<CardVisibility> | null),
+      ),
     }));
   }
 
@@ -555,13 +605,19 @@ export class ContactsService {
     const invitations = await this.db.contactInvitation.findMany({
       where: { fromUserId: userId, status: 'pending' },
       orderBy: { createdAt: 'desc' },
+      take: CONTACT_LIMITS.maxPendingOutgoingInvitations,
       include: {
         toUser: { select: this.userCardSelect() },
       },
     });
     return invitations.map((inv) => ({
       ...this.serializeInvitation(inv),
-      to: inv.toUser ? this.toContactUserCard(inv.toUser, {}) : null,
+      to: inv.toUser
+        ? this.toContactUserCard(
+            inv.toUser,
+            resolveCardVisibility(inv.toUser.cardVisibility as Partial<CardVisibility> | null),
+          )
+        : null,
     }));
   }
 
@@ -601,8 +657,7 @@ export class ContactsService {
           fromPhone: inv.fromUser.phone,
           toUserId: userId,
           toPhone: phone,
-          proposedLabelForRecipient: inv.proposedLabelForRecipient,
-          relationshipType: inv.relationshipType,
+          proposedRoleForRecipient: inv.proposedRoleForRecipient,
           message: inv.message,
         },
         'contacts',
@@ -623,6 +678,7 @@ export class ContactsService {
         },
       },
       orderBy: { createdAt: 'desc' },
+      take: 200, // safety cap
     });
     return blocks.map((b) => ({
       id: b.id,
@@ -674,6 +730,11 @@ export class ContactsService {
       { blockerId: userId, blockedId: targetUserId },
       'contacts',
     );
+
+    await Promise.all([
+      this.redis.invalidateUserProfile(userId),
+      this.redis.invalidateUserProfile(targetUserId),
+    ]);
     return block;
   }
 
@@ -682,13 +743,11 @@ export class ContactsService {
    * Called by a cron job or manually.
    */
   async cleanupInvitations() {
-    // Mark pending invitations past their TTL as expired
     await this.db.contactInvitation.updateMany({
       where: { status: 'pending', expiresAt: { lt: new Date() } },
       data: { status: 'expired', respondedAt: new Date() },
     });
 
-    // Delete all non-pending invitations (accepted/rejected/cancelled/expired)
     await this.db.contactInvitation.deleteMany({
       where: { status: { not: 'pending' } },
     });
@@ -717,7 +776,14 @@ export class ContactsService {
       email: true,
       maritalStatus: true,
       socialLinks: true,
-      cardVisibility: true,
+      cardVisibility: true, // owner's DEFAULT (ungrouped) visibility
+    } as const;
+  }
+
+  private membershipSelect() {
+    return {
+      circleId: true,
+      circle: { select: { ownerId: true, cardVisibility: true } },
     } as const;
   }
 
@@ -730,19 +796,45 @@ export class ContactsService {
     return null;
   }
 
+  /**
+   * Effective visibility for the card OWNER as seen by the VIEWER:
+   * union of the owner's groups that contain this link; if the viewer is
+   * in none of the owner's groups → the owner's default visibility.
+   */
+  private resolveVisibilityForViewer(
+    ownerId: string,
+    ownerDefault: Prisma.JsonValue | null,
+    memberships: {
+      circle: { ownerId: string; cardVisibility: Prisma.JsonValue | null };
+    }[],
+  ): CardVisibility {
+    const groupVis = memberships
+      .filter((m) => m.circle.ownerId === ownerId)
+      .map((m) =>
+        resolveCardVisibility(
+          m.circle.cardVisibility as Partial<CardVisibility> | null,
+        ),
+      );
+    return groupVis.length > 0
+      ? mergeVisibilities(groupVis)
+      : resolveCardVisibility(ownerDefault as Partial<CardVisibility> | null);
+  }
+
   private mapLinkToContact(
     link: {
       id: string;
       userAId: string;
       userBId: string;
-      labelAForB: string | null;
-      labelBForA: string | null;
-      relationshipType: string;
+      roleAForB: string | null;
+      roleBForA: string | null;
       initiatedBy: string;
       confirmedAt: Date;
       userA: UserCardRow;
       userB: UserCardRow;
-      memberships: { circleId: string; circle: { ownerId: string } }[];
+      memberships: {
+        circleId: string;
+        circle: { ownerId: string; cardVisibility: Prisma.JsonValue | null };
+      }[];
     },
     requestingUserId: string,
   ): Contact {
@@ -751,19 +843,27 @@ export class ContactsService {
       throw new ForbiddenException('Нет доступа к этому контакту');
     }
     const them = side === 'A' ? link.userB : link.userA;
-    const myLabelForThem = side === 'A' ? link.labelAForB : link.labelBForA;
-    const theirLabelForMe = side === 'A' ? link.labelBForA : link.labelAForB;
+    const myRole = side === 'A' ? link.roleAForB : link.roleBForA;
+    const theirRole = side === 'A' ? link.roleBForA : link.roleAForB;
 
+    // Groups OF MINE that contain this contact (for UI chips).
     const myCircleIds = link.memberships
       .filter((m) => m.circle.ownerId === requestingUserId)
       .map((m) => m.circleId);
 
+    // Visibility = how the OWNER (them) exposes their card to me, based on
+    // which of THEM's groups I'm in (union), else them's default.
+    const visibility = this.resolveVisibilityForViewer(
+      them.id,
+      them.cardVisibility,
+      link.memberships,
+    );
+
     return {
       linkId: link.id,
-      relationshipType: link.relationshipType as RelationshipType,
-      them: this.toContactUserCard(them, {}),
-      myLabelForThem,
-      theirLabelForMe,
+      them: this.toContactUserCard(them, visibility),
+      myRole,
+      theirRole,
       initiatedBy: link.initiatedBy,
       confirmedAt: link.confirmedAt.toISOString(),
       myCircleIds,
@@ -771,18 +871,14 @@ export class ContactsService {
   }
 
   /**
-   * Build a ContactUserCard from a User row, applying the card owner's
-   * cardVisibility. Always-visible fields (firstName, lastName, phone) are
-   * never masked; optional fields are nulled out when the owner has them
-   * hidden.
+   * Build a ContactUserCard from a User row, applying an already-resolved
+   * visibility. Always-visible fields (firstName, lastName, phone) are
+   * never masked; optional fields are nulled out when hidden.
    */
   private toContactUserCard(
     row: UserCardRow,
-    _ctx: Record<string, unknown>,
+    visibility: CardVisibility,
   ): ContactUserCard {
-    const visibility = resolveCardVisibility(
-      row.cardVisibility as Partial<CardVisibility> | null,
-    );
     return {
       id: row.id,
       phone: row.phone,
@@ -810,9 +906,8 @@ export class ContactsService {
     fromUserId: string;
     toUserId: string | null;
     toPhone: string;
-    proposedLabelForSender: string | null;
-    proposedLabelForRecipient: string | null;
-    relationshipType: string;
+    proposedRoleForSender: string | null;
+    proposedRoleForRecipient: string | null;
     message: string | null;
     status: string;
     expiresAt: Date;
@@ -825,9 +920,8 @@ export class ContactsService {
       fromUserId: inv.fromUserId,
       toUserId: inv.toUserId,
       toPhone: inv.toPhone,
-      proposedLabelForSender: inv.proposedLabelForSender,
-      proposedLabelForRecipient: inv.proposedLabelForRecipient,
-      relationshipType: inv.relationshipType as RelationshipType,
+      proposedRoleForSender: inv.proposedRoleForSender,
+      proposedRoleForRecipient: inv.proposedRoleForRecipient,
       message: inv.message,
       status: inv.status as
         | 'pending'
@@ -865,6 +959,23 @@ type UserCardRow = {
 /** Canonical ordering: smaller UUID first. Enforced at the service layer. */
 function canonical(a: string, b: string): [string, string] {
   return a < b ? [a, b] : [b, a];
+}
+
+/** Opaque keyset cursor for the contacts list: "<ISO confirmedAt>_<id>". */
+function encodeLinkCursor(confirmedAt: Date, id: string): string {
+  return `${confirmedAt.toISOString()}_${id}`;
+}
+
+function decodeLinkCursor(
+  cursor?: string,
+): { confirmedAt: Date; id: string } | null {
+  if (!cursor) return null;
+  const idx = cursor.indexOf('_');
+  if (idx === -1) return null;
+  const confirmedAt = new Date(cursor.slice(0, idx));
+  const id = cursor.slice(idx + 1);
+  if (Number.isNaN(confirmedAt.getTime()) || !id) return null;
+  return { confirmedAt, id };
 }
 
 function formatName(first: string, last: string | null): string {

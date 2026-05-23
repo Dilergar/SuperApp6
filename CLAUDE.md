@@ -1,6 +1,19 @@
 # SuperApp6
 
-SuperApp6 — одно приложение, один аккаунт, всё что нужно. Суперапп для Казахстана (аналог WeChat).
+**SuperApp6** — большая экосистема, закрывающая все жизненные задачи: по сути **«ERP для жизни»**. Один аккаунт, один `user_id` навсегда, десятки сервисов для совместной работы между близкими людьми. В будущем — отдельный раздел **SuperApp6 Business** для компаний. (Идея на стыке суперапп-подхода WeChat и ERP; рынок — Казахстан.)
+
+Примеры сервисов экосистемы (их будут десятки):
+- **Задачник** — задачи друг другу (напр. Мама ставит задачу Сыну), подзадачи, сроки, коины.
+- **Календарь** — события + задачи из Задачника; шаринг (Сын создал «тренировка 19:00» и поделился с Мамой).
+- Чат, Финансы, Jobs Marketplace и т.д. — все «между людьми».
+
+### Circle — приложение-фундамент экосистемы
+
+**Circle** (для пользователя — **«Моё окружение»**) — первый и главный сервис, фундамент, на котором стоят все остальные. Он даёт две вещи:
+1. **Добавить человека с ролью как в жизни.** Муж в жизни → добавляешь как «Муж»; коллега → «Коллега». Ровно одна роль на сторону, она же подпись на карточке.
+2. **Сгруппировать** людей в свои Группы («Семья», «Родственники», «Коллеги»).
+
+Благодаря Circle любой другой сервис SuperApp6 умеет работать «между людьми»: ставить задачи друг другу, шэрить календари, делиться внутри Группы. Видимость данных карточки тоже настраивается по Группам. Подробности модели — раздел «Окружение (Social Graph)» ниже.
 
 ## Дизайн-система
 
@@ -27,9 +40,9 @@ SuperApp6/                       # Монорепо (pnpm + Turborepo)
 │   │   │   │   └── roles/       # Universal Identity: UserRole (user_id, role, context, tenant_id)
 │   │   │   ├── modules/         # Функциональные модули (добавляются со временем)
 │   │   │   │   ├── contacts/    # ✅ Бэкенд социального графа: ContactLink, приглашения, блоки (обслуживает Окружение)
-│   │   │   │   ├── circles/     # ✅ Папки внутри Окружения (Circle + CircleMembership)
+│   │   │   │   ├── circles/     # ✅ Группы внутри Окружения (Circle + CircleMembership + cardVisibility)
 │   │   │   │   ├── notifications/ # ✅ Cross-module лента уведомлений (@Global)
-│   │   │   │   ├── tasks/       # Задачи, подзадачи, назначение, коины
+│   │   │   │   ├── tasks/       # ✅ Task Manager: роли (Постановщик/Исполнитель/Соисполнитель/Наблюдатель), Группы, приёмка, дедлайны/повторы, коины-намерение
 │   │   │   │   └── calendar/    # Календарь, интеграция Google, шаринг
 │   │   │   └── shared/          # Инфраструктура: Database, Redis, EventBus, Guards, Decorators
 │   │   └── prisma/              # Схема базы данных
@@ -41,7 +54,7 @@ SuperApp6/                       # Монорепо (pnpm + Turborepo)
 │   └── web/                     # Next.js 15 (веб-версия)
 │       └── src/app/             # App Router + Tailwind CSS v4
 │           ├── circles/         # ✅ "Моё окружение" + PersonCard.tsx (compact/full modes)
-│           ├── profile/         # ✅ Профиль пользователя (сайдбар + секции)
+│           ├── profile/         # ✅ Профиль: layout (сайдбар) + [section]/ роуты (/profile/<секция>)
 │           ├── dashboard/       # Главная страница
 │           ├── login/           # Авторизация
 │           └── register/        # Регистрация
@@ -59,7 +72,7 @@ SuperApp6/                       # Монорепо (pnpm + Turborepo)
 ## Архитектура
 
 ### Модульный монолит
-Каждый сервис — изолированный NestJS модуль. Модули общаются через **EventBus**, не через прямой импорт. Любой модуль можно вытащить в микросервис позже без переписывания.
+Каждый сервис — изолированный NestJS модуль. Модули общаются через **EventBus** (на Redis Streams — события доходят между инстансами), не через прямой импорт. Документированные исключения: `AuthService`→`ContactsService` (активация приглашений при регистрации) и `CirclesService`→`ContactsService` (рендер участников группы) — прямые вызовы внутри одного bounded-context.
 
 ### Universal Identity
 Один `user_id` — навсегда. Роли не в users-таблице, а в отдельной `user_roles(user_id, role, context, tenant_id)`.
@@ -75,34 +88,38 @@ SuperApp6/                       # Монорепо (pnpm + Turborepo)
 
 ### Окружение (Social Graph) — фундаментальный модуль
 
+Это и есть **приложение-фундамент Circle** (см. «Circle — приложение-фундамент экосистемы» выше). На нём строятся Задачник, Календарь, Чат, Финансы, Jobs Marketplace — любой сервис, где нужно действие «между людьми» (поставить задачу, расшарить календарь). Поэтому модель здесь — несущая; менять её осторожно.
+
 > **ВАЖНО:** Слово "Контакты" НЕ используется в UI и документации. Для пользователя всё — это **"Окружение"**. Бэкенд-модули `contacts/` и `circles/` — это внутренняя реализация.
 
-**Окружение** — у каждого пользователя одно. Это плоский список всех людей с подтверждённой двусторонней связью. Папки (Семья, Друзья, Коллеги) — опциональная группировка внутри.
+**Окружение** — у каждого пользователя одно. Это плоский список всех людей с подтверждённой двусторонней связью; у каждого ровно одна роль на сторону. Группы (Семья, Родственники, Коллеги) — пользователь создаёт их сам; по Группам настраивается видимость карточки.
 
-**Flow:** Ввести номер → выбрать роли → отправить приглашение → получатель принимает → оба видят друг друга в своих окружениях → каждый сам раскладывает по папкам.
+**Flow:** Ввести номер → выбрать свою роль и его роль → отправить приглашение → получатель принимает/отклоняет → оба видят друг друга в своих окружениях → каждый сам раскладывает по Группам.
 
 **Ключевые сущности (Prisma):**
 - `ContactLink` — подтверждённая связь между двумя пользователями. Отображается как "человек в окружении".
   - Канонический порядок: `userAId < userBId` (лексикографически), чтобы `@@unique([userAId, userBId])` работал независимо от того, кто инициировал.
-  - Асимметричные метки: `labelAForB` (как A называет B, напр. "жена") и `labelBForA` (как B называет A, напр. "муж"). Каждая сторона сама решает, как подписать другую на своей карточке.
-  - `relationshipType`: family / romantic / friend / professional / acquaintance / other.
+  - **Одна роль на сторону** (асимметрично): `roleAForB` (роль, которую A дал B, напр. "Жена") и `roleBForA` (роль B для A, напр. "Муж"). Prisma-поля `roleAForB`/`roleBForA` через `@map("label_a_for_b")`/`@map("label_b_for_a")` (DB-колонки сохранены — данные не теряются при миграции). Роль показывается на карточке. **Нет** `relationshipType` и **нет** отдельных «меток» — это убрано как лишнее.
   - `initiatedBy`: user_id того, кто отправил приглашение (для аудита).
   - Удаление — двустороннее: удаление строки убирает связь для обоих.
 - `ContactInvitation` — pending запрос на добавление в окружение.
   - `toUserId` nullable: `null` когда номер ещё не зарегистрирован в SuperApp6 (external invitation).
   - При регистрации нового пользователя: `AuthService.register` вызывает `ContactsService.activatePendingInvitationsForNewUser(userId, phone)` → все invitation с этим phone получают `toUserId = newUser.id` и приглашающий видит активацию через уведомление.
-  - `proposedLabelForSender` / `proposedLabelForRecipient` — обе стороны могут предложить, как называть друг друга; получатель может переписать при accept.
+  - `proposedRoleForSender` / `proposedRoleForRecipient` (Prisma `@map` на старые `proposed_label_*` колонки) — инвайтер предлагает обе роли; получатель может переписать (`myRole`/`theirRole`) при accept.
   - Status: pending → accepted / rejected / cancelled / expired. TTL 30 дней (см. `CONTACT_LIMITS.invitationTtlDays`).
   - **Нет rejection reason** (решение product-а).
   - Отмена, повторная отправка (с cooldown 24ч), блокировка — поддерживаются.
 - `ContactBlock` — односторонний блок (A блокирует B не означает, что B блокирует A).
-- `Circle` — **папка** внутри окружения владельца для группировки ("Семья", "Друзья", "Коллеги"). У каждого пользователя свои папки. Это НЕ отдельная сущность для пользователя — просто способ навести порядок.
-- `CircleMembership` — M2M между Circle и ContactLink. Один и тот же ContactLink может лежать в папках у обоих сторон независимо.
+- `Circle` — **Группа** внутри окружения владельца ("Семья", "Родственники", "Коллеги"), которую он создаёт и называет сам. Несёт `cardVisibility` (JSONB) — что видят люди из этой Группы. У каждого пользователя свои Группы.
+- `CircleMembership` — M2M между Circle и ContactLink (ручное членство). Один и тот же ContactLink может лежать в Группах обеих сторон независимо.
 
-**Карточка контакта (card visibility):**
-- Всегда видны: `firstName`, `lastName`, `phone`, `role` (метка, которую дала противоположная сторона).
-- Всё остальное (dateOfBirth, age, onlineStatus, maritalStatus, city, bio, extras) — кастомизируется владельцем карточки через `users.card_visibility` (JSONB).
-- Дефолты определены в `@superapp/shared/constants/card-visibility.ts` (`DEFAULT_CARD_VISIBILITY` + `resolveCardVisibility()` merge helper). `null` в БД = использовать дефолты.
+**Карточка контакта (card visibility) — видимость ПО ГРУППАМ:**
+- Всегда видны: `firstName`, `lastName`, `phone`, `role` (роль, которую дала противоположная сторона).
+- Видимость остальных полей (dateOfBirth, age, onlineStatus, maritalStatus, city, bio, email, socialLinks, extras) настраивается **на каждую Группу** (`Circle.cardVisibility` JSONB). Зритель в нескольких Группах владельца → **объединение** (`mergeVisibilities`: поле видно, если разрешено хоть в одной его Группе). Зритель ни в одной Группе → **видимость по умолчанию** = `users.card_visibility` (одиночная `CardVisibility`).
+- Резолв при просмотре: `ContactsService.resolveVisibilityForViewer(ownerId, link.memberships, owner.card_visibility)` — Группы владельца тянутся одним `findMany` в `listContacts` (без N+1).
+- `@superapp/shared/constants/card-visibility.ts`: `DEFAULT_CARD_VISIBILITY`, `resolveCardVisibility`, `mergeVisibilities`. `cardVisibilityObjectSchema` вынесен в `validation/card-visibility.ts` (используется и для `/users/me`, и для `/circles`).
+- Профиль `/profile`: вкладка **«Моя карточка»** — read-only `PersonCard` + селектор «как видит Группа X / По умолчанию»; вкладка **«Моя Анкета»** — данные + тумблеры «Видимость по умолчанию». Видимость каждой Группы редактируется на странице **«Моё окружение»** (выбрал Группу → редактор флагов, debounced `PATCH /circles/:id { cardVisibility }`).
+- Отвергнуто (не возвращаться): «6 авто-категорий relationshipType» и «системная папка Незнакомец?». Та же форма политики «сегмент → видимость» переносится на B2B/маркетплейс через Universal Identity (ключ позже = `UserRole.role`; рассылки — через существующий NotificationsModule).
 
 **Notifications** — отдельный модуль, cross-cutting concern для всех сервисов:
 - `Notification` — generic строка (userId, type, title, body, payload JSON, actionUrl, readAt).
@@ -110,18 +127,18 @@ SuperApp6/                       # Монорепо (pnpm + Turborepo)
 - ContactsService эмитит события на EventBus (`contact.invitation.sent`, `contact.invitation.accepted` и т.д.), NotificationsEventsListener подписывается и создаёт строки в таблице. Так же смогут подписываться PushService, AnalyticsService в будущем.
 
 ### Ключевые паттерны
-- **EventBus**: task.created → calendar автоматически создаёт событие; task.completed → коины начисляются
+- **EventBus**: на Redis Streams + consumer group (`shared/events/event-bus.service.ts`) — событие пересекает инстансы и обрабатывается ровно одним (competing consumers); XAUTOCLAIM подбирает «зависшие» после падения инстанса. `emit/on/onPattern` поверх локального RxJS Subject. contact.* → NotificationsListener создаёт уведомления; task.created → calendar
 - **@superapp/shared**: все типы и валидация в одном пакете, используется API + mobile + web
 - **JWT auth**: access token (15 мин) + refresh token (30 дн), ротация при обновлении, system role в payload
 - **Prisma ORM**: типобезопасные запросы, автогенерация TypeScript типов из схемы БД
-- **Redis**: кэш профилей (5 мин), управление сессиями, будущий pub/sub для реалтайма
+- **Redis**: кэш профилей (5 мин, инвалидируется при изменении контактов/ролей/групп), сессии, шина событий (Streams), общее хранилище счётчиков rate-limit, distributed-lock для cron (`RedisService.withLock`)
 - **Zustand + React Query**: стейт-менеджмент (auth) + серверные данные (задачи, события)
 - **Web auth**: `useAuthStore` (`apps/web/src/lib/stores/auth.ts`) — единственный источник правды, токены в localStorage но только через store. Защищённые страницы используют `useRequireAuth` hook (`apps/web/src/lib/hooks/useRequireAuth.ts`), не копипастят логику. Детали — в Serena memory `web_auth_pattern`.
 
 ### Безопасность
 - Пароли: bcrypt (12 раундов)
-- Refresh tokens: хешируются перед сохранением в БД, ротируются при каждом refresh
-- Rate limiting: 10 req/sec short, 50 req/10sec medium, 200 req/min long
+- Refresh tokens: SHA-256 хеш в БД (детерминированный — ищется по равенству на unique-колонке), ротируются при каждом refresh
+- Rate limiting: глобальный `ThrottlerGuard` (APP_GUARD) + Redis-хранилище счётчиков (общее на все инстансы): 10/сек short, 50/10сек medium, 200/мин long
 - CORS: ограничен списком доменов
 - Валидация: Zod на входе каждого контроллера, whitelist на NestJS уровне
 
@@ -141,8 +158,11 @@ pnpm install
 # 3. Собрать shared пакет (ОБЯЗАТЕЛЬНО перед запуском API)
 cd packages/shared && pnpm build   # или: powershell -Command "cd packages/shared; npx tsc"
 
-# 4. Сгенерировать Prisma клиент и создать таблицы
-cd apps/api && pnpm db:generate && pnpm db:push
+# 4. Сгенерировать Prisma клиент и применить миграции
+cd apps/api && pnpm db:generate && npx prisma migrate deploy
+#    Изменил схему в разработке → pnpm db:migrate (prisma migrate dev: создаёт+применяет миграцию).
+#    БД под управлением prisma migrate (история в prisma/migrations/, baseline 0_init).
+#    ВАЖНО: db push больше НЕ использовать — разойдётся с миграциями.
 
 # 5. Запустить все приложения одновременно
 pnpm dev
@@ -166,7 +186,7 @@ cd apps/api && pnpm db:studio
 - NestJS API: запущен на порту 3001, Swagger на /api/docs
 - Next.js Web: запущен на порту 3000
 - Auth: register (phone, password, firstName, **lastName?, dateOfBirth?**), login, refresh, logout — работает
-- `GET /api/users/me` — возвращает профиль с ролями, **dateOfBirth, cardVisibility (resolved), contactsCount, circlesCount, workspacesCount**
+- `GET /api/users/me` — возвращает профиль с ролями, **dateOfBirth, cardVisibility (одиночная, видимость по умолчанию / без группы), contactsCount, circlesCount, workspacesCount**
 - Universal Identity: таблица `user_roles(user_id, role, context, tenant_id)`, RolesService, @Roles guard
 - JwtAuthGuard зарегистрирован глобально как APP_GUARD
 - GitHub репозиторий: `Dilergar/SuperApp6`
@@ -174,34 +194,38 @@ cd apps/api && pnpm db:studio
 - **Форма /register** принимает lastName + dateOfBirth (оба опциональны)
 - **@superapp/shared** полностью переписан под новый social graph: types, validation, constants
 - **NotificationsModule** (`@Global()`): `notify(userId, type, payload)` с шаблонами из `NOTIFICATION_REGISTRY`, cursor-пагинация, mark-read. `NotificationsEventsListener` подписан на EventBus: `contact.*`, `task.*`, `calendar.*`
-- **ContactsModule** (`@Global()`): бэкенд социального графа — invitation lifecycle (send/accept/reject/cancel/resend), каноническое упорядочение `userA<userB`, throttling через `CONTACT_LIMITS`, блокировки, bilateral delete, me/them mapping с `resolveCardVisibility`. `activatePendingInvitationsForNewUser` вызывается из `AuthService.register`
+- **ContactsModule** (`@Global()`): бэкенд социального графа — invitation lifecycle (send/accept/reject/cancel/resend), каноническое упорядочение `userA<userB`, throttling через `CONTACT_LIMITS`, блокировки, bilateral delete, me/them mapping с `resolveCardVisibilityForRole` (видимость по роли связи). `activatePendingInvitationsForNewUser` вызывается из `AuthService.register`
 - **CirclesModule**: CRUD папок внутри окружения (Circle), `addMember`/`removeMember` через CircleMembership M2M, reorder, лимиты из `CONTACT_LIMITS`
+- **TasksModule** ✅: Task Manager с ролями (Bitrix24): Постановщик=creator + Исполнитель/Соисполнитель/Наблюдатель в `TaskParticipant` (одна роль на пользователя, своё под-состояние `pending→submitted→accepted/returned`). Назначение из окружения (`assertInEnvironment`), на себя или на **Группу** (`assignedCircleId` → участники-снимок становятся Соисполнителями, в поле Исполнитель — имя группы). Приёмка пер-участник: задача `done`, когда **все** приняты; самозадача — сразу `done` без проверки. Коины — **намерение** (snapshot `rewardCoins`, баланс не двигается; настоящий кошелёк придёт с Магазином). Тайм-менеджер: `dueDate`+`allDay`, `reminderAt`, повторы (`recurrenceRule`; следующий экземпляр спавнится при завершении). `TasksCron` (Redis-лок) шлёт напоминания и сводку просрочек. События `task.*` → `NotificationsEventsListener`. Чат = `TaskComment` (все роли). **B2B-готово**: участники ссылаются на `userId`, контекст — `workspaceId` (воркспейс=tenant, НЕ смешиваем с личным окружением)
 - **Интеграция auth → окружение**: при регистрации нового пользователя `AuthService.register` вызывает `ContactsService.activatePendingInvitationsForNewUser(userId, phone)` → external приглашения получают `toUserId` → создаются уведомления
-- **Web UI `/circles`** = "Моё окружение" — единая страница: список людей, панель приглашений (входящие+исходящие), чипы-папки для фильтрации, форма добавления по номеру телефона. **Нет отдельной страницы /contacts** — всё в одном месте.
+- **Web UI `/circles`** = "Моё окружение" — единая страница: список людей, панель приглашений (входящие+исходящие), чипы-Группы (фильтр; при выборе Группы — редактор её видимости), форма добавления по номеру телефона. **Нет отдельной страницы /contacts** — всё в одном месте.
+- **Web UI `/tasks`** ✅ — список со смарт-фильтрами (Сегодня/Предстоящие/Просрочено/Мне поставили/Я поставил/На проверке/Все) + форма создания (Себе/Человеку/Группе, пикеры людей из окружения, дедлайн со временем или «весь день», напоминание, повтор, приоритет, награда с подсказкой «каждому по X»). Деталька `/tasks/[id]`: роли с пер-участник статусами, прогресс «N из M», кнопки Взять в работу / Сдать / Принять / Вернуть, чат задачи.
 - **`GET /api/users/lookup?phone=...`** — поиск пользователя по номеру (используется формой приглашения для показа имени)
 - **PersonCard** (`apps/web/src/app/circles/PersonCard.tsx`) — карточка человека в стиле скетча: текстурная бумага (#F4F1E8), двойная рамка аватара, бейдж роли, мазки карандашами в углах, grid-сетка. Каждая карточка с уникальным наклоном.
 - **Форма приглашения** — поиск по номеру (показывает имя), два RolePicker ("Я" / "Он(а)") с пресетами (Жена, Муж, Мама, Папа, Сын, Дочь, Семья, Родственник, Друг, Коллега, Одноклассник, Однокурсник, Клиент + Свой вариант)
 - **InvitationCard** — единый компонент для входящих и исходящих приглашений (имя, телефон, роли "Я: / Имя:", дата истечения, кнопки)
-- **Профиль `/profile`** — страница с сайдбаром (6 секций): Моя карточка (PersonCard full + тогглы видимости + редактирование), Статистика, Мои роли, Подписка, Настройки (язык, часовой пояс, онлайн-статус), Безопасность (сессии + завершение)
+- **Профиль `/profile`** — вложенные роуты App Router: `layout.tsx` (нав + сайдбар, активная секция через `usePathname`) + `[section]/page.tsx` (контент). Раздел живёт в URL (`/profile/<секция>`) → переживает обновление страницы, шарится ссылкой, работает кнопка «Назад». `/profile` → редирект на `/profile/card`. 7 секций: Моя карточка (PersonCard full + тогглы видимости), Моя Анкета (данные), Статистика, Мои роли, Подписка, Настройки (язык/часовой пояс/онлайн-статус), Безопасность (сессии + «Опасная зона»: удаление аккаунта)
 - **PersonCard** (`apps/web/src/app/circles/PersonCard.tsx`) — два режима:
-  - `compact` — карточка в grid окружения (имя, телефон, город, био, дата рождения, семейное положение, email, соц. сети, роль-бейдж, папки)
+  - `compact` — карточка в grid окружения (имя, телефон, город, био, дата рождения, семейное положение, email, соц. сети, роль-бейдж, Группы)
   - `full` — большая карточка в профиле с тогглами приватности (ON/OFF затухание полей)
 - **3 тестовых аккаунта**: tester1 (+77001234567), tester2 (+77012345678), tester3 (+77023456789) — пароль: Test1234!
 
 ### Безопасность
 - JWT_SECRET обязателен — приложение не запускается без него
-- Refresh token: bcrypt cost 10
-- Rate limiting: `@Throttle` на login/register (5 попыток/15мин), отправка приглашений (10/мин)
-- XSS: Zod `.refine()` запрещает `<>` в именах, метках, био, сообщениях
+- Refresh token: SHA-256 (детерминированный хеш для поиска по равенству; bcrypt тут не годится — рандомная соль не даёт совпадения при lookup)
+- Rate limiting: `ThrottlerGuard` зарегистрирован как APP_GUARD, счётчики в Redis (`RedisThrottlerStorage`, общие на инстансы). `@Throttle` на login/register (5/15мин) и приглашениях (10/мин) нацелен на сконфигурированный троттлер `long` (ключ `default` не существовал — был no-op)
+- XSS: Zod `.refine()` запрещает `<>` в именах, ролях, био, сообщениях
 - Пароль: минимум 8 символов, заглавная + строчная + цифра + спецсимвол
-- Приглашения: TTL 24 часа, `ContactsCron` каждый час удаляет обработанные из БД (`@nestjs/schedule`)
+- Приглашения: TTL 30 дней, resend cooldown 24ч. Cron'ы под Redis-локом (выполняет один инстанс): `ContactsCron` (ежечасно чистит приглашения), `NotificationsCron` (ежедневно удаляет уведомления старше `NOTIFICATION_LIMITS.retentionDays`), `TasksCron` (напоминания о дедлайнах каждые 10 мин + ежедневная сводка просрочек)
+- Удаление аккаунта: `DELETE /users/me` (требует пароль) — мягкое удаление с **грейс-периодом 30 дней**. Ставит `deletionScheduledAt`, отзывает сессии, блокирует вход (`login` + `JwtStrategy`). Вход в течение 30 дней = авто-восстановление (`login` чистит метку). `AccountCron` (ежедневно, Redis-лок) по истечении грейса вызывает `anonymizeAccount`: PII стёрт, номер освобождён, `deletedAt` терминально. Регистрация на номер в грейсе → 409 с подсказкой «войдите, чтобы восстановить». Общие данные (задачи/воркспейсы) сохраняются. `ACCOUNT_GRACE_DAYS` в `users.service.ts`
+- Миграции БД: под `prisma migrate` (baseline `0_init` в `prisma/migrations/`); `db push` заменён на `migrate dev`/`migrate deploy`
 - Concurrent accept: P2002 handler предотвращает дубли ContactLink
-- Strict Zod: `.strict()` на socialLinks и cardVisibility — произвольные поля отклоняются
+- Strict Zod: `.strict()` на socialLinks и `cardVisibilityObjectSchema` (общий, `validation/card-visibility.ts`) — используется в `/users/me` и `/circles`; произвольные поля отклоняются
 - Error Boundary (providers.tsx): ловит render-ошибки, показывает fallback с кнопкой перезагрузки
 - Фронт типы импортируются из `@superapp/shared`, не дублируются
 
 ### Что ещё не протестировано
-- Tasks, Calendar эндпоинты — не тестировались end-to-end
+- Calendar эндпоинты — не тестировались end-to-end
 - Expo mobile app — не запускался
 
 ### MCP серверы
@@ -260,23 +284,24 @@ cd apps/api && pnpm db:studio
 - `POST /logout-all` — выход со всех устройств
 
 ### Users (`/api/users/`)
-- `GET /me` — профиль (все поля: bio, city, email, maritalStatus, socialLinks, onlineStatusMode, cardVisibility resolved, roles, counts, subscription)
-- `PATCH /me` — обновить профиль (все поля + cardVisibility + Zod-валидация через `updateProfileSchema`)
+- `GET /me` — профиль (все поля: bio, city, email, maritalStatus, socialLinks, onlineStatusMode, **cardVisibility** (одиночная, видимость по умолчанию), roles, counts, subscription)
+- `PATCH /me` — обновить профиль (все поля + `cardVisibility` как одиночная `CardVisibility` + Zod-валидация через `updateProfileSchema`)
 - `GET /me/sessions` — активные сессии
 - `DELETE /me/sessions/:id` — завершить конкретную сессию
+- `DELETE /me` — запланировать удаление аккаунта (требует пароль). Грейс-период 30 дней: вход блокируется, но логин в течение 30 дней восстанавливает аккаунт; по истечении `AccountCron` безвозвратно анонимизирует (PII стирается, номер освобождается). Задачи/комментарии/воркспейсы сохраняются
 - `GET /lookup?phone=...` — поиск пользователя по номеру (для формы приглашения)
 
 ### Окружение — Social Graph (`/api/contacts/`) ✅
 > UI: единая страница `/circles` = "Моё окружение". Бэкенд: два модуля contacts + circles.
 
 **Люди (ContactLink):**
-- `GET /contacts/` — все люди в моём окружении (с labels, relationshipType, myCircleIds)
-- `GET /contacts/:linkId` — карточка человека (с учётом cardVisibility)
-- `PATCH /contacts/:linkId` — обновить myLabelForThem / relationshipType
+- `GET /contacts/` — все люди в моём окружении (`myRole`, `theirRole`, `myCircleIds`; видимость по Группам зрителя)
+- `GET /contacts/:linkId` — карточка человека (с учётом видимости по Группам)
+- `PATCH /contacts/:linkId` — обновить свою роль (`myRole`)
 - `DELETE /contacts/:linkId` — удалить из окружения (bilateral)
 
 **Приглашения:**
-- `POST /contacts/invitations` — отправить приглашение (toPhone, relationshipType, proposedLabel*, message)
+- `POST /contacts/invitations` — отправить приглашение (toPhone, proposedRoleForRecipient?, proposedRoleForSender?, message?)
 - `GET /contacts/invitations/incoming` — входящие pending
 - `GET /contacts/invitations/outgoing` — исходящие pending
 - `POST /contacts/invitations/:id/accept` — принять
@@ -289,29 +314,33 @@ cd apps/api && pnpm db:studio
 - `POST /contacts/blocks` — заблокировать
 - `DELETE /contacts/blocks/:userId` — разблокировать
 
-### Папки внутри Окружения (`/api/circles/`) ✅
-- `GET /circles/` — мои папки с membersCount
-- `POST /circles/` — создать папку (name, icon?, color?)
-- `GET /circles/:id` — папка с участниками
-- `PATCH /circles/:id` — обновить name/icon/color/sortOrder
-- `DELETE /circles/:id` — удалить папку (связи между людьми сохраняются)
-- `POST /circles/:id/members` — добавить человека в папку
-- `DELETE /circles/:id/members/:linkId` — убрать из папки
-- `POST /circles/reorder` — изменить порядок папок
+### Группы внутри Окружения (`/api/circles/`) ✅
+- `GET /circles/` — мои группы (с membersCount и `cardVisibility`)
+- `POST /circles/` — создать группу (name, icon?, color?)
+- `GET /circles/:id` — группа с участниками
+- `PATCH /circles/:id` — обновить name/icon/color/sortOrder + **`cardVisibility`** (видимость группы)
+- `DELETE /circles/:id` — удалить группу (связи между людьми сохраняются)
+- `POST /circles/:id/members` — добавить человека в группу
+- `DELETE /circles/:id/members/:linkId` — убрать из группы
+- `POST /circles/reorder` — изменить порядок групп
 
 ### Notifications (`/api/notifications/`) ✅
 - `GET /` — лента уведомлений (cursor pagination, возвращает unreadCount)
 - `POST /mark-read` — отметить прочитанными (массив id или пусто = все)
 - `DELETE /:id` — удалить уведомление
 
-### Tasks (`/api/tasks/`)
-- `GET /` — список задач (фильтры: status, priority, assignee, search, pagination)
-- `POST /` — создать задачу
-- `GET /:id` — задача с подзадачами
-- `PATCH /:id` — обновить задачу
-- `DELETE /:id` — удалить задачу
-- `GET /:id/comments` — комментарии
-- `POST /:id/comments` — добавить комментарий
+### Tasks (`/api/tasks/`) ✅
+> Роли как в Bitrix24: **Постановщик** (creator) + **Исполнитель/Соисполнитель/Наблюдатель** (`TaskParticipant`, по одной роли на пользователя, своё под-состояние). Назначение — из окружения, на себя или на **Группу**. Приёмка пер-участник. Коины — пока намерение.
+- `GET /` — список; смарт-листы `smartList` (today/upcoming/overdue/assigned_to_me/created_by_me/on_review) + фильтры status, priority, role, search, pagination
+- `POST /` — создать (`executorId` | `assignedCircleId`, `coExecutorIds`, `observerIds`, `dueDate`+`allDay`, `reminderAt`, `recurrenceRule`, `coinReward`)
+- `GET /:id` — задача с участниками, прогрессом и подзадачами
+- `PATCH /:id` — обновить (поля; роли/награда — только Постановщик; `status`: in_progress/cancelled)
+- `DELETE /:id` — удалить (только Постановщик)
+- `POST /:id/submit` — сдать свою работу (самозадача → сразу «Готово»)
+- `POST /:id/accept` — принять работу участника (Постановщик; body `{ participantUserId? }`)
+- `POST /:id/return` — вернуть в работу (Постановщик; body `{ participantUserId? }`)
+- `GET /:id/comments` — чат задачи
+- `POST /:id/comments` — написать в чат (доступно всем ролям)
 
 ### Calendar (`/api/calendar/`)
 - `GET /events?from=...&to=...` — события за период

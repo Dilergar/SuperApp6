@@ -6,29 +6,38 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { DatabaseService } from '../../shared/database/database.service';
+import { RedisService } from '../../shared/redis/redis.service';
 import { ContactsService } from '../contacts/contacts.service';
-import { CONTACT_LIMITS } from '@superapp/shared';
+import {
+  CONTACT_LIMITS,
+  resolveCardVisibility,
+  type CardVisibility,
+} from '@superapp/shared';
+import { Prisma } from '@prisma/client';
 
 /**
- * CirclesService — owner-local "folders" over confirmed contacts.
+ * CirclesService — owner-local GROUPS ("Группы") of confirmed contacts.
  *
- * A Circle is NOT a group chat and NOT a shared space. It belongs to
- * exactly one owner and contains CircleMembership rows that reference
- * the owner's ContactLinks. The same ContactLink can sit in Circles of
- * both sides independently.
+ * A Group belongs to exactly one owner and contains CircleMembership rows
+ * that reference the owner's ContactLinks (manual membership). The same
+ * ContactLink can sit in Groups of both sides independently.
  *
- * All operations enforce ownerId — a user can only see / mutate their
- * own Circles.
+ * Each Group carries its own card visibility — what its members may see
+ * of the owner's card. Resolution (union across the viewer's groups, or
+ * the owner's default when ungrouped) lives in ContactsService.
+ *
+ * All operations enforce ownerId.
  */
 @Injectable()
 export class CirclesService {
   constructor(
     private db: DatabaseService,
     private contacts: ContactsService,
+    private redis: RedisService,
   ) {}
 
   // ============================================================
-  // Circle CRUD
+  // Group CRUD
   // ============================================================
 
   async listCircles(ownerId: string) {
@@ -39,17 +48,7 @@ export class CirclesService {
         _count: { select: { memberships: true } },
       },
     });
-    return circles.map((c) => ({
-      id: c.id,
-      ownerId: c.ownerId,
-      name: c.name,
-      icon: c.icon,
-      color: c.color,
-      sortOrder: c.sortOrder,
-      membersCount: c._count.memberships,
-      createdAt: c.createdAt.toISOString(),
-      updatedAt: c.updatedAt.toISOString(),
-    }));
+    return circles.map((c) => this.serialize(c, c._count.memberships));
   }
 
   async getCircle(ownerId: string, circleId: string) {
@@ -62,29 +61,19 @@ export class CirclesService {
         },
       },
     });
-    if (!circle) throw new NotFoundException('Окружение не найдено');
+    if (!circle) throw new NotFoundException('Группа не найдена');
     if (circle.ownerId !== ownerId) {
-      throw new ForbiddenException('Нет доступа к этому окружению');
+      throw new ForbiddenException('Нет доступа к этой группе');
     }
 
-    // Resolve contact links to full Contact cards via ContactsService,
-    // so the me/them view + cardVisibility logic stays in one place.
-    const myContacts = await this.contacts.listContacts(ownerId);
-    const byId = new Map(myContacts.map((c) => [c.linkId, c]));
-    const members = circle.memberships
-      .map((m) => byId.get(m.contactLinkId))
-      .filter((c): c is NonNullable<typeof c> => Boolean(c));
+    // Resolve only THIS group's membership links to full Contact cards via
+    // ContactsService (keeps me/them + visibility logic in one place) instead
+    // of loading the owner's entire environment.
+    const linkIds = circle.memberships.map((m) => m.contactLinkId);
+    const members = await this.contacts.listContactsByLinkIds(ownerId, linkIds);
 
     return {
-      id: circle.id,
-      ownerId: circle.ownerId,
-      name: circle.name,
-      icon: circle.icon,
-      color: circle.color,
-      sortOrder: circle.sortOrder,
-      membersCount: circle._count.memberships,
-      createdAt: circle.createdAt.toISOString(),
-      updatedAt: circle.updatedAt.toISOString(),
+      ...this.serialize(circle, circle._count.memberships),
       members,
     };
   }
@@ -96,7 +85,7 @@ export class CirclesService {
     const existingCount = await this.db.circle.count({ where: { ownerId } });
     if (existingCount >= CONTACT_LIMITS.maxCirclesPerUser) {
       throw new BadRequestException(
-        `Лимит окружений: ${CONTACT_LIMITS.maxCirclesPerUser}`,
+        `Лимит групп: ${CONTACT_LIMITS.maxCirclesPerUser}`,
       );
     }
 
@@ -113,6 +102,7 @@ export class CirclesService {
       },
     });
 
+    await this.redis.invalidateUserProfile(ownerId);
     return this.serialize(circle, 0);
   }
 
@@ -124,12 +114,35 @@ export class CirclesService {
       icon?: string | null;
       color?: string | null;
       sortOrder?: number;
+      cardVisibility?: Partial<CardVisibility> | null;
     },
   ) {
-    await this.assertOwned(ownerId, circleId);
+    const circle = await this.assertOwned(ownerId, circleId);
+
+    const { cardVisibility, ...rest } = data;
+    const updateData: Prisma.CircleUpdateInput = { ...rest };
+
+    if (cardVisibility !== undefined) {
+      if (cardVisibility === null) {
+        // Reset to "use owner default".
+        updateData.cardVisibility = Prisma.JsonNull;
+      } else {
+        // Store the FULL resolved map (merged over current) so union and
+        // reads are predictable.
+        const current = resolveCardVisibility(
+          circle.cardVisibility as Partial<CardVisibility> | null,
+        );
+        updateData.cardVisibility = resolveCardVisibility({
+          ...current,
+          ...cardVisibility,
+          extras: { ...(current.extras ?? {}), ...(cardVisibility.extras ?? {}) },
+        }) as unknown as Prisma.InputJsonValue;
+      }
+    }
+
     const updated = await this.db.circle.update({
       where: { id: circleId },
-      data,
+      data: updateData,
       include: { _count: { select: { memberships: true } } },
     });
     return this.serialize(updated, updated._count.memberships);
@@ -137,23 +150,23 @@ export class CirclesService {
 
   async deleteCircle(ownerId: string, circleId: string) {
     await this.assertOwned(ownerId, circleId);
-    // Deleting the Circle cascades memberships but NOT the underlying
+    // Deleting the Group cascades memberships but NOT the underlying
     // ContactLinks — contacts themselves are preserved.
     await this.db.circle.delete({ where: { id: circleId } });
+    await this.redis.invalidateUserProfile(ownerId);
   }
 
   async reorderCircles(
     ownerId: string,
     payload: Array<{ id: string; sortOrder: number }>,
   ) {
-    // Verify every circle belongs to the owner in one query.
     const ids = payload.map((p) => p.id);
     const owned = await this.db.circle.findMany({
       where: { id: { in: ids }, ownerId },
       select: { id: true },
     });
     if (owned.length !== ids.length) {
-      throw new ForbiddenException('Одно из окружений не принадлежит вам');
+      throw new ForbiddenException('Одна из групп не принадлежит вам');
     }
 
     await this.db.$transaction(
@@ -188,7 +201,7 @@ export class CirclesService {
     });
     if (currentCount >= CONTACT_LIMITS.maxMembersPerCircle) {
       throw new BadRequestException(
-        `Лимит участников в окружении: ${CONTACT_LIMITS.maxMembersPerCircle}`,
+        `Лимит участников в группе: ${CONTACT_LIMITS.maxMembersPerCircle}`,
       );
     }
 
@@ -197,14 +210,13 @@ export class CirclesService {
         data: { circleId, contactLinkId },
       });
     } catch (err) {
-      // Prisma unique violation P2002 — already in the circle.
       if (
         err &&
         typeof err === 'object' &&
         'code' in err &&
         (err as { code?: string }).code === 'P2002'
       ) {
-        throw new ConflictException('Контакт уже в этом окружении');
+        throw new ConflictException('Контакт уже в этой группе');
       }
       throw err;
     }
@@ -217,7 +229,7 @@ export class CirclesService {
       where: { circleId, contactLinkId },
     });
     if (result.count === 0) {
-      throw new NotFoundException('Контакт не найден в этом окружении');
+      throw new NotFoundException('Контакт не найден в этой группе');
     }
   }
 
@@ -227,9 +239,9 @@ export class CirclesService {
 
   private async assertOwned(ownerId: string, circleId: string) {
     const circle = await this.db.circle.findUnique({ where: { id: circleId } });
-    if (!circle) throw new NotFoundException('Окружение не найдено');
+    if (!circle) throw new NotFoundException('Группа не найдена');
     if (circle.ownerId !== ownerId) {
-      throw new ForbiddenException('Нет доступа к этому окружению');
+      throw new ForbiddenException('Нет доступа к этой группе');
     }
     return circle;
   }
@@ -242,6 +254,7 @@ export class CirclesService {
       icon: string | null;
       color: string | null;
       sortOrder: number;
+      cardVisibility: Prisma.JsonValue | null;
       createdAt: Date;
       updatedAt: Date;
     },
@@ -255,6 +268,9 @@ export class CirclesService {
       color: circle.color,
       sortOrder: circle.sortOrder,
       membersCount,
+      cardVisibility: resolveCardVisibility(
+        circle.cardVisibility as Partial<CardVisibility> | null,
+      ),
       createdAt: circle.createdAt.toISOString(),
       updatedAt: circle.updatedAt.toISOString(),
     };

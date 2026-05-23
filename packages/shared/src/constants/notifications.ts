@@ -84,6 +84,30 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
     pushByDefault: true,
     category: 'tasks',
   },
+  'task.submitted': {
+    title: '{{byName}} сдал(а) задачу на проверку: {{taskTitle}}',
+    icon: '📤',
+    pushByDefault: true,
+    category: 'tasks',
+  },
+  'task.accepted': {
+    title: 'Задача принята: {{taskTitle}}',
+    icon: '🎉',
+    pushByDefault: true,
+    category: 'tasks',
+  },
+  'task.returned': {
+    title: 'Задача возвращена в работу: {{taskTitle}}',
+    icon: '↩️',
+    pushByDefault: true,
+    category: 'tasks',
+  },
+  'task.overdue': {
+    title: 'Просрочена задача: {{taskTitle}}',
+    icon: '🔴',
+    pushByDefault: true,
+    category: 'tasks',
+  },
   // Calendar
   'calendar.event.invited': {
     title: 'Приглашение на событие: {{eventTitle}}',

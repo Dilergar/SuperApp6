@@ -1,43 +1,38 @@
 // ============================================================
-// Contact / Circle constants
+// Contact / Group constants
 // ============================================================
 
-import type { RelationshipType } from '../types/contact';
+// Common role presets shown in the role picker. Pure suggestions —
+// the user can also type any custom role. Each person has exactly ONE
+// role per side, stored as a plain string on ContactLink.
+export const ROLE_PRESETS: readonly string[] = [
+  'Муж',
+  'Жена',
+  'Парень',
+  'Девушка',
+  'Партнёр',
+  'Мама',
+  'Папа',
+  'Сын',
+  'Дочь',
+  'Брат',
+  'Сестра',
+  'Бабушка',
+  'Дедушка',
+  'Родственник',
+  'Друг',
+  'Подруга',
+  'Коллега',
+  'Начальник',
+  'Подчинённый',
+  'Клиент',
+  'Наставник',
+  'Сосед',
+  'Одноклассник',
+  'Однокурсник',
+] as const;
 
-// Role templates grouped by relationship category. Pure suggestions —
-// users can enter any custom string. Stored as plain strings on ContactLink.
-export const RELATIONSHIP_TEMPLATES: Record<RelationshipType, readonly string[]> = {
-  family: [
-    'мама',
-    'папа',
-    'сын',
-    'дочь',
-    'брат',
-    'сестра',
-    'бабушка',
-    'дедушка',
-    'тётя',
-    'дядя',
-    'племянник',
-    'племянница',
-  ],
-  romantic: ['жена', 'муж', 'девушка', 'парень', 'партнёр'],
-  friend: ['друг', 'подруга', 'лучший друг', 'лучшая подруга'],
-  professional: [
-    'коллега',
-    'руководитель',
-    'подчинённый',
-    'клиент',
-    'наставник',
-    'партнёр',
-  ],
-  acquaintance: ['сосед', 'сосед по спортзалу', 'одноклассник', 'одногруппник'],
-  other: [],
-} as const;
-
-// Default circle presets created for a new user on first contact add.
-// Empty by default — user creates their own. Left here so a future migration
-// can seed them if we decide to.
+// Suggested group names/colors when the user creates a new group.
 export const DEFAULT_CIRCLE_PRESETS: Array<{
   name: string;
   icon: string;
@@ -53,16 +48,18 @@ export const DEFAULT_CIRCLE_PRESETS: Array<{
 // ============================================================
 
 export const CONTACT_LIMITS = {
-  // Max circles per owner — protects against runaway UX churn.
+  // Max groups per owner — protects against runaway UX churn.
   maxCirclesPerUser: 50,
-  // Max members per circle.
+  // Max members per group.
   maxMembersPerCircle: 500,
   // Max outstanding pending invitations a user can have OUTGOING.
   maxPendingOutgoingInvitations: 100,
-  // Invitation TTL in days (24 hours).
-  invitationTtlDays: 1,
+  // Invitation TTL in days.
+  invitationTtlDays: 30,
   // Throttle: max invitations a user can send per 24h to prevent spam.
   maxInvitationsPer24h: 30,
-  // Cooldown (in hours) before a cancelled/rejected invitation to the same phone can be resent.
-  resendCooldownHours: 0.003, // ~10 seconds (for dev testing, change to 24 for prod)
+  // Cooldown (hours) before a cancelled/rejected invitation to the same phone can be resent.
+  resendCooldownHours: 24,
+  // Page size for the cursor-paginated "Моё окружение" list.
+  contactsPageSize: 100,
 } as const;

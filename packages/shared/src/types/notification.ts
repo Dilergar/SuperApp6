@@ -14,11 +14,15 @@ export type NotificationType =
   | 'contact.invitation.cancelled'
   | 'contact.linked' // generic: a new ContactLink appeared (either direction)
   | 'contact.removed'
-  // Tasks (for future module wire-up — declared now so notification module is aware)
-  | 'task.assigned'
-  | 'task.completed'
-  | 'task.commented'
-  | 'task.due_soon'
+  // Tasks
+  | 'task.assigned' // you were added to a task (executor / co_executor / observer)
+  | 'task.submitted' // an executor sent their part for review (→ creator)
+  | 'task.accepted' // the creator accepted your work (→ executor)
+  | 'task.returned' // the creator returned your work for rework (→ executor)
+  | 'task.completed' // a task was fully completed
+  | 'task.commented' // new message in the task chat
+  | 'task.due_soon' // deadline approaching
+  | 'task.overdue'
   // Calendar
   | 'calendar.event.invited'
   | 'calendar.event.reminder'
@@ -47,8 +51,7 @@ export interface ContactInvitationReceivedPayload {
   fromUserId: string;
   fromName: string;
   fromPhone: string;
-  proposedLabelForRecipient: string | null;
-  relationshipType: string;
+  proposedRoleForRecipient: string | null;
   message: string | null;
 }
 
@@ -69,6 +72,14 @@ export interface ContactLinkedPayload {
   contactLinkId: string;
   otherUserId: string;
   otherName: string;
+}
+
+export interface TaskNotificationPayload {
+  taskId: string;
+  taskTitle: string;
+  /** The actor who triggered the notification (assigner, submitter, accepter…). */
+  byUserId?: string;
+  byName?: string;
 }
 
 // ============================================================

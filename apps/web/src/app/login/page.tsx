@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/lib/stores/auth';
@@ -12,6 +12,11 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [deletedNote, setDeletedNote] = useState(false);
+
+  useEffect(() => {
+    setDeletedNote(new URLSearchParams(window.location.search).get('deleted') === '1');
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,6 +52,12 @@ export default function LoginPage() {
         <p className="label-md" style={{ marginBottom: 'var(--spacing-10)', fontSize: '1rem' }}>
           Рады видеть вас снова
         </p>
+
+        {deletedNote && (
+          <div style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-6)', background: 'rgba(50,106,139,0.1)', color: 'var(--secondary)', fontSize: '0.875rem', lineHeight: 1.5, borderRadius: '10px' }}>
+            Аккаунт помечен на удаление. У вас есть <b>30 дней</b> — войдите, чтобы восстановить его.
+          </div>
+        )}
 
         <form onSubmit={handleSubmit}>
           {error && (

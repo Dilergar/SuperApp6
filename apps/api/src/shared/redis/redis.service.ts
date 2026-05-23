@@ -58,6 +58,49 @@ export class RedisService implements OnModuleDestroy {
     await this.client.publish(channel, message);
   }
 
+  // ------------------------------------------------------------
+  // Distributed lock (SET key val NX PX) — ensures a scheduled job runs on a
+  // single instance in a multi-instance deployment.
+  // ------------------------------------------------------------
+
+  /** Try to acquire a lock. Returns true iff this instance won it. */
+  async acquireLock(key: string, ttlMs: number): Promise<boolean> {
+    const res = await this.client.set(key, '1', 'PX', ttlMs, 'NX');
+    return res === 'OK';
+  }
+
+  /** Release a previously acquired lock. */
+  async releaseLock(key: string): Promise<void> {
+    await this.client.del(key);
+  }
+
+  /**
+   * Run `fn` only if this instance can acquire `key`. Returns the fn's result,
+   * or null if the lock was already held (another instance is running it). The
+   * TTL frees the lock even if the holder crashes. Intended for short,
+   * infrequent jobs (crons) where ttlMs is comfortably larger than the job.
+   */
+  async withLock<T>(
+    key: string,
+    ttlMs: number,
+    fn: () => Promise<T>,
+  ): Promise<T | null> {
+    if (!(await this.acquireLock(key, ttlMs))) return null;
+    try {
+      return await fn();
+    } finally {
+      await this.releaseLock(key);
+    }
+  }
+
+  /**
+   * Invalidate the cached `/users/me` profile for a user. Call after anything
+   * the cached profile embeds changes (roles, default visibility, counts).
+   */
+  async invalidateUserProfile(userId: string): Promise<void> {
+    await this.del(`user:${userId}:profile`);
+  }
+
   /** Get the raw Redis client for advanced operations */
   getClient(): Redis {
     return this.client;

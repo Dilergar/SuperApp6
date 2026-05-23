@@ -1,18 +1,15 @@
 // ============================================================
-// Bilateral confirmed social graph
+// Bilateral confirmed social graph (Окружение)
 // ============================================================
 // A ContactLink is a confirmed connection between two users.
-// From the point of view of any requesting user `me`, we present it as:
-//   { me: {...}, them: {...}, myLabelForThem, theirLabelForMe, ... }
-// so clients do not have to deal with canonical (userA, userB) ordering.
-
-export type RelationshipType =
-  | 'family' // parents, siblings, children, grandparents
-  | 'romantic' // spouse, partner
-  | 'friend' // friend, close friend
-  | 'professional' // colleague, boss, report, client
-  | 'acquaintance' // neighbor, gym buddy, one-off
-  | 'other';
+// From the point of view of any requesting user, we present it as:
+//   { them: {...}, myRole, theirRole, ... }
+// so clients do not deal with canonical (userA, userB) ordering.
+//
+// Each side assigns exactly ONE role to the other — asymmetric:
+// you call them "Жена", they call you "Муж". The role is the real-life
+// role and is shown on the card. There is NO separate category /
+// "label" concept anymore.
 
 export interface ContactUserCard {
   id: string;
@@ -27,27 +24,25 @@ export interface ContactUserCard {
   maritalStatus: string | null;
   socialLinks: { telegram?: string; instagram?: string } | null;
   age: number | null; // calculated on backend, null if owner hides it
-  showOnlineStatus: boolean; // true if card owner allows online status to be visible
-  // Visibility is resolved per-request — the server applies
-  // the card owner's cardVisibility. Hidden fields returned as null.
+  showOnlineStatus: boolean; // true if card owner allows online status visible
+  // Visibility is resolved per-request from the viewer's group(s) on the
+  // card owner's side (union); falls back to the owner's default. Hidden
+  // fields are returned as null.
 }
 
 export interface Contact {
   // Unique id of the underlying ContactLink row.
   linkId: string;
-  // Relationship category (broad bucket).
-  relationshipType: RelationshipType;
   // The other party, from the requesting user's perspective.
   them: ContactUserCard;
-  // How I labeled them (shown on my card for them, e.g. "жена").
-  myLabelForThem: string | null;
-  // How they labeled me (shown on their card for me, e.g. "муж").
-  // Visible to me so I know how they see me.
-  theirLabelForMe: string | null;
+  // The role I assigned to them (shown on my card, e.g. "Жена").
+  myRole: string | null;
+  // The role they assigned to me (so I know how they see me, e.g. "Муж").
+  theirRole: string | null;
   // Which user originated the invitation that became this link.
   initiatedBy: string;
   confirmedAt: string;
-  // Circles of MINE that this contact is a member of.
+  // Groups of MINE that this contact is a member of.
   myCircleIds: string[];
 }
 
@@ -67,10 +62,9 @@ export interface ContactInvitation {
   fromUserId: string;
   toUserId: string | null; // null when recipient is not yet on the platform
   toPhone: string;
-  // Labels each side proposes. Recipient can override both at accept time.
-  proposedLabelForSender: string | null; // how recipient should call sender
-  proposedLabelForRecipient: string | null; // how sender wants to call recipient
-  relationshipType: RelationshipType;
+  // Roles each side proposes. Recipient can override both at accept time.
+  proposedRoleForSender: string | null; // role the recipient gives the sender
+  proposedRoleForRecipient: string | null; // role the sender gives the recipient
   message: string | null;
   status: InvitationStatus;
   expiresAt: string;
@@ -96,26 +90,23 @@ export interface OutgoingInvitation extends ContactInvitation {
 
 export interface SendInvitationRequest {
   toPhone: string;
-  relationshipType: RelationshipType;
-  proposedLabelForRecipient?: string; // how I will call them on my card
-  proposedLabelForSender?: string; // suggestion for how they should call me
+  proposedRoleForRecipient?: string; // role I give them (shown on my card)
+  proposedRoleForSender?: string; // role I suggest they give me
   message?: string;
-  // Circles of mine to auto-add the new contact into upon acceptance.
+  // Groups of mine to auto-add the new contact into upon acceptance.
   autoAddToCircleIds?: string[];
 }
 
 export interface AcceptInvitationRequest {
-  // Recipient can override what the sender proposed, or keep them.
-  myLabelForThem?: string; // how recipient (me) will call sender
-  theirLabelForMe?: string; // how sender will call me
-  relationshipType?: RelationshipType;
-  // Circles of mine (recipient's) to place the new contact into.
+  // Recipient can override what the sender proposed, or keep it.
+  myRole?: string; // role I (recipient) give the sender
+  theirRole?: string; // role the sender gives me
+  // Groups of mine (recipient's) to place the new contact into.
   autoAddToCircleIds?: string[];
 }
 
 export interface UpdateContactRequest {
-  myLabelForThem?: string | null;
-  relationshipType?: RelationshipType;
+  myRole?: string | null;
 }
 
 // ============================================================

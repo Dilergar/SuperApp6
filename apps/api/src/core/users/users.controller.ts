@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
@@ -44,6 +44,22 @@ export class UsersController {
   ) {
     await this.usersService.deleteSession(user.sub, sessionId);
     return { success: true };
+  }
+
+  @Delete('me')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Запланировать удаление аккаунта (30 дней на восстановление через вход) — требует пароль',
+  })
+  async deleteAccount(
+    @CurrentUser() user: JwtPayload,
+    @Body() body: { password?: string },
+  ) {
+    if (!body?.password || typeof body.password !== 'string') {
+      throw new BadRequestException('Требуется текущий пароль для подтверждения');
+    }
+    return this.usersService.scheduleDeletion(user.sub, body.password);
   }
 
   @Get('lookup')

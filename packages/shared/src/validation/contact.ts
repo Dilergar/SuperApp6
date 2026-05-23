@@ -1,21 +1,14 @@
 import { z } from 'zod';
 import { phoneSchema } from './auth';
 
-export const relationshipTypeSchema = z.enum([
-  'family',
-  'romantic',
-  'friend',
-  'professional',
-  'acquaintance',
-  'other',
-]);
-
 const noHtml = (s: string) => !/[<>]/.test(s);
 
-const labelSchema = z
+// One role per side. Free text, but presets are suggested in the UI
+// (ROLE_PRESETS in constants/contacts).
+const roleSchema = z
   .string()
-  .min(1, 'Метка не может быть пустой')
-  .max(50, 'Метка слишком длинная')
+  .min(1, 'Роль не может быть пустой')
+  .max(50, 'Роль слишком длинная')
   .refine(noHtml, 'Недопустимые символы');
 
 const messageSchema = z
@@ -29,23 +22,20 @@ const messageSchema = z
 
 export const sendInvitationSchema = z.object({
   toPhone: phoneSchema,
-  relationshipType: relationshipTypeSchema,
-  proposedLabelForRecipient: labelSchema.optional(),
-  proposedLabelForSender: labelSchema.optional(),
+  proposedRoleForRecipient: roleSchema.optional(),
+  proposedRoleForSender: roleSchema.optional(),
   message: messageSchema.optional(),
   autoAddToCircleIds: z.array(z.string().uuid()).max(20).optional(),
 });
 
 export const acceptInvitationSchema = z.object({
-  myLabelForThem: labelSchema.optional(),
-  theirLabelForMe: labelSchema.optional(),
-  relationshipType: relationshipTypeSchema.optional(),
+  myRole: roleSchema.optional(),
+  theirRole: roleSchema.optional(),
   autoAddToCircleIds: z.array(z.string().uuid()).max(20).optional(),
 });
 
 export const updateContactSchema = z.object({
-  myLabelForThem: labelSchema.nullable().optional(),
-  relationshipType: relationshipTypeSchema.optional(),
+  myRole: roleSchema.nullable().optional(),
 });
 
 export const blockUserSchema = z.object({

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { CardVisibility } from '@superapp/shared';
 import { api } from '../api';
 
 export interface UserRole {
@@ -26,7 +27,8 @@ export interface UserProfile {
   createdAt?: string;
   roles: UserRole[];
   activeSubscription?: { plan: string; status: string; expiresAt: string } | null;
-  cardVisibility?: Record<string, boolean>;
+  /** Owner DEFAULT visibility — applied to contacts in no group. */
+  cardVisibility?: CardVisibility;
   circlesCount?: number;
   workspacesCount?: number;
   contactsCount?: number;

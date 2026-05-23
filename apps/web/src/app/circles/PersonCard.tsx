@@ -24,10 +24,9 @@ interface ContactUserCard {
 
 interface Contact {
   linkId: string;
-  relationshipType: string;
   them: ContactUserCard;
-  myLabelForThem: string | null;
-  theirLabelForMe: string | null;
+  myRole: string | null;
+  theirRole: string | null;
   confirmedAt: string;
   myCircleIds: string[];
 }
@@ -87,7 +86,9 @@ interface CompactProps {
 interface FullProps {
   mode: 'full';
   profile: ProfileData;
-  onToggleVisibility: (field: keyof CardVisibility, value: boolean) => void;
+  // When omitted, the card renders read-only — exactly what a viewer in
+  // the given segment actually sees (hidden fields are not rendered).
+  onToggleVisibility?: (field: keyof CardVisibility, value: boolean) => void;
 }
 
 type PersonCardProps = CompactProps | FullProps;
@@ -195,7 +196,7 @@ function CompactCard({
             {contact.them.socialLinks.instagram && `IG: ${contact.them.socialLinks.instagram}`}
           </div>
         )}
-        {contact.myLabelForThem && <div className="sketch-role-badge">{contact.myLabelForThem}</div>}
+        {contact.myRole && <div className="sketch-role-badge">{contact.myRole}</div>}
         {foldersIn.length > 0 && (
           <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', justifyContent: 'center', marginTop: 'var(--spacing-1)' }}>
             {foldersIn.map((f) => (
@@ -227,6 +228,25 @@ const MARITAL_LABELS: Record<string, string> = {
 function FullCard({ profile, onToggleVisibility }: FullProps) {
   const initial = profile.firstName.charAt(0).toUpperCase();
   const vis = profile.cardVisibility;
+  const editable = !!onToggleVisibility;
+
+  const sl = profile.socialLinks;
+  const hasSocial = !!sl && !!(sl.telegram || sl.instagram);
+  const socialValue = hasSocial
+    ? [
+        sl!.telegram && `TG: ${sl!.telegram}`,
+        sl!.instagram && `IG: ${sl!.instagram}`,
+      ].filter(Boolean).join(', ')
+    : '';
+
+  // Read-only preview: does this segment see any optional field at all?
+  const anyVisible =
+    (!!profile.city && vis.city) ||
+    (!!profile.bio && vis.bio) ||
+    (!!profile.dateOfBirth && (vis.dateOfBirth || vis.age)) ||
+    (!!profile.maritalStatus && vis.maritalStatus) ||
+    (!!profile.email && vis.email) ||
+    (hasSocial && vis.socialLinks);
 
   return (
     <div className="person-card-sketch" style={{
@@ -264,65 +284,61 @@ function FullCard({ profile, onToggleVisibility }: FullProps) {
         {/* Phone — always visible */}
         <div className="label-md" style={{ textAlign: 'center' }}>{profile.phone}</div>
 
-        {/* Toggleable fields */}
+        {/* Fields */}
         <div style={{ width: '100%', marginTop: 'var(--spacing-4)', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
-
-          {/* City */}
-          {profile.city && (
-            <VisibilityRow label="Город" value={profile.city} visible={vis.city}
-              onToggle={(v) => onToggleVisibility('city', v)} />
-          )}
-
-          {/* Bio */}
-          {profile.bio && (
-            <VisibilityRow label="О себе" value={profile.bio} visible={vis.bio}
-              onToggle={(v) => onToggleVisibility('bio', v)} />
-          )}
-
-          {/* Date of birth */}
-          {profile.dateOfBirth && (
-            <VisibilityRow label="Дата рождения" value={formatDate(profile.dateOfBirth)} visible={vis.dateOfBirth}
-              onToggle={(v) => onToggleVisibility('dateOfBirth', v)} />
-          )}
-
-          {/* Age (derived from DOB) */}
-          {profile.dateOfBirth && (
-            <VisibilityRow label="Возраст" value={`${calcAge(profile.dateOfBirth)} лет`} visible={vis.age}
-              onToggle={(v) => onToggleVisibility('age', v)} />
-          )}
-
-          {/* Online status */}
-          <VisibilityRow label="Онлайн-статус" value="Виден другим" visible={vis.onlineStatus}
-            onToggle={(v) => onToggleVisibility('onlineStatus', v)} />
-
-          {/* Marital status */}
-          {profile.maritalStatus && (
-            <VisibilityRow label="Семейное положение" value={MARITAL_LABELS[profile.maritalStatus] || profile.maritalStatus} visible={vis.maritalStatus}
-              onToggle={(v) => onToggleVisibility('maritalStatus', v)} />
-          )}
-
-          {/* Email */}
-          {profile.email && (
-            <VisibilityRow label="Email" value={profile.email} visible={vis.email}
-              onToggle={(v) => onToggleVisibility('email', v)} />
-          )}
-
-          {/* Social links */}
-          {profile.socialLinks && (profile.socialLinks.telegram || profile.socialLinks.instagram) && (
-            <VisibilityRow
-              label="Соц. сети"
-              value={[
-                profile.socialLinks.telegram && `TG: ${profile.socialLinks.telegram}`,
-                profile.socialLinks.instagram && `IG: ${profile.socialLinks.instagram}`,
-              ].filter(Boolean).join(', ')}
-              visible={vis.socialLinks}
-              onToggle={(v) => onToggleVisibility('socialLinks', v)}
-            />
+          {editable ? (
+            <>
+              {profile.city && (
+                <VisibilityRow label="Город" value={profile.city} visible={vis.city}
+                  onToggle={(v) => onToggleVisibility!('city', v)} />
+              )}
+              {profile.bio && (
+                <VisibilityRow label="О себе" value={profile.bio} visible={vis.bio}
+                  onToggle={(v) => onToggleVisibility!('bio', v)} />
+              )}
+              {profile.dateOfBirth && (
+                <VisibilityRow label="Дата рождения" value={formatDate(profile.dateOfBirth)} visible={vis.dateOfBirth}
+                  onToggle={(v) => onToggleVisibility!('dateOfBirth', v)} />
+              )}
+              {profile.dateOfBirth && (
+                <VisibilityRow label="Возраст" value={`${calcAge(profile.dateOfBirth)} лет`} visible={vis.age}
+                  onToggle={(v) => onToggleVisibility!('age', v)} />
+              )}
+              <VisibilityRow label="Онлайн-статус" value="Виден другим" visible={vis.onlineStatus}
+                onToggle={(v) => onToggleVisibility!('onlineStatus', v)} />
+              {profile.maritalStatus && (
+                <VisibilityRow label="Семейное положение" value={MARITAL_LABELS[profile.maritalStatus] || profile.maritalStatus} visible={vis.maritalStatus}
+                  onToggle={(v) => onToggleVisibility!('maritalStatus', v)} />
+              )}
+              {profile.email && (
+                <VisibilityRow label="Email" value={profile.email} visible={vis.email}
+                  onToggle={(v) => onToggleVisibility!('email', v)} />
+              )}
+              {hasSocial && (
+                <VisibilityRow label="Соц. сети" value={socialValue} visible={vis.socialLinks}
+                  onToggle={(v) => onToggleVisibility!('socialLinks', v)} />
+              )}
+            </>
+          ) : (
+            <>
+              {profile.city && vis.city && <ReadOnlyRow label="Город" value={profile.city} />}
+              {profile.bio && vis.bio && <ReadOnlyRow label="О себе" value={profile.bio} />}
+              {profile.dateOfBirth && vis.dateOfBirth && <ReadOnlyRow label="Дата рождения" value={formatDate(profile.dateOfBirth)} />}
+              {profile.dateOfBirth && vis.age && <ReadOnlyRow label="Возраст" value={`${calcAge(profile.dateOfBirth)} лет`} />}
+              {profile.maritalStatus && vis.maritalStatus && <ReadOnlyRow label="Семейное положение" value={MARITAL_LABELS[profile.maritalStatus] || profile.maritalStatus} />}
+              {profile.email && vis.email && <ReadOnlyRow label="Email" value={profile.email} />}
+              {hasSocial && vis.socialLinks && <ReadOnlyRow label="Соц. сети" value={socialValue} />}
+              {!anyVisible && (
+                <p className="label-sm" style={{ textAlign: 'center', opacity: 0.5 }}>
+                  Для этой роли видны только имя и телефон
+                </p>
+              )}
+            </>
           )}
         </div>
 
-        {/* Empty state for optional fields */}
-        {!profile.city && !profile.bio && !profile.dateOfBirth && !profile.email && (
+        {/* Empty state for optional fields — edit mode only */}
+        {editable && !profile.city && !profile.bio && !profile.dateOfBirth && !profile.email && (
           <p className="label-sm" style={{ textAlign: 'center', marginTop: 'var(--spacing-4)', opacity: 0.5 }}>
             Заполните профиль чтобы карточка стала информативнее
           </p>
@@ -331,7 +347,7 @@ function FullCard({ profile, onToggleVisibility }: FullProps) {
 
       {/* Label */}
       <div className="label-sm" style={{ textAlign: 'center', marginTop: 'var(--spacing-6)', opacity: 0.5 }}>
-        Так тебя видят другие
+        {editable ? 'Так тебя видят другие' : 'Так выглядит карточка для этой роли'}
       </div>
     </div>
   );
@@ -376,6 +392,24 @@ function VisibilityRow({ label, value, visible, onToggle }: {
           boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
         }} />
       </button>
+    </div>
+  );
+}
+
+
+// Read-only field row — how a viewer in a segment actually sees the card
+// (no toggle, no fade; hidden fields are simply not rendered).
+function ReadOnlyRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)',
+      padding: 'var(--spacing-2) var(--spacing-3)',
+      borderRadius: 'var(--radius-sm)',
+    }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="label-sm" style={{ fontSize: '0.7rem', marginBottom: '0.1rem' }}>{label}</div>
+        <div style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--on-surface)' }}>{value}</div>
+      </div>
     </div>
   );
 }

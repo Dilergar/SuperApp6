@@ -17,7 +17,7 @@ export class AuthController {
 
   @Public()
   @Post('register')
-  @Throttle({ default: { limit: 5, ttl: 900000 } })
+  @Throttle({ long: { limit: 5, ttl: 900000 } })
   @ApiOperation({ summary: 'Регистрация нового пользователя' })
   async register(@Body() body: unknown) {
     const data = registerSchema.parse(body);
@@ -27,7 +27,7 @@ export class AuthController {
 
   @Public()
   @Post('login')
-  @Throttle({ default: { limit: 5, ttl: 900000 } })
+  @Throttle({ long: { limit: 5, ttl: 900000 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Вход в аккаунт' })
   async login(@Body() body: { phone: string; password: string }) {

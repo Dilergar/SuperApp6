@@ -12,6 +12,7 @@ export * from './types/common';
 // Validation schemas
 export * from './validation/auth';
 export * from './validation/task';
+export * from './validation/card-visibility';
 export * from './validation/contact';
 export * from './validation/circle';
 export * from './validation/calendar';
@@ -27,3 +28,4 @@ export * from './constants/modules';
 export * from './constants/contacts';
 export * from './constants/card-visibility';
 export * from './constants/notifications';
+export * from './constants/tasks';
