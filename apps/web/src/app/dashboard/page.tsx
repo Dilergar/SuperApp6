@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
+import { WorkspacesPanel } from './WorkspacesPanel';
 
 const services = [
   { title: 'Моё окружение', description: 'Люди, приглашения, папки', color: 'var(--primary-container)', href: '/circles' },
@@ -127,6 +128,9 @@ export default function DashboardPage() {
             </a>
           ))}
         </div>
+
+        {/* Organizations (B2B) */}
+        <WorkspacesPanel />
 
         {/* Roles */}
         {profile.roles.length > 0 && (

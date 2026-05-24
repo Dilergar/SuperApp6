@@ -59,6 +59,10 @@ model User {
   workspaceMembers   WorkspaceMember[]
   ownedWorkspaces    Workspace[]
 
+  // Workspace hiring invitations (separate from ContactInvitation — different semantics)
+  workspaceInvitationsSent     WorkspaceInvitation[] @relation("WsInvitationInviter")
+  workspaceInvitationsReceived WorkspaceInvitation[] @relation("WsInvitationRecipient")
+
   // Contacts / Circles / Invitations
   contactLinksA       ContactLink[]       @relation("ContactLinkUserA")
   contactLinksB       ContactLink[]       @relation("ContactLinkUserB")
@@ -491,32 +495,36 @@ model CalendarShare {
 // WORKSPACES (Job platform foundation)
 // ============================================================
 
+// A Workspace is ALWAYS a business/organization (B2B tenant). Personal life is the
+// social graph (workspaceId = null), NOT a workspace — so there is no "type" field.
 model Workspace {
   id       String  @id @default(uuid())
   name     String
-  type     String  @default("business") // personal, business
   logo     String?
-  ownerId  String  @map("owner_id")
+  ownerId  String  @map("owner_id") // founder; single owner (billing/delete/transfer)
   isActive Boolean @default(true) @map("is_active")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  owner   User              @relation(fields: [ownerId], references: [id])
-  members WorkspaceMember[]
-  tasks   Task[]
+  owner       User                  @relation(fields: [ownerId], references: [id])
+  members     WorkspaceMember[]
+  invitations WorkspaceInvitation[]
+  tasks       Task[]
 
   @@index([ownerId])
   @@map("workspaces")
 }
 
+// Membership / HR card. Role & permissions are NOT stored here — the single source
+// of truth is UserRole (context="workspace", tenantId=workspaceId). This row holds
+// only HR metadata; the member's role is read from / written to UserRole.
 model WorkspaceMember {
   id          String  @id @default(uuid())
   workspaceId String  @map("workspace_id")
   userId      String  @map("user_id")
-  role        String  @default("member") // owner, admin, manager, member, guest
   department  String?
-  position    String?
+  position    String? // free-text job title (e.g. "официант", "IT-специалист")
 
   joinedAt DateTime @default(now()) @map("joined_at")
 
@@ -526,4 +534,41 @@ model WorkspaceMember {
   @@unique([workspaceId, userId])
   @@index([userId])
   @@map("workspace_members")
+}
+
+// Hiring invitation: a workspace offers a role (+ optional position/department) to a
+// person, who must accept. Separate from ContactInvitation (hiring ≠ friendship).
+// toUserId is null for an external invite by phone — it activates when that phone registers.
+model WorkspaceInvitation {
+  id          String @id @default(uuid())
+  workspaceId String @map("workspace_id")
+  invitedBy   String @map("invited_by") // user_id who sent the invite
+
+  toUserId String? @map("to_user_id") // null until the invited phone is on the platform
+  toPhone  String  @map("to_phone") // normalized E.164
+
+  role       String  @default("staff") // workspace role offered (owner/admin/manager/staff/guest)
+  position   String?
+  department String?
+  message    String?
+
+  status      String    @default("pending") // pending, accepted, rejected, cancelled, expired
+  expiresAt   DateTime  @map("expires_at") // TTL — background job marks expired
+  respondedAt DateTime? @map("responded_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  inviter   User      @relation("WsInvitationInviter", fields: [invitedBy], references: [id], onDelete: Cascade)
+  toUser    User?     @relation("WsInvitationRecipient", fields: [toUserId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([toUserId])
+  @@index([toPhone])
+  @@index([workspaceId, status])
+  @@index([toUserId, status])
+  // Cleanup cron: WHERE status='pending' AND expiresAt < now.
+  @@index([status, expiresAt])
+  @@map("workspace_invitations")
 }

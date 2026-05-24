@@ -41,6 +41,12 @@ export const SYSTEM_ROLES = {
 
 export type SystemRole = keyof typeof SYSTEM_ROLES;
 
+// Reserved system-context role for the future Jobs Marketplace: the "Тайный гость"
+// qualification (a platform-wide credential earned via training), distinct from the
+// per-workspace `guest` engagement role. The marketplace is NOT built yet — this only
+// reserves the value so the identity model accommodates it without a later migration.
+export const MYSTERY_SHOPPER_SYSTEM_ROLE = 'mystery_shopper' as const;
+
 // Роли в workspace (context = "workspace", tenantId = workspace_id)
 export const WORKSPACE_ROLES = {
   owner: {

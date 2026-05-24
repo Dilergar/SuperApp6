@@ -5,10 +5,11 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { ContactsService } from '../../modules/contacts/contacts.service';
+import { WorkspacesService } from '../../modules/workspaces/workspaces.service';
 import type { JwtPayload } from '../../shared/decorators/current-user.decorator';
 
 @Injectable()
@@ -18,6 +19,7 @@ export class AuthService {
     private jwt: JwtService,
     private redis: RedisService,
     private contacts: ContactsService,
+    private workspaces: WorkspacesService,
   ) {}
 
   async register(data: {
@@ -86,6 +88,10 @@ export class AuthService {
     // was unregistered. Runs AFTER the transaction so we emit events only
     // for rows that are fully committed.
     await this.contacts.activatePendingInvitationsForNewUser(user.id, user.phone);
+    await this.workspaces.activatePendingWorkspaceInvitationsForNewUser(
+      user.id,
+      user.phone,
+    );
 
     // Generate tokens — system role goes into JWT
     return this.generateTokens(user.id, user.phone, 'user');
@@ -195,9 +201,13 @@ export class AuthService {
 
     const accessToken = this.jwt.sign(payload);
 
-    // Generate refresh token
-    const refreshToken =
-      this.jwt.sign(payload, { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '30d' });
+    // Generate refresh token. A unique jti makes the signed token (and thus its
+    // SHA-256 hash on the unique session.token column) distinct even for two
+    // logins in the same second (identical iat) — avoids a duplicate-key crash.
+    const refreshToken = this.jwt.sign(
+      { ...payload, jti: randomUUID() },
+      { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '30d' },
+    );
 
     // Store refresh token hash in DB
     const tokenHash = this.hashToken(refreshToken);

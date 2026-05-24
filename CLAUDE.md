@@ -43,8 +43,9 @@ SuperApp6/                       # Монорепо (pnpm + Turborepo)
 │   │   │   │   ├── circles/     # ✅ Группы внутри Окружения (Circle + CircleMembership + cardVisibility)
 │   │   │   │   ├── notifications/ # ✅ Cross-module лента уведомлений (@Global)
 │   │   │   │   ├── tasks/       # ✅ Task Manager: роли (Постановщик/Исполнитель/Соисполнитель/Наблюдатель), Группы, приёмка, дедлайны/повторы, коины-намерение
-│   │   │   │   └── calendar/    # Календарь, интеграция Google, шаринг
-│   │   │   └── shared/          # Инфраструктура: Database, Redis, EventBus, Guards, Decorators
+│   │   │   │   ├── calendar/    # Календарь, интеграция Google, шаринг
+│   │   │   │   └── workspaces/  # ✅ B2B: организации, членство, приглашения по номеру (роль — в UserRole, @Global)
+│   │   │   └── shared/          # Инфраструктура: Database (chokepoint-скоуп), Redis, EventBus, Guards, Interceptors, WorkspaceContext (ALS)
 │   │   └── prisma/              # Схема базы данных
 │   ├── mobile/                  # React Native + Expo (iOS + Android)
 │   │   ├── app/                 # Expo Router (файловая маршрутизация)
@@ -55,16 +56,17 @@ SuperApp6/                       # Монорепо (pnpm + Turborepo)
 │       └── src/app/             # App Router + Tailwind CSS v4
 │           ├── circles/         # ✅ "Моё окружение" + PersonCard.tsx (compact/full modes)
 │           ├── profile/         # ✅ Профиль: layout (сайдбар) + [section]/ роуты (/profile/<секция>)
-│           ├── dashboard/       # Главная страница
+│           ├── workspaces/      # ✅ Организации (B2B): [id]/ участники+приглашения; панель на dashboard
+│           ├── dashboard/       # Главная + панель «Организации»
 │           ├── login/           # Авторизация
 │           └── register/        # Регистрация
 ├── packages/
 │   └── shared/                  # Общие типы, Zod-валидация, утилиты
 │       └── src/
 │           ├── types/           # user, auth, contact, circle, notification, task, calendar, workspace, common
-│           ├── validation/      # Zod-схемы: auth, contact, circle, task, calendar, user
+│           ├── validation/      # Zod-схемы: auth, contact, circle, task, calendar, user, workspace
 │           ├── utils/           # phone.ts (нормализация), date.ts (относительное время)
-│           └── constants/       # roles, modules, contacts (templates+limits), card-visibility, notifications
+│           └── constants/       # roles, modules, contacts, card-visibility, notifications, tasks, workspaces
 ├── docker-compose.yml           # PostgreSQL 16 + Redis 7
 └── CLAUDE.md                    # Этот файл
 ```
@@ -193,11 +195,13 @@ cd apps/api && pnpm db:studio
 - **Web auth foundation:** `useAuthStore` (Zustand) + `useRequireAuth` hook + авто-гидратация в `Providers`. Страницы login/register/dashboard используют store
 - **Форма /register** принимает lastName + dateOfBirth (оба опциональны)
 - **@superapp/shared** полностью переписан под новый social graph: types, validation, constants
-- **NotificationsModule** (`@Global()`): `notify(userId, type, payload)` с шаблонами из `NOTIFICATION_REGISTRY`, cursor-пагинация, mark-read. `NotificationsEventsListener` подписан на EventBus: `contact.*`, `task.*`, `calendar.*`
+- **NotificationsModule** (`@Global()`): `notify(userId, type, payload)` с шаблонами из `NOTIFICATION_REGISTRY`, cursor-пагинация, mark-read. `NotificationsEventsListener` подписан на EventBus: `contact.*`, `task.*`, `calendar.*`, `workspace.*`
 - **ContactsModule** (`@Global()`): бэкенд социального графа — invitation lifecycle (send/accept/reject/cancel/resend), каноническое упорядочение `userA<userB`, throttling через `CONTACT_LIMITS`, блокировки, bilateral delete, me/them mapping с `resolveCardVisibilityForRole` (видимость по роли связи). `activatePendingInvitationsForNewUser` вызывается из `AuthService.register`
 - **CirclesModule**: CRUD папок внутри окружения (Circle), `addMember`/`removeMember` через CircleMembership M2M, reorder, лимиты из `CONTACT_LIMITS`
 - **TasksModule** ✅: Task Manager с ролями (Bitrix24): Постановщик=creator + Исполнитель/Соисполнитель/Наблюдатель в `TaskParticipant` (одна роль на пользователя, своё под-состояние `pending→submitted→accepted/returned`). Назначение из окружения (`assertInEnvironment`), на себя или на **Группу** (`assignedCircleId` → участники-снимок становятся Соисполнителями, в поле Исполнитель — имя группы). Приёмка пер-участник: задача `done`, когда **все** приняты; самозадача — сразу `done` без проверки. Коины — **намерение** (snapshot `rewardCoins`, баланс не двигается; настоящий кошелёк придёт с Магазином). Тайм-менеджер: `dueDate`+`allDay`, `reminderAt`, повторы (`recurrenceRule`; следующий экземпляр спавнится при завершении). `TasksCron` (Redis-лок) шлёт напоминания и сводку просрочек. События `task.*` → `NotificationsEventsListener`. Чат = `TaskComment` (все роли). **B2B-готово**: участники ссылаются на `userId`, контекст — `workspaceId` (воркспейс=tenant, НЕ смешиваем с личным окружением)
-- **Интеграция auth → окружение**: при регистрации нового пользователя `AuthService.register` вызывает `ContactsService.activatePendingInvitationsForNewUser(userId, phone)` → external приглашения получают `toUserId` → создаются уведомления
+- **WorkspacesModule** (`@Global()`) ✅: B2B-организации. CRUD + передача владения + выход; участники (роль из `UserRole`, должность/отдел в `WorkspaceMember`); приглашения по номеру (send/accept/reject/cancel, external-активация при регистрации). **Роль — единый источник `UserRole`** (`WorkspaceMember` БЕЗ поля role → нет рассинхрона). Один владелец + админы. Лимиты — `WORKSPACE_LIMITS`. Reuse `RolesService.hireUser/fireUser`. События `workspace.*` → уведомления. Зарезервирована системная роль `mystery_shopper` (будущий Jobs Marketplace «Тайный гость»)
+- **Chokepoint (изоляция B2B-данных)** ✅: `WorkspaceContextInterceptor` (APP_INTERCEPTOR) читает `X-Workspace-Id`, проверяет членство (fail-closed 403), кладёт активную организацию в `AsyncLocalStorage` (`WorkspaceContextService`). `DatabaseService` — Prisma-клиент через `$extends` (фабрика в `DatabaseModule`), авто-скоупит `workspaceId` на B2B-моделях (`Task`) когда контекст активен; иначе строгий no-op (личные/соц. потоки не затронуты). RLS не используется (app-layer, как Salesforce)
+- **Интеграция auth**: при регистрации `AuthService.register` вызывает `ContactsService.activatePendingInvitationsForNewUser` и `WorkspacesService.activatePendingWorkspaceInvitationsForNewUser` → external приглашения (контакты и организации) получают `toUserId` → создаются уведомления
 - **Web UI `/circles`** = "Моё окружение" — единая страница: список людей, панель приглашений (входящие+исходящие), чипы-Группы (фильтр; при выборе Группы — редактор её видимости), форма добавления по номеру телефона. **Нет отдельной страницы /contacts** — всё в одном месте.
 - **Web UI `/tasks`** ✅ — список со смарт-фильтрами (Сегодня/Предстоящие/Просрочено/Мне поставили/Я поставил/На проверке/Все) + форма создания (Себе/Человеку/Группе, пикеры людей из окружения, дедлайн со временем или «весь день», напоминание, повтор, приоритет, награда с подсказкой «каждому по X»). Деталька `/tasks/[id]`: роли с пер-участник статусами, прогресс «N из M», кнопки Взять в работу / Сдать / Принять / Вернуть, чат задачи.
 - **`GET /api/users/lookup?phone=...`** — поиск пользователя по номеру (используется формой приглашения для показа имени)
@@ -212,8 +216,8 @@ cd apps/api && pnpm db:studio
 
 ### Безопасность
 - JWT_SECRET обязателен — приложение не запускается без него
-- Refresh token: SHA-256 (детерминированный хеш для поиска по равенству; bcrypt тут не годится — рандомная соль не даёт совпадения при lookup)
-- Rate limiting: `ThrottlerGuard` зарегистрирован как APP_GUARD, счётчики в Redis (`RedisThrottlerStorage`, общие на инстансы). `@Throttle` на login/register (5/15мин) и приглашениях (10/мин) нацелен на сконфигурированный троттлер `long` (ключ `default` не существовал — был no-op)
+- Refresh token: SHA-256 (детерминированный хеш для поиска по равенству; bcrypt тут не годится — рандомная соль не даёт совпадения при lookup). Refresh-JWT несёт уникальный `jti` → два логина в одну секунду не дают коллизию на unique `session.token`
+- Rate limiting: `ThrottlerGuard` зарегистрирован как APP_GUARD, счётчики в Redis (`RedisThrottlerStorage`, общие на инстансы). `@Throttle` на login/register (5/15мин) и приглашениях (10/мин) нацелен на сконфигурированный троттлер `long` (ключ `default` не существовал — был no-op). **Включается только в production** (`skipIf` по `NODE_ENV` в `app.module.ts`) — в dev выключен, чтобы частые логины при разработке не упирались в лимит
 - XSS: Zod `.refine()` запрещает `<>` в именах, ролях, био, сообщениях
 - Пароль: минимум 8 символов, заглавная + строчная + цифра + спецсимвол
 - Приглашения: TTL 30 дней, resend cooldown 24ч. Cron'ы под Redis-локом (выполняет один инстанс): `ContactsCron` (ежечасно чистит приглашения), `NotificationsCron` (ежедневно удаляет уведомления старше `NOTIFICATION_LIMITS.retentionDays`), `TasksCron` (напоминания о дедлайнах каждые 10 мин + ежедневная сводка просрочек)
@@ -350,6 +354,21 @@ cd apps/api && pnpm db:studio
 - `GET /shares` — кому расшарен календарь
 - `POST /shares` — расшарить
 - `DELETE /shares/:userId` — убрать доступ
+
+### Workspaces — B2B организации (`/api/workspaces/`) ✅
+> Организация = арендатор (B2B). Личная жизнь = соц. граф (`workspaceId=null`), не организация. Роль участника — **единый источник** `UserRole(context=workspace, tenantId=workspaceId)`; `WorkspaceMember` хранит только должность/отдел. Один владелец + админы. Найм по номеру: приглашение → принятие (активация при регистрации, как в Окружении). Доступ — проверка членства/роли в сервисе (как у contacts/circles).
+- `GET /` — мои организации (для переключателя; `myRole`, `membersCount`)
+- `POST /` — создать (создатель → `owner`)
+- `GET /invitations/incoming` — мои входящие приглашения (карточки на dashboard)
+- `POST /invitations/:invId/accept` | `/reject` — ответить
+- `GET /:id` — организация (с моей ролью)
+- `PATCH /:id` — обновить (admin+) · `DELETE /:id` — деактивировать (владелец)
+- `POST /:id/transfer` — передать владение · `POST /:id/leave` — выйти (не владелец)
+- `GET /:id/members` — сотрудники (роль из UserRole + должность/отдел)
+- `PATCH /:id/members/:userId` — сменить роль/должность (admin+) · `DELETE /:id/members/:userId` — уволить (admin+)
+- `POST /:id/invitations` — пригласить по номеру (admin+) · `GET /:id/invitations` — исходящие · `POST /:id/invitations/:invId/cancel` — отменить
+
+**Chokepoint (авто-скоуп по организации):** заголовок `X-Workspace-Id` → `WorkspaceContextInterceptor` проверяет членство (fail-closed 403) и кладёт активную организацию в `AsyncLocalStorage`; расширенный Prisma-клиент (`DatabaseService` через `$extends`) авто-добавляет `workspaceId` к запросам B2B-моделей (сейчас `Task`). Без заголовка — личный режим (строгий no-op). RLS не используется (как у Salesforce — защита на уровне приложения).
 
 ## Стек технологий
 

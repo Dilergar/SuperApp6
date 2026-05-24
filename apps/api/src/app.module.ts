@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 
@@ -7,6 +7,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { DatabaseModule } from './shared/database/database.module';
 import { RedisModule } from './shared/redis/redis.module';
 import { EventBusModule } from './shared/events/event-bus.module';
+import { WorkspaceContextModule } from './shared/context/workspace-context.module';
 
 // Core modules
 import { AuthModule } from './core/auth/auth.module';
@@ -19,8 +20,10 @@ import { ContactsModule } from './modules/contacts/contacts.module';
 import { CirclesModule } from './modules/circles/circles.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
+import { WorkspacesModule } from './modules/workspaces/workspaces.module';
 
 import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
+import { WorkspaceContextInterceptor } from './shared/interceptors/workspace-context.interceptor';
 import { RedisService } from './shared/redis/redis.service';
 import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storage';
 
@@ -36,6 +39,9 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
           { name: 'long', ttl: 60000, limit: 200 },
         ],
         storage: new RedisThrottlerStorage(redis),
+        // Enforce rate limiting only in production. In development you log in/out
+        // constantly, so throttling just gets in the way; prod keeps full protection.
+        skipIf: () => process.env.NODE_ENV !== 'production',
       }),
     }),
 
@@ -43,6 +49,7 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     ScheduleModule.forRoot(),
 
     // Shared infrastructure — available to all modules
+    WorkspaceContextModule,
     DatabaseModule,
     RedisModule,
     EventBusModule,
@@ -60,6 +67,7 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     CirclesModule,
     TasksModule,
     CalendarModule,
+    WorkspacesModule,
   ],
   providers: [
     // Order matters: throttler runs first so abusive traffic is rejected
@@ -71,6 +79,11 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
+    },
+    // Establishes the active-workspace context (chokepoint) after auth runs.
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: WorkspaceContextInterceptor,
     },
   ],
 })

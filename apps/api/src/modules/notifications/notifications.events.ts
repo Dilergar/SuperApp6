@@ -48,6 +48,14 @@ export class NotificationsEventsListener implements OnModuleInit {
         ),
       );
     });
+
+    this.events.onPattern('workspace.*').subscribe((event) => {
+      this.handleWorkspaceEvent(event).catch((err) =>
+        this.logger.error(
+          `Failed to handle ${event.type}: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
+    });
   }
 
   // ------------------------------------------------------------
@@ -167,6 +175,68 @@ export class NotificationsEventsListener implements OnModuleInit {
         const userId = payload['userId'] as string | undefined;
         if (!userId) return;
         await this.emit(userId, 'calendar.event.reminder', payload);
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
+  // ------------------------------------------------------------
+  // Workspaces (B2B)
+  // ------------------------------------------------------------
+  private async handleWorkspaceEvent(event: AppEvent) {
+    const payload = event.payload;
+    const workspaceId = payload['workspaceId'] as string | undefined;
+    const wsUrl = workspaceId ? `/workspaces/${workspaceId}` : null;
+
+    switch (event.type) {
+      case 'workspace.invitation.sent': {
+        // Notify the invitee (only once their phone is registered → toUserId known).
+        const toUserId = payload['toUserId'] as string | null | undefined;
+        if (!toUserId) return;
+        await this.notifications.notify(
+          toUserId,
+          'workspace.invitation.received',
+          payload,
+          { actionUrl: '/dashboard' },
+        );
+        return;
+      }
+      case 'workspace.invitation.accepted': {
+        const inviterId = payload['inviterId'] as string | undefined;
+        if (!inviterId) return;
+        await this.notifications.notify(
+          inviterId,
+          'workspace.invitation.accepted',
+          payload,
+          { actionUrl: wsUrl },
+        );
+        return;
+      }
+      case 'workspace.invitation.rejected': {
+        const inviterId = payload['inviterId'] as string | undefined;
+        if (!inviterId) return;
+        await this.notifications.notify(
+          inviterId,
+          'workspace.invitation.rejected',
+          payload,
+          { actionUrl: wsUrl },
+        );
+        return;
+      }
+      case 'workspace.member.removed': {
+        const userId = payload['userId'] as string | undefined;
+        if (!userId) return;
+        await this.notifications.notify(userId, 'workspace.member.removed', payload);
+        return;
+      }
+      case 'workspace.role.changed': {
+        const userId = payload['userId'] as string | undefined;
+        if (!userId) return;
+        await this.notifications.notify(userId, 'workspace.role.changed', payload, {
+          actionUrl: wsUrl,
+        });
         return;
       }
       default:

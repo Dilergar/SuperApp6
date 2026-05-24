@@ -17,6 +17,7 @@ export * from './validation/contact';
 export * from './validation/circle';
 export * from './validation/calendar';
 export * from './validation/user';
+export * from './validation/workspace';
 
 // Utils
 export * from './utils/phone';
@@ -29,3 +30,4 @@ export * from './constants/contacts';
 export * from './constants/card-visibility';
 export * from './constants/notifications';
 export * from './constants/tasks';
+export * from './constants/workspaces';

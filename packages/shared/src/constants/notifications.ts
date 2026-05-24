@@ -17,7 +17,7 @@ export interface NotificationMeta {
   // Whether this notification type produces a push notification by default.
   pushByDefault: boolean;
   // Category bucket for notification preferences UI.
-  category: 'contacts' | 'tasks' | 'calendar' | 'system';
+  category: 'contacts' | 'tasks' | 'calendar' | 'workspaces' | 'system';
 }
 
 export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> = {
@@ -120,6 +120,38 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
     icon: '🔔',
     pushByDefault: true,
     category: 'calendar',
+  },
+  // Workspaces (B2B)
+  'workspace.invitation.received': {
+    title: '{{workspaceName}} приглашает вас (роль: {{role}})',
+    body: '{{message}}',
+    icon: '🏢',
+    pushByDefault: true,
+    category: 'workspaces',
+  },
+  'workspace.invitation.accepted': {
+    title: '{{byName}} принял(а) приглашение в {{workspaceName}}',
+    icon: '✅',
+    pushByDefault: true,
+    category: 'workspaces',
+  },
+  'workspace.invitation.rejected': {
+    title: '{{byName}} отклонил(а) приглашение в {{workspaceName}}',
+    icon: '✖️',
+    pushByDefault: false,
+    category: 'workspaces',
+  },
+  'workspace.member.removed': {
+    title: 'Вас исключили из организации {{workspaceName}}',
+    icon: '🚪',
+    pushByDefault: true,
+    category: 'workspaces',
+  },
+  'workspace.role.changed': {
+    title: 'Ваша роль в {{workspaceName}} изменена: {{role}}',
+    icon: '🔁',
+    pushByDefault: true,
+    category: 'workspaces',
   },
   // System
   'system.welcome': {

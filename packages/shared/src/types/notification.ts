@@ -26,6 +26,12 @@ export type NotificationType =
   // Calendar
   | 'calendar.event.invited'
   | 'calendar.event.reminder'
+  // Workspaces (B2B)
+  | 'workspace.invitation.received' // you were invited to join an organization (→ invitee)
+  | 'workspace.invitation.accepted' // an invitee accepted (→ inviter / admins)
+  | 'workspace.invitation.rejected' // an invitee declined (→ inviter)
+  | 'workspace.member.removed' // you were removed from an organization (→ member)
+  | 'workspace.role.changed' // your role in an organization changed (→ member)
   // System
   | 'system.welcome'
   | 'system.announcement';
@@ -80,6 +86,24 @@ export interface TaskNotificationPayload {
   /** The actor who triggered the notification (assigner, submitter, accepter…). */
   byUserId?: string;
   byName?: string;
+}
+
+export interface WorkspaceInvitationReceivedPayload {
+  invitationId: string;
+  workspaceId: string;
+  workspaceName: string;
+  invitedByName: string;
+  role: string;
+  position: string | null;
+  message: string | null;
+}
+
+export interface WorkspaceNotificationPayload {
+  workspaceId: string;
+  workspaceName: string;
+  /** Present for accepted/rejected (the invitee's name) and role.changed (the new role). */
+  byName?: string;
+  role?: string;
 }
 
 // ============================================================
