@@ -53,6 +53,60 @@ export const transferOwnershipSchema = z.object({
 });
 
 // ============================================================
+// Company profile (Анкета) — mirrors updateProfileSchema for the org card
+// ============================================================
+
+const descriptionSchema = z
+  .string()
+  .max(1000, 'Описание слишком длинное')
+  .refine(noHtml, 'Недопустимые символы');
+const industrySchema = z
+  .string()
+  .max(100, 'Слишком длинно')
+  .refine(noHtml, 'Недопустимые символы');
+const cityOrgSchema = z
+  .string()
+  .max(100, 'Слишком длинно')
+  .refine(noHtml, 'Недопустимые символы');
+const websiteSchema = z
+  .string()
+  .max(200, 'Слишком длинная ссылка')
+  .refine(noHtml, 'Недопустимые символы');
+const contactEmailSchema = z.string().email('Некорректный email').max(200);
+const contactPhoneSchema = z
+  .string()
+  .max(20, 'Слишком длинно')
+  .refine(noHtml, 'Недопустимые символы');
+
+// Default-visibility flags (what members see). Partial: UI may send a subset.
+export const workspaceCardVisibilitySchema = z
+  .object({
+    description: z.boolean(),
+    industry: z.boolean(),
+    city: z.boolean(),
+    website: z.boolean(),
+    contactEmail: z.boolean(),
+    contactPhone: z.boolean(),
+    membersCount: z.boolean(),
+    extras: z.record(z.boolean()).optional(),
+  })
+  .partial();
+
+export const updateWorkspaceProfileSchema = z
+  .object({
+    name: nameSchema.optional(),
+    logo: logoSchema.nullable().optional(),
+    description: descriptionSchema.nullable().optional(),
+    industry: industrySchema.nullable().optional(),
+    city: cityOrgSchema.nullable().optional(),
+    website: websiteSchema.nullable().optional(),
+    contactEmail: contactEmailSchema.nullable().optional(),
+    contactPhone: contactPhoneSchema.nullable().optional(),
+    cardVisibility: workspaceCardVisibilitySchema.optional(),
+  })
+  .refine((d) => Object.keys(d).length > 0, 'Нечего обновлять');
+
+// ============================================================
 // Members & invitations
 // ============================================================
 

@@ -20,12 +20,37 @@ export type WorkspaceInvitationStatus =
   | 'cancelled'
   | 'expired';
 
+// Default visibility of the company card's OPTIONAL fields to members (employees).
+// Always-visible regardless: name, logo. Owner/admin always see everything (for editing).
+export interface WorkspaceCardVisibility {
+  description: boolean;
+  industry: boolean;
+  city: boolean;
+  website: boolean;
+  contactEmail: boolean;
+  contactPhone: boolean;
+  membersCount: boolean;
+  extras?: Record<string, boolean>;
+}
+
 export interface Workspace {
   id: string;
   name: string;
   logo: string | null;
+  // Company profile (Анкета). For non-manager viewers, fields hidden by cardVisibility
+  // are returned as null. owner/admin always get the real values.
+  description: string | null;
+  industry: string | null;
+  city: string | null;
+  website: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  /** Default field-visibility to members. Present ONLY for owner/admin (editing). */
+  cardVisibility?: WorkspaceCardVisibility;
   ownerId: string;
   membersCount: number;
+  /** Active (non-cancelled) task count — present in the single-workspace view. */
+  tasksCount?: number;
   isActive: boolean;
   /** The viewing user's role in this workspace (from UserRole). Present in "my workspaces" lists. */
   myRole?: WorkspaceRoleT;

@@ -8,7 +8,12 @@ import {
 import { DatabaseService } from '../../shared/database/database.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
-import { WORKSPACE_LIMITS } from '@superapp/shared';
+import {
+  WORKSPACE_LIMITS,
+  resolveWorkspaceCardVisibility,
+  type WorkspaceCardVisibility,
+} from '@superapp/shared';
+import { Prisma } from '@prisma/client';
 
 type WorkspaceRole = 'owner' | 'admin' | 'manager' | 'staff' | 'guest';
 
@@ -67,11 +72,23 @@ export class WorkspacesService {
       await tx.workspaceMember.create({
         data: { workspaceId: w.id, userId },
       });
+      // Owner role (single source of truth) is written in the SAME tx, so a partial
+      // failure can never leave the creator locked out of their own workspace.
+      await tx.userRole.create({
+        data: {
+          userId,
+          role: 'owner',
+          context: WS_CONTEXT,
+          tenantId: w.id,
+          grantedBy: userId,
+        },
+      });
       return w;
     });
 
-    // Owner role is the single source of truth in UserRole (cache invalidated here).
-    await this.roles.assignRole(userId, 'owner', WS_CONTEXT, ws.id, userId);
+    // The role row was written directly in the tx (bypassing RolesService), so its
+    // cache wasn't busted — do it now, after commit.
+    await this.roles.invalidateUserCache(userId);
 
     return this.serializeWorkspace(ws, 1, 'owner');
   }
@@ -108,27 +125,51 @@ export class WorkspacesService {
     const myRole = await this.assertMember(userId, workspaceId);
     const ws = await this.db.workspace.findUnique({
       where: { id: workspaceId },
-      include: { _count: { select: { members: true } } },
+      include: { _count: { select: { members: true, tasks: true } } },
     });
     if (!ws) throw new NotFoundException('Организация не найдена');
-    return this.serializeWorkspace(ws, ws._count.members, myRole);
+    return this.serializeWorkspace(ws, ws._count.members, myRole, ws._count.tasks);
   }
 
   async updateWorkspace(
     userId: string,
     workspaceId: string,
-    data: { name?: string; logo?: string | null },
+    data: {
+      name?: string;
+      logo?: string | null;
+      description?: string | null;
+      industry?: string | null;
+      city?: string | null;
+      website?: string | null;
+      contactEmail?: string | null;
+      contactPhone?: string | null;
+      cardVisibility?: Partial<WorkspaceCardVisibility>;
+    },
   ) {
-    await this.assertCanManage(userId, workspaceId);
+    const role = await this.assertCanManage(userId, workspaceId);
     const ws = await this.db.workspace.update({
       where: { id: workspaceId },
       data: {
         ...(data.name !== undefined ? { name: data.name } : {}),
         ...(data.logo !== undefined ? { logo: data.logo } : {}),
+        ...(data.description !== undefined ? { description: data.description } : {}),
+        ...(data.industry !== undefined ? { industry: data.industry } : {}),
+        ...(data.city !== undefined ? { city: data.city } : {}),
+        ...(data.website !== undefined ? { website: data.website } : {}),
+        ...(data.contactEmail !== undefined ? { contactEmail: data.contactEmail } : {}),
+        ...(data.contactPhone !== undefined ? { contactPhone: data.contactPhone } : {}),
+        // Store the FULL resolved visibility map (merged over defaults) for predictable reads.
+        ...(data.cardVisibility !== undefined
+          ? {
+              cardVisibility: resolveWorkspaceCardVisibility(
+                data.cardVisibility,
+              ) as unknown as Prisma.InputJsonValue,
+            }
+          : {}),
       },
-      include: { _count: { select: { members: true } } },
+      include: { _count: { select: { members: true, tasks: true } } },
     });
-    return this.serializeWorkspace(ws, ws._count.members);
+    return this.serializeWorkspace(ws, ws._count.members, role, ws._count.tasks);
   }
 
   /** Soft-deactivate (owner only). Hard delete + grace period is deferred. */
@@ -154,13 +195,20 @@ export class WorkspacesService {
       throw new BadRequestException('Новый владелец должен быть участником организации');
     }
 
-    await this.db.workspace.update({
-      where: { id: workspaceId },
-      data: { ownerId: toUserId },
+    await this.db.$transaction(async (tx) => {
+      await tx.workspace.update({
+        where: { id: workspaceId },
+        data: { ownerId: toUserId },
+      });
+      // New owner → owner; previous owner → admin (single role each) — all atomic,
+      // so ownership can't split (two owners / zero owners) on a partial failure.
+      await this.setSoleWorkspaceRoleTx(tx, toUserId, workspaceId, 'owner', userId);
+      await this.setSoleWorkspaceRoleTx(tx, userId, workspaceId, 'admin', userId);
     });
-    // New owner → owner; previous owner → admin (single role each).
-    await this.setSoleWorkspaceRole(toUserId, workspaceId, 'owner', userId);
-    await this.setSoleWorkspaceRole(userId, workspaceId, 'admin', userId);
+
+    // Both users' role rows changed inside the tx → bust both caches now.
+    await this.roles.invalidateUserCache(toUserId);
+    await this.roles.invalidateUserCache(userId);
   }
 
   // ============================================================
@@ -421,26 +469,40 @@ export class WorkspacesService {
       throw new BadRequestException('Организация неактивна');
     }
 
-    // Create HR card (idempotent) + assign the offered role.
-    await this.db.workspaceMember.upsert({
-      where: { workspaceId_userId: { workspaceId: inv.workspaceId, userId } },
-      create: {
-        workspaceId: inv.workspaceId,
-        userId,
-        position: inv.position,
-        department: inv.department,
-      },
-      update: {
-        position: inv.position,
-        department: inv.department,
-      },
-    });
-    await this.setSoleWorkspaceRole(userId, inv.workspaceId, inv.role as WorkspaceRole, inv.invitedBy);
+    // All writes in one transaction. The status flip is the atomic guard against a
+    // double-accept race (and accept-after-cancel): only the first concurrent call
+    // that flips pending→accepted proceeds; the rest see count 0 and bail (rollback).
+    await this.db.$transaction(async (tx) => {
+      const flipped = await tx.workspaceInvitation.updateMany({
+        where: { id: invitationId, status: 'pending' },
+        data: { status: 'accepted', respondedAt: new Date() },
+      });
+      if (flipped.count === 0) {
+        throw new BadRequestException('Приглашение уже обработано');
+      }
 
-    await this.db.workspaceInvitation.update({
-      where: { id: invitationId },
-      data: { status: 'accepted', respondedAt: new Date() },
+      await tx.workspaceMember.upsert({
+        where: { workspaceId_userId: { workspaceId: inv.workspaceId, userId } },
+        create: {
+          workspaceId: inv.workspaceId,
+          userId,
+          position: inv.position,
+          department: inv.department,
+        },
+        update: { position: inv.position, department: inv.department },
+      });
+
+      await this.setSoleWorkspaceRoleTx(
+        tx,
+        userId,
+        inv.workspaceId,
+        inv.role as WorkspaceRole,
+        inv.invitedBy,
+      );
     });
+
+    // Role rows changed inside the tx → bust this user's cache now.
+    await this.roles.invalidateUserCache(userId);
 
     const me = await this.db.user.findUnique({
       where: { id: userId },
@@ -598,6 +660,43 @@ export class WorkspacesService {
     await this.roles.assignRole(userId, role, WS_CONTEXT, workspaceId, grantedBy);
   }
 
+  /**
+   * Transactional variant of setSoleWorkspaceRole: within the given tx, deactivate the
+   * user's other active workspace roles and upsert the target role. Does NOT bust the
+   * roles cache — the caller MUST call roles.invalidateUserCache(userId) after the tx
+   * commits. Used by the atomic create/accept/transfer paths.
+   */
+  private async setSoleWorkspaceRoleTx(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    workspaceId: string,
+    role: WorkspaceRole,
+    grantedBy: string,
+  ) {
+    await tx.userRole.updateMany({
+      where: {
+        userId,
+        context: WS_CONTEXT,
+        tenantId: workspaceId,
+        role: { not: role },
+        isActive: true,
+      },
+      data: { isActive: false },
+    });
+    await tx.userRole.upsert({
+      where: {
+        userId_role_context_tenantId: {
+          userId,
+          role,
+          context: WS_CONTEXT,
+          tenantId: workspaceId,
+        },
+      },
+      create: { userId, role, context: WS_CONTEXT, tenantId: workspaceId, grantedBy },
+      update: { isActive: true, grantedBy },
+    });
+  }
+
   private async revokeAllWorkspaceRoles(userId: string, workspaceId: string) {
     const current = await this.roles.getRolesInContext(userId, WS_CONTEXT, workspaceId);
     for (const r of current) {
@@ -610,6 +709,13 @@ export class WorkspacesService {
       id: string;
       name: string;
       logo: string | null;
+      description: string | null;
+      industry: string | null;
+      city: string | null;
+      website: string | null;
+      contactEmail: string | null;
+      contactPhone: string | null;
+      cardVisibility: Prisma.JsonValue | null;
       ownerId: string;
       isActive: boolean;
       createdAt: Date;
@@ -617,13 +723,40 @@ export class WorkspacesService {
     },
     membersCount: number,
     myRole?: WorkspaceRole,
+    tasksCount?: number,
   ) {
+    // owner/admin see everything (for editing); other members see only the fields
+    // the org's card visibility marks visible. name/logo are always visible.
+    const canSeeAll = myRole === 'owner' || myRole === 'admin';
+    const vis = resolveWorkspaceCardVisibility(
+      ws.cardVisibility as Partial<WorkspaceCardVisibility> | null,
+    );
+    const show = (
+      field:
+        | 'description'
+        | 'industry'
+        | 'city'
+        | 'website'
+        | 'contactEmail'
+        | 'contactPhone',
+      value: string | null,
+    ) => (canSeeAll || vis[field] ? value : null);
+
     return {
       id: ws.id,
       name: ws.name,
       logo: ws.logo,
+      description: show('description', ws.description),
+      industry: show('industry', ws.industry),
+      city: show('city', ws.city),
+      website: show('website', ws.website),
+      contactEmail: show('contactEmail', ws.contactEmail),
+      contactPhone: show('contactPhone', ws.contactPhone),
+      // Only managers get the editable visibility map.
+      ...(canSeeAll ? { cardVisibility: vis } : {}),
       ownerId: ws.ownerId,
       membersCount,
+      ...(tasksCount !== undefined ? { tasksCount } : {}),
       isActive: ws.isActive,
       ...(myRole ? { myRole } : {}),
       createdAt: ws.createdAt.toISOString(),
