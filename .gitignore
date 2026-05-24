@@ -37,7 +37,7 @@ coverage/
 
 # Prisma
 apps/api/prisma/*.db
-apps/api/prisma/migrations/
+# Миграции ТРЕКАЕМ — нужны для воспроизведения БД на свежем клоне (prisma migrate deploy)
 
 # Mobile
 *.apk
