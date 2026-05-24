@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
+import { CompanyCard } from '../workspaces/[id]/CompanyCard';
 import type { Workspace, WorkspaceInvitation } from '@superapp/shared';
 
 const ROLE_LABELS: Record<string, string> = {
@@ -185,26 +186,7 @@ export function WorkspacesPanel() {
               className="card-elevated"
               style={{ transform: `rotate(${i % 3 === 0 ? '-0.4' : i % 3 === 2 ? '0.4' : '0'}deg)`, display: 'block' }}
             >
-              <div
-                style={{
-                  width: '2.5rem',
-                  height: '2.5rem',
-                  background: 'var(--tertiary-container)',
-                  borderRadius: 'var(--radius-sketch)',
-                  marginBottom: 'var(--spacing-4)',
-                  opacity: 0.7,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '1.2rem',
-                }}
-              >
-                🏢
-              </div>
-              <div className="title-md" style={{ marginBottom: 'var(--spacing-1)' }}>{ws.name}</div>
-              <p className="label-md" style={{ fontSize: '0.82rem' }}>
-                {ROLE_LABELS[ws.myRole ?? 'staff'] ?? ws.myRole} · {ws.membersCount} чел.
-              </p>
+              <CompanyCard ws={ws} compact />
             </Link>
           ))}
         </div>

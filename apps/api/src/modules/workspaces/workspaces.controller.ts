@@ -17,7 +17,7 @@ import {
 } from '../../shared/decorators/current-user.decorator';
 import {
   createWorkspaceSchema,
-  updateWorkspaceSchema,
+  updateWorkspaceProfileSchema,
   transferOwnershipSchema,
   inviteWorkspaceMemberSchema,
   updateWorkspaceMemberSchema,
@@ -87,13 +87,13 @@ export class WorkspacesController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Обновить организацию (admin+)' })
+  @ApiOperation({ summary: 'Обновить профиль организации (admin+)' })
   async update(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
     @Body() body: unknown,
   ) {
-    const data = updateWorkspaceSchema.parse(body);
+    const data = updateWorkspaceProfileSchema.parse(body);
     const ws = await this.workspaces.updateWorkspace(user.sub, id, data);
     return { success: true, data: ws };
   }

@@ -66,6 +66,15 @@ export class RolesService {
 
   /** Bust both the roles cache and the profile cache (which embeds roles). */
   private async invalidate(userId: string) {
+    await this.invalidateUserCache(userId);
+  }
+
+  /**
+   * Public cache-bust for a user's roles + profile. Call this AFTER a role change
+   * that was committed transactionally outside RolesService — e.g. WorkspacesService
+   * writes role rows inside its own $transaction (for atomicity) and then busts here.
+   */
+  async invalidateUserCache(userId: string) {
     await this.redis.del(`user:${userId}:roles`);
     await this.redis.invalidateUserProfile(userId);
   }

@@ -1,16 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api } from '@/lib/api';
-import type {
-  Workspace,
-  WorkspaceMember,
-  WorkspaceInvitation,
-  WorkspaceRole,
-} from '@superapp/shared';
+import type { Workspace } from '@superapp/shared';
 
 const ROLE_LABELS: Record<string, string> = {
   owner: 'Владелец',
@@ -20,279 +15,106 @@ const ROLE_LABELS: Record<string, string> = {
   guest: 'Гость',
 };
 
-// Roles assignable via invite (owner excluded — set on creation / transfer only).
-const ASSIGNABLE_ROLES: WorkspaceRole[] = ['admin', 'manager', 'staff', 'guest'];
-
-export default function WorkspaceDetailPage() {
-  const { isReady, user } = useRequireAuth();
-  const router = useRouter();
-  const params = useParams<{ id: string }>();
-  const workspaceId = params.id;
-
+/**
+ * Главная организации — the org's home screen (mirror of the personal /dashboard,
+ * but scoped to one organization). Header + services grid + stats. The org profile,
+ * members, and future org-scoped services are reached from here.
+ */
+export default function WorkspaceHome() {
+  const { isReady } = useRequireAuth();
+  const { id } = useParams<{ id: string }>();
   const [ws, setWs] = useState<Workspace | null>(null);
-  const [members, setMembers] = useState<WorkspaceMember[]>([]);
-  const [invites, setInvites] = useState<WorkspaceInvitation[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  // Invite form
-  const [phone, setPhone] = useState('+7');
-  const [role, setRole] = useState<WorkspaceRole>('staff');
-  const [position, setPosition] = useState('');
-
-  const myRole = ws?.myRole;
-  const canManage = myRole === 'owner' || myRole === 'admin';
-
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const [w, m] = await Promise.all([
-        api.get(`/workspaces/${workspaceId}`),
-        api.get(`/workspaces/${workspaceId}/members`),
-      ]);
-      setWs(w.data.data);
-      setMembers(m.data.data);
-      // Pending invitations are visible to managers only.
-      if (w.data.data.myRole === 'owner' || w.data.data.myRole === 'admin') {
-        const inv = await api.get(`/workspaces/${workspaceId}/invitations`);
-        setInvites(inv.data.data);
-      } else {
-        setInvites([]);
-      }
-    } catch {
-      setError('Не удалось загрузить организацию');
-    } finally {
-      setLoading(false);
-    }
-  }, [workspaceId]);
 
   useEffect(() => {
-    if (isReady) fetchAll();
-  }, [isReady, fetchAll]);
+    if (!isReady) return;
+    api
+      .get(`/workspaces/${id}`)
+      .then((r) => setWs(r.data.data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [isReady, id]);
 
-  const invite = async () => {
-    if (!/^\+7\d{10}$/.test(phone)) {
-      setError('Номер в формате +7XXXXXXXXXX');
-      return;
-    }
-    setBusy(true);
-    setError('');
-    try {
-      await api.post(`/workspaces/${workspaceId}/invitations`, {
-        phone,
-        role,
-        position: position.trim() || undefined,
-      });
-      setPhone('+7');
-      setPosition('');
-      setRole('staff');
-      await fetchAll();
-    } catch (e) {
-      const msg =
-        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Не удалось отправить приглашение';
-      setError(msg);
-    } finally {
-      setBusy(false);
-    }
-  };
+  if (loading || !ws) return <p className="label-md">Загрузка…</p>;
 
-  const cancelInvite = async (invId: string) => {
-    setBusy(true);
-    try {
-      await api.post(`/workspaces/${workspaceId}/invitations/${invId}/cancel`);
-      await fetchAll();
-    } finally {
-      setBusy(false);
-    }
-  };
+  const services: { title: string; desc: string; href?: string; color: string }[] = [
+    { title: 'Сотрудники', desc: 'Список, роли, приглашения', href: `/workspaces/${id}/members`, color: 'var(--primary-container)' },
+    { title: 'Задачи организации', desc: 'Скоро', color: 'var(--secondary-container)' },
+    { title: 'Календарь организации', desc: 'Скоро', color: 'var(--tertiary-container)' },
+  ];
 
-  const removeMember = async (userId: string) => {
-    setBusy(true);
-    try {
-      await api.delete(`/workspaces/${workspaceId}/members/${userId}`);
-      await fetchAll();
-    } catch {
-      setError('Не удалось удалить сотрудника');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const leave = async () => {
-    setBusy(true);
-    try {
-      await api.post(`/workspaces/${workspaceId}/leave`);
-      router.push('/dashboard');
-    } catch {
-      setError('Не удалось выйти');
-      setBusy(false);
-    }
-  };
-
-  if (!isReady) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="label-md">Загрузка…</p>
-      </div>
-    );
-  }
+  const created = new Date(ws.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--surface)' }}>
-      <nav
-        className="fixed top-0 w-full z-50 px-6 py-4"
-        style={{ background: 'rgba(245, 245, 220, 0.7)', backdropFilter: 'blur(10px)' }}
-      >
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <Link href="/dashboard" className="title-md" style={{ color: 'var(--primary)' }}>
-            ← SuperApp6
-          </Link>
+    <div>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-4)', marginBottom: 'var(--spacing-10)', paddingLeft: 'var(--spacing-2)' }}>
+        <div
+          style={{
+            width: '3.5rem',
+            height: '3.5rem',
+            flexShrink: 0,
+            borderRadius: 'var(--radius-sketch)',
+            background: ws.logo ? `center/cover no-repeat url(${ws.logo})` : 'var(--tertiary-container)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '1.6rem',
+          }}
+        >
+          {!ws.logo && '🏢'}
         </div>
-      </nav>
-
-      <div className="max-w-4xl mx-auto px-6 pt-24" style={{ paddingBottom: 'var(--spacing-16)' }}>
-        {loading || !ws ? (
-          <p className="label-md">Загрузка…</p>
-        ) : (
-          <>
-            {/* Header */}
-            <div style={{ marginBottom: 'var(--spacing-10)', paddingLeft: 'var(--spacing-2)' }}>
-              <h1 className="display-md" style={{ marginBottom: 'var(--spacing-2)' }}>{ws.name}</h1>
-              <div style={{ display: 'flex', gap: 'var(--spacing-3)', alignItems: 'center', flexWrap: 'wrap' }}>
-                <span
-                  className="ghost-border"
-                  style={{ padding: '0.3rem 0.9rem', fontSize: '0.8rem', fontWeight: 600, color: 'var(--secondary)' }}
-                >
-                  {ROLE_LABELS[myRole ?? 'staff'] ?? myRole}
-                </span>
-                <span className="label-md" style={{ fontSize: '0.85rem' }}>{ws.membersCount} сотрудников</span>
-              </div>
-            </div>
-
-            {error && (
-              <p className="label-md" style={{ color: 'var(--primary)', marginBottom: 'var(--spacing-4)' }}>{error}</p>
+        <div>
+          <h1 className="display-md" style={{ fontSize: '2rem' }}>{ws.name}</h1>
+          <div style={{ display: 'flex', gap: 'var(--spacing-3)', alignItems: 'center', flexWrap: 'wrap' }}>
+            {ws.myRole && (
+              <span className="ghost-border" style={{ padding: '0.25rem 0.8rem', fontSize: '0.78rem', fontWeight: 600, color: 'var(--secondary)' }}>
+                {ROLE_LABELS[ws.myRole] ?? ws.myRole}
+              </span>
             )}
-
-            {/* Invite form (managers) */}
-            {canManage && (
-              <div className="card" style={{ marginBottom: 'var(--spacing-8)' }}>
-                <h2 className="title-md" style={{ marginBottom: 'var(--spacing-4)' }}>Пригласить сотрудника</h2>
-                <div style={{ display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap', alignItems: 'center' }}>
-                  <input
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="+7XXXXXXXXXX"
-                    className="input"
-                    style={{ width: '180px' }}
-                  />
-                  <select value={role} onChange={(e) => setRole(e.target.value as WorkspaceRole)} className="input" style={{ width: '170px' }}>
-                    {ASSIGNABLE_ROLES.map((r) => (
-                      <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-                    ))}
-                  </select>
-                  <input
-                    value={position}
-                    onChange={(e) => setPosition(e.target.value)}
-                    placeholder="Должность (необязательно)"
-                    maxLength={100}
-                    className="input"
-                    style={{ flex: 1, minWidth: '180px' }}
-                  />
-                  <button onClick={invite} disabled={busy} className="btn-primary" style={{ padding: '0.5rem 1.25rem' }}>
-                    Пригласить
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Pending invitations (managers) */}
-            {canManage && invites.length > 0 && (
-              <div style={{ marginBottom: 'var(--spacing-8)' }}>
-                <h2 className="title-md" style={{ marginBottom: 'var(--spacing-4)', paddingLeft: 'var(--spacing-2)' }}>
-                  Ожидают ответа
-                </h2>
-                <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
-                  {invites.map((inv) => (
-                    <div
-                      key={inv.id}
-                      className="card"
-                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}
-                    >
-                      <div>
-                        <span className="title-md" style={{ fontSize: '0.95rem' }}>{inv.toPhone}</span>
-                        <p className="label-md" style={{ fontSize: '0.8rem' }}>
-                          {ROLE_LABELS[inv.role] ?? inv.role}{inv.position ? ` · ${inv.position}` : ''}
-                        </p>
-                      </div>
-                      <button onClick={() => cancelInvite(inv.id)} disabled={busy} className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>
-                        Отменить
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Members */}
-            <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-4)', paddingLeft: 'var(--spacing-2)' }}>Сотрудники</h2>
-            <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
-              {members.map((m) => (
-                <div
-                  key={m.id}
-                  className="card"
-                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
-                    <div
-                      style={{
-                        width: '2.25rem',
-                        height: '2.25rem',
-                        borderRadius: 'var(--radius-sketch)',
-                        background: 'var(--secondary-container)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontWeight: 700,
-                        color: 'var(--secondary)',
-                      }}
-                    >
-                      {m.userName.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <div className="title-md" style={{ fontSize: '0.95rem' }}>
-                        {m.userName}
-                        {m.userId === user?.id ? ' (вы)' : ''}
-                      </div>
-                      <p className="label-md" style={{ fontSize: '0.8rem' }}>
-                        {ROLE_LABELS[m.role] ?? m.role}
-                        {m.position ? ` · ${m.position}` : ''}
-                        {m.department ? ` · ${m.department}` : ''}
-                      </p>
-                    </div>
-                  </div>
-                  {canManage && m.role !== 'owner' && m.userId !== user?.id && (
-                    <button onClick={() => removeMember(m.userId)} disabled={busy} className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>
-                      Уволить
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* Leave (non-owner) */}
-            {myRole && myRole !== 'owner' && (
-              <div style={{ marginTop: 'var(--spacing-10)', paddingLeft: 'var(--spacing-2)' }}>
-                <button onClick={leave} disabled={busy} className="btn-secondary" style={{ padding: '0.5rem 1.25rem', color: 'var(--primary)' }}>
-                  Выйти из организации
-                </button>
-              </div>
-            )}
-          </>
-        )}
+            <span className="label-md" style={{ fontSize: '0.85rem' }}>{ws.membersCount} сотрудников</span>
+          </div>
+        </div>
       </div>
+
+      {/* Services */}
+      <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-6)', paddingLeft: 'var(--spacing-2)' }}>Сервисы</h2>
+      <div className="grid md:grid-cols-3" style={{ gap: 'var(--spacing-6)', marginBottom: 'var(--spacing-12)' }}>
+        {services.map((s, i) => {
+          const inner = (
+            <>
+              <div style={{ width: '2.5rem', height: '2.5rem', background: s.color, borderRadius: 'var(--radius-sketch)', marginBottom: 'var(--spacing-4)', opacity: 0.7 }} />
+              <div className="title-md" style={{ marginBottom: 'var(--spacing-1)' }}>{s.title}</div>
+              <p className="label-md">{s.desc}</p>
+            </>
+          );
+          return s.href ? (
+            <Link key={s.title} href={s.href} className="card-elevated" style={{ display: 'block', transform: `rotate(${i === 0 ? '-0.5' : i === 2 ? '0.5' : '0'}deg)` }}>
+              {inner}
+            </Link>
+          ) : (
+            <div key={s.title} className="card-elevated" style={{ opacity: 0.55, cursor: 'not-allowed' }}>
+              {inner}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-3" style={{ gap: 'var(--spacing-6)' }}>
+        <StatTile label="Сотрудников" value={ws.membersCount} />
+        <StatTile label="Задач" value={ws.tasksCount ?? 0} />
+        <StatTile label="Создана" value={created} />
+      </div>
+    </div>
+  );
+}
+
+function StatTile({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="card" style={{ textAlign: 'center' }}>
+      <div className="display-md" style={{ color: 'var(--primary)', fontSize: '2rem' }}>{value}</div>
+      <div className="label-md" style={{ marginTop: 'var(--spacing-1)' }}>{label}</div>
     </div>
   );
 }

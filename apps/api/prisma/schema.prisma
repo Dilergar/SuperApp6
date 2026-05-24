@@ -498,9 +498,21 @@ model CalendarShare {
 // A Workspace is ALWAYS a business/organization (B2B tenant). Personal life is the
 // social graph (workspaceId = null), NOT a workspace — so there is no "type" field.
 model Workspace {
-  id       String  @id @default(uuid())
-  name     String
-  logo     String?
+  id   String  @id @default(uuid())
+  name String
+  logo String?
+
+  // Company profile (Анкета) — fields rendered on the company card.
+  description    String? // "О компании"
+  industry       String? // отрасль
+  city           String?
+  website        String?
+  contactEmail   String? @map("contact_email")
+  contactPhone   String? @map("contact_phone")
+  // Default visibility of card fields to members (employees). null = defaults
+  // (see DEFAULT_WORKSPACE_CARD_VISIBILITY in @superapp/shared). Always-visible: name, logo.
+  cardVisibility Json?   @map("card_visibility")
+
   ownerId  String  @map("owner_id") // founder; single owner (billing/delete/transfer)
   isActive Boolean @default(true) @map("is_active")
 
