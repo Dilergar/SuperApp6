@@ -26,6 +26,12 @@ export type NotificationType =
   // Calendar
   | 'calendar.event.invited'
   | 'calendar.event.reminder'
+  | 'calendar.event.rsvp' // a participant answered (→ organizer)
+  | 'calendar.event.updated' // organizer changed time/details (→ participants)
+  | 'calendar.event.cancelled' // organizer deleted the event (→ participants)
+  | 'calendar.resource.requested' // someone requested your resource (→ owner)
+  | 'calendar.resource.confirmed' // owner confirmed your booking (→ booker)
+  | 'calendar.resource.rejected' // owner rejected your booking (→ booker)
   // Workspaces (B2B)
   | 'workspace.invitation.received' // you were invited to join an organization (→ invitee)
   | 'workspace.invitation.accepted' // an invitee accepted (→ inviter / admins)

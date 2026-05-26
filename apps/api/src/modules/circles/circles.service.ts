@@ -115,6 +115,7 @@ export class CirclesService {
       color?: string | null;
       sortOrder?: number;
       cardVisibility?: Partial<CardVisibility> | null;
+      calendarVisibility?: 'none' | 'busy' | 'detailed';
     },
   ) {
     const circle = await this.assertOwned(ownerId, circleId);
@@ -255,6 +256,7 @@ export class CirclesService {
       color: string | null;
       sortOrder: number;
       cardVisibility: Prisma.JsonValue | null;
+      calendarVisibility: string;
       createdAt: Date;
       updatedAt: Date;
     },
@@ -271,6 +273,7 @@ export class CirclesService {
       cardVisibility: resolveCardVisibility(
         circle.cardVisibility as Partial<CardVisibility> | null,
       ),
+      calendarVisibility: (circle.calendarVisibility as 'none' | 'busy' | 'detailed') ?? 'none',
       createdAt: circle.createdAt.toISOString(),
       updatedAt: circle.updatedAt.toISOString(),
     };

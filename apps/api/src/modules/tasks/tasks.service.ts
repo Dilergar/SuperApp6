@@ -302,6 +302,58 @@ export class TasksService {
     return dto;
   }
 
+  /**
+   * Tasks surfaced on the calendar as a VIRTUAL layer for `userId`: those with a
+   * dueDate inside [from, to], plus overdue & unresolved ones (so the client can
+   * pin them to today's all-day bar). Read-only; respects the active workspace
+   * via the chokepoint. Never copies — single source of truth stays in Tasks.
+   */
+  async listForCalendar(userId: string, from: Date, to: Date) {
+    const now = new Date();
+    const tasks = await this.db.task.findMany({
+      where: {
+        AND: [
+          { OR: [{ creatorId: userId }, { participants: { some: { userId } } }] },
+          { dueDate: { not: null } },
+          {
+            OR: [
+              { dueDate: { gte: from, lte: to } },
+              { dueDate: { lt: now }, status: { notIn: ['done', 'cancelled'] } },
+            ],
+          },
+        ],
+      },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        priority: true,
+        dueDate: true,
+        allDay: true,
+        coinReward: true,
+        creatorId: true,
+        participants: { select: { userId: true, role: true } },
+      },
+      orderBy: { dueDate: 'asc' },
+      take: 500,
+    });
+
+    return tasks.map((t) => {
+      const dueDate = t.dueDate as Date;
+      return {
+        id: t.id,
+        title: t.title,
+        status: t.status,
+        priority: t.priority,
+        dueDate,
+        allDay: t.allDay,
+        overdue: dueDate < now && t.status !== 'done' && t.status !== 'cancelled',
+        role: this.viewerRole(userId, t.creatorId, t.participants),
+        coinReward: t.coinReward || null,
+      };
+    });
+  }
+
   // ============================================================
   // Update / delete
   // ============================================================

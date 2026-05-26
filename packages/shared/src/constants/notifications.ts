@@ -121,6 +121,42 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
     pushByDefault: true,
     category: 'calendar',
   },
+  'calendar.event.rsvp': {
+    title: '{{byName}}: {{rsvpLabel}} — {{eventTitle}}',
+    icon: '✉️',
+    pushByDefault: false,
+    category: 'calendar',
+  },
+  'calendar.event.updated': {
+    title: 'Событие изменено: {{eventTitle}}',
+    icon: '✏️',
+    pushByDefault: true,
+    category: 'calendar',
+  },
+  'calendar.event.cancelled': {
+    title: 'Событие отменено: {{eventTitle}}',
+    icon: '🚫',
+    pushByDefault: true,
+    category: 'calendar',
+  },
+  'calendar.resource.requested': {
+    title: 'Заявка на «{{resourceName}}»: {{eventTitle}}',
+    icon: '📦',
+    pushByDefault: true,
+    category: 'calendar',
+  },
+  'calendar.resource.confirmed': {
+    title: 'Бронь подтверждена: {{resourceName}}',
+    icon: '✅',
+    pushByDefault: true,
+    category: 'calendar',
+  },
+  'calendar.resource.rejected': {
+    title: 'Бронь отклонена: {{resourceName}}',
+    icon: '🚫',
+    pushByDefault: true,
+    category: 'calendar',
+  },
   // Workspaces (B2B)
   'workspace.invitation.received': {
     title: '{{workspaceName}} приглашает вас (роль: {{role}})',

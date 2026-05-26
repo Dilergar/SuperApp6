@@ -8,6 +8,7 @@
 
 import type { Contact } from './contact';
 import type { CardVisibility } from './user';
+import type { CalendarAccessLevel } from './calendar';
 
 export interface Circle {
   id: string;
@@ -19,6 +20,8 @@ export interface Circle {
   membersCount: number;
   // Card visibility applied to members of THIS group (resolved/full).
   cardVisibility: CardVisibility;
+  // Calendar access this group's members get to the owner's calendar (Phase 2).
+  calendarVisibility: CalendarAccessLevel;
   createdAt: string;
   updatedAt: string;
 }
@@ -45,6 +48,8 @@ export interface UpdateCircleRequest {
   sortOrder?: number;
   // Per-group card visibility (partial — merged over defaults on write).
   cardVisibility?: Partial<CardVisibility> | null;
+  // Per-group calendar access (Phase 2).
+  calendarVisibility?: CalendarAccessLevel;
 }
 
 export interface AddToCircleRequest {

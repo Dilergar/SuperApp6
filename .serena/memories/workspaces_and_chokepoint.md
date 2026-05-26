@@ -18,7 +18,13 @@ Built 2026-05-24. B2B foundation per the ERP architecture review. See `mem:socia
 
 ## API `/api/workspaces` & Web
 - 16 endpoints (CRUD, transfer, leave, members, invitations). Incoming-invitation routes declared before `:id` to avoid capture.
-- Web: `app/dashboard/WorkspacesPanel.tsx` (org cards + incoming invites accept/reject + create) and `app/workspaces/[id]/page.tsx` (members, invite-by-phone, cancel, fire, leave). Switch into a workspace = open its page (entry point = dashboard org card).
+- Web org area mirrors personal b2c (`/dashboard`↔`/profile`): `app/workspaces/[id]/page.tsx` = **Главная организации** (header + services grid Сотрудники/Задачи/Календарь + stats; «Профиль» is a nav-bar tab in `[id]/layout.tsx`, NOT a service tile), `app/workspaces/[id]/profile/[section]/page.tsx` = **org profile** (6 sections card/anketa/stats/subscription/settings/security, role-gated sidebar in `profile/layout.tsx`), `app/workspaces/[id]/members/page.tsx` = members mgmt (invite-by-phone, cancel, fire, leave — separate from profile, like Окружение is separate from /profile). `app/workspaces/[id]/CompanyCard.tsx` (compact/full) = company card, shown to employees in «Организации» via `app/dashboard/WorkspacesPanel.tsx`. Entry point = dashboard org card → Главная организации.
+
+## Org profile (Party pattern — org = entity with card + anketa, mirrors personal /profile)
+- `Workspace` profile fields (migration `20260524191741_workspace_profile_fields`): `description, industry, city, website, contactEmail, contactPhone` + `cardVisibility` (Json). No new subscription model — Подписка section is a placeholder ("Бесплатный план").
+- `WorkspaceCardVisibility` (shared) — per-field flags; `DEFAULT_WORKSPACE_CARD_VISIBILITY` (contactPhone/membersCount off by default) + `resolveWorkspaceCardVisibility`. Zod `updateWorkspaceProfileSchema` (noHtml refine).
+- `serializeWorkspace` is **role-aware**: owner/admin (`canSeeAll`) get every field + `cardVisibility`; members get only fields enabled in visibility (others → null) and NOT `cardVisibility`. `tasksCount` via `_count`. `GET /:id` + `GET /` both apply it. `PATCH /:id` (manage) accepts the profile fields + `cardVisibility` (full resolved map stored).
+- **Atomicity (B1-B3):** `transferOwnership` / `acceptInvitation` (race-safe) / `createWorkspace` run the sole-workspace-role write in a transaction via `setSoleWorkspaceRoleTx`; `RolesService.invalidateUserCache` is public for cache busting.
 
 ## Events
 WorkspacesService emits `workspace.invitation.sent/accepted/rejected`, `workspace.member.removed`, `workspace.role.changed` → `NotificationsEventsListener` (subscribes `workspace.*`) creates notifications. Registry entries + `NotificationType` union updated in `@superapp/shared`.
