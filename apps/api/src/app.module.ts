@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR, APP_FILTER } from '@nestjs/core';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 
@@ -20,10 +20,12 @@ import { ContactsModule } from './modules/contacts/contacts.module';
 import { CirclesModule } from './modules/circles/circles.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
+import { GoogleCalendarModule } from './modules/google-calendar/google-calendar.module';
 import { WorkspacesModule } from './modules/workspaces/workspaces.module';
 
 import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
 import { WorkspaceContextInterceptor } from './shared/interceptors/workspace-context.interceptor';
+import { ZodExceptionFilter } from './shared/filters/zod-exception.filter';
 import { RedisService } from './shared/redis/redis.service';
 import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storage';
 
@@ -67,9 +69,15 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     CirclesModule,
     TasksModule,
     CalendarModule,
+    GoogleCalendarModule,
     WorkspacesModule,
   ],
   providers: [
+    // Map Zod validation errors (controller schema.parse) to 400 app-wide.
+    {
+      provide: APP_FILTER,
+      useClass: ZodExceptionFilter,
+    },
     // Order matters: throttler runs first so abusive traffic is rejected
     // before we do any JWT/DB work.
     {

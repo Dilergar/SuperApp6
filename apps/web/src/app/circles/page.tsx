@@ -626,7 +626,18 @@ function GroupVisibilityEditor({
   onSaved: (c: Circle) => void;
 }) {
   const [vis, setVis] = useState<CardVisibility>(group.cardVisibility);
+  const [cal, setCal] = useState<'none' | 'busy' | 'detailed'>(group.calendarVisibility ?? 'none');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const setCalLevel = async (lvl: 'none' | 'busy' | 'detailed') => {
+    setCal(lvl);
+    try {
+      const { data } = await api.patch(`/circles/${group.id}`, { calendarVisibility: lvl });
+      onSaved(data.data as Circle);
+    } catch {
+      /* keep optimistic state */
+    }
+  };
 
   const toggle = (key: VisField, value: boolean) => {
     const next = { ...vis, [key]: value };
@@ -670,6 +681,31 @@ function GroupVisibilityEditor({
             </button>
           );
         })}
+      </div>
+
+      <div style={{ marginTop: 'var(--spacing-4)' }}>
+        <div className="title-md" style={{ fontSize: '0.9rem', marginBottom: 'var(--spacing-1)' }}>Доступ к моему календарю</div>
+        <p className="label-sm" style={{ marginBottom: 'var(--spacing-2)', opacity: 0.7 }}>
+          Занят — видят только занятость; Детально — события целиком.
+        </p>
+        <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
+          {([['none', 'Нет'], ['busy', 'Занят'], ['detailed', 'Детально']] as const).map(([lvl, label]) => (
+            <button
+              key={lvl}
+              type="button"
+              onClick={() => setCalLevel(lvl)}
+              style={{
+                padding: '0.3rem 0.8rem', fontSize: '0.78rem', borderRadius: 'var(--radius-sketch)',
+                border: 'none', cursor: 'pointer', fontWeight: 600,
+                color: cal === lvl ? '#fff' : 'var(--on-surface-variant)',
+                background: cal === lvl ? (group.color || 'var(--secondary)') : 'var(--surface-container)',
+                opacity: cal === lvl ? 1 : 0.6, transition: 'all 0.15s ease',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

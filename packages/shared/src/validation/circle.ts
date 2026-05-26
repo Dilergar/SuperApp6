@@ -18,6 +18,8 @@ export const updateCircleSchema = z.object({
   sortOrder: z.number().int().min(0).optional(),
   // Per-group card visibility (partial — merged over defaults on write).
   cardVisibility: cardVisibilityObjectSchema.nullable().optional(),
+  // Per-group calendar access (Phase 2).
+  calendarVisibility: z.enum(['none', 'busy', 'detailed']).optional(),
 });
 
 export const addToCircleSchema = z.object({

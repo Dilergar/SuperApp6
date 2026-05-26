@@ -160,21 +160,31 @@ export class NotificationsEventsListener implements OnModuleInit {
   }
 
   // ------------------------------------------------------------
-  // Calendar (stub for future wire-up)
+  // Calendar — reminder targets one userId; invited/updated/cancelled/rsvp
+  // carry recipientIds[] (+ byUserId actor to skip), templated by the registry.
   // ------------------------------------------------------------
   private async handleCalendarEvent(event: AppEvent) {
     const payload = event.payload;
+    const eventId = payload['eventId'] as string | undefined;
+    const actionUrl = eventId ? `/calendar?event=${eventId}` : '/calendar';
+
     switch (event.type) {
-      case 'calendar.event.invited': {
-        const inviteeId = payload['inviteeId'] as string | undefined;
-        if (!inviteeId) return;
-        await this.emit(inviteeId, 'calendar.event.invited', payload);
-        return;
-      }
       case 'calendar.event.reminder': {
         const userId = payload['userId'] as string | undefined;
         if (!userId) return;
-        await this.emit(userId, 'calendar.event.reminder', payload);
+        await this.notifications.notify(userId, 'calendar.event.reminder', payload, { actionUrl });
+        return;
+      }
+      case 'calendar.event.invited':
+      case 'calendar.event.updated':
+      case 'calendar.event.cancelled':
+      case 'calendar.event.rsvp': {
+        const recipientIds = (payload['recipientIds'] as string[] | undefined) ?? [];
+        const actorId = payload['byUserId'] as string | undefined;
+        for (const uid of [...new Set(recipientIds)]) {
+          if (uid === actorId) continue;
+          await this.notifications.notify(uid, event.type as NotificationType, payload, { actionUrl });
+        }
         return;
       }
       default:

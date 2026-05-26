@@ -54,6 +54,8 @@ model User {
   taskParticipations TaskParticipant[] @relation("TaskParticipantUser")
   taskComments       TaskComment[]
   calendarEvents     CalendarEvent[]
+  resources          Resource[]
+  googleConnection   GoogleConnection?
   calendarShares     CalendarShare[]   @relation("CalendarOwner")
   sharedCalendars    CalendarShare[]   @relation("CalendarSharedWith")
   workspaceMembers   WorkspaceMember[]
@@ -251,6 +253,8 @@ model Circle {
   // Per-group card visibility — what members of THIS group may see.
   // null = use the owner's default (users.card_visibility).
   cardVisibility Json?    @map("card_visibility")
+  // Per-group calendar access for THIS group's members (Phase 2): none | busy | detailed.
+  calendarVisibility String @default("none") @map("calendar_visibility")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
@@ -368,7 +372,6 @@ model Task {
   participants  TaskParticipant[]
   comments      TaskComment[]
   tags          TaskTag[]
-  calendarEvent CalendarEvent?    @relation("TaskCalendarEvent")
 
   @@index([creatorId])
   @@index([workspaceId])
@@ -443,44 +446,122 @@ model TaskTag {
 // ============================================================
 
 model CalendarEvent {
-  id          String   @id @default(uuid())
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+
   title       String
   description String?
+  location    String?
   startTime   DateTime @map("start_time")
   endTime     DateTime @map("end_time")
   allDay      Boolean  @default(false) @map("all_day")
   color       String?
-  type        String   @default("event") // event, task, reminder, birthday
 
-  userId String @map("user_id")
+  // Per-event privacy override (sharing semantics wired in Phase 2): inherit | busy | hidden
+  visibility String @default("inherit")
 
-  // Linked task
-  taskId String? @unique @map("task_id")
+  // Configured reminder offsets (minutes before start). Materialized into CalendarEventReminder.
+  reminderOffsets Int[] @map("reminder_offsets")
 
-  // Google Calendar sync
+  // Recurrence (RRULE). Master rows carry recurrenceRule; single-occurrence overrides carry
+  // recurrenceParentId + recurrenceId. exDates excludes occurrences from the master expansion.
+  recurrenceRule     String?    @map("recurrence_rule")
+  recurrenceParentId String?    @map("recurrence_parent_id")
+  recurrenceId       DateTime?  @map("recurrence_id")
+  exDates            DateTime[] @map("ex_dates")
+
+  // Future CalDAV two-way sync (unused in Phase 1)
   googleEventId    String? @map("google_event_id")
   googleCalendarId String? @map("google_calendar_id")
 
-  // Recurrence (RRULE format)
-  recurrenceRule String? @map("recurrence_rule")
+  // Resource booking (Phase 3): the resource this event holds + booking status (pending|confirmed|rejected).
+  resourceId     String? @map("resource_id")
+  resourceStatus String? @map("resource_status")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  task Task? @relation("TaskCalendarEvent", fields: [taskId], references: [id], onDelete: SetNull)
+  user             User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recurrenceParent CalendarEvent?          @relation("EventRecurrence", fields: [recurrenceParentId], references: [id], onDelete: Cascade)
+  overrides        CalendarEvent[]         @relation("EventRecurrence")
+  reminders        CalendarEventReminder[]
+  participants     EventParticipant[]
+  resource         Resource?               @relation(fields: [resourceId], references: [id], onDelete: SetNull)
 
-  @@index([userId])
-  @@index([startTime, endTime])
+  @@index([userId, startTime])
+  @@index([recurrenceParentId])
   @@index([googleEventId])
+  @@index([resourceId])
   @@map("calendar_events")
+}
+
+// A bookable shared resource (room, vehicle, equipment). Personal for now (owner = user);
+// workspaceId reserved for future B2B. Bookings are CalendarEvents referencing it.
+model Resource {
+  id              String   @id @default(uuid())
+  ownerId         String   @map("owner_id")
+  workspaceId     String?  @map("workspace_id")
+  name            String
+  type            String   @default("other") // room | vehicle | equipment | other
+  capacity        Int      @default(1)
+  // Allow-list of who may book: specific people + Groups from the owner's environment.
+  bookerUserIds   String[] @map("booker_user_ids")
+  bookerCircleIds String[] @map("booker_circle_ids")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  owner    User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  bookings CalendarEvent[]
+
+  @@index([ownerId])
+  @@map("resources")
+}
+
+// Materialized reminder queue: one row per (event occurrence × configured offset × user).
+// Rolling horizon kept by the calendar cron; dispatched rows emit calendar.event.reminder.
+model CalendarEventReminder {
+  id              String    @id @default(uuid())
+  eventId         String    @map("event_id")
+  userId          String    @map("user_id")
+  occurrenceStart DateTime  @map("occurrence_start")
+  minutesBefore   Int       @map("minutes_before")
+  fireAt          DateTime  @map("fire_at")
+  sentAt          DateTime? @map("sent_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  event CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId, occurrenceStart, minutesBefore])
+  @@index([fireAt, sentAt])
+  @@map("calendar_event_reminders")
+}
+
+// Event attendees (Phase 2). The creator is the implicit organizer (event.userId);
+// rows here are invitees. One shared event → many participants (no copies).
+model EventParticipant {
+  id      String   @id @default(uuid())
+  eventId String   @map("event_id")
+  userId  String   @map("user_id")
+  role    String   @default("attendee") // organizer | attendee
+  rsvp    String   @default("pending") // pending | accepted | declined | tentative
+  // This participant's own reminder offsets (minutes before start). Materialized per user.
+  reminderOffsets Int[] @map("reminder_offsets")
+  addedAt DateTime @default(now()) @map("added_at")
+
+  event CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+  @@index([userId])
+  @@map("event_participants")
 }
 
 model CalendarShare {
   id               String @id @default(uuid())
   calendarOwnerId  String @map("calendar_owner_id")
   sharedWithUserId String @map("shared_with_user_id")
-  permission       String @default("view") // view, edit
+  // Calendar access level granted to this person (Phase 2): busy | detailed.
+  // 'none' = no row (default private).
+  accessLevel      String @default("busy") @map("access_level")
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -489,6 +570,32 @@ model CalendarShare {
 
   @@unique([calendarOwnerId, sharedWithUserId])
   @@map("calendar_shares")
+}
+
+// Per-user Google Calendar connection (Phase 4 two-way sync). One Google account per user.
+// NOTE: tokens are stored as-is for MVP; encrypt-at-rest before production.
+model GoogleConnection {
+  id                String    @id @default(uuid())
+  userId            String    @unique @map("user_id")
+  googleEmail       String    @map("google_email")
+  accessToken       String    @map("access_token")
+  refreshToken      String    @map("refresh_token")
+  tokenExpiry       DateTime? @map("token_expiry")
+  // Google calendar we two-way sync events with; separate calendar for one-way task export.
+  syncCalendarId    String?   @map("sync_calendar_id")
+  tasksCalendarId   String?   @map("tasks_calendar_id")
+  // Incremental sync state + push-notification channel.
+  syncToken         String?   @map("sync_token")
+  channelId         String?   @map("channel_id")
+  channelResourceId String?   @map("channel_resource_id")
+  channelExpiry     DateTime? @map("channel_expiry")
+  lastSyncedAt      DateTime? @map("last_synced_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("google_connections")
 }
 
 // ============================================================

@@ -43,8 +43,9 @@ SuperApp6/                       # Монорепо (pnpm + Turborepo)
 │   │   │   │   ├── circles/     # ✅ Группы внутри Окружения (Circle + CircleMembership + cardVisibility)
 │   │   │   │   ├── notifications/ # ✅ Cross-module лента уведомлений (@Global)
 │   │   │   │   ├── tasks/       # ✅ Task Manager: роли (Постановщик/Исполнитель/Соисполнитель/Наблюдатель), Группы, приёмка, дедлайны/повторы, коины-намерение
-│   │   │   │   ├── calendar/    # Календарь, интеграция Google, шаринг
-│   │   │   │   └── workspaces/  # ✅ B2B: организации, членство, приглашения по номеру (роль — в UserRole, @Global)
+│   │   │   │   ├── calendar/    # ✅ Календарь (Phase 1–3): события, повторы, напоминания, слой задач, участники+RSVP, шеринг, Smart Match, ресурсы+бронь, drag-and-drop планнер
+│   │   │   │   ├── google-calendar/ # ✅ Phase 4: двусторонняя синхра с Google (OAuth + Calendar API, sync-токены, веб-хуки, задачи односторонне)
+│   │   │   │   └── workspaces/  # ✅ B2B: организации, членство, приглашения, профиль орг (карточка+анкета+видимость по роли) (роль — в UserRole, @Global)
 │   │   │   └── shared/          # Инфраструктура: Database (chokepoint-скоуп), Redis, EventBus, Guards, Interceptors, WorkspaceContext (ALS)
 │   │   └── prisma/              # Схема базы данных
 │   ├── mobile/                  # React Native + Expo (iOS + Android)
@@ -55,8 +56,9 @@ SuperApp6/                       # Монорепо (pnpm + Turborepo)
 │   └── web/                     # Next.js 15 (веб-версия)
 │       └── src/app/             # App Router + Tailwind CSS v4
 │           ├── circles/         # ✅ "Моё окружение" + PersonCard.tsx (compact/full modes)
+│           ├── calendar/        # ✅ Календарь (Phase 1–3): page.tsx (4 вида + панель-планнер + DnD), EventModal, social.tsx, resources-ui.tsx, TriagePanel.tsx, calendar-dnd.ts, calendar-lib.ts
 │           ├── profile/         # ✅ Профиль: layout (сайдбар) + [section]/ роуты (/profile/<секция>)
-│           ├── workspaces/      # ✅ Организации (B2B): [id]/ участники+приглашения; панель на dashboard
+│           ├── workspaces/      # ✅ Организации (B2B): [id]/ Главная орг + profile/ (6 секций) + members/; CompanyCard; панель на dashboard
 │           ├── dashboard/       # Главная + панель «Организации»
 │           ├── login/           # Авторизация
 │           └── register/        # Регистрация
@@ -66,7 +68,7 @@ SuperApp6/                       # Монорепо (pnpm + Turborepo)
 │           ├── types/           # user, auth, contact, circle, notification, task, calendar, workspace, common
 │           ├── validation/      # Zod-схемы: auth, contact, circle, task, calendar, user, workspace
 │           ├── utils/           # phone.ts (нормализация), date.ts (относительное время)
-│           └── constants/       # roles, modules, contacts, card-visibility, notifications, tasks, workspaces
+│           └── constants/       # roles, modules, contacts, card-visibility, notifications, tasks, calendar, workspaces
 ├── docker-compose.yml           # PostgreSQL 16 + Redis 7
 └── CLAUDE.md                    # Этот файл
 ```
@@ -129,7 +131,7 @@ SuperApp6/                       # Монорепо (pnpm + Turborepo)
 - ContactsService эмитит события на EventBus (`contact.invitation.sent`, `contact.invitation.accepted` и т.д.), NotificationsEventsListener подписывается и создаёт строки в таблице. Так же смогут подписываться PushService, AnalyticsService в будущем.
 
 ### Ключевые паттерны
-- **EventBus**: на Redis Streams + consumer group (`shared/events/event-bus.service.ts`) — событие пересекает инстансы и обрабатывается ровно одним (competing consumers); XAUTOCLAIM подбирает «зависшие» после падения инстанса. `emit/on/onPattern` поверх локального RxJS Subject. contact.* → NotificationsListener создаёт уведомления; task.created → calendar
+- **EventBus**: на Redis Streams + consumer group (`shared/events/event-bus.service.ts`) — событие пересекает инстансы и обрабатывается ровно одним (competing consumers); XAUTOCLAIM подбирает «зависшие» после падения инстанса. `emit/on/onPattern` поверх локального RxJS Subject. contact.* → NotificationsListener создаёт уведомления; calendar.event.reminder → уведомления (календарь читает задачи как **виртуальный слой**, НЕ копирует события)
 - **@superapp/shared**: все типы и валидация в одном пакете, используется API + mobile + web
 - **JWT auth**: access token (15 мин) + refresh token (30 дн), ротация при обновлении, system role в payload
 - **Prisma ORM**: типобезопасные запросы, автогенерация TypeScript типов из схемы БД
@@ -142,7 +144,7 @@ SuperApp6/                       # Монорепо (pnpm + Turborepo)
 - Refresh tokens: SHA-256 хеш в БД (детерминированный — ищется по равенству на unique-колонке), ротируются при каждом refresh
 - Rate limiting: глобальный `ThrottlerGuard` (APP_GUARD) + Redis-хранилище счётчиков (общее на все инстансы): 10/сек short, 50/10сек medium, 200/мин long
 - CORS: ограничен списком доменов
-- Валидация: Zod на входе каждого контроллера, whitelist на NestJS уровне
+- Валидация: Zod на входе каждого контроллера (ZodError → 400 через глобальный `ZodExceptionFilter`, APP_FILTER — `shared/filters/`), whitelist на NestJS уровне
 
 ## Команды
 
@@ -199,11 +201,14 @@ cd apps/api && pnpm db:studio
 - **ContactsModule** (`@Global()`): бэкенд социального графа — invitation lifecycle (send/accept/reject/cancel/resend), каноническое упорядочение `userA<userB`, throttling через `CONTACT_LIMITS`, блокировки, bilateral delete, me/them mapping с `resolveCardVisibilityForRole` (видимость по роли связи). `activatePendingInvitationsForNewUser` вызывается из `AuthService.register`
 - **CirclesModule**: CRUD папок внутри окружения (Circle), `addMember`/`removeMember` через CircleMembership M2M, reorder, лимиты из `CONTACT_LIMITS`
 - **TasksModule** ✅: Task Manager с ролями (Bitrix24): Постановщик=creator + Исполнитель/Соисполнитель/Наблюдатель в `TaskParticipant` (одна роль на пользователя, своё под-состояние `pending→submitted→accepted/returned`). Назначение из окружения (`assertInEnvironment`), на себя или на **Группу** (`assignedCircleId` → участники-снимок становятся Соисполнителями, в поле Исполнитель — имя группы). Приёмка пер-участник: задача `done`, когда **все** приняты; самозадача — сразу `done` без проверки. Коины — **намерение** (snapshot `rewardCoins`, баланс не двигается; настоящий кошелёк придёт с Магазином). Тайм-менеджер: `dueDate`+`allDay`, `reminderAt`, повторы (`recurrenceRule`; следующий экземпляр спавнится при завершении). `TasksCron` (Redis-лок) шлёт напоминания и сводку просрочек. События `task.*` → `NotificationsEventsListener`. Чат = `TaskComment` (все роли). **B2B-готово**: участники ссылаются на `userId`, контекст — `workspaceId` (воркспейс=tenant, НЕ смешиваем с личным окружением)
-- **WorkspacesModule** (`@Global()`) ✅: B2B-организации. CRUD + передача владения + выход; участники (роль из `UserRole`, должность/отдел в `WorkspaceMember`); приглашения по номеру (send/accept/reject/cancel, external-активация при регистрации). **Роль — единый источник `UserRole`** (`WorkspaceMember` БЕЗ поля role → нет рассинхрона). Один владелец + админы. Лимиты — `WORKSPACE_LIMITS`. Reuse `RolesService.hireUser/fireUser`. События `workspace.*` → уведомления. Зарезервирована системная роль `mystery_shopper` (будущий Jobs Marketplace «Тайный гость»)
+- **CalendarModule** ✅ (Phase 1+2): **Phase 1** — личный календарь, CRUD, **RRULE-повторы** (`rrule`.js; правка this/this_and_following/all через `exDates`+override-строки), **напоминания** (несколько на событие/участника, дефолт 24ч+30мин; очередь `CalendarEventReminder` + `CalendarCron`/Redis-лок → `calendar.event.reminder`), **виртуальный слой задач** (`TasksService.listForCalendar`, НЕ копирует; просрочка пиннится на «сегодня»), часовые пояса UTC→пояс зрителя. **Phase 2 (соц.)** — **участники + RSVP** (`EventParticipant`: одно общее событие без копий; pending/accepted/declined/tentative; приглашение человека/Группы из окружения; редактирует только создатель; пер-участник напоминания), **шеринг** (уровни none<busy<detailed; группа на `Circle.calendarVisibility` + персона на `CalendarShare.accessLevel`; резолв = MAX через `resolveAccessLevel`; per-event `visibility` inherit/busy/hidden), **просмотр чужих** как слои-люди (busy → «Занят», detailed → полно; участие важнее пассивной видимости), **Smart Match** (свободные окна среди давших ≥busy, «вслепую»). События `calendar.event.invited/rsvp/updated/cancelled`. **Phase 3 (продвинутое)** — **Ресурсы + модерируемая бронь** (`Resource`: владелец-человек, тип, `capacity`, кто бронирует; бронь = событие с `resourceId`+`resourceStatus`, модель Google/Outlook; чужая бронь → заявка владельцу, занятое (active ≥ capacity) → 409, своя → сразу; только разовые события), **интерактив**: панель-планнер слева + **drag-and-drop** (тащишь задачи на сетку → ставит срок; двигаешь/растягиваешь события) + диалог «это/серия» для повторов. События `calendar.resource.requested/confirmed/rejected`. CalDAV — Phase 4. Дизайн — Serena memory `project_calendar_module_design`
+- **GoogleCalendarModule** ✅ (Phase 4): двусторонняя синхра с **Google Calendar** через **OAuth 2.0 + Google Calendar API** (не «чистый CalDAV» — так делают Bitrix24/Salesforce). Подключение «Войти через Google» (`access_type=offline`+`prompt=consent`, scope `calendar`), модель `GoogleConnection` (токены, выбранный календарь, syncToken, канал веб-хука). Движок: **инкрементальная синхра** (`events.list` + syncToken, 410→полный ресинк), **веб-хуки** `channels.watch` (прод, публичный HTTPS) + **поллинг/кнопка «Синхронизировать»** (фолбэк, `GoogleCalendarCron`/Redis-лок). Только **свои события** двусторонне с выбранным календарём (дефолт — отдельный «SuperApp6»); **задачи — односторонне** в «SuperApp6 · Задачи». Конфликты — last-write-wins (по времени); **удаления зеркалятся**; участники НЕ выгружаются гостями (RSVP внутри). Маппинг `CalendarEvent.googleEventId`↔Google id (идемпотентный upsert гасит эхо). `CalendarService` шлёт `google.push` на изменения → `GoogleEventsListener`. Креды — в `.env` (`GOOGLE_CLIENT_ID/SECRET/REDIRECT_URI`); без них модуль инертен. Apple/CalDAV и мгновенные веб-хуки в проде — дальше. Лимит MVP: пер-экземплярные исключения повторов синкаются на уровне master+EXDATE
+- **WorkspacesModule** (`@Global()`) ✅: B2B-организации. CRUD + передача владения + выход; участники (роль из `UserRole`, должность/отдел в `WorkspaceMember`); приглашения по номеру (send/accept/reject/cancel, external-активация при регистрации). **Роль — единый источник `UserRole`** (`WorkspaceMember` БЕЗ поля role → нет рассинхрона). Один владелец + админы. Лимиты — `WORKSPACE_LIMITS`. Reuse `RolesService.hireUser/fireUser`. События `workspace.*` → уведомления. Зарезервирована системная роль `mystery_shopper` (будущий Jobs Marketplace «Тайный гость»). **Профиль организации** (Party-паттерн, зеркало личного `/profile`): поля `description/industry/city/website/contactEmail/contactPhone` + `cardVisibility` на `Workspace` (миграция `workspace_profile_fields`); `serializeWorkspace` отдаёт поля **по роли зрителя** — owner/admin видят всё и `cardVisibility` (для редактирования), сотрудники только включённые поля (остальные → null), сама `cardVisibility` сотрудникам не отдаётся; `tasksCount` через `_count`. `createWorkspace`/`acceptInvitation`/`transferOwnership` атомарны (транзакционный `setSoleWorkspaceRoleTx` + публичный `RolesService.invalidateUserCache`). Подписка — заглушка (без модели)
 - **Chokepoint (изоляция B2B-данных)** ✅: `WorkspaceContextInterceptor` (APP_INTERCEPTOR) читает `X-Workspace-Id`, проверяет членство (fail-closed 403), кладёт активную организацию в `AsyncLocalStorage` (`WorkspaceContextService`). `DatabaseService` — Prisma-клиент через `$extends` (фабрика в `DatabaseModule`), авто-скоупит `workspaceId` на B2B-моделях (`Task`) когда контекст активен; иначе строгий no-op (личные/соц. потоки не затронуты). RLS не используется (app-layer, как Salesforce)
 - **Интеграция auth**: при регистрации `AuthService.register` вызывает `ContactsService.activatePendingInvitationsForNewUser` и `WorkspacesService.activatePendingWorkspaceInvitationsForNewUser` → external приглашения (контакты и организации) получают `toUserId` → создаются уведомления
 - **Web UI `/circles`** = "Моё окружение" — единая страница: список людей, панель приглашений (входящие+исходящие), чипы-Группы (фильтр; при выборе Группы — редактор её видимости), форма добавления по номеру телефона. **Нет отдельной страницы /contacts** — всё в одном месте.
 - **Web UI `/tasks`** ✅ — список со смарт-фильтрами (Сегодня/Предстоящие/Просрочено/Мне поставили/Я поставил/На проверке/Все) + форма создания (Себе/Человеку/Группе, пикеры людей из окружения, дедлайн со временем или «весь день», напоминание, повтор, приоритет, награда с подсказкой «каждому по X»). Деталька `/tasks/[id]`: роли с пер-участник статусами, прогресс «N из M», кнопки Взять в работу / Сдать / Принять / Вернуть, чат задачи.
+- **Web UI организация** ✅ — вход в организацию → **Главная организации** (`/workspaces/[id]`, зеркало `/dashboard`: шапка + сетка сервисов Сотрудники/Задачи/Календарь + статистика; «Профиль» — вкладка в навбаре, не сервис). **Профиль организации** (`/workspaces/[id]/profile/<секция>`, зеркало личного `/profile`): 6 секций — Карточка/Анкета/Статистика/Подписка/Настройки/Безопасность, сайдбар с гейтингом по роли (manage→owner/admin, security→owner). **Сотрудники** — отдельно в `/workspaces/[id]/members`. `CompanyCard` (compact/full) — карточка компании, у сотрудников показывается в «Организациях» (`WorkspacesPanel`).
 - **`GET /api/users/lookup?phone=...`** — поиск пользователя по номеру (используется формой приглашения для показа имени)
 - **PersonCard** (`apps/web/src/app/circles/PersonCard.tsx`) — карточка человека в стиле скетча: текстурная бумага (#F4F1E8), двойная рамка аватара, бейдж роли, мазки карандашами в углах, grid-сетка. Каждая карточка с уникальным наклоном.
 - **Форма приглашения** — поиск по номеру (показывает имя), два RolePicker ("Я" / "Он(а)") с пресетами (Жена, Муж, Мама, Папа, Сын, Дочь, Семья, Родственник, Друг, Коллега, Одноклассник, Однокурсник, Клиент + Свой вариант)
@@ -229,7 +234,8 @@ cd apps/api && pnpm db:studio
 - Фронт типы импортируются из `@superapp/shared`, не дублируются
 
 ### Что ещё не протестировано
-- Calendar эндпоинты — не тестировались end-to-end
+- Calendar Phase 1–3 — бэкенд проверен end-to-end (повторы, экземпляры, слой задач, участники+RSVP, шеринг busy/detailed, Smart Match, ресурсы: бронь→заявка→подтверждение→блок вместимости); веб `/calendar` и `/circles` компилируются и отдают 200, но визуально в браузере ещё не отсмотрены (включая drag-and-drop планнер)
+- Calendar Phase 4 (Google-синхра) — код собран и типизируется, API стартует, роуты `/integrations/google/*` замаплены, `status`/`auth-url` корректны без кредов; **живой OAuth + двусторонняя синхра НЕ протестированы** — нужны `GOOGLE_CLIENT_ID/SECRET` (регистрация OAuth-приложения в Google Cloud) + реальный Google-аккаунт. Веб-хуки требуют публичного HTTPS (в локалке — поллинг/кнопка)
 - Expo mobile app — не запускался
 
 ### MCP серверы
@@ -346,23 +352,43 @@ cd apps/api && pnpm db:studio
 - `GET /:id/comments` — чат задачи
 - `POST /:id/comments` — написать в чат (доступно всем ролям)
 
-### Calendar (`/api/calendar/`)
-- `GET /events?from=...&to=...` — события за период
-- `POST /events` — создать событие
-- `PATCH /events/:id` — обновить
-- `DELETE /events/:id` — удалить
-- `GET /shares` — кому расшарен календарь
-- `POST /shares` — расшарить
-- `DELETE /shares/:userId` — убрать доступ
+### Calendar (`/api/calendar/`) ✅
+> Phase 1+2. Задачи — **виртуальный слой** (не копируются). Шеринг уровневый: Нет/Занят/Детально по Группам (`Circle.calendarVisibility`) и персонально (`CalendarShare.accessLevel`), резолв = MAX. Участники = одно общее событие + `EventParticipant` (без копий).
+- `GET /events?from&to&layers=events,tasks&include=<userIds>` — раскрытые события (RRULE) + слой задач + overlay чужих календарей (busy→«Занят», detailed→полно). `{ items: CalendarItem[] }` (kind: event|task)
+- `GET /events/:id` — детали с участниками (доступ: владелец/участник/detailed-зритель)
+- `POST /events` — создать (… + `participantUserIds?`/`participantCircleId?`)
+- `PATCH /events/:id` — обновить; серии: `editScope` (this|this_and_following|all) + `occurrenceStart` (только создатель)
+- `DELETE /events/:id?editScope=&occurrenceStart=` — удалить событие/экземпляр
+- `POST /events/:id/participants` — пригласить (человек/Группа) · `DELETE /events/:id/participants/:userId` — убрать/выйти
+- `POST /events/:id/rsvp` — ответить (accepted|declined|tentative) · `POST /events/:id/reminders` — мои напоминания
+- `GET /shares` · `POST /shares` (busy|detailed) · `DELETE /shares/:userId` — персональный доступ
+- `GET /shared-with-me` — чьи календари мне доступны (для слоёв) · `POST /smart-match` — подбор общих свободных окон (среди давших ≥busy)
+
+### Resources — бронь ресурсов (`/api/resources/`) ✅
+> Phase 3. Ресурс = общая вещь (переговорка/машина) со своим расписанием; владелец — человек (`workspaceId` зарезервирован под B2B). Бронь = событие с `resourceId` (прикрепляется в форме события). Модерация: чужая бронь → заявка владельцу (мягко держит слот), занятое (active ≥ capacity) → 409, своя бронь владельца → сразу. Только разовые события.
+- `GET /` — мои ресурсы + доступные мне для брони (`isOwner`, `canBook`)
+- `POST /` — создать · `PATCH /:id` · `DELETE /:id` (владелец)
+- `GET /:id/schedule?from&to` — расписание ресурса · `GET /requests` — входящие заявки на мои ресурсы
+- `POST /bookings/:eventId/confirm` | `/reject` — подтвердить/отклонить (владелец)
+> Перетаскивание в планнере переиспользует `PATCH /tasks/:id` (срок) и `PATCH /calendar/events/:id` (время/`editScope`).
+
+### Google Calendar — синхра (`/api/integrations/google/`) ✅
+> Phase 4. Двусторонняя синхра с Google (OAuth + Calendar API). Без `GOOGLE_*` в `.env` модуль инертен (`auth-url`→400). `callback`/`webhook` — `@Public()`.
+- `GET /status` — статус (email, календарь, последняя синхра) · `GET /auth-url` — ссылка OAuth-согласия
+- `GET /callback` (public) — обмен кода → токены → создание «SuperApp6»/«SuperApp6 · Задачи» → полная синхра → редирект в веб
+- `GET /calendars` · `POST /select-calendar` (`__new__` = создать) — выбор календаря для синхры
+- `POST /sync` — синхронизировать сейчас · `DELETE /` — отключить
+- `POST /webhook` (public) — приёмник push-уведомлений Google (`channels.watch`)
+> Синхра: свои события двусторонне; задачи односторонне; конфликты last-write-wins; удаления зеркалятся; участники не выгружаются. `CalendarService` эмитит `google.push` → `GoogleEventsListener`.
 
 ### Workspaces — B2B организации (`/api/workspaces/`) ✅
 > Организация = арендатор (B2B). Личная жизнь = соц. граф (`workspaceId=null`), не организация. Роль участника — **единый источник** `UserRole(context=workspace, tenantId=workspaceId)`; `WorkspaceMember` хранит только должность/отдел. Один владелец + админы. Найм по номеру: приглашение → принятие (активация при регистрации, как в Окружении). Доступ — проверка членства/роли в сервисе (как у contacts/circles).
-- `GET /` — мои организации (для переключателя; `myRole`, `membersCount`)
+- `GET /` — мои организации (для переключателя; `myRole`, `membersCount` + видимые поля карточки по роли — для `CompanyCard` в «Организациях»)
 - `POST /` — создать (создатель → `owner`)
 - `GET /invitations/incoming` — мои входящие приглашения (карточки на dashboard)
 - `POST /invitations/:invId/accept` | `/reject` — ответить
-- `GET /:id` — организация (с моей ролью)
-- `PATCH /:id` — обновить (admin+) · `DELETE /:id` — деактивировать (владелец)
+- `GET /:id` — организация (моя роль + поля профиля/карточки с видимостью по роли: owner/admin видят всё и `cardVisibility`, сотрудники — только включённые поля; `membersCount`, `tasksCount`)
+- `PATCH /:id` — обновить (admin+): name/logo + поля профиля (description/industry/city/website/contactEmail/contactPhone) + `cardVisibility` (`updateWorkspaceProfileSchema`) · `DELETE /:id` — деактивировать (владелец)
 - `POST /:id/transfer` — передать владение · `POST /:id/leave` — выйти (не владелец)
 - `GET /:id/members` — сотрудники (роль из UserRole + должность/отдел)
 - `PATCH /:id/members/:userId` — сменить роль/должность (admin+) · `DELETE /:id/members/:userId` — уволить (admin+)
@@ -400,3 +426,6 @@ cd apps/api && pnpm db:studio
 - `JWT_REFRESH_EXPIRES_IN` — время жизни refresh token (default: 30d)
 - `PORT` — порт API (default: 3001)
 - `NODE_ENV` — окружение (development/production)
+- `WEB_URL` — базовый URL веб-приложения (для редиректа после OAuth; default `http://localhost:3000`)
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` — OAuth Google Calendar (Phase 4). Пусто → интеграция выключена. Регистрация: Google Cloud Console → Calendar API → OAuth client (Web), redirect = `http://localhost:3001/api/integrations/google/callback`
+- `GOOGLE_WEBHOOK_URL` — публичный HTTPS для мгновенных push-уведомлений (опционально; в локалке пусто → поллинг)
