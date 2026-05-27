@@ -56,6 +56,8 @@ export default function CirclesPage() {
   const { isReady } = useRequireAuth();
 
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [coinsByUser, setCoinsByUser] = useState<Record<string, number>>({});
+  const [myCoinIcon, setMyCoinIcon] = useState<string | null>(null);
   const [groups, setGroups] = useState<Circle[]>([]);
   const [incoming, setIncoming] = useState<IncomingInvitation[]>([]);
   const [outgoing, setOutgoing] = useState<OutgoingInvitation[]>([]);
@@ -121,6 +123,22 @@ export default function CirclesPage() {
       setIncoming(inc.data.data);
       setOutgoing(out.data.data);
       setGroups(f.data.data);
+
+      // My currency + who holds it → small "держит N 🪙" badge on each person's card.
+      try {
+        const [cur, holders] = await Promise.all([
+          api.get('/wallet/currency'),
+          api.get('/wallet/currency/holders'),
+        ]);
+        setMyCoinIcon(cur.data.data?.icon ?? null);
+        const map: Record<string, number> = {};
+        for (const h of (holders.data.data as Array<{ userId: string; balance: number }>)) {
+          map[h.userId] = h.balance;
+        }
+        setCoinsByUser(map);
+      } catch {
+        /* wallet context is optional here */
+      }
     } catch {
       setError('Не удалось загрузить данные');
     } finally {
@@ -605,6 +623,7 @@ export default function CirclesPage() {
                 onDelete={() => { if (confirm('Удалить из окружения? Это действие двустороннее.')) handleDeleteContact(c.linkId); }}
                 onRemoveFromFolder={() => handleRemoveFromGroup(c.linkId)}
                 onAddToFolder={(groupId) => handleAddToGroup(c.linkId, groupId)}
+                myCoins={myCoinIcon ? { icon: myCoinIcon, balance: coinsByUser[c.them.id] ?? 0 } : null}
               />
             ))}
           </div>

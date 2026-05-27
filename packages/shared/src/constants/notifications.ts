@@ -66,6 +66,13 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
     pushByDefault: true,
     category: 'tasks',
   },
+  'wallet.coins.received': {
+    title: 'Вы заработали {{amount}} {{currencyName}}',
+    body: 'За задачу «{{taskTitle}}»',
+    icon: '💰',
+    pushByDefault: true,
+    category: 'tasks',
+  },
   'task.completed': {
     title: 'Задача выполнена: {{taskTitle}}',
     icon: '✅',

@@ -38,6 +38,8 @@ export type NotificationType =
   | 'workspace.invitation.rejected' // an invitee declined (→ inviter)
   | 'workspace.member.removed' // you were removed from an organization (→ member)
   | 'workspace.role.changed' // your role in an organization changed (→ member)
+  // Wallet
+  | 'wallet.coins.received' // you were paid coins for a completed task (→ executor)
   // System
   | 'system.welcome'
   | 'system.announcement';
@@ -110,6 +112,13 @@ export interface WorkspaceNotificationPayload {
   /** Present for accepted/rejected (the invitee's name) and role.changed (the new role). */
   byName?: string;
   role?: string;
+}
+
+export interface WalletCoinsReceivedPayload {
+  amount: number;
+  currencyName: string;
+  taskId?: string;
+  taskTitle?: string;
 }
 
 // ============================================================

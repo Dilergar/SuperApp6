@@ -56,6 +56,14 @@ export class NotificationsEventsListener implements OnModuleInit {
         ),
       );
     });
+
+    this.events.onPattern('wallet.*').subscribe((event) => {
+      this.handleWalletEvent(event).catch((err) =>
+        this.logger.error(
+          `Failed to handle ${event.type}: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
+    });
   }
 
   // ------------------------------------------------------------
@@ -251,6 +259,20 @@ export class NotificationsEventsListener implements OnModuleInit {
       }
       default:
         return;
+    }
+  }
+
+  // ------------------------------------------------------------
+  // Wallet — coins paid out on task acceptance. recipientIds[] = the payees.
+  // ------------------------------------------------------------
+  private async handleWalletEvent(event: AppEvent) {
+    if (event.type !== 'wallet.coins.received') return;
+    const payload = event.payload;
+    const recipientIds = (payload['recipientIds'] as string[] | undefined) ?? [];
+    const taskId = payload['taskId'] as string | undefined;
+    const actionUrl = taskId ? `/tasks/${taskId}` : '/profile/wallet';
+    for (const uid of [...new Set(recipientIds)]) {
+      await this.notifications.notify(uid, 'wallet.coins.received', payload, { actionUrl });
     }
   }
 

@@ -22,6 +22,7 @@ import { TasksModule } from './modules/tasks/tasks.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { GoogleCalendarModule } from './modules/google-calendar/google-calendar.module';
 import { WorkspacesModule } from './modules/workspaces/workspaces.module';
+import { WalletModule } from './modules/wallet/wallet.module';
 
 import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
 import { WorkspaceContextInterceptor } from './shared/interceptors/workspace-context.interceptor';
@@ -67,6 +68,8 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     NotificationsModule,
     ContactsModule,
     CirclesModule,
+    // Wallet — issued currencies + immutable ledger; underpins task coin rewards (escrow).
+    WalletModule,
     TasksModule,
     CalendarModule,
     GoogleCalendarModule,

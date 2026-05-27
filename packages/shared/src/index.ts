@@ -8,6 +8,7 @@ export * from './types/task';
 export * from './types/calendar';
 export * from './types/google';
 export * from './types/workspace';
+export * from './types/wallet';
 export * from './types/common';
 
 // Validation schemas
@@ -20,6 +21,7 @@ export * from './validation/calendar';
 export * from './validation/google';
 export * from './validation/user';
 export * from './validation/workspace';
+export * from './validation/wallet';
 
 // Utils
 export * from './utils/phone';
@@ -34,3 +36,4 @@ export * from './constants/notifications';
 export * from './constants/tasks';
 export * from './constants/calendar';
 export * from './constants/workspaces';
+export * from './constants/wallet';

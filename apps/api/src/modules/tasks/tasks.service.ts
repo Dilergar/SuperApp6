@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
+import { EscrowService } from '../wallet/escrow.service';
 import { Prisma } from '@prisma/client';
 import type {
   Task as TaskDto,
@@ -41,6 +42,7 @@ export class TasksService {
   constructor(
     private db: DatabaseService,
     private events: EventBusService,
+    private escrow: EscrowService,
   ) {}
 
   // ============================================================
@@ -144,27 +146,43 @@ export class TasksService {
       rewardCoins: role === 'observer' ? 0 : reward,
     }));
 
-    const task = await this.db.task.create({
-      data: {
-        title: data.title,
-        description: data.description,
-        priority: data.priority || 'medium',
-        dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
-        startDate: data.startDate ? new Date(data.startDate) : undefined,
-        allDay: data.allDay ?? false,
-        reminderAt: data.reminderAt ? new Date(data.reminderAt) : undefined,
-        recurrenceRule: data.recurrenceRule,
-        creatorId: userId,
-        assignedCircleId,
-        parentId: data.parentId,
-        coinReward: reward,
-        coinPenalty: data.coinPenalty ?? 0,
-        giftRewardId: data.giftRewardId,
-        workspaceId: data.workspaceId,
-        tags: data.tags?.length ? { create: data.tags.map((name) => ({ name })) } : undefined,
-        participants: participantsCreate.length ? { create: participantsCreate } : undefined,
-      },
-      include: TASK_INCLUDE,
+    const workerIds = participantsCreate
+      .filter((p) => p.role !== 'observer')
+      .map((p) => p.userId);
+
+    // Create the task and freeze the per-worker reward atomically. If the creator has no
+    // currency or not enough coins, holdForWorkers throws → the whole creation rolls back
+    // (you can't post a rewarded task without the coins).
+    const task = await this.db.$transaction(async (tx) => {
+      const created = await tx.task.create({
+        data: {
+          title: data.title,
+          description: data.description,
+          priority: data.priority || 'medium',
+          dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
+          startDate: data.startDate ? new Date(data.startDate) : undefined,
+          allDay: data.allDay ?? false,
+          reminderAt: data.reminderAt ? new Date(data.reminderAt) : undefined,
+          recurrenceRule: data.recurrenceRule,
+          creatorId: userId,
+          assignedCircleId,
+          parentId: data.parentId,
+          coinReward: reward,
+          coinPenalty: data.coinPenalty ?? 0,
+          giftRewardId: data.giftRewardId,
+          workspaceId: data.workspaceId,
+          tags: data.tags?.length ? { create: data.tags.map((name) => ({ name })) } : undefined,
+          participants: participantsCreate.length ? { create: participantsCreate } : undefined,
+        },
+        include: TASK_INCLUDE,
+      });
+      await this.escrow.holdForWorkers(tx, {
+        taskId: created.id,
+        creatorUserId: userId,
+        workerIds,
+        amountEach: reward,
+      });
+      return created;
     });
 
     // Calendar integration (existing contract).
@@ -384,6 +402,18 @@ export class TasksService {
       throw new ForbiddenException('Менять роли и награду может только Постановщик');
     }
 
+    // The per-person reward is fixed once workers are assigned (coins are committed to escrow).
+    // Change the team instead; new workers are funded at the original amount.
+    if (
+      data.coinReward !== undefined &&
+      data.coinReward !== existing.coinReward &&
+      existing.participants.some((p) => p.role !== 'observer')
+    ) {
+      throw new BadRequestException(
+        'Награду нельзя изменить после назначения исполнителей — отмените задачу или измените состав',
+      );
+    }
+
     const patch: Prisma.TaskUpdateInput = {};
     if (data.title !== undefined) patch.title = data.title;
     if (data.description !== undefined) patch.description = data.description;
@@ -413,6 +443,10 @@ export class TasksService {
     await this.db.$transaction(async (tx) => {
       await tx.task.update({ where: { id: taskId }, data: patch });
 
+      if (patch.status === 'cancelled') {
+        await this.escrow.releaseAll(tx, { taskId }); // refund all frozen / paid reward
+      }
+
       if (data.tags !== undefined) {
         await tx.taskTag.deleteMany({ where: { taskId } });
         if (data.tags.length) {
@@ -434,23 +468,35 @@ export class TasksService {
     existing: { creatorId: string; coinReward?: number; participants: { id: string; userId: string; role: string }[] },
     data: UpdateTaskRequest,
   ) {
-    const reward = data.coinReward;
+    // Per-person reward is locked at the task's coinReward; new workers are funded at it.
+    const perPerson = existing.coinReward ?? 0;
 
     if (data.removeParticipantUserIds?.length) {
+      for (const uid of data.removeParticipantUserIds) {
+        await this.escrow.releaseParticipant(tx, { taskId, participantUserId: uid }); // refund their hold
+      }
       await tx.taskParticipant.deleteMany({
         where: { taskId, userId: { in: data.removeParticipantUserIds } },
       });
     }
 
     if (data.executorId !== undefined) {
-      // Replace the single executor (individual tasks).
+      // Replace the single executor (individual tasks): refund the old one, freeze for the new.
+      const oldExec = existing.participants.find((p) => p.role === 'executor');
+      if (oldExec) await this.escrow.releaseParticipant(tx, { taskId, participantUserId: oldExec.userId });
       await tx.taskParticipant.deleteMany({ where: { taskId, role: 'executor' } });
       if (data.executorId) {
         await this.assertInEnvironment(existing.creatorId, [data.executorId]);
         await tx.taskParticipant.upsert({
           where: { taskId_userId: { taskId, userId: data.executorId } },
           update: { role: 'executor' },
-          create: { taskId, userId: data.executorId, role: 'executor', rewardCoins: reward ?? 0 },
+          create: { taskId, userId: data.executorId, role: 'executor', rewardCoins: perPerson },
+        });
+        await this.escrow.holdForWorkers(tx, {
+          taskId,
+          creatorUserId: existing.creatorId,
+          workerIds: [data.executorId],
+          amountEach: perPerson,
         });
       }
     }
@@ -462,7 +508,15 @@ export class TasksService {
         await tx.taskParticipant.upsert({
           where: { taskId_userId: { taskId, userId: uid } },
           update: { role },
-          create: { taskId, userId: uid, role, rewardCoins: role === 'observer' ? 0 : reward ?? 0 },
+          create: { taskId, userId: uid, role, rewardCoins: role === 'observer' ? 0 : perPerson },
+        });
+      }
+      if (role !== 'observer') {
+        await this.escrow.holdForWorkers(tx, {
+          taskId,
+          creatorUserId: existing.creatorId,
+          workerIds: ids,
+          amountEach: perPerson,
         });
       }
     };
@@ -476,7 +530,10 @@ export class TasksService {
     if (task.creatorId !== userId) {
       throw new ForbiddenException('Удалить задачу может только Постановщик');
     }
-    await this.db.task.delete({ where: { id: taskId } });
+    await this.db.$transaction(async (tx) => {
+      await this.escrow.releaseAll(tx, { taskId }); // refund any frozen / paid reward to the creator
+      await tx.task.delete({ where: { id: taskId } });
+    });
     this.events.emit('task.deleted', { taskId }, 'tasks');
   }
 
@@ -532,15 +589,32 @@ export class TasksService {
   /** Постановщик accepts a participant's submitted work. */
   async acceptWork(userId: string, taskId: string, participantUserId?: string): Promise<TaskDto> {
     const { task, target } = await this.loadForReview(userId, taskId, participantUserId);
-    await this.db.taskParticipant.update({
-      where: { id: target.id },
-      data: { status: 'accepted', acceptedAt: new Date(), returnedAt: null },
+    let captured: { currencyName: string; amount: number } | null = null;
+    await this.db.$transaction(async (tx) => {
+      await tx.taskParticipant.update({
+        where: { id: target.id },
+        data: { status: 'accepted', acceptedAt: new Date(), returnedAt: null },
+      });
+      captured = await this.escrow.capture(tx, { taskId, participantUserId: target.userId }); // pay out the frozen reward
     });
     this.events.emit(
       'task.accepted',
       { taskId, taskTitle: task.title, recipientIds: [target.userId] },
       'tasks',
     );
+    if (captured) {
+      this.events.emit(
+        'wallet.coins.received',
+        {
+          recipientIds: [target.userId],
+          amount: (captured as { amount: number }).amount,
+          currencyName: (captured as { currencyName: string }).currencyName,
+          taskId,
+          taskTitle: task.title,
+        },
+        'tasks',
+      );
+    }
     await this.recomputeStatus(taskId);
     return this.getTask(userId, taskId);
   }
@@ -548,9 +622,12 @@ export class TasksService {
   /** Постановщик returns a participant's work for rework. */
   async returnWork(userId: string, taskId: string, participantUserId?: string): Promise<TaskDto> {
     const { task, target } = await this.loadForReview(userId, taskId, participantUserId);
-    await this.db.taskParticipant.update({
-      where: { id: target.id },
-      data: { status: 'returned', returnedAt: new Date(), submittedAt: null },
+    await this.db.$transaction(async (tx) => {
+      await tx.taskParticipant.update({
+        where: { id: target.id },
+        data: { status: 'returned', returnedAt: new Date(), submittedAt: null },
+      });
+      await this.escrow.returnToHold(tx, { taskId, participantUserId: target.userId }); // reverse payout + re-freeze if already paid
     });
     this.events.emit(
       'task.returned',
@@ -634,7 +711,7 @@ export class TasksService {
 
     const participants = await this.db.taskParticipant.findMany({
       where: { taskId: task.id },
-      select: { userId: true, role: true, rewardCoins: true },
+      select: { userId: true, role: true },
     });
 
     // Shift the reminder by the same delta as the due date.
@@ -643,26 +720,61 @@ export class TasksService {
         ? new Date(task.reminderAt.getTime() + (next.getTime() - task.dueDate.getTime()))
         : null;
 
-    await this.db.task.create({
-      data: {
-        title: task.title,
-        description: task.description,
-        priority: task.priority,
-        dueDate: next,
-        allDay: task.allDay,
-        reminderAt: reminder,
-        recurrenceRule: task.recurrenceRule,
-        recurrenceParentId: task.recurrenceParentId ?? task.id,
-        creatorId: task.creatorId,
-        assignedCircleId: task.assignedCircleId,
-        coinReward: task.coinReward,
-        coinPenalty: task.coinPenalty,
-        workspaceId: task.workspaceId,
-        participants: participants.length
-          ? { create: participants.map((p) => ({ userId: p.userId, role: p.role, rewardCoins: p.rewardCoins })) }
-          : undefined,
-      },
+    const workerIds = participants
+      .filter((p) => p.role !== 'observer')
+      .map((p) => p.userId)
+      .filter((id) => id !== task.creatorId);
+
+    // Fund the next occurrence only if the creator can still cover it; otherwise spawn it
+    // without a reward (a recurring task must not break on insufficient funds).
+    let nextReward = task.coinReward;
+    if (nextReward > 0 && workerIds.length > 0 && !(await this.canFund(task.creatorId, nextReward * workerIds.length))) {
+      nextReward = 0;
+    }
+
+    await this.db.$transaction(async (tx) => {
+      const spawned = await tx.task.create({
+        data: {
+          title: task.title,
+          description: task.description,
+          priority: task.priority,
+          dueDate: next,
+          allDay: task.allDay,
+          reminderAt: reminder,
+          recurrenceRule: task.recurrenceRule,
+          recurrenceParentId: task.recurrenceParentId ?? task.id,
+          creatorId: task.creatorId,
+          assignedCircleId: task.assignedCircleId,
+          coinReward: nextReward,
+          coinPenalty: task.coinPenalty,
+          workspaceId: task.workspaceId,
+          participants: participants.length
+            ? { create: participants.map((p) => ({ userId: p.userId, role: p.role, rewardCoins: p.role === 'observer' ? 0 : nextReward })) }
+            : undefined,
+        },
+      });
+      if (nextReward > 0) {
+        await this.escrow.holdForWorkers(tx, {
+          taskId: spawned.id,
+          creatorUserId: task.creatorId,
+          workerIds,
+          amountEach: nextReward,
+        });
+      }
     });
+  }
+
+  /** Can the creator still cover `total` coins of their own currency (available balance)? */
+  private async canFund(userId: string, total: number): Promise<boolean> {
+    const currency = await this.db.currency.findFirst({
+      where: { issuerType: 'user', issuerId: userId, status: 'active' },
+    });
+    if (!currency) return false;
+    const bal = await this.db.walletBalance.findUnique({
+      where: { accountUserId_currencyId: { accountUserId: userId, currencyId: currency.id } },
+    });
+    const available = bal ? bal.balance - bal.heldAmount : 0n;
+    return available >= BigInt(total);
   }
 
   private nextOccurrence(from: Date, rule: string): Date | null {
