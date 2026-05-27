@@ -7,6 +7,7 @@ import { useAuthStore } from '@/lib/stores/auth';
 import { api } from '@/lib/api';
 import { resolveCardVisibility, type CardVisibility, type Circle } from '@superapp/shared';
 import { PersonCard } from '../../circles/PersonCard';
+import { WalletSection } from '../WalletSection';
 
 // ============================================================
 // Types & constants
@@ -19,9 +20,9 @@ interface Session {
   createdAt: string;
 }
 
-type Section = 'form' | 'card' | 'stats' | 'roles' | 'subscription' | 'settings' | 'security';
+type Section = 'form' | 'card' | 'wallet' | 'stats' | 'roles' | 'subscription' | 'settings' | 'security';
 
-const KNOWN_SECTIONS: Section[] = ['form', 'card', 'stats', 'roles', 'subscription', 'settings', 'security'];
+const KNOWN_SECTIONS: Section[] = ['form', 'card', 'wallet', 'stats', 'roles', 'subscription', 'settings', 'security'];
 
 const MARITAL_OPTIONS = [
   { value: '', label: 'Не указано' },
@@ -373,6 +374,9 @@ export default function ProfileSectionPage() {
           />
         </div>
       )}
+
+      {/* === Кошелёк === */}
+      {section === 'wallet' && <WalletSection />}
 
       {/* === Stats === */}
       {section === 'stats' && (

@@ -691,3 +691,103 @@ model WorkspaceInvitation {
   @@index([status, expiresAt])
   @@map("workspace_invitations")
 }
+
+// ============================================================
+// WALLET — issued currencies, immutable ledger, escrow holds
+// ============================================================
+
+// An issued currency. Exactly ONE active currency per issuer. The issuer is polymorphic
+// (a user now; a workspace in a later phase) → issuerId is NOT a single-table FK, it is
+// validated in the service. Name/icon are referenced by id everywhere (never snapshotted)
+// so a rename is retroactive; rename is allowed at most once per 3 months. Deletion is a
+// soft-delete (status) — balances of a deleted currency render as 0 everywhere.
+model Currency {
+  id           String @id @default(uuid())
+  issuerType   String @map("issuer_type") // 'user' | 'workspace'
+  issuerId     String @map("issuer_id")
+  name         String
+  icon         String // emoji, no ticker
+  currencyType String @default("CUSTOM_COIN") @map("currency_type") // future: KZT, USD…
+
+  // B2B hook: who may see holders' balances (role/position matrix). null = personal rule
+  // (balance visible to holder + issuer only). Unused this phase.
+  visibilityPolicy Json? @map("visibility_policy")
+
+  status        String    @default("active") // active | deleted
+  lastRenamedAt DateTime? @map("last_renamed_at") // enforces the 1×/3-months rename limit
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  // "One active currency per issuer" is a PARTIAL unique index (WHERE status='active')
+  // added in the migration — Prisma can't express partial uniques in-schema.
+  @@index([issuerType, issuerId])
+  @@index([status])
+  @@map("currencies")
+}
+
+// Immutable, append-only journal — the single source of truth for every balance. Rows are
+// never updated or deleted. Intentionally FK-free: writes are hot and integrity is enforced
+// in LedgerService, so we skip per-insert FK checks. PK is a monotonic bigint (better index
+// locality/ordering for an append log than a uuid). Amounts are BigInt and signed.
+model LedgerEntry {
+  id             BigInt  @id @default(autoincrement())
+  currencyId     String  @map("currency_id")
+  accountUserId  String  @map("account_user_id") // whose balance this entry moves (always a user)
+  amount         BigInt // signed: +credit / −debit
+  entryType      String  @map("entry_type") // mint | transfer | reversal | burn | currency_deleted
+  transferId     String? @map("transfer_id") // links the two legs of a transfer / reversal
+  taskId         String? @map("task_id") // origin task, when applicable
+  idempotencyKey String? @unique @map("idempotency_key") // duplicate event collides here → no double-post
+  memo           String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([accountUserId, currencyId, id]) // balance recompute + history feed
+  @@index([currencyId])
+  @@index([transferId])
+  @@index([taskId])
+  @@map("ledger_entries")
+}
+
+// Materialized projection of the ledger (a cache, NOT the truth) — updated in the SAME
+// transaction as each ledger write and row-locked (SELECT … FOR UPDATE) on spend to prevent
+// double-spend. Rebuildable from ledger_entries at any time. available = balance − heldAmount.
+// balance MAY go negative (reversal of coins the holder already burned).
+model WalletBalance {
+  id            String   @id @default(uuid())
+  accountUserId String   @map("account_user_id")
+  currencyId    String   @map("currency_id")
+  balance       BigInt   @default(0) // = Σ ledger_entries for (account, currency)
+  heldAmount    BigInt   @default(0) @map("held_amount") // = Σ active escrow holds (issuer side)
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([accountUserId, currencyId])
+  @@index([currencyId]) // "holders of my currency" view
+  @@map("wallet_balances")
+}
+
+// Escrow state machine, ONE row per (task, participant) — reward is per-participant, not a
+// shared pool. Created when a rewarded task is posted (active) → freezes the creator's coins
+// (raises WalletBalance.heldAmount; no ledger entry yet, ownership hasn't changed). On
+// acceptance → captured (writes the transfer to the ledger). On return/cancel before capture
+// → released. A post-capture return reverses via the ledger (may push the holder negative).
+model EscrowHold {
+  id                String   @id @default(uuid())
+  currencyId        String   @map("currency_id")
+  taskId            String   @map("task_id")
+  participantUserId String   @map("participant_user_id")
+  creatorUserId     String   @map("creator_user_id") // the issuer who froze the coins
+  amount            BigInt
+  status            String   @default("active") // active | captured | released
+  ledgerTransferId  String?  @map("ledger_transfer_id") // capture's transferId → enables reversal
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@unique([taskId, participantUserId]) // one hold per participant; makes holds idempotent
+  @@index([currencyId])
+  @@index([taskId])
+  @@index([creatorUserId, status])
+  @@index([status])
+  @@map("escrow_holds")
+}

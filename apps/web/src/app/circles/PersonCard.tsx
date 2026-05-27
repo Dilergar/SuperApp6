@@ -77,6 +77,8 @@ interface CompactProps {
   onDelete: () => void;
   onRemoveFromFolder: () => void;
   onAddToFolder: (folderId: string) => void;
+  /** Balance of MY currency this person holds (visible to me as the issuer). */
+  myCoins?: { icon: string; balance: number } | null;
 }
 
 // ============================================================
@@ -109,7 +111,7 @@ export function PersonCard(props: PersonCardProps) {
 // ============================================================
 
 function CompactCard({
-  contact, folders, activeFolder, onDelete, onRemoveFromFolder, onAddToFolder,
+  contact, folders, activeFolder, onDelete, onRemoveFromFolder, onAddToFolder, myCoins,
 }: CompactProps) {
   const [showFolderMenu, setShowFolderMenu] = useState(false);
 
@@ -197,6 +199,11 @@ function CompactCard({
           </div>
         )}
         {contact.myRole && <div className="sketch-role-badge">{contact.myRole}</div>}
+        {myCoins && myCoins.balance !== 0 && (
+          <div className="label-sm" style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 600, color: 'var(--primary)' }}>
+            держит {myCoins.balance.toLocaleString('ru-RU')} {myCoins.icon}
+          </div>
+        )}
         {foldersIn.length > 0 && (
           <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', justifyContent: 'center', marginTop: 'var(--spacing-1)' }}>
             {foldersIn.map((f) => (
