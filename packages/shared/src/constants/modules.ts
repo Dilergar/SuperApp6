@@ -42,10 +42,21 @@ export const MODULES: Record<string, ModuleDefinition> = {
       { path: '/calendar', label: 'Календарь' },
     ],
   },
+  shop: {
+    id: 'shop',
+    name: 'My Wish & Shop',
+    description: 'Витрины подарков за коины и списки желаний',
+    icon: 'shopping-bag',
+    version: '1.0.0',
+    category: 'life',
+    requiredPermissions: [],
+    routes: [
+      { path: '/shop', label: 'My Wish & Shop' },
+    ],
+  },
   // Future modules — uncomment when ready
   // finance: { id: 'finance', name: 'Финансы', ... },
   // coins: { id: 'coins', name: 'Коины', ... },
-  // shop: { id: 'shop', name: 'Магазин', ... },
   // chat: { id: 'chat', name: 'Чат', ... },
   // jobs: { id: 'jobs', name: 'Работа', ... },
 };

@@ -1,34 +1,35 @@
-import {
-  Injectable,
-  BadRequestException,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { randomUUID } from 'node:crypto';
 import { WALLET_LIMITS } from '@superapp/shared';
-import type { LedgerEntryType } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 
 type Tx = Prisma.TransactionClient;
 
-interface BalanceRow {
+interface AccountState {
+  id: string;
   balance: bigint;
   held: bigint;
+  allowNegative: boolean;
 }
 
 /**
- * Low-level mechanics of the immutable ledger — the single source of truth for every
- * balance. Knows nothing about currencies' ownership rules, tasks or escrow policy (those
- * live in the higher-level services); it only moves integers correctly and safely:
+ * Double-entry ledger mechanics over a typed chart of accounts — the single source of truth for
+ * every balance. It knows nothing about currency ownership rules or escrow policy (those live in
+ * the higher-level services); it only moves integer minor units correctly and safely:
  *
- *  - every mutation appends to `ledger_entries` (never updates a row) AND updates the
- *    materialized `wallet_balances` cache inside the SAME transaction;
- *  - the balance row is locked (INSERT … ON CONFLICT … = lock-or-create) before reads on a
- *    spend, so concurrent spends can't both pass the same check (no double-spend);
- *  - amounts are BigInt; balances may go negative (reversal of already-burned coins).
+ *  - money is never created/destroyed, only moved between accounts; mint comes FROM an issuance
+ *    account (which goes negative), so per currency Σ(all account balances) = 0;
+ *  - every mutation appends an immutable row to `ledger_transfers` (never updates a row) AND
+ *    updates the materialized `accounts` cache (balance + held) inside the SAME transaction;
+ *  - the account row is locked (SELECT … FOR UPDATE) before a spend, so concurrent spends can't
+ *    both pass the same check (no double-spend);
+ *  - holds are TWO-PHASE: `createPending` reserves on the payer (held += amount) with no settlement;
+ *    `postPending` settles it (payer → beneficiary); `voidPending` releases it. Each phase is its
+ *    own immutable row — a hold is fully auditable, never a bare mutable counter;
+ *  - user wallets may NOT go negative; only system accounts (issuance) set allowNegative.
  *
- * Methods accept an optional `tx` so a caller (e.g. the task-escrow flow) can compose them
- * inside its own transaction; without it, each call opens its own.
+ * Methods that open transactions accept an optional `tx` so callers can compose them; the two-phase
+ * primitives always run inside the caller's transaction.
  */
 @Injectable()
 export class LedgerService {
@@ -38,72 +39,76 @@ export class LedgerService {
     return tx ? fn(tx) : this.db.$transaction(fn);
   }
 
-  /** Lock-or-create the (account, currency) balance row; returns its current values. */
-  private async lockBalance(
-    tx: Tx,
-    accountUserId: string,
-    currencyId: string,
-  ): Promise<BalanceRow> {
-    const rows = await tx.$queryRaw<Array<{ balance: bigint; held_amount: bigint }>>(Prisma.sql`
-      INSERT INTO wallet_balances (id, account_user_id, currency_id, balance, held_amount, updated_at)
-      VALUES (${randomUUID()}, ${accountUserId}, ${currencyId}, 0, 0, now())
-      ON CONFLICT (account_user_id, currency_id)
-      DO UPDATE SET updated_at = now()
-      RETURNING balance, held_amount
-    `);
-    return { balance: rows[0].balance, held: rows[0].held_amount };
+  // ============================================================
+  // Chart of accounts
+  // ============================================================
+
+  /** A holder's wallet account for a currency (liability; no overdraft). Created on first use. */
+  getOrCreateUserAccount(tx: Tx, currencyId: string, userId: string) {
+    return this.getOrCreateHolderAccount(tx, currencyId, 'user', userId);
   }
 
-  private async writeBalance(
-    tx: Tx,
-    accountUserId: string,
-    currencyId: string,
-    balance: bigint,
-    held: bigint,
-  ): Promise<void> {
-    await tx.walletBalance.update({
-      where: { accountUserId_currencyId: { accountUserId, currencyId } },
-      data: { balance, heldAmount: held },
+  /** A holder's wallet account for ANY owner (a user OR a workspace treasury, B2B P9). No overdraft. */
+  getOrCreateHolderAccount(tx: Tx, currencyId: string, ownerType: string, ownerId: string) {
+    return this.getOrCreateAccount(tx, {
+      currencyId,
+      type: 'user',
+      ownerType,
+      ownerId,
+      allowNegative: false,
     });
   }
 
-  /** Append one immutable journal line. Returns false if an idempotency key collided. */
-  private async postEntry(
+  /** The currency's issuance account — source of minted coins; goes negative. One per currency. */
+  getOrCreateIssuanceAccount(tx: Tx, currencyId: string) {
+    return this.getOrCreateAccount(tx, {
+      currencyId,
+      type: 'issuance',
+      ownerType: 'system',
+      ownerId: currencyId,
+      allowNegative: true,
+    });
+  }
+
+  private async getOrCreateAccount(
     tx: Tx,
-    e: {
-      currencyId: string;
-      accountUserId: string;
-      amount: bigint;
-      entryType: LedgerEntryType;
-      transferId?: string | null;
-      taskId?: string | null;
-      idempotencyKey?: string | null;
-      memo?: string | null;
-    },
-  ): Promise<boolean> {
+    a: { currencyId: string; type: string; ownerType: string; ownerId: string; allowNegative: boolean },
+  ) {
+    const key = {
+      currencyId_type_ownerType_ownerId: {
+        currencyId: a.currencyId,
+        type: a.type,
+        ownerType: a.ownerType,
+        ownerId: a.ownerId,
+      },
+    };
+    const existing = await tx.account.findUnique({ where: key });
+    if (existing) return existing;
     try {
-      await tx.ledgerEntry.create({
-        data: {
-          currencyId: e.currencyId,
-          accountUserId: e.accountUserId,
-          amount: e.amount,
-          entryType: e.entryType,
-          transferId: e.transferId ?? null,
-          taskId: e.taskId ?? null,
-          idempotencyKey: e.idempotencyKey ?? null,
-          memo: e.memo ?? null,
-        },
-      });
-      return true;
+      return await tx.account.create({ data: a });
     } catch (err) {
-      if (
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
-      ) {
-        return false; // duplicate idempotency key → already applied
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        return (await tx.account.findUnique({ where: key }))!; // concurrent create — take the winner
       }
       throw err;
     }
+  }
+
+  /** Lock account rows FOR UPDATE in a stable (sorted) order to avoid deadlocks. */
+  private async lock(tx: Tx, ids: string[]): Promise<Map<string, AccountState>> {
+    const map = new Map<string, AccountState>();
+    for (const id of [...new Set(ids)].sort()) {
+      const rows = await tx.$queryRaw<Array<{ balance: bigint; held: bigint; allow_negative: boolean }>>(
+        Prisma.sql`SELECT balance, held, allow_negative FROM accounts WHERE id = ${id} FOR UPDATE`,
+      );
+      if (rows.length === 0) throw new NotFoundException('Счёт не найден');
+      map.set(id, { id, balance: rows[0].balance, held: rows[0].held, allowNegative: rows[0].allow_negative });
+    }
+    return map;
+  }
+
+  private write(tx: Tx, id: string, balance: bigint, held: bigint) {
+    return tx.account.update({ where: { id }, data: { balance, held } });
   }
 
   private toBig(amount: number): bigint {
@@ -113,277 +118,303 @@ export class LedgerService {
     return BigInt(amount);
   }
 
+  /** Append an immutable journal row. Returns its id, or null if an idempotency key collided. */
+  private async append(
+    tx: Tx,
+    t: {
+      currencyId: string;
+      debitAccountId: string;
+      creditAccountId: string;
+      amount: bigint;
+      kind: string;
+      pendingId?: bigint | null;
+      agreementId?: string | null;
+      idempotencyKey?: string | null;
+      memo?: string | null;
+    },
+  ): Promise<bigint | null> {
+    try {
+      const row = await tx.ledgerTransfer.create({
+        data: {
+          currencyId: t.currencyId,
+          debitAccountId: t.debitAccountId,
+          creditAccountId: t.creditAccountId,
+          amount: t.amount,
+          kind: t.kind,
+          pendingId: t.pendingId ?? null,
+          agreementId: t.agreementId ?? null,
+          idempotencyKey: t.idempotencyKey ?? null,
+          memo: t.memo ?? null,
+        },
+      });
+      return row.id;
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        return null; // duplicate idempotency key → already applied
+      }
+      throw err;
+    }
+  }
+
   // ============================================================
-  // Primitives
+  // Posted movements
   // ============================================================
 
   /**
-   * Self-emission. Enforces the "in hand" ceiling: an issuer's own balance (which equals
-   * available + held, since held coins are a subset of the balance) may not exceed maxInHand.
+   * Self-emission: a posted transfer issuance → user. Double-entry, so the books always balance and
+   * issuance is auditable. Enforces the "in hand" ceiling (a user's own balance ≤ maxInHand).
    * Ownership of the currency is validated by the caller (CurrencyService).
    */
-  async mint(
-    input: { currencyId: string; ownerUserId: string; amount: number },
-    tx?: Tx,
-  ): Promise<void> {
+  async mint(input: { currencyId: string; ownerType?: string; ownerId: string; amount: number }, tx?: Tx): Promise<void> {
     const amount = this.toBig(input.amount);
     await this.run(tx, async (t) => {
-      const bal = await this.lockBalance(t, input.ownerUserId, input.currencyId);
-      const next = bal.balance + amount;
-      if (next > BigInt(WALLET_LIMITS.maxInHand)) {
+      const issuance = await this.getOrCreateIssuanceAccount(t, input.currencyId);
+      const user = await this.getOrCreateHolderAccount(t, input.currencyId, input.ownerType ?? 'user', input.ownerId);
+      const locks = await this.lock(t, [issuance.id, user.id]);
+      const i = locks.get(issuance.id)!;
+      const u = locks.get(user.id)!;
+      if (u.balance + amount > BigInt(WALLET_LIMITS.maxInHand)) {
         throw new BadRequestException(
           `Лимит эмиссии: «на руках» не может быть больше ${WALLET_LIMITS.maxInHand} монет`,
         );
       }
-      await this.postEntry(t, {
+      await this.append(t, {
         currencyId: input.currencyId,
-        accountUserId: input.ownerUserId,
+        debitAccountId: issuance.id,
+        creditAccountId: user.id,
         amount,
-        entryType: 'mint',
+        kind: 'posted',
+        memo: 'mint',
       });
-      await this.writeBalance(t, input.ownerUserId, input.currencyId, next, bal.held);
+      await this.write(t, issuance.id, i.balance - amount, i.held);
+      await this.write(t, user.id, u.balance + amount, u.held);
     });
   }
 
-  /** Irreversibly destroy coins from a holder's available balance. */
-  async burn(
-    input: { currencyId: string; holderUserId: string; amount: number },
-    tx?: Tx,
-  ): Promise<void> {
+  /** Irreversibly destroy coins from a holder's balance: a posted transfer holder → issuance. */
+  async burn(input: { currencyId: string; ownerType?: string; ownerId: string; amount: number }, tx?: Tx): Promise<void> {
     const amount = this.toBig(input.amount);
     await this.run(tx, async (t) => {
-      const bal = await this.lockBalance(t, input.holderUserId, input.currencyId);
-      const available = bal.balance - bal.held;
-      if (amount > available) {
+      const holder = await this.getOrCreateHolderAccount(t, input.currencyId, input.ownerType ?? 'user', input.ownerId);
+      const issuance = await this.getOrCreateIssuanceAccount(t, input.currencyId);
+      const locks = await this.lock(t, [holder.id, issuance.id]);
+      const h = locks.get(holder.id)!;
+      const i = locks.get(issuance.id)!;
+      if (h.balance - h.held - amount < 0n) {
         throw new BadRequestException('Недостаточно монет для сжигания');
       }
-      await this.postEntry(t, {
+      await this.append(t, {
         currencyId: input.currencyId,
-        accountUserId: input.holderUserId,
-        amount: -amount,
-        entryType: 'burn',
+        debitAccountId: holder.id,
+        creditAccountId: issuance.id,
+        amount,
+        kind: 'posted',
+        memo: 'burn',
       });
-      await this.writeBalance(
-        t,
-        input.holderUserId,
-        input.currencyId,
-        bal.balance - amount,
-        bal.held,
-      );
+      await this.write(t, holder.id, h.balance - amount, h.held);
+      await this.write(t, issuance.id, i.balance + amount, i.held);
     });
   }
 
   /**
-   * Move coins between two users (two journal legs sharing a transferId). Generic primitive:
-   *  - `preReserved` (escrow capture): the coins were already frozen on the sender, so we
-   *    draw them from `held` and skip the available check;
-   *  - otherwise (future P2P): the sender's available balance is checked.
-   * Returns the transferId so the caller can later reverse it.
+   * Posted transfer between two accounts. Checks available (balance − held) on the debit side unless
+   * that account allows negative. Returns the transfer id (idempotent on idempotencyKey).
    */
   async transfer(
+    tx: Tx,
     input: {
       currencyId: string;
-      fromUserId: string;
-      toUserId: string;
+      fromAccountId: string;
+      toAccountId: string;
       amount: number;
-      taskId?: string | null;
-      preReserved?: boolean;
+      agreementId?: string | null;
       idempotencyKey?: string;
+      memo?: string | null;
     },
-    tx?: Tx,
-  ): Promise<string> {
-    if (input.fromUserId === input.toUserId) {
+  ): Promise<bigint | null> {
+    if (input.fromAccountId === input.toAccountId) {
       throw new BadRequestException('Нельзя перевести самому себе');
     }
     const amount = this.toBig(input.amount);
-    const transferId = randomUUID();
-    await this.run(tx, async (t) => {
-      if (input.idempotencyKey) {
-        const dup = await t.ledgerEntry.findUnique({
-          where: { idempotencyKey: `${input.idempotencyKey}:out` },
-        });
-        if (dup) return; // already applied
-      }
-      // Lock both rows in a stable (sorted) order to avoid deadlocks.
-      const locks = new Map<string, BalanceRow>();
-      for (const uid of [input.fromUserId, input.toUserId].sort()) {
-        locks.set(uid, await this.lockBalance(t, uid, input.currencyId));
-      }
-      const from = locks.get(input.fromUserId)!;
-      const to = locks.get(input.toUserId)!;
-
-      if (input.preReserved) {
-        await this.writeBalance(
-          t,
-          input.fromUserId,
-          input.currencyId,
-          from.balance - amount,
-          from.held - amount,
-        );
-      } else {
-        if (amount > from.balance - from.held) {
-          throw new BadRequestException('Недостаточно монет');
-        }
-        await this.writeBalance(
-          t,
-          input.fromUserId,
-          input.currencyId,
-          from.balance - amount,
-          from.held,
-        );
-      }
-      await this.writeBalance(
-        t,
-        input.toUserId,
-        input.currencyId,
-        to.balance + amount,
-        to.held,
-      );
-
-      await this.postEntry(t, {
-        currencyId: input.currencyId,
-        accountUserId: input.fromUserId,
-        amount: -amount,
-        entryType: 'transfer',
-        transferId,
-        taskId: input.taskId,
-        idempotencyKey: input.idempotencyKey ? `${input.idempotencyKey}:out` : null,
-      });
-      await this.postEntry(t, {
-        currencyId: input.currencyId,
-        accountUserId: input.toUserId,
-        amount,
-        entryType: 'transfer',
-        transferId,
-        taskId: input.taskId,
-        idempotencyKey: input.idempotencyKey ? `${input.idempotencyKey}:in` : null,
-      });
-    });
-    return transferId;
-  }
-
-  /**
-   * Reverse a prior transfer (e.g. a task returned after acceptance): post opposite legs.
-   * The recipient's balance may go negative if they already burned the coins — that is by
-   * design (they can't escape the reversal by burning).
-   */
-  async reverse(
-    input: { transferId: string; idempotencyKey?: string; memo?: string },
-    tx?: Tx,
-  ): Promise<void> {
-    await this.run(tx, async (t) => {
-      if (input.idempotencyKey) {
-        const dup = await t.ledgerEntry.findUnique({
-          where: { idempotencyKey: `${input.idempotencyKey}:rev0` },
-        });
-        if (dup) return; // already reversed
-      }
-      const legs = await t.ledgerEntry.findMany({
-        where: { transferId: input.transferId, entryType: 'transfer' },
-        orderBy: { id: 'asc' },
-      });
-      if (legs.length === 0) {
-        throw new NotFoundException('Транзакция для возврата не найдена');
-      }
-      const newTransferId = randomUUID();
-      let i = 0;
-      for (const leg of legs) {
-        const bal = await this.lockBalance(t, leg.accountUserId, leg.currencyId);
-        await this.writeBalance(
-          t,
-          leg.accountUserId,
-          leg.currencyId,
-          bal.balance - leg.amount, // flip the original delta
-          bal.held,
-        );
-        await this.postEntry(t, {
-          currencyId: leg.currencyId,
-          accountUserId: leg.accountUserId,
-          amount: -leg.amount,
-          entryType: 'reversal',
-          transferId: newTransferId,
-          taskId: leg.taskId,
-          memo: input.memo ?? `reversal of ${input.transferId}`,
-          idempotencyKey: input.idempotencyKey
-            ? `${input.idempotencyKey}:rev${i}`
-            : null,
-        });
-        i += 1;
-      }
-    });
-  }
-
-  // ============================================================
-  // Escrow primitives (held balance, no ownership change)
-  // ============================================================
-
-  /**
-   * Reserve `amount` of the owner's coins (available → held). No ledger entry: ownership
-   * doesn't change, the coins are just earmarked. Throws if available is insufficient — this
-   * is what makes "can't post a rewarded task without the coins" hold. Always called in a tx.
-   */
-  async freeze(
-    tx: Tx,
-    input: { currencyId: string; ownerUserId: string; amount: number },
-  ): Promise<void> {
-    const amount = this.toBig(input.amount);
-    const bal = await this.lockBalance(tx, input.ownerUserId, input.currencyId);
-    if (amount > bal.balance - bal.held) {
-      throw new BadRequestException('Недостаточно монет на балансе валюты');
+    if (input.idempotencyKey) {
+      const dup = await tx.ledgerTransfer.findUnique({ where: { idempotencyKey: input.idempotencyKey } });
+      if (dup) return dup.id;
     }
-    await this.writeBalance(tx, input.ownerUserId, input.currencyId, bal.balance, bal.held + amount);
+    const locks = await this.lock(tx, [input.fromAccountId, input.toAccountId]);
+    const from = locks.get(input.fromAccountId)!;
+    const to = locks.get(input.toAccountId)!;
+    if (!from.allowNegative && from.balance - from.held - amount < 0n) {
+      throw new BadRequestException('Недостаточно средств');
+    }
+    const id = await this.append(tx, {
+      currencyId: input.currencyId,
+      debitAccountId: from.id,
+      creditAccountId: to.id,
+      amount,
+      kind: 'posted',
+      agreementId: input.agreementId,
+      idempotencyKey: input.idempotencyKey,
+      memo: input.memo,
+    });
+    if (id === null) {
+      // Lost an idempotency race; the winning tx already applied the balances.
+      const dup = input.idempotencyKey
+        ? await tx.ledgerTransfer.findUnique({ where: { idempotencyKey: input.idempotencyKey } })
+        : null;
+      return dup?.id ?? null;
+    }
+    await this.write(tx, from.id, from.balance - amount, from.held);
+    await this.write(tx, to.id, to.balance + amount, to.held);
+    return id;
   }
 
-  /** Release a reservation (held → available). No ledger entry. Always called in a tx. */
-  async unfreeze(
+  // ============================================================
+  // Two-phase holds (authorization → capture / void)
+  // ============================================================
+
+  /** Reserve `amount` on the payer account toward the beneficiary (the escrow freeze). */
+  async createPending(
     tx: Tx,
-    input: { currencyId: string; ownerUserId: string; amount: number },
-  ): Promise<void> {
+    input: {
+      currencyId: string;
+      payerAccountId: string;
+      beneficiaryAccountId: string;
+      amount: number;
+      agreementId?: string | null;
+      memo?: string | null;
+    },
+  ): Promise<bigint> {
     const amount = this.toBig(input.amount);
-    const bal = await this.lockBalance(tx, input.ownerUserId, input.currencyId);
-    const held = bal.held - amount;
-    await this.writeBalance(tx, input.ownerUserId, input.currencyId, bal.balance, held < 0n ? 0n : held);
+    const locks = await this.lock(tx, [input.payerAccountId]);
+    const payer = locks.get(input.payerAccountId)!;
+    if (!payer.allowNegative && payer.balance - payer.held - amount < 0n) {
+      throw new BadRequestException('Недостаточно средств на балансе валюты');
+    }
+    const id = await this.append(tx, {
+      currencyId: input.currencyId,
+      debitAccountId: input.payerAccountId,
+      creditAccountId: input.beneficiaryAccountId,
+      amount,
+      kind: 'pending',
+      agreementId: input.agreementId,
+      memo: input.memo,
+    });
+    await this.write(tx, payer.id, payer.balance, payer.held + amount);
+    return id!;
+  }
+
+  /** Settle a prior pending: move the reserved amount payer → beneficiary. Idempotent. */
+  async postPending(tx: Tx, pendingId: bigint): Promise<bigint | null> {
+    const pending = await tx.ledgerTransfer.findUnique({ where: { id: pendingId } });
+    if (!pending || pending.kind !== 'pending') return null;
+    if (await this.isResolved(tx, pendingId)) return null;
+    const amount = pending.amount;
+    const locks = await this.lock(tx, [pending.debitAccountId, pending.creditAccountId]);
+    const payer = locks.get(pending.debitAccountId)!;
+    const bene = locks.get(pending.creditAccountId)!;
+    const id = await this.append(tx, {
+      currencyId: pending.currencyId,
+      debitAccountId: payer.id,
+      creditAccountId: bene.id,
+      amount,
+      kind: 'post_pending',
+      pendingId,
+      agreementId: pending.agreementId,
+    });
+    await this.write(tx, payer.id, payer.balance - amount, payer.held - amount);
+    await this.write(tx, bene.id, bene.balance + amount, bene.held);
+    return id;
+  }
+
+  /** Cancel a prior pending: release the reservation back to the payer. Idempotent. */
+  async voidPending(tx: Tx, pendingId: bigint): Promise<void> {
+    const pending = await tx.ledgerTransfer.findUnique({ where: { id: pendingId } });
+    if (!pending || pending.kind !== 'pending') return;
+    if (await this.isResolved(tx, pendingId)) return;
+    const amount = pending.amount;
+    const locks = await this.lock(tx, [pending.debitAccountId]);
+    const payer = locks.get(pending.debitAccountId)!;
+    await this.append(tx, {
+      currencyId: pending.currencyId,
+      debitAccountId: pending.debitAccountId,
+      creditAccountId: pending.creditAccountId,
+      amount,
+      kind: 'void_pending',
+      pendingId,
+    });
+    const held = payer.held - amount;
+    await this.write(tx, payer.id, payer.balance, held < 0n ? 0n : held);
+  }
+
+  private async isResolved(tx: Tx, pendingId: bigint): Promise<boolean> {
+    const resolved = await tx.ledgerTransfer.findFirst({
+      where: { pendingId, kind: { in: ['post_pending', 'void_pending'] } },
+      select: { id: true },
+    });
+    return resolved !== null;
   }
 
   // ============================================================
   // Reads & reconciliation
   // ============================================================
 
-  async getBalance(
-    accountUserId: string,
-    currencyId: string,
-  ): Promise<{ balance: number; held: number; available: number }> {
-    const row = await this.db.walletBalance.findUnique({
-      where: { accountUserId_currencyId: { accountUserId, currencyId } },
-    });
-    const balance = row?.balance ?? 0n;
-    const held = row?.heldAmount ?? 0n;
-    return {
-      balance: Number(balance),
-      held: Number(held),
-      available: Number(balance - held),
-    };
+  getBalance(userId: string, currencyId: string): Promise<{ balance: number; held: number; available: number }> {
+    return this.getBalanceFor('user', userId, currencyId);
   }
 
-  /** Rebuild the materialized balance from the journal — the cache is always re-derivable. */
-  async recompute(accountUserId: string, currencyId: string): Promise<void> {
-    await this.db.$transaction(async (t) => {
-      await this.lockBalance(t, accountUserId, currencyId);
-      const sum = await t.ledgerEntry.aggregate({
-        where: { accountUserId, currencyId },
-        _sum: { amount: true },
-      });
-      const holds = await t.escrowHold.aggregate({
-        where: { creatorUserId: accountUserId, currencyId, status: 'active' },
-        _sum: { amount: true },
-      });
-      await this.writeBalance(
-        t,
-        accountUserId,
-        currencyId,
-        sum._sum.amount ?? 0n,
-        holds._sum.amount ?? 0n,
-      );
+  /** Materialized balance/held/available for any holder (user OR workspace treasury). */
+  async getBalanceFor(
+    ownerType: string,
+    ownerId: string,
+    currencyId: string,
+  ): Promise<{ balance: number; held: number; available: number }> {
+    const acct = await this.db.account.findUnique({
+      where: { currencyId_type_ownerType_ownerId: { currencyId, type: 'user', ownerType, ownerId } },
     });
+    const balance = acct?.balance ?? 0n;
+    const held = acct?.held ?? 0n;
+    return { balance: Number(balance), held: Number(held), available: Number(balance - held) };
+  }
+
+  /** Rebuild an account's materialized balance + held from the journal (reconciliation / repair). */
+  async recompute(accountId: string): Promise<void> {
+    await this.db.$transaction(async (t) => {
+      await this.lock(t, [accountId]);
+      const credits = await t.ledgerTransfer.aggregate({
+        where: { creditAccountId: accountId, kind: { in: ['posted', 'post_pending'] } },
+        _sum: { amount: true },
+      });
+      const debits = await t.ledgerTransfer.aggregate({
+        where: { debitAccountId: accountId, kind: { in: ['posted', 'post_pending'] } },
+        _sum: { amount: true },
+      });
+      const balance = (credits._sum.amount ?? 0n) - (debits._sum.amount ?? 0n);
+
+      const pending = await t.ledgerTransfer.aggregate({
+        where: { debitAccountId: accountId, kind: 'pending' },
+        _sum: { amount: true },
+      });
+      const resolved = await t.ledgerTransfer.aggregate({
+        where: { debitAccountId: accountId, kind: { in: ['post_pending', 'void_pending'] } },
+        _sum: { amount: true },
+      });
+      const held = (pending._sum.amount ?? 0n) - (resolved._sum.amount ?? 0n);
+
+      await this.write(t, accountId, balance, held < 0n ? 0n : held);
+    });
+  }
+
+  /**
+   * Reconciliation invariant: per currency, the sum of every account's posted balance is 0 (money
+   * is conserved — issuance is the negative counterweight to all circulating coins). Returns the
+   * net per currency; a non-zero value means a leak/bug. Used by e2e and ops checks.
+   */
+  async reconcileCurrency(currencyId: string): Promise<{ net: bigint; ok: boolean }> {
+    const sum = await this.db.account.aggregate({
+      where: { currencyId },
+      _sum: { balance: true },
+    });
+    const net = sum._sum.balance ?? 0n;
+    return { net, ok: net === 0n };
   }
 }

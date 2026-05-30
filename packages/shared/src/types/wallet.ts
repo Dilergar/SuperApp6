@@ -11,8 +11,8 @@ export type CurrencyType = 'CUSTOM_COIN'; // future: 'KZT' | 'USD' …
 export type CurrencyStatus = 'active' | 'deleted';
 
 /**
- * Ledger entry kinds. mint = self-emission; transfer = task payout (the two legs share a
- * transferId); reversal = undo of a transfer; burn = holder destroys foreign coins;
+ * Ledger entry kinds. mint = self-emission; transfer = an escrow capture / payout (the two legs
+ * share a transferId); reversal = undo of a transfer; burn = holder destroys foreign coins;
  * currency_deleted = zeroing entry written when an issuer deletes the currency.
  */
 export type LedgerEntryType = 'mint' | 'transfer' | 'reversal' | 'burn' | 'currency_deleted';
@@ -26,6 +26,8 @@ export interface Currency {
   issuerId: string;
   name: string;
   icon: string;
+  /** Minor-unit exponent (0 = whole coins; 2 = e.g. tenge). Amounts are integer minor units. */
+  scale: number;
   currencyType: CurrencyType;
   status: CurrencyStatus;
   /** True when the viewer is the issuer (controls mint / rename / delete / holders view). */
@@ -40,6 +42,8 @@ export interface WalletEntry {
   currencyId: string;
   name: string;
   icon: string;
+  /** Minor-unit exponent of this currency (0 for coins). */
+  scale: number;
   issuerId: string;
   issuerName: string;
   /** Ledger sum. MAY be negative after a post-payout reversal of already-burned coins. */
@@ -59,8 +63,8 @@ export interface LedgerEntryDto {
   entryType: LedgerEntryType;
   /** Signed amount from the viewer's perspective (+ received / − sent). */
   amount: number;
-  taskId: string | null;
-  transferId: string | null;
+  /** Origin escrow agreement (task / order), when applicable. */
+  agreementId: string | null;
   memo: string | null;
   createdAt: string;
 }

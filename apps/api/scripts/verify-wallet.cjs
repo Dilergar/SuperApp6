@@ -1,11 +1,11 @@
 /* eslint-disable */
-// One-off functional check for Phase 1 (ledger core). Spins up the REAL LedgerService on
-// the extended Prisma client (no full Nest boot — lighter). Uses fixed fake UUIDs (the
-// ledger is FK-free) and cleans up after itself. Run: `node scripts/verify-wallet.cjs`
+// Phase 1 unit check for the double-entry ledger. Spins up the REAL LedgerService on the extended
+// Prisma client (no full Nest boot). Fake UUIDs for owners (the journal is FK-free on accounts).
+// Exercises: mint from issuance, emission cap, posted transfer + available check, idempotency,
+// burn, two-phase hold (createPending → postPending / voidPending), recompute, and the
+// per-currency conservation invariant (Σ account balances = 0). Run: `node scripts/verify-wallet.cjs`
 const fs = require('fs');
 const path = require('path');
-
-// Load apps/api/.env into process.env (PrismaClient reads process.env at runtime).
 for (const line of fs.readFileSync(path.join(__dirname, '..', '.env'), 'utf8').split(/\r?\n/)) {
   const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/i);
   if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
@@ -38,86 +38,114 @@ async function main() {
   await db.$connect();
   const ledger = new LedgerService(db);
 
+  const accId = (owner) =>
+    db.account
+      .findUnique({ where: { currencyId_type_ownerType_ownerId: { currencyId: C, type: 'user', ownerType: 'user', ownerId: owner } } })
+      .then((a) => a && a.id);
+  const issuanceBal = async () => {
+    const a = await db.account.findFirst({ where: { currencyId: C, type: 'issuance' } });
+    return a ? a.balance : 0n;
+  };
+  const net = async () => (await ledger.reconcileCurrency(C)).net;
+
   const wipe = async () => {
-    await db.ledgerEntry.deleteMany({ where: { currencyId: C } });
+    await db.ledgerTransfer.deleteMany({ where: { currencyId: C } });
     await db.escrowHold.deleteMany({ where: { currencyId: C } });
-    await db.walletBalance.deleteMany({ where: { currencyId: C } });
+    await db.account.deleteMany({ where: { currencyId: C } });
     await db.currency.deleteMany({ where: { id: C } });
   };
 
   try {
     await wipe();
-    await db.currency.create({
-      data: { id: C, issuerType: 'user', issuerId: A, name: 'ТестКоин', icon: '🪙' },
-    });
+    await db.currency.create({ data: { id: C, issuerType: 'user', issuerId: A, name: 'ТестКоин', icon: '🪙', scale: 0 } });
 
-    // A2 — mint 1000 to issuer A
-    await ledger.mint({ currencyId: C, ownerUserId: A, amount: 1000 });
+    // mint 1000 → A (issuance → A); double-entry, conservation holds
+    await ledger.mint({ currencyId: C, ownerId: A, amount: 1000 });
     let a = await ledger.getBalance(A, C);
     check('mint 1000 → A.balance=1000, available=1000', a.balance === 1000 && a.available === 1000, JSON.stringify(a));
+    check('issuance = −1000 (источник эмиссии)', (await issuanceBal()) === -1000n);
+    check('инвариант после эмиссии: Σ = 0', (await net()) === 0n);
 
-    // A3 — emission cap (1000 + 9_999_999 > 10_000_000)
-    await expectThrow('лимит эмиссии 10М срабатывает', () =>
-      ledger.mint({ currencyId: C, ownerUserId: A, amount: 9_999_999 }),
-    );
+    // emission cap
+    await expectThrow('лимит эмиссии 10М срабатывает', () => ledger.mint({ currencyId: C, ownerId: A, amount: 9_999_999 }));
 
-    // A4 — transfer 300 A→B (generic, available-checked)
-    const t1 = await ledger.transfer({ currencyId: C, fromUserId: A, toUserId: B, amount: 300 });
+    // posted transfer A→B 300 (accounts resolved inside a tx)
+    await db.$transaction(async (t) => {
+      const from = (await ledger.getOrCreateUserAccount(t, C, A)).id;
+      const to = (await ledger.getOrCreateUserAccount(t, C, B)).id;
+      await ledger.transfer(t, { currencyId: C, fromAccountId: from, toAccountId: to, amount: 300 });
+    });
     a = await ledger.getBalance(A, C);
     let b = await ledger.getBalance(B, C);
     check('перевод 300 A→B → A=700, B=300', a.balance === 700 && b.balance === 300, `A=${a.balance} B=${b.balance}`);
+    check('инвариант после перевода: Σ = 0', (await net()) === 0n);
 
-    // A5 — overspend rejected
+    // overspend rejected (no negative on user wallet)
     await expectThrow('перевод больше доступного отклонён', () =>
-      ledger.transfer({ currencyId: C, fromUserId: A, toUserId: B, amount: 99999 }),
+      db.$transaction(async (t) => {
+        const from = (await ledger.getOrCreateUserAccount(t, C, A)).id;
+        const to = (await ledger.getOrCreateUserAccount(t, C, B)).id;
+        await ledger.transfer(t, { currencyId: C, fromAccountId: from, toAccountId: to, amount: 99999 });
+      }),
     );
 
-    // A6 — idempotency: same key twice applies once
-    await ledger.transfer({ currencyId: C, fromUserId: A, toUserId: B, amount: 50, idempotencyKey: 'idem1' });
-    await ledger.transfer({ currencyId: C, fromUserId: A, toUserId: B, amount: 50, idempotencyKey: 'idem1' });
+    // idempotency: same key twice applies once (A=650, B=350)
+    for (let i = 0; i < 2; i++) {
+      await db.$transaction(async (t) => {
+        const from = (await ledger.getOrCreateUserAccount(t, C, A)).id;
+        const to = (await ledger.getOrCreateUserAccount(t, C, B)).id;
+        await ledger.transfer(t, { currencyId: C, fromAccountId: from, toAccountId: to, amount: 50, idempotencyKey: 'idem1' });
+      });
+    }
     a = await ledger.getBalance(A, C);
     b = await ledger.getBalance(B, C);
     check('идемпотентность: повтор не задвоил → A=650, B=350', a.balance === 650 && b.balance === 350, `A=${a.balance} B=${b.balance}`);
 
-    // A7 — burn 100 from B
-    await ledger.burn({ currencyId: C, holderUserId: B, amount: 100 });
+    // burn 100 from B → B=250
+    await ledger.burn({ currencyId: C, ownerId: B, amount: 100 });
     b = await ledger.getBalance(B, C);
     check('сжигание 100 у B → B=250', b.balance === 250, `B=${b.balance}`);
+    check('инвариант после сжигания: Σ = 0', (await net()) === 0n);
 
-    // A8 — reverse the A4 transfer (300): A +300, B −300 → B goes NEGATIVE
-    await ledger.reverse({ transferId: t1 });
-    a = await ledger.getBalance(A, C);
-    b = await ledger.getBalance(B, C);
-    check('возврат после сжигания → A=950, B=-50 (минус разрешён)', a.balance === 950 && b.balance === -50, `A=${a.balance} B=${b.balance}`);
-
-    // A9 — preReserved capture: simulate a hold on A, then transfer preReserved
-    await db.$executeRawUnsafe(
-      `UPDATE wallet_balances SET held_amount = 100 WHERE account_user_id = $1 AND currency_id = $2`,
-      A, C,
-    );
-    await db.escrowHold.create({
-      data: { currencyId: C, taskId: '00000000-0000-4000-8000-00000000d001', participantUserId: B, creatorUserId: A, amount: 100, status: 'active' },
+    // two-phase: createPending A→B 100 (held), then postPending settles
+    let pendingId;
+    await db.$transaction(async (t) => {
+      const p = (await ledger.getOrCreateUserAccount(t, C, A)).id;
+      const ben = (await ledger.getOrCreateUserAccount(t, C, B)).id;
+      pendingId = await ledger.createPending(t, { currencyId: C, payerAccountId: p, beneficiaryAccountId: ben, amount: 100 });
     });
     a = await ledger.getBalance(A, C);
-    check('заморозка 100 у A → available=850 (balance 950 − held 100)', a.held === 100 && a.available === 850, JSON.stringify(a));
-    await ledger.transfer({ currencyId: C, fromUserId: A, toUserId: B, amount: 100, preReserved: true });
+    check('заморозка 100 у A → held=100, available=550', a.held === 100 && a.available === 550, JSON.stringify(a));
+    await db.$transaction((t) => ledger.postPending(t, pendingId));
     a = await ledger.getBalance(A, C);
     b = await ledger.getBalance(B, C);
-    check('capture preReserved → A balance=850 held=0, B=50', a.balance === 850 && a.held === 0 && b.balance === 50, `A=${JSON.stringify(a)} B=${b.balance}`);
+    check('проведение pending → A=550 held=0, B=350', a.balance === 550 && a.held === 0 && b.balance === 350, `A=${JSON.stringify(a)} B=${b.balance}`);
+    check('повторное проведение идемпотентно (no-op)', (await db.$transaction((t) => ledger.postPending(t, pendingId))) === null);
 
-    // A10 — recompute rebuilds the cache from the journal (corrupt then fix)
-    await db.$executeRawUnsafe(
-      `UPDATE wallet_balances SET balance = 123456 WHERE account_user_id = $1 AND currency_id = $2`,
-      A, C,
-    );
-    await db.escrowHold.updateMany({ where: { currencyId: C }, data: { status: 'captured' } }); // no active holds → held should recompute to 0
-    await ledger.recompute(A, C);
+    // two-phase void: createPending then voidPending releases the hold
+    let pid2;
+    await db.$transaction(async (t) => {
+      const p = (await ledger.getOrCreateUserAccount(t, C, A)).id;
+      const ben = (await ledger.getOrCreateUserAccount(t, C, B)).id;
+      pid2 = await ledger.createPending(t, { currencyId: C, payerAccountId: p, beneficiaryAccountId: ben, amount: 100 });
+    });
     a = await ledger.getBalance(A, C);
-    check('recompute восстановил баланс из журнала → A=850, held=0', a.balance === 850 && a.held === 0, JSON.stringify(a));
+    check('вторая заморозка → held=100', a.held === 100, JSON.stringify(a));
+    await db.$transaction((t) => ledger.voidPending(t, pid2));
+    a = await ledger.getBalance(A, C);
+    check('отмена pending → held=0, balance=550', a.held === 0 && a.balance === 550, JSON.stringify(a));
 
-    // Ledger immutability sanity: count entries (mint + 2×t1 + 2×idem + burn + 2×reverse + 2×capture = 10)
-    const entryCount = await db.ledgerEntry.count({ where: { currencyId: C } });
-    check('журнал append-only: накоплены проводки', entryCount === 10, `entries=${entryCount}`);
+    // recompute rebuilds the cache from the journal
+    const idA = await accId(A);
+    await db.$executeRawUnsafe(`UPDATE accounts SET balance = 123456, held = 777 WHERE id = $1`, idA);
+    await ledger.recompute(idA);
+    a = await ledger.getBalance(A, C);
+    check('recompute восстановил из журнала → A=550, held=0', a.balance === 550 && a.held === 0, JSON.stringify(a));
+
+    // journal is append-only: mint + transfer + idem + burn + pending + post + pending2 + void = 8
+    const count = await db.ledgerTransfer.count({ where: { currencyId: C } });
+    check('журнал append-only: 8 проводок', count === 8, `rows=${count}`);
+    check('финальный инвариант: Σ = 0', (await net()) === 0n);
   } finally {
     await wipe();
     await db.$disconnect();

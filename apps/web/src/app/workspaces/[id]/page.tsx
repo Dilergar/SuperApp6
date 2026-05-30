@@ -39,6 +39,9 @@ export default function WorkspaceHome() {
 
   const services: { title: string; desc: string; href?: string; color: string }[] = [
     { title: 'Сотрудники', desc: 'Список, роли, приглашения', href: `/workspaces/${id}/members`, color: 'var(--primary-container)' },
+    ...(ws.myRole === 'owner'
+      ? [{ title: 'Кошелёк компании', desc: 'Валюта, казна, начисления', href: `/workspaces/${id}/wallet`, color: 'var(--secondary-container)' }]
+      : []),
     { title: 'Задачи организации', desc: 'Скоро', color: 'var(--secondary-container)' },
     { title: 'Календарь организации', desc: 'Скоро', color: 'var(--tertiary-container)' },
   ];

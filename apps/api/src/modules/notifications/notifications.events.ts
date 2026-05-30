@@ -64,6 +64,14 @@ export class NotificationsEventsListener implements OnModuleInit {
         ),
       );
     });
+
+    this.events.onPattern('shop.*').subscribe((event) => {
+      this.handleShopEvent(event).catch((err) =>
+        this.logger.error(
+          `Failed to handle ${event.type}: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
+    });
   }
 
   // ------------------------------------------------------------
@@ -273,6 +281,43 @@ export class NotificationsEventsListener implements OnModuleInit {
     const actionUrl = taskId ? `/tasks/${taskId}` : '/profile/wallet';
     for (const uid of [...new Set(recipientIds)]) {
       await this.notifications.notify(uid, 'wallet.coins.received', payload, { actionUrl });
+    }
+  }
+
+  // ------------------------------------------------------------
+  // My Wish & Shop — order lifecycle. placed → seller; confirmed/rejected → buyer; cancelled → seller.
+  // ------------------------------------------------------------
+  private async handleShopEvent(event: AppEvent) {
+    const payload = event.payload;
+    const actionUrl = '/shop';
+    switch (event.type) {
+      case 'shop.order.placed': {
+        const sellerId = payload['sellerId'] as string | undefined;
+        if (sellerId) await this.notifications.notify(sellerId, 'shop.order.placed', payload, { actionUrl });
+        return;
+      }
+      case 'shop.order.confirmed': {
+        const buyerId = payload['buyerId'] as string | undefined;
+        if (buyerId) await this.notifications.notify(buyerId, 'shop.order.confirmed', payload, { actionUrl });
+        return;
+      }
+      case 'shop.order.rejected': {
+        const buyerId = payload['buyerId'] as string | undefined;
+        if (buyerId) await this.notifications.notify(buyerId, 'shop.order.rejected', payload, { actionUrl });
+        return;
+      }
+      case 'shop.order.cancelled': {
+        const sellerId = payload['sellerId'] as string | undefined;
+        if (sellerId) await this.notifications.notify(sellerId, 'shop.order.cancelled', payload, { actionUrl });
+        return;
+      }
+      case 'shop.order.funded': {
+        const sellerId = payload['sellerId'] as string | undefined;
+        if (sellerId) await this.notifications.notify(sellerId, 'shop.order.funded', payload, { actionUrl });
+        return;
+      }
+      default:
+        return;
     }
   }
 

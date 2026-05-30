@@ -5,10 +5,11 @@ import { EscrowService } from './escrow.service';
 import { WalletController } from './wallet.controller';
 
 /**
- * Wallet: issued currencies, the immutable ledger and task escrow.
+ * Wallet: issued currencies, the immutable ledger and the generic escrow engine.
  * LedgerService = low-level money mechanics; CurrencyService = currency lifecycle + the
- * user-facing wallet; EscrowService = per-participant task-reward escrow. Exports Ledger &
- * Escrow so the Tasks module can compose them inside its own transactions.
+ * user-facing wallet; EscrowService = domain-agnostic escrow (agreement + per-leg holds) used by
+ * Tasks today and Commerce/orders next. Exports Ledger & Escrow so other modules can compose them
+ * inside their own transactions.
  */
 @Module({
   controllers: [WalletController],

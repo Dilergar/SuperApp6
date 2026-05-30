@@ -40,6 +40,12 @@ export type NotificationType =
   | 'workspace.role.changed' // your role in an organization changed (→ member)
   // Wallet
   | 'wallet.coins.received' // you were paid coins for a completed task (→ executor)
+  // My Wish & Shop (orders)
+  | 'shop.order.placed' // a buyer placed an order on your shop (→ seller / co-managers)
+  | 'shop.order.confirmed' // the seller confirmed the order (→ buyer)
+  | 'shop.order.rejected' // the seller rejected the order (→ buyer)
+  | 'shop.order.cancelled' // the buyer cancelled their order (→ seller)
+  | 'shop.order.funded' // a crowdfunding campaign reached its goal (→ seller / co-managers)
   // System
   | 'system.welcome'
   | 'system.announcement';

@@ -13,6 +13,7 @@ import { WorkspaceContextModule } from './shared/context/workspace-context.modul
 import { AuthModule } from './core/auth/auth.module';
 import { UsersModule } from './core/users/users.module';
 import { RolesModule } from './core/roles/roles.module';
+import { AccessModule } from './core/access/access.module';
 
 // Feature modules (MVP)
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -23,6 +24,7 @@ import { CalendarModule } from './modules/calendar/calendar.module';
 import { GoogleCalendarModule } from './modules/google-calendar/google-calendar.module';
 import { WorkspacesModule } from './modules/workspaces/workspaces.module';
 import { WalletModule } from './modules/wallet/wallet.module';
+import { ShopModule } from './modules/shop/shop.module';
 
 import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
 import { WorkspaceContextInterceptor } from './shared/interceptors/workspace-context.interceptor';
@@ -61,6 +63,8 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     AuthModule,
     UsersModule,
     RolesModule,
+    // Unified authorization engine (ReBAC). Phase 0: core only, no consumers yet.
+    AccessModule,
 
     // Feature modules — each is self-contained.
     // Load order: Notifications → Contacts (@Global, consumed by AuthService)
@@ -74,6 +78,7 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     CalendarModule,
     GoogleCalendarModule,
     WorkspacesModule,
+    ShopModule,
   ],
   providers: [
     // Map Zod validation errors (controller schema.parse) to 400 app-wide.

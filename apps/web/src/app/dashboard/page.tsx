@@ -9,6 +9,7 @@ const services = [
   { title: 'Моё окружение', description: 'Люди, приглашения, папки', color: 'var(--primary-container)', href: '/circles' },
   { title: 'Задачи', description: 'Личные и назначенные', color: 'var(--secondary-container)', href: '/tasks' },
   { title: 'Календарь', description: 'События и расписание', color: 'var(--tertiary-container)', href: '/calendar' },
+  { title: 'My Wish & Shop', description: 'Витрины за коины и списки желаний', color: 'var(--primary-container)', href: '/shop' },
 ];
 
 export default function DashboardPage() {

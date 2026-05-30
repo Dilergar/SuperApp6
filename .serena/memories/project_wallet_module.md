@@ -1,46 +1,38 @@
-# Wallet Module (Coins / Ledger / Escrow)
+# Wallet Module — Money Ledger / Accounts / Escrow
 
-Built 2026-05-27 on branch `feat/wallet-ledger`. Replaces the old "coins = display-only intent" in Tasks with a real economy. Grilled via grill-me before building.
+REBUILT 2026-05-29 to **bank-grade (real-money-ready) double-entry** as the foundation of "My Wish & Shop". User intent: NOT building a bank, but the wallet must be correct for REAL money — people will top up wallets via bank, pay for services, pay each other (P2P), and buy in the (planned) Marketplace. Payment rails (bank top-up/withdrawal, KYC/AML, FX, chargebacks) are OUT of scope now but the ledger is built so they slot in later. See `mem:project_wish_shop_design`.
 
-## Concept
-Each **user** issues exactly ONE personal currency (name + emoji, no ticker) to reward people in their Окружение for tasks. Issuer is **polymorphic** (`issuerType` user|workspace) — company currency is a later phase on the SAME schema (B2B-ready). Balances are DERIVED from an immutable ledger.
+## Model (apps/api/prisma/schema.prisma, wallet section)
+- **Currency**: one active per issuer (partial unique `WHERE status='active'`), polymorphic issuer (user|workspace). `scale` = ISO-4217-style minor-unit exponent (0 = whole coins, 2 = e.g. tenge); amounts are integer minor units (BigInt). optional `code` for fiat. Rename ≤1×/3mo, retroactive.
+- **Account** (chart of accounts): `type` user|issuance|escrow|fee|external, `ownerType` user|workspace|system, `ownerId` (userId/workspaceId; system accounts use currencyId), `balance` (posted, credit-normal), `held` (Σ unresolved pending OUTGOING reservations), `allowNegative` (true only for issuance). Materialized CACHE (truth = journal), row-locked (SELECT…FOR UPDATE) on spend. available = balance − held. `@@unique([currencyId,type,ownerType,ownerId])`.
+- **LedgerTransfer** (immutable append-only journal, FK-free, BigSerial PK): one row = move `amount` debitAccount→creditAccount in one currency. `kind`: posted | pending | post_pending | void_pending. `pendingId` links a post/void to its pending. `agreementId` (origin escrow), `idempotencyKey` (unique). NEVER updated/deleted.
+- **EscrowAgreement** ("Сделка"): groups holds for ONE source. `refType` task|order, `refId`, `status` open|settled|refunded|cancelled. `@@unique([refType,refId])`. Thin (crowdfunding target/progress NOT here — target = listing price, "collected" = Σ holds).
+- **EscrowHold**: one leg per (agreement, payer, beneficiary, currency). `payerUserId`→`beneficiaryUserId`, amount, status active→captured→released, `pendingTransferId` (the freeze) + `postedTransferId` (the payout). Backed by a two-phase transfer.
 
-## Key product decisions (locked)
-- **1 active currency per user** (partial unique index `currencies_active_issuer_key WHERE status='active'` — NOT expressible in schema.prisma; service also guards it). Created explicitly (name+emoji), renamed at most **1×/3 months** (retroactive — everything refs currencyId, name never snapshotted). Delete = soft-delete + cascade-burn all holders to 0; in-flight tasks keep running but lose the reward; active holds released.
-- **Mint cap = "in hand"**: own (available + held) ≤ 10,000,000. Since held ⊆ balance, this is just `balance ≤ 10M`. Re-mintable as coins leave (NOT a lifetime cap).
-- **Escrow**: post a rewarded task → freeze per-worker; accept → pay; return/cancel → refund. Can't post a rewarded task without the coins (freeze throws → task creation rolls back).
-- **Return after acceptance**: reverse the payout (recipient may go **NEGATIVE** — "honest reverse", can't burn-to-dodge) AND re-freeze (task still active → reward stands). Cancel/delete = terminal refund to creator's available.
-- **Penalty (coinPenalty)**: dropped this phase (no logic; field dormant).
-- **Burn**: holder burns any FOREIGN currency from their balance (irreversible); CANNOT burn own (delete the currency instead). Issuer CANNOT force-take from others (only task-flow reverse). Company clawback (reverse a tx in history) = later phase.
-- **Privacy**: a (holder, currency) balance is visible to the holder + the issuer. Surfaced as a badge on the person's card in Окружение ("держит N 🪙"); B2B will show it on Сотрудники cards with a role/position visibility matrix (`Currency.visibilityPolicy` JSON hook, unused now).
+## Invariants (bank-grade)
+- **Double-entry conservation**: per currency, Σ(all account balances) = 0 (issuance goes negative = −circulating). `LedgerService.reconcileCurrency`.
+- **Two-phase holds**: freeze = createPending (held += amount, no settlement); capture = postPending (payer→beneficiary, immutable resolving row); release = voidPending. held = Σ unresolved pending, NOT a bare mutable counter.
+- **No negative balances** on user wallets. Return-after-payout = collect-back (transfer beneficiary→payer; THROWS if they already spent it) — never a silent negative reverse. (Old play-money "honest negative reverse" is gone.)
+- Mint = double-entry issuance→user (not "from nothing"); cap "in hand" (balance ≤ 10M). Burn = user→issuance (un-mint). currency_deleted cascade = void active holds + burn each holder→issuance.
 
-## Architecture
-- **Immutable ledger** (`LedgerEntry`, append-only, never UPDATE/DELETE). PK = BigInt autoincrement (append-log locality). Amounts BigInt, signed. FK-free on purpose (hot writes; integrity in service).
-- **Materialized balance** (`WalletBalance`, unique [accountUserId, currencyId]) = cache, updated in the SAME tx as the ledger insert, row-locked via raw `INSERT ... ON CONFLICT DO UPDATE ... RETURNING` (lock-or-create) before a spend → no double-spend. `available = balance − heldAmount`. Rebuildable via `recompute()`.
-- **Escrow** (`EscrowHold`, unique [taskId, participantUserId]) = per-participant state machine active→captured→released; carries currencyId + ledgerTransferId (for reversal).
-- **Idempotency**: unique `LedgerEntry.idempotencyKey` (e.g. `cap:{holdId}:out/in`) + EscrowHold status guards → at-least-once events / double clicks can't double-post.
-- **Escrow is SYNC + transactional** (NOT EventBus): `TasksService` calls `EscrowService` inside its own `$transaction` (documented direct-call exception, like Auth→Contacts). EventBus only emits `wallet.coins.received` for the notification (after commit).
-- **NOT in the workspace chokepoint** (`WORKSPACE_SCOPED_MODELS`) — personal coins don't belong to a tenant; scoped by issuer in-service.
+## Services (apps/api/src/modules/wallet/)
+- **LedgerService**: getOrCreateUserAccount / getOrCreateIssuanceAccount; mint/burn (own tx ok); transfer (tx, account-based, available-checked, idempotent); createPending/postPending/voidPending (tx, two-phase); getBalance(userId,currencyId); recompute(accountId); reconcileCurrency(currencyId). lock() = FOR UPDATE sorted; append() = insert journal (P2002→null on idem dup).
+- **CurrencyService**: lifecycle (create/rename/delete) + wallet views (getWallet/getHistory/getHolders) on the Account model + mint/burn. getHistory shows SETTLED moves (posted+post_pending), derives DTO `entryType` (mint|transfer|reversal|burn|currency_deleted) from kind+memo so the web `LEDGER_ENTRY_LABELS` still works.
+- **EscrowService** (domain-agnostic, key = refType+refId): openAgreement / fund / capture (→CapturedLeg[]) / returnToHold / release / releaseAll. fund=createPending, capture=postPending, release=void-or-collect-back, returnToHold=collect-back+re-pending. Idempotent per leg (status guard + unique). Multi-leg: task=1 leg/worker; order=1 leg/payer×currency (crowdfunding=many payers, cross-currency=many currencies).
 
-## Files
-- `apps/api/prisma/schema.prisma`: models Currency, LedgerEntry, WalletBalance, EscrowHold. Migration `20260526224442_wallet_ledger` (+ manual partial unique index).
-- `apps/api/src/modules/wallet/`: `ledger.service.ts` (mint/burn/transfer/reverse/freeze/unfreeze/getBalance/recompute), `currency.service.ts` (currency lifecycle + wallet views + burn), `escrow.service.ts` (holdForWorkers/holdOne/capture/returnToHold/releaseParticipant/releaseAll), `wallet.controller.ts`, `wallet.module.ts` (exports Ledger+Escrow). Registered in app.module before TasksModule. TasksModule imports WalletModule.
-- `apps/api/src/modules/tasks/tasks.service.ts`: escrow wired into createTask (hold), acceptWork (capture + emits wallet.coins.received), returnWork (returnToHold), deleteTask + updateTask cancel (releaseAll), applyRoleEdits (add→hold / remove→release), maybeSpawnRecurrence (funds next occurrence or spawns reward-0 if creator can't cover). Reward is locked once workers assigned.
-- `packages/shared/src/{types,validation,constants}/wallet.ts` + notification type `wallet.coins.received` + registry entry.
-- Web: `apps/web/src/app/profile/WalletSection.tsx` (profile «Кошелёк» section: my currency CRUD/mint, foreign balances + burn 🔥, history, holders) wired into `profile/layout.tsx` + `profile/[section]/page.tsx`. `circles/PersonCard.tsx` compact `myCoins` badge + `circles/page.tsx` fetches /wallet/currency + /holders.
+## Integration & boundaries
+- TasksService uses EscrowService synchronously in its own `$transaction` (refType='task'): create→fund (currency resolution + "no currency ⇒ error" gate lives in TasksService.freezeReward), accept→capture+emit `wallet.coins.received`, return→returnToHold, cancel/delete/role-edit→release. The escrow API surface is unchanged from the task POV, so TasksService barely changed.
+- Wallet NOT in workspace chokepoint (personal coins ≠ tenant data).
+- Migration `20260529040000_escrow_realmoney_ledger` (created via `prisma migrate diff` + `migrate deploy` — `migrate dev` is interactive-only and fails in the agent shell). Dropped ledger_entries/wallet_balances; added accounts/ledger_transfers/escrow_agreements; reshaped escrow_holds; +currencies.scale/code. Keep the manual partial unique index on currencies.
 
-## Endpoints (`/api/wallet/`)
-GET `/` (wallet), GET `/history`, GET `/currency`, POST `/currency`, PATCH `/currency`, DELETE `/currency`, POST `/currency/mint`, GET `/currency/holders`, POST `/burn`.
+## Verification (all green; not visually browser-tested)
+`apps/api/scripts/verify-wallet.cjs` (ledger unit: mint/cap/transfer/idempotency/burn/two-phase/recompute/Σ=0), `verify-escrow.cjs` (task escrow e2e), `verify-ledger-invariants.cjs` (multi-leg + Σ=0 at each step + no-negative + cascade-burn), `verify-burn.cjs`. Seed: `scripts/seed-test-accounts.cjs` (tester1/2/3, Test1234!).
 
-## Verification (all green, NOT visually browser-tested)
-- `apps/api/scripts/verify-wallet.cjs` — ledger unit (mint/cap/transfer/idempotency/burn/negative-reverse/freeze/preReserved/recompute).
-- HTTP smoke — currency CRUD + cap + rename cooldown + delete cascade.
-- `apps/api/scripts/verify-escrow.cjs` — full escrow e2e (freeze→pay→return-reverse→insufficient→cancel-refund) between tester1↔tester2.
-- `apps/api/scripts/verify-burn.cjs` — earn-notification + burn foreign + can't-burn-own.
-- API boots, web /profile/wallet + /circles compile & 200.
+## ⚠️ OPERATIONAL
+NEVER run full `tsc --noEmit` on the API (giant Prisma extended-client types OOM → machine hang). Typecheck via `nest build` (one-shot) or the `nest start --watch` watcher. Never raise NODE_OPTIONS max-old-space-size. Prisma `migrate dev` is interactive — in the agent shell use `migrate diff`→file→`migrate deploy`, and `migrate reset` needs PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION (explicit user consent).
 
-## Deferred (next phases)
-Company (workspace) currency + company wallet + history-reverse clawback + role/position visibility matrix; coins-deducted notification on clawback; recurrence reward funding edge polish; BigInt is stored but DTOs serialize as Number (safe < 2^53).
+## B2B wallet ✅ BUILT (Shop Phase 9, 2026-05-31)
+Company currency (issuer=workspace) + TREASURY (workspace holder account via `getOrCreateHolderAccount(ownerType, ownerId)`); `mint`/`burn` take ownerType/ownerId; `getBalanceFor`. `EscrowHold` + `payerType`/`beneficiaryType` (default `'user'` → personal tasks/shop UNTOUCHED) so an escrow leg can involve the treasury. Payroll = treasury→employee posted transfer; company task rewards paid from the treasury (TasksService.freezeReward self-detects via task.workspaceId); company-shop purchases land in the treasury. Owner-only, `/wallet/company/*`, workspace context. Verified `verify-b2b-wallet.cjs` (Σ=0).
 
-## OPERATIONAL WARNING (Windows / memory)
-NEVER run full `tsc --noEmit -p tsconfig.json` on the API — the giant Prisma extended-client types OOM and (with a raised --max-old-space-size) swap-thrash the machine, hanging Docker. Verify the API via `nest build` (one-shot, default heap) or the `nest start --watch` watcher only. Never raise NODE_OPTIONS max-old-space-size.
+## Deferred
+Payment rails (bank top-up/withdrawal/KYC/FX/chargebacks), fee accounts (marketplace application fees), dispute object. All slot onto this chart-of-accounts without a rewrite.

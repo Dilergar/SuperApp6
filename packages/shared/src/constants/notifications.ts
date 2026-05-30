@@ -17,7 +17,7 @@ export interface NotificationMeta {
   // Whether this notification type produces a push notification by default.
   pushByDefault: boolean;
   // Category bucket for notification preferences UI.
-  category: 'contacts' | 'tasks' | 'calendar' | 'workspaces' | 'system';
+  category: 'contacts' | 'tasks' | 'calendar' | 'workspaces' | 'shop' | 'system';
 }
 
 export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> = {
@@ -195,6 +195,37 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
     icon: '🔁',
     pushByDefault: true,
     category: 'workspaces',
+  },
+  // My Wish & Shop (orders)
+  'shop.order.placed': {
+    title: 'Новый заказ: {{title}}',
+    icon: '🛍️',
+    pushByDefault: true,
+    category: 'shop',
+  },
+  'shop.order.confirmed': {
+    title: 'Заказ подтверждён: {{title}}',
+    icon: '✅',
+    pushByDefault: true,
+    category: 'shop',
+  },
+  'shop.order.rejected': {
+    title: 'Заказ отклонён: {{title}}',
+    icon: '✖️',
+    pushByDefault: true,
+    category: 'shop',
+  },
+  'shop.order.cancelled': {
+    title: 'Покупатель отменил заказ: {{title}}',
+    icon: '↩️',
+    pushByDefault: false,
+    category: 'shop',
+  },
+  'shop.order.funded': {
+    title: 'Сбор собран: {{title}} — подтвердите',
+    icon: '🎯',
+    pushByDefault: true,
+    category: 'shop',
   },
   // System
   'system.welcome': {

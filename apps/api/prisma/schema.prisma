@@ -56,8 +56,6 @@ model User {
   calendarEvents     CalendarEvent[]
   resources          Resource[]
   googleConnection   GoogleConnection?
-  calendarShares     CalendarShare[]   @relation("CalendarOwner")
-  sharedCalendars    CalendarShare[]   @relation("CalendarSharedWith")
   workspaceMembers   WorkspaceMember[]
   ownedWorkspaces    Workspace[]
 
@@ -555,22 +553,7 @@ model EventParticipant {
   @@map("event_participants")
 }
 
-model CalendarShare {
-  id               String @id @default(uuid())
-  calendarOwnerId  String @map("calendar_owner_id")
-  sharedWithUserId String @map("shared_with_user_id")
-  // Calendar access level granted to this person (Phase 2): busy | detailed.
-  // 'none' = no row (default private).
-  accessLevel      String @default("busy") @map("access_level")
-
-  createdAt DateTime @default(now()) @map("created_at")
-
-  owner      User @relation("CalendarOwner", fields: [calendarOwnerId], references: [id], onDelete: Cascade)
-  sharedWith User @relation("CalendarSharedWith", fields: [sharedWithUserId], references: [id], onDelete: Cascade)
-
-  @@unique([calendarOwnerId, sharedWithUserId])
-  @@map("calendar_shares")
-}
+// Personal calendar shares migrated to the access engine (core/access) — CalendarShare dropped.
 
 // Per-user Google Calendar connection (Phase 4 two-way sync). One Google account per user.
 // NOTE: tokens are stored as-is for MVP; encrypt-at-rest before production.
@@ -693,21 +676,27 @@ model WorkspaceInvitation {
 }
 
 // ============================================================
-// WALLET — issued currencies, immutable ledger, escrow holds
+// WALLET — currencies, typed accounts, immutable double-entry journal, escrow
 // ============================================================
+// Real-money-grade ledger (NOT a bank — but correct enough that real money via a future bank
+// top-up can flow through it): a chart of typed Accounts, double-entry transfers (every movement
+// balances within one currency), two-phase holds (pending → post/void), integer minor units with
+// a per-currency scale, and no negative balances on user wallets.
 
-// An issued currency. Exactly ONE active currency per issuer. The issuer is polymorphic
-// (a user now; a workspace in a later phase) → issuerId is NOT a single-table FK, it is
-// validated in the service. Name/icon are referenced by id everywhere (never snapshotted)
-// so a rename is retroactive; rename is allowed at most once per 3 months. Deletion is a
-// soft-delete (status) — balances of a deleted currency render as 0 everywhere.
+// An issued currency. Exactly ONE active currency per issuer. Polymorphic issuer (user now;
+// workspace later) → issuerId validated in the service, not an FK. Name/icon referenced by id
+// everywhere (rename is retroactive, ≤1×/3 months). Deletion = soft-delete. `scale` is the
+// ISO-4217-style minor-unit exponent (0 = whole coins; 2 = tenge/tiyin) — amounts are always
+// integer minor units. `code` is an optional fiat code (e.g. 'KZT'); null for personal coins.
 model Currency {
   id           String @id @default(uuid())
   issuerType   String @map("issuer_type") // 'user' | 'workspace'
   issuerId     String @map("issuer_id")
   name         String
   icon         String // emoji, no ticker
-  currencyType String @default("CUSTOM_COIN") @map("currency_type") // future: KZT, USD…
+  code         String? // optional ISO-4217-style code for fiat (e.g. 'KZT'); null for personal coins
+  scale        Int    @default(0) // minor-unit exponent: 0 = whole coins, 2 = tenge/tiyin
+  currencyType String @default("CUSTOM_COIN") @map("currency_type") // CUSTOM_COIN | FIAT…
 
   // B2B hook: who may see holders' balances (role/position matrix). null = personal rule
   // (balance visible to holder + issuer only). Unused this phase.
@@ -720,6 +709,8 @@ model Currency {
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
+  accounts Account[]
+
   // "One active currency per issuer" is a PARTIAL unique index (WHERE status='active')
   // added in the migration — Prisma can't express partial uniques in-schema.
   @@index([issuerType, issuerId])
@@ -727,67 +718,348 @@ model Currency {
   @@map("currencies")
 }
 
-// Immutable, append-only journal — the single source of truth for every balance. Rows are
-// never updated or deleted. Intentionally FK-free: writes are hot and integrity is enforced
-// in LedgerService, so we skip per-insert FK checks. PK is a monotonic bigint (better index
-// locality/ordering for an append log than a uuid). Amounts are BigInt and signed.
-model LedgerEntry {
-  id             BigInt  @id @default(autoincrement())
-  currencyId     String  @map("currency_id")
-  accountUserId  String  @map("account_user_id") // whose balance this entry moves (always a user)
-  amount         BigInt // signed: +credit / −debit
-  entryType      String  @map("entry_type") // mint | transfer | reversal | burn | currency_deleted
-  transferId     String? @map("transfer_id") // links the two legs of a transfer / reversal
-  taskId         String? @map("task_id") // origin task, when applicable
-  idempotencyKey String? @unique @map("idempotency_key") // duplicate event collides here → no double-post
-  memo           String?
-  createdAt      DateTime @default(now()) @map("created_at")
+// Chart of accounts. Every balance is an Account of a TYPE — double-entry, so money never appears
+// or vanishes: it only moves between accounts.
+//   user      — a holder's wallet (a liability: we owe them this balance).
+//   issuance  — the source coins are minted FROM (allowNegative: its balance goes negative by the
+//               amount in circulation, offsetting all user balances → per-currency Σ = 0).
+//   escrow / fee / external — reserved for later (marketplace fees, bank top-up/withdrawal rails).
+// `balance` (posted, credit-normal: +credit / −debit) and `held` (Σ of this account's unresolved
+// pending OUTGOING reservations) are a materialized cache; the journal is the truth. Row-locked on
+// spend. available = balance − held; user wallets may not go negative (allowNegative = false).
+// For system accounts (issuance/external/fee) ownerId = the currencyId (one per currency).
+model Account {
+  id         String  @id @default(uuid())
+  currencyId String  @map("currency_id")
+  type       String // user | issuance | escrow | fee | external
+  ownerType  String  @map("owner_type") // user | workspace | system
+  ownerId    String  @map("owner_id") // userId / workspaceId; system accounts use the currencyId
 
-  @@index([accountUserId, currencyId, id]) // balance recompute + history feed
+  balance       BigInt  @default(0) // posted net (credit-normal)
+  held          BigInt  @default(0) // Σ unresolved pending outgoing reservations
+  allowNegative Boolean @default(false) @map("allow_negative")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  currency Currency @relation(fields: [currencyId], references: [id])
+
+  @@unique([currencyId, type, ownerType, ownerId]) // one account per (currency, type, owner)
+  @@index([ownerType, ownerId])
+  @@index([currencyId, type])
+  @@map("accounts")
+}
+
+// Immutable, append-only double-entry journal — the single source of truth for every balance. Rows
+// are never updated or deleted; corrections are compensating rows. FK-free (hot writes; integrity
+// enforced in LedgerService). Monotonic bigint PK (append-log ordering). Each row moves `amount`
+// (positive integer minor units) from debitAccount to creditAccount within one currency. kind:
+//   posted        — settles now (mint, P2P, payout, burn).
+//   pending       — a hold/authorization: reserves on the debit account (held += amount) without
+//                   settling. The escrow "freeze".
+//   post_pending  — settles a prior pending (pendingId set); `amount` ≤ the pending amount.
+//   void_pending  — cancels a prior pending (pendingId set): releases the reservation.
+model LedgerTransfer {
+  id              BigInt   @id @default(autoincrement())
+  currencyId      String   @map("currency_id")
+  debitAccountId  String   @map("debit_account_id")
+  creditAccountId String   @map("credit_account_id")
+  amount          BigInt // positive integer minor units
+  kind            String // posted | pending | post_pending | void_pending
+  pendingId       BigInt?  @map("pending_id") // the pending row this posts/voids
+  agreementId     String?  @map("agreement_id") // origin escrow agreement (task / order)
+  idempotencyKey  String?  @unique @map("idempotency_key") // duplicate event collides here
+  memo            String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([debitAccountId, id]) // history + balance recompute
+  @@index([creditAccountId, id])
   @@index([currencyId])
-  @@index([transferId])
-  @@index([taskId])
-  @@map("ledger_entries")
+  @@index([pendingId])
+  @@index([agreementId])
+  @@map("ledger_transfers")
 }
 
-// Materialized projection of the ledger (a cache, NOT the truth) — updated in the SAME
-// transaction as each ledger write and row-locked (SELECT … FOR UPDATE) on spend to prevent
-// double-spend. Rebuildable from ledger_entries at any time. available = balance − heldAmount.
-// balance MAY go negative (reversal of coins the holder already burned).
-model WalletBalance {
-  id            String   @id @default(uuid())
-  accountUserId String   @map("account_user_id")
-  currencyId    String   @map("currency_id")
-  balance       BigInt   @default(0) // = Σ ledger_entries for (account, currency)
-  heldAmount    BigInt   @default(0) @map("held_amount") // = Σ active escrow holds (issuer side)
-  updatedAt     DateTime @updatedAt @map("updated_at")
+// "Сделка" — an escrow agreement: the first-class grouping of the per-leg holds for ONE source
+// (a task or a marketplace order). Thin by design: a status + a grouping anchor only. Crowdfunding
+// target/progress are NOT stored here (a price can be multi-currency, e.g. 100🍎+50🌟, so a single
+// number can't express the target) — the target lives on the priced source (the listing) and
+// "collected" is Σ of the active holds per currency. The generic escrow engine (wallet) owns this;
+// Tasks and Commerce are its two clients. refType discriminates the source kind.
+model EscrowAgreement {
+  id        String   @id @default(uuid())
+  refType   String   @map("ref_type") // 'task' | 'order'
+  refId     String   @map("ref_id") // the task / order id
+  status    String   @default("open") // open | settled | refunded | cancelled
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  @@unique([accountUserId, currencyId])
-  @@index([currencyId]) // "holders of my currency" view
-  @@map("wallet_balances")
+  holds EscrowHold[]
+
+  @@unique([refType, refId]) // exactly one agreement per source
+  @@index([refType, refId])
+  @@index([status])
+  @@map("escrow_agreements")
 }
 
-// Escrow state machine, ONE row per (task, participant) — reward is per-participant, not a
-// shared pool. Created when a rewarded task is posted (active) → freezes the creator's coins
-// (raises WalletBalance.heldAmount; no ledger entry yet, ownership hasn't changed). On
-// acceptance → captured (writes the transfer to the ledger). On return/cancel before capture
-// → released. A post-capture return reverses via the ledger (may push the holder negative).
+// One leg of an agreement, backed by a two-phase transfer in the journal. The "freeze" is a
+// `pending` transfer payer→beneficiary (reserves on the payer's account, no settlement yet). status
+// mirrors the transfer: active (pending live) → captured (post_pending settled the payout) →
+// released (void_pending refunded the reservation). `pendingTransferId` links the live pending row;
+// `postedTransferId` is set on capture. A released leg can be re-activated (idempotent re-fund).
+// One leg per (agreement, payer, beneficiary, currency): a task funds one leg per worker (payer =
+// creator, single currency); a marketplace order funds one leg per payer × currency (crowdfunding =
+// many payers; cross-currency price = many currencies; beneficiary = the seller).
 model EscrowHold {
   id                String   @id @default(uuid())
+  agreementId       String   @map("agreement_id")
   currencyId        String   @map("currency_id")
-  taskId            String   @map("task_id")
-  participantUserId String   @map("participant_user_id")
-  creatorUserId     String   @map("creator_user_id") // the issuer who froze the coins
+  payerUserId       String   @map("payer_user_id") // whose coins are frozen (user id, or workspace id if payerType=workspace)
+  payerType         String   @default("user") @map("payer_type") // user | workspace (company treasury, B2B P9)
+  beneficiaryUserId String   @map("beneficiary_user_id") // who is paid on capture (user id, or workspace id if beneficiaryType=workspace)
+  beneficiaryType   String   @default("user") @map("beneficiary_type") // user | workspace (company treasury, B2B P9)
   amount            BigInt
   status            String   @default("active") // active | captured | released
-  ledgerTransferId  String?  @map("ledger_transfer_id") // capture's transferId → enables reversal
+  pendingTransferId BigInt?  @map("pending_transfer_id") // the live pending transfer (the freeze)
+  postedTransferId  BigInt?  @map("posted_transfer_id") // the post_pending settlement (enables collect-back)
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  @@unique([taskId, participantUserId]) // one hold per participant; makes holds idempotent
-  @@index([currencyId])
-  @@index([taskId])
-  @@index([creatorUserId, status])
-  @@index([status])
+  agreement EscrowAgreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+
+  @@unique([agreementId, payerUserId, beneficiaryUserId, currencyId]) // one leg per tuple; idempotent
+  @@index([payerUserId, currencyId, status]) // "what I froze"
+  @@index([currencyId, status]) // deleteCurrency release sweep
+  @@index([agreementId, status]) // capture / release by agreement
+  @@index([beneficiaryUserId, status])
   @@map("escrow_holds")
+}
+
+// ============================================================
+// MY WISH & SHOP — shops, showcases, listings (Phase 2: catalog skeleton)
+// ============================================================
+// A personal/company storefront. 1 shop per owner (lazily created). Owner is polymorphic
+// (user|workspace) — B2B isolation is by explicit ownership + authorization (NOT the workspace
+// chokepoint; a shop is accessed by id, not as implicit "my data"). Staff are NOT here — they are
+// UserRole rows (context 'shop'/'showcase'). Buying/escrow is Phase 3; the catalog lives here.
+model Shop {
+  id        String  @id @default(uuid())
+  ownerType String  @map("owner_type") // 'user' | 'workspace'
+  ownerId   String  @map("owner_id")
+  name      String? // display name; null → fall back to the owner's name
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  showcases Showcase[]
+
+  @@unique([ownerType, ownerId]) // one shop per owner
+  @@map("shops")
+}
+
+// A "Витрина": a folder of listings inside a shop, switched in the left rail. Visibility is shared
+// per-showcase to people and/or Circle Groups (mirrors calendar/card sharing) via the access
+// engine (core/access); no grants → visible only to the owner + staff (no separate "draft" flag).
+model Showcase {
+  id        String   @id @default(uuid())
+  shopId    String   @map("shop_id")
+  name      String
+  icon      String?
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  shop     Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  listings Listing[]
+
+  @@index([shopId])
+  @@map("showcases")
+}
+
+// Showcase audiences migrated to the access engine (core/access) — ShowcaseShare dropped.
+// Showcase visibility is now `showcase:<id>#viewer@user|circle#member` tuples.
+
+// A lot. Full schema now; Phase 2 wires only catalog CRUD + display. Behaviour is added in later
+// phases: purchase/escrow (P3), task/calendar fulfilment (P4), cross-currency price (P5),
+// crowdfunding (P6), stock + time window + FOMO discount + auto-archive (P7), wishlist copy (P8).
+model Listing {
+  id          String  @id @default(uuid())
+  showcaseId  String  @map("showcase_id")
+  title       String
+  description String?
+  icon        String? // emoji from the standard set
+  itemType    String  @default("material") @map("item_type") // material | nonmaterial
+  withTask    Boolean @default(false) @map("with_task") // creates a Task/Event on purchase (P4)
+  taskDays    Int?    @map("task_days") // days to fulfil when withTask
+  crowdfunding Boolean @default(false) // joint fundraising on the card (P6)
+
+  // Availability (P7 behaviour; fields now). stockLimit null = infinite.
+  stockLimit     Int?      @map("stock_limit")
+  stockSold      Int       @default(0) @map("stock_sold")
+  availableFrom  DateTime? @map("available_from")
+  availableUntil DateTime? @map("available_until")
+  discountPercent Int?     @map("discount_percent") // FOMO discount
+  discountUntil   DateTime? @map("discount_until")
+
+  status           String  @default("active") // active | archived
+  sourceWishItemId String? @map("source_wish_item_id") // origin wishlist item when copied (P8)
+  sortOrder        Int     @default(0) @map("sort_order")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  showcase Showcase       @relation(fields: [showcaseId], references: [id], onDelete: Cascade)
+  prices   ListingPrice[]
+  orders   Order[]
+
+  @@index([showcaseId, status])
+  @@index([sourceWishItemId])
+  @@map("listings")
+}
+
+// A price line item: the lot costs `amount` of `currencyId`. Multiple rows = combined cross-currency
+// price (P5); Phase 2 uses a single line in the owner's own currency. FK-free to Currency (validated).
+model ListingPrice {
+  id         String @id @default(uuid())
+  listingId  String @map("listing_id")
+  currencyId String @map("currency_id")
+  amount     BigInt
+
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@unique([listingId, currencyId])
+  @@index([currencyId])
+  @@map("listing_prices")
+}
+
+// A purchase (Phase 3+5). One order = one listing, single buyer; the price is a SNAPSHOT of N
+// currency lines (OrderPrice) — one line per currency (cross-currency = P5; single line in Phase 3).
+// The price is held in escrow (EscrowAgreement refType='order', refId=order.id) as one leg per
+// currency: frozen on placement, captured on confirm (instant items) or on task completion (material
+// «с задачей», P4), refunded on reject/cancel. listingId is nullable (onDelete SetNull) so an order
+// survives as history if its listing is later deleted — the title and price are snapshotted. seller =
+// the shop owner (the coins' beneficiary), even when a co-manager confirms.
+model Order {
+  id            String    @id @default(uuid())
+  listingId     String?   @map("listing_id")
+  titleSnapshot String    @map("title_snapshot")
+  showcaseId    String    @map("showcase_id")
+  shopId        String    @map("shop_id")
+  buyerId       String    @map("buyer_id") // single buyer; for crowdfunding = the campaign initiator
+  sellerId      String    @map("seller_id") // shop owner = escrow beneficiary (B2C: a user)
+  status        String    @default("pending") // funding(P6) | pending | confirmed | settled | rejected | cancelled | refunded
+  crowdfunding  Boolean   @default(false) // snapshot: a joint-funded campaign (P6) — see OrderContribution
+  itemType      String    @map("item_type") // snapshot: material | nonmaterial
+  withTask      Boolean   @default(false) @map("with_task") // snapshot
+  taskId        String?   @map("task_id") // fulfilment task (P4, material «с задачей»)
+  taskDays      Int?      @map("task_days") // snapshot: days to fulfil → the auto-task due date
+  eventId       String?   @map("event_id") // calendar event (P4, non-material «с задачей»)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  confirmedAt   DateTime? @map("confirmed_at")
+  closedAt      DateTime? @map("closed_at") // settled / rejected / cancelled
+  expiresAt     DateTime? @map("expires_at") // crowdfunding campaign deadline (P7); null = no auto-expiry
+
+  listing       Listing?            @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  prices        OrderPrice[]
+  contributions OrderContribution[]
+
+  @@index([shopId, status])
+  @@index([buyerId, status])
+  @@index([sellerId, status])
+  @@index([listingId])
+  @@index([taskId])
+  @@map("orders")
+}
+
+// A pledge toward a crowdfunding campaign (P6): contributor freezes `amount` of `currencyId` (one
+// escrow leg, payer=contributor → beneficiary=owner) under the campaign Order. Cross-currency goal →
+// a contributor's pledge can span currencies (one row each). FK to Order cascade; FK-free to Currency
+// (validated). All-or-nothing: legs captured to the owner only when EVERY goal currency is filled.
+model OrderContribution {
+  id            String   @id @default(uuid())
+  orderId       String   @map("order_id")
+  contributorId String   @map("contributor_id")
+  currencyId    String   @map("currency_id")
+  amount        BigInt
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, contributorId, currencyId])
+  @@index([orderId])
+  @@index([contributorId])
+  @@map("order_contributions")
+}
+
+// A wishlist item (Phase 8): something the OWNER wants. No price — a person from the owner's
+// окружение turns it into a priced Listing in THEIR OWN shop (Listing.sourceWishItemId links back),
+// so the wish auto-fulfils when that lot settles. The wishlist is shared to people/Groups via the
+// access engine (resource `wishlist:<ownerId>`). itemType (material/nonmaterial) is set by the owner.
+model WishItem {
+  id          String    @id @default(uuid())
+  ownerId     String    @map("owner_id")
+  title       String
+  description String?
+  icon        String?
+  link        String? // a URL the owner wants (optional)
+  itemType    String    @default("material") @map("item_type") // material | nonmaterial
+  status      String    @default("active") // active | fulfilled | archived
+  sortOrder   Int       @default(0) @map("sort_order")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  fulfilledAt DateTime? @map("fulfilled_at")
+
+  @@index([ownerId, status])
+  @@map("wish_items")
+}
+
+// A snapshotted price line of an order: the buyer pays `amount` of `currencyId`. Multiple rows =
+// cross-currency price (P5). Mirrors ListingPrice and is FK-free to Currency (validated, not
+// constrained) so a later currency deletion can't block order history. Each line is one escrow leg.
+model OrderPrice {
+  id         String @id @default(uuid())
+  orderId    String @map("order_id")
+  currencyId String @map("currency_id")
+  amount     BigInt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, currencyId])
+  @@index([currencyId])
+  @@map("order_prices")
+}
+
+// ============================================================
+// ACCESS: Unified authorization engine (ReBAC) — core/access
+// ============================================================
+// One uniform store of relationship tuples: "subject has <relation> on <resource>".
+//   resourceType:resourceId # relation @ subjectType:subjectId(#subjectRelation)
+// Permissions are DERIVED from these tuples + per-resource-type rewrite rules
+// (core/access/access-schema.ts) — never stored. Pure-sharing data (CalendarShare,
+// ShowcaseShare) migrates here (Phase 2); domain membership/roles are PROJECTED here
+// and kept in sync (Phase 1). Cross-cutting — deliberately NOT in the workspace chokepoint.
+//
+//   subjectRelation = ""        → the subject is named directly (a user, or an object
+//                                 such as a parent pointer showcase#parent@shop).
+//   subjectRelation = "member"  → a userset: every subject holding that relation on the
+//                                 subject object, e.g. circle:fam#member (all members of fam).
+model RelationTuple {
+  id              String   @id @default(uuid())
+  resourceType    String   @map("resource_type")
+  resourceId      String   @map("resource_id")
+  relation        String
+  subjectType     String   @map("subject_type")
+  subjectId       String   @map("subject_id")
+  subjectRelation String   @default("") @map("subject_relation")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  // One row per distinct edge. subjectRelation defaults to "" (never NULL) so the unique
+  // constraint is deterministic for direct subjects (avoids Postgres NULL-distinct gotcha).
+  @@unique([resourceType, resourceId, relation, subjectType, subjectId, subjectRelation])
+  // Forward walk: who has <relation> on <resource> (expand a resource's relation).
+  @@index([resourceType, resourceId, relation])
+  // Reverse walk: every edge a subject appears in (group expansion, parent pointers, listObjects).
+  @@index([subjectType, subjectId])
+  // listObjects fast path: resources of a type where a subject is named for a relation.
+  @@index([subjectType, subjectId, resourceType, relation])
+  @@map("relation_tuples")
 }

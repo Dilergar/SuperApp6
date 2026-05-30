@@ -10,6 +10,8 @@ import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { TasksService } from '../tasks/tasks.service';
 import { ResourcesService } from './resources.service';
+import { AccessService } from '../../core/access/access.service';
+import { Principal } from '../../core/access/access.types';
 import {
   DEFAULT_REMINDER_OFFSETS,
   CALENDAR_LIMITS,
@@ -60,7 +62,12 @@ export class CalendarService {
     private events: EventBusService,
     private tasks: TasksService,
     private resources: ResourcesService,
+    private access: AccessService,
   ) {}
+
+  private user(id: string): Principal {
+    return { type: 'user', id };
+  }
 
   // ============================================================
   // Range query — expands recurrence, merges task layer, my participations,
@@ -137,9 +144,18 @@ export class CalendarService {
       }
 
       // 2) Overlay calendars I chose to view (only those who shared with me).
+      // Precompute access in TWO reverse walks instead of 2 queries per included calendar
+      // (fixes the overlay N+1). detailed_viewer ⊆ busy_viewer, so check detailed first.
+      const overlayIds = (include ?? []).filter((id) => id !== userId);
+      const detailedSet = overlayIds.length
+        ? new Set(await this.access.listObjects(this.user(userId), 'detailed_viewer', 'calendar'))
+        : new Set<string>();
+      const busySet = overlayIds.length
+        ? new Set(await this.access.listObjects(this.user(userId), 'busy_viewer', 'calendar'))
+        : new Set<string>();
       for (const ownerId of include ?? []) {
         if (ownerId === userId) continue;
-        const level = await this.resolveAccessLevel(ownerId, userId);
+        const level: CalendarAccessLevel = detailedSet.has(ownerId) ? 'detailed' : busySet.has(ownerId) ? 'busy' : 'none';
         if (level === 'none') continue;
         const owner = await this.db.user.findUnique({
           where: { id: ownerId },
@@ -537,82 +553,62 @@ export class CalendarService {
   ): Promise<void> {
     if (sharedWithUserId === ownerId) throw new BadRequestException('Нельзя поделиться с самим собой');
     await this.assertInEnvironment(ownerId, [sharedWithUserId]);
-    await this.db.calendarShare.upsert({
-      where: { calendarOwnerId_sharedWithUserId: { calendarOwnerId: ownerId, sharedWithUserId } },
-      create: { calendarOwnerId: ownerId, sharedWithUserId, accessLevel },
-      update: { accessLevel },
-    });
+    // Tuple-native: clear any prior level, then set the chosen one.
+    const subject = { resourceType: 'calendar', resourceId: ownerId, subjectType: 'user', subjectId: sharedWithUserId } as const;
+    await this.access.revoke({ ...subject, relation: 'busy_viewer' });
+    await this.access.revoke({ ...subject, relation: 'detailed_viewer' });
+    await this.access.grant({ ...subject, relation: accessLevel === 'detailed' ? 'detailed_viewer' : 'busy_viewer' });
   }
 
   async removeShare(ownerId: string, sharedWithUserId: string): Promise<void> {
-    await this.db.calendarShare.deleteMany({
-      where: { calendarOwnerId: ownerId, sharedWithUserId },
-    });
+    const subject = { resourceType: 'calendar', resourceId: ownerId, subjectType: 'user', subjectId: sharedWithUserId } as const;
+    await this.access.revoke({ ...subject, relation: 'busy_viewer' });
+    await this.access.revoke({ ...subject, relation: 'detailed_viewer' });
   }
 
-  /** People I've personally granted access to (manage list). */
+  /** People I've personally granted access to (manage list) — from the engine's viewer tuples. */
   async listShares(ownerId: string): Promise<CalendarShareDto[]> {
-    const shares = await this.db.calendarShare.findMany({
-      where: { calendarOwnerId: ownerId },
-      include: { sharedWith: { select: { firstName: true, lastName: true, avatar: true } } },
+    const tuples = await this.db.relationTuple.findMany({
+      where: { resourceType: 'calendar', resourceId: ownerId, relation: { in: ['busy_viewer', 'detailed_viewer'] }, subjectType: 'user' },
+      select: { relation: true, subjectId: true, createdAt: true },
       orderBy: { createdAt: 'desc' },
     });
-    return shares.map((s) => ({
-      sharedWithUserId: s.sharedWithUserId,
-      firstName: s.sharedWith.firstName,
-      lastName: s.sharedWith.lastName,
-      avatar: s.sharedWith.avatar,
-      accessLevel: s.accessLevel as 'busy' | 'detailed',
-      createdAt: s.createdAt.toISOString(),
-    }));
+    if (tuples.length === 0) return [];
+    const users = await this.db.user.findMany({
+      where: { id: { in: tuples.map((t) => t.subjectId) } },
+      select: { id: true, firstName: true, lastName: true, avatar: true },
+    });
+    const umap = new Map(users.map((u) => [u.id, u]));
+    return tuples.map((t) => {
+      const u = umap.get(t.subjectId);
+      return {
+        sharedWithUserId: t.subjectId,
+        firstName: u?.firstName ?? '',
+        lastName: u?.lastName ?? null,
+        avatar: u?.avatar ?? null,
+        accessLevel: (t.relation === 'detailed_viewer' ? 'detailed' : 'busy') as 'busy' | 'detailed',
+        createdAt: t.createdAt.toISOString(),
+      };
+    });
   }
 
-  /** People whose calendars I may view — for the overlay layer toggles. */
+  /** People whose calendars I may view — for the overlay layer toggles. Two reverse walks. */
   async listSharedWithMe(viewerId: string): Promise<SharedCalendarSource[]> {
-    const best = new Map<string, number>(); // ownerId -> rank
-    const names = new Map<string, UserMini>();
-
-    const personal = await this.db.calendarShare.findMany({
-      where: { sharedWithUserId: viewerId },
-      include: { owner: { select: { id: true, firstName: true, lastName: true, avatar: true } } },
+    const detailed = new Set(await this.access.listObjects(this.user(viewerId), 'detailed_viewer', 'calendar'));
+    const busy = new Set(await this.access.listObjects(this.user(viewerId), 'busy_viewer', 'calendar'));
+    const ownerIds = [...new Set([...detailed, ...busy])].filter((id) => id !== viewerId);
+    if (ownerIds.length === 0) return [];
+    const users = await this.db.user.findMany({
+      where: { id: { in: ownerIds } },
+      select: { id: true, firstName: true, lastName: true, avatar: true },
     });
-    for (const s of personal) {
-      best.set(s.calendarOwnerId, Math.max(best.get(s.calendarOwnerId) ?? 0, this.accessRank(s.accessLevel)));
-      names.set(s.calendarOwnerId, s.owner);
-    }
-
-    const links = await this.db.contactLink.findMany({
-      where: { OR: [{ userAId: viewerId }, { userBId: viewerId }] },
-      include: {
-        userA: { select: { id: true, firstName: true, lastName: true, avatar: true } },
-        userB: { select: { id: true, firstName: true, lastName: true, avatar: true } },
-        memberships: { include: { circle: { select: { ownerId: true, calendarVisibility: true } } } },
-      },
-    });
-    for (const link of links) {
-      const other = link.userAId === viewerId ? link.userB : link.userA;
-      for (const m of link.memberships) {
-        if (m.circle.ownerId !== other.id) continue;
-        const rank = this.accessRank(m.circle.calendarVisibility);
-        if (rank === 0) continue;
-        best.set(other.id, Math.max(best.get(other.id) ?? 0, rank));
-        if (!names.has(other.id)) names.set(other.id, other);
-      }
-    }
-
-    const out: SharedCalendarSource[] = [];
-    for (const [ownerId, rank] of best) {
-      if (rank === 0) continue;
-      const u = names.get(ownerId);
-      if (!u) continue;
-      out.push({
-        userId: ownerId,
-        firstName: u.firstName,
-        lastName: u.lastName,
-        avatar: u.avatar,
-        accessLevel: rank >= 2 ? 'detailed' : 'busy',
-      });
-    }
+    const out: SharedCalendarSource[] = users.map((u) => ({
+      userId: u.id,
+      firstName: u.firstName,
+      lastName: u.lastName,
+      avatar: u.avatar,
+      accessLevel: detailed.has(u.id) ? 'detailed' : 'busy',
+    }));
     return out.sort((a, b) => fullName(a).localeCompare(fullName(b)));
   }
 
@@ -916,23 +912,9 @@ export class CalendarService {
   /** Effective calendar access of `viewerId` to `ownerId`'s calendar (group + personal, MAX). */
   private async resolveAccessLevel(ownerId: string, viewerId: string): Promise<CalendarAccessLevel> {
     if (ownerId === viewerId) return 'detailed';
-    let rank = 0;
-    const share = await this.db.calendarShare.findUnique({
-      where: { calendarOwnerId_sharedWithUserId: { calendarOwnerId: ownerId, sharedWithUserId: viewerId } },
-    });
-    if (share) rank = Math.max(rank, this.accessRank(share.accessLevel));
-
-    const [a, b] = ownerId < viewerId ? [ownerId, viewerId] : [viewerId, ownerId];
-    const link = await this.db.contactLink.findUnique({
-      where: { userAId_userBId: { userAId: a, userBId: b } },
-      include: { memberships: { include: { circle: { select: { ownerId: true, calendarVisibility: true } } } } },
-    });
-    if (link) {
-      for (const m of link.memberships) {
-        if (m.circle.ownerId === ownerId) rank = Math.max(rank, this.accessRank(m.circle.calendarVisibility));
-      }
-    }
-    return rank >= 2 ? 'detailed' : rank === 1 ? 'busy' : 'none';
+    // MAX over personal + per-Group shares is inherent in the engine (detailed_viewer ⊇ busy_viewer).
+    const lvl = await this.access.resolveLevel(this.user(viewerId), { type: 'calendar', id: ownerId });
+    return lvl === 'detailed_viewer' ? 'detailed' : lvl === 'busy_viewer' ? 'busy' : 'none';
   }
 
   /** Throw unless every id is a confirmed contact of ownerId. */

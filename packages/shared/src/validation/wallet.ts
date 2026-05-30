@@ -37,6 +37,11 @@ export const updateCurrencySchema = z
 
 export const mintSchema = z.object({ amount: amountSchema }).strict();
 
+// Company treasury → employee payout (B2B, Phase 9).
+export const payEmployeeSchema = z
+  .object({ userId: z.string().uuid(), amount: amountSchema })
+  .strict();
+
 export const burnSchema = z
   .object({ currencyId: z.string().uuid(), amount: amountSchema })
   .strict();

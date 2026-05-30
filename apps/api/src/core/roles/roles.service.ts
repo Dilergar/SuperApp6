@@ -1,12 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
+import { AccessProjectionService } from '../access/access-projection.service';
 
 @Injectable()
 export class RolesService {
   constructor(
     private db: DatabaseService,
     private redis: RedisService,
+    private accessProjection: AccessProjectionService,
   ) {}
 
   /**
@@ -77,6 +79,10 @@ export class RolesService {
   async invalidateUserCache(userId: string) {
     await this.redis.del(`user:${userId}:roles`);
     await this.redis.invalidateUserProfile(userId);
+    // Phase 1: single chokepoint for ALL role changes (RolesService + WorkspacesService
+    // transactional writes both call this) → keep the access engine's workspace-role
+    // tuples in sync. Best-effort; the reconcile cron repairs any miss.
+    await this.accessProjection.resyncUserWorkspaceRoles(userId);
   }
 
   /**

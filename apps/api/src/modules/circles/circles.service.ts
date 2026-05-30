@@ -8,6 +8,7 @@ import {
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { ContactsService } from '../contacts/contacts.service';
+import { AccessProjectionService } from '../../core/access/access-projection.service';
 import {
   CONTACT_LIMITS,
   resolveCardVisibility,
@@ -34,6 +35,7 @@ export class CirclesService {
     private db: DatabaseService,
     private contacts: ContactsService,
     private redis: RedisService,
+    private accessProjection: AccessProjectionService,
   ) {}
 
   // ============================================================
@@ -146,6 +148,10 @@ export class CirclesService {
       data: updateData,
       include: { _count: { select: { memberships: true } } },
     });
+    // Phase 2 (Calendar): mirror this Group's calendar visibility into the access engine.
+    if (data.calendarVisibility !== undefined) {
+      await this.accessProjection.circleCalendarVisibilityChanged(circleId, ownerId, data.calendarVisibility);
+    }
     return this.serialize(updated, updated._count.memberships);
   }
 
@@ -155,6 +161,8 @@ export class CirclesService {
     // ContactLinks — contacts themselves are preserved.
     await this.db.circle.delete({ where: { id: circleId } });
     await this.redis.invalidateUserProfile(ownerId);
+    // Phase 1: drop all mirrored membership edges for this group (best-effort).
+    await this.accessProjection.circleDeleted(circleId);
   }
 
   async reorderCircles(
@@ -221,6 +229,10 @@ export class CirclesService {
       }
       throw err;
     }
+    // Phase 1: mirror the membership edge into the access engine (best-effort).
+    // The member is the side of the link opposite the group owner.
+    const memberId = link.userAId === ownerId ? link.userBId : link.userAId;
+    await this.accessProjection.circleMemberAdded(circleId, memberId);
     return { circleId: circle.id, contactLinkId };
   }
 
@@ -231,6 +243,15 @@ export class CirclesService {
     });
     if (result.count === 0) {
       throw new NotFoundException('Контакт не найден в этой группе');
+    }
+    // Phase 1: remove the mirrored membership edge (best-effort).
+    const link = await this.db.contactLink.findUnique({
+      where: { id: contactLinkId },
+      select: { userAId: true, userBId: true },
+    });
+    if (link) {
+      const memberId = link.userAId === ownerId ? link.userBId : link.userAId;
+      await this.accessProjection.circleMemberRemoved(circleId, memberId);
     }
   }
 
