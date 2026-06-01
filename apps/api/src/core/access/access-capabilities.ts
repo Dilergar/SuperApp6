@@ -32,6 +32,12 @@ export const CAPABILITIES = {
   'marketplace.sell': { resourceType: 'platform', relation: 'seller' },
   'jobs.mystery_guest': { resourceType: 'platform', relation: 'mystery_guest' },
   'content.ugc': { resourceType: 'platform', relation: 'ugc_blogger' },
+  'chat.view': { resourceType: 'chat', relation: 'viewer' },
+  'chat.post': { resourceType: 'chat', relation: 'viewer' },
+  // order / event (Phase 3 context chats + rich-card action gating)
+  'order.view': { resourceType: 'order', relation: 'viewer' },
+  'order.manage': { resourceType: 'order', relation: 'seller' },
+  'event.view': { resourceType: 'event', relation: 'viewer' },
 } as const satisfies Record<string, CapabilityDef>;
 
 export type CapabilityKey = keyof typeof CAPABILITIES;

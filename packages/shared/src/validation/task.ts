@@ -106,16 +106,6 @@ export const taskFilterSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
 
-export const addTaskCommentSchema = z
-  .object({
-    content: z
-      .string()
-      .min(1, 'Сообщение не может быть пустым')
-      .max(TASK_LIMITS.maxDescriptionLength)
-      .refine(noHtml, 'Недопустимые символы'),
-  })
-  .strict();
-
 // Submit / accept / return. For a group task the creator targets one co_executor via
 // participantUserId; an executor acting on their own part omits it.
 export const taskParticipantActionSchema = z

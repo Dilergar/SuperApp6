@@ -2,7 +2,10 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { executeRichCardAction, getOrderChat } from '@/lib/messenger-api';
+import { ShareCardModal } from '../messenger/ShareCardModal';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import {
   LISTING_ITEM_TYPE_LABELS,
@@ -65,6 +68,7 @@ function CampaignBars({ prices, raised }: { prices: ListingPriceDto[]; raised?: 
 
 export default function ShopPage() {
   const { isReady, user } = useRequireAuth();
+  const router = useRouter();
 
   const [tab, setTab] = useState<'shops' | 'wishlist' | 'orders'>('shops');
   const [viewOwnerId, setViewOwnerId] = useState<string | null>(null); // null = my shop
@@ -87,6 +91,7 @@ export default function ShopPage() {
   const [sharePanel, setSharePanel] = useState<Showcase | null>(null);
   const [staffOpen, setStaffOpen] = useState(false);
   const [contributeModal, setContributeModal] = useState<Listing | null>(null);
+  const [forwardListing, setForwardListing] = useState<Listing | null>(null);
 
   const canManage = shop?.canManage ?? false;
 
@@ -160,6 +165,18 @@ export default function ShopPage() {
       setOk(`Заказ оформлен: «${l.title}». Коины заморожены до подтверждения продавцом (вкладка «Заказы»).`);
       setTimeout(() => setOk(''), 5000);
     } catch (e) { setError(errMsg(e)); }
+  };
+  // "Поговорить" — open a buyer↔seller DM with the listing card dropped in,
+  // then jump to the messenger (to that seller's DM when we know the owner).
+  const talk = async (l: Listing) => {
+    setError('');
+    try {
+      await executeRichCardAction('listing.talk', { type: 'listing', id: l.id });
+    } catch (e) {
+      setError(errMsg(e));
+      return;
+    }
+    router.push(viewOwnerId ? `/messenger?dm=${viewOwnerId}` : '/messenger');
   };
 
   if (!isReady || loading) {
@@ -266,6 +283,8 @@ export default function ShopPage() {
                     onEdit={() => setListingModal({ showcaseId: l.showcaseId, editing: l })}
                     onDelete={() => deleteListing(l)}
                     onBuy={!canManage && viewOwnerId ? () => buy(l) : undefined}
+                    onTalk={!canManage && viewOwnerId ? () => talk(l) : undefined}
+                    onForward={() => setForwardListing(l)}
                     onContribute={!canManage && viewOwnerId ? () => setContributeModal(l) : undefined} />
                 ))}
               </div>
@@ -296,11 +315,19 @@ export default function ShopPage() {
           onDone={async () => { setContributeModal(null); await reload(); }}
           onError={setError} />
       )}
+      {forwardListing && (
+        <ShareCardModal
+          refType={forwardListing.crowdfunding ? 'crowdfunding' : 'listing'}
+          refId={forwardListing.id}
+          title={forwardListing.title}
+          onClose={() => setForwardListing(null)}
+        />
+      )}
     </div>
   );
 }
 
-function ListingCard({ l, canManage, onEdit, onDelete, onBuy, onContribute }: { l: Listing; canManage: boolean; onEdit: () => void; onDelete: () => void; onBuy?: () => void; onContribute?: () => void }) {
+function ListingCard({ l, canManage, onEdit, onDelete, onBuy, onTalk, onForward, onContribute }: { l: Listing; canManage: boolean; onEdit: () => void; onDelete: () => void; onBuy?: () => void; onTalk?: () => void; onForward?: () => void; onContribute?: () => void }) {
   const now = Date.now();
   const iPledged = (l.campaign?.myContribution?.length ?? 0) > 0;
   const discountActive = !!l.discountPercent && l.discountPercent > 0 && !!l.discountUntil && now < new Date(l.discountUntil).getTime();
@@ -315,6 +342,12 @@ function ListingCard({ l, canManage, onEdit, onDelete, onBuy, onContribute }: { 
   const reason = soldOut ? 'Распродано' : closed ? 'Закрыто' : notYet ? 'Скоро' : 'Недоступно';
   return (
     <div className="card-elevated" style={{ padding: 'var(--spacing-4)', position: 'relative', opacity: l.status === 'archived' ? 0.5 : 1 }}>
+      {onForward && (
+        <button onClick={onForward} title="Переслать в чат" aria-label="Переслать в чат"
+          style={{ position: 'absolute', top: 'var(--spacing-3)', right: 'var(--spacing-3)', background: 'var(--surface-container)', border: 'none', cursor: 'pointer', width: '1.8rem', height: '1.8rem', borderRadius: 'var(--radius-sketch)', fontSize: '0.85rem', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          ↗
+        </button>
+      )}
       <div style={{ fontSize: '2rem', marginBottom: 'var(--spacing-2)' }}>{l.icon ?? '🎁'}</div>
       <div className="title-md" style={{ fontSize: '1rem', marginBottom: '0.2rem' }}>{l.title}</div>
       {l.description && <p className="label-sm" style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '0.4rem' }}>{l.description}</p>}
@@ -351,12 +384,15 @@ function ListingCard({ l, canManage, onEdit, onDelete, onBuy, onContribute }: { 
             <span className="label-sm" style={{ opacity: 0.55, fontSize: '0.7rem' }}>{reason}</span>
           )}
         </div>
-      ) : onBuy ? (
-        <div style={{ marginTop: 'var(--spacing-2)' }}>
-          {sellable ? (
+      ) : onBuy || onTalk ? (
+        <div style={{ marginTop: 'var(--spacing-2)', display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          {onBuy && (sellable ? (
             <button onClick={onBuy} className="btn-primary" style={{ fontSize: '0.78rem', padding: '0.25rem 0.9rem' }}>Купить</button>
           ) : (
             <span className="label-sm" style={{ opacity: 0.55, fontSize: '0.7rem' }}>{reason}</span>
+          ))}
+          {onTalk && (
+            <button onClick={onTalk} className="btn-secondary" style={{ fontSize: '0.78rem', padding: '0.25rem 0.9rem' }}>Поговорить</button>
           )}
         </div>
       ) : null}
@@ -731,8 +767,16 @@ function StaffPanel({ contacts, showcases, onClose, onError }: {
 }
 
 function OrdersView({ onError }: { onError: (m: string) => void }) {
+  const router = useRouter();
   const [incoming, setIncoming] = useState<Order[]>([]);
   const [mine, setMine] = useState<Order[]>([]);
+  // Open (get-or-create) the order's context chat, then jump to the messenger.
+  const discuss = async (orderId: string) => {
+    try {
+      const chat = await getOrderChat(orderId);
+      router.push(`/messenger?chat=${chat.id}`);
+    } catch (e) { onError(errMsg(e)); }
+  };
   const load = useCallback(async () => {
     try {
       const [inc, my] = await Promise.all([api.get('/shop/orders/incoming'), api.get('/shop/orders')]);
@@ -782,6 +826,7 @@ function OrdersView({ onError }: { onError: (m: string) => void }) {
       {kind === 'mine' && o.status === 'confirmed' && o.withTask && (
         <Link href="/tasks" className="label-sm" style={{ fontSize: '0.7rem', color: 'var(--secondary)' }}>Принять в Задачнике →</Link>
       )}
+      <button onClick={() => discuss(o.id)} className="btn-secondary" style={{ fontSize: '0.72rem', padding: '0.2rem 0.6rem' }} title="Открыть чат заказа">Обсудить</button>
     </div>
   );
 

@@ -52,7 +52,6 @@ model User {
   ownedCircles       Circle[]
   createdTasks       Task[]            @relation("TaskCreator")
   taskParticipations TaskParticipant[] @relation("TaskParticipantUser")
-  taskComments       TaskComment[]
   calendarEvents     CalendarEvent[]
   resources          Resource[]
   googleConnection   GoogleConnection?
@@ -78,6 +77,16 @@ model User {
 
   // Subscription
   subscription Subscription?
+
+  // Messenger
+  chatMemberships  ChatMember[]
+  authoredMessages Message[]
+
+  // Mentions (Phase 5)
+  mentionsReceived Mention[] @relation("MentionMentioned")
+  mentionsMade     Mention[] @relation("MentionMentioner")
+
+  scheduledMessages ScheduledMessage[]
 
   @@map("users")
 }
@@ -368,7 +377,6 @@ model Task {
   assignedCircle Circle?    @relation("TaskAssignedCircle", fields: [assignedCircleId], references: [id], onDelete: SetNull)
 
   participants  TaskParticipant[]
-  comments      TaskComment[]
   tags          TaskTag[]
 
   @@index([creatorId])
@@ -409,22 +417,6 @@ model TaskParticipant {
   @@index([userId, status]) // "tasks assigned to me" + filter by my state
   @@index([taskId, role])
   @@map("task_participants")
-}
-
-model TaskComment {
-  id       String @id @default(uuid())
-  taskId   String @map("task_id")
-  authorId String @map("author_id")
-  content  String
-
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  author User @relation(fields: [authorId], references: [id])
-
-  @@index([taskId])
-  @@map("task_comments")
 }
 
 model TaskTag {
@@ -1042,6 +1034,240 @@ model OrderPrice {
 //                                 such as a parent pointer showcase#parent@shop).
 //   subjectRelation = "member"  → a userset: every subject holding that relation on the
 //                                 subject object, e.g. circle:fam#member (all members of fam).
+// ============================================================
+// MESSENGER: Chats, members, messages (Phase 1: DM + spine)
+// ============================================================
+
+model Chat {
+  id String @id @default(uuid())
+
+  // dm | group | context
+  type String @default("dm")
+
+  // Canonical "minUserId:maxUserId" for DMs (unique → exactly one DM per pair). Null otherwise.
+  dmKey String? @unique @map("dm_key")
+
+  // Polymorphic parent for CONTEXT chats (null for DM/group).
+  // parentType: task | calendar_event | listing | order | ...
+  parentType String? @map("parent_type")
+  parentId   String? @map("parent_id")
+
+  // Creator/owner of an ad-hoc group chat (null for dm/context). Owner has full management.
+  createdById String? @map("created_by_id")
+
+  // B2B scoping (mirrors Task). Null = personal. Not chokepoint-scoped yet (B2B phase).
+  workspaceId String? @map("workspace_id")
+
+  // Optional display title (group chats); DM/context derive it from peer/parent.
+  title String?
+
+  // Monotonic per-chat message counter; assigned to Message.seq under row lock.
+  lastSeq Int @default(0) @map("last_seq")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  members           ChatMember[]
+  messages          Message[]
+  scheduledMessages ScheduledMessage[]
+
+  @@index([type])
+  // One context chat per parent (e.g. one chat per task). Postgres treats NULLs as
+  // distinct, so DM/group chats (parentType/parentId NULL) are exempt and unconstrained.
+  @@unique([parentType, parentId])
+  @@index([workspaceId])
+  @@map("chats")
+}
+
+model ChatMember {
+  id     String @id @default(uuid())
+  chatId String @map("chat_id")
+  userId String @map("user_id")
+
+  // owner | admin | member | bot (group management + display)
+  role String @default("member")
+
+  // History floor: this member only sees messages with seq >= visibleFromSeq.
+  // Set to chat.lastSeq when added to a group (WhatsApp-style join-point history); 0 = full history (DM, task chat).
+  visibleFromSeq Int @default(0) @map("visible_from_seq")
+
+  // Read-cursor model (D6): how far messages were delivered / read for this user.
+  deliveredSeq Int       @default(0) @map("delivered_seq")
+  deliveredAt  DateTime? @map("delivered_at")
+  lastReadSeq  Int       @default(0) @map("last_read_seq")
+  lastReadAt   DateTime? @map("last_read_at")
+
+  // Per-user chat state.
+  mutedUntil DateTime? @map("muted_until")
+  pinned     Boolean   @default(false)
+  archived   Boolean   @default(false)
+
+  joinedAt DateTime  @default(now()) @map("joined_at")
+  leftAt   DateTime? @map("left_at")
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([chatId, userId])
+  @@index([userId, archived])
+  @@map("chat_members")
+}
+
+model Message {
+  id     String @id @default(uuid())
+  chatId String @map("chat_id")
+
+  // Null for system messages (no human author).
+  authorId String? @map("author_id")
+
+  // text | system | rich_card
+  type String @default("text")
+
+  // Plain text for text messages; JSON payload for system/rich_card.
+  content String?
+  payload Json?
+
+  // Per-chat monotonic order; assigned from Chat.lastSeq under row lock.
+  seq Int
+
+  // Reply/quote (Phase 7): the message this one quotes (self-relation; null = not a reply).
+  replyToId String? @map("reply_to_id")
+
+  editedAt  DateTime? @map("edited_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  chat    Chat      @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  author  User?     @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  replyTo Message?  @relation("MessageReply", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies Message[] @relation("MessageReply")
+
+  @@unique([chatId, seq])
+  @@index([chatId, seq])
+  @@index([authorId])
+  @@map("messages")
+}
+
+// ============================================================
+// SCHEDULED MESSAGES (Phase 7, "Напомнить"): a message the author schedules to be
+// sent into a chat at a future time. A cron fires due ones → posts a normal Message
+// from the author + pings the author. The author can view/edit/cancel while pending.
+// ============================================================
+model ScheduledMessage {
+  id       String @id @default(uuid())
+  chatId   String @map("chat_id")
+  authorId String @map("author_id")
+
+  content String
+  // Optional quote carried into the eventual message.
+  replyToId String? @map("reply_to_id")
+
+  // When to send.
+  sendAt DateTime @map("send_at")
+
+  // pending | sent | cancelled
+  status String @default("pending")
+  // The Message created when it fired (audit / dedup).
+  sentMessageId String? @map("sent_message_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  chat   Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  // Cron scan: due pending rows.
+  @@index([status, sendAt])
+  @@index([chatId, authorId])
+  @@map("scheduled_messages")
+}
+
+// ============================================================
+// MENTIONS HUB (Phase 5): every @mention of a user, across services, in one feed.
+// Mentions are PICK-from-members (users have no @username) → the mentioned user is a
+// resolved id, not a parsed name. A `mention.received` Notification fires alongside.
+// ============================================================
+model Mention {
+  id String @id @default(uuid())
+
+  mentionedUserId String @map("mentioned_user_id")
+  mentionerUserId String @map("mentioner_user_id")
+
+  // Where it happened: messenger | task | calendar | listing (generic, reusable).
+  sourceType String @map("source_type")
+  // The primary entity id for the deep link (chatId for messenger, taskId, eventId…).
+  sourceId   String @map("source_id")
+
+  // Messenger specifics (null for non-chat sources) — used for the in-context jump.
+  chatId    String? @map("chat_id")
+  messageId String? @map("message_id")
+
+  // Short text context for the hub row.
+  snippet String?
+
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  mentionedUser User @relation("MentionMentioned", fields: [mentionedUserId], references: [id], onDelete: Cascade)
+  mentioner     User @relation("MentionMentioner", fields: [mentionerUserId], references: [id], onDelete: Cascade)
+
+  // One mention per (message, mentioned user) so re-edits don't duplicate.
+  @@unique([messageId, mentionedUserId])
+  @@index([mentionedUserId, createdAt])
+  @@index([sourceType, sourceId])
+  @@map("mentions")
+}
+
+// ============================================================
+// SEARCH INDEX (Phase 6): denormalized, permission-trimmed search "витрина" for the
+// unified core/search engine. One row per searchable item across services (messenger
+// now; tasks/events/etc. later). The index is a PROJECTION — domain tables stay the
+// source of truth; rows are kept fresh by best-effort hooks + a reconcile cron + a
+// backfill script (same pattern as core/access). FTS (generated `tsvector`, 'russian'
+// config for word-form stemming) + pg_trgm GIN (typo/substring/name match, language-
+// agnostic for KZ/EN) live in raw SQL (the migration); SearchService queries via $queryRaw.
+// ============================================================
+model SearchDocument {
+  id String @id @default(uuid())
+
+  // Provider/source kind: message | chat | (task | event | wish … later).
+  sourceType String @map("source_type")
+  // The domain entity id this row mirrors.
+  sourceId   String @map("source_id")
+
+  // B2B scoping (null = personal/social). Mirrors the entity's workspace.
+  workspaceId String? @map("workspace_id")
+
+  // Searchable text: title (chat name, task title…) + body (message text, description…).
+  title String?
+  body  String?
+
+  // Deep link to open the result.
+  url String
+
+  // Access keys (provider-specific, used to permission-trim at query time):
+  // message/chat → chatId; message → seq (vs ChatMember.visibleFromSeq); author for display.
+  chatId   String? @map("chat_id")
+  seq      Int?
+  authorId String? @map("author_id")
+
+  // The ENTITY's timestamp (NOT row-insert time) — drives recency ranking.
+  itemCreatedAt DateTime @map("item_created_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Generated FTS column (maintained by Postgres). Managed in raw SQL — Prisma only
+  // needs to know it exists, never writes it.
+  searchVector Unsupported("tsvector")? @map("search_vector")
+
+  @@unique([sourceType, sourceId])
+  @@index([sourceType])
+  @@index([chatId])
+  @@map("search_documents")
+}
+
 model RelationTuple {
   id              String   @id @default(uuid())
   resourceType    String   @map("resource_type")

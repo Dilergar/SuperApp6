@@ -3,15 +3,18 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { RRule } from 'rrule';
 import { CalendarEvent as CalEventRow } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
+import { fullName } from '../../shared/utils/user-name';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { TasksService } from '../tasks/tasks.service';
 import { ResourcesService } from './resources.service';
 import { AccessService } from '../../core/access/access.service';
 import { Principal } from '../../core/access/access.types';
+import { QuickActionRegistry } from '../../core/quick-actions/quick-actions.registry';
 import {
   DEFAULT_REMINDER_OFFSETS,
   CALENDAR_LIMITS,
@@ -42,9 +45,6 @@ import type {
 
 const MS_PER_DAY = 86_400_000;
 type UserMini = { id: string; firstName: string; lastName: string | null; avatar: string | null };
-const fullName = (u: { firstName: string; lastName: string | null }) =>
-  `${u.firstName} ${u.lastName ?? ''}`.trim();
-
 /** Context passed to occurrenceDto describing how the viewer sees this row. */
 interface OccCtx {
   ownerName: string | null;
@@ -56,14 +56,27 @@ interface OccCtx {
 }
 
 @Injectable()
-export class CalendarService {
+export class CalendarService implements OnModuleInit {
   constructor(
     private db: DatabaseService,
     private events: EventBusService,
     private tasks: TasksService,
     private resources: ResourcesService,
     private access: AccessService,
+    private quickActions: QuickActionRegistry,
   ) {}
+
+  onModuleInit(): void {
+    // Phase 7: "Событие" in the chat ＋-menu. Form = modal (title/time/participants);
+    // result = the event Rich Card posted into the chat.
+    this.quickActions.register({
+      key: 'event.create',
+      label: 'Событие',
+      icon: '📅',
+      scopes: ['composer'],
+      description: 'Создать событие в календаре',
+    });
+  }
 
   private user(id: string): Principal {
     return { type: 'user', id };
@@ -266,6 +279,12 @@ export class CalendarService {
     if (booking && booking.status === 'pending') {
       this.resources.emitRequested(booking.ownerId, userId, booking.name, event.title, event.id);
     }
+    // Messenger (Phase 3) listens to create the event's context chat eagerly + plaque.
+    this.events.emit(
+      'calendar.event.created',
+      { eventId: event.id, eventTitle: event.title, byUserId: userId },
+      'calendar',
+    );
     this.events.emit('google.push', { userId, eventId: event.id, op: 'upsert' }, 'calendar');
     return this.toEventDto(event);
   }
@@ -511,7 +530,7 @@ export class CalendarService {
   async removeParticipant(actorId: string, eventId: string, targetUserId: string): Promise<void> {
     const event = await this.db.calendarEvent.findUnique({
       where: { id: eventId },
-      select: { userId: true },
+      select: { userId: true, title: true },
     });
     if (!event) throw new NotFoundException('Событие не найдено');
     if (event.userId !== actorId && actorId !== targetUserId) {
@@ -521,6 +540,12 @@ export class CalendarService {
     await this.db.calendarEventReminder.deleteMany({
       where: { eventId, userId: targetUserId, sentAt: null },
     });
+    // Messenger (Phase 3): resync event chat membership (Hard Revoke) + plaque.
+    this.events.emit(
+      'calendar.event.participant_removed',
+      { eventId, eventTitle: event.title, byUserId: actorId, removedUserId: targetUserId },
+      'calendar',
+    );
   }
 
   /** Set the calling user's own reminders for an event (organizer's or a participant's). */
@@ -695,6 +720,66 @@ export class CalendarService {
       }
     }
     return out;
+  }
+
+  // ============================================================
+  // Contextual presence (Messenger Phase 4)
+  // ============================================================
+
+  /**
+   * The user's CURRENTLY ongoing event (now ∈ [start, start+duration)), if any.
+   * Considers their own events — single rows and recurring masters (expanded via
+   * expandMaster) — and returns the one whose live occurrence contains `now`,
+   * with its actual end time. Returns null when the user is not in an event.
+   * Used by the messenger presence layer to derive a contextual status.
+   */
+  async getCurrentEvent(userId: string): Promise<{ title: string; endTime: Date } | null> {
+    const now = new Date();
+    // Bound the recurring scan: any occurrence containing `now` must have started
+    // within this lookback (a single occurrence longer than a year is implausible);
+    // masters starting in the future can't be live.
+    const lookback = new Date(+now - 366 * MS_PER_DAY);
+
+    const events = await this.db.calendarEvent.findMany({
+      where: {
+        userId,
+        OR: [
+          // single events overlapping now
+          { recurrenceRule: null, startTime: { lte: now }, endTime: { gt: now } },
+          // recurring masters that started before now (occurrences expanded below)
+          { recurrenceRule: { not: null }, startTime: { lte: now } },
+        ],
+      },
+      select: {
+        id: true,
+        title: true,
+        startTime: true,
+        endTime: true,
+        recurrenceRule: true,
+        exDates: true,
+        recurrenceParentId: true,
+        recurrenceId: true,
+      },
+    });
+
+    let best: { title: string; endTime: Date } | null = null;
+    for (const ev of events) {
+      const durMs = +ev.endTime - +ev.startTime;
+      if (!ev.recurrenceRule) {
+        // single (the WHERE already guarantees overlap)
+        if (!best || ev.endTime < best.endTime) best = { title: ev.title, endTime: ev.endTime };
+        continue;
+      }
+      // recurring: find the occurrence whose [start, start+dur) contains now
+      const starts = this.expandMaster(ev as unknown as CalEventRow, lookback, now);
+      for (const s of starts) {
+        const occEnd = new Date(+s + durMs);
+        if (+s <= +now && +occEnd > +now) {
+          if (!best || occEnd < best.endTime) best = { title: ev.title, endTime: occEnd };
+        }
+      }
+    }
+    return best;
   }
 
   // ============================================================

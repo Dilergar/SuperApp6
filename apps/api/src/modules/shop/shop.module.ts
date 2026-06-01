@@ -3,9 +3,11 @@ import { ShopService } from './shop.service';
 import { ShopController } from './shop.controller';
 import { ShopEventsListener } from './shop.events';
 import { ShopCron } from './shop.cron';
+import { ShopRichCardsProvider } from './shop-rich-cards.provider';
 import { WalletModule } from '../wallet/wallet.module';
 import { TasksModule } from '../tasks/tasks.module';
 import { CalendarModule } from '../calendar/calendar.module';
+import { MessengerModule } from '../messenger/messenger.module';
 
 /**
  * My Wish & Shop. Catalog + sharing/staff/management decided by the @Global AccessService
@@ -16,9 +18,9 @@ import { CalendarModule } from '../calendar/calendar.module';
  * AccessService, WorkspaceContextService and EventBus are @Global — no extra imports.
  */
 @Module({
-  imports: [WalletModule, TasksModule, CalendarModule],
+  imports: [WalletModule, TasksModule, CalendarModule, MessengerModule],
   controllers: [ShopController],
-  providers: [ShopService, ShopEventsListener, ShopCron],
+  providers: [ShopService, ShopEventsListener, ShopCron, ShopRichCardsProvider],
   exports: [ShopService],
 })
 export class ShopModule {}

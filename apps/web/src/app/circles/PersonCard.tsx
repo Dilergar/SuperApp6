@@ -1,6 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import type { PresenceInfo } from '@superapp/shared';
+import { presenceStatusLine } from '../messenger/presence-ui';
 
 // ============================================================
 // Types
@@ -79,6 +82,8 @@ interface CompactProps {
   onAddToFolder: (folderId: string) => void;
   /** Balance of MY currency this person holds (visible to me as the issuer). */
   myCoins?: { icon: string; balance: number } | null;
+  /** Live presence (online / lastSeen / contextual), already tailored to me. */
+  presence?: PresenceInfo | null;
 }
 
 // ============================================================
@@ -111,9 +116,12 @@ export function PersonCard(props: PersonCardProps) {
 // ============================================================
 
 function CompactCard({
-  contact, folders, activeFolder, onDelete, onRemoveFromFolder, onAddToFolder, myCoins,
+  contact, folders, activeFolder, onDelete, onRemoveFromFolder, onAddToFolder, myCoins, presence,
 }: CompactProps) {
   const [showFolderMenu, setShowFolderMenu] = useState(false);
+  const router = useRouter();
+
+  const presenceLine = presenceStatusLine(presence);
 
   const foldersNotIn = folders.filter((f) => !contact.myCircleIds.includes(f.id));
   const foldersIn = folders.filter((f) => contact.myCircleIds.includes(f.id));
@@ -177,6 +185,20 @@ function CompactCard({
           {contact.them.firstName} {contact.them.lastName || ''}
         </div>
         <div className="label-sm" style={{ textAlign: 'center', marginTop: '-0.3rem' }}>{contact.them.phone}</div>
+        {presenceLine && (
+          <div
+            className="label-sm"
+            style={{
+              textAlign: 'center',
+              fontSize: '0.72rem',
+              fontWeight: presence?.online ? 600 : 500,
+              color: presence?.online || presence?.contextual ? 'var(--secondary)' : 'var(--on-surface-variant)',
+              marginTop: '-0.15rem',
+            }}
+          >
+            {presenceLine}
+          </div>
+        )}
         {contact.them.dateOfBirth && (
           <div className="label-sm" style={{ textAlign: 'center', fontSize: '0.7rem' }}>
             {formatDate(contact.them.dateOfBirth)}
@@ -199,6 +221,19 @@ function CompactCard({
           </div>
         )}
         {contact.myRole && <div className="sketch-role-badge">{contact.myRole}</div>}
+        <button
+          onClick={() => router.push(`/messenger?dm=${contact.them.id}`)}
+          style={{
+            marginTop: 'var(--spacing-2)', padding: '0.3rem 1.1rem', fontSize: '0.78rem',
+            fontFamily: 'var(--font-display)', fontWeight: 600, color: 'var(--secondary)',
+            background: 'transparent', border: '2px solid var(--secondary)',
+            borderRadius: 'var(--radius-sketch)', cursor: 'pointer', transition: 'background 0.15s ease',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--secondary-container)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+        >
+          Написать
+        </button>
         {myCoins && myCoins.balance !== 0 && (
           <div className="label-sm" style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 600, color: 'var(--primary)' }}>
             держит {myCoins.balance.toLocaleString('ru-RU')} {myCoins.icon}

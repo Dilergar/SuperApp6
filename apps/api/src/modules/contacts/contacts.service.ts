@@ -135,6 +135,65 @@ export class ContactsService {
     return this.mapLinkToContact(link, userId);
   }
 
+  /**
+   * Role tags for the messenger: for each target user P, the label the VIEWER
+   * assigns P (shown next to P's name in a group chat). The label lives on the
+   * ContactLink between viewer and P (canonical ordering userA < userB):
+   *   - viewer is side A → roleAForB
+   *   - viewer is side B → roleBForA
+   * One findMany, no N+1; users with no link → null.
+   */
+  async resolveLabels(
+    viewerId: string,
+    userIds: string[],
+  ): Promise<Map<string, string | null>> {
+    const result = new Map<string, string | null>();
+    const targets = [...new Set(userIds)].filter((id) => id && id !== viewerId);
+    for (const id of targets) result.set(id, null);
+    if (targets.length === 0) return result;
+
+    const links = await this.db.contactLink.findMany({
+      where: {
+        OR: [
+          { userAId: viewerId, userBId: { in: targets } },
+          { userBId: viewerId, userAId: { in: targets } },
+        ],
+      },
+      select: {
+        userAId: true,
+        userBId: true,
+        roleAForB: true,
+        roleBForA: true,
+      },
+    });
+
+    for (const link of links) {
+      if (link.userAId === viewerId) {
+        // viewer is side A → their label for B (the target) is roleAForB
+        result.set(link.userBId, link.roleAForB ?? null);
+      } else {
+        // viewer is side B → their label for A (the target) is roleBForA
+        result.set(link.userAId, link.roleBForA ?? null);
+      }
+    }
+    return result;
+  }
+
+  /**
+   * The user ids of everyone in `userId`'s Окружение (confirmed ContactLinks),
+   * i.e. the "other side" of every link. One findMany, no N+1. Used by the
+   * messenger presence layer (only contacts may see presence) and fan-out.
+   */
+  async getContactUserIds(userId: string): Promise<string[]> {
+    const links = await this.db.contactLink.findMany({
+      where: { OR: [{ userAId: userId }, { userBId: userId }] },
+      select: { userAId: true, userBId: true },
+    });
+    const ids = new Set<string>();
+    for (const l of links) ids.add(l.userAId === userId ? l.userBId : l.userAId);
+    return [...ids];
+  }
+
   async updateContact(
     userId: string,
     linkId: string,

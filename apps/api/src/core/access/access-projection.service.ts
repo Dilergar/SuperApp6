@@ -283,6 +283,98 @@ export class AccessProjectionService {
     await this.safe(() => this.access.revokeResource('task', taskId));
   }
 
+  // ------------------------------------------------------------
+  // Shop order roles (Phase 3 — order context chat + card actions)
+  //   order:<id>#buyer|seller|contributor@user  (viewer derives from these)
+  // ------------------------------------------------------------
+
+  /**
+   * Re-sync one order's role tuples (call after place / contribute / withdraw / confirm).
+   * Diff-based (add missing, remove extra) — NOT revoke-then-grant — so a concurrent reader
+   * never sees a transient window with no access (the order chat / rich-card render race).
+   */
+  async resyncOrderRoles(orderId: string): Promise<void> {
+    await this.safe(async () => {
+      const order = await this.db.order.findUnique({
+        where: { id: orderId },
+        select: {
+          buyerId: true,
+          sellerId: true,
+          contributions: { select: { contributorId: true } },
+        },
+      });
+      if (!order) return;
+      const desired: RelationTupleInput[] = [
+        { resourceType: 'order', resourceId: orderId, relation: 'buyer', subjectType: 'user', subjectId: order.buyerId },
+        { resourceType: 'order', resourceId: orderId, relation: 'seller', subjectType: 'user', subjectId: order.sellerId },
+      ];
+      const seen = new Set<string>();
+      for (const c of order.contributions) {
+        if (seen.has(c.contributorId)) continue;
+        seen.add(c.contributorId);
+        desired.push({ resourceType: 'order', resourceId: orderId, relation: 'contributor', subjectType: 'user', subjectId: c.contributorId });
+      }
+      const existing = await this.db.relationTuple.findMany({
+        where: { resourceType: 'order', resourceId: orderId, subjectType: 'user' },
+        select: { id: true, resourceId: true, relation: true, subjectId: true },
+      });
+      await this.applyDiff(
+        desired,
+        existing.map((e) => ({
+          id: e.id,
+          key: this.key({ resourceType: 'order', resourceId: e.resourceId, relation: e.relation, subjectType: 'user', subjectId: e.subjectId }),
+        })),
+      );
+    });
+  }
+
+  async orderDeleted(orderId: string): Promise<void> {
+    await this.safe(() => this.access.revokeResource('order', orderId));
+  }
+
+  // ------------------------------------------------------------
+  // Calendar event roles (Phase 3 — event context chat)
+  //   event:<id>#organizer|attendee@user  (viewer derives from these)
+  // ------------------------------------------------------------
+
+  /**
+   * Re-sync one event's role tuples (call after create / participant change). Diff-based
+   * (no revoke-then-grant window) so a concurrent event-chat reader never transiently 403s.
+   */
+  async resyncEventRoles(eventId: string): Promise<void> {
+    await this.safe(async () => {
+      const event = await this.db.calendarEvent.findUnique({
+        where: { id: eventId },
+        select: { userId: true, participants: { select: { userId: true } } },
+      });
+      if (!event) return;
+      const desired: RelationTupleInput[] = [
+        { resourceType: 'event', resourceId: eventId, relation: 'organizer', subjectType: 'user', subjectId: event.userId },
+      ];
+      const seen = new Set<string>([event.userId]);
+      for (const p of event.participants) {
+        if (seen.has(p.userId)) continue;
+        seen.add(p.userId);
+        desired.push({ resourceType: 'event', resourceId: eventId, relation: 'attendee', subjectType: 'user', subjectId: p.userId });
+      }
+      const existing = await this.db.relationTuple.findMany({
+        where: { resourceType: 'event', resourceId: eventId, subjectType: 'user' },
+        select: { id: true, resourceId: true, relation: true, subjectId: true },
+      });
+      await this.applyDiff(
+        desired,
+        existing.map((e) => ({
+          id: e.id,
+          key: this.key({ resourceType: 'event', resourceId: e.resourceId, relation: e.relation, subjectType: 'user', subjectId: e.subjectId }),
+        })),
+      );
+    });
+  }
+
+  async eventDeleted(eventId: string): Promise<void> {
+    await this.safe(() => this.access.revokeResource('event', eventId));
+  }
+
   /** Additive backfill: existing tasks' creator + participant roles → tuples. */
   async backfillTasks(): Promise<{ added: number }> {
     const tasks = await this.db.task.findMany({

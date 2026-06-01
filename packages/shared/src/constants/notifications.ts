@@ -79,12 +79,6 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
     pushByDefault: false,
     category: 'tasks',
   },
-  'task.commented': {
-    title: 'Новый комментарий: {{taskTitle}}',
-    icon: '💬',
-    pushByDefault: true,
-    category: 'tasks',
-  },
   'task.due_soon': {
     title: 'Скоро дедлайн: {{taskTitle}}',
     icon: '⏰',
@@ -226,6 +220,22 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
     icon: '🎯',
     pushByDefault: true,
     category: 'shop',
+  },
+  // Mentions
+  'mention.received': {
+    title: '{{mentionerName}} упомянул(а) вас',
+    body: '{{snippet}}',
+    icon: '@',
+    pushByDefault: true,
+    category: 'system',
+  },
+  // Messenger — scheduled ("Напомнить")
+  'messenger.scheduled.sent': {
+    title: 'Напоминание отправлено',
+    body: '{{snippet}}',
+    icon: '⏰',
+    pushByDefault: true,
+    category: 'system',
   },
   // System
   'system.welcome': {
