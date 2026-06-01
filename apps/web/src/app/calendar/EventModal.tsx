@@ -21,6 +21,7 @@ import {
   type Resource,
 } from '@superapp/shared';
 import { toInputValue, fromInputValue, startOfDay, endOfDay } from './calendar-lib';
+import { ShareCardModal } from '../messenger/ShareCardModal';
 
 export type ModalTarget =
   | { mode: 'create'; start: Date; allDay: boolean; participantUserIds?: string[] }
@@ -77,6 +78,7 @@ export function EventModal({
   );
   const [pendingCircleId, setPendingCircleId] = useState<string | null>(null);
   const [showInvite, setShowInvite] = useState(false);
+  const [showForward, setShowForward] = useState(false);
 
   const isOrganizer = creating || !!detail?.isOrganizer;
   const myRsvp = detail?.myRsvp ?? null;
@@ -372,7 +374,10 @@ export function EventModal({
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--spacing-3)' }}>
-              {!creating ? <button onClick={remove} disabled={busyAction} style={{ ...linkBtn, color: 'var(--primary)', fontWeight: 700 }}>Удалить</button> : <span />}
+              <div style={{ display: 'flex', gap: 'var(--spacing-3)', alignItems: 'center' }}>
+                {!creating && <button onClick={remove} disabled={busyAction} style={{ ...linkBtn, color: 'var(--primary)', fontWeight: 700 }}>Удалить</button>}
+                {!creating && eventId && <button onClick={() => setShowForward(true)} style={{ ...linkBtn, color: 'var(--secondary)', fontWeight: 700 }}>↗ Переслать в чат</button>}
+              </div>
               <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
                 <button onClick={close} className="btn-secondary" style={smallBtn}>Отмена</button>
                 <button onClick={save} disabled={busyAction} className="btn-primary" style={{ ...smallBtn, opacity: busyAction ? 0.6 : 1 }}>{busyAction ? '…' : 'Сохранить'}</button>
@@ -412,20 +417,33 @@ export function EventModal({
                 <div style={{ display: 'flex', gap: 'var(--spacing-1)', flexWrap: 'wrap', marginBottom: 'var(--spacing-3)' }}>
                   {CALENDAR_REMINDER_PRESETS.map((r) => <button key={r.minutesBefore} type="button" onClick={() => toggleReminder(r.minutesBefore)} style={chip(reminders.includes(r.minutesBefore))}>{r.label}</button>)}
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--spacing-3)' }}>
-                  <button onClick={() => removeParticipant(meId)} disabled={busyAction} style={{ ...linkBtn, color: 'var(--primary)' }}>Убрать из календаря</button>
-                  <button onClick={saveMyReminders} disabled={busyAction} className="btn-secondary" style={smallBtn}>Сохранить напоминания</button>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--spacing-3)' }}>
+                  {eventId ? <button onClick={() => setShowForward(true)} style={{ ...linkBtn, color: 'var(--secondary)', fontWeight: 700 }}>↗ Переслать в чат</button> : <span />}
+                  <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
+                    <button onClick={() => removeParticipant(meId)} disabled={busyAction} style={{ ...linkBtn, color: 'var(--primary)' }}>Убрать из календаря</button>
+                    <button onClick={saveMyReminders} disabled={busyAction} className="btn-secondary" style={smallBtn}>Сохранить напоминания</button>
+                  </div>
                 </div>
               </>
             )}
             {!isParticipant && (
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                {eventId ? <button onClick={() => setShowForward(true)} style={{ ...linkBtn, color: 'var(--secondary)', fontWeight: 700 }}>↗ Переслать в чат</button> : <span />}
                 <button onClick={close} className="btn-secondary" style={smallBtn}>Закрыть</button>
               </div>
             )}
           </>
         )}
       </div>
+
+      {showForward && eventId && (
+        <ShareCardModal
+          refType="event"
+          refId={eventId}
+          title={detail?.title || title || occ?.title || 'Событие'}
+          onClose={() => setShowForward(false)}
+        />
+      )}
     </div>
   );
 }

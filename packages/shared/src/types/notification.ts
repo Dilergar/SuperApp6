@@ -20,7 +20,6 @@ export type NotificationType =
   | 'task.accepted' // the creator accepted your work (→ executor)
   | 'task.returned' // the creator returned your work for rework (→ executor)
   | 'task.completed' // a task was fully completed
-  | 'task.commented' // new message in the task chat
   | 'task.due_soon' // deadline approaching
   | 'task.overdue'
   // Calendar
@@ -46,6 +45,10 @@ export type NotificationType =
   | 'shop.order.rejected' // the seller rejected the order (→ buyer)
   | 'shop.order.cancelled' // the buyer cancelled their order (→ seller)
   | 'shop.order.funded' // a crowdfunding campaign reached its goal (→ seller / co-managers)
+  // Mentions
+  | 'mention.received' // someone @mentioned you (messenger / task / event …)
+  // Messenger — scheduled ("Напомнить")
+  | 'messenger.scheduled.sent' // your scheduled message was delivered to the chat (→ you)
   // System
   | 'system.welcome'
   | 'system.announcement';

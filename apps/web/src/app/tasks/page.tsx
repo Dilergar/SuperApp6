@@ -196,7 +196,6 @@ function TaskRow({ task }: { task: Task }) {
             {task.progress && <span className="label-sm" style={{ color: 'var(--secondary)' }}>{task.progress.accepted} из {task.progress.total} принято</span>}
             {task.dueDate && <span className="label-sm" style={{ color: isOverdue(task) ? 'var(--primary)' : 'var(--on-surface-variant)' }}>⏰ {formatDue(task.dueDate, task.allDay)}</span>}
             {task.coinReward > 0 && <span className="label-sm" style={{ color: 'var(--tertiary)' }}>🪙 {task.coinReward}{task.assignedCircleName ? '/чел' : ''}</span>}
-            {task.commentsCount > 0 && <span className="label-sm">💬 {task.commentsCount}</span>}
           </div>
         </div>
         <span className="label-sm" style={{ color: st.color, fontWeight: 600, whiteSpace: 'nowrap' }}>{st.label}</span>

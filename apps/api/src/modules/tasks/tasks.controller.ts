@@ -8,7 +8,6 @@ import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.de
 import {
   createTaskSchema,
   updateTaskSchema,
-  addTaskCommentSchema,
   taskParticipantActionSchema,
   type TaskFilter,
   type ViewerTaskRole,
@@ -125,30 +124,6 @@ export class TasksController {
     return { success: true, data: task };
   }
 
-  // ---- Chat (per-task comments, open to all roles) ----
-
-  @Get(':id/comments')
-  @ApiOperation({ summary: 'Чат задачи' })
-  async getComments(
-    @CurrentUser() user: JwtPayload,
-    @Param('id') taskId: string,
-    @Query('page') page?: string,
-  ) {
-    const comments = await this.tasksService.getComments(
-      user.sub, taskId, page ? parseInt(page, 10) : 1,
-    );
-    return { success: true, data: comments };
-  }
-
-  @Post(':id/comments')
-  @ApiOperation({ summary: 'Написать в чат задачи' })
-  async addComment(
-    @CurrentUser() user: JwtPayload,
-    @Param('id') taskId: string,
-    @Body() body: Record<string, unknown>,
-  ) {
-    const { content } = addTaskCommentSchema.parse(body);
-    const comment = await this.tasksService.addComment(user.sub, taskId, content);
-    return { success: true, data: comment };
-  }
+  // Per-task chat moved to the messenger contextual chat (Phase 2):
+  // GET /api/messenger/tasks/:taskId/chat.
 }

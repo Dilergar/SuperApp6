@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api } from '@/lib/api';
+import { getPresence } from '@/lib/messenger-api';
 import { PersonCard } from './PersonCard';
 import { ROLE_PRESETS } from '@superapp/shared';
 import type {
@@ -13,6 +14,7 @@ import type {
   Circle,
   CircleWithMembers,
   CardVisibility,
+  PresenceInfo,
 } from '@superapp/shared';
 
 // ============================================================
@@ -58,6 +60,7 @@ export default function CirclesPage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [coinsByUser, setCoinsByUser] = useState<Record<string, number>>({});
   const [myCoinIcon, setMyCoinIcon] = useState<string | null>(null);
+  const [presenceByUser, setPresenceByUser] = useState<Record<string, PresenceInfo>>({});
   const [groups, setGroups] = useState<Circle[]>([]);
   const [incoming, setIncoming] = useState<IncomingInvitation[]>([]);
   const [outgoing, setOutgoing] = useState<OutgoingInvitation[]>([]);
@@ -149,6 +152,30 @@ export default function CirclesPage() {
   useEffect(() => {
     if (isReady) fetchAll();
   }, [isReady, fetchAll]);
+
+  // Presence for the currently visible people (all contacts, or just the
+  // selected group's members). Lightweight: one batch fetch whenever the
+  // visible set changes (no polling — circles is not realtime).
+  const visibleUserIds = useMemo(() => {
+    const src = activeGroup && activeGroupData ? activeGroupData.members : contacts;
+    return Array.from(new Set(src.map((c) => c.them.id)));
+  }, [activeGroup, activeGroupData, contacts]);
+  const visibleUserKey = useMemo(() => [...visibleUserIds].sort().join(','), [visibleUserIds]);
+
+  useEffect(() => {
+    if (visibleUserIds.length === 0) return;
+    getPresence(visibleUserIds)
+      .then((items) => {
+        if (items.length === 0) return;
+        setPresenceByUser((old) => {
+          const next = { ...old };
+          for (const p of items) next[p.userId] = p;
+          return next;
+        });
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleUserKey]);
 
   const selectGroup = async (groupId: string | null) => {
     if (groupId === null) {
@@ -624,6 +651,7 @@ export default function CirclesPage() {
                 onRemoveFromFolder={() => handleRemoveFromGroup(c.linkId)}
                 onAddToFolder={(groupId) => handleAddToGroup(c.linkId, groupId)}
                 myCoins={myCoinIcon ? { icon: myCoinIcon, balance: coinsByUser[c.them.id] ?? 0 } : null}
+                presence={presenceByUser[c.them.id] ?? null}
               />
             ))}
           </div>

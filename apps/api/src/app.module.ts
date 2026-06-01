@@ -14,6 +14,9 @@ import { AuthModule } from './core/auth/auth.module';
 import { UsersModule } from './core/users/users.module';
 import { RolesModule } from './core/roles/roles.module';
 import { AccessModule } from './core/access/access.module';
+import { RichCardsModule } from './core/rich-cards/rich-cards.module';
+import { SearchModule } from './core/search/search.module';
+import { QuickActionsModule } from './core/quick-actions/quick-actions.module';
 
 // Feature modules (MVP)
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -25,6 +28,7 @@ import { GoogleCalendarModule } from './modules/google-calendar/google-calendar.
 import { WorkspacesModule } from './modules/workspaces/workspaces.module';
 import { WalletModule } from './modules/wallet/wallet.module';
 import { ShopModule } from './modules/shop/shop.module';
+import { MessengerModule } from './modules/messenger/messenger.module';
 
 import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
 import { WorkspaceContextInterceptor } from './shared/interceptors/workspace-context.interceptor';
@@ -65,6 +69,15 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     RolesModule,
     // Unified authorization engine (ReBAC). Phase 0: core only, no consumers yet.
     AccessModule,
+    // Reusable interactive rich-card registry + dispatcher (Phase 3). @Global; feature
+    // services register their renderers/actions on init.
+    RichCardsModule,
+    // Unified search engine (Phase 6). @Global; feature services register providers +
+    // project their items into the index. Messenger is the first consumer.
+    SearchModule,
+    // Chat quick-actions registry (Phase 7). @Global; services register ＋-menu / message-menu
+    // actions (Создать задачу / Событие / Напомнить). Forms = modals, results = Rich Cards.
+    QuickActionsModule,
 
     // Feature modules — each is self-contained.
     // Load order: Notifications → Contacts (@Global, consumed by AuthService)
@@ -79,6 +92,7 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     GoogleCalendarModule,
     WorkspacesModule,
     ShopModule,
+    MessengerModule,
   ],
   providers: [
     // Map Zod validation errors (controller schema.parse) to 400 app-wide.

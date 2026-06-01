@@ -154,7 +154,6 @@ export class NotificationsEventsListener implements OnModuleInit {
     'task.accepted',
     'task.returned',
     'task.completed',
-    'task.commented',
     'task.due_soon',
     'task.overdue',
   ];

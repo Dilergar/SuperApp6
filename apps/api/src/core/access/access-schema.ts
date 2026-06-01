@@ -87,6 +87,27 @@ export const ACCESS_SCHEMA: Record<string, ResourceTypeConfig> = {
     },
   },
 
+  // ---- Shop orders (Phase 3): a closed conversation around a purchase/campaign.
+  //      Members = buyer + seller + crowdfunding contributors. Drives the order chat. ----
+  order: {
+    relations: {
+      buyer: THIS,
+      seller: THIS,
+      contributor: THIS, // crowdfunding pledger
+      viewer: union(THIS, computed('buyer'), computed('seller'), computed('contributor')),
+    },
+  },
+
+  // ---- Calendar events (Phase 3): per-EVENT membership for the event chat. Distinct from
+  //      `calendar` (per-USER-calendar visibility); this is one resource per event row. ----
+  event: {
+    relations: {
+      organizer: THIS,
+      attendee: THIS,
+      viewer: union(THIS, computed('organizer'), computed('attendee')),
+    },
+  },
+
   // ---- Platform personas (system-level grants that unlock features; additive, gate nothing
   //      existing — used by future Marketplace / Jobs «Тайный гость» / UGC). Singleton resource id. ----
   platform: {
@@ -110,6 +131,15 @@ export const ACCESS_SCHEMA: Record<string, ResourceTypeConfig> = {
   // ---- Group / principal objects (their members are usersets referenced by grants) ----
   circle: {
     relations: { member: THIS },
+  },
+  // ---- Messenger chats (DM now; group/context inherit membership via projection, Phase 2) ----
+  chat: {
+    // DM: both users get `member`. Group/context chats: members are synced from the parent
+    // (task/circle/event…) via projection → uniform Hard Revoke for any parent type.
+    relations: {
+      member: THIS,
+      viewer: union(THIS, computed('member')),
+    },
   },
   department: {
     // Subdepartment roll-up is done by CLOSURE projection (Phase 4): each employee is

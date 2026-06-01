@@ -33,6 +33,7 @@ import { DatabaseService } from '../../shared/database/database.service';
 import { WorkspaceContextService } from '../../shared/context/workspace-context.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { AccessService } from '../../core/access/access.service';
+import { AccessProjectionService } from '../../core/access/access-projection.service';
 import { Principal, RelationTupleInput } from '../../core/access/access.types';
 import { EscrowService } from '../wallet/escrow.service';
 import { TasksService } from '../tasks/tasks.service';
@@ -63,6 +64,7 @@ export class ShopService {
     private readonly db: DatabaseService,
     private readonly wsContext: WorkspaceContextService,
     private readonly access: AccessService,
+    private readonly accessProjection: AccessProjectionService,
     private readonly escrow: EscrowService,
     private readonly events: EventBusService,
     private readonly tasks: TasksService,
@@ -486,6 +488,9 @@ export class ShopService {
       return created;
     });
 
+    // Project order roles SYNCHRONOUSLY so the order rich-card / chat is accessible
+    // immediately (the shop.order.* listener is an idempotent safety net, not the source).
+    await this.accessProjection.resyncOrderRoles(order.id);
     this.events.emit('shop.order.placed', { orderId: order.id, sellerId, buyerId, title: order.titleSnapshot }, 'shop');
     return this.serializeOrder(order, await this.currencyMap(order.prices.map((p) => p.currencyId)));
   }
@@ -576,6 +581,8 @@ export class ShopService {
       return (await tx.order.findUnique({ where: { id: campaignId }, include: ORDER_INCLUDE }))!;
     });
 
+    // Sync roles now so the campaign chat/card includes this contributor immediately.
+    await this.accessProjection.resyncOrderRoles(campaignId);
     this.events.emit('shop.order.placed', { orderId: campaignId, sellerId, buyerId: contributorId, title: order.titleSnapshot }, 'shop');
     if (order.status === 'pending') {
       this.events.emit('shop.order.funded', { orderId: campaignId, sellerId, title: order.titleSnapshot }, 'shop');
@@ -599,6 +606,8 @@ export class ShopService {
         await this.restoreStock(tx, order.listingId);
       }
     });
+    // Contributor removed → re-project roles (drops their order.view) immediately.
+    await this.accessProjection.resyncOrderRoles(orderId);
     this.events.emit('shop.order.cancelled', { orderId, sellerId: order.sellerId, title: order.titleSnapshot }, 'shop');
     return this.reloadOrder(orderId, contributorId);
   }
@@ -1194,6 +1203,11 @@ export class ShopService {
 
   private async canViewShowcase(viewerId: string, showcaseId: string): Promise<boolean> {
     return this.access.can(this.user(viewerId), 'showcase.view', showcaseId);
+  }
+
+  /** Public: can the viewer see a showcase? Used by the rich-card 'listing.talk' gate. */
+  async canViewShowcaseForCard(viewerId: string, showcaseId: string): Promise<boolean> {
+    return this.canViewShowcase(viewerId, showcaseId);
   }
 
   private async loadShowcaseManageable(viewerId: string, showcaseId: string): Promise<ShowcaseRow> {

@@ -1,0 +1,159 @@
+import {
+  CHAT_TYPES,
+  MESSAGE_TYPES,
+  CHAT_PARENT_TYPES,
+  CHAT_MEMBER_ROLES,
+  SYSTEM_MESSAGE_EVENTS,
+} from '../constants/messenger';
+
+export type ChatType = (typeof CHAT_TYPES)[number];
+export type MessageType = (typeof MESSAGE_TYPES)[number];
+export type ChatParentType = (typeof CHAT_PARENT_TYPES)[number];
+export type ChatMemberRole = (typeof CHAT_MEMBER_ROLES)[number];
+export type SystemMessageEvent = (typeof SYSTEM_MESSAGE_EVENTS)[number];
+/** Sender-visible delivery state, derived from the recipients' read cursors. */
+export type MessageDeliveryStatus = 'sent' | 'delivered' | 'read';
+
+/** Compact message used in chat-list previews. */
+export interface MessagePreview {
+  id: string;
+  seq: number;
+  authorId: string | null;
+  authorName: string | null;
+  type: MessageType;
+  /** Plain-text preview (content for text; rendered summary for system/rich_card). */
+  text: string | null;
+  createdAt: string;
+  deleted: boolean;
+}
+
+/** A chat as shown in the left-hand inbox list. */
+export interface ChatSummary {
+  id: string;
+  type: ChatType;
+  /** Resolved display title (peer full name for DM; group name; task title for context). */
+  title: string;
+  /** Peer avatar (DM) or null. */
+  avatar: string | null;
+  /** DM peer user id (null for group/context). */
+  peerUserId: string | null;
+  parentType: ChatParentType | null;
+  parentId: string | null;
+  /** Members count (group/context); null for DM. */
+  memberCount: number | null;
+  /** The viewer's management role in this chat (owner|admin|member|bot). */
+  myRole: ChatMemberRole;
+  lastMessage: MessagePreview | null;
+  unreadCount: number;
+  muted: boolean;
+  pinned: boolean;
+  updatedAt: string;
+}
+
+/** Compact preview of a quoted message (Phase 7 reply/quote). */
+export interface MessageReplyPreview {
+  id: string;
+  authorName: string | null;
+  /** Plain-text snippet of the quoted message (null if it was deleted). */
+  text: string | null;
+  deleted: boolean;
+}
+
+/** A single message in the open conversation. */
+export interface ChatMessage {
+  id: string;
+  chatId: string;
+  authorId: string | null;
+  authorName: string | null;
+  authorAvatar: string | null;
+  type: MessageType;
+  content: string | null;
+  payload: Record<string, unknown> | null;
+  seq: number;
+  editedAt: string | null;
+  deletedAt: string | null;
+  createdAt: string;
+  /** True if the current viewer is the author (recomputed client-side on socket payloads). */
+  mine: boolean;
+  /** Present on the viewer's own messages: sent | delivered | read (DM). */
+  status?: MessageDeliveryStatus;
+  /**
+   * Author's role label relative to the VIEWER (group: my contact label for them;
+   * task: their objective task role like "Исполнитель"). Null if none.
+   */
+  authorRoleTag?: string | null;
+  /** If this message quotes another (Phase 7): a compact preview of the quoted message. */
+  replyTo?: MessageReplyPreview | null;
+}
+
+export interface ChatParticipantInfo {
+  userId: string;
+  name: string;
+  avatar: string | null;
+  /** Chat membership role: owner | admin | member | bot. */
+  role: ChatMemberRole;
+  /** Role label relative to the viewer (my contact label, or task role). Null if none. */
+  roleTag: string | null;
+  deliveredSeq: number;
+  lastReadSeq: number;
+}
+
+export interface ChatDetail {
+  id: string;
+  type: ChatType;
+  title: string;
+  avatar: string | null;
+  peerUserId: string | null;
+  parentType: ChatParentType | null;
+  parentId: string | null;
+  /** Group owner (createdById); null for dm/context. */
+  createdById: string | null;
+  /** The viewer's management role. */
+  myRole: ChatMemberRole;
+  participants: ChatParticipantInfo[];
+  myLastReadSeq: number;
+  muted: boolean;
+  pinned: boolean;
+}
+
+// ---- request payloads ----
+export interface OpenDmRequest {
+  userId: string;
+}
+export interface CreateGroupRequest {
+  /** Group name (required). */
+  name: string;
+  /** Initial members — user ids from the creator's Окружение. */
+  memberIds: string[];
+}
+export interface AddMembersRequest {
+  userIds: string[];
+}
+export interface RenameChatRequest {
+  title: string;
+}
+export interface SendMessageRequest {
+  content: string;
+  /** Optional id of a message in the same chat to quote (reply). */
+  replyToId?: string;
+}
+export interface EditMessageRequest {
+  content: string;
+}
+
+// ---- realtime socket events (server → client) ----
+export interface WsMessageNew {
+  chatId: string;
+  message: ChatMessage;
+}
+export interface WsMessageUpdated {
+  chatId: string;
+  message: ChatMessage;
+}
+/** Read/delivery cursor advanced for a member — lets senders update ticks live. */
+export interface WsReceipt {
+  chatId: string;
+  userId: string;
+  deliveredSeq: number;
+  lastReadSeq: number;
+}

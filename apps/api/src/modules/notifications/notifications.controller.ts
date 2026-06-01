@@ -29,7 +29,7 @@ export class NotificationsController {
     @Query('cursor') cursor?: string,
   ) {
     const result = await this.notifications.list(user.sub, cursor);
-    return { success: true, ...result };
+    return { success: true, data: result };
   }
 
   @Post('mark-read')
@@ -43,7 +43,7 @@ export class NotificationsController {
     @Body() body: { notificationIds?: string[] },
   ) {
     const result = await this.notifications.markRead(user.sub, body?.notificationIds);
-    return { success: true, ...result };
+    return { success: true, data: result };
   }
 
   @Delete(':id')

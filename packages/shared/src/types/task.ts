@@ -84,7 +84,6 @@ export interface Task {
   calendarEventId: string | null;
 
   tags: string[];
-  commentsCount: number;
 
   // Viewer-relative state (filled per request)
   myRole: ViewerTaskRole | null;
@@ -146,18 +145,8 @@ export interface UpdateTaskRequest {
   removeParticipantUserIds?: string[];
 }
 
-export interface TaskComment {
-  id: string;
-  taskId: string;
-  authorId: string;
-  authorName: string;
-  authorAvatar: string | null;
-  /** The author's role on this task at render time, for chat UI badges. */
-  authorRole: ViewerTaskRole | null;
-  content: string;
-  createdAt: string;
-  updatedAt: string;
-}
+// Task discussion now lives in the Messenger (a context chat attached to the task).
+// See @superapp/shared messenger types (ChatMessage). TaskComment was removed in Phase 2.
 
 /** Server-side smart lists for the task inbox. */
 export type TaskSmartList =

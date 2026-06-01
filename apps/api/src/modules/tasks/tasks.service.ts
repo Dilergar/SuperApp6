@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
@@ -10,6 +11,9 @@ import { EscrowService } from '../wallet/escrow.service';
 import { AccessService } from '../../core/access/access.service';
 import { AccessProjectionService } from '../../core/access/access-projection.service';
 import { Principal } from '../../core/access/access.types';
+import { MessengerService } from '../messenger/messenger.service';
+import { QuickActionRegistry } from '../../core/quick-actions/quick-actions.registry';
+import { fullName } from '../../shared/utils/user-name';
 import { Prisma } from '@prisma/client';
 import type {
   Task as TaskDto,
@@ -32,23 +36,36 @@ const TASK_INCLUDE = {
   },
   assignedCircle: { select: { id: true, name: true } },
   tags: { select: { name: true } },
-  _count: { select: { subtasks: true, comments: true } },
+  _count: { select: { subtasks: true } },
 } satisfies Prisma.TaskInclude;
 
 type TaskRow = Prisma.TaskGetPayload<{ include: typeof TASK_INCLUDE }>;
 type UserMini = { id: string; firstName: string; lastName: string | null; avatar: string | null };
 
-const fullName = (u: UserMini) => `${u.firstName} ${u.lastName ?? ''}`.trim();
 
 @Injectable()
-export class TasksService {
+export class TasksService implements OnModuleInit {
   constructor(
     private db: DatabaseService,
     private events: EventBusService,
     private escrow: EscrowService,
     private access: AccessService,
     private accessProjection: AccessProjectionService,
+    private messenger: MessengerService,
+    private quickActions: QuickActionRegistry,
   ) {}
+
+  onModuleInit(): void {
+    // Phase 7: "Создать задачу" in the chat ＋-menu and a message's corner menu (a message
+    // there prefills the task description). Form = modal; result = the task Rich Card in chat.
+    this.quickActions.register({
+      key: 'task.create',
+      label: 'Создать задачу',
+      icon: '✓',
+      scopes: ['composer', 'message'],
+      description: 'Поставить задачу из чата',
+    });
+  }
 
   private user(id: string): Principal {
     return { type: 'user', id };
@@ -195,6 +212,8 @@ export class TasksService {
 
     // Phase 3: mirror this task's participant roles into the access engine (best-effort).
     await this.accessProjection.resyncTaskRoles(task.id);
+    // Keep the task chat's materialized members in sync (no-op until the chat exists).
+    await this.messenger.syncTaskChatMembers(task.id);
 
     // Calendar integration (existing contract).
     this.events.emit(
@@ -471,7 +490,10 @@ export class TasksService {
     });
 
     // Phase 3: re-sync role tuples if the team changed (best-effort).
-    if (roleEdit) await this.accessProjection.resyncTaskRoles(taskId);
+    if (roleEdit) {
+      await this.accessProjection.resyncTaskRoles(taskId);
+      await this.messenger.syncTaskChatMembers(taskId);
+    }
 
     return this.getTask(userId, taskId);
   }
@@ -539,6 +561,7 @@ export class TasksService {
       await tx.task.delete({ where: { id: taskId } });
     });
     await this.accessProjection.taskDeleted(taskId);
+    await this.messenger.deleteTaskChat(taskId);
     this.events.emit('task.deleted', { taskId }, 'tasks');
   }
 
@@ -895,76 +918,6 @@ export class TasksService {
   }
 
   // ============================================================
-  // Chat (per-task comments — open to all roles)
-  // ============================================================
-
-  async addComment(userId: string, taskId: string, content: string) {
-    const task = await this.db.task.findUnique({
-      where: { id: taskId },
-      include: { participants: { select: { userId: true, role: true } } },
-    });
-    if (!task) throw new NotFoundException('Задача не найдена');
-    await this.assertCanView(userId, taskId, task);
-
-    const comment = await this.db.taskComment.create({
-      data: { taskId, authorId: userId, content },
-      include: { author: { select: { id: true, firstName: true, lastName: true, avatar: true } } },
-    });
-
-    const recipients = [task.creatorId, ...task.participants.map((p) => p.userId)].filter(
-      (id) => id !== userId,
-    );
-    if (recipients.length) {
-      this.events.emit(
-        'task.commented',
-        { taskId, taskTitle: task.title, byUserId: userId, byName: fullName(comment.author), recipientIds: [...new Set(recipients)] },
-        'tasks',
-      );
-    }
-
-    return {
-      id: comment.id,
-      taskId,
-      authorId: userId,
-      authorName: fullName(comment.author),
-      authorAvatar: comment.author.avatar,
-      authorRole: this.viewerRole(userId, task.creatorId, task.participants as { userId: string; role?: string }[]),
-      content: comment.content,
-      createdAt: comment.createdAt.toISOString(),
-      updatedAt: comment.updatedAt.toISOString(),
-    };
-  }
-
-  async getComments(userId: string, taskId: string, page = 1, limit = 50) {
-    const task = await this.db.task.findUnique({
-      where: { id: taskId },
-      include: { participants: { select: { userId: true, role: true } } },
-    });
-    if (!task) throw new NotFoundException('Задача не найдена');
-    await this.assertCanView(userId, taskId, task);
-
-    const comments = await this.db.taskComment.findMany({
-      where: { taskId },
-      include: { author: { select: { id: true, firstName: true, lastName: true, avatar: true } } },
-      orderBy: { createdAt: 'asc' },
-      skip: (page - 1) * limit,
-      take: limit,
-    });
-
-    return comments.map((c) => ({
-      id: c.id,
-      taskId,
-      authorId: c.authorId,
-      authorName: fullName(c.author),
-      authorAvatar: c.author.avatar,
-      authorRole: this.viewerRole(c.authorId, task.creatorId, task.participants),
-      content: c.content,
-      createdAt: c.createdAt.toISOString(),
-      updatedAt: c.updatedAt.toISOString(),
-    }));
-  }
-
-  // ============================================================
   // Internal mapping
   // ============================================================
 
@@ -1058,7 +1011,6 @@ export class TasksService {
       workspaceId: task.workspaceId,
       calendarEventId: null,
       tags: task.tags.map((t) => t.name),
-      commentsCount: task._count.comments,
       myRole,
       myParticipantStatus: (myParticipant?.status as TaskParticipantDto['status']) ?? null,
       createdAt: task.createdAt.toISOString(),

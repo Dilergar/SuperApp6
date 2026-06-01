@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Resource as ResourceRow } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
+import { fullName } from '../../shared/utils/user-name';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import type {
   Resource as ResourceDto,
@@ -16,9 +17,6 @@ import type {
   CreateResourceRequest,
   UpdateResourceRequest,
 } from '@superapp/shared';
-
-const fullName = (u: { firstName: string; lastName: string | null }) =>
-  `${u.firstName} ${u.lastName ?? ''}`.trim();
 
 const ACTIVE: ResourceBookingStatus[] = ['pending', 'confirmed'];
 
