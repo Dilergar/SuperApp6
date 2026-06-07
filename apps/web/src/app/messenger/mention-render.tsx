@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment, type ReactNode } from 'react';
+import { PersonChip } from '../circles/PersonCard';
 
 // ============================================================
 // Mention rendering (Phase 5). Authored text carries inline tokens
@@ -14,21 +15,21 @@ import { Fragment, type ReactNode } from 'react';
 // Kept local (the shared one isn't exported) but identical in shape.
 const TOKEN = /@\[([^\]]{1,80})\]\(([0-9a-fA-F-]{36})\)/g;
 
-/** Inline highlighted chip for one mention. Stronger tint when it's me. */
-export function MentionChip({ name, mine }: { name: string; mine: boolean }) {
+/**
+ * Inline mention — renders the person's S card (skin avatar + name) right in the
+ * message text, replacing the raw @token. A subtle outline marks a mention of me.
+ */
+export function MentionChip({ name, mine, userId }: { name: string; mine: boolean; userId?: string | null }) {
   return (
     <span
       style={{
-        display: 'inline',
-        fontWeight: 700,
-        color: mine ? 'var(--primary)' : 'var(--secondary)',
-        background: mine ? 'var(--primary-container)' : 'var(--secondary-container)',
-        borderRadius: '0.3rem 0.45rem 0.35rem 0.4rem',
-        padding: '0.02rem 0.32rem',
-        whiteSpace: 'nowrap',
+        display: 'inline-flex', verticalAlign: 'middle', margin: '0 0.12rem',
+        borderRadius: 'var(--radius-md)',
+        outline: mine ? '2px solid var(--primary)' : undefined,
+        outlineOffset: mine ? 1 : undefined,
       }}
     >
-      @{name}
+      <PersonChip size="S" userId={userId} firstName={name} />
     </span>
   );
 }
@@ -48,7 +49,7 @@ export function renderMessageContent(content: string | null | undefined, current
     if (m.index > last) nodes.push(<Fragment key={key++}>{content.slice(last, m.index)}</Fragment>);
     const name = m[1];
     const id = m[2];
-    nodes.push(<MentionChip key={key++} name={name} mine={id === currentUserId} />);
+    nodes.push(<MentionChip key={key++} name={name} mine={id === currentUserId} userId={id} />);
     last = m.index + m[0].length;
   }
   if (last === 0) return content; // no tokens → return raw string (cheapest path)

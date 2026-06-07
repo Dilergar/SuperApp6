@@ -34,6 +34,11 @@ model User {
   // null means use defaults defined in shared/constants. Always-visible (regardless of this): firstName, lastName, phone, role.
   cardVisibility Json? @map("card_visibility")
 
+  // Card skins (cosmetic): the equipped default skin instance + premium window
+  // (per-group skin overrides require premium). Plain id; ownership validated in service.
+  defaultSkinInstanceId String?   @map("default_skin_instance_id")
+  premiumUntil          DateTime? @map("premium_until")
+
   // Soft-deletion in two stages:
   //   deletionScheduledAt — user requested deletion; account is in a recoverable
   //     grace window (logging in restores it). Login via token is blocked.
@@ -262,6 +267,8 @@ model Circle {
   cardVisibility Json?    @map("card_visibility")
   // Per-group calendar access for THIS group's members (Phase 2): none | busy | detailed.
   calendarVisibility String @default("none") @map("calendar_visibility")
+  // Per-group equipped card skin instance (premium). null = use owner's default skin.
+  equippedSkinInstanceId String? @map("equipped_skin_instance_id")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
@@ -1172,7 +1179,9 @@ model ScheduledMessage {
   sentMessageId String? @map("sent_message_id")
 
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  // @default(now()) mirrors the DB's `DEFAULT CURRENT_TIMESTAMP` (created in raw SQL)
+  // so `migrate dev` sees no drift; @updatedAt keeps the app-side bump on write.
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
   chat   Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
   author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
@@ -1256,15 +1265,27 @@ model SearchDocument {
   itemCreatedAt DateTime @map("item_created_at")
 
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  // @default(now()) mirrors the DB's `DEFAULT CURRENT_TIMESTAMP` (created in raw SQL)
+  // so `migrate dev` sees no drift; @updatedAt keeps the app-side bump on write.
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
-  // Generated FTS column (maintained by Postgres). Managed in raw SQL — Prisma only
-  // needs to know it exists, never writes it.
-  searchVector Unsupported("tsvector")? @map("search_vector")
+  // Generated FTS column (Postgres `GENERATED ALWAYS AS (...) STORED`), maintained by
+  // the DB and never written by Prisma (Unsupported fields are excluded from writes).
+  // Prisma's schema-engine reads a generated column's expression as a column DEFAULT, so
+  // declaring the SAME expression via @default(dbgenerated(...)) makes `migrate dev` see
+  // no drift (otherwise it emits a failing `ALTER COLUMN ... DROP DEFAULT`). The string is
+  // Prisma's own round-tripped form of the expression in migrations/20260601160000_search.
+  searchVector Unsupported("tsvector")? @default(dbgenerated("to_tsvector('russian'::regconfig, ((COALESCE(title, ''::text) || ' '::text) || COALESCE(body, ''::text)))")) @map("search_vector")
 
   @@unique([sourceType, sourceId])
   @@index([sourceType])
   @@index([chatId])
+  // GIN indexes created in raw SQL (migrations/20260601160000_search) — declared here so
+  // `migrate dev` does not try to drop them. trgm for typo/substring/name matching; the
+  // searchVector GIN (default tsvector_ops) backs FTS ranking.
+  @@index([title(ops: raw("gin_trgm_ops"))], map: "search_documents_title_trgm_idx", type: Gin)
+  @@index([body(ops: raw("gin_trgm_ops"))], map: "search_documents_body_trgm_idx", type: Gin)
+  @@index([searchVector], type: Gin)
   @@map("search_documents")
 }
 
@@ -1288,4 +1309,82 @@ model RelationTuple {
   // listObjects fast path: resources of a type where a subject is named for a relation.
   @@index([subjectType, subjectId, resourceType, relation])
   @@map("relation_tuples")
+}
+
+// ============================================================
+// CARD SKINS — cosmetic skins for PersonCard (platform-sold)
+//
+// CardSkin = the DESIGN/type (tokens + layer assets, rarity, price, supply).
+// CardSkinInstance = an owned copy ("real item"): serial for limited skins,
+//   transfer history → future gift/trade. Purchases use the platform currency
+//   via the Ledger (issuerType='platform'); no escrow (instant), trade later.
+// ============================================================
+
+model CardSkin {
+  id          String  @id @default(uuid())
+  name        String
+  description String?
+  // Author of the design — shown nowhere in UI; set manually for collabs.
+  authorId    String? @map("author_id")
+  rarity      String  @default("common") // common|uncommon|rare|epic|legendary|mythic
+  priceAmount BigInt  @default(0) @map("price_amount") // platform-currency minor units
+
+  // Supply: null = unlimited; a number = limited tirage. `minted` counts issued copies
+  // (drives serial numbers and sold-out). Optional sales window.
+  supply         Int?
+  minted         Int       @default(0)
+  availableFrom  DateTime? @map("available_from")
+  availableUntil DateTime? @map("available_until")
+
+  // Render layers — tokens (CardSkinTokens JSON) + optional assets. Skin = DATA.
+  tokens        Json
+  decor         String  @default("none") // 'crayon' | 'none'
+  frameUrl      String? @map("frame_url")
+  backgroundUrl String? @map("background_url")
+  effectUrl     String? @map("effect_url") // Lottie JSON URL
+  schemaVersion Int     @default(1) @map("schema_version")
+
+  status    String   @default("active") // active | archived
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  instances CardSkinInstance[]
+
+  @@index([status])
+  @@map("card_skins")
+}
+
+model CardSkinInstance {
+  id            String   @id @default(uuid())
+  skinId        String   @map("skin_id")
+  ownerId       String   @map("owner_id")
+  serial        Int? // only set for limited skins (#N of supply)
+  acquiredVia   String   @default("purchase") @map("acquired_via") // purchase | gift | trade | grant
+  schemaVersion Int      @default(1) @map("schema_version")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  skin      CardSkin           @relation(fields: [skinId], references: [id], onDelete: Cascade)
+  transfers CardSkinTransfer[]
+
+  @@index([ownerId])
+  @@index([skinId])
+  // Defense-in-depth: a limited skin can't issue the same serial twice. NULL serials
+  // (unlimited skins) are treated as distinct by Postgres, so they're unaffected.
+  @@unique([skinId, serial], map: "card_skin_instances_skin_serial_key")
+  @@map("card_skin_instances")
+}
+
+model CardSkinTransfer {
+  id         BigInt   @id @default(autoincrement())
+  instanceId String   @map("instance_id")
+  fromUserId String?  @map("from_user_id") // null = minted by the platform
+  toUserId   String   @map("to_user_id")
+  kind       String // mint | gift | trade | sale
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  instance CardSkinInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  @@index([instanceId])
+  @@map("card_skin_transfers")
 }

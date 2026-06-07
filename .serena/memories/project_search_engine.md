@@ -15,7 +15,14 @@ Build the engine NOW but wire ONLY messenger this phase. Other services (Tasks/C
 - search-reconcile.cron.ts — nightly Redis-lock; calls each provider.reconcile() (bounded repair).
 
 ## Schema (prisma) — SearchDocument @@map("search_documents")
-id, sourceType, sourceId (@@unique[sourceType,sourceId]), workspaceId?, title?, body?, url, chatId?, seq?, authorId?, itemCreatedAt (entity ts, drives recency), createdAt, updatedAt, searchVector Unsupported("tsvector")? (GENERATED in raw SQL, Prisma never writes it). @@index sourceType, chatId. Migration 20260601160000_search: CREATE EXTENSION pg_trgm; generated `to_tsvector('russian', coalesce(title,'')||' '||coalesce(body,''))` STORED; GIN on search_vector + trigram GIN (gin_trgm_ops) on title & body.
+id, sourceType, sourceId (@@unique[sourceType,sourceId]), workspaceId?, title?, body?, url, chatId?, seq?, authorId?, itemCreatedAt (entity ts, drives recency), createdAt, updatedAt, searchVector. Migration 20260601160000_search: CREATE EXTENSION pg_trgm; generated `to_tsvector('russian', coalesce(title,'')||' '||coalesce(body,''))` STORED; GIN on search_vector + trigram GIN (gin_trgm_ops) on title & body.
+
+### Prisma drift fix (2026-06-07) — the schema MUST mirror these raw-SQL objects or `migrate dev` re-breaks every run
+Prisma can't model a STORED generated column; its schema-engine reads the generation expression as a column DEFAULT. So the SearchDocument model now declares (copy Prisma's own round-trip form exactly):
+- `searchVector Unsupported("tsvector")? @default(dbgenerated("to_tsvector('russian'::regconfig, ((COALESCE(title, ''::text) || ' '::text) || COALESCE(body, ''::text)))")) @map("search_vector")` — the dbgenerated default == the generated expr ⇒ no `DROP DEFAULT`/`DROP EXPRESSION` (the latter is the P3018/42601 error). Unsupported field is still excluded from Prisma writes, so the DB still computes it.
+- `updatedAt DateTime @default(now()) @updatedAt @map("updated_at")` — the raw-SQL migration gave updated_at a `DEFAULT CURRENT_TIMESTAMP`; @default(now()) matches it (same fix applied to ScheduledMessage.updatedAt).
+- The 3 GIN indexes declared in PSL: `@@index([title(ops: raw("gin_trgm_ops"))], map: "search_documents_title_trgm_idx", type: Gin)`, same for body, and `@@index([searchVector], type: Gin)` (default tsvector_ops, default name == DB name). Prisma DOES allow @@index on an Unsupported column.
+To regenerate this exact PSL after future raw-SQL FTS work: `prisma db pull` into a throwaway schema copy and copy the canonical lines.
 
 ## How a NEW service plugs in (the contract)
 1. Add a provider implementing SearchProvider; register it in your module's OnModuleInit via the @Global SearchRegistry (inject it). type = a SEARCH_SOURCE_TYPES value (add to @superapp/shared/constants/search.ts: SEARCH_SOURCE_TYPES + the types/validation enums, rebuild shared).

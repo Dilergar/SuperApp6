@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { SearchResultItem, SearchSourceType } from '@superapp/shared';
 import { SEARCH_LIMITS } from '@superapp/shared';
 import { searchGlobal } from '@/lib/messenger-api';
-import { Avatar, formatListTime } from './messenger-ui';
+import { Avatar, PersonAvatar, formatListTime } from './messenger-ui';
 import { stripMentions } from './mention-render';
 
 // ============================================================
@@ -271,7 +271,11 @@ function SearchRow({
         e.currentTarget.style.background = 'none';
       }}
     >
-      <Avatar name={item.title} avatar={item.avatar} size={isMessage ? 'sm' : 'md'} />
+      {item.type === 'person' ? (
+        <PersonAvatar userId={item.id} name={item.title} avatar={item.avatar} size="md" />
+      ) : (
+        <Avatar name={item.title} avatar={item.avatar} size={isMessage ? 'sm' : 'md'} />
+      )}
 
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 'var(--spacing-2)' }}>

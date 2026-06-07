@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api } from '@/lib/api';
+import { PersonChip } from '../circles/PersonCard';
 import {
   TASK_STATUS_META,
   type CalendarItem,
@@ -272,8 +273,9 @@ export default function CalendarPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', flexWrap: 'wrap', marginBottom: 'var(--spacing-4)' }}>
             <span className="label-sm" style={{ fontWeight: 700 }}>Чужие календари:</span>
             {sources.map((s) => (
-              <button key={s.userId} onClick={() => toggleOverlay(s.userId)} style={layerChip(overlays.has(s.userId), '#7c3aed')}>
-                {s.firstName} {s.lastName ?? ''} <span style={{ opacity: 0.6, fontSize: '0.66rem' }}>{s.accessLevel === 'detailed' ? 'детально' : 'занят'}</span>
+              <button key={s.userId} onClick={() => toggleOverlay(s.userId)} style={{ ...layerChip(overlays.has(s.userId), '#7c3aed'), display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                <PersonChip size="S" userId={s.userId} firstName={s.firstName} lastName={s.lastName ?? null} />
+                <span style={{ opacity: 0.6, fontSize: '0.66rem' }}>{s.accessLevel === 'detailed' ? 'детально' : 'занят'}</span>
               </button>
             ))}
           </div>

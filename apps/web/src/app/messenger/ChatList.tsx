@@ -1,7 +1,7 @@
 'use client';
 
 import type { ChatSummary, PresenceInfo } from '@superapp/shared';
-import { Avatar, formatListTime } from './messenger-ui';
+import { PersonAvatar, formatListTime } from './messenger-ui';
 import { OnlineDot } from './presence-ui';
 import { stripMentions } from './mention-render';
 
@@ -145,7 +145,7 @@ function ChatRow({
       }}
     >
       <div style={{ position: 'relative' }}>
-        <Avatar name={chat.title} avatar={chat.avatar} />
+        <PersonAvatar userId={chat.peerUserId} name={chat.title} avatar={chat.avatar} />
         {!isMulti && peerOnline && <OnlineDot />}
         {isMulti && (
           <span

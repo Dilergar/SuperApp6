@@ -1,62 +1,86 @@
 'use client';
 
-import type { MessageDeliveryStatus } from '@superapp/shared';
+import type { MessageDeliveryStatus, CardSkinRender } from '@superapp/shared';
+import { usePersonSkin } from '@/lib/person-skins';
 
 // ============================================================
 // Small presentational helpers shared across the Messenger UI.
 // Sketchbook look: warm paper layers, no 1px gray borders.
 // ============================================================
 
-/** Initials block — mirrors the circles Avatar (irregular rounding, blue crayon). */
+/**
+ * Initials/photo block — mirrors the circles Avatar. When a `skin` is given it
+ * adopts the person's skin colors + frame ring (the small-size skin surface).
+ */
 export function Avatar({
   name,
   avatar,
   size = 'md',
+  skin,
 }: {
   name: string;
   avatar?: string | null;
   size?: 'sm' | 'md' | 'lg';
+  skin?: CardSkinRender | null;
 }) {
   const dims = size === 'lg' ? '3rem' : size === 'sm' ? '2rem' : '2.6rem';
   const fs = size === 'lg' ? '1.2rem' : size === 'sm' ? '0.8rem' : '1rem';
   const initial = (name || '?').charAt(0).toUpperCase();
+  const t = skin?.tokens;
+  const radius = t?.avatarRadius || 'var(--radius-sketch)';
 
-  if (avatar) {
-    return (
-      <img
-        src={avatar}
-        alt={name}
-        style={{
-          width: dims,
-          height: dims,
-          borderRadius: 'var(--radius-sketch)',
-          objectFit: 'cover',
-          flexShrink: 0,
-        }}
-      />
-    );
-  }
-
-  return (
+  const inner = avatar ? (
+    <img
+      src={avatar}
+      alt={name}
+      style={{
+        width: dims, height: dims, borderRadius: radius, objectFit: 'cover',
+        flexShrink: 0, border: t?.avatarInnerBorder,
+      }}
+    />
+  ) : (
     <div
       style={{
-        width: dims,
-        height: dims,
-        borderRadius: 'var(--radius-sketch)',
-        background: 'var(--secondary-container)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontFamily: 'var(--font-display)',
-        fontWeight: 700,
-        fontSize: fs,
-        color: 'var(--secondary)',
-        flexShrink: 0,
+        width: dims, height: dims, borderRadius: radius,
+        background: t?.avatarBg || 'var(--secondary-container)',
+        color: t?.avatarColor || 'var(--secondary)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: fs,
+        flexShrink: 0, border: t?.avatarInnerBorder,
       }}
     >
       {initial}
     </div>
   );
+
+  // No skin → plain avatar. With a skin → wrap in the skin's frame ring.
+  if (!t) return inner;
+  return (
+    <div style={{ display: 'inline-flex', padding: 2, borderRadius: radius, border: t.avatarRing, flexShrink: 0 }}>
+      {inner}
+    </div>
+  );
+}
+
+/**
+ * Reusable "person avatar" — resolves the person's equipped skin (batched +
+ * cached) and renders the skin-aware Avatar. Use this anywhere a person is
+ * shown so the skin is consistent everywhere. Falls back to the plain avatar
+ * when there is no userId or no equipped skin.
+ */
+export function PersonAvatar({
+  userId,
+  name,
+  avatar,
+  size = 'md',
+}: {
+  userId?: string | null;
+  name: string;
+  avatar?: string | null;
+  size?: 'sm' | 'md' | 'lg';
+}) {
+  const skin = usePersonSkin(userId);
+  return <Avatar name={name} avatar={avatar} size={size} skin={skin} />;
 }
 
 /** Delivery ticks on MY messages: ✓ sent / ✓✓ delivered / ✓✓ (blue) read. */

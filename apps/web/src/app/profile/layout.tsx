@@ -6,11 +6,12 @@ import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { useAuthStore } from '@/lib/stores/auth';
 
 type Section =
-  | 'card' | 'form' | 'wallet' | 'stats' | 'roles' | 'subscription' | 'settings' | 'security';
+  | 'card' | 'form' | 'skins' | 'wallet' | 'stats' | 'roles' | 'subscription' | 'settings' | 'security';
 
 const SECTIONS: { key: Section; label: string }[] = [
   { key: 'card', label: 'Моя карточка' },
   { key: 'form', label: 'Моя Анкета' },
+  { key: 'skins', label: 'Скины карточки' },
   { key: 'wallet', label: 'Кошелёк' },
   { key: 'stats', label: 'Статистика' },
   { key: 'roles', label: 'Мои роли' },

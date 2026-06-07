@@ -8,6 +8,8 @@ import { api } from '@/lib/api';
 import { resolveCardVisibility, type CardVisibility, type Circle } from '@superapp/shared';
 import { PersonCard } from '../../circles/PersonCard';
 import { WalletSection } from '../WalletSection';
+import { SkinsSection } from '../SkinsSection';
+import type { CardSkinRender } from '../../circles/card-skin';
 
 // ============================================================
 // Types & constants
@@ -20,9 +22,9 @@ interface Session {
   createdAt: string;
 }
 
-type Section = 'form' | 'card' | 'wallet' | 'stats' | 'roles' | 'subscription' | 'settings' | 'security';
+type Section = 'form' | 'card' | 'skins' | 'wallet' | 'stats' | 'roles' | 'subscription' | 'settings' | 'security';
 
-const KNOWN_SECTIONS: Section[] = ['form', 'card', 'wallet', 'stats', 'roles', 'subscription', 'settings', 'security'];
+const KNOWN_SECTIONS: Section[] = ['form', 'card', 'skins', 'wallet', 'stats', 'roles', 'subscription', 'settings', 'security'];
 
 const MARITAL_OPTIONS = [
   { value: '', label: 'Не указано' },
@@ -87,6 +89,9 @@ export default function ProfileSectionPage() {
   // "Моя карточка" — preview as a group (or default).
   const [previewId, setPreviewId] = useState<string>(DEFAULT_PREVIEW);
 
+  // My equipped default skin — for the «Моя карточка» preview.
+  const [mySkin, setMySkin] = useState<CardSkinRender | null>(null);
+
   useEffect(() => {
     if (profile) {
       setEditData({
@@ -118,6 +123,15 @@ export default function ProfileSectionPage() {
     if (!isReady) return;
     api.get('/circles').then((r) => setGroups(r.data.data)).catch(() => {});
   }, [isReady]);
+
+  // My equipped default skin — resolve(self) returns my default (no self-group overrides).
+  useEffect(() => {
+    const id = (profile as { id?: string } | null)?.id;
+    if (!isReady || !id) return;
+    api.get('/card-skins/resolve', { params: { userIds: id } })
+      .then((r) => setMySkin(r.data.data[id] ?? null))
+      .catch(() => {});
+  }, [isReady, profile]);
 
   // Clean up the debounced visibility-save timer on unmount.
   useEffect(() => () => { if (visTimer.current) clearTimeout(visTimer.current); }, []);
@@ -358,6 +372,7 @@ export default function ProfileSectionPage() {
           </p>
           <PersonCard
             mode="full"
+            skin={mySkin ?? undefined}
             profile={{
               firstName: p.firstName,
               lastName: p.lastName ?? null,
@@ -374,6 +389,9 @@ export default function ProfileSectionPage() {
           />
         </div>
       )}
+
+      {/* === Скины карточки === */}
+      {section === 'skins' && <SkinsSection profile={profile as never} />}
 
       {/* === Кошелёк === */}
       {section === 'wallet' && <WalletSection />}

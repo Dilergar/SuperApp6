@@ -303,3 +303,74 @@ body::before {
     0 0 0 1.5px rgba(207,199,184,0.5),
     0 0 0 4px rgba(207,199,184,0.2);
 }
+
+/* ------------------------------------------------------------
+   Tokenized card base — visuals are driven by skin tokens
+   (inline styles), this class only carries shared structure.
+   ------------------------------------------------------------ */
+.person-card-base {
+  position: relative;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transform: rotate(var(--card-rotation, 0deg));
+}
+.person-card-base.interactive { cursor: pointer; }
+.person-card-base.interactive:hover {
+  transform: rotate(0deg) translateY(-3px);
+  z-index: 2;
+}
+@media (prefers-reduced-motion: reduce) {
+  .person-card-base { transition: none; }
+  .person-card-base.interactive:hover { transform: rotate(var(--card-rotation, 0deg)); }
+}
+
+/* ------------------------------------------------------------
+   Card skin effects — built-in CSS presets (a Lottie effectUrl
+   would override these later). Heavy motion is dropped on small
+   sizes (by element count) and under prefers-reduced-motion.
+   ------------------------------------------------------------ */
+.skin-fx {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  overflow: hidden;
+  z-index: 0;
+}
+.skin-fx-petal {
+  position: absolute;
+  top: -10%;
+  border-radius: 60% 40% 55% 45%;
+  opacity: 0.75;
+  animation: skin-fall linear infinite;
+}
+@keyframes skin-fall {
+  0% { transform: translateY(-20%) rotate(0deg); opacity: 0; }
+  12% { opacity: 0.85; }
+  100% { transform: translateY(360%) rotate(220deg); opacity: 0; }
+}
+.skin-fx-neon {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 18px rgba(54,249,246,0.45), inset 0 0 30px rgba(255,61,242,0.35);
+  animation: skin-pulse 2.4s ease-in-out infinite;
+}
+@keyframes skin-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+.skin-fx-spark {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  animation: skin-twinkle ease-in-out infinite;
+}
+@keyframes skin-twinkle {
+  0%, 100% { opacity: 0; transform: scale(0.4); }
+  50% { opacity: 0.9; transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skin-fx-petal, .skin-fx-spark { display: none; }
+  .skin-fx-neon { animation: none; opacity: 0.7; }
+}

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { CompanyCard } from '../workspaces/[id]/CompanyCard';
+import { PersonChip } from '../circles/PersonCard';
 import type { Workspace, WorkspaceInvitation } from '@superapp/shared';
 
 const ROLE_LABELS: Record<string, string> = {
@@ -142,10 +143,10 @@ export function WorkspacesPanel() {
               <div>
                 <div className="label-sm" style={{ marginBottom: 'var(--spacing-1)' }}>Приглашение</div>
                 <div className="title-md">{inv.workspaceName}</div>
-                <p className="label-md" style={{ fontSize: '0.85rem' }}>
-                  {inv.invitedByName} · роль: {ROLE_LABELS[inv.role] ?? inv.role}
-                  {inv.position ? ` · ${inv.position}` : ''}
-                </p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', marginTop: 'var(--spacing-1)', flexWrap: 'wrap' }}>
+                  <PersonChip size="S" userId={inv.invitedBy} firstName={inv.invitedByName} />
+                  <span className="label-md" style={{ fontSize: '0.85rem' }}>роль: {ROLE_LABELS[inv.role] ?? inv.role}{inv.position ? ` · ${inv.position}` : ''}</span>
+                </div>
               </div>
               <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
                 <button

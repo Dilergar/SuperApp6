@@ -7,7 +7,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { MentionItem, MentionFeed } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { getMentions, markMentionsRead } from '@/lib/messenger-api';
-import { Avatar } from '../messenger/messenger-ui';
+import { PersonAvatar } from '../messenger/messenger-ui';
 import { renderMessageContent } from '../messenger/mention-render';
 import { mentionsFeedKey } from '@/lib/hooks/useMentionsUnread';
 
@@ -285,7 +285,7 @@ function MentionRow({
       }}
     >
       <div style={{ position: 'relative', flexShrink: 0 }}>
-        <Avatar name={item.mentionerName} avatar={item.mentionerAvatar} />
+        <PersonAvatar userId={item.mentionerUserId} name={item.mentionerName} avatar={item.mentionerAvatar} />
       </div>
 
       <div style={{ flex: 1, minWidth: 0 }}>

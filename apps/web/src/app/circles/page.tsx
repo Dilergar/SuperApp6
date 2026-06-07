@@ -6,6 +6,8 @@ import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api } from '@/lib/api';
 import { getPresence } from '@/lib/messenger-api';
 import { PersonCard } from './PersonCard';
+import { PersonAvatar } from '../messenger/messenger-ui';
+import type { CardSkinRender } from './card-skin';
 import { ROLE_PRESETS } from '@superapp/shared';
 import type {
   Contact,
@@ -61,6 +63,7 @@ export default function CirclesPage() {
   const [coinsByUser, setCoinsByUser] = useState<Record<string, number>>({});
   const [myCoinIcon, setMyCoinIcon] = useState<string | null>(null);
   const [presenceByUser, setPresenceByUser] = useState<Record<string, PresenceInfo>>({});
+  const [skinByUser, setSkinByUser] = useState<Record<string, CardSkinRender | null>>({});
   const [groups, setGroups] = useState<Circle[]>([]);
   const [incoming, setIncoming] = useState<IncomingInvitation[]>([]);
   const [outgoing, setOutgoing] = useState<OutgoingInvitation[]>([]);
@@ -172,6 +175,19 @@ export default function CirclesPage() {
           for (const p of items) next[p.userId] = p;
           return next;
         });
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleUserKey]);
+
+  // Resolve the skin each visible person has equipped FOR ME (group override → default).
+  // Layered like presence: one batch fetch whenever the visible set changes.
+  useEffect(() => {
+    if (visibleUserIds.length === 0) return;
+    api.get('/card-skins/resolve', { params: { userIds: visibleUserIds.join(',') } })
+      .then((res) => {
+        const map = res.data.data as Record<string, CardSkinRender | null>;
+        setSkinByUser((old) => ({ ...old, ...map }));
       })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -441,7 +457,7 @@ export default function CirclesPage() {
             {invLookupLoading && <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)' }}>Поиск...</p>}
             {invLookupDone && invLookup && (
               <div className="wash-secondary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-6)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
-                <Avatar name={invLookup.firstName} size="sm" />
+                <PersonAvatar userId={invLookup.id} name={invLookup.firstName} size="sm" />
                 <div>
                   <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{invLookup.firstName} {invLookup.lastName || ''}</div>
                   <div className="label-sm">{invLookup.phone}</div>
@@ -511,14 +527,14 @@ export default function CirclesPage() {
               {incoming.map((inv) => (
                 <InvitationCard key={inv.id} inv={inv} direction="incoming"
                   myRole={inv.proposedRoleForRecipient} theirRole={inv.proposedRoleForSender}
-                  theirName={inv.from?.firstName || '?'}
+                  theirName={inv.from?.firstName || '?'} theirUserId={inv.fromUserId}
                   theirPhone={inv.toPhone}
                   onAccept={() => handleAccept(inv.id)} onReject={() => handleReject(inv.id)} />
               ))}
               {outgoing.map((inv) => (
                 <InvitationCard key={inv.id} inv={inv} direction="outgoing"
                   myRole={inv.proposedRoleForSender} theirRole={inv.proposedRoleForRecipient}
-                  theirName={inv.to?.firstName || inv.toPhone}
+                  theirName={inv.to?.firstName || inv.toPhone} theirUserId={inv.toUserId}
                   theirPhone={inv.toPhone}
                   registered={!!inv.to}
                   onCancel={() => handleCancel(inv.id)} />
@@ -640,7 +656,7 @@ export default function CirclesPage() {
             </p>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 'var(--spacing-6)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 'var(--spacing-6)', alignItems: 'start' }}>
             {displayedContacts.map((c) => (
               <PersonCard
                 key={c.linkId}
@@ -652,6 +668,7 @@ export default function CirclesPage() {
                 onAddToFolder={(groupId) => handleAddToGroup(c.linkId, groupId)}
                 myCoins={myCoinIcon ? { icon: myCoinIcon, balance: coinsByUser[c.them.id] ?? 0 } : null}
                 presence={presenceByUser[c.them.id] ?? null}
+                skin={skinByUser[c.them.id] ?? undefined}
               />
             ))}
           </div>
@@ -763,19 +780,19 @@ function GroupVisibilityEditor({
 // ============================================================
 
 function InvitationCard({
-  inv, direction, myRole, theirRole, theirName, theirPhone, registered = true,
+  inv, direction, myRole, theirRole, theirName, theirUserId, theirPhone, registered = true,
   onAccept, onReject, onCancel,
 }: {
   inv: IncomingInvitation | OutgoingInvitation; direction: 'incoming' | 'outgoing';
   myRole: string | null; theirRole: string | null;
-  theirName: string; theirPhone: string; registered?: boolean;
+  theirName: string; theirUserId?: string | null; theirPhone: string; registered?: boolean;
   onAccept?: () => void; onReject?: () => void; onCancel?: () => void;
 }) {
   const isIncoming = direction === 'incoming';
   return (
     <div className={isIncoming ? 'wash-secondary' : 'wash-primary'} style={{ padding: 'var(--spacing-4)', borderRadius: 'var(--radius-sketch)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', marginBottom: 'var(--spacing-3)' }}>
-        <Avatar name={theirName} />
+        <PersonAvatar userId={theirUserId} name={theirName} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{theirName}</div>
           <div className="label-sm">{theirPhone}{!registered && ' — не зарегистрирован'}</div>
@@ -857,20 +874,6 @@ function RolePicker({ label, value, onChange }: { label: string; value: string; 
 // ============================================================
 // Shared UI
 // ============================================================
-
-function Avatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md' }) {
-  const px = size === 'sm' ? '1.6rem' : '2.2rem';
-  const fs = size === 'sm' ? '0.7rem' : '0.9rem';
-  return (
-    <div style={{
-      width: px, height: px, borderRadius: 'var(--radius-sketch)',
-      background: 'var(--secondary-container)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: fs, color: 'var(--secondary)', flexShrink: 0,
-    }}>
-      {name.charAt(0).toUpperCase()}
-    </div>
-  );
-}
 
 function pluralize(n: number, one: string, few: string, many: string) {
   const abs = Math.abs(n) % 100;

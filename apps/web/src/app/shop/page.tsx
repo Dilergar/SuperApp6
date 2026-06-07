@@ -7,6 +7,8 @@ import { api } from '@/lib/api';
 import { executeRichCardAction, getOrderChat } from '@/lib/messenger-api';
 import { ShareCardModal } from '../messenger/ShareCardModal';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
+import { EntitySelector } from '@/components/EntitySelector';
+import { PersonChip } from '../circles/PersonCard';
 import {
   LISTING_ITEM_TYPE_LABELS,
   SHOP_LIMITS,
@@ -303,7 +305,7 @@ export default function ShopPage() {
         />
       )}
       {sharePanel && (
-        <SharePanel showcase={sharePanel} contacts={contacts} circles={circles}
+        <SharePanel showcase={sharePanel}
           onClose={() => setSharePanel(null)} onChanged={loadShop} onError={setError} />
       )}
       {staffOpen && (
@@ -653,8 +655,8 @@ function ListingForm({ init, showcaseId, onClose, onSaved, onError }: {
   );
 }
 
-function SharePanel({ showcase, contacts, circles, onClose, onChanged, onError }: {
-  showcase: Showcase; contacts: Contact[]; circles: Circle[]; onClose: () => void; onChanged: () => void; onError: (m: string) => void;
+function SharePanel({ showcase, onClose, onChanged, onError }: {
+  showcase: Showcase; onClose: () => void; onChanged: () => void; onError: (m: string) => void;
 }) {
   const [shares, setShares] = useState(showcase.shares ?? []);
   const has = (type: 'user' | 'circle', id: string) => shares.some((s) => s.principalType === type && s.principalId === id);
@@ -676,27 +678,18 @@ function SharePanel({ showcase, contacts, circles, onClose, onChanged, onError }
     <Overlay onClose={onClose}>
       <h3 className="title-md" style={{ marginBottom: 'var(--spacing-1)' }}>Доступ к «{showcase.name}»</h3>
       <p className="label-sm" style={{ opacity: 0.7, marginBottom: 'var(--spacing-4)' }}>Кому видна эта витрина — люди и Группы из вашего окружения.</p>
-      <div className="label-sm" style={{ marginBottom: '0.4rem', opacity: 0.6 }}>ГРУППЫ</div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: 'var(--spacing-4)' }}>
-        {circles.length === 0 && <span className="label-sm" style={{ opacity: 0.6 }}>Групп нет.</span>}
-        {circles.map((c) => (
-          <button key={c.id} onClick={() => toggle('circle', c.id)}
-            className={has('circle', c.id) ? 'btn-primary' : 'btn-secondary'} style={{ fontSize: '0.78rem' }}>
-            {c.icon ?? '👥'} {c.name}
-          </button>
-        ))}
-      </div>
-      <div className="label-sm" style={{ marginBottom: '0.4rem', opacity: 0.6 }}>ЛЮДИ</div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', maxHeight: 240, overflowY: 'auto' }}>
-        {contacts.length === 0 && <span className="label-sm" style={{ opacity: 0.6 }}>В окружении пока никого.</span>}
-        {contacts.map((c) => (
-          <button key={c.linkId} onClick={() => toggle('user', c.them.id)}
-            className={has('user', c.them.id) ? 'wash-secondary' : 'card'}
-            style={{ padding: '0.35rem 0.7rem', textAlign: 'left', fontSize: '0.85rem', cursor: 'pointer' }}>
-            {has('user', c.them.id) ? '✓ ' : ''}{personName(c)}
-          </button>
-        ))}
-      </div>
+      <EntitySelector
+        types={['user', 'circle']}
+        multi
+        value={shares.map((s) => ({ type: s.principalType, id: s.principalId }))}
+        onChange={(next) => {
+          const nxt = new Set(next.map((p) => `${p.type}:${p.id}`));
+          const cur = new Set(shares.map((s) => `${s.principalType}:${s.principalId}`));
+          for (const p of next) if (!cur.has(`${p.type}:${p.id}`)) toggle(p.type as 'user' | 'circle', p.id);
+          for (const s of shares) if (!nxt.has(`${s.principalType}:${s.principalId}`)) toggle(s.principalType as 'user' | 'circle', s.principalId);
+        }}
+        placeholder="Добавьте людей или Группы…"
+      />
       <div style={{ marginTop: 'var(--spacing-4)', textAlign: 'right' }}>
         <button onClick={onClose} className="btn-secondary" style={{ fontSize: '0.85rem' }}>Готово</button>
       </div>
@@ -733,10 +726,16 @@ function StaffPanel({ contacts, showcases, onClose, onError }: {
       <h3 className="title-md" style={{ marginBottom: 'var(--spacing-1)' }}>Сотрудники</h3>
       <p className="label-sm" style={{ opacity: 0.7, marginBottom: 'var(--spacing-4)' }}>Сотрудник управляет товарами и заказами (как владелец).</p>
       <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: 'var(--spacing-4)' }}>
-        <select value={userId} onChange={(e) => setUserId(e.target.value)} className="input-sketch" style={{ flex: 1, minWidth: 140, padding: '0.35rem 0.5rem', fontSize: '0.82rem' }}>
-          <option value="">— человек —</option>
-          {contacts.map((c) => <option key={c.linkId} value={c.them.id}>{personName(c)}</option>)}
-        </select>
+        <div style={{ flex: 1, minWidth: 180 }}>
+          <EntitySelector
+            types={['user']}
+            multi={false}
+            options={contacts.map((c) => ({ type: 'user', id: c.them.id, title: personName(c), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole }))}
+            value={userId ? [{ type: 'user', id: userId }] : []}
+            onChange={(p) => setUserId(p[0]?.id ?? '')}
+            placeholder="— человек —"
+          />
+        </div>
         <select value={scope} onChange={(e) => setScope(e.target.value as 'shop' | 'showcase')} className="input-sketch" style={{ padding: '0.35rem 0.5rem', fontSize: '0.82rem' }}>
           <option value="shop">Весь магазин</option>
           <option value="showcase">Витрина</option>
@@ -753,7 +752,7 @@ function StaffPanel({ contacts, showcases, onClose, onError }: {
         {staff.length === 0 && <span className="label-sm" style={{ opacity: 0.6 }}>Сотрудников нет.</span>}
         {staff.map((s, i) => (
           <div key={i} className="card" style={{ padding: '0.35rem 0.7rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <span style={{ flex: 1, fontSize: '0.85rem' }}>{s.name}</span>
+            <div style={{ flex: 1 }}><PersonChip size="M" userId={s.userId} firstName={s.name} /></div>
             <span className="label-sm" style={{ opacity: 0.6, fontSize: '0.72rem' }}>{s.scope === 'shop' ? 'магазин' : s.showcaseName ?? 'витрина'}</span>
             <button onClick={() => revoke(s)} className="btn-secondary" style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem', color: 'var(--danger)' }}>Снять</button>
           </div>
@@ -796,10 +795,11 @@ function OrdersView({ onError }: { onError: (m: string) => void }) {
     progressLines(o.prices, o.raised).map((l) => `${fmtAmount(l.raised, l.scale)}/${fmtAmount(l.amount, l.scale)} ${l.currencyIcon}`).join(' · ');
   const row = (o: Order, kind: 'incoming' | 'mine') => (
     <div key={o.id} className="card" style={{ padding: 'var(--spacing-3) var(--spacing-4)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
+      {kind === 'incoming' && o.buyerName && <PersonChip size="S" userId={o.buyerId} firstName={o.buyerName} />}
       <div style={{ flex: 1 }}>
         <div style={{ fontWeight: 500, fontSize: '0.9rem' }}>{o.crowdfunding ? '🎯 ' : ''}{o.title}</div>
         <div className="label-sm" style={{ fontSize: '0.72rem', opacity: 0.6 }}>
-          {kind === 'incoming' && o.buyerName ? `${o.crowdfunding ? 'Инициатор' : 'Покупатель'}: ${o.buyerName} · ` : ''}{statusLabel[o.status] ?? o.status}
+          {kind === 'incoming' && o.crowdfunding ? 'Инициатор · ' : ''}{statusLabel[o.status] ?? o.status}
         </div>
       </div>
       <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--primary)', fontSize: o.crowdfunding ? '0.72rem' : undefined, textAlign: 'right' }}>
@@ -921,7 +921,7 @@ function WishlistView({ onError, onOk }: { onError: (m: string) => void; onOk: (
       )}
 
       {form && <WishForm init={form.editing} onClose={() => setForm(null)} onSaved={() => { setForm(null); loadMine(); }} onError={onError} />}
-      {shareOpen && <WishSharePanel shares={shares} contacts={contacts} circles={circles} onClose={() => setShareOpen(false)} onChanged={setShares} onError={onError} />}
+      {shareOpen && <WishSharePanel shares={shares} onClose={() => setShareOpen(false)} onChanged={setShares} onError={onError} />}
       {copy && <CopyWishModal wish={copy} onClose={() => setCopy(null)} onDone={() => { setCopy(null); onOk('Добавлено в витрину — она расшарена владельцу хотелки.'); setTimeout(() => onOk(''), 5000); }} onError={onError} />}
     </div>
   );
@@ -967,8 +967,8 @@ function WishForm({ init, onClose, onSaved, onError }: { init?: WishItem; onClos
   );
 }
 
-function WishSharePanel({ shares, contacts, circles, onClose, onChanged, onError }: {
-  shares: ShowcaseShareDto[]; contacts: Contact[]; circles: Circle[]; onClose: () => void; onChanged: (s: ShowcaseShareDto[]) => void; onError: (m: string) => void;
+function WishSharePanel({ shares, onClose, onChanged, onError }: {
+  shares: ShowcaseShareDto[]; onClose: () => void; onChanged: (s: ShowcaseShareDto[]) => void; onError: (m: string) => void;
 }) {
   const has = (type: 'user' | 'circle', id: string) => shares.some((s) => s.principalType === type && s.principalId === id);
   const toggle = async (type: 'user' | 'circle', id: string) => {
@@ -981,16 +981,18 @@ function WishSharePanel({ shares, contacts, circles, onClose, onChanged, onError
     <Overlay onClose={onClose}>
       <h3 className="title-md" style={{ marginBottom: 'var(--spacing-1)' }}>Кому виден мой вишлист</h3>
       <p className="label-sm" style={{ opacity: 0.7, marginBottom: 'var(--spacing-4)' }}>Люди и Группы из окружения.</p>
-      <div className="label-sm" style={{ marginBottom: '0.4rem', opacity: 0.6 }}>ГРУППЫ</div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: 'var(--spacing-4)' }}>
-        {circles.length === 0 && <span className="label-sm" style={{ opacity: 0.6 }}>Групп нет.</span>}
-        {circles.map((c) => <button key={c.id} onClick={() => toggle('circle', c.id)} className={has('circle', c.id) ? 'btn-primary' : 'btn-secondary'} style={{ fontSize: '0.78rem' }}>{c.icon ?? '👥'} {c.name}</button>)}
-      </div>
-      <div className="label-sm" style={{ marginBottom: '0.4rem', opacity: 0.6 }}>ЛЮДИ</div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', maxHeight: 240, overflowY: 'auto' }}>
-        {contacts.length === 0 && <span className="label-sm" style={{ opacity: 0.6 }}>В окружении пока никого.</span>}
-        {contacts.map((c) => <button key={c.linkId} onClick={() => toggle('user', c.them.id)} className={has('user', c.them.id) ? 'wash-secondary' : 'card'} style={{ padding: '0.35rem 0.7rem', textAlign: 'left', fontSize: '0.85rem', cursor: 'pointer' }}>{has('user', c.them.id) ? '✓ ' : ''}{personName(c)}</button>)}
-      </div>
+      <EntitySelector
+        types={['user', 'circle']}
+        multi
+        value={shares.map((s) => ({ type: s.principalType, id: s.principalId }))}
+        onChange={(next) => {
+          const nxt = new Set(next.map((p) => `${p.type}:${p.id}`));
+          const cur = new Set(shares.map((s) => `${s.principalType}:${s.principalId}`));
+          for (const p of next) if (!cur.has(`${p.type}:${p.id}`)) toggle(p.type as 'user' | 'circle', p.id);
+          for (const s of shares) if (!nxt.has(`${s.principalType}:${s.principalId}`)) toggle(s.principalType as 'user' | 'circle', s.principalId);
+        }}
+        placeholder="Добавьте людей или Группы…"
+      />
       <div style={{ marginTop: 'var(--spacing-4)', textAlign: 'right' }}><button onClick={onClose} className="btn-secondary" style={{ fontSize: '0.85rem' }}>Готово</button></div>
     </Overlay>
   );

@@ -2,6 +2,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
+import { EntitySelector } from '@/components/EntitySelector';
+import type { Principal } from '@/lib/entities';
+import { PersonChip } from '../circles/PersonCard';
 import {
   CALENDAR_RECURRENCE_PRESETS,
   CALENDAR_REMINDER_PRESETS,
@@ -392,7 +395,11 @@ export function EventModal({
               <h2 className="title-md" style={{ fontFamily: 'var(--font-display)' }}>{detail?.title}</h2>
             </div>
             <p className="label-md" style={{ marginBottom: 'var(--spacing-1)' }}>{whenLabel(detail)}</p>
-            {occ?.ownerName && <p className="label-sm">Организатор: {occ.ownerName}</p>}
+            {occ && occ.ownerName && (
+              <div className="label-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap', marginBottom: 'var(--spacing-1)' }}>
+                Организатор: <PersonChip size="S" userId={occ.ownerId} firstName={occ.ownerName} />
+              </div>
+            )}
             {detail?.location && <p className="label-sm" style={{ marginTop: 'var(--spacing-1)' }}>📍 {detail.location}</p>}
             {occ?.resourceName && <p className="label-sm" style={{ marginTop: 'var(--spacing-1)' }}>📦 {occ.resourceName}{occ.resourceStatus ? ` · ${RESOURCE_BOOKING_STATUS_META[occ.resourceStatus].label}` : ''}</p>}
             {detail?.description && <p className="label-md" style={{ marginTop: 'var(--spacing-2)' }}>{detail.description}</p>}
@@ -476,9 +483,8 @@ function ParticipantBlocks({
           <div key={g} style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
             <span className="label-sm" style={{ color: RSVP_META[g].color, fontWeight: 700, minWidth: 92 }}>{RSVP_META[g].icon} {RSVP_META[g].group}</span>
             {list.map((p) => (
-              <span key={p.userId} title={`${p.firstName} ${p.lastName ?? ''}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'var(--surface-container)', borderRadius: 'var(--radius-sketch)', padding: '0.15rem 0.5rem', fontSize: '0.78rem' }}>
-                <span style={{ width: 20, height: 20, borderRadius: '50%', background: 'var(--secondary-container)', color: 'var(--secondary)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.62rem', fontWeight: 700 }}>{(p.firstName[0] ?? '?').toUpperCase()}</span>
-                {p.firstName}
+              <span key={p.userId} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <PersonChip size="S" userId={p.userId} firstName={p.firstName} lastName={p.lastName ?? null} />
                 {canManage && onRemove && <button onClick={() => onRemove(p.userId)} title="Убрать" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)', fontSize: '0.7rem' }}>✕</button>}
               </span>
             ))}
@@ -498,27 +504,24 @@ function InvitePicker({
   circles: Circle[];
   onPick: (userIds: string[], circleId: string | null) => void;
 }) {
-  const [sel, setSel] = useState<string[]>([]);
+  const [sel, setSel] = useState<Principal[]>([]);
+  const options = [
+    ...contacts.map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole })),
+    ...circles.map((g) => ({ type: 'circle', id: g.id, title: g.name, icon: g.icon, color: g.color, count: g.membersCount })),
+  ];
+  const add = () => {
+    const userIds = sel.filter((p) => p.type === 'user').map((p) => p.id);
+    const circleIds = sel.filter((p) => p.type === 'circle').map((p) => p.id);
+    if (userIds.length) onPick(userIds, null);
+    for (const cid of circleIds) onPick([], cid);
+    setSel([]);
+  };
   return (
     <div className="card" style={{ marginTop: 'var(--spacing-2)', padding: 'var(--spacing-3)' }}>
-      {circles.length > 0 && (
-        <>
-          <label className="label-sm" style={lblBlock}>Группой</label>
-          <div style={{ display: 'flex', gap: 'var(--spacing-1)', flexWrap: 'wrap', marginBottom: 'var(--spacing-3)' }}>
-            {circles.map((c) => <button key={c.id} type="button" onClick={() => onPick([], c.id)} style={chip(false)}>{c.name} <span style={{ opacity: 0.6 }}>{c.membersCount}</span></button>)}
-          </div>
-        </>
+      <EntitySelector types={['user', 'circle']} multi options={options} value={sel} onChange={setSel} placeholder="Люди или Группы из окружения…" />
+      {sel.length > 0 && (
+        <button type="button" onClick={add} className="btn-primary" style={{ ...smallBtn, fontSize: '0.8rem', marginTop: 'var(--spacing-3)' }}>Добавить ({sel.length})</button>
       )}
-      <label className="label-sm" style={lblBlock}>Людьми</label>
-      {contacts.length === 0 ? <p className="label-sm">В окружении пока никого</p> : (
-        <div style={{ display: 'flex', gap: 'var(--spacing-1)', flexWrap: 'wrap', marginBottom: 'var(--spacing-3)' }}>
-          {contacts.map((c) => {
-            const on = sel.includes(c.them.id);
-            return <button key={c.linkId} type="button" onClick={() => setSel((cur) => on ? cur.filter((x) => x !== c.them.id) : [...cur, c.them.id])} style={chip(on)}>{c.them.firstName} {c.them.lastName ?? ''}</button>;
-          })}
-        </div>
-      )}
-      {sel.length > 0 && <button type="button" onClick={() => onPick(sel, null)} className="btn-primary" style={{ ...smallBtn, fontSize: '0.8rem' }}>Добавить ({sel.length})</button>}
     </div>
   );
 }

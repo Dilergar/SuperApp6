@@ -29,6 +29,7 @@ import { WorkspacesModule } from './modules/workspaces/workspaces.module';
 import { WalletModule } from './modules/wallet/wallet.module';
 import { ShopModule } from './modules/shop/shop.module';
 import { MessengerModule } from './modules/messenger/messenger.module';
+import { CardSkinsModule } from './modules/card-skins/card-skins.module';
 
 import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
 import { WorkspaceContextInterceptor } from './shared/interceptors/workspace-context.interceptor';
@@ -93,6 +94,8 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     WorkspacesModule,
     ShopModule,
     MessengerModule,
+    // Card skins — cosmetic skins for PersonCard (platform currency + equip + per-group).
+    CardSkinsModule,
   ],
   providers: [
     // Map Zod validation errors (controller schema.parse) to 400 app-wide.

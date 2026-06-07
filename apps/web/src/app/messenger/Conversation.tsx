@@ -11,7 +11,8 @@ import type {
   QuickActionDescriptor,
 } from '@superapp/shared';
 import { MESSENGER_LIMITS, SEARCH_LIMITS } from '@superapp/shared';
-import { Avatar, StatusTicks, formatBubbleTime } from './messenger-ui';
+import { Avatar, PersonAvatar, StatusTicks, formatBubbleTime } from './messenger-ui';
+import { PersonChip } from '../circles/PersonCard';
 import { presenceStatusLine } from './presence-ui';
 import { RichCardWidget } from './RichCardWidget';
 import { AttachCardModal } from './AttachCardModal';
@@ -370,7 +371,7 @@ export function Conversation({
           backdropFilter: 'blur(10px)',
         }}
       >
-        <Avatar name={detail.title} avatar={detail.avatar} />
+        <PersonAvatar userId={detail.peerUserId} name={detail.title} avatar={detail.avatar} />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div
             className="title-md"
@@ -895,9 +896,7 @@ function MessageBubble({
           }}
         >
           {message.authorName && (
-            <span style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--secondary)' }}>
-              {message.authorName}
-            </span>
+            <PersonChip size="S" userId={message.authorId} firstName={message.authorName} />
           )}
           {message.authorRoleTag && (
             <span

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api } from '@/lib/api';
+import { PersonChip } from '../../../circles/PersonCard';
 import type {
   Workspace,
   WorkspaceMember,
@@ -189,19 +190,12 @@ export default function WorkspaceMembersPage() {
       <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
         {members.map((m) => (
           <div key={m.id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
-              <div style={{ width: '2.25rem', height: '2.25rem', borderRadius: 'var(--radius-sketch)', background: 'var(--secondary-container)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: 'var(--secondary)' }}>
-                {m.userName.charAt(0).toUpperCase()}
-              </div>
-              <div>
-                <div className="title-md" style={{ fontSize: '0.95rem' }}>
-                  {m.userName}{m.userId === user?.id ? ' (вы)' : ''}
-                </div>
-                <p className="label-md" style={{ fontSize: '0.8rem' }}>
-                  {ROLE_LABELS[m.role] ?? m.role}{m.position ? ` · ${m.position}` : ''}{m.department ? ` · ${m.department}` : ''}
-                </p>
-              </div>
-            </div>
+            <PersonChip
+              size="M"
+              userId={m.userId}
+              firstName={`${m.userName}${m.userId === user?.id ? ' (вы)' : ''}`}
+              role={`${ROLE_LABELS[m.role] ?? m.role}${m.position ? ` · ${m.position}` : ''}${m.department ? ` · ${m.department}` : ''}`}
+            />
             {canManage && m.role !== 'owner' && m.userId !== user?.id && (
               <button onClick={() => removeMember(m.userId)} disabled={busy} className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>Уволить</button>
             )}

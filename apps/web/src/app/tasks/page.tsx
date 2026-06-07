@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api } from '@/lib/api';
+import { EntitySelector } from '@/components/EntitySelector';
+import { PersonChip } from '../circles/PersonCard';
 import {
   TASK_STATUS_META,
   TASK_PRIORITY_META,
@@ -192,7 +194,11 @@ function TaskRow({ task }: { task: Task }) {
             </span>
           </div>
           <div style={{ display: 'flex', gap: 'var(--spacing-3)', marginTop: 'var(--spacing-1)', flexWrap: 'wrap' }}>
-            <span className="label-sm">{assigneeLabel}</span>
+            {task.executor && !task.assignedCircleName ? (
+              <PersonChip size="S" userId={task.executor.userId} firstName={task.executor.name} avatar={task.executor.avatar} />
+            ) : (
+              <span className="label-sm">{assigneeLabel}</span>
+            )}
             {task.progress && <span className="label-sm" style={{ color: 'var(--secondary)' }}>{task.progress.accepted} из {task.progress.total} принято</span>}
             {task.dueDate && <span className="label-sm" style={{ color: isOverdue(task) ? 'var(--primary)' : 'var(--on-surface-variant)' }}>⏰ {formatDue(task.dueDate, task.allDay)}</span>}
             {task.coinReward > 0 && <span className="label-sm" style={{ color: 'var(--tertiary)' }}>🪙 {task.coinReward}{task.assignedCircleName ? '/чел' : ''}</span>}
@@ -303,19 +309,24 @@ function TaskCreateForm({
 
       {mode === 'person' && (
         <div style={{ marginBottom: 'var(--spacing-4)' }}>
-          <PeoplePicker
-            label="Исполнитель (1 ответственный)"
-            contacts={contacts}
-            selected={executorId ? [executorId] : []}
-            onToggle={(id) => setExecutorId((cur) => (cur === id ? null : id))}
-            single
+          <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Исполнитель (1 ответственный)</label>
+          <EntitySelector
+            types={['user']}
+            multi={false}
+            options={contacts.map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole }))}
+            value={executorId ? [{ type: 'user', id: executorId }] : []}
+            onChange={(p) => setExecutorId(p[0]?.id ?? null)}
+            placeholder="Выберите исполнителя…"
           />
           <div style={{ marginTop: 'var(--spacing-3)' }}>
-            <PeoplePicker
-              label="Соисполнители (помогают)"
-              contacts={contacts.filter((c) => c.them.id !== executorId)}
-              selected={coExecutorIds}
-              onToggle={(id) => setCoExecutorIds((cur) => toggle(cur, id))}
+            <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Соисполнители (помогают)</label>
+            <EntitySelector
+              types={['user']}
+              multi
+              options={contacts.filter((c) => c.them.id !== executorId).map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole }))}
+              value={coExecutorIds.map((id) => ({ type: 'user', id }))}
+              onChange={(p) => setCoExecutorIds(p.map((x) => x.id))}
+              placeholder="Добавьте соисполнителей…"
             />
           </div>
         </div>
@@ -327,13 +338,13 @@ function TaskCreateForm({
           {circles.length === 0 ? (
             <p className="label-sm">Сначала создайте группу на странице «Моё окружение»</p>
           ) : (
-            <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
-              {circles.map((c) => (
-                <Chip key={c.id} active={circleId === c.id} color={c.color ?? undefined} onClick={() => setCircleId((cur) => (cur === c.id ? null : c.id))}>
-                  {c.name} <span style={{ opacity: 0.6, fontSize: '0.7rem' }}>{c.membersCount}</span>
-                </Chip>
-              ))}
-            </div>
+            <EntitySelector
+              types={['circle']}
+              multi={false}
+              value={circleId ? [{ type: 'circle', id: circleId }] : []}
+              onChange={(p) => setCircleId(p[0]?.id ?? null)}
+              placeholder="Выберите Группу…"
+            />
           )}
           {selectedCircle && (
             <p className="label-sm" style={{ marginTop: 'var(--spacing-2)', color: 'var(--secondary)' }}>
@@ -345,11 +356,14 @@ function TaskCreateForm({
 
       {mode !== 'self' && (
         <div style={{ marginBottom: 'var(--spacing-4)' }}>
-          <PeoplePicker
-            label="Наблюдатели (видят прогресс и чат)"
-            contacts={contacts.filter((c) => c.them.id !== executorId && !coExecutorIds.includes(c.them.id))}
-            selected={observerIds}
-            onToggle={(id) => setObserverIds((cur) => toggle(cur, id))}
+          <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Наблюдатели (видят прогресс и чат)</label>
+          <EntitySelector
+            types={['user']}
+            multi
+            options={contacts.filter((c) => c.them.id !== executorId && !coExecutorIds.includes(c.them.id)).map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole }))}
+            value={observerIds.map((id) => ({ type: 'user', id }))}
+            onChange={(p) => setObserverIds(p.map((x) => x.id))}
+            placeholder="Добавьте наблюдателей…"
           />
         </div>
       )}
@@ -434,43 +448,7 @@ function TaskCreateForm({
 // Pickers & shared bits
 // ============================================================
 
-function PeoplePicker({
-  label, contacts, selected, onToggle, single = false,
-}: {
-  label: string;
-  contacts: Contact[];
-  selected: string[];
-  onToggle: (id: string) => void;
-  single?: boolean;
-}) {
-  return (
-    <div>
-      <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>{label}</label>
-      {contacts.length === 0 ? (
-        <p className="label-sm">В окружении пока никого — добавьте людей на странице «Моё окружение»</p>
-      ) : (
-        <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
-          {contacts.map((c) => {
-            const on = selected.includes(c.them.id);
-            return (
-              <button key={c.linkId} type="button" onClick={() => onToggle(c.them.id)}
-                style={{
-                  padding: '0.3rem 0.7rem', fontSize: '0.8rem', borderRadius: 'var(--radius-sketch)',
-                  border: 'none', cursor: 'pointer', fontWeight: 500,
-                  background: on ? 'var(--secondary-container)' : 'var(--surface-container-low)',
-                  color: on ? 'var(--secondary)' : 'var(--on-surface-variant)',
-                }}
-              >
-                {single && on ? '● ' : ''}{c.them.firstName} {c.them.lastName ?? ''}
-                {c.myRole && <span style={{ opacity: 0.55, marginLeft: '0.3rem', fontSize: '0.7rem' }}>{c.myRole}</span>}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
+// (PeoplePicker removed — people/groups are picked via the shared EntitySelector)
 
 function Chip({ active, color, onClick, children }: { active: boolean; color?: string; onClick: () => void; children: React.ReactNode }) {
   return (

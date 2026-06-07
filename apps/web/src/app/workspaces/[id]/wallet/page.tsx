@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api } from '@/lib/api';
+import { EntitySelector } from '@/components/EntitySelector';
+import { PersonChip } from '../../../circles/PersonCard';
 import type { Currency, WalletEntry, CurrencyHolder } from '@superapp/shared';
 
 function errMsg(e: unknown, fallback = 'Ошибка'): string {
@@ -133,10 +135,15 @@ export default function CompanyWalletPage() {
           {/* Pay an employee */}
           <div className="card-elevated" style={{ padding: 'var(--spacing-5)' }}>
             <div className="label-sm" style={{ opacity: 0.6, marginBottom: 'var(--spacing-2)' }}>НАЧИСЛИТЬ СОТРУДНИКУ</div>
-            <select value={payUser} onChange={(e) => setPayUser(e.target.value)} className="input-sketch" style={{ width: '100%', padding: '0.35rem 0.5rem', fontSize: '0.85rem', marginBottom: '0.4rem' }}>
-              <option value="">— сотрудник —</option>
-              {members.map((m) => <option key={m.userId} value={m.userId}>{memberName(m)}</option>)}
-            </select>
+            <div style={{ marginBottom: '0.4rem' }}>
+              <EntitySelector
+                types={['user']}
+                options={members.map((m) => ({ type: 'user', id: m.userId, title: memberName(m), firstName: m.firstName ?? m.name ?? memberName(m), lastName: m.lastName ?? null }))}
+                value={payUser ? [{ type: 'user', id: payUser }] : []}
+                onChange={(next) => setPayUser(next[next.length - 1]?.id ?? '')}
+                placeholder="— сотрудник —"
+              />
+            </div>
             <div style={{ display: 'flex', gap: '0.4rem' }}>
               <input type="number" min={1} value={payAmt} onChange={(e) => setPayAmt(e.target.value)} placeholder="сумма" className="input-sketch" style={{ width: 110, padding: '0.3rem 0.5rem' }} />
               <button onClick={pay} className="btn-primary" style={{ fontSize: '0.8rem' }}>Начислить</button>
@@ -149,8 +156,9 @@ export default function CompanyWalletPage() {
             {holders.length === 0 ? <p className="label-sm" style={{ opacity: 0.6 }}>Пока ни у кого нет коинов.</p> : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
                 {holders.map((h) => (
-                  <div key={h.userId} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
-                    <span>{h.name}</span><span style={{ fontWeight: 600 }}>{fmt(h.balance, currency.scale)} {currency.icon}</span>
+                  <div key={h.userId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
+                    <PersonChip size="S" userId={h.userId} firstName={h.name} />
+                    <span style={{ fontWeight: 600 }}>{fmt(h.balance, currency.scale)} {currency.icon}</span>
                   </div>
                 ))}
               </div>

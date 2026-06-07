@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
+import { EntitySelector } from '@/components/EntitySelector';
+import { PersonChip } from '../circles/PersonCard';
 import {
   CALENDAR_ACCESS_LEVEL_META,
   SMART_MATCH_DEFAULTS,
@@ -67,10 +69,16 @@ export function SharePanel({ contacts, onClose }: { contacts: Contact[]; onClose
         {/* add */}
         <label className="label-md" style={lbl}>Открыть человеку</label>
         <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', marginBottom: 'var(--spacing-2)' }}>
-          <select className="input-sketch" value={pickId} onChange={(e) => setPickId(e.target.value)} style={{ flex: 1, minWidth: 160 }}>
-            <option value="">— выбрать —</option>
-            {available.map((c) => <option key={c.them.id} value={c.them.id}>{c.them.firstName} {c.them.lastName ?? ''}</option>)}
-          </select>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <EntitySelector
+              types={['user']}
+              multi={false}
+              options={available.map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole }))}
+              value={pickId ? [{ type: 'user', id: pickId }] : []}
+              onChange={(p) => setPickId(p[0]?.id ?? '')}
+              placeholder="Выберите человека…"
+            />
+          </div>
           <div style={{ display: 'flex', gap: 'var(--spacing-1)' }}>
             {(['busy', 'detailed'] as const).map((l) => (
               <button key={l} type="button" onClick={() => setLevel(l)} style={chip(level === l)}>{CALENDAR_ACCESS_LEVEL_META[l].label}</button>
@@ -83,7 +91,7 @@ export function SharePanel({ contacts, onClose }: { contacts: Contact[]; onClose
         <div style={{ marginTop: 'var(--spacing-4)', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
           {shares.length === 0 ? <p className="label-sm">Пока никому не открыт</p> : shares.map((s) => (
             <div key={s.sharedWithUserId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--surface-container-low)', borderRadius: 'var(--radius-sm)', padding: '0.4rem 0.6rem' }}>
-              <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>{s.firstName} {s.lastName ?? ''}</span>
+              <PersonChip size="M" userId={s.sharedWithUserId} firstName={s.firstName} lastName={s.lastName ?? null} />
               <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
                 <span className="label-sm" style={{ color: 'var(--secondary)' }}>{CALENDAR_ACCESS_LEVEL_META[s.accessLevel].label}</span>
                 <button onClick={() => remove(s.sharedWithUserId)} style={closeBtn} title="Закрыть доступ">✕</button>
@@ -153,11 +161,15 @@ export function SmartMatchDialog({
         ) : (
           <>
             <label className="label-md" style={lbl}>С кем</label>
-            <div style={{ display: 'flex', gap: 'var(--spacing-1)', flexWrap: 'wrap', marginBottom: 'var(--spacing-4)' }}>
-              {sources.map((s) => {
-                const on = sel.includes(s.userId);
-                return <button key={s.userId} onClick={() => setSel((c) => on ? c.filter((x) => x !== s.userId) : [...c, s.userId])} style={chip(on)}>{s.firstName} {s.lastName ?? ''}</button>;
-              })}
+            <div style={{ marginBottom: 'var(--spacing-4)' }}>
+              <EntitySelector
+                types={['user']}
+                multi
+                options={sources.map((s) => ({ type: 'user', id: s.userId, title: `${s.firstName} ${s.lastName ?? ''}`.trim(), firstName: s.firstName, lastName: s.lastName }))}
+                value={sel.map((id) => ({ type: 'user', id }))}
+                onChange={(p) => setSel(p.map((x) => x.id))}
+                placeholder="Выберите людей…"
+              />
             </div>
 
             <div style={{ display: 'flex', gap: 'var(--spacing-4)', flexWrap: 'wrap', marginBottom: 'var(--spacing-4)' }}>

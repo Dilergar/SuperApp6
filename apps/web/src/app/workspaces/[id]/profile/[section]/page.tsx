@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api } from '@/lib/api';
 import { CompanyCard } from '../../CompanyCard';
+import { EntitySelector } from '@/components/EntitySelector';
 import { resolveWorkspaceCardVisibility } from '@superapp/shared';
 import type {
   Workspace,
@@ -313,12 +314,15 @@ export default function WorkspaceSectionPage() {
               Новый владелец получит полные права, вы станете администратором.
             </p>
             <div style={{ display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
-              <select value={transferTo} onChange={(e) => setTransferTo(e.target.value)} className="input" style={{ flex: 1, minWidth: '220px' }}>
-                <option value="">Выберите сотрудника…</option>
-                {members.filter((m) => m.role !== 'owner').map((m) => (
-                  <option key={m.userId} value={m.userId}>{m.userName}</option>
-                ))}
-              </select>
+              <div style={{ flex: 1, minWidth: '220px' }}>
+                <EntitySelector
+                  types={['user']}
+                  options={members.filter((m) => m.role !== 'owner').map((m) => ({ type: 'user', id: m.userId, title: m.userName, firstName: m.userName }))}
+                  value={transferTo ? [{ type: 'user', id: transferTo }] : []}
+                  onChange={(next) => setTransferTo(next[next.length - 1]?.id ?? '')}
+                  placeholder="Выберите сотрудника…"
+                />
+              </div>
               <button onClick={() => setConfirm('transfer')} disabled={!transferTo || busy} className="btn-secondary" style={{ padding: '0.5rem 1.25rem' }}>
                 Передать
               </button>

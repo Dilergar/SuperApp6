@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
+import { EntitySelector } from '@/components/EntitySelector';
+import { PersonChip } from '../circles/PersonCard';
 import {
   RESOURCE_TYPE_META,
   RESOURCE_BOOKING_STATUS_META,
@@ -71,7 +73,10 @@ export function ResourcesPanel({
                 <div key={r.eventId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-2)' }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{r.resourceName}: {r.title}</div>
-                    <div className="label-sm">{r.bookerName} · {slot(r.start)}</div>
+                    <div className="label-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
+                      <PersonChip size="S" userId={r.bookerId} firstName={r.bookerName} />
+                      <span>· {slot(r.start)}</span>
+                    </div>
                   </div>
                   <div style={{ display: 'flex', gap: 'var(--spacing-1)', flexShrink: 0 }}>
                     <button onClick={() => act(r.eventId, 'confirm')} disabled={busy} className="btn-primary" style={{ padding: '0.35rem 0.8rem', fontSize: '0.78rem' }}>✓</button>
@@ -167,25 +172,20 @@ function ResourceForm({
         </div>
       </div>
 
-      <label className="label-sm" style={lbl}>Кто может бронировать — люди</label>
-      <div style={{ display: 'flex', gap: 'var(--spacing-1)', flexWrap: 'wrap', marginBottom: 'var(--spacing-3)' }}>
-        {contacts.length === 0 ? <span className="label-sm">В окружении пусто</span> : contacts.map((c) => {
-          const on = userIds.includes(c.them.id);
-          return <button key={c.linkId} type="button" onClick={() => setUserIds((cur) => on ? cur.filter((x) => x !== c.them.id) : [...cur, c.them.id])} style={chip(on)}>{c.them.firstName} {c.them.lastName ?? ''}</button>;
-        })}
+      <label className="label-sm" style={lbl}>Кто может бронировать</label>
+      <div style={{ marginBottom: 'var(--spacing-3)' }}>
+        <EntitySelector
+          types={['user', 'circle']}
+          multi
+          options={[
+            ...contacts.map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole })),
+            ...circles.map((g) => ({ type: 'circle', id: g.id, title: g.name, icon: g.icon, color: g.color, count: g.membersCount })),
+          ]}
+          value={[...userIds.map((id) => ({ type: 'user', id })), ...circleIds.map((id) => ({ type: 'circle', id }))]}
+          onChange={(next) => { setUserIds(next.filter((p) => p.type === 'user').map((p) => p.id)); setCircleIds(next.filter((p) => p.type === 'circle').map((p) => p.id)); }}
+          placeholder="Люди или Группы…"
+        />
       </div>
-
-      {circles.length > 0 && (
-        <>
-          <label className="label-sm" style={lbl}>…или Группы</label>
-          <div style={{ display: 'flex', gap: 'var(--spacing-1)', flexWrap: 'wrap', marginBottom: 'var(--spacing-3)' }}>
-            {circles.map((c) => {
-              const on = circleIds.includes(c.id);
-              return <button key={c.id} type="button" onClick={() => setCircleIds((cur) => on ? cur.filter((x) => x !== c.id) : [...cur, c.id])} style={chip(on)}>{c.name} <span style={{ opacity: 0.6 }}>{c.membersCount}</span></button>;
-            })}
-          </div>
-        </>
-      )}
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--spacing-2)' }}>
         <button onClick={onCancel} className="btn-secondary" style={smallBtn}>Отмена</button>

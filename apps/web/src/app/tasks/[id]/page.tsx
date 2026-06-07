@@ -6,6 +6,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api } from '@/lib/api';
+import { PersonAvatar } from '../../messenger/messenger-ui';
+import { PersonChip } from '../../circles/PersonCard';
 import {
   TASK_STATUS_META,
   TASK_PRIORITY_META,
@@ -358,7 +360,10 @@ export default function TaskDetailPage() {
 
         {/* Meta */}
         <div className="card" style={{ padding: 'var(--spacing-4) var(--spacing-5)', marginBottom: 'var(--spacing-5)', display: 'flex', gap: 'var(--spacing-6)', flexWrap: 'wrap' }}>
-          <Meta label={TASK_CREATOR_LABEL} value={task.creatorName} />
+          <div>
+            <div className="label-sm" style={{ fontSize: '0.7rem', opacity: 0.7, marginBottom: '0.15rem' }}>{TASK_CREATOR_LABEL}</div>
+            <PersonChip size="S" userId={task.creatorId} firstName={task.creatorName} avatar={task.creatorAvatar} />
+          </div>
           {task.dueDate && <Meta label="Дедлайн" value={formatDue(task.dueDate, task.allDay)} />}
           {task.recurrenceRule && <Meta label="Повтор" value="включён" />}
           {task.coinReward > 0 && <Meta label={task.assignedCircleName ? 'Награда (каждому)' : 'Награда'} value={`${task.coinReward} 🪙`} />}
@@ -393,7 +398,9 @@ export default function TaskDetailPage() {
           <div style={{ marginBottom: 'var(--spacing-3)' }}>
             <span className="label-sm" style={{ fontWeight: 600 }}>{TASK_ROLE_LABELS.observer}и: </span>
             {task.observers.map((o) => (
-              <span key={o.id} className="label-sm" style={{ marginRight: 'var(--spacing-2)' }}>{o.name}</span>
+              <span key={o.id} style={{ display: 'inline-block', marginRight: 'var(--spacing-2)' }}>
+                <PersonChip size="S" userId={o.userId} firstName={o.name} avatar={o.avatar} />
+              </span>
             ))}
           </div>
         )}
@@ -450,7 +457,7 @@ function ParticipantRow({ p, showAccept, busy, onAccept, onReturn }: {
   const stat = PARTICIPANT_STATUS_META[p.status];
   return (
     <div className="card" style={{ padding: 'var(--spacing-3) var(--spacing-4)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
-      <Avatar name={p.name} />
+      <PersonAvatar userId={p.userId} name={p.name} size="sm" />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{p.name}</div>
         <span className="label-sm" style={{ fontSize: '0.7rem' }}>{roleLabel(p.role)}</span>
@@ -475,17 +482,7 @@ function Meta({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Avatar({ name }: { name: string }) {
-  return (
-    <div style={{
-      width: '2rem', height: '2rem', borderRadius: 'var(--radius-sketch)', flexShrink: 0,
-      background: 'var(--secondary-container)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '0.85rem', color: 'var(--secondary)',
-    }}>
-      {name.charAt(0).toUpperCase()}
-    </div>
-  );
-}
+// (local Avatar removed — people now render via the shared skin-aware PersonAvatar)
 
 function roleLabel(role: string): string {
   if (role === 'creator') return TASK_CREATOR_LABEL;

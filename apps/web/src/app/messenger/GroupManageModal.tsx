@@ -1,10 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { ChatDetail, ChatMemberRole, ChatParticipantInfo } from '@superapp/shared';
 import { MESSENGER_LIMITS } from '@superapp/shared';
-import { Avatar } from './messenger-ui';
-import { ContactPicker, useContacts } from './ContactPicker';
+import { PersonAvatar } from './messenger-ui';
+import { useContacts } from './ContactPicker';
+import { EntitySelector } from '@/components/EntitySelector';
+import { loadEntities, type EntityOption, type Principal } from '@/lib/entities';
 
 const CHAT_ROLE_LABELS: Record<ChatMemberRole, string> = {
   owner: 'Владелец',
@@ -52,8 +54,35 @@ export function GroupManageModal({
 
   const { contacts, loading, error } = useContacts();
   const [toAdd, setToAdd] = useState<string[]>([]);
+  const [groups, setGroups] = useState<EntityOption[]>([]);
+  useEffect(() => { loadEntities('circle').then(setGroups).catch(() => {}); }, []);
 
   const existingIds = detail.participants.map((p) => p.userId);
+  const existingSet = new Set(existingIds);
+
+  // People (minus current members) + Groups in one field; a Group expands to
+  // its still-eligible members via myCircleIds (snapshot, no extra request).
+  const addOptions: EntityOption[] = [
+    ...contacts
+      .filter((c) => !existingSet.has(c.them.id))
+      .map((c) => ({
+        type: 'user', id: c.them.id,
+        title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(),
+        firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole,
+      })),
+    ...groups,
+  ];
+
+  const handleAddSelect = (next: Principal[]) => {
+    const ids = new Set<string>();
+    for (const p of next) {
+      if (p.type === 'user') { if (!existingSet.has(p.id)) ids.add(p.id); }
+      else if (p.type === 'circle') {
+        for (const c of contacts) if (c.myCircleIds?.includes(p.id) && !existingSet.has(c.them.id)) ids.add(c.them.id);
+      }
+    }
+    setToAdd([...ids]);
+  };
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -130,16 +159,20 @@ export function GroupManageModal({
 
         {pane === 'add' ? (
           <>
-            <ContactPicker
-              contacts={contacts}
-              loading={loading}
-              error={error}
-              mode="multi"
-              selected={toAdd}
-              excludeUserIds={existingIds}
-              onToggle={(id) => setToAdd((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]))}
-              emptyHint="Все из окружения уже в группе"
-            />
+            {loading ? (
+              <p className="label-sm" style={{ padding: 'var(--spacing-3)' }}>Загрузка...</p>
+            ) : error ? (
+              <div className="wash-primary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', color: 'var(--primary)', fontSize: '0.85rem' }}>{error}</div>
+            ) : (
+              <EntitySelector
+                types={['user', 'circle']}
+                multi
+                options={addOptions}
+                value={toAdd.map((id) => ({ type: 'user', id }))}
+                onChange={handleAddSelect}
+                placeholder="Добавить людей или Группу…"
+              />
+            )}
             <div style={{ display: 'flex', gap: 'var(--spacing-2)', marginTop: 'var(--spacing-4)', justifyContent: 'flex-end' }}>
               <button onClick={() => { setPane('list'); setToAdd([]); }} className="btn-secondary" style={{ fontSize: '0.85rem', padding: '0.45rem 1rem' }}>
                 Назад
@@ -270,7 +303,7 @@ function ParticipantRow({
         borderRadius: 'var(--radius-md)',
       }}
     >
-      <Avatar name={p.name} avatar={p.avatar} size="sm" />
+      <PersonAvatar userId={p.userId} name={p.name} avatar={p.avatar} size="sm" />
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--on-surface)' }}>
           {p.name}{isMe && <span style={{ opacity: 0.55, fontWeight: 500 }}> (вы)</span>}
