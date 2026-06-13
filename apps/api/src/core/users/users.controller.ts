@@ -1,8 +1,9 @@
 import { Controller, Get, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { UsersService } from './users.service';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
-import { updateProfileSchema } from '@superapp/shared';
+import { updateProfileSchema, maskLastName } from '@superapp/shared';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -63,10 +64,15 @@ export class UsersController {
   }
 
   @Get('lookup')
+  // Dedicated cap: this endpoint answers "is this phone registered?" — without
+  // its own limit an authed user could enumerate the user base at 200/min.
+  @Throttle({ long: { limit: 30, ttl: 60 * 60 * 1000 } })
   @ApiOperation({ summary: 'Найти пользователя по номеру телефона' })
   async lookupByPhone(@Query('phone') phone: string) {
     if (!phone) return { success: true, data: null };
     const user = await this.usersService.findByPhone(phone);
-    return { success: true, data: user };
+    // Privacy (Kaspi-style): until the two are linked, only "Имя Ф." is shown.
+    const data = user ? { ...user, lastName: maskLastName(user.lastName) } : null;
+    return { success: true, data };
   }
 }

@@ -264,6 +264,22 @@ export class NotificationsEventsListener implements OnModuleInit {
         });
         return;
       }
+      case 'workspace.position.assigned': {
+        const userId = payload['userId'] as string | undefined;
+        if (!userId) return;
+        await this.notifications.notify(userId, 'workspace.position.assigned', payload, {
+          actionUrl: wsUrl,
+        });
+        return;
+      }
+      case 'workspace.position.certified': {
+        const userId = payload['userId'] as string | undefined;
+        if (!userId) return;
+        await this.notifications.notify(userId, 'workspace.position.certified', payload, {
+          actionUrl: wsUrl,
+        });
+        return;
+      }
       default:
         return;
     }

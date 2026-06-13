@@ -12,14 +12,9 @@ import {
 } from '../context/workspace-context.service';
 import { RolesService } from '../../core/roles/roles.service';
 import type { JwtPayload } from '../decorators/current-user.decorator';
+import { WORKSPACE_ROLE_RANK } from '@superapp/shared';
 
-const ROLE_RANK: Record<string, number> = {
-  owner: 5,
-  admin: 4,
-  manager: 3,
-  staff: 2,
-  guest: 1,
-};
+const ROLE_RANK: Record<string, number> = WORKSPACE_ROLE_RANK;
 
 /**
  * Establishes the request-scoped WorkspaceContext (chokepoint gate).

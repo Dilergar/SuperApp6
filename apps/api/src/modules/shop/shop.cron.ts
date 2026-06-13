@@ -22,8 +22,13 @@ export class ShopCron {
     const ran = await this.redis.withLock('cron:shop-sweep', 10 * 60 * 1000, async () => {
       const archived = await this.shop.archiveExpiredListings();
       const expired = await this.shop.expireCampaigns();
-      if (archived > 0 || expired > 0) {
-        this.logger.log(`Shop sweep: archived ${archived} listing(s), refunded ${expired} expired campaign(s)`);
+      // Safety net: settle confirmed «с задачей» orders whose fulfilment task is done but whose
+      // settle signal was lost (crash / at-most-once bus). Idempotent.
+      const settled = await this.shop.settleCompletedFulfilments();
+      if (archived > 0 || expired > 0 || settled > 0) {
+        this.logger.log(
+          `Shop sweep: archived ${archived} listing(s), refunded ${expired} expired campaign(s), settled ${settled} stuck fulfilment(s)`,
+        );
       }
     });
     if (ran === null) this.logger.debug('Skipped shop sweep — another instance holds the lock');

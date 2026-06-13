@@ -307,9 +307,13 @@ export class LedgerService {
   async postPending(tx: Tx, pendingId: bigint): Promise<bigint | null> {
     const pending = await tx.ledgerTransfer.findUnique({ where: { id: pendingId } });
     if (!pending || pending.kind !== 'pending') return null;
-    if (await this.isResolved(tx, pendingId)) return null;
+    if (await this.isResolved(tx, pendingId)) return null; // cheap pre-check (no locks yet)
     const amount = pending.amount;
     const locks = await this.lock(tx, [pending.debitAccountId, pending.creditAccountId]);
+    // Re-check AFTER the payer row lock: a concurrent post/void serialises on that lock, so the
+    // loser of the race sees the winner's resolution row here (READ COMMITTED re-reads). Without
+    // this, two parallel settles both pass the pre-check → double payout.
+    if (await this.isResolved(tx, pendingId)) return null;
     const payer = locks.get(pending.debitAccountId)!;
     const bene = locks.get(pending.creditAccountId)!;
     const id = await this.append(tx, {
@@ -321,6 +325,9 @@ export class LedgerService {
       pendingId,
       agreementId: pending.agreementId,
     });
+    // Belt: the partial-unique on (pending_id) for resolution kinds makes a second resolution
+    // physically impossible — a violation aborts this tx (full rollback, no money moved).
+    if (id === null) return null;
     await this.write(tx, payer.id, payer.balance - amount, payer.held - amount);
     await this.write(tx, bene.id, bene.balance + amount, bene.held);
     return id;
@@ -330,11 +337,13 @@ export class LedgerService {
   async voidPending(tx: Tx, pendingId: bigint): Promise<void> {
     const pending = await tx.ledgerTransfer.findUnique({ where: { id: pendingId } });
     if (!pending || pending.kind !== 'pending') return;
-    if (await this.isResolved(tx, pendingId)) return;
+    if (await this.isResolved(tx, pendingId)) return; // cheap pre-check (no locks yet)
     const amount = pending.amount;
     const locks = await this.lock(tx, [pending.debitAccountId]);
+    // Re-check AFTER the payer row lock (post/void both lock the payer → fully serialised).
+    if (await this.isResolved(tx, pendingId)) return;
     const payer = locks.get(pending.debitAccountId)!;
-    await this.append(tx, {
+    const id = await this.append(tx, {
       currencyId: pending.currencyId,
       debitAccountId: pending.debitAccountId,
       creditAccountId: pending.creditAccountId,
@@ -342,6 +351,7 @@ export class LedgerService {
       kind: 'void_pending',
       pendingId,
     });
+    if (id === null) return; // partial-unique belt — already resolved
     const held = payer.held - amount;
     await this.write(tx, payer.id, payer.balance, held < 0n ? 0n : held);
   }

@@ -3,6 +3,7 @@ import { LedgerService } from './ledger.service';
 import { CurrencyService } from './currency.service';
 import { EscrowService } from './escrow.service';
 import { WalletController } from './wallet.controller';
+import { WalletCron } from './wallet.cron';
 
 /**
  * Wallet: issued currencies, the immutable ledger and the generic escrow engine.
@@ -13,7 +14,7 @@ import { WalletController } from './wallet.controller';
  */
 @Module({
   controllers: [WalletController],
-  providers: [LedgerService, CurrencyService, EscrowService],
+  providers: [LedgerService, CurrencyService, EscrowService, WalletCron],
   exports: [LedgerService, EscrowService],
 })
 export class WalletModule {}

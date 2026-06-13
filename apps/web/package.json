@@ -11,6 +11,7 @@
   "dependencies": {
     "@superapp/shared": "workspace:*",
     "@tanstack/react-query": "^5.62.0",
+    "@xyflow/react": "^12.11.0",
     "axios": "^1.7.0",
     "lottie-react": "^2.4.1",
     "lucide-react": "^0.468.0",

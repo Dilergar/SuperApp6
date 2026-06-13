@@ -1,14 +1,11 @@
 'use client';
 
-import type { Workspace } from '@superapp/shared';
+import { WORKSPACE_ROLES, type Workspace, type WorkspaceRole } from '@superapp/shared';
 
-const ROLE_LABELS: Record<string, string> = {
-  owner: 'Владелец',
-  admin: 'Администратор',
-  manager: 'Менеджер',
-  staff: 'Сотрудник',
-  guest: 'Гость',
-};
+// Единый источник лейблов ролей — shared (Стажёр/Подрядчик уже включены).
+const ROLE_LABELS: Record<string, string> = Object.fromEntries(
+  (Object.keys(WORKSPACE_ROLES) as WorkspaceRole[]).map((k) => [k, WORKSPACE_ROLES[k].name]),
+);
 
 /**
  * Company card — the org analog of PersonCard (sketch aesthetic). Renders whatever

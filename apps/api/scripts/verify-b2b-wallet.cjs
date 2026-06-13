@@ -47,6 +47,13 @@ async function main() {
       const exists = await prisma.workspaceMember.findFirst({ where: { workspaceId: wsId, userId: u2 } });
       if (!exists) await prisma.workspaceMember.create({ data: { workspaceId: wsId, userId: u2 } });
     });
+    // Роль — источник правды членства («рабочий пропуск» проверяет КОМАНДНЫЕ роли,
+    // а не голые member-строки): без роли сотрудник недостижим для задач компании.
+    await prisma.userRole.upsert({
+      where: { userId_role_context_tenantId: { userId: u2, role: 'staff', context: 'workspace', tenantId: wsId } },
+      update: { isActive: true },
+      create: { userId: u2, role: 'staff', context: 'workspace', tenantId: wsId, grantedBy: u1 },
+    });
 
     // Company currency + mint into the treasury.
     const cur = await call('POST', '/wallet/company/currency', t1, { name: 'БонусКоин', icon: '🏢' }, wsId);

@@ -8,10 +8,14 @@ import {
 import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { RedisService } from '../../shared/redis/redis.service';
+import { WorkspaceContextService } from '../../shared/context/workspace-context.service';
+import { AccessProjectionService } from '../../core/access/access-projection.service';
 import {
   CONTACT_LIMITS,
+  TEAM_WORKSPACE_ROLES,
   resolveCardVisibility,
   mergeVisibilities,
+  maskLastName,
   type CardVisibility,
   type Contact,
   type ContactUserCard,
@@ -40,6 +44,8 @@ export class ContactsService {
     private db: DatabaseService,
     private events: EventBusService,
     private redis: RedisService,
+    private accessProjection: AccessProjectionService,
+    private workspaceContext: WorkspaceContextService,
   ) {}
 
   // ============================================================
@@ -194,6 +200,92 @@ export class ContactsService {
     return [...ids];
   }
 
+  /**
+   * THE reachability gate for every "between people" action (assign a task, invite to an
+   * event, share a showcase, open a DM). Context-aware:
+   *
+   *   - PERSONAL context (no active workspace): each id must be a confirmed contact of
+   *     `ownerId` AND the pair must not be blocked in EITHER direction.
+   *   - WORKSPACE context («рабочий пропуск», X-Workspace-Id verified fail-closed by the
+   *     interceptor): coworkers are reachable by CO-MEMBERSHIP in the active workspace —
+   *     the personal Окружение is NOT required (Slack/Bitrix24 model). Personal blocks do
+   *     not gate work artifacts (tasks/events/work chats); direct messages still respect
+   *     them — the messenger passes `alwaysCheckBlocks` for DM.
+   *
+   * Batch: 2 queries total for any number of ids.
+   */
+  async assertReachable(
+    ownerId: string,
+    ids: string[],
+    notLinkedMessage = 'Это действие доступно только для людей из вашего окружения',
+    opts: { alwaysCheckBlocks?: boolean } = {},
+  ): Promise<void> {
+    const others = [...new Set(ids)].filter((id) => id && id !== ownerId);
+    if (others.length === 0) return;
+
+    const workspaceId = this.workspaceContext.activeWorkspaceId;
+    if (workspaceId) {
+      // Со-членство по РОЛЯМ (единый источник UserRole) и только КОМАНДНЫМ
+      // (trainee и выше): «Подрядчик» (contractor, Коллаб-модель) изолирован —
+      // он не инициирует действия через рабочий пропуск И не достижим через него.
+      // Его работа течёт через явные гранты задач/чатов, которые пишет владеющий сервис.
+      const teamRows = await this.db.userRole.findMany({
+        where: {
+          context: 'workspace',
+          tenantId: workspaceId,
+          isActive: true,
+          userId: { in: [ownerId, ...others] },
+          role: { in: [...TEAM_WORKSPACE_ROLES] },
+        },
+        select: { userId: true },
+      });
+      const teamSet = new Set(teamRows.map((r) => r.userId));
+      if (!teamSet.has(ownerId)) {
+        throw new ForbiddenException('Подрядчику доступны только его задачи');
+      }
+      if (others.some((id) => !teamSet.has(id))) {
+        throw new ForbiddenException(
+          'Это действие доступно только для сотрудников организации',
+        );
+      }
+      if (opts.alwaysCheckBlocks) await this.assertNotBlocked(ownerId, others);
+      return;
+    }
+
+    const links = await this.db.contactLink.findMany({
+      where: {
+        OR: others.map((id) => {
+          const [a, b] = ownerId < id ? [ownerId, id] : [id, ownerId];
+          return { userAId: a, userBId: b };
+        }),
+      },
+      select: { userAId: true, userBId: true },
+    });
+    const linked = new Set(links.map((l) => (l.userAId === ownerId ? l.userBId : l.userAId)));
+    if (others.some((id) => !linked.has(id))) {
+      throw new ForbiddenException(notLinkedMessage);
+    }
+
+    await this.assertNotBlocked(ownerId, others);
+  }
+
+  /** Throws if ANY pair (ownerId, id) is blocked in either direction. */
+  private async assertNotBlocked(ownerId: string, others: string[]): Promise<void> {
+    const blocked = await this.db.contactBlock.findFirst({
+      where: {
+        OR: [
+          { blockerId: ownerId, blockedId: { in: others } },
+          { blockerId: { in: others }, blockedId: ownerId },
+        ],
+      },
+      select: { id: true },
+    });
+    if (blocked) {
+      // Deliberately neutral — never reveal who blocked whom.
+      throw new ForbiddenException('Действие недоступно для этого пользователя');
+    }
+  }
+
   async updateContact(
     userId: string,
     linkId: string,
@@ -224,13 +316,19 @@ export class ContactsService {
   }
 
   async deleteContact(userId: string, linkId: string) {
-    const link = await this.db.contactLink.findUnique({ where: { id: linkId } });
+    // Memberships are loaded BEFORE the delete: they cascade away with the
+    // link, but their mirrored access tuples must be revoked explicitly.
+    const link = await this.db.contactLink.findUnique({
+      where: { id: linkId },
+      include: { memberships: { select: this.membershipSelect() } },
+    });
     if (!link) throw new NotFoundException('Контакт не найден');
     if (link.userAId !== userId && link.userBId !== userId) {
       throw new ForbiddenException('Нет доступа к этому контакту');
     }
 
     await this.db.contactLink.delete({ where: { id: linkId } });
+    await this.revokeMembershipTuples(link);
 
     this.events.emit(
       'contact.removed',
@@ -643,7 +741,9 @@ export class ContactsService {
 
   async listIncomingInvitations(userId: string) {
     const invitations = await this.db.contactInvitation.findMany({
-      where: { toUserId: userId, status: 'pending' },
+      // expiresAt guard: an invitation past its TTL is dead even before the
+      // hourly cron flips its status — it must not look actionable in the UI.
+      where: { toUserId: userId, status: 'pending', expiresAt: { gt: new Date() } },
       orderBy: { createdAt: 'desc' },
       take: 200, // safety cap; pending invitations are bounded in practice
       include: {
@@ -662,7 +762,7 @@ export class ContactsService {
 
   async listOutgoingInvitations(userId: string) {
     const invitations = await this.db.contactInvitation.findMany({
-      where: { fromUserId: userId, status: 'pending' },
+      where: { fromUserId: userId, status: 'pending', expiresAt: { gt: new Date() } },
       orderBy: { createdAt: 'desc' },
       take: CONTACT_LIMITS.maxPendingOutgoingInvitations,
       include: {
@@ -733,7 +833,7 @@ export class ContactsService {
       where: { blockerId: userId },
       include: {
         blocked: {
-          select: { id: true, phone: true, firstName: true },
+          select: { id: true, phone: true, firstName: true, lastName: true, avatar: true },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -744,6 +844,9 @@ export class ContactsService {
       blockedUserId: b.blockedId,
       blockedPhone: b.blocked.phone,
       blockedFirstName: b.blocked.firstName,
+      // The link is gone — only the initial, same as the pre-link lookup.
+      blockedLastName: maskLastName(b.blocked.lastName),
+      blockedAvatar: b.blocked.avatar,
       createdAt: b.createdAt.toISOString(),
     }));
   }
@@ -763,11 +866,18 @@ export class ContactsService {
     });
     if (existing) return existing;
 
-    // Block implies removing any existing link between the two.
+    // Block implies removing any existing link between the two. Its group
+    // memberships are loaded first (they cascade away with the link) so the
+    // mirrored access tuples can be revoked immediately.
     const [a, b] = canonical(userId, targetUserId);
+    const link = await this.db.contactLink.findUnique({
+      where: { userAId_userBId: { userAId: a, userBId: b } },
+      include: { memberships: { select: this.membershipSelect() } },
+    });
     await this.db.contactLink.deleteMany({
       where: { userAId: a, userBId: b },
     });
+    if (link) await this.revokeMembershipTuples(link);
     // And cancel any pending invitations between them.
     await this.db.contactInvitation.updateMany({
       where: {
@@ -807,8 +917,14 @@ export class ContactsService {
       data: { status: 'expired', respondedAt: new Date() },
     });
 
+    // Non-pending rows are RETAINED for a window, not deleted on sight: the
+    // resend cooldown (24h), the 30-per-24h send limit and resendInvitation
+    // all read this history — deleting it hourly silently disabled all three.
+    const retainSince = new Date(
+      Date.now() - CONTACT_LIMITS.nonPendingRetentionDays * 24 * 60 * 60 * 1000,
+    );
     await this.db.contactInvitation.deleteMany({
-      where: { status: { not: 'pending' } },
+      where: { status: { not: 'pending' }, updatedAt: { lt: retainSince } },
     });
   }
 
@@ -816,11 +932,37 @@ export class ContactsService {
     await this.db.contactBlock.deleteMany({
       where: { blockerId: userId, blockedId: targetUserId },
     });
+    await Promise.all([
+      this.redis.invalidateUserProfile(userId),
+      this.redis.invalidateUserProfile(targetUserId),
+    ]);
   }
 
   // ============================================================
   // Internal helpers
   // ============================================================
+
+  /**
+   * Revoke the access-engine tuples mirrored from a deleted link's group
+   * memberships (circle:<id>#member@user). The CircleMembership rows cascade
+   * away with the ContactLink at the DB level, but without an explicit revoke
+   * the removed person keeps everything granted to those Groups (per-Group
+   * calendar sharing, showcases/wishlists shared to a Group) until the nightly
+   * AccessReconcileCron. Best-effort: AccessProjectionService never throws —
+   * a projection failure only logs, the reconciler is the safety net.
+   */
+  private async revokeMembershipTuples(link: {
+    userAId: string;
+    userBId: string;
+    memberships: { circleId: string; circle: { ownerId: string } }[];
+  }): Promise<void> {
+    for (const m of link.memberships) {
+      // The member is the side of the link opposite the Group owner.
+      const memberId =
+        m.circle.ownerId === link.userAId ? link.userBId : link.userAId;
+      await this.accessProjection.circleMemberRemoved(m.circleId, memberId);
+    }
+  }
 
   private userCardSelect() {
     return {

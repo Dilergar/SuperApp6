@@ -155,3 +155,55 @@ export const ACCESS_SCHEMA: Record<string, ResourceTypeConfig> = {
     relations: { member: THIS },
   },
 };
+
+// ============================================================
+// Perf maps (arch-review block 3). Keep in sync with how projections WRITE tuples —
+// a new userset/parent shape must be added here or listObjects will miss results
+// and stale caches may outlive a grant.
+// ============================================================
+
+/**
+ * Principal node types that are ALWAYS worth expanding on the listObjects reverse walk
+ * (they can carry grants toward any resource type: users, Groups, org structure).
+ */
+export const GENERIC_PRINCIPALS: readonly string[] = ['user', 'circle', 'workspace', 'department', 'position', 'branch'];
+
+/**
+ * Extra node types worth expanding PER TARGET type (beyond GENERIC_PRINCIPALS):
+ *  - chat membership is usersets over task/order/event roles → those nodes lead to chats;
+ *  - showcase inherits managers from its parent shop → shop nodes lead to showcases.
+ * Everything else (a task node while searching calendars, a chat node anywhere, …) is a
+ * dead end and is pruned — this is what turns the BFS from "every tuple the user touches"
+ * into "only the paths that can reach the target type".
+ */
+export const LIST_OBJECTS_EXTRA_EXPANSION: Record<string, string[]> = {
+  chat: ['task', 'order', 'event'],
+  showcase: ['shop'],
+};
+
+/**
+ * Cache-epoch fan-out: mutating tuples OF <key type> must invalidate cached check()
+ * results of <value types> (the types whose resolution can traverse the mutated tuples).
+ * Unmapped types (department/position/branch/new ones) fall back to the GLOBAL epoch —
+ * coarse but safe-by-default. This replaces the single global epoch the review flagged
+ * (every task/chat write was flushing the WHOLE platform's ACL cache).
+ */
+export const EPOCH_FANOUT: Record<string, string[]> = {
+  task: ['task', 'chat'],
+  order: ['order', 'chat'],
+  event: ['event', 'chat'],
+  chat: ['chat'],
+  shop: ['shop', 'showcase'],
+  showcase: ['showcase'],
+  wishlist: ['wishlist'],
+  calendar: ['calendar'],
+  card: ['card'],
+  platform: ['platform'],
+  workspace: ['workspace', 'shop', 'showcase', 'chat'],
+  circle: ['circle', 'showcase', 'wishlist', 'calendar', 'card'],
+  // Staff-оси («Сотрудники»): membership-рёбра могут нести гранты на карточки
+  // (card.full_viewer), витрины B2B и календарь — будущие аудитории Ленты/отпусков.
+  department: ['department', 'card', 'showcase', 'calendar'],
+  position: ['position', 'card', 'showcase', 'calendar'],
+  branch: ['branch', 'card', 'showcase', 'calendar'],
+};

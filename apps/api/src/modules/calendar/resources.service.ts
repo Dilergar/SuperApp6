@@ -5,7 +5,7 @@ import {
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
-import { Resource as ResourceRow } from '@prisma/client';
+import { Prisma, Resource as ResourceRow } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { fullName } from '../../shared/utils/user-name';
 import { EventBusService } from '../../shared/events/event-bus.service';
@@ -132,13 +132,19 @@ export class ResourcesService {
     start: Date,
     end: Date,
     excludeEventId?: string,
+    tx?: Prisma.TransactionClient,
   ): Promise<{ status: ResourceBookingStatus; ownerId: string; name: string }> {
-    const resource = await this.db.resource.findUnique({ where: { id: resourceId } });
+    const db = (tx ?? this.db) as unknown as Prisma.TransactionClient;
+    // Inside the caller's transaction, lock the resource row FIRST: the capacity check and the
+    // event write are then atomic — two concurrent bookings of the last free slot can't both
+    // pass `active < capacity` (the loser waits here and re-counts the winner's booking).
+    if (tx) await tx.$queryRaw`SELECT id FROM resources WHERE id = ${resourceId} FOR UPDATE`;
+    const resource = await db.resource.findUnique({ where: { id: resourceId } });
     if (!resource) throw new NotFoundException('Ресурс не найден');
     if (resource.ownerId !== bookerId && !(await this.canBook(resource, bookerId))) {
       throw new ForbiddenException('Нет доступа к бронированию этого ресурса');
     }
-    const active = await this.countActive(resourceId, start, end, excludeEventId);
+    const active = await this.countActive(resourceId, start, end, excludeEventId, db);
     if (active >= resource.capacity) {
       throw new ConflictException('Ресурс занят в это время');
     }
@@ -154,19 +160,28 @@ export class ResourcesService {
     if (ev.resourceStatus !== 'pending') {
       throw new BadRequestException('Заявка не в статусе ожидания');
     }
-    const confirmed = await this.db.calendarEvent.count({
-      where: {
-        resourceId: ev.resourceId!,
-        resourceStatus: 'confirmed',
-        id: { not: eventId },
-        startTime: { lt: ev.endTime },
-        endTime: { gt: ev.startTime },
-      },
+    await this.db.$transaction(async (tx) => {
+      // Resource row lock: two parallel confirms of overlapping requests (or a confirm racing a
+      // new booking) serialise here — the capacity check and the status flip are atomic.
+      await tx.$queryRaw`SELECT id FROM resources WHERE id = ${ev.resourceId!} FOR UPDATE`;
+      const confirmed = await tx.calendarEvent.count({
+        where: {
+          resourceId: ev.resourceId!,
+          resourceStatus: 'confirmed',
+          id: { not: eventId },
+          startTime: { lt: ev.endTime },
+          endTime: { gt: ev.startTime },
+        },
+      });
+      if (confirmed >= ev.resource!.capacity) {
+        throw new ConflictException('В это время ресурс уже занят подтверждёнными бронями');
+      }
+      const claimed = await tx.calendarEvent.updateMany({
+        where: { id: eventId, resourceStatus: 'pending' },
+        data: { resourceStatus: 'confirmed' },
+      });
+      if (claimed.count === 0) throw new BadRequestException('Заявка не в статусе ожидания');
     });
-    if (confirmed >= ev.resource!.capacity) {
-      throw new ConflictException('В это время ресурс уже занят подтверждёнными бронями');
-    }
-    await this.db.calendarEvent.update({ where: { id: eventId }, data: { resourceStatus: 'confirmed' } });
     this.events.emit(
       'calendar.resource.confirmed',
       { recipientIds: [ev.userId], resourceName: ev.resource!.name, eventTitle: ev.title, eventId, byUserId: ownerId },
@@ -207,8 +222,14 @@ export class ResourcesService {
     return ev;
   }
 
-  private async countActive(resourceId: string, start: Date, end: Date, excludeEventId?: string): Promise<number> {
-    return this.db.calendarEvent.count({
+  private async countActive(
+    resourceId: string,
+    start: Date,
+    end: Date,
+    excludeEventId?: string,
+    db: Prisma.TransactionClient = this.db as unknown as Prisma.TransactionClient,
+  ): Promise<number> {
+    return db.calendarEvent.count({
       where: {
         resourceId,
         resourceStatus: { in: ACTIVE },

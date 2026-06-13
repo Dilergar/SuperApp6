@@ -25,6 +25,9 @@ export const updateProfileSchema = z.object({
   // Owner's DEFAULT card visibility (single object) — applied to contacts
   // in none of the owner's groups. Per-group visibility is set via circles.
   cardVisibility: cardVisibilityObjectSchema.nullable().optional(),
+  // «Видимость в Компаниях» — что видят коллеги по организации на карточке
+  // в ростере «Сотрудники» (та же форма флагов; имя/фамилия/телефон/должность всегда).
+  companyCardVisibility: cardVisibilityObjectSchema.nullable().optional(),
 });
 
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;

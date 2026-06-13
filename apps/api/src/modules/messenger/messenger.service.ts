@@ -114,7 +114,9 @@ export class MessengerService {
   // ============================================================
   async openDm(userId: string, peerId: string): Promise<ChatDetail> {
     if (peerId === userId) throw new BadRequestException('Нельзя начать диалог с самим собой');
-    await this.assertInEnvironment(userId, peerId);
+    // DM is personal communication: unlike work artifacts (tasks/events/group
+    // chats), it respects personal blocks even in a workspace context.
+    await this.assertInEnvironment(userId, peerId, { alwaysCheckBlocks: true });
 
     const key = this.dmKeyOf(userId, peerId);
     let chat = await this.db.chat.findUnique({ where: { dmKey: key } });
@@ -147,25 +149,22 @@ export class MessengerService {
 
   /**
    * Both users must be in each other's Окружение (a ContactLink exists) and neither
-   * may have blocked the other. Used for DM open and group-member add.
+   * may have blocked the other. Delegates to the shared gate in ContactsService —
+   * the SAME rule now guards tasks/calendar/shop too (arch-review block 6).
+   * In a workspace context the gate switches to co-membership («рабочий пропуск»);
+   * `alwaysCheckBlocks` keeps personal blocks enforced there too (used for DM).
    */
-  private async assertInEnvironment(userId: string, otherId: string): Promise<void> {
-    const [a, b] = [userId, otherId].sort();
-    const link = await this.db.contactLink.findFirst({
-      where: { userAId: a, userBId: b },
-      select: { id: true },
-    });
-    if (!link) throw new ForbiddenException('Этого человека нет в вашем окружении');
-    const block = await this.db.contactBlock.findFirst({
-      where: {
-        OR: [
-          { blockerId: userId, blockedId: otherId },
-          { blockerId: otherId, blockedId: userId },
-        ],
-      },
-      select: { id: true },
-    });
-    if (block) throw new ForbiddenException('Диалог недоступен');
+  private async assertInEnvironment(
+    userId: string,
+    otherId: string,
+    opts: { alwaysCheckBlocks?: boolean } = {},
+  ): Promise<void> {
+    await this.contacts.assertReachable(
+      userId,
+      [otherId],
+      'Этого человека нет в вашем окружении',
+      opts,
+    );
   }
 
   // ============================================================
@@ -977,7 +976,15 @@ export class MessengerService {
       include: {
         chat: {
           include: {
-            members: { include: { user: { select: USER_LITE } } },
+            // ONLY the DM peer (groups don't render member lists in the inbox) — the
+            // previous include pulled EVERY member of EVERY chat with full user rows
+            // (50 groups × 50 members = 2500 joined rows per inbox load).
+            members: {
+              where: { leftAt: null, userId: { not: userId } },
+              take: 1,
+              select: { userId: true, user: { select: USER_LITE } },
+            },
+            _count: { select: { members: { where: { leftAt: null } } } },
             messages: {
               orderBy: { seq: 'desc' },
               take: 1,
@@ -992,16 +999,14 @@ export class MessengerService {
     // A fresh group/context chat always has its 'created' system message, so it shows.
     const visible = memberships.filter((m) => m.chat.messages[0] || m.pinned);
 
-    // Unread per chat in ONE query (no N+1): count incoming, non-deleted, non-system
-    // messages newer than each member's read cursor.
-    const unreadByChat = await this.computeUnread(userId, visible);
+    // Unread per chat in ONE indexed range query (seq > cursor) — NOT a scan of the
+    // full history (the old groupBy counted every message of every chat ever).
+    const unreadByChat = await this.computeUnread(userId, visible.map((m) => m.chatId));
 
     const summaries: ChatSummary[] = visible.map((m) => {
       const chat = m.chat;
       const last = chat.messages[0] ?? null;
-      const activeMembers = chat.members.filter((x) => !x.leftAt);
-      const peerMember =
-        chat.type === 'dm' ? activeMembers.find((x) => x.userId !== userId) : null;
+      const peerMember = chat.type === 'dm' ? chat.members[0] : null;
       const peer = peerMember?.user ?? null;
 
       return {
@@ -1012,7 +1017,7 @@ export class MessengerService {
         peerUserId: peer?.id ?? null,
         parentType: (chat.parentType as ChatSummary['parentType']) ?? null,
         parentId: chat.parentId ?? null,
-        memberCount: chat.type === 'dm' ? null : activeMembers.length,
+        memberCount: chat.type === 'dm' ? null : chat._count.members,
         myRole: (m.role as ChatMemberRole) ?? 'member',
         lastMessage: last ? this.toPreview(last) : null,
         unreadCount: unreadByChat.get(chat.id) ?? 0,
@@ -1029,51 +1034,28 @@ export class MessengerService {
   }
 
   /**
-   * Unread counts for many chats without N+1. One groupBy over incoming, non-deleted,
-   * non-system messages bucketed by chat; then subtract those already read
-   * (seq ≤ lastReadSeq). System plaques never count toward unread.
+   * Unread counts for many chats in ONE raw query whose work is O(unread), not O(history):
+   * the (chatId, seq) index serves `seq > cursor` as a range scan per chat. Respects the
+   * member's visibility floor (visibleFromSeq — group members don't "unread" pre-join
+   * history) and excludes own + system + deleted messages.
    */
-  private async computeUnread(
-    userId: string,
-    memberships: { chatId: string; lastReadSeq: number }[],
-  ): Promise<Map<string, number>> {
+  private async computeUnread(userId: string, chatIds: string[]): Promise<Map<string, number>> {
     const result = new Map<string, number>();
-    if (!memberships.length) return result;
-    const chatIds = memberships.map((m) => m.chatId);
+    if (!chatIds.length) return result;
 
-    // Total incoming (not mine, not deleted, not system) per chat.
-    const totals = await this.db.message.groupBy({
-      by: ['chatId'],
-      where: {
-        chatId: { in: chatIds },
-        deletedAt: null,
-        authorId: { not: userId },
-        type: { not: 'system' },
-      },
-      _count: { _all: true },
-    });
-    // Already-read incoming per chat (seq ≤ my cursor). Built as OR of per-chat ranges.
-    const readRanges = memberships
-      .filter((m) => m.lastReadSeq > 0)
-      .map((m) => ({ chatId: m.chatId, seq: { lte: m.lastReadSeq } }));
-    const readByChat = new Map<string, number>();
-    if (readRanges.length) {
-      const reads = await this.db.message.groupBy({
-        by: ['chatId'],
-        where: {
-          deletedAt: null,
-          authorId: { not: userId },
-          type: { not: 'system' },
-          OR: readRanges,
-        },
-        _count: { _all: true },
-      });
-      for (const r of reads) readByChat.set(r.chatId, r._count._all);
-    }
-    for (const t of totals) {
-      const unread = t._count._all - (readByChat.get(t.chatId) ?? 0);
-      result.set(t.chatId, unread > 0 ? unread : 0);
-    }
+    const rows = await this.db.$queryRaw<Array<{ chatId: string; unread: number }>>(Prisma.sql`
+      SELECT m.chat_id AS "chatId", COUNT(*)::int AS unread
+      FROM messages m
+      JOIN chat_members cm
+        ON cm.chat_id = m.chat_id AND cm.user_id = ${userId} AND cm.left_at IS NULL
+      WHERE m.chat_id IN (${Prisma.join(chatIds)})
+        AND m.deleted_at IS NULL
+        AND m.type <> 'system'
+        AND m.author_id <> ${userId}
+        AND m.seq > GREATEST(cm.last_read_seq, cm.visible_from_seq - 1)
+      GROUP BY m.chat_id
+    `);
+    for (const r of rows) result.set(r.chatId, r.unread);
     return result;
   }
 
@@ -1382,22 +1364,29 @@ export class MessengerService {
     // check is implicit here (delivery is low-stakes); read/post go through assertAccess.
     const m = await this.db.chatMember.findUnique({
       where: { chatId_userId: { chatId, userId } },
+      include: { chat: { select: { lastSeq: true } } },
     });
-    if (!m || m.leftAt || seq <= m.deliveredSeq) return;
+    if (!m || m.leftAt) return;
+    // Clamp to the chat's real lastSeq: an arbitrary client seq must not run the cursor
+    // ahead of messages that don't exist yet ("read" ticks on unsent messages).
+    const clamped = Math.min(seq, m.chat.lastSeq);
+    if (clamped <= m.deliveredSeq) return;
     await this.db.chatMember.update({
       where: { id: m.id },
-      data: { deliveredSeq: seq, deliveredAt: new Date() },
+      data: { deliveredSeq: clamped, deliveredAt: new Date() },
     });
-    await this.emitReceipt(chatId, userId, seq, m.lastReadSeq);
+    await this.emitReceipt(chatId, userId, clamped, m.lastReadSeq);
   }
 
   async markRead(userId: string, chatId: string, seq: number): Promise<void> {
     await this.assertAccess(userId, chatId);
     const m = await this.db.chatMember.findUnique({
       where: { chatId_userId: { chatId, userId } },
+      include: { chat: { select: { lastSeq: true } } },
     });
     if (!m) return;
-    const newRead = Math.max(m.lastReadSeq, seq);
+    const clamped = Math.min(seq, m.chat.lastSeq); // see markDelivered
+    const newRead = Math.max(m.lastReadSeq, clamped);
     const newDelivered = Math.max(m.deliveredSeq, newRead);
     if (newRead === m.lastReadSeq && newDelivered === m.deliveredSeq) return;
     await this.db.chatMember.update({

@@ -9,6 +9,8 @@ import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
+import { EventBusService } from '../../shared/events/event-bus.service';
+import { AccessProjectionService } from '../access/access-projection.service';
 import { resolveCardVisibility, type UpdateProfileInput } from '@superapp/shared';
 
 /** Days a deleted account stays recoverable before permanent anonymization. */
@@ -19,6 +21,8 @@ export class UsersService {
   constructor(
     private db: DatabaseService,
     private redis: RedisService,
+    private events: EventBusService,
+    private accessProjection: AccessProjectionService,
   ) {}
 
   async getProfile(userId: string) {
@@ -45,6 +49,7 @@ export class UsersService {
         locale: true,
         timezone: true,
         cardVisibility: true,
+        companyCardVisibility: true,
         createdAt: true,
         updatedAt: true,
         subscription: {
@@ -78,7 +83,7 @@ export class UsersService {
       throw new NotFoundException('Пользователь не найден');
     }
 
-    const { _count, subscription, cardVisibility, dateOfBirth, ...rest } = user;
+    const { _count, subscription, cardVisibility, companyCardVisibility, dateOfBirth, ...rest } = user;
 
     const profile = {
       ...rest,
@@ -87,6 +92,10 @@ export class UsersService {
       // owner's groups. Per-group visibility lives on Circle.
       cardVisibility: resolveCardVisibility(
         cardVisibility as Parameters<typeof resolveCardVisibility>[0],
+      ),
+      // «Видимость в Компаниях» — что видят коллеги по организации в ростере.
+      companyCardVisibility: resolveCardVisibility(
+        companyCardVisibility as Parameters<typeof resolveCardVisibility>[0],
       ),
       circlesCount: _count.ownedCircles,
       workspacesCount: _count.workspaceMembers,
@@ -101,7 +110,7 @@ export class UsersService {
   }
 
   async updateProfile(userId: string, data: UpdateProfileInput) {
-    const { dateOfBirth, cardVisibility, socialLinks, ...rest } = data;
+    const { dateOfBirth, cardVisibility, companyCardVisibility, socialLinks, ...rest } = data;
     const user = await this.db.user.update({
       where: { id: userId },
       data: {
@@ -111,6 +120,9 @@ export class UsersService {
         }),
         ...(cardVisibility !== undefined && {
           cardVisibility: cardVisibility as any,
+        }),
+        ...(companyCardVisibility !== undefined && {
+          companyCardVisibility: companyCardVisibility as any,
         }),
         ...(socialLinks !== undefined && {
           socialLinks: socialLinks as any,
@@ -165,6 +177,8 @@ export class UsersService {
     // Log out everywhere; the account stays hidden until restored via login.
     await this.db.session.deleteMany({ where: { userId } });
     await this.redis.invalidateUserProfile(userId);
+    // Live messenger sockets must drop too (socket auth is handshake-only).
+    this.events.emit('auth.sessions.revoked', { userId }, 'users');
     return { scheduled: true, gracePeriodDays: ACCOUNT_GRACE_DAYS };
   }
 
@@ -204,6 +218,23 @@ export class UsersService {
     for (const l of links) {
       others.add(l.userAId === userId ? l.userBId : l.userAId);
     }
+
+    // Access-engine cleanup targets, captured BEFORE the transaction deletes
+    // the rows: the user's own Groups (all their mirrored tuples drop) and the
+    // user's memberships in OTHER people's Groups (there the member is this
+    // user). Without the explicit revoke, group-granted visibility would
+    // outlive the account until the nightly AccessReconcileCron.
+    const ownedCircles = await this.db.circle.findMany({
+      where: { ownerId: userId },
+      select: { id: true },
+    });
+    const foreignMemberships = await this.db.circleMembership.findMany({
+      where: {
+        contactLink: { OR: [{ userAId: userId }, { userBId: userId }] },
+        circle: { ownerId: { not: userId } },
+      },
+      select: { circleId: true },
+    });
 
     const deadHash = await bcrypt.hash(randomUUID(), 12);
     const cutoff = new Date(Date.now() - ACCOUNT_GRACE_DAYS * 24 * 60 * 60 * 1000);
@@ -270,6 +301,17 @@ export class UsersService {
 
     // Restored / re-scheduled in the meantime → nothing was changed, skip.
     if (!anonymized) return;
+
+    // Drop the mirrored access edges (best-effort, reconcile is the safety net).
+    for (const c of ownedCircles) {
+      await this.accessProjection.circleDeleted(c.id);
+    }
+    for (const m of foreignMemberships) {
+      await this.accessProjection.circleMemberRemoved(m.circleId, userId);
+    }
+
+    // Drop any live messenger sockets of the now-anonymized account.
+    this.events.emit('auth.sessions.revoked', { userId }, 'users');
 
     // Bust caches for the anonymized user and every former contact.
     await this.redis.invalidateUserProfile(userId);

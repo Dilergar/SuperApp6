@@ -48,6 +48,18 @@ export class MessengerGateway
         this.logger.error(`relay ${e.type} failed`, err as Error);
       }
     });
+    // logout-all / account deletion: socket auth is handshake-only, so revoked sessions
+    // must be hard-disconnected. disconnectSockets() propagates across instances via the
+    // Redis adapter, so ONE consumer of the event is enough.
+    this.events.onPattern('auth.sessions.revoked').subscribe((e) => {
+      const userId = (e.payload as { userId?: string })?.userId;
+      if (!userId || !this.server) return;
+      try {
+        this.server.in(`user:${userId}`).disconnectSockets(true);
+      } catch (err) {
+        this.logger.error(`disconnect sockets for ${userId} failed`, err as Error);
+      }
+    });
   }
 
   async handleConnection(client: Socket): Promise<void> {
@@ -106,6 +118,24 @@ export class MessengerGateway
     this.server.to(rooms).emit(event, payload);
   }
 
+  /**
+   * Primitive per-socket token bucket: WS events bypass the HTTP ThrottlerGuard, so without
+   * this a client could spam typing/heartbeat (each costs an access check + member query).
+   * Counters live on the socket — no shared state needed (the limit is per connection).
+   */
+  private allow(client: Socket, kind: string, limit: number, windowMs = 60_000): boolean {
+    const buckets = (client.data.rate ??= {} as Record<string, { n: number; resetAt: number }>);
+    const now = Date.now();
+    const b = buckets[kind];
+    if (!b || now >= b.resetAt) {
+      buckets[kind] = { n: 1, resetAt: now + windowMs };
+      return true;
+    }
+    if (b.n >= limit) return false;
+    b.n++;
+    return true;
+  }
+
   @SubscribeMessage('message:delivered')
   async onDelivered(
     @ConnectedSocket() client: Socket,
@@ -113,6 +143,7 @@ export class MessengerGateway
   ): Promise<void> {
     const userId = client.data?.userId as string | undefined;
     if (!userId || !data?.chatId) return;
+    if (!this.allow(client, 'receipt', 120)) return;
     await this.messenger.markDelivered(userId, data.chatId, Number(data.seq) || 0);
   }
 
@@ -123,6 +154,7 @@ export class MessengerGateway
   ): Promise<void> {
     const userId = client.data?.userId as string | undefined;
     if (!userId || !data?.chatId) return;
+    if (!this.allow(client, 'receipt', 120)) return;
     await this.messenger.markRead(userId, data.chatId, Number(data.seq) || 0);
   }
 
@@ -133,6 +165,7 @@ export class MessengerGateway
   async onHeartbeat(@ConnectedSocket() client: Socket): Promise<void> {
     const userId = client.data?.userId as string | undefined;
     if (!userId) return;
+    if (!this.allow(client, 'heartbeat', 12)) return; // ~25s cadence → 12/min is generous
     await this.presence.heartbeat(userId);
   }
 
@@ -144,6 +177,7 @@ export class MessengerGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { chatId: string },
   ): Promise<void> {
+    if (!this.allow(client, 'typing', 60)) return;
     await this.relayTyping(client, data?.chatId, true);
   }
 
@@ -152,6 +186,7 @@ export class MessengerGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { chatId: string },
   ): Promise<void> {
+    if (!this.allow(client, 'typing', 60)) return;
     await this.relayTyping(client, data?.chatId, false);
   }
 

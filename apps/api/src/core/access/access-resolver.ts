@@ -3,7 +3,7 @@
 // the service can wire it to the DB / a cache). Handles DAGs (memoization) and cycles
 // (in-progress guard), with a depth cap.
 
-import { ACCESS_SCHEMA, RelationRule } from './access-schema';
+import { ACCESS_SCHEMA, RelationRule, GENERIC_PRINCIPALS, LIST_OBJECTS_EXTRA_EXPANSION } from './access-schema';
 import { Principal, ResourceRef, SubjectRef } from './access.types';
 
 const MAX_DEPTH = 24;
@@ -12,10 +12,9 @@ const MAX_VISITED = 10_000; // listObjects frontier safety cap
 export interface ResolverReaders {
   /** Subject side of every tuple on (resourceType, resourceId, relation). Forward walk. */
   subjectsOf(resourceType: string, resourceId: string, relation: string): Promise<SubjectRef[]>;
-  /** Every edge where (subjectType, subjectId) is the subject. Reverse walk for listObjects. */
-  edgesForSubject(
-    subjectType: string,
-    subjectId: string,
+  /** Every edge where ANY of `nodes` is the subject — ONE query per BFS wave, not per node. */
+  edgesForSubjects(
+    nodes: Array<{ type: string; id: string }>,
   ): Promise<Array<{ resourceType: string; resourceId: string; relation: string; subjectRelation: string }>>;
 }
 
@@ -101,34 +100,49 @@ export function createResolver(readers: ResolverReaders) {
   }
 
   // Reverse query: which resources of `resourceType` does `subject` hold `relation` on.
-  // BFS the reverse index from the subject (itself + public + every group/parent it
-  // reaches) to gather candidate resources, then verify each with check() so the rule
-  // rewrites (inheritance, levels, unions) are honored exactly.
+  // BFS the reverse index from the subject (itself + public + groups/org principals it
+  // reaches) to gather candidate resources, then verify each with the rule rewrites.
+  // Perf (arch-review block 3): (1) the frontier is PRUNED by type — only nodes that can
+  // lead onward to the target type are expanded (a power user's hundreds of chat/task
+  // tuples no longer explode a calendar/shop query); (2) each BFS wave is ONE batched
+  // query instead of one query per node; (3) candidate verification shares ONE memo ctx,
+  // so common subtrees (circle membership, a shop's manager set) are walked once.
   async function listObjects(subject: Principal, relation: string, resourceType: string): Promise<string[]> {
+    const expandable = new Set<string>([
+      ...GENERIC_PRINCIPALS,
+      ...(LIST_OBJECTS_EXTRA_EXPANSION[resourceType] ?? []),
+    ]);
     const candidates = new Set<string>();
     const visited = new Set<string>();
-    const frontier: Array<{ type: string; id: string }> = [
+    let wave: Array<{ type: string; id: string }> = [
       { type: subject.type, id: subject.id },
       { type: 'public', id: '*' },
     ];
 
-    while (frontier.length && visited.size < MAX_VISITED) {
-      const p = frontier.pop()!;
-      const pk = `${p.type}:${p.id}`;
-      if (visited.has(pk)) continue;
-      visited.add(pk);
+    while (wave.length && visited.size < MAX_VISITED) {
+      const batch: Array<{ type: string; id: string }> = [];
+      for (const n of wave) {
+        const nk = `${n.type}:${n.id}`;
+        if (visited.has(nk)) continue;
+        visited.add(nk);
+        batch.push(n);
+      }
+      if (batch.length === 0) break;
 
-      const edges = await readers.edgesForSubject(p.type, p.id);
+      const edges = await readers.edgesForSubjects(batch);
+      wave = [];
       for (const e of edges) {
         if (e.resourceType === resourceType) candidates.add(e.resourceId);
+        if (!expandable.has(e.resourceType)) continue; // pruned: can't lead onward to the target type
         const nk = `${e.resourceType}:${e.resourceId}`;
-        if (!visited.has(nk)) frontier.push({ type: e.resourceType, id: e.resourceId });
+        if (!visited.has(nk)) wave.push({ type: e.resourceType, id: e.resourceId });
       }
     }
 
+    const ctx: CheckCtx = { subject, memo: new Map(), inProgress: new Set() };
     const out: string[] = [];
     for (const id of candidates) {
-      if (await check(subject, relation, { type: resourceType, id })) out.push(id);
+      if (await checkInner(relation, { type: resourceType, id }, 0, ctx)) out.push(id);
     }
     return out;
   }

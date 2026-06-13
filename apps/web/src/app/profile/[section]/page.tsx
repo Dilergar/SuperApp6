@@ -86,6 +86,10 @@ export default function ProfileSectionPage() {
   const visSeeded = useRef(false);
   const visTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // «Видимость в Компаниях» — что видят коллеги по организациям (ростер «Сотрудники»).
+  const [visCompany, setVisCompany] = useState<CardVisibility | null>(null);
+  const visCompanyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // "Моя карточка" — preview as a group (or default).
   const [previewId, setPreviewId] = useState<string>(DEFAULT_PREVIEW);
 
@@ -114,6 +118,11 @@ export default function ProfileSectionPage() {
   useEffect(() => {
     if (profile && !visSeeded.current) {
       setVis(resolveCardVisibility(profile.cardVisibility ?? null));
+      setVisCompany(
+        resolveCardVisibility(
+          (profile as { companyCardVisibility?: CardVisibility | null }).companyCardVisibility ?? null,
+        ),
+      );
       visSeeded.current = true;
     }
   }, [profile]);
@@ -133,8 +142,11 @@ export default function ProfileSectionPage() {
       .catch(() => {});
   }, [isReady, profile]);
 
-  // Clean up the debounced visibility-save timer on unmount.
-  useEffect(() => () => { if (visTimer.current) clearTimeout(visTimer.current); }, []);
+  // Clean up the debounced visibility-save timers on unmount.
+  useEffect(() => () => {
+    if (visTimer.current) clearTimeout(visTimer.current);
+    if (visCompanyTimer.current) clearTimeout(visCompanyTimer.current);
+  }, []);
 
   const clear = () => { setError(''); setSuccessMsg(''); };
 
@@ -196,6 +208,23 @@ export default function ProfileSectionPage() {
       try {
         await api.patch('/users/me', { cardVisibility: next });
         setSuccessMsg('Видимость по умолчанию сохранена');
+      } catch {
+        setError('Ошибка сохранения видимости');
+      }
+    }, 600);
+  };
+
+  // Toggle one field in the COMPANY visibility (что видят коллеги), debounce-persist.
+  const toggleVisCompany = (field: VisField, value: boolean) => {
+    if (!visCompany) return;
+    clear();
+    const next: CardVisibility = { ...visCompany, [field]: value };
+    setVisCompany(next);
+    if (visCompanyTimer.current) clearTimeout(visCompanyTimer.current);
+    visCompanyTimer.current = setTimeout(async () => {
+      try {
+        await api.patch('/users/me', { companyCardVisibility: next });
+        setSuccessMsg('Видимость в Компаниях сохранена');
       } catch {
         setError('Ошибка сохранения видимости');
       }
@@ -328,6 +357,38 @@ export default function ProfileSectionPage() {
                       key={f.key}
                       type="button"
                       onClick={() => toggleVis(f.key, !on)}
+                      style={{
+                        padding: '0.3rem 0.7rem', fontSize: '0.78rem', borderRadius: 'var(--radius-sketch)',
+                        border: 'none', cursor: 'pointer', fontWeight: 600,
+                        color: on ? '#fff' : 'var(--on-surface-variant)',
+                        background: on ? 'var(--secondary)' : 'var(--surface-container)',
+                        opacity: on ? 1 : 0.6, transition: 'all 0.15s ease',
+                      }}
+                    >
+                      {f.label}: {on ? 'вид.' : 'скр.'}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Видимость в Компаниях (что видят коллеги по организациям) */}
+          <h3 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-1)' }}>Видимость в Компаниях</h3>
+          <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)', opacity: 0.7 }}>
+            Что видят коллеги по организациям на твоей карточке в разделе «Сотрудники».
+            Имя, фамилия, телефон и должность видны всегда. Сохраняется автоматически.
+          </p>
+          {visCompany && (
+            <div className="card-elevated" style={{ padding: 'var(--spacing-4)' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)' }}>
+                {FIELD_META.map((f) => {
+                  const on = visCompany[f.key];
+                  return (
+                    <button
+                      key={f.key}
+                      type="button"
+                      onClick={() => toggleVisCompany(f.key, !on)}
                       style={{
                         padding: '0.3rem 0.7rem', fontSize: '0.78rem', borderRadius: 'var(--radius-sketch)',
                         border: 'none', cursor: 'pointer', fontWeight: 600,

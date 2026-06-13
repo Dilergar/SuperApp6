@@ -20,4 +20,4 @@
 - Output = принципал → `core/access` его уже понимает (см. `mem:project_access_layer_design`).
 - Рендер человека = `PersonChip`/`PersonAvatar` (5 размеров+скины) — см. `mem:project_card_skins`. Принцип продукта: человек/сущность = карта ВЕЗДЕ (ради видимости платных скинов), не голый текст.
 
-Статус: построено + браузер-проверено, НЕ закоммичено (рабочее дерево). Windows→PowerShell; API tsc только `nest build`.
+Статус: построено + браузер-проверено, закоммичено в main (2b4f47b). Windows→PowerShell; API tsc только `nest build`.

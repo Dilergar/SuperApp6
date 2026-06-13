@@ -5,15 +5,12 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api } from '@/lib/api';
-import type { Workspace } from '@superapp/shared';
+import { WORKSPACE_ROLES, type Workspace, type WorkspaceRole } from '@superapp/shared';
 
-const ROLE_LABELS: Record<string, string> = {
-  owner: 'Владелец',
-  admin: 'Администратор',
-  manager: 'Менеджер',
-  staff: 'Сотрудник',
-  guest: 'Гость',
-};
+// Единый источник лейблов ролей — shared (Стажёр/Подрядчик уже включены).
+const ROLE_LABELS: Record<string, string> = Object.fromEntries(
+  (Object.keys(WORKSPACE_ROLES) as WorkspaceRole[]).map((k) => [k, WORKSPACE_ROLES[k].name]),
+);
 
 /**
  * Главная организации — the org's home screen (mirror of the personal /dashboard,
@@ -38,7 +35,8 @@ export default function WorkspaceHome() {
   if (loading || !ws) return <p className="label-md">Загрузка…</p>;
 
   const services: { title: string; desc: string; href?: string; color: string }[] = [
-    { title: 'Сотрудники', desc: 'Список, роли, приглашения', href: `/workspaces/${id}/members`, color: 'var(--primary-container)' },
+    { title: 'Сотрудники', desc: 'Ростер, должности, отделы, филиалы', href: `/workspaces/${id}/members`, color: 'var(--primary-container)' },
+    { title: 'Процессы', desc: 'Конструктор бизнес-процессов на канвасе', href: `/workspaces/${id}/processes`, color: 'var(--tertiary-container)' },
     ...(ws.myRole === 'owner'
       ? [{ title: 'Кошелёк компании', desc: 'Валюта, казна, начисления', href: `/workspaces/${id}/wallet`, color: 'var(--secondary-container)' }]
       : []),

@@ -6,6 +6,7 @@ import {
   ENTITY_TYPE_LABELS,
   type Principal,
   type EntityOption,
+  type EntityLoadContext,
 } from '@/lib/entities';
 import { EntityChip } from '../app/circles/EntityChip';
 
@@ -26,6 +27,7 @@ export function EntitySelector({
   multi = true,
   placeholder = 'Начните вводить имя…',
   options,
+  context,
 }: {
   value: Principal[];
   onChange: (next: Principal[]) => void;
@@ -34,6 +36,8 @@ export function EntitySelector({
   placeholder?: string;
   /** Custom option set (a context-specific dataset) instead of the global registry. */
   options?: EntityOption[];
+  /** Контекст лоадеров: workspace-скоупные типы (отдел/должность/филиал) требуют workspaceId. */
+  context?: EntityLoadContext;
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
@@ -41,17 +45,18 @@ export function EntitySelector({
   const [hi, setHi] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
   const typesKey = types.join(',');
+  const ctxKey = context?.workspaceId ?? '';
 
   // Load from the global registry unless a custom option set was provided.
   useEffect(() => {
     if (options) return;
     let ok = true;
-    Promise.all(types.map((t) => loadEntities(t)))
+    Promise.all(types.map((t) => loadEntities(t, context)))
       .then((lists) => { if (ok) setLoaded(lists.flat()); })
       .catch(() => {});
     return () => { ok = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [typesKey, options]);
+  }, [typesKey, options, ctxKey]);
 
   const opts = options ?? loaded;
 

@@ -17,7 +17,7 @@ export interface NotificationMeta {
   // Whether this notification type produces a push notification by default.
   pushByDefault: boolean;
   // Category bucket for notification preferences UI.
-  category: 'contacts' | 'tasks' | 'calendar' | 'workspaces' | 'shop' | 'system';
+  category: 'contacts' | 'tasks' | 'calendar' | 'workspaces' | 'shop' | 'processes' | 'system';
 }
 
 export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> = {
@@ -160,7 +160,7 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
   },
   // Workspaces (B2B)
   'workspace.invitation.received': {
-    title: '{{workspaceName}} приглашает вас (роль: {{role}})',
+    title: '{{workspaceName}} приглашает вас на работу',
     body: '{{message}}',
     icon: '🏢',
     pushByDefault: true,
@@ -187,6 +187,19 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
   'workspace.role.changed': {
     title: 'Ваша роль в {{workspaceName}} изменена: {{role}}',
     icon: '🔁',
+    pushByDefault: true,
+    category: 'workspaces',
+  },
+  'workspace.position.assigned': {
+    title: 'Вам назначена должность в {{workspaceName}}: {{positionName}}',
+    body: '{{branchName}}',
+    icon: '💼',
+    pushByDefault: true,
+    category: 'workspaces',
+  },
+  'workspace.position.certified': {
+    title: 'Вы аттестованы по должности {{positionName}} в {{workspaceName}}',
+    icon: '🎓',
     pushByDefault: true,
     category: 'workspaces',
   },
@@ -228,6 +241,48 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
     icon: '@',
     pushByDefault: true,
     category: 'system',
+  },
+  // Processes (бизнес-процессы)
+  'process.finished': {
+    title: 'Процесс «{{processName}}» завершён',
+    icon: '🏁',
+    pushByDefault: true,
+    category: 'processes',
+  },
+  'process.failed': {
+    title: 'Процесс «{{processName}}» остановлен с ошибкой',
+    body: '{{error}}',
+    icon: '⚠️',
+    pushByDefault: true,
+    category: 'processes',
+  },
+  'process.step.notify': {
+    title: '{{title}}',
+    body: '{{message}}',
+    icon: '🔔',
+    pushByDefault: true,
+    category: 'processes',
+  },
+  'process.approval.requested': {
+    title: 'Нужно ваше решение: {{title}}',
+    body: 'Процесс «{{processName}}»',
+    icon: '✅',
+    pushByDefault: true,
+    category: 'processes',
+  },
+  'process.task.queued': {
+    title: 'Новая задача отдела: {{title}}',
+    body: '{{departmentName}} · процесс «{{processName}}»',
+    icon: '📥',
+    pushByDefault: true,
+    category: 'processes',
+  },
+  'process.step.overdue': {
+    title: 'Просрочен шаг: {{title}}',
+    body: 'Процесс «{{processName}}»',
+    icon: '⏰',
+    pushByDefault: true,
+    category: 'processes',
   },
   // Messenger — scheduled ("Напомнить")
   'messenger.scheduled.sent': {

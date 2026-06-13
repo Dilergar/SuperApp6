@@ -22,11 +22,13 @@ async function call(method, p, body) {
 }
 
 async function main() {
+  let fails = 0;
   for (const a of ACCOUNTS) {
     const r = await call('POST', '/auth/register', { ...a, password: PW });
     if (r.ok) console.log(`✓ создан  ${a.phone}`);
     else if (r.status === 409) console.log(`• уже есть ${a.phone}`);
-    else console.log(`✗ ${a.phone} → ${r.status} ${JSON.stringify(r.json)}`);
+    else { console.log(`✗ ${a.phone} → ${r.status} ${JSON.stringify(r.json)}`); fails++; }
   }
+  if (fails > 0) process.exit(1);
 }
 main().catch((e) => { console.error('FATAL', e); process.exit(1); });

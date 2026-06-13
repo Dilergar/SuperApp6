@@ -8,25 +8,31 @@ import {
 import { DatabaseService } from '../../shared/database/database.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
+import { StaffService } from '../staff/staff.service';
 import {
   WORKSPACE_LIMITS,
+  WORKSPACE_ROLES,
+  WORKSPACE_ROLE_RANK,
+  WORKSPACE_HIRE_ROLE,
+  type WorkspaceRole,
+} from '@superapp/shared';
+import {
   resolveWorkspaceCardVisibility,
+  resolveCardVisibility,
   type WorkspaceCardVisibility,
 } from '@superapp/shared';
 import { Prisma } from '@prisma/client';
 
-type WorkspaceRole = 'owner' | 'admin' | 'manager' | 'staff' | 'guest';
-
-// Higher rank = more authority. Used to pick a user's effective role and to gate actions.
-const ROLE_RANK: Record<WorkspaceRole, number> = {
-  owner: 5,
-  admin: 4,
-  manager: 3,
-  staff: 2,
-  guest: 1,
-};
+// Единая лестница из shared: contractor < trainee < staff < manager < admin < owner.
+const ROLE_RANK = WORKSPACE_ROLE_RANK;
 
 const WS_CONTEXT = 'workspace';
+
+// Имя должности присоединяется к приглашению для отображения (филиалы — scalar-массив
+// branchIds, их имена резолвятся отдельным запросом, см. serializeInvitations).
+const INVITATION_INCLUDE = {
+  position: { select: { name: true } },
+} satisfies Prisma.WorkspaceInvitationInclude;
 
 type UserNameRow = { firstName: string; lastName: string | null };
 
@@ -38,10 +44,12 @@ type UserNameRow = { firstName: string; lastName: string | null };
  *     graph (workspaceId = null), handled elsewhere.
  *   - Role/permissions are the single source of truth in UserRole
  *     (context="workspace", tenantId=workspaceId), managed via RolesService.
- *     WorkspaceMember holds only HR metadata (department/position).
+ *     Должности/отделы/филиалы — сущности StaffModule (назначения), не поля здесь.
  *   - Exactly one workspace role per user per workspace (enforced by setSoleWorkspaceRole).
  *   - One owner per workspace (Workspace.ownerId); ownership changes only via transfer.
  *   - Membership is independent of the personal social graph (hiring ≠ friendship).
+ *   - Найм ВСЕГДА в Стажёра (роль в приглашении не выбирается); Админа назначает/снимает
+ *     ТОЛЬКО Владелец; «Подрядчик» (contractor) вручную не назначается — только сервисами.
  */
 @Injectable()
 export class WorkspacesService {
@@ -49,6 +57,7 @@ export class WorkspacesService {
     private db: DatabaseService,
     private roles: RolesService,
     private events: EventBusService,
+    private staff: StaffService,
   ) {}
 
   // ============================================================
@@ -216,13 +225,30 @@ export class WorkspacesService {
   // ============================================================
 
   async listMembers(userId: string, workspaceId: string) {
-    await this.assertMember(userId, workspaceId);
+    // Ростер закрыт от Подрядчика (Коллаб-модель: он не видит команду).
+    await this.assertTeamMember(userId, workspaceId);
 
-    const [members, roleRows] = await Promise.all([
+    const [members, roleRows, assignmentsByUser] = await Promise.all([
       this.db.workspaceMember.findMany({
         where: { workspaceId },
         include: {
-          user: { select: { id: true, firstName: true, lastName: true, avatar: true } },
+          user: {
+            select: {
+              id: true,
+              phone: true,
+              firstName: true,
+              lastName: true,
+              avatar: true,
+              dateOfBirth: true,
+              bio: true,
+              city: true,
+              email: true,
+              maritalStatus: true,
+              socialLinks: true,
+              onlineStatusMode: true,
+              companyCardVisibility: true,
+            },
+          },
         },
         orderBy: { joinedAt: 'asc' },
       }),
@@ -230,6 +256,7 @@ export class WorkspacesService {
         where: { context: WS_CONTEXT, tenantId: workspaceId, isActive: true },
         select: { userId: true, role: true },
       }),
+      this.staff.getAssignmentsByUser(workspaceId),
     ]);
 
     // Highest role per user (defensive — normally one role each).
@@ -247,19 +274,73 @@ export class WorkspacesService {
       userName: this.fullName(m.user),
       userAvatar: m.user.avatar,
       role: roleByUser.get(m.userId) ?? 'staff',
-      department: m.department,
-      position: m.position,
+      assignments: assignmentsByUser.get(m.userId) ?? [],
+      card: this.companyCard(m.user),
       joinedAt: m.joinedAt.toISOString(),
     }));
   }
 
+  /**
+   * Карточка сотрудника для коллег: поля профиля, маскированные ЕГО
+   * «Видимостью в Компаниях» (та же механика, что карточка в b2c-Окружении).
+   * Всегда видны: имя, фамилия, телефон; должности идут в assignments.
+   */
+  private companyCard(u: {
+    id: string;
+    phone: string;
+    firstName: string;
+    lastName: string | null;
+    avatar: string | null;
+    dateOfBirth: Date | null;
+    bio: string | null;
+    city: string | null;
+    email: string | null;
+    maritalStatus: string | null;
+    socialLinks: Prisma.JsonValue | null;
+    onlineStatusMode: string;
+    companyCardVisibility: Prisma.JsonValue | null;
+  }) {
+    const vis = resolveCardVisibility(
+      u.companyCardVisibility as Parameters<typeof resolveCardVisibility>[0],
+    );
+    const age =
+      vis.age && u.dateOfBirth
+        ? Math.floor((Date.now() - u.dateOfBirth.getTime()) / (365.25 * 24 * 3600 * 1000))
+        : null;
+    return {
+      id: u.id,
+      phone: u.phone,
+      firstName: u.firstName,
+      lastName: u.lastName,
+      avatar: u.avatar,
+      dateOfBirth: vis.dateOfBirth && u.dateOfBirth ? u.dateOfBirth.toISOString().slice(0, 10) : null,
+      bio: vis.bio ? u.bio : null,
+      city: vis.city ? u.city : null,
+      email: vis.email ? u.email : null,
+      maritalStatus: vis.maritalStatus ? u.maritalStatus : null,
+      socialLinks: vis.socialLinks
+        ? (u.socialLinks as { telegram?: string; instagram?: string } | null)
+        : null,
+      age,
+      showOnlineStatus: vis.onlineStatus && u.onlineStatusMode !== 'nobody',
+    };
+  }
+
+  /**
+   * Смена роли. Правила лестницы:
+   *   - роль владельца не трогается (только transfer);
+   *   - назначить/снять Админа может ТОЛЬКО Владелец (админ не трогает админов);
+   *   - админ управляет ролями до Менеджера включительно;
+   *   - contractor вручную не назначается (только программно сервисами) — это
+   *     отрезано уже на Zod-схеме (его нет в ASSIGNABLE), здесь — страховка.
+   */
   async updateMember(
     userId: string,
     workspaceId: string,
     targetUserId: string,
-    data: { role?: WorkspaceRole; position?: string | null; department?: string | null },
+    data: { role: WorkspaceRole },
   ) {
-    await this.assertCanManage(userId, workspaceId);
+    const actorRole = await this.assertCanManage(userId, workspaceId);
     const ws = await this.getWorkspaceOrThrow(workspaceId);
 
     if (targetUserId === ws.ownerId) {
@@ -268,23 +349,28 @@ export class WorkspacesService {
     const targetRole = await this.getMyRole(targetUserId, workspaceId);
     if (!targetRole) throw new NotFoundException('Этот человек не в организации');
 
-    // HR metadata.
-    if (data.position !== undefined || data.department !== undefined) {
-      await this.db.workspaceMember.update({
-        where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
-        data: {
-          ...(data.position !== undefined ? { position: data.position } : {}),
-          ...(data.department !== undefined ? { department: data.department } : {}),
-        },
-      });
+    if (data.role === 'owner' || data.role === 'contractor') {
+      throw new BadRequestException('Эту роль нельзя назначить вручную');
+    }
+    if (actorRole !== 'owner') {
+      if (data.role === 'admin') {
+        throw new ForbiddenException('Назначать Админов может только Владелец');
+      }
+      if (targetRole === 'admin') {
+        throw new ForbiddenException('Менять роль Админа может только Владелец');
+      }
     }
 
-    // Role change (single source of truth = UserRole).
-    if (data.role && data.role !== targetRole) {
+    if (data.role !== targetRole) {
       await this.setSoleWorkspaceRole(targetUserId, workspaceId, data.role, userId);
       this.events.emit(
         'workspace.role.changed',
-        { workspaceId, workspaceName: ws.name, userId: targetUserId, role: data.role },
+        {
+          workspaceId,
+          workspaceName: ws.name,
+          userId: targetUserId,
+          role: WORKSPACE_ROLES[data.role]?.name ?? data.role,
+        },
         'WorkspacesService',
       );
     }
@@ -292,15 +378,20 @@ export class WorkspacesService {
 
   /** Fire a member (owner/admin). Owner cannot be removed — transfer first. */
   async removeMember(userId: string, workspaceId: string, targetUserId: string) {
-    await this.assertCanManage(userId, workspaceId);
+    const actorRole = await this.assertCanManage(userId, workspaceId);
     const ws = await this.getWorkspaceOrThrow(workspaceId);
     if (targetUserId === ws.ownerId) {
       throw new BadRequestException('Нельзя удалить владельца организации');
     }
     const targetRole = await this.getMyRole(targetUserId, workspaceId);
     if (!targetRole) throw new NotFoundException('Этот человек не в организации');
+    if (targetRole === 'admin' && actorRole !== 'owner') {
+      throw new ForbiddenException('Уволить Админа может только Владелец');
+    }
 
     await this.revokeAllWorkspaceRoles(targetUserId, workspaceId);
+    // Каскад: назначения должностей + их рёбра в движке доступа.
+    await this.staff.removeAllAssignmentsForUser(workspaceId, targetUserId);
     await this.db.workspaceMember.deleteMany({
       where: { workspaceId, userId: targetUserId },
     });
@@ -321,6 +412,7 @@ export class WorkspacesService {
       throw new BadRequestException('Владелец не может выйти — сначала передайте права');
     }
     await this.revokeAllWorkspaceRoles(userId, workspaceId);
+    await this.staff.removeAllAssignmentsForUser(workspaceId, userId);
     await this.db.workspaceMember.deleteMany({ where: { workspaceId, userId } });
   }
 
@@ -328,18 +420,23 @@ export class WorkspacesService {
   // Invitations
   // ============================================================
 
+  /**
+   * Найм («Пригласить сотрудника»). Manager+ (управляющий филиала нанимает сам — iiko).
+   * РОЛЬ НЕ ВЫБИРАЕТСЯ: каждый наём — в Стажёра; повышение — вручную/бизнес-процессом.
+   * Опционально должность+филиал «с порога»: при принятии назначение создаётся само.
+   * Дневных лимитов и кулдаунов нет (решение продукта: «нанять всех за день»).
+   */
   async inviteMember(
     userId: string,
     workspaceId: string,
     data: {
       phone: string;
-      role: WorkspaceRole;
-      position?: string;
-      department?: string;
+      positionId?: string;
+      branchIds?: string[];
       message?: string;
     },
   ) {
-    await this.assertCanManage(userId, workspaceId);
+    await this.assertStaffManage(userId, workspaceId);
     const ws = await this.getWorkspaceOrThrow(workspaceId);
 
     const target = await this.db.user.findUnique({
@@ -367,7 +464,23 @@ export class WorkspacesService {
       where: { workspaceId, status: 'pending' },
     });
     if (pendingCount >= WORKSPACE_LIMITS.maxPendingInvitationsPerWorkspace) {
-      throw new BadRequestException('Достигнут лимит приглашений');
+      throw new BadRequestException('Достигнут лимит одновременных приглашений');
+    }
+
+    // Должность/филиалы — из справочников ЭТОЙ организации.
+    if (data.positionId) {
+      const pos = await this.db.staffPosition.findFirst({
+        where: { id: data.positionId, workspaceId },
+        select: { id: true },
+      });
+      if (!pos) throw new NotFoundException('Должность не найдена');
+    }
+    const branchIds = [...new Set(data.branchIds ?? [])];
+    if (branchIds.length) {
+      const found = await this.db.staffBranch.count({
+        where: { id: { in: branchIds }, workspaceId },
+      });
+      if (found !== branchIds.length) throw new NotFoundException('Филиал не найден');
     }
 
     const expiresAt = new Date(
@@ -379,12 +492,13 @@ export class WorkspacesService {
         invitedBy: userId,
         toUserId: target?.id ?? null,
         toPhone: data.phone,
-        role: data.role,
-        position: data.position ?? null,
-        department: data.department ?? null,
+        role: WORKSPACE_HIRE_ROLE,
+        positionId: data.positionId ?? null,
+        branchIds,
         message: data.message ?? null,
         expiresAt,
       },
+      include: INVITATION_INCLUDE,
     });
 
     this.events.emit(
@@ -394,8 +508,7 @@ export class WorkspacesService {
         workspaceId,
         workspaceName: ws.name,
         toUserId: inv.toUserId,
-        role: inv.role,
-        position: inv.position,
+        positionName: inv.position?.name ?? null,
         message: inv.message,
       },
       'WorkspacesService',
@@ -405,24 +518,25 @@ export class WorkspacesService {
       where: { id: userId },
       select: { firstName: true, lastName: true },
     });
-    return this.serializeInvitation(inv, ws, inviter);
+    return (await this.serializeInvitations([{ ...inv, workspace: ws, inviter }]))[0];
   }
 
   async listOutgoingInvitations(userId: string, workspaceId: string) {
-    await this.assertCanManage(userId, workspaceId);
+    await this.assertStaffManage(userId, workspaceId);
     const invs = await this.db.workspaceInvitation.findMany({
       where: { workspaceId, status: 'pending' },
       include: {
         workspace: { select: { name: true, logo: true } },
         inviter: { select: { firstName: true, lastName: true } },
+        ...INVITATION_INCLUDE,
       },
       orderBy: { createdAt: 'desc' },
     });
-    return invs.map((i) => this.serializeInvitation(i, i.workspace, i.inviter));
+    return this.serializeInvitations(invs);
   }
 
   async cancelInvitation(userId: string, workspaceId: string, invitationId: string) {
-    await this.assertCanManage(userId, workspaceId);
+    await this.assertStaffManage(userId, workspaceId);
     const inv = await this.db.workspaceInvitation.findUnique({
       where: { id: invitationId },
     });
@@ -445,10 +559,11 @@ export class WorkspacesService {
       include: {
         workspace: { select: { name: true, logo: true } },
         inviter: { select: { firstName: true, lastName: true } },
+        ...INVITATION_INCLUDE,
       },
       orderBy: { createdAt: 'desc' },
     });
-    return invs.map((i) => this.serializeInvitation(i, i.workspace, i.inviter));
+    return this.serializeInvitations(invs);
   }
 
   async acceptInvitation(userId: string, invitationId: string) {
@@ -483,26 +598,40 @@ export class WorkspacesService {
 
       await tx.workspaceMember.upsert({
         where: { workspaceId_userId: { workspaceId: inv.workspaceId, userId } },
-        create: {
-          workspaceId: inv.workspaceId,
-          userId,
-          position: inv.position,
-          department: inv.department,
-        },
-        update: { position: inv.position, department: inv.department },
+        create: { workspaceId: inv.workspaceId, userId },
+        update: {},
       });
 
+      // Найм ВСЕГДА в Стажёра — независимо от того, что лежит в старых приглашениях.
       await this.setSoleWorkspaceRoleTx(
         tx,
         userId,
         inv.workspaceId,
-        inv.role as WorkspaceRole,
+        WORKSPACE_HIRE_ROLE,
         inv.invitedBy,
       );
+
+      // Должность «с порога»: назначение со статусом «стажируется» (Додзё этой должности).
+      // Несколько филиалов → назначение на каждый (сотрудник обслуживает несколько);
+      // без филиалов → одно назначение без филиала.
+      if (inv.positionId) {
+        const branches = inv.branchIds.length ? inv.branchIds : [null];
+        for (const branchId of branches) {
+          await this.staff.createAssignmentTx(tx, {
+            workspaceId: inv.workspaceId,
+            userId,
+            positionId: inv.positionId,
+            branchId,
+            assignedBy: inv.invitedBy,
+          });
+        }
+      }
     });
 
     // Role rows changed inside the tx → bust this user's cache now.
     await this.roles.invalidateUserCache(userId);
+    // Назначение создано в tx (мимо StaffService-проекции) — спроецировать рёбра.
+    if (inv.positionId) await this.staff.projectWorkspaceStaff(inv.workspaceId);
 
     const me = await this.db.user.findUnique({
       where: { id: userId },
@@ -524,7 +653,7 @@ export class WorkspacesService {
       include: { _count: { select: { members: true } } },
     });
     return ws
-      ? this.serializeWorkspace(ws, ws._count.members, inv.role as WorkspaceRole)
+      ? this.serializeWorkspace(ws, ws._count.members, WORKSPACE_HIRE_ROLE)
       : null;
   }
 
@@ -567,7 +696,7 @@ export class WorkspacesService {
   async activatePendingWorkspaceInvitationsForNewUser(userId: string, phone: string) {
     const pending = await this.db.workspaceInvitation.findMany({
       where: { toUserId: null, toPhone: phone, status: 'pending' },
-      include: { workspace: { select: { name: true } } },
+      include: { workspace: { select: { name: true } }, position: { select: { name: true } } },
     });
     if (pending.length === 0) return;
 
@@ -584,8 +713,7 @@ export class WorkspacesService {
           workspaceId: inv.workspaceId,
           workspaceName: inv.workspace.name,
           toUserId: userId,
-          role: inv.role,
-          position: inv.position,
+          positionName: inv.position?.name ?? null,
           message: inv.message,
         },
         'WorkspacesService',
@@ -632,6 +760,24 @@ export class WorkspacesService {
     const role = await this.assertMember(userId, workspaceId);
     if (role !== 'owner' && role !== 'admin') {
       throw new ForbiddenException('Недостаточно прав');
+    }
+    return role;
+  }
+
+  /** Член «команды» (trainee+). Подрядчик изолирован — ростер ему закрыт. */
+  private async assertTeamMember(userId: string, workspaceId: string) {
+    const role = await this.assertMember(userId, workspaceId);
+    if (role === 'contractor') {
+      throw new ForbiddenException('Подрядчику доступны только его задачи');
+    }
+    return role;
+  }
+
+  /** Наём и приглашения: Менеджер и выше (управляющий нанимает сам, iiko-модель). */
+  private async assertStaffManage(userId: string, workspaceId: string) {
+    const role = await this.assertTeamMember(userId, workspaceId);
+    if (ROLE_RANK[role] < ROLE_RANK.manager) {
+      throw new ForbiddenException('Недостаточно прав (нужен Менеджер или выше)');
     }
     return role;
   }
@@ -764,45 +910,56 @@ export class WorkspacesService {
     };
   }
 
-  private serializeInvitation(
-    inv: {
+  /**
+   * Сериализация приглашений батчем: имена филиалов резолвятся одним запросом по всем
+   * branchIds (scalar-массив, FK нет), имя должности приходит из include.
+   */
+  private async serializeInvitations(
+    invs: Array<{
       id: string;
       workspaceId: string;
       invitedBy: string;
       toUserId: string | null;
       toPhone: string;
       role: string;
-      position: string | null;
-      department: string | null;
+      positionId: string | null;
+      branchIds: string[];
+      position?: { name: string } | null;
       message: string | null;
       status: string;
       expiresAt: Date;
       createdAt: Date;
-    },
-    workspace: { name: string; logo?: string | null } | null,
-    inviter: UserNameRow | null,
+      workspace?: { name: string; logo?: string | null } | null;
+      inviter?: UserNameRow | null;
+    }>,
   ) {
-    return {
+    const allBranchIds = [...new Set(invs.flatMap((i) => i.branchIds))];
+    const branchNameById = new Map<string, string>();
+    if (allBranchIds.length) {
+      const branches = await this.db.staffBranch.findMany({
+        where: { id: { in: allBranchIds } },
+        select: { id: true, name: true },
+      });
+      for (const b of branches) branchNameById.set(b.id, b.name);
+    }
+    return invs.map((inv) => ({
       id: inv.id,
       workspaceId: inv.workspaceId,
-      workspaceName: workspace?.name ?? '',
-      workspaceLogo: workspace?.logo ?? null,
+      workspaceName: inv.workspace?.name ?? '',
+      workspaceLogo: inv.workspace?.logo ?? null,
       invitedBy: inv.invitedBy,
-      invitedByName: inviter ? this.fullName(inviter) : '',
+      invitedByName: inv.inviter ? this.fullName(inv.inviter) : '',
       toUserId: inv.toUserId,
       toPhone: inv.toPhone,
       role: inv.role as WorkspaceRole,
-      position: inv.position,
-      department: inv.department,
+      positionId: inv.positionId,
+      positionName: inv.position?.name ?? null,
+      branchIds: inv.branchIds,
+      branchNames: inv.branchIds.map((id) => branchNameById.get(id)).filter((n): n is string => !!n),
       message: inv.message,
-      status: inv.status as
-        | 'pending'
-        | 'accepted'
-        | 'rejected'
-        | 'cancelled'
-        | 'expired',
+      status: inv.status as 'pending' | 'accepted' | 'rejected' | 'cancelled' | 'expired',
       expiresAt: inv.expiresAt.toISOString(),
       createdAt: inv.createdAt.toISOString(),
-    };
+    }));
   }
 }

@@ -7,14 +7,6 @@ import { CompanyCard } from '../workspaces/[id]/CompanyCard';
 import { PersonChip } from '../circles/PersonCard';
 import type { Workspace, WorkspaceInvitation } from '@superapp/shared';
 
-const ROLE_LABELS: Record<string, string> = {
-  owner: 'Владелец',
-  admin: 'Администратор',
-  manager: 'Менеджер',
-  staff: 'Сотрудник',
-  guest: 'Гость',
-};
-
 /**
  * Dashboard panel: the user's organizations (B2B) + incoming hiring invitations.
  * Clicking an organization card opens its page (the "switch into context" entry point).
@@ -145,7 +137,11 @@ export function WorkspacesPanel() {
                 <div className="title-md">{inv.workspaceName}</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', marginTop: 'var(--spacing-1)', flexWrap: 'wrap' }}>
                   <PersonChip size="S" userId={inv.invitedBy} firstName={inv.invitedByName} />
-                  <span className="label-md" style={{ fontSize: '0.85rem' }}>роль: {ROLE_LABELS[inv.role] ?? inv.role}{inv.position ? ` · ${inv.position}` : ''}</span>
+                  <span className="label-md" style={{ fontSize: '0.85rem' }}>
+                    Нанимаетесь Стажёром
+                    {inv.positionName ? ` · 💼 ${inv.positionName}` : ''}
+                    {inv.branchNames.length ? ` · 📍 ${inv.branchNames.join(', ')}` : ''}
+                  </span>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>

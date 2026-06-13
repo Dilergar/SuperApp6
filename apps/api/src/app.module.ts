@@ -26,14 +26,16 @@ import { TasksModule } from './modules/tasks/tasks.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { GoogleCalendarModule } from './modules/google-calendar/google-calendar.module';
 import { WorkspacesModule } from './modules/workspaces/workspaces.module';
+import { StaffModule } from './modules/staff/staff.module';
 import { WalletModule } from './modules/wallet/wallet.module';
 import { ShopModule } from './modules/shop/shop.module';
 import { MessengerModule } from './modules/messenger/messenger.module';
 import { CardSkinsModule } from './modules/card-skins/card-skins.module';
+import { ProcessesModule } from './modules/processes/processes.module';
 
 import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
 import { WorkspaceContextInterceptor } from './shared/interceptors/workspace-context.interceptor';
-import { ZodExceptionFilter } from './shared/filters/zod-exception.filter';
+import { AllExceptionsFilter } from './shared/filters/all-exceptions.filter';
 import { RedisService } from './shared/redis/redis.service';
 import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storage';
 
@@ -49,9 +51,11 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
           { name: 'long', ttl: 60000, limit: 200 },
         ],
         storage: new RedisThrottlerStorage(redis),
-        // Enforce rate limiting only in production. In development you log in/out
-        // constantly, so throttling just gets in the way; prod keeps full protection.
-        skipIf: () => process.env.NODE_ENV !== 'production',
+        // Secure-by-default: throttling is DISABLED only in explicit development/test
+        // (constant logins during development would hit the limits). Any other value —
+        // including a typo'd "prod" — keeps full protection (env validation also
+        // whitelists NODE_ENV at boot, this is the second belt).
+        skipIf: () => process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test' || !process.env.NODE_ENV,
       }),
     }),
 
@@ -92,16 +96,24 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     CalendarModule,
     GoogleCalendarModule,
     WorkspacesModule,
+    // Сотрудники (B2B): справочники Должность/Отдел/Филиал + назначения должностей
+    // (также импортируется WorkspacesModule для ростера/каскадов).
+    StaffModule,
     ShopModule,
     MessengerModule,
     // Card skins — cosmetic skins for PersonCard (platform currency + equip + per-group).
     CardSkinsModule,
+    // Процессы (B2B) — нодовый движок бизнес-процессов: реестр нод + token-движок,
+    // человеческий шаг = настоящая задача Задачника (синхронный хук через 'ProcessesService').
+    ProcessesModule,
   ],
   providers: [
-    // Map Zod validation errors (controller schema.parse) to 400 app-wide.
+    // ONE error envelope app-wide ({success:false, statusCode, message, errors?}):
+    // Zod → 400 с полями, HttpException → как есть, Prisma P2002/P2025 → 409/404,
+    // прочее → 500 + лог. Клиент парсит ошибки одной веткой.
     {
       provide: APP_FILTER,
-      useClass: ZodExceptionFilter,
+      useClass: AllExceptionsFilter,
     },
     // Order matters: throttler runs first so abusive traffic is rejected
     // before we do any JWT/DB work.

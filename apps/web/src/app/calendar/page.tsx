@@ -2,8 +2,10 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
+import { useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api } from '@/lib/api';
+import { contactsKey, circlesKey, fetchAllContacts, fetchCircles } from '@/lib/queries';
 import { PersonChip } from '../circles/PersonCard';
 import {
   TASK_STATUS_META,
@@ -63,7 +65,8 @@ const VIEWS: { key: CalendarView; label: string }[] = [
 ];
 
 export default function CalendarPage() {
-  const { isReady } = useRequireAuth();
+  const { isReady, user } = useRequireAuth();
+  const queryClient = useQueryClient();
   const [view, setView] = useState<CalendarView>('month');
   const [anchor, setAnchor] = useState(() => new Date());
   const [items, setItems] = useState<CalendarItem[]>([]);
@@ -73,7 +76,7 @@ export default function CalendarPage() {
   const [modal, setModal] = useState<ModalTarget | null>(null);
   const [taskSel, setTaskSel] = useState<CalendarTaskItem | null>(null);
 
-  const [meId, setMeId] = useState('');
+  const meId = user?.id ?? '';
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [circles, setCircles] = useState<Circle[]>([]);
   const [sources, setSources] = useState<SharedCalendarSource[]>([]);
@@ -88,21 +91,20 @@ export default function CalendarPage() {
   const [pendingMove, setPendingMove] = useState<{ item: EventDrag; mode: 'move' | 'resize'; newStart?: Date; newEnd?: Date } | null>(null);
 
   const fetchMeta = useCallback(async () => {
-    try { setMeId((await api.get('/users/me')).data.data.id); } catch { /* ignore */ }
-    try {
-      const acc: Contact[] = [];
-      let cursor: string | undefined;
-      do {
-        const res = await api.get('/contacts', { params: cursor ? { cursor } : undefined });
-        acc.push(...res.data.data);
-        cursor = res.data.nextCursor ?? undefined;
-      } while (cursor);
-      setContacts(acc);
-    } catch { /* ignore */ }
-    try { setCircles((await api.get('/circles')).data.data); } catch { /* ignore */ }
-    try { setSources((await api.get('/calendar/shared-with-me')).data.data); } catch { /* ignore */ }
-    try { setResources((await api.get('/resources')).data.data); } catch { /* ignore */ }
-  }, []);
+    // Parallel (the old version awaited 5 requests strictly in a row — the review's
+    // "waterfall") + meId comes from the auth store (no duplicate /users/me) +
+    // contacts/circles go through the SHARED query cache (reused from /circles, /tasks).
+    const [c, g, src, res] = await Promise.allSettled([
+      queryClient.fetchQuery({ queryKey: contactsKey, queryFn: fetchAllContacts, staleTime: 60_000 }),
+      queryClient.fetchQuery({ queryKey: circlesKey, queryFn: fetchCircles, staleTime: 60_000 }),
+      api.get('/calendar/shared-with-me'),
+      api.get('/resources'),
+    ]);
+    if (c.status === 'fulfilled') setContacts(c.value);
+    if (g.status === 'fulfilled') setCircles(g.value);
+    if (src.status === 'fulfilled') setSources(src.value.data.data);
+    if (res.status === 'fulfilled') setResources(res.value.data.data);
+  }, [queryClient]);
 
   const fetchRange = useCallback(async () => {
     setLoading(true);

@@ -11,6 +11,7 @@ import { DatabaseService } from '../../shared/database/database.service';
 import { fullName } from '../../shared/utils/user-name';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { TasksService } from '../tasks/tasks.service';
+import { ContactsService } from '../contacts/contacts.service';
 import { ResourcesService } from './resources.service';
 import { AccessService } from '../../core/access/access.service';
 import { Principal } from '../../core/access/access.types';
@@ -64,6 +65,7 @@ export class CalendarService implements OnModuleInit {
     private resources: ResourcesService,
     private access: AccessService,
     private quickActions: QuickActionRegistry,
+    private contacts: ContactsService,
   ) {}
 
   onModuleInit(): void {
@@ -124,7 +126,14 @@ export class CalendarService implements OnModuleInit {
           AND: [
             {
               OR: [
-                { recurrenceRule: { not: null }, startTime: { lte: to } },
+                // recurring: skip series that ENDED before the range (recurrenceEndsAt is
+                // materialized; null = infinite) — otherwise every master ever created is
+                // fetched + RRULE-expanded on every calendar view forever.
+                {
+                  recurrenceRule: { not: null },
+                  startTime: { lte: to },
+                  OR: [{ recurrenceEndsAt: null }, { recurrenceEndsAt: { gte: from } }],
+                },
                 { recurrenceRule: null, startTime: { lte: to }, endTime: { gte: from } },
               ],
             },
@@ -190,7 +199,11 @@ export class CalendarService implements OnModuleInit {
             AND: [
               {
                 OR: [
-                  { recurrenceRule: { not: null }, startTime: { lte: to } },
+                  {
+                    recurrenceRule: { not: null },
+                    startTime: { lte: to },
+                    OR: [{ recurrenceEndsAt: null }, { recurrenceEndsAt: { gte: from } }],
+                  },
                   { recurrenceRule: null, startTime: { lte: to }, endTime: { gte: from } },
                 ],
               },
@@ -244,29 +257,34 @@ export class CalendarService implements OnModuleInit {
     const start = new Date(data.startTime);
     const end = new Date(data.endTime);
 
-    let resourceStatus: ResourceBookingStatus | null = null;
-    let booking: { status: ResourceBookingStatus; ownerId: string; name: string } | null = null;
-    if (data.resourceId) {
-      booking = await this.resources.prepareBooking(data.resourceId, userId, start, end);
-      resourceStatus = booking.status;
-    }
-
-    const event = await this.db.calendarEvent.create({
-      data: {
-        userId,
-        title: data.title,
-        description: data.description ?? null,
-        location: data.location ?? null,
-        startTime: start,
-        endTime: end,
-        allDay: data.allDay ?? false,
-        color: data.color ?? null,
-        visibility: data.visibility ?? 'inherit',
-        reminderOffsets: data.reminderOffsets ?? [...DEFAULT_REMINDER_OFFSETS],
-        recurrenceRule: data.recurrenceRule ?? null,
-        resourceId: data.resourceId ?? null,
-        resourceStatus,
-      },
+    const { event, booking } = await this.db.$transaction(async (tx) => {
+      let resourceStatus: ResourceBookingStatus | null = null;
+      let bookingInfo: { status: ResourceBookingStatus; ownerId: string; name: string } | null = null;
+      if (data.resourceId) {
+        // Capacity check + event row in ONE tx under the resource row lock — two concurrent
+        // bookings of the last free slot can't both pass.
+        bookingInfo = await this.resources.prepareBooking(data.resourceId, userId, start, end, undefined, tx);
+        resourceStatus = bookingInfo.status;
+      }
+      const created = await tx.calendarEvent.create({
+        data: {
+          userId,
+          title: data.title,
+          description: data.description ?? null,
+          location: data.location ?? null,
+          startTime: start,
+          endTime: end,
+          allDay: data.allDay ?? false,
+          color: data.color ?? null,
+          visibility: data.visibility ?? 'inherit',
+          reminderOffsets: data.reminderOffsets ?? [...DEFAULT_REMINDER_OFFSETS],
+          recurrenceRule: data.recurrenceRule ?? null,
+          recurrenceEndsAt: this.computeRecurrenceEnd(data.recurrenceRule ?? null, start, +end - +start),
+          resourceId: data.resourceId ?? null,
+          resourceStatus,
+        },
+      });
+      return { event: created, booking: bookingInfo };
     });
     await this.materializeRemindersFor(event, userId, event.reminderOffsets);
 
@@ -310,28 +328,42 @@ export class CalendarService implements OnModuleInit {
       const newStart = data.startTime ? new Date(data.startTime) : master.startTime;
       const newEnd = data.endTime ? new Date(data.endTime) : master.endTime;
 
-      if (data.resourceId !== undefined) {
-        // attach / change / detach a resource booking
-        if (data.resourceId === null) {
-          patch.resourceId = null;
-          patch.resourceStatus = null;
-        } else {
-          if (master.recurrenceRule) {
-            throw new BadRequestException('Бронь ресурса доступна только для разовых событий');
-          }
-          const b = await this.resources.prepareBooking(data.resourceId, userId, newStart, newEnd, master.id);
-          patch.resourceId = data.resourceId;
-          patch.resourceStatus = b.status;
-          if (b.status === 'pending') pendingNotify = { ownerId: b.ownerId, name: b.name };
-        }
-      } else if (master.resourceId && (data.startTime !== undefined || data.endTime !== undefined)) {
-        // time changed on an existing booking → re-validate availability (re-pends if not owner)
-        const b = await this.resources.prepareBooking(master.resourceId, userId, newStart, newEnd, master.id);
-        patch.resourceStatus = b.status;
-        if (b.status === 'pending') pendingNotify = { ownerId: b.ownerId, name: b.name };
+      // Booking validation + the event update run in ONE tx under the resource row lock
+      // (same race as createEvent: capacity must be checked atomically with the write).
+      // Keep the materialized series end in sync with rule/time changes.
+      if (data.recurrenceRule !== undefined || data.startTime !== undefined || data.endTime !== undefined) {
+        const rule = data.recurrenceRule !== undefined ? data.recurrenceRule : master.recurrenceRule;
+        patch.recurrenceEndsAt = this.computeRecurrenceEnd(rule, newStart, +newEnd - +newStart);
       }
 
-      result = await this.db.calendarEvent.update({ where: { id: master.id }, data: patch });
+      const txOut = await this.db.$transaction(async (tx) => {
+        let pn: { ownerId: string; name: string } | null = null;
+        if (data.resourceId !== undefined) {
+          // attach / change / detach a resource booking
+          if (data.resourceId === null) {
+            patch.resourceId = null;
+            patch.resourceStatus = null;
+          } else {
+            if (master.recurrenceRule) {
+              throw new BadRequestException('Бронь ресурса доступна только для разовых событий');
+            }
+            const b = await this.resources.prepareBooking(data.resourceId, userId, newStart, newEnd, master.id, tx);
+            patch.resourceId = data.resourceId;
+            patch.resourceStatus = b.status;
+            if (b.status === 'pending') pn = { ownerId: b.ownerId, name: b.name };
+          }
+        } else if (master.resourceId && (data.startTime !== undefined || data.endTime !== undefined)) {
+          // time changed on an existing booking → re-validate availability (re-pends if not owner)
+          const b = await this.resources.prepareBooking(master.resourceId, userId, newStart, newEnd, master.id, tx);
+          patch.resourceStatus = b.status;
+          if (b.status === 'pending') pn = { ownerId: b.ownerId, name: b.name };
+        }
+
+        const updated = await tx.calendarEvent.update({ where: { id: master.id }, data: patch });
+        return { updated, pn };
+      });
+      result = txOut.updated;
+      pendingNotify = txOut.pn;
       await this.remassializeAll(result);
     } else {
       if (!data.occurrenceStart) {
@@ -379,9 +411,13 @@ export class CalendarService implements OnModuleInit {
     if (scope === 'this') {
       await this.excludeOccurrence(master, occ);
     } else {
+      const truncatedRule = this.setUntil(master.recurrenceRule!, new Date(+occ - 1000));
       await this.db.calendarEvent.update({
         where: { id: master.id },
-        data: { recurrenceRule: this.setUntil(master.recurrenceRule!, new Date(+occ - 1000)) },
+        data: {
+          recurrenceRule: truncatedRule,
+          recurrenceEndsAt: this.computeRecurrenceEnd(truncatedRule, master.startTime, +master.endTime - +master.startTime),
+        },
       });
       await this.db.calendarEvent.deleteMany({
         where: { recurrenceParentId: master.id, recurrenceId: { gte: occ } },
@@ -703,16 +739,21 @@ export class CalendarService implements OnModuleInit {
       where: {
         userId: { in: userIds },
         OR: [
-          { recurrenceRule: { not: null }, startTime: { lte: to } },
+          {
+            recurrenceRule: { not: null },
+            startTime: { lte: to },
+            OR: [{ recurrenceEndsAt: null }, { recurrenceEndsAt: { gte: from } }],
+          },
           { recurrenceRule: null, startTime: { lte: to }, endTime: { gte: from } },
         ],
       },
+      select: { startTime: true, endTime: true, recurrenceRule: true, exDates: true, id: true, recurrenceParentId: true, recurrenceId: true },
     });
     const out: Array<{ start: number; end: number }> = [];
     for (const ev of events) {
       const durMs = +ev.endTime - +ev.startTime;
       if (ev.recurrenceRule) {
-        for (const s of this.expandMaster(ev, from, to)) {
+        for (const s of this.expandMaster(ev as unknown as CalEventRow, from, to)) {
           out.push({ start: +s, end: +s + durMs });
         }
       } else {
@@ -746,8 +787,12 @@ export class CalendarService implements OnModuleInit {
         OR: [
           // single events overlapping now
           { recurrenceRule: null, startTime: { lte: now }, endTime: { gt: now } },
-          // recurring masters that started before now (occurrences expanded below)
-          { recurrenceRule: { not: null }, startTime: { lte: now } },
+          // recurring masters that started before now AND whose series hasn't ended yet
+          {
+            recurrenceRule: { not: null },
+            startTime: { lte: now },
+            OR: [{ recurrenceEndsAt: null }, { recurrenceEndsAt: { gte: now } }],
+          },
         ],
       },
       select: {
@@ -834,9 +879,13 @@ export class CalendarService implements OnModuleInit {
     data: UpdateCalendarEventRequest,
   ): Promise<CalEventRow> {
     const originalRule = master.recurrenceRule!;
+    const headRule = this.setUntil(originalRule, new Date(+occ - 1000));
     await this.db.calendarEvent.update({
       where: { id: master.id },
-      data: { recurrenceRule: this.setUntil(originalRule, new Date(+occ - 1000)) },
+      data: {
+        recurrenceRule: headRule,
+        recurrenceEndsAt: this.computeRecurrenceEnd(headRule, master.startTime, +master.endTime - +master.startTime),
+      },
     });
     const durationMs = +master.endTime - +master.startTime;
     const newStart = data.startTime ? new Date(data.startTime) : occ;
@@ -857,6 +906,7 @@ export class CalendarService implements OnModuleInit {
         visibility: (data.visibility ?? master.visibility) as string,
         reminderOffsets: data.reminderOffsets ?? master.reminderOffsets,
         recurrenceRule: tailRule,
+        recurrenceEndsAt: this.computeRecurrenceEnd(tailRule, newStart, +newEnd - +newStart),
       },
     });
     await this.db.calendarEvent.updateMany({
@@ -972,7 +1022,12 @@ export class CalendarService implements OnModuleInit {
 
   async topUpReminders(): Promise<number> {
     const recurring = await this.db.calendarEvent.findMany({
-      where: { recurrenceRule: { not: null } },
+      // Only series that can still produce future occurrences — finished series
+      // (recurrenceEndsAt in the past) have nothing left to materialize.
+      where: {
+        recurrenceRule: { not: null },
+        OR: [{ recurrenceEndsAt: null }, { recurrenceEndsAt: { gte: new Date() } }],
+      },
       take: 5000,
     });
     for (const e of recurring) await this.remassializeAll(e);
@@ -1002,24 +1057,9 @@ export class CalendarService implements OnModuleInit {
     return lvl === 'detailed_viewer' ? 'detailed' : lvl === 'busy_viewer' ? 'busy' : 'none';
   }
 
-  /** Throw unless every id is a confirmed contact of ownerId. */
+  /** Throw unless every id is a confirmed contact AND not blocked (shared gate in Contacts). */
   private async assertInEnvironment(ownerId: string, ids: string[]): Promise<void> {
-    const others = [...new Set(ids)].filter((id) => id && id !== ownerId);
-    if (!others.length) return;
-    const links = await this.db.contactLink.findMany({
-      where: {
-        OR: others.map((id) => {
-          const [a, b] = ownerId < id ? [ownerId, id] : [id, ownerId];
-          return { userAId: a, userBId: b };
-        }),
-      },
-      select: { userAId: true, userBId: true },
-    });
-    const linked = new Set(links.map((l) => (l.userAId === ownerId ? l.userBId : l.userAId)));
-    const missing = others.filter((id) => !linked.has(id));
-    if (missing.length) {
-      throw new ForbiddenException('Приглашать можно только людей из вашего окружения');
-    }
+    await this.contacts.assertReachable(ownerId, ids, 'Приглашать можно только людей из вашего окружения');
   }
 
   private async resolveCircleMemberIds(ownerId: string, circleId: string): Promise<string[]> {
@@ -1074,6 +1114,25 @@ export class CalendarService implements OnModuleInit {
     if (data.reminderOffsets !== undefined) d.reminderOffsets = data.reminderOffsets;
     if (data.recurrenceRule !== undefined) d.recurrenceRule = data.recurrenceRule;
     return d;
+  }
+
+  /**
+   * Materialized end of a recurrence: last occurrence start (UNTIL/COUNT-bounded) plus the
+   * event duration; null = infinite series. Stored on the master (recurrenceEndsAt) so range
+   * queries can skip long-finished series without parsing the RRULE.
+   */
+  private computeRecurrenceEnd(rule: string | null | undefined, dtstart: Date, durationMs: number): Date | null {
+    if (!rule) return null;
+    try {
+      const opts = RRule.parseString(rule);
+      if (!opts.until && !opts.count) return null; // infinite
+      const r = new RRule({ ...opts, dtstart });
+      const all = r.all();
+      const last = all.length ? all[all.length - 1] : dtstart;
+      return new Date(+last + durationMs);
+    } catch {
+      return null; // unparseable → treat as infinite (never hides events)
+    }
   }
 
   private expandMaster(event: CalEventRow, from: Date, to: Date): Date[] {

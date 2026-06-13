@@ -1,11 +1,22 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { AccessService } from './access.service';
 import { RelationTupleInput } from './access.types';
 
-// Workspace access roles that map to a `workspace` relation in ACCESS_SCHEMA.
-// Other UserRole values (shop/showcase staff, system roles) are projected later phases.
-const WS_ROLES = ['owner', 'admin', 'manager', 'member'];
+// Workspace UserRole values → `workspace` relation in ACCESS_SCHEMA.
+// staff & trainee are both employees → `member` (рядовое членство; Стажёр отличается
+// только лестницей прав в сервисах, не движком). `contractor` (Подрядчик) намеренно
+// НЕ проецируется — он изолирован до явных грантов своих задач/чатов (Коллаб-модель).
+const WS_ROLE_RELATION: Record<string, string> = {
+  owner: 'owner',
+  admin: 'admin',
+  manager: 'manager',
+  staff: 'member',
+  trainee: 'member',
+};
+const WS_PROJECTED_ROLES = Object.keys(WS_ROLE_RELATION);
+const WS_RELATIONS = [...new Set(Object.values(WS_ROLE_RELATION))];
 
 interface DiffResult {
   added: number;
@@ -73,16 +84,21 @@ export class AccessProjectionService {
   async resyncUserWorkspaceRoles(userId: string): Promise<void> {
     await this.safe(async () => {
       const roles = await this.db.userRole.findMany({
-        where: { userId, context: 'workspace', isActive: true, tenantId: { not: null }, role: { in: WS_ROLES } },
+        where: { userId, context: 'workspace', isActive: true, tenantId: { not: null }, role: { in: WS_PROJECTED_ROLES } },
         select: { tenantId: true, role: true },
       });
       const desired: RelationTupleInput[] = [];
+      const seen = new Set<string>();
       for (const r of roles) {
         if (!r.tenantId) continue;
-        desired.push({ resourceType: 'workspace', resourceId: r.tenantId, relation: r.role, subjectType: 'user', subjectId: userId });
+        const relation = WS_ROLE_RELATION[r.role];
+        const k = `${r.tenantId}#${relation}`;
+        if (seen.has(k)) continue; // staff+trainee → один и тот же member-tuple
+        seen.add(k);
+        desired.push({ resourceType: 'workspace', resourceId: r.tenantId, relation, subjectType: 'user', subjectId: userId });
       }
       const existing = await this.db.relationTuple.findMany({
-        where: { subjectType: 'user', subjectId: userId, resourceType: 'workspace', relation: { in: WS_ROLES } },
+        where: { subjectType: 'user', subjectId: userId, resourceType: 'workspace', relation: { in: WS_RELATIONS } },
         select: { id: true, resourceId: true, relation: true },
       });
       await this.applyDiff(
@@ -99,11 +115,12 @@ export class AccessProjectionService {
   // Full reconcile — cron safety net + one-time backfill of existing data
   // ------------------------------------------------------------
 
-  async reconcile(): Promise<{ circle: DiffResult; workspace: DiffResult; circleCalendar: DiffResult }> {
+  async reconcile(): Promise<{ circle: DiffResult; workspace: DiffResult; circleCalendar: DiffResult; staff: DiffResult }> {
     return {
       circle: await this.reconcileCircles(),
       workspace: await this.reconcileWorkspaceRoles(),
       circleCalendar: await this.reconcileCircleCalendar(),
+      staff: await this.reconcileStaff(),
     };
   }
 
@@ -234,16 +251,21 @@ export class AccessProjectionService {
 
   private async reconcileWorkspaceRoles(): Promise<DiffResult> {
     const roles = await this.db.userRole.findMany({
-      where: { context: 'workspace', isActive: true, tenantId: { not: null }, role: { in: WS_ROLES } },
+      where: { context: 'workspace', isActive: true, tenantId: { not: null }, role: { in: WS_PROJECTED_ROLES } },
       select: { tenantId: true, role: true, userId: true },
     });
     const desired: RelationTupleInput[] = [];
+    const seen = new Set<string>();
     for (const r of roles) {
       if (!r.tenantId) continue;
-      desired.push({ resourceType: 'workspace', resourceId: r.tenantId, relation: r.role, subjectType: 'user', subjectId: r.userId });
+      const relation = WS_ROLE_RELATION[r.role];
+      const k = `${r.tenantId}#${relation}@${r.userId}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      desired.push({ resourceType: 'workspace', resourceId: r.tenantId, relation, subjectType: 'user', subjectId: r.userId });
     }
     const existing = await this.db.relationTuple.findMany({
-      where: { resourceType: 'workspace', relation: { in: WS_ROLES }, subjectType: 'user' },
+      where: { resourceType: 'workspace', relation: { in: WS_RELATIONS }, subjectType: 'user' },
       select: { id: true, resourceId: true, relation: true, subjectId: true },
     });
     return this.applyDiff(
@@ -256,11 +278,119 @@ export class AccessProjectionService {
   }
 
   // ------------------------------------------------------------
+  // Staff («Сотрудники») — назначения должностей → рёбра трёх осей оргструктуры:
+  //   position:<id>#holder@user
+  //   branch:<id>#member@user
+  //   department:<id и все предки>#member@user   (CLOSURE: грант на отдел достаёт
+  //                                               и сотрудников подотделов)
+  // Членство в отделе ПРОИЗВОДНОЕ: assignment → position.departmentId → ancestors.
+  // ------------------------------------------------------------
+
+  /** Re-sync всех staff-рёбер одного воркспейса (вызывается после каждой мутации StaffService). */
+  async resyncWorkspaceStaff(workspaceId: string): Promise<void> {
+    await this.safe(async () => {
+      await this.applyStaffDiff(workspaceId);
+    });
+  }
+
+  /** Удалённый справочник (отдел/должность/филиал) — снять все его tuples. */
+  async staffEntityDeleted(resourceType: 'department' | 'position' | 'branch', id: string): Promise<void> {
+    await this.safe(() => this.access.revokeResource(resourceType, id));
+  }
+
+  /** Cron-сверка staff-рёбер по ВСЕМ воркспейсам (дрейф-самолечение + бэкфилл). */
+  private async reconcileStaff(): Promise<DiffResult> {
+    return this.applyStaffDiff(null);
+  }
+
+  private async applyStaffDiff(workspaceId: string | null): Promise<DiffResult> {
+    const wsWhere = workspaceId ? { workspaceId } : {};
+    const [assignments, departments] = await Promise.all([
+      this.db.staffAssignment.findMany({
+        where: wsWhere,
+        select: {
+          userId: true,
+          positionId: true,
+          branchId: true,
+          position: { select: { departmentId: true } },
+        },
+      }),
+      this.db.staffDepartment.findMany({
+        where: wsWhere,
+        select: { id: true, parentId: true },
+      }),
+    ]);
+
+    const parentOf = new Map(departments.map((d) => [d.id, d.parentId]));
+    const desiredByKey = new Map<string, RelationTupleInput>();
+    const put = (t: RelationTupleInput) => desiredByKey.set(this.key(t), t);
+
+    for (const a of assignments) {
+      put({ resourceType: 'position', resourceId: a.positionId, relation: 'holder', subjectType: 'user', subjectId: a.userId });
+      if (a.branchId) {
+        put({ resourceType: 'branch', resourceId: a.branchId, relation: 'member', subjectType: 'user', subjectId: a.userId });
+      }
+      // Отдел + все предки (closure; visited-гард на случай повреждённого дерева).
+      let dep = a.position.departmentId;
+      const visited = new Set<string>();
+      while (dep && !visited.has(dep)) {
+        visited.add(dep);
+        put({ resourceType: 'department', resourceId: dep, relation: 'member', subjectType: 'user', subjectId: a.userId });
+        dep = parentOf.get(dep) ?? null;
+      }
+    }
+
+    // Скоуп существующих tuples: при per-workspace resync — только сущности этого
+    // воркспейса (tuples не несут workspaceId); при глобальной сверке — все три типа.
+    let existingWhere: Prisma.RelationTupleWhereInput;
+    if (workspaceId) {
+      const [posIds, brIds, depIds] = await Promise.all([
+        this.db.staffPosition.findMany({ where: { workspaceId }, select: { id: true } }),
+        this.db.staffBranch.findMany({ where: { workspaceId }, select: { id: true } }),
+        this.db.staffDepartment.findMany({ where: { workspaceId }, select: { id: true } }),
+      ]);
+      existingWhere = {
+        OR: [
+          { resourceType: 'position', resourceId: { in: posIds.map((x) => x.id) } },
+          { resourceType: 'branch', resourceId: { in: brIds.map((x) => x.id) } },
+          { resourceType: 'department', resourceId: { in: depIds.map((x) => x.id) } },
+        ],
+      };
+    } else {
+      existingWhere = { resourceType: { in: ['position', 'branch', 'department'] } };
+    }
+    const existing = await this.db.relationTuple.findMany({
+      where: existingWhere,
+      select: { id: true, resourceType: true, resourceId: true, relation: true, subjectType: true, subjectId: true, subjectRelation: true },
+    });
+
+    return this.applyDiff(
+      [...desiredByKey.values()],
+      existing.map((e) => ({
+        id: e.id,
+        key: this.key({
+          resourceType: e.resourceType,
+          resourceId: e.resourceId,
+          relation: e.relation,
+          subjectType: e.subjectType,
+          subjectId: e.subjectId,
+          subjectRelation: e.subjectRelation ?? undefined,
+        }),
+      })),
+    );
+  }
+
+  // ------------------------------------------------------------
   // Task participant roles (Phase 3 — action capabilities)
   //   task:<id>#creator|executor|co_executor|observer@user  (viewer derives from these)
   // ------------------------------------------------------------
 
-  /** Re-sync one task's role tuples from the domain (call after create / participant change). */
+  /**
+   * Re-sync one task's role tuples from the domain (call after create / participant change).
+   * Diff-based like resyncOrderRoles — NOT revoke-then-grant: no transient 403 window for a
+   * concurrent task/chat reader, and a no-change resync bumps ZERO cache epochs (task
+   * creation used to flush the whole ACL cache twice).
+   */
   async resyncTaskRoles(taskId: string): Promise<void> {
     await this.safe(async () => {
       const task = await this.db.task.findUnique({
@@ -268,14 +398,27 @@ export class AccessProjectionService {
         select: { creatorId: true, participants: { select: { userId: true, role: true } } },
       });
       if (!task) return;
-      await this.access.revokeResource('task', taskId);
-      const tuples: RelationTupleInput[] = [
+      const desired: RelationTupleInput[] = [
         { resourceType: 'task', resourceId: taskId, relation: 'creator', subjectType: 'user', subjectId: task.creatorId },
       ];
+      const seen = new Set<string>();
       for (const p of task.participants) {
-        tuples.push({ resourceType: 'task', resourceId: taskId, relation: p.role, subjectType: 'user', subjectId: p.userId });
+        const k = `${p.role}:${p.userId}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        desired.push({ resourceType: 'task', resourceId: taskId, relation: p.role, subjectType: 'user', subjectId: p.userId });
       }
-      await this.access.grantMany(tuples);
+      const existing = await this.db.relationTuple.findMany({
+        where: { resourceType: 'task', resourceId: taskId, subjectType: 'user' },
+        select: { id: true, resourceId: true, relation: true, subjectId: true },
+      });
+      await this.applyDiff(
+        desired,
+        existing.map((e) => ({
+          id: e.id,
+          key: this.key({ resourceType: 'task', resourceId: e.resourceId, relation: e.relation, subjectType: 'user', subjectId: e.subjectId }),
+        })),
+      );
     });
   }
 

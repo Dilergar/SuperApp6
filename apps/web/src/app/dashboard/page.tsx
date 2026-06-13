@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
@@ -50,7 +51,7 @@ export default function DashboardPage() {
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <span className="title-md" style={{ color: 'var(--primary)' }}>SuperApp6</span>
           <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
-            <a href="/profile" className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>Профиль</a>
+            <Link href="/profile" className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>Профиль</Link>
             <button onClick={handleLogout} className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>Выйти</button>
           </div>
         </div>
@@ -101,7 +102,7 @@ export default function DashboardPage() {
         </h2>
         <div className="grid md:grid-cols-3" style={{ gap: 'var(--spacing-6)', marginBottom: 'var(--spacing-12)' }}>
           {services.map((s, i) => (
-            <a
+            <Link
               key={s.title}
               href={s.href}
               className="card-elevated"
@@ -128,7 +129,7 @@ export default function DashboardPage() {
               }} />
               <div className="title-md" style={{ marginBottom: 'var(--spacing-2)' }}>{s.title}</div>
               <p className="label-md">{s.description}</p>
-            </a>
+            </Link>
           ))}
         </div>
 

@@ -37,6 +37,8 @@ export type NotificationType =
   | 'workspace.invitation.rejected' // an invitee declined (→ inviter)
   | 'workspace.member.removed' // you were removed from an organization (→ member)
   | 'workspace.role.changed' // your role in an organization changed (→ member)
+  | 'workspace.position.assigned' // a position was assigned to you (→ member)
+  | 'workspace.position.certified' // your position training was certified (→ member)
   // Wallet
   | 'wallet.coins.received' // you were paid coins for a completed task (→ executor)
   // My Wish & Shop (orders)
@@ -47,6 +49,13 @@ export type NotificationType =
   | 'shop.order.funded' // a crowdfunding campaign reached its goal (→ seller / co-managers)
   // Mentions
   | 'mention.received' // someone @mentioned you (messenger / task / event …)
+  // Processes (бизнес-процессы)
+  | 'process.finished' // запущенный вами процесс дошёл до конца (→ инициатор)
+  | 'process.failed' // процесс остановился с ошибкой (→ инициатор)
+  | 'process.step.notify' // нода «Уведомить» внутри процесса (произвольный текст)
+  | 'process.approval.requested' // нужно ваше решение по одобрению (→ согласующий)
+  | 'process.task.queued' // новая задача вашего отдела ждёт в очереди (→ члены отдела)
+  | 'process.step.overdue' // шаг процесса просрочен по SLA (→ инициатор)
   // Messenger — scheduled ("Напомнить")
   | 'messenger.scheduled.sent' // your scheduled message was delivered to the chat (→ you)
   // System

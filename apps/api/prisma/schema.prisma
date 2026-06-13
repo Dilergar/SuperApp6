@@ -33,6 +33,10 @@ model User {
   // Shape: { lastName: bool, dateOfBirth: bool, age: bool, onlineStatus: bool, maritalStatus: bool, extras: {...} }
   // null means use defaults defined in shared/constants. Always-visible (regardless of this): firstName, lastName, phone, role.
   cardVisibility Json? @map("card_visibility")
+  // «Видимость в Компаниях» — что видят КОЛЛЕГИ по организации на карточке в ростере
+  // «Сотрудники» (та же форма флагов, что cardVisibility). null = те же дефолты.
+  // Всегда видны коллегам: имя, фамилия, телефон, должность.
+  companyCardVisibility Json? @map("company_card_visibility")
 
   // Card skins (cosmetic): the equipped default skin instance + premium window
   // (per-group skin overrides require premium). Plain id; ownership validated in service.
@@ -62,6 +66,7 @@ model User {
   googleConnection   GoogleConnection?
   workspaceMembers   WorkspaceMember[]
   ownedWorkspaces    Workspace[]
+  staffAssignments   StaffAssignment[]
 
   // Workspace hiring invitations (separate from ContactInvitation — different semantics)
   workspaceInvitationsSent     WorkspaceInvitation[] @relation("WsInvitationInviter")
@@ -114,8 +119,7 @@ model UserRole {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, role, context, tenantId])
-  @@index([userId])
+  @@unique([userId, role, context, tenantId]) // leading userId also serves plain userId lookups
   @@index([tenantId])
   @@index([userId, context])
   @@map("user_roles")
@@ -229,10 +233,8 @@ model ContactInvitation {
   fromUser User  @relation("InvitationSender", fields: [fromUserId], references: [id], onDelete: Cascade)
   toUser   User? @relation("InvitationRecipient", fields: [toUserId], references: [id], onDelete: Cascade)
 
-  @@index([fromUserId])
-  @@index([toUserId])
   @@index([toPhone])
-  @@index([fromUserId, status])
+  @@index([fromUserId, status]) // leading column also serves plain fromUserId lookups
   @@index([toUserId, status])
   // Send-path: cooldown / existing-pending checks filter (fromUserId, toPhone, status).
   @@index([fromUserId, toPhone, status])
@@ -339,6 +341,9 @@ model Task {
   description String?
   status      String    @default("todo") // todo, in_progress, on_review, done, cancelled
   priority    String    @default("medium") // low, medium, high, urgent
+  // Numeric mirror of priority for ORDER BY (the string column sorts lexicographically:
+  // high < low < medium < urgent — the visible "high below low" bug). 1=low … 4=urgent.
+  priorityRank Int      @default(2) @map("priority_rank")
   dueDate     DateTime? @map("due_date")
   startDate   DateTime? @map("start_date")
   allDay      Boolean   @default(false) @map("all_day")
@@ -466,6 +471,9 @@ model CalendarEvent {
   recurrenceParentId String?    @map("recurrence_parent_id")
   recurrenceId       DateTime?  @map("recurrence_id")
   exDates            DateTime[] @map("ex_dates")
+  // Materialized end of the recurrence (last occurrence end from UNTIL/COUNT; null = infinite).
+  // Lets range queries skip long-finished series instead of RRULE-expanding every master ever.
+  recurrenceEndsAt   DateTime?  @map("recurrence_ends_at")
 
   // Future CalDAV two-way sync (unused in Phase 1)
   googleEventId    String? @map("google_event_id")
@@ -612,20 +620,22 @@ model Workspace {
   members     WorkspaceMember[]
   invitations WorkspaceInvitation[]
   tasks       Task[]
+  staffDepartments StaffDepartment[]
+  staffPositions   StaffPosition[]
+  staffBranches    StaffBranch[]
+  staffAssignments StaffAssignment[]
 
   @@index([ownerId])
   @@map("workspaces")
 }
 
-// Membership / HR card. Role & permissions are NOT stored here — the single source
-// of truth is UserRole (context="workspace", tenantId=workspaceId). This row holds
-// only HR metadata; the member's role is read from / written to UserRole.
+// Membership row. Role & permissions are NOT stored here — the single source
+// of truth is UserRole (context="workspace", tenantId=workspaceId). Должности/отделы/
+// филиалы — сущности StaffModule (назначения в StaffAssignment), не текст здесь.
 model WorkspaceMember {
-  id          String  @id @default(uuid())
-  workspaceId String  @map("workspace_id")
-  userId      String  @map("user_id")
-  department  String?
-  position    String? // free-text job title (e.g. "официант", "IT-специалист")
+  id          String @id @default(uuid())
+  workspaceId String @map("workspace_id")
+  userId      String @map("user_id")
 
   joinedAt DateTime @default(now()) @map("joined_at")
 
@@ -637,8 +647,11 @@ model WorkspaceMember {
   @@map("workspace_members")
 }
 
-// Hiring invitation: a workspace offers a role (+ optional position/department) to a
-// person, who must accept. Separate from ContactInvitation (hiring ≠ friendship).
+// Hiring invitation. Найм ВСЕГДА в Стажёра (роль не выбирается; колонка остаётся для
+// истории/будущих типов найма). Опциональные positionId + branchIds — «нанять официанта
+// в Алматинский и Астанинский филиалы»: при принятии создаётся назначение на КАЖДЫЙ
+// филиал (один сотрудник может обслуживать несколько). branchIds — scalar-массив (FK на
+// массив в Postgres нет; мёртвый id безопасно скипается при принятии).
 // toUserId is null for an external invite by phone — it activates when that phone registers.
 model WorkspaceInvitation {
   id          String @id @default(uuid())
@@ -648,9 +661,9 @@ model WorkspaceInvitation {
   toUserId String? @map("to_user_id") // null until the invited phone is on the platform
   toPhone  String  @map("to_phone") // normalized E.164
 
-  role       String  @default("staff") // workspace role offered (owner/admin/manager/staff/guest)
-  position   String?
-  department String?
+  role       String   @default("trainee") // всегда trainee для новых приглашений
+  positionId String?  @map("position_id")
+  branchIds  String[] @map("branch_ids") // несколько филиалов «с порога»
   message    String?
 
   status      String    @default("pending") // pending, accepted, rejected, cancelled, expired
@@ -660,9 +673,10 @@ model WorkspaceInvitation {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  inviter   User      @relation("WsInvitationInviter", fields: [invitedBy], references: [id], onDelete: Cascade)
-  toUser    User?     @relation("WsInvitationRecipient", fields: [toUserId], references: [id], onDelete: Cascade)
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  inviter   User           @relation("WsInvitationInviter", fields: [invitedBy], references: [id], onDelete: Cascade)
+  toUser    User?          @relation("WsInvitationRecipient", fields: [toUserId], references: [id], onDelete: Cascade)
+  position  StaffPosition? @relation(fields: [positionId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId])
   @@index([toUserId])
@@ -672,6 +686,105 @@ model WorkspaceInvitation {
   // Cleanup cron: WHERE status='pending' AND expiresAt < now.
   @@index([status, expiresAt])
   @@map("workspace_invitations")
+}
+
+// ============================================================
+// STAFF («Сотрудники») — справочники организации + назначения должностей
+// ============================================================
+// Должность/Отдел/Филиал — первоклассные справочники воркспейса. Назначение =
+// человек × должность × (опц.) филиал со статусом обучения (Додзё переключит
+// training→certified). Членство в отделе — ПРОИЗВОДНОЕ от должности
+// (StaffPosition.departmentId) — модель штатного расписания 1С. Роль прав
+// (trainee/staff/manager/…) живёт в UserRole, справочники прав не несут.
+// Рёбра проецируются в core/access: position#holder / branch#member / department#member.
+
+model StaffDepartment {
+  id          String  @id @default(uuid())
+  workspaceId String  @map("workspace_id")
+  name        String
+  parentId    String? @map("parent_id") // дерево в данных; UI пока плоский список
+  sortOrder   Int     @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  parent    StaffDepartment?  @relation("DepartmentTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children  StaffDepartment[] @relation("DepartmentTree")
+  positions StaffPosition[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+  @@map("staff_departments")
+}
+
+model StaffPosition {
+  id           String  @id @default(uuid())
+  workspaceId  String  @map("workspace_id")
+  name         String
+  departmentId String? @map("department_id") // отдел должности (опционально)
+  description  String?
+  sortOrder    Int     @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  workspace   Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  department  StaffDepartment?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  assignments StaffAssignment[]
+  invitations WorkspaceInvitation[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+  @@index([departmentId])
+  @@map("staff_positions")
+}
+
+model StaffBranch {
+  id          String  @id @default(uuid())
+  workspaceId String  @map("workspace_id")
+  name        String
+  address     String?
+  note        String?
+  sortOrder   Int     @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assignments StaffAssignment[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+  @@map("staff_branches")
+}
+
+// Назначение должности. Несколько на человека — норма (официант + бармен; одна
+// должность в двух филиалах = два назначения). Сервис не даёт дубликат
+// (workspace,user,position,branch); для branch IS NULL дубль закрывает partial
+// unique index в миграции (Postgres считает NULL различными).
+model StaffAssignment {
+  id          String  @id @default(uuid())
+  workspaceId String  @map("workspace_id")
+  userId      String  @map("user_id")
+  positionId  String  @map("position_id")
+  branchId    String? @map("branch_id")
+  status      String  @default("training") // training | certified (Додзё/manager+ переключает)
+  assignedBy  String? @map("assigned_by") // user_id назначившего (аудит)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  position  StaffPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  branch    StaffBranch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, userId, positionId, branchId])
+  @@index([workspaceId, userId])
+  @@index([positionId])
+  @@index([branchId])
+  @@map("staff_assignments")
 }
 
 // ============================================================
@@ -795,8 +908,7 @@ model EscrowAgreement {
 
   holds EscrowHold[]
 
-  @@unique([refType, refId]) // exactly one agreement per source
-  @@index([refType, refId])
+  @@unique([refType, refId]) // exactly one agreement per source; also serves lookups
   @@index([status])
   @@map("escrow_agreements")
 }
@@ -1150,8 +1262,7 @@ model Message {
   replyTo Message?  @relation("MessageReply", fields: [replyToId], references: [id], onDelete: SetNull)
   replies Message[] @relation("MessageReply")
 
-  @@unique([chatId, seq])
-  @@index([chatId, seq])
+  @@unique([chatId, seq]) // also serves (chatId, seq) range scans — no separate index needed
   @@index([authorId])
   @@map("messages")
 }
@@ -1173,7 +1284,7 @@ model ScheduledMessage {
   // When to send.
   sendAt DateTime @map("send_at")
 
-  // pending | sent | cancelled
+  // pending | sending (claimed by a firing cron — transient) | sent | cancelled
   status String @default("pending")
   // The Message created when it fired (audit / dedup).
   sentMessageId String? @map("sent_message_id")
@@ -1387,4 +1498,170 @@ model CardSkinTransfer {
 
   @@index([instanceId])
   @@map("card_skin_transfers")
+}
+
+// ============================================================
+// PROCESSES — нодовый движок бизнес-процессов (Фаза 1, B2B)
+// Документ-канвас (nodes/edges/form) живёт в ProcessVersion.document;
+// исполнение — token-движок строками БД (instance + step runs).
+// Кросс-агрегатные ссылки (user/workspace) — плоскими id, как в RelationTuple.
+// ============================================================
+
+model ProcessDefinition {
+  id          String  @id @default(uuid())
+  workspaceId String  @map("workspace_id")
+  name        String
+  description String?
+  // 'team' — по командным правилам (manager+ редактирует, команда видит/запускает);
+  // 'admins' — виден и запускается только admin+ («процессы для разработчиков»).
+  visibility  String  @default("team")
+  status      String  @default("active") // active | archived
+  currentVersionId String? @map("current_version_id") // активная (опубликованная) версия
+  createdById String  @map("created_by_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  versions  ProcessVersion[]
+  instances ProcessInstance[]
+  triggers  ProcessTrigger[]
+
+  @@index([workspaceId, status])
+  @@map("process_definitions")
+}
+
+model ProcessVersion {
+  id           String    @id @default(uuid())
+  definitionId String    @map("definition_id")
+  version      Int
+  status       String    @default("draft") // draft | published | superseded
+  document     Json      // канвас-документ (nodes/edges/form) — источник правды, канвас лишь его рисует
+  compiled     Json?     // скомпилированный план исполнения (заполняется при публикации)
+  createdById  String    @map("created_by_id")
+  publishedAt  DateTime? @map("published_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  definition ProcessDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  instances  ProcessInstance[]
+
+  @@unique([definitionId, version])
+  @@index([definitionId, status])
+  @@map("process_versions")
+}
+
+model ProcessInstance {
+  id           String    @id @default(uuid())
+  definitionId String    @map("definition_id")
+  versionId    String    @map("version_id") // pin: запущенный процесс доживает на своей версии (модель Salesforce Flow)
+  workspaceId  String    @map("workspace_id")
+  status       String    @default("running") // running | done | cancelled | error
+  variables    Json      @default("{}") // анкета процесса (значения стартовой формы)
+  error        String?
+  startedById  String    @map("started_by_id") // «от имени кого» бежит процесс (для триггеров — runAs)
+  triggerType  String    @default("manual") @map("trigger_type") // manual | event | schedule | webhook
+  wakeAt       DateTime? @map("wake_at") // будильник крона (таймеры/SLA — Фаза 2)
+  startedAt    DateTime  @default(now()) @map("started_at")
+  finishedAt   DateTime? @map("finished_at")
+
+  definition ProcessDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  version    ProcessVersion    @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  steps      ProcessStepRun[]
+
+  @@index([workspaceId, status])
+  @@index([definitionId, status])
+  @@index([startedById])
+  @@index([wakeAt])
+  @@map("process_instances")
+}
+
+model ProcessStepRun {
+  id         String @id @default(uuid())
+  instanceId String @map("instance_id")
+  nodeId     String @map("node_id")   // id ноды в документе версии
+  nodeType   String @map("node_type") // снимок типа ноды (списки без джойна версии)
+  status     String @default("active") // active | done | error | cancelled
+
+  // Активирован = side-effect шага (создание задачи/уведомление/таймер) уже отработал.
+  // kick перезапускает только НЕ активированные ожидания (auto-ноды по флагу auto).
+  activated Boolean @default(false)
+
+  // Аудит/«секундомер отделов»: каждый шаг сам считает своё время.
+  startedAt   DateTime  @default(now()) @map("started_at")
+  completedAt DateTime? @map("completed_at")
+
+  outcome String? // выходной порт, по которому ушёл токен ('main' / 'true' / 'false')
+  output  Json?
+  error   String?
+
+  taskId       String? @unique @map("task_id") // человеческий шаг → реальная задача Задачника
+  assigneeId   String? @map("assignee_id")
+  sourceStepId String? @map("source_step_id") // какой шаг породил этот (аудит токен-движка)
+
+  // Ф2.5 — параллель: сколько токенов уже пришло в join-ноду (ждёт joinExpected).
+  joinArrivals Int @default(0) @map("join_arrivals")
+
+  // Ф2 — человеческие процессы:
+  departmentId String?   @map("department_id") // задача на отдел (очередь): кто может claim
+  claimedById  String?   @map("claimed_by_id") // кто забрал задачу отдела из очереди
+  claimedAt    DateTime? @map("claimed_at")
+  decision     String?   // одобрение: approved | rejected (снимок решения)
+  deadlineAt   DateTime? @map("deadline_at")  // SLA человеческого шага ИЛИ время побудки паузы
+  escalatedAt  DateTime? @map("escalated_at") // когда отправлена эскалация просрочки (дедуп)
+
+  instance ProcessInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  @@index([instanceId, status])
+  @@index([assigneeId])
+  // Кроны сканируют активные шаги (добивка + сверка задач) — без status-ведущего
+  // индекса это seq-scan вечно растущей таблицы.
+  @@index([status, startedAt])
+  // Таймеры паузы + эскалация SLA сканируют дедлайны.
+  @@index([deadlineAt])
+  // «Входящие отдела»: claimable-шаги по отделу.
+  @@index([departmentId])
+  @@map("process_step_runs")
+}
+
+// ============================================================
+// PROCESSES Ф3 — триггеры запуска + сейф кредов
+// ============================================================
+
+model ProcessTrigger {
+  id           String  @id @default(uuid())
+  definitionId String  @map("definition_id")
+  workspaceId  String  @map("workspace_id")
+  type         String  // event | schedule | webhook
+  enabled      Boolean @default(true)
+  // event: {eventType, mapping?}; schedule: {everyValue, everyUnit, atHour?}; webhook: {}
+  config       Json    @default("{}")
+  webhookToken String? @unique @map("webhook_token") // секрет публичного эндпоинта
+  runAsUserId  String  @map("run_as_user_id") // процесс запускается «от имени» этого сотрудника
+  nextRunAt    DateTime? @map("next_run_at") // schedule: следующий запуск
+  lastRunAt    DateTime? @map("last_run_at")
+  createdById  String  @map("created_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  definition ProcessDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, type, enabled])
+  @@index([type, enabled, nextRunAt]) // schedule-крон
+  @@index([definitionId])
+  @@map("process_triggers")
+}
+
+model ProcessCredential {
+  id          String   @id @default(uuid())
+  workspaceId String   @map("workspace_id")
+  name        String
+  type        String   // header | basic | bearer
+  // Шифр AES-256-GCM: base64(iv).base64(tag).base64(ciphertext) — секрет наружу не отдаётся.
+  data        String
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([workspaceId])
+  @@map("process_credentials")
 }

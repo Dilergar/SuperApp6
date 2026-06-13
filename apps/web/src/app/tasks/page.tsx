@@ -1,9 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api } from '@/lib/api';
+import { contactsKey, circlesKey, fetchAllContacts, fetchCircles } from '@/lib/queries';
 import { EntitySelector } from '@/components/EntitySelector';
 import { PersonChip } from '../circles/PersonCard';
 import {
@@ -28,13 +30,12 @@ const SMART_LISTS: { key: TaskSmartList | 'all'; label: string }[] = [
   { key: 'all', label: 'Все' },
 ];
 
+const tasksListKey = (smart: TaskSmartList | 'all') => ['tasks', 'list', smart] as const;
+
 export default function TasksPage() {
   const { isReady } = useRequireAuth();
+  const queryClient = useQueryClient();
 
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [circles, setCircles] = useState<Circle[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [smart, setSmart] = useState<TaskSmartList | 'all'>('today');
@@ -42,43 +43,25 @@ export default function TasksPage() {
 
   const clear = () => { setError(''); setSuccess(''); };
 
-  const fetchTasks = useCallback(async (list: TaskSmartList | 'all') => {
-    setLoading(true);
-    try {
-      const params = list === 'all' ? {} : { smartList: list };
+  // Tasks per smart-list + SHARED contacts/circles keys (reused by /circles and pickers —
+  // already cached if the user visited Окружение this session).
+  const tasksQ = useQuery({
+    queryKey: tasksListKey(smart),
+    queryFn: async () => {
+      const params = smart === 'all' ? {} : { smartList: smart };
       const { data } = await api.get('/tasks', { params });
-      setTasks(data.data);
-    } catch {
-      setError('Не удалось загрузить задачи');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      return data.data as Task[];
+    },
+    enabled: isReady,
+  });
+  const contactsQ = useQuery({ queryKey: contactsKey, queryFn: fetchAllContacts, enabled: isReady, staleTime: 60_000 });
+  const circlesQ = useQuery({ queryKey: circlesKey, queryFn: fetchCircles, enabled: isReady, staleTime: 60_000 });
 
-  // People + groups for the create form's pickers (loaded once).
-  const fetchPeople = useCallback(async () => {
-    try {
-      const loadAll = async (): Promise<Contact[]> => {
-        const acc: Contact[] = [];
-        let cursor: string | undefined;
-        do {
-          const res = await api.get('/contacts', { params: cursor ? { cursor } : undefined });
-          acc.push(...res.data.data);
-          cursor = res.data.nextCursor ?? undefined;
-        } while (cursor);
-        return acc;
-      };
-      const [c, f] = await Promise.all([loadAll(), api.get('/circles')]);
-      setContacts(c);
-      setCircles(f.data.data);
-    } catch {
-      /* pickers just stay empty */
-    }
-  }, []);
-
-  useEffect(() => {
-    if (isReady) { fetchTasks(smart); fetchPeople(); }
-  }, [isReady, smart, fetchTasks, fetchPeople]);
+  const tasks: Task[] = tasksQ.data ?? [];
+  const contacts: Contact[] = contactsQ.data ?? [];
+  const circles: Circle[] = circlesQ.data ?? [];
+  const loading = tasksQ.isLoading;
+  const loadError = tasksQ.isError ? 'Не удалось загрузить задачи' : '';
 
   const handleCreate = async (payload: Record<string, unknown>) => {
     clear();
@@ -86,7 +69,7 @@ export default function TasksPage() {
       await api.post('/tasks', payload);
       setSuccess('Задача создана');
       setShowCreate(false);
-      await fetchTasks(smart);
+      queryClient.invalidateQueries({ queryKey: ['tasks', 'list'] });
     } catch (err: unknown) {
       const a = err as { response?: { data?: { message?: string } } };
       setError(a.response?.data?.message || 'Ошибка создания задачи');
@@ -124,7 +107,7 @@ export default function TasksPage() {
           </button>
         </div>
 
-        {error && <div className="wash-primary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-4)', color: 'var(--primary)', fontSize: '0.875rem' }}>{error}</div>}
+        {(error || loadError) && <div className="wash-primary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-4)', color: 'var(--primary)', fontSize: '0.875rem' }}>{error || loadError}</div>}
         {success && <div className="wash-secondary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-4)', color: 'var(--secondary)', fontSize: '0.875rem' }}>{success}</div>}
 
         {showCreate && (

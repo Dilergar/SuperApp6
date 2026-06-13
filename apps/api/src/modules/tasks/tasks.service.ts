@@ -1,11 +1,14 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ForbiddenException,
   BadRequestException,
   OnModuleInit,
 } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { DatabaseService } from '../../shared/database/database.service';
+import { ContactsService } from '../contacts/contacts.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { EscrowService } from '../wallet/escrow.service';
 import { AccessService } from '../../core/access/access.service';
@@ -42,9 +45,15 @@ const TASK_INCLUDE = {
 type TaskRow = Prisma.TaskGetPayload<{ include: typeof TASK_INCLUDE }>;
 type UserMini = { id: string; firstName: string; lastName: string | null; avatar: string | null };
 
+// Numeric mirror of priority for ORDER BY — the string column sorts lexicographically
+// (high < low < medium < urgent), which put high-priority tasks BELOW low-priority ones.
+const PRIORITY_RANK: Record<string, number> = { low: 1, medium: 2, high: 3, urgent: 4 };
+
 
 @Injectable()
 export class TasksService implements OnModuleInit {
+  private readonly logger = new Logger(TasksService.name);
+
   constructor(
     private db: DatabaseService,
     private events: EventBusService,
@@ -53,6 +62,8 @@ export class TasksService implements OnModuleInit {
     private accessProjection: AccessProjectionService,
     private messenger: MessengerService,
     private quickActions: QuickActionRegistry,
+    private moduleRef: ModuleRef,
+    private contacts: ContactsService,
   ) {}
 
   onModuleInit(): void {
@@ -75,26 +86,9 @@ export class TasksService implements OnModuleInit {
   // Helpers: social-graph validation & group expansion
   // ============================================================
 
-  /** Throw unless every id (other than the creator themselves) is a confirmed contact. */
+  /** Throw unless every id is a confirmed contact AND not blocked (shared gate in Contacts). */
   private async assertInEnvironment(ownerId: string, ids: string[]): Promise<void> {
-    const others = [...new Set(ids)].filter((id) => id && id !== ownerId);
-    if (others.length === 0) return;
-
-    const links = await this.db.contactLink.findMany({
-      where: {
-        OR: others.map((id) => {
-          const [a, b] = ownerId < id ? [ownerId, id] : [id, ownerId];
-          return { userAId: a, userBId: b };
-        }),
-      },
-      select: { userAId: true, userBId: true },
-    });
-
-    const linked = new Set(links.map((l) => (l.userAId === ownerId ? l.userBId : l.userAId)));
-    const missing = others.filter((id) => !linked.has(id));
-    if (missing.length > 0) {
-      throw new ForbiddenException('Назначать можно только людей из вашего окружения');
-    }
+    await this.contacts.assertReachable(ownerId, ids, 'Назначать можно только людей из вашего окружения');
   }
 
   /** Resolve a Группа (Circle) owned by `ownerId` into the member user ids. */
@@ -189,6 +183,7 @@ export class TasksService implements OnModuleInit {
           title: data.title,
           description: data.description,
           priority: data.priority || 'medium',
+          priorityRank: PRIORITY_RANK[data.priority || 'medium'] ?? 2,
           dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
           startDate: data.startDate ? new Date(data.startDate) : undefined,
           allDay: data.allDay ?? false,
@@ -284,7 +279,7 @@ export class TasksService implements OnModuleInit {
       this.db.task.findMany({
         where,
         include: TASK_INCLUDE,
-        orderBy: [{ priority: 'desc' }, { dueDate: 'asc' }, { createdAt: 'desc' }],
+        orderBy: [{ priorityRank: 'desc' }, { dueDate: 'asc' }, { createdAt: 'desc' }],
         skip,
         take: limit,
       }),
@@ -447,7 +442,10 @@ export class TasksService implements OnModuleInit {
     const patch: Prisma.TaskUpdateInput = {};
     if (data.title !== undefined) patch.title = data.title;
     if (data.description !== undefined) patch.description = data.description;
-    if (data.priority !== undefined) patch.priority = data.priority;
+    if (data.priority !== undefined) {
+      patch.priority = data.priority;
+      patch.priorityRank = PRIORITY_RANK[data.priority] ?? 2;
+    }
     if (data.allDay !== undefined) patch.allDay = data.allDay;
     if (data.coinReward !== undefined) patch.coinReward = data.coinReward;
     if (data.coinPenalty !== undefined) patch.coinPenalty = data.coinPenalty;
@@ -493,6 +491,24 @@ export class TasksService implements OnModuleInit {
     if (roleEdit) {
       await this.accessProjection.resyncTaskRoles(taskId);
       await this.messenger.syncTaskChatMembers(taskId);
+    }
+
+    // Отмена задачи-шага бизнес-процесса должна остановить процесс (иначе токен ждёт вечно).
+    if (patch.status === 'cancelled' && existing.status !== 'cancelled') {
+      this.events.emit(
+        'task.cancelled',
+        { taskId, taskTitle: existing.title, recipientIds: existing.participants.map((p) => p.userId) },
+        'tasks',
+      );
+      try {
+        const processes = this.moduleRef.get<{ onTaskCancelled: (taskId: string) => Promise<void> }>(
+          'ProcessesService',
+          { strict: false },
+        );
+        await processes.onTaskCancelled(taskId);
+      } catch (err) {
+        this.logger.warn(`settle process on task cancel failed (${taskId}): ${(err as Error)?.message}`);
+      }
     }
 
     return this.getTask(userId, taskId);
@@ -585,6 +601,8 @@ export class TasksService implements OnModuleInit {
         data: { status: 'done', completedAt: new Date() },
       });
       this.events.emit('task.completed', { taskId, taskTitle: task.title, recipientIds: [userId] }, 'tasks');
+      await this.settleLinkedOrder(taskId);
+      await this.settleLinkedProcess(taskId);
       await this.maybeSpawnRecurrence(task);
       return this.getTask(userId, taskId);
     }
@@ -619,10 +637,13 @@ export class TasksService implements OnModuleInit {
     const { task, target } = await this.loadForReview(userId, taskId, participantUserId);
     let captured: { currencyName: string; amount: number } | null = null;
     await this.db.$transaction(async (tx) => {
-      await tx.taskParticipant.update({
-        where: { id: target.id },
+      // Status-guarded claim: a concurrent double «Принять» loses here instead of double-capturing
+      // (the ledger re-checks resolution after its row lock too — defense in depth).
+      const claimed = await tx.taskParticipant.updateMany({
+        where: { id: target.id, status: { not: 'accepted' } },
         data: { status: 'accepted', acceptedAt: new Date(), returnedAt: null },
       });
+      if (claimed.count === 0) throw new BadRequestException('Работа уже принята');
       const legs = await this.escrow.capture(tx, { refType: 'task', refId: taskId, beneficiaryUserId: target.userId }); // pay out the frozen reward
       captured = legs[0] ?? null;
     });
@@ -709,10 +730,13 @@ export class TasksService implements OnModuleInit {
 
     const becameDone = status === 'done' && !wasDone;
     if (status !== task.status || becameDone) {
-      await this.db.task.update({
-        where: { id: taskId },
+      // Optimistic claim: два конкурентных финальных «Принять» не должны дать дубль
+      // task.completed / повторный settlement (статус под нами уже сменили → выходим).
+      const claimed = await this.db.task.updateMany({
+        where: { id: taskId, status: task.status },
         data: { status, completedAt: status === 'done' ? new Date() : null },
       });
+      if (claimed.count === 0) return;
     }
 
     if (becameDone) {
@@ -728,8 +752,84 @@ export class TasksService implements OnModuleInit {
         { taskId, taskTitle: task.title, recipientIds: [...new Set(recipients)] },
         'tasks',
       );
+      await this.settleLinkedOrder(taskId);
+      await this.settleLinkedProcess(taskId);
       if (full) await this.maybeSpawnRecurrence(full);
     }
+  }
+
+  /**
+   * Settle a linked shop order SYNCHRONOUSLY when its fulfilment task completes — money must not
+   * depend on the at-most-once EventBus (a lost task.completed = buyer's funds frozen forever).
+   * The ShopEventsListener and the ShopCron sweep stay as idempotent safety nets. Lazy string
+   * token because a direct import would close the module cycle ShopModule→TasksModule.
+   */
+  private async settleLinkedOrder(taskId: string): Promise<void> {
+    try {
+      const shop = this.moduleRef.get<{ onFulfillmentDone: (taskId: string) => Promise<void> }>(
+        'ShopService',
+        { strict: false },
+      );
+      await shop.onFulfillmentDone(taskId);
+    } catch {
+      // Shop unavailable / transient failure — the bus listener or the ShopCron sweep settles it.
+    }
+  }
+
+  /**
+   * Если задача — шаг бизнес-процесса, СИНХРОННО продвигаем токен (тот же
+   * ModuleRef-паттерн, что settleLinkedOrder; шина — идемпотентная подстраховка).
+   */
+  private async settleLinkedProcess(taskId: string): Promise<void> {
+    try {
+      const processes = this.moduleRef.get<{ onTaskCompleted: (taskId: string) => Promise<void> }>(
+        'ProcessesService',
+        { strict: false },
+      );
+      await processes.onTaskCompleted(taskId);
+    } catch (err) {
+      // Transient failure — the bus listener or the ProcessesCron task-sweep re-drives it.
+      this.logger.warn(`settle process on task complete failed (${taskId}): ${(err as Error)?.message}`);
+    }
+  }
+
+  /**
+   * Переназначить исполнителя задачи-шага процесса (Ф2.5). Доверенный вызов из движка
+   * (права проверены гейтом manager+). Снимает старого исполнителя, ставит нового;
+   * награда перемораживается (у процессных задач обычно 0). Членство уже проверено.
+   */
+  async reassignExecutorTrusted(taskId: string, newExecutorId: string): Promise<void> {
+    const task = await this.db.task.findUnique({
+      where: { id: taskId },
+      include: { participants: { select: { id: true, userId: true, role: true } } },
+    });
+    if (!task) throw new NotFoundException('Задача не найдена');
+    if (task.status === 'done' || task.status === 'cancelled') {
+      throw new BadRequestException('Задача уже завершена');
+    }
+    await this.db.$transaction(async (tx) => {
+      const oldExec = task.participants.find((p) => p.role === 'executor');
+      if (oldExec) {
+        if (oldExec.userId === newExecutorId) return; // нечего менять
+        await this.escrow.release(tx, { refType: 'task', refId: taskId, beneficiaryUserId: oldExec.userId });
+        await tx.taskParticipant.deleteMany({ where: { taskId, role: 'executor' } });
+      }
+      await tx.taskParticipant.upsert({
+        where: { taskId_userId: { taskId, userId: newExecutorId } },
+        update: { role: 'executor', status: 'pending', submittedAt: null, acceptedAt: null, returnedAt: null },
+        create: { taskId, userId: newExecutorId, role: 'executor', rewardCoins: task.coinReward },
+      });
+      if (task.coinReward > 0) {
+        await this.freezeReward(tx, taskId, task.creatorId, [newExecutorId], task.coinReward);
+      }
+    });
+    await this.accessProjection.resyncTaskRoles(taskId);
+    await this.messenger.syncTaskChatMembers(taskId);
+    this.events.emit(
+      'task.assigned',
+      { taskId, taskTitle: task.title, byUserId: task.creatorId, byName: '', recipientIds: [newExecutorId] },
+      'tasks',
+    );
   }
 
   /** On completion of a recurring task, clone the next occurrence (TickTick-style). */
@@ -767,6 +867,7 @@ export class TasksService implements OnModuleInit {
           title: task.title,
           description: task.description,
           priority: task.priority,
+          priorityRank: PRIORITY_RANK[task.priority] ?? 2,
           dueDate: next,
           allDay: task.allDay,
           reminderAt: reminder,

@@ -40,7 +40,7 @@ constants/search.ts (SEARCH_SOURCE_TYPES, SEARCH_LIMITS{minQueryLength2,maxQuery
 GlobalSearch.tsx (bar above ChatList, grouped results replace list), Conversation in-chat 🔍 (searchInChat + ↑↓, reuses flashId/scroll + auto-load-older to reach a match). lib/messenger-api: searchGlobal/searchInChat.
 
 ## Verified
-verify-search.cjs 22/0. nest build + web tsc clean. NOT committed (working tree). NOT browser-smoked (Chrome extension off this session).
+verify-search.cjs 22/0. nest build + web tsc clean. Committed to main (merge 3a67bfb). NOT browser-smoked (Chrome extension off that session).
 
 ## GOTCHAS
 - 'russian' FTS config present on docker pg16 (migrate deploy succeeded). Coined/foreign words pass through unstemmed (still matched by trigram). 

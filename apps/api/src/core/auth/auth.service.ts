@@ -8,6 +8,7 @@ import * as bcrypt from 'bcryptjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
+import { EventBusService } from '../../shared/events/event-bus.service';
 import { ContactsService } from '../../modules/contacts/contacts.service';
 import { WorkspacesService } from '../../modules/workspaces/workspaces.service';
 import type { JwtPayload } from '../../shared/decorators/current-user.decorator';
@@ -20,6 +21,7 @@ export class AuthService {
     private redis: RedisService,
     private contacts: ContactsService,
     private workspaces: WorkspacesService,
+    private events: EventBusService,
   ) {}
 
   async register(data: {
@@ -187,6 +189,9 @@ export class AuthService {
     await this.db.session.deleteMany({ where: { userId } });
     // Invalidate all cached data for this user
     await this.redis.delPattern(`user:${userId}:*`);
+    // Hard-disconnect live messenger sockets too: socket auth happens only on the
+    // handshake, so without this a revoked session keeps receiving realtime traffic.
+    this.events.emit('auth.sessions.revoked', { userId }, 'auth');
   }
 
   private getHighestSystemRole(roles: string[]): string {

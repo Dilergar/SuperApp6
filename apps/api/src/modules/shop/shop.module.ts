@@ -20,7 +20,16 @@ import { MessengerModule } from '../messenger/messenger.module';
 @Module({
   imports: [WalletModule, TasksModule, CalendarModule, MessengerModule],
   controllers: [ShopController],
-  providers: [ShopService, ShopEventsListener, ShopCron, ShopRichCardsProvider],
+  providers: [
+    ShopService,
+    // String-token alias so TasksService can settle a linked order SYNCHRONOUSLY on fulfilment-task
+    // completion via ModuleRef.get('ShopService', { strict: false }) — a direct import would create
+    // the cycle TasksModule→ShopModule→TasksModule. Same pattern as 'CalendarService' in calendar.module.
+    { provide: 'ShopService', useExisting: ShopService },
+    ShopEventsListener,
+    ShopCron,
+    ShopRichCardsProvider,
+  ],
   exports: [ShopService],
 })
 export class ShopModule {}

@@ -3,9 +3,10 @@ import { phoneSchema } from './auth';
 
 const noHtml = (s: string) => !/[<>]/.test(s);
 
-// Roles assignable via invite / role-change. NOTE: "owner" is intentionally excluded —
-// ownership is set on creation and changed only via transfer (one owner per workspace).
-const ASSIGNABLE_WORKSPACE_ROLES = ['admin', 'manager', 'staff', 'guest'] as const;
+// Roles assignable via role-change. NOTE: "owner" excluded (only via transfer),
+// "contractor" excluded (granted programmatically by services, never by hand).
+// Who may assign what (owner-only admin grant) is enforced in the service layer.
+const ASSIGNABLE_WORKSPACE_ROLES = ['admin', 'manager', 'staff', 'trainee'] as const;
 
 const nameSchema = z
   .string()
@@ -14,16 +15,6 @@ const nameSchema = z
   .refine(noHtml, 'Недопустимые символы');
 
 const logoSchema = z.string().max(500, 'Слишком длинная ссылка').refine(noHtml, 'Недопустимые символы');
-
-const positionSchema = z
-  .string()
-  .max(100, 'Должность слишком длинная')
-  .refine(noHtml, 'Недопустимые символы');
-
-const departmentSchema = z
-  .string()
-  .max(100, 'Отдел слишком длинный')
-  .refine(noHtml, 'Недопустимые символы');
 
 const messageSchema = z
   .string()
@@ -110,18 +101,17 @@ export const updateWorkspaceProfileSchema = z
 // Members & invitations
 // ============================================================
 
+// Найм всегда в Стажёра — роли в схеме НЕТ. Должность + филиалы — опционально из
+// справочников (несколько филиалов: при принятии создаётся назначение на каждый).
 export const inviteWorkspaceMemberSchema = z.object({
   phone: phoneSchema,
-  role: assignableRoleSchema.default('staff'),
-  position: positionSchema.optional(),
-  department: departmentSchema.optional(),
+  positionId: z.string().uuid().optional(),
+  branchIds: z.array(z.string().uuid()).max(50).optional(),
   message: messageSchema.optional(),
 });
 
-export const updateWorkspaceMemberSchema = z
-  .object({
-    role: assignableRoleSchema.optional(),
-    position: positionSchema.nullable().optional(),
-    department: departmentSchema.nullable().optional(),
-  })
-  .refine((d) => Object.keys(d).length > 0, 'Нечего обновлять');
+// Смена роли — единственное, что меняется у члена напрямую
+// (должности — через назначения StaffModule).
+export const updateWorkspaceMemberSchema = z.object({
+  role: assignableRoleSchema,
+});

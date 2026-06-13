@@ -32,4 +32,4 @@ ScheduledMessage model + ScheduledMessageService (schedule/list-mine/update/canc
 Message.replyToId self-relation; MESSAGE_REPLY_INCLUDE in getMessages/send/edit; ChatMessage.replyTo preview; sendMessage validates the quote is in the same chat. Web: composer quoted-bar + per-bubble quoted block (click → jumpToMessage flash, reuses Phase-5/6 mechanism).
 
 ## Verified
-verify-quickactions.cjs 20/0 (registry+perms+scope, reply+cross-chat 400, scheduled lifecycle+validation+access+cron-fire+author ping). nest build + web tsc clean. Payloads matched to backend schemas. NOT committed (working tree). NOT browser-smoked (Chrome ext off this session).
+verify-quickactions.cjs 20/0 (registry+perms+scope, reply+cross-chat 400, scheduled lifecycle+validation+access+cron-fire+author ping). nest build + web tsc clean. Payloads matched to backend schemas. Committed to main (merge 3a67bfb). NOT browser-smoked (Chrome ext off that session).

@@ -4,7 +4,8 @@
 // A Workspace is ALWAYS a business/organization (B2B tenant). A person's personal
 // life is the social graph (workspaceId = null), NOT a workspace.
 // Role & permissions live in UserRole (context="workspace", tenantId=workspaceId) —
-// the single source of truth. WorkspaceMember holds only HR metadata (department/position).
+// the single source of truth. Должности/отделы/филиалы — сущности StaffModule
+// (см. types/staff.ts); назначения присоединяются к member-DTO сервисом.
 // These interfaces are API DTOs (assembled views), not raw DB rows: `role` on a member
 // is read from UserRole, and user name/avatar are joined in by the service.
 
@@ -67,8 +68,14 @@ export interface WorkspaceMember {
   userAvatar: string | null;
   /** Assembled from UserRole (single source of truth) — NOT stored on WorkspaceMember. */
   role: WorkspaceRoleT;
-  department: string | null;
-  position: string | null;
+  /** Назначения должностей (StaffModule), присоединяются сервисом. */
+  assignments: import('./staff').StaffAssignment[];
+  /**
+   * Карточка человека для КОЛЛЕГ — те же поля, что видит окружение в b2c,
+   * но скрытые по «Видимости в Компаниях» владельца поля приходят null.
+   * Всегда видны: имя, фамилия, телефон (+ должности в assignments).
+   */
+  card: import('./contact').ContactUserCard;
   joinedAt: string;
 }
 
@@ -81,9 +88,14 @@ export interface WorkspaceInvitation {
   invitedByName: string;
   toUserId: string | null;
   toPhone: string;
+  /** Всегда trainee для новых приглашений (выбора роли больше нет). */
   role: WorkspaceRoleT;
-  position: string | null;
-  department: string | null;
+  /** Опциональная должность + филиалы «с порога»: примет — назначения создадутся сами
+   *  (по одному на филиал; сотрудник может обслуживать несколько). */
+  positionId: string | null;
+  positionName: string | null;
+  branchIds: string[];
+  branchNames: string[];
   message: string | null;
   status: WorkspaceInvitationStatus;
   expiresAt: string;
@@ -100,18 +112,19 @@ export interface UpdateWorkspaceRequest {
   logo?: string | null;
 }
 
+// Найм всегда в Стажёра — роли в запросе НЕТ. Должность + филиалы опциональны
+// (несколько филиалов: сотрудник может обслуживать сразу несколько).
 export interface InviteMemberRequest {
   phone: string;
-  role: WorkspaceRoleT;
-  position?: string;
-  department?: string;
+  positionId?: string;
+  branchIds?: string[];
   message?: string;
 }
 
+// Смена роли: admin → manager/staff/trainee; admin назначает только владелец.
+// contractor вручную не назначается. Должности меняются назначениями (StaffModule).
 export interface UpdateMemberRequest {
-  role?: WorkspaceRoleT;
-  position?: string | null;
-  department?: string | null;
+  role: WorkspaceRoleT;
 }
 
 export interface TransferOwnershipRequest {

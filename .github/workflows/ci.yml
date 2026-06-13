@@ -1,0 +1,129 @@
+# CI: build everything + run the full verify-*.cjs e2e suite against real Postgres/Redis.
+# The verify scripts are the project's test suite (30 scripts, all-green policy) — this job is
+# the safety net the architecture review found missing (0 unit tests, lint = OOM'ing tsc).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: superapp
+          POSTGRES_PASSWORD: superapp
+          POSTGRES_DB: superapp6
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U superapp"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://superapp:superapp@localhost:5432/superapp6
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-only-secret-0123456789abcdef0123456789
+      NODE_ENV: test
+      PORT: '3001'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared package
+        run: pnpm --filter @superapp/shared build
+
+      - name: Prisma generate + migrate
+        working-directory: apps/api
+        run: |
+          npx prisma generate
+          npx prisma migrate deploy
+
+      - name: Build API
+        working-directory: apps/api
+        run: npx nest build
+
+      - name: Typecheck web
+        working-directory: apps/web
+        run: npx tsc --noEmit
+
+      # The verify scripts read apps/api/.env directly — give them the CI connection strings.
+      - name: Write apps/api/.env for verify scripts
+        working-directory: apps/api
+        run: |
+          {
+            echo "DATABASE_URL=$DATABASE_URL"
+            echo "REDIS_URL=$REDIS_URL"
+            echo "JWT_SECRET=$JWT_SECRET"
+            echo "NODE_ENV=test"
+            echo "PORT=3001"
+          } > .env
+
+      - name: Start API
+        working-directory: apps/api
+        run: |
+          node dist/main > api.log 2>&1 &
+          echo $! > api.pid
+          for i in $(seq 1 30); do
+            curl -s -o /dev/null http://localhost:3001/api && break
+            sleep 1
+          done
+          curl -s -o /dev/null http://localhost:3001/api || (echo "API did not start"; tail -50 api.log; exit 1)
+
+      - name: Seed test accounts + card skins
+        working-directory: apps/api
+        run: |
+          node scripts/seed-test-accounts.cjs
+          node scripts/seed-card-skins.cjs
+
+      - name: Run verify suite
+        working-directory: apps/api
+        run: |
+          set -e
+          failed=0
+          for f in scripts/verify-*.cjs; do
+            echo ""
+            echo "════════ $f ════════"
+            if ! node "$f"; then
+              echo "::error::$f FAILED"
+              failed=1
+            fi
+          done
+          exit $failed
+
+      - name: API log on failure
+        if: failure()
+        working-directory: apps/api
+        run: tail -200 api.log || true
+
+      - name: Stop API
+        if: always()
+        working-directory: apps/api
+        run: kill "$(cat api.pid)" 2>/dev/null || true

@@ -60,6 +60,10 @@ export const CONTACT_LIMITS = {
   maxInvitationsPer24h: 30,
   // Cooldown (hours) before a cancelled/rejected invitation to the same phone can be resent.
   resendCooldownHours: 24,
+  // How long non-pending invitations are kept before cleanup deletes them.
+  // The resend cooldown, the 24h send limit and resendInvitation all read this
+  // history — it must outlive every window that depends on it.
+  nonPendingRetentionDays: 30,
   // Page size for the cursor-paginated "Моё окружение" list.
   contactsPageSize: 100,
 } as const;

@@ -1,16 +1,35 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import Link from 'next/link';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api } from '@/lib/api';
+import {
+  contactsKey,
+  circlesKey,
+  circleDetailKey,
+  incomingInvitationsKey,
+  outgoingInvitationsKey,
+  blocksKey,
+  currencyBadgeKey,
+  fetchAllContacts,
+  fetchCircles,
+  fetchCircleDetail,
+  fetchIncomingInvitations,
+  fetchOutgoingInvitations,
+  fetchBlocks,
+  fetchCurrencyBadge,
+} from '@/lib/queries';
+import { invalidateEntities } from '@/lib/entities';
 import { getPresence } from '@/lib/messenger-api';
-import { PersonCard } from './PersonCard';
+import { PersonCard, PersonChip } from './PersonCard';
 import { PersonAvatar } from '../messenger/messenger-ui';
 import type { CardSkinRender } from './card-skin';
 import { ROLE_PRESETS } from '@superapp/shared';
 import type {
   Contact,
+  ContactBlockRecord,
   IncomingInvitation,
   OutgoingInvitation,
   Circle,
@@ -58,16 +77,10 @@ const VIS_FIELDS: { key: VisField; label: string }[] = [
 
 export default function CirclesPage() {
   const { isReady } = useRequireAuth();
+  const queryClient = useQueryClient();
 
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [coinsByUser, setCoinsByUser] = useState<Record<string, number>>({});
-  const [myCoinIcon, setMyCoinIcon] = useState<string | null>(null);
   const [presenceByUser, setPresenceByUser] = useState<Record<string, PresenceInfo>>({});
   const [skinByUser, setSkinByUser] = useState<Record<string, CardSkinRender | null>>({});
-  const [groups, setGroups] = useState<Circle[]>([]);
-  const [incoming, setIncoming] = useState<IncomingInvitation[]>([]);
-  const [outgoing, setOutgoing] = useState<OutgoingInvitation[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
@@ -90,71 +103,49 @@ export default function CirclesPage() {
 
   // Group filter — null = show all, string = filter by group
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
-  const [activeGroupData, setActiveGroupData] = useState<CircleWithMembers | null>(null);
 
   // Invitations panel
   const [showInvitations, setShowInvitations] = useState(true);
 
+  // Blocked users panel (collapsed by default — rarely needed)
+  const [showBlocked, setShowBlocked] = useState(false);
+
   const clear = () => { setError(''); setSuccessMsg(''); };
 
   // ============================================================
-  // Data fetching
+  // Data — React Query with SHARED keys (contacts/circles are reused by other
+  // pages' pickers). A mutation invalidates ONLY its key instead of the old
+  // fetchAll() storm (6+ requests after every click).
   // ============================================================
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
-    try {
-      // Environment list is cursor-paginated server-side; pull all pages so
-      // the UI keeps showing everyone, while each request stays bounded.
-      const loadAllContacts = async (): Promise<Contact[]> => {
-        const acc: Contact[] = [];
-        let cursor: string | undefined;
-        do {
-          const res = await api.get('/contacts', {
-            params: cursor ? { cursor } : undefined,
-          });
-          acc.push(...res.data.data);
-          cursor = res.data.nextCursor ?? undefined;
-        } while (cursor);
-        return acc;
-      };
+  const contactsQ = useQuery({ queryKey: contactsKey, queryFn: fetchAllContacts, enabled: isReady });
+  const groupsQ = useQuery({ queryKey: circlesKey, queryFn: fetchCircles, enabled: isReady });
+  const incomingQ = useQuery({ queryKey: incomingInvitationsKey, queryFn: fetchIncomingInvitations, enabled: isReady });
+  const outgoingQ = useQuery({ queryKey: outgoingInvitationsKey, queryFn: fetchOutgoingInvitations, enabled: isReady });
+  const blocksQ = useQuery({ queryKey: blocksKey, queryFn: fetchBlocks, enabled: isReady });
+  const walletQ = useQuery({ queryKey: currencyBadgeKey, queryFn: fetchCurrencyBadge, enabled: isReady, staleTime: 60_000 });
+  const groupDetailQ = useQuery({
+    queryKey: circleDetailKey(activeGroup ?? 'none'),
+    queryFn: () => fetchCircleDetail(activeGroup!),
+    enabled: isReady && !!activeGroup,
+  });
 
-      const [c, inc, out, f] = await Promise.all([
-        loadAllContacts(),
-        api.get('/contacts/invitations/incoming'),
-        api.get('/contacts/invitations/outgoing'),
-        api.get('/circles'),
-      ]);
-      setContacts(c);
-      setIncoming(inc.data.data);
-      setOutgoing(out.data.data);
-      setGroups(f.data.data);
-
-      // My currency + who holds it → small "держит N 🪙" badge on each person's card.
-      try {
-        const [cur, holders] = await Promise.all([
-          api.get('/wallet/currency'),
-          api.get('/wallet/currency/holders'),
-        ]);
-        setMyCoinIcon(cur.data.data?.icon ?? null);
-        const map: Record<string, number> = {};
-        for (const h of (holders.data.data as Array<{ userId: string; balance: number }>)) {
-          map[h.userId] = h.balance;
-        }
-        setCoinsByUser(map);
-      } catch {
-        /* wallet context is optional here */
-      }
-    } catch {
-      setError('Не удалось загрузить данные');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const contacts: Contact[] = contactsQ.data ?? [];
+  const groups: Circle[] = groupsQ.data ?? [];
+  const incoming: IncomingInvitation[] = incomingQ.data ?? [];
+  const outgoing: OutgoingInvitation[] = outgoingQ.data ?? [];
+  const blocks: ContactBlockRecord[] = blocksQ.data ?? [];
+  const myCoinIcon = walletQ.data?.icon ?? null;
+  const coinsByUser = walletQ.data?.holders ?? {};
+  const activeGroupData: CircleWithMembers | null = activeGroup ? groupDetailQ.data ?? null : null;
+  const loading = contactsQ.isLoading || groupsQ.isLoading || incomingQ.isLoading || outgoingQ.isLoading;
 
   useEffect(() => {
-    if (isReady) fetchAll();
-  }, [isReady, fetchAll]);
+    if (contactsQ.isError || groupsQ.isError) setError('Не удалось загрузить данные');
+  }, [contactsQ.isError, groupsQ.isError]);
+  useEffect(() => {
+    if (groupDetailQ.isError) setError('Не удалось загрузить группу');
+  }, [groupDetailQ.isError]);
 
   // Presence for the currently visible people (all contacts, or just the
   // selected group's members). Lightweight: one batch fetch whenever the
@@ -193,20 +184,7 @@ export default function CirclesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleUserKey]);
 
-  const selectGroup = async (groupId: string | null) => {
-    if (groupId === null) {
-      setActiveGroup(null);
-      setActiveGroupData(null);
-      return;
-    }
-    try {
-      const { data } = await api.get(`/circles/${groupId}`);
-      setActiveGroup(groupId);
-      setActiveGroupData(data.data);
-    } catch {
-      setError('Не удалось загрузить группу');
-    }
-  };
+  const selectGroup = (groupId: string | null) => setActiveGroup(groupId);
 
   // ============================================================
   // Invitation actions
@@ -258,7 +236,7 @@ export default function CirclesPage() {
       setInvTheyForMe('');
       setInvMeForThem('');
       setInvMessage('');
-      await fetchAll();
+      queryClient.invalidateQueries({ queryKey: outgoingInvitationsKey });
     } catch (err: unknown) {
       const a = err as { response?: { data?: { message?: string } } };
       setError(a.response?.data?.message || 'Ошибка отправки');
@@ -272,7 +250,9 @@ export default function CirclesPage() {
     try {
       await api.post(`/contacts/invitations/${invId}/accept`, {});
       setSuccessMsg('Приглашение принято!');
-      await fetchAll();
+      queryClient.invalidateQueries({ queryKey: incomingInvitationsKey });
+      queryClient.invalidateQueries({ queryKey: contactsKey });
+      invalidateEntities('user'); // new person must appear in every picker without F5
     } catch (err: unknown) {
       const a = err as { response?: { data?: { message?: string } } };
       setError(a.response?.data?.message || 'Ошибка');
@@ -284,7 +264,7 @@ export default function CirclesPage() {
     try {
       await api.post(`/contacts/invitations/${invId}/reject`);
       setSuccessMsg('Приглашение отклонено');
-      await fetchAll();
+      queryClient.invalidateQueries({ queryKey: incomingInvitationsKey });
     } catch (err: unknown) {
       const a = err as { response?: { data?: { message?: string } } };
       setError(a.response?.data?.message || 'Ошибка');
@@ -296,7 +276,38 @@ export default function CirclesPage() {
     try {
       await api.post(`/contacts/invitations/${invId}/cancel`);
       setSuccessMsg('Приглашение отменено');
-      await fetchAll();
+      queryClient.invalidateQueries({ queryKey: outgoingInvitationsKey });
+    } catch (err: unknown) {
+      const a = err as { response?: { data?: { message?: string } } };
+      setError(a.response?.data?.message || 'Ошибка');
+    }
+  };
+
+  const handleBlock = async (userId: string, name: string) => {
+    if (!confirm(`Заблокировать ${name}? Связь будет удалена у обоих; он(а) больше не сможет вам писать, приглашать и видеть ваши данные.`)) return;
+    clear();
+    try {
+      await api.post('/contacts/blocks', { userId });
+      setSuccessMsg('Пользователь заблокирован');
+      queryClient.invalidateQueries({ queryKey: blocksKey });
+      queryClient.invalidateQueries({ queryKey: contactsKey }); // link removed
+      queryClient.invalidateQueries({ queryKey: circlesKey }); // membersCount
+      queryClient.invalidateQueries({ queryKey: incomingInvitationsKey }); // pending → cancelled
+      queryClient.invalidateQueries({ queryKey: outgoingInvitationsKey });
+      if (activeGroup) queryClient.invalidateQueries({ queryKey: circleDetailKey(activeGroup) });
+      invalidateEntities('user');
+    } catch (err: unknown) {
+      const a = err as { response?: { data?: { message?: string } } };
+      setError(a.response?.data?.message || 'Ошибка');
+    }
+  };
+
+  const handleUnblock = async (userId: string) => {
+    clear();
+    try {
+      await api.delete(`/contacts/blocks/${userId}`);
+      setSuccessMsg('Пользователь разблокирован — для новой связи отправьте приглашение');
+      queryClient.invalidateQueries({ queryKey: blocksKey });
     } catch (err: unknown) {
       const a = err as { response?: { data?: { message?: string } } };
       setError(a.response?.data?.message || 'Ошибка');
@@ -308,8 +319,10 @@ export default function CirclesPage() {
     try {
       await api.delete(`/contacts/${linkId}`);
       setSuccessMsg('Связь удалена');
-      await fetchAll();
-      if (activeGroup) selectGroup(activeGroup);
+      queryClient.invalidateQueries({ queryKey: contactsKey });
+      queryClient.invalidateQueries({ queryKey: circlesKey }); // membersCount
+      if (activeGroup) queryClient.invalidateQueries({ queryKey: circleDetailKey(activeGroup) });
+      invalidateEntities('user');
     } catch (err: unknown) {
       const a = err as { response?: { data?: { message?: string } } };
       setError(a.response?.data?.message || 'Ошибка');
@@ -330,7 +343,8 @@ export default function CirclesPage() {
       setGroupName('');
       setShowCreateGroup(false);
       setSuccessMsg('Группа создана');
-      await fetchAll();
+      queryClient.invalidateQueries({ queryKey: circlesKey });
+      invalidateEntities('circle'); // new group must appear in every picker without F5
     } catch (err: unknown) {
       const a = err as { response?: { data?: { message?: string } } };
       setError(a.response?.data?.message || 'Ошибка');
@@ -343,9 +357,10 @@ export default function CirclesPage() {
     clear();
     try {
       await api.delete(`/circles/${groupId}`);
-      if (activeGroup === groupId) { setActiveGroup(null); setActiveGroupData(null); }
+      if (activeGroup === groupId) setActiveGroup(null);
       setSuccessMsg('Группа удалена');
-      await fetchAll();
+      queryClient.invalidateQueries({ queryKey: circlesKey });
+      invalidateEntities('circle');
     } catch (err: unknown) {
       const a = err as { response?: { data?: { message?: string } } };
       setError(a.response?.data?.message || 'Ошибка');
@@ -356,8 +371,9 @@ export default function CirclesPage() {
     clear();
     try {
       await api.post(`/circles/${groupId}/members`, { contactLinkId });
-      await fetchAll();
-      if (activeGroup === groupId) selectGroup(groupId);
+      queryClient.invalidateQueries({ queryKey: circlesKey }); // membersCount
+      queryClient.invalidateQueries({ queryKey: contactsKey }); // myCircleIds on cards
+      queryClient.invalidateQueries({ queryKey: circleDetailKey(groupId) });
     } catch (err: unknown) {
       const a = err as { response?: { data?: { message?: string } } };
       setError(a.response?.data?.message || 'Ошибка');
@@ -369,19 +385,22 @@ export default function CirclesPage() {
     clear();
     try {
       await api.delete(`/circles/${activeGroup}/members/${linkId}`);
-      await fetchAll();
-      selectGroup(activeGroup);
+      queryClient.invalidateQueries({ queryKey: circlesKey });
+      queryClient.invalidateQueries({ queryKey: contactsKey });
+      queryClient.invalidateQueries({ queryKey: circleDetailKey(activeGroup) });
     } catch (err: unknown) {
       const a = err as { response?: { data?: { message?: string } } };
       setError(a.response?.data?.message || 'Ошибка');
     }
   };
 
-  // Optimistically reflect a group's saved visibility.
+  // Optimistically reflect a group's saved visibility in both caches.
   const handleGroupVisibilitySaved = (updated: Circle) => {
-    setGroups((prev) => prev.map((g) => (g.id === updated.id ? { ...g, ...updated } : g)));
-    setActiveGroupData((prev) =>
-      prev && prev.id === updated.id ? { ...prev, ...updated } : prev,
+    queryClient.setQueryData<Circle[]>(circlesKey, (prev) =>
+      prev ? prev.map((g) => (g.id === updated.id ? { ...g, ...updated } : g)) : prev,
+    );
+    queryClient.setQueryData<CircleWithMembers>(circleDetailKey(updated.id), (prev) =>
+      prev ? { ...prev, ...updated } : prev,
     );
     setSuccessMsg('Видимость группы сохранена');
   };
@@ -529,7 +548,8 @@ export default function CirclesPage() {
                   myRole={inv.proposedRoleForRecipient} theirRole={inv.proposedRoleForSender}
                   theirName={inv.from?.firstName || '?'} theirUserId={inv.fromUserId}
                   theirPhone={inv.toPhone}
-                  onAccept={() => handleAccept(inv.id)} onReject={() => handleReject(inv.id)} />
+                  onAccept={() => handleAccept(inv.id)} onReject={() => handleReject(inv.id)}
+                  onBlock={() => handleBlock(inv.fromUserId, inv.from?.firstName || 'этого пользователя')} />
               ))}
               {outgoing.map((inv) => (
                 <InvitationCard key={inv.id} inv={inv} direction="outgoing"
@@ -542,6 +562,58 @@ export default function CirclesPage() {
             </div>
           )}
         </div>
+
+        {/* Blocked users — only shown when there is someone to manage */}
+        {blocks.length > 0 && (
+          <div style={{ marginBottom: 'var(--spacing-6)' }}>
+            <button
+              onClick={() => setShowBlocked(!showBlocked)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)',
+                background: 'none', border: 'none', cursor: 'pointer',
+                fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: '0.95rem',
+                color: 'var(--on-surface)', marginBottom: showBlocked ? 'var(--spacing-3)' : 0,
+              }}
+            >
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                background: 'var(--surface-container-high)', color: 'var(--on-surface-variant)',
+                borderRadius: '0.5rem', padding: '0.1rem 0.5rem', fontSize: '0.75rem', fontWeight: 700,
+              }}>
+                {blocks.length}
+              </span>
+              Заблокированные
+              <span style={{ fontSize: '0.7rem', color: 'var(--on-surface-variant)', marginLeft: '0.2rem' }}>
+                {showBlocked ? '▲' : '▼'}
+              </span>
+            </button>
+
+            {showBlocked && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
+                {blocks.map((b) => (
+                  <div key={b.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)',
+                    padding: 'var(--spacing-3) var(--spacing-4)',
+                    background: 'var(--surface-container)', borderRadius: 'var(--radius-sketch)',
+                  }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <PersonChip size="S" userId={b.blockedUserId}
+                        firstName={b.blockedFirstName || '?'} lastName={b.blockedLastName}
+                        avatar={b.blockedAvatar} />
+                      <div className="label-sm" style={{ marginTop: '0.2rem', opacity: 0.7 }}>
+                        {b.blockedPhone} · заблокирован {new Date(b.createdAt).toLocaleDateString('ru-RU')}
+                      </div>
+                    </div>
+                    <button onClick={() => handleUnblock(b.blockedUserId)} className="btn-secondary"
+                      style={{ padding: '0.3rem 0.9rem', fontSize: '0.8rem', flexShrink: 0 }}>
+                      Разблокировать
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Group chips — filter bar */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-4)', flexWrap: 'wrap' }}>
@@ -664,6 +736,7 @@ export default function CirclesPage() {
                 folders={groups}
                 activeFolder={activeGroup}
                 onDelete={() => { if (confirm('Удалить из окружения? Это действие двустороннее.')) handleDeleteContact(c.linkId); }}
+                onBlock={() => handleBlock(c.them.id, c.them.firstName)}
                 onRemoveFromFolder={() => handleRemoveFromGroup(c.linkId)}
                 onAddToFolder={(groupId) => handleAddToGroup(c.linkId, groupId)}
                 myCoins={myCoinIcon ? { icon: myCoinIcon, balance: coinsByUser[c.them.id] ?? 0 } : null}
@@ -781,12 +854,12 @@ function GroupVisibilityEditor({
 
 function InvitationCard({
   inv, direction, myRole, theirRole, theirName, theirUserId, theirPhone, registered = true,
-  onAccept, onReject, onCancel,
+  onAccept, onReject, onCancel, onBlock,
 }: {
   inv: IncomingInvitation | OutgoingInvitation; direction: 'incoming' | 'outgoing';
   myRole: string | null; theirRole: string | null;
   theirName: string; theirUserId?: string | null; theirPhone: string; registered?: boolean;
-  onAccept?: () => void; onReject?: () => void; onCancel?: () => void;
+  onAccept?: () => void; onReject?: () => void; onCancel?: () => void; onBlock?: () => void;
 }) {
   const isIncoming = direction === 'incoming';
   return (
@@ -811,6 +884,12 @@ function InvitationCard({
         <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
           {isIncoming && onAccept && <button onClick={onAccept} className="btn-primary" style={{ padding: '0.3rem 0.9rem', fontSize: '0.8rem' }}>Принять</button>}
           {isIncoming && onReject && <button onClick={onReject} className="btn-secondary" style={{ padding: '0.3rem 0.9rem', fontSize: '0.8rem' }}>Отклонить</button>}
+          {isIncoming && onBlock && (
+            <button onClick={onBlock} title="Заблокировать — приглашения и сообщения от этого человека станут невозможны"
+              style={{ background: 'none', border: 'none', fontSize: '0.8rem', color: 'var(--on-surface-variant)', cursor: 'pointer', fontWeight: 500, opacity: 0.7 }}>
+              Заблокировать
+            </button>
+          )}
           {!isIncoming && onCancel && (
             <button onClick={onCancel} style={{ background: 'none', border: 'none', fontSize: '0.8rem', color: 'var(--danger)', cursor: 'pointer', fontWeight: 500 }}>
               Отменить

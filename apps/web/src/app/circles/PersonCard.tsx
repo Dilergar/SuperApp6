@@ -1,8 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import Lottie from 'lottie-react';
+import { useState, useEffect, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
+
+// lottie-web (~70KB gz) is loaded ON DEMAND, only when a card with a Lottie effect
+// actually renders — a static import shipped it in EVERY route's bundle because
+// PersonCard/PersonChip are imported by calendar/messenger/tasks/shop.
+const Lottie = dynamic(() => import('lottie-react'), { ssr: false });
 import type { PresenceInfo } from '@superapp/shared';
 import { presenceStatusLine } from '../messenger/presence-ui';
 import type { CardSize, CardSkinRender } from './card-skin';
@@ -107,6 +112,8 @@ interface CompactProps {
   folders: Folder[];
   activeFolder: string | null;
   onDelete: () => void;
+  /** Block this person (confirm + API live in the page handler). */
+  onBlock?: () => void;
   onRemoveFromFolder: () => void;
   onAddToFolder: (folderId: string) => void;
   /** Balance of MY currency this person holds (visible to me as the issuer). */
@@ -240,32 +247,61 @@ function CardShell({
   );
 }
 
-// Real Lottie effect layer — takes precedence over CSS presets. Lazily fetches the
-// JSON and respects prefers-reduced-motion (renders nothing when reduced).
+// Real Lottie effect layer — takes precedence over CSS presets. Respects
+// prefers-reduced-motion, and is gated by an IntersectionObserver: the JSON is fetched
+// and the animation mounted ONLY while the card is (near) the viewport — a 100+ person
+// grid no longer runs 100+ animations off-screen (the deferred F2 perf issue).
 function LottieEffect({ url, preset, level, accent }: {
   url: string; preset: string | null; level: 'full' | 'subtle' | 'none'; accent: string;
 }) {
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [reduced, setReduced] = useState(false);
+  const [inView, setInView] = useState(false);
+  const hostRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     setReduced(typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
   }, []);
+
   useEffect(() => {
+    if (reduced) return;
+    const el = hostRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') {
+      setInView(true); // no IO support → behave as before
+      return;
+    }
+    const io = new IntersectionObserver(
+      ([entry]) => setInView(entry.isIntersecting),
+      { rootMargin: '120px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [reduced]);
+
+  useEffect(() => { setData(null); }, [url]);
+  useEffect(() => {
+    if (reduced || !inView || data) return;
     let ok = true;
-    setData(null);
     fetch(url)
       .then((r) => { if (!r.ok) throw new Error('skin fx fetch failed'); return r.json(); })
       .then((d) => { if (ok) setData(d); })
       .catch(() => {});
     return () => { ok = false; };
-  }, [url]);
+  }, [url, inView, reduced, data]);
+
   if (reduced) return null;
-  // Until the Lottie JSON resolves (or if it errored → data stays null), show the
-  // CSS preset so a broken/slow effectUrl still renders the skin's built-in effect.
-  if (!data) return preset ? <SkinEffect preset={preset} level={level} accent={accent} /> : null;
+  // Off-screen / until the Lottie JSON resolves (or it errored) → the cheap CSS preset,
+  // so a broken/slow effectUrl still renders the skin's built-in effect.
+  const fallback = preset ? <SkinEffect preset={preset} level={level} accent={accent} /> : null;
   return (
-    <div className="skin-fx">
-      <Lottie animationData={data} loop autoplay style={{ width: '100%', height: '100%' }} />
+    <div ref={hostRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+      {inView && data ? (
+        <div className="skin-fx">
+          <Lottie animationData={data} loop autoplay style={{ width: '100%', height: '100%' }} />
+        </div>
+      ) : (
+        fallback
+      )}
     </div>
   );
 }
@@ -508,7 +544,7 @@ function RarityChip({ rarity }: { rarity: CardSkinRender['rarity'] }) {
 // ============================================================
 
 function CompactCard({
-  contact, folders, activeFolder, onDelete, onRemoveFromFolder, onAddToFolder, myCoins, presence, skin,
+  contact, folders, activeFolder, onDelete, onBlock, onRemoveFromFolder, onAddToFolder, myCoins, presence, skin,
 }: CompactProps) {
   const [showFolderMenu, setShowFolderMenu] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -560,6 +596,13 @@ function CompactCard({
                 </div>
               )}
             </div>
+          )}
+          {onBlock && (
+            <button onClick={onBlock} style={{ background: 'none', border: 'none', color: 'var(--outline)', cursor: 'pointer', fontSize: '0.62rem', fontWeight: 600, padding: '0.1rem', opacity: 0.25 }}
+              onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.7'; e.currentTarget.style.color = 'var(--primary)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.25'; e.currentTarget.style.color = 'var(--outline)'; }}
+              title="Заблокировать"
+            >блок</button>
           )}
           <button onClick={onDelete} style={{ background: 'none', border: 'none', color: 'var(--outline)', cursor: 'pointer', fontSize: '1rem', padding: '0.1rem', opacity: 0.25 }}
             onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.7'; }}
@@ -613,7 +656,7 @@ function CompactCard({
 
 // Expanded XL overlay shown when a grid card is clicked.
 function ExpandedCard({ person, skin, onClose, onWrite }: {
-  person: CardPerson; skin: CardSkinRender; onClose: () => void; onWrite: () => void;
+  person: CardPerson; skin: CardSkinRender; onClose: () => void; onWrite?: () => void;
 }) {
   return (
     <div
@@ -637,21 +680,156 @@ function ExpandedCard({ person, skin, onClose, onWrite }: {
         >×</button>
         <CardShell size="XL" skin={skin} rotation={-1}>
           <CardBody person={person} size="XL" skin={skin} />
-          <div style={{ display: 'flex', justifyContent: 'center', marginTop: 'var(--spacing-4)' }}>
-            <button
-              onClick={onWrite}
-              style={{
-                padding: '0.4rem 1.4rem', fontSize: '0.85rem', fontFamily: 'var(--font-display)', fontWeight: 600,
-                color: 'var(--secondary)', background: 'transparent', border: '2px solid var(--secondary)',
-                borderRadius: 'var(--radius-sketch)', cursor: 'pointer',
-              }}
-            >
-              Написать
-            </button>
-          </div>
+          {onWrite && (
+            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 'var(--spacing-4)' }}>
+              <button
+                onClick={onWrite}
+                style={{
+                  padding: '0.4rem 1.4rem', fontSize: '0.85rem', fontFamily: 'var(--font-display)', fontWeight: 600,
+                  color: 'var(--secondary)', background: 'transparent', border: '2px solid var(--secondary)',
+                  borderRadius: 'var(--radius-sketch)', cursor: 'pointer',
+                }}
+              >
+                Написать
+              </button>
+            </div>
+          )}
         </CardShell>
       </div>
     </div>
+  );
+}
+
+// ============================================================
+// Staff card (B2B «Сотрудники») — ТА ЖЕ карта и то же поведение, что в гриде
+// «Моё окружение» (L, клик → XL-оверлей, «Написать» под телом); отличаются
+// только действия: вместо групп/блока — маленькая кнопка «Управлять» (manager+).
+// Бейдж карты = Должность; данные = профиль человека, маскированный ЕГО
+// «Видимостью в Компаниях» (бэкенд уже отдаёт скрытые поля как null).
+// ============================================================
+
+export interface StaffCardData {
+  phone: string;
+  firstName: string;
+  lastName: string | null;
+  avatar: string | null;
+  dateOfBirth: string | null;
+  bio: string | null;
+  city: string | null;
+  email: string | null;
+  maritalStatus: string | null;
+  socialLinks: { telegram?: string; instagram?: string } | null;
+  age: number | null;
+  showOnlineStatus: boolean;
+}
+
+export function StaffPersonCard({
+  userId, card, positions, branches, onWrite, onManage,
+}: {
+  userId: string;
+  card: StaffCardData;
+  /** Должности — бейдж карты (одна или несколько; роль организации тут НЕ показывается). */
+  positions: string[];
+  /** Филиалы — отдельные чипы под должностью (визуально отделены от должности). */
+  branches: string[];
+  onWrite?: () => void;
+  onManage?: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const skin = usePersonSkin(userId) || DEFAULT_SKIN;
+
+  const seed = userId.charCodeAt(0) + userId.charCodeAt(userId.length - 1);
+  const rotation = -0.5 - (seed % 4) * 0.7;
+
+  const person: CardPerson = {
+    firstName: card.firstName,
+    lastName: card.lastName,
+    phone: card.phone,
+    avatarInitial: (card.firstName || '?').charAt(0).toUpperCase(),
+    avatar: card.avatar,
+    dateOfBirth: card.dateOfBirth,
+    age: card.age,
+    city: card.city,
+    bio: card.bio,
+    maritalStatus: card.maritalStatus,
+    email: card.email,
+    socialLinks: card.socialLinks,
+    showOnlineStatus: card.showOnlineStatus,
+    // Бейдж карты = Должность(и). Филиалы рендерятся ОТДЕЛЬНЫМИ чипами ниже.
+    role: positions.length ? positions.join(' / ') : null,
+    presenceLine: null,
+  };
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
+
+  return (
+    <>
+      <CardShell size="L" skin={skin} rotation={rotation} interactive onClick={() => setExpanded(true)}>
+        <CardBody person={person} size="L" skin={skin} />
+
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--spacing-2)', marginTop: 'var(--spacing-3)' }}>
+          {/* Филиалы — отдельные чипы (📍), визуально отделены от должности-бейджа */}
+          {branches.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', justifyContent: 'center' }}>
+              {branches.map((b) => (
+                <span
+                  key={b}
+                  style={{
+                    fontSize: '0.68rem', fontWeight: 600, padding: '0.12rem 0.5rem',
+                    borderRadius: 'var(--radius-sketch)', background: 'var(--tertiary-container, var(--surface-container-high))',
+                    color: 'var(--on-surface-variant)',
+                  }}
+                >
+                  📍 {b}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Кнопки — «Написать» + «Управлять», обе явные */}
+          {(onWrite || onManage) && (
+            <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', justifyContent: 'center' }}>
+              {onWrite && (
+                <button
+                  onClick={(e) => { stop(e); onWrite(); }}
+                  style={{
+                    padding: '0.3rem 1rem', fontSize: '0.76rem', fontFamily: 'var(--font-display)', fontWeight: 600,
+                    color: 'var(--secondary)', background: 'transparent', border: '2px solid var(--secondary)',
+                    borderRadius: 'var(--radius-sketch)', cursor: 'pointer', transition: 'background 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--secondary-container)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                >
+                  Написать
+                </button>
+              )}
+              {onManage && (
+                <button
+                  onClick={(e) => { stop(e); onManage(); }}
+                  style={{
+                    padding: '0.3rem 1rem', fontSize: '0.76rem', fontFamily: 'var(--font-display)', fontWeight: 600,
+                    color: 'var(--on-primary, #fff)', background: 'var(--primary)', border: '2px solid var(--primary)',
+                    borderRadius: 'var(--radius-sketch)', cursor: 'pointer', transition: 'opacity 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.85'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+                >
+                  Управлять
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </CardShell>
+
+      {expanded && (
+        <ExpandedCard
+          person={person}
+          skin={skin}
+          onClose={() => setExpanded(false)}
+          onWrite={onWrite}
+        />
+      )}
+    </>
   );
 }
 

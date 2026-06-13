@@ -37,6 +37,8 @@ export interface UserProfile extends User {
   /** Owner's DEFAULT card visibility — applied to contacts that are in
    *  none of the owner's groups. Per-group visibility lives on Circle. */
   cardVisibility: CardVisibility;
+  /** «Видимость в Компаниях» — что видят коллеги по организации (ростер «Сотрудники»). */
+  companyCardVisibility: CardVisibility;
   roles: UserRoleInfo[];
 }
 

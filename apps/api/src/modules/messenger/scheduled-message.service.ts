@@ -132,6 +132,13 @@ export class ScheduledMessageService implements OnModuleInit {
    * access / chat gone) cancels the row; a transient error leaves it pending to retry.
    */
   async fireDue(): Promise<number> {
+    // Recover rows stuck in 'sending' (an instance died mid-send): >10 min past due → re-deliver.
+    // At-least-once for reminders is the right trade-off (losing one silently is worse than a dupe).
+    await this.db.scheduledMessage.updateMany({
+      where: { status: 'sending', sendAt: { lte: new Date(Date.now() - 10 * 60_000) } },
+      data: { status: 'pending' },
+    });
+
     const due = await this.db.scheduledMessage.findMany({
       where: { status: 'pending', sendAt: { lte: new Date() } },
       orderBy: { sendAt: 'asc' },
@@ -140,6 +147,13 @@ export class ScheduledMessageService implements OnModuleInit {
 
     let fired = 0;
     for (const sm of due) {
+      // Claim the row (pending → sending) BEFORE sending: overlapping cron runs (a stolen/expired
+      // Redis lock) then can't double-send — exactly one instance wins the updateMany.
+      const claimed = await this.db.scheduledMessage.updateMany({
+        where: { id: sm.id, status: 'pending' },
+        data: { status: 'sending' },
+      });
+      if (claimed.count === 0) continue;
       try {
         const msg = await this.messenger.sendMessage(
           sm.authorId,
@@ -170,7 +184,10 @@ export class ScheduledMessageService implements OnModuleInit {
             .catch(() => {});
           this.logger.warn(`scheduled ${sm.id} cancelled (no access): ${String(e)}`);
         } else {
-          // Transient → leave pending for the next run.
+          // Transient → release the claim so the next run retries.
+          await this.db.scheduledMessage
+            .updateMany({ where: { id: sm.id, status: 'sending' }, data: { status: 'pending' } })
+            .catch(() => {});
           this.logger.warn(`scheduled ${sm.id} send failed (will retry): ${String(e)}`);
         }
       }

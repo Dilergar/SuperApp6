@@ -8,6 +8,7 @@ export * from './types/task';
 export * from './types/calendar';
 export * from './types/google';
 export * from './types/workspace';
+export * from './types/staff';
 export * from './types/wallet';
 export * from './types/shop';
 export * from './types/messenger';
@@ -18,6 +19,7 @@ export * from './types/search';
 export * from './types/quick-action';
 export * from './types/scheduled-message';
 export * from './types/card-skin';
+export * from './types/process';
 export * from './types/common';
 
 // Validation schemas
@@ -30,16 +32,19 @@ export * from './validation/calendar';
 export * from './validation/google';
 export * from './validation/user';
 export * from './validation/workspace';
+export * from './validation/staff';
 export * from './validation/wallet';
 export * from './validation/shop';
 export * from './validation/messenger';
 export * from './validation/search';
 export * from './validation/scheduled-message';
 export * from './validation/card-skin';
+export * from './validation/process';
 
 // Utils
 export * from './utils/phone';
 export * from './utils/date';
+export * from './utils/name';
 
 // Constants
 export * from './constants/roles';
@@ -50,6 +55,7 @@ export * from './constants/notifications';
 export * from './constants/tasks';
 export * from './constants/calendar';
 export * from './constants/workspaces';
+export * from './constants/staff';
 export * from './constants/wallet';
 export * from './constants/shop';
 export * from './constants/messenger';
@@ -59,3 +65,4 @@ export * from './constants/mention';
 export * from './constants/search';
 export * from './constants/quick-action';
 export * from './constants/card-skin';
+export * from './constants/process';

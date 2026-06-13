@@ -38,17 +38,19 @@ async function main() {
     check('создание задачи (исполнитель t2)', c.ok, `status ${c.status}`);
     taskId = c.json.data.id;
 
-    // Gate (assertCanView → engine): creator + participant can read comments; outsider 403.
-    const c1 = await call('GET', `/tasks/${taskId}/comments`, t1);
+    // Gate (engine task.view → chat.view): creator + participant can read the task chat (messenger
+    // contextual chat — TaskComment was removed); outsider 403.
+    const c1 = await call('GET', `/messenger/tasks/${taskId}/chat`, t1);
     check('t1 (постановщик) читает чат задачи', c1.ok, `status ${c1.status}`);
-    const c2 = await call('GET', `/tasks/${taskId}/comments`, t2);
+    const chatId = c1.json && c1.json.data && c1.json.data.id;
+    const c2 = await call('GET', `/messenger/tasks/${taskId}/chat`, t2);
     check('t2 (исполнитель) читает чат задачи', c2.ok, `status ${c2.status}`);
-    const post2 = await call('POST', `/tasks/${taskId}/comments`, t2, { content: 'Беру в работу' });
+    const post2 = await call('POST', `/messenger/chats/${chatId}/messages`, t2, { content: 'Беру в работу' });
     check('t2 (исполнитель) может комментировать', post2.ok, `status ${post2.status}`);
 
-    const c3 = await call('GET', `/tasks/${taskId}/comments`, t3);
+    const c3 = await call('GET', `/messenger/tasks/${taskId}/chat`, t3);
     check('t3 (посторонний) НЕ имеет доступа к чату (403)', c3.status === 403, `status ${c3.status}`);
-    const post3 = await call('POST', `/tasks/${taskId}/comments`, t3, { content: 'я кто?' });
+    const post3 = await call('POST', `/messenger/chats/${chatId}/messages`, t3, { content: 'я кто?' });
     check('t3 (посторонний) НЕ может комментировать (403)', post3.status === 403, `status ${post3.status}`);
   } finally {
     if (taskId) await call('DELETE', `/tasks/${taskId}`, t1).catch(() => {});

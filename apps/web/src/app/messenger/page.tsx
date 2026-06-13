@@ -367,6 +367,13 @@ function MessengerInner() {
   activeChatIdRef.current = activeChatId;
 
   const socket = useMessengerSocket({
+    onReconnect: () => {
+      // Messages sent while the socket was down were lost — pull the inbox and the
+      // open conversation fresh.
+      queryClient.invalidateQueries({ queryKey: chatsKey });
+      const open = activeChatIdRef.current;
+      if (open) queryClient.invalidateQueries({ queryKey: messagesKey(open) });
+    },
     onMessageNew: (p: SocketMessageNew) => {
       const mine = p.message.authorId === currentUserId;
       const msg: ChatMessage = { ...p.message, mine };

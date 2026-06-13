@@ -137,7 +137,7 @@ export class WorkspacesController {
   }
 
   @Patch(':id/members/:userId')
-  @ApiOperation({ summary: 'Изменить роль/должность сотрудника (admin+)' })
+  @ApiOperation({ summary: 'Изменить роль сотрудника (admin+; админа — только владелец)' })
   async updateMember(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -164,7 +164,7 @@ export class WorkspacesController {
   // ----- Outgoing invitations -----
 
   @Post(':id/invitations')
-  @ApiOperation({ summary: 'Пригласить сотрудника по номеру (admin+)' })
+  @ApiOperation({ summary: 'Нанять по номеру — всегда в Стажёра (manager+)' })
   async invite(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -176,7 +176,7 @@ export class WorkspacesController {
   }
 
   @Get(':id/invitations')
-  @ApiOperation({ summary: 'Исходящие приглашения организации (admin+)' })
+  @ApiOperation({ summary: 'Исходящие приглашения организации (manager+)' })
   async outgoingInvitations(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -187,7 +187,7 @@ export class WorkspacesController {
 
   @Post(':id/invitations/:invId/cancel')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Отменить приглашение (admin+)' })
+  @ApiOperation({ summary: 'Отменить приглашение (manager+)' })
   async cancelInvitation(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,

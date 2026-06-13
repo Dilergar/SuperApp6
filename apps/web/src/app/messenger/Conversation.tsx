@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   ChatDetail,
@@ -29,6 +29,10 @@ export interface ReplyTarget {
   authorName: string | null;
   text: string;
 }
+
+// Stable empty array — `data = []` in useQuery would mint a NEW [] every render while
+// loading, defeating the MessageBubble memo below.
+const EMPTY_ACTIONS: QuickActionDescriptor[] = [];
 
 // ============================================================
 // Right pane — the open conversation.
@@ -90,7 +94,6 @@ export function Conversation({
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
-  const [draft, setDraft] = useState('');
   const [showAttach, setShowAttach] = useState(false);
   // Phase 7 — message being quoted (reply), the "Запланировано" panel, and the
   // message-scope quick-action modals opened from a bubble's corner menu.
@@ -99,10 +102,20 @@ export function Conversation({
   const [msgModal, setMsgModal] = useState<{ kind: 'task' | 'schedule'; text: string } | null>(null);
 
   // Message-scope quick actions for this chat (drives each bubble's corner menu).
-  const { data: messageActions = [] } = useQuery<QuickActionDescriptor[]>({
+  const { data: messageActions = EMPTY_ACTIONS } = useQuery<QuickActionDescriptor[]>({
     queryKey: quickActionsKey(detail.id, 'message'),
     queryFn: () => getQuickActions(detail.id, 'message'),
   });
+
+  // Stable handler identities (refs) so the memoized bubbles/composer never re-render
+  // just because the parent re-rendered (presence/typing events arrive constantly).
+  const onSendRef = useRef(onSend); onSendRef.current = onSend;
+  const onEditRef = useRef(onEdit); onEditRef.current = onEdit;
+  const onDeleteRef = useRef(onDelete); onDeleteRef.current = onDelete;
+  const onTypingRef = useRef(onTypingChange); onTypingRef.current = onTypingChange;
+  const stableEdit = useCallback((id: string, content: string) => onEditRef.current(id, content), []);
+  const stableDelete = useCallback((id: string) => onDeleteRef.current(id), []);
+  const stableTyping = useCallback((typing: boolean) => onTypingRef.current?.(typing), []);
   // Pending scheduled-message count for the header ⏰ button.
   const pendingScheduled = usePendingScheduledCount(detail.id, true);
 
@@ -127,12 +140,12 @@ export function Conversation({
   // Shared jump-to-message: flash the bubble + scroll its #msg-<id> to center. If the
   // message isn't in the loaded DOM yet (older than the loaded page), remember it and
   // pull older pages until it appears (the pending-jump effect below resolves it).
-  const flashNow = (messageId: string) => {
+  const flashNow = useCallback((messageId: string) => {
     setFlashId(messageId);
     if (flashClearTimer.current) clearTimeout(flashClearTimer.current);
     flashClearTimer.current = setTimeout(() => setFlashId(null), 2300);
-  };
-  const jumpToMessage = (messageId: string) => {
+  }, []);
+  const jumpToMessage = useCallback((messageId: string) => {
     atBottomRef.current = false; // don't let the bottom-pin fight the jump
     const node = document.getElementById(`msg-${messageId}`);
     if (node) {
@@ -143,7 +156,7 @@ export function Conversation({
       pendingJumpRef.current = { id: messageId, tries: 0 };
       if (hasMore && !loadingMore) onLoadOlder();
     }
-  };
+  }, [flashNow, hasMore, loadingMore, onLoadOlder]);
 
   // Debounce the in-chat query, then fetch message hits for this chat.
   useEffect(() => {
@@ -303,26 +316,29 @@ export function Conversation({
     };
   }, []);
 
-  const submit = () => {
-    const text = draft.trim();
-    if (!text) return;
-    onSend(text, replyingTo?.id);
-    setDraft('');
+  // Send path for the (memoized) Composer below — the draft lives THERE now, so a
+  // keystroke re-renders only the composer, not every bubble in the conversation.
+  const replyingToRef = useRef(replyingTo); replyingToRef.current = replyingTo;
+  const handleComposerSend = useCallback((text: string) => {
+    onSendRef.current(text, replyingToRef.current?.id);
     setReplyingTo(null);
-    onTypingChange?.(false); // stop the typing indicator the moment we send
+    onTypingRef.current?.(false); // stop the typing indicator the moment we send
     atBottomRef.current = true;
     requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ block: 'end' }));
-  };
+  }, []);
 
   // Start a reply from a bubble's corner menu: stash the quoted target so the
   // composer shows the quoted bar and the next send carries replyToId.
-  const startReply = (m: ChatMessage) => {
+  const startReply = useCallback((m: ChatMessage) => {
     setReplyingTo({
       id: m.id,
       authorName: m.authorName,
       text: (m.content ?? '').slice(0, 200),
     });
-  };
+  }, []);
+  const openMsgModal = useCallback((kind: 'task' | 'schedule', text: string) => {
+    setMsgModal({ kind, text });
+  }, []);
 
   // Clear the reply draft + scheduled panel when switching chats.
   useEffect(() => {
@@ -630,11 +646,11 @@ export function Conversation({
               showAuthor={detail.type !== 'dm'}
               highlighted={m.id === flashId}
               messageActions={messageActions}
-              onEdit={onEdit}
-              onDelete={onDelete}
+              onEdit={stableEdit}
+              onDelete={stableDelete}
               onReply={startReply}
               onJumpTo={jumpToMessage}
-              onMessageAction={(kind, text) => setMsgModal({ kind, text })}
+              onMessageAction={openMsgModal}
             />
           ),
         )}
@@ -731,28 +747,7 @@ export function Conversation({
         >
           📎
         </button>
-        <MentionInput
-          chatId={detail.id}
-          value={draft}
-          onChange={setDraft}
-          onSend={submit}
-          onTypingChange={onTypingChange}
-          placeholder="Написать сообщение..."
-          maxLength={MESSENGER_LIMITS.maxMessageLength}
-        />
-        <button
-          onClick={submit}
-          disabled={!draft.trim()}
-          className="btn-primary"
-          style={{
-            fontSize: '0.85rem',
-            padding: '0.6rem 1.3rem',
-            opacity: draft.trim() ? 1 : 0.5,
-            flexShrink: 0,
-          }}
-        >
-          Отправить
-        </button>
+        <Composer chatId={detail.id} onSend={handleComposerSend} onTypingChange={stableTyping} />
       </div>
 
       {showAttach && (
@@ -790,11 +785,63 @@ export function Conversation({
 }
 
 // ============================================================
-// One message bubble. Mine = right, primary color. Others = left,
-// paper layer. Tombstone for deleted; "(изменено)" for edited.
+// Composer — owns the draft LOCALLY, so a keystroke re-renders only this small
+// component. When the draft lived in Conversation, every keypress re-rendered
+// every bubble (mention-parsing included) — typing got sluggish on long chats.
 // ============================================================
 
-function MessageBubble({
+const Composer = memo(function Composer({
+  chatId,
+  onSend,
+  onTypingChange,
+}: {
+  chatId: string;
+  onSend: (content: string) => void;
+  onTypingChange?: (typing: boolean) => void;
+}) {
+  const [draft, setDraft] = useState('');
+  const submit = () => {
+    const text = draft.trim();
+    if (!text) return;
+    onSend(text);
+    setDraft('');
+  };
+  return (
+    <>
+      <MentionInput
+        chatId={chatId}
+        value={draft}
+        onChange={setDraft}
+        onSend={submit}
+        onTypingChange={onTypingChange}
+        placeholder="Написать сообщение..."
+        maxLength={MESSENGER_LIMITS.maxMessageLength}
+      />
+      <button
+        onClick={submit}
+        disabled={!draft.trim()}
+        className="btn-primary"
+        style={{
+          fontSize: '0.85rem',
+          padding: '0.6rem 1.3rem',
+          opacity: draft.trim() ? 1 : 0.5,
+          flexShrink: 0,
+        }}
+      >
+        Отправить
+      </button>
+    </>
+  );
+});
+
+// ============================================================
+// One message bubble. Mine = right, primary color. Others = left,
+// paper layer. Tombstone for deleted; "(изменено)" for edited.
+// Memoized: presence/typing churn re-renders the parent constantly — with stable
+// handler props (refs above) unchanged bubbles skip re-rendering entirely.
+// ============================================================
+
+const MessageBubble = memo(function MessageBubble({
   message,
   mine,
   currentUserId,
@@ -1135,7 +1182,7 @@ function MessageBubble({
       )}
     </div>
   );
-}
+});
 
 // ============================================================
 // System message — a centered grey plaque (group/task lifecycle).

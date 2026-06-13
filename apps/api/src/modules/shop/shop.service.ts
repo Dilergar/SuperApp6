@@ -38,6 +38,7 @@ import { Principal, RelationTupleInput } from '../../core/access/access.types';
 import { EscrowService } from '../wallet/escrow.service';
 import { TasksService } from '../tasks/tasks.service';
 import { CalendarService } from '../calendar/calendar.service';
+import { ContactsService } from '../contacts/contacts.service';
 
 type ShopRow = Prisma.ShopGetPayload<object>;
 type ShowcaseRow = Prisma.ShowcaseGetPayload<object>;
@@ -69,6 +70,7 @@ export class ShopService {
     private readonly events: EventBusService,
     private readonly tasks: TasksService,
     private readonly calendar: CalendarService,
+    private readonly contacts: ContactsService,
   ) {}
 
   private user(id: string): Principal {
@@ -592,18 +594,28 @@ export class ShopService {
 
   /** Withdraw my pledge from a still-collecting campaign → release my legs. Empties → campaign cancelled. */
   async withdraw(contributorId: string, orderId: string): Promise<OrderDto> {
-    const order = await this.db.order.findUnique({ where: { id: orderId }, include: { contributions: true } });
+    const order = await this.db.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, crowdfunding: true, sellerId: true, titleSnapshot: true },
+    });
     if (!order || !order.crowdfunding) throw new NotFoundException('Кампания не найдена');
-    if (order.status !== 'funding') throw new BadRequestException('Кампания уже собрана или закрыта — отозвать нельзя');
-    const mine = order.contributions.filter((c) => c.contributorId === contributorId);
-    if (mine.length === 0) throw new BadRequestException('Вы не вкладывались в эту кампанию');
-    const emptyAfter = order.contributions.length === mine.length;
     await this.db.$transaction(async (tx) => {
+      // Same campaign row lock as contribute(): a withdraw can't race the goal-reaching pledge
+      // (otherwise the campaign flips to 'pending' while a leg is being released → owner confirms
+      // an under-funded campaign).
+      await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId} FOR UPDATE`;
+      const fresh = await tx.order.findUnique({ where: { id: orderId }, include: { contributions: true } });
+      if (!fresh || fresh.status !== 'funding') {
+        throw new BadRequestException('Кампания уже собрана или закрыта — отозвать нельзя');
+      }
+      const mine = fresh.contributions.filter((c) => c.contributorId === contributorId);
+      if (mine.length === 0) throw new BadRequestException('Вы не вкладывались в эту кампанию');
+      const emptyAfter = fresh.contributions.length === mine.length;
       await this.escrow.release(tx, { refType: 'order', refId: orderId, payerUserId: contributorId });
       await tx.orderContribution.deleteMany({ where: { orderId, contributorId } });
       if (emptyAfter) {
         await tx.order.update({ where: { id: orderId }, data: { status: 'cancelled', closedAt: new Date() } });
-        await this.restoreStock(tx, order.listingId);
+        await this.restoreStock(tx, fresh.listingId);
       }
     });
     // Contributor removed → re-project roles (drops their order.view) immediately.
@@ -697,28 +709,50 @@ export class ShopService {
     const parties = this.fulfilmentParties(order);
 
     if (order.itemType === 'material' && order.withTask) {
-      const due = new Date(Date.now() + (order.taskDays ?? 7) * 86_400_000);
-      const task = await this.tasks.createTask(
-        parties.recipientId,
-        {
-          title: `Выдать: ${order.titleSnapshot}`,
-          executorId: order.sellerId,
-          observerIds: parties.observerIds.length ? parties.observerIds : undefined,
-          dueDate: due.toISOString(),
-          coinReward: 0,
-        },
-        // Contributors aren't necessarily in the recipient's окружение — this is a system task whose
-        // participants were already authorised by their contributions.
-        { skipEnvironmentChecks: true },
-      );
-      await this.db.order.update({ where: { id: orderId }, data: { status: 'confirmed', confirmedAt: new Date(), taskId: task.id } });
+      // Claim FIRST (status-guarded): a concurrent confirm can't create a SECOND fulfilment task.
+      const claimed = await this.db.order.updateMany({
+        where: { id: orderId, status: 'pending' },
+        data: { status: 'confirmed', confirmedAt: new Date() },
+      });
+      if (claimed.count === 0) throw new BadRequestException('Заказ уже обработан');
+      try {
+        const due = new Date(Date.now() + (order.taskDays ?? 7) * 86_400_000);
+        const task = await this.tasks.createTask(
+          parties.recipientId,
+          {
+            title: `Выдать: ${order.titleSnapshot}`,
+            executorId: order.sellerId,
+            observerIds: parties.observerIds.length ? parties.observerIds : undefined,
+            dueDate: due.toISOString(),
+            coinReward: 0,
+          },
+          // Contributors aren't necessarily in the recipient's окружение — this is a system task whose
+          // participants were already authorised by their contributions.
+          { skipEnvironmentChecks: true },
+        );
+        await this.db.order.update({ where: { id: orderId }, data: { taskId: task.id } });
+      } catch (err) {
+        // Task creation failed → un-claim so the owner can confirm again (no orphaned 'confirmed').
+        await this.db.order
+          .updateMany({
+            where: { id: orderId, status: 'confirmed', taskId: null },
+            data: { status: 'pending', confirmedAt: null },
+          })
+          .catch(() => {});
+        throw err;
+      }
       this.events.emit('shop.order.confirmed', { orderId, buyerId: order.buyerId, title: order.titleSnapshot }, 'shop');
       return this.reloadOrder(orderId);
     }
 
     await this.db.$transaction(async (tx) => {
+      // Status-guarded claim in the SAME tx as the capture → a concurrent confirm can't double-settle.
+      const claimed = await tx.order.updateMany({
+        where: { id: orderId, status: 'pending' },
+        data: { status: 'settled', confirmedAt: new Date(), closedAt: new Date() },
+      });
+      if (claimed.count === 0) throw new BadRequestException('Заказ уже обработан');
       await this.escrow.capture(tx, { refType: 'order', refId: orderId });
-      await tx.order.update({ where: { id: orderId }, data: { status: 'settled', confirmedAt: new Date(), closedAt: new Date() } });
     });
     if (order.itemType === 'nonmaterial' && order.withTask) {
       const start = new Date(Date.now() + (order.taskDays ?? 7) * 86_400_000);
@@ -774,8 +808,12 @@ export class ShopService {
     const order = await this.loadManageableOrder(actorId, orderId);
     if (!['pending', 'funding'].includes(order.status)) throw new BadRequestException('Заказ уже обработан');
     await this.db.$transaction(async (tx) => {
+      const claimed = await tx.order.updateMany({
+        where: { id: orderId, status: { in: ['pending', 'funding'] } },
+        data: { status: 'rejected', closedAt: new Date() },
+      });
+      if (claimed.count === 0) throw new BadRequestException('Заказ уже обработан');
       await this.escrow.releaseAll(tx, { refType: 'order', refId: orderId });
-      await tx.order.update({ where: { id: orderId }, data: { status: 'rejected', closedAt: new Date() } });
       await this.restoreStock(tx, order.listingId);
     });
     this.events.emit('shop.order.rejected', { orderId, buyerId: order.buyerId, title: order.titleSnapshot }, 'shop');
@@ -790,8 +828,12 @@ export class ShopService {
     if (order.buyerId !== buyerId) throw new ForbiddenException('Это не ваш заказ');
     if (order.status !== 'pending') throw new BadRequestException('Заказ уже обработан');
     await this.db.$transaction(async (tx) => {
+      const claimed = await tx.order.updateMany({
+        where: { id: orderId, status: 'pending' },
+        data: { status: 'cancelled', closedAt: new Date() },
+      });
+      if (claimed.count === 0) throw new BadRequestException('Заказ уже обработан');
       await this.escrow.releaseAll(tx, { refType: 'order', refId: orderId });
-      await tx.order.update({ where: { id: orderId }, data: { status: 'cancelled', closedAt: new Date() } });
       await this.restoreStock(tx, order.listingId);
     });
     this.events.emit('shop.order.cancelled', { orderId, sellerId: order.sellerId, title: order.titleSnapshot }, 'shop');
@@ -806,8 +848,13 @@ export class ShopService {
     const order = await this.loadManageableOrder(actorId, orderId);
     if (order.status !== 'confirmed') throw new BadRequestException('Вернуть можно только заказ в работе');
     await this.db.$transaction(async (tx) => {
+      // Status-guarded: a refund racing the fulfilment settle (onFulfillmentDone) — one wins.
+      const claimed = await tx.order.updateMany({
+        where: { id: orderId, status: 'confirmed' },
+        data: { status: 'refunded', closedAt: new Date() },
+      });
+      if (claimed.count === 0) throw new BadRequestException('Вернуть можно только заказ в работе');
       await this.escrow.releaseAll(tx, { refType: 'order', refId: orderId });
-      await tx.order.update({ where: { id: orderId }, data: { status: 'refunded', closedAt: new Date() } });
       if (order.taskId) await tx.task.updateMany({ where: { id: order.taskId }, data: { status: 'cancelled' } });
       await this.restoreStock(tx, order.listingId);
     });
@@ -822,12 +869,44 @@ export class ShopService {
   async onFulfillmentDone(taskId: string): Promise<void> {
     const order = await this.db.order.findFirst({ where: { taskId, status: 'confirmed' } });
     if (!order) return;
-    await this.db.$transaction(async (tx) => {
+    const settled = await this.db.$transaction(async (tx) => {
+      // Status-guarded: the sync call (TasksService), the bus listener and the cron sweep can all
+      // race here — exactly one claims the order, the rest no-op.
+      const claimed = await tx.order.updateMany({
+        where: { id: order.id, status: 'confirmed' },
+        data: { status: 'settled', closedAt: new Date() },
+      });
+      if (claimed.count === 0) return false;
       await this.escrow.capture(tx, { refType: 'order', refId: order.id });
-      await tx.order.update({ where: { id: order.id }, data: { status: 'settled', closedAt: new Date() } });
+      return true;
     });
+    if (!settled) return;
     await this.markWishFulfilledIfSourced(order.listingId);
     this.events.emit('shop.order.confirmed', { orderId: order.id, buyerId: order.buyerId, title: order.titleSnapshot }, 'shop');
+  }
+
+  /**
+   * Safety net for «с задачей» settlement: if the task.completed signal was lost (crash between the
+   * task tx and the sync settle, at-most-once bus), confirmed orders whose fulfilment task is already
+   * done are settled here by the ShopCron sweep. Idempotent — onFulfillmentDone is status-guarded.
+   */
+  async settleCompletedFulfilments(): Promise<number> {
+    const stuck = await this.db.order.findMany({
+      where: { status: 'confirmed', taskId: { not: null } },
+      select: { taskId: true },
+      take: 200,
+    });
+    if (stuck.length === 0) return 0;
+    const doneTasks = await this.db.task.findMany({
+      where: { id: { in: stuck.map((o) => o.taskId!) }, status: 'done' },
+      select: { id: true },
+    });
+    let settled = 0;
+    for (const t of doneTasks) {
+      await this.onFulfillmentDone(t.id);
+      settled++;
+    }
+    return settled;
   }
 
   // ============================================================
@@ -849,15 +928,25 @@ export class ShopService {
       where: { crowdfunding: true, status: 'funding', expiresAt: { lt: new Date() } },
       select: { id: true, listingId: true, sellerId: true, titleSnapshot: true },
     });
+    let expired = 0;
     for (const c of due) {
-      await this.db.$transaction(async (tx) => {
+      const claimed = await this.db.$transaction(async (tx) => {
+        // Status-guarded: a final pledge / withdraw / reject racing the sweep — one wins.
+        const res = await tx.order.updateMany({
+          where: { id: c.id, status: 'funding' },
+          data: { status: 'cancelled', closedAt: new Date() },
+        });
+        if (res.count === 0) return false;
         await this.escrow.releaseAll(tx, { refType: 'order', refId: c.id });
-        await tx.order.update({ where: { id: c.id }, data: { status: 'cancelled', closedAt: new Date() } });
         await this.restoreStock(tx, c.listingId);
+        return true;
       });
-      this.events.emit('shop.order.cancelled', { orderId: c.id, sellerId: c.sellerId, title: c.titleSnapshot }, 'shop');
+      if (claimed) {
+        this.events.emit('shop.order.cancelled', { orderId: c.id, sellerId: c.sellerId, title: c.titleSnapshot }, 'shop');
+        expired++;
+      }
     }
-    return due.length;
+    return expired;
   }
 
   /** Orders I placed or contributed to (buyer view — includes crowdfunding campaigns I pledged to). */
@@ -1244,11 +1333,9 @@ export class ShopService {
   // Domain validation helpers
   // ============================================================
 
+  /** Confirmed contact AND not blocked — shared gate in ContactsService. */
   private async assertInEnvironment(ownerId: string, otherId: string): Promise<void> {
-    if (ownerId === otherId) return;
-    const [a, b] = ownerId < otherId ? [ownerId, otherId] : [otherId, ownerId];
-    const link = await this.db.contactLink.findUnique({ where: { userAId_userBId: { userAId: a, userBId: b } }, select: { userAId: true } });
-    if (!link) throw new ForbiddenException('Этот человек не в вашем окружении');
+    await this.contacts.assertReachable(ownerId, [otherId], 'Этот человек не в вашем окружении');
   }
 
   /** Validate a share target: a person must be in the environment; a circle must be the owner's. */

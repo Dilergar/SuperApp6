@@ -118,6 +118,9 @@ export interface ContactBlockRecord {
   blockedUserId: string;
   blockedPhone: string;
   blockedFirstName: string | null;
+  /** Masked to an initial ("Н.") — the link is gone, the full name is not exposed. */
+  blockedLastName: string | null;
+  blockedAvatar: string | null;
   createdAt: string;
 }
 

@@ -43,11 +43,15 @@ export type SystemRole = keyof typeof SYSTEM_ROLES;
 
 // Reserved system-context role for the future Jobs Marketplace: the "Тайный гость"
 // qualification (a platform-wide credential earned via training), distinct from the
-// per-workspace `guest` engagement role. The marketplace is NOT built yet — this only
+// per-workspace `contractor` engagement role. The marketplace is NOT built yet — this only
 // reserves the value so the identity model accommodates it without a later migration.
 export const MYSTERY_SHOPPER_SYSTEM_ROLE = 'mystery_shopper' as const;
 
-// Роли в workspace (context = "workspace", tenantId = workspace_id)
+// Роли в workspace (context = "workspace", tenantId = workspace_id).
+// Лестница (одна роль на организацию): contractor < trainee < staff < manager < admin < owner.
+// Найм ВСЕГДА в trainee (приглашение не несёт выбора роли); повышение — вручную
+// (позже — бизнес-процессами/Додзё). Должности/отделы/филиалы — отдельные сущности
+// (StaffModule), роль прав они не несут.
 export const WORKSPACE_ROLES = {
   owner: {
     name: 'Владелец',
@@ -61,22 +65,52 @@ export const WORKSPACE_ROLES = {
   },
   manager: {
     name: 'Менеджер',
-    description: 'Управляет задачами и сотрудниками',
-    permissions: ['workspace.members.view', 'workspace.tasks'] as WorkspacePermission[],
+    description: 'Управляет сотрудниками: справочники, должности, наём',
+    permissions: ['workspace.members.view', 'workspace.tasks', 'workspace.staff.manage'] as WorkspacePermission[],
   },
   staff: {
     name: 'Сотрудник',
-    description: 'Выполняет задачи',
+    description: 'Полноценный сотрудник',
     permissions: ['workspace.tasks.own', 'workspace.members.view'] as WorkspacePermission[],
   },
-  guest: {
-    name: 'Гость',
-    description: 'Ограниченный доступ (тайный гость, проверяющий)',
-    permissions: ['workspace.view'] as WorkspacePermission[],
+  trainee: {
+    name: 'Стажёр',
+    description: 'Новый сотрудник: проходит обучение (Додзё) своей должности',
+    permissions: ['workspace.tasks.own', 'workspace.members.view'] as WorkspacePermission[],
+  },
+  contractor: {
+    name: 'Подрядчик',
+    description:
+      'Внешний исполнитель (Коллаб-модель): доступ только к явно выданным задачам/чатам. ' +
+      'Назначается сервисами (Тайный гость, UGC), не вручную',
+    permissions: [] as WorkspacePermission[],
   },
 } as const;
 
 export type WorkspaceRole = keyof typeof WORKSPACE_ROLES;
+
+// Единый источник лестницы (больше = сильнее). Используется для сравнений прав.
+export const WORKSPACE_ROLE_RANK: Record<WorkspaceRole, number> = {
+  owner: 6,
+  admin: 5,
+  manager: 4,
+  staff: 3,
+  trainee: 2,
+  contractor: 1,
+} as const;
+
+// Роль, в которую попадает КАЖДЫЙ наём (выбора роли в приглашении нет).
+export const WORKSPACE_HIRE_ROLE = 'trainee' as const;
+
+// Какие роли можно выставить вручную. owner исключён (только transfer);
+// contractor исключён (только программно через сервисы — Тайный гость/UGC).
+// Админа назначает/снимает ТОЛЬКО владелец; админ управляет ролями ниже админа.
+export const OWNER_ASSIGNABLE_WORKSPACE_ROLES = ['admin', 'manager', 'staff', 'trainee'] as const;
+export const ADMIN_ASSIGNABLE_WORKSPACE_ROLES = ['manager', 'staff', 'trainee'] as const;
+
+// Роли «в команде» (видят ростер, участвуют в «рабочем пропуске»).
+// contractor сюда НЕ входит — он изолирован до явных выдач доступа.
+export const TEAM_WORKSPACE_ROLES = ['owner', 'admin', 'manager', 'staff', 'trainee'] as const;
 
 // Роли в circle (context = "circle", tenantId = circle_id)
 export const CIRCLE_ROLES = {
@@ -113,6 +147,7 @@ export const WORKSPACE_PERMISSIONS = {
   'workspace.delete': 'Удаление пространства',
   'workspace.members': 'Управление участниками',
   'workspace.members.view': 'Просмотр участников',
+  'workspace.staff.manage': 'Управление сотрудниками (справочники, должности, наём)',
   'workspace.tasks': 'Управление всеми задачами',
   'workspace.tasks.own': 'Управление своими задачами',
   'workspace.view': 'Просмотр пространства',
