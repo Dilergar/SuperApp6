@@ -59,6 +59,7 @@ export const aiGenerateNode: ProcessNodeProvider = {
     category: 'ai',
     icon: '✨',
     tier: 'standard',
+    io: true, // LLM-вызов → вне инстанс-лока (P3): долгий ответ не задваивается
     outputs: [
       { key: 'success', label: 'Готово' },
       { key: 'error', label: 'Ошибка' },
@@ -223,6 +224,7 @@ export const aiAgentNode: ProcessNodeProvider = {
     category: 'ai',
     icon: '🤖',
     tier: 'standard',
+    io: true, // агент-цикл (LLM + инструменты) → вне инстанс-лока (P3)
     inputs: [
       { key: 'main', type: 'main' },
       { key: 'ai_model', type: 'ai_model', label: 'Модель' },

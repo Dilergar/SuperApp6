@@ -72,7 +72,7 @@ export interface ProcessNodeInput {
 export interface ProcessNodeField {
   key: string;
   label: string;
-  kind: 'text' | 'textarea' | 'number' | 'select' | 'multiselect' | 'member' | 'department' | 'credential' | 'formField';
+  kind: 'text' | 'textarea' | 'number' | 'select' | 'multiselect' | 'member' | 'department' | 'position' | 'branch' | 'credential' | 'formField';
   required?: boolean;
   placeholder?: string;
   /** Для kind='select'. */
@@ -238,6 +238,21 @@ export interface ProcessInstanceDetailDto extends ProcessInstanceDto {
   variables: Record<string, unknown>;
   /** Документ закреплённой версии (read-only канвас со статусами шагов). */
   document: ProcessDocument;
+  steps: ProcessStepDto[];
+  canCancel: boolean;
+}
+
+/**
+ * Тонкий статус инстанса (P7): только волатильные поля для 4с-поллинга — без документа
+ * и анкеты (их фронт тянет один раз через getInstance). Обновления берутся отсюда.
+ */
+export interface ProcessInstanceStatusDto {
+  id: string;
+  status: ProcessInstanceStatus;
+  error: string | null;
+  finishedAt: string | null;
+  durationMs: number | null;
+  currentSteps: string[];
   steps: ProcessStepDto[];
   canCancel: boolean;
 }

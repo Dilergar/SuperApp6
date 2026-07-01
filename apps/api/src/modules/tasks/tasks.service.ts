@@ -117,7 +117,9 @@ export class TasksService implements OnModuleInit {
   async createTask(
     userId: string,
     data: CreateTaskRequest,
-    opts: { skipEnvironmentChecks?: boolean } = {},
+    // origin — метка источника задачи (напр. 'process'): попадает в payload события
+    // task.created, чтобы триггеры процессов пропускали self-события (анти-runaway A4).
+    opts: { skipEnvironmentChecks?: boolean; origin?: string } = {},
   ): Promise<TaskDto> {
     if (data.parentId) {
       const parent = await this.db.task.findUnique({ where: { id: data.parentId } });
@@ -210,10 +212,11 @@ export class TasksService implements OnModuleInit {
     // Keep the task chat's materialized members in sync (no-op until the chat exists).
     await this.messenger.syncTaskChatMembers(task.id);
 
-    // Calendar integration (existing contract).
+    // Calendar integration (existing contract). source — метка происхождения (A4):
+    // задачи, созданные процессом (origin='process'), не перезапускают процессы.
     this.events.emit(
       'task.created',
-      { taskId: task.id, creatorId: userId, title: task.title, dueDate: data.dueDate, addToCalendar: data.addToCalendar },
+      { taskId: task.id, creatorId: userId, title: task.title, dueDate: data.dueDate, addToCalendar: data.addToCalendar, source: opts.origin },
       'tasks',
     );
 

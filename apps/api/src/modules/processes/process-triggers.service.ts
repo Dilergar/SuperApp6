@@ -3,6 +3,7 @@ import { PROCESS_EVENT_TYPES } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { ProcessesService } from './processes.service';
+import { evalCondition } from './process-builtin-nodes';
 
 /**
  * Ф3 — роутер триггеров: ловит события платформы (EventBus) и стартует подписанные
@@ -29,28 +30,64 @@ export class ProcessTriggerRouter implements OnModuleInit {
     }
   }
 
-  /** Определяем организацию события (у части payload нет workspaceId — резолвим по сущности). */
+  /**
+   * Ф4: реестр «префикс события → резолвер организации» (у части payload нет workspaceId —
+   * резолвим по сущности). Новое семейство событий = +1 запись здесь, ядро не трогаем.
+   */
+  private readonly workspaceResolvers: { prefix: string; resolve: (p: Record<string, unknown>) => Promise<string | null> }[] = [
+    // workspace.* (incl. member.removed / position.* / invitation.accepted) — воркспейс в payload.
+    { prefix: 'workspace.', resolve: async (p) => (p.workspaceId as string) ?? null },
+    { prefix: 'task.', resolve: async (p) => {
+        const taskId = p.taskId as string | undefined;
+        if (!taskId) return null;
+        const task = await this.db.task.findUnique({ where: { id: taskId }, select: { workspaceId: true } });
+        return task?.workspaceId ?? null;
+      } },
+    // shop.order.* — воркспейс только у заказов НА МАГАЗИНЕ КОМПАНИИ (ownerType='workspace');
+    // личные магазины воркспейса не имеют → триггер не срабатывает (return null).
+    { prefix: 'shop.order.', resolve: async (p) => {
+        const orderId = p.orderId as string | undefined;
+        if (!orderId) return null;
+        const order = await this.db.order.findUnique({ where: { id: orderId }, select: { shopId: true } });
+        if (!order) return null;
+        const shop = await this.db.shop.findUnique({ where: { id: order.shopId }, select: { ownerType: true, ownerId: true } });
+        return shop?.ownerType === 'workspace' ? shop.ownerId : null;
+      } },
+  ];
+
+  /** Определяем организацию события через реестр резолверов (по префиксу типа). */
   private async resolveWorkspace(eventType: string, payload: Record<string, unknown>): Promise<string | null> {
-    if (eventType.startsWith('workspace.')) return (payload.workspaceId as string) ?? null;
-    if (eventType.startsWith('task.')) {
-      const taskId = payload.taskId as string | undefined;
-      if (!taskId) return null;
-      const task = await this.db.task.findUnique({ where: { id: taskId }, select: { workspaceId: true } });
-      return task?.workspaceId ?? null;
+    for (const r of this.workspaceResolvers) {
+      if (eventType.startsWith(r.prefix)) return r.resolve(payload);
     }
     return null;
   }
 
   private async onEvent(eventType: string, payload: Record<string, unknown>): Promise<void> {
+    // Анти-runaway (A4): событие, ПОРОЖДЁННОЕ самим движком, не перезапускает процессы —
+    // иначе нода «Задача» + триггер «task.created»/«task.completed» = бесконечное
+    // самоусиление. (1) маркер source='process' закрывает гонку task.created (событие
+    // эмитится в createTask ДО записи taskId в шаг); (2) для task.completed (taskId давно
+    // записан) — надёжная сверка «это задача-шаг процесса».
+    if (payload.source === 'process') return;
     const workspaceId = await this.resolveWorkspace(eventType, payload);
     if (!workspaceId) return; // личное событие (не из организации) — триггеров нет
+    if (eventType.startsWith('task.')) {
+      const taskId = payload.taskId as string | undefined;
+      if (taskId) {
+        const isProcessStep = await this.db.processStepRun.findFirst({ where: { taskId }, select: { id: true } });
+        if (isProcessStep) return; // self-событие движка — не триггерим
+      }
+    }
     const triggers = await this.db.processTrigger.findMany({
-      where: { workspaceId, type: 'event', enabled: true, config: { path: ['eventType'], equals: eventType }, definition: { status: 'active' } },
+      where: { workspaceId, type: 'event', enabled: true, eventType, definition: { status: 'active' } },
     });
     for (const t of triggers) {
       try {
-        const nodeId = ((t.config ?? {}) as { nodeId?: string }).nodeId;
-        const id = await this.processes.startInstanceProgrammatic(t.definitionId, t.runAsUserId, payload, 'event', nodeId);
+        const tcfg = (t.config ?? {}) as { nodeId?: string; condField?: string; condOp?: string; condValue?: string };
+        // Ф2 (sfflow#1): entry-condition — фильтр по полю данных события ДО старта.
+        if (tcfg.condField && tcfg.condOp && !evalCondition(payload[tcfg.condField], tcfg.condOp, tcfg.condValue)) continue;
+        const id = await this.processes.startInstanceProgrammatic(t.definitionId, t.runAsUserId, payload, 'event', tcfg.nodeId);
         if (id) await this.db.processTrigger.update({ where: { id: t.id }, data: { lastRunAt: new Date() } });
       } catch (err) {
         this.logger.error(`fire event trigger ${t.id}: ${(err as Error).message}`);
@@ -62,7 +99,9 @@ export class ProcessTriggerRouter implements OnModuleInit {
   async runDueSchedules(): Promise<void> {
     const now = new Date();
     const due = await this.db.processTrigger.findMany({
-      where: { type: 'schedule', enabled: true, nextRunAt: { lte: now }, definition: { status: 'active' } },
+      // A11: только ОПУБЛИКОВАННЫЕ (currentVersionId) — иначе расписание неопубликованного
+      // процесса молча прокручивало бы nextRunAt (пропуская окна), а старт всё равно = null.
+      where: { type: 'schedule', enabled: true, nextRunAt: { lte: now }, definition: { status: 'active', currentVersionId: { not: null } } },
       take: 200,
     });
     for (const t of due) {

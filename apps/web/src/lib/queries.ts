@@ -20,6 +20,7 @@ import type {
   ProcessDefinitionDetailDto,
   ProcessInstanceDto,
   ProcessInstanceDetailDto,
+  ProcessInstanceStatusDto,
   ProcessNodeTypeDto,
   ProcessInboxItem,
   ProcessReportDto,
@@ -49,6 +50,8 @@ export const processInstancesKey = (wsId: string) =>
   ['workspaces', wsId, 'processes', 'instances'] as const;
 export const processInstanceKey = (wsId: string, instId: string) =>
   ['workspaces', wsId, 'processes', 'instances', instId] as const;
+export const processInstanceStatusKey = (wsId: string, instId: string) =>
+  ['workspaces', wsId, 'processes', 'instances', instId, 'status'] as const;
 export const processInboxKey = (wsId: string) =>
   ['workspaces', wsId, 'processes', 'inbox'] as const;
 export const processReportKey = (wsId: string, defId: string) =>
@@ -125,6 +128,15 @@ export async function fetchProcessInstance(
   instId: string,
 ): Promise<ProcessInstanceDetailDto> {
   const res = await api.get(`/workspaces/${wsId}/processes/instances/${instId}`);
+  return res.data.data;
+}
+
+/** Тонкий статус для поллинга (P7): без документа/анкеты — только статусы шагов. */
+export async function fetchProcessInstanceStatus(
+  wsId: string,
+  instId: string,
+): Promise<ProcessInstanceStatusDto> {
+  const res = await api.get(`/workspaces/${wsId}/processes/instances/${instId}/status`);
   return res.data.data;
 }
 

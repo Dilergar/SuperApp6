@@ -143,10 +143,17 @@ export const eventTriggerNode: ProcessNodeProvider = {
         required: true,
         options: PROCESS_EVENT_TYPES.map((e) => ({ value: e.value, label: e.label })),
       },
+      // Ф2 (sfflow#1): условие запуска — фильтр по полю данных события ДО старта (необязательно).
+      { key: 'condField', label: 'Условие: поле события (необяз.)', kind: 'text', placeholder: 'напр. taskTitle', help: 'Запускать только если это поле события удовлетворяет условию. Пусто — запускать всегда.' },
+      { key: 'condOp', label: 'Условие: оператор', kind: 'select', options: PROCESS_CONDITION_OPS.map((o) => ({ value: o.value, label: o.label })) },
+      { key: 'condValue', label: 'Условие: значение', kind: 'text' },
       runAsField,
     ],
     configSchema: z.object({
       eventType: z.string().refine((v) => PROCESS_EVENT_TYPES.some((e) => e.value === v), 'Выберите событие'),
+      condField: z.string().max(64).optional(),
+      condOp: z.enum(['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'contains', 'empty', 'not_empty']).optional(),
+      condValue: textField(200).optional(),
       runAsUserId: z.string().uuid('Выберите, от чьего имени идёт процесс'),
     }),
     auto: true,
@@ -314,7 +321,7 @@ export const humanTaskNode: ProcessNodeProvider = {
         dueDate: deadlineAt?.toISOString(),
         workspaceId: ctx.workspaceId,
       } as Parameters<typeof ctx.deps.tasks.createTask>[1],
-      { skipEnvironmentChecks: true },
+      { skipEnvironmentChecks: true, origin: 'process' }, // A4: не самозапускать процессы
     );
     return { kind: 'wait', patch: { taskId: task.id, assigneeId, deadlineAt }, output: { taskId: task.id } };
   },
@@ -471,7 +478,8 @@ export const conditionNode: ProcessNodeProvider = {
   },
 };
 
-function evalCondition(raw: unknown, op: string, expected?: string): boolean {
+/** Сравнение значения с константой (нода «Если» + entry-conditions триггеров Ф2). */
+export function evalCondition(raw: unknown, op: string, expected?: string): boolean {
   const isEmpty = raw === null || raw === undefined || raw === '';
   if (op === 'empty') return isEmpty;
   if (op === 'not_empty') return !isEmpty;
@@ -560,16 +568,23 @@ export const notifyNode: ProcessNodeProvider = {
   },
   async run(ctx) {
     const cfg = ctx.config as { to: 'initiator' | 'member'; userId?: string; title?: string; message?: string };
-    if (!cfg.title) throw new Error('Заполните заголовок уведомления');
-    const recipientId = cfg.to === 'initiator' ? ctx.startedById : cfg.userId!;
-    if (cfg.to === 'member') await assertActiveMember(ctx, recipientId, 'Получатель уведомления');
-    await ctx.deps.notifications.notify(
-      recipientId,
-      'process.step.notify',
-      { title: ctx.render(cfg.title), message: cfg.message ? ctx.render(cfg.message) : '' },
-      { actionUrl: `/workspaces/${ctx.workspaceId}/processes/instances/${ctx.instanceId}` },
-    );
-    return { kind: 'complete', output: { recipientId } };
+    const title = cfg.title ? ctx.render(cfg.title) : '';
+    const recipientId = cfg.to === 'initiator' ? ctx.startedById : cfg.userId;
+    // Уведомление — best-effort (sfflow#3): любой сбой (нет заголовка/получателя, получатель
+    // уволен) НЕ валит процесс — фиксируем в output и продолжаем по main.
+    if (!title || !recipientId) return { kind: 'complete', output: { skipped: !title ? 'нет заголовка' : 'нет получателя' } };
+    try {
+      if (cfg.to === 'member') await assertActiveMember(ctx, recipientId, 'Получатель уведомления');
+      await ctx.deps.notifications.notify(
+        recipientId,
+        'process.step.notify',
+        { title, message: cfg.message ? ctx.render(cfg.message) : '' },
+        { actionUrl: `/workspaces/${ctx.workspaceId}/processes/instances/${ctx.instanceId}` },
+      );
+      return { kind: 'complete', output: { recipientId } };
+    } catch (err) {
+      return { kind: 'complete', output: { skipped: (err as Error).message } };
+    }
   },
 };
 
@@ -616,6 +631,90 @@ export const joinNode: ProcessNodeProvider = {
   },
 };
 
+/**
+ * Ф5 — «Перебрать список» (модель n8n Loop Over Items, последовательно): берёт массив из
+ * источника и на КАЖДЫЙ элемент прогоняет ветку «Каждый» (элемент = {{item.поле}}); ветку
+ * возвращают связью обратно в эту ноду; когда элементы кончились — идёт по «Готово».
+ * Состояние (индекс) — в variables._loopIdx_<nodeId>; текущий элемент — в variables._item.
+ */
+export const loopEachNode: ProcessNodeProvider = {
+  descriptor: {
+    type: 'loop.each',
+    title: 'Перебрать список',
+    description:
+      'Берёт список (результат прошлого шага/анкета) и прогоняет ветку «Каждый» на КАЖДЫЙ элемент — элемент доступен как {{item.поле}}. Ветку «Каждый» соедините связью ОБРАТНО в эту ноду. Когда элементы кончатся — процесс идёт по «Готово».',
+    category: 'flow',
+    icon: '🔁',
+    tier: 'standard',
+    outputs: [
+      { key: 'loop', label: 'Каждый' },
+      { key: 'done', label: 'Готово' },
+    ],
+    fields: [
+      { key: 'source', label: 'Список (откуда)', kind: 'text', required: true, placeholder: '{{steps.kaspi.body.data}} / {{form.список}}', help: 'Ссылка на массив: результат прошлого шага или поле анкеты. Ветку «Каждый» верните связью в эту ноду.' },
+      { key: 'maxIterations', label: 'Максимум элементов', kind: 'number', placeholder: '500' },
+    ],
+    configSchema: z.object({
+      source: z.string().min(1).max(300),
+      maxIterations: z.coerce.number().int().min(1).max(2000).optional(),
+    }),
+    auto: true,
+  },
+  async run(ctx) {
+    const cfg = ctx.config as { source: string; maxIterations?: number };
+    const idxKey = `_loopIdx_${ctx.step.nodeId}`;
+    const idx = Number((ctx.variables as Record<string, unknown>)[idxKey] ?? 0) || 0;
+    const resolved = ctx.resolveValue(cfg.source);
+    const list = Array.isArray(resolved) ? resolved : [];
+    const cap = Math.min(Math.max(1, Number(cfg.maxIterations ?? 500)), 2000);
+    const total = Math.min(list.length, cap);
+    if (idx >= total) {
+      // Элементы кончились → «Готово»; сбрасываем состояние (на случай внешнего повторного входа).
+      return { kind: 'complete', outputKey: 'done', output: { count: total }, setVariables: { [idxKey]: 0, _item: null } };
+    }
+    // Выдаём текущий элемент в _item и идём по «Каждый»; индекс += 1 к следующему заходу.
+    return { kind: 'complete', outputKey: 'loop', output: { index: idx }, setVariables: { [idxKey]: idx + 1, _item: list[idx] } };
+  },
+};
+
+/**
+ * Ф5 — «Задать данные» (n8n Edit Fields/Set): вычисляет поля и сохраняет их в данные
+ * процесса (анкету) через setVariables. Строка «имя = выражение», напр. «итог = item.sum * 1.12».
+ * Дальше поле доступно как {{form.имя}}. Выражения — безопасный вычислитель (без eval).
+ */
+export const setDataNode: ProcessNodeProvider = {
+  descriptor: {
+    type: 'data.set',
+    title: 'Задать данные',
+    description:
+      'Вычисляет поля и сохраняет в данные процесса. Каждая строка: «имя = выражение», напр. «итог = item.sum * 1.12» или «привет = upper(item.name)». Дальше — {{form.имя}}.',
+    category: 'flow',
+    icon: '🧮',
+    tier: 'standard',
+    outputs: [{ key: 'main', label: '' }],
+    fields: [
+      { key: 'assignments', label: 'Поля (имя = выражение, по строке)', kind: 'textarea', required: true, placeholder: 'итог = item.sum * 1.12\nимя = upper(item.name)' },
+    ],
+    configSchema: z.object({ assignments: z.string().min(1).max(4000) }),
+    auto: true,
+  },
+  async run(ctx) {
+    const cfg = ctx.config as { assignments: string };
+    const setVariables: Record<string, unknown> = {};
+    for (const line of cfg.assignments.split(/\r?\n/)) {
+      const s = line.trim();
+      if (!s) continue;
+      const eq = s.indexOf('=');
+      if (eq <= 0) continue;
+      const key = s.slice(0, eq).trim();
+      const expr = s.slice(eq + 1).trim();
+      if (!/^[A-Za-z_]\w*$/.test(key) || !expr) continue; // имя поля — простой идентификатор
+      setVariables[key] = ctx.resolveValue(expr);
+    }
+    return { kind: 'complete', output: { fields: Object.keys(setVariables) }, setVariables };
+  },
+};
+
 /** Конец: терминальная нода — инстанс завершается. */
 export const endNode: ProcessNodeProvider = {
   descriptor: {
@@ -648,6 +747,8 @@ export const BUILTIN_PROCESS_NODES: ProcessNodeProvider[] = [
   splitNode,
   joinNode,
   delayNode,
+  loopEachNode,
+  setDataNode,
   notifyNode,
   endNode,
 ];

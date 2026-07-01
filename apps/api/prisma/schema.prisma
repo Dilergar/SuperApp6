@@ -1558,6 +1558,9 @@ model ProcessInstance {
   status       String    @default("running") // running | done | cancelled | error
   variables    Json      @default("{}") // анкета процесса (значения стартовой формы)
   error        String?
+  // Монотонный счётчик всех порождённых шагов (стоп-кран от бесконечных циклов).
+  // Инкрементится в транзакции спавна → O(1) на переход вместо COUNT(*) (P8/A5).
+  stepsSpawned Int       @default(1) @map("steps_spawned")
   startedById  String    @map("started_by_id") // «от имени кого» бежит процесс (для триггеров — runAs)
   triggerType  String    @default("manual") @map("trigger_type") // manual | event | schedule | webhook
   wakeAt       DateTime? @map("wake_at") // будильник крона (таймеры/SLA — Фаза 2)
@@ -1580,11 +1583,18 @@ model ProcessStepRun {
   instanceId String @map("instance_id")
   nodeId     String @map("node_id")   // id ноды в документе версии
   nodeType   String @map("node_type") // снимок типа ноды (списки без джойна версии)
+  label      String? // снимок подписи ноды (P7): журнал/детали не парсят документ версии
   status     String @default("active") // active | done | error | cancelled
 
   // Активирован = side-effect шага (создание задачи/уведомление/таймер) уже отработал.
   // kick перезапускает только НЕ активированные ожидания (auto-ноды по флагу auto).
   activated Boolean @default(false)
+
+  // Аренда шага (P3): взявший kick ставит leasedUntil перед внешним I/O (HTTP/LLM) и
+  // отпускает per-instance лок на время вызова. Параллельный kick/крон пропускает
+  // залоченный шаг (leasedUntil > now) — дорогая нода не задваивается, даже если
+  // TTL инстанс-лока истёк под долгим агентом. По истечении аренды крон переберёт.
+  leasedUntil DateTime? @map("leased_until")
 
   // Аудит/«секундомер отделов»: каждый шаг сам считает своё время.
   startedAt   DateTime  @default(now()) @map("started_at")
@@ -1633,7 +1643,10 @@ model ProcessTrigger {
   workspaceId  String  @map("workspace_id")
   type         String  // event | schedule | webhook
   enabled      Boolean @default(true)
-  // event: {eventType, mapping?}; schedule: {everyValue, everyUnit, atHour?}; webhook: {}
+  // Тип события для event-триггера (P4): денормализован из config в колонку → роутер
+  // фильтрует индексом, а не JSONB-path-запросом. Заполняется при публикации.
+  eventType    String? @map("event_type")
+  // event: {nodeId, eventType}; schedule: {nodeId, everyValue, everyUnit}; webhook/telegram: {nodeId, credentialId?}
   config       Json    @default("{}")
   webhookToken String? @unique @map("webhook_token") // секрет публичного эндпоинта
   runAsUserId  String  @map("run_as_user_id") // процесс запускается «от имени» этого сотрудника
@@ -1647,6 +1660,7 @@ model ProcessTrigger {
 
   @@index([workspaceId, type, enabled])
   @@index([type, enabled, nextRunAt]) // schedule-крон
+  @@index([workspaceId, type, enabled, eventType]) // P4: роутер событий по индексу
   @@index([definitionId])
   @@map("process_triggers")
 }

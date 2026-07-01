@@ -11,8 +11,10 @@ import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api } from '@/lib/api';
 import {
   fetchProcessInstance,
+  fetchProcessInstanceStatus,
   fetchProcessNodeTypes,
   processInstanceKey,
+  processInstanceStatusKey,
   processInstancesKey,
   processNodeTypesKey,
   workspaceMembersKey,
@@ -42,9 +44,16 @@ export default function ProcessInstancePage() {
   const qc = useQueryClient();
   const [cancelError, setCancelError] = useState<string | null>(null);
 
-  const instQ = useQuery({
+  // Деталь (документ/анкета/канвас) — тянем ОДИН раз; статусы шагов — тонким эндпоинтом
+  // на 4с-поллинге (P7): не перекачиваем документ и output-блобы каждые 4 секунды.
+  const detailQ = useQuery({
     queryKey: processInstanceKey(wsId, instId),
     queryFn: () => fetchProcessInstance(wsId, instId),
+    enabled: isReady,
+  });
+  const statusQ = useQuery({
+    queryKey: processInstanceStatusKey(wsId, instId),
+    queryFn: () => fetchProcessInstanceStatus(wsId, instId),
     enabled: isReady,
     refetchInterval: (q) => (q.state.data?.status === 'running' ? 4000 : false),
   });
@@ -55,7 +64,11 @@ export default function ProcessInstancePage() {
     staleTime: 5 * 60_000,
   });
 
-  const inst = instQ.data;
+  // Волатильные поля (статус/шаги/canCancel) из тонкого статуса накладываем на деталь.
+  const inst = useMemo(
+    () => (detailQ.data ? { ...detailQ.data, ...(statusQ.data ?? {}) } : undefined),
+    [detailQ.data, statusQ.data],
+  );
   const typeMap = useMemo(() => new Map((typesQ.data ?? []).map((t) => [t.type, t])), [typesQ.data]);
   const [reassignFor, setReassignFor] = useState<string | null>(null);
   const membersQ = useQuery({
@@ -74,6 +87,7 @@ export default function ProcessInstancePage() {
 
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: processInstanceKey(wsId, instId) });
+    void qc.invalidateQueries({ queryKey: processInstanceStatusKey(wsId, instId) });
     void qc.invalidateQueries({ queryKey: processInstancesKey(wsId) });
     void qc.invalidateQueries({ queryKey: ['workspaces', wsId, 'processes', 'inbox'] });
   };
@@ -133,8 +147,8 @@ export default function ProcessInstancePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inst?.id, stepDigest, typeMap]);
 
-  if (!isReady || instQ.isLoading) return <p className="label-md">Загрузка…</p>;
-  if (instQ.isError || !inst) return <p className="label-md">Процесс не найден</p>;
+  if (!isReady || detailQ.isLoading) return <p className="label-md">Загрузка…</p>;
+  if (detailQ.isError || !inst) return <p className="label-md">Процесс не найден</p>;
 
   const statusBadge = INSTANCE_STATUS_BADGE[inst.status] ?? { bg: 'var(--surface-container-high)', fg: 'var(--on-surface)' };
 

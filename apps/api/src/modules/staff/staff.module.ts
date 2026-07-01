@@ -10,7 +10,8 @@ import { StaffController } from './staff.controller';
  */
 @Module({
   controllers: [StaffController],
-  providers: [StaffService],
-  exports: [StaffService],
+  // Строковый токен для нод «Процессов» (ctx.deps.getService), как 'MessengerService'.
+  providers: [StaffService, { provide: 'StaffService', useExisting: StaffService }],
+  exports: [StaffService, 'StaffService'],
 })
 export class StaffModule {}

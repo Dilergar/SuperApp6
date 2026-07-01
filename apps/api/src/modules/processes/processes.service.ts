@@ -3,10 +3,12 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   OnModuleInit,
 } from '@nestjs/common';
 import {
+  PROCESS_LIMITS,
   WORKSPACE_ROLE_RANK,
   type ProcessDefinitionDetailDto,
   type ProcessDefinitionDto,
@@ -21,6 +23,7 @@ import {
   type WorkspaceRole,
 } from '@superapp/shared';
 import { randomBytes } from 'node:crypto';
+import { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { encryptSecret, decryptSecret } from './process-crypto';
@@ -31,9 +34,33 @@ import { BUILTIN_PROCESS_NODES } from './process-builtin-nodes';
 import { SERVICE_PROCESS_NODES, fetchJson } from './process-service-nodes';
 import { AI_PROCESS_NODES } from './process-ai-nodes';
 import { KZ_PROCESS_NODES } from './process-kz-nodes';
+import { ACTION_PROCESS_NODES } from './process-action-nodes';
 import type { CompiledPlan } from './process-node.types';
 
 const WS_CONTEXT = 'workspace';
+
+/**
+ * Поля шага для карточки/статуса инстанса — БЕЗ тяжёлого `output` (AI/HTTP-блобы) (P7):
+ * getInstance и тонкий статус-эндпоинт тянут только нужное, не мегабайты на автообновлении.
+ */
+const INSTANCE_STEP_SELECT = {
+  id: true,
+  nodeId: true,
+  nodeType: true,
+  label: true,
+  status: true,
+  startedAt: true,
+  completedAt: true,
+  outcome: true,
+  error: true,
+  taskId: true,
+  assigneeId: true,
+  departmentId: true,
+  deadlineAt: true,
+  decision: true,
+} satisfies Prisma.ProcessStepRunSelect;
+
+type InstanceStepRow = Prisma.ProcessStepRunGetPayload<{ select: typeof INSTANCE_STEP_SELECT }>;
 
 /** Стартовый документ нового процесса: триггер «Запуск вручную» → Конец (публикуется из коробки). */
 const DEFAULT_DOCUMENT: ProcessDocument = {
@@ -70,6 +97,8 @@ function isLocalBase(base: string): boolean {
  */
 @Injectable()
 export class ProcessesService implements OnModuleInit {
+  private readonly runawayLogger = new Logger(ProcessesService.name);
+
   constructor(
     private db: DatabaseService,
     private roles: RolesService,
@@ -78,7 +107,7 @@ export class ProcessesService implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
-    for (const provider of [...BUILTIN_PROCESS_NODES, ...SERVICE_PROCESS_NODES, ...AI_PROCESS_NODES, ...KZ_PROCESS_NODES]) {
+    for (const provider of [...BUILTIN_PROCESS_NODES, ...SERVICE_PROCESS_NODES, ...AI_PROCESS_NODES, ...KZ_PROCESS_NODES, ...ACTION_PROCESS_NODES]) {
       this.registry.register(provider);
     }
   }
@@ -475,30 +504,16 @@ export class ProcessesService implements OnModuleInit {
       take: 100,
       include: {
         definition: { select: { name: true } },
-        version: { select: { id: true, version: true } },
-        steps: { where: { status: 'active' }, select: { nodeId: true } },
+        version: { select: { version: true } },
+        // P7: подпись берём из снимка на шаге (label), НЕ парсим документы версий.
+        steps: { where: { status: 'active' }, select: { nodeId: true, label: true } },
       },
     });
-    // Подписи нод — из документов версий, дедуп по versionId (не тащим JSON на каждую строку).
-    const versionIds = [...new Set(instances.map((i) => i.version.id))];
-    const versionDocs = versionIds.length
-      ? await this.db.processVersion.findMany({
-          where: { id: { in: versionIds } },
-          select: { id: true, document: true },
-        })
-      : [];
-    const labelsByVersion = new Map(
-      versionDocs.map((v) => {
-        const doc = v.document as unknown as ProcessDocument;
-        return [v.id, new Map(doc.nodes.map((n) => [n.id, n.label || n.type]))] as const;
-      }),
-    );
     const userIds = [...new Set(instances.map((i) => i.startedById))];
     const users = await this.userMinis(userIds);
-    return instances.map((i) => {
-      const labels = labelsByVersion.get(i.version.id);
-      return this.toInstanceDto(i, users, i.steps.map((s) => labels?.get(s.nodeId) ?? s.nodeId));
-    });
+    return instances.map((i) =>
+      this.toInstanceDto(i, users, i.steps.map((s) => s.label ?? s.nodeId)),
+    );
   }
 
   async getInstance(
@@ -512,35 +527,93 @@ export class ProcessesService implements OnModuleInit {
       include: {
         definition: { select: { name: true, visibility: true } },
         version: { select: { version: true, document: true } },
-        steps: { orderBy: { startedAt: 'asc' } },
+        // P7: без тяжёлого output-блоба (детали читаются, в т.ч. на 4с-автообновлении).
+        steps: { orderBy: { startedAt: 'asc' }, select: INSTANCE_STEP_SELECT },
       },
     });
     if (!instance || instance.workspaceId !== workspaceId) {
       throw new NotFoundException('Процесс не найден');
     }
+    const managerAllowed = this.assertInstanceAccess(role, instance.definition.visibility, instance.startedById, instance.steps, userId);
+
+    const view = await this.stepViewContext(instance.steps, instance.startedById, userId);
+    const steps = this.mapSteps(instance.steps, { ...view, managerAllowed, userId, now: Date.now() });
+    const activeLabels = instance.steps.filter((s) => s.status === 'active').map((s) => s.label ?? s.nodeId);
+
+    return {
+      ...this.toInstanceDto(instance, view.users, activeLabels),
+      variables: (instance.variables ?? {}) as Record<string, unknown>,
+      document: instance.version.document as unknown as ProcessDocument,
+      steps,
+      canCancel:
+        instance.status === 'running' && (managerAllowed || instance.startedById === userId),
+    };
+  }
+
+  /**
+   * Тонкий статус инстанса (P7): только волатильные поля (статус + шаги без output-блобов,
+   * подписи из снимка label), БЕЗ документа/анкеты — для 4с-поллинга. Полную деталь фронт
+   * тянет один раз (getInstance), а обновления берёт отсюда.
+   */
+  async getInstanceStatus(userId: string, workspaceId: string, instanceId: string): Promise<import('@superapp/shared').ProcessInstanceStatusDto> {
+    const role = await this.assertTeamMember(userId, workspaceId);
+    const instance = await this.db.processInstance.findUnique({
+      where: { id: instanceId },
+      select: {
+        id: true,
+        status: true,
+        error: true,
+        startedAt: true,
+        finishedAt: true,
+        startedById: true,
+        workspaceId: true,
+        definition: { select: { visibility: true } },
+        steps: { orderBy: { startedAt: 'asc' }, select: INSTANCE_STEP_SELECT },
+      },
+    });
+    if (!instance || instance.workspaceId !== workspaceId) {
+      throw new NotFoundException('Процесс не найден');
+    }
+    const managerAllowed = this.assertInstanceAccess(role, instance.definition.visibility, instance.startedById, instance.steps, userId);
+    const view = await this.stepViewContext(instance.steps, instance.startedById, userId);
+    const steps = this.mapSteps(instance.steps, { ...view, managerAllowed, userId, now: Date.now() });
+    return {
+      id: instance.id,
+      status: instance.status as import('@superapp/shared').ProcessInstanceStatusDto['status'],
+      error: instance.error,
+      finishedAt: instance.finishedAt?.toISOString() ?? null,
+      durationMs: instance.finishedAt ? instance.finishedAt.getTime() - instance.startedAt.getTime() : null,
+      currentSteps: instance.steps.filter((s) => s.status === 'active').map((s) => s.label ?? s.nodeId),
+      steps,
+      canCancel: instance.status === 'running' && (managerAllowed || instance.startedById === userId),
+    };
+  }
+
+  /** Доступ к инстансу: бросает 403 если нельзя; возвращает managerAllowed (для canCancel/canReassign). */
+  private assertInstanceAccess(
+    role: WorkspaceRole,
+    visibility: string,
+    startedById: string,
+    steps: { assigneeId: string | null }[],
+    userId: string,
+  ): boolean {
     const rank = WORKSPACE_ROLE_RANK[role] ?? 0;
     const isManager = rank >= WORKSPACE_ROLE_RANK.manager;
     const isAdmin = rank >= WORKSPACE_ROLE_RANK.admin;
-    const participates =
-      instance.startedById === userId || instance.steps.some((s) => s.assigneeId === userId);
-    // Участник видит свой процесс всегда; менеджеру admins-процессы закрыты (анкета/канвас — приватны).
-    const managerAllowed = isManager && (isAdmin || instance.definition.visibility !== 'admins');
+    const participates = startedById === userId || steps.some((s) => s.assigneeId === userId);
+    // Участник видит свой процесс всегда; менеджеру admins-процессы закрыты.
+    const managerAllowed = isManager && (isAdmin || visibility !== 'admins');
     if (!managerAllowed && !participates) {
       throw new ForbiddenException('Нет доступа к этому процессу');
     }
+    return managerAllowed;
+  }
 
-    const doc = instance.version.document as unknown as ProcessDocument;
-    const labels = new Map(doc.nodes.map((n) => [n.id, n.label || n.type]));
-    const userIds = [
-      ...new Set([
-        instance.startedById,
-        ...instance.steps.map((s) => s.assigneeId).filter((x): x is string => !!x),
-      ]),
-    ];
+  /** Имена участников + имена отделов + отделы-членства зрителя (для карточки/статуса инстанса). */
+  private async stepViewContext(steps: InstanceStepRow[], startedById: string, userId: string) {
+    const userIds = [...new Set([startedById, ...steps.map((s) => s.assigneeId).filter((x): x is string => !!x)])];
     const users = await this.userMinis(userIds);
-
-    // Имена отделов + членство зрителя (для бейджа и кнопки «Забрать»).
-    const deptIds = [...new Set(instance.steps.map((s) => s.departmentId).filter((x): x is string => !!x))];
+    const deptIds = [...new Set(steps.map((s) => s.departmentId).filter((x): x is string => !!x))];
     const deptNames = new Map<string, string>();
     const viewerDepts = new Set<string>();
     if (deptIds.length) {
@@ -552,16 +625,22 @@ export class ProcessesService implements OnModuleInit {
       });
       for (const m of mine) viewerDepts.add(m.resourceId);
     }
-    const now = Date.now();
+    return { users, deptNames, viewerDepts };
+  }
 
-    const steps: ProcessStepDto[] = instance.steps.map((s) => {
-      const overdue = s.status === 'active' && !!s.deadlineAt && s.deadlineAt.getTime() <= now && s.nodeType !== 'delay';
+  /** Снимок шагов инстанса → DTO (подпись из label-снимка; overdue/canClaim/canDecide/canReassign). */
+  private mapSteps(
+    steps: InstanceStepRow[],
+    ctx: { users: Map<string, ProcessUserMini>; deptNames: Map<string, string>; viewerDepts: Set<string>; managerAllowed: boolean; userId: string; now: number },
+  ): ProcessStepDto[] {
+    return steps.map((s) => {
+      const overdue = s.status === 'active' && !!s.deadlineAt && s.deadlineAt.getTime() <= ctx.now && s.nodeType !== 'delay';
       const isQueued = s.status === 'active' && !!s.departmentId && !s.taskId;
       return {
         id: s.id,
         nodeId: s.nodeId,
         nodeType: s.nodeType,
-        label: labels.get(s.nodeId) ?? s.nodeId,
+        label: s.label ?? s.nodeId,
         status: s.status as ProcessStepDto['status'],
         startedAt: s.startedAt.toISOString(),
         completedAt: s.completedAt?.toISOString() ?? null,
@@ -569,30 +648,17 @@ export class ProcessesService implements OnModuleInit {
         outcome: s.outcome,
         error: s.error,
         taskId: s.taskId,
-        assignee: s.assigneeId ? (users.get(s.assigneeId) ?? null) : null,
+        assignee: s.assigneeId ? (ctx.users.get(s.assigneeId) ?? null) : null,
         departmentId: s.departmentId,
-        departmentName: s.departmentId ? (deptNames.get(s.departmentId) ?? null) : null,
+        departmentName: s.departmentId ? (ctx.deptNames.get(s.departmentId) ?? null) : null,
         deadlineAt: s.deadlineAt?.toISOString() ?? null,
         overdue,
         decision: (s.decision as 'approved' | 'rejected' | null) ?? null,
-        canClaim: isQueued && viewerDepts.has(s.departmentId!),
-        canDecide: s.status === 'active' && s.nodeType === 'human.approval' && s.assigneeId === userId && !s.decision,
-        canReassign: managerAllowed && s.status === 'active' && !!s.taskId,
+        canClaim: isQueued && ctx.viewerDepts.has(s.departmentId!),
+        canDecide: s.status === 'active' && s.nodeType === 'human.approval' && s.assigneeId === ctx.userId && !s.decision,
+        canReassign: ctx.managerAllowed && s.status === 'active' && !!s.taskId,
       };
     });
-
-    const activeLabels = instance.steps
-      .filter((s) => s.status === 'active')
-      .map((s) => labels.get(s.nodeId) ?? s.nodeId);
-
-    return {
-      ...this.toInstanceDto(instance, users, activeLabels),
-      variables: (instance.variables ?? {}) as Record<string, unknown>,
-      document: doc,
-      steps,
-      canCancel:
-        instance.status === 'running' && (managerAllowed || instance.startedById === userId),
-    };
   }
 
   async cancelInstance(userId: string, workspaceId: string, instanceId: string): Promise<void> {
@@ -644,6 +710,17 @@ export class ProcessesService implements OnModuleInit {
     if (!def || def.status !== 'active' || !def.currentVersionId) return null;
     const version = await this.db.processVersion.findUnique({ where: { id: def.currentVersionId } });
     if (!version || version.status !== 'published' || !version.compiled) return null;
+
+    // Анти-runaway (A4): бюджет одновременно бегущих инстансов на воркспейс — лавина
+    // авто-триггеров (петля событий/расписание) упирается в потолок, а не кладёт систему.
+    const running = await this.db.processInstance.count({ where: { workspaceId: def.workspaceId, status: 'running' } });
+    if (running >= PROCESS_LIMITS.maxRunningInstancesPerWorkspace) {
+      this.runawayLogger.warn(
+        `startInstanceProgrammatic: воркспейс ${def.workspaceId} на потолке бегущих инстансов (${running}) — авто-запуск ${definitionId} пропущен`,
+      );
+      return null;
+    }
+
     const plan = version.compiled as unknown as CompiledPlan;
 
     // Лениво по форме: берём только распознанные поля; остальное кладём как есть (для {{form.x}}).
@@ -673,6 +750,27 @@ export class ProcessesService implements OnModuleInit {
       entryNodeId,
     });
     return instanceId;
+  }
+
+  /**
+   * Ф3: запустить под-процесс ТОЙ ЖЕ организации от имени actor (нода «Запустить процесс»).
+   * Same-workspace + защита от рекурсии по глубине; бюджет инстансов — в startInstanceProgrammatic.
+   */
+  async startSubprocess(
+    callerWorkspaceId: string,
+    definitionId: string,
+    actorUserId: string,
+    variables: Record<string, unknown>,
+    depth: number,
+  ): Promise<string | null> {
+    if (depth > PROCESS_LIMITS.maxSubprocessDepth) {
+      throw new BadRequestException('Слишком глубокая вложенность под-процессов');
+    }
+    const def = await this.db.processDefinition.findUnique({ where: { id: definitionId }, select: { workspaceId: true } });
+    if (!def || def.workspaceId !== callerWorkspaceId) {
+      throw new BadRequestException('Под-процесс не найден в этой организации');
+    }
+    return this.startInstanceProgrammatic(definitionId, actorUserId, { ...variables, _subprocessDepth: depth }, 'event');
   }
 
   // ---------------------------------------------------------------
@@ -717,11 +815,20 @@ export class ProcessesService implements OnModuleInit {
           });
         }
       } else if (type === 'event') {
-        const config = { nodeId: n.id, eventType: String(cfg.eventType ?? '') };
+        const eventType = String(cfg.eventType ?? '');
+        // + entry-condition (Ф2/sfflow#1): роутер фильтрует payload до старта.
+        const config = {
+          nodeId: n.id,
+          eventType,
+          condField: cfg.condField ? String(cfg.condField) : undefined,
+          condOp: cfg.condOp ? String(cfg.condOp) : undefined,
+          condValue: cfg.condValue != null && cfg.condValue !== '' ? String(cfg.condValue) : undefined,
+        };
+        // eventType дублируем в колонку (P4): роутер фильтрует индексом, а не JSONB-path.
         if (prev) {
-          await tx.processTrigger.update({ where: { id: prev.id }, data: { type, config, runAsUserId, enabled: true } });
+          await tx.processTrigger.update({ where: { id: prev.id }, data: { type, config, eventType, runAsUserId, enabled: true } });
         } else {
-          await tx.processTrigger.create({ data: { definitionId, workspaceId, type, config, runAsUserId, enabled: true, createdById: publishedById } });
+          await tx.processTrigger.create({ data: { definitionId, workspaceId, type, config, eventType, runAsUserId, enabled: true, createdById: publishedById } });
         }
       } else if (type === 'webhook') {
         // webhook — токен стабилен между публикациями (внешний URL не должен «протухать»).
@@ -904,54 +1011,55 @@ export class ProcessesService implements OnModuleInit {
     const def = await this.loadDefinition(workspaceId, definitionId);
     this.assertDefVisible(role, def);
 
-    // Подписи нод — из последней версии; типы/отделы — из снимков шагов.
+    // Подписи нод — из последней версии; агрегация длительностей — в SQL (P5), а не
+    // перекачивая до 10k строк в JS. Длительность = completed_at − started_at (мс).
     const latest = await this.latestVersion(definitionId);
     const doc = latest.document as unknown as ProcessDocument;
     const labels = new Map(doc.nodes.map((n) => [n.id, n.label || n.type]));
 
-    const done = await this.db.processStepRun.findMany({
-      where: { status: 'done', completedAt: { not: null }, instance: { definitionId } },
-      select: { nodeId: true, nodeType: true, departmentId: true, startedAt: true, completedAt: true },
-      take: 10000,
-    });
-    const deptIds = [...new Set(done.map((s) => s.departmentId).filter((x): x is string => !!x))];
+    type AggRow = { node_id: string; node_type: string; department_id: string | null; cnt: bigint; avg_ms: number | null; max_ms: number | null; total_ms: number | null };
+    const agg = await this.db.$queryRaw<AggRow[]>`
+      SELECT sr.node_id,
+             MAX(sr.node_type) AS node_type,
+             MAX(sr.department_id) AS department_id,
+             COUNT(*) AS cnt,
+             AVG(EXTRACT(EPOCH FROM (sr.completed_at - sr.started_at)) * 1000) AS avg_ms,
+             MAX(EXTRACT(EPOCH FROM (sr.completed_at - sr.started_at)) * 1000) AS max_ms,
+             SUM(EXTRACT(EPOCH FROM (sr.completed_at - sr.started_at)) * 1000) AS total_ms
+      FROM process_step_runs sr
+      JOIN process_instances pi ON pi.id = sr.instance_id
+      WHERE pi.definition_id = ${definitionId} AND sr.status = 'done' AND sr.completed_at IS NOT NULL
+      GROUP BY sr.node_id`;
+
+    const deptIds = [...new Set(agg.map((r) => r.department_id).filter((x): x is string => !!x))];
     const deptNames = new Map<string, string>();
     if (deptIds.length) {
       const deps = await this.db.staffDepartment.findMany({ where: { id: { in: deptIds } }, select: { id: true, name: true } });
       for (const d of deps) deptNames.set(d.id, d.name);
     }
 
-    const agg = new Map<string, { nodeId: string; nodeType: string; departmentId: string | null; durations: number[] }>();
-    for (const s of done) {
-      const ms = s.completedAt!.getTime() - s.startedAt.getTime();
-      const cur = agg.get(s.nodeId) ?? { nodeId: s.nodeId, nodeType: s.nodeType, departmentId: s.departmentId, durations: [] };
-      cur.durations.push(ms);
-      if (s.departmentId) cur.departmentId = s.departmentId;
-      agg.set(s.nodeId, cur);
-    }
-    const rows = [...agg.values()].map((r) => {
-      const total = r.durations.reduce((a, b) => a + b, 0);
-      return {
-        nodeId: r.nodeId,
-        label: labels.get(r.nodeId) ?? r.nodeId,
-        nodeType: r.nodeType,
-        departmentName: r.departmentId ? (deptNames.get(r.departmentId) ?? null) : null,
-        count: r.durations.length,
-        avgMs: Math.round(total / r.durations.length),
-        maxMs: Math.max(...r.durations),
-        totalMs: total,
-      };
-    }).sort((a, b) => b.totalMs - a.totalMs);
+    const rows = agg
+      .map((r) => ({
+        nodeId: r.node_id,
+        label: labels.get(r.node_id) ?? r.node_id,
+        nodeType: r.node_type,
+        departmentName: r.department_id ? (deptNames.get(r.department_id) ?? null) : null,
+        count: Number(r.cnt),
+        avgMs: Math.round(r.avg_ms ?? 0),
+        maxMs: Math.round(r.max_ms ?? 0),
+        totalMs: Math.round(r.total_ms ?? 0),
+      }))
+      .sort((a, b) => b.totalMs - a.totalMs);
 
-    const finished = await this.db.processInstance.findMany({
-      where: { definitionId, status: 'done', finishedAt: { not: null } },
-      select: { startedAt: true, finishedAt: true },
-    });
-    const avgCycleMs = finished.length
-      ? Math.round(finished.reduce((a, i) => a + (i.finishedAt!.getTime() - i.startedAt.getTime()), 0) / finished.length)
-      : null;
+    type CycleRow = { cnt: bigint; avg_ms: number | null };
+    const [cycle] = await this.db.$queryRaw<CycleRow[]>`
+      SELECT COUNT(*) AS cnt, AVG(EXTRACT(EPOCH FROM (finished_at - started_at)) * 1000) AS avg_ms
+      FROM process_instances
+      WHERE definition_id = ${definitionId} AND status = 'done' AND finished_at IS NOT NULL`;
+    const finishedInstances = Number(cycle?.cnt ?? 0);
+    const avgCycleMs = cycle?.avg_ms != null ? Math.round(cycle.avg_ms) : null;
 
-    return { definitionId, definitionName: def.name, finishedInstances: finished.length, avgCycleMs, rows };
+    return { definitionId, definitionName: def.name, finishedInstances, avgCycleMs, rows };
   }
 
   // ---------------------------------------------------------------
