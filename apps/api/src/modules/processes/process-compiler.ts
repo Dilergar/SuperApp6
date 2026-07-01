@@ -13,6 +13,19 @@ export interface CompileResult {
  * движок получает минимальную проверенную форму. Публикация требует issues = 0;
  * сохранение черновика — нет (мягкая валидация подсвечивает проблемы в редакторе).
  */
+/** Ф2: универсальные настройки обработки ошибок из raw config (клампинг границ). */
+function extractErrorHandling(config: Record<string, unknown>): {
+  onError: 'stop' | 'continue' | 'errorOutput';
+  retryMaxTries: number;
+  retryWaitMs: number;
+} {
+  const oe = config.onError;
+  const onError = oe === 'continue' || oe === 'errorOutput' ? oe : 'stop';
+  const retryMaxTries = Math.min(5, Math.max(0, Math.floor(Number(config.retryMaxTries ?? 0)) || 0));
+  const retryWaitMs = Math.min(10_000, Math.max(0, Math.floor(Number(config.retryWaitMs ?? 0)) || 0));
+  return { onError, retryMaxTries, retryWaitMs };
+}
+
 export function compileProcessDocument(
   doc: ProcessDocument,
   registry: ProcessNodeRegistry,
@@ -92,6 +105,8 @@ export function compileProcessDocument(
       join: !!d.join,
       // агент = потребляет под-ноды (есть вход ai_model)
       cluster: (d.inputs ?? []).some((i) => i.type === 'ai_model'),
+      // Ф2: универсальные настройки обработки ошибок — из raw config (node-схема их стрипает).
+      ...extractErrorHandling(n.config ?? {}),
     };
     plan.adjacency[n.id] = {};
     plan.attachments[n.id] = {};
@@ -240,6 +255,33 @@ export function compileProcessDocument(
         issues.push({ nodeId: n.id, message: `Нода «${compiled.label}» недостижима от триггера запуска` });
       }
     }
+  }
+
+  // --- A6: детект циклов «агент-как-инструмент» (agent → под-агент через ai_tool) ---
+  // Рантайм ограничивает глубину ≤3, но цикл A→B→A — ошибка конфигурации: ловим при компиляции.
+  const agentEdges = new Map<string, string[]>();
+  for (const [agentId, att] of Object.entries(plan.attachments)) {
+    if (!plan.nodes[agentId]?.cluster) continue;
+    const subAgents = (att.ai_tool ?? []).filter((id) => plan.nodes[id]?.cluster);
+    if (subAgents.length) agentEdges.set(agentId, subAgents);
+  }
+  const color = new Map<string, number>(); // 0=white 1=gray 2=black
+  let cycleAt: string | null = null;
+  const dfs = (id: string): boolean => {
+    color.set(id, 1);
+    for (const next of agentEdges.get(id) ?? []) {
+      const c = color.get(next) ?? 0;
+      if (c === 1) { cycleAt = next; return true; }
+      if (c === 0 && dfs(next)) return true;
+    }
+    color.set(id, 2);
+    return false;
+  };
+  for (const id of agentEdges.keys()) {
+    if ((color.get(id) ?? 0) === 0 && dfs(id)) break;
+  }
+  if (cycleAt) {
+    issues.push({ nodeId: cycleAt, message: `«${plan.nodes[cycleAt]?.label ?? cycleAt}»: цикл агентов-инструментов (агенты ссылаются друг на друга по кругу)` });
   }
 
   return { plan: issues.length === 0 ? plan : null, issues };

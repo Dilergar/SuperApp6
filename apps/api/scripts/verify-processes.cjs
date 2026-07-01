@@ -838,6 +838,558 @@ async function main() {
     const r6running = await prisma.processInstance.findMany({ where: { definitionId: def6Id, status: 'running' }, select: { id: true } });
     for (const i of r6running) await call('POST', PR(`/instances/${i.id}/cancel`), t1).catch(() => {});
     await call('DELETE', PR(`/${def6Id}`), t1).catch(() => {});
+
+    // ======================================================================
+    // P0 (ревью движка) — A2 branch-local end · A1 join force-fire · A12 SSRF ·
+    // A4 анти-runaway триггеров · P8/A5 монотонный счётчик шагов.
+    // (P3 «лок не поверх I/O» валидируется Ф4/Ф6: io-ноды ai/http/kz проходят
+    //  путь аренда→исполнение-вне-лока→коммит и завершаются корректно.)
+    // ======================================================================
+    console.log('\n--- P0 (ревью) ---');
+
+    // ---- A2: «Конец» в параллельной ветке гасит ТОЛЬКО свою ветку и не осиротит соседей ----
+    const defA2Id = (await call('POST', PR(''), t1, { name: 'A2 branch-end' })).json?.data?.id;
+    const docA2 = {
+      nodes: [
+        { id: 'start', type: 'start', label: 'Старт', config: {} },
+        { id: 'split', type: 'parallel.split', label: 'Развилка', config: {} },
+        { id: 'taskLong', type: 'human.task', label: 'Долгая ветка', config: { title: 'Долгая', assigneeMode: 'member', assigneeUserId: u2 } },
+        { id: 'quickEnd', type: 'end', label: 'Быстрый конец', config: {} },
+        { id: 'endLong', type: 'end', label: 'Конец долгой', config: {} },
+      ],
+      edges: [
+        { id: 'e1', from: 'start', fromPort: 'main', to: 'split' },
+        { id: 'e2', from: 'split', fromPort: 'main', to: 'taskLong' },
+        { id: 'e3', from: 'split', fromPort: 'main', to: 'quickEnd' },
+        { id: 'e4', from: 'taskLong', fromPort: 'main', to: 'endLong' },
+      ],
+      form: [],
+    };
+    const saveA2 = await call('PUT', PR(`/${defA2Id}/document`), t1, { document: docA2 });
+    check('A2: документ (ветка со своим «Концом») компилируется', saveA2.ok && (saveA2.json?.data?.issues ?? []).length === 0, JSON.stringify(saveA2.json?.data?.issues));
+    await call('POST', PR(`/${defA2Id}/publish`), t1);
+    const instA2 = (await call('POST', PR(`/${defA2Id}/start`), t1, { input: {} })).json?.data;
+    await sleep(600);
+    const instA2b = (await call('GET', PR(`/instances/${instA2.id}`), t1)).json?.data;
+    const longStep = (instA2b?.steps ?? []).find((s) => s.nodeId === 'taskLong');
+    const quickEndStep = (instA2b?.steps ?? []).find((s) => s.nodeId === 'quickEnd');
+    check('A2: «Конец» ветки НЕ завершил весь процесс (соседняя ветка жива)', instA2b?.status === 'running' && longStep?.status === 'active' && !!longStep?.taskId, `status=${instA2b?.status} long=${longStep?.status}`);
+    check('A2: терминал ветки погашен (consumed), соседей не тронул', quickEndStep?.status === 'done');
+    const longTask = await call('GET', `/tasks/${longStep?.taskId}`, t2);
+    check('A2: задача соседней ветки НЕ осиротела (жива, не отменена)', longTask.ok && longTask.json?.data?.status !== 'cancelled', longTask.json?.data?.status);
+    await call('POST', `/tasks/${longStep.taskId}/submit`, t2);
+    await call('POST', `/tasks/${longStep.taskId}/accept`, t1);
+    await sleep(700);
+    const instA2c = (await call('GET', PR(`/instances/${instA2.id}`), t1)).json?.data;
+    check('A2: обе ветки дошли до «Конца» → процесс завершён (drain)', instA2c?.status === 'done', `status=${instA2c?.status}`);
+    // P8/A5: монотонный счётчик = числу порождённых шагов (без join = число строк).
+    const a2rows = await prisma.processStepRun.count({ where: { instanceId: instA2.id } });
+    const a2inst = await prisma.processInstance.findUnique({ where: { id: instA2.id }, select: { stepsSpawned: true } });
+    check('P8/A5: монотонный счётчик шагов = числу порождённых шагов', a2inst?.stepsSpawned === a2rows && a2rows >= 5, `spawned=${a2inst?.stepsSpawned} rows=${a2rows}`);
+    await call('DELETE', PR(`/${defA2Id}`), t1).catch(() => {});
+
+    // ---- A1: слияние добивается, когда уведённая (condition) ветка уже не придёт ----
+    const defA1Id = (await call('POST', PR(''), t1, { name: 'A1 join-skip' })).json?.data?.id;
+    const docA1 = {
+      nodes: [
+        { id: 'start', type: 'start', label: 'Старт', config: {} },
+        { id: 'split', type: 'parallel.split', label: 'Развилка', config: {} },
+        { id: 'cond', type: 'condition', label: 'VIP?', config: { field: 'vip', op: 'eq', value: 'yes' } },
+        { id: 'vipNote', type: 'notify', label: 'VIP-путь', config: { to: 'initiator', title: 'VIP' } },
+        { id: 'endSkip', type: 'end', label: 'Не-VIP конец', config: {} },
+        { id: 'taskB', type: 'human.task', label: 'Ветка B', config: { title: 'B', assigneeMode: 'member', assigneeUserId: u2 } },
+        { id: 'join', type: 'parallel.join', label: 'Слияние', config: {} },
+        { id: 'end', type: 'end', label: 'Конец', config: {} },
+      ],
+      edges: [
+        { id: 'e1', from: 'start', fromPort: 'main', to: 'split' },
+        { id: 'e2', from: 'split', fromPort: 'main', to: 'cond' },
+        { id: 'e3', from: 'split', fromPort: 'main', to: 'taskB' },
+        { id: 'e4', from: 'cond', fromPort: 'true', to: 'vipNote' },
+        { id: 'e5', from: 'cond', fromPort: 'false', to: 'endSkip' },
+        { id: 'e6', from: 'vipNote', fromPort: 'main', to: 'join' },
+        { id: 'e7', from: 'taskB', fromPort: 'main', to: 'join' },
+        { id: 'e8', from: 'join', fromPort: 'main', to: 'end' },
+      ],
+      form: [{ key: 'vip', label: 'VIP', type: 'text' }],
+    };
+    const saveA1 = await call('PUT', PR(`/${defA1Id}/document`), t1, { document: docA1 });
+    check('A1: документ (развилка + слияние) компилируется', saveA1.ok && (saveA1.json?.data?.issues ?? []).length === 0, JSON.stringify(saveA1.json?.data?.issues));
+    await call('POST', PR(`/${defA1Id}/publish`), t1);
+    const instA1 = (await call('POST', PR(`/${defA1Id}/start`), t1, { input: { vip: 'no' } })).json?.data;
+    await sleep(600);
+    const instA1mid = (await call('GET', PR(`/instances/${instA1.id}`), t1)).json?.data;
+    const tBranch = (instA1mid?.steps ?? []).find((s) => s.nodeId === 'taskB' && s.status === 'active');
+    check('A1: не-VIP ветка ушла в свой «Конец», B ждёт', !!tBranch && (instA1mid?.steps ?? []).find((s) => s.nodeId === 'cond')?.outcome === 'false', JSON.stringify((instA1mid?.steps ?? []).map((s) => [s.nodeId, s.status, s.outcome])));
+    await call('POST', `/tasks/${tBranch.taskId}/submit`, t2);
+    await call('POST', `/tasks/${tBranch.taskId}/accept`, t1);
+    await sleep(800);
+    const instA1done = (await call('GET', PR(`/instances/${instA1.id}`), t1)).json?.data;
+    check('A1: слияние добито (уведённая ветка не придёт) → завершён, НЕ висит вечно', instA1done?.status === 'done', `status=${instA1done?.status}`);
+    check('A1: шаг слияния завершён (сработал с 1 из 2)', (instA1done?.steps ?? []).find((s) => s.nodeId === 'join')?.status === 'done');
+    await call('DELETE', PR(`/${defA1Id}`), t1).catch(() => {});
+
+    // ---- A12: SSRF — literal metadata-IP и decimal-кодированный loopback заблокированы ----
+    const defSsrfId = (await call('POST', PR(''), t1, { name: 'A12 SSRF' })).json?.data?.id;
+    const docSsrf = {
+      nodes: [
+        { id: 'start', type: 'start', label: 'Старт', config: {} },
+        { id: 'h1', type: 'service.http', label: 'metadata', config: { method: 'GET', url: 'http://169.254.169.254/latest/meta-data/' } },
+        { id: 'h2', type: 'service.http', label: 'decimal-loopback', config: { method: 'GET', url: 'http://2130706433/' } },
+        { id: 'eok1', type: 'end', label: 'ok1', config: {} },
+        { id: 'eok2', type: 'end', label: 'ok2', config: {} },
+        { id: 'eend', type: 'end', label: 'Конец', config: {} },
+      ],
+      edges: [
+        { id: 'e1', from: 'start', fromPort: 'main', to: 'h1' },
+        { id: 'e2', from: 'h1', fromPort: 'success', to: 'eok1' },
+        { id: 'e3', from: 'h1', fromPort: 'error', to: 'h2' },
+        { id: 'e4', from: 'h2', fromPort: 'success', to: 'eok2' },
+        { id: 'e5', from: 'h2', fromPort: 'error', to: 'eend' },
+      ],
+      form: [],
+    };
+    const saveSsrf = await call('PUT', PR(`/${defSsrfId}/document`), t1, { document: docSsrf });
+    check('A12: SSRF-документ компилируется', saveSsrf.ok && (saveSsrf.json?.data?.issues ?? []).length === 0, JSON.stringify(saveSsrf.json?.data?.issues));
+    await call('POST', PR(`/${defSsrfId}/publish`), t1);
+    const instSsrf = (await call('POST', PR(`/${defSsrfId}/start`), t1, { input: {} })).json?.data;
+    await sleep(1200);
+    const ssrfRows = await prisma.processStepRun.findMany({ where: { instanceId: instSsrf.id }, select: { nodeId: true, outcome: true, output: true } });
+    const h1row = ssrfRows.find((s) => s.nodeId === 'h1');
+    const h2row = ssrfRows.find((s) => s.nodeId === 'h2');
+    check('A12: metadata-IP (169.254.169.254) заблокирован → error', h1row?.outcome === 'error' && /внутренн/i.test(JSON.stringify(h1row?.output ?? {})), JSON.stringify(h1row?.output));
+    check('A12: decimal-кодированный loopback (2130706433) заблокирован → error', h2row?.outcome === 'error' && /внутренн/i.test(JSON.stringify(h2row?.output ?? {})), JSON.stringify(h2row?.output));
+    await call('DELETE', PR(`/${defSsrfId}`), t1).catch(() => {});
+
+    // ---- A4: задача-шаг процесса НЕ самозапускает процессы (self-событие пропущено) ----
+    const defAmpId = (await call('POST', PR(''), t1, { name: 'A4 self-loop' })).json?.data?.id;
+    const docAmp = {
+      nodes: [
+        { id: 'ev', type: 'trigger.event', label: 'На создание задачи', config: { eventType: 'task.created', runAsUserId: u1 } },
+        { id: 'mk', type: 'human.task', label: 'Создать задачу', config: { title: 'Авто-задача', assigneeMode: 'initiator' } },
+        { id: 'end', type: 'end', label: 'Конец', config: {} },
+        { id: 'st', type: 'start', label: 'Ручной старт', config: {} },
+        { id: 'mk2', type: 'human.task', label: 'Стартовая задача', config: { title: 'Стартовая', assigneeMode: 'initiator' } },
+        { id: 'end2', type: 'end', label: 'К2', config: {} },
+      ],
+      edges: [
+        { id: 'e1', from: 'ev', fromPort: 'main', to: 'mk' },
+        { id: 'e2', from: 'mk', fromPort: 'main', to: 'end' },
+        { id: 'e3', from: 'st', fromPort: 'main', to: 'mk2' },
+        { id: 'e4', from: 'mk2', fromPort: 'main', to: 'end2' },
+      ],
+      form: [],
+    };
+    const saveAmp = await call('PUT', PR(`/${defAmpId}/document`), t1, { document: docAmp });
+    check('A4: документ (триггер task.created + создание задачи) компилируется', saveAmp.ok && (saveAmp.json?.data?.issues ?? []).length === 0, JSON.stringify(saveAmp.json?.data?.issues));
+    await call('POST', PR(`/${defAmpId}/publish`), t1);
+    await call('POST', PR(`/${defAmpId}/start`), t1, { input: {} }); // ручной старт → процесс создаёт задачу-шаг
+    await sleep(2000);
+    const selfEventInsts = await prisma.processInstance.count({ where: { definitionId: defAmpId, triggerType: 'event' } });
+    check('A4: задача-ШАГ процесса НЕ самозапускает процесс (self-событие пропущено)', selfEventInsts === 0, `event-instances=${selfEventInsts}`);
+    // обычная (не-процессная) задача task.created В ТОМ ЖЕ воркспейсе — ДОЛЖНА триггерить (не заглушили всё)
+    await call('POST', '/tasks', t1, { title: 'обычная', workspaceId: wsId }, { 'X-Workspace-Id': wsId });
+    await sleep(2000);
+    const realEventInsts = await prisma.processInstance.count({ where: { definitionId: defAmpId, triggerType: 'event' } });
+    check('A4: обычная задача task.created ТРИГГЕРИТ процесс (событийный вход жив)', realEventInsts >= 1, `event-instances=${realEventInsts}`);
+    check('A4: событийный запуск НЕ лавинит (его задача-шаг тоже не триггерит)', realEventInsts <= 3, `event-instances=${realEventInsts}`);
+    const ampRunning = await prisma.processInstance.findMany({ where: { definitionId: defAmpId, status: 'running' }, select: { id: true } });
+    for (const i of ampRunning) await call('POST', PR(`/instances/${i.id}/cancel`), t1).catch(() => {});
+    await call('DELETE', PR(`/${defAmpId}`), t1).catch(() => {});
+
+    // ---- P7: снимок label шага + тонкий статус-эндпоинт (без документа/анкеты) ----
+    const defP7Id = (await call('POST', PR(''), t1, { name: 'P7 perf' })).json?.data?.id;
+    const docP7 = {
+      nodes: [
+        { id: 'start', type: 'start', label: 'Старт', config: {} },
+        { id: 't', type: 'human.task', label: 'Сделать дело', config: { title: 'дело', assigneeMode: 'member', assigneeUserId: u2 } },
+        { id: 'end', type: 'end', label: 'Конец', config: {} },
+      ],
+      edges: [{ id: 'e1', from: 'start', fromPort: 'main', to: 't' }, { id: 'e2', from: 't', fromPort: 'main', to: 'end' }],
+      form: [],
+    };
+    await call('PUT', PR(`/${defP7Id}/document`), t1, { document: docP7 });
+    await call('POST', PR(`/${defP7Id}/publish`), t1);
+    const instP7 = (await call('POST', PR(`/${defP7Id}/start`), t1, { input: {} })).json?.data;
+    await sleep(400);
+    const fullP7 = (await call('GET', PR(`/instances/${instP7.id}`), t1)).json?.data;
+    const tStep = (fullP7?.steps ?? []).find((s) => s.nodeId === 't');
+    check('P7: подпись шага из снимка label («Сделать дело»)', tStep?.label === 'Сделать дело', tStep?.label);
+    const statusRes = await call('GET', PR(`/instances/${instP7.id}/status`), t1);
+    check('P7: тонкий статус-эндпоинт отвечает', statusRes.ok, `status ${statusRes.status}`);
+    const st = statusRes.json?.data;
+    check('P7: статус = шаги+статус, БЕЗ документа/анкеты', Array.isArray(st?.steps) && !!st?.status && st?.document === undefined && st?.variables === undefined, JSON.stringify({ steps: Array.isArray(st?.steps), status: st?.status, hasDoc: st?.document !== undefined }));
+    check('P7: label шага есть и в тонком статусе', (st?.steps ?? []).find((s) => s.nodeId === 't')?.label === 'Сделать дело');
+    const p7run = await prisma.processInstance.findMany({ where: { definitionId: defP7Id, status: 'running' }, select: { id: true } });
+    for (const i of p7run) await call('POST', PR(`/instances/${i.id}/cancel`), t1).catch(() => {});
+    await call('DELETE', PR(`/${defP7Id}`), t1).catch(() => {});
+
+    // ======================================================================
+    // ФАЗА 2 — надёжность (onError · retry · notify best-effort · entry-conditions)
+    // ======================================================================
+    console.log('\n--- Фаза 2 (надёжность) ---');
+    const types2r = (await call('GET', PR('/node-types'), t1)).json?.data ?? [];
+    check('Ф2: у ноды-действия есть поле «При ошибке» (onError)', ((types2r.find((t) => t.type === 'notify'))?.fields ?? []).some((f) => f.key === 'onError'), JSON.stringify(((types2r.find((t) => t.type === 'notify'))?.fields ?? []).map((f) => f.key)));
+    check('Ф2: у io-ноды есть «Повторов при сбое» (retryMaxTries)', ((types2r.find((t) => t.type === 'service.http'))?.fields ?? []).some((f) => f.key === 'retryMaxTries'));
+    check('Ф2: у триггера события есть условие запуска (condField)', ((types2r.find((t) => t.type === 'trigger.event'))?.fields ?? []).some((f) => f.key === 'condField'));
+    check('Ф2: у триггера/терминала onError НЕТ', !((types2r.find((t) => t.type === 'start'))?.fields ?? []).some((f) => f.key === 'onError') && !((types2r.find((t) => t.type === 'end'))?.fields ?? []).some((f) => f.key === 'onError'));
+
+    // ---- Retry On Fail: http на неразрешимый адрес, 2 повтора → _retries=2, ветка «Ошибка» ----
+    const defRetryId = (await call('POST', PR(''), t1, { name: 'Ф2 retry' })).json?.data?.id;
+    const docRetry = {
+      nodes: [
+        { id: 'start', type: 'start', label: 'Старт', config: {} },
+        { id: 'http', type: 'service.http', label: 'HTTP', config: { method: 'GET', url: 'https://nope.invalid/x', retryMaxTries: 2, retryWaitMs: 50 } },
+        { id: 'eok', type: 'end', label: 'ok', config: {} },
+        { id: 'eerr', type: 'end', label: 'err', config: {} },
+      ],
+      edges: [
+        { id: 'e1', from: 'start', fromPort: 'main', to: 'http' },
+        { id: 'e2', from: 'http', fromPort: 'success', to: 'eok' },
+        { id: 'e3', from: 'http', fromPort: 'error', to: 'eerr' },
+      ],
+      form: [],
+    };
+    const saveRetry = await call('PUT', PR(`/${defRetryId}/document`), t1, { document: docRetry });
+    check('Ф2 retry: документ компилируется', saveRetry.ok && (saveRetry.json?.data?.issues ?? []).length === 0, JSON.stringify(saveRetry.json?.data?.issues));
+    await call('POST', PR(`/${defRetryId}/publish`), t1);
+    const instRetry = (await call('POST', PR(`/${defRetryId}/start`), t1, { input: {} })).json?.data;
+    await sleep(2500); // 1 попытка + 2 повтора × (NXDOMAIN + 50мс)
+    const httpRow = await prisma.processStepRun.findFirst({ where: { instanceId: instRetry.id, nodeId: 'http' } });
+    check('Ф2 retry: io-шаг повторился 2 раза (output._retries=2)', (httpRow?.output ?? {})._retries === 2, JSON.stringify(httpRow?.output));
+    check('Ф2 retry: после повторов ушёл в ветку «Ошибка»', httpRow?.outcome === 'error', httpRow?.outcome);
+    await call('DELETE', PR(`/${defRetryId}`), t1).catch(() => {});
+
+    // ---- Entry-condition (sfflow#1): триггер стартует только при совпадении поля события ----
+    const defCondId = (await call('POST', PR(''), t1, { name: 'Ф2 entry-cond' })).json?.data?.id;
+    const docCond = {
+      nodes: [
+        { id: 'ev', type: 'trigger.event', label: 'На создание задачи', config: { eventType: 'task.created', condField: 'title', condOp: 'contains', condValue: 'СПЕЦ', runAsUserId: u1 } },
+        { id: 'n', type: 'notify', label: 'Ок', config: { to: 'initiator', title: 'спец-задача' } },
+        { id: 'end', type: 'end', label: 'Конец', config: {} },
+      ],
+      edges: [{ id: 'e1', from: 'ev', fromPort: 'main', to: 'n' }, { id: 'e2', from: 'n', fromPort: 'main', to: 'end' }],
+      form: [],
+    };
+    const saveCond = await call('PUT', PR(`/${defCondId}/document`), t1, { document: docCond });
+    check('Ф2 entry-cond: документ компилируется', saveCond.ok && (saveCond.json?.data?.issues ?? []).length === 0, JSON.stringify(saveCond.json?.data?.issues));
+    await call('POST', PR(`/${defCondId}/publish`), t1);
+    await call('POST', '/tasks', t1, { title: 'обычная задача', workspaceId: wsId }, { 'X-Workspace-Id': wsId }); // без «СПЕЦ»
+    await sleep(1800);
+    check('Ф2 entry-cond: задача без «СПЕЦ» НЕ запускает (условие отсекло)', (await prisma.processInstance.count({ where: { definitionId: defCondId } })) === 0);
+    await call('POST', '/tasks', t1, { title: 'СПЕЦ задача', workspaceId: wsId }, { 'X-Workspace-Id': wsId }); // со «СПЕЦ»
+    await sleep(1800);
+    check('Ф2 entry-cond: задача со «СПЕЦ» запускает процесс', (await prisma.processInstance.count({ where: { definitionId: defCondId } })) >= 1);
+    for (const i of await prisma.processInstance.findMany({ where: { definitionId: defCondId, status: 'running' }, select: { id: true } })) await call('POST', PR(`/instances/${i.id}/cancel`), t1).catch(() => {});
+    await call('DELETE', PR(`/${defCondId}`), t1).catch(() => {});
+
+    // ---- onError=continue + notify best-effort: уволенный ПОСЛЕ публикации не валит процесс ----
+    const defOeId = (await call('POST', PR(''), t1, { name: 'Ф2 onError' })).json?.data?.id;
+    const docOe = {
+      nodes: [
+        { id: 'start', type: 'start', label: 'Старт', config: {} },
+        { id: 'notif', type: 'notify', label: 'Уведомить', config: { to: 'member', userId: u2, title: 'привет' } },
+        { id: 'task', type: 'human.task', label: 'Задача', config: { title: 'дело', assigneeMode: 'member', assigneeUserId: u2, onError: 'continue' } },
+        { id: 'end', type: 'end', label: 'Конец', config: {} },
+      ],
+      edges: [
+        { id: 'e1', from: 'start', fromPort: 'main', to: 'notif' },
+        { id: 'e2', from: 'notif', fromPort: 'main', to: 'task' },
+        { id: 'e3', from: 'task', fromPort: 'main', to: 'end' },
+      ],
+      form: [],
+    };
+    const saveOe = await call('PUT', PR(`/${defOeId}/document`), t1, { document: docOe });
+    check('Ф2 onError: документ компилируется (u2 действующий)', saveOe.ok && (saveOe.json?.data?.issues ?? []).length === 0, JSON.stringify(saveOe.json?.data?.issues));
+    await call('POST', PR(`/${defOeId}/publish`), t1);
+    await call('DELETE', `/workspaces/${wsId}/members/${u2}`, t1); // увольняем ПОСЛЕ публикации
+    const instOe = (await call('POST', PR(`/${defOeId}/start`), t1, { input: {} })).json?.data;
+    await sleep(900);
+    const instOeB = (await call('GET', PR(`/instances/${instOe.id}`), t1)).json?.data;
+    check('Ф2: notify уволенному — best-effort, шаг done (не валит)', (instOeB?.steps ?? []).find((s) => s.nodeId === 'notif')?.status === 'done', JSON.stringify((instOeB?.steps ?? []).map((s) => [s.nodeId, s.status])));
+    check('Ф2: onError=continue у задачи уволенному → шаг done, процесс завершён (не error)', instOeB?.status === 'done' && (instOeB?.steps ?? []).find((s) => s.nodeId === 'task')?.status === 'done', `status=${instOeB?.status}`);
+    await call('DELETE', PR(`/${defOeId}`), t1).catch(() => {});
+
+    // ======================================================================
+    // ФАЗА 3 — ноды-действия (через NodeRunDeps.getService, от имени инициатора)
+    // ======================================================================
+    console.log('\n--- Фаза 3 (ноды-действия) ---');
+    // Ф2 уволил u2 — нанимаем заново (нужен как исполнитель/цель действий).
+    await call('POST', `/workspaces/${wsId}/invitations`, t1, { phone: P2 });
+    const reinv = (await call('GET', '/workspaces/invitations/incoming', t2)).json?.data?.find((i) => i.workspaceId === wsId);
+    await call('POST', `/workspaces/invitations/${reinv?.id}/accept`, t2);
+    check('Ф3: u2 нанят заново (для тестов действий)', !!reinv, reinv?.id);
+
+    const types3f = (await call('GET', PR('/node-types'), t1)).json?.data ?? [];
+    const tk3 = types3f.map((t) => t.type);
+    check('Ф3: палитра +action.richcard/service.message/staff.assign/workspaces.role/process.start', ['action.richcard', 'service.message', 'staff.assign', 'workspaces.role', 'process.start'].every((k) => tk3.includes(k)), JSON.stringify(tk3.filter((t) => ['action.richcard', 'service.message', 'staff.assign', 'workspaces.role', 'process.start'].includes(t))));
+    check('Ф3: у «Сообщение в чат» есть выход-инструмент (astool)', ((types3f.find((t) => t.type === 'service.message'))?.outputs ?? []).some((o) => o.key === 'astool'));
+
+    // ---- richcard.execute: t1 (Постановщик) принимает сданную задачу; u2 (не Постановщик) → error ----
+    const mkSubmittedTask = async () => {
+      const tk = await call('POST', '/tasks', t1, { title: 'на приёмку', executorId: u2, workspaceId: wsId }, { 'X-Workspace-Id': wsId });
+      await call('POST', `/tasks/${tk.json?.data?.id}/submit`, t2);
+      return tk.json?.data?.id;
+    };
+    const rcTaskA = await mkSubmittedTask();
+    const rcTaskB = await mkSubmittedTask();
+    const defRcId = (await call('POST', PR(''), t1, { name: 'Ф3 richcard' })).json?.data?.id;
+    const docRc = {
+      nodes: [
+        { id: 'start', type: 'start', label: 'Старт', config: {} },
+        { id: 'act', type: 'action.richcard', label: 'Принять задачу', config: { actionKey: 'task.accept', refType: 'task', refId: '{{form.taskId}}' } },
+        { id: 'eok', type: 'end', label: 'ok', config: {} },
+        { id: 'eerr', type: 'end', label: 'err', config: {} },
+      ],
+      edges: [
+        { id: 'e1', from: 'start', fromPort: 'main', to: 'act' },
+        { id: 'e2', from: 'act', fromPort: 'success', to: 'eok' },
+        { id: 'e3', from: 'act', fromPort: 'error', to: 'eerr' },
+      ],
+      form: [{ key: 'taskId', label: 'Задача', type: 'text', required: true }],
+    };
+    const saveRc = await call('PUT', PR(`/${defRcId}/document`), t1, { document: docRc });
+    check('Ф3 richcard: документ компилируется', saveRc.ok && (saveRc.json?.data?.issues ?? []).length === 0, JSON.stringify(saveRc.json?.data?.issues));
+    await call('POST', PR(`/${defRcId}/publish`), t1);
+    // t1 = Постановщик → приёмка проходит
+    const rcOk = (await call('POST', PR(`/${defRcId}/start`), t1, { input: { taskId: rcTaskA } })).json?.data;
+    await sleep(900);
+    const rcOkB = (await call('GET', PR(`/instances/${rcOk.id}`), t1)).json?.data;
+    check('Ф3 richcard: действие «Принять задачу» от Постановщика — success', (rcOkB?.steps ?? []).find((s) => s.nodeId === 'act')?.outcome === 'success', JSON.stringify((rcOkB?.steps ?? []).map((s) => [s.nodeId, s.outcome])));
+    check('Ф3 richcard: задача реально принята (done)', (await prisma.task.findUnique({ where: { id: rcTaskA }, select: { status: true } }))?.status === 'done');
+    // u2 запускает тот же процесс на СВОЮ сданную задачу — u2 не Постановщик → capability recheck → error
+    const rcNo = (await call('POST', PR(`/${defRcId}/start`), t2, { input: { taskId: rcTaskB } })).json?.data;
+    await sleep(900);
+    const rcNoB = (await call('GET', PR(`/instances/${rcNo.id}`), t2)).json?.data;
+    check('Ф3 richcard: не-Постановщик → перепроверка прав → ветка «Ошибка» (нет эскалации)', (rcNoB?.steps ?? []).find((s) => s.nodeId === 'act')?.outcome === 'error', JSON.stringify((rcNoB?.steps ?? []).map((s) => [s.nodeId, s.outcome])));
+    check('Ф3 richcard: чужая задача НЕ принята', (await prisma.task.findUnique({ where: { id: rcTaskB }, select: { status: true } }))?.status !== 'done');
+    await call('DELETE', PR(`/${defRcId}`), t1).catch(() => {});
+
+    // ---- message.send: DM инициатора сотруднику ----
+    const defMsgId = (await call('POST', PR(''), t1, { name: 'Ф3 message' })).json?.data?.id;
+    const docMsg = {
+      nodes: [
+        { id: 'start', type: 'start', label: 'Старт', config: {} },
+        { id: 'msg', type: 'service.message', label: 'В личку', config: { to: 'member', userId: u2, text: `Привет от процесса {{initiator.name}}` } },
+        { id: 'eok', type: 'end', label: 'ok', config: {} },
+        { id: 'eerr', type: 'end', label: 'err', config: {} },
+      ],
+      edges: [
+        { id: 'e1', from: 'start', fromPort: 'main', to: 'msg' },
+        { id: 'e2', from: 'msg', fromPort: 'success', to: 'eok' },
+        { id: 'e3', from: 'msg', fromPort: 'error', to: 'eerr' },
+      ],
+      form: [],
+    };
+    await call('PUT', PR(`/${defMsgId}/document`), t1, { document: docMsg });
+    await call('POST', PR(`/${defMsgId}/publish`), t1);
+    const msgInst = (await call('POST', PR(`/${defMsgId}/start`), t1, { input: {} })).json?.data;
+    await sleep(900);
+    const msgStep = ((await call('GET', PR(`/instances/${msgInst.id}`), t1)).json?.data?.steps ?? []).find((s) => s.nodeId === 'msg');
+    check('Ф3 message: сообщение отправлено (success)', msgStep?.outcome === 'success', msgStep?.outcome);
+    check('Ф3 message: в БД есть сообщение процесса от t1', !!(await prisma.message.findFirst({ where: { authorId: u1, content: { contains: 'Привет от процесса' } } })));
+    await call('DELETE', PR(`/${defMsgId}`), t1).catch(() => {});
+
+    // ---- staff.assign: инициатор-manager+ назначает должность; trainee-инициатор → error ----
+    const posF3 = await call('POST', `/workspaces/${wsId}/staff/positions`, t1, { name: 'Ф3-должность' });
+    const posF3Id = posF3.json?.data?.id;
+    const defAsgId = (await call('POST', PR(''), t1, { name: 'Ф3 staff' })).json?.data?.id;
+    const docAsg = {
+      nodes: [
+        { id: 'start', type: 'start', label: 'Старт', config: {} },
+        { id: 'asg', type: 'staff.assign', label: 'Назначить', config: { userId: u2, positionId: posF3Id } },
+        { id: 'eok', type: 'end', label: 'ok', config: {} },
+        { id: 'eerr', type: 'end', label: 'err', config: {} },
+      ],
+      edges: [
+        { id: 'e1', from: 'start', fromPort: 'main', to: 'asg' },
+        { id: 'e2', from: 'asg', fromPort: 'success', to: 'eok' },
+        { id: 'e3', from: 'asg', fromPort: 'error', to: 'eerr' },
+      ],
+      form: [],
+    };
+    await call('PUT', PR(`/${defAsgId}/document`), t1, { document: docAsg });
+    await call('POST', PR(`/${defAsgId}/publish`), t1);
+    const asgInst = (await call('POST', PR(`/${defAsgId}/start`), t1, { input: {} })).json?.data; // t1 = owner (manager+)
+    await sleep(900);
+    check('Ф3 staff.assign: должность назначена (initiator manager+)', !!(await prisma.staffAssignment.findFirst({ where: { workspaceId: wsId, userId: u2, positionId: posF3Id } })));
+    // trainee-инициатор (u2) → assertStaffManage → error
+    const asgNo = (await call('POST', PR(`/${defAsgId}/start`), t2, { input: {} })).json?.data;
+    await sleep(900);
+    const asgNoStep = ((await call('GET', PR(`/instances/${asgNo.id}`), t2)).json?.data?.steps ?? []).find((s) => s.nodeId === 'asg');
+    check('Ф3 staff.assign: trainee-инициатор → ветка «Ошибка» (права энфорсятся)', asgNoStep?.outcome === 'error', asgNoStep?.outcome);
+    await call('DELETE', PR(`/${defAsgId}`), t1).catch(() => {});
+
+    // ---- workspaces.role: инициатор-admin+ меняет роль сотрудника ----
+    const defRoleId = (await call('POST', PR(''), t1, { name: 'Ф3 role' })).json?.data?.id;
+    const docRole = {
+      nodes: [
+        { id: 'start', type: 'start', label: 'Старт', config: {} },
+        { id: 'r', type: 'workspaces.role', label: 'Роль', config: { userId: u2, role: 'staff' } },
+        { id: 'eok', type: 'end', label: 'ok', config: {} },
+        { id: 'eerr', type: 'end', label: 'err', config: {} },
+      ],
+      edges: [
+        { id: 'e1', from: 'start', fromPort: 'main', to: 'r' },
+        { id: 'e2', from: 'r', fromPort: 'success', to: 'eok' },
+        { id: 'e3', from: 'r', fromPort: 'error', to: 'eerr' },
+      ],
+      form: [],
+    };
+    await call('PUT', PR(`/${defRoleId}/document`), t1, { document: docRole });
+    await call('POST', PR(`/${defRoleId}/publish`), t1);
+    await call('POST', PR(`/${defRoleId}/start`), t1, { input: {} }); // t1 = owner (admin+)
+    await sleep(900);
+    const u2role = (await call('GET', `/workspaces/${wsId}/members`, t1)).json?.data?.find((m) => m.userId === u2)?.role;
+    check('Ф3 workspaces.role: роль u2 изменена на staff', u2role === 'staff', u2role);
+    await call('DELETE', PR(`/${defRoleId}`), t1).catch(() => {});
+
+    // ---- process.start: родитель запускает опубликованный под-процесс ----
+    const childId = (await call('POST', PR(''), t1, { name: 'Ф3 child' })).json?.data?.id;
+    await call('PUT', PR(`/${childId}/document`), t1, { document: { nodes: [{ id: 'start', type: 'start', label: 'Старт', config: {} }, { id: 'n', type: 'notify', label: 'ok', config: { to: 'initiator', title: 'дочерний' } }, { id: 'end', type: 'end', label: 'Конец', config: {} }], edges: [{ id: 'e1', from: 'start', fromPort: 'main', to: 'n' }, { id: 'e2', from: 'n', fromPort: 'main', to: 'end' }], form: [] } });
+    await call('POST', PR(`/${childId}/publish`), t1);
+    const parentId = (await call('POST', PR(''), t1, { name: 'Ф3 parent' })).json?.data?.id;
+    await call('PUT', PR(`/${parentId}/document`), t1, { document: { nodes: [{ id: 'start', type: 'start', label: 'Старт', config: {} }, { id: 'sub', type: 'process.start', label: 'Запустить дочерний', config: { definitionId: childId } }, { id: 'eok', type: 'end', label: 'ok', config: {} }, { id: 'eerr', type: 'end', label: 'err', config: {} }], edges: [{ id: 'e1', from: 'start', fromPort: 'main', to: 'sub' }, { id: 'e2', from: 'sub', fromPort: 'success', to: 'eok' }, { id: 'e3', from: 'sub', fromPort: 'error', to: 'eerr' }], form: [] } });
+    await call('POST', PR(`/${parentId}/publish`), t1);
+    const beforeChild = await prisma.processInstance.count({ where: { definitionId: childId } });
+    await call('POST', PR(`/${parentId}/start`), t1, { input: {} });
+    await sleep(1200);
+    check('Ф3 process.start: под-процесс запущен родителем', (await prisma.processInstance.count({ where: { definitionId: childId } })) > beforeChild);
+    for (const d of [parentId, childId]) {
+      for (const i of await prisma.processInstance.findMany({ where: { definitionId: d, status: 'running' }, select: { id: true } })) await call('POST', PR(`/instances/${i.id}/cancel`), t1).catch(() => {});
+      await call('DELETE', PR(`/${d}`), t1).catch(() => {});
+    }
+
+    // ======================================================================
+    // ФАЗА 4 — новые триггеры + реестр резолверов
+    // ======================================================================
+    console.log('\n--- Фаза 4 (новые триггеры) ---');
+    const types4f = (await call('GET', PR('/node-types'), t1)).json?.data ?? [];
+    const evVals = (((types4f.find((t) => t.type === 'trigger.event'))?.fields ?? []).find((f) => f.key === 'eventType')?.options ?? []).map((o) => o.value);
+    check('Ф4: палитра событий +shop.order.placed/funded/confirmed', ['shop.order.placed', 'shop.order.funded', 'shop.order.confirmed'].every((k) => evVals.includes(k)), JSON.stringify(evVals.filter((v) => v.startsWith('shop.'))));
+    check('Ф4: палитра событий +workspace.member.removed (увольнение)', evVals.includes('workspace.member.removed'));
+
+    // workspace.member.removed → offboarding-процесс (реестр резолверов + workspace-резолвер)
+    const defOffId = (await call('POST', PR(''), t1, { name: 'Ф4 offboarding' })).json?.data?.id;
+    const docOff = {
+      nodes: [
+        { id: 'ev', type: 'trigger.event', label: 'Увольнение', config: { eventType: 'workspace.member.removed', runAsUserId: u1 } },
+        { id: 'n', type: 'notify', label: 'Обходной лист', config: { to: 'initiator', title: 'Сотрудник уволен — оформить обходной лист' } },
+        { id: 'end', type: 'end', label: 'Конец', config: {} },
+      ],
+      edges: [{ id: 'e1', from: 'ev', fromPort: 'main', to: 'n' }, { id: 'e2', from: 'n', fromPort: 'main', to: 'end' }],
+      form: [],
+    };
+    const saveOff = await call('PUT', PR(`/${defOffId}/document`), t1, { document: docOff });
+    check('Ф4 offboarding: документ компилируется', saveOff.ok && (saveOff.json?.data?.issues ?? []).length === 0, JSON.stringify(saveOff.json?.data?.issues));
+    await call('POST', PR(`/${defOffId}/publish`), t1);
+    const beforeOff = await prisma.processInstance.count({ where: { definitionId: defOffId } });
+    await call('DELETE', `/workspaces/${wsId}/members/${u2}`, t1); // увольняем u2 → workspace.member.removed
+    await sleep(1800);
+    check('Ф4: увольнение (workspace.member.removed) запустило процесс через реестр резолверов', (await prisma.processInstance.count({ where: { definitionId: defOffId } })) > beforeOff);
+    for (const i of await prisma.processInstance.findMany({ where: { definitionId: defOffId, status: 'running' }, select: { id: true } })) await call('POST', PR(`/instances/${i.id}/cancel`), t1).catch(() => {});
+    await call('DELETE', PR(`/${defOffId}`), t1).catch(() => {});
+
+    // ======================================================================
+    // ФАЗА 5 — поток данных (items[]): выражения + Set + «Перебрать список»
+    // ======================================================================
+    console.log('\n--- Фаза 5 (поток данных) ---');
+    const types5 = (await call('GET', PR('/node-types'), t1)).json?.data ?? [];
+    const tk5 = types5.map((t) => t.type);
+    check('Ф5: палитра +loop.each/data.set', ['loop.each', 'data.set'].every((k) => tk5.includes(k)), JSON.stringify(tk5.filter((t) => t === 'loop.each' || t === 'data.set')));
+
+    // 1) Set + безопасное выражение (арифметика + round) без цикла
+    const defExpr = (await call('POST', PR(''), t1, { name: 'Ф5 expr' })).json?.data?.id;
+    const docExpr = {
+      nodes: [
+        { id: 'start', type: 'start', label: 'Старт', config: {} },
+        { id: 'set', type: 'data.set', label: 'Налог', config: { assignments: 'tax = round(form.sum * 0.12, 2)' } },
+        { id: 'n', type: 'notify', label: 'Уведомить', config: { to: 'initiator', title: 'налог {{form.tax}}' } },
+        { id: 'end', type: 'end', label: 'Конец', config: {} },
+      ],
+      edges: [
+        { id: 'e1', from: 'start', fromPort: 'main', to: 'set' },
+        { id: 'e2', from: 'set', fromPort: 'main', to: 'n' },
+        { id: 'e3', from: 'n', fromPort: 'main', to: 'end' },
+      ],
+      form: [{ key: 'sum', label: 'Сумма', type: 'number', required: true }],
+    };
+    const saveExpr = await call('PUT', PR(`/${defExpr}/document`), t1, { document: docExpr });
+    check('Ф5 expr: документ (Set + выражение) компилируется', saveExpr.ok && (saveExpr.json?.data?.issues ?? []).length === 0, JSON.stringify(saveExpr.json?.data?.issues));
+    await call('POST', PR(`/${defExpr}/publish`), t1);
+    await call('POST', PR(`/${defExpr}/start`), t1, { input: { sum: 100 } });
+    await sleep(800);
+    check('Ф5: Set + выражение round(form.sum*0.12,2)=12 вычислено и подставлено', !!(await prisma.notification.findFirst({ where: { userId: u1, type: 'process.step.notify', title: 'налог 12' } })));
+    await call('DELETE', PR(`/${defExpr}`), t1).catch(() => {});
+
+    // 2) «Перебрать список»: вебхук несёт массив → на каждый элемент под-ветка ({{item.n}}*2)
+    const defLoop = (await call('POST', PR(''), t1, { name: 'Ф5 loop' })).json?.data?.id;
+    const docLoop = {
+      nodes: [
+        { id: 'wh', type: 'trigger.webhook', label: 'Вебхук', config: { runAsUserId: u1 } },
+        { id: 'loop', type: 'loop.each', label: 'Перебрать', config: { source: '{{form.items}}' } },
+        { id: 'setD', type: 'data.set', label: 'Удвоить', config: { assignments: 'double = item.n * 2' } },
+        { id: 'notif', type: 'notify', label: 'Элемент', config: { to: 'initiator', title: 'результат {{form.double}}' } },
+        { id: 'notifDone', type: 'notify', label: 'Итог', config: { to: 'initiator', title: 'перебор готов' } },
+        { id: 'end', type: 'end', label: 'Конец', config: {} },
+      ],
+      edges: [
+        { id: 'e1', from: 'wh', fromPort: 'main', to: 'loop' },
+        { id: 'e2', from: 'loop', fromPort: 'loop', to: 'setD' },
+        { id: 'e3', from: 'setD', fromPort: 'main', to: 'notif' },
+        { id: 'e4', from: 'notif', fromPort: 'main', to: 'loop' }, // ветка «Каждый» возвращается в цикл
+        { id: 'e5', from: 'loop', fromPort: 'done', to: 'notifDone' },
+        { id: 'e6', from: 'notifDone', fromPort: 'main', to: 'end' },
+      ],
+      form: [],
+    };
+    const saveLoop = await call('PUT', PR(`/${defLoop}/document`), t1, { document: docLoop });
+    check('Ф5 loop: документ с циклом (ветка «Каждый» → назад) компилируется', saveLoop.ok && (saveLoop.json?.data?.issues ?? []).length === 0, JSON.stringify(saveLoop.json?.data?.issues));
+    await call('POST', PR(`/${defLoop}/publish`), t1);
+    const whTok = ((await call('GET', PR(`/${defLoop}`), t1)).json?.data?.triggers ?? []).find((t) => t.type === 'webhook')?.webhookUrl?.split('/processes/webhook/')[1];
+    check('Ф5 loop: вебхук-триггер синхронизирован', !!whTok);
+    const beforeDone = await prisma.notification.count({ where: { userId: u1, title: 'перебор готов' } });
+    await call('POST', `/processes/webhook/${whTok}`, null, { items: [] }); // пустой список → сразу «Готово»
+    await sleep(1000);
+    check('Ф5 loop: пустой список → сразу «Готово» (0 элементов)', (await prisma.notification.count({ where: { userId: u1, title: 'перебор готов' } })) > beforeDone);
+    await call('POST', `/processes/webhook/${whTok}`, null, { items: [{ n: 5 }, { n: 10 }] }); // список из 2
+    await sleep(1800);
+    check('Ф5 loop: элемент 1 ({{item.n}}=5 → double=10) обработан', !!(await prisma.notification.findFirst({ where: { userId: u1, title: 'результат 10' } })));
+    check('Ф5 loop: элемент 2 ({{item.n}}=10 → double=20) обработан', !!(await prisma.notification.findFirst({ where: { userId: u1, title: 'результат 20' } })));
+    for (const i of await prisma.processInstance.findMany({ where: { definitionId: defLoop, status: 'running' }, select: { id: true } })) await call('POST', PR(`/instances/${i.id}/cancel`), t1).catch(() => {});
+    await call('DELETE', PR(`/${defLoop}`), t1).catch(() => {});
+
+    // ======================================================================
+    // ФАЗА 6 — полировка (A6 детект циклов агентов-инструментов)
+    // ======================================================================
+    console.log('\n--- Фаза 6 (полировка) ---');
+    const credF6 = (await call('POST', PR('/credentials'), t1, { name: 'Ф6-ключ', type: 'bearer', token: 'sk-fake' })).json?.data?.id;
+    const defCyc = (await call('POST', PR(''), t1, { name: 'Ф6 agent-cycle' })).json?.data?.id;
+    const docCyc = {
+      nodes: [
+        { id: 'start', type: 'start', label: 'Старт', config: {} },
+        { id: 'orch', type: 'ai.agent', label: 'Оркестратор', config: { userPrompt: 'делай' } },
+        { id: 'orchM', type: 'ai.model', label: 'M1', config: { provider: 'anthropic', credentialId: credF6, model: 'claude-sonnet-4-6' } },
+        { id: 'spec', type: 'ai.agent', label: 'Специалист', config: { userPrompt: 'отвечай', toolDescription: 'спец' } },
+        { id: 'specM', type: 'ai.model', label: 'M2', config: { provider: 'anthropic', credentialId: credF6, model: 'claude-sonnet-4-6' } },
+        { id: 'end', type: 'end', label: 'Конец', config: {} },
+        { id: 'end2', type: 'end', label: 'К2', config: {} },
+      ],
+      edges: [
+        { id: 'e1', from: 'start', fromPort: 'main', to: 'orch', toPort: 'main' },
+        { id: 'em1', from: 'orchM', fromPort: 'model', to: 'orch', toPort: 'ai_model' },
+        { id: 'em2', from: 'specM', fromPort: 'model', to: 'spec', toPort: 'ai_model' },
+        { id: 'a1', from: 'spec', fromPort: 'astool', to: 'orch', toPort: 'ai_tool' },
+        { id: 'a2', from: 'orch', fromPort: 'astool', to: 'spec', toPort: 'ai_tool' }, // цикл orch↔spec
+        { id: 'e2', from: 'orch', fromPort: 'success', to: 'end', toPort: 'main' },
+        { id: 'e3', from: 'orch', fromPort: 'error', to: 'end2', toPort: 'main' },
+      ],
+      form: [],
+    };
+    const saveCyc = await call('PUT', PR(`/${defCyc}/document`), t1, { document: docCyc });
+    check('Ф6 A6: цикл агентов-инструментов → проблема компиляции', (saveCyc.json?.data?.issues ?? []).some((i) => /цикл агентов/i.test(i.message)), JSON.stringify(saveCyc.json?.data?.issues));
+    await call('DELETE', PR('/credentials/' + credF6), t1).catch(() => {});
+    await call('DELETE', PR(`/${defCyc}`), t1).catch(() => {});
   } finally {
     if (cleanup.wsId) {
       await prisma.task.deleteMany({ where: { workspaceId: cleanup.wsId } }).catch(() => {});

@@ -6,10 +6,19 @@ export const PROCESS_LIMITS = {
   maxNodes: 150,
   maxEdges: 300,
   maxFormFields: 30,
-  /** Потолок шагов на инстанс — стоп-кран от бесконечных циклов «Если». */
-  maxStepsPerInstance: 500,
+  /** Потолок шагов на инстанс — стоп-кран от бесконечных циклов «Если»/«Перебрать список».
+   *  Поднят под Ф5 (цикл переисполняет под-ветку шагами): элементы × размер под-ветки ≤ ~2000. */
+  maxStepsPerInstance: 2000,
   /** Сколько авто-нод движок проходит за один толчок (остальное доберёт крон). */
   maxAutoChain: 100,
+  /**
+   * Потолок ОДНОВРЕМЕННО бегущих инстансов на воркспейс — анти-runaway для триггеров
+   * (петля «событие → процесс → процесс»). Авто-запуск сверх лимита тихо пропускается
+   * (логируется); здоровая организация его не достигает, а лавина триггеров упирается.
+   */
+  maxRunningInstancesPerWorkspace: 1000,
+  /** Ф3: макс. глубина вложенности под-процессов (нода «Запустить процесс») — от рекурсии. */
+  maxSubprocessDepth: 5,
 } as const;
 
 export const PROCESS_NODE_CATEGORY_LABELS: Record<string, string> = {
@@ -49,10 +58,14 @@ export const PROCESS_VISIBILITY_LABELS: Record<string, string> = {
 /** Ф3: события платформы, на которые можно повесить триггер запуска процесса (workspace-скоуп резолвится сервером). */
 export const PROCESS_EVENT_TYPES = [
   { value: 'workspace.invitation.accepted', label: 'Принят новый сотрудник' },
+  { value: 'workspace.member.removed', label: 'Сотрудник уволен' },
   { value: 'workspace.position.assigned', label: 'Назначена должность' },
   { value: 'workspace.position.certified', label: 'Сотрудник аттестован' },
   { value: 'task.completed', label: 'Задача завершена' },
   { value: 'task.created', label: 'Создана задача' },
+  { value: 'shop.order.placed', label: 'Оформлен заказ' },
+  { value: 'shop.order.funded', label: 'Краудфандинг собран' },
+  { value: 'shop.order.confirmed', label: 'Заказ подтверждён' },
 ] as const;
 
 export const PROCESS_TRIGGER_TYPE_LABELS: Record<string, string> = {
@@ -60,6 +73,18 @@ export const PROCESS_TRIGGER_TYPE_LABELS: Record<string, string> = {
   schedule: 'Расписание',
   webhook: 'Внешний вебхук',
 };
+
+/** Ф2: поведение шага при ошибке (n8n On Error). Умолчание — «Остановить процесс» (как раньше). */
+export const PROCESS_ONERROR_OPTIONS = [
+  { value: 'stop', label: 'Остановить процесс' },
+  { value: 'continue', label: 'Продолжить (игнорировать ошибку)' },
+  { value: 'errorOutput', label: 'Уйти в ветку «Ошибка»' },
+] as const;
+export type ProcessOnError = (typeof PROCESS_ONERROR_OPTIONS)[number]['value'];
+
+/** Ф2: границы повторов при сбое (Retry On Fail) — только для нод внешнего I/O. */
+export const PROCESS_RETRY_MAX_TRIES = 5;
+export const PROCESS_RETRY_WAIT_MAX_MS = 10_000;
 
 export const PROCESS_SCHEDULE_UNITS = [
   { value: 'hours', label: 'часов' },

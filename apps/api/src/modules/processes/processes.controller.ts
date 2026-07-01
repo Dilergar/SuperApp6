@@ -104,6 +104,17 @@ export class ProcessesController {
     return { success: true, data };
   }
 
+  @Get('instances/:instId/status')
+  @ApiOperation({ summary: 'Тонкий статус инстанса (P7): статусы шагов без документа/анкеты — для поллинга' })
+  async getInstanceStatus(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Param('instId') instId: string,
+  ) {
+    const data = await this.processes.getInstanceStatus(user.sub, id, instId);
+    return { success: true, data };
+  }
+
   @Post('instances/:instId/cancel')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Отменить процесс (инициатор или manager+); открытые задачи отменяются' })

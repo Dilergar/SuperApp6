@@ -26,6 +26,12 @@ export interface ProcessNodeDescriptor extends ProcessNodeTypeDto {
   multiOut?: boolean;
   /** Ф2.5: join-нода — несколько входящих рёбер сливаются в один токен (ждёт всех). */
   join?: boolean;
+  /**
+   * Нода делает ВНЕШНИЙ I/O (HTTP/LLM/коннекторы) — движок исполняет её БЕЗ инстанс-лока,
+   * под арендой шага (P3): долгий вызов не держит лок и не задваивается. Дешёвые ноды (без
+   * этого флага) исполняются целиком под локом, как раньше. Серверный флаг (в DTO не уходит).
+   */
+  io?: boolean;
   /** Ф4.5: под-нода-инструмент отдаёт агенту этот tool (имя/схема/исполнение). */
   tool?: ToolSpec;
 }
@@ -46,8 +52,10 @@ export interface NodeRunContext {
   /** Для агента (Ф4.5): подключённые Модель/Память/Инструменты (собрано движком). */
   cluster?: AgentCluster;
   config: Record<string, unknown>;
-  /** Подстановки `{{form.поле}}` / `{{initiator.name}}` / `{{instance.name}}`. */
+  /** Подстановки `{{form.поле}}` / `{{initiator.name}}` / `{{instance.name}}` / `{{item.поле}}`. */
   render: (text: string) => string;
+  /** Ф5: разрешить `{{path}}` в СЫРОЕ значение (не строку) — для источника списка цикла/фильтра. */
+  resolveValue: (path: string) => unknown;
   deps: NodeRunDeps;
 }
 
@@ -56,6 +64,14 @@ export interface NodeRunDeps {
   tasks: TasksService;
   notifications: NotificationsService;
   db: DatabaseService;
+  /**
+   * Ленивый доступ к ЛЮБОМУ сервису платформы по токену/классу (ModuleRef, strict:false) —
+   * энейблер «всё как ноды» (P0): новые ноды (Shop/Messenger/Calendar/Staff…) берут свой
+   * сервис отсюда, циклы разрешаются строковыми токенами (как 'ShopService'/'ProcessesService').
+   * Соглашение: действия — через сервисные API/capability, чтения — через core/access;
+   * НЕ лезть в чужие таблицы через db (обходит права и денежные инварианты — Принцип 4).
+   */
+  getService: <T = unknown>(token: string | symbol | (new (...args: unknown[]) => unknown)) => T;
 }
 
 export interface WaitPatch {
@@ -118,8 +134,12 @@ export interface ToolSpec {
 }
 
 export type NodeRunResult =
-  /** Шаг завершён — токен уходит по выходному порту (по умолчанию 'main'). */
-  | { kind: 'complete'; outputKey?: string; output?: Record<string, unknown> }
+  /**
+   * Шаг завершён — токен уходит по выходному порту (по умолчанию 'main').
+   * Ф5: setVariables — движок мержит эти ключи в instance.variables в advance-транзакции
+   * (поток данных: нода «Задать данные»/цикл пишут поля/индекс/текущий элемент `_item`).
+   */
+  | { kind: 'complete'; outputKey?: string; output?: Record<string, unknown>; setVariables?: Record<string, unknown> }
   /** Шаг ждёт внешнего события (задача принята, claim, решение, таймер); patch пишется в строку. */
   | { kind: 'wait'; patch?: WaitPatch; output?: Record<string, unknown> };
 
@@ -153,6 +173,11 @@ export interface CompiledPlan {
       join: boolean;
       /** Ф4.5: нода потребляет под-ноды через ai_*-порты (агент) — движок собирает cluster. */
       cluster: boolean;
+      /** Ф2: поведение при ошибке (n8n On Error). stop — валить инстанс (умолчание). */
+      onError: 'stop' | 'continue' | 'errorOutput';
+      /** Ф2: повторы при сбое (Retry On Fail) — только io-ноды, вне лока. 0 = выкл. */
+      retryMaxTries: number;
+      retryWaitMs: number;
     }
   >;
   /** nodeId → outputKey → СПИСОК следующих нод (fork-порт ведёт к нескольким; обычный — к одной). */

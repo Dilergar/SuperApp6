@@ -49,6 +49,7 @@ export const telegramNode: ProcessNodeProvider = {
     category: 'integration',
     icon: '✈️',
     tier: 'standard',
+    io: true, // внешний API → вне инстанс-лока (P3)
     // success/error — поток; astool — подключение к AI-Агенту как инструмент (n8n: один узел = действие И инструмент).
     outputs: [...SUCCESS_ERR, { key: 'astool', label: 'как инструмент', type: 'ai_tool' }],
     fields: [
@@ -97,6 +98,7 @@ export const whatsappNode: ProcessNodeProvider = {
     category: 'integration',
     icon: '🟢',
     tier: 'standard',
+    io: true, // внешний API → вне инстанс-лока (P3)
     outputs: SUCCESS_ERR,
     fields: [
       { key: 'credentialId', label: 'Access-токен (кред)', kind: 'credential', required: true },
@@ -140,6 +142,7 @@ export const smsNode: ProcessNodeProvider = {
     category: 'integration',
     icon: '📨',
     tier: 'standard',
+    io: true, // внешний API → вне инстанс-лока (P3)
     outputs: SUCCESS_ERR,
     fields: [
       { key: 'credentialId', label: 'API-ключ Mobizon (кред)', kind: 'credential', required: true },
@@ -183,6 +186,7 @@ export const kaspiNode: ProcessNodeProvider = {
     category: 'integration',
     icon: '🛒',
     tier: 'standard',
+    io: true, // внешний API → вне инстанс-лока (P3)
     outputs: SUCCESS_ERR,
     fields: [
       { key: 'credentialId', label: 'X-Auth-Token (кред)', kind: 'credential', required: true },
@@ -240,6 +244,7 @@ export const odataNode: ProcessNodeProvider = {
     category: 'integration',
     icon: '🟡',
     tier: 'standard',
+    io: true, // внешний API → вне инстанс-лока (P3)
     outputs: SUCCESS_ERR,
     fields: [
       { key: 'credentialId', label: 'Логин/пароль 1С (basic-кред)', kind: 'credential', required: true },

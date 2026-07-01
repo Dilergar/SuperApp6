@@ -15,7 +15,8 @@ import { StaffModule } from '../staff/staff.module';
 @Module({
   imports: [StaffModule],
   controllers: [WorkspacesController],
-  providers: [WorkspacesService],
-  exports: [WorkspacesService],
+  // Строковый токен для нод «Процессов» (ctx.deps.getService), как 'MessengerService'.
+  providers: [WorkspacesService, { provide: 'WorkspacesService', useExisting: WorkspacesService }],
+  exports: [WorkspacesService, 'WorkspacesService'],
 })
 export class WorkspacesModule {}

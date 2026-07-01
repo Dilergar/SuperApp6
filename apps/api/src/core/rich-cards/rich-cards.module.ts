@@ -12,7 +12,12 @@ import { RichCardsController } from './rich-cards.controller';
 @Global()
 @Module({
   controllers: [RichCardsController],
-  providers: [RichCardRegistry, RichCardsService],
-  exports: [RichCardRegistry, RichCardsService],
+  providers: [
+    RichCardRegistry,
+    RichCardsService,
+    // Строковый токен для нод «Процессов» (ctx.deps.getService), как 'MessengerService'/'ShopService'.
+    { provide: 'RichCardsService', useExisting: RichCardsService },
+  ],
+  exports: [RichCardRegistry, RichCardsService, 'RichCardsService'],
 })
 export class RichCardsModule {}

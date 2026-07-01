@@ -670,6 +670,12 @@ function NodePanel({
           {f.kind === 'department' && (
             <EntitySelector value={cfg[f.key] ? [{ type: 'department', id: String(cfg[f.key]) }] : []} onChange={(next) => setCfg(f.key, next[0]?.id)} multi={false} types={['department']} context={{ workspaceId: wsId }} placeholder="Выберите отдел…" />
           )}
+          {f.kind === 'position' && (
+            <EntitySelector value={cfg[f.key] ? [{ type: 'position', id: String(cfg[f.key]) }] : []} onChange={(next) => setCfg(f.key, next[0]?.id)} multi={false} types={['position']} context={{ workspaceId: wsId }} placeholder="Выберите должность…" />
+          )}
+          {f.kind === 'branch' && (
+            <EntitySelector value={cfg[f.key] ? [{ type: 'branch', id: String(cfg[f.key]) }] : []} onChange={(next) => setCfg(f.key, next[0]?.id)} multi={false} types={['branch']} context={{ workspaceId: wsId }} placeholder="Выберите филиал…" />
+          )}
           {f.kind === 'credential' && (
             <CredentialField wsId={wsId} value={cfg[f.key] ? String(cfg[f.key]) : ''} disabled={readOnly} onChange={(v) => setCfg(f.key, v || undefined)} />
           )}
