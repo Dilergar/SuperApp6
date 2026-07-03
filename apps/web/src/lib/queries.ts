@@ -14,6 +14,16 @@ import type {
   Circle,
   CircleWithMembers,
   ContactBlockRecord,
+  FinBookOverviewDto,
+  FinDebtDto,
+  FinMonthReportDto,
+  FinPeopleReportRowDto,
+  FinPersonDto,
+  FinRecurringRuleDto,
+  FinShareDto,
+  FinSharedBookDto,
+  FinTransactionDto,
+  FinTrendPointDto,
   IncomingInvitation,
   OutgoingInvitation,
   ProcessDefinitionDto,
@@ -152,6 +162,84 @@ export async function fetchProcessReport(wsId: string, defId: string): Promise<P
 
 export async function fetchProcessCredentials(wsId: string): Promise<ProcessCredentialDto[]> {
   const res = await api.get(`/workspaces/${wsId}/processes/credentials`);
+  return res.data.data;
+}
+
+// ---- Финансы (B2C) ----
+
+export const financeOverviewKey = (bookId?: string | null) =>
+  ['finance', 'overview', bookId ?? 'own'] as const;
+export const financeTransactionsKey = (filter?: Record<string, string | undefined>) =>
+  ['finance', 'transactions', filter ?? {}] as const;
+
+export async function fetchFinanceOverview(bookId?: string | null): Promise<FinBookOverviewDto> {
+  const res = await api.get('/finance', { params: bookId ? { bookId } : undefined });
+  return res.data.data;
+}
+
+export async function fetchFinanceTransactions(
+  params: Record<string, string | undefined>,
+): Promise<{ items: FinTransactionDto[]; nextCursor: string | null }> {
+  const res = await api.get('/finance/transactions', { params });
+  return { items: res.data.data, nextCursor: res.data.nextCursor ?? null };
+}
+
+export const financeSharedBooksKey = ['finance', 'shared-with-me'] as const;
+export const financeSharesKey = (bookId?: string | null) => ['finance', 'shares', bookId ?? 'own'] as const;
+
+export async function fetchFinanceSharedBooks(): Promise<FinSharedBookDto[]> {
+  const res = await api.get('/finance/shared-with-me');
+  return res.data.data;
+}
+
+export async function fetchFinanceShares(bookId?: string | null): Promise<FinShareDto[]> {
+  const res = await api.get('/finance/shares', { params: bookId ? { bookId } : undefined });
+  return res.data.data;
+}
+
+export const financeDebtsKey = (bookId?: string | null) => ['finance', 'debts', bookId ?? 'own'] as const;
+export const financeRecurringKey = (bookId?: string | null) => ['finance', 'recurring', bookId ?? 'own'] as const;
+
+export async function fetchFinanceDebts(bookId?: string | null): Promise<FinDebtDto[]> {
+  const res = await api.get('/finance/debts', { params: bookId ? { bookId } : undefined });
+  return res.data.data;
+}
+
+export async function fetchFinanceRecurring(bookId?: string | null): Promise<FinRecurringRuleDto[]> {
+  const res = await api.get('/finance/recurring', { params: bookId ? { bookId } : undefined });
+  return res.data.data;
+}
+
+export const financePeopleKey = (bookId?: string | null) => ['finance', 'people', bookId ?? 'own'] as const;
+export const financePeopleReportKey = (from: string, to: string, bookId?: string | null) =>
+  ['finance', 'report', 'people', from, to, bookId ?? 'own'] as const;
+
+export async function fetchFinancePeople(bookId?: string | null): Promise<FinPersonDto[]> {
+  const res = await api.get('/finance/people', { params: bookId ? { bookId } : undefined });
+  return res.data.data;
+}
+
+export async function fetchFinancePeopleReport(
+  from: string,
+  to: string,
+  bookId?: string | null,
+): Promise<FinPeopleReportRowDto[]> {
+  const res = await api.get('/finance/reports/people', { params: { from, to, ...(bookId ? { bookId } : {}) } });
+  return res.data.data;
+}
+
+export const financeMonthReportKey = (period: string, bookId?: string | null) =>
+  ['finance', 'report', 'month', period, bookId ?? 'own'] as const;
+export const financeTrendKey = (months: number, bookId?: string | null) =>
+  ['finance', 'report', 'trend', months, bookId ?? 'own'] as const;
+
+export async function fetchFinanceMonthReport(period: string, bookId?: string | null): Promise<FinMonthReportDto> {
+  const res = await api.get('/finance/reports/month', { params: { period, ...(bookId ? { bookId } : {}) } });
+  return res.data.data;
+}
+
+export async function fetchFinanceTrend(months: number, bookId?: string | null): Promise<FinTrendPointDto[]> {
+  const res = await api.get('/finance/reports/trend', { params: { months, ...(bookId ? { bookId } : {}) } });
   return res.data.data;
 }
 

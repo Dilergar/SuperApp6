@@ -40,6 +40,7 @@ import {
   WEEKDAYS_SHORT,
   isEvent,
   isTask,
+  isFinance,
   isAllDayItem,
   itemDays,
   itemColor,
@@ -54,8 +55,10 @@ const eventDrag = (o: CalendarEventOccurrence): EventDrag => ({
   durationMs: new Date(o.end).getTime() - new Date(o.start).getTime(), title: o.title,
 });
 /** Own, non-overlay, non-busy items are draggable. */
-const canDragItem = (i: CalendarItem): boolean =>
-  isTask(i) ? true : !(i as CalendarEventOccurrence).ownerName && !(i as CalendarEventOccurrence).busy;
+const canDragItem = (i: CalendarItem): boolean => {
+  if (isFinance(i)) return false; // платежи — read-only слой
+  return isTask(i) ? true : !(i as CalendarEventOccurrence).ownerName && !(i as CalendarEventOccurrence).busy;
+};
 
 const VIEWS: { key: CalendarView; label: string }[] = [
   { key: 'month', label: 'Месяц' },
@@ -70,7 +73,7 @@ export default function CalendarPage() {
   const [view, setView] = useState<CalendarView>('month');
   const [anchor, setAnchor] = useState(() => new Date());
   const [items, setItems] = useState<CalendarItem[]>([]);
-  const [layers, setLayers] = useState({ events: true, tasks: true });
+  const [layers, setLayers] = useState({ events: true, tasks: true, finance: true });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [modal, setModal] = useState<ModalTarget | null>(null);
@@ -115,6 +118,7 @@ export default function CalendarPage() {
         params: {
           from: from.toISOString(),
           to: to.toISOString(),
+          layers: 'events,tasks,finance',
           ...(include.length ? { include: include.join(',') } : {}),
         },
       });
@@ -149,7 +153,7 @@ export default function CalendarPage() {
   }, []);
 
   const visible = useMemo(
-    () => items.filter((i) => (i.kind === 'event' ? layers.events : layers.tasks)),
+    () => items.filter((i) => (i.kind === 'event' ? layers.events : i.kind === 'task' ? layers.tasks : layers.finance)),
     [items, layers],
   );
 
@@ -268,6 +272,7 @@ export default function CalendarPage() {
           <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
             <button onClick={() => setLayers((l) => ({ ...l, events: !l.events }))} style={layerChip(layers.events, '#326a8b')}>📅 События</button>
             <button onClick={() => setLayers((l) => ({ ...l, tasks: !l.tasks }))} style={layerChip(layers.tasks, '#c61a1e')}>✓ Задачи</button>
+            <button onClick={() => setLayers((l) => ({ ...l, finance: !l.finance }))} style={layerChip(layers.finance, '#7c5800')}>₸ Платежи</button>
           </div>
         </div>
 
@@ -404,7 +409,7 @@ function ItemChip({ item, onEvent, onTask }: { item: CalendarItem; onEvent: (o: 
       draggable={drag}
       onDragStart={drag ? (e) => { e.stopPropagation(); setDrag(isEvent(item) ? eventDrag(item) : { kind: 'task', id: (item as CalendarTaskItem).taskId, title: item.title }, e); } : undefined}
       onDragEnd={drag ? clearDrag : undefined}
-      onClick={(e) => { e.stopPropagation(); if (isEvent(item)) onEvent(item); else onTask(item); }}
+      onClick={(e) => { e.stopPropagation(); if (isEvent(item)) onEvent(item); else if (isTask(item)) onTask(item); else window.location.href = '/finance'; }}
       title={item.title}
       style={{
         display: 'flex', alignItems: 'center', gap: 4, width: '100%', textAlign: 'left',
@@ -643,7 +648,7 @@ function AgendaRow({ item, onEvent, onTask }: { item: CalendarItem; onEvent: (o:
   const timeLabel = isAllDayItem(item) ? 'весь день' : fmtTime(item.start);
   return (
     <button
-      onClick={() => (isEvent(item) ? onEvent(item) : onTask(item as CalendarTaskItem))}
+      onClick={() => { if (isEvent(item)) onEvent(item); else if (isTask(item)) onTask(item); else window.location.href = '/finance'; }}
       style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', padding: '0.4rem 0.5rem', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--surface-container-low)', cursor: 'pointer', textAlign: 'left', width: '100%' }}
     >
       <span className="label-sm" style={{ width: 78, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{timeLabel}</span>
@@ -780,7 +785,7 @@ function layoutColumns(events: CalendarEventOccurrence[]): Array<{ item: Calenda
 }
 
 function chipKey(item: CalendarItem, idx: number): string {
-  const id = isEvent(item) ? `${item.eventId}-${item.occurrenceStart}` : item.taskId;
+  const id = isEvent(item) ? `${item.eventId}-${item.occurrenceStart}` : isTask(item) ? item.taskId : item.id;
   return `${id}-${idx}`;
 }
 

@@ -7,6 +7,7 @@ import {
   type CalendarItem,
   type CalendarEventOccurrence,
   type CalendarTaskItem,
+  type CalendarFinanceItem,
 } from '@superapp/shared';
 
 export type CalendarView = 'month' | 'week' | 'day' | 'agenda';
@@ -103,10 +104,12 @@ export const WEEKDAYS_SHORT = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', '
 
 export const isEvent = (i: CalendarItem): i is CalendarEventOccurrence => i.kind === 'event';
 export const isTask = (i: CalendarItem): i is CalendarTaskItem => i.kind === 'task';
+export const isFinance = (i: CalendarItem): i is CalendarFinanceItem => i.kind === 'finance';
 
 /** Is this item rendered in the all-day band (vs the hourly grid)? */
 export function isAllDayItem(i: CalendarItem): boolean {
   if (isEvent(i)) return i.allDay;
+  if (isFinance(i)) return true; // платежи — всегда all-day
   return i.allDay || i.overdue; // overdue tasks pin to today's all-day bar
 }
 
@@ -115,6 +118,7 @@ export function itemDays(i: CalendarItem): Date[] {
   if (isTask(i)) {
     return [i.overdue ? startOfDay(new Date()) : startOfDay(new Date(i.dueDate))];
   }
+  if (isFinance(i)) return [startOfDay(new Date(i.start))];
   const start = startOfDay(new Date(i.start));
   const end = startOfDay(new Date(i.end));
   if (!i.allDay || sameDay(start, end)) return [start];
@@ -125,6 +129,7 @@ export function itemDays(i: CalendarItem): Date[] {
 
 export function itemColor(i: CalendarItem): string {
   if (isEvent(i)) return i.color || DEFAULT_EVENT_COLOR;
+  if (isFinance(i)) return '#7c5800'; // tertiary — «highlighter» для платежей
   if (i.overdue) return '#c61a1e';
   return TASK_PRIORITY_META[i.priority]?.color || '#326a8b';
 }

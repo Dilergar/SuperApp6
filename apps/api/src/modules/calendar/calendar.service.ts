@@ -12,6 +12,7 @@ import { fullName } from '../../shared/utils/user-name';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { TasksService } from '../tasks/tasks.service';
 import { ContactsService } from '../contacts/contacts.service';
+import { FinancesService } from '../finances/finances.service';
 import { ResourcesService } from './resources.service';
 import { AccessService } from '../../core/access/access.service';
 import { Principal } from '../../core/access/access.types';
@@ -66,6 +67,7 @@ export class CalendarService implements OnModuleInit {
     private access: AccessService,
     private quickActions: QuickActionRegistry,
     private contacts: ContactsService,
+    private finances: FinancesService,
   ) {}
 
   onModuleInit(): void {
@@ -239,6 +241,13 @@ export class CalendarService implements OnModuleInit {
     if (active.includes('tasks')) {
       const tasks = await this.tasks.listForCalendar(userId, from, to);
       for (const t of tasks) items.push(this.taskItemDto(t));
+    }
+
+    if (active.includes('finance')) {
+      // Финансы — такой же ВИРТУАЛЬНЫЙ слой, как задачи (ничего не копируется):
+      // дни платежей по долгам + повторяющиеся операции.
+      const payments = await this.finances.getPaymentsForCalendar(userId, from, to);
+      items.push(...payments);
     }
 
     items.sort((a, b) => a.start.localeCompare(b.start));

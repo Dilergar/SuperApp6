@@ -54,8 +54,19 @@ export const MODULES: Record<string, ModuleDefinition> = {
       { path: '/shop', label: 'My Wish & Shop' },
     ],
   },
+  finance: {
+    id: 'finance',
+    name: 'Финансы',
+    description: 'Личный и семейный учёт: счета, категории, лимиты, долги',
+    icon: 'wallet',
+    version: '1.0.0',
+    category: 'life',
+    requiredPermissions: [],
+    routes: [
+      { path: '/finance', label: 'Финансы' },
+    ],
+  },
   // Future modules — uncomment when ready
-  // finance: { id: 'finance', name: 'Финансы', ... },
   // coins: { id: 'coins', name: 'Коины', ... },
   // chat: { id: 'chat', name: 'Чат', ... },
   // jobs: { id: 'jobs', name: 'Работа', ... },

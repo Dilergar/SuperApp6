@@ -1679,3 +1679,191 @@ model ProcessCredential {
   @@index([workspaceId])
   @@map("process_credentials")
 }
+
+// ============================================================
+// ФИНАНСЫ (B2C) — managerial accounting book
+// ============================================================
+// An EDITABLE bookkeeping book with a double-entry STRUCTURE (Firefly III / QuickBooks
+// model) — records about the OUTSIDE world (cash, bank card). Kept strictly separate
+// from the wallet's immutable settlement ledger (coins): the wallet never gains rows
+// here, Финансы shows coins as a read-only projection. Edits are allowed (soft delete)
+// and every change lands in FinAuditLog — the bookkeeping answer to immutability.
+
+// One book per owner (user today; workspace = the B2B path, created lazily by the
+// Processes "record operation" node / future B2B UI). Ownership never moves (PRD).
+model FinBook {
+  id        String   @id @default(uuid())
+  ownerType String   @default("user") @map("owner_type") // 'user' | 'workspace'
+  ownerId   String   @map("owner_id")
+  name      String   @default("Мои финансы")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  accounts       FinAccount[]
+  transactions   FinTransaction[]
+  budgets        FinBudget[]
+  people         FinPerson[]
+  recurringRules FinRecurringRule[]
+
+  @@unique([ownerType, ownerId]) // one book per owner
+  @@map("fin_books")
+}
+
+// "Everything is an account" (Firefly III): asset (Наличные/Карта) and liability (долги)
+// are the money sides; expense/income accounts ARE the categories (2-level tree via
+// parentId); equity is the hidden opening-balance peg. Category rows ignore currencyCode
+// (the transaction carries the money-side currency). Liability rows carry the debt
+// passport (total / monthly / months / due day) — the remaining debt is the account's
+// balance, never a mutable counter.
+model FinAccount {
+  id           String  @id @default(uuid())
+  bookId       String  @map("book_id")
+  kind         String // asset | liability | expense | income | equity
+  subtype      String? // asset: cash|card|savings|other; liability: installment|loan
+  parentId     String? @map("parent_id") // category tree (expense/income only)
+  name         String
+  icon         String?
+  currencyCode String  @default("KZT") @map("currency_code")
+  archived     Boolean @default(false)
+  isSystem     Boolean @default(false) @map("is_system") // seeded equity account
+  sortOrder    Int     @default(0) @map("sort_order")
+
+  // Debt passport (kind = liability): рассрочка (installment) / кредит деньгами (loan).
+  debtTotal      BigInt?   @map("debt_total") // full obligation in minor units
+  debtMonthly    BigInt?   @map("debt_monthly") // monthly payment
+  debtMonths     Int?      @map("debt_months")
+  debtDueDay     Int?      @map("debt_due_day") // day of month the payment is due
+  debtClosedAt   DateTime? @map("debt_closed_at")
+  debtRemindedAt DateTime? @map("debt_reminded_at") // dedup: one payment_due reminder per day
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  book     FinBook      @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  parent   FinAccount?  @relation("FinCategoryTree", fields: [parentId], references: [id])
+  children FinAccount[] @relation("FinCategoryTree")
+  txFrom   FinTransaction[] @relation("FinTxFrom")
+  txTo     FinTransaction[] @relation("FinTxTo")
+
+  @@index([bookId, kind])
+  @@index([parentId])
+  @@map("fin_accounts")
+}
+
+// One movement of value from one account to another (the double-entry pair). The type
+// (расход/доход/перевод/платёж по долгу…) is DERIVED from the from→to kinds, never stored.
+// amount is denominated in the money-side currency (from for expenses/transfers, to for
+// income); amountTo is set only for cross-currency money→money moves (обмен: two sums, no
+// FX rates). Rows are soft-deleted (deletedAt) and every create/update/delete is audited.
+model FinTransaction {
+  id              String    @id @default(uuid())
+  bookId          String    @map("book_id")
+  fromAccountId   String    @map("from_account_id")
+  toAccountId     String    @map("to_account_id")
+  amount          BigInt // positive integer minor units (money-side currency)
+  amountTo        BigInt?   @map("amount_to") // cross-currency: amount in the to-account currency
+  currencyCode    String    @map("currency_code") // denormalized money-side currency
+  occurredOn      DateTime  @map("occurred_on") @db.Date // date-only bookkeeping
+  note            String?
+  personUserId    String?   @map("person_user_id") // «на кого / от кого» — private analytics link
+  personName      String?   @map("person_name") // snapshot (history survives Circle changes)
+  createdById     String    @map("created_by_id")
+  source          String    @default("manual") // manual | recurring | process | service | import
+  recurringRuleId String?   @map("recurring_rule_id")
+  deletedAt       DateTime? @map("deleted_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  book        FinBook    @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  fromAccount FinAccount @relation("FinTxFrom", fields: [fromAccountId], references: [id])
+  toAccount   FinAccount @relation("FinTxTo", fields: [toAccountId], references: [id])
+
+  @@index([bookId, occurredOn])
+  @@index([fromAccountId])
+  @@index([toAccountId])
+  @@index([bookId, personUserId])
+  @@map("fin_transactions")
+}
+
+// План-факт: a monthly limit for one category (or subcategory) in one currency.
+// A parent-category limit counts its children's spending too (report-side aggregation).
+model FinBudget {
+  id                String   @id @default(uuid())
+  bookId            String   @map("book_id")
+  categoryAccountId String   @map("category_account_id")
+  period            String // 'YYYY-MM'
+  amount            BigInt // minor units
+  currencyCode      String   @default("KZT") @map("currency_code")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  book FinBook @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  @@unique([bookId, categoryAccountId, period])
+  @@map("fin_budgets")
+}
+
+// «Близкие» — the curated quick-pick list for the «на кого» field (owner builds it from
+// Circle). A name snapshot keeps history readable if the contact link is later severed.
+model FinPerson {
+  id        String   @id @default(uuid())
+  bookId    String   @map("book_id")
+  userId    String   @map("user_id")
+  name      String // snapshot
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  book FinBook @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  @@unique([bookId, userId])
+  @@map("fin_people")
+}
+
+// Повторяющиеся операции: a transaction template fired by FinanceCron. autoRecord=true
+// writes the row silently (fixed sums: подписки/аренда); autoRecord=false sends a
+// reminder with a one-tap confirm (плавающие суммы + платежи по долгам).
+model FinRecurringRule {
+  id            String    @id @default(uuid())
+  bookId        String    @map("book_id")
+  title         String
+  fromAccountId String    @map("from_account_id")
+  toAccountId   String    @map("to_account_id")
+  amount        BigInt
+  amountTo      BigInt?   @map("amount_to")
+  note          String?
+  personUserId  String?   @map("person_user_id")
+  personName    String?   @map("person_name")
+  interval      String // monthly | weekly
+  dayOfMonth    Int?      @map("day_of_month") // monthly: 1..31 (clamped to month end)
+  weekday       Int? // weekly: 1..7 (ISO)
+  autoRecord    Boolean   @default(true) @map("auto_record")
+  active        Boolean   @default(true)
+  nextRunAt     DateTime  @map("next_run_at")
+  lastRunAt     DateTime? @map("last_run_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  book FinBook @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  @@index([active, nextRunAt]) // cron sweep
+  @@index([bookId])
+  @@map("fin_recurring_rules")
+}
+
+// The bookkeeping audit trail: who created/updated/deleted what (before/after snapshots,
+// BigInt → number). FK-free on purpose (like ledger_transfers) — audit rows outlive edits.
+model FinAuditLog {
+  id         String   @id @default(uuid())
+  bookId     String   @map("book_id")
+  entityType String   @map("entity_type") // transaction | account | budget | recurring | debt
+  entityId   String   @map("entity_id")
+  userId     String   @map("user_id")
+  action     String // create | update | delete
+  before     Json?
+  after      Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([bookId, createdAt])
+  @@index([entityType, entityId])
+  @@map("fin_audit_logs")
+}

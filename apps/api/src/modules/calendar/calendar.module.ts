@@ -6,9 +6,12 @@ import { ResourcesService } from './resources.service';
 import { ResourcesController } from './resources.controller';
 import { CalendarRichCardsProvider } from './calendar-rich-cards.provider';
 import { TasksModule } from '../tasks/tasks.module';
+import { FinancesModule } from '../finances/finances.module';
 
 @Module({
-  imports: [TasksModule],
+  // FinancesModule — виртуальный слой «Платежи» (getPaymentsForCalendar), цикла нет:
+  // Финансы от календаря не зависят.
+  imports: [TasksModule, FinancesModule],
   controllers: [CalendarController, ResourcesController],
   providers: [
     CalendarService,

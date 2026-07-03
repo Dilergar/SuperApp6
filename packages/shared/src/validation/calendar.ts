@@ -75,7 +75,7 @@ export const deleteCalendarEventSchema = z.object({
 export const calendarRangeSchema = z.object({
   from: z.string().datetime(),
   to: z.string().datetime(),
-  layers: z.array(z.enum(['events', 'tasks'])).optional(),
+  layers: z.array(z.enum(['events', 'tasks', 'finance'])).optional(),
   /** people whose calendars to overlay as layers (must have shared with the viewer). */
   include: z.array(z.string().uuid()).max(50).optional(),
 });

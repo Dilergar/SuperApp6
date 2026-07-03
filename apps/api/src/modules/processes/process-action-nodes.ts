@@ -1,6 +1,8 @@
 import { z } from 'zod';
-import { RICH_CARD_REF_TYPES } from '@superapp/shared';
 import type { NodeRunContext, NodeRunResult, ProcessNodeProvider } from './process-node.types';
+
+/** Rich-card типы, у которых ЕСТЬ действия-кнопки (fin_* — снимки без действий, исключены). */
+const ACTIONABLE_REF_TYPES = ['order', 'listing', 'crowdfunding', 'task', 'event'] as const;
 
 // ============================================================
 // Ф3 — ноды-действия: тонкие обёртки над платформенными сервисами через
@@ -65,13 +67,15 @@ export const richCardActionNode: ProcessNodeProvider = {
     ],
     fields: [
       { key: 'actionKey', label: 'Действие', kind: 'select', required: true, options: RICH_ACTION_OPTIONS },
-      { key: 'refType', label: 'Тип объекта', kind: 'select', required: true, options: RICH_CARD_REF_TYPES.map((t) => ({ value: t, label: t })) },
+      // Только типы с ДЕЙСТВИЯМИ (fin_transaction/fin_month — снимки без кнопок, их сюда
+      // нельзя): держим options и configSchema.enum в синхроне из одного источника.
+      { key: 'refType', label: 'Тип объекта', kind: 'select', required: true, options: ACTIONABLE_REF_TYPES.map((t) => ({ value: t, label: t })) },
       { key: 'refId', label: 'ID объекта', kind: 'text', required: true, placeholder: '{{form.orderId}} / {{steps.x.id}}' },
       { key: 'payload', label: 'Доп. параметры (JSON, необяз.)', kind: 'textarea', placeholder: '{"amounts":[...]}' },
     ],
     configSchema: z.object({
       actionKey: z.string().min(1).max(60),
-      refType: z.enum(['order', 'listing', 'crowdfunding', 'task', 'event']),
+      refType: z.enum(ACTIONABLE_REF_TYPES),
       refId: z.string().min(1).max(200),
       payload: z.string().max(4000).optional(),
     }),
@@ -301,10 +305,79 @@ export const startSubprocessNode: ProcessNodeProvider = {
   },
 };
 
+// ------------------------------------------------------------
+// 6. Финансы: записать операцию — управленческий учёт в книгу ОРГАНИЗАЦИИ
+// ------------------------------------------------------------
+interface FinancesLike {
+  recordOperationForBook(
+    workspaceId: string,
+    dto: { kind: 'expense' | 'income'; amount: number; categoryName: string; note?: string; actorUserId: string },
+  ): Promise<{ transactionId: string; bookId: string }>;
+}
+
+export const financeRecordNode: ProcessNodeProvider = {
+  descriptor: {
+    type: 'finance.record',
+    title: 'Финансы: записать операцию',
+    description:
+      'Записывает расход или доход в книгу «Финансы» ОРГАНИЗАЦИИ (управленческий учёт; книга создаётся сама). Сумма в тенге, поддерживает подстановки {{form.amount}} / {{steps.x.…}}. Категория ищется по имени и создаётся при первом использовании.',
+    category: 'service',
+    icon: '📒',
+    tier: 'standard',
+    io: true,
+    outputs: [
+      { key: 'success', label: 'Успех' },
+      { key: 'error', label: 'Ошибка' },
+    ],
+    fields: [
+      {
+        key: 'kind',
+        label: 'Тип',
+        kind: 'select',
+        required: true,
+        options: [
+          { value: 'expense', label: 'Расход' },
+          { value: 'income', label: 'Доход' },
+        ],
+      },
+      { key: 'amount', label: 'Сумма (₸)', kind: 'text', required: true, placeholder: '12500 или {{form.amount}}' },
+      { key: 'categoryName', label: 'Категория (по имени)', kind: 'text', required: true, placeholder: 'Закупки / Продажи / {{form.category}}' },
+      { key: 'note', label: 'Заметка', kind: 'textarea', placeholder: '{{form.comment}}' },
+    ],
+    configSchema: z.object({
+      kind: z.enum(['expense', 'income']),
+      amount: z.string().min(1).max(120),
+      categoryName: z.string().min(1).max(80),
+      note: z.string().max(500).optional(),
+    }),
+    auto: true,
+  },
+  async run(ctx) {
+    const cfg = ctx.config as { kind: 'expense' | 'income'; amount: string; categoryName: string; note?: string };
+    const raw = ctx.render(cfg.amount).replace(/\s/g, '').replace(',', '.');
+    const tenge = Number(raw);
+    if (!Number.isFinite(tenge) || tenge <= 0) return fail(`Сумма не распозналась: «${raw}»`);
+    try {
+      const finances = ctx.deps.getService<FinancesLike>('FinancesService');
+      const result = await finances.recordOperationForBook(ctx.workspaceId, {
+        kind: cfg.kind,
+        amount: Math.round(tenge * 100), // тенге → тиын
+        categoryName: ctx.render(cfg.categoryName),
+        note: cfg.note ? ctx.render(cfg.note) : undefined,
+        actorUserId: ctx.startedById,
+      });
+      return { kind: 'complete', outputKey: 'success', output: result };
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+};
+
 export const ACTION_PROCESS_NODES: ProcessNodeProvider[] = [
   richCardActionNode,
   messageSendNode,
   staffAssignNode,
   roleChangeNode,
   startSubprocessNode,
+  financeRecordNode,
 ];

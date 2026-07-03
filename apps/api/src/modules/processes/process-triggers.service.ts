@@ -53,6 +53,11 @@ export class ProcessTriggerRouter implements OnModuleInit {
         const shop = await this.db.shop.findUnique({ where: { id: order.shopId }, select: { ownerType: true, ownerId: true } });
         return shop?.ownerType === 'workspace' ? shop.ownerId : null;
       } },
+    // finance.transaction.created — воркспейс несёт сам payload, НО только для книг
+    // организации (ownerType='workspace'); личные операции идут с workspaceId=undefined →
+    // return null (триггеров нет). Записи, порождённые процессом (source='process'),
+    // отсекаются анти-runaway-гвардом в onEvent ещё до резолва.
+    { prefix: 'finance.', resolve: async (p) => (p.workspaceId as string) ?? null },
   ];
 
   /** Определяем организацию события через реестр резолверов (по префиксу типа). */

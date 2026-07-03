@@ -6,7 +6,10 @@
 
 // What entity a card points at. The renderer fetches LIVE data by (refType, refId),
 // so a card always reflects current state.
-export const RICH_CARD_REF_TYPES = ['order', 'listing', 'crowdfunding', 'task', 'event'] as const;
+// fin_transaction / fin_month — Финансы: SNAPSHOT cards (the stored share-time payload is
+// the message body; live re-render is only for viewers with finbook access). fin_month's
+// refId is composite: `<bookId>:<YYYY-MM>`.
+export const RICH_CARD_REF_TYPES = ['order', 'listing', 'crowdfunding', 'task', 'event', 'fin_transaction', 'fin_month'] as const;
 
 // Button visual styles.
 export const RICH_CARD_ACTION_STYLES = ['primary', 'danger', 'default'] as const;

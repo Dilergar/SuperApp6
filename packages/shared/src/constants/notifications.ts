@@ -17,7 +17,7 @@ export interface NotificationMeta {
   // Whether this notification type produces a push notification by default.
   pushByDefault: boolean;
   // Category bucket for notification preferences UI.
-  category: 'contacts' | 'tasks' | 'calendar' | 'workspaces' | 'shop' | 'processes' | 'system';
+  category: 'contacts' | 'tasks' | 'calendar' | 'workspaces' | 'shop' | 'processes' | 'finance' | 'system';
 }
 
 export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> = {
@@ -283,6 +283,56 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
     icon: '⏰',
     pushByDefault: true,
     category: 'processes',
+  },
+  // Финансы
+  'finance.budget.warning': {
+    title: 'Лимит «{{categoryName}}» почти исчерпан',
+    body: '{{spent}} из {{limit}} за {{periodLabel}}',
+    icon: '⚠️',
+    pushByDefault: true,
+    category: 'finance',
+  },
+  'finance.budget.exceeded': {
+    title: 'Лимит «{{categoryName}}» превышен',
+    body: '{{spent}} из {{limit}} за {{periodLabel}}',
+    icon: '🚨',
+    pushByDefault: true,
+    category: 'finance',
+  },
+  'finance.debt.payment_due': {
+    title: 'Сегодня платёж по «{{debtName}}»',
+    body: '{{amount}} — подтвердите оплату в Финансах',
+    icon: '📅',
+    pushByDefault: true,
+    category: 'finance',
+  },
+  'finance.debt.paid': {
+    title: 'Долг «{{debtName}}» полностью выплачен 🎉',
+    body: '{{amount}}',
+    icon: '✅',
+    pushByDefault: true,
+    category: 'finance',
+  },
+  'finance.recurring.due': {
+    title: 'Подтвердите операцию «{{title}}»',
+    body: '{{amount}}',
+    icon: '🔁',
+    pushByDefault: true,
+    category: 'finance',
+  },
+  'finance.recurring.recorded': {
+    title: 'Записано: {{title}}',
+    body: '{{amount}}',
+    icon: '✅',
+    pushByDefault: false,
+    category: 'finance',
+  },
+  'finance.book.shared': {
+    title: '{{ownerName}} открыл(а) вам доступ к финансам',
+    body: 'Роль: {{roleLabel}}',
+    icon: '📒',
+    pushByDefault: true,
+    category: 'finance',
   },
   // Messenger — scheduled ("Напомнить")
   'messenger.scheduled.sent': {

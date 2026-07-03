@@ -52,6 +52,17 @@ export const ACCESS_SCHEMA: Record<string, ResourceTypeConfig> = {
     },
   },
 
+  // ---- Финансы: книга (whole-book sharing; owner is checked in code, not mirrored) ----
+  // editor («ведёт вместе») ⇒ viewer («смотрит»). Grants go to users and Circle Groups
+  // (live circle principal). Direct user grants are revoked by FinancesEvents when the
+  // ContactLink dies (PRD: разрыв связи = потеря доступа); circle grants die with membership.
+  finbook: {
+    relations: {
+      editor: THIS,
+      viewer: union(THIS, computed('editor')),
+    },
+  },
+
   // ---- Calendar (levels: none < busy < detailed; 'none' = no tuple) ----
   calendar: {
     levels: ['busy_viewer', 'detailed_viewer'],
@@ -196,11 +207,12 @@ export const EPOCH_FANOUT: Record<string, string[]> = {
   shop: ['shop', 'showcase'],
   showcase: ['showcase'],
   wishlist: ['wishlist'],
+  finbook: ['finbook'],
   calendar: ['calendar'],
   card: ['card'],
   platform: ['platform'],
   workspace: ['workspace', 'shop', 'showcase', 'chat'],
-  circle: ['circle', 'showcase', 'wishlist', 'calendar', 'card'],
+  circle: ['circle', 'showcase', 'wishlist', 'calendar', 'card', 'finbook'],
   // Staff-оси («Сотрудники»): membership-рёбра могут нести гранты на карточки
   // (card.full_viewer), витрины B2B и календарь — будущие аудитории Ленты/отпусков.
   department: ['department', 'card', 'showcase', 'calendar'],

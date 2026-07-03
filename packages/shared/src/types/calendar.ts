@@ -15,7 +15,7 @@ export type CalendarEventVisibility = 'inherit' | 'busy' | 'hidden';
 export type RecurrenceEditScope = 'this' | 'this_and_following' | 'all';
 
 /** Toggleable layers shown on the grid. */
-export type CalendarLayer = 'events' | 'tasks';
+export type CalendarLayer = 'events' | 'tasks' | 'finance';
 
 /** Participant role on a shared event. The creator is the organizer (implicit). */
 export type ParticipantRole = 'organizer' | 'attendee';
@@ -119,7 +119,21 @@ export interface CalendarTaskItem {
   coinReward: number | null;
 }
 
-export type CalendarItem = CalendarEventOccurrence | CalendarTaskItem;
+/** Финансы как виртуальный слой (Ф8): платёж по долгу / повторяющаяся операция — read-only, all-day. */
+export interface CalendarFinanceItem {
+  kind: 'finance';
+  /** `debt:<accountId>:<YYYY-MM-DD>` | `recurring:<ruleId>:<YYYY-MM-DD>` */
+  id: string;
+  title: string;
+  /** ISO start-of-day (общее поле сортировки слоёв). */
+  start: string;
+  allDay: true;
+  amount: number;
+  currencyCode: string;
+  href: string; // '/finance'
+}
+
+export type CalendarItem = CalendarEventOccurrence | CalendarTaskItem | CalendarFinanceItem;
 
 export interface CalendarRangeResponse {
   items: CalendarItem[];
