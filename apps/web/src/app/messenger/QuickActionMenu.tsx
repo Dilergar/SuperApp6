@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { QuickActionDescriptor } from '@superapp/shared';
 import { getQuickActions } from '@/lib/messenger-api';
-import { CreateTaskModal, CreateEventModal, ScheduleMessageModal } from './QuickActionModals';
+import { CreateTaskModal, CreateEventModal, ScheduleMessageModal, AddExpenseModal } from './QuickActionModals';
 
 // ============================================================
 // Phase 7 — the composer ＋ menu. DATA-DRIVEN: it fetches the chat's
@@ -21,9 +21,9 @@ export const quickActionsKey = (chatId: string, scope: 'composer' | 'message') =
   ['quick-actions', chatId, scope] as const;
 
 /** Keys this UI build knows how to handle. */
-const KNOWN_KEYS = new Set(['task.create', 'event.create', 'message.schedule']);
+const KNOWN_KEYS = new Set(['task.create', 'event.create', 'message.schedule', 'finance.add-expense']);
 
-type ModalKey = 'task.create' | 'event.create' | 'message.schedule';
+type ModalKey = 'task.create' | 'event.create' | 'message.schedule' | 'finance.add-expense';
 
 export function QuickActionMenu({
   chatId,
@@ -172,6 +172,9 @@ export function QuickActionMenu({
       )}
       {modal === 'message.schedule' && (
         <ScheduleMessageModal chatId={chatId} onClose={() => setModal(null)} onScheduled={onScheduled} />
+      )}
+      {modal === 'finance.add-expense' && (
+        <AddExpenseModal chatId={chatId} onClose={() => setModal(null)} onPosted={onPosted} />
       )}
     </div>
   );

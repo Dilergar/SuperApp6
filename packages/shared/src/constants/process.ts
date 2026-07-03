@@ -66,6 +66,7 @@ export const PROCESS_EVENT_TYPES = [
   { value: 'shop.order.placed', label: 'Оформлен заказ' },
   { value: 'shop.order.funded', label: 'Краудфандинг собран' },
   { value: 'shop.order.confirmed', label: 'Заказ подтверждён' },
+  { value: 'finance.transaction.created', label: 'Записана операция в Финансах' },
 ] as const;
 
 export const PROCESS_TRIGGER_TYPE_LABELS: Record<string, string> = {

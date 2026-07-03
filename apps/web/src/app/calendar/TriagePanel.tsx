@@ -6,7 +6,7 @@ import {
   type CalendarEventOccurrence,
   type CalendarTaskItem,
 } from '@superapp/shared';
-import { isEvent, isTask, isToday, startOfDay, fmtTime, itemColor } from './calendar-lib';
+import { isEvent, isTask, isFinance, isToday, startOfDay, fmtTime, itemColor } from './calendar-lib';
 import { setDrag, clearDrag } from './calendar-dnd';
 
 export interface UndatedTask {
@@ -117,7 +117,7 @@ function Row({ i, onEvent, onTask, withDay }: { i: CalendarItem; onEvent: (o: Ca
       draggable={draggableTask}
       onDragStart={draggableTask ? (e) => setDrag({ kind: 'task', id: (i as CalendarTaskItem).taskId, title: i.title }, e) : undefined}
       onDragEnd={draggableTask ? clearDrag : undefined}
-      onClick={() => (isEvent(i) ? onEvent(i) : onTask(i as CalendarTaskItem))}
+      onClick={() => { if (isEvent(i)) onEvent(i); else if (isTask(i)) onTask(i); else window.location.href = '/finance'; }}
       style={cardStyle(color)}
     >
       <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />
@@ -128,7 +128,8 @@ function Row({ i, onEvent, onTask, withDay }: { i: CalendarItem; onEvent: (o: Ca
 }
 
 function rk(i: CalendarItem, idx: number): string {
-  return (isEvent(i) ? `${i.eventId}-${i.occurrenceStart}` : (i as CalendarTaskItem).taskId) + '-' + idx;
+  const id = isEvent(i) ? `${i.eventId}-${i.occurrenceStart}` : isTask(i) ? i.taskId : i.id;
+  return `${id}-${idx}`;
 }
 
 const ellipsis: React.CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600, fontSize: '0.78rem' };

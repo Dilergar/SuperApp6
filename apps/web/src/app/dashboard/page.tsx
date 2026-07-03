@@ -13,6 +13,7 @@ const services = [
   { title: 'Задачи', description: 'Личные и назначенные', color: 'var(--secondary-container)', href: '/tasks' },
   { title: 'Календарь', description: 'События и расписание', color: 'var(--tertiary-container)', href: '/calendar' },
   { title: 'My Wish & Shop', description: 'Витрины за коины и списки желаний', color: 'var(--primary-container)', href: '/shop' },
+  { title: 'Финансы', description: 'Счета, траты, лимиты и долги', color: 'var(--tertiary-container)', href: '/finance' },
 ];
 
 export default function DashboardPage() {

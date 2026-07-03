@@ -58,6 +58,14 @@ export type NotificationType =
   | 'process.step.overdue' // шаг процесса просрочен по SLA (→ инициатор)
   // Messenger — scheduled ("Напомнить")
   | 'messenger.scheduled.sent' // your scheduled message was delivered to the chat (→ you)
+  // Финансы
+  | 'finance.budget.warning' // лимит категории почти исчерпан (пересекли 80%)
+  | 'finance.budget.exceeded' // лимит категории превышен (пересекли 100%)
+  | 'finance.debt.payment_due' // сегодня платёж по долгу (напоминание + «Оплачено» в 1 тап)
+  | 'finance.debt.paid' // долг полностью выплачен 🎉
+  | 'finance.recurring.due' // повторяющаяся операция ждёт подтверждения (autoRecord=false)
+  | 'finance.recurring.recorded' // повторяющаяся операция записана автоматически
+  | 'finance.book.shared' // вам открыли доступ к финансовой книге
   // System
   | 'system.welcome'
   | 'system.announcement';

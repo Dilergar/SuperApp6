@@ -1,9 +1,11 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { SCHEDULED_MESSAGE_LIMITS } from '@superapp/shared';
 import { api } from '@/lib/api';
 import { shareRichCard, scheduleMessage } from '@/lib/messenger-api';
+import { financeOverviewKey, fetchFinanceOverview } from '@/lib/queries';
 import { ContactPicker, useContacts } from './ContactPicker';
 import { errMsg } from './ShareCardModal';
 
@@ -488,6 +490,125 @@ export function ScheduleMessageModal({
           style={{ fontSize: '0.85rem', opacity: busy || !content.trim() || !when ? 0.5 : 1 }}
         >
           {busy ? '…' : 'Запланировать'}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ============================================================
+// AddExpenseModal (key 'finance.add-expense') — трата из чата в СВОЮ
+// книгу Финансов; в чат уходит карточка-снимок операции.
+// ============================================================
+
+export function AddExpenseModal({
+  chatId,
+  onClose,
+  onPosted,
+}: {
+  chatId: string;
+  onClose: () => void;
+  onPosted?: () => void;
+}) {
+  const { data: overview } = useQuery({
+    queryKey: financeOverviewKey(),
+    queryFn: () => fetchFinanceOverview(),
+  });
+  const accounts = useMemo(
+    () => (overview?.accounts ?? []).filter((a) => !a.archived),
+    [overview],
+  );
+  const cats = useMemo(
+    () => (overview?.categories ?? []).filter((c) => c.kind === 'expense' && !c.archived),
+    [overview],
+  );
+
+  const [amount, setAmount] = useState('');
+  const [fromId, setFromId] = useState('');
+  const [toId, setToId] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!fromId && accounts[0]) setFromId(accounts[0].id);
+    if (!toId && cats[0]) setToId(cats[0].id);
+  }, [accounts, cats, fromId, toId]);
+
+  const parseAmount = (raw: string): number | null => {
+    const v = Number(raw.replace(/\s/g, '').replace(',', '.'));
+    return Number.isFinite(v) && v > 0 ? Math.round(v * 100) : null;
+  };
+
+  const submit = async () => {
+    const minor = parseAmount(amount);
+    if (!minor || !fromId || !toId || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.post('/finance/transactions', {
+        fromAccountId: fromId,
+        toAccountId: toId,
+        amount: minor,
+        ...(note.trim() ? { note: note.trim() } : {}),
+      });
+      await shareRichCard(chatId, 'fin_transaction', res.data.data.id);
+      onPosted?.();
+      onClose();
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const catOptions = useMemo(() => {
+    const roots = cats.filter((c) => !c.parentId);
+    return roots.flatMap((root) => {
+      const children = cats.filter((c) => c.parentId === root.id);
+      return [
+        <option key={root.id} value={root.id}>{root.icon ? `${root.icon} ` : ''}{root.name}</option>,
+        ...children.map((c) => (
+          <option key={c.id} value={c.id}>&nbsp;&nbsp;{c.icon ? `${c.icon} ` : ''}{c.name}</option>
+        )),
+      ];
+    });
+  }, [cats]);
+
+  return (
+    <ModalShell title="Записать расход" subtitle="Трата попадёт в вашу книгу Финансов, карточка — в чат" onClose={onClose}>
+      <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Сумма</label>
+      <input
+        className="input-sketch"
+        inputMode="decimal"
+        placeholder="2 500"
+        value={amount}
+        onChange={(e) => setAmount(e.target.value)}
+        autoFocus
+        style={{ marginBottom: 'var(--spacing-4)', fontSize: '1.3rem', fontFamily: 'var(--font-display)', fontWeight: 700 }}
+      />
+      <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Со счёта</label>
+      <select className="input-sketch" value={fromId} onChange={(e) => setFromId(e.target.value)} style={{ marginBottom: 'var(--spacing-4)' }}>
+        {accounts.map((a) => <option key={a.id} value={a.id}>{a.icon ? `${a.icon} ` : ''}{a.name}</option>)}
+      </select>
+      <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Категория</label>
+      <select className="input-sketch" value={toId} onChange={(e) => setToId(e.target.value)} style={{ marginBottom: 'var(--spacing-4)' }}>
+        {catOptions}
+      </select>
+      <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Заметка</label>
+      <input className="input-sketch" placeholder="Magnum…" value={note} onChange={(e) => setNote(e.target.value)} style={{ marginBottom: 'var(--spacing-4)' }} />
+
+      {error && <p className="label-sm" style={{ color: 'var(--danger)', marginBottom: 'var(--spacing-3)' }}>{error}</p>}
+
+      <div style={{ display: 'flex', gap: 'var(--spacing-2)', justifyContent: 'flex-end' }}>
+        <button onClick={onClose} className="btn-secondary" style={{ fontSize: '0.85rem' }}>Отмена</button>
+        <button
+          onClick={submit}
+          disabled={busy || !parseAmount(amount)}
+          className="btn-primary"
+          style={{ fontSize: '0.85rem', opacity: busy || !parseAmount(amount) ? 0.5 : 1 }}
+        >
+          {busy ? '…' : 'Записать'}
         </button>
       </div>
     </ModalShell>

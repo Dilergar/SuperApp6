@@ -32,6 +32,7 @@ import { ShopModule } from './modules/shop/shop.module';
 import { MessengerModule } from './modules/messenger/messenger.module';
 import { CardSkinsModule } from './modules/card-skins/card-skins.module';
 import { ProcessesModule } from './modules/processes/processes.module';
+import { FinancesModule } from './modules/finances/finances.module';
 
 import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
 import { WorkspaceContextInterceptor } from './shared/interceptors/workspace-context.interceptor';
@@ -106,6 +107,9 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // Процессы (B2B) — нодовый движок бизнес-процессов: реестр нод + token-движок,
     // человеческий шаг = настоящая задача Задачника (синхронный хук через 'ProcessesService').
     ProcessesModule,
+    // Финансы (B2C) — редактируемая учётная книга с двойной записью (Firefly-модель);
+    // кошелёк-леджер коинов остаётся отдельным расчётным слоем (read-only проекция).
+    FinancesModule,
   ],
   providers: [
     // ONE error envelope app-wide ({success:false, statusCode, message, errors?}):

@@ -16,6 +16,9 @@ export const CAPABILITIES = {
   'showcase.manage': { resourceType: 'showcase', relation: 'manager' },
   // wishlist (one per user, shared like a showcase)
   'wishlist.view': { resourceType: 'wishlist', relation: 'viewer' },
+  // finances — учётная книга (whole-book sharing: «смотрит» / «ведёт вместе»)
+  'finbook.view': { resourceType: 'finbook', relation: 'viewer' },
+  'finbook.edit': { resourceType: 'finbook', relation: 'editor' },
   // calendar
   'calendar.view_busy': { resourceType: 'calendar', relation: 'busy_viewer' },
   'calendar.view_detailed': { resourceType: 'calendar', relation: 'detailed_viewer' },
