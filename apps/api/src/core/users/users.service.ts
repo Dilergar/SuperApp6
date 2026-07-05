@@ -11,6 +11,7 @@ import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { AccessProjectionService } from '../access/access-projection.service';
+import { FilesService } from '../files/files.service';
 import { resolveCardVisibility, type UpdateProfileInput } from '@superapp/shared';
 
 /** Days a deleted account stays recoverable before permanent anonymization. */
@@ -23,6 +24,7 @@ export class UsersService {
     private redis: RedisService,
     private events: EventBusService,
     private accessProjection: AccessProjectionService,
+    private files: FilesService,
   ) {}
 
   async getProfile(userId: string) {
@@ -111,6 +113,12 @@ export class UsersService {
 
   async updateProfile(userId: string, data: UpdateProfileInput) {
     const { dateOfBirth, cardVisibility, companyCardVisibility, socialLinks, ...rest } = data;
+    // Аватар хранится ССЫЛКОЙ (не FileLink) → при замене прибираем прежний файл сами,
+    // иначе каждая смена аватара навсегда копит квоту (публичные файлы крон не свипает).
+    const prevAvatar =
+      rest.avatar !== undefined
+        ? (await this.db.user.findUnique({ where: { id: userId }, select: { avatar: true } }))?.avatar
+        : undefined;
     const user = await this.db.user.update({
       where: { id: userId },
       data: {
@@ -148,6 +156,12 @@ export class UsersService {
 
     // Invalidate cache
     await this.redis.invalidateUserProfile(userId);
+
+    if (rest.avatar !== undefined && prevAvatar !== user.avatar) {
+      await this.files
+        .reapReplacedPublicFile('user', userId, prevAvatar, user.avatar)
+        .catch(() => undefined);
+    }
 
     return {
       ...user,

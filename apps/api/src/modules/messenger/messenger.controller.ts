@@ -5,6 +5,7 @@ import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.de
 import {
   openDmSchema,
   sendMessageSchema,
+  sendAttachmentsSchema,
   editMessageSchema,
   markReadSchema,
   createGroupSchema,
@@ -164,6 +165,20 @@ export class MessengerController {
   ) {
     const { content, replyToId } = sendMessageSchema.parse(body);
     return { success: true, data: await this.messenger.sendMessage(user.sub, id, content, replyToId) };
+  }
+
+  @Post('chats/:id/messages/attachments')
+  @ApiOperation({ summary: 'Отправить вложения (альбом до 10 файлов движка + подпись)' })
+  async sendAttachments(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    const { fileIds, caption, replyToId } = sendAttachmentsSchema.parse(body);
+    return {
+      success: true,
+      data: await this.messenger.sendAttachmentMessage(user.sub, id, fileIds, caption, replyToId),
+    };
   }
 
   // ---- Scheduled messages ("Напомнить", Phase 7) ----

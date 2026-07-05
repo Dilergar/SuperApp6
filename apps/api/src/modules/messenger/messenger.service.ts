@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
@@ -13,6 +14,8 @@ import { AccessProjectionService } from '../../core/access/access-projection.ser
 import { ContactsService } from '../contacts/contacts.service';
 import { MentionsService } from './mentions.service';
 import { MessengerSearchService } from './messenger-search.service';
+import { FilesService } from '../../core/files/files.service';
+import { FilesRefRegistry } from '../../core/files/files-ref.registry';
 import { MESSENGER_LIMITS } from '@superapp/shared';
 import type {
   ChatSummary,
@@ -25,6 +28,7 @@ import type {
   SystemMessageEvent,
   RichCardPayload,
   MessageReplyPreview,
+  AttachmentsPayload,
 } from '@superapp/shared';
 
 type Principal = { type: string; id: string };
@@ -80,7 +84,7 @@ const EVENT_ROLE_LABELS: Record<string, string> = {
  * drive the inbox list.
  */
 @Injectable()
-export class MessengerService {
+export class MessengerService implements OnModuleInit {
   constructor(
     private db: DatabaseService,
     private events: EventBusService,
@@ -89,7 +93,43 @@ export class MessengerService {
     private accessProjection: AccessProjectionService,
     private mentions: MentionsService,
     private searchIndex: MessengerSearchService,
+    private files: FilesService,
+    private filesRegistry: FilesRefRegistry,
   ) {}
+
+  onModuleInit(): void {
+    // Ф9 (вложения): доступ к файлу наследуется от сообщения → чата (модель
+    // Salesforce ContentDocumentLink; перепроверка на каждый доступ, тюплов нет).
+    this.filesRegistry.register('chat_message', {
+      canView: async (viewerId, messageId) => {
+        const m = await this.db.message.findUnique({
+          where: { id: messageId },
+          select: { chatId: true, deletedAt: true },
+        });
+        if (!m || m.deletedAt) return false;
+        return this.access.can(this.user(viewerId), 'chat.view', m.chatId);
+      },
+      canAttach: async (uid, messageId) => {
+        const m = await this.db.message.findUnique({
+          where: { id: messageId },
+          select: { chatId: true, authorId: true, deletedAt: true },
+        });
+        if (!m || m.deletedAt || m.authorId !== uid) return false;
+        return this.access.can(this.user(uid), 'chat.post', m.chatId);
+      },
+    }, { allowedProfiles: ['chat_attachment', 'voice_message'] });
+  }
+
+  /** Отвязать и прибрать вложения всех attachment-сообщений чата (перед его удалением) */
+  private async reapChatAttachments(chatId: string): Promise<void> {
+    const msgs = await this.db.message.findMany({
+      where: { chatId, type: 'attachment' },
+      select: { id: true },
+    });
+    if (msgs.length) {
+      await this.files.unlinkAllForRefs('chat_message', msgs.map((m) => m.id)).catch(() => undefined);
+    }
+  }
 
   private user(id: string): Principal {
     return { type: 'user', id };
@@ -123,17 +163,30 @@ export class MessengerService {
 
     if (!chat) {
       try {
-        chat = await this.db.chat.create({
-          data: {
-            type: 'dm',
-            dmKey: key,
-            members: { create: [{ userId }, { userId: peerId }] },
-          },
+        // ATOMIC (see getOrCreateTaskChat): the DM row, its members and its access-membership
+        // tuples commit together, so a concurrent opener / the P2002 loser never observes a
+        // chat whose chat#member@user tuples aren't in yet (transient false 403 on chat.view).
+        chat = await this.db.$transaction(async (tx) => {
+          const c = await tx.chat.create({
+            data: {
+              type: 'dm',
+              dmKey: key,
+              members: { create: [{ userId }, { userId: peerId }] },
+            },
+          });
+          await tx.relationTuple.createMany({
+            data: [userId, peerId].map((uid) => ({
+              resourceType: 'chat',
+              resourceId: c.id,
+              relation: 'member',
+              subjectType: 'user',
+              subjectId: uid,
+              subjectRelation: '',
+            })),
+            skipDuplicates: true,
+          });
+          return c;
         });
-        await this.access.grantMany([
-          this.memberTuple(chat.id, userId),
-          this.memberTuple(chat.id, peerId),
-        ]);
       } catch (e: any) {
         // Concurrent open → unique(dmKey) race; re-read the winning row.
         if (e?.code === 'P2002') {
@@ -382,6 +435,7 @@ export class MessengerService {
 
   async deleteGroup(userId: string, chatId: string): Promise<void> {
     await this.assertManage(userId, chatId, { ownerOnly: true });
+    await this.reapChatAttachments(chatId); // вложения не каскадятся с cascade-удалением сообщений
     await this.access.revokeResource('chat', chatId);
     await this.db.chat.delete({ where: { id: chatId } }); // cascade members + messages
     await this.searchIndex.removeChat(chatId).catch(() => {}); // drop indexed messages
@@ -424,14 +478,52 @@ export class MessengerService {
     });
     if (!task) throw new NotFoundException('Задача не найдена');
 
-    let chat: { id: string; type: string; lastSeq: number; title: string | null };
+    // Engine: usersets bind chat membership to the task's roles (creator always + each
+    // distinct participant role present). Materialized ChatMember rows mirror the same set.
+    const roles = new Set<string>(['creator']);
+    for (const p of task.participants) roles.add(p.role);
+    const memberUserIds = new Set<string>([task.creatorId]);
+    for (const p of task.participants) memberUserIds.add(p.userId);
+
+    // ATOMIC creation: commit the chat row AND its access-membership tuples in ONE
+    // transaction. Previously the row was committed first and the tuples granted in a
+    // separate step; a concurrent reader (the eager TaskSystemListener racing the user's
+    // own open — the window widens at cold start when queries are slow) could find the row
+    // in that gap and see a chat with NO members → chat.view computed false → transient
+    // false 403. Committing them together makes a findable chat ALWAYS grant its members.
+    // The chat id is brand-new, so no cached check can reference it yet → no epoch bump
+    // needed to invalidate anything (the old grantMany's chat-epoch bump is dropped).
     try {
-      chat = await this.db.chat.create({
-        data: { type: 'context', parentType: 'task', parentId: taskId, title: task.title },
-        select: sel,
+      return await this.db.$transaction(async (tx) => {
+        const chat = await tx.chat.create({
+          data: { type: 'context', parentType: 'task', parentId: taskId, title: task.title },
+          select: sel,
+        });
+        await tx.relationTuple.createMany({
+          data: [...roles].map((relation) => ({
+            resourceType: 'chat',
+            resourceId: chat.id,
+            relation: 'member',
+            subjectType: 'task',
+            subjectId: taskId,
+            subjectRelation: relation,
+          })),
+          skipDuplicates: true,
+        });
+        await tx.chatMember.createMany({
+          data: [...memberUserIds].map((uid) => ({
+            chatId: chat.id,
+            userId: uid,
+            role: 'member',
+            visibleFromSeq: 0,
+          })),
+          skipDuplicates: true,
+        });
+        return chat;
       });
     } catch (e: any) {
-      // Concurrent create → unique(parentType,parentId) race; re-read the winner.
+      // Concurrent create → unique(parentType,parentId) race; the loser re-reads the
+      // winner's chat, which — being atomic — already carries its membership tuples.
       if (e?.code === 'P2002') {
         const won = await this.db.chat.findFirst({
           where: { parentType: 'task', parentId: taskId },
@@ -441,36 +533,6 @@ export class MessengerService {
       }
       throw e;
     }
-
-    // Engine: usersets bind chat membership to the task's roles (creator always +
-    // each distinct participant role present).
-    const roles = new Set<string>(['creator']);
-    for (const p of task.participants) roles.add(p.role);
-    await this.access.grantMany(
-      [...roles].map((relation) => ({
-        resourceType: 'chat',
-        resourceId: chat.id,
-        relation: 'member',
-        subjectType: 'task',
-        subjectId: taskId,
-        subjectRelation: relation,
-      })),
-    );
-
-    // Materialize ChatMember rows (creator + participants), full history.
-    const memberUserIds = new Set<string>([task.creatorId]);
-    for (const p of task.participants) memberUserIds.add(p.userId);
-    await this.db.chatMember.createMany({
-      data: [...memberUserIds].map((uid) => ({
-        chatId: chat.id,
-        userId: uid,
-        role: 'member',
-        visibleFromSeq: 0,
-      })),
-      skipDuplicates: true,
-    });
-
-    return chat;
   }
 
   /** Public: open the task's chat (verifying the user can view the task). */
@@ -544,6 +606,7 @@ export class MessengerService {
         select: { id: true },
       });
       if (!chat) return;
+      await this.reapChatAttachments(chat.id);
       await this.access.revokeResource('chat', chat.id);
       await this.db.chat.delete({ where: { id: chat.id } });
       await this.searchIndex.removeChat(chat.id); // drop indexed messages (best-effort: in try)
@@ -597,11 +660,42 @@ export class MessengerService {
     });
     if (!order) throw new NotFoundException('Заказ не найден');
 
-    let chat: { id: string; type: string; lastSeq: number; title: string | null };
+    // Usersets: buyer + seller always; contributor only if any contributions exist.
+    const contributorIds = [...new Set(order.contributions.map((c) => c.contributorId))];
+    const relations = ['buyer', 'seller'];
+    if (contributorIds.length) relations.push('contributor');
+    const memberUserIds = new Set<string>([order.buyerId, order.sellerId, ...contributorIds]);
+
+    // ATOMIC creation (see getOrCreateTaskChat): chat row + membership tuples + materialized
+    // members in ONE transaction, so a concurrent reader never observes a member-less chat
+    // (transient false 403 on chat.view). Fresh chat id → no epoch bump needed.
     try {
-      chat = await this.db.chat.create({
-        data: { type: 'context', parentType: 'order', parentId: orderId, title: order.titleSnapshot },
-        select: sel,
+      return await this.db.$transaction(async (tx) => {
+        const chat = await tx.chat.create({
+          data: { type: 'context', parentType: 'order', parentId: orderId, title: order.titleSnapshot },
+          select: sel,
+        });
+        await tx.relationTuple.createMany({
+          data: relations.map((relation) => ({
+            resourceType: 'chat',
+            resourceId: chat.id,
+            relation: 'member',
+            subjectType: 'order',
+            subjectId: orderId,
+            subjectRelation: relation,
+          })),
+          skipDuplicates: true,
+        });
+        await tx.chatMember.createMany({
+          data: [...memberUserIds].map((uid) => ({
+            chatId: chat.id,
+            userId: uid,
+            role: 'member',
+            visibleFromSeq: 0,
+          })),
+          skipDuplicates: true,
+        });
+        return chat;
       });
     } catch (e: any) {
       if (e?.code === 'P2002') {
@@ -613,34 +707,6 @@ export class MessengerService {
       }
       throw e;
     }
-
-    // Usersets: buyer + seller always; contributor only if any contributions exist.
-    const contributorIds = [...new Set(order.contributions.map((c) => c.contributorId))];
-    const relations = ['buyer', 'seller'];
-    if (contributorIds.length) relations.push('contributor');
-    await this.access.grantMany(
-      relations.map((relation) => ({
-        resourceType: 'chat',
-        resourceId: chat.id,
-        relation: 'member',
-        subjectType: 'order',
-        subjectId: orderId,
-        subjectRelation: relation,
-      })),
-    );
-
-    const memberUserIds = new Set<string>([order.buyerId, order.sellerId, ...contributorIds]);
-    await this.db.chatMember.createMany({
-      data: [...memberUserIds].map((uid) => ({
-        chatId: chat.id,
-        userId: uid,
-        role: 'member',
-        visibleFromSeq: 0,
-      })),
-      skipDuplicates: true,
-    });
-
-    return chat;
   }
 
   /** Public: open the order's chat (verifying the user can view the order). */
@@ -703,6 +769,7 @@ export class MessengerService {
         select: { id: true },
       });
       if (!chat) return;
+      await this.reapChatAttachments(chat.id);
       await this.access.revokeResource('chat', chat.id);
       await this.db.chat.delete({ where: { id: chat.id } });
       await this.searchIndex.removeChat(chat.id); // drop indexed messages (best-effort: in try)
@@ -746,11 +813,43 @@ export class MessengerService {
     });
     if (!event) throw new NotFoundException('Событие не найдено');
 
-    let chat: { id: string; type: string; lastSeq: number; title: string | null };
+    const attendeeIds = [...new Set(event.participants.map((p) => p.userId))].filter(
+      (id) => id !== event.userId,
+    );
+    const relations = ['organizer'];
+    if (attendeeIds.length) relations.push('attendee');
+    const memberUserIds = new Set<string>([event.userId, ...attendeeIds]);
+
+    // ATOMIC creation (see getOrCreateTaskChat): chat row + membership tuples + materialized
+    // members in ONE transaction, so a concurrent reader never observes a member-less chat
+    // (transient false 403 on chat.view). Fresh chat id → no epoch bump needed.
     try {
-      chat = await this.db.chat.create({
-        data: { type: 'context', parentType: 'event', parentId: eventId, title: event.title },
-        select: sel,
+      return await this.db.$transaction(async (tx) => {
+        const chat = await tx.chat.create({
+          data: { type: 'context', parentType: 'event', parentId: eventId, title: event.title },
+          select: sel,
+        });
+        await tx.relationTuple.createMany({
+          data: relations.map((relation) => ({
+            resourceType: 'chat',
+            resourceId: chat.id,
+            relation: 'member',
+            subjectType: 'event',
+            subjectId: eventId,
+            subjectRelation: relation,
+          })),
+          skipDuplicates: true,
+        });
+        await tx.chatMember.createMany({
+          data: [...memberUserIds].map((uid) => ({
+            chatId: chat.id,
+            userId: uid,
+            role: 'member',
+            visibleFromSeq: 0,
+          })),
+          skipDuplicates: true,
+        });
+        return chat;
       });
     } catch (e: any) {
       if (e?.code === 'P2002') {
@@ -762,35 +861,6 @@ export class MessengerService {
       }
       throw e;
     }
-
-    const attendeeIds = [...new Set(event.participants.map((p) => p.userId))].filter(
-      (id) => id !== event.userId,
-    );
-    const relations = ['organizer'];
-    if (attendeeIds.length) relations.push('attendee');
-    await this.access.grantMany(
-      relations.map((relation) => ({
-        resourceType: 'chat',
-        resourceId: chat.id,
-        relation: 'member',
-        subjectType: 'event',
-        subjectId: eventId,
-        subjectRelation: relation,
-      })),
-    );
-
-    const memberUserIds = new Set<string>([event.userId, ...attendeeIds]);
-    await this.db.chatMember.createMany({
-      data: [...memberUserIds].map((uid) => ({
-        chatId: chat.id,
-        userId: uid,
-        role: 'member',
-        visibleFromSeq: 0,
-      })),
-      skipDuplicates: true,
-    });
-
-    return chat;
   }
 
   /** Public: open the event's chat (verifying the user can view the event). */
@@ -849,6 +919,7 @@ export class MessengerService {
         select: { id: true },
       });
       if (!chat) return;
+      await this.reapChatAttachments(chat.id);
       await this.access.revokeResource('chat', chat.id);
       await this.db.chat.delete({ where: { id: chat.id } });
       await this.searchIndex.removeChat(chat.id); // drop indexed messages (best-effort: in try)
@@ -1188,25 +1259,34 @@ export class MessengerService {
   // ============================================================
   // Send / edit / delete
   // ============================================================
-  async sendMessage(
+  /** Цитата (Phase 7): только сообщение из ЭТОГО чата */
+  private async assertReplyInChat(chatId: string, replyToId?: string): Promise<void> {
+    if (!replyToId) return;
+    const parent = await this.db.message.findUnique({
+      where: { id: replyToId },
+      select: { chatId: true },
+    });
+    if (!parent || parent.chatId !== chatId) {
+      throw new BadRequestException('Можно цитировать только сообщение из этого чата');
+    }
+  }
+
+  /**
+   * Общий хвост отправки (text и attachment): транзакция (seq → message.create →
+   * линковка файлов → own-cursor) + fan-out на шину. Файлы линкуются ЗДЕСЬ же —
+   * сообщение и его вложения атомарны (модель эскроу Задачника).
+   */
+  private async persistAndFanout(
     userId: string,
     chatId: string,
-    content: string,
-    replyToId?: string,
-  ): Promise<ChatMessage> {
-    await this.assertAccess(userId, chatId);
-
-    // Reply/quote (Phase 7): the quoted message must live in THIS chat (no cross-chat quoting).
-    if (replyToId) {
-      const parent = await this.db.message.findUnique({
-        where: { id: replyToId },
-        select: { chatId: true },
-      });
-      if (!parent || parent.chatId !== chatId) {
-        throw new BadRequestException('Можно цитировать только сообщение из этого чата');
-      }
-    }
-
+    data: {
+      type: 'text' | 'attachment';
+      content: string | null;
+      payload?: Prisma.InputJsonValue;
+      replyToId?: string | null;
+      fileIds?: string[];
+    },
+  ): Promise<{ msg: Prisma.MessageGetPayload<{ include: typeof MESSAGE_REPLY_INCLUDE }>; chatType: string }> {
     const { msg, chatType } = await this.db.$transaction(async (tx) => {
       // Assign the next per-chat seq (atomic increment under the row).
       const chat = await tx.chat.update({
@@ -1216,9 +1296,20 @@ export class MessengerService {
       });
       const seq = chat.lastSeq;
       const created = await tx.message.create({
-        data: { chatId, authorId: userId, type: 'text', content, seq, replyToId: replyToId ?? null },
+        data: {
+          chatId,
+          authorId: userId,
+          type: data.type,
+          content: data.content,
+          payload: data.payload,
+          seq,
+          replyToId: data.replyToId ?? null,
+        },
         include: MESSAGE_REPLY_INCLUDE,
       });
+      if (data.fileIds?.length) {
+        await this.files.linkManyInTx(tx, userId, data.fileIds, 'chat_message', created.id);
+      }
       // Author implicitly read & received their own message.
       await tx.chatMember.updateMany({
         where: { chatId, userId },
@@ -1248,6 +1339,23 @@ export class MessengerService {
       },
       'messenger',
     );
+    return { msg, chatType };
+  }
+
+  async sendMessage(
+    userId: string,
+    chatId: string,
+    content: string,
+    replyToId?: string,
+  ): Promise<ChatMessage> {
+    await this.assertAccess(userId, chatId);
+    await this.assertReplyInChat(chatId, replyToId);
+
+    const { msg, chatType } = await this.persistAndFanout(userId, chatId, {
+      type: 'text',
+      content,
+      replyToId: replyToId ?? null,
+    });
 
     // Mentions Hub (Phase 5): record @mentions + ping the mentioned people. Best-effort
     // (MentionsService swallows errors); the extra guard ensures a throw can't break send.
@@ -1282,6 +1390,67 @@ export class MessengerService {
     return this.toMessage(msg, userId, 0, 0, undefined, chatType === 'dm');
   }
 
+  /**
+   * Ф9 (вложения): альбом до 10 файлов + подпись. Подпись живёт в content (К-1) —
+   * правки/упоминания/поиск работают как у текста. Файлы линкуются в транзакции
+   * сообщения (refType='chat_message'), доступ собеседников — через резолвер.
+   */
+  async sendAttachmentMessage(
+    userId: string,
+    chatId: string,
+    fileIds: string[],
+    caption?: string,
+    replyToId?: string,
+  ): Promise<ChatMessage> {
+    await this.assertAccess(userId, chatId);
+    await this.assertReplyInChat(chatId, replyToId);
+
+    // Предвалидация ДО транзакции: файлы готовы и принадлежат отправителю (движок → 400)
+    const files = await this.files.getOwnedReadyFiles(userId, fileIds);
+    const payload: AttachmentsPayload = {
+      kind: 'attachments',
+      files: files.map((f) => ({ fileId: f.id, name: f.name, kind: f.kind, size: f.size, mime: f.mime })),
+    };
+    const content = caption?.trim() ? caption.trim() : null;
+
+    const { msg, chatType } = await this.persistAndFanout(userId, chatId, {
+      type: 'attachment',
+      content,
+      payload: payload as unknown as Prisma.InputJsonValue,
+      replyToId: replyToId ?? null,
+      fileIds: files.map((f) => f.id),
+    });
+
+    if (content) {
+      try {
+        await this.mentions.recordMessageMentions({
+          content,
+          chatId,
+          messageId: msg.id,
+          authorId: userId,
+          chatType,
+        });
+      } catch {
+        // never break send on a mention failure
+      }
+      try {
+        await this.searchIndex.indexMessage({
+          id: msg.id,
+          chatId,
+          authorId: userId,
+          content,
+          seq: msg.seq,
+          type: 'attachment',
+          createdAt: msg.createdAt,
+        });
+      } catch {
+        // never break send on an index failure
+      }
+    }
+
+    return this.toMessage(msg, userId, 0, 0, undefined, chatType === 'dm');
+  }
+
   async editMessage(userId: string, messageId: string, content: string): Promise<ChatMessage> {
     const msg = await this.db.message.findUnique({ where: { id: messageId } });
     if (!msg) throw new NotFoundException('Сообщение не найдено');
@@ -1290,7 +1459,10 @@ export class MessengerService {
     await this.assertAccess(userId, msg.chatId);
     if (msg.authorId !== userId) throw new ForbiddenException('Можно редактировать только свои сообщения');
     if (msg.deletedAt) throw new BadRequestException('Сообщение удалено');
-    if (msg.type !== 'text') throw new BadRequestException('Это сообщение нельзя редактировать');
+    // attachment: редактируется только подпись (она и живёт в content — К-1)
+    if (msg.type !== 'text' && msg.type !== 'attachment') {
+      throw new BadRequestException('Это сообщение нельзя редактировать');
+    }
 
     const updated = await this.db.message.update({
       where: { id: messageId },
@@ -1347,6 +1519,14 @@ export class MessengerService {
       include: { author: { select: USER_LITE } },
     });
     await this.broadcastUpdate(updated, 'messenger.message.deleted');
+
+    // Ф9: файлы attachment-сообщения умирают вместе с ним (Telegram-модель) — связи
+    // снимаются, осиротевшие файлы soft-delete'ятся движком (квота не копит невидимое;
+    // файл, привязанный ещё где-то — напр. переслан, — живёт). Окно краша подстрахует
+    // крон-свип осиротевших ready-файлов. Best-effort.
+    if (msg.type === 'attachment') {
+      await this.files.unlinkAllForRef('chat_message', messageId).catch(() => undefined);
+    }
 
     // Search index (Phase 6): drop the deleted message from the index. Best-effort.
     try {
@@ -1554,6 +1734,7 @@ export class MessengerService {
     let text: string | null;
     if (deleted) text = null;
     else if (rt.type === 'text') text = rt.content ?? '';
+    else if (rt.type === 'attachment') text = rt.content || this.attachmentPreviewText(rt.payload);
     else if (rt.type === 'system') text = (rt.payload?.text as string) ?? 'Системное сообщение';
     else text = (rt.payload?.title as string) ?? 'Карточка';
     return {
@@ -1564,11 +1745,19 @@ export class MessengerService {
     };
   }
 
+  /** Превью attachment-сообщения без подписи: «📎 Файл» / «📎 Файлы: N» */
+  private attachmentPreviewText(payload: unknown): string {
+    const files = (payload as { files?: unknown[] } | null)?.files;
+    const n = Array.isArray(files) ? files.length : 0;
+    return n <= 1 ? '📎 Файл' : `📎 Файлы: ${n}`;
+  }
+
   private toPreview(r: any): MessagePreview {
     const deleted = !!r.deletedAt;
     let text: string | null;
     if (deleted) text = 'Сообщение удалено';
     else if (r.type === 'text') text = r.content ?? '';
+    else if (r.type === 'attachment') text = r.content || this.attachmentPreviewText(r.payload);
     else if (r.type === 'system') text = (r.payload?.text as string) ?? 'Системное сообщение';
     else text = (r.payload?.title as string) ?? 'Карточка';
     return {

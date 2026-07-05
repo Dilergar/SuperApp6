@@ -10,6 +10,7 @@ import {
   shareShowcaseSchema,
   createListingSchema,
   updateListingSchema,
+  attachListingImageSchema,
   assignShopStaffSchema,
   contributeSchema,
   createWishSchema,
@@ -127,6 +128,37 @@ export class ShopController {
   @ApiOperation({ summary: 'Удалить товар' })
   async deleteListing(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     await this.shop.deleteListing(user.sub, id);
+    return { success: true };
+  }
+
+  // ---- Галерея лота (движок файлов, профиль listing_image, ≤10 фото) ----
+
+  @Get('listings/:id/images')
+  @ApiOperation({ summary: 'Фото товара (галерея; первое = обложка)' })
+  async listingImages(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return { success: true, data: await this.shop.getListingImages(user.sub, id) };
+  }
+
+  @Post('listings/:id/images')
+  @ApiOperation({ summary: 'Прикрепить фото к товару (файл уже загружен движком)' })
+  async attachListingImage(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    const { fileId } = attachListingImageSchema.parse(body);
+    return { success: true, data: await this.shop.attachListingImage(user.sub, id, fileId) };
+  }
+
+  @Delete('listings/:id/images/:fileId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Убрать фото из галереи товара' })
+  async removeListingImage(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Param('fileId') fileId: string,
+  ) {
+    await this.shop.removeListingImage(user.sub, id, fileId);
     return { success: true };
   }
 

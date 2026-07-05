@@ -34,6 +34,12 @@ export function parseSignedMoneyInput(raw: string): number | null {
   return Math.round(value * 100);
 }
 
+/** Короткие дни недели (1=пн … 7=вс) — повторы, «Обзор». */
+export const WEEKDAYS_SHORT = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
+
+/** axios-config с bookId для запросов в чужую книгу. */
+export const bookParams = (bookId: string | null | undefined) => (bookId ? { params: { bookId } } : undefined);
+
 /** Local YYYY-MM-DD (the date the user perceives, not UTC). */
 export const localToday = (): string => new Intl.DateTimeFormat('en-CA').format(new Date());
 

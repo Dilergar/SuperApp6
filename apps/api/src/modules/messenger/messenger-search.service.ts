@@ -71,8 +71,9 @@ export class MessengerSearchService implements OnModuleInit {
     deletedAt?: Date | null;
     workspaceId?: string | null;
   }): Promise<void> {
-    // Only plain text is searchable; a soft-delete removes it from the index.
-    if (msg.type !== 'text' || msg.deletedAt) {
+    // Searchable: plain text + attachment captions (caption живёт в content — К-1);
+    // a soft-delete removes it from the index.
+    if (!['text', 'attachment'].includes(msg.type) || msg.deletedAt) {
       await this.projection.remove('message', msg.id);
       return;
     }
@@ -263,7 +264,7 @@ export class MessengerSearchService implements OnModuleInit {
   private async reconcileRecentMessages(): Promise<number> {
     const since = new Date(Date.now() - 26 * 60 * 60 * 1000);
     const msgs = await this.db.message.findMany({
-      where: { type: 'text', deletedAt: null, content: { not: null }, createdAt: { gte: since } },
+      where: { type: { in: ['text', 'attachment'] }, deletedAt: null, content: { not: null }, createdAt: { gte: since } },
       select: { id: true, chatId: true, authorId: true, content: true, seq: true, type: true, createdAt: true },
       take: 5000,
     });

@@ -1,4 +1,5 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
+import { publicVariantUrl } from '@superapp/shared';
 import type {
   ContributionLine,
   RichCardAction,
@@ -11,6 +12,7 @@ import type { RichCardDeps } from '../../core/rich-cards/rich-card.types';
 import { DatabaseService } from '../../shared/database/database.service';
 import { ShopService } from './shop.service';
 import { MessengerService } from '../messenger/messenger.service';
+import { FilesService } from '../../core/files/files.service';
 
 const ORDER_STATUS_WORDS: Record<string, string> = {
   funding: 'Идёт сбор',
@@ -41,6 +43,7 @@ export class ShopRichCardsProvider implements OnModuleInit {
     private readonly shop: ShopService,
     private readonly messenger: MessengerService,
     private readonly richCards: RichCardsService,
+    private readonly files: FilesService,
   ) {}
 
   onModuleInit() {
@@ -246,6 +249,10 @@ export class ShopRichCardsProvider implements OnModuleInit {
       }
     }
 
+    // Обложка лота (движок файлов): первое фото галереи, thumb если готов (refId = listing id)
+    const gallery = (await this.files.listLinked('listing', [refId], 'gallery')).get(refId);
+    const imageUrl = publicVariantUrl(gallery?.[0], 'thumb');
+
     return {
       kind: 'rich_card',
       cardType: asCampaign ? 'crowdfunding' : 'listing',
@@ -253,7 +260,7 @@ export class ShopRichCardsProvider implements OnModuleInit {
       title: listing.title,
       subtitle: listing.description ?? null,
       icon: listing.icon ?? (asCampaign ? '🤝' : '🛍️'),
-      imageUrl: null,
+      imageUrl,
       fields,
       progress,
       status: null,

@@ -242,6 +242,13 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
     pushByDefault: true,
     category: 'system',
   },
+  // Files engine — антивирус
+  'files.scan.infected': {
+    title: 'Файл «{{name}}» заражён и заблокирован',
+    icon: '🦠',
+    pushByDefault: true,
+    category: 'system',
+  },
   // Processes (бизнес-процессы)
   'process.finished': {
     title: 'Процесс «{{processName}}» завершён',

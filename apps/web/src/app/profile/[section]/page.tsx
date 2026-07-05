@@ -9,6 +9,7 @@ import { resolveCardVisibility, type CardVisibility, type Circle } from '@supera
 import { PersonCard } from '../../circles/PersonCard';
 import { WalletSection } from '../WalletSection';
 import { SkinsSection } from '../SkinsSection';
+import { AvatarUploadBlock } from '@/components/files/AvatarUploadBlock';
 import type { CardSkinRender } from '../../circles/card-skin';
 
 // ============================================================
@@ -284,6 +285,19 @@ export default function ProfileSectionPage() {
 
           <div className="card-elevated" style={{ padding: 'var(--spacing-6)', maxWidth: '560px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
+              {/* Аватарка через движок файлов (профиль 'avatar', публичная вечная ссылка).
+                  Сохраняется сразу, не через кнопку «Сохранить анкету». */}
+              <AvatarUploadBlock
+                current={profile?.avatar ?? null}
+                fallback={(profile?.firstName?.[0] ?? '🙂').toUpperCase()}
+                label="Аватарка"
+                onSaved={async (url) => {
+                  await api.patch('/users/me', { avatar: url });
+                  await fetchProfile();
+                  setSuccessMsg(url ? 'Фото обновлено' : 'Фото удалено');
+                  setTimeout(() => setSuccessMsg(''), 2500);
+                }}
+              />
               <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)' }}>
                 <div>
                   <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Имя *</label>

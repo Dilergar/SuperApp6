@@ -49,6 +49,9 @@ export const createTaskSchema = z
 
     parentId: z.string().uuid().optional(),
 
+    // «Входящие»: quick-add себе. Сервис гасит флаг, если задан срок/исполнитель/родитель.
+    inbox: z.boolean().optional().default(false),
+
     coinReward: coinSchema.optional().default(0),
     coinPenalty: coinSchema.optional().default(0),
     giftRewardId: z.string().uuid().optional(),
@@ -56,6 +59,8 @@ export const createTaskSchema = z
     tags: z.array(tagSchema).max(TASK_LIMITS.maxTags).optional(),
     workspaceId: z.string().uuid().optional(),
     addToCalendar: z.boolean().optional().default(false),
+    // Вложения «с порога» (файлы уже загружены движком до создания задачи)
+    attachmentFileIds: z.array(z.string().uuid()).max(20).optional(),
   })
   .strict()
   .refine((d) => !(d.executorId && d.assignedCircleId), {
@@ -66,6 +71,13 @@ export const createTaskSchema = z
     message: 'При назначении на Группу Соисполнители берутся из неё',
     path: ['coExecutorIds'],
   });
+
+/** POST /tasks/:id/attachments — прикрепить файл движка к задаче */
+export const attachTaskFileSchema = z
+  .object({
+    fileId: z.string().uuid(),
+  })
+  .strict();
 
 export const updateTaskSchema = z
   .object({
@@ -81,6 +93,8 @@ export const updateTaskSchema = z
     coinReward: coinSchema.optional(),
     coinPenalty: coinSchema.optional(),
     tags: z.array(tagSchema).max(TASK_LIMITS.maxTags).optional(),
+    // Ручное «Разобрано» для «Входящих» (уточнение срока/исполнителя гасит флаг само).
+    inbox: z.boolean().optional(),
 
     // Role edits (creator only — enforced in the service)
     executorId: z.string().uuid().nullable().optional(),
@@ -95,7 +109,7 @@ export const taskFilterSchema = z.object({
   priority: z.array(taskPriorityEnum).optional(),
   role: z.enum(['creator', 'executor', 'co_executor', 'observer']).optional(),
   smartList: z
-    .enum(['today', 'upcoming', 'overdue', 'assigned_to_me', 'created_by_me', 'on_review'])
+    .enum(['inbox', 'today', 'upcoming', 'overdue', 'assigned_to_me', 'created_by_me', 'on_review'])
     .optional(),
   workspaceId: z.string().uuid().nullable().optional(),
   dueDateFrom: z.string().datetime().optional(),

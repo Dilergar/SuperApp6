@@ -36,6 +36,9 @@ yarn-error.log*
 # Testing
 coverage/
 
+# Files engine — локальное хранилище байтов (FILES_DRIVER=local)
+apps/api/storage/
+
 # Prisma
 apps/api/prisma/*.db
 # Миграции ТРЕКАЕМ — нужны для воспроизведения БД на свежем клоне (prisma migrate deploy)

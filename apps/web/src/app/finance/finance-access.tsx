@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { FinShareRole, FinSharedBookDto } from '@superapp/shared';
+import type { FinShareRole } from '@superapp/shared';
 import { api } from '@/lib/api';
 import { financeSharesKey, fetchFinanceShares } from '@/lib/queries';
 import { EntitySelector } from '@/components/EntitySelector';
@@ -12,57 +12,8 @@ import { GroupChip } from '../circles/EntityChip';
 const errText = (e: unknown): string =>
   (e as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Что-то пошло не так';
 
-/** Переключатель «чью книгу смотрю»: моя + те, которыми со мной поделились. */
-export function BookSwitcher({
-  activeBookId,
-  sharedBooks,
-  onSwitch,
-}: {
-  activeBookId: string | null;
-  sharedBooks: FinSharedBookDto[];
-  onSwitch: (bookId: string | null) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  if (sharedBooks.length === 0) return null;
-  const active = sharedBooks.find((b) => b.bookId === activeBookId);
-
-  return (
-    <div style={{ position: 'relative' }}>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="ghost-border"
-        style={{ background: 'var(--surface-container-lowest)', cursor: 'pointer', padding: '0.35rem 0.9rem', fontSize: '0.85rem', fontFamily: 'var(--font-display)', fontWeight: 600 }}
-      >
-        📒 {active ? `Книга: ${active.ownerName}` : 'Моя книга'} ▾
-      </button>
-      {open && (
-        <div
-          className="card-elevated"
-          style={{ position: 'absolute', top: 'calc(100% + 0.4rem)', left: 0, minWidth: '16rem', zIndex: 60, background: 'var(--surface-container-low)', padding: '0.4rem', borderRadius: 'var(--radius-md)' }}
-        >
-          <button
-            onClick={() => { onSwitch(null); setOpen(false); }}
-            style={{ display: 'block', width: '100%', textAlign: 'left', background: !activeBookId ? 'var(--secondary-container)' : 'none', border: 'none', cursor: 'pointer', padding: '0.5rem 0.6rem', borderRadius: 'var(--radius-sm)', fontWeight: 600 }}
-          >
-            📒 Моя книга
-          </button>
-          {sharedBooks.map((b) => (
-            <button
-              key={b.bookId}
-              onClick={() => { onSwitch(b.bookId); setOpen(false); }}
-              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', textAlign: 'left', background: activeBookId === b.bookId ? 'var(--secondary-container)' : 'none', border: 'none', cursor: 'pointer', padding: '0.4rem 0.6rem', borderRadius: 'var(--radius-sm)' }}
-            >
-              <PersonChip size="S" userId={b.ownerUserId} firstName={b.ownerName} avatar={b.ownerAvatar} />
-              <span className="label-sm">{b.myRole === 'editor' ? 'ведёте вместе' : 'смотрите'}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** Модалка «Доступ к книге» — только для владельца. */
+/** Модалка «Доступ к книге» — только для владельца.
+ *  (Переключатель книг живёт в шапке сайдбара — FinanceBookCard в finance-shell.tsx.) */
 export function AccessModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const { data: shares = [] } = useQuery({ queryKey: financeSharesKey(), queryFn: () => fetchFinanceShares() });

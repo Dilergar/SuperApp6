@@ -35,6 +35,9 @@ import type {
   ProcessInboxItem,
   ProcessReportDto,
   ProcessCredentialDto,
+  Task,
+  TaskFilter,
+  TaskStats,
 } from '@superapp/shared';
 
 // ---- Keys (stable, shared between pages) ----
@@ -68,6 +71,12 @@ export const processReportKey = (wsId: string, defId: string) =>
   ['workspaces', wsId, 'processes', defId, 'report'] as const;
 export const processCredentialsKey = (wsId: string) =>
   ['workspaces', wsId, 'processes', 'credentials'] as const;
+// Files engine (core/files)
+export const filesUsageKey = ['files', 'usage'] as const;
+export const fileUrlKey = (id: string, variant?: string) =>
+  ['files', 'url', id, variant ?? 'original'] as const;
+export const fileMetaKey = (id: string) => ['files', 'meta', id] as const;
+export const taskAttachmentsKey = (taskId: string) => ['tasks', 'attachments', taskId] as const;
 
 // ---- Fetchers ----
 
@@ -165,6 +174,46 @@ export async function fetchProcessCredentials(wsId: string): Promise<ProcessCred
   return res.data.data;
 }
 
+// ---- Задачи (B2C) ----
+// Все ключи под корнем ['tasks'] — одна инвалидация queryClient.invalidateQueries
+// ({queryKey: ['tasks']}) обновляет списки, деталь, счётчики и бейджи сайдбара разом.
+
+export const taskStatsKey = ['tasks', 'stats'] as const;
+export const tasksListKey = (filters: Record<string, unknown>) => ['tasks', 'list', filters] as const;
+export const taskDetailKey = (id: string) => ['tasks', 'detail', id] as const;
+
+export interface TasksPage {
+  items: Task[];
+  meta: { total: number; page: number; limit: number; totalPages: number };
+}
+
+/** Список задач: смарт-лист/статусы/приоритеты/роль/поиск/пагинация — всё умеет API. */
+export async function fetchTasks(filters: Partial<TaskFilter>): Promise<TasksPage> {
+  const params: Record<string, string> = {};
+  if (filters.smartList) params.smartList = filters.smartList;
+  if (filters.role) params.role = filters.role;
+  if (filters.status?.length) params.status = filters.status.join(',');
+  if (filters.priority?.length) params.priority = filters.priority.join(',');
+  if (filters.search) params.search = filters.search;
+  if (filters.dueDateFrom) params.dueDateFrom = filters.dueDateFrom;
+  if (filters.dueDateTo) params.dueDateTo = filters.dueDateTo;
+  if (filters.page) params.page = String(filters.page);
+  if (filters.limit) params.limit = String(filters.limit);
+  const res = await api.get('/tasks', { params });
+  return { items: res.data.data, meta: res.data.meta };
+}
+
+/** Счётчики смарт-листов (бейджи сайдбара + карточки «Обзора»). */
+export async function fetchTaskStats(): Promise<TaskStats> {
+  const res = await api.get('/tasks/stats');
+  return res.data.data;
+}
+
+export async function fetchTask(id: string): Promise<Task> {
+  const res = await api.get(`/tasks/${id}`);
+  return res.data.data;
+}
+
 // ---- Финансы (B2C) ----
 
 export const financeOverviewKey = (bookId?: string | null) =>
@@ -209,6 +258,10 @@ export async function fetchFinanceRecurring(bookId?: string | null): Promise<Fin
   const res = await api.get('/finance/recurring', { params: bookId ? { bookId } : undefined });
   return res.data.data;
 }
+
+/** Последние операции для страницы «Обзор» (отдельный ключ: useInfiniteQuery ленты хранит другую форму данных). */
+export const financeRecentTxKey = (bookId?: string | null) =>
+  ['finance', 'transactions', 'recent', bookId ?? 'own'] as const;
 
 export const financePeopleKey = (bookId?: string | null) => ['finance', 'people', bookId ?? 'own'] as const;
 export const financePeopleReportKey = (from: string, to: string, bookId?: string | null) =>
