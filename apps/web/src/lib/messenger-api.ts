@@ -114,6 +114,21 @@ export async function sendMessage(
   return res.data.data;
 }
 
+/** Ф9: альбом до 10 файлов движка + подпись (файлы уже загружены через files-api) */
+export async function sendAttachmentMessage(
+  chatId: string,
+  fileIds: string[],
+  caption?: string,
+  replyToId?: string,
+): Promise<ChatMessage> {
+  const res = await api.post(`/messenger/chats/${chatId}/messages/attachments`, {
+    fileIds,
+    ...(caption ? { caption } : {}),
+    ...(replyToId ? { replyToId } : {}),
+  });
+  return res.data.data;
+}
+
 export async function editMessage(messageId: string, content: string): Promise<ChatMessage> {
   const res = await api.patch(`/messenger/messages/${messageId}`, { content });
   return res.data.data;

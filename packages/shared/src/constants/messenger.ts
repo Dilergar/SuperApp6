@@ -11,10 +11,12 @@ export const MESSENGER_LIMITS = {
   maxGroupNameLength: 80,
   /** Max members addable to a group in one request. */
   maxAddMembersAtOnce: 50,
+  /** Max files in one attachment message (Telegram-альбом). */
+  maxAttachmentsPerMessage: 10,
 } as const;
 
 export const CHAT_TYPES = ['dm', 'group', 'context'] as const;
-export const MESSAGE_TYPES = ['text', 'system', 'rich_card'] as const;
+export const MESSAGE_TYPES = ['text', 'system', 'rich_card', 'attachment'] as const;
 // Parent kinds a CONTEXT chat attaches to (task now; event/lot/order in Phase 3).
 // Note: group chats are ad-hoc (own member list), NOT attached to a Circle.
 export const CHAT_PARENT_TYPES = ['task', 'calendar_event', 'listing', 'order'] as const;

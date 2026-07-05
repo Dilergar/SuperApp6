@@ -374,3 +374,366 @@ body::before {
   .skin-fx-petal, .skin-fx-spark { display: none; }
   .skin-fx-neon { animation: none; opacity: 0.7; }
 }
+
+/* ============================================================
+   ServiceShell — каркас сервиса: верхняя полоска + левый сайдбар
+   (переиспользуемый; Digital Atelier: слои бумаги вместо линий).
+   Ширины-консенсус бенчмарков: 260px ↔ рейл 60px.
+   ============================================================ */
+
+:root {
+  --svc-topbar-h: 3.5rem;
+  --svc-w-expanded: 260px;
+  --svc-w-rail: 60px;
+}
+
+.svc-shell { --svc-w: var(--svc-w-expanded); }
+.svc-shell.collapsed { --svc-w: var(--svc-w-rail); }
+
+/* --- верхняя полоска (glassmorphism, как у остальных страниц) --- */
+.svc-topbar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 50;
+  height: var(--svc-topbar-h);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-4);
+  padding: 0 var(--spacing-6);
+  background: rgba(245, 245, 220, 0.7);
+  backdrop-filter: blur(10px);
+}
+.svc-topbar-back { text-decoration: none; }
+
+.svc-burger {
+  display: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.15rem;
+  line-height: 1;
+  padding: 0.3rem 0.45rem;
+  border-radius: var(--radius-sm);
+  color: var(--on-surface);
+}
+
+/* --- сайдбар: отдельный лист бумаги (фон-сдвиг, без линий) --- */
+.svc-sidebar {
+  position: fixed;
+  top: var(--svc-topbar-h);
+  bottom: 0;
+  left: 0;
+  z-index: 40;
+  width: var(--svc-w);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-container-low);
+  box-shadow: 6px 0 24px rgba(56, 57, 45, 0.05);
+  transition: width 0.25s cubic-bezier(0.2, 0, 0, 1);
+  overflow: hidden;
+}
+.svc-shell.collapsed .svc-sidebar { transition-duration: 0.2s; }
+
+.svc-side-head { padding: var(--spacing-4) var(--spacing-3) var(--spacing-2); }
+.svc-side-foot { padding: var(--spacing-2) var(--spacing-3) var(--spacing-3); }
+
+.svc-side-nav {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--spacing-2) var(--spacing-3) var(--spacing-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-6);
+  scrollbar-width: thin;
+}
+
+.svc-group { display: flex; flex-direction: column; gap: 2px; }
+
+.svc-group-label {
+  font-family: var(--font-body);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+  opacity: 0.7;
+  padding: 0 var(--spacing-2);
+  margin-bottom: var(--spacing-1);
+  white-space: nowrap;
+  transition: opacity 0.15s ease;
+}
+/* в рейле секции разделяются воздухом, заголовки прячутся */
+.svc-shell.collapsed .svc-sidebar:not(.drawer-open) .svc-group-label {
+  opacity: 0;
+  height: 0;
+  margin: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+/* --- пункт навигации --- */
+.svc-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--radius-sketch);
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--on-surface-variant);
+  text-decoration: none;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  white-space: nowrap;
+  width: 100%;
+  text-align: left;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.svc-item:hover { background: var(--surface-container); color: var(--on-surface); }
+.svc-item:focus-visible { outline: 2px solid var(--secondary); outline-offset: 1px; }
+.svc-item.active {
+  background: var(--surface-container-lowest);
+  color: var(--on-surface);
+  font-weight: 600;
+  box-shadow: 0 2px 10px rgba(56, 57, 45, 0.07), 0 1px 4px rgba(198, 26, 30, 0.05);
+}
+/* восковой «мазок» слева у активного пункта */
+.svc-item.active::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 22%;
+  width: 4px;
+  height: 56%;
+  border-radius: 3px 5px 4px 6px;
+  background: linear-gradient(175deg, rgba(198, 26, 30, 0.85), rgba(198, 26, 30, 0.35));
+  transform: rotate(-4deg);
+}
+
+.svc-ico {
+  font-size: 1.05rem;
+  width: 1.6rem;
+  min-width: 1.6rem;
+  display: inline-flex;
+  justify-content: center;
+  color: var(--on-surface-variant);
+}
+.svc-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.15s ease;
+}
+
+/* --- бейдж-счётчик пункта («требует внимания», модель Bitrix24/Slack) --- */
+.svc-badge {
+  display: inline-block;
+  margin-left: auto;
+  min-width: 1.35rem;
+  padding: 0.06rem 0.4rem;
+  border-radius: 8px 11px 9px 12px;
+  background: var(--surface-container);
+  color: var(--secondary);
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: center;
+  flex: none;
+  transform: rotate(-1deg);
+}
+.svc-item.active .svc-badge { background: var(--surface-container-high); }
+.svc-flyout-label .svc-badge { margin-left: 0.45rem; }
+/* рейл: подписи нет — карандашная точка на иконке намекает «внутри есть работа» */
+.svc-badge-dot {
+  position: absolute;
+  top: 5px;
+  right: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 55% 45% 50% 60%;
+  background: linear-gradient(160deg, rgba(198, 26, 30, 0.9), rgba(198, 26, 30, 0.55));
+}
+
+.svc-shell.collapsed .svc-sidebar:not(.drawer-open) .svc-item { justify-content: center; padding: 0.5rem 0; }
+.svc-shell.collapsed .svc-sidebar:not(.drawer-open) .svc-ico { width: auto; min-width: 0; }
+
+/* --- родитель с детьми: ссылка + шеврон-дисклоужер в одном ряду --- */
+.svc-item.svc-parent { padding: 0; gap: 0; }
+.svc-parent-link {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0 0.45rem 0.6rem;
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.svc-chevron {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.35rem 0.55rem;
+  color: var(--on-surface-variant);
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+}
+.svc-chevron svg { transition: transform 0.15s ease; display: block; }
+.svc-chevron[aria-expanded="true"] svg { transform: rotate(180deg); }
+.svc-chevron:focus-visible { outline: 2px solid var(--secondary); outline-offset: 1px; }
+
+/* --- второй уровень: ветки-линии (tree lines), карандашно-мягкие --- */
+.svc-children {
+  margin-left: 1.05rem;   /* ствол начинается под иконкой родителя */
+  padding-left: 0.95rem;  /* место для локтей */
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.svc-branch { position: relative; }
+/* локоть к пункту: вертикаль сверху + скруглённый поворот к строке */
+.svc-branch::before {
+  content: '';
+  position: absolute;
+  left: -0.8rem;
+  top: -0.4rem;
+  width: 0.6rem;
+  height: calc(50% + 0.4rem);
+  border-left: 2px solid rgba(122, 122, 110, 0.28);
+  border-bottom: 2px solid rgba(122, 122, 110, 0.28);
+  border-bottom-left-radius: 0.55rem;
+  pointer-events: none;
+}
+/* продолжение ствола вниз к следующему пункту (у последнего обрывается) */
+.svc-branch:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: -0.8rem;
+  top: 50%;
+  bottom: -0.45rem;
+  border-left: 2px solid rgba(122, 122, 110, 0.28);
+  pointer-events: none;
+}
+
+/* --- сервис-иконка в шапке рейла --- */
+.svc-rail-service {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 0.4rem 0;
+  font-size: 1.25rem;
+  background: var(--surface-container);
+  border: none;
+  border-radius: var(--radius-sketch);
+  cursor: pointer;
+}
+.svc-rail-service:hover { background: var(--surface-container-high); }
+
+/* --- флайаут рейла: бумажный чип справа --- */
+.svc-flyout {
+  position: fixed;
+  left: calc(var(--svc-w-rail) + 10px);
+  transform: translateY(-50%);
+  z-index: 70;
+  background: var(--surface-container-lowest);
+  border-radius: 0.6rem 1rem 0.7rem 0.9rem;
+  box-shadow: 0 8px 32px rgba(56, 57, 45, 0.16), 0 2px 8px rgba(198, 26, 30, 0.05);
+  padding: 0.35rem 0.5rem;
+  min-width: 0;
+  max-width: 260px;
+}
+.svc-flyout-label {
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--on-surface);
+  padding: 0.15rem 0.4rem;
+  white-space: nowrap;
+}
+/* у родителя с детьми заголовок флайаута — как заголовок секции (референс) */
+.svc-flyout-label.group {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--on-surface-variant);
+}
+.svc-flyout-items {
+  margin-top: 0.25rem;
+  padding-left: 0.95rem; /* место для веток-локтей */
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 190px;
+}
+
+/* --- кнопка «Свернуть» --- */
+.svc-collapse .svc-ico svg { display: block; }
+
+/* --- контент --- */
+.svc-main {
+  margin-left: var(--svc-w);
+  padding-top: var(--svc-topbar-h);
+  min-height: 100vh;
+  transition: margin-left 0.25s cubic-bezier(0.2, 0, 0, 1);
+}
+.svc-shell.collapsed .svc-main { transition-duration: 0.2s; }
+.svc-main-inner {
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: var(--spacing-8) var(--spacing-6) var(--spacing-16);
+}
+
+/* --- drawer (мобилка) --- */
+.svc-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  background: rgba(56, 57, 45, 0.35);
+  backdrop-filter: blur(3px);
+}
+.svc-drawer-top {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-3);
+}
+.svc-drawer-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.4rem;
+  line-height: 1;
+  opacity: 0.55;
+  padding: 0.2rem 0.5rem;
+}
+
+@media (max-width: 767px) {
+  .svc-burger { display: flex; }
+  .svc-sidebar {
+    top: 0;
+    height: 100dvh;
+    width: 288px;
+    z-index: 66;
+    transform: translateX(-105%);
+    transition: transform 0.25s cubic-bezier(0.2, 0, 0, 1);
+    box-shadow: 12px 0 40px rgba(56, 57, 45, 0.18);
+  }
+  .svc-sidebar.drawer-open { transform: none; }
+  .svc-drawer-top { display: flex; }
+  .svc-main { margin-left: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .svc-sidebar, .svc-main, .svc-item, .svc-label, .svc-group-label, .svc-collapse .svc-ico svg {
+    transition: none !important;
+  }
+}

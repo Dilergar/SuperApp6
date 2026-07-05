@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { FinAccountDto, FinDebtDto, FinPersonDto, FinRecurringRuleDto } from '@superapp/shared';
 import { api } from '@/lib/api';
 import { financeDebtsKey, financeRecurringKey, fetchFinanceDebts, fetchFinanceRecurring } from '@/lib/queries';
-import { currencySymbol, formatMoney, parseMoneyInput } from './finance-lib';
+import { WEEKDAYS_SHORT, currencySymbol, formatMoney, parseMoneyInput } from './finance-lib';
 import { PersonChip } from '../circles/PersonCard';
 
 const errText = (e: unknown): string =>
@@ -350,8 +350,6 @@ export function RecurringPanel({
     }
   };
 
-  const WEEKDAYS = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
-
   return (
     <div className="card" style={{ transform: 'rotate(0.25deg)' }}>
       <div className="flex items-center justify-between" style={{ marginBottom: 'var(--spacing-4)' }}>
@@ -376,7 +374,7 @@ export function RecurringPanel({
             </div>
             <div className="flex items-center justify-between" style={{ marginTop: '0.15rem' }}>
               <span className="label-sm">
-                {r.interval === 'monthly' ? `каждое ${r.dayOfMonth}-е` : `по ${WEEKDAYS[(r.weekday ?? 1) - 1]}`} ·{' '}
+                {r.interval === 'monthly' ? `каждое ${r.dayOfMonth}-е` : `по ${WEEKDAYS_SHORT[(r.weekday ?? 1) - 1]}`} ·{' '}
                 {r.autoRecord ? 'авто' : 'напоминание'} · {accountName.get(r.toAccountId) ?? ''}
               </span>
               {canEdit && (

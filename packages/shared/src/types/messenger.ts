@@ -14,6 +14,25 @@ export type SystemMessageEvent = (typeof SYSTEM_MESSAGE_EVENTS)[number];
 /** Sender-visible delivery state, derived from the recipients' read cursors. */
 export type MessageDeliveryStatus = 'sent' | 'delivered' | 'read';
 
+/** Одно вложение внутри attachment-сообщения (снимок метаданных файла движка). */
+export interface AttachmentFileRef {
+  fileId: string;
+  name: string;
+  kind: 'image' | 'video' | 'audio' | 'document' | 'other';
+  size: number;
+  mime?: string;
+}
+
+/**
+ * Payload сообщения type='attachment' (Ф9 мессенджера): до 10 файлов альбомом,
+ * подпись живёт в Message.content (К-1: правки/упоминания/поиск работают как у text).
+ * Байты — в движке файлов; доступ наследуется через FileLink refType='chat_message'.
+ */
+export interface AttachmentsPayload {
+  kind: 'attachments';
+  files: AttachmentFileRef[];
+}
+
 /** Compact message used in chat-list previews. */
 export interface MessagePreview {
   id: string;

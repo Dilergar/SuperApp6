@@ -15,6 +15,8 @@ import { Avatar, PersonAvatar, StatusTicks, formatBubbleTime } from './messenger
 import { PersonChip } from '../circles/PersonCard';
 import { presenceStatusLine } from './presence-ui';
 import { RichCardWidget } from './RichCardWidget';
+import { FileAttachmentModal } from './FileAttachmentModal';
+import { AttachmentContent } from './AttachmentContent';
 import { AttachCardModal } from './AttachCardModal';
 import { MentionInput } from './MentionInput';
 import { renderMessageContent } from './mention-render';
@@ -61,6 +63,7 @@ export function Conversation({
   onCardUpdated,
   onCardAttached,
   onMessagesChanged,
+  onSendAttachments,
 }: {
   detail: ChatDetail;
   messages: ChatMessage[];
@@ -91,10 +94,13 @@ export function Conversation({
   onCardAttached?: () => void;
   /** Called after a quick-action posts a card — refetch messages as a fallback to socket. */
   onMessagesChanged?: () => void;
+  /** Ф9: отправить альбом вложений (файлы уже загружены; ids + подпись + цитата). */
+  onSendAttachments?: (fileIds: string[], caption: string, replyToId?: string) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const [showAttach, setShowAttach] = useState(false);
+  const [showAttachFiles, setShowAttachFiles] = useState(false);
   // Phase 7 — message being quoted (reply), the "Запланировано" panel, and the
   // message-scope quick-action modals opened from a bubble's corner menu.
   const [replyingTo, setReplyingTo] = useState<ReplyTarget | null>(null);
@@ -110,6 +116,7 @@ export function Conversation({
   // Stable handler identities (refs) so the memoized bubbles/composer never re-render
   // just because the parent re-rendered (presence/typing events arrive constantly).
   const onSendRef = useRef(onSend); onSendRef.current = onSend;
+  const onSendAttachmentsRef = useRef(onSendAttachments); onSendAttachmentsRef.current = onSendAttachments;
   const onEditRef = useRef(onEdit); onEditRef.current = onEdit;
   const onDeleteRef = useRef(onDelete); onDeleteRef.current = onDelete;
   const onTypingRef = useRef(onTypingChange); onTypingRef.current = onTypingChange;
@@ -330,10 +337,11 @@ export function Conversation({
   // Start a reply from a bubble's corner menu: stash the quoted target so the
   // composer shows the quoted bar and the next send carries replyToId.
   const startReply = useCallback((m: ChatMessage) => {
+    const fallback = m.type === 'attachment' ? '📎 Вложения' : '';
     setReplyingTo({
       id: m.id,
       authorName: m.authorName,
-      text: (m.content ?? '').slice(0, 200),
+      text: (m.content || fallback).slice(0, 200),
     });
   }, []);
   const openMsgModal = useCallback((kind: 'task' | 'schedule', text: string) => {
@@ -726,6 +734,29 @@ export function Conversation({
           onPosted={onMessagesChanged}
           onScheduled={refreshScheduled}
         />
+        {onSendAttachments && (
+          <button
+            onClick={() => setShowAttachFiles(true)}
+            title="Прикрепить файлы"
+            aria-label="Прикрепить файлы"
+            style={{
+              flexShrink: 0,
+              background: 'var(--surface-container-high)',
+              border: 'none',
+              cursor: 'pointer',
+              width: '2.6rem',
+              height: '2.6rem',
+              borderRadius: 'var(--radius-md)',
+              fontSize: '1.15rem',
+              color: 'var(--on-surface-variant)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            📎
+          </button>
+        )}
         <button
           onClick={() => setShowAttach(true)}
           title="Прикрепить карточку"
@@ -745,10 +776,23 @@ export function Conversation({
             justifyContent: 'center',
           }}
         >
-          📎
+          🏷️
         </button>
         <Composer chatId={detail.id} onSend={handleComposerSend} onTypingChange={stableTyping} />
       </div>
+
+      {showAttachFiles && (
+        <FileAttachmentModal
+          onClose={() => setShowAttachFiles(false)}
+          onSend={(files, caption) => {
+            onSendAttachmentsRef.current?.(files.map((f) => f.id), caption, replyingToRef.current?.id);
+            setReplyingTo(null);
+            setShowAttachFiles(false);
+            atBottomRef.current = true;
+            requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ block: 'end' }));
+          }}
+        />
+      )}
 
       {showAttach && (
         <AttachCardModal
@@ -1023,7 +1067,7 @@ const MessageBubble = memo(function MessageBubble({
                   <>
                     <CornerMenuItem
                       icon="✎"
-                      label="Редактировать"
+                      label={message.type === 'attachment' ? 'Изменить подпись' : 'Редактировать'}
                       onClick={() => {
                         setMenuOpen(false);
                         setEditDraft(message.content ?? '');
@@ -1149,6 +1193,15 @@ const MessageBubble = memo(function MessageBubble({
                 <button onClick={() => setEditing(false)} style={miniBtnGhost}>Отмена</button>
                 <button onClick={saveEdit} style={miniBtnSolid}>Сохранить</button>
               </div>
+            </div>
+          ) : message.type === 'attachment' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
+              <AttachmentContent payload={message.payload as never} />
+              {message.content && (
+                <span style={{ fontSize: '0.9rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                  {renderMessageContent(message.content, currentUserId)}
+                </span>
+              )}
             </div>
           ) : (
             <span style={{ fontSize: '0.9rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>

@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
@@ -28,7 +29,10 @@ import type {
   ShareShowcaseRequest,
   AssignShopStaffRequest,
 } from '@superapp/shared';
-import { SHOP_LIMITS } from '@superapp/shared';
+import { SHOP_LIMITS, publicVariantUrl } from '@superapp/shared';
+import type { FileDto } from '@superapp/shared';
+import { FilesService } from '../../core/files/files.service';
+import { FilesRefRegistry } from '../../core/files/files-ref.registry';
 import { DatabaseService } from '../../shared/database/database.service';
 import { WorkspaceContextService } from '../../shared/context/workspace-context.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
@@ -60,7 +64,7 @@ type PriceLine = { currencyId: string; amount: number };
  * Shop/Showcase tables (live on create + AccessProjectionService.backfillShops). No chokepoint.
  */
 @Injectable()
-export class ShopService {
+export class ShopService implements OnModuleInit {
   constructor(
     private readonly db: DatabaseService,
     private readonly wsContext: WorkspaceContextService,
@@ -71,10 +75,43 @@ export class ShopService {
     private readonly tasks: TasksService,
     private readonly calendar: CalendarService,
     private readonly contacts: ContactsService,
+    private readonly files: FilesService,
+    private readonly filesRegistry: FilesRefRegistry,
   ) {}
+
+  onModuleInit(): void {
+    // Галерея лота (движок файлов): фото публичные, но резолвер обязателен для
+    // полноты матрицы (attach гейтится showcase.manage; view — видимость витрины).
+    this.filesRegistry.register('listing', {
+      canView: async (viewerId, listingId) => {
+        const listing = await this.db.listing.findUnique({
+          where: { id: listingId },
+          select: { showcaseId: true },
+        });
+        if (!listing) return false;
+        return (
+          (await this.access.can(this.user(viewerId), 'showcase.view', listing.showcaseId)) ||
+          (await this.access.can(this.user(viewerId), 'showcase.manage', listing.showcaseId))
+        );
+      },
+      canAttach: async (userId, listingId) => {
+        const listing = await this.db.listing.findUnique({
+          where: { id: listingId },
+          select: { showcaseId: true },
+        });
+        if (!listing) return false;
+        return this.access.can(this.user(userId), 'showcase.manage', listing.showcaseId);
+      },
+    }, { allowedProfiles: ['listing_image'] });
+  }
 
   private user(id: string): Principal {
     return { type: 'user', id };
+  }
+
+  /** Обложка лота = первое фото галереи; thumb — только если вариант уже готов (К-4) */
+  private coverUrlFrom(files: FileDto[] | undefined): string | null {
+    return publicVariantUrl(files?.[0], 'thumb');
   }
 
   // ============================================================
@@ -307,7 +344,52 @@ export class ShopService {
     });
     const currencies = await this.currencyMap(rows.flatMap((r) => r.prices.map((p) => p.currencyId)));
     const campaignByListing = await this.activeCampaigns(rows.filter((r) => r.crowdfunding).map((r) => r.id), viewerId);
-    return rows.map((r) => this.serializeListing(r, currencies, campaignByListing.get(r.id) ?? null));
+    // Обложки одним батчем (без N+1) — первое фото галереи каждого лота
+    const galleries = await this.files.listLinked('listing', rows.map((r) => r.id), 'gallery');
+    return rows.map((r) =>
+      this.serializeListing(r, currencies, campaignByListing.get(r.id) ?? null, this.coverUrlFrom(galleries.get(r.id))),
+    );
+  }
+
+  // ============================================================
+  // Галерея лота (движок файлов: FileLink refType='listing' role='gallery')
+  // ============================================================
+
+  async getListingImages(viewerId: string, listingId: string): Promise<FileDto[]> {
+    const listing = await this.db.listing.findUnique({ where: { id: listingId } });
+    if (!listing) throw new NotFoundException('Товар не найден');
+    const canManage = await this.access.can(this.user(viewerId), 'showcase.manage', listing.showcaseId);
+    if (!canManage && !(await this.canViewShowcase(viewerId, listing.showcaseId))) {
+      throw new ForbiddenException('Нет доступа к витрине');
+    }
+    return (await this.files.listLinked('listing', [listingId], 'gallery')).get(listingId) ?? [];
+  }
+
+  async attachListingImage(viewerId: string, listingId: string, fileId: string): Promise<FileDto[]> {
+    const listing = await this.db.listing.findUnique({ where: { id: listingId } });
+    if (!listing) throw new NotFoundException('Товар не найден');
+    await this.loadShowcaseManageable(viewerId, listing.showcaseId);
+    await this.files.getOwnedReadyFiles(viewerId, [fileId]); // ready + uploader (профиль enforce'ит движок)
+    // Лимит + линковка под блокировкой строки лота: конкурентные attach'и сериализуются
+    // (иначе оба читают count=9<10 и оба линкуют → 11 фото).
+    await this.db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "listings" WHERE id = ${listingId} FOR UPDATE`;
+      const count = await tx.fileLink.count({ where: { refType: 'listing', refId: listingId, role: 'gallery' } });
+      if (count >= SHOP_LIMITS.maxListingImages) {
+        throw new BadRequestException(`Не больше ${SHOP_LIMITS.maxListingImages} фото у товара`);
+      }
+      await this.files.linkManyInTx(tx, viewerId, [fileId], 'listing', listingId, 'gallery');
+    });
+    return (await this.files.listLinked('listing', [listingId], 'gallery')).get(listingId) ?? [];
+  }
+
+  async removeListingImage(viewerId: string, listingId: string, fileId: string): Promise<void> {
+    const listing = await this.db.listing.findUnique({ where: { id: listingId } });
+    if (!listing) throw new NotFoundException('Товар не найден');
+    await this.loadShowcaseManageable(viewerId, listing.showcaseId);
+    // Отвязать эту связь и прибрать сироту (системный soft-delete: удаляющий соуправляющий
+    // мог быть не загрузившим — Forbidden больше не роняет уборку).
+    await this.files.unlinkAndReap(viewerId, fileId, 'listing', listingId, 'gallery');
   }
 
   /** Live crowdfunding campaigns (funding|pending) for the given listings → progress + viewer's pledge. */
@@ -402,7 +484,13 @@ export class ShopService {
       }
     });
     const row = await this.db.listing.findUnique({ where: { id }, include: LISTING_INCLUDE });
-    return this.serializeListing(row!, await this.currencyMap(row!.prices.map((p) => p.currencyId)));
+    const gallery = (await this.files.listLinked('listing', [id], 'gallery')).get(id);
+    return this.serializeListing(
+      row!,
+      await this.currencyMap(row!.prices.map((p) => p.currencyId)),
+      null,
+      this.coverUrlFrom(gallery),
+    );
   }
 
   async deleteListing(viewerId: string, id: string): Promise<void> {
@@ -412,6 +500,9 @@ export class ShopService {
     const active = await this.db.order.count({ where: { listingId: id, status: { in: ['funding', 'pending', 'confirmed'] } } });
     if (active > 0) throw new BadRequestException('Нельзя удалить товар с активным заказом или сбором');
     await this.db.listing.delete({ where: { id } }); // settled/cancelled orders keep history (listingId → null)
+    // Фото галереи (полиморфный FileLink не каскадится) — отвязать и прибрать сироты,
+    // иначе публичные картинки удалённого лота вечно висят в квоте и раздаются по ссылке.
+    await this.files.unlinkAllForRef('listing', id, 'gallery').catch(() => undefined);
   }
 
   // ============================================================
@@ -958,7 +1049,10 @@ export class ShopService {
       include: ORDER_INCLUDE,
     });
     const currencies = await this.currencyMap(rows.flatMap((r) => r.prices.map((p) => p.currencyId)));
-    return rows.map((r) => this.serializeOrder(r, currencies, { viewerId: buyerId }));
+    const covers = await this.orderCovers(rows);
+    return rows.map((r) =>
+      this.serializeOrder(r, currencies, { viewerId: buyerId, listingCoverUrl: covers.get(r.listingId ?? '') ?? null }),
+    );
   }
 
   /** Orders on shops I manage (owner / co-manager view) — to confirm or reject. */
@@ -968,10 +1062,26 @@ export class ShopService {
     const rows = await this.db.order.findMany({ where: { shopId: { in: shopIds } }, orderBy: { createdAt: 'desc' }, take: 200, include: ORDER_INCLUDE });
     const currencies = await this.currencyMap(rows.flatMap((r) => r.prices.map((p) => p.currencyId)));
     const buyers = await this.userMinis(rows.map((r) => r.buyerId));
+    const covers = await this.orderCovers(rows);
     return rows.map((r) => {
       const u = buyers.get(r.buyerId);
-      return this.serializeOrder(r, currencies, { buyerName: u ? `${u.firstName} ${u.lastName ?? ''}`.trim() : '—' });
+      return this.serializeOrder(r, currencies, {
+        buyerName: u ? `${u.firstName} ${u.lastName ?? ''}`.trim() : '—',
+        listingCoverUrl: covers.get(r.listingId ?? '') ?? null,
+      });
     });
+  }
+
+  /** Живые обложки лотов для списков заказов (снапшота фото нет — v1) */
+  private async orderCovers(rows: Array<{ listingId: string | null }>): Promise<Map<string, string>> {
+    const listingIds = [...new Set(rows.map((r) => r.listingId).filter((x): x is string => !!x))];
+    const galleries = await this.files.listLinked('listing', listingIds, 'gallery');
+    const out = new Map<string, string>();
+    for (const [listingId, files] of galleries) {
+      const url = this.coverUrlFrom(files);
+      if (url) out.set(listingId, url);
+    }
+    return out;
   }
 
   private async loadManageableOrder(actorId: string, orderId: string): Promise<OrderWithDetail> {
@@ -1506,6 +1616,7 @@ export class ShopService {
     r: Prisma.ListingGetPayload<{ include: typeof LISTING_INCLUDE }>,
     currencies: Map<string, { name: string; icon: string; scale: number }>,
     campaign: ListingDto['campaign'] = null,
+    coverUrl: string | null = null,
   ): ListingDto {
     return {
       id: r.id,
@@ -1513,6 +1624,7 @@ export class ShopService {
       title: r.title,
       description: r.description,
       icon: r.icon,
+      coverUrl,
       itemType: r.itemType as ListingDto['itemType'],
       withTask: r.withTask,
       taskDays: r.taskDays,
@@ -1567,11 +1679,13 @@ export class ShopService {
       buyerName?: string;
       viewerId?: string;
       contributorNames?: Map<string, { firstName: string; lastName: string | null; avatar: string | null }>;
+      listingCoverUrl?: string | null;
     } = {},
   ): OrderDto {
     const dto: OrderDto = {
       id: r.id,
       listingId: r.listingId,
+      listingCoverUrl: opts.listingCoverUrl ?? null,
       title: r.titleSnapshot,
       showcaseId: r.showcaseId,
       shopId: r.shopId,

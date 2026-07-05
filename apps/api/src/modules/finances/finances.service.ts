@@ -1209,7 +1209,7 @@ export class FinancesService {
           ownerName: me ? `${me.firstName} ${me.lastName ?? ''}`.trim() : 'Пользователь',
           roleLabel: dto.role === 'editor' ? 'ведёт вместе' : 'смотрит',
           bookId: book.id,
-        }, { actionUrl: `/finance?bookId=${book.id}` });
+        }, { actionUrl: `/finance?book=${book.id}` });
       } catch (e) {
         this.logger.warn(`share notify failed: ${(e as Error)?.message ?? e}`);
       }

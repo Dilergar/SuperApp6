@@ -6,6 +6,7 @@ import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api } from '@/lib/api';
 import { CompanyCard } from '../../CompanyCard';
 import { EntitySelector } from '@/components/EntitySelector';
+import { AvatarUploadBlock } from '@/components/files/AvatarUploadBlock';
 import { resolveWorkspaceCardVisibility } from '@superapp/shared';
 import type {
   Workspace,
@@ -233,7 +234,21 @@ export default function WorkspaceSectionPage() {
           <h1 className="title-lg" style={{ marginBottom: 'var(--spacing-6)' }}>Анкета компании</h1>
           <div className="card" style={{ display: 'grid', gap: 'var(--spacing-4)', maxWidth: '560px' }}>
             <Field label="Название" value={form.name} onChange={(v) => setForm({ ...form, name: v })} max={100} />
-            <Field label="Логотип (ссылка)" value={form.logo} onChange={(v) => setForm({ ...form, logo: v })} max={500} placeholder="https://…" />
+            {/* Лого через движок файлов (профиль 'avatar', владелец — организация).
+                Сохраняется сразу; старые внешние URL продолжают работать. */}
+            <AvatarUploadBlock
+              current={form.logo || null}
+              fallback="🏢"
+              shape="square"
+              label="Логотип"
+              ownerWorkspaceId={id}
+              onSaved={async (url) => {
+                await api.patch(`/workspaces/${id}`, { logo: url });
+                setForm((f) => ({ ...f, logo: url ?? '' }));
+                setSuccess(url ? 'Логотип обновлён' : 'Логотип удалён');
+                await fetchWs();
+              }}
+            />
             <Field label="О компании" value={form.description} onChange={(v) => setForm({ ...form, description: v })} max={1000} textarea />
             <Field label="Отрасль" value={form.industry} onChange={(v) => setForm({ ...form, industry: v })} max={100} />
             <Field label="Город" value={form.city} onChange={(v) => setForm({ ...form, city: v })} max={100} />

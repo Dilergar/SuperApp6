@@ -27,6 +27,13 @@ export const shareShowcaseSchema = z
   })
   .strict();
 
+/** POST /shop/listings/:id/images — прикрепить фото (файл движка, профиль listing_image) */
+export const attachListingImageSchema = z
+  .object({
+    fileId: z.string().uuid(),
+  })
+  .strict();
+
 // One price line: `amount` of a currency (own or an окружение contact's). Phase 5 cross-currency.
 const priceLine = z
   .object({

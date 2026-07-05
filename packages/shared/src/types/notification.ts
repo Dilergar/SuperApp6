@@ -49,6 +49,8 @@ export type NotificationType =
   | 'shop.order.funded' // a crowdfunding campaign reached its goal (→ seller / co-managers)
   // Mentions
   | 'mention.received' // someone @mentioned you (messenger / task / event …)
+  // Files engine — антивирус
+  | 'files.scan.infected' // загруженный вами файл заражён и заблокирован
   // Processes (бизнес-процессы)
   | 'process.finished' // запущенный вами процесс дошёл до конца (→ инициатор)
   | 'process.failed' // процесс остановился с ошибкой (→ инициатор)

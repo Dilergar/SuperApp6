@@ -35,6 +35,53 @@ services:
       timeout: 5s
       retries: 5
 
+  # S3-совместимое объектное хранилище (files engine, FILES_DRIVER=s3).
+  # Опциональный профиль: обычный `docker compose up -d` его НЕ стартует.
+  # Запуск: docker compose --profile s3 up -d
+  # Внутри контейнера файлы пишутся под UID 1000 — volume должен быть ему доступен.
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.37
+    container_name: superapp6-s3
+    profiles: ['s3']
+    restart: unless-stopped
+    command: 'server -s3 -s3.port=8333 -dir=/data'
+    ports:
+      - '8333:8333'
+    volumes:
+      - seaweed_data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://localhost:8333 || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Антивирус для файлового движка (FilesScanHook). Опциональный профиль:
+  # запуск: docker compose --profile scan up -d
+  # Первый старт долгий — clamd подтягивает базу сигнатур (минуты, ~1-2 ГБ RAM).
+  # Затем задать в apps/api/.env: CLAMAV_HOST=localhost (CLAMAV_PORT=3310).
+  clamav:
+    image: clamav/clamav:1.4
+    container_name: superapp6-clamav
+    profiles: ['scan']
+    restart: unless-stopped
+    ports:
+      - '3310:3310'
+    environment:
+      # поднимаем лимит потока до потолка размера файла движка (200 МБ)
+      CLAMD_CONF_StreamMaxLength: '200M'
+      CLAMD_CONF_MaxFileSize: '200M'
+      CLAMD_CONF_MaxScanSize: '200M'
+    volumes:
+      - clamav_data:/var/lib/clamav
+    healthcheck:
+      test: ['CMD-SHELL', 'echo PING | nc -w 5 localhost 3310 | grep -q PONG']
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
 volumes:
   postgres_data:
   redis_data:
+  seaweed_data:
+  clamav_data:

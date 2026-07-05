@@ -9,6 +9,7 @@ import { DatabaseService } from '../../shared/database/database.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { StaffService } from '../staff/staff.service';
+import { FilesService } from '../../core/files/files.service';
 import {
   WORKSPACE_LIMITS,
   WORKSPACE_ROLES,
@@ -58,6 +59,7 @@ export class WorkspacesService {
     private roles: RolesService,
     private events: EventBusService,
     private staff: StaffService,
+    private files: FilesService,
   ) {}
 
   // ============================================================
@@ -156,6 +158,11 @@ export class WorkspacesService {
     },
   ) {
     const role = await this.assertCanManage(userId, workspaceId);
+    // Лого хранится ССЫЛКОЙ → при замене прибираем прежний файл (иначе копит квоту орг.)
+    const prevLogo =
+      data.logo !== undefined
+        ? (await this.db.workspace.findUnique({ where: { id: workspaceId }, select: { logo: true } }))?.logo
+        : undefined;
     const ws = await this.db.workspace.update({
       where: { id: workspaceId },
       data: {
@@ -178,6 +185,11 @@ export class WorkspacesService {
       },
       include: { _count: { select: { members: true, tasks: true } } },
     });
+    if (data.logo !== undefined && prevLogo !== ws.logo) {
+      await this.files
+        .reapReplacedPublicFile('workspace', workspaceId, prevLogo, ws.logo)
+        .catch(() => undefined);
+    }
     return this.serializeWorkspace(ws, ws._count.members, role, ws._count.tasks);
   }
 

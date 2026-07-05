@@ -47,6 +47,9 @@ export interface Task {
   status: TaskStatus;
   priority: TaskPriority;
 
+  /** «Входящие» (GTD): быстрая запись себе, ещё не разобрана (без срока/исполнителя). */
+  inbox: boolean;
+
   // Time-manager
   dueDate: string | null;
   startDate: string | null;
@@ -115,6 +118,9 @@ export interface CreateTaskRequest {
 
   parentId?: string;
 
+  /** Быстрая запись во «Входящие». Игнорируется, если задан срок/исполнитель/родитель. */
+  inbox?: boolean;
+
   // Reward (per-person). Display-only for now.
   coinReward?: number;
   coinPenalty?: number;
@@ -123,6 +129,8 @@ export interface CreateTaskRequest {
   tags?: string[];
   workspaceId?: string;
   addToCalendar?: boolean;
+  /** Вложения «с порога» — файлы, загруженные движком до создания задачи. */
+  attachmentFileIds?: string[];
 }
 
 export interface UpdateTaskRequest {
@@ -138,6 +146,8 @@ export interface UpdateTaskRequest {
   coinReward?: number;
   coinPenalty?: number;
   tags?: string[];
+  /** Ручное «Разобрано» (false) для «Входящих»; уточнение срока/исполнителя снимает флаг само. */
+  inbox?: boolean;
   // Role edits (creator only)
   executorId?: string | null;
   addCoExecutorIds?: string[];
@@ -148,8 +158,9 @@ export interface UpdateTaskRequest {
 // Task discussion now lives in the Messenger (a context chat attached to the task).
 // See @superapp/shared messenger types (ChatMessage). TaskComment was removed in Phase 2.
 
-/** Server-side smart lists for the task inbox. */
+/** Server-side smart lists for the task views. */
 export type TaskSmartList =
+  | 'inbox'
   | 'today'
   | 'upcoming'
   | 'overdue'
@@ -170,4 +181,19 @@ export interface TaskFilter {
   search?: string;
   page?: number;
   limit?: number;
+}
+
+/**
+ * Счётчики смарт-листов для бейджей сайдбара и дашборда «Обзор».
+ * assignedToMe/createdByMe — только ОТКРЫТЫЕ задачи (в отличие от одноимённых
+ * списков, которые показывают и завершённые) — бейдж значит «требует внимания».
+ */
+export interface TaskStats {
+  inbox: number;
+  today: number;
+  overdue: number;
+  upcoming: number;
+  assignedToMe: number;
+  createdByMe: number;
+  onReview: number;
 }

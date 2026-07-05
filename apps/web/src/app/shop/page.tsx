@@ -26,7 +26,11 @@ import {
   type Order,
   type WishItem,
   type AccessibleWishlistRef,
+  type FileDto,
 } from '@superapp/shared';
+import { useFileUpload } from '@/lib/hooks/useFileUpload';
+import { FileDropzone } from '@/components/files/FileDropzone';
+import { UploadProgressList } from '@/components/files/UploadProgressList';
 
 function errMsg(e: unknown, fallback = 'Ошибка'): string {
   const ax = e as { response?: { data?: { message?: string; error?: string } } };
@@ -350,7 +354,17 @@ function ListingCard({ l, canManage, onEdit, onDelete, onBuy, onTalk, onForward,
           ↗
         </button>
       )}
-      <div style={{ fontSize: '2rem', marginBottom: 'var(--spacing-2)' }}>{l.icon ?? '🎁'}</div>
+      {l.coverUrl ? (
+        // Обложка = первое фото галереи (движок файлов, публичный класс); emoji — фолбэк
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={l.coverUrl}
+          alt={l.title}
+          style={{ width: '100%', height: '8.5rem', objectFit: 'cover', borderRadius: 'var(--radius-md)', marginBottom: 'var(--spacing-2)', display: 'block' }}
+        />
+      ) : (
+        <div style={{ fontSize: '2rem', marginBottom: 'var(--spacing-2)' }}>{l.icon ?? '🎁'}</div>
+      )}
       <div className="title-md" style={{ fontSize: '1rem', marginBottom: '0.2rem' }}>{l.title}</div>
       {l.description && <p className="label-sm" style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '0.4rem' }}>{l.description}</p>}
       <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
@@ -398,6 +412,64 @@ function ListingCard({ l, canManage, onEdit, onDelete, onBuy, onTalk, onForward,
           )}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** Галерея фото лота внутри формы редактирования: грид тумбов с ✕ + дропзона (≤10) */
+function ListingPhotosSection({ listingId, onError }: { listingId: string; onError: (m: string) => void }) {
+  const [images, setImages] = useState<FileDto[]>([]);
+  const reload = useCallback(() => {
+    api.get(`/shop/listings/${listingId}/images`).then((r) => setImages(r.data.data)).catch(() => {});
+  }, [listingId]);
+  useEffect(() => { reload(); }, [reload]);
+
+  const uploader = useFileUpload('listing_image', {
+    onUploaded: (f) => {
+      api.post(`/shop/listings/${listingId}/images`, { fileId: f.id })
+        .then((r) => setImages(r.data.data))
+        .catch((e) => onError(errMsg(e)));
+    },
+  });
+  const remove = (fileId: string) => {
+    api.delete(`/shop/listings/${listingId}/images/${fileId}`).then(reload).catch((e) => onError(errMsg(e)));
+  };
+  const thumbOf = (f: FileDto) =>
+    f.publicUrl ? `${f.publicUrl}${f.variants?.some((v) => v.kind === 'thumb') ? '?variant=thumb' : ''}` : '';
+
+  return (
+    <div style={{ marginBottom: 'var(--spacing-3)' }}>
+      <div className="label-sm" style={{ marginBottom: 'var(--spacing-1)' }}>
+        Фото (до {SHOP_LIMITS.maxListingImages}; первое — обложка)
+      </div>
+      {images.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.4rem' }}>
+          {images.map((f) => (
+            <div key={f.id} style={{ position: 'relative', width: 64, height: 64, borderRadius: 'var(--radius-md)', overflow: 'hidden', background: 'var(--surface-container-high)' }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={thumbOf(f)} alt={f.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <button
+                type="button"
+                onClick={() => remove(f.id)}
+                title="Убрать фото"
+                style={{ position: 'absolute', top: 2, right: 2, width: 18, height: 18, border: 'none', borderRadius: '50%', background: 'rgba(56,57,45,0.65)', color: '#fff', fontSize: '0.6rem', cursor: 'pointer', lineHeight: 1 }}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {images.length < SHOP_LIMITS.maxListingImages && (
+        <FileDropzone
+          onFiles={(fs) => uploader.add(fs.slice(0, SHOP_LIMITS.maxListingImages - images.length))}
+          accept="image/*"
+          multiple
+          compact
+          label="Добавить фото"
+        />
+      )}
+      <UploadProgressList items={uploader.items.filter((i) => i.status !== 'done')} onCancel={uploader.cancel} onRemove={uploader.remove} />
     </div>
   );
 }
@@ -563,6 +635,16 @@ function ListingForm({ init, showcaseId, onClose, onSaved, onError }: {
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Название" className="input-sketch" style={{ flex: 1 }} />
       </div>
       <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Описание (необязательно)" className="input-sketch" style={{ width: '100%', minHeight: 60, marginBottom: 'var(--spacing-3)' }} />
+
+      {/* Галерея фото (движок файлов; только при редактировании — у нового лота ещё нет id) */}
+      {init ? (
+        <ListingPhotosSection listingId={init.id} onError={onError} />
+      ) : (
+        <p className="label-sm" style={{ opacity: 0.6, marginBottom: 'var(--spacing-3)', fontSize: '0.7rem' }}>
+          Фото добавляются после создания товара (открой его через «Изменить»).
+        </p>
+      )}
+
       <div style={{ display: 'flex', gap: 'var(--spacing-3)', marginBottom: 'var(--spacing-3)', flexWrap: 'wrap' }}>
         <label className="label-sm">Тип{' '}
           <select value={itemType} onChange={(e) => setItemType(e.target.value as Listing['itemType'])} className="input-sketch" style={{ padding: '0.3rem 0.5rem' }}>
@@ -795,6 +877,11 @@ function OrdersView({ onError }: { onError: (m: string) => void }) {
     progressLines(o.prices, o.raised).map((l) => `${fmtAmount(l.raised, l.scale)}/${fmtAmount(l.amount, l.scale)} ${l.currencyIcon}`).join(' · ');
   const row = (o: Order, kind: 'incoming' | 'mine') => (
     <div key={o.id} className="card" style={{ padding: 'var(--spacing-3) var(--spacing-4)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
+      {o.listingCoverUrl && (
+        // Живая обложка лота (движок файлов, публичный класс)
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={o.listingCoverUrl} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 'var(--radius-md)', flexShrink: 0 }} />
+      )}
       {kind === 'incoming' && o.buyerName && <PersonChip size="S" userId={o.buyerId} firstName={o.buyerName} />}
       <div style={{ flex: 1 }}>
         <div style={{ fontWeight: 500, fontSize: '0.9rem' }}>{o.crowdfunding ? '🎯 ' : ''}{o.title}</div>

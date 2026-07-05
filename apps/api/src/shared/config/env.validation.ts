@@ -19,8 +19,42 @@ const envSchema = z
     REDIS_URL: z.string().min(1).optional(),
     PORT: z.coerce.number().int().positive().optional(),
     WEB_URL: z.string().url('должен быть URL').optional(),
+    // --- Files engine (core/files) ---
+    FILES_DRIVER: z
+      .enum(['local', 's3'], { errorMap: () => ({ message: 'должен быть local | s3' }) })
+      .default('local'),
+    FILES_LOCAL_ROOT: z.string().min(1).optional(),
+    API_PUBLIC_URL: z.string().url('должен быть URL (базовый адрес API для файловых ссылок)').optional(),
+    S3_ENDPOINT: z.string().url('должен быть URL S3-эндпоинта').optional(),
+    S3_REGION: z.string().min(1).optional(),
+    S3_ACCESS_KEY_ID: z.string().min(1).optional(),
+    S3_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+    S3_BUCKET: z.string().min(1).optional(),
+    S3_FORCE_PATH_STYLE: z.enum(['true', 'false']).optional(),
+    S3_PUBLIC_BASE_URL: z.string().url().optional(),
+    // --- Антивирус файлов (опционально; пусто → скан выключен) ---
+    CLAMAV_HOST: z.string().min(1).optional(),
+    CLAMAV_PORT: z.coerce.number().int().positive().optional(),
   })
   .superRefine((env, ctx) => {
+    if (env.FILES_DRIVER === 's3') {
+      const required: Array<keyof typeof env> = [
+        'S3_ENDPOINT',
+        'S3_REGION',
+        'S3_ACCESS_KEY_ID',
+        'S3_SECRET_ACCESS_KEY',
+        'S3_BUCKET',
+      ];
+      for (const key of required) {
+        if (!env[key]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [key as string],
+            message: 'обязателен при FILES_DRIVER=s3',
+          });
+        }
+      }
+    }
     if (env.NODE_ENV === 'production') {
       if (!env.REDIS_URL) {
         ctx.addIssue({

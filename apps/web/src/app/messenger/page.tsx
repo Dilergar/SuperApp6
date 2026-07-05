@@ -26,6 +26,7 @@ import {
   setAdmin,
   deleteChat,
   sendMessage,
+  sendAttachmentMessage,
   editMessage,
   deleteMessage,
   markRead,
@@ -298,6 +299,13 @@ function MessengerInner() {
         // already folded into the preview must NOT double-count unread or reorder.
         const knownSeq = chat.lastMessage?.seq ?? 0;
         if (msg.seq <= knownSeq && msg.seq !== Number.MAX_SAFE_INTEGER) return old;
+        // attachment без подписи: клиентский фолбэк превью (сервер пришлёт своё при рефетче)
+        let attachmentFallback: string | null = null;
+        if (msg.type === 'attachment') {
+          const files = (msg.payload as { files?: unknown[] } | null)?.files;
+          const n = Array.isArray(files) ? files.length : 0;
+          attachmentFallback = n > 1 ? `📎 Файлы: ${n}` : '📎 Файл';
+        }
         const updated: ChatSummary = {
           ...chat,
           lastMessage: {
@@ -306,7 +314,7 @@ function MessengerInner() {
             authorId: msg.authorId,
             authorName: msg.authorName,
             type: msg.type,
-            text: msg.deletedAt ? null : msg.content,
+            text: msg.deletedAt ? null : (msg.content ?? attachmentFallback),
             createdAt: msg.createdAt,
             deleted: !!msg.deletedAt,
           },
@@ -708,6 +716,22 @@ function MessengerInner() {
     [activeChatId, currentUserId, user, queryClient, bumpInboxPreview],
   );
 
+  // Ф9: альбом вложений — БЕЗ temp-пузыря (реконсиляция temp идёт по content и
+  // споткнулась бы о пустую подпись): await POST → upsert; id-дедуп гасит socket-эхо.
+  const handleSendAttachments = useCallback(
+    async (fileIds: string[], caption: string, replyToId?: string) => {
+      if (!activeChatId) return;
+      try {
+        const saved = await sendAttachmentMessage(activeChatId, fileIds, caption || undefined, replyToId);
+        upsertMessageInCache(activeChatId, saved);
+        bumpInboxPreview(activeChatId, saved);
+      } catch (e) {
+        console.error('Не удалось отправить вложения', e);
+      }
+    },
+    [activeChatId, upsertMessageInCache, bumpInboxPreview],
+  );
+
   const handleEdit = useCallback(
     async (messageId: string, content: string) => {
       if (!activeChatId) return;
@@ -870,6 +894,7 @@ function MessengerInner() {
               onTypingChange={handleTypingChange}
               onLoadOlder={handleLoadOlder}
               onSend={handleSend}
+              onSendAttachments={handleSendAttachments}
               onEdit={handleEdit}
               onDelete={handleDelete}
               onManage={() => setShowManage(true)}

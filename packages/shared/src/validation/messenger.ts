@@ -51,6 +51,22 @@ export const sendMessageSchema = z
   })
   .strict();
 
+/** POST /messenger/chats/:id/messages/attachments — альбом до 10 файлов + подпись */
+export const sendAttachmentsSchema = z
+  .object({
+    fileIds: z
+      .array(z.string().uuid())
+      .min(1, 'Выберите хотя бы один файл')
+      .max(MESSENGER_LIMITS.maxAttachmentsPerMessage, 'Слишком много файлов в одном сообщении'),
+    caption: z
+      .string()
+      .max(MESSENGER_LIMITS.maxMessageLength)
+      .refine(noHtml, 'Недопустимые символы')
+      .optional(),
+    replyToId: z.string().uuid().optional(),
+  })
+  .strict();
+
 export const editMessageSchema = z
   .object({
     content: z
@@ -72,5 +88,6 @@ export type CreateGroupInput = z.infer<typeof createGroupSchema>;
 export type AddMembersInput = z.infer<typeof addMembersSchema>;
 export type RenameChatInput = z.infer<typeof renameChatSchema>;
 export type SendMessageInput = z.infer<typeof sendMessageSchema>;
+export type SendAttachmentsInput = z.infer<typeof sendAttachmentsSchema>;
 export type EditMessageInput = z.infer<typeof editMessageSchema>;
 export type MarkReadInput = z.infer<typeof markReadSchema>;

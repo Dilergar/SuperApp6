@@ -73,6 +73,11 @@ export interface Listing {
   prices: ListingPriceDto[];
   /** Active crowdfunding campaign (Phase 6) — present only for a crowdfunding listing with a live campaign. */
   campaign?: ListingCampaignDto | null;
+  /**
+   * Обложка = первое фото галереи (движок файлов, публичный класс, thumb-вариант
+   * если готов). null → карточка показывает emoji-icon (фолбэк).
+   */
+  coverUrl?: string | null;
   createdAt: string;
 }
 
@@ -167,6 +172,8 @@ export interface Order {
   myContribution?: ContributionLine[];
   /** Crowdfunding only, campaign-detail view: all contributors with their totals. */
   contributors?: OrderContributorDto[];
+  /** Живое фото лота (обложка) — null, если лот удалён или фото нет (снапшота нет, v1). */
+  listingCoverUrl?: string | null;
   createdAt: string;
 }
 

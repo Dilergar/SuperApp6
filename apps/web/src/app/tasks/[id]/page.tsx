@@ -23,6 +23,7 @@ import {
   getTaskChat,
   getMessages,
   sendMessage,
+  sendAttachmentMessage,
   editMessage,
   deleteMessage,
   markRead,
@@ -36,6 +37,9 @@ import {
 } from '@/lib/hooks/useMessengerSocket';
 import { Conversation } from '../../messenger/Conversation';
 import { ShareCardModal } from '../../messenger/ShareCardModal';
+import { AttachmentsSection } from '@/components/files/AttachmentsSection';
+import { taskAttachmentsKey } from '@/lib/queries';
+import type { FileDto } from '@superapp/shared';
 
 const messagesKey = (chatId: string) => ['messenger', 'messages', chatId] as const;
 
@@ -246,6 +250,20 @@ export default function TaskDetailPage() {
     [chatId, currentUserId, user, queryClient],
   );
 
+  // Ф9: вложения в чате задачи — без temp-пузыря (id-дедуп против socket-эха уже есть)
+  const handleSendAttachments = useCallback(
+    async (fileIds: string[], caption: string, replyToId?: string) => {
+      if (!chatId) return;
+      try {
+        const saved = await sendAttachmentMessage(chatId, fileIds, caption || undefined, replyToId);
+        upsertMessageInCache(chatId, saved);
+      } catch (e) {
+        console.error('Не удалось отправить вложения', e);
+      }
+    },
+    [chatId, upsertMessageInCache],
+  );
+
   const handleEdit = useCallback(
     async (messageId: string, content: string) => {
       if (!chatId) return;
@@ -327,25 +345,24 @@ export default function TaskDetailPage() {
   const workers: TaskParticipant[] = [...(task.executor ? [task.executor] : []), ...task.coExecutors];
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--surface)' }}>
-      <nav className="fixed top-0 w-full z-50 px-6 py-4" style={{ background: 'rgba(245, 245, 220, 0.7)', backdropFilter: 'blur(10px)' }}>
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <Link href="/tasks" className="title-md" style={{ color: 'var(--primary)' }}>← Задачи</Link>
-          <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center' }}>
-            <button onClick={() => setShowForward(true)} className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>↗ Переслать в чат</button>
-            {isCreator && (
-              <>
-                {task.status !== 'cancelled' && task.status !== 'done' && (
-                  <button onClick={cancel} disabled={busy} className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>Отменить</button>
-                )}
-                <button onClick={() => { if (confirm('Удалить задачу?')) remove(); }} disabled={busy} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: '0.8rem', fontWeight: 600 }}>Удалить</button>
-              </>
-            )}
-          </div>
+    <div style={{ maxWidth: 800 }}>
+      {/* Топбар и сайдбар теперь даёт ServiceShell — здесь только строка действий */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-5)', flexWrap: 'wrap' }}>
+        <Link href="/tasks" className="label-md" style={{ color: 'var(--secondary)', fontWeight: 600, textDecoration: 'none' }}>← Задачи</Link>
+        <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button onClick={() => setShowForward(true)} className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>↗ Переслать в чат</button>
+          {isCreator && (
+            <>
+              {task.status !== 'cancelled' && task.status !== 'done' && (
+                <button onClick={cancel} disabled={busy} className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>Отменить</button>
+              )}
+              <button onClick={() => { if (confirm('Удалить задачу?')) remove(); }} disabled={busy} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: '0.8rem', fontWeight: 600 }}>Удалить</button>
+            </>
+          )}
         </div>
-      </nav>
+      </div>
 
-      <div className="max-w-3xl mx-auto px-6 pt-24" style={{ paddingBottom: 'var(--spacing-16)' }}>
+      <div style={{ paddingBottom: 'var(--spacing-16)' }}>
         {error && <div className="wash-primary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-4)', color: 'var(--primary)', fontSize: '0.875rem' }}>{error}</div>}
 
         {/* Header */}
@@ -405,6 +422,10 @@ export default function TaskDetailPage() {
           </div>
         )}
 
+        {/* Вложения задачи (движок файлов) — постановщик и участники могут прикреплять */}
+        <h2 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-3)' }}>Вложения</h2>
+        <TaskAttachments taskId={task.id} canEdit={isCreator || isWorker} />
+
         {/* Chat — the task's context chat in the Messenger */}
         <h2 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-3)' }}>Чат задачи</h2>
         <div style={{ height: '520px', minHeight: '380px' }}>
@@ -418,6 +439,7 @@ export default function TaskDetailPage() {
               loadingMore={loadingMore}
               onLoadOlder={handleLoadOlder}
               onSend={handleSend}
+              onSendAttachments={handleSendAttachments}
               onEdit={handleEdit}
               onDelete={handleDelete}
             />
@@ -480,6 +502,24 @@ function Meta({ label, value }: { label: string; value: string }) {
       <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{value}</div>
     </div>
   );
+}
+
+/** Вложения задачи: тянет список движка и даёт AttachmentsSection управлять им. */
+function TaskAttachments({ taskId, canEdit }: { taskId: string; canEdit: boolean }) {
+  const queryClient = useQueryClient();
+  const { data: files = [] } = useQuery<FileDto[]>({
+    queryKey: taskAttachmentsKey(taskId),
+    queryFn: async () => (await api.get(`/tasks/${taskId}/attachments`)).data.data,
+  });
+  const attach = async (file: FileDto) => {
+    await api.post(`/tasks/${taskId}/attachments`, { fileId: file.id });
+    queryClient.invalidateQueries({ queryKey: taskAttachmentsKey(taskId) });
+  };
+  const remove = async (fileId: string) => {
+    await api.delete(`/tasks/${taskId}/attachments/${fileId}`);
+    queryClient.invalidateQueries({ queryKey: taskAttachmentsKey(taskId) });
+  };
+  return <AttachmentsSection files={files} canEdit={canEdit} onAttach={attach} onRemove={remove} />;
 }
 
 // (local Avatar removed — people now render via the shared skin-aware PersonAvatar)

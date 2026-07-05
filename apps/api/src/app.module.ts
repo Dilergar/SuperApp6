@@ -17,6 +17,7 @@ import { AccessModule } from './core/access/access.module';
 import { RichCardsModule } from './core/rich-cards/rich-cards.module';
 import { SearchModule } from './core/search/search.module';
 import { QuickActionsModule } from './core/quick-actions/quick-actions.module';
+import { FilesModule } from './core/files/files.module';
 
 // Feature modules (MVP)
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -84,6 +85,10 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // Chat quick-actions registry (Phase 7). @Global; services register ＋-menu / message-menu
     // actions (Создать задачу / Событие / Напомнить). Forms = modals, results = Rich Cards.
     QuickActionsModule,
+    // Files engine — 6-й платформенный движок: хранение/загрузка/раздача файлов
+    // (метаданные+связи+варианты в БД, байты у драйвера local|s3). Потребители
+    // регистрируют refType-резолверы в FilesRefRegistry; v1 — фундамент без потребителей.
+    FilesModule,
 
     // Feature modules — each is self-contained.
     // Load order: Notifications → Contacts (@Global, consumed by AuthService)

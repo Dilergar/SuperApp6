@@ -348,6 +348,10 @@ model Task {
   startDate   DateTime? @map("start_date")
   allDay      Boolean   @default(false) @map("all_day")
 
+  // «Входящие» (GTD inbox): quick-add без срока/исполнителя, ещё не разобрано.
+  // Уточнение (срок или исполнитель через PATCH) снимает флаг автоматически.
+  inbox Boolean @default(false)
+
   // Постановщик (creator). Other roles live in TaskParticipant.
   creatorId String @map("creator_id")
 
@@ -1866,4 +1870,91 @@ model FinAuditLog {
   @@index([bookId, createdAt])
   @@index([entityType, entityId])
   @@map("fin_audit_logs")
+}
+
+// ============================================
+// FILES ENGINE (core/files) — платформенное хранилище файлов
+// Метаданные здесь; байты — у драйвера (local disk | S3-совместимое хранилище).
+// Доступ: владелец/загрузивший/public + наследование от привязанной сущности
+// через FilesRefRegistry (без tuple-проекции — родитель = источник истины).
+// ============================================
+
+model FileObject {
+  id            String    @id @default(uuid())
+  ownerType     String    @map("owner_type") // user | workspace
+  ownerId       String    @map("owner_id")
+  uploaderId    String    @map("uploader_id")
+  profile       String    @default("generic") // ключ FILE_PROFILES (shared)
+  kind          String // image | video | audio | document | other
+  name          String // оригинальное имя — только метаданные, в storageKey не попадает
+  mime          String
+  size          BigInt
+  sha256        String?
+  status        String    @default("uploading") // uploading | ready | failed | deleted
+  visibility    String    @default("private") // private | public
+  publicToken   String?   @unique @map("public_token") // неугадываемый токен вечной публичной ссылки
+  scanStatus    String    @default("none") @map("scan_status") // none | pending | clean | infected
+  storageDriver String    @map("storage_driver") // local | s3
+  storageKey    String    @map("storage_key")
+  uploadId      String?   @map("upload_id") // S3 multipart upload id (живёт пока uploading)
+  meta          Json? // width/height/durationMs/pipeline/retries...
+  error         String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  readyAt       DateTime? @map("ready_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  links    FileLink[]
+  variants FileVariant[]
+
+  @@index([ownerType, ownerId, status])
+  @@index([status, createdAt]) // крон-свипы: зависшие uploading / просроченные deleted
+  @@index([uploaderId])
+  @@map("file_objects")
+}
+
+model FileLink {
+  id          String   @id @default(uuid())
+  fileId      String   @map("file_id")
+  refType     String   @map("ref_type") // chat_message | task | listing | ... (резолвер в FilesRefRegistry)
+  refId       String   @map("ref_id")
+  role        String   @default("attachment") // attachment | avatar | gallery | ...
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  file FileObject @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([fileId, refType, refId, role])
+  @@index([refType, refId])
+  @@map("file_links")
+}
+
+model FileVariant {
+  id         String   @id @default(uuid())
+  fileId     String   @map("file_id")
+  kind       String // thumb | medium | poster | waveform | text
+  storageKey String   @map("storage_key")
+  mime       String
+  size       BigInt
+  meta       Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  file FileObject @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([fileId, kind])
+  @@map("file_variants")
+}
+
+// Счётчик занятого места на владельца: инкременты в одной транзакции с
+// complete/softDelete, ночная сверка кроном (пересчёт от file_objects).
+model FileQuotaUsage {
+  id         String   @id @default(uuid())
+  ownerType  String   @map("owner_type") // user | workspace
+  ownerId    String   @map("owner_id")
+  bytesUsed  BigInt   @default(0) @map("bytes_used")
+  filesCount Int      @default(0) @map("files_count")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([ownerType, ownerId])
+  @@map("file_quota_usage")
 }

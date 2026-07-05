@@ -13,6 +13,7 @@ import {
   fetchFinancePeopleReport,
 } from '@/lib/queries';
 import { formatMoney, localToday, parseMoneyInput } from './finance-lib';
+import { BudgetBar, budgetProgress } from './finance-ui';
 import { PersonChip } from '../circles/PersonCard';
 import { ShareCardModal } from '../messenger/ShareCardModal';
 
@@ -376,16 +377,12 @@ function BudgetLine({
     );
   }
 
-  const percent = budget.amount > 0 ? Math.min(150, Math.round((budget.spent / budget.amount) * 100)) : 0;
-  const over = budget.spent > budget.amount;
-  const warn = !over && budget.spent >= budget.amount * 0.8;
-  const barColor = over ? 'var(--danger)' : warn ? 'var(--warning)' : 'var(--success)';
+  const { pct, over } = budgetProgress(budget.spent, budget.amount);
+  const percent = Math.min(150, pct);
 
   return (
     <div style={{ marginTop: '0.3rem' }} onClick={(e) => e.stopPropagation()}>
-      <div style={{ height: small ? 5 : 7, background: 'var(--surface-container-high)', borderRadius: 999, overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: `${Math.min(100, percent)}%`, background: barColor, borderRadius: 999, transition: 'width 0.3s ease' }} />
-      </div>
+      <BudgetBar spent={budget.spent} amount={budget.amount} small={small} />
       <div className="flex items-center justify-between" style={{ marginTop: '0.15rem' }}>
         <span className="label-sm" style={{ color: over ? 'var(--danger)' : undefined, fontWeight: over ? 700 : undefined }}>
           {formatMoney(budget.spent, budget.currencyCode)} из {formatMoney(budget.amount, budget.currencyCode)} · {percent}%

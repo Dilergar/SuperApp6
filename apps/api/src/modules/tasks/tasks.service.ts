@@ -16,6 +16,8 @@ import { AccessProjectionService } from '../../core/access/access-projection.ser
 import { Principal } from '../../core/access/access.types';
 import { MessengerService } from '../messenger/messenger.service';
 import { QuickActionRegistry } from '../../core/quick-actions/quick-actions.registry';
+import { FilesService } from '../../core/files/files.service';
+import { FilesRefRegistry } from '../../core/files/files-ref.registry';
 import { fullName } from '../../shared/utils/user-name';
 import { Prisma } from '@prisma/client';
 import type {
@@ -26,6 +28,8 @@ import type {
   CreateTaskRequest,
   UpdateTaskRequest,
   TaskFilter,
+  TaskStats,
+  FileDto,
 } from '@superapp/shared';
 
 // What every task query pulls so a row can be mapped to the shared Task DTO.
@@ -64,6 +68,8 @@ export class TasksService implements OnModuleInit {
     private quickActions: QuickActionRegistry,
     private moduleRef: ModuleRef,
     private contacts: ContactsService,
+    private files: FilesService,
+    private filesRegistry: FilesRefRegistry,
   ) {}
 
   onModuleInit(): void {
@@ -76,6 +82,70 @@ export class TasksService implements OnModuleInit {
       scopes: ['composer', 'message'],
       description: 'Поставить задачу из чата',
     });
+
+    // Вложения задачи (движок файлов): доступ наследуется от задачи; прикрепляют
+    // создатель и участники (зеркало assertCanView).
+    this.filesRegistry.register('task', {
+      canView: async (viewerId, taskId) => {
+        const task = await this.db.task.findUnique({
+          where: { id: taskId },
+          select: { creatorId: true, participants: { select: { userId: true } } },
+        });
+        if (!task) return false;
+        if (await this.access.can(this.user(viewerId), 'task.view', taskId)) return true;
+        return task.creatorId === viewerId || task.participants.some((p) => p.userId === viewerId);
+      },
+      canAttach: async (userId, taskId) => {
+        const task = await this.db.task.findUnique({
+          where: { id: taskId },
+          select: { creatorId: true, participants: { select: { userId: true } } },
+        });
+        if (!task) return false;
+        return this.isCreatorOrParticipant(task, userId);
+      },
+    }, { allowedProfiles: ['chat_attachment', 'document', 'voice_message', 'generic'] });
+  }
+
+  /** Постановщик или любой участник задачи (единый предикат вложений/чата) */
+  private isCreatorOrParticipant(
+    task: { creatorId: string; participants: { userId: string }[] },
+    userId: string,
+  ): boolean {
+    return task.creatorId === userId || task.participants.some((p) => p.userId === userId);
+  }
+
+  // ============================================================
+  // Вложения задачи (FileLink refType='task')
+  // ============================================================
+
+  async listAttachments(userId: string, taskId: string): Promise<FileDto[]> {
+    const task = await this.db.task.findUnique({
+      where: { id: taskId },
+      select: { creatorId: true, participants: { select: { userId: true } } },
+    });
+    if (!task) throw new NotFoundException('Задача не найдена');
+    await this.assertCanView(userId, taskId, task);
+    return (await this.files.listLinked('task', [taskId])).get(taskId) ?? [];
+  }
+
+  async attachFile(userId: string, taskId: string, fileId: string): Promise<FileDto[]> {
+    const task = await this.db.task.findUnique({
+      where: { id: taskId },
+      select: { creatorId: true, participants: { select: { userId: true } } },
+    });
+    if (!task) throw new NotFoundException('Задача не найдена');
+    if (!this.isCreatorOrParticipant(task, userId)) {
+      throw new ForbiddenException('Прикреплять файлы могут постановщик и участники');
+    }
+    await this.files.getOwnedReadyFiles(userId, [fileId]); // ready + uploader === userId
+    await this.files.linkFile(userId, fileId, 'task', taskId);
+    return (await this.files.listLinked('task', [taskId])).get(taskId) ?? [];
+  }
+
+  async removeAttachment(userId: string, taskId: string, fileId: string): Promise<void> {
+    // unlinkAndReap отвяжет ИМЕННО эту связь и прибёрет файл лишь если она реально была
+    // снята — передача чужого/непривязанного fileId больше не удаляет непричастный файл.
+    await this.files.unlinkAndReap(userId, fileId, 'task', taskId);
   }
 
   private user(id: string): Principal {
@@ -161,6 +231,13 @@ export class TasksService implements OnModuleInit {
     }
     // else: self-task — no participants, no acceptance step.
 
+    // Вложения «с порога» (из модалки создания): предвалидация ДО транзакции —
+    // файлы готовы и принадлежат создателю (движок бросит 400), линковка внутри tx.
+    const attachmentFileIds = data.attachmentFileIds ?? [];
+    if (attachmentFileIds.length) {
+      await this.files.getOwnedReadyFiles(userId, attachmentFileIds);
+    }
+
     if (data.observerIds?.length) {
       if (!opts.skipEnvironmentChecks) await this.assertInEnvironment(userId, data.observerIds);
       for (const id of data.observerIds) setRole(id, 'observer');
@@ -189,6 +266,14 @@ export class TasksService implements OnModuleInit {
           dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
           startDate: data.startDate ? new Date(data.startDate) : undefined,
           allDay: data.allDay ?? false,
+          // «Входящие»: только «голый» quick-add себе. Срок/родитель/участники значат,
+          // что задача уже разобрана; inbox-сабтаск к тому же был бы невидим в списках
+          // (глобальный фильтр parentId: null).
+          inbox:
+            (data.inbox ?? false) &&
+            !data.dueDate &&
+            !data.parentId &&
+            participantsCreate.length === 0,
           reminderAt: data.reminderAt ? new Date(data.reminderAt) : undefined,
           recurrenceRule: data.recurrenceRule,
           creatorId: userId,
@@ -204,6 +289,9 @@ export class TasksService implements OnModuleInit {
         include: TASK_INCLUDE,
       });
       await this.freezeReward(tx, created.id, userId, workerIds, reward);
+      if (attachmentFileIds.length) {
+        await this.files.linkManyInTx(tx, userId, attachmentFileIds, 'task', created.id);
+      }
       return created;
     });
 
@@ -309,6 +397,11 @@ export class TasksService implements OnModuleInit {
     const open = { notIn: ['done', 'cancelled'] };
 
     switch (smartList) {
+      case 'inbox':
+        // «Входящие» — личная разборная папка: только МОИ quick-add записи.
+        // Выполненные покидают Входящие сами (флаг не снимается — история честная).
+        and.push({ inbox: true, creatorId: userId, status: open });
+        break;
       case 'today':
         and.push({ status: open, dueDate: { gte: startOfToday, lte: endOfToday } });
         break;
@@ -316,7 +409,16 @@ export class TasksService implements OnModuleInit {
         and.push({ status: open, dueDate: { gt: endOfToday } });
         break;
       case 'overdue':
-        and.push({ status: open, dueDate: { lt: now } });
+        // Todoist-семантика: задача «весь день» на сегодня НЕ просрочена до конца дня
+        // (иначе висела бы в «Просроченных» с 00:00); задача со временем — просрочена
+        // с момента срока.
+        and.push({
+          status: open,
+          OR: [
+            { allDay: false, dueDate: { lt: now } },
+            { allDay: true, dueDate: { lt: startOfToday } },
+          ],
+        });
         break;
       case 'assigned_to_me':
         and.push({ participants: { some: { userId, role: { in: ['executor', 'co_executor'] } } } });
@@ -329,6 +431,47 @@ export class TasksService implements OnModuleInit {
         and.push({ creatorId: userId, participants: { some: { status: 'submitted' } } });
         break;
     }
+  }
+
+  /**
+   * Счётчики смарт-листов — бейджи сайдбара и карточки «Обзора». Переиспользует
+   * applySmartList, чтобы предикаты видимости/списков жили в одном месте (нет дрейфа
+   * между списком и его цифрой). assignedToMe/createdByMe — только ОТКРЫТЫЕ задачи
+   * (бейдж = «требует внимания»), в отличие от одноимённых полных списков.
+   */
+  async getStats(userId: string): Promise<TaskStats> {
+    const lists = [
+      'inbox',
+      'today',
+      'overdue',
+      'upcoming',
+      'assigned_to_me',
+      'created_by_me',
+      'on_review',
+    ] as const;
+
+    const counts = await Promise.all(
+      lists.map((list) => {
+        const and: Prisma.TaskWhereInput[] = [
+          { OR: [{ creatorId: userId }, { participants: { some: { userId } } }] },
+        ];
+        this.applySmartList(list, userId, and);
+        if (list === 'assigned_to_me' || list === 'created_by_me') {
+          and.push({ status: { notIn: ['done', 'cancelled'] } });
+        }
+        return this.db.task.count({ where: { parentId: null, AND: and } });
+      }),
+    );
+
+    return {
+      inbox: counts[0],
+      today: counts[1],
+      overdue: counts[2],
+      upcoming: counts[3],
+      assignedToMe: counts[4],
+      createdByMe: counts[5],
+      onReview: counts[6],
+    };
   }
 
   async getTask(userId: string, taskId: string): Promise<TaskDto> {
@@ -460,6 +603,15 @@ export class TasksService implements OnModuleInit {
     }
     if (data.recurrenceRule !== undefined) patch.recurrenceRule = data.recurrenceRule;
 
+    // «Входящие»: ручное «Разобрано» + авто-уточнение — назначенный срок или исполнитель
+    // означает, что запись разобрана (GTD clarify, Todoist-модель).
+    if (data.inbox !== undefined) patch.inbox = data.inbox;
+    const clarified =
+      (data.dueDate !== undefined && data.dueDate !== null) ||
+      !!data.executorId ||
+      !!data.addCoExecutorIds?.length;
+    if (clarified) patch.inbox = false;
+
     // Direct status moves: starting work, cancelling. Acceptance flow has dedicated endpoints.
     if (data.status !== undefined) {
       if (data.status === 'done' || data.status === 'on_review') {
@@ -579,6 +731,9 @@ export class TasksService implements OnModuleInit {
       await this.escrow.releaseAll(tx, { refType: 'task', refId: taskId }); // refund any frozen / paid reward to the creator
       await tx.task.delete({ where: { id: taskId } });
     });
+    // Вложения задачи (полиморфный FileLink не каскадится со строкой задачи) —
+    // отвязать и прибрать сироты, иначе файлы вечно висят в квоте загрузившего.
+    await this.files.unlinkAllForRef('task', taskId).catch(() => undefined);
     await this.accessProjection.taskDeleted(taskId);
     await this.messenger.deleteTaskChat(taskId);
     this.events.emit('task.deleted', { taskId }, 'tasks');
@@ -1092,6 +1247,7 @@ export class TasksService implements OnModuleInit {
       description: task.description,
       status: task.status as TaskDto['status'],
       priority: task.priority as TaskDto['priority'],
+      inbox: task.inbox,
       dueDate: task.dueDate?.toISOString() ?? null,
       startDate: task.startDate?.toISOString() ?? null,
       allDay: task.allDay,
