@@ -249,6 +249,19 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
     pushByDefault: true,
     category: 'system',
   },
+  // Voice engine — Диктофон
+  'voice.transcript.ready': {
+    title: 'Расшифровка «{{title}}» готова',
+    icon: '🎙️',
+    pushByDefault: true,
+    category: 'system',
+  },
+  'voice.transcript.failed': {
+    title: 'Не удалось расшифровать «{{title}}»',
+    icon: '🎙️',
+    pushByDefault: false,
+    category: 'system',
+  },
   // Processes (бизнес-процессы)
   'process.finished': {
     title: 'Процесс «{{processName}}» завершён',

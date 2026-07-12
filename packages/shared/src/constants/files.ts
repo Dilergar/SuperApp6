@@ -23,7 +23,21 @@ export const DOCUMENT_MIME = [
   'text/csv',
 ];
 
-export const AUDIO_MIME = ['audio/ogg', 'audio/webm', 'audio/mp4', 'audio/mpeg', 'audio/wav', 'audio/x-wav'];
+export const AUDIO_MIME = [
+  'audio/ogg',
+  'audio/webm',
+  'audio/mp4',
+  'audio/mpeg',
+  'audio/wav',
+  'audio/x-wav',
+  // Реальные выгрузки диктофонов/телефонов (Plaud: mp3/wav; iPhone: m4a/aac)
+  'audio/aac',
+  'audio/x-m4a',
+  'audio/flac',
+  // Вариации браузеров/ОС: Windows-Chromium часто отдаёт .mp3 как audio/mp3
+  'audio/mp3',
+  'audio/x-flac',
+];
 
 export const VIDEO_MIME = ['video/mp4', 'video/webm', 'video/quicktime'];
 
@@ -50,6 +64,8 @@ export const FILE_PROFILES: Record<string, FileProfileSpec> = {
   chat_attachment: { kind: 'any', maxSize: 200 * MB, allowedMime: null, visibility: 'private', makeVariants: true },
   /** Голосовое сообщение (MediaRecorder: ogg/webm/mp4) */
   voice_message: { kind: 'audio', maxSize: 20 * MB, allowedMime: AUDIO_MIME, visibility: 'private', makeVariants: true },
+  /** Запись Диктофона (собрание/лекция) — ровно hardMaxSize (~3.5ч mp3 / 6ч+ m4a) */
+  dictaphone: { kind: 'audio', maxSize: 200 * MB, allowedMime: AUDIO_MIME, visibility: 'private', makeVariants: true },
   /** Документ (Word/Excel/PDF/…) — приватный, без вариантов (текст-извлечение придёт с RAG) */
   document: { kind: 'document', maxSize: 50 * MB, allowedMime: DOCUMENT_MIME, visibility: 'private', makeVariants: false },
   /** Фолбэк без специфики */

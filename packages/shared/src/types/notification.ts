@@ -51,6 +51,9 @@ export type NotificationType =
   | 'mention.received' // someone @mentioned you (messenger / task / event …)
   // Files engine — антивирус
   | 'files.scan.infected' // загруженный вами файл заражён и заблокирован
+  // Voice engine — Диктофон
+  | 'voice.transcript.ready' // расшифровка записи готова (→ владелец записи)
+  | 'voice.transcript.failed' // расшифровка не удалась (→ владелец записи)
   // Processes (бизнес-процессы)
   | 'process.finished' // запущенный вами процесс дошёл до конца (→ инициатор)
   | 'process.failed' // процесс остановился с ошибкой (→ инициатор)

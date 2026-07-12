@@ -302,9 +302,13 @@ function MessengerInner() {
         // attachment без подписи: клиентский фолбэк превью (сервер пришлёт своё при рефетче)
         let attachmentFallback: string | null = null;
         if (msg.type === 'attachment') {
-          const files = (msg.payload as { files?: unknown[] } | null)?.files;
+          const files = (msg.payload as { files?: Array<{ kind?: string; profile?: string }> } | null)?.files;
           const n = Array.isArray(files) ? files.length : 0;
-          attachmentFallback = n > 1 ? `📎 Файлы: ${n}` : '📎 Файл';
+          if (n === 1 && files?.[0]?.kind === 'audio') {
+            attachmentFallback = files[0]?.profile === 'voice_message' ? '🎤 Голосовое сообщение' : '🎵 Аудио';
+          } else {
+            attachmentFallback = n > 1 ? `📎 Файлы: ${n}` : '📎 Файл';
+          }
         }
         const updated: ChatSummary = {
           ...chat,

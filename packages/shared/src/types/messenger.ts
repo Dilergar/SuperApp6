@@ -21,6 +21,8 @@ export interface AttachmentFileRef {
   kind: 'image' | 'video' | 'audio' | 'document' | 'other';
   size: number;
   mime?: string;
+  /** Профиль загрузки (voice_message → голосовой бабл/превью 🎤); у старых сообщений отсутствует */
+  profile?: string;
 }
 
 /**

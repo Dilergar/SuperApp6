@@ -75,6 +75,8 @@ jobs:
         run: npx tsc --noEmit
 
       # The verify scripts read apps/api/.env directly — give them the CI connection strings.
+      # VOICE_STT_MOCK=true — голосовой движок на mock-драйвере: verify-voice.cjs
+      # гоняет полный пайплайн транскрипции без whisper-контейнера и сети.
       - name: Write apps/api/.env for verify scripts
         working-directory: apps/api
         run: |
@@ -84,6 +86,7 @@ jobs:
             echo "JWT_SECRET=$JWT_SECRET"
             echo "NODE_ENV=test"
             echo "PORT=3001"
+            echo "VOICE_STT_MOCK=true"
           } > .env
 
       - name: Start API

@@ -1409,7 +1409,7 @@ export class MessengerService implements OnModuleInit {
     const files = await this.files.getOwnedReadyFiles(userId, fileIds);
     const payload: AttachmentsPayload = {
       kind: 'attachments',
-      files: files.map((f) => ({ fileId: f.id, name: f.name, kind: f.kind, size: f.size, mime: f.mime })),
+      files: files.map((f) => ({ fileId: f.id, name: f.name, kind: f.kind, size: f.size, mime: f.mime, profile: f.profile })),
     };
     const content = caption?.trim() ? caption.trim() : null;
 
@@ -1745,10 +1745,13 @@ export class MessengerService implements OnModuleInit {
     };
   }
 
-  /** Превью attachment-сообщения без подписи: «📎 Файл» / «📎 Файлы: N» */
+  /** Превью attachment-сообщения без подписи: «🎤 Голосовое» / «📎 Файл» / «📎 Файлы: N» */
   private attachmentPreviewText(payload: unknown): string {
-    const files = (payload as { files?: unknown[] } | null)?.files;
+    const files = (payload as { files?: Array<{ kind?: string; profile?: string }> } | null)?.files;
     const n = Array.isArray(files) ? files.length : 0;
+    if (n === 1 && files?.[0]?.kind === 'audio') {
+      return files[0]?.profile === 'voice_message' ? '🎤 Голосовое сообщение' : '🎵 Аудио';
+    }
     return n <= 1 ? '📎 Файл' : `📎 Файлы: ${n}`;
   }
 

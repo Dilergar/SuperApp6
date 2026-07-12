@@ -7,6 +7,7 @@ import { FileChip } from '@/components/files/FileChip';
 import { ImageLightbox } from '@/components/files/ImageLightbox';
 import { VideoPlayer } from '@/components/files/VideoPlayer';
 import { AudioPlayer } from '@/components/files/AudioPlayer';
+import { TranscriptBlock, VoiceMessageBubble } from './VoiceMessageBubble';
 
 // ============================================================
 // Ф9: тело attachment-сообщения — фото/видео альбом-сеткой (Telegram),
@@ -132,10 +133,25 @@ function AudioTile({ fileRef }: { fileRef: AttachmentFileRef }) {
   const { meta } = useFileMeta(fileRef.fileId);
   if (!meta) {
     return (
-      <div style={{ fontSize: '0.78rem', color: 'var(--on-surface-variant)' }}>🎵 {fileRef.name}…</div>
+      <div style={{ fontSize: '0.78rem', color: 'var(--on-surface-variant)' }}>
+        {fileRef.profile === 'voice_message' ? '🎤' : '🎵'} {fileRef.name}…
+      </div>
     );
   }
-  return <AudioPlayer file={meta} />;
+  // Голосовое с волной → голосовой бабл; иначе (музыка/старые файлы/dev без ffmpeg) — плеер.
+  // «Расшифровать» доступна ЛЮБОМУ аудио-вложению (движку всё равно, откуда файл)
+  const waveform = (meta.meta as { waveform?: unknown } | null)?.waveform;
+  if (meta.profile === 'voice_message' && Array.isArray(waveform) && waveform.length > 0) {
+    return <VoiceMessageBubble file={meta} />;
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+      <AudioPlayer file={meta} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', paddingLeft: '0.4rem' }}>
+        <TranscriptBlock fileId={meta.id} />
+      </div>
+    </div>
+  );
 }
 
 /** Документ/прочее: чип со скачиванием (данные из снимка payload — без meta-запроса) */

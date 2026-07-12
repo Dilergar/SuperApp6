@@ -17,6 +17,7 @@ import { presenceStatusLine } from './presence-ui';
 import { RichCardWidget } from './RichCardWidget';
 import { FileAttachmentModal } from './FileAttachmentModal';
 import { AttachmentContent } from './AttachmentContent';
+import { VoiceRecordButton } from './VoiceRecordButton';
 import { AttachCardModal } from './AttachCardModal';
 import { MentionInput } from './MentionInput';
 import { renderMessageContent } from './mention-render';
@@ -330,6 +331,15 @@ export function Conversation({
     onSendRef.current(text, replyingToRef.current?.id);
     setReplyingTo(null);
     onTypingRef.current?.(false); // stop the typing indicator the moment we send
+    atBottomRef.current = true;
+    requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ block: 'end' }));
+  }, []);
+
+  // Голосовое: файл уже загружен профилем voice_message → шлём существующим
+  // attachment-путём (ровно как FileAttachmentModal)
+  const handleVoiceSent = useCallback((fileId: string) => {
+    onSendAttachmentsRef.current?.([fileId], '', replyingToRef.current?.id);
+    setReplyingTo(null);
     atBottomRef.current = true;
     requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ block: 'end' }));
   }, []);
@@ -778,6 +788,7 @@ export function Conversation({
         >
           🏷️
         </button>
+        {onSendAttachments && <VoiceRecordButton onSent={handleVoiceSent} />}
         <Composer chatId={detail.id} onSend={handleComposerSend} onTypingChange={stableTyping} />
       </div>
 

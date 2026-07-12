@@ -77,6 +77,10 @@ export const fileUrlKey = (id: string, variant?: string) =>
   ['files', 'url', id, variant ?? 'original'] as const;
 export const fileMetaKey = (id: string) => ['files', 'meta', id] as const;
 export const taskAttachmentsKey = (taskId: string) => ['tasks', 'attachments', taskId] as const;
+// Голосовой движок (core/voice) + Диктофон
+export const voiceStatusKey = ['voice', 'status'] as const;
+export const voiceTranscriptKey = (fileId: string) => ['voice', 'transcript', fileId] as const;
+export const recorderRecordingsKey = ['recorder', 'recordings'] as const;
 
 // ---- Fetchers ----
 

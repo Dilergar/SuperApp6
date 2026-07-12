@@ -80,8 +80,39 @@ services:
       retries: 10
       start_period: 120s
 
+  # STT-сервер голосового движка (core/voice): OpenAI-совместимый Whisper
+  # (faster-whisper) + диаризация спикеров. Опциональный профиль:
+  # запуск: docker compose --profile voice up -d
+  # Первый старт долгий — качается модель (start_period 300s). CPU-образ;
+  # для GPU — тег hwdsl2/whisper-server:cuda + NVIDIA Container Toolkit.
+  # Модель: WHISPER_MODEL=small (дев-дефолт; для качества ru/kk — large-v3-turbo).
+  # Затем задать в apps/api/.env:
+  #   VOICE_STT_URL=http://localhost:9000
+  #   VOICE_STT_API_KEY=superapp6-voice-dev   (= WHISPER_API_KEY ниже; смени в проде!)
+  whisper:
+    image: hwdsl2/whisper-server
+    container_name: superapp6-whisper
+    profiles: ['voice']
+    restart: unless-stopped
+    ports:
+      - '9000:9000'
+    environment:
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      WHISPER_DIARIZATION: 'true'
+      WHISPER_COMPUTE_TYPE: int8
+      WHISPER_API_KEY: ${WHISPER_API_KEY:-superapp6-voice-dev}
+    volumes:
+      - whisper_data:/var/lib/whisper
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fs -H "Authorization: Bearer $$WHISPER_API_KEY" http://localhost:9000/v1/models || wget -q -O /dev/null --header "Authorization: Bearer $$WHISPER_API_KEY" http://localhost:9000/v1/models || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 300s
+
 volumes:
   postgres_data:
   redis_data:
   seaweed_data:
   clamav_data:
+  whisper_data:

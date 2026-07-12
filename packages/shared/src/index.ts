@@ -22,6 +22,7 @@ export * from './types/card-skin';
 export * from './types/process';
 export * from './types/finance';
 export * from './types/file';
+export * from './types/voice';
 export * from './types/common';
 
 // Validation schemas
@@ -44,6 +45,7 @@ export * from './validation/card-skin';
 export * from './validation/process';
 export * from './validation/finance';
 export * from './validation/file';
+export * from './validation/voice';
 
 // Utils
 export * from './utils/phone';
@@ -72,3 +74,4 @@ export * from './constants/card-skin';
 export * from './constants/process';
 export * from './constants/finance';
 export * from './constants/files';
+export * from './constants/voice';

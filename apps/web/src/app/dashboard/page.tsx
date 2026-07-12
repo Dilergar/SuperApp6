@@ -14,6 +14,7 @@ const services = [
   { title: 'Календарь', description: 'События и расписание', color: 'var(--tertiary-container)', href: '/calendar' },
   { title: 'My Wish & Shop', description: 'Витрины за коины и списки желаний', color: 'var(--primary-container)', href: '/shop' },
   { title: 'Финансы', description: 'Счета, траты, лимиты и долги', color: 'var(--tertiary-container)', href: '/finance' },
+  { title: 'Диктофон', description: 'Запись встреч и расшифровка речи', color: 'var(--secondary-container)', href: '/recorder' },
 ];
 
 export default function DashboardPage() {

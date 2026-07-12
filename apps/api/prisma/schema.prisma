@@ -1904,8 +1904,9 @@ model FileObject {
   readyAt       DateTime? @map("ready_at")
   deletedAt     DateTime? @map("deleted_at")
 
-  links    FileLink[]
-  variants FileVariant[]
+  links      FileLink[]
+  variants   FileVariant[]
+  transcript VoiceTranscript?
 
   @@index([ownerType, ownerId, status])
   @@index([status, createdAt]) // крон-свипы: зависшие uploading / просроченные deleted
@@ -1957,4 +1958,52 @@ model FileQuotaUsage {
 
   @@unique([ownerType, ownerId])
   @@map("file_quota_usage")
+}
+
+// ============================================
+// VOICE ENGINE (core/voice) — 7-й платформенный движок: транскрипция аудио
+// Транскрипт ключуется по файлу (1 файл = 1 расчёт навсегда); джоб и результат
+// в одной строке — клейм status-guarded updateMany (дисциплина FilesScanHook).
+// Доступ к транскрипту = доступ к файлу (резолвер привязки в FilesRefRegistry).
+// ============================================
+
+model VoiceTranscript {
+  id               String    @id @default(uuid())
+  fileId           String    @unique @map("file_id")
+  status           String    @default("queued") // queued | processing | ready | error
+  language         String? // запрошенный язык: auto | ru | kk | en
+  detectedLanguage String?   @map("detected_language") // что определил STT (ISO-код)
+  text             String?   @db.Text
+  segments         Json? // [{start,end,text,speaker?}]
+  provider         String? // драйвер: openai_compatible | mock
+  model            String?
+  durationMs       Int?      @map("duration_ms")
+  diarize          Boolean   @default(false)
+  error            String?
+  attempts         Int       @default(0)
+  requestedById    String    @map("requested_by_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  readyAt          DateTime? @map("ready_at")
+
+  file FileObject @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([status, updatedAt]) // крон-редрайв зависших джобов
+  @@map("voice_transcripts")
+}
+
+// Запись Диктофона: владелец + титул; файл привязан FileLink'ом
+// refType='voice_recording' (без прямого FK — паттерн движка файлов).
+model VoiceRecording {
+  id         String   @id @default(uuid())
+  ownerId    String   @map("owner_id")
+  title      String
+  source     String   @default("upload") // upload | web | terminal
+  language   String? // предпочтительный язык расшифровки
+  durationMs Int?     @map("duration_ms")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([ownerId, createdAt])
+  @@map("voice_recordings")
 }

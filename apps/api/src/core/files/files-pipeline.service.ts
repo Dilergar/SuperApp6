@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { execFile } from 'child_process';
 import { randomUUID } from 'crypto';
-import { FILE_LIMITS, FILE_PROFILES } from '@superapp/shared';
+import { FILE_LIMITS, FILE_PROFILES, VOICE_LIMITS } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
@@ -77,7 +77,7 @@ export class FilesPipelineService {
       } else if (row.kind === 'video') {
         Object.assign(patch, await this.processVideo(row.id, row.storageKey, source));
       } else if (row.kind === 'audio') {
-        Object.assign(patch, await this.processAudio(source));
+        Object.assign(patch, await this.processAudio(row.profile, source));
       }
 
       await this.setPipeline(fileId, meta, { ...patch, pipeline: 'done', pipelineError: undefined });
@@ -197,14 +197,60 @@ export class FilesPipelineService {
     return patch;
   }
 
-  private async processAudio(source: string): Promise<Record<string, unknown>> {
+  private async processAudio(profile: string, source: string): Promise<Record<string, unknown>> {
     const bins = this.ffBinaries();
     if (!bins) {
       this.logger.warn('ffprobe недоступен — пропускаю длительность аудио');
       return {};
     }
     const probe = await this.ffprobe(bins.ffprobe, source);
-    return probe.durationMs ? { durationMs: probe.durationMs } : {};
+    const patch: Record<string, unknown> = {};
+    if (probe.durationMs) patch.durationMs = probe.durationMs;
+
+    // Волна (meta.waveform) — для голосовых всегда, для Диктофона до 10 мин;
+    // best-effort: не получилась → файл живёт без волны (веб рисует обычный плеер)
+    const withinCap = probe.durationMs == null || probe.durationMs <= VOICE_LIMITS.waveformMaxDurationMs;
+    if (withinCap && (profile === 'voice_message' || profile === 'dictaphone')) {
+      const waveform = await this.computeWaveform(bins.ffmpeg, source);
+      if (waveform) patch.waveform = waveform;
+    }
+    return patch;
+  }
+
+  /**
+   * Волна голосового: децимация в 2 кГц mono s16 PCM во ВРЕМЕННЫЙ ФАЙЛ (execFF
+   * возвращает stdout строкой — бинарный поток через него нельзя), RMS по
+   * waveformBuckets корзинам, пик-нормировка 0..100.
+   */
+  private async computeWaveform(ffmpegBin: string, source: string): Promise<number[] | null> {
+    const out = path.join(os.tmpdir(), `sa6-wave-${randomUUID()}.pcm`);
+    try {
+      await this.execFF(ffmpegBin, ['-y', '-i', source, '-ac', '1', '-ar', '2000', '-f', 's16le', out]);
+      const buf = await fs.promises.readFile(out);
+      const samples = Math.floor(buf.length / 2);
+      if (!samples) return null;
+      const buckets = VOICE_LIMITS.waveformBuckets;
+      const per = Math.max(1, Math.floor(samples / buckets));
+      const peaks: number[] = [];
+      for (let b = 0; b < buckets; b++) {
+        const from = b * per;
+        if (from >= samples) break;
+        const to = Math.min(samples, from + per);
+        let sum = 0;
+        for (let i = from; i < to; i++) {
+          const v = buf.readInt16LE(i * 2);
+          sum += v * v;
+        }
+        peaks.push(Math.sqrt(sum / (to - from)));
+      }
+      const max = Math.max(...peaks, 1);
+      return peaks.map((p) => Math.round((p / max) * 100));
+    } catch (err) {
+      this.logger.warn(`waveform: ${err instanceof Error ? err.message : err}`);
+      return null;
+    } finally {
+      await fs.promises.unlink(out).catch(() => undefined);
+    }
   }
 
   /** ffmpeg-static/ffprobe-static: их отсутствие не валит движок (dev без бинарников) */

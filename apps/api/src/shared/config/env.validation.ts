@@ -35,6 +35,12 @@ const envSchema = z
     // --- Антивирус файлов (опционально; пусто → скан выключен) ---
     CLAMAV_HOST: z.string().min(1).optional(),
     CLAMAV_PORT: z.coerce.number().int().positive().optional(),
+    // --- Голосовой движок (core/voice) — STT; пусто → расшифровка выключена ---
+    VOICE_STT_URL: z.string().url('должен быть URL OpenAI-совместимого STT-сервера').optional(),
+    VOICE_STT_API_KEY: z.string().min(1).optional(),
+    VOICE_STT_MODEL: z.string().min(1).optional(),
+    VOICE_STT_MODEL_KK: z.string().min(1).optional(),
+    VOICE_STT_MOCK: z.enum(['true', 'false']).optional(),
   })
   .superRefine((env, ctx) => {
     if (env.FILES_DRIVER === 's3') {

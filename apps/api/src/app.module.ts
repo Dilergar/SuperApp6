@@ -18,6 +18,7 @@ import { RichCardsModule } from './core/rich-cards/rich-cards.module';
 import { SearchModule } from './core/search/search.module';
 import { QuickActionsModule } from './core/quick-actions/quick-actions.module';
 import { FilesModule } from './core/files/files.module';
+import { VoiceModule } from './core/voice/voice.module';
 
 // Feature modules (MVP)
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -34,6 +35,7 @@ import { MessengerModule } from './modules/messenger/messenger.module';
 import { CardSkinsModule } from './modules/card-skins/card-skins.module';
 import { ProcessesModule } from './modules/processes/processes.module';
 import { FinancesModule } from './modules/finances/finances.module';
+import { RecorderModule } from './modules/recorder/recorder.module';
 
 import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
 import { WorkspaceContextInterceptor } from './shared/interceptors/workspace-context.interceptor';
@@ -89,6 +91,10 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // (метаданные+связи+варианты в БД, байты у драйвера local|s3). Потребители
     // регистрируют refType-резолверы в FilesRefRegistry; v1 — фундамент без потребителей.
     FilesModule,
+    // Voice engine — 7-й платформенный движок: транскрипция аудио (STT по драйверу:
+    // self-host whisper-server/OpenAI-совместимый | mock), подготовка звука ffmpeg,
+    // диаризация спикеров. Транскрипт ключуется по fileId; доступ = доступ к файлу.
+    VoiceModule,
 
     // Feature modules — each is self-contained.
     // Load order: Notifications → Contacts (@Global, consumed by AuthService)
@@ -115,6 +121,9 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // Финансы (B2C) — редактируемая учётная книга с двойной записью (Firefly-модель);
     // кошелёк-леджер коинов остаётся отдельным расчётным слоем (read-only проекция).
     FinancesModule,
+    // Диктофон — потребитель голосового движка: записи собраний → транскрипт со
+    // спикерами (прото-Plaud); дом будущих протоколов и записей SuperTerminal6.
+    RecorderModule,
   ],
   providers: [
     // ONE error envelope app-wide ({success:false, statusCode, message, errors?}):
