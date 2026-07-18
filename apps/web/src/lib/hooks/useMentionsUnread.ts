@@ -1,17 +1,21 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { getMentions } from '@/lib/messenger-api';
+import { getMentionsUnreadCount } from '@/lib/messenger-api';
 
 // ============================================================
-// Mentions unread badge (Phase 5). Shares ONE react-query cache key
-// with the /mentions hub page, so marking things read there instantly
-// updates any badge using this hook (and vice-versa). Light polling
-// keeps the count fresh while a nav link is mounted.
+// Mentions unread badge (Phase 5). The badge polls the LIGHT
+// /mentions/unread-count endpoint (a count, not the whole feed);
+// the /mentions hub page keeps its own feed query on mentionsFeedKey.
+// The hub optimistically syncs mentionsUnreadCountKey on mark-read,
+// so the badge drops instantly without waiting for the next poll.
 // ============================================================
 
-/** The single feed cache key reused by the hub page + the badge. */
+/** The feed cache key used by the /mentions hub page. */
 export const mentionsFeedKey = ['mentions', 'feed'] as const;
+
+/** Cache key of the light unread counter (nav badges). */
+export const mentionsUnreadCountKey = ['mentions', 'unread-count'] as const;
 
 /**
  * Unread "mentions of me" count for a nav badge. `enabled=false` skips the
@@ -19,11 +23,11 @@ export const mentionsFeedKey = ['mentions', 'feed'] as const;
  */
 export function useMentionsUnread(enabled = true): number {
   const { data } = useQuery({
-    queryKey: mentionsFeedKey,
-    queryFn: () => getMentions(),
+    queryKey: mentionsUnreadCountKey,
+    queryFn: getMentionsUnreadCount,
     enabled,
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,
   });
-  return data?.unreadCount ?? 0;
+  return data ?? 0;
 }

@@ -374,7 +374,8 @@ export class ShopService implements OnModuleInit {
     // (иначе оба читают count=9<10 и оба линкуют → 11 фото).
     await this.db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "listings" WHERE id = ${listingId} FOR UPDATE`;
-      const count = await tx.fileLink.count({ where: { refType: 'listing', refId: listingId, role: 'gallery' } });
+      // Через API движка (countLinkedInTx), не прямым чтением file_links — carve-out закрыт.
+      const count = await this.files.countLinkedInTx(tx, 'listing', listingId, 'gallery');
       if (count >= SHOP_LIMITS.maxListingImages) {
         throw new BadRequestException(`Не больше ${SHOP_LIMITS.maxListingImages} фото у товара`);
       }
@@ -1018,6 +1019,9 @@ export class ShopService implements OnModuleInit {
     const due = await this.db.order.findMany({
       where: { crowdfunding: true, status: 'funding', expiresAt: { lt: new Date() } },
       select: { id: true, listingId: true, sellerId: true, titleSnapshot: true },
+      // Потолок как у остальных кронов: хвост доберёт следующий прогон (каждые 30 мин).
+      orderBy: { expiresAt: 'asc' },
+      take: 200,
     });
     let expired = 0;
     for (const c of due) {

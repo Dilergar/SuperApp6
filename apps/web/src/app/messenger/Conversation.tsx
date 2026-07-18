@@ -3,6 +3,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  CallActiveDto,
   ChatDetail,
   ChatMessage,
   RichCardPayload,
@@ -65,6 +66,10 @@ export function Conversation({
   onCardAttached,
   onMessagesChanged,
   onSendAttachments,
+  callsEnabled,
+  activeCall,
+  inCall,
+  onStartCall,
 }: {
   detail: ChatDetail;
   messages: ChatMessage[];
@@ -97,6 +102,14 @@ export function Conversation({
   onMessagesChanged?: () => void;
   /** Ф9: отправить альбом вложений (файлы уже загружены; ids + подпись + цитата). */
   onSendAttachments?: (fileIds: string[], caption: string, replyToId?: string) => void;
+  /** Движок звонков поднят (GET /calls/status) — иначе кнопка 📞 скрыта. */
+  callsEnabled?: boolean;
+  /** Живой созвон в этом чате (call:state поверх DTO) — баннер «Идёт звонок». */
+  activeCall?: CallActiveDto | null;
+  /** Оверлей звонка этого чата уже открыт у меня — баннер не показываем. */
+  inCall?: boolean;
+  /** Начать звонок / присоединиться (страница открывает CallOverlay). */
+  onStartCall?: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -436,6 +449,29 @@ export function Conversation({
             )
           )}
         </div>
+        {callsEnabled && onStartCall && detail.parentType !== 'office_room' && !activeCall && (
+          <button
+            onClick={onStartCall}
+            title="Позвонить"
+            aria-label="Позвонить"
+            style={{
+              flexShrink: 0,
+              background: 'var(--surface-container-high)',
+              border: 'none',
+              cursor: 'pointer',
+              width: '2.2rem',
+              height: '2.2rem',
+              borderRadius: 'var(--radius-sketch)',
+              fontSize: '1rem',
+              color: 'var(--on-surface-variant)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            📞
+          </button>
+        )}
         <button
           onClick={() => setShowScheduled(true)}
           title="Запланированные сообщения"
@@ -506,6 +542,34 @@ export function Conversation({
           </button>
         )}
       </div>
+
+      {/* Баннер живого звонка (Telegram-модель: присоединиться в любой момент) */}
+      {activeCall && !inCall && detail.parentType !== 'office_room' && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 'var(--spacing-3)',
+            padding: 'var(--spacing-2) var(--spacing-5)',
+            background: 'var(--secondary-container)',
+          }}
+        >
+          <span className="label-md" style={{ color: 'var(--secondary)', fontWeight: 700 }}>
+            📞 Идёт звонок · {activeCall.participantUserIds.length}
+            {activeCall.recording ? ' · ● Запись' : ''}
+          </span>
+          {onStartCall && (
+            <button
+              className="btn-secondary"
+              style={{ padding: '0.3rem 0.9rem', fontSize: '0.8rem' }}
+              onClick={onStartCall}
+            >
+              Присоединиться
+            </button>
+          )}
+        </div>
+      )}
 
       {/* In-chat search bar (toggled by the 🔍 header button) */}
       {searchOpen && (

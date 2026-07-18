@@ -4,7 +4,9 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import * as bcrypt from 'bcryptjs';
+// Нативный bcrypt (libuv threadpool): bcryptjs считал cost-12 хэш НА event-loop'е
+// (~0.5–1.5с CPU) — десяток одновременных логинов душил все запросы инстанса.
+import * as bcrypt from 'bcrypt';
 import { createHash, randomUUID } from 'node:crypto';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';

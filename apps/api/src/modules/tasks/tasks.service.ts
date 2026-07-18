@@ -18,6 +18,8 @@ import { MessengerService } from '../messenger/messenger.service';
 import { QuickActionRegistry } from '../../core/quick-actions/quick-actions.registry';
 import { FilesService } from '../../core/files/files.service';
 import { FilesRefRegistry } from '../../core/files/files-ref.registry';
+import { WorkspaceContextService } from '../../shared/context/workspace-context.service';
+import { DI_TOKENS } from '../../shared/di-tokens';
 import { fullName } from '../../shared/utils/user-name';
 import { Prisma } from '@prisma/client';
 import type {
@@ -70,6 +72,7 @@ export class TasksService implements OnModuleInit {
     private contacts: ContactsService,
     private files: FilesService,
     private filesRegistry: FilesRefRegistry,
+    private workspaceContext: WorkspaceContextService,
   ) {}
 
   onModuleInit(): void {
@@ -325,13 +328,34 @@ export class TasksService implements OnModuleInit {
   // Read
   // ============================================================
 
+  /**
+   * Id задач, где зритель — участник (индексная выборка task_participants[userId,…]).
+   * Зачем: предикат видимости `OR(creatorId, participants.some)` компилируется в
+   * `creator_id = $1 OR EXISTS(…)` — Postgres НЕ строит BitmapOr между колонкой и
+   * коррелированным EXISTS и уходит в скан всей таблицы tasks (перф-ревью 2026-07-18).
+   * `OR(creatorId, id IN (…))` даёт два индексных пути; список ограничен реальным
+   * участием пользователя.
+   */
+  private async myParticipantTaskIds(userId: string): Promise<string[]> {
+    const rows = await this.db.taskParticipant.findMany({
+      where: { userId },
+      select: { taskId: true },
+    });
+    return rows.map((r) => r.taskId);
+  }
+
+  /** Индексируемый предикат «я вижу задачу» (создатель ∨ участник по id-списку). */
+  private visibilityWhere(userId: string, participantTaskIds: string[]): Prisma.TaskWhereInput {
+    return { OR: [{ creatorId: userId }, { id: { in: participantTaskIds } }] };
+  }
+
   async getTasks(userId: string, filters: TaskFilter & { parentId?: string | null }) {
     const page = filters.page || 1;
     const limit = Math.min(filters.limit || 20, 100);
     const skip = (page - 1) * limit;
 
     const and: Prisma.TaskWhereInput[] = [
-      { OR: [{ creatorId: userId }, { participants: { some: { userId } } }] },
+      this.visibilityWhere(userId, await this.myParticipantTaskIds(userId)),
     ];
 
     // Subtasks are hidden from the inbox unless a specific parent is requested.
@@ -440,37 +464,89 @@ export class TasksService implements OnModuleInit {
    * (бейдж = «требует внимания»), в отличие от одноимённых полных списков.
    */
   async getStats(userId: string): Promise<TaskStats> {
-    const lists = [
-      'inbox',
-      'today',
-      'overdue',
-      'upcoming',
-      'assigned_to_me',
-      'created_by_me',
-      'on_review',
-    ] as const;
+    // Один raw-проход вместо 7 COUNT'ов с OR+EXISTS-предикатом (тот план — скан всей
+    // таблицы tasks; этот эндпоинт веб поллит раз в 60с с каждой открытой вкладки /tasks).
+    // CTE «мои задачи» = UNION двух индексных выборок (creator_id / task_participants),
+    // счётчики — COUNT(*) FILTER по этому ограниченному набору. Семантика каждого
+    // фильтра зеркалит applySmartList — менять только синхронно.
+    const now = new Date();
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
+    const endOfToday = new Date(now);
+    endOfToday.setHours(23, 59, 59, 999);
 
-    const counts = await Promise.all(
-      lists.map((list) => {
-        const and: Prisma.TaskWhereInput[] = [
-          { OR: [{ creatorId: userId }, { participants: { some: { userId } } }] },
-        ];
-        this.applySmartList(list, userId, and);
-        if (list === 'assigned_to_me' || list === 'created_by_me') {
-          and.push({ status: { notIn: ['done', 'cancelled'] } });
-        }
-        return this.db.task.count({ where: { parentId: null, AND: and } });
-      }),
-    );
+    // $queryRaw обходит chokepoint-скоуп ($extends действует только на model-API) —
+    // зеркалим его руками: активная организация в ALS → счётчики только её задач.
+    const wsId = this.workspaceContext.activeWorkspaceId;
+    const wsFilter = wsId ? Prisma.sql`AND workspace_id = ${wsId}` : Prisma.empty;
+    const wsFilterT = wsId ? Prisma.sql`AND t.workspace_id = ${wsId}` : Prisma.empty;
+
+    const rows = await this.db.$queryRaw<
+      Array<{
+        inbox: number;
+        today: number;
+        overdue: number;
+        upcoming: number;
+        assigned_to_me: number;
+        created_by_me: number;
+        on_review: number;
+      }>
+    >`
+      WITH mine AS (
+        SELECT id, creator_id, status, due_date, all_day, inbox
+        FROM tasks
+        WHERE parent_id IS NULL AND creator_id = ${userId} ${wsFilter}
+        UNION
+        SELECT t.id, t.creator_id, t.status, t.due_date, t.all_day, t.inbox
+        FROM tasks t
+        JOIN task_participants tp ON tp.task_id = t.id
+        WHERE t.parent_id IS NULL AND tp.user_id = ${userId} ${wsFilterT}
+      )
+      SELECT
+        COUNT(*) FILTER (
+          WHERE inbox AND creator_id = ${userId} AND status NOT IN ('done','cancelled')
+        )::int AS inbox,
+        COUNT(*) FILTER (
+          WHERE status NOT IN ('done','cancelled')
+            AND due_date >= ${startOfToday} AND due_date <= ${endOfToday}
+        )::int AS today,
+        COUNT(*) FILTER (
+          WHERE status NOT IN ('done','cancelled') AND (
+            (all_day = false AND due_date < ${now})
+            OR (all_day = true AND due_date < ${startOfToday})
+          )
+        )::int AS overdue,
+        COUNT(*) FILTER (
+          WHERE status NOT IN ('done','cancelled') AND due_date > ${endOfToday}
+        )::int AS upcoming,
+        COUNT(*) FILTER (
+          WHERE status NOT IN ('done','cancelled') AND EXISTS (
+            SELECT 1 FROM task_participants tp
+            WHERE tp.task_id = mine.id AND tp.user_id = ${userId}
+              AND tp.role IN ('executor','co_executor')
+          )
+        )::int AS assigned_to_me,
+        COUNT(*) FILTER (
+          WHERE creator_id = ${userId} AND status NOT IN ('done','cancelled')
+        )::int AS created_by_me,
+        COUNT(*) FILTER (
+          WHERE creator_id = ${userId} AND EXISTS (
+            SELECT 1 FROM task_participants tp
+            WHERE tp.task_id = mine.id AND tp.status = 'submitted'
+          )
+        )::int AS on_review
+      FROM mine
+    `;
+    const r = rows[0];
 
     return {
-      inbox: counts[0],
-      today: counts[1],
-      overdue: counts[2],
-      upcoming: counts[3],
-      assignedToMe: counts[4],
-      createdByMe: counts[5],
-      onReview: counts[6],
+      inbox: r?.inbox ?? 0,
+      today: r?.today ?? 0,
+      overdue: r?.overdue ?? 0,
+      upcoming: r?.upcoming ?? 0,
+      assignedToMe: r?.assigned_to_me ?? 0,
+      createdByMe: r?.created_by_me ?? 0,
+      onReview: r?.on_review ?? 0,
     };
   }
 
@@ -502,7 +578,7 @@ export class TasksService implements OnModuleInit {
     const tasks = await this.db.task.findMany({
       where: {
         AND: [
-          { OR: [{ creatorId: userId }, { participants: { some: { userId } } }] },
+          this.visibilityWhere(userId, await this.myParticipantTaskIds(userId)),
           { dueDate: { not: null } },
           {
             OR: [
@@ -657,7 +733,7 @@ export class TasksService implements OnModuleInit {
       );
       try {
         const processes = this.moduleRef.get<{ onTaskCancelled: (taskId: string) => Promise<void> }>(
-          'ProcessesService',
+          DI_TOKENS.ProcessesService,
           { strict: false },
         );
         await processes.onTaskCancelled(taskId);
@@ -925,7 +1001,7 @@ export class TasksService implements OnModuleInit {
   private async settleLinkedOrder(taskId: string): Promise<void> {
     try {
       const shop = this.moduleRef.get<{ onFulfillmentDone: (taskId: string) => Promise<void> }>(
-        'ShopService',
+        DI_TOKENS.ShopService,
         { strict: false },
       );
       await shop.onFulfillmentDone(taskId);
@@ -941,7 +1017,7 @@ export class TasksService implements OnModuleInit {
   private async settleLinkedProcess(taskId: string): Promise<void> {
     try {
       const processes = this.moduleRef.get<{ onTaskCompleted: (taskId: string) => Promise<void> }>(
-        'ProcessesService',
+        DI_TOKENS.ProcessesService,
         { strict: false },
       );
       await processes.onTaskCompleted(taskId);

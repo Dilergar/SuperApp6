@@ -2,12 +2,13 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { execFile } from 'child_process';
 import { randomUUID } from 'crypto';
-import { FILE_LIMITS, FILE_PROFILES, VOICE_LIMITS } from '@superapp/shared';
+import { FILE_LIMITS, FILE_PROFILES, VOICE_LIMITS, FileProfileSpec } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
+import { execFF, ffBinaries, ffprobeFormat } from '../../shared/ffmpeg/ffmpeg.util';
+import { mediaSemaphore } from '../../shared/utils/semaphore';
 import { STORAGE_DRIVER, StorageDriver } from './storage/storage-driver';
 
 /**
@@ -44,8 +45,11 @@ export class FilesPipelineService {
 
   /** Запуск обработки файла (fire-and-forget из complete(); повторно — из крона) */
   async process(fileId: string): Promise<void> {
+    // Redis-лок — ПЕР-ФАЙЛОВЫЙ (не задваивает один файл); mediaSemaphore —
+    // пер-инстансный потолок конкуренции: без него 30 одновременных загрузок видео
+    // = 30 параллельных ffmpeg/sharp, душащих event-loop инстанса.
     const ran = await this.redis.withLock(`files:pipeline:${fileId}`, 5 * 60 * 1000, () =>
-      this.run(fileId),
+      mediaSemaphore.run(() => this.run(fileId)),
     );
     if (ran === null) this.logger.debug(`pipeline ${fileId}: занят другим инстансом`);
   }
@@ -77,7 +81,7 @@ export class FilesPipelineService {
       } else if (row.kind === 'video') {
         Object.assign(patch, await this.processVideo(row.id, row.storageKey, source));
       } else if (row.kind === 'audio') {
-        Object.assign(patch, await this.processAudio(row.profile, source));
+        Object.assign(patch, await this.processAudio(spec, source));
       }
 
       await this.setPipeline(fileId, meta, { ...patch, pipeline: 'done', pipelineError: undefined });
@@ -168,12 +172,12 @@ export class FilesPipelineService {
     storageKey: string,
     source: string,
   ): Promise<Record<string, unknown>> {
-    const bins = this.ffBinaries();
+    const bins = ffBinaries();
     if (!bins) {
       this.logger.warn('ffmpeg/ffprobe недоступны — пропускаю обработку видео');
       return {};
     }
-    const probe = await this.ffprobe(bins.ffprobe, source);
+    const probe = await ffprobeFormat(bins.ffprobe, source);
     const patch: Record<string, unknown> = {};
     if (probe.durationMs) patch.durationMs = probe.durationMs;
     if (probe.width) patch.width = probe.width;
@@ -183,9 +187,9 @@ export class FilesPipelineService {
     try {
       // Постер-кадр: сначала с 1-й секунды, для сверхкоротких роликов — с нулевой
       try {
-        await this.execFF(bins.ffmpeg, ['-y', '-ss', '1', '-i', source, '-frames:v', '1', '-vf', 'scale=min(640\\,iw):-2', out]);
+        await execFF(bins.ffmpeg, ['-y', '-ss', '1', '-i', source, '-frames:v', '1', '-vf', 'scale=min(640\\,iw):-2', out]);
       } catch {
-        await this.execFF(bins.ffmpeg, ['-y', '-i', source, '-frames:v', '1', '-vf', 'scale=min(640\\,iw):-2', out]);
+        await execFF(bins.ffmpeg, ['-y', '-i', source, '-frames:v', '1', '-vf', 'scale=min(640\\,iw):-2', out]);
       }
       const stat = await fs.promises.stat(out);
       if (stat.size > 0) {
@@ -197,22 +201,30 @@ export class FilesPipelineService {
     return patch;
   }
 
-  private async processAudio(profile: string, source: string): Promise<Record<string, unknown>> {
-    const bins = this.ffBinaries();
+  private async processAudio(spec: FileProfileSpec, source: string): Promise<Record<string, unknown>> {
+    const bins = ffBinaries();
     if (!bins) {
       this.logger.warn('ffprobe недоступен — пропускаю длительность аудио');
       return {};
     }
-    const probe = await this.ffprobe(bins.ffprobe, source);
+    const probe = await ffprobeFormat(bins.ffprobe, source);
     const patch: Record<string, unknown> = {};
     if (probe.durationMs) patch.durationMs = probe.durationMs;
 
-    // Волна (meta.waveform) — для голосовых всегда, для Диктофона до 10 мин;
-    // best-effort: не получилась → файл живёт без волны (веб рисует обычный плеер)
-    const withinCap = probe.durationMs == null || probe.durationMs <= VOICE_LIMITS.waveformMaxDurationMs;
-    if (withinCap && (profile === 'voice_message' || profile === 'dictaphone')) {
-      const waveform = await this.computeWaveform(bins.ffmpeg, source);
-      if (waveform) patch.waveform = waveform;
+    // Волна (meta.waveform) — по капабилити профиля (spec.waveform), best-effort:
+    // не получилась → файл живёт без волны (веб рисует обычный плеер)
+    if (!spec.waveform) return patch;
+    const capMs = VOICE_LIMITS.waveformMaxDurationMs;
+    if (probe.durationMs != null && probe.durationMs > capMs) return patch; // длинным волна не нужна
+
+    // Неизвестная длительность (webm из MediaRecorder без заголовка) — кап НЕ обходится:
+    // декод ограничиваем -t капом, а реальную длительность добираем из самого PCM
+    // (закрывает и «duration=Infinity» голосового на вебе)
+    const limitSec = probe.durationMs == null ? capMs / 1000 : null;
+    const wave = await this.computeWaveform(bins.ffmpeg, source, limitSec);
+    if (wave && !wave.truncated) {
+      patch.waveform = wave.peaks;
+      if (probe.durationMs == null) patch.durationMs = wave.durationMs;
     }
     return patch;
   }
@@ -220,15 +232,31 @@ export class FilesPipelineService {
   /**
    * Волна голосового: децимация в 2 кГц mono s16 PCM во ВРЕМЕННЫЙ ФАЙЛ (execFF
    * возвращает stdout строкой — бинарный поток через него нельзя), RMS по
-   * waveformBuckets корзинам, пик-нормировка 0..100.
+   * waveformBuckets корзинам, пик-нормировка 0..100. limitSec ограничивает декод
+   * (файл неизвестной длительности); упёрся в лимит → truncated (волну не сохраняем).
    */
-  private async computeWaveform(ffmpegBin: string, source: string): Promise<number[] | null> {
+  private async computeWaveform(
+    ffmpegBin: string,
+    source: string,
+    limitSec: number | null,
+  ): Promise<{ peaks: number[]; durationMs: number; truncated: boolean } | null> {
     const out = path.join(os.tmpdir(), `sa6-wave-${randomUUID()}.pcm`);
     try {
-      await this.execFF(ffmpegBin, ['-y', '-i', source, '-ac', '1', '-ar', '2000', '-f', 's16le', out]);
+      const args = [
+        '-y',
+        '-i', source,
+        ...(limitSec != null ? ['-t', String(limitSec)] : []),
+        '-ac', '1',
+        '-ar', '2000',
+        '-f', 's16le',
+        out,
+      ];
+      await execFF(ffmpegBin, args);
       const buf = await fs.promises.readFile(out);
       const samples = Math.floor(buf.length / 2);
       if (!samples) return null;
+      const durationMs = Math.round((samples / 2000) * 1000);
+      const truncated = limitSec != null && samples >= Math.floor((limitSec - 0.5) * 2000);
       const buckets = VOICE_LIMITS.waveformBuckets;
       const per = Math.max(1, Math.floor(samples / buckets));
       const peaks: number[] = [];
@@ -244,63 +272,13 @@ export class FilesPipelineService {
         peaks.push(Math.sqrt(sum / (to - from)));
       }
       const max = Math.max(...peaks, 1);
-      return peaks.map((p) => Math.round((p / max) * 100));
+      return { peaks: peaks.map((p) => Math.round((p / max) * 100)), durationMs, truncated };
     } catch (err) {
       this.logger.warn(`waveform: ${err instanceof Error ? err.message : err}`);
       return null;
     } finally {
       await fs.promises.unlink(out).catch(() => undefined);
     }
-  }
-
-  /** ffmpeg-static/ffprobe-static: их отсутствие не валит движок (dev без бинарников) */
-  private ffBinaries(): { ffmpeg: string; ffprobe: string } | null {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const ffmpeg: string | null = require('ffmpeg-static');
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const ffprobe: { path: string } = require('ffprobe-static');
-      if (!ffmpeg || !ffprobe?.path) return null;
-      return { ffmpeg, ffprobe: ffprobe.path };
-    } catch {
-      return null;
-    }
-  }
-
-  private async ffprobe(
-    bin: string,
-    source: string,
-  ): Promise<{ durationMs: number | null; width: number | null; height: number | null }> {
-    const raw = await this.execFF(bin, [
-      '-v', 'error',
-      '-print_format', 'json',
-      '-show_format', '-show_streams',
-      source,
-    ]);
-    try {
-      const data = JSON.parse(raw) as {
-        format?: { duration?: string };
-        streams?: Array<{ codec_type?: string; width?: number; height?: number }>;
-      };
-      const durationSec = data.format?.duration ? parseFloat(data.format.duration) : NaN;
-      const video = data.streams?.find((s) => s.codec_type === 'video');
-      return {
-        durationMs: Number.isFinite(durationSec) ? Math.round(durationSec * 1000) : null,
-        width: video?.width ?? null,
-        height: video?.height ?? null,
-      };
-    } catch {
-      return { durationMs: null, width: null, height: null };
-    }
-  }
-
-  private execFF(bin: string, args: string[]): Promise<string> {
-    return new Promise((resolve, reject) => {
-      execFile(bin, args, { timeout: 60_000, maxBuffer: 10 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
-        if (err) reject(new Error(`${path.basename(bin)}: ${err.message} ${String(stderr).slice(0, 200)}`));
-        else resolve(String(stdout));
-      });
-    });
   }
 
   // ---------- helpers ----------

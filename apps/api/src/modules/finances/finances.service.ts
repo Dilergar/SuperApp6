@@ -1287,6 +1287,69 @@ export class FinancesService {
     }
   }
 
+  /**
+   * Ночной свип-страховка отзыва доступа (третий ремень после синхронного вызова из
+   * ContactsService и at-most-once шины): прямые user-гранты finbook, у которых больше
+   * нет живого ContactLink «владелец ↔ получатель», отзываются. Идемпотентен; keyset-батчи —
+   * ничего не материализуем целиком. Circle-гранты чистить не нужно: членство в Группе
+   * умирает вместе со связью, живой circle-принципал гаснет сам.
+   */
+  async sweepOrphanFinbookShares(): Promise<number> {
+    const BATCH = 500;
+    let revoked = 0;
+    let cursor: string | undefined;
+    for (;;) {
+      const tuples = await this.db.relationTuple.findMany({
+        where: { resourceType: 'finbook', relation: { in: ['viewer', 'editor'] }, subjectType: 'user' },
+        select: { id: true, resourceId: true, relation: true, subjectId: true },
+        orderBy: { id: 'asc' },
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        take: BATCH,
+      });
+      if (!tuples.length) break;
+      cursor = tuples[tuples.length - 1].id;
+
+      const books = await this.db.finBook.findMany({
+        where: { id: { in: [...new Set(tuples.map((t) => t.resourceId))] }, ownerType: 'user' },
+        select: { id: true, ownerId: true },
+      });
+      const ownerByBook = new Map(books.map((b) => [b.id, b.ownerId]));
+
+      // Каноническая пара (userA < userB) → есть ли живой ContactLink.
+      const pairKey = (x: string, y: string) => (x < y ? `${x}|${y}` : `${y}|${x}`);
+      const pairs = new Map<string, { a: string; b: string }>();
+      for (const t of tuples) {
+        const owner = ownerByBook.get(t.resourceId);
+        if (!owner || owner === t.subjectId) continue;
+        const [a, b] = owner < t.subjectId ? [owner, t.subjectId] : [t.subjectId, owner];
+        pairs.set(`${a}|${b}`, { a, b });
+      }
+      const links = pairs.size
+        ? await this.db.contactLink.findMany({
+            where: { OR: [...pairs.values()].map((p) => ({ userAId: p.a, userBId: p.b })) },
+            select: { userAId: true, userBId: true },
+          })
+        : [];
+      const alive = new Set(links.map((l) => `${l.userAId}|${l.userBId}`));
+
+      for (const t of tuples) {
+        const owner = ownerByBook.get(t.resourceId);
+        if (!owner || owner === t.subjectId) continue;
+        if (alive.has(pairKey(owner, t.subjectId))) continue;
+        await this.access.revoke({
+          resourceType: 'finbook',
+          resourceId: t.resourceId,
+          relation: t.relation as 'viewer' | 'editor',
+          subjectType: 'user',
+          subjectId: t.subjectId,
+        });
+        revoked += 1;
+      }
+      if (tuples.length < BATCH) break;
+    }
+    return revoked;
+  }
+
   // ============================================================
   // Долги «я должен» (Phase 5): рассрочка-покупка + кредит деньгами
   // ============================================================

@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
-import type { AttachmentFileRef, AttachmentsPayload, FileDto } from '@superapp/shared';
+import { useEffect, useState } from 'react';
+import type { AttachmentFileRef, AttachmentFileView, AttachmentsPayload, FileDto } from '@superapp/shared';
+import { isVoiceNoteProfile } from '@superapp/shared';
 import { useFileDisplayUrl, useFileMeta } from '@/lib/hooks/useFileUrl';
 import { FileChip } from '@/components/files/FileChip';
 import { ImageLightbox } from '@/components/files/ImageLightbox';
@@ -12,9 +13,21 @@ import { TranscriptBlock, VoiceMessageBubble } from './VoiceMessageBubble';
 // ============================================================
 // Ф9: тело attachment-сообщения — фото/видео альбом-сеткой (Telegram),
 // аудио — плеером, документы/прочее — чипами. Подпись рендерит бабл
-// (она в message.content — К-1). Метаданные файла (варианты/размеры)
-// дotягиваются useFileMeta — в payload только лёгкий снимок.
+// (она в message.content — К-1). Быстрый путь: сервер обогащает payload
+// готовыми ссылками+метой (`file.view`, модель Slack/Discord) — живой view
+// рисуется ВООБЩЕ без сети; протухший/отсутствующий/битый (onError) view
+// падает на старый путь useFileMeta+useFileDisplayUrl.
 // ============================================================
+
+/**
+ * Ссылка из серверного view ещё жива (запас 30с — чтобы не отрисовать
+ * почти-протухшую подпись, которая умрёт до клика). null = вечная публичная.
+ */
+function isViewFresh(view: AttachmentFileView | undefined): view is AttachmentFileView {
+  if (!view) return false;
+  if (view.urlExpiresAt == null) return true;
+  return new Date(view.urlExpiresAt).getTime() > Date.now() + 30_000;
+}
 
 export function AttachmentContent({ payload }: { payload: AttachmentsPayload }) {
   const files = Array.isArray(payload?.files) ? payload.files : [];
@@ -54,7 +67,7 @@ export function AttachmentContent({ payload }: { payload: AttachmentsPayload }) 
   );
 }
 
-/** Фото/видео плитка: thumb приватного файла через подписанную ссылку */
+/** Фото/видео плитка: живой view из payload — ссылка сразу, без сети; иначе thumb через хуки */
 function MediaTile({
   fileRef,
   single,
@@ -64,14 +77,36 @@ function MediaTile({
   single: boolean;
   onOpenImage: (file: FileDto) => void;
 }) {
-  const { meta } = useFileMeta(fileRef.fileId);
+  // Битая view-ссылка (onError) → фолбэк на старый путь хуков
+  const [viewBroken, setViewBroken] = useState(false);
+  const view = !viewBroken && isViewFresh(fileRef.view) ? fileRef.view : undefined;
+  // С живым view мета нужна только ПОСЛЕ клика (лайтбокс/плеер хотят FileDto) —
+  // тянем её лениво, а не на каждую плитку ленты
+  const [wantMeta, setWantMeta] = useState(false);
+  const [pendingOpen, setPendingOpen] = useState(false);
+  const { meta } = useFileMeta(fileRef.fileId, { enabled: !view || wantMeta });
   // Видео: только постер-вариант, без фолбэка на оригинал — иначе <img> тянет весь ролик
-  const { url } = useFileDisplayUrl(
+  const { url: hookUrl } = useFileDisplayUrl(
     meta,
     fileRef.kind === 'video' ? 'poster' : 'thumb',
-    fileRef.kind === 'video' ? { fallbackToOriginal: false } : undefined,
+    { fallbackToOriginal: fileRef.kind !== 'video', enabled: !view },
   );
+  // То же правило для view: видео — только posterUrl, фото — thumb или оригинал
+  const viewUrl = view
+    ? fileRef.kind === 'video'
+      ? view.posterUrl
+      : view.thumbUrl ?? view.url
+    : null;
+  const url = view ? viewUrl : hookUrl;
   const [playing, setPlaying] = useState(false);
+
+  // Клик по view-плитке пришёл раньше меты — открываем, как только она доедет
+  useEffect(() => {
+    if (!pendingOpen || !meta) return;
+    setPendingOpen(false);
+    if (fileRef.kind === 'image') onOpenImage(meta);
+    else setPlaying(true);
+  }, [pendingOpen, meta, fileRef.kind, onOpenImage]);
 
   if (fileRef.kind === 'video' && playing && meta) {
     return <VideoPlayer file={meta} maxWidth={single ? '20rem' : '100%'} />;
@@ -80,9 +115,16 @@ function MediaTile({
   return (
     <div
       onClick={() => {
-        if (!meta) return;
-        if (fileRef.kind === 'image') onOpenImage(meta);
-        else setPlaying(true);
+        if (meta) {
+          if (fileRef.kind === 'image') onOpenImage(meta);
+          else setPlaying(true);
+          return;
+        }
+        if (view) {
+          // Мета ещё не тянулась (view закрыл рендер без сети) — дотягиваем по клику
+          setWantMeta(true);
+          setPendingOpen(true);
+        }
       }}
       title={fileRef.name}
       style={{
@@ -94,7 +136,7 @@ function MediaTile({
         borderRadius: 'var(--radius-md)',
         overflow: 'hidden',
         background: 'var(--surface-container-high)',
-        cursor: meta ? 'pointer' : 'wait',
+        cursor: meta || view ? 'pointer' : 'wait',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -105,6 +147,7 @@ function MediaTile({
         <img
           src={url}
           alt={fileRef.name}
+          onError={view ? () => setViewBroken(true) : undefined}
           style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
         />
       ) : (
@@ -130,18 +173,39 @@ function MediaTile({
 }
 
 function AudioTile({ fileRef }: { fileRef: AttachmentFileRef }) {
-  const { meta } = useFileMeta(fileRef.fileId);
+  const view = isViewFresh(fileRef.view) ? fileRef.view : undefined;
+  // Голосовое с готовым view (ссылка + волна + длительность прямо в payload) —
+  // рисуем бабл без единого запроса; битая ссылка → бабл сам падает на хук
+  const viewVoice =
+    !!view &&
+    isVoiceNoteProfile(fileRef.profile) &&
+    Array.isArray(view.waveform) &&
+    view.waveform.length > 0;
+  const { meta } = useFileMeta(fileRef.fileId, { enabled: !viewVoice });
+  if (viewVoice && view) {
+    return (
+      <VoiceMessageBubble
+        file={{
+          id: fileRef.fileId,
+          publicUrl: null,
+          variants: [],
+          meta: { durationMs: view.durationMs ?? undefined, waveform: view.waveform ?? undefined },
+        }}
+        directUrl={view.url}
+      />
+    );
+  }
   if (!meta) {
     return (
       <div style={{ fontSize: '0.78rem', color: 'var(--on-surface-variant)' }}>
-        {fileRef.profile === 'voice_message' ? '🎤' : '🎵'} {fileRef.name}…
+        {isVoiceNoteProfile(fileRef.profile) ? '🎤' : '🎵'} {fileRef.name}…
       </div>
     );
   }
   // Голосовое с волной → голосовой бабл; иначе (музыка/старые файлы/dev без ffmpeg) — плеер.
   // «Расшифровать» доступна ЛЮБОМУ аудио-вложению (движку всё равно, откуда файл)
   const waveform = (meta.meta as { waveform?: unknown } | null)?.waveform;
-  if (meta.profile === 'voice_message' && Array.isArray(waveform) && waveform.length > 0) {
+  if (isVoiceNoteProfile(meta.profile) && Array.isArray(waveform) && waveform.length > 0) {
     return <VoiceMessageBubble file={meta} />;
   }
   return (

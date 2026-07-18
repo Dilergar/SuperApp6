@@ -45,8 +45,6 @@ export interface VoiceTranscriptDto {
 export interface VoiceStatusDto {
   enabled: boolean;
   mock: boolean;
-  diarization: boolean;
-  languages: readonly VoiceLanguage[];
 }
 
 /** POST /voice/stt — синхронная расшифровка короткого аудио (команды AI/терминала) */

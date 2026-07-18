@@ -9,7 +9,7 @@ import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { getMentions, markMentionsRead } from '@/lib/messenger-api';
 import { PersonAvatar } from '../messenger/messenger-ui';
 import { renderMessageContent } from '../messenger/mention-render';
-import { mentionsFeedKey } from '@/lib/hooks/useMentionsUnread';
+import { mentionsFeedKey, mentionsUnreadCountKey } from '@/lib/hooks/useMentionsUnread';
 
 // ============================================================
 // Mentions Hub (Phase 5) — a feed of "mentions of me" across the app
@@ -76,6 +76,11 @@ export default function MentionsPage() {
             }
           : old,
       );
+      // Бейдж живёт на отдельном лёгком ключе — синхронно роняем и его,
+      // иначе счётчик в навбаре висит до следующего 60с-поллинга
+      queryClient.setQueryData<number>(mentionsUnreadCountKey, (old) =>
+        old === undefined ? undefined : Math.max(0, old - 1),
+      );
       setExtraPages((old) => old.map((it) => (it.id === id ? { ...it, read: true } : it)));
     },
     [queryClient],
@@ -102,11 +107,13 @@ export default function MentionsPage() {
     queryClient.setQueryData<MentionFeed>(mentionsFeedKey, (old) =>
       old ? { ...old, items: old.items.map((it) => ({ ...it, read: true })), unreadCount: 0 } : old,
     );
+    queryClient.setQueryData<number>(mentionsUnreadCountKey, (old) => (old === undefined ? undefined : 0));
     setExtraPages((old) => old.map((it) => ({ ...it, read: true })));
     try {
       await markMentionsRead();
     } finally {
       queryClient.invalidateQueries({ queryKey: mentionsFeedKey });
+      queryClient.invalidateQueries({ queryKey: mentionsUnreadCountKey });
     }
   }, [queryClient]);
 

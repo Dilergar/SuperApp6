@@ -66,6 +66,18 @@ export const MODULES: Record<string, ModuleDefinition> = {
       { path: '/finance', label: 'Финансы' },
     ],
   },
+  recorder: {
+    id: 'recorder',
+    name: 'Диктофон',
+    description: 'Запись собраний и расшифровка в текст со спикерами',
+    icon: 'mic',
+    version: '1.0.0',
+    category: 'life',
+    requiredPermissions: [],
+    routes: [
+      { path: '/recorder', label: 'Диктофон' },
+    ],
+  },
   // Future modules — uncomment when ready
   // coins: { id: 'coins', name: 'Коины', ... },
   // chat: { id: 'chat', name: 'Чат', ... },

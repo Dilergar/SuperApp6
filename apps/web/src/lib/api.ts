@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { isAxiosError } from 'axios';
 
 // /api/v1 — канонический префикс (см. main.ts API); /api остаётся legacy-алиасом.
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
@@ -8,6 +8,18 @@ export const api = axios.create({
   timeout: 10000,
   headers: { 'Content-Type': 'application/json' },
 });
+
+/**
+ * Человекочитаемая ошибка API (message из конверта AllExceptionsFilter), а не
+ * axios-заглушка «Request failed…». Одна точка для всех алертов/баннеров веба.
+ */
+export function apiErrorMessage(err: unknown): string {
+  if (isAxiosError(err)) {
+    const msg = (err.response?.data as { message?: string } | undefined)?.message;
+    if (msg) return msg;
+  }
+  return err instanceof Error ? err.message : String(err);
+}
 
 // Attach access token to every request
 api.interceptors.request.use((config) => {

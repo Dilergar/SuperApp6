@@ -35,6 +35,8 @@ import type {
   ProcessInboxItem,
   ProcessReportDto,
   ProcessCredentialDto,
+  OfficeHistoryPageDto,
+  OfficeRoomDto,
   Task,
   TaskFilter,
   TaskStats,
@@ -48,6 +50,12 @@ export const incomingInvitationsKey = ['contacts', 'invitations', 'incoming'] as
 export const outgoingInvitationsKey = ['contacts', 'invitations', 'outgoing'] as const;
 export const blocksKey = ['contacts', 'blocks'] as const;
 export const currencyBadgeKey = ['wallet', 'currency-badge'] as const;
+// Мессенджер: кэш чатов/сообщений ОБЩИЙ между /messenger и контекстными чатами
+// (деталька задачи, комната офиса) — рассинхрон литералов молча разорвал бы кэш,
+// поэтому ключи живут только здесь
+export const messengerChatsKey = ['messenger', 'chats'] as const;
+export const messengerChatDetailKey = (chatId: string) => ['messenger', 'detail', chatId] as const;
+export const messengerMessagesKey = (chatId: string) => ['messenger', 'messages', chatId] as const;
 // Сервис «Сотрудники» (B2B)
 export const workspaceKey = (id: string) => ['workspaces', id] as const;
 export const workspaceMembersKey = (id: string) => ['workspaces', id, 'members'] as const;
@@ -81,6 +89,14 @@ export const taskAttachmentsKey = (taskId: string) => ['tasks', 'attachments', t
 export const voiceStatusKey = ['voice', 'status'] as const;
 export const voiceTranscriptKey = (fileId: string) => ['voice', 'transcript', fileId] as const;
 export const recorderRecordingsKey = ['recorder', 'recordings'] as const;
+// Движок звонков (core/calls) + сервис «Виртуальный офис» (B2B)
+export const callsStatusKey = ['calls', 'status'] as const;
+export const officeRoomsKey = (wsId: string) => ['workspaces', wsId, 'office'] as const;
+export const officeRoomKey = (wsId: string, roomId: string) =>
+  ['workspaces', wsId, 'office', roomId] as const;
+// Вложен под officeRoomsKey — invalidate списка префиксно обновляет и историю
+export const officeHistoryKey = (wsId: string) =>
+  ['workspaces', wsId, 'office', 'history'] as const;
 
 // ---- Fetchers ----
 
@@ -175,6 +191,25 @@ export async function fetchProcessReport(wsId: string, defId: string): Promise<P
 
 export async function fetchProcessCredentials(wsId: string): Promise<ProcessCredentialDto[]> {
   const res = await api.get(`/workspaces/${wsId}/processes/credentials`);
+  return res.data.data;
+}
+
+// ---- Виртуальный офис (B2B) ----
+
+export async function fetchOfficeRooms(wsId: string): Promise<OfficeRoomDto[]> {
+  const res = await api.get(`/workspaces/${wsId}/office`);
+  return res.data.data;
+}
+
+export async function fetchOfficeRoom(wsId: string, roomId: string): Promise<OfficeRoomDto> {
+  const res = await api.get(`/workspaces/${wsId}/office/rooms/${roomId}`);
+  return res.data.data;
+}
+
+export async function fetchOfficeHistory(wsId: string, cursor?: string): Promise<OfficeHistoryPageDto> {
+  const res = await api.get(`/workspaces/${wsId}/office/history`, {
+    params: cursor ? { cursor } : undefined,
+  });
   return res.data.data;
 }
 

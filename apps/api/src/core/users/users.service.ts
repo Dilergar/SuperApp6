@@ -4,9 +4,10 @@ import {
   ForbiddenException,
   UnauthorizedException,
 } from '@nestjs/common';
-import * as bcrypt from 'bcryptjs';
+import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
+import { authAliveKey } from '../auth/jwt.strategy';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
@@ -191,6 +192,8 @@ export class UsersService {
     // Log out everywhere; the account stays hidden until restored via login.
     await this.db.session.deleteMany({ where: { userId } });
     await this.redis.invalidateUserProfile(userId);
+    // JWT-guard кэширует «аккаунт жив» на 60с — удаление обязано сбросить кэш сразу.
+    await this.redis.del(authAliveKey(userId)).catch(() => undefined);
     // Live messenger sockets must drop too (socket auth is handshake-only).
     this.events.emit('auth.sessions.revoked', { userId }, 'users');
     return { scheduled: true, gracePeriodDays: ACCOUNT_GRACE_DAYS };
@@ -203,6 +206,24 @@ export class UsersService {
       data: { deletionScheduledAt: null },
     });
     await this.redis.invalidateUserProfile(userId);
+  }
+
+  /** Батч-чистка протухших refresh-сессий (AccountCron) — таблица иначе растёт вечно. */
+  async purgeExpiredSessions(): Promise<number> {
+    const BATCH = 10_000;
+    let total = 0;
+    for (;;) {
+      const rows = await this.db.session.findMany({
+        where: { expiresAt: { lt: new Date() } },
+        select: { id: true },
+        take: BATCH,
+      });
+      if (!rows.length) break;
+      const res = await this.db.session.deleteMany({ where: { id: { in: rows.map((r) => r.id) } } });
+      total += res.count;
+      if (rows.length < BATCH) break;
+    }
+    return total;
   }
 
   /** IDs of accounts whose grace window has elapsed — driven by the deletion cron. */
@@ -223,6 +244,8 @@ export class UsersService {
    * window elapses.
    */
   async anonymizeAccount(userId: string) {
+    // JWT-guard кэширует «жив» — терминальное удаление чистит кэш первым делом.
+    await this.redis.del(authAliveKey(userId)).catch(() => undefined);
     // Former contacts whose contactsCount changes — bust their caches afterwards.
     const links = await this.db.contactLink.findMany({
       where: { OR: [{ userAId: userId }, { userBId: userId }] },

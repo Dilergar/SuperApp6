@@ -23,6 +23,8 @@ export * from './types/process';
 export * from './types/finance';
 export * from './types/file';
 export * from './types/voice';
+export * from './types/calls';
+export * from './types/office';
 export * from './types/common';
 
 // Validation schemas
@@ -46,11 +48,14 @@ export * from './validation/process';
 export * from './validation/finance';
 export * from './validation/file';
 export * from './validation/voice';
+export * from './validation/calls';
+export * from './validation/office';
 
 // Utils
 export * from './utils/phone';
 export * from './utils/date';
 export * from './utils/name';
+export * from './utils/attachments';
 
 // Constants
 export * from './constants/roles';
@@ -75,3 +80,5 @@ export * from './constants/process';
 export * from './constants/finance';
 export * from './constants/files';
 export * from './constants/voice';
+export * from './constants/calls';
+export * from './constants/office';

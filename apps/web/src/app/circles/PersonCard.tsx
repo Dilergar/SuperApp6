@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 
 // lottie-web (~70KB gz) is loaded ON DEMAND, only when a card with a Lottie effect
 // actually renders — a static import shipped it in EVERY route's bundle because
@@ -19,6 +20,8 @@ import {
   displayName,
 } from './card-skin';
 import { usePersonSkin } from '@/lib/person-skins';
+import { callsStatusKey } from '@/lib/queries';
+import { getCallsStatus } from '@/lib/calls-api';
 
 // ============================================================
 // Types
@@ -549,6 +552,9 @@ function CompactCard({
   const [showFolderMenu, setShowFolderMenu] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const router = useRouter();
+  // Кнопку «Позвонить» показываем только когда движок звонков включён (не рисуем UI
+  // несуществующей фичи). Ключ общий → один сетевой запрос на весь грид.
+  const callsEnabled = useQuery({ queryKey: callsStatusKey, queryFn: getCallsStatus, staleTime: 5 * 60 * 1000 }).data?.enabled ?? false;
 
   const activeSkin = skin || DEFAULT_SKIN;
   const presenceLine = presenceStatusLine(presence);
@@ -613,20 +619,37 @@ function CompactCard({
 
         <CardBody person={person} size="L" skin={activeSkin} />
 
-        {/* Grid extras — write / coins / folders */}
+        {/* Grid extras — write / call / coins / folders */}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--spacing-2)', marginTop: 'var(--spacing-3)' }}>
-          <button
-            onClick={(e) => { stop(e); router.push(`/messenger?dm=${contact.them.id}`); }}
-            style={{
-              padding: '0.3rem 1.1rem', fontSize: '0.78rem', fontFamily: 'var(--font-display)', fontWeight: 600,
-              color: 'var(--secondary)', background: 'transparent', border: '2px solid var(--secondary)',
-              borderRadius: 'var(--radius-sketch)', cursor: 'pointer', transition: 'background 0.15s ease',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--secondary-container)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-          >
-            Написать
-          </button>
+          <div style={{ display: 'flex', gap: 'var(--spacing-2)', justifyContent: 'center' }}>
+            <button
+              onClick={(e) => { stop(e); router.push(`/messenger?dm=${contact.them.id}`); }}
+              style={{
+                padding: '0.3rem 1.1rem', fontSize: '0.78rem', fontFamily: 'var(--font-display)', fontWeight: 600,
+                color: 'var(--secondary)', background: 'transparent', border: '2px solid var(--secondary)',
+                borderRadius: 'var(--radius-sketch)', cursor: 'pointer', transition: 'background 0.15s ease',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--secondary-container)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+            >
+              Написать
+            </button>
+            {callsEnabled && (
+            <button
+              onClick={(e) => { stop(e); router.push(`/messenger?dm=${contact.them.id}&call=1`); }}
+              title="Позвонить (аудио; видео включается в звонке)"
+              style={{
+                padding: '0.3rem 0.9rem', fontSize: '0.78rem', fontFamily: 'var(--font-display)', fontWeight: 600,
+                color: 'var(--secondary)', background: 'transparent', border: '2px solid var(--secondary)',
+                borderRadius: 'var(--radius-sketch)', cursor: 'pointer', transition: 'background 0.15s ease',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--secondary-container)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+            >
+              📞 Позвонить
+            </button>
+            )}
+          </div>
           {myCoins && myCoins.balance !== 0 && (
             <div className="label-sm" style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 600, color: 'var(--primary)' }}>
               держит {myCoins.balance.toLocaleString('ru-RU')} {myCoins.icon}
@@ -648,6 +671,7 @@ function CompactCard({
           skin={activeSkin}
           onClose={() => setExpanded(false)}
           onWrite={() => router.push(`/messenger?dm=${contact.them.id}`)}
+          onCall={callsEnabled ? () => router.push(`/messenger?dm=${contact.them.id}&call=1`) : undefined}
         />
       )}
     </>
@@ -655,8 +679,8 @@ function CompactCard({
 }
 
 // Expanded XL overlay shown when a grid card is clicked.
-function ExpandedCard({ person, skin, onClose, onWrite }: {
-  person: CardPerson; skin: CardSkinRender; onClose: () => void; onWrite?: () => void;
+function ExpandedCard({ person, skin, onClose, onWrite, onCall }: {
+  person: CardPerson; skin: CardSkinRender; onClose: () => void; onWrite?: () => void; onCall?: () => void;
 }) {
   return (
     <div
@@ -680,18 +704,33 @@ function ExpandedCard({ person, skin, onClose, onWrite }: {
         >×</button>
         <CardShell size="XL" skin={skin} rotation={-1}>
           <CardBody person={person} size="XL" skin={skin} />
-          {onWrite && (
-            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 'var(--spacing-4)' }}>
-              <button
-                onClick={onWrite}
-                style={{
-                  padding: '0.4rem 1.4rem', fontSize: '0.85rem', fontFamily: 'var(--font-display)', fontWeight: 600,
-                  color: 'var(--secondary)', background: 'transparent', border: '2px solid var(--secondary)',
-                  borderRadius: 'var(--radius-sketch)', cursor: 'pointer',
-                }}
-              >
-                Написать
-              </button>
+          {(onWrite || onCall) && (
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 'var(--spacing-2)', marginTop: 'var(--spacing-4)' }}>
+              {onWrite && (
+                <button
+                  onClick={onWrite}
+                  style={{
+                    padding: '0.4rem 1.4rem', fontSize: '0.85rem', fontFamily: 'var(--font-display)', fontWeight: 600,
+                    color: 'var(--secondary)', background: 'transparent', border: '2px solid var(--secondary)',
+                    borderRadius: 'var(--radius-sketch)', cursor: 'pointer',
+                  }}
+                >
+                  Написать
+                </button>
+              )}
+              {onCall && (
+                <button
+                  onClick={onCall}
+                  title="Позвонить (аудио; видео включается в звонке)"
+                  style={{
+                    padding: '0.4rem 1.2rem', fontSize: '0.85rem', fontFamily: 'var(--font-display)', fontWeight: 600,
+                    color: 'var(--secondary)', background: 'transparent', border: '2px solid var(--secondary)',
+                    borderRadius: 'var(--radius-sketch)', cursor: 'pointer',
+                  }}
+                >
+                  📞 Позвонить
+                </button>
+              )}
             </div>
           )}
         </CardShell>

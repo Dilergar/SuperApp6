@@ -3,26 +3,26 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { isAxiosError } from 'axios';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { VoiceLanguage, VoiceRecordingDto, VoiceTranscriptDto } from '@superapp/shared';
-import { VOICE_LANGUAGES, VOICE_LANGUAGE_LABELS, VOICE_LIMITS } from '@superapp/shared';
+import type { FileDto, VoiceLanguage, VoiceRecordingDto, VoiceRecordingSource } from '@superapp/shared';
+import { AUDIO_EXT_TO_MIME, VOICE_LANGUAGES, VOICE_LANGUAGE_LABELS, VOICE_LIMITS } from '@superapp/shared';
+import { apiErrorMessage } from '@/lib/api';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { formatElapsed, useVoiceRecorder } from '@/lib/hooks/useVoiceRecorder';
+import { useVoiceRecorder } from '@/lib/hooks/useVoiceRecorder';
+import { useVoiceTranscript } from '@/lib/hooks/useVoiceTranscript';
+import { useFileUpload } from '@/lib/hooks/useFileUpload';
 import { useFileDisplayUrl } from '@/lib/hooks/useFileUrl';
-import { uploadFile } from '@/lib/files-api';
 import { FileDropzone } from '@/components/files/FileDropzone';
+import { UploadProgressList } from '@/components/files/UploadProgressList';
 import { formatDuration } from '@/components/files/files-ui';
 import {
   createRecording,
   deleteRecording,
-  getTranscript,
   getVoiceStatus,
   listRecordings,
   renameRecording,
-  requestTranscript,
 } from '@/lib/voice-api';
-import { recorderRecordingsKey, voiceStatusKey, voiceTranscriptKey } from '@/lib/queries';
+import { recorderRecordingsKey, voiceStatusKey } from '@/lib/queries';
 import { TranscriptView } from './TranscriptView';
 
 // ============================================================
@@ -32,41 +32,18 @@ import { TranscriptView } from './TranscriptView';
 // Будущий дом протоколов собраний и записей SuperTerminal6.
 // ============================================================
 
-/** Человекочитаемая ошибка API (конверт AllExceptionsFilter), а не axios-заглушка */
-function apiErrorMessage(err: unknown): string {
-  if (isAxiosError(err)) {
-    const msg = (err.response?.data as { message?: string } | undefined)?.message;
-    if (msg) return msg;
-  }
-  return err instanceof Error ? err.message : String(err);
-}
-
 /**
  * ОС/браузер не всегда отдают корректный MIME (пустой, octet-stream) —
- * доводим по расширению, иначе профиль-whitelist движка отфутболит файл.
- * Сниф magic-bytes на сервере всё равно перепроверит содержимое.
+ * доводим по расширению (каноническая карта в shared), иначе профиль-whitelist
+ * движка отфутболит файл. Сниф magic-bytes на сервере всё равно перепроверит.
  */
-const AUDIO_EXT_MIME: Record<string, string> = {
-  mp3: 'audio/mpeg',
-  m4a: 'audio/mp4',
-  m4b: 'audio/mp4',
-  aac: 'audio/aac',
-  wav: 'audio/wav',
-  ogg: 'audio/ogg',
-  oga: 'audio/ogg',
-  opus: 'audio/ogg',
-  flac: 'audio/flac',
-  webm: 'audio/webm',
-  mp4: 'audio/mp4',
-};
-
 function normalizeAudioMime(file: File): File {
   // .webm ОС регистрирует как ВИДЕО-тип — наша же запись голоса при повторной
   // загрузке приходит как video/webm; для Диктофона это аудио
   if (file.type === 'video/webm') return new File([file], file.name, { type: 'audio/webm' });
   if (file.type && file.type !== 'application/octet-stream') return file;
   const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-  const mime = AUDIO_EXT_MIME[ext];
+  const mime = AUDIO_EXT_TO_MIME[ext];
   return mime ? new File([file], file.name, { type: mime }) : file;
 }
 
@@ -90,9 +67,14 @@ function RecorderInner() {
   const qc = useQueryClient();
 
   const [selectedId, setSelectedId] = useState<string | null>(searchParams.get('id'));
-  const [uploadingLabel, setUploadingLabel] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
+  // Вкладки: «Записи» (диктофон) | «Журнал звонков» (source='call' — записи звонков
+  // мессенджера; общий файл клеймантов, транскрипт один на всех)
+  const [tab, setTab] = useState<'recordings' | 'calls'>('recordings');
 
-  const { data: recordings = [], isLoading } = useQuery({
+  // isPending (не isLoading!): у выключенного запроса (auth ещё гидрируется)
+  // isLoading=false при пустых данных — эффект выбора затёр бы дип-линк ?id=
+  const { data: recordings = [], isPending } = useQuery({
     queryKey: recorderRecordingsKey,
     queryFn: listRecordings,
     enabled: isReady,
@@ -104,57 +86,85 @@ function RecorderInner() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Выбор: ?id= из уведомления → первая запись
+  // Дип-линк ?id= (уведомление о записи звонка) может вести на другую вкладку —
+  // переключаем её по source найденной записи
   useEffect(() => {
-    if (selectedId && recordings.some((r) => r.id === selectedId)) return;
-    if (recordings.length) setSelectedId(recordings[0].id);
-    else setSelectedId(null);
+    if (isPending || !selectedId) return;
+    const rec = recordings.find((r) => r.id === selectedId);
+    if (rec) setTab(rec.source === 'call' ? 'calls' : 'recordings');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recordings]);
+  }, [isPending, selectedId]);
+
+  const visibleRecordings = recordings.filter((r) =>
+    tab === 'calls' ? r.source === 'call' : r.source !== 'call',
+  );
+  const callsCount = recordings.reduce((n, r) => n + (r.source === 'call' ? 1 : 0), 0);
+
+  // Выбор: ?id= из уведомления → его вкладку переключит эффект выше (проверяем по
+  // ПОЛНОМУ списку — иначе гонка эффектов затёрла бы дип-линк до смены вкладки).
+  // Пока список не пришёл — selectedId не трогаем (дип-линк жив до данных).
+  useEffect(() => {
+    if (isPending) return;
+    if (selectedId && recordings.some((r) => r.id === selectedId)) return;
+    setSelectedId(visibleRecordings.length ? visibleRecordings[0].id : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordings, isPending, tab]);
+
+  // Ручная смена вкладки выбирает её первую запись (выбор не «зависает» в другой вкладке)
+  const switchTab = (next: 'recordings' | 'calls') => {
+    if (next === tab) return;
+    setTab(next);
+    const first = recordings.find((r) => (next === 'calls' ? r.source === 'call' : r.source !== 'call'));
+    setSelectedId(first?.id ?? null);
+  };
 
   const selected = recordings.find((r) => r.id === selectedId) ?? null;
 
   const afterNewRecording = async (rec: VoiceRecordingDto) => {
     await qc.invalidateQueries({ queryKey: recorderRecordingsKey });
     setSelectedId(rec.id);
+    fileUpload.clearFinished();
+    recUpload.clearFinished();
   };
+
+  const createFrom = async (file: FileDto, source: VoiceRecordingSource) => {
+    try {
+      const rec = await createRecording({ fileId: file.id, source });
+      await afterNewRecording(rec);
+    } catch (err) {
+      setCreateError(`Не удалось создать запись: ${apiErrorMessage(err)}`);
+    }
+  };
+
+  // Очередь загрузок — кирпич движка файлов (прогресс/отмена/ошибки из коробки);
+  // два инстанса, потому что у файла с диска и браузерной записи разный source
+  const fileUpload = useFileUpload('dictaphone', { onUploaded: (f) => void createFrom(f, 'upload') });
+  const recUpload = useFileUpload('dictaphone', { onUploaded: (f) => void createFrom(f, 'web') });
+  const uploadItems = [...fileUpload.items, ...recUpload.items];
+  const uploadsBusy = fileUpload.busy || recUpload.busy;
 
   // Загрузка файла записи (m4a/mp3/wav/ogg/flac) → сразу создаём запись
   // (закрывает окно orphan-реапа несвязанного файла)
-  const handleFiles = async (files: File[]) => {
-    for (const raw of files) {
-      const f = normalizeAudioMime(raw);
-      setUploadingLabel(`Загрузка «${f.name}»…`);
-      try {
-        const dto = await uploadFile(f, 'dictaphone', {
-          onProgress: (fr) => setUploadingLabel(`Загрузка «${f.name}»… ${Math.round(fr * 100)}%`),
-        });
-        const rec = await createRecording({ fileId: dto.id, source: 'upload' });
-        await afterNewRecording(rec);
-      } catch (err) {
-        alert(`Не удалось загрузить: ${apiErrorMessage(err)}`);
-      } finally {
-        setUploadingLabel(null);
-      }
-    }
+  const handleFiles = (files: File[]) => {
+    setCreateError(null);
+    fileUpload.add(files.map(normalizeAudioMime));
   };
 
   // Запись в браузере
   const recorder = useVoiceRecorder();
+  const finishingRef = useRef(false);
   const finishBrowserRecording = async () => {
-    const file = await recorder.stop();
-    if (!file) return;
-    setUploadingLabel('Сохранение записи…');
+    // Ре-энтри-гард: авто-стоп-эффект тикает каждые 250 мс, пока асинхронный onstop
+    // не долетел — второй stop() потерял бы запись
+    if (finishingRef.current) return;
+    finishingRef.current = true;
     try {
-      const dto = await uploadFile(file, 'dictaphone', {
-        onProgress: (fr) => setUploadingLabel(`Сохранение записи… ${Math.round(fr * 100)}%`),
-      });
-      const rec = await createRecording({ fileId: dto.id, source: 'web' });
-      await afterNewRecording(rec);
-    } catch (err) {
-      alert(`Не удалось сохранить запись: ${apiErrorMessage(err)}`);
+      const file = await recorder.stop();
+      if (!file) return;
+      setCreateError(null);
+      recUpload.add([file]);
     } finally {
-      setUploadingLabel(null);
+      finishingRef.current = false;
     }
   };
   useEffect(() => {
@@ -218,7 +228,7 @@ function RecorderInner() {
                   aria-hidden
                   style={{ width: '0.6rem', height: '0.6rem', borderRadius: '50%', background: 'var(--primary)', animation: 'sa6RecPulse 1.1s ease-in-out infinite' }}
                 />
-                <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>{formatElapsed(recorder.elapsedMs)}</span>
+                <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>{formatDuration(recorder.elapsedMs) ?? '0:00'}</span>
                 <button onClick={recorder.cancel} className="btn-secondary" style={{ padding: '0.3rem 0.7rem', fontSize: '0.75rem' }}>
                   Отмена
                 </button>
@@ -242,45 +252,74 @@ function RecorderInner() {
           </div>
         </div>
 
-        {uploadingLabel && (
+        {createError && (
           <div
             style={{
               marginBottom: 'var(--spacing-4)',
               padding: '0.6rem 1rem',
-              background: 'var(--secondary-container)',
+              background: 'var(--surface-container-high)',
+              color: 'var(--primary)',
               borderRadius: 'var(--radius-md)',
               fontSize: '0.85rem',
+              fontWeight: 600,
             }}
           >
-            {uploadingLabel}
+            {createError}
+          </div>
+        )}
+        {uploadItems.length > 0 && (
+          <div style={{ marginBottom: 'var(--spacing-4)' }}>
+            <UploadProgressList
+              items={uploadItems}
+              onCancel={(id) => {
+                fileUpload.cancel(id);
+                recUpload.cancel(id);
+              }}
+              onRemove={(id) => {
+                fileUpload.remove(id);
+                recUpload.remove(id);
+              }}
+            />
           </div>
         )}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(16rem, 22rem) 1fr', gap: 'var(--spacing-6)', alignItems: 'start' }}>
-          {/* Левая колонка: загрузка + список */}
+          {/* Левая колонка: вкладки + загрузка + список */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
-            <FileDropzone
-              onFiles={(files) => void handleFiles(files)}
-              // расширения явно: .webm ОС считает видео и прячет за audio/*
-              accept="audio/*,.webm,.mp3,.m4a,.wav,.ogg,.oga,.opus,.flac,.aac"
-              multiple={false}
-              compact
-              label="Загрузить запись"
-              hint="mp3 / m4a / wav / ogg / webm / flac · до 200 МБ"
-              disabled={!!uploadingLabel}
-            />
-            {isLoading ? (
+            <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
+              <RecorderTab active={tab === 'recordings'} onClick={() => switchTab('recordings')}>
+                🎙️ Записи
+              </RecorderTab>
+              <RecorderTab active={tab === 'calls'} onClick={() => switchTab('calls')}>
+                📞 Журнал звонков{callsCount > 0 ? ` · ${callsCount}` : ''}
+              </RecorderTab>
+            </div>
+            {tab === 'recordings' && (
+              <FileDropzone
+                onFiles={handleFiles}
+                // расширения явно: .webm ОС считает видео и прячет за audio/*
+                accept="audio/*,.webm,.mp3,.m4a,.wav,.ogg,.oga,.opus,.flac,.aac"
+                multiple={false}
+                compact
+                label="Загрузить запись"
+                hint="mp3 / m4a / wav / ogg / webm / flac · до 200 МБ"
+                disabled={uploadsBusy}
+              />
+            )}
+            {isPending ? (
               <p className="label-sm" style={{ opacity: 0.7 }}>Загрузка…</p>
-            ) : recordings.length === 0 ? (
+            ) : visibleRecordings.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 'var(--spacing-8) var(--spacing-4)', background: 'var(--surface-container-low)', borderRadius: 'var(--radius-sketch, var(--radius-md))' }}>
-                <div style={{ fontSize: '2rem' }}>🎙️</div>
+                <div style={{ fontSize: '2rem' }}>{tab === 'calls' ? '📞' : '🎙️'}</div>
                 <p className="label-sm" style={{ opacity: 0.7, marginTop: '0.4rem' }}>
-                  Пока пусто. Запиши собрание или загрузи аудио-файл
+                  {tab === 'calls'
+                    ? 'Пока пусто. Нажми «Получить запись» во время звонка в мессенджере — она появится здесь'
+                    : 'Пока пусто. Запиши собрание или загрузи аудио-файл'}
                 </p>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
-                {recordings.map((r, i) => (
+                {visibleRecordings.map((r, i) => (
                   <RecordingRow
                     key={r.id}
                     rec={r}
@@ -297,10 +336,10 @@ function RecorderInner() {
             )}
           </div>
 
-          {/* Правая колонка: деталь */}
+          {/* Правая колонка: деталь. key — язык/ошибки не утекают между записями */}
           <div>
             {selected ? (
-              <RecordingDetail rec={selected} sttEnabled={!!voiceStatus?.enabled} />
+              <RecordingDetail key={selected.id} rec={selected} sttEnabled={!!voiceStatus?.enabled} />
             ) : (
               <div style={{ textAlign: 'center', padding: 'var(--spacing-10)', background: 'var(--surface-container-low)', borderRadius: 'var(--radius-sketch, var(--radius-md))' }}>
                 <p className="label-sm" style={{ opacity: 0.7 }}>Выбери запись слева</p>
@@ -310,6 +349,29 @@ function RecorderInner() {
         </div>
       </div>
     </div>
+  );
+}
+
+// ---------- вкладки ----------
+
+function RecorderTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        padding: '0.4rem 0.9rem',
+        fontSize: '0.82rem',
+        fontFamily: 'var(--font-display)',
+        fontWeight: 700,
+        border: 'none',
+        cursor: 'pointer',
+        borderRadius: '0.8rem 0.55rem 0.75rem 0.6rem',
+        background: active ? 'var(--secondary-container)' : 'var(--surface-container-high)',
+        color: active ? 'var(--secondary)' : 'var(--on-surface-variant)',
+      }}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -340,8 +402,11 @@ function RecordingRow({
       return;
     }
     try {
-      await renameRecording(rec.id, next);
-      await qc.invalidateQueries({ queryKey: recorderRecordingsKey });
+      const updated = await renameRecording(rec.id, next);
+      // Точечный патч кэша вместо рефетча всего списка — ответ rename и так лёгкий
+      qc.setQueryData<VoiceRecordingDto[]>(recorderRecordingsKey, (old) =>
+        old?.map((r) => (r.id === updated.id ? { ...r, title: updated.title } : r)),
+      );
     } catch {
       setTitle(rec.title);
     }
@@ -353,7 +418,7 @@ function RecordingRow({
       await deleteRecording(rec.id);
       onDeleted();
     } catch (err) {
-      alert(`Не удалось удалить: ${err instanceof Error ? err.message : err}`);
+      alert(`Не удалось удалить: ${apiErrorMessage(err)}`);
     }
   };
 
@@ -437,7 +502,7 @@ function RecordingRow({
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '0.7rem', color: 'var(--on-surface-variant)' }}>
         <span>{new Date(rec.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</span>
         {rec.durationMs != null && <span>{formatDuration(rec.durationMs)}</span>}
-        <span>{rec.source === 'web' ? '⏺ браузер' : rec.source === 'terminal' ? '📟 терминал' : '📄 файл'}</span>
+        <span>{rec.source === 'web' ? '⏺ браузер' : rec.source === 'terminal' ? '📟 терминал' : rec.source === 'call' ? '📞 звонок' : '📄 файл'}</span>
         {statusBadge && <span style={{ color: statusBadge.color, fontWeight: 700 }}>{statusBadge.text}</span>}
       </div>
     </div>
@@ -450,19 +515,14 @@ function RecordingDetail({ rec, sttEnabled }: { rec: VoiceRecordingDto; sttEnabl
   const qc = useQueryClient();
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [language, setLanguage] = useState<VoiceLanguage>(rec.language ?? 'auto');
-  const [requestError, setRequestError] = useState<string | null>(null);
+  const [asked, setAsked] = useState(false);
   const fileId = rec.file?.id ?? null;
   const { url } = useFileDisplayUrl(rec.file);
 
-  const { data: transcript } = useQuery<VoiceTranscriptDto | null>({
-    queryKey: voiceTranscriptKey(fileId ?? 'none'),
-    queryFn: () => getTranscript(fileId as string),
-    enabled: !!fileId,
-    refetchInterval: (q) => {
-      const s = q.state.data?.status;
-      return s === 'queued' || s === 'processing' ? VOICE_LIMITS.pollIntervalMs : false;
-    },
-    refetchOnWindowFocus: false,
+  // Список уже знает transcriptStatus: null = не запрашивалась → гарантированный 404
+  // не шлём; запрос включается после «Расшифровать» (asked)
+  const { transcript, requestError, ask } = useVoiceTranscript(fileId, {
+    enabled: !!fileId && (rec.transcriptStatus != null || asked),
   });
 
   // Готовность/ошибка транскрипта меняет бейдж в списке
@@ -473,19 +533,10 @@ function RecordingDetail({ rec, sttEnabled }: { rec: VoiceRecordingDto; sttEnabl
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transcript?.status]);
 
-  const ask = async () => {
-    if (!fileId) return;
-    setRequestError(null);
-    try {
-      const dto = await requestTranscript(fileId, { language, diarize: true });
-      qc.setQueryData(voiceTranscriptKey(fileId), dto);
-      // Инвалидация обязательна: setQueryData НЕ перевзводит refetchInterval
-      // устоявшегося запроса — без рефетча поллинг не стартует
-      void qc.invalidateQueries({ queryKey: voiceTranscriptKey(fileId) });
-      void qc.invalidateQueries({ queryKey: recorderRecordingsKey });
-    } catch (err) {
-      setRequestError(err instanceof Error ? err.message : 'Не удалось запросить расшифровку');
-    }
+  const askTranscribe = async () => {
+    setAsked(true);
+    const ok = await ask({ language, diarize: true });
+    if (ok) void qc.invalidateQueries({ queryKey: recorderRecordingsKey });
   };
 
   const seekTo = (sec: number) => {
@@ -495,7 +546,9 @@ function RecordingDetail({ rec, sttEnabled }: { rec: VoiceRecordingDto; sttEnabl
     void el.play().catch(() => undefined);
   };
 
-  const inProgress = transcript?.status === 'queued' || transcript?.status === 'processing';
+  // Пока свой запрос не долетел, статус берём из списка — кнопка не мигает
+  const status = transcript?.status ?? rec.transcriptStatus;
+  const inProgress = status === 'queued' || status === 'processing';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
@@ -531,9 +584,9 @@ function RecordingDetail({ rec, sttEnabled }: { rec: VoiceRecordingDto; sttEnabl
               </span>
             ) : inProgress ? (
               <span className="label-sm" style={{ fontWeight: 700 }}>⏳ Расшифровываю… это может занять несколько минут</span>
-            ) : transcript?.status === 'ready' ? (
+            ) : status === 'ready' ? (
               <span className="label-sm" style={{ color: 'var(--secondary)', fontWeight: 700 }}>
-                ✓ Расшифровано{transcript.detectedLanguage ? ` · язык: ${transcript.detectedLanguage}` : ''}
+                ✓ Расшифровано{transcript?.detectedLanguage ? ` · язык: ${transcript.detectedLanguage}` : ''}
               </span>
             ) : (
               <>
@@ -554,11 +607,11 @@ function RecordingDetail({ rec, sttEnabled }: { rec: VoiceRecordingDto; sttEnabl
                     <option key={l} value={l}>{VOICE_LANGUAGE_LABELS[l]}</option>
                   ))}
                 </select>
-                <button onClick={() => void ask()} className="btn-primary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>
-                  {transcript?.status === 'error' ? 'Расшифровать ещё раз' : 'Расшифровать'}
+                <button onClick={() => void askTranscribe()} className="btn-primary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>
+                  {status === 'error' ? 'Расшифровать ещё раз' : 'Расшифровать'}
                 </button>
-                {transcript?.status === 'error' && (
-                  <span className="label-sm" style={{ color: 'var(--primary)' }} title={transcript.error ?? undefined}>
+                {status === 'error' && (
+                  <span className="label-sm" style={{ color: 'var(--primary)' }} title={transcript?.error ?? undefined}>
                     Прошлая попытка не удалась
                   </span>
                 )}

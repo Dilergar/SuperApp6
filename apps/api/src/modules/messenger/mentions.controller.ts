@@ -25,6 +25,14 @@ export class MentionsController {
     return { success: true, data: await this.mentions.listFeed(user.sub, cursor) };
   }
 
+  @Get('unread-count')
+  @ApiOperation({ summary: 'Только счётчик непрочитанных (бейдж навбара)' })
+  async unreadCount(@CurrentUser() user: JwtPayload) {
+    // Бейдж поллится раз в минуту с каждой вкладки — раньше ради одного числа
+    // качалась полная первая страница ленты (4 запроса); теперь 1 индексный COUNT.
+    return { success: true, data: { unreadCount: await this.mentions.unreadCount(user.sub) } };
+  }
+
   @Post('mark-read')
   @ApiOperation({ summary: 'Отметить упоминания прочитанными (пусто = все)' })
   async markRead(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {

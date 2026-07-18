@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
+import { DI_TOKENS } from '../../shared/di-tokens';
 import { RedisService } from '../../shared/redis/redis.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { DatabaseService } from '../../shared/database/database.service';
@@ -53,7 +54,7 @@ export class PresenceService {
   private calendar(): CalendarService | null {
     if (this.calendarRef) return this.calendarRef;
     try {
-      this.calendarRef = this.moduleRef.get<CalendarService>('CalendarService', {
+      this.calendarRef = this.moduleRef.get<CalendarService>(DI_TOKENS.CalendarService, {
         strict: false,
       });
     } catch {
@@ -149,6 +150,29 @@ export class PresenceService {
     });
     const byId = new Map(rows.map((r) => [r.id, r]));
 
+    // Один MGET на весь батч вместо 1–2 последовательных GET на цель (100 контактов
+    // = 100–200 round-trip'ов к Redis ≈ 50–150мс латентности — перф-ревью 2026-07-18).
+    let presenceVals: (string | null)[] = [];
+    try {
+      presenceVals = targets.length
+        ? await this.redis
+            .getClient()
+            .mget([
+              ...targets.map((id) => this.key(id)),
+              ...targets.map((id) => this.lastSeenKey(id)),
+            ])
+        : [];
+    } catch {
+      presenceVals = new Array(targets.length * 2).fill(null);
+    }
+    const onlineById = new Map<string, boolean>();
+    const lastSeenById = new Map<string, string | null>();
+    targets.forEach((id, i) => {
+      const v = presenceVals[i];
+      onlineById.set(id, !!v && Number(v) > 0);
+      lastSeenById.set(id, presenceVals[targets.length + i] ?? null);
+    });
+
     const out: PresenceInfo[] = [];
     for (const targetId of targets) {
       const t = byId.get(targetId);
@@ -176,8 +200,8 @@ export class PresenceService {
         continue;
       }
 
-      const online = await this.isOnline(targetId);
-      const lastSeen = online ? null : await this.getLastSeen(targetId);
+      const online = onlineById.get(targetId) ?? false;
+      const lastSeen = online ? null : (lastSeenById.get(targetId) ?? null);
       const contextual = online ? await this.contextualFor(viewerId, targetId) : null;
       out.push({ userId: targetId, online, lastSeen, contextual });
     }

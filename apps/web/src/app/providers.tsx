@@ -4,6 +4,7 @@ import React, { Component, type ErrorInfo } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useEffect, useState, useRef } from 'react';
 import { useAuthStore } from '@/lib/stores/auth';
+import { CallsWatcher } from '@/components/calls/CallsWatcher';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -12,7 +13,18 @@ export function Providers({ children }: { children: React.ReactNode }) {
         defaultOptions: {
           queries: {
             staleTime: 1000 * 60,
-            retry: 2,
+            // Живость данных дают socket-события и точечные инвалидации; дефолтный
+            // refetch-on-focus с 30+ смонтированными запросами устраивал шторм из
+            // 8–30 запросов на каждый Alt-Tab. Точечно включается там, где надо.
+            refetchOnWindowFocus: false,
+            // Ретраим только сеть/5xx: клиентские ошибки (403 отозванный доступ,
+            // 404) повторным запросом не лечатся — лишь задерживают ошибку в UI.
+            retry: (failureCount, error) => {
+              if (failureCount >= 2) return false;
+              const status = (error as { response?: { status?: number } } | null)?.response
+                ?.status;
+              return status === undefined || status >= 500;
+            },
           },
         },
       }),
@@ -29,7 +41,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ErrorBoundary>{children}</ErrorBoundary>
+      <ErrorBoundary>
+        {children}
+        {/* Входящие звонки ловятся на любой странице (модалка + рингтон) */}
+        <CallsWatcher />
+      </ErrorBoundary>
     </QueryClientProvider>
   );
 }

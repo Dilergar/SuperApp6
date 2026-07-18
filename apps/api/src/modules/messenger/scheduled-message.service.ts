@@ -31,6 +31,16 @@ export class ScheduledMessageService implements OnModuleInit {
     private readonly quickActions: QuickActionRegistry,
   ) {}
 
+  /** Чистка закрытых строк (sent/cancelled) старше 30 дней — история отправки живёт
+   *  в самих сообщениях чата, строка планировщика после выстрела нужна недолго. */
+  async purgeOld(): Promise<number> {
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const res = await this.db.scheduledMessage.deleteMany({
+      where: { status: { in: ['sent', 'cancelled'] }, updatedAt: { lt: cutoff } },
+    });
+    return res.count;
+  }
+
   onModuleInit(): void {
     this.quickActions.register({
       key: 'message.schedule',

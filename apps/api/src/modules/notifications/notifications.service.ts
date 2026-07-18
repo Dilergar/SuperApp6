@@ -132,15 +132,30 @@ export class NotificationsService {
   /**
    * Prune notifications older than the retention window so the table stays
    * bounded. Run by NotificationsCron. Returns the number of rows deleted.
+   * Батчами (retention-паттерн Stripe/GitHub): одно deleteMany на миллионы строк —
+   * это лавина WAL, долгие локи и лаг реплики; теперь идём по индексу createdAt
+   * кусками по 10k.
    */
   async cleanupOld(): Promise<number> {
     const cutoff = new Date(
       Date.now() - NOTIFICATION_LIMITS.retentionDays * 24 * 60 * 60 * 1000,
     );
-    const res = await this.db.notification.deleteMany({
-      where: { createdAt: { lt: cutoff } },
-    });
-    return res.count;
+    const BATCH = 10_000;
+    let total = 0;
+    for (;;) {
+      const rows = await this.db.notification.findMany({
+        where: { createdAt: { lt: cutoff } },
+        select: { id: true },
+        take: BATCH,
+      });
+      if (!rows.length) break;
+      const res = await this.db.notification.deleteMany({
+        where: { id: { in: rows.map((r) => r.id) } },
+      });
+      total += res.count;
+      if (rows.length < BATCH) break;
+    }
+    return total;
   }
 }
 

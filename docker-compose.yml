@@ -110,6 +110,91 @@ services:
       retries: 10
       start_period: 300s
 
+  # SFU-сервер движка звонков (core/calls): LiveKit — WebRTC-комнаты уровня Google Meet
+  # (simulcast/adaptive streams/Opus RED — техники устойчивости Meet из коробки).
+  # Опциональный профиль: docker compose --profile calls up -d
+  # Затем в apps/api/.env:
+  #   LIVEKIT_URL=http://localhost:7880
+  #   LIVEKIT_API_KEY=devkey
+  #   LIVEKIT_API_SECRET=superapp6-calls-dev-secret-0123456789ab   (= LIVEKIT_DEV_SECRET ниже, ≥32 символов — иначе сервер не стартует; смени в проде!)
+  #   LIVEKIT_EGRESS_DIR=./storage/egress   (запись звонков; = bind-mount egress ниже)
+  # Второе устройство в LAN: LIVEKIT_NODE_IP=<IPv4 хоста из ipconfig> + firewall на 7880-7882.
+  livekit:
+    image: livekit/livekit-server:v1.13
+    container_name: superapp6-livekit
+    profiles: ['calls']
+    restart: unless-stopped
+    # --node-ip — ICE-кандидат, который сервер рекламирует браузеру (Docker-NAT);
+    # 127.0.0.1 достаточно для одного ПК (dev), для телефона в Wi-Fi — LAN-IP хоста.
+    command: --node-ip ${LIVEKIT_NODE_IP:-127.0.0.1}
+    ports:
+      - '7880:7880' # signaling WebSocket + HTTP API
+      - '7881:7881' # WebRTC-over-TCP fallback
+      - '7882:7882/udp' # ЕДИНЫЙ muxed UDP-порт медиа (диапазон портов на Docker-Windows не работает)
+    environment:
+      # redis ОБЯЗАТЕЛЕН для связки с egress (psrpc-координация): без блока redis
+      # StartEgress отвечает «egress not connected», хотя сам контейнер жив
+      LIVEKIT_CONFIG: |
+        port: 7880
+        bind_addresses: ["0.0.0.0"]
+        rtc:
+          tcp_port: 7881
+          udp_port: 7882
+          use_external_ip: false
+          # Устойчивость к слабой сети: при заторе SFU ПАУЗИТ видео-треки, сохраняя
+          # аудио (allow_pause в коде сервера по умолчанию false!) — механизм
+          # «звук не виснет» Google Meet: видео замирает первым, разговор продолжается
+          congestion_control:
+            enabled: true
+            allow_pause: true
+        redis:
+          address: redis:6379
+        keys:
+          devkey: ${LIVEKIT_DEV_SECRET:-superapp6-calls-dev-secret-0123456789ab}
+        webhook:
+          api_key: devkey
+          urls:
+            - http://host.docker.internal:3001/api/calls/livekit/webhook
+    depends_on:
+      redis:
+        condition: service_healthy
+    extra_hosts:
+      - 'host.docker.internal:host-gateway' # Docker Desktop имеет из коробки; строка — для Linux-хостов
+    # Dev-инструмент: имитация плохой сети (tc/netem) для проверки устойчивости звонков.
+    # tc в Alpine-образе нет — поставить один раз в ЖИВОЙ контейнер (не переживает пересоздание):
+    #   docker exec superapp6-livekit apk add --no-cache iproute2
+    # Включить деградацию (потери+лаг server→browser; бьёт ВЕСЬ трафик контейнера, вкл. вебхуки — тесты короткие):
+    #   docker exec superapp6-livekit tc qdisc add dev eth0 root netem delay 200ms 50ms loss 15%
+    # Выключить: docker exec superapp6-livekit tc qdisc del dev eth0 root
+    cap_add:
+      - NET_ADMIN
+
+  # Запись звонков (подсистема движка core/calls): LiveKit Egress пишет audio-only
+  # RoomComposite → OGG в /out (bind-mount ./apps/api/storage/egress — его читает
+  # хост-API и инжестит в core/files). Тот же профиль calls: без egress звонки
+  # работают, но кнопка ⏺ скрыта (LIVEKIT_EGRESS_DIR в .env не задан).
+  # egress_*-вебхуки шлёт сам livekit-server (egress репортит через redis).
+  livekit-egress:
+    image: livekit/egress:v1.9
+    container_name: superapp6-egress
+    profiles: ['calls']
+    restart: unless-stopped
+    # Chrome внутри образа использует /dev/shm — дефолтных 64МБ мало
+    shm_size: '1gb'
+    environment:
+      EGRESS_CONFIG_BODY: |
+        log_level: info
+        api_key: devkey
+        api_secret: ${LIVEKIT_DEV_SECRET:-superapp6-calls-dev-secret-0123456789ab}
+        ws_url: ws://livekit:7880
+        redis:
+          address: redis:6379
+    volumes:
+      - ./apps/api/storage/egress:/out
+    depends_on:
+      redis:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   redis_data:

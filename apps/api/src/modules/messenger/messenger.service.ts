@@ -9,6 +9,7 @@ import { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { fullName } from '../../shared/utils/user-name';
 import { EventBusService } from '../../shared/events/event-bus.service';
+import { RedisService } from '../../shared/redis/redis.service';
 import { AccessService } from '../../core/access/access.service';
 import { AccessProjectionService } from '../../core/access/access-projection.service';
 import { ContactsService } from '../contacts/contacts.service';
@@ -16,8 +17,12 @@ import { MentionsService } from './mentions.service';
 import { MessengerSearchService } from './messenger-search.service';
 import { FilesService } from '../../core/files/files.service';
 import { FilesRefRegistry } from '../../core/files/files-ref.registry';
-import { MESSENGER_LIMITS } from '@superapp/shared';
+import { CallsService } from '../../core/calls/calls.service';
+import { CallsRefRegistry } from '../../core/calls/calls-ref.registry';
+import { MESSENGER_LIMITS, OFFICE_ROOM_ROLE_LABELS, attachmentPreviewText } from '@superapp/shared';
 import type {
+  CallActiveDto,
+  ChatCallStatePayload,
   ChatSummary,
   ChatMessage,
   ChatDetail,
@@ -95,6 +100,9 @@ export class MessengerService implements OnModuleInit {
     private searchIndex: MessengerSearchService,
     private files: FilesService,
     private filesRegistry: FilesRefRegistry,
+    private calls: CallsService,
+    private callsRegistry: CallsRefRegistry,
+    private redis: RedisService,
   ) {}
 
   onModuleInit(): void {
@@ -118,6 +126,190 @@ export class MessengerService implements OnModuleInit {
         return this.access.can(this.user(uid), 'chat.post', m.chatId);
       },
     }, { allowedProfiles: ['chat_attachment', 'voice_message'] });
+
+    // Звонки в чатах (refType='chat', движок core/calls): DM с дозвоном, группы и
+    // контекстные чаты — по модели «присоединиться». Доступ = chat.view; DM
+    // дополнительно уважает личные блоки (как DM-сообщения). Чат офис-встречи
+    // исключён: у сущности office_room уже есть собственный звонок (конфликт
+    // двух активных сессий на одну встречу).
+    this.callsRegistry.register('chat', {
+      canJoin: async (uid, chatId) => {
+        const chat = await this.db.chat.findUnique({
+          where: { id: chatId },
+          select: { type: true, parentType: true },
+        });
+        if (!chat || chat.parentType === 'office_room') return false;
+        if (!(await this.access.can(this.user(uid), 'chat.view', chatId))) return false;
+        if (chat.type === 'dm') {
+          const peer = await this.db.chatMember.findFirst({
+            where: { chatId, userId: { not: uid } },
+            select: { userId: true },
+          });
+          if (!peer) return false;
+          try {
+            await this.assertInEnvironment(uid, peer.userId, { alwaysCheckBlocks: true });
+          } catch {
+            return false;
+          }
+        }
+        return true;
+      },
+      // DM: оба участника — модераторы (трубка/отклонение = конец звонка для обоих,
+      // WhatsApp-семантика). Группа: owner/admin. Контекстные: модераторов нет —
+      // звонок затухает сам (departure_timeout LiveKit + реконсиляция кроном).
+      canModerate: async (uid, chatId) => {
+        const chat = await this.db.chat.findUnique({ where: { id: chatId }, select: { type: true } });
+        if (!chat) return false;
+        const member = await this.db.chatMember.findFirst({
+          where: { chatId, userId: uid },
+          select: { role: true },
+        });
+        if (!member) return false;
+        if (chat.type === 'dm') return true;
+        if (chat.type === 'group') return member.role === 'owner' || member.role === 'admin';
+        return false;
+      },
+      // Фанаут call:state на выдачу токена (идемпотентный снимок). Важно: на этот момент
+      // звонящий ещё НЕ в комнате (строка журнала появится с вебхуком participant_joined),
+      // поэтому сам этот фанаут дозвон НЕ зажигает — ринг у DM-собеседника стартует, когда
+      // придёт participant_joined (шина). Шина at-most-once → страховка: клиентский
+      // CallsWatcher опрашивает /messenger/calls/active раз в 12с (восстанавливает
+      // потерянное joined/ended). «Гарантией» этот путь называть нельзя — это snapshot+backstop.
+      onJoinAuthorized: async (_uid, chatId) => {
+        await this.broadcastCallState(chatId).catch(() => undefined);
+      },
+      resolveWorkspaceId: async (chatId) => {
+        const chat = await this.db.chat.findUnique({
+          where: { id: chatId },
+          select: { workspaceId: true },
+        });
+        return chat?.workspaceId ?? null;
+      },
+    });
+  }
+
+  // ============================================================
+  // Звонки в чатах — снимок call:state (см. ChatCallsListener)
+  // ============================================================
+
+  /** TTL кэша снимка call:state (≤ интервала клиентского поллинга — свежесть та же). */
+  private static readonly CALL_STATE_TTL_SEC = 15;
+
+  private callStateCacheKey(chatId: string): string {
+    return `msgr:callstate:${chatId}`;
+  }
+
+  /**
+   * Снимок звонка чата + аудитория. Один формат кормит socket call:state и
+   * GET /messenger/calls/active (холодная загрузка watcher'а входящих).
+   *
+   * Redis-кэш (15с): при живом звонке в большой группе каждый поллер тянул всех
+   * участников чата + звонящего — теперь один расчёт на всех зрителей; вебхуки
+   * (broadcastCallState) строят свежий снимок и перезаписывают кэш.
+   */
+  private async buildCallStatePayload(
+    chatId: string,
+    preloaded?: CallActiveDto | null,
+    opts?: { skipCache?: boolean },
+  ): Promise<{ payload: ChatCallStatePayload; memberUserIds: string[] } | null> {
+    if (!opts?.skipCache) {
+      try {
+        const raw = await this.redis.get(this.callStateCacheKey(chatId));
+        if (raw) {
+          const cached = JSON.parse(raw) as {
+            payload: ChatCallStatePayload;
+            memberUserIds: string[];
+          };
+          // Кэш валиден только для ТОЙ ЖЕ сессии: снимок «звонок завершён» не должен
+          // маскировать новую сессию, начатую внутри TTL (и наоборот).
+          const cachedSession = cached.payload.active?.sessionId ?? null;
+          const askedSession = preloaded === undefined ? cachedSession : preloaded?.sessionId ?? null;
+          if (cachedSession === askedSession) return cached;
+        }
+      } catch {
+        /* кэш — best-effort */
+      }
+    }
+
+    const chat = await this.db.chat.findUnique({
+      where: { id: chatId },
+      select: {
+        id: true,
+        type: true,
+        title: true,
+        members: { select: { userId: true } },
+      },
+    });
+    if (!chat) return null;
+    const active =
+      preloaded !== undefined
+        ? preloaded
+        : (await this.calls.getActiveForRefs('chat', [chatId])).get(chatId) ?? null;
+    let startedByName: string | null = null;
+    if (active) {
+      const starter = await this.db.user.findUnique({
+        where: { id: active.startedById },
+        select: USER_LITE,
+      });
+      startedByName = starter ? fullName(starter) : null;
+    }
+    const built = {
+      payload: {
+        chatId,
+        chatType: chat.type as ChatCallStatePayload['chatType'],
+        // DM живёт без title (имя пира зависит от зрителя) — модалке входящего
+        // хватает имени звонящего
+        chatTitle: chat.title ?? startedByName ?? 'Звонок',
+        startedByName,
+        active,
+      },
+      memberUserIds: chat.members.map((m) => m.userId),
+    };
+    try {
+      await this.redis.set(
+        this.callStateCacheKey(chatId),
+        JSON.stringify(built),
+        MessengerService.CALL_STATE_TTL_SEC,
+      );
+    } catch {
+      /* кэш — best-effort */
+    }
+    return built;
+  }
+
+  /** Разослать call:state всем участникам чата (gateway ретранслирует messenger.*) */
+  async broadcastCallState(chatId: string, preloaded?: CallActiveDto | null): Promise<void> {
+    // Вебхук-путь строит СВЕЖИЙ снимок (участник только что вошёл/вышел) и обновляет кэш.
+    const built = await this.buildCallStatePayload(chatId, preloaded, { skipCache: true });
+    if (!built) return;
+    this.events.emit(
+      'messenger.call.state',
+      { ...built.payload, memberUserIds: built.memberUserIds },
+      'messenger',
+    );
+  }
+
+  /** Живые звонки моих чатов — watcher входящих при загрузке/reconnect любой страницы */
+  async listMyActiveCalls(userId: string): Promise<ChatCallStatePayload[]> {
+    // Перевёрнутый джойн (перф-ревью 2026-07-18): активных chat-сессий на платформе
+    // единицы (partial-индекс), а чатов у активного юзера тысячи (контекстный чат на
+    // каждую задачу/заказ) — раньше КАЖДЫЙ 12-секундный поллинг каждой вкладки сканировал
+    // всё членство. Теперь типичный случай «звонков нет» = один индексный запрос → [].
+    const activeRefIds = await this.calls.listActiveRefIds('chat');
+    if (!activeRefIds.length) return [];
+    const myChats = await this.db.chatMember.findMany({
+      where: { userId, chatId: { in: activeRefIds } },
+      select: { chatId: true },
+    });
+    if (!myChats.length) return [];
+    const active = await this.calls.getActiveForRefs('chat', myChats.map((m) => m.chatId));
+    if (!active.size) return [];
+    const out: ChatCallStatePayload[] = [];
+    for (const chatId of active.keys()) {
+      const built = await this.buildCallStatePayload(chatId, active.get(chatId) ?? null);
+      if (built) out.push(built.payload);
+    }
+    return out;
   }
 
   /** Отвязать и прибрать вложения всех attachment-сообщений чата (перед его удалением) */
@@ -939,6 +1131,160 @@ export class MessengerService implements OnModuleInit {
   }
 
   // ============================================================
+  // Office-room (context) chats — чат встречи «Виртуального офиса» (host/participant).
+  // Чат живёт и ПОСЛЕ завершения встречи — история переписки остаётся участникам.
+  // ============================================================
+
+  /**
+   * Find or create the chat for an office meeting. Members follow the room's roles via
+   * usersets (chat#member@office_room:<id>#host|participant); ChatMember rows are
+   * materialized for the inbox / cursors.
+   */
+  private async getOrCreateOfficeRoomChat(
+    roomId: string,
+  ): Promise<{ id: string; type: string; lastSeq: number; title: string | null }> {
+    const sel = { id: true, type: true, lastSeq: true, title: true } as const;
+    const existing = await this.db.chat.findFirst({
+      where: { parentType: 'office_room', parentId: roomId },
+      select: sel,
+    });
+    if (existing) return existing;
+
+    const room = await this.db.officeRoom.findUnique({
+      where: { id: roomId },
+      select: { name: true, participants: { select: { userId: true } } },
+    });
+    if (!room) throw new NotFoundException('Встреча не найдена');
+
+    const memberUserIds = new Set<string>(room.participants.map((p) => p.userId));
+
+    // ATOMIC creation (see getOrCreateTaskChat): chat row + membership tuples + materialized
+    // members in ONE transaction, so a concurrent reader never observes a member-less chat.
+    try {
+      return await this.db.$transaction(async (tx) => {
+        const chat = await tx.chat.create({
+          data: { type: 'context', parentType: 'office_room', parentId: roomId, title: room.name },
+          select: sel,
+        });
+        await tx.relationTuple.createMany({
+          data: ['host', 'participant'].map((relation) => ({
+            resourceType: 'chat',
+            resourceId: chat.id,
+            relation: 'member',
+            subjectType: 'office_room',
+            subjectId: roomId,
+            subjectRelation: relation,
+          })),
+          skipDuplicates: true,
+        });
+        await tx.chatMember.createMany({
+          data: [...memberUserIds].map((uid) => ({
+            chatId: chat.id,
+            userId: uid,
+            role: 'member',
+            visibleFromSeq: 0,
+          })),
+          skipDuplicates: true,
+        });
+        return chat;
+      });
+    } catch (e: any) {
+      if (e?.code === 'P2002') {
+        const won = await this.db.chat.findFirst({
+          where: { parentType: 'office_room', parentId: roomId },
+          select: sel,
+        });
+        if (won) return won;
+      }
+      throw e;
+    }
+  }
+
+  /** Public: open the meeting's chat (verifying the user can view the office room). */
+  async getOfficeRoomChat(userId: string, roomId: string): Promise<ChatDetail> {
+    // Ensure the room's role tuples exist NOW (don't depend on the async office.* listener).
+    await this.accessProjection.resyncOfficeRoomRoles(roomId);
+    const canView = await this.access.can(this.user(userId), 'office_room.view', roomId);
+    if (!canView) throw new ForbiddenException('Нет доступа к встрече');
+    const chat = await this.getOrCreateOfficeRoomChat(roomId);
+    return this.getChatDetail(userId, chat.id);
+  }
+
+  /** Best-effort: reconcile the meeting chat's materialized members to the room's participants. */
+  async syncOfficeRoomChatMembers(roomId: string): Promise<void> {
+    try {
+      const chat = await this.db.chat.findFirst({
+        where: { parentType: 'office_room', parentId: roomId },
+        select: { id: true },
+      });
+      if (!chat) return;
+
+      const room = await this.db.officeRoom.findUnique({
+        where: { id: roomId },
+        select: { participants: { select: { userId: true } } },
+      });
+      if (!room) return;
+
+      const desired = new Set<string>(room.participants.map((p) => p.userId));
+      const current = await this.db.chatMember.findMany({
+        where: { chatId: chat.id },
+        select: { userId: true },
+      });
+      const currentIds = new Set(current.map((m) => m.userId));
+      const toAdd = [...desired].filter((id) => !currentIds.has(id));
+      const toRemove = [...currentIds].filter((id) => !desired.has(id));
+
+      if (toAdd.length) {
+        await this.db.chatMember.createMany({
+          data: toAdd.map((uid) => ({ chatId: chat.id, userId: uid, role: 'member', visibleFromSeq: 0 })),
+          skipDuplicates: true,
+        });
+      }
+      if (toRemove.length) {
+        await this.db.chatMember.deleteMany({ where: { chatId: chat.id, userId: { in: toRemove } } });
+      }
+    } catch {
+      // best-effort
+    }
+  }
+
+  /** Best-effort: delete the meeting's chat (задел — v1 встречу не удаляет, только завершает). */
+  async deleteOfficeRoomChat(roomId: string): Promise<void> {
+    try {
+      const chat = await this.db.chat.findFirst({
+        where: { parentType: 'office_room', parentId: roomId },
+        select: { id: true },
+      });
+      if (!chat) return;
+      await this.reapChatAttachments(chat.id);
+      await this.access.revokeResource('chat', chat.id);
+      await this.db.chat.delete({ where: { id: chat.id } });
+      await this.searchIndex.removeChat(chat.id);
+    } catch {
+      // best-effort
+    }
+  }
+
+  /** Public: post a system plaque to a meeting's chat, ensuring the chat exists. */
+  async postOfficeRoomSystemMessage(
+    roomId: string,
+    eventType: SystemMessageEvent | string,
+    text: string,
+  ): Promise<void> {
+    const chat = await this.getOrCreateOfficeRoomChat(roomId);
+    await this.postSystemMessage(chat.id, eventType, text);
+  }
+
+  /** Public: плашка прямо в чат по id (итоги звонков — ChatCallsListener). */
+  async postChatSystemMessage(
+    chatId: string,
+    eventType: SystemMessageEvent | string,
+    text: string,
+  ): Promise<void> {
+    await this.postSystemMessage(chatId, eventType, text);
+  }
+
+  // ============================================================
   // Rich cards (Phase 3) — a service-posted interactive card message
   // ============================================================
 
@@ -1074,6 +1420,9 @@ export class MessengerService implements OnModuleInit {
     // full history (the old groupBy counted every message of every chat ever).
     const unreadByChat = await this.computeUnread(userId, visible.map((m) => m.chatId));
 
+    // Живые созвоны батчем (баннер «Идёт звонок» в инбоксе) — движок читает свои таблицы сам
+    const activeCalls = await this.calls.getActiveForRefs('chat', visible.map((m) => m.chatId));
+
     const summaries: ChatSummary[] = visible.map((m) => {
       const chat = m.chat;
       const last = chat.messages[0] ?? null;
@@ -1095,6 +1444,7 @@ export class MessengerService implements OnModuleInit {
         muted: m.mutedUntil ? m.mutedUntil > new Date() : false,
         pinned: m.pinned,
         updatedAt: (last?.createdAt ?? chat.updatedAt).toISOString(),
+        activeCall: activeCalls.get(chat.id) ?? null,
       };
     });
 
@@ -1158,6 +1508,8 @@ export class MessengerService implements OnModuleInit {
       labelMap = await this.orderRoleLabels(chat.parentId);
     } else if (chat.type === 'context' && chat.parentType === 'event' && chat.parentId) {
       labelMap = await this.eventRoleLabels(chat.parentId);
+    } else if (chat.type === 'context' && chat.parentType === 'office_room' && chat.parentId) {
+      labelMap = await this.officeRoomRoleLabels(chat.parentId);
     } else {
       labelMap = new Map();
     }
@@ -1186,6 +1538,7 @@ export class MessengerService implements OnModuleInit {
       myLastReadSeq: me?.lastReadSeq ?? 0,
       muted: me?.mutedUntil ? me.mutedUntil > new Date() : false,
       pinned: me?.pinned ?? false,
+      activeCall: (await this.calls.getActiveForRefs('chat', [chatId])).get(chatId) ?? null,
     };
   }
 
@@ -1248,12 +1601,51 @@ export class MessengerService implements OnModuleInit {
       labelMap = await this.orderRoleLabels(chat.parentId);
     } else if (chat?.type === 'context' && chat.parentType === 'event' && chat.parentId) {
       labelMap = await this.eventRoleLabels(chat.parentId);
+    } else if (chat?.type === 'context' && chat.parentType === 'office_room' && chat.parentId) {
+      labelMap = await this.officeRoomRoleLabels(chat.parentId);
     }
 
     const showStatus = chat?.type === 'dm';
+    // Обогащение вложений подписанными ссылками БАТЧЕМ (один findMany + HMAC-подпись):
+    // раньше каждая плитка делала 2 HTTP × 4–5 запросов БД (meta+download), а лента с
+    // 30 медиа = ~60 запросов, пробивавших short-троттлер в prod (перф-ревью 2026-07-18).
+    await this.attachViewsTo(rows);
     return rows
       .reverse()
       .map((r) => this.toMessage(r, userId, minDelivered, minRead, labelMap, showStatus));
+  }
+
+  /**
+   * Дописать attachment-сообщениям `files[].view` (ссылки+мета) — НЕ сохраняется в БД,
+   * только в отдаваемый DTO. Best-effort: сбой обогащения не ломает ленту (клиент
+   * имеет фолбэк через GET /files/:id/download).
+   */
+  private async attachViewsTo(
+    rows: Array<{ type: string; deletedAt?: Date | null; payload: unknown }>,
+  ): Promise<void> {
+    const attach = rows.filter(
+      (r) => r.type === 'attachment' && !r.deletedAt && r.payload && typeof r.payload === 'object',
+    );
+    if (!attach.length) return;
+    const ids: string[] = [];
+    for (const r of attach) {
+      for (const f of (r.payload as { files?: Array<{ fileId?: string }> }).files ?? []) {
+        if (f?.fileId) ids.push(f.fileId);
+      }
+    }
+    if (!ids.length) return;
+    try {
+      const views = await this.files.buildAttachmentViews(ids);
+      if (!views.size) return;
+      for (const r of attach) {
+        for (const f of (r.payload as { files?: Array<{ fileId?: string; view?: unknown }> }).files ?? []) {
+          const v = f?.fileId ? views.get(f.fileId) : undefined;
+          if (v) f.view = v;
+        }
+      }
+    } catch {
+      /* best-effort */
+    }
   }
 
   // ============================================================
@@ -1371,10 +1763,11 @@ export class MessengerService implements OnModuleInit {
       // never break sendMessage on a mention failure
     }
 
-    // Search index (Phase 6): mirror the message so it's findable. Best-effort + awaited so
-    // the index is fresh the moment send returns (consistent reads); a failure can't break send.
-    try {
-      await this.searchIndex.indexMessage({
+    // Search index (Phase 6): fire-and-forget — upsert с пересчётом tsvector стоял в
+    // критическом пути send (~20–30% латентности); секунда лага поиска незаметна, а
+    // потерю (краш между send и индексом) добирает крон-сверка reconcileRecentMessages.
+    void this.searchIndex
+      .indexMessage({
         id: msg.id,
         chatId,
         authorId: userId,
@@ -1382,10 +1775,8 @@ export class MessengerService implements OnModuleInit {
         seq: msg.seq,
         type: 'text',
         createdAt: msg.createdAt,
-      });
-    } catch {
-      // never break sendMessage on an index failure
-    }
+      })
+      .catch(() => undefined);
 
     return this.toMessage(msg, userId, 0, 0, undefined, chatType === 'dm');
   }
@@ -1433,8 +1824,9 @@ export class MessengerService implements OnModuleInit {
       } catch {
         // never break send on a mention failure
       }
-      try {
-        await this.searchIndex.indexMessage({
+      // Fire-and-forget (см. sendMessage): индекс вне критического пути send.
+      void this.searchIndex
+        .indexMessage({
           id: msg.id,
           chatId,
           authorId: userId,
@@ -1442,12 +1834,12 @@ export class MessengerService implements OnModuleInit {
           seq: msg.seq,
           type: 'attachment',
           createdAt: msg.createdAt,
-        });
-      } catch {
-        // never break send on an index failure
-      }
+        })
+        .catch(() => undefined);
     }
 
+    // Эхо отправителю сразу со ссылками (альбом только что залит — рендер без 2×N HTTP).
+    await this.attachViewsTo([msg]);
     return this.toMessage(msg, userId, 0, 0, undefined, chatType === 'dm');
   }
 
@@ -1671,6 +2063,20 @@ export class MessengerService implements OnModuleInit {
     return map;
   }
 
+  private async officeRoomRoleLabels(roomId: string): Promise<Map<string, string | null>> {
+    const map = new Map<string, string | null>();
+    const room = await this.db.officeRoom.findUnique({
+      where: { id: roomId },
+      select: { participants: { select: { userId: true, role: true } } },
+    });
+    if (!room) return map;
+    for (const p of room.participants) {
+      if (map.has(p.userId)) continue;
+      map.set(p.userId, OFFICE_ROOM_ROLE_LABELS[p.role === 'host' ? 'host' : 'participant']);
+    }
+    return map;
+  }
+
   private async broadcastUpdate(msg: any, type: string): Promise<void> {
     const memberUserIds = await this.memberIds(msg.chatId);
     this.events.emit(
@@ -1745,14 +2151,9 @@ export class MessengerService implements OnModuleInit {
     };
   }
 
-  /** Превью attachment-сообщения без подписи: «🎤 Голосовое» / «📎 Файл» / «📎 Файлы: N» */
+  /** Превью attachment-сообщения без подписи — формулировки в @superapp/shared (одна точка с веб-фолбэком) */
   private attachmentPreviewText(payload: unknown): string {
-    const files = (payload as { files?: Array<{ kind?: string; profile?: string }> } | null)?.files;
-    const n = Array.isArray(files) ? files.length : 0;
-    if (n === 1 && files?.[0]?.kind === 'audio') {
-      return files[0]?.profile === 'voice_message' ? '🎤 Голосовое сообщение' : '🎵 Аудио';
-    }
-    return n <= 1 ? '📎 Файл' : `📎 Файлы: ${n}`;
+    return attachmentPreviewText((payload as { files?: Array<{ kind?: string; profile?: string }> } | null)?.files);
   }
 
   private toPreview(r: any): MessagePreview {

@@ -35,10 +35,16 @@ import { RedisService } from '../redis/redis.service';
 
 const STREAM = 'superapp:events';
 const GROUP = 'superapp:workers';
-const MAXLEN = 10000; // approximate cap so the stream can't grow unbounded
+// Approximate cap so the stream can't grow unbounded. Deliberately generous: entries are
+// small JSONs (100k ≈ tens of MB), and MAXLEN trims UNREAD entries too — a low cap would
+// silently drop the tail during a consumer backlog spike. maybeWarnLag() below surfaces
+// such a backlog in the logs long before the cap becomes a data-loss risk.
+const MAXLEN = 100_000;
 const BLOCK_MS = 5000;
 const BATCH = 20;
 const CLAIM_IDLE_MS = 60_000; // reclaim messages idle longer than this
+const LAG_CHECK_INTERVAL_MS = 5 * 60_000; // how often to sample group lag
+const LAG_WARN_THRESHOLD = 1000; // pending entries that count as "falling behind"
 
 export interface AppEvent {
   type: string;
@@ -144,6 +150,7 @@ export class EventBusService
     while (this.running) {
       try {
         await this.reclaimStale();
+        await this.maybeWarnLag();
 
         const res = (await this.c.xreadgroup(
           'GROUP',
@@ -176,6 +183,31 @@ export class EventBusService
         this.logger.error(`consume loop error: ${msg}`);
         await new Promise((r) => setTimeout(r, 1000)); // backoff
       }
+    }
+  }
+
+  private lastLagCheck = 0;
+
+  /**
+   * Streams-гигиена: раз в LAG_CHECK_INTERVAL_MS сэмплируем лаг consumer-группы.
+   * Молчаливое отставание (события копятся в pending / стрим растёт к MAXLEN-обрезке)
+   * должно быть видно в логах ДО того, как хвост потеряется.
+   */
+  private async maybeWarnLag(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastLagCheck < LAG_CHECK_INTERVAL_MS) return;
+    this.lastLagCheck = now;
+    try {
+      const pendingRes = (await this.c.xpending(STREAM, GROUP)) as [number, ...unknown[]] | null;
+      const pending = pendingRes?.[0] ?? 0;
+      const streamLen = (await this.c.xlen(STREAM)) as number;
+      if (pending >= LAG_WARN_THRESHOLD || streamLen >= MAXLEN * 0.8) {
+        this.logger.warn(
+          `EventBus lag: pending=${pending}, stream len=${streamLen}/${MAXLEN} — consumers falling behind, tail loss possible at cap`,
+        );
+      }
+    } catch {
+      /* диагностика — не критично */
     }
   }
 

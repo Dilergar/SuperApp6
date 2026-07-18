@@ -23,7 +23,9 @@ export class AccessReconcileCron {
       const res = await this.projection.reconcile();
       const shops = await this.projection.backfillShops();
       const calendar = await this.projection.backfillCalendar();
-      const tasks = await this.projection.backfillTasks();
+      // Задачи — крупнейшая таблица: ночью доливаем только изменённые за окно (25ч,
+      // час перекрытия). Полный бэкфилл остаётся в scripts/backfill-access.cjs.
+      const tasks = await this.projection.backfillTasks(new Date(Date.now() - 25 * 3600 * 1000));
       this.logger.log(`access reconcile: ${JSON.stringify({ ...res, shops, calendar, tasks })}`);
     });
   }

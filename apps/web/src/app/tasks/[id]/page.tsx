@@ -38,10 +38,11 @@ import {
 import { Conversation } from '../../messenger/Conversation';
 import { ShareCardModal } from '../../messenger/ShareCardModal';
 import { AttachmentsSection } from '@/components/files/AttachmentsSection';
-import { taskAttachmentsKey } from '@/lib/queries';
+import { messengerMessagesKey, taskAttachmentsKey } from '@/lib/queries';
 import type { FileDto } from '@superapp/shared';
 
-const messagesKey = (chatId: string) => ['messenger', 'messages', chatId] as const;
+// Ключ сообщений — общий messengerMessagesKey из lib/queries.ts: чат задачи делит
+// кэш со страницей /messenger (локальная копия литерала молча разорвала бы его)
 
 export default function TaskDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -101,7 +102,7 @@ export default function TaskDetailPage() {
   const chatId = chatDetail?.id ?? null;
 
   const messagesQuery = useQuery({
-    queryKey: chatId ? messagesKey(chatId) : ['messenger', 'messages', 'none'],
+    queryKey: chatId ? messengerMessagesKey(chatId) : ['messenger', 'messages', 'none'],
     queryFn: () => getMessages(chatId as string),
     enabled: isReady && !!chatId,
   });
@@ -112,7 +113,7 @@ export default function TaskDetailPage() {
 
   const upsertMessageInCache = useCallback(
     (cid: string, msg: ChatMessage) => {
-      queryClient.setQueryData<ChatMessage[]>(messagesKey(cid), (old) => {
+      queryClient.setQueryData<ChatMessage[]>(messengerMessagesKey(cid), (old) => {
         const list = old ? [...old] : [];
         const byId = list.findIndex((m) => m.id === msg.id);
         if (byId >= 0) {
@@ -138,7 +139,7 @@ export default function TaskDetailPage() {
 
   const patchMessageInCache = useCallback(
     (cid: string, msg: ChatMessage) => {
-      queryClient.setQueryData<ChatMessage[]>(messagesKey(cid), (old) =>
+      queryClient.setQueryData<ChatMessage[]>(messengerMessagesKey(cid), (old) =>
         old ? old.map((m) => (m.id === msg.id ? { ...m, ...msg } : m)) : old,
       );
     },
@@ -147,7 +148,7 @@ export default function TaskDetailPage() {
 
   const applyReceiptToCache = useCallback(
     (r: SocketReceipt) => {
-      queryClient.setQueryData<ChatMessage[]>(messagesKey(r.chatId), (old) => {
+      queryClient.setQueryData<ChatMessage[]>(messengerMessagesKey(r.chatId), (old) => {
         if (!old) return old;
         return old.map((m) => {
           if (m.authorId !== currentUserId) return m;
@@ -228,12 +229,12 @@ export default function TaskDetailPage() {
         mine: true,
         status: 'sent',
       };
-      queryClient.setQueryData<ChatMessage[]>(messagesKey(chatId), (old) =>
+      queryClient.setQueryData<ChatMessage[]>(messengerMessagesKey(chatId), (old) =>
         old ? [...old, optimistic] : [optimistic],
       );
       try {
         const saved = await sendMessage(chatId, content);
-        queryClient.setQueryData<ChatMessage[]>(messagesKey(chatId), (old) => {
+        queryClient.setQueryData<ChatMessage[]>(messengerMessagesKey(chatId), (old) => {
           if (!old) return [saved];
           const withoutTemp = old.filter((m) => m.id !== tempId);
           if (withoutTemp.some((m) => m.id === saved.id)) {
@@ -242,7 +243,7 @@ export default function TaskDetailPage() {
           return [...withoutTemp, saved].sort((a, b) => a.seq - b.seq);
         });
       } catch {
-        queryClient.setQueryData<ChatMessage[]>(messagesKey(chatId), (old) =>
+        queryClient.setQueryData<ChatMessage[]>(messengerMessagesKey(chatId), (old) =>
           old ? old.filter((m) => m.id !== tempId) : old,
         );
       }
@@ -280,8 +281,8 @@ export default function TaskDetailPage() {
   const handleDelete = useCallback(
     async (messageId: string) => {
       if (!chatId) return;
-      const prev = queryClient.getQueryData<ChatMessage[]>(messagesKey(chatId));
-      queryClient.setQueryData<ChatMessage[]>(messagesKey(chatId), (old) =>
+      const prev = queryClient.getQueryData<ChatMessage[]>(messengerMessagesKey(chatId));
+      queryClient.setQueryData<ChatMessage[]>(messengerMessagesKey(chatId), (old) =>
         old
           ? old.map((m) =>
               m.id === messageId ? { ...m, deletedAt: new Date().toISOString(), content: null } : m,
@@ -291,7 +292,7 @@ export default function TaskDetailPage() {
       try {
         await deleteMessage(messageId);
       } catch {
-        if (prev) queryClient.setQueryData(messagesKey(chatId), prev);
+        if (prev) queryClient.setQueryData(messengerMessagesKey(chatId), prev);
       }
     },
     [chatId, queryClient],
@@ -299,7 +300,7 @@ export default function TaskDetailPage() {
 
   const handleLoadOlder = useCallback(async () => {
     if (!chatId || loadingMore || !hasMore) return;
-    const current = queryClient.getQueryData<ChatMessage[]>(messagesKey(chatId)) ?? [];
+    const current = queryClient.getQueryData<ChatMessage[]>(messengerMessagesKey(chatId)) ?? [];
     const oldestReal = current.find((m) => !m.id.startsWith('temp-'));
     if (!oldestReal) return;
     setLoadingMore(true);
@@ -308,7 +309,7 @@ export default function TaskDetailPage() {
       if (older.length === 0) {
         setHasMore(false);
       } else {
-        queryClient.setQueryData<ChatMessage[]>(messagesKey(chatId), (old) => {
+        queryClient.setQueryData<ChatMessage[]>(messengerMessagesKey(chatId), (old) => {
           const existing = old ?? [];
           const ids = new Set(existing.map((m) => m.id));
           const merged = [...older.filter((m) => !ids.has(m.id)), ...existing];

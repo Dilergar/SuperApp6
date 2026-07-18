@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import * as express from 'express';
 import { AppModule } from './app.module';
 import { RedisIoAdapter } from './redis-io.adapter';
 import { validateEnv } from './shared/config/env.validation';
@@ -13,7 +14,11 @@ process.on('unhandledRejection', (reason) => {
   fatalLogger.error(`Unhandled promise rejection: ${reason instanceof Error ? reason.stack : String(reason)}`);
 });
 process.on('uncaughtException', (err) => {
+  // uncaughtException — в отличие от rejection — оставляет процесс в неопределённом
+  // состоянии (полуоткрытые сокеты/стримы, повисшие локи). Логируем и уходим под
+  // рестарт супервизора: короткая пауза даёт логу доехать.
   fatalLogger.error(`Uncaught exception: ${err instanceof Error ? err.stack : String(err)}`);
+  setTimeout(() => process.exit(1), 200);
 });
 
 async function bootstrap() {
@@ -34,6 +39,14 @@ async function bootstrap() {
     next();
   });
 
+  // Вебхук LiveKit (core/calls): подпись проверяется по СЫРОМУ телу (WebhookReceiver),
+  // поэтому точечный raw-парсер только на этот путь — глобальный json Nest вешает позже
+  // (в app.listen) и пропустит уже распарсенное. Alias /api/v1→/api отработал выше,
+  // так что один use покрывает оба префикса.
+  // Потолок тела занижен до 64kb: вебхуки LiveKit — маленькие JSON'ы (<10kb), а эндпоинт
+  // @Public (без JWT) — узкий лимит режет DoS-амплификацию на неаутентифицированном пути.
+  app.use('/api/calls/livekit/webhook', express.raw({ type: () => true, limit: '64kb' }));
+
   // Global prefix
   app.setGlobalPrefix('api');
 
@@ -41,6 +54,7 @@ async function bootstrap() {
   app.enableCors({
     origin: [
       'http://localhost:3000', // Next.js web
+      'http://127.0.0.1:3000', // тот же веб вторым origin (две изолированные dev-сессии: звонки/чаты)
       'http://localhost:8081', // Expo dev
     ],
     credentials: true,
@@ -56,8 +70,9 @@ async function bootstrap() {
   );
 
   // Swagger API docs — ONLY in explicit development (secure-by-default: an unexpected
-  // NODE_ENV must not expose the API map; env validation already whitelists the values).
-  if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
+  // OR MISSING NODE_ENV must not expose the API map; env validation whitelists values,
+  // but «забыли переменную в контейнере» не должно открывать карту API).
+  if (process.env.NODE_ENV === 'development') {
     const config = new DocumentBuilder()
       .setTitle('SuperApp6 API')
       .setDescription('API для SuperApp6 — одно приложение для всего')

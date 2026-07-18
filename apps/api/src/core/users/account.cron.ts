@@ -35,4 +35,17 @@ export class AccountCron {
       this.logger.debug('Skipped — another instance holds the anonymize lock');
     }
   }
+
+  // Протухшие refresh-сессии: их не удалял никто (@@index([expiresAt]) лежал без
+  // потребителя) — строки копились по числу логинов навсегда.
+  @Cron('25 3 * * *')
+  async handleExpiredSessions() {
+    const ran = await this.redis.withLock('cron:sessions-purge', 10 * 60 * 1000, async () => {
+      const n = await this.users.purgeExpiredSessions();
+      if (n > 0) this.logger.log(`Purged ${n} expired session(s)`);
+    });
+    if (ran === null) {
+      this.logger.debug('Skipped — another instance holds the sessions-purge lock');
+    }
+  }
 }

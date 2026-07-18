@@ -7,6 +7,10 @@ import { FinancesService } from './finances.service';
  * прямые user-гранты финансовых книг между парой отзываются (PRD: «при разрыве связей
  * приглашённый теряет доступ, данные остаются у владельца»). Гранты на Группы чистить не
  * нужно: членство в Группе умирает вместе со связью, живой circle-принципал гаснет сам.
+ *
+ * ВТОРОЙ ремень: основной путь — СИНХРОННЫЙ вызов из ContactsService (revokeFinbookSharesBetween,
+ * через DI_TOKENS.FinancesService): шина ack'ает до хэндлера (at-most-once), потерянное событие
+ * не должно навсегда оставлять доступ. Третий ремень — ночной свип FinancesCron.sweepShares.
  */
 @Injectable()
 export class FinancesEvents implements OnModuleInit {

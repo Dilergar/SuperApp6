@@ -262,6 +262,32 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
     pushByDefault: false,
     category: 'system',
   },
+  // Calls engine — звонки мессенджера
+  'call.missed': {
+    title: 'Пропущенный звонок от {{fromName}}',
+    icon: '📞',
+    pushByDefault: true,
+    category: 'system',
+  },
+  'call.recording.ready': {
+    title: 'Запись звонка «{{title}}» — в Журнале звонков',
+    icon: '⏺',
+    pushByDefault: true,
+    category: 'system',
+  },
+  'call.recording.failed': {
+    title: 'Не удалось записать звонок',
+    icon: '⏺',
+    pushByDefault: false,
+    category: 'system',
+  },
+  // Виртуальный офис (B2B) — видеовстречи
+  'office.meeting.invited': {
+    title: '{{byName}} приглашает вас на встречу «{{roomName}}»',
+    icon: '🎥',
+    pushByDefault: true,
+    category: 'workspaces',
+  },
   // Processes (бизнес-процессы)
   'process.finished': {
     title: 'Процесс «{{processName}}» завершён',

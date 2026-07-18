@@ -30,4 +30,20 @@ export class FinancesCron {
     });
     if (ran === null) this.logger.debug('Skipped finance cron — another instance holds the lock');
   }
+
+  /**
+   * Ночная страховка отзыва доступа к книгам: гранты без живого ContactLink отзываются
+   * (третий ремень после синхронного вызова из ContactsService и шины FinancesEvents).
+   */
+  @Cron('45 3 * * *')
+  async sweepShares() {
+    const ran = await this.redis.withLock('cron:finance-share-sweep', 10 * 60 * 1000, async () => {
+      const revoked = await this.finances.sweepOrphanFinbookShares();
+      if (revoked) {
+        this.logger.warn(`Finance share sweep: отозвано осиротевших грантов книг: ${revoked}`);
+      }
+      return revoked;
+    });
+    if (ran === null) this.logger.debug('Skipped finance share sweep — lock held elsewhere');
+  }
 }

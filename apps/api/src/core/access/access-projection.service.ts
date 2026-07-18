@@ -130,27 +130,59 @@ export class AccessProjectionService {
    * ADDITIVE only (never deletes); deletions handled by live revokes (delete showcase / unshare).
    */
   async backfillShops(): Promise<{ added: number }> {
-    const tuples: RelationTupleInput[] = [];
+    // Keyset-батчи (таблицы масштаба «пользователи», но не материализуем целиком).
+    const BATCH = 1000;
+    let added = 0;
 
-    const shops = await this.db.shop.findMany({ select: { id: true, ownerType: true, ownerId: true } });
-    for (const s of shops) {
-      if (s.ownerType === 'user') {
-        tuples.push({ resourceType: 'shop', resourceId: s.id, relation: 'owner', subjectType: 'user', subjectId: s.ownerId });
-      } else {
-        // workspace-owned: the workspace admins (⊇ owner) manage the shop
-        tuples.push({ resourceType: 'shop', resourceId: s.id, relation: 'manager', subjectType: 'workspace', subjectId: s.ownerId, subjectRelation: 'admin' });
+    let shopCursor: string | undefined;
+    for (;;) {
+      const shops = await this.db.shop.findMany({
+        select: { id: true, ownerType: true, ownerId: true },
+        orderBy: { id: 'asc' },
+        ...(shopCursor ? { cursor: { id: shopCursor }, skip: 1 } : {}),
+        take: BATCH,
+      });
+      if (!shops.length) break;
+      shopCursor = shops[shops.length - 1].id;
+      const tuples: RelationTupleInput[] = [];
+      for (const s of shops) {
+        if (s.ownerType === 'user') {
+          tuples.push({ resourceType: 'shop', resourceId: s.id, relation: 'owner', subjectType: 'user', subjectId: s.ownerId });
+        } else {
+          // workspace-owned: the workspace admins (⊇ owner) manage the shop
+          tuples.push({ resourceType: 'shop', resourceId: s.id, relation: 'manager', subjectType: 'workspace', subjectId: s.ownerId, subjectRelation: 'admin' });
+        }
       }
+      await this.access.grantMany(tuples);
+      added += tuples.length;
+      if (shops.length < BATCH) break;
     }
 
-    const showcases = await this.db.showcase.findMany({ select: { id: true, shopId: true } });
-    for (const sc of showcases) {
-      tuples.push({ resourceType: 'showcase', resourceId: sc.id, relation: 'parent', subjectType: 'shop', subjectId: sc.shopId });
+    let scCursor: string | undefined;
+    for (;;) {
+      const showcases = await this.db.showcase.findMany({
+        select: { id: true, shopId: true },
+        orderBy: { id: 'asc' },
+        ...(scCursor ? { cursor: { id: scCursor }, skip: 1 } : {}),
+        take: BATCH,
+      });
+      if (!showcases.length) break;
+      scCursor = showcases[showcases.length - 1].id;
+      // Legacy ShowcaseShare + UserRole(shop/showcase) staff are dropped — shares & staff are
+      // tuple-native now (written directly by ShopService). Only ownership + parent are projected.
+      const tuples: RelationTupleInput[] = showcases.map((sc) => ({
+        resourceType: 'showcase',
+        resourceId: sc.id,
+        relation: 'parent',
+        subjectType: 'shop',
+        subjectId: sc.shopId,
+      }));
+      await this.access.grantMany(tuples);
+      added += tuples.length;
+      if (showcases.length < BATCH) break;
     }
 
-    // Legacy ShowcaseShare + UserRole(shop/showcase) staff are dropped — shares & staff are
-    // tuple-native now (written directly by ShopService). Only ownership + parent are projected.
-    await this.access.grantMany(tuples);
-    return { added: tuples.length };
+    return { added };
   }
 
   // ------------------------------------------------------------
@@ -174,26 +206,33 @@ export class AccessProjectionService {
 
   /** Additive backfill: Circle.calendarVisibility → calendar group tuples (personal shares are tuple-native). */
   async backfillCalendar(): Promise<{ added: number }> {
-    const tuples: RelationTupleInput[] = [];
-
-    // Legacy CalendarShare is dropped — personal calendar shares are tuple-native now (CalendarService).
-    const circles = await this.db.circle.findMany({
-      where: { calendarVisibility: { in: ['busy', 'detailed'] } },
-      select: { id: true, ownerId: true, calendarVisibility: true },
-    });
-    for (const c of circles) {
-      tuples.push({
+    const BATCH = 1000;
+    let added = 0;
+    let cursor: string | undefined;
+    for (;;) {
+      // Legacy CalendarShare is dropped — personal calendar shares are tuple-native now (CalendarService).
+      const circles = await this.db.circle.findMany({
+        where: { calendarVisibility: { in: ['busy', 'detailed'] } },
+        select: { id: true, ownerId: true, calendarVisibility: true },
+        orderBy: { id: 'asc' },
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        take: BATCH,
+      });
+      if (!circles.length) break;
+      cursor = circles[circles.length - 1].id;
+      const tuples: RelationTupleInput[] = circles.map((c) => ({
         resourceType: 'calendar',
         resourceId: c.ownerId,
         relation: c.calendarVisibility === 'detailed' ? 'detailed_viewer' : 'busy_viewer',
         subjectType: 'circle',
         subjectId: c.id,
         subjectRelation: 'member',
-      });
+      }));
+      await this.access.grantMany(tuples);
+      added += tuples.length;
+      if (circles.length < BATCH) break;
     }
-
-    await this.access.grantMany(tuples);
-    return { added: tuples.length };
+    return { added };
   }
 
   /** Diff-reconcile the per-Group calendar tuples against Circle.calendarVisibility (drift self-heal). */
@@ -518,20 +557,81 @@ export class AccessProjectionService {
     await this.safe(() => this.access.revokeResource('event', eventId));
   }
 
-  /** Additive backfill: existing tasks' creator + participant roles → tuples. */
-  async backfillTasks(): Promise<{ added: number }> {
-    const tasks = await this.db.task.findMany({
-      select: { id: true, creatorId: true, participants: { select: { userId: true, role: true } } },
-    });
-    const tuples: RelationTupleInput[] = [];
-    for (const t of tasks) {
-      tuples.push({ resourceType: 'task', resourceId: t.id, relation: 'creator', subjectType: 'user', subjectId: t.creatorId });
-      for (const p of t.participants) {
-        tuples.push({ resourceType: 'task', resourceId: t.id, relation: p.role, subjectType: 'user', subjectId: p.userId });
+  // ------------------------------------------------------------
+  // Office room roles (Виртуальный офис — чат встречи + rich card)
+  // ------------------------------------------------------------
+
+  /** Причастные к встрече (OfficeRoomParticipant: host/participant) → tuples office_room. */
+  async resyncOfficeRoomRoles(roomId: string): Promise<void> {
+    await this.safe(async () => {
+      const room = await this.db.officeRoom.findUnique({
+        where: { id: roomId },
+        select: { participants: { select: { userId: true, role: true } } },
+      });
+      if (!room) return;
+      const desired: RelationTupleInput[] = [];
+      const seen = new Set<string>();
+      for (const p of room.participants) {
+        if (seen.has(p.userId)) continue;
+        seen.add(p.userId);
+        desired.push({
+          resourceType: 'office_room',
+          resourceId: roomId,
+          relation: p.role === 'host' ? 'host' : 'participant',
+          subjectType: 'user',
+          subjectId: p.userId,
+        });
       }
+      const existing = await this.db.relationTuple.findMany({
+        where: { resourceType: 'office_room', resourceId: roomId, subjectType: 'user' },
+        select: { id: true, resourceId: true, relation: true, subjectId: true },
+      });
+      await this.applyDiff(
+        desired,
+        existing.map((e) => ({
+          id: e.id,
+          key: this.key({ resourceType: 'office_room', resourceId: e.resourceId, relation: e.relation, subjectType: 'user', subjectId: e.subjectId }),
+        })),
+      );
+    });
+  }
+
+  async officeRoomDeleted(roomId: string): Promise<void> {
+    await this.safe(() => this.access.revokeResource('office_room', roomId));
+  }
+
+  /**
+   * Additive backfill: tasks' creator + participant roles → tuples.
+   * `since` — инкрементальный режим ночного крона (только задачи, изменённые за окно);
+   * без since — полный бэкфилл (scripts/backfill-access.cjs). Keyset-батчи: раньше
+   * ежедневный крон материализовал ВСЕ задачи платформы в память одним findMany.
+   */
+  async backfillTasks(since?: Date): Promise<{ added: number }> {
+    const BATCH = 500;
+    let added = 0;
+    let cursor: string | undefined;
+    for (;;) {
+      const tasks = await this.db.task.findMany({
+        ...(since ? { where: { updatedAt: { gte: since } } } : {}),
+        select: { id: true, creatorId: true, participants: { select: { userId: true, role: true } } },
+        orderBy: { id: 'asc' },
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        take: BATCH,
+      });
+      if (!tasks.length) break;
+      cursor = tasks[tasks.length - 1].id;
+      const tuples: RelationTupleInput[] = [];
+      for (const t of tasks) {
+        tuples.push({ resourceType: 'task', resourceId: t.id, relation: 'creator', subjectType: 'user', subjectId: t.creatorId });
+        for (const p of t.participants) {
+          tuples.push({ resourceType: 'task', resourceId: t.id, relation: p.role, subjectType: 'user', subjectId: p.userId });
+        }
+      }
+      await this.access.grantMany(tuples);
+      added += tuples.length;
+      if (tasks.length < BATCH) break;
     }
-    await this.access.grantMany(tuples);
-    return { added: tuples.length };
+    return { added };
   }
 
   // ------------------------------------------------------------

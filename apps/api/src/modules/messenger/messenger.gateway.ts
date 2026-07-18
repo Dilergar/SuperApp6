@@ -24,7 +24,11 @@ import { PresenceService } from './presence.service';
  */
 @WebSocketGateway({
   namespace: '/messenger',
-  cors: { origin: ['http://localhost:3000', 'http://localhost:8081'], credentials: true },
+  cors: {
+    // 127.0.0.1 — тот же веб вторым origin (две изолированные dev-сессии)
+    origin: ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:8081'],
+    credentials: true,
+  },
 })
 export class MessengerGateway
   implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit
@@ -112,7 +116,9 @@ export class MessengerGateway
             ? 'message:deleted'
             : type === 'messenger.receipt'
               ? 'receipt'
-              : null;
+              : type === 'messenger.call.state'
+                ? 'call:state'
+                : null;
     if (!event) return;
     const rooms = memberIds.map((id) => `user:${id}`);
     this.server.to(rooms).emit(event, payload);

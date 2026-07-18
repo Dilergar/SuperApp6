@@ -12,6 +12,8 @@ import { MessengerGateway } from './messenger.gateway';
 import { TaskSystemListener } from './task-system.listener';
 import { OrderSystemListener } from './order-system.listener';
 import { CalendarSystemListener } from './calendar-system.listener';
+import { OfficeSystemListener } from './office-system.listener';
+import { ChatCallsListener } from './chat-calls.listener';
 
 @Module({
   // JwtModule provides JwtService for verifying the socket-handshake token
@@ -33,6 +35,8 @@ import { CalendarSystemListener } from './calendar-system.listener';
     TaskSystemListener,
     OrderSystemListener,
     CalendarSystemListener,
+    OfficeSystemListener,
+    ChatCallsListener,
   ],
   exports: [MessengerService],
 })

@@ -2,9 +2,26 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ChatSummary, ChatMessage, ChatDetail, RichCardPayload, PresenceInfo } from '@superapp/shared';
+import type {
+  CallActiveDto,
+  ChatCallStatePayload,
+  ChatSummary,
+  ChatMessage,
+  ChatDetail,
+  RichCardPayload,
+  PresenceInfo,
+} from '@superapp/shared';
+import { attachmentPreviewText } from '@superapp/shared';
+import {
+  callsStatusKey,
+  messengerChatDetailKey,
+  messengerChatsKey,
+  messengerMessagesKey,
+} from '@/lib/queries';
+import { getCallsStatus } from '@/lib/calls-api';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import {
   useMessengerSocket,
@@ -40,10 +57,11 @@ import { GroupManageModal } from './GroupManageModal';
 import { MentionsNavLink } from './MentionsNavLink';
 import { GlobalSearch } from './GlobalSearch';
 
-// react-query keys
-const chatsKey = ['messenger', 'chats'] as const;
-const messagesKey = (chatId: string) => ['messenger', 'messages', chatId] as const;
-const detailKey = (chatId: string) => ['messenger', 'detail', chatId] as const;
+// Оверлей звонка — только в браузере (livekit-client = WebRTC)
+const CallOverlay = dynamic(() => import('./CallOverlay').then((m) => m.CallOverlay), { ssr: false });
+
+// react-query keys чатов/сообщений — общие messengerChatsKey/messengerMessagesKey/
+// messengerChatDetailKey из lib/queries.ts (их же использует деталька задачи)
 
 export default function MessengerPage() {
   return (
@@ -71,20 +89,31 @@ function MessengerInner() {
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
+  // ---- Звонки: оверлей открыт для чата + живые снимки call:state поверх DTO ----
+  const [callChatId, setCallChatId] = useState<string | null>(null);
+  const [callStates, setCallStates] = useState<Map<string, CallActiveDto | null>>(new Map());
+  const callsStatusQ = useQuery({
+    queryKey: callsStatusKey,
+    queryFn: getCallsStatus,
+    enabled: isReady,
+    staleTime: 5 * 60 * 1000,
+  });
+  const callsEnabled = !!callsStatusQ.data?.enabled;
+
   // ---- Inbox (left pane) ----
-  const chatsQuery = useQuery({ queryKey: chatsKey, queryFn: listChats, enabled: isReady });
+  const chatsQuery = useQuery({ queryKey: messengerChatsKey, queryFn: listChats, enabled: isReady });
   const chats = useMemo(() => chatsQuery.data ?? [], [chatsQuery.data]);
 
   // ---- Open chat detail (right pane header + participants) ----
   const detailQuery = useQuery({
-    queryKey: activeChatId ? detailKey(activeChatId) : ['messenger', 'detail', 'none'],
+    queryKey: activeChatId ? messengerChatDetailKey(activeChatId) : ['messenger', 'detail', 'none'],
     queryFn: () => getChat(activeChatId as string),
     enabled: isReady && !!activeChatId,
   });
 
   // ---- Messages of the open chat ----
   const messagesQuery = useQuery({
-    queryKey: activeChatId ? messagesKey(activeChatId) : ['messenger', 'messages', 'none'],
+    queryKey: activeChatId ? messengerMessagesKey(activeChatId) : ['messenger', 'messages', 'none'],
     queryFn: () => getMessages(activeChatId as string),
     enabled: isReady && !!activeChatId,
   });
@@ -214,7 +243,7 @@ function MessengerInner() {
 
   const upsertMessageInCache = useCallback(
     (chatId: string, msg: ChatMessage) => {
-      queryClient.setQueryData<ChatMessage[]>(messagesKey(chatId), (old) => {
+      queryClient.setQueryData<ChatMessage[]>(messengerMessagesKey(chatId), (old) => {
         const list = old ? [...old] : [];
         const byId = list.findIndex((m) => m.id === msg.id);
         if (byId >= 0) {
@@ -241,7 +270,7 @@ function MessengerInner() {
 
   const patchMessageInCache = useCallback(
     (chatId: string, msg: ChatMessage) => {
-      queryClient.setQueryData<ChatMessage[]>(messagesKey(chatId), (old) =>
+      queryClient.setQueryData<ChatMessage[]>(messengerMessagesKey(chatId), (old) =>
         old ? old.map((m) => (m.id === msg.id ? { ...m, ...msg } : m)) : old,
       );
     },
@@ -254,7 +283,7 @@ function MessengerInner() {
   const handleCardUpdated = useCallback(
     (messageId: string, card: RichCardPayload) => {
       if (!activeChatId) return;
-      queryClient.setQueryData<ChatMessage[]>(messagesKey(activeChatId), (old) =>
+      queryClient.setQueryData<ChatMessage[]>(messengerMessagesKey(activeChatId), (old) =>
         old
           ? old.map((m) =>
               m.id === messageId
@@ -270,7 +299,7 @@ function MessengerInner() {
   // Advance my own messages' tick status when a recipient's read cursor moves.
   const applyReceiptToCache = useCallback(
     (r: SocketReceipt) => {
-      queryClient.setQueryData<ChatMessage[]>(messagesKey(r.chatId), (old) => {
+      queryClient.setQueryData<ChatMessage[]>(messengerMessagesKey(r.chatId), (old) => {
         if (!old) return old;
         return old.map((m) => {
           if (m.authorId !== currentUserId) return m;
@@ -286,12 +315,12 @@ function MessengerInner() {
 
   const bumpInboxPreview = useCallback(
     (chatId: string, msg: ChatMessage, opts?: { incrementUnread?: boolean }) => {
-      queryClient.setQueryData<ChatSummary[]>(chatsKey, (old) => {
+      queryClient.setQueryData<ChatSummary[]>(messengerChatsKey, (old) => {
         if (!old) return old;
         const idx = old.findIndex((c) => c.id === chatId);
         if (idx < 0) {
           // Unknown chat (brand-new DM started by the peer) → refetch inbox.
-          queryClient.invalidateQueries({ queryKey: chatsKey });
+          queryClient.invalidateQueries({ queryKey: messengerChatsKey });
           return old;
         }
         const chat = old[idx];
@@ -299,16 +328,13 @@ function MessengerInner() {
         // already folded into the preview must NOT double-count unread or reorder.
         const knownSeq = chat.lastMessage?.seq ?? 0;
         if (msg.seq <= knownSeq && msg.seq !== Number.MAX_SAFE_INTEGER) return old;
-        // attachment без подписи: клиентский фолбэк превью (сервер пришлёт своё при рефетче)
+        // attachment без подписи: клиентский фолбэк превью (сервер пришлёт своё при
+        // рефетче) — формулировки общие с API, из @superapp/shared
         let attachmentFallback: string | null = null;
         if (msg.type === 'attachment') {
-          const files = (msg.payload as { files?: Array<{ kind?: string; profile?: string }> } | null)?.files;
-          const n = Array.isArray(files) ? files.length : 0;
-          if (n === 1 && files?.[0]?.kind === 'audio') {
-            attachmentFallback = files[0]?.profile === 'voice_message' ? '🎤 Голосовое сообщение' : '🎵 Аудио';
-          } else {
-            attachmentFallback = n > 1 ? `📎 Файлы: ${n}` : '📎 Файл';
-          }
+          attachmentFallback = attachmentPreviewText(
+            (msg.payload as { files?: Array<{ kind?: string; profile?: string }> } | null)?.files,
+          );
         }
         const updated: ChatSummary = {
           ...chat,
@@ -337,10 +363,10 @@ function MessengerInner() {
   // Patch the inbox preview only when the changed message is the chat's last one.
   const bumpInboxPreviewIfLast = useCallback(
     (chatId: string, msg: ChatMessage) => {
-      const list = queryClient.getQueryData<ChatSummary[]>(chatsKey);
+      const list = queryClient.getQueryData<ChatSummary[]>(messengerChatsKey);
       const chat = list?.find((c) => c.id === chatId);
       if (chat?.lastMessage?.id !== msg.id) return;
-      queryClient.setQueryData<ChatSummary[]>(chatsKey, (old) =>
+      queryClient.setQueryData<ChatSummary[]>(messengerChatsKey, (old) =>
         old
           ? old.map((c) =>
               c.id === chatId && c.lastMessage
@@ -362,7 +388,7 @@ function MessengerInner() {
 
   const clearUnread = useCallback(
     (chatId: string) => {
-      queryClient.setQueryData<ChatSummary[]>(chatsKey, (old) =>
+      queryClient.setQueryData<ChatSummary[]>(messengerChatsKey, (old) =>
         old ? old.map((c) => (c.id === chatId ? { ...c, unreadCount: 0 } : c)) : old,
       );
     },
@@ -382,9 +408,13 @@ function MessengerInner() {
     onReconnect: () => {
       // Messages sent while the socket was down were lost — pull the inbox and the
       // open conversation fresh.
-      queryClient.invalidateQueries({ queryKey: chatsKey });
+      queryClient.invalidateQueries({ queryKey: messengerChatsKey });
       const open = activeChatIdRef.current;
-      if (open) queryClient.invalidateQueries({ queryKey: messagesKey(open) });
+      if (open) queryClient.invalidateQueries({ queryKey: messengerMessagesKey(open) });
+      // Снимки call:state, полученные до разрыва, могли устареть (звонок завершился, пока
+      // сокет лежал) — очищаем, чтобы баннер «Идёт звонок» не завис: живой activeCall
+      // придёт свежим из перезапрошенных chats/detail.
+      setCallStates(new Map());
     },
     onMessageNew: (p: SocketMessageNew) => {
       const mine = p.message.authorId === currentUserId;
@@ -425,8 +455,27 @@ function MessengerInner() {
       if (p.typing) addTyping(p.chatId, p.userId);
       else removeTyping(p.chatId, p.userId);
     },
+    onCallState: (p: ChatCallStatePayload) => {
+      setCallStates((old) => {
+        const next = new Map(old);
+        next.set(p.chatId, p.active);
+        return next;
+      });
+    },
   });
   socketRef.current = socket;
+
+  // Живой activeCall чата: снимок сокета важнее DTO из listChats/getChatDetail
+  const effectiveActiveCall = useCallback(
+    (chatId: string): CallActiveDto | null => {
+      if (callStates.has(chatId)) return callStates.get(chatId) ?? null;
+      const s = chats.find((c) => c.id === chatId);
+      if (s && s.activeCall !== undefined) return s.activeCall ?? null;
+      if (detailQuery.data?.id === chatId) return detailQuery.data.activeCall ?? null;
+      return null;
+    },
+    [callStates, chats, detailQuery.data],
+  );
 
   // ============================================================
   // When a chat opens / new messages arrive while open → mark read.
@@ -528,16 +577,24 @@ function MessengerInner() {
     const chatParam = searchParams.get('chat');
     const dmParam = searchParams.get('dm');
     const msgParam = searchParams.get('msg');
-    const linkKey = `chat=${chatParam ?? ''}&dm=${dmParam ?? ''}&msg=${msgParam ?? ''}`;
+    // ?call=1|join — авто-старт/вход в звонок (кнопка «Позвонить» карточки Окружения,
+    // Accept из глобального watcher'а); &cs=<sessionId> делает ключ уникальным на звонок
+    const callParam = searchParams.get('call');
+    const csParam = searchParams.get('cs');
+    const linkKey = `chat=${chatParam ?? ''}&dm=${dmParam ?? ''}&msg=${msgParam ?? ''}&call=${callParam ?? ''}&cs=${csParam ?? ''}`;
     if (handledDeepLink.current === linkKey) return;
 
     if (dmParam) {
       handledDeepLink.current = linkKey;
       openDm(dmParam)
         .then((detail: ChatDetail) => {
-          queryClient.setQueryData(detailKey(detail.id), detail);
+          queryClient.setQueryData(messengerChatDetailKey(detail.id), detail);
           setActiveChatId(detail.id);
-          queryClient.invalidateQueries({ queryKey: chatsKey });
+          queryClient.invalidateQueries({ queryKey: messengerChatsKey });
+          if (callParam) setCallChatId(detail.id);
+          // call/cs СРАЗУ снимаем с URL: звонок живёт в React-стейте, а не в адресе —
+          // иначе F5/«Назад» после завершённого разговора переоткрыл бы звонок и заново
+          // набрал собеседника (get-or-create сессии).
           router.replace(`/messenger?chat=${detail.id}`);
         })
         .catch(() => {
@@ -546,8 +603,11 @@ function MessengerInner() {
     } else if (chatParam) {
       handledDeepLink.current = linkKey;
       setActiveChatId(chatParam);
+      if (callParam) setCallChatId(chatParam);
       // Hand the target message to the conversation; it flashes once loaded.
       setHighlightMsgId(msgParam);
+      // Снять call/cs (и msg — он уже передан в highlight) с URL, чтобы F5 не перезвонил.
+      if (callParam || csParam) router.replace(`/messenger?chat=${chatParam}`);
     }
   }, [isReady, searchParams, queryClient, router]);
 
@@ -569,8 +629,8 @@ function MessengerInner() {
       setShowNewChat(false);
       try {
         const detail = await openDm(userId);
-        queryClient.setQueryData(detailKey(detail.id), detail);
-        await queryClient.invalidateQueries({ queryKey: chatsKey });
+        queryClient.setQueryData(messengerChatDetailKey(detail.id), detail);
+        await queryClient.invalidateQueries({ queryKey: messengerChatsKey });
         selectChat(detail.id);
       } catch {
         /* swallow — surfaced by the empty state if needed */
@@ -583,8 +643,8 @@ function MessengerInner() {
     async (name: string, memberIds: string[]) => {
       try {
         const detail = await createGroup(name, memberIds);
-        queryClient.setQueryData(detailKey(detail.id), detail);
-        await queryClient.invalidateQueries({ queryKey: chatsKey });
+        queryClient.setQueryData(messengerChatDetailKey(detail.id), detail);
+        await queryClient.invalidateQueries({ queryKey: messengerChatsKey });
         setShowNewChat(false);
         selectChat(detail.id);
       } catch {
@@ -598,9 +658,9 @@ function MessengerInner() {
   // Each refreshes the chat-detail cache and the inbox (title/member changes).
   const refreshAfterManage = useCallback(
     (chatId: string, detail?: ChatDetail) => {
-      if (detail) queryClient.setQueryData(detailKey(chatId), detail);
-      else queryClient.invalidateQueries({ queryKey: detailKey(chatId) });
-      queryClient.invalidateQueries({ queryKey: chatsKey });
+      if (detail) queryClient.setQueryData(messengerChatDetailKey(chatId), detail);
+      else queryClient.invalidateQueries({ queryKey: messengerChatDetailKey(chatId) });
+      queryClient.invalidateQueries({ queryKey: messengerChatsKey });
     },
     [queryClient],
   );
@@ -643,7 +703,7 @@ function MessengerInner() {
       setShowManage(false);
       setActiveChatId(null);
       router.replace('/messenger');
-      queryClient.invalidateQueries({ queryKey: chatsKey });
+      queryClient.invalidateQueries({ queryKey: messengerChatsKey });
     },
     [queryClient, router],
   );
@@ -654,7 +714,7 @@ function MessengerInner() {
       setShowManage(false);
       setActiveChatId(null);
       router.replace('/messenger');
-      queryClient.invalidateQueries({ queryKey: chatsKey });
+      queryClient.invalidateQueries({ queryKey: messengerChatsKey });
     },
     [queryClient, router],
   );
@@ -667,7 +727,7 @@ function MessengerInner() {
       // Seed the optimistic bubble's quoted preview from the message being replied to.
       const quoted = replyToId
         ? queryClient
-            .getQueryData<ChatMessage[]>(messagesKey(activeChatId))
+            .getQueryData<ChatMessage[]>(messengerMessagesKey(activeChatId))
             ?.find((m) => m.id === replyToId)
         : undefined;
       const optimistic: ChatMessage = {
@@ -694,14 +754,14 @@ function MessengerInner() {
             }
           : null,
       };
-      queryClient.setQueryData<ChatMessage[]>(messagesKey(activeChatId), (old) =>
+      queryClient.setQueryData<ChatMessage[]>(messengerMessagesKey(activeChatId), (old) =>
         old ? [...old, optimistic] : [optimistic],
       );
 
       try {
         const saved = await sendMessage(activeChatId, content, replyToId);
         // Replace the temp bubble with the persisted message; dedupe socket echo.
-        queryClient.setQueryData<ChatMessage[]>(messagesKey(activeChatId), (old) => {
+        queryClient.setQueryData<ChatMessage[]>(messengerMessagesKey(activeChatId), (old) => {
           if (!old) return [saved];
           const withoutTemp = old.filter((m) => m.id !== tempId);
           if (withoutTemp.some((m) => m.id === saved.id)) {
@@ -712,7 +772,7 @@ function MessengerInner() {
         bumpInboxPreview(activeChatId, saved);
       } catch {
         // Drop the optimistic bubble on failure.
-        queryClient.setQueryData<ChatMessage[]>(messagesKey(activeChatId), (old) =>
+        queryClient.setQueryData<ChatMessage[]>(messengerMessagesKey(activeChatId), (old) =>
           old ? old.filter((m) => m.id !== tempId) : old,
         );
       }
@@ -753,9 +813,9 @@ function MessengerInner() {
   const handleDelete = useCallback(
     async (messageId: string) => {
       if (!activeChatId) return;
-      const prev = queryClient.getQueryData<ChatMessage[]>(messagesKey(activeChatId));
+      const prev = queryClient.getQueryData<ChatMessage[]>(messengerMessagesKey(activeChatId));
       // Optimistic tombstone.
-      queryClient.setQueryData<ChatMessage[]>(messagesKey(activeChatId), (old) =>
+      queryClient.setQueryData<ChatMessage[]>(messengerMessagesKey(activeChatId), (old) =>
         old
           ? old.map((m) =>
               m.id === messageId ? { ...m, deletedAt: new Date().toISOString(), content: null } : m,
@@ -765,11 +825,11 @@ function MessengerInner() {
       try {
         await deleteMessage(messageId);
         const tomb = queryClient
-          .getQueryData<ChatMessage[]>(messagesKey(activeChatId))
+          .getQueryData<ChatMessage[]>(messengerMessagesKey(activeChatId))
           ?.find((m) => m.id === messageId);
         if (tomb) bumpInboxPreviewIfLast(activeChatId, tomb);
       } catch {
-        if (prev) queryClient.setQueryData(messagesKey(activeChatId), prev);
+        if (prev) queryClient.setQueryData(messengerMessagesKey(activeChatId), prev);
       }
     },
     [activeChatId, queryClient, bumpInboxPreviewIfLast],
@@ -777,7 +837,7 @@ function MessengerInner() {
 
   const handleLoadOlder = useCallback(async () => {
     if (!activeChatId || loadingMore || !hasMore) return;
-    const current = queryClient.getQueryData<ChatMessage[]>(messagesKey(activeChatId)) ?? [];
+    const current = queryClient.getQueryData<ChatMessage[]>(messengerMessagesKey(activeChatId)) ?? [];
     const oldestReal = current.find((m) => !m.id.startsWith('temp-'));
     if (!oldestReal) return;
     setLoadingMore(true);
@@ -786,7 +846,7 @@ function MessengerInner() {
       if (older.length === 0) {
         setHasMore(false);
       } else {
-        queryClient.setQueryData<ChatMessage[]>(messagesKey(activeChatId), (old) => {
+        queryClient.setQueryData<ChatMessage[]>(messengerMessagesKey(activeChatId), (old) => {
           const existing = old ?? [];
           const ids = new Set(existing.map((m) => m.id));
           const merged = [...older.filter((m) => !ids.has(m.id)), ...existing];
@@ -904,11 +964,15 @@ function MessengerInner() {
               onManage={() => setShowManage(true)}
               onCardUpdated={handleCardUpdated}
               onCardAttached={() =>
-                queryClient.invalidateQueries({ queryKey: messagesKey(activeChatId) })
+                queryClient.invalidateQueries({ queryKey: messengerMessagesKey(activeChatId) })
               }
               onMessagesChanged={() =>
-                queryClient.invalidateQueries({ queryKey: messagesKey(activeChatId) })
+                queryClient.invalidateQueries({ queryKey: messengerMessagesKey(activeChatId) })
               }
+              callsEnabled={callsEnabled}
+              activeCall={effectiveActiveCall(activeChatId)}
+              inCall={callChatId === activeChatId}
+              onStartCall={() => setCallChatId(activeChatId)}
             />
           ) : (
             <EmptyConversation loading={!!activeChatId && detailQuery.isLoading} />
@@ -937,6 +1001,29 @@ function MessengerInner() {
           onDelete={() => handleDeleteGroup(activeChatId)}
         />
       )}
+
+      {/* Полноэкранный оверлей звонка (метаданные чата — из открытой детальки или инбокса) */}
+      {callChatId && (() => {
+        const d = detailQuery.data?.id === callChatId ? detailQuery.data : null;
+        const s = chats.find((c) => c.id === callChatId) ?? null;
+        const meta = d ?? s;
+        if (!meta) return null; // деталька ещё грузится — оверлей откроется со следующим рендером
+        return (
+          <CallOverlay
+            // key на чат: приём второго звонка (другой chatId) ПЕРЕСОЗДаёт оверлей —
+            // иначе менялся бы только заголовок, а Room (медиа) оставался в первой комнате.
+            key={callChatId}
+            chatId={callChatId}
+            chatType={meta.type}
+            title={meta.title}
+            peerUserId={meta.peerUserId}
+            peerAvatar={meta.avatar}
+            active={effectiveActiveCall(callChatId)}
+            recordingEnabled={!!callsStatusQ.data?.recordingEnabled}
+            onClose={() => setCallChatId(null)}
+          />
+        );
+      })()}
     </div>
   );
 }

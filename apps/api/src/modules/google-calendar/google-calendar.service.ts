@@ -387,13 +387,23 @@ export class GoogleCalendarService {
   /** Cron: renew channels nearing expiry + poll fallback for everyone. */
   async pollAndRenew(): Promise<number> {
     const conns = await this.db.googleConnection.findMany({ where: { syncCalendarId: { not: null } }, take: 1000 });
+    let processed = 0;
     for (const c of conns) {
+      // Optimistic-клейм строки (CAS по lastSyncedAt): сумма последовательных
+      // Google-round-trip'ов легко переживает TTL кроновского Redis-лока — без клейма
+      // второй инстанс начал бы гонять ТЕ ЖЕ sync-токены параллельно.
+      const claimed = await this.db.googleConnection.updateMany({
+        where: { id: c.id, lastSyncedAt: c.lastSyncedAt },
+        data: { lastSyncedAt: new Date() },
+      });
+      if (claimed.count === 0) continue;
+      processed += 1;
       await this.pullIncremental(c.userId).catch(() => undefined);
       if (c.channelExpiry && c.channelExpiry.getTime() - Date.now() < 24 * 3600000) {
         await this.registerWatch(c.userId).catch(() => undefined);
       }
     }
-    return conns.length;
+    return processed;
   }
 
   // ============================================================

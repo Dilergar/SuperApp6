@@ -6,6 +6,7 @@ import type {
   RichCardRefType,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { DI_TOKENS } from '../../shared/di-tokens';
 import { AccessService } from '../access/access.service';
 import { RichCardRegistry } from './rich-cards.registry';
 import type { RichCardDeps } from './rich-card.types';
@@ -90,7 +91,7 @@ export class RichCardsService {
     const card = await this.render(userId, refType, refId);
     if (!card) throw new ForbiddenException('Нет доступа к карточке');
 
-    const messenger = this.moduleRef.get<MessengerLike>('MessengerService', { strict: false });
+    const messenger = this.moduleRef.get<MessengerLike>(DI_TOKENS.MessengerService, { strict: false });
     await messenger.postRichCard(chatId, card, userId);
     return card;
   }

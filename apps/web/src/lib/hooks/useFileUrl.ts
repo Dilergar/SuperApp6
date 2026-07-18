@@ -30,14 +30,17 @@ export function useFileUrl(
 
 /**
  * Полные метаданные файла (с вариантами) — для рендера вложений чата/задач,
- * где в payload только снимок {fileId,name,kind,size}. Кэш минута.
+ * где в payload только снимок {fileId,name,kind,size}. FileObject после ready
+ * иммутабелен → кэшируем навсегда: переоткрытие чата через минуту не повторяет
+ * весь шторм meta-запросов. `opts.enabled=false` не дергает сеть вовсе
+ * (вложение с живым серверным view рисуется без meta).
  */
-export function useFileMeta(fileId: string | null | undefined) {
+export function useFileMeta(fileId: string | null | undefined, opts?: { enabled?: boolean }) {
   const query = useQuery({
     queryKey: fileMetaKey(fileId ?? 'none'),
     queryFn: () => getFileMeta(fileId as string),
-    enabled: !!fileId,
-    staleTime: 60_000,
+    enabled: !!fileId && (opts?.enabled ?? true),
+    staleTime: Infinity,
     refetchOnWindowFocus: false,
   });
   return { meta: query.data ?? null, isLoading: query.isLoading, error: query.error as Error | null };
@@ -50,8 +53,11 @@ export function useFileMeta(fileId: string | null | undefined) {
 export function useFileDisplayUrl(
   file: Pick<FileDto, 'id' | 'publicUrl' | 'variants'> | null | undefined,
   variant?: 'thumb' | 'medium' | 'poster',
-  opts?: { fallbackToOriginal?: boolean },
+  opts?: { fallbackToOriginal?: boolean; enabled?: boolean },
 ) {
+  // enabled=false — вообще без сети и без URL (у вызывающего есть готовая view-ссылка);
+  // хук всё равно вызывается безусловно — никаких conditional hooks у потребителей
+  const enabled = opts?.enabled ?? true;
   const fallback = opts?.fallbackToOriginal ?? true;
   const hasVariant = variant ? !!file?.variants?.some((v) => v.kind === variant) : true;
   const effectiveVariant = variant && hasVariant ? variant : undefined;
@@ -59,8 +65,11 @@ export function useFileDisplayUrl(
   // без него нельзя показывать сырое видео в <img> — тянется весь файл) → ничего.
   const missingRequired = !!variant && !hasVariant && !fallback;
   const isPublic = !!file?.publicUrl;
-  const { url, isLoading } = useFileUrl(!file || isPublic || missingRequired ? null : file.id, effectiveVariant);
-  if (!file || missingRequired) return { url: null, isLoading: false };
+  const { url, isLoading } = useFileUrl(
+    !enabled || !file || isPublic || missingRequired ? null : file.id,
+    effectiveVariant,
+  );
+  if (!enabled || !file || missingRequired) return { url: null, isLoading: false };
   if (isPublic) {
     const suffix = effectiveVariant ? `?variant=${effectiveVariant}` : '';
     return { url: `${file.publicUrl}${suffix}`, isLoading: false };

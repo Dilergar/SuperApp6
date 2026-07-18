@@ -19,7 +19,8 @@ export const CHAT_TYPES = ['dm', 'group', 'context'] as const;
 export const MESSAGE_TYPES = ['text', 'system', 'rich_card', 'attachment'] as const;
 // Parent kinds a CONTEXT chat attaches to (task now; event/lot/order in Phase 3).
 // Note: group chats are ad-hoc (own member list), NOT attached to a Circle.
-export const CHAT_PARENT_TYPES = ['task', 'calendar_event', 'listing', 'order'] as const;
+// office_room — чат встречи «Виртуального офиса» (переживает завершение звонка).
+export const CHAT_PARENT_TYPES = ['task', 'calendar_event', 'listing', 'order', 'office_room'] as const;
 
 // Chat-membership management roles (group chats).
 export const CHAT_MEMBER_ROLES = ['owner', 'admin', 'member', 'bot'] as const;
@@ -41,4 +42,7 @@ export const SYSTEM_MESSAGE_EVENTS = [
   'task.returned',
   'task.completed',
   'task.deadline_changed',
+  // calls (плашка только по завершении: итог «Звонок · N мин» / «Пропущенный звонок»)
+  'call.ended',
+  'call.missed',
 ] as const;

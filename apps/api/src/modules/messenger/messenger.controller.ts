@@ -53,6 +53,12 @@ export class MessengerController {
     return { success: true, data: await this.messenger.listChats(user.sub) };
   }
 
+  @Get('calls/active')
+  @ApiOperation({ summary: 'Живые звонки моих чатов (watcher входящих: загрузка/reconnect)' })
+  async myActiveCalls(@CurrentUser() user: JwtPayload) {
+    return { success: true, data: { items: await this.messenger.listMyActiveCalls(user.sub) } };
+  }
+
   @Post('chats/dm')
   @ApiOperation({ summary: 'Открыть/создать личный диалог' })
   async openDm(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
@@ -245,6 +251,12 @@ export class MessengerController {
   @ApiOperation({ summary: 'Чат события (контекстный)' })
   async getEventChat(@CurrentUser() user: JwtPayload, @Param('eventId') eventId: string) {
     return { success: true, data: await this.messenger.getEventChat(user.sub, eventId) };
+  }
+
+  @Get('office-rooms/:roomId/chat')
+  @ApiOperation({ summary: 'Чат встречи Виртуального офиса (контекстный)' })
+  async getOfficeRoomChat(@CurrentUser() user: JwtPayload, @Param('roomId') roomId: string) {
+    return { success: true, data: await this.messenger.getOfficeRoomChat(user.sub, roomId) };
   }
 
   @Patch('messages/:id')

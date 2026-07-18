@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'fs';
-import { VOICE_LANGUAGES, VoiceLanguage, VoiceSegment } from '@superapp/shared';
+import { VoiceLanguage, VoiceSegment } from '@superapp/shared';
 
 /**
  * STT-клиент голосового движка — реестр драйверов (паттерн process-ai-client):
@@ -57,15 +57,6 @@ export class VoiceSttClient {
     return this.mockMode || !!process.env.VOICE_STT_URL;
   }
 
-  /** Капабилити для UI: сегменты могут нести метки спикеров */
-  get diarization(): boolean {
-    return this.enabled;
-  }
-
-  get languages(): readonly VoiceLanguage[] {
-    return VOICE_LANGUAGES;
-  }
-
   /** Модель под язык: казахский можно увести на дообученную (VOICE_STT_MODEL_KK) */
   modelFor(language?: string): string {
     if (language === 'kk' && process.env.VOICE_STT_MODEL_KK) return process.env.VOICE_STT_MODEL_KK;
@@ -99,8 +90,6 @@ export class VoiceSttClient {
     form.append('response_format', 'verbose_json');
     if (input.language) form.append('language', input.language);
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), input.timeoutMs);
     try {
       const headers: Record<string, string> = {};
       if (process.env.VOICE_STT_API_KEY) headers.Authorization = `Bearer ${process.env.VOICE_STT_API_KEY}`;
@@ -108,7 +97,8 @@ export class VoiceSttClient {
         method: 'POST',
         headers,
         body: form,
-        signal: controller.signal,
+        // AbortSignal.timeout (Node 18+) вместо ручного AbortController+setTimeout
+        signal: AbortSignal.timeout(input.timeoutMs),
       });
       if (!res.ok) {
         const body = await res.text().catch(() => '');
@@ -117,12 +107,11 @@ export class VoiceSttClient {
       const data = (await res.json()) as VerboseJsonResponse;
       return this.mapVerboseJson(data, 'openai_compatible', model);
     } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
+      // AbortSignal.timeout режет fetch DOMException'ом 'TimeoutError' (не 'AbortError')
+      if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
         throw new Error(`STT-таймаут (${Math.round(input.timeoutMs / 1000)}с)`);
       }
       throw err;
-    } finally {
-      clearTimeout(timer);
     }
   }
 

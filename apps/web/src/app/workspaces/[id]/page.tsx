@@ -37,6 +37,7 @@ export default function WorkspaceHome() {
   const services: { title: string; desc: string; href?: string; color: string }[] = [
     { title: 'Сотрудники', desc: 'Ростер, должности, отделы, филиалы', href: `/workspaces/${id}/members`, color: 'var(--primary-container)' },
     { title: 'Процессы', desc: 'Конструктор бизнес-процессов на канвасе', href: `/workspaces/${id}/processes`, color: 'var(--tertiary-container)' },
+    { title: 'Виртуальный офис', desc: 'Видеовстречи и собрания организации', href: `/workspaces/${id}/office`, color: 'var(--secondary-container)' },
     ...(ws.myRole === 'owner'
       ? [{ title: 'Кошелёк компании', desc: 'Валюта, казна, начисления', href: `/workspaces/${id}/wallet`, color: 'var(--secondary-container)' }]
       : []),

@@ -31,11 +31,14 @@ export function humanSize(bytes: number): string {
   return `${v.toFixed(1)} ТБ`;
 }
 
+/** m:ss, часовые записи — h:mm:ss (Диктофон пишет до часа и дольше) */
 export function formatDuration(ms: number | undefined | null): string | null {
   if (!ms || !Number.isFinite(ms)) return null;
   const totalSec = Math.round(ms / 1000);
-  const m = Math.floor(totalSec / 60);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 

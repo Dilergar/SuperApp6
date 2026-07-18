@@ -1,13 +1,13 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { FileDto, VoiceStatusDto, VoiceTranscriptDto } from '@superapp/shared';
-import { VOICE_LIMITS } from '@superapp/shared';
+import { useQuery } from '@tanstack/react-query';
+import type { FileDto, VoiceStatusDto } from '@superapp/shared';
 import { useFileDisplayUrl } from '@/lib/hooks/useFileUrl';
+import { useVoiceTranscript } from '@/lib/hooks/useVoiceTranscript';
 import { formatDuration } from '@/components/files/files-ui';
-import { getTranscript, getVoiceStatus, requestTranscript } from '@/lib/voice-api';
-import { voiceStatusKey, voiceTranscriptKey } from '@/lib/queries';
+import { getVoiceStatus } from '@/lib/voice-api';
+import { voiceStatusKey } from '@/lib/queries';
 
 // ============================================================
 // Голосовой бабл (Telegram-модель): волна из meta.waveform (клик-seek),
@@ -17,8 +17,21 @@ import { voiceStatusKey, voiceTranscriptKey } from '@/lib/queries';
 
 const SPEEDS = [1, 1.5, 2] as const;
 
-export function VoiceMessageBubble({ file }: { file: FileDto }) {
-  const { url } = useFileDisplayUrl(file);
+export function VoiceMessageBubble({
+  file,
+  directUrl,
+}: {
+  // Структурный сабсет FileDto: бабл умеет рисоваться и из серверного view-обогащения
+  // payload (синтетический объект без полного FileDto); настоящий FileDto подходит как раньше
+  file: Pick<FileDto, 'id' | 'publicUrl' | 'variants' | 'meta'>;
+  /** Готовая ссылка из view attachment-payload — не дергаем GET /files/:id/download */
+  directUrl?: string | null;
+}) {
+  // Битая/протухшая direct-ссылка (onError у <audio>) → фолбэк на подписанную через хук
+  const [directBroken, setDirectBroken] = useState(false);
+  const useDirect = !!directUrl && !directBroken;
+  const { url: hookUrl } = useFileDisplayUrl(file, undefined, { enabled: !useDirect });
+  const url = useDirect ? directUrl : hookUrl;
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [positionSec, setPositionSec] = useState(0);
@@ -32,18 +45,41 @@ export function VoiceMessageBubble({ file }: { file: FileDto }) {
       ? meta.durationMs / 1000
       : fallbackDurationSec;
 
+  const hasMetaDuration = typeof meta.durationMs === 'number' && meta.durationMs > 0;
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
-    const onTime = () => setPositionSec(el.currentTime);
+    let fixingInfinity = false;
+    const onTime = () => {
+      if (fixingInfinity) return; // сик-трюк гоняет currentTime — не отражаем в UI
+      setPositionSec(el.currentTime);
+    };
     const onEnd = () => {
       setPlaying(false);
       setPositionSec(0);
     };
-    // Chrome у webm из MediaRecorder отдаёт duration=Infinity — берём из loadedmetadata,
-    // а Infinity лечится seek-трюком на большом времени
+    // Chrome у webm из MediaRecorder отдаёт duration=Infinity. Конвейер обычно кладёт
+    // meta.durationMs (теперь и для webm — из PCM), но старые файлы / dev без ffmpeg
+    // лечим сик-трюком: прыжок «в бесконечность» заставляет браузер досчитать
+    // реальную длительность (придёт durationchange с конечным значением)
     const onMeta = () => {
-      if (Number.isFinite(el.duration) && el.duration > 0) setFallbackDurationSec(el.duration);
+      if (Number.isFinite(el.duration) && el.duration > 0) {
+        setFallbackDurationSec(el.duration);
+        if (fixingInfinity) {
+          fixingInfinity = false;
+          el.currentTime = 0;
+          setPositionSec(0);
+        }
+        return;
+      }
+      if (el.duration === Infinity && !hasMetaDuration && !fixingInfinity) {
+        fixingInfinity = true;
+        try {
+          el.currentTime = 1e7;
+        } catch {
+          fixingInfinity = false;
+        }
+      }
     };
     el.addEventListener('timeupdate', onTime);
     el.addEventListener('ended', onEnd);
@@ -55,7 +91,7 @@ export function VoiceMessageBubble({ file }: { file: FileDto }) {
       el.removeEventListener('loadedmetadata', onMeta);
       el.removeEventListener('durationchange', onMeta);
     };
-  }, [url]);
+  }, [url, hasMetaDuration]);
 
   const toggle = () => {
     const el = audioRef.current;
@@ -98,7 +134,15 @@ export function VoiceMessageBubble({ file }: { file: FileDto }) {
         minWidth: '15rem',
       }}
     >
-      {url && <audio ref={audioRef} src={url} preload="metadata" style={{ display: 'none' }} />}
+      {url && (
+        <audio
+          ref={audioRef}
+          src={url}
+          preload="metadata"
+          onError={useDirect ? () => setDirectBroken(true) : undefined}
+          style={{ display: 'none' }}
+        />
+      )}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
         <button
           onClick={toggle}
@@ -208,12 +252,12 @@ function Waveform({
  * «Расшифровать» + поллинг + текст (кэш навсегда: 1 файл = 1 транскрипт).
  * Экспортируется: AudioTile вешает его и на ОБЫЧНЫЕ аудио-вложения чата
  * (скинутый файлом webm/mp3 расшифровывается так же, как голосовое).
+ * Три состояния: не просили → кнопка; в работе → «Расшифровываю…»;
+ * ошибка (запроса или джоба) → «Повторить»; готово → текст.
  */
 export function TranscriptBlock({ fileId }: { fileId: string }) {
-  const qc = useQueryClient();
   const [requested, setRequested] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const [requestError, setRequestError] = useState<string | null>(null);
 
   const { data: status } = useQuery<VoiceStatusDto>({
     queryKey: voiceStatusKey,
@@ -221,63 +265,33 @@ export function TranscriptBlock({ fileId }: { fileId: string }) {
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
-
-  const { data: transcript } = useQuery<VoiceTranscriptDto | null>({
-    queryKey: voiceTranscriptKey(fileId),
-    queryFn: () => getTranscript(fileId),
-    enabled: requested,
-    refetchInterval: (q) => {
-      const s = q.state.data?.status;
-      return s === 'queued' || s === 'processing' ? VOICE_LIMITS.pollIntervalMs : false;
-    },
-    refetchOnWindowFocus: false,
-  });
+  // enabled по клику — не бомбим API гарантированными 404 на каждый бабл;
+  // кэш общего ключа (расшифровали в Диктофоне) показывается и без клика
+  const { transcript, requestError, ask } = useVoiceTranscript(fileId, { enabled: requested });
 
   if (!status?.enabled) return null;
 
-  const ask = async () => {
-    setRequestError(null);
+  const request = () => {
     setRequested(true);
-    try {
-      const dto = await requestTranscript(fileId);
-      qc.setQueryData(voiceTranscriptKey(fileId), dto);
-      // setQueryData не перевзводит refetchInterval устоявшегося запроса — рефетчим явно
-      void qc.invalidateQueries({ queryKey: voiceTranscriptKey(fileId) });
-    } catch (err) {
-      setRequestError(err instanceof Error ? err.message : 'Не удалось запросить расшифровку');
-    }
+    void ask();
   };
 
-  if (!requested || (!transcript && !requestError)) {
+  if (requestError || transcript?.status === 'error') {
     return (
-      <>
-        <button onClick={() => void ask()} style={linkBtnStyle} title="Расшифровать голосовое в текст">
-          {requested ? '…' : 'Расшифровать'}
-        </button>
-        {requestError && <span style={{ fontSize: '0.68rem', color: 'var(--primary)' }}>{requestError}</span>}
-      </>
-    );
-  }
-
-  if (requestError) {
-    return (
-      <button onClick={() => void ask()} style={linkBtnStyle}>
+      <button onClick={request} style={linkBtnStyle} title={transcript?.error ?? requestError ?? undefined}>
         Не удалось · Повторить
       </button>
     );
   }
-
-  if (!transcript) return null;
-
-  if (transcript.status === 'queued' || transcript.status === 'processing') {
+  if (!requested && !transcript) {
+    return (
+      <button onClick={request} style={linkBtnStyle} title="Расшифровать голосовое в текст">
+        Расшифровать
+      </button>
+    );
+  }
+  if (!transcript || transcript.status === 'queued' || transcript.status === 'processing') {
     return <span style={{ fontSize: '0.68rem', color: 'var(--on-surface-variant)' }}>Расшифровываю…</span>;
-  }
-  if (transcript.status === 'error') {
-    return (
-      <button onClick={() => void ask()} style={linkBtnStyle} title={transcript.error ?? undefined}>
-        Не удалось · Повторить
-      </button>
-    );
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', minWidth: 0, flex: 1 }}>

@@ -41,6 +41,9 @@ export const CAPABILITIES = {
   'order.view': { resourceType: 'order', relation: 'viewer' },
   'order.manage': { resourceType: 'order', relation: 'seller' },
   'event.view': { resourceType: 'event', relation: 'viewer' },
+  // office room (Виртуальный офис — чат встречи + rich card)
+  'office_room.view': { resourceType: 'office_room', relation: 'viewer' },
+  'office_room.manage': { resourceType: 'office_room', relation: 'host' },
 } as const satisfies Record<string, CapabilityDef>;
 
 export type CapabilityKey = keyof typeof CAPABILITIES;

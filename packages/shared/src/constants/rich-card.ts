@@ -9,7 +9,8 @@
 // fin_transaction / fin_month — Финансы: SNAPSHOT cards (the stored share-time payload is
 // the message body; live re-render is only for viewers with finbook access). fin_month's
 // refId is composite: `<bookId>:<YYYY-MM>`.
-export const RICH_CARD_REF_TYPES = ['order', 'listing', 'crowdfunding', 'task', 'event', 'fin_transaction', 'fin_month'] as const;
+// office_room — встреча «Виртуального офиса»: кнопка «Присоединиться» = href, без action-ключей.
+export const RICH_CARD_REF_TYPES = ['order', 'listing', 'crowdfunding', 'task', 'event', 'fin_transaction', 'fin_month', 'office_room'] as const;
 
 // Button visual styles.
 export const RICH_CARD_ACTION_STYLES = ['primary', 'danger', 'default'] as const;

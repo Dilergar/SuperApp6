@@ -31,6 +31,7 @@ import {
   type FileOwnerType,
   type CompleteFileInput,
   type InitFileInput,
+  type AttachmentFileView,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
@@ -331,6 +332,107 @@ export class FilesService implements OnModuleInit {
     await this.driver.delete(row.storageKey).catch(() => undefined);
   }
 
+  /**
+   * Серверный (headless) инжест локального файла БЕЗ HTTP-контракта — для файлов,
+   * которые породил сам бэкенд (запись звонка из LiveKit Egress; будущие импорты).
+   * Тот же конвейер, что init→putContent→complete: профиль/whitelist/magic-bytes/
+   * sha256/квота по факту, транзакция ready+quota, события file.*, антивирус,
+   * медиа-конвейер. ИСХОДНИК НЕ ПОТРЕБЛЯЕТСЯ (копия во временный файл): вызывающий
+   * может безопасно ретраить и сам удаляет источник после успеха.
+   */
+  async ingestLocalFile(opts: {
+    path: string;
+    name: string;
+    mime: string;
+    profile: string;
+    ownerUserId: string;
+  }): Promise<FileDto> {
+    const spec = this.profileSpec(opts.profile);
+    const ext = fileExtension(opts.name);
+    if (ext && EXEC_EXT_BLACKLIST.includes(ext)) {
+      throw new BadRequestException('Исполняемые файлы запрещены');
+    }
+    const mime = opts.mime.toLowerCase();
+    if (spec.allowedMime && !spec.allowedMime.includes(mime)) {
+      throw new BadRequestException('Такой тип файла не разрешён для этого профиля');
+    }
+
+    const stat = await fs.promises.stat(opts.path);
+    if (stat.size <= 0) throw new BadRequestException('Файл пустой');
+    if (stat.size > spec.maxSize) {
+      throw new PayloadTooLargeException(
+        `Файл слишком большой: лимит профиля ${Math.floor(spec.maxSize / (1024 * 1024))} МБ`,
+      );
+    }
+    await this.assertQuota('user', opts.ownerUserId, stat.size);
+
+    const detected = await fileTypeFromFile(opts.path).catch(() => undefined);
+    const sniffError = this.validateMagicBytes(mime, detected?.mime);
+    if (sniffError) throw new BadRequestException(sniffError);
+    const sha256 = await this.sha256File(opts.path);
+
+    // putFromFile ПОТРЕБЛЯЕТ вход (rename) — работаем с копией, исходник не трогаем
+    const id = randomUUID();
+    const tmpCopy = `${opts.path}.ingest-${id.slice(0, 8)}`;
+    await fs.promises.copyFile(opts.path, tmpCopy);
+    const storageKey = `${id.slice(0, 2)}/${id.slice(2, 4)}/${id}`;
+    let bytesStored = false;
+    try {
+      await this.driver.putFromFile(storageKey, tmpCopy, mime);
+      bytesStored = true;
+    } finally {
+      if (!bytesStored) await fs.promises.unlink(tmpCopy).catch(() => undefined);
+    }
+
+    const needsPipeline = spec.makeVariants && ['image', 'video', 'audio'].includes(fileKindFromMime(mime));
+    try {
+      const row = await this.db.$transaction(async (tx) => {
+        const created = await tx.fileObject.create({
+          data: {
+            id,
+            ownerType: 'user',
+            ownerId: opts.ownerUserId,
+            uploaderId: opts.ownerUserId,
+            profile: opts.profile,
+            kind: fileKindFromMime(mime),
+            name: opts.name,
+            mime,
+            size: BigInt(stat.size),
+            sha256,
+            status: 'ready',
+            readyAt: new Date(),
+            visibility: spec.visibility,
+            publicToken: spec.visibility === 'public' ? randomBytes(24).toString('base64url') : null,
+            storageDriver: this.driver.name,
+            storageKey,
+            meta: { pipeline: needsPipeline ? 'pending' : 'done' },
+          },
+        });
+        await tx.fileQuotaUsage.upsert({
+          where: { ownerType_ownerId: { ownerType: 'user', ownerId: opts.ownerUserId } },
+          create: { ownerType: 'user', ownerId: opts.ownerUserId, bytesUsed: BigInt(stat.size), filesCount: 1 },
+          update: { bytesUsed: { increment: BigInt(stat.size) }, filesCount: { increment: 1 } },
+        });
+        return created;
+      });
+
+      const payload = this.eventPayload(row);
+      this.events.emit('file.uploaded', payload, 'files');
+      this.events.emit('file.ready', payload, 'files');
+      this.scanHook.enqueue(id);
+      if (needsPipeline) {
+        this.pipeline.process(id).catch((err) =>
+          this.logger.warn(`pipeline kickoff ${id}: ${err instanceof Error ? err.message : err}`),
+        );
+      }
+      return this.serializeFile(row, []);
+    } catch (err) {
+      // Байты уже в сторе, а строка не встала — прибираем, чтобы не копить сирот
+      await this.driver.delete(storageKey).catch(() => undefined);
+      throw err;
+    }
+  }
+
   // ============================================================
   // Чтение
   // ============================================================
@@ -424,6 +526,15 @@ export class FilesService implements OnModuleInit {
     return this.driver.getStream(key, range);
   }
 
+  /**
+   * Абсолютный путь к байтам на local-драйвере (s3 → null): системные потребители
+   * (голосовой движок) читают большой файл прямо с диска, без стрим-копии в tmp.
+   * Права вызывающий проверяет сам — это сервисный API, не пользовательский.
+   */
+  localPathFor(storageKey: string): string | null {
+    return this.driver.localPath(storageKey);
+  }
+
   // ============================================================
   // Связи (полиморфика: файл ↔ сущность сервиса)
   // ============================================================
@@ -489,6 +600,78 @@ export class FilesService implements OnModuleInit {
   }
 
   /**
+   * Счётчик привязок ВНУТРИ чужой транзакции (атомарные лимиты вида «≤10 фото у лота»
+   * под FOR UPDATE строки сущности). API движка вместо прямого чтения file_links
+   * потребителем — закрывает carve-out магазина.
+   */
+  async countLinkedInTx(
+    tx: Prisma.TransactionClient,
+    refType: string,
+    refId: string,
+    role?: string,
+  ): Promise<number> {
+    return tx.fileLink.count({ where: { refType, refId, ...(role ? { role } : {}) } });
+  }
+
+  /**
+   * Батч-«вьюхи» вложений для ленты сообщений (перф-ревью 2026-07-18): подписанные
+   * ссылки + лёгкая мета БЕЗ пер-файловых проверок доступа — вызывающий уже проверил
+   * право на КОНТЕЙНЕР (chat.view у listMessages), а раньше каждая плитка делала
+   * 2 HTTP × 4–5 запросов БД (meta+download с резолвером). Стоимость здесь: ОДИН
+   * findMany + подпись ссылок (HMAC/presign — чистый CPU, без БД и сети).
+   * Модель Slack/Discord: ссылки приходят в теле сообщения; протухшую ссылку клиент
+   * добирает обычным GET /files/:id/download.
+   */
+  async buildAttachmentViews(fileIds: string[]): Promise<Map<string, AttachmentFileView>> {
+    const out = new Map<string, AttachmentFileView>();
+    const ids = [...new Set(fileIds)];
+    if (!ids.length) return out;
+    const rows = await this.db.fileObject.findMany({
+      where: { id: { in: ids }, status: 'ready' },
+      include: { variants: true },
+    });
+    const expiresAt = new Date(Date.now() + FILE_LIMITS.urlTtlSec * 1000).toISOString();
+    for (const row of rows) {
+      if (row.scanStatus === 'infected') continue; // выдача заражённых заблокирована и тут
+      const meta = (row.meta as Record<string, unknown> | null) ?? {};
+      const kinds = new Set(row.variants.map((v) => v.kind));
+      try {
+        out.set(row.id, {
+          url: await this.buildViewUrl(row, row.variants, null),
+          thumbUrl: kinds.has('thumb') ? await this.buildViewUrl(row, row.variants, 'thumb') : null,
+          posterUrl: kinds.has('poster') ? await this.buildViewUrl(row, row.variants, 'poster') : null,
+          urlExpiresAt: expiresAt,
+          durationMs: typeof meta.durationMs === 'number' ? meta.durationMs : null,
+          width: typeof meta.width === 'number' ? meta.width : null,
+          height: typeof meta.height === 'number' ? meta.height : null,
+          waveform: Array.isArray(meta.waveform) ? (meta.waveform as number[]) : null,
+        });
+      } catch {
+        // Сбой подписи одного файла не роняет ленту — клиент доберёт файл фолбэком.
+      }
+    }
+    return out;
+  }
+
+  /** Ссылка «как getDownloadUrl», но без проверки доступа (доступ проверил вызывающий). */
+  private async buildViewUrl(
+    row: FileRow,
+    variants: VariantRow[],
+    variantKind: string | null,
+  ): Promise<string> {
+    const { key, mime, name } = this.targetForVariant(
+      row,
+      this.pickVariant(variants, variantKind ?? undefined),
+    );
+    const presigned = await this.driver.presignedGet(key, FILE_LIMITS.urlTtlSec, {
+      disposition: this.contentDisposition(mime, name),
+      mime,
+    });
+    if (presigned) return presigned;
+    return (await this.urls.rawUrl(row.id, variantKind)).url;
+  }
+
+  /**
    * Батч-чтение вложений набора сущностей (обложки лотов / вложения задач — без N+1).
    * Доступ гейтит вызывающий сервис. Только ready-файлы; порядок = порядок привязки.
    */
@@ -532,6 +715,26 @@ export class FilesService implements OnModuleInit {
       }),
     );
     return unique.map((id) => byId.get(id) as FileDto);
+  }
+
+  /**
+   * ID файлов, привязанных к сущности, БЕЗ фильтра статуса (в отличие от listLinked) —
+   * для каскадной уборки при удалении сущности-потребителя (Диктофон и т.п.).
+   */
+  async getLinkedFileIds(refType: string, refId: string): Promise<string[]> {
+    const links = await this.db.fileLink.findMany({
+      where: { refType, refId },
+      select: { fileId: true },
+    });
+    return [...new Set(links.map((l) => l.fileId))];
+  }
+
+  /** Привязки файла — для payload'ов событий движков (потребители фильтруют по refType без своих запросов) */
+  async listLinksOfFile(fileId: string): Promise<Array<{ refType: string; refId: string }>> {
+    return this.db.fileLink.findMany({
+      where: { fileId },
+      select: { refType: true, refId: true },
+    });
   }
 
   /** Отвязать конкретную связь. Возвращает true, если связь реально была снята. */

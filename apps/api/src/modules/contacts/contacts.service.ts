@@ -1,10 +1,13 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ForbiddenException,
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
+import { DI_TOKENS } from '../../shared/di-tokens';
 import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { RedisService } from '../../shared/redis/redis.service';
@@ -40,13 +43,38 @@ import type { Prisma } from '@prisma/client';
  */
 @Injectable()
 export class ContactsService {
+  private readonly logger = new Logger(ContactsService.name);
+
   constructor(
     private db: DatabaseService,
     private events: EventBusService,
     private redis: RedisService,
     private accessProjection: AccessProjectionService,
     private workspaceContext: WorkspaceContextService,
+    private moduleRef: ModuleRef,
   ) {}
+
+  /**
+   * Синхронный отзыв прямых finbook-грантов между парой при разрыве связи (удаление /
+   * блок). Security-обязательный эффект: раньше он ехал ТОЛЬКО по at-most-once шине —
+   * потерянное событие навсегда оставляло заблокированному editor-доступ к книге.
+   * Шина (FinancesEvents) и ночной свип FinancesCron остаются вторым/третьим ремнём.
+   * Ленивый токен: прямой импорт создал бы цикл (FinancesService → ContactsService).
+   */
+  private async revokeFinbookSharesBetween(a: string, b: string): Promise<void> {
+    try {
+      const finances = this.moduleRef.get<{
+        revokeSharesBetween: (a: string, b: string) => Promise<void>;
+      }>(DI_TOKENS.FinancesService, { strict: false });
+      await finances.revokeSharesBetween(a, b);
+    } catch (err) {
+      // Связь уже разорвана — не роняем запрос; error (не warn), чтобы это было видно,
+      // а свип FinancesCron гарантированно доберёт отзыв.
+      this.logger.error(
+        `finbook share revoke failed (sweep will repair): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
 
   // ============================================================
   // Contacts — list / read / update / delete
@@ -329,6 +357,7 @@ export class ContactsService {
 
     await this.db.contactLink.delete({ where: { id: linkId } });
     await this.revokeMembershipTuples(link);
+    await this.revokeFinbookSharesBetween(link.userAId, link.userBId);
 
     this.events.emit(
       'contact.removed',
@@ -878,6 +907,8 @@ export class ContactsService {
       where: { userAId: a, userBId: b },
     });
     if (link) await this.revokeMembershipTuples(link);
+    // Даже без живой связи: блок обязан отозвать прямые гранты книг (могли задрейфовать).
+    await this.revokeFinbookSharesBetween(userId, targetUserId);
     // And cancel any pending invitations between them.
     await this.db.contactInvitation.updateMany({
       where: {

@@ -200,6 +200,24 @@ async function main() {
     check('файл записи прибран (soft-delete)', fileRow?.status === 'deleted' && !!fileRow?.deletedAt, fileRow?.status);
     const trLeft = await prisma.voiceTranscript.count({ where: { fileId: dictFileId } });
     check('транскрипт удалён вместе с записью', trLeft === 0, `осталось ${trLeft}`);
+
+    // ---------- 6. Шаренный файл: удаление записи НЕ убивает транскрипт чата ----------
+    // voiceFileId живёт вложением в DM (секция 2); создаём из него запись Диктофона
+    // (профиль voice_message разрешён) и удаляем — файл и транскрипт чата должны выжить
+    const rec2 = await call('POST', '/recorder/recordings', t1, { fileId: voiceFileId, title: 'Из чат-голосового' });
+    check('запись из чат-голосового создана (шаренный файл)', rec2.ok, `status ${rec2.status}`);
+    if (rec2.ok) {
+      const del2 = await call('DELETE', `/recorder/recordings/${rec2.json.data.id}`, t1);
+      check('удаление записи с шаренным файлом ок', del2.ok, `status ${del2.status}`);
+      const sharedFile = await prisma.fileObject.findUnique({ where: { id: voiceFileId }, select: { status: true } });
+      check('файл чат-голосового жив (линк чата остался)', sharedFile?.status === 'ready', sharedFile?.status);
+      if (sttEnabled) {
+        const trShared = await prisma.voiceTranscript.count({ where: { fileId: voiceFileId } });
+        check('транскрипт чат-голосового ПЕРЕЖИЛ удаление записи', trShared === 1, `count ${trShared}`);
+        const asPeerAfter = await call('GET', `/voice/transcripts/${voiceFileId}`, t2);
+        check('собеседник по-прежнему читает транскрипт', asPeerAfter.ok && asPeerAfter.json.data.status === 'ready', `status ${asPeerAfter.status}`);
+      }
+    }
   } finally {
     await prisma.$disconnect();
   }

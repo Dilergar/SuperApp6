@@ -93,30 +93,28 @@ export function useVoiceRecorder() {
     const recorder = recorderRef.current;
     const picked = mimeRef.current;
     if (!recorder || !picked) return Promise.resolve(null);
+    const finish = (): File | null => {
+      stopTimer();
+      releaseStream();
+      recorderRef.current = null;
+      setState('idle');
+      const blobs = chunksRef.current;
+      chunksRef.current = [];
+      if (!blobs.length) return null;
+      const baseMime = picked.mime.split(';')[0];
+      const blob = new Blob(blobs, { type: baseMime });
+      return new File([blob], `voice-${Date.now()}.${picked.ext}`, { type: baseMime });
+    };
+    // Рекордер мог остановиться сам (гарнитура отвалилась, трек кончился): stop() на
+    // inactive кидает или молча no-op'ится (onstop уже не придёт) — собираем УЖЕ
+    // накопленные чанки (timeslice копит их посекундно), а не теряем запись
+    if (recorder.state === 'inactive') return Promise.resolve(finish());
     return new Promise((resolve) => {
-      recorder.onstop = () => {
-        stopTimer();
-        releaseStream();
-        recorderRef.current = null;
-        setState('idle');
-        const blobs = chunksRef.current;
-        chunksRef.current = [];
-        if (!blobs.length) {
-          resolve(null);
-          return;
-        }
-        const baseMime = picked.mime.split(';')[0];
-        const blob = new Blob(blobs, { type: baseMime });
-        resolve(new File([blob], `voice-${Date.now()}.${picked.ext}`, { type: baseMime }));
-      };
+      recorder.onstop = () => resolve(finish());
       try {
         recorder.stop();
       } catch {
-        stopTimer();
-        releaseStream();
-        recorderRef.current = null;
-        setState('idle');
-        resolve(null);
+        resolve(finish());
       }
     });
   }, [releaseStream, stopTimer]);
@@ -144,11 +142,4 @@ export function useVoiceRecorder() {
   useEffect(() => cancel, [cancel]);
 
   return { state, elapsedMs, start, stop, cancel };
-}
-
-export function formatElapsed(ms: number): string {
-  const total = Math.floor(ms / 1000);
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
 }

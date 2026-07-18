@@ -31,4 +31,14 @@ export class CalendarCron {
     });
     if (ran === null) this.logger.debug('Skipped reminder top-up — another instance holds the lock');
   }
+
+  // Purge SENT reminders older than 30 days — the table otherwise grows forever.
+  @Cron('50 3 * * *')
+  async handleSentPurge() {
+    const ran = await this.redis.withLock('cron:calendar-reminder-purge', 10 * 60 * 1000, async () => {
+      const n = await this.calendar.purgeSentReminders();
+      if (n > 0) this.logger.log(`Purged ${n} sent calendar reminder(s)`);
+    });
+    if (ran === null) this.logger.debug('Skipped reminder purge — another instance holds the lock');
+  }
 }

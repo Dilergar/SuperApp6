@@ -1,5 +1,6 @@
-import { Module } from '@nestjs/common';
-import { APP_GUARD, APP_INTERCEPTOR, APP_FILTER } from '@nestjs/core';
+import { Logger, Module, OnApplicationBootstrap } from '@nestjs/common';
+import { APP_GUARD, APP_INTERCEPTOR, APP_FILTER, ModuleRef } from '@nestjs/core';
+import { ALL_DI_TOKENS } from './shared/di-tokens';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 
@@ -19,6 +20,7 @@ import { SearchModule } from './core/search/search.module';
 import { QuickActionsModule } from './core/quick-actions/quick-actions.module';
 import { FilesModule } from './core/files/files.module';
 import { VoiceModule } from './core/voice/voice.module';
+import { CallsModule } from './core/calls/calls.module';
 
 // Feature modules (MVP)
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -36,6 +38,7 @@ import { CardSkinsModule } from './modules/card-skins/card-skins.module';
 import { ProcessesModule } from './modules/processes/processes.module';
 import { FinancesModule } from './modules/finances/finances.module';
 import { RecorderModule } from './modules/recorder/recorder.module';
+import { OfficeModule } from './modules/office/office.module';
 
 import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
 import { WorkspaceContextInterceptor } from './shared/interceptors/workspace-context.interceptor';
@@ -57,9 +60,9 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
         storage: new RedisThrottlerStorage(redis),
         // Secure-by-default: throttling is DISABLED only in explicit development/test
         // (constant logins during development would hit the limits). Any other value —
-        // including a typo'd "prod" — keeps full protection (env validation also
-        // whitelists NODE_ENV at boot, this is the second belt).
-        skipIf: () => process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test' || !process.env.NODE_ENV,
+        // including a typo'd "prod" or a MISSING variable — keeps full protection
+        // (env validation also whitelists NODE_ENV at boot, this is the second belt).
+        skipIf: () => process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test',
       }),
     }),
 
@@ -95,6 +98,10 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // self-host whisper-server/OpenAI-совместимый | mock), подготовка звука ffmpeg,
     // диаризация спикеров. Транскрипт ключуется по fileId; доступ = доступ к файлу.
     VoiceModule,
+    // Calls engine — 8-й платформенный движок: аудио/видеозвонки (LiveKit SFU).
+    // Комната привязана к сущности полиморфно (refType+refId); доступ решает резолвер
+    // потребителя (CallsRefRegistry). Инертен без LIVEKIT_*.
+    CallsModule,
 
     // Feature modules — each is self-contained.
     // Load order: Notifications → Contacts (@Global, consumed by AuthService)
@@ -124,6 +131,10 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // Диктофон — потребитель голосового движка: записи собраний → транскрипт со
     // спикерами (прото-Plaud); дом будущих протоколов и записей SuperTerminal6.
     RecorderModule,
+    // Виртуальный офис (B2B) — видеовстречи организации на движке core/calls
+    // (v1 — аналог Google Meet; Discord-комнаты — фаза 2). Чат встречи — контекстный
+    // чат мессенджера (parentType='office_room').
+    OfficeModule,
   ],
   providers: [
     // ONE error envelope app-wide ({success:false, statusCode, message, errors?}):
@@ -150,4 +161,31 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements OnApplicationBootstrap {
+  private readonly logger = new Logger(AppModule.name);
+
+  constructor(private readonly moduleRef: ModuleRef) {}
+
+  /**
+   * Smoke-check DI-токенов (shared/di-tokens.ts): все ленивые ModuleRef-рёбра обязаны
+   * резолвиться на бутстрапе. Раньше переименованный сервис ломал токен МОЛЧА —
+   * security-каскады (увольнение → чаты встреч, разрыв связи → finbook) деградировали
+   * в вечный warn. Теперь это громкий отказ старта.
+   */
+  onApplicationBootstrap(): void {
+    const missing: string[] = [];
+    for (const token of ALL_DI_TOKENS) {
+      try {
+        this.moduleRef.get(token, { strict: false });
+      } catch {
+        missing.push(token);
+      }
+    }
+    if (missing.length) {
+      const msg = `DI-токены не резолвятся (провайдер переименован или не зарегистрирован): ${missing.join(', ')} — сверить shared/di-tokens.ts с модулями`;
+      this.logger.error(msg);
+      throw new Error(msg);
+    }
+    this.logger.log(`DI tokens smoke-check: ${ALL_DI_TOKENS.length} ok`);
+  }
+}

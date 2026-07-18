@@ -320,6 +320,9 @@ model Notification {
   // share a created_at timestamp (EventBus fan-out can create several per ms).
   @@index([userId, createdAt, id])
   @@index([userId, readAt])
+  // Ночной ретеншн удаляет WHERE createdAt < cutoff — без ведущего createdAt
+  // это ежедневный seq-scan таблицы в миллионы строк.
+  @@index([createdAt])
   @@map("notifications")
 }
 
@@ -542,6 +545,9 @@ model CalendarEventReminder {
 
   @@unique([eventId, userId, occurrenceStart, minutesBefore])
   @@index([fireAt, sentAt])
+  // Чистка отправленных: WHERE sentAt < cutoff (иначе таблица растёт вечно —
+  // повтор «ежедневно, 2 оффсета, 2 участника» = 4 строки в день навсегда).
+  @@index([sentAt])
   @@map("calendar_event_reminders")
 }
 
@@ -628,6 +634,7 @@ model Workspace {
   staffPositions   StaffPosition[]
   staffBranches    StaffBranch[]
   staffAssignments StaffAssignment[]
+  officeRooms      OfficeRoom[]
 
   @@index([ownerId])
   @@map("workspaces")
@@ -689,6 +696,8 @@ model WorkspaceInvitation {
   @@index([toUserId, status])
   // Cleanup cron: WHERE status='pending' AND expiresAt < now.
   @@index([status, expiresAt])
+  // FK position_id (SET NULL): удаление должности без индекса сканирует таблицу.
+  @@index([positionId])
   @@map("workspace_invitations")
 }
 
@@ -893,6 +902,10 @@ model LedgerTransfer {
   @@index([currencyId])
   @@index([pendingId])
   @@index([agreementId])
+  // РУКОПИСНЫЙ partial unique (миграция 20260611000000, Prisma его не выражает):
+  //   ledger_transfers_pending_resolution_key ON (pending_id) WHERE kind IN ('post_pending','void_pending')
+  // — DB-ремень «pending закрывается ровно один раз» (двойная выплата невозможна).
+  // При squash миграций / db pull индекс НЕ ТЕРЯТЬ.
   @@map("ledger_transfers")
 }
 
@@ -1268,6 +1281,9 @@ model Message {
 
   @@unique([chatId, seq]) // also serves (chatId, seq) range scans — no separate index needed
   @@index([authorId])
+  // FK reply_to_id (SET NULL) обязан иметь индекс: каскадное удаление чата на КАЖДУЮ
+  // строку ищет ссылающиеся ответы — без индекса это полный скан messages × N строк.
+  @@index([replyToId])
   @@map("messages")
 }
 
@@ -1340,6 +1356,8 @@ model Mention {
   @@unique([messageId, mentionedUserId])
   @@index([mentionedUserId, createdAt])
   @@index([sourceType, sourceId])
+  // Ретеншн-крон удаляет старые упоминания по createdAt.
+  @@index([createdAt])
   @@map("mentions")
 }
 
@@ -1579,6 +1597,8 @@ model ProcessInstance {
   @@index([definitionId, status])
   @@index([startedById])
   @@index([wakeAt])
+  // FK version_id (Cascade): без индекса удаление/архив версии сканирует таблицу.
+  @@index([versionId])
   @@map("process_instances")
 }
 
@@ -1634,6 +1654,11 @@ model ProcessStepRun {
   @@index([deadlineAt])
   // «Входящие отдела»: claimable-шаги по отделу.
   @@index([departmentId])
+  // РУКОПИСНЫЕ partial-индексы (Prisma их не выражает; при squash / db pull НЕ ТЕРЯТЬ):
+  //   process_step_runs_active_join_key  UNIQUE (instance_id, node_id) WHERE status='active'
+  //     (миграция 20260701175000) — join-нода копит токены в ОДНОЙ строке;
+  //   process_step_runs_claimable_idx    ON (department_id, status) WHERE task_id IS NULL
+  //     (миграция 20260701190000) — «Входящие отдела» без скана.
   @@map("process_step_runs")
 }
 
@@ -1982,28 +2007,181 @@ model VoiceTranscript {
   error            String?
   attempts         Int       @default(0)
   requestedById    String    @map("requested_by_id")
+  // Аренда джоба: клейм ставит now+бюджет (overhead+STT-таймаут+запас); крон
+  // переклеймивает processing только с протухшей арендой — живой джоб не задваивается
+  leaseUntil       DateTime? @map("lease_until")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
   readyAt          DateTime? @map("ready_at")
 
   file FileObject @relation(fields: [fileId], references: [id], onDelete: Cascade)
 
-  @@index([status, updatedAt]) // крон-редрайв зависших джобов
+  @@index([status, updatedAt]) // крон-редрайв потерянных queued
+  @@index([status, leaseUntil]) // крон-редрайв processing с протухшей арендой
   @@map("voice_transcripts")
 }
 
 // Запись Диктофона: владелец + титул; файл привязан FileLink'ом
 // refType='voice_recording' (без прямого FK — паттерн движка файлов).
 model VoiceRecording {
-  id         String   @id @default(uuid())
-  ownerId    String   @map("owner_id")
-  title      String
-  source     String   @default("upload") // upload | web | terminal
-  language   String? // предпочтительный язык расшифровки
-  durationMs Int?     @map("duration_ms")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  id        String   @id @default(uuid())
+  ownerId   String   @map("owner_id")
+  title     String
+  source    String   @default("upload") // upload | web | terminal | call («Журнал звонков»)
+  language  String? // предпочтительный язык расшифровки
+  // «Журнал звонков»: source='call' + ссылка на запись движка звонков (без FK —
+  // движок не знает потребителей). Файл ОБЩИЙ у всех клеймантов (общий транскрипт).
+  callRecordingId String? @map("call_recording_id")
+  // длительность НЕ дублируется колонкой: источник правды — meta файла (конвейер)
+  // с добором из транскрипта (STT посчитал), см. RecorderService.serialize
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
+  @@unique([callRecordingId, ownerId]) // идемпотентность доставки клейма (NULL не конфликтует)
   @@index([ownerId, createdAt])
   @@map("voice_recordings")
+}
+
+// ============================================
+// CALLS ENGINE (core/calls) — 8-й платформенный движок: аудио/видеозвонки (LiveKit).
+// Сессия = один созвон, привязана к сущности-родителю полиморфно (refType+refId,
+// паттерн FileLink/EscrowAgreement — без FK на доменные таблицы); доступ решает
+// резолвер потребителя (CallsRefRegistry). Комната LiveKit живёт от первого токена
+// до room_finished; истина о статусе — эта таблица (вебхуки + крон-реконсиляция).
+// ============================================
+
+model CallSession {
+  id          String    @id @default(uuid())
+  roomName    String    @unique @map("room_name") // имя комнаты LiveKit = call_<id>
+  refType     String    @map("ref_type") // office_room | chat | (будущие)
+  refId       String    @map("ref_id")
+  workspaceId String?   @map("workspace_id") // денормализация для событий/фильтров (без FK)
+  startedById String    @map("started_by_id")
+  status      String    @default("active") // active | ended
+  startedAt   DateTime  @default(now()) @map("started_at")
+  endedAt     DateTime? @map("ended_at")
+  // Клейм «итоговая плашка звонка уже постнута» — идемпотентность против повторной
+  // доставки шины (XAUTOCLAIM): листенер постит плашку только при успешном клейме.
+  summarizedAt DateTime? @map("summarized_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  participants CallSessionParticipant[]
+  recordings   CallRecording[]
+
+  // Одна АКТИВНАЯ сессия на сущность — partial unique index дописан руками в миграции
+  // calls_office_engine (Prisma не описывает WHERE-индексы):
+  //   CREATE UNIQUE INDEX call_sessions_one_active_per_ref ON call_sessions(ref_type, ref_id) WHERE status = 'active'
+  @@index([refType, refId])
+  @@index([status, updatedAt]) // крон-реконсиляция зависших active
+  @@map("call_sessions")
+}
+
+// Журнал участий в созвоне (вебхуки participant_joined/left; at-least-once →
+// «открытая строка» = (sessionId, userId, leftAt IS NULL), дубли не создаются).
+model CallSessionParticipant {
+  id        String    @id @default(uuid())
+  sessionId String    @map("session_id")
+  userId    String    @map("user_id")
+  joinedAt  DateTime  @default(now()) @map("joined_at")
+  leftAt    DateTime? @map("left_at")
+
+  session CallSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  // Одна ОТКРЫТАЯ строка на (сессия, пользователь) — partial unique дописан руками в
+  // миграции calls_review_fixes (Prisma не описывает WHERE-индексы): повторная доставка
+  // вебхука participant_joined не плодит дублей «внутри».
+  //   CREATE UNIQUE INDEX call_session_participants_one_open_per_user
+  //     ON call_session_participants(session_id, user_id) WHERE left_at IS NULL
+  @@index([sessionId, userId])
+  @@index([sessionId, leftAt]) // «кто сейчас внутри» (leftAt IS NULL)
+  @@map("call_session_participants")
+}
+
+// Запись созвона (LiveKit Egress, всегда аудио): recording → processing (stop послан)
+// → ingesting (вебхук/крон клеймит финализацию) → ready | error. Итоговый файл
+// инжестится в core/files (владелец = startedBy), доставка клеймантам — через
+// CallsRecordingRegistry (хук потребителя по refType, паттерн FilesRefRegistry).
+// «Одна АКТИВНАЯ запись на сессию» — partial unique дописан руками в миграции
+// calls_messenger_recording (Prisma не описывает WHERE-индексы):
+//   CREATE UNIQUE INDEX call_recordings_one_active_per_session ON call_recordings(session_id)
+//     WHERE status IN ('recording', 'processing', 'ingesting')
+model CallRecording {
+  id          String    @id @default(uuid())
+  sessionId   String    @map("session_id")
+  refType     String    @map("ref_type") // денормализация сессии — хук доставки и события без join
+  refId       String    @map("ref_id")
+  workspaceId String?   @map("workspace_id")
+  startedById String    @map("started_by_id")
+  egressId    String?   @unique @map("egress_id") // null только в момент create→StartEgress
+  status      String    @default("recording") // recording | processing | ingesting | ready | error
+  fileId      String?   @map("file_id") // FileObject готовой записи (владелец/квота = startedBy)
+  error       String?
+  attempts    Int       @default(0) // финализация кроном ≤5 попыток, дальше error
+  startedAt   DateTime  @default(now()) @map("started_at")
+  endedAt     DateTime? @map("ended_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  session CallSession          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  claims  CallRecordingClaim[]
+
+  @@index([sessionId])
+  @@index([status, updatedAt]) // крон: редрайв зависших финализаций
+  @@map("call_recordings")
+}
+
+// «Получить запись»: каждый нажавший клеймант получает ПОЛНУЮ запись в свой Диктофон
+// (VoiceRecording source='call') после финализации. Инициатор клеймится автоматически.
+// deliveredAt IS NULL + status='ready' → крон-редрайв доставки.
+model CallRecordingClaim {
+  id          String    @id @default(uuid())
+  recordingId String    @map("recording_id")
+  userId      String    @map("user_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  deliveredAt DateTime? @map("delivered_at")
+
+  recording CallRecording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+
+  @@unique([recordingId, userId])
+  @@map("call_recording_claims")
+}
+
+// ============================================
+// ВИРТУАЛЬНЫЙ ОФИС (B2B) — видеовстречи организации (аналог Google Meet, потребитель
+// core/calls). Встреча (OfficeRoom) ≠ созвон (CallSession): room_finished закрывает
+// созвон, встреча-ссылка живёт до «Завершить» (host/manager+) или авто-энда кроном.
+// kind='channel' — задел Discord-фазы (постоянные комнаты).
+// ============================================
+
+model OfficeRoom {
+  id          String    @id @default(uuid())
+  workspaceId String    @map("workspace_id")
+  name        String
+  kind        String    @default("meeting") // meeting | channel (v1 — только meeting)
+  status      String    @default("active") // active | ended
+  createdById String    @map("created_by_id")
+  endedAt     DateTime? @map("ended_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  workspace    Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  participants OfficeRoomParticipant[]
+
+  @@index([workspaceId, status])
+  @@map("office_rooms")
+}
+
+// Причастные к встрече (host при создании, participant при приглашении/первом входе) —
+// источник проекции office_room#host|participant в core/access и членов чата встречи.
+model OfficeRoomParticipant {
+  id        String   @id @default(uuid())
+  roomId    String   @map("room_id")
+  userId    String   @map("user_id")
+  role      String   @default("participant") // host | participant
+  createdAt DateTime @default(now()) @map("created_at")
+
+  room OfficeRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([userId])
+  @@map("office_room_participants")
 }

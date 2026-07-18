@@ -187,6 +187,12 @@ export async function getEventChat(eventId: string): Promise<ChatDetail> {
   return res.data.data;
 }
 
+/** Get-or-create the context chat attached to an office meeting (Виртуальный офис). */
+export async function getOfficeRoomChat(roomId: string): Promise<ChatDetail> {
+  const res = await api.get(`/messenger/office-rooms/${roomId}/chat`);
+  return res.data.data;
+}
+
 // ============================================================
 // Presence (Phase 4) — per-viewer presence for a batch of user ids.
 // The server already applies privacy + the viewer's calendar access
@@ -230,6 +236,12 @@ export async function getMentions(cursor?: string): Promise<MentionFeed> {
     params: cursor ? { cursor } : undefined,
   });
   return res.data.data;
+}
+
+/** Лёгкий счётчик непрочитанного для нав-бейджа — не тянет всю ленту упоминаний. */
+export async function getMentionsUnreadCount(): Promise<number> {
+  const res = await api.get('/mentions/unread-count');
+  return res.data.data.unreadCount;
 }
 
 /** Mark specific mentions read, or all of them when `ids` is omitted. */

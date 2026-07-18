@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { isAxiosError } from 'axios';
 import { VOICE_LIMITS } from '@superapp/shared';
+import { apiErrorMessage } from '@/lib/api';
 import { uploadFile } from '@/lib/files-api';
-import { formatElapsed, useVoiceRecorder } from '@/lib/hooks/useVoiceRecorder';
+import { useVoiceRecorder } from '@/lib/hooks/useVoiceRecorder';
+import { formatDuration } from '@/components/files/files-ui';
 
 // ============================================================
 // Кнопка 🎤 в композере: клик → полоса записи (пульс, таймер,
@@ -34,10 +35,7 @@ export function VoiceRecordButton({ onSent }: { onSent: (fileId: string) => void
       });
       onSent(dto.id);
     } catch (err) {
-      const msg = isAxiosError(err)
-        ? ((err.response?.data as { message?: string } | undefined)?.message ?? err.message)
-        : err instanceof Error ? err.message : String(err);
-      alert(`Не удалось отправить голосовое: ${msg}`);
+      alert(`Не удалось отправить голосовое: ${apiErrorMessage(err)}`);
     } finally {
       sendingRef.current = false;
       setUploading(false);
@@ -98,7 +96,7 @@ export function VoiceRecordButton({ onSent }: { onSent: (fileId: string) => void
           }}
         />
         <span style={{ fontSize: '0.85rem', fontVariantNumeric: 'tabular-nums', color: 'var(--on-surface)' }}>
-          {formatElapsed(elapsedMs)}
+          {formatDuration(elapsedMs) ?? '0:00'}
         </span>
         <button
           onClick={cancel}

@@ -118,8 +118,16 @@ export class CalendarService implements OnModuleInit {
       const userSelect = { select: { id: true, firstName: true, lastName: true } } as const;
       const resourceSelect = { select: { name: true } } as const;
 
+      // Индексируемая видимость: OR(владелец, participants.some=EXISTS) Postgres не
+      // разворачивает в BitmapOr → скан всей calendar_events (перф-ревью 2026-07-18).
+      // Список событий-участий берём отдельной индексной выборкой (@@index([userId])) —
+      // OR(userId, id IN (…)) даёт два индексных пути.
+      const myParticipations = await this.db.eventParticipant.findMany({
+        where: { userId },
+        select: { eventId: true },
+      });
       const mineWhere = {
-        OR: [{ userId }, { participants: { some: { userId } } }],
+        OR: [{ userId }, { id: { in: myParticipations.map((p) => p.eventId) } }],
       };
       const masters = await this.db.calendarEvent.findMany({
         where: {
@@ -959,15 +967,23 @@ export class CalendarService implements OnModuleInit {
   // Reminders
   // ============================================================
 
-  /** Rebuild unsent reminder rows for ONE user on an event over the rolling horizon. */
+  /**
+   * Rebuild unsent reminder rows for ONE user on an event over the rolling horizon.
+   * topUpOnly (ночной долив горизонта): НЕ удаляем несент-строки, только доливаем
+   * недостающий хвост (skipDuplicates) — иначе крон каждую ночь делал delete/recreate
+   * всех напоминаний всех серий (bloat + шторм записей) без единого изменения.
+   */
   private async materializeRemindersFor(
     event: CalEventRow,
     userId: string,
     offsets: number[],
+    opts?: { topUpOnly?: boolean },
   ): Promise<void> {
-    await this.db.calendarEventReminder.deleteMany({
-      where: { eventId: event.id, userId, sentAt: null },
-    });
+    if (!opts?.topUpOnly) {
+      await this.db.calendarEventReminder.deleteMany({
+        where: { eventId: event.id, userId, sentAt: null },
+      });
+    }
     if (!offsets.length) return;
     const now = new Date();
     const horizonEnd = new Date(+now + CALENDAR_LIMITS.reminderHorizonDays * MS_PER_DAY);
@@ -993,10 +1009,10 @@ export class CalendarService implements OnModuleInit {
   }
 
   /** Re-materialize the owner's + every participant's reminders (after a time/recurrence change). */
-  private async remassializeAll(event: CalEventRow): Promise<void> {
-    await this.materializeRemindersFor(event, event.userId, event.reminderOffsets);
+  private async remassializeAll(event: CalEventRow, opts?: { topUpOnly?: boolean }): Promise<void> {
+    await this.materializeRemindersFor(event, event.userId, event.reminderOffsets, opts);
     const ps = await this.db.eventParticipant.findMany({ where: { eventId: event.id } });
-    for (const p of ps) await this.materializeRemindersFor(event, p.userId, p.reminderOffsets);
+    for (const p of ps) await this.materializeRemindersFor(event, p.userId, p.reminderOffsets, opts);
   }
 
   async dispatchReminders(): Promise<number> {
@@ -1030,17 +1046,56 @@ export class CalendarService implements OnModuleInit {
   }
 
   async topUpReminders(): Promise<number> {
-    const recurring = await this.db.calendarEvent.findMany({
-      // Only series that can still produce future occurrences — finished series
-      // (recurrenceEndsAt in the past) have nothing left to materialize.
-      where: {
-        recurrenceRule: { not: null },
-        OR: [{ recurrenceEndsAt: null }, { recurrenceEndsAt: { gte: new Date() } }],
-      },
-      take: 5000,
-    });
-    for (const e of recurring) await this.remassializeAll(e);
-    return recurring.length;
+    // Keyset-обход ВСЕХ живых серий (раньше был head-scan `take: 5000` без orderBy —
+    // серии сверх потолка НИКОГДА не получали продления горизонта: напоминания молча
+    // переставали приходить). Батчи по 500, режим topUpOnly — только долив хвоста.
+    const BATCH = 500;
+    let processed = 0;
+    let cursor: string | undefined;
+    for (;;) {
+      const recurring = await this.db.calendarEvent.findMany({
+        // Only series that can still produce future occurrences — finished series
+        // (recurrenceEndsAt in the past) have nothing left to materialize.
+        where: {
+          recurrenceRule: { not: null },
+          OR: [{ recurrenceEndsAt: null }, { recurrenceEndsAt: { gte: new Date() } }],
+        },
+        orderBy: { id: 'asc' },
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        take: BATCH,
+      });
+      if (!recurring.length) break;
+      cursor = recurring[recurring.length - 1].id;
+      for (const e of recurring) await this.remassializeAll(e, { topUpOnly: true });
+      processed += recurring.length;
+      if (recurring.length < BATCH) break;
+    }
+    return processed;
+  }
+
+  /**
+   * Чистка ОТПРАВЛЕННЫХ напоминаний старше 30 дней — иначе таблица растёт вечно
+   * (повтор «ежедневно, 2 оффсета, 2 участника» = 4 строки в день навсегда).
+   * Батчами: миллионное deleteMany одним стейтментом = лавина WAL + долгие локи.
+   */
+  async purgeSentReminders(): Promise<number> {
+    const cutoff = new Date(Date.now() - 30 * MS_PER_DAY);
+    const BATCH = 10_000;
+    let total = 0;
+    for (;;) {
+      const rows = await this.db.calendarEventReminder.findMany({
+        where: { sentAt: { lt: cutoff } },
+        select: { id: true },
+        take: BATCH,
+      });
+      if (!rows.length) break;
+      await this.db.calendarEventReminder.deleteMany({
+        where: { id: { in: rows.map((r) => r.id) } },
+      });
+      total += rows.length;
+      if (rows.length < BATCH) break;
+    }
+    return total;
   }
 
   // ============================================================

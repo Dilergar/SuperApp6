@@ -6,7 +6,8 @@ import { NotificationsService } from '../notifications/notifications.service';
 /**
  * Слушатель голосового движка: расшифровка записи Диктофона готова/не удалась →
  * уведомление владельцу с дип-линком. Голосовые в чатах НЕ пингуем (шумно) —
- * фильтр = наличие привязки voice_recording у файла.
+ * фильтр по payload.links (движок кладёт привязки файла в событие; свой запрос
+ * в fileLink на каждый чужой транскрипт не нужен).
  */
 @Injectable()
 export class RecorderEvents implements OnModuleInit {
@@ -20,30 +21,40 @@ export class RecorderEvents implements OnModuleInit {
 
   onModuleInit(): void {
     this.events.onPattern('voice.transcript.*').subscribe((e) => {
-      void this.handle(e.type, (e.payload ?? {}) as { fileId?: string });
+      void this.handle(
+        e.type,
+        (e.payload ?? {}) as { fileId?: string; links?: Array<{ refType?: string; refId?: string }> },
+      );
     });
   }
 
-  private async handle(type: string, payload: { fileId?: string }): Promise<void> {
+  private async handle(
+    type: string,
+    payload: { fileId?: string; links?: Array<{ refType?: string; refId?: string }> },
+  ): Promise<void> {
     try {
       if (!payload.fileId) return;
       if (type !== 'voice.transcript.ready' && type !== 'voice.transcript.failed') return;
-      const link = await this.db.fileLink.findFirst({
-        where: { refType: 'voice_recording', fileId: payload.fileId },
-        select: { refId: true },
-      });
-      if (!link) return; // не запись Диктофона (голосовое в чате и т.п.)
-      const rec = await this.db.voiceRecording.findUnique({
-        where: { id: link.refId },
+      // ВСЕ привязки-записи: общий файл записи звонка живёт в Диктофоне у КАЖДОГО
+      // клейманта — транскрипт один, уведомление получает каждый владелец строки
+      const recIds = (payload.links ?? [])
+        .filter((l) => l?.refType === 'voice_recording' && l.refId)
+        .map((l) => l.refId as string);
+      if (!recIds.length) return; // не запись Диктофона (голосовое в чате и т.п.)
+      const recs = await this.db.voiceRecording.findMany({
+        where: { id: { in: recIds } },
         select: { id: true, ownerId: true, title: true },
       });
-      if (!rec) return;
-      await this.notifications.notify(
-        rec.ownerId,
-        type,
-        { title: rec.title, recordingId: rec.id, fileId: payload.fileId },
-        { actionUrl: `/recorder?id=${rec.id}` },
-      );
+      for (const rec of recs) {
+        await this.notifications
+          .notify(
+            rec.ownerId,
+            type,
+            { title: rec.title, recordingId: rec.id, fileId: payload.fileId },
+            { actionUrl: `/recorder?id=${rec.id}` },
+          )
+          .catch(() => undefined);
+      }
     } catch (err) {
       this.logger.warn(`notify ${type}: ${err instanceof Error ? err.message : err}`);
     }

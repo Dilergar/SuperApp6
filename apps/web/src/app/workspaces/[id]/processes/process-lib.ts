@@ -5,7 +5,9 @@
 // (applyNodeChanges/applyEdgeChanges), чтобы драг был плавным (без пересборки нод).
 // ============================================================
 
-import { MarkerType, type Edge, type Node } from '@xyflow/react';
+// ВАЖНО: только type-импорты из @xyflow/react — этот модуль импортирует страница
+// СПИСКА процессов, и value-импорт затащил бы весь канвас-пакет в её чанк.
+import type { Edge, MarkerType, Node } from '@xyflow/react';
 import type {
   ProcessDocument,
   ProcessFormField,
@@ -111,7 +113,9 @@ export function makeFlowEdge(
     targetHandle: toPort,
     label: isAttach ? undefined : out?.label || undefined,
     style: { stroke: color, strokeWidth: isAttach ? 2.5 : 2, strokeDasharray: isAttach ? '6 4' : undefined },
-    markerEnd: isAttach ? undefined : { type: MarkerType.ArrowClosed, width: 17, height: 17, color },
+    markerEnd: isAttach
+      ? undefined
+      : { type: 'arrowclosed' as MarkerType, width: 17, height: 17, color },
     labelStyle: { fontSize: 11, fontWeight: 600, fill: 'var(--on-surface)' },
     labelBgStyle: { fill: 'var(--surface)', fillOpacity: 0.9 },
   };

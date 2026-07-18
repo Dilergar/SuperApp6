@@ -53,7 +53,8 @@ export async function createRecording(input: CreateRecordingInput): Promise<Voic
   return res.data.data;
 }
 
-export async function renameRecording(id: string, title: string): Promise<VoiceRecordingDto> {
+/** Лёгкий ответ {id,title}: веб патчит title в кэше списка, полный DTO серверу собирать незачем */
+export async function renameRecording(id: string, title: string): Promise<{ id: string; title: string }> {
   const res = await api.patch(`/recorder/recordings/${id}`, { title });
   return res.data.data;
 }

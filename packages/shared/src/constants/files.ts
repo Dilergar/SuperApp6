@@ -42,6 +42,39 @@ export const AUDIO_MIME = [
 export const VIDEO_MIME = ['video/mp4', 'video/webm', 'video/quicktime'];
 
 /**
+ * Аудио-контейнеры: расширение ↔ MIME — одна точка правды (веб доводит пустой/octet-stream
+ * MIME по расширению; STT-подготовка называет multipart-файл по MIME). Держать в синхроне
+ * с AUDIO_MIME выше: новый формат = запись в трёх соседних таблицах одного файла.
+ */
+export const AUDIO_EXT_TO_MIME: Record<string, string> = {
+  mp3: 'audio/mpeg',
+  m4a: 'audio/mp4',
+  m4b: 'audio/mp4',
+  mp4: 'audio/mp4',
+  aac: 'audio/aac',
+  wav: 'audio/wav',
+  ogg: 'audio/ogg',
+  oga: 'audio/ogg',
+  opus: 'audio/ogg',
+  flac: 'audio/flac',
+  webm: 'audio/webm',
+};
+
+export const AUDIO_MIME_TO_EXT: Record<string, string> = {
+  'audio/ogg': '.ogg',
+  'audio/webm': '.webm',
+  'audio/mp4': '.m4a',
+  'audio/mpeg': '.mp3',
+  'audio/mp3': '.mp3',
+  'audio/wav': '.wav',
+  'audio/x-wav': '.wav',
+  'audio/aac': '.aac',
+  'audio/x-m4a': '.m4a',
+  'audio/flac': '.flac',
+  'audio/x-flac': '.flac',
+};
+
+/**
  * Профиль загрузки: потребитель выбирает профиль, движок навязывает правила.
  * kind 'any' = любой MIME, кроме blacklist расширений.
  */
@@ -53,6 +86,8 @@ export interface FileProfileSpec {
   visibility: FileVisibility;
   /** Гнать ли через медиа-конвейер (миниатюры/постер/мета) */
   makeVariants: boolean;
+  /** Считать ли волну (meta.waveform) для аудио — капабилити профиля, не хардкод имён в движке */
+  waveform?: boolean;
 }
 
 export const FILE_PROFILES: Record<string, FileProfileSpec> = {
@@ -63,9 +98,9 @@ export const FILE_PROFILES: Record<string, FileProfileSpec> = {
   /** Вложение в чат/задачу — приватное, любой безопасный тип */
   chat_attachment: { kind: 'any', maxSize: 200 * MB, allowedMime: null, visibility: 'private', makeVariants: true },
   /** Голосовое сообщение (MediaRecorder: ogg/webm/mp4) */
-  voice_message: { kind: 'audio', maxSize: 20 * MB, allowedMime: AUDIO_MIME, visibility: 'private', makeVariants: true },
+  voice_message: { kind: 'audio', maxSize: 20 * MB, allowedMime: AUDIO_MIME, visibility: 'private', makeVariants: true, waveform: true },
   /** Запись Диктофона (собрание/лекция) — ровно hardMaxSize (~3.5ч mp3 / 6ч+ m4a) */
-  dictaphone: { kind: 'audio', maxSize: 200 * MB, allowedMime: AUDIO_MIME, visibility: 'private', makeVariants: true },
+  dictaphone: { kind: 'audio', maxSize: 200 * MB, allowedMime: AUDIO_MIME, visibility: 'private', makeVariants: true, waveform: true },
   /** Документ (Word/Excel/PDF/…) — приватный, без вариантов (текст-извлечение придёт с RAG) */
   document: { kind: 'document', maxSize: 50 * MB, allowedMime: DOCUMENT_MIME, visibility: 'private', makeVariants: false },
   /** Фолбэк без специфики */
@@ -151,6 +186,15 @@ export function publicVariantUrl(
 ): string | null {
   if (!file?.publicUrl) return null;
   return file.variants?.some((v) => v.kind === kind) ? `${file.publicUrl}?variant=${kind}` : file.publicUrl;
+}
+
+/**
+ * «Это голосовое сообщение?» — одна точка классификации voice-note для API-превью
+ * («🎤 Голосовое») и веб-баблов; новый голосовой профиль добавляется здесь, а не
+ * строковыми сравнениями по двум приложениям.
+ */
+export function isVoiceNoteProfile(profile: string | null | undefined): boolean {
+  return profile === 'voice_message';
 }
 
 /** Расширение из имени файла (нижний регистр, без точки) */

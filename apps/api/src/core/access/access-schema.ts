@@ -119,6 +119,17 @@ export const ACCESS_SCHEMA: Record<string, ResourceTypeConfig> = {
     },
   },
 
+  // ---- Office rooms (Виртуальный офис, B2B): per-MEETING membership for the meeting chat
+  //      and rich card. host = организатор; participant = приглашённый/вошедший. «Войти по
+  //      ссылке» решает НЕ движок, а canJoin-резолвер офиса (роль воркспейса ≥ trainee). ----
+  office_room: {
+    relations: {
+      host: THIS,
+      participant: THIS,
+      viewer: union(THIS, computed('host'), computed('participant')),
+    },
+  },
+
   // ---- Platform personas (system-level grants that unlock features; additive, gate nothing
   //      existing — used by future Marketplace / Jobs «Тайный гость» / UGC). Singleton resource id. ----
   platform: {
@@ -188,7 +199,7 @@ export const GENERIC_PRINCIPALS: readonly string[] = ['user', 'circle', 'workspa
  * into "only the paths that can reach the target type".
  */
 export const LIST_OBJECTS_EXTRA_EXPANSION: Record<string, string[]> = {
-  chat: ['task', 'order', 'event'],
+  chat: ['task', 'order', 'event', 'office_room'],
   showcase: ['shop'],
 };
 
@@ -200,9 +211,18 @@ export const LIST_OBJECTS_EXTRA_EXPANSION: Record<string, string[]> = {
  * (every task/chat write was flushing the WHOLE platform's ACL cache).
  */
 export const EPOCH_FANOUT: Record<string, string[]> = {
-  task: ['task', 'chat'],
-  order: ['order', 'chat'],
-  event: ['event', 'chat'],
+  // 'chat' из фанаутов task/order/event/office_room/workspace УБРАН (перф-ревью
+  // 2026-07-18): тип-эпоха chat сбрасывала кэш прав ВСЕХ чатов платформы на каждую
+  // доменную мутацию (новая задача где угодно → hit-rate ≈ 0). Теперь chat живёт на
+  // ПООБЪЕКТНОЙ эпохе (OBJECT_EPOCH_TYPES в access.service): прямые chat-tuples бампают
+  // свой чат, а мутации родителей (CHAT_PARENT_SUBJECT_TYPES) бампают зависимые чаты
+  // реверс-lookup'ом; фолбэк при сбое lookup'а — тип-эпоха chat (safe).
+  task: ['task'],
+  order: ['order'],
+  event: ['event'],
+  office_room: ['office_room'],
+  // Ключ обязан существовать (иначе chat-запись уронит ГЛОБАЛЬНУЮ эпоху); сами бампы
+  // чата — пообъектные, тип-эпоха остаётся только фолбэком.
   chat: ['chat'],
   shop: ['shop', 'showcase'],
   showcase: ['showcase'],
@@ -211,7 +231,7 @@ export const EPOCH_FANOUT: Record<string, string[]> = {
   calendar: ['calendar'],
   card: ['card'],
   platform: ['platform'],
-  workspace: ['workspace', 'shop', 'showcase', 'chat'],
+  workspace: ['workspace', 'shop', 'showcase'],
   circle: ['circle', 'showcase', 'wishlist', 'calendar', 'card', 'finbook'],
   // Staff-оси («Сотрудники»): membership-рёбра могут нести гранты на карточки
   // (card.full_viewer), витрины B2B и календарь — будущие аудитории Ленты/отпусков.
@@ -219,3 +239,22 @@ export const EPOCH_FANOUT: Record<string, string[]> = {
   position: ['position', 'card', 'showcase', 'calendar'],
   branch: ['branch', 'card', 'showcase', 'calendar'],
 };
+
+/**
+ * Типы с ПООБЪЕКТНОЙ эпохой кэша (высокая кардинальность + частые мутации соседей):
+ * check() читает третий компонент эпохи `acl:epoch:<type>:<id>`, бамп — точечный.
+ */
+export const OBJECT_EPOCH_TYPES: ReadonlySet<string> = new Set(['chat']);
+
+/**
+ * Типы-родители, чьи tuples входят в usersets чатов (chat#member@<type>#<role>):
+ * мутация их tuples обязана бампать пообъектные эпохи ЗАВИСИМЫХ чатов (реверс-lookup
+ * по subjectType/subjectId). Держать в синхроне с LIST_OBJECTS_EXTRA_EXPANSION.chat.
+ */
+export const CHAT_PARENT_SUBJECT_TYPES: ReadonlySet<string> = new Set([
+  'task',
+  'order',
+  'event',
+  'office_room',
+  'workspace',
+]);

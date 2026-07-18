@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import type { VoiceSegment } from '@superapp/shared';
+import { formatDuration } from '@/components/files/files-ui';
 
 // ============================================================
 // Транскрипт записи: сегменты сгруппированы по подряд идущему
@@ -28,10 +29,9 @@ function speakerColor(index: number): string {
   return SPEAKER_COLORS[index % SPEAKER_COLORS.length];
 }
 
+/** Метка [m:ss] (часовые — [h:mm:ss]) — общий форматтер файлов, не своя копия */
 function fmtStamp(sec: number): string {
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60);
-  return `${m}:${String(s).padStart(2, '0')}`;
+  return formatDuration(Math.floor(sec) * 1000) ?? '0:00';
 }
 
 export function TranscriptView({

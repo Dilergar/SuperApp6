@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DI_TOKENS } from '../../shared/di-tokens';
 import type { NodeRunContext, NodeRunResult, ProcessNodeProvider } from './process-node.types';
 
 /** Rich-card типы, у которых ЕСТЬ действия-кнопки (fin_* — снимки без действий, исключены). */
@@ -95,7 +96,7 @@ export const richCardActionNode: ProcessNodeProvider = {
       }
     }
     try {
-      const rc = ctx.deps.getService<RichCardsLike>('RichCardsService');
+      const rc = ctx.deps.getService<RichCardsLike>(DI_TOKENS.RichCardsService);
       await rc.execute(ctx.startedById, cfg.actionKey, { type: cfg.refType, id: refId }, payload);
       return { kind: 'complete', outputKey: 'success', output: { actionKey: cfg.actionKey, refId } };
     } catch (err) {
@@ -109,7 +110,7 @@ export const richCardActionNode: ProcessNodeProvider = {
 // ------------------------------------------------------------
 async function sendMessageImpl(ctx: NodeRunContext, text: string): Promise<void> {
   const cfg = ctx.config as { to: 'member' | 'chat'; userId?: string; chatId?: string };
-  const messenger = ctx.deps.getService<MessengerLike>('MessengerService');
+  const messenger = ctx.deps.getService<MessengerLike>(DI_TOKENS.MessengerService);
   let chatId = cfg.chatId ? ctx.render(cfg.chatId).trim() : '';
   if (cfg.to === 'member') {
     if (!cfg.userId) throw new Error('Не выбран получатель');
@@ -205,7 +206,7 @@ export const staffAssignNode: ProcessNodeProvider = {
   async run(ctx) {
     const cfg = ctx.config as { userId: string; positionId: string; branchId?: string };
     try {
-      const staff = ctx.deps.getService<StaffLike>('StaffService');
+      const staff = ctx.deps.getService<StaffLike>(DI_TOKENS.StaffService);
       await staff.assignPosition(ctx.startedById, ctx.workspaceId, cfg.userId, { positionId: cfg.positionId, branchId: cfg.branchId ?? null });
       return { kind: 'complete', outputKey: 'success', output: { userId: cfg.userId, positionId: cfg.positionId } };
     } catch (err) {
@@ -251,7 +252,7 @@ export const roleChangeNode: ProcessNodeProvider = {
   async run(ctx) {
     const cfg = ctx.config as { userId: string; role: string };
     try {
-      const ws = ctx.deps.getService<WorkspacesLike>('WorkspacesService');
+      const ws = ctx.deps.getService<WorkspacesLike>(DI_TOKENS.WorkspacesService);
       await ws.updateMember(ctx.startedById, ctx.workspaceId, cfg.userId, { role: cfg.role });
       return { kind: 'complete', outputKey: 'success', output: { userId: cfg.userId, role: cfg.role } };
     } catch (err) {
@@ -296,7 +297,7 @@ export const startSubprocessNode: ProcessNodeProvider = {
     }
     const depth = Number((ctx.variables as Record<string, unknown>)._subprocessDepth ?? 0) || 0;
     try {
-      const processes = ctx.deps.getService<ProcessesLike>('ProcessesService');
+      const processes = ctx.deps.getService<ProcessesLike>(DI_TOKENS.ProcessesService);
       const childId = await processes.startSubprocess(ctx.workspaceId, cfg.definitionId, ctx.startedById, input, depth + 1);
       return { kind: 'complete', outputKey: 'success', output: { childInstanceId: childId } };
     } catch (err) {
@@ -358,7 +359,7 @@ export const financeRecordNode: ProcessNodeProvider = {
     const tenge = Number(raw);
     if (!Number.isFinite(tenge) || tenge <= 0) return fail(`Сумма не распозналась: «${raw}»`);
     try {
-      const finances = ctx.deps.getService<FinancesLike>('FinancesService');
+      const finances = ctx.deps.getService<FinancesLike>(DI_TOKENS.FinancesService);
       const result = await finances.recordOperationForBook(ctx.workspaceId, {
         kind: cfg.kind,
         amount: Math.round(tenge * 100), // тенге → тиын

@@ -41,6 +41,32 @@ export class MentionsService {
     private access: AccessService,
   ) {}
 
+  /** Лёгкий счётчик для бейджа (1 COUNT по индексу [mentionedUserId, ...]). */
+  async unreadCount(userId: string): Promise<number> {
+    return this.db.mention.count({ where: { mentionedUserId: userId, readAt: null } });
+  }
+
+  /** Ретеншн ленты упоминаний (180 дней): без него таблица росла вечно, а после
+   *  удаления чатов копились сироты с мёртвыми дип-линками. Батчами по индексу createdAt. */
+  async purgeOld(): Promise<number> {
+    const RETENTION_DAYS = 180;
+    const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    const BATCH = 10_000;
+    let total = 0;
+    for (;;) {
+      const rows = await this.db.mention.findMany({
+        where: { createdAt: { lt: cutoff } },
+        select: { id: true },
+        take: BATCH,
+      });
+      if (!rows.length) break;
+      const res = await this.db.mention.deleteMany({ where: { id: { in: rows.map((r) => r.id) } } });
+      total += res.count;
+      if (rows.length < BATCH) break;
+    }
+    return total;
+  }
+
   /**
    * Parse @mentions out of a freshly-persisted message, security-filter them to current
    * chat members, record the new ones, and notify only the newly-recorded people.

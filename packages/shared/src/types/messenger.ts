@@ -5,6 +5,7 @@ import {
   CHAT_MEMBER_ROLES,
   SYSTEM_MESSAGE_EVENTS,
 } from '../constants/messenger';
+import type { CallActiveDto } from './calls';
 
 export type ChatType = (typeof CHAT_TYPES)[number];
 export type MessageType = (typeof MESSAGE_TYPES)[number];
@@ -13,6 +14,26 @@ export type ChatMemberRole = (typeof CHAT_MEMBER_ROLES)[number];
 export type SystemMessageEvent = (typeof SYSTEM_MESSAGE_EVENTS)[number];
 /** Sender-visible delivery state, derived from the recipients' read cursors. */
 export type MessageDeliveryStatus = 'sent' | 'delivered' | 'read';
+
+/**
+ * Готовая «вьюха» вложения, ОБОГАЩАЕМАЯ сервером при выдаче ленты (НЕ хранится в
+ * payload БД): подписанные ссылки + лёгкая мета. Убирает 2 HTTP-запроса (meta+download)
+ * на каждую плитку — модель Slack/Discord «ссылки приходят в теле сообщения».
+ * Ссылки короткоживущие (urlExpiresAt; null = вечная публичная) — клиент при истечении
+ * падает обратно на GET /files/:id/download.
+ */
+export interface AttachmentFileView {
+  url: string;
+  thumbUrl: string | null;
+  posterUrl: string | null;
+  /** ISO-время истечения подписи; null — вечная ссылка (публичный класс). */
+  urlExpiresAt: string | null;
+  durationMs: number | null;
+  width: number | null;
+  height: number | null;
+  /** Волна голосового (meta.waveform, 96 бакетов 0..100). */
+  waveform: number[] | null;
+}
 
 /** Одно вложение внутри attachment-сообщения (снимок метаданных файла движка). */
 export interface AttachmentFileRef {
@@ -23,6 +44,8 @@ export interface AttachmentFileRef {
   mime?: string;
   /** Профиль загрузки (voice_message → голосовой бабл/превью 🎤); у старых сообщений отсутствует */
   profile?: string;
+  /** Серверное обогащение при чтении (в БД не хранится; у старых кэшей/путей отсутствует). */
+  view?: AttachmentFileView;
 }
 
 /**
@@ -69,6 +92,8 @@ export interface ChatSummary {
   muted: boolean;
   pinned: boolean;
   updatedAt: string;
+  /** Живой созвон в этом чате (refType='chat'); null/absent — звонка нет. */
+  activeCall?: CallActiveDto | null;
 }
 
 /** Compact preview of a quoted message (Phase 7 reply/quote). */
@@ -135,6 +160,23 @@ export interface ChatDetail {
   myLastReadSeq: number;
   muted: boolean;
   pinned: boolean;
+  /** Живой созвон в этом чате (refType='chat'); null — звонка нет. */
+  activeCall?: CallActiveDto | null;
+}
+
+/**
+ * Socket `call:state` (+ GET /messenger/calls/active) — идемпотентный снимок звонка чата.
+ * Один и тот же формат гасит и зажигает всё: дозвон DM (active с непустыми participants
+ * без меня), баннер «Идёт звонок» в группах/контекстных, индикатор записи.
+ */
+export interface ChatCallStatePayload {
+  chatId: string;
+  chatType: ChatType;
+  /** Название чата для модалки входящего (имя собеседника в DM, имя группы) */
+  chatTitle: string;
+  /** Имя звонящего (startedById) для модалки входящего */
+  startedByName: string | null;
+  active: CallActiveDto | null;
 }
 
 // ---- request payloads ----

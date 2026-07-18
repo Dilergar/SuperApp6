@@ -1,10 +1,13 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ForbiddenException,
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
+import { DI_TOKENS } from '../../shared/di-tokens';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
@@ -54,13 +57,35 @@ type UserNameRow = { firstName: string; lastName: string | null };
  */
 @Injectable()
 export class WorkspacesService {
+  private readonly logger = new Logger(WorkspacesService.name);
+
   constructor(
     private db: DatabaseService,
     private roles: RolesService,
     private events: EventBusService,
     private staff: StaffService,
     private files: FilesService,
+    private moduleRef: ModuleRef,
   ) {}
+
+  /**
+   * Каскад увольнения/выхода: снять участия человека во встречах Виртуального офиса
+   * (иначе бывший сотрудник сохраняет доступ к чатам встреч). Ленивый ModuleRef-резолв —
+   * OfficeModule зависит от Messenger, прямая инъекция дала бы цикл (паттерн проекта).
+   */
+  private async purgeOfficeParticipations(workspaceId: string, userId: string): Promise<void> {
+    try {
+      const office = this.moduleRef.get<{
+        removeAllParticipationsForUser: (ws: string, uid: string) => Promise<void>;
+      }>(DI_TOKENS.OfficeService, { strict: false });
+      await office.removeAllParticipationsForUser(workspaceId, userId);
+    } catch (err) {
+      // error, не warn: это security-каскад увольнения (доступ к чатам встреч);
+      // резолв токена дополнительно гарантирован smoke-check'ом на бутстрапе,
+      // а дрейф добирает OfficeCron.reconcileOrphanParticipants.
+      this.logger.error(`purgeOfficeParticipations: ${err instanceof Error ? err.message : err}`);
+    }
+  }
 
   // ============================================================
   // Workspace CRUD
@@ -404,6 +429,8 @@ export class WorkspacesService {
     await this.revokeAllWorkspaceRoles(targetUserId, workspaceId);
     // Каскад: назначения должностей + их рёбра в движке доступа.
     await this.staff.removeAllAssignmentsForUser(workspaceId, targetUserId);
+    // Каскад: участия во встречах офиса (доступ к чатам встреч).
+    await this.purgeOfficeParticipations(workspaceId, targetUserId);
     await this.db.workspaceMember.deleteMany({
       where: { workspaceId, userId: targetUserId },
     });
@@ -425,6 +452,7 @@ export class WorkspacesService {
     }
     await this.revokeAllWorkspaceRoles(userId, workspaceId);
     await this.staff.removeAllAssignmentsForUser(workspaceId, userId);
+    await this.purgeOfficeParticipations(workspaceId, userId);
     await this.db.workspaceMember.deleteMany({ where: { workspaceId, userId } });
   }
 
