@@ -4,14 +4,12 @@ import { FILE_LIMITS } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { FilesService } from './files.service';
-import { FilesPipelineService } from './files-pipeline.service';
-import { FilesScanHook } from './files-scan.hook';
 import { STORAGE_DRIVER, StorageDriver } from './storage/storage-driver';
 
 /**
  * Жизненный цикл файлов (Redis-лок — выполняет один инстанс; строки клеймятся
  * status-guarded updateMany, лок — не гарантия): брошенные загрузки, физическое
- * удаление после ретеншна, сверка квот, ретрай медиа-конвейера.
+ * удаление после ретеншна, сверка квот. Ретраи медиа-конвейера и скана переехали на движок джобов core/jobs.
  */
 @Injectable()
 export class FilesCron {
@@ -20,8 +18,6 @@ export class FilesCron {
   constructor(
     private readonly db: DatabaseService,
     private readonly redis: RedisService,
-    private readonly pipeline: FilesPipelineService,
-    private readonly scanHook: FilesScanHook,
     @Inject(STORAGE_DRIVER) private readonly driver: StorageDriver,
     private readonly files: FilesService,
   ) {}
@@ -131,32 +127,5 @@ export class FilesCron {
         data: { bytesUsed: BigInt(0), filesCount: 0 },
       });
     }
-  }
-
-  /** Каждые 10 минут: добить зависшие/упавшие медиа-конвейеры (≤3 попыток) */
-  @Cron('*/10 * * * *')
-  async handleVariantRetry(): Promise<void> {
-    const ran = await this.redis.withLock('cron:files-variant-retry', 9 * 60 * 1000, () =>
-      this.pipeline.retryPending(),
-    );
-    if (ran !== null && ran > 0) this.logger.log(`Перезапущено конвейеров: ${ran}`);
-  }
-
-  /** Каждые 5 минут: перескан зависших в pending (потерянный enqueue / clamd был недоступен) */
-  @Cron('3-59/5 * * * *')
-  async handleScanRetry(): Promise<void> {
-    if (!this.scanHook.enabled) return;
-    await this.redis.withLock('cron:files-scan-retry', 4 * 60 * 1000, async () => {
-      // Только 'pending' (скан начался, но clamd был недоступен / enqueue потерян).
-      // Файлы 'none' — залиты ДО включения ClamAV, их не ретраим (бэкфилл — отдельно).
-      const cutoff = new Date(Date.now() - 10 * 60 * 1000);
-      const rows = await this.db.fileObject.findMany({
-        where: { status: 'ready', scanStatus: 'pending', updatedAt: { lt: cutoff } },
-        select: { id: true },
-        take: 50,
-      });
-      for (const r of rows) this.scanHook.enqueue(r.id);
-      if (rows.length) this.logger.log(`Повторный скан: ${rows.length} файлов`);
-    });
   }
 }

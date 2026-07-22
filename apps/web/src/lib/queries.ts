@@ -37,6 +37,7 @@ import type {
   ProcessCredentialDto,
   OfficeHistoryPageDto,
   OfficeRoomDto,
+  ChatterPageDto,
   Task,
   TaskFilter,
   TaskStats,
@@ -270,6 +271,29 @@ export async function fetchFinanceTransactions(
 ): Promise<{ items: FinTransactionDto[]; nextCursor: string | null }> {
   const res = await api.get('/finance/transactions', { params });
   return { items: res.data.data, nextCursor: res.data.nextCursor ?? null };
+}
+
+// Хроника (core/chatter): журнал организации + хроника одной записи
+export const workspaceJournalKey = (wsId: string, category?: string | null) =>
+  ['workspaces', wsId, 'journal', category ?? 'all'] as const;
+export const chronicleKey = (refType: string, refId: string) =>
+  ['chatter', refType, refId] as const;
+
+export async function fetchWorkspaceJournal(
+  wsId: string,
+  params: { cursor?: string; category?: string },
+): Promise<ChatterPageDto> {
+  const res = await api.get(`/workspaces/${wsId}/journal`, { params });
+  return res.data.data;
+}
+
+export async function fetchChronicle(
+  refType: string,
+  refId: string,
+  params: { cursor?: string } = {},
+): Promise<ChatterPageDto> {
+  const res = await api.get(`/chatter/${refType}/${refId}`, { params });
+  return res.data.data;
 }
 
 export const financeSharedBooksKey = ['finance', 'shared-with-me'] as const;

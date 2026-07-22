@@ -1,4 +1,33 @@
 /**
+ * Часовой пояс продукта (рынок — Казахстан; совпадает с дефолтом users.timezone).
+ * Используется там, где строку даты нужно ЗАФИКСИРОВАТЬ детерминированно (не по
+ * TZ окружения сервера) — например, «было → стало» срока в вечных записях хроники.
+ */
+export const APP_TIMEZONE = 'Asia/Almaty';
+
+/**
+ * Дедлайн задачи в строку для хроники/плашек — ДЕТЕРМИНИРОВАННО в APP_TIMEZONE
+ * (иначе прод-сервер в UTC зафиксировал бы дату на день раньше для пользователей
+ * UTC+5..+6). Для задач «на весь день» — только дата; иначе дата + время (чтобы
+ * перенос времени в пределах одного дня тоже давал запись «было → стало»).
+ */
+export function formatTaskDeadline(date: Date, allDay: boolean): string {
+  const datePart = new Intl.DateTimeFormat('ru-RU', {
+    timeZone: APP_TIMEZONE,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(date);
+  if (allDay) return datePart;
+  const timePart = new Intl.DateTimeFormat('ru-RU', {
+    timeZone: APP_TIMEZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+  return `${datePart} ${timePart}`;
+}
+
+/**
  * Get relative time string in Russian
  */
 export function getRelativeTime(date: string | Date): string {

@@ -10,6 +10,7 @@ import { ModuleRef } from '@nestjs/core';
 import { DatabaseService } from '../../shared/database/database.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { EscrowService } from '../wallet/escrow.service';
 import { AccessService } from '../../core/access/access.service';
 import { AccessProjectionService } from '../../core/access/access-projection.service';
@@ -18,10 +19,13 @@ import { MessengerService } from '../messenger/messenger.service';
 import { QuickActionRegistry } from '../../core/quick-actions/quick-actions.registry';
 import { FilesService } from '../../core/files/files.service';
 import { FilesRefRegistry } from '../../core/files/files-ref.registry';
+import { ChatterService, ChatterLogInput, ChatterTrackSpec } from '../../core/chatter/chatter.service';
+import { ChatterRefRegistry } from '../../core/chatter/chatter-ref.registry';
 import { WorkspaceContextService } from '../../shared/context/workspace-context.service';
 import { DI_TOKENS } from '../../shared/di-tokens';
 import { fullName } from '../../shared/utils/user-name';
 import { Prisma } from '@prisma/client';
+import { TASK_PRIORITY_META, TASK_ROLE_LABELS, formatTaskDeadline } from '@superapp/shared';
 import type {
   Task as TaskDto,
   TaskParticipant as TaskParticipantDto,
@@ -55,6 +59,41 @@ type UserMini = { id: string; firstName: string; lastName: string | null; avatar
 // (high < low < medium < urgent), which put high-priority tasks BELOW low-priority ones.
 const PRIORITY_RANK: Record<string, number> = { low: 1, medium: 2, high: 3, urgent: 4 };
 
+// TASK_ROLE_LABELS — из @superapp/shared (единый источник подписей ролей; локальная
+// копия разъезжалась бы с карточкой задачи и мессенджером при правке в shared).
+
+const truncate = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
+
+// Отслеживаемые поля хроники (core/chatter): каждое изменённое поле = своя запись
+// «было → стало». Сравнение — по display-строкам (см. ChatterService.diffTracked).
+type TaskTrackRow = { title: string; priority: string; dueDate: Date | null; allDay: boolean; coinReward: number };
+const TASK_TRACK_SPEC: ChatterTrackSpec<TaskTrackRow> = {
+  dueDate: {
+    typeKey: 'task.deadline_changed',
+    label: 'Срок',
+    // Формат ДЕТЕРМИНИРОВАН в APP_TIMEZONE (не в TZ окружения сервера) и включает
+    // время у не-allDay — иначе прод-UTC зафиксировал бы день раньше и не заметил
+    // перенос времени в пределах суток (строка «было → стало» пишется навсегда).
+    format: (r) => (r.dueDate ? formatTaskDeadline(r.dueDate, r.allDay) : 'без срока'),
+  },
+  priority: {
+    typeKey: 'task.priority_changed',
+    label: 'Приоритет',
+    format: (r) =>
+      (TASK_PRIORITY_META as Record<string, { label: string }>)[r.priority]?.label ?? r.priority,
+  },
+  coinReward: {
+    typeKey: 'task.reward_changed',
+    label: 'Награда',
+    format: (r) => `${r.coinReward} 🪙`,
+  },
+  title: {
+    typeKey: 'task.title_changed',
+    label: 'Название',
+    format: (r) => truncate(r.title, 80),
+  },
+};
+
 
 @Injectable()
 export class TasksService implements OnModuleInit {
@@ -63,6 +102,7 @@ export class TasksService implements OnModuleInit {
   constructor(
     private db: DatabaseService,
     private events: EventBusService,
+    private notifications: NotificationsService,
     private escrow: EscrowService,
     private access: AccessService,
     private accessProjection: AccessProjectionService,
@@ -72,6 +112,8 @@ export class TasksService implements OnModuleInit {
     private contacts: ContactsService,
     private files: FilesService,
     private filesRegistry: FilesRefRegistry,
+    private chatter: ChatterService,
+    private chatterRegistry: ChatterRefRegistry,
     private workspaceContext: WorkspaceContextService,
   ) {}
 
@@ -107,6 +149,20 @@ export class TasksService implements OnModuleInit {
         return this.isCreatorOrParticipant(task, userId);
       },
     }, { allowedProfiles: ['chat_attachment', 'document', 'voice_message', 'generic'] });
+
+    // Хроника задачи (core/chatter): «видишь задачу → видишь её хронику»
+    // (тот же предикат, что у вложений).
+    this.chatterRegistry.register('task', {
+      canView: async (viewerId, taskId) => {
+        const task = await this.db.task.findUnique({
+          where: { id: taskId },
+          select: { creatorId: true, participants: { select: { userId: true } } },
+        });
+        if (!task) return false;
+        if (await this.access.can(this.user(viewerId), 'task.view', taskId)) return true;
+        return this.isCreatorOrParticipant(task, viewerId);
+      },
+    });
   }
 
   /** Постановщик или любой участник задачи (единый предикат вложений/чата) */
@@ -115,6 +171,39 @@ export class TasksService implements OnModuleInit {
     userId: string,
   ): boolean {
     return task.creatorId === userId || task.participants.some((p) => p.userId === userId);
+  }
+
+  /**
+   * Отмена задачи-исполнения магазином ВНУТРИ его транзакции (возврат заказа «в работе»):
+   * статус → cancelled + запись хроники task.cancelled (иначе прямой updateMany в shop
+   * проходил мимо хроники). Права проверил вызывающий (владелец заказа); плашку проецирует
+   * джоб core/jobs, поставленный хроникой в этой же транзакции. Идемпотентно: терминальную
+   * задачу не трогает.
+   */
+  async cancelFulfilmentTaskTrusted(
+    tx: Prisma.TransactionClient,
+    taskId: string,
+    actorId: string,
+  ): Promise<void> {
+    const task = await tx.task.findUnique({
+      where: { id: taskId },
+      select: { title: true, workspaceId: true, status: true },
+    });
+    if (!task || task.status === 'done' || task.status === 'cancelled') return;
+    const claimed = await tx.task.updateMany({
+      where: { id: taskId, status: task.status },
+      data: { status: 'cancelled' },
+    });
+    if (claimed.count === 0) return;
+    await this.chatter.log(tx, {
+      refType: 'task',
+      refId: taskId,
+      workspaceId: task.workspaceId,
+      actorId,
+      actorName: fullName(await this.userMini(actorId)),
+      typeKey: 'task.cancelled',
+      payload: { taskTitle: task.title },
+    });
   }
 
   // ============================================================
@@ -295,6 +384,36 @@ export class TasksService implements OnModuleInit {
       if (attachmentFileIds.length) {
         await this.files.linkManyInTx(tx, userId, attachmentFileIds, 'task', created.id);
       }
+
+      // Хроника (core/chatter, в этой же транзакции): создание + назначение.
+      // Плашка «назначил(а)» — только при реальных получателях (как сегодняшний emit).
+      const creatorName = fullName(created.creator);
+      const chatterEntries: ChatterLogInput[] = [
+        {
+          refType: 'task',
+          refId: created.id,
+          workspaceId: created.workspaceId,
+          actorId: userId,
+          actorName: creatorName,
+          typeKey: 'task.created',
+          payload: { taskTitle: created.title },
+        },
+      ];
+      if (participantsCreate.length > 0) {
+        const hasRecipients = participantsCreate.some((p) => p.userId !== userId);
+        chatterEntries.push({
+          refType: 'task',
+          refId: created.id,
+          workspaceId: created.workspaceId,
+          actorId: userId,
+          actorName: creatorName,
+          typeKey: 'task.assigned',
+          payload: { taskTitle: created.title },
+          chatPost: hasRecipients,
+        });
+      }
+      await this.chatter.logMany(tx, chatterEntries);
+
       return created;
     });
 
@@ -314,7 +433,7 @@ export class TasksService implements OnModuleInit {
     // Notify everyone who was put on the task (not the creator).
     const recipientIds = participantsCreate.map((p) => p.userId).filter((id) => id !== userId);
     if (recipientIds.length > 0) {
-      this.events.emit(
+      this.notifications.emitEvent(
         'task.assigned',
         { taskId: task.id, taskTitle: task.title, byUserId: userId, byName: fullName(task.creator), recipientIds },
         'tasks',
@@ -699,6 +818,117 @@ export class TasksService implements OnModuleInit {
       }
     }
 
+    // ---- Хроника (core/chatter): диффы «было → стало» + смены состава.
+    // Считаются ДО транзакции (нужны старые значения и имена), пишутся В ней.
+    const actorName = fullName(await this.userMini(userId));
+    const afterRow: TaskTrackRow = {
+      title: data.title ?? existing.title,
+      priority: data.priority ?? existing.priority,
+      dueDate:
+        data.dueDate !== undefined
+          ? data.dueDate
+            ? new Date(data.dueDate)
+            : null
+          : existing.dueDate,
+      allDay: data.allDay ?? existing.allDay,
+      coinReward: data.coinReward ?? existing.coinReward,
+    };
+    const entryBase = {
+      refType: 'task' as const,
+      refId: taskId,
+      workspaceId: existing.workspaceId,
+      actorId: userId,
+      actorName,
+    };
+    const chatterEntries: ChatterLogInput[] = this.chatter
+      .diffTracked(TASK_TRACK_SPEC, existing, afterRow)
+      .map((d) => ({
+        ...entryBase,
+        typeKey: d.typeKey,
+        changes: [d.change],
+        payload: { taskTitle: afterRow.title },
+      }));
+    if (data.description !== undefined && (data.description ?? '') !== (existing.description ?? '')) {
+      chatterEntries.push({
+        ...entryBase,
+        typeKey: 'task.description_changed',
+        payload: { taskTitle: afterRow.title },
+      });
+    }
+    if (patch.status === 'cancelled' && existing.status !== 'cancelled') {
+      chatterEntries.push({
+        ...entryBase,
+        typeKey: 'task.cancelled',
+        payload: { taskTitle: afterRow.title },
+      });
+    }
+    if (isCreator && roleEdit) {
+      const oldExec = existing.participants.find((p) => p.role === 'executor');
+      const participantIds = new Set(existing.participants.map((p) => p.userId));
+      // Реально снимаемые участники; замена исполнителя логируется своей парой ниже.
+      const removedForLog = (data.removeParticipantUserIds ?? []).filter(
+        (uid) => participantIds.has(uid) && !(data.executorId !== undefined && uid === oldExec?.userId),
+      );
+      const nameIds = new Set<string>([
+        ...removedForLog,
+        ...(data.addCoExecutorIds ?? []),
+        ...(data.addObserverIds ?? []),
+      ]);
+      if (data.executorId !== undefined && oldExec) nameIds.add(oldExec.userId);
+      if (data.executorId) nameIds.add(data.executorId);
+      const names = new Map(
+        (
+          await this.db.user.findMany({
+            where: { id: { in: [...nameIds] } },
+            select: { id: true, firstName: true, lastName: true },
+          })
+        ).map((u) => [u.id, fullName(u)]),
+      );
+      const target = (uid: string) => ({ targetUserId: uid, targetName: names.get(uid) ?? 'Пользователь' });
+
+      for (const uid of removedForLog) {
+        chatterEntries.push({
+          ...entryBase,
+          typeKey: 'task.participant_removed',
+          payload: { taskTitle: afterRow.title, ...target(uid) },
+        });
+      }
+      if (data.executorId !== undefined) {
+        if (oldExec && oldExec.userId !== data.executorId) {
+          chatterEntries.push({
+            ...entryBase,
+            typeKey: 'task.participant_removed',
+            payload: { taskTitle: afterRow.title, ...target(oldExec.userId) },
+          });
+        }
+        if (data.executorId && data.executorId !== oldExec?.userId) {
+          chatterEntries.push({
+            ...entryBase,
+            typeKey: 'task.assigned',
+            payload: { taskTitle: afterRow.title, ...target(data.executorId) },
+          });
+        }
+      }
+      // Только РЕАЛЬНО новые участники: applyRoleEdits — идемпотентный upsert, поэтому
+      // повторное добавление уже существующего = no-op, а плашка «добавил(а)» была бы
+      // ложью. Уже-назначенный исполнитель (task.assigned выше) тоже не дублируется.
+      const isNewMember = (uid: string) => !participantIds.has(uid) && uid !== data.executorId;
+      for (const uid of (data.addCoExecutorIds ?? []).filter(isNewMember)) {
+        chatterEntries.push({
+          ...entryBase,
+          typeKey: 'task.participant_added',
+          payload: { taskTitle: afterRow.title, ...target(uid), roleLabel: TASK_ROLE_LABELS.co_executor },
+        });
+      }
+      for (const uid of (data.addObserverIds ?? []).filter(isNewMember)) {
+        chatterEntries.push({
+          ...entryBase,
+          typeKey: 'task.participant_added',
+          payload: { taskTitle: afterRow.title, ...target(uid), roleLabel: TASK_ROLE_LABELS.observer },
+        });
+      }
+    }
+
     await this.db.$transaction(async (tx) => {
       await tx.task.update({ where: { id: taskId }, data: patch });
 
@@ -716,6 +946,8 @@ export class TasksService implements OnModuleInit {
       if (isCreator) {
         await this.applyRoleEdits(tx, taskId, existing, data);
       }
+
+      await this.chatter.logMany(tx, chatterEntries);
     });
 
     // Phase 3: re-sync role tuples if the team changed (best-effort).
@@ -834,10 +1066,23 @@ export class TasksService implements OnModuleInit {
         where: { id: taskId },
         data: { status: 'done', completedAt: new Date() },
       });
-      this.events.emit('task.completed', { taskId, taskTitle: task.title, recipientIds: [userId] }, 'tasks');
+      await this.chatter.log(null, {
+        refType: 'task',
+        refId: taskId,
+        workspaceId: task.workspaceId,
+        actorId: userId,
+        actorName: fullName(task.creator),
+        typeKey: 'task.completed',
+        payload: { taskTitle: task.title },
+      });
+      this.notifications.emitEvent('task.completed', { taskId, taskTitle: task.title, recipientIds: [userId] }, 'tasks');
       await this.settleLinkedOrder(taskId);
       await this.settleLinkedProcess(taskId);
-      await this.maybeSpawnRecurrence(task);
+      try {
+        await this.maybeSpawnRecurrence(task);
+      } catch (err) {
+        this.logger.warn(`spawn recurrence failed (${taskId}): ${(err as Error)?.message}`);
+      }
       return this.getTask(userId, taskId);
     }
 
@@ -855,9 +1100,19 @@ export class TasksService implements OnModuleInit {
         where: { id: me.id },
         data: { status: 'submitted', submittedAt: new Date(), returnedAt: null },
       });
-      this.events.emit(
+      const byName = fullName(await this.userMini(userId));
+      await this.chatter.log(null, {
+        refType: 'task',
+        refId: taskId,
+        workspaceId: task.workspaceId,
+        actorId: userId,
+        actorName: byName,
+        typeKey: 'task.submitted',
+        payload: { taskTitle: task.title },
+      });
+      this.notifications.emitEvent(
         'task.submitted',
-        { taskId, taskTitle: task.title, byUserId: userId, byName: fullName(await this.userMini(userId)), recipientIds: [task.creatorId] },
+        { taskId, taskTitle: task.title, byUserId: userId, byName, recipientIds: [task.creatorId] },
         'tasks',
       );
     }
@@ -869,6 +1124,10 @@ export class TasksService implements OnModuleInit {
   /** Постановщик accepts a participant's submitted work. */
   async acceptWork(userId: string, taskId: string, participantUserId?: string): Promise<TaskDto> {
     const { task, target } = await this.loadForReview(userId, taskId, participantUserId);
+    const [actorName, targetName] = await Promise.all([
+      this.userMini(userId).then(fullName),
+      this.userMini(target.userId).then(fullName),
+    ]);
     let captured: { currencyName: string; amount: number } | null = null;
     await this.db.$transaction(async (tx) => {
       // Status-guarded claim: a concurrent double «Принять» loses here instead of double-capturing
@@ -880,14 +1139,23 @@ export class TasksService implements OnModuleInit {
       if (claimed.count === 0) throw new BadRequestException('Работа уже принята');
       const legs = await this.escrow.capture(tx, { refType: 'task', refId: taskId, beneficiaryUserId: target.userId }); // pay out the frozen reward
       captured = legs[0] ?? null;
+      await this.chatter.log(tx, {
+        refType: 'task',
+        refId: taskId,
+        workspaceId: task.workspaceId,
+        actorId: userId,
+        actorName,
+        typeKey: 'task.accepted',
+        payload: { taskTitle: task.title, targetUserId: target.userId, targetName },
+      });
     });
-    this.events.emit(
+    this.notifications.emitEvent(
       'task.accepted',
       { taskId, taskTitle: task.title, recipientIds: [target.userId] },
       'tasks',
     );
     if (captured) {
-      this.events.emit(
+      this.notifications.emitEvent(
         'wallet.coins.received',
         {
           recipientIds: [target.userId],
@@ -906,14 +1174,27 @@ export class TasksService implements OnModuleInit {
   /** Постановщик returns a participant's work for rework. */
   async returnWork(userId: string, taskId: string, participantUserId?: string): Promise<TaskDto> {
     const { task, target } = await this.loadForReview(userId, taskId, participantUserId);
+    const [actorName, targetName] = await Promise.all([
+      this.userMini(userId).then(fullName),
+      this.userMini(target.userId).then(fullName),
+    ]);
     await this.db.$transaction(async (tx) => {
       await tx.taskParticipant.update({
         where: { id: target.id },
         data: { status: 'returned', returnedAt: new Date(), submittedAt: null },
       });
       await this.escrow.returnToHold(tx, { refType: 'task', refId: taskId, beneficiaryUserId: target.userId }); // reverse payout + re-freeze if already paid
+      await this.chatter.log(tx, {
+        refType: 'task',
+        refId: taskId,
+        workspaceId: task.workspaceId,
+        actorId: userId,
+        actorName,
+        typeKey: 'task.returned',
+        payload: { taskTitle: task.title, targetUserId: target.userId, targetName },
+      });
     });
-    this.events.emit(
+    this.notifications.emitEvent(
       'task.returned',
       { taskId, taskTitle: task.title, recipientIds: [target.userId] },
       'tasks',
@@ -981,14 +1262,28 @@ export class TasksService implements OnModuleInit {
       const recipients = full
         ? [full.creatorId, ...full.participants.map((p) => p.userId)]
         : [task.creatorId];
-      this.events.emit(
+      // Хроника: завершение — производное состояние (последняя приёмка) → актор = система.
+      await this.chatter.log(null, {
+        refType: 'task',
+        refId: taskId,
+        workspaceId: task.workspaceId,
+        typeKey: 'task.completed',
+        payload: { taskTitle: task.title },
+      });
+      this.notifications.emitEvent(
         'task.completed',
         { taskId, taskTitle: task.title, recipientIds: [...new Set(recipients)] },
         'tasks',
       );
       await this.settleLinkedOrder(taskId);
       await this.settleLinkedProcess(taskId);
-      if (full) await this.maybeSpawnRecurrence(full);
+      if (full) {
+        try {
+          await this.maybeSpawnRecurrence(full);
+        } catch (err) {
+          this.logger.warn(`spawn recurrence failed (${taskId}): ${(err as Error)?.message}`);
+        }
+      }
     }
   }
 
@@ -1041,6 +1336,11 @@ export class TasksService implements OnModuleInit {
     if (task.status === 'done' || task.status === 'cancelled') {
       throw new BadRequestException('Задача уже завершена');
     }
+    const oldExecPre = task.participants.find((p) => p.role === 'executor');
+    const oldExecName =
+      oldExecPre && oldExecPre.userId !== newExecutorId
+        ? fullName(await this.userMini(oldExecPre.userId))
+        : null;
     await this.db.$transaction(async (tx) => {
       const oldExec = task.participants.find((p) => p.role === 'executor');
       if (oldExec) {
@@ -1056,10 +1356,33 @@ export class TasksService implements OnModuleInit {
       if (task.coinReward > 0) {
         await this.freezeReward(tx, taskId, task.creatorId, [newExecutorId], task.coinReward);
       }
+      // Хроника: переназначение движком процессов — актор = система (плашка «Кто-то
+      // назначил(а) задачу» = сегодняшний byName:''). Снятие старого — без плашки.
+      await this.chatter.logMany(tx, [
+        ...(oldExec && oldExecName
+          ? [
+              {
+                refType: 'task',
+                refId: taskId,
+                workspaceId: task.workspaceId,
+                typeKey: 'task.participant_removed',
+                payload: { taskTitle: task.title, targetUserId: oldExec.userId, targetName: oldExecName },
+                chatPost: false,
+              } satisfies ChatterLogInput,
+            ]
+          : []),
+        {
+          refType: 'task',
+          refId: taskId,
+          workspaceId: task.workspaceId,
+          typeKey: 'task.assigned',
+          payload: { taskTitle: task.title },
+        },
+      ]);
     });
     await this.accessProjection.resyncTaskRoles(taskId);
     await this.messenger.syncTaskChatMembers(taskId);
-    this.events.emit(
+    this.notifications.emitEvent(
       'task.assigned',
       { taskId, taskTitle: task.title, byUserId: task.creatorId, byName: '', recipientIds: [newExecutorId] },
       'tasks',
@@ -1210,7 +1533,7 @@ export class TasksService implements OnModuleInit {
       take: 500,
     });
     for (const t of due) {
-      this.events.emit(
+      this.notifications.emitEvent(
         'task.due_soon',
         { taskId: t.id, taskTitle: t.title, recipientIds: this.taskAudience(t) },
         'tasks',
@@ -1233,7 +1556,7 @@ export class TasksService implements OnModuleInit {
       take: 500,
     });
     for (const t of overdue) {
-      this.events.emit(
+      this.notifications.emitEvent(
         'task.overdue',
         { taskId: t.id, taskTitle: t.title, recipientIds: this.taskAudience(t) },
         'tasks',

@@ -298,6 +298,10 @@ export class FilesService implements OnModuleInit {
         create: { ownerType: row.ownerType, ownerId: row.ownerId, bytesUsed: finalSize, filesCount: 1 },
         update: { bytesUsed: { increment: finalSize }, filesCount: { increment: 1 } },
       });
+      // Джобы фоновой обработки — в ТОЙ ЖЕ транзакции (transactional outbox): коммит
+      // ready = джоб есть, откат (проигранная гонка на клейме) не оставляет джоба-сироту.
+      if (needsPipeline) await this.pipeline.enqueue(tx, fileId);
+      await this.scanHook.enqueue(tx, fileId);
       return true;
     });
     if (!claimed) throw new ConflictException('Файл уже завершён');
@@ -306,12 +310,6 @@ export class FilesService implements OnModuleInit {
     const payload = this.eventPayload(fresh.row);
     this.events.emit('file.uploaded', payload, 'files');
     this.events.emit('file.ready', payload, 'files');
-    this.scanHook.enqueue(fileId);
-    if (needsPipeline) {
-      this.pipeline.process(fileId).catch((err) =>
-        this.logger.warn(`pipeline kickoff ${fileId}: ${err instanceof Error ? err.message : err}`),
-      );
-    }
     return this.serializeFile(fresh.row, fresh.variants);
   }
 
@@ -413,18 +411,15 @@ export class FilesService implements OnModuleInit {
           create: { ownerType: 'user', ownerId: opts.ownerUserId, bytesUsed: BigInt(stat.size), filesCount: 1 },
           update: { bytesUsed: { increment: BigInt(stat.size) }, filesCount: { increment: 1 } },
         });
+        // Джобы обработки/скана — в транзакции создания файла (transactional outbox).
+        if (needsPipeline) await this.pipeline.enqueue(tx, id);
+        await this.scanHook.enqueue(tx, id);
         return created;
       });
 
       const payload = this.eventPayload(row);
       this.events.emit('file.uploaded', payload, 'files');
       this.events.emit('file.ready', payload, 'files');
-      this.scanHook.enqueue(id);
-      if (needsPipeline) {
-        this.pipeline.process(id).catch((err) =>
-          this.logger.warn(`pipeline kickoff ${id}: ${err instanceof Error ? err.message : err}`),
-        );
-      }
       return this.serializeFile(row, []);
     } catch (err) {
       // Байты уже в сторе, а строка не встала — прибираем, чтобы не копить сирот

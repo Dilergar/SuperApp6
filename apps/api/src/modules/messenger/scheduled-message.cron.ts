@@ -1,13 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 import { RedisService } from '../../shared/redis/redis.service';
 import { ScheduledMessageService } from './scheduled-message.service';
 import { MentionsService } from './mentions.service';
 
 /**
- * Fires due scheduled messages ("Напомнить") every minute. Single instance via Redis lock
- * (like the other crons). The work + per-row error handling lives in the service.
- * Плюс ночная гигиена мессенджера: закрытые отложенные строки и старые упоминания.
+ * Ночная гигиена мессенджера: закрытые отложенные строки и старые упоминания.
+ * Выстрел отложенных сообщений — больше НЕ здесь: джоб core/jobs с runAt=sendAt
+ * (ставится в транзакции планирования, поминутный поллер fireDue умер).
  */
 @Injectable()
 export class ScheduledMessageCron {
@@ -18,14 +18,6 @@ export class ScheduledMessageCron {
     private readonly scheduled: ScheduledMessageService,
     private readonly mentions: MentionsService,
   ) {}
-
-  @Cron(CronExpression.EVERY_MINUTE)
-  async tick(): Promise<void> {
-    await this.redis.withLock('cron:scheduled-messages', 60 * 1000, async () => {
-      const fired = await this.scheduled.fireDue();
-      if (fired > 0) this.logger.log(`fired ${fired} scheduled message(s)`);
-    });
-  }
 
   @Cron('35 3 * * *')
   async nightlyCleanup(): Promise<void> {

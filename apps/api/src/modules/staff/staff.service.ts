@@ -8,7 +8,10 @@ import {
 import { DatabaseService } from '../../shared/database/database.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { AccessProjectionService } from '../../core/access/access-projection.service';
+import { ChatterService } from '../../core/chatter/chatter.service';
+import { fullName } from '../../shared/utils/user-name';
 import {
   STAFF_LIMITS,
   WORKSPACE_ROLE_RANK,
@@ -53,8 +56,19 @@ export class StaffService {
     private db: DatabaseService,
     private roles: RolesService,
     private events: EventBusService,
+    private notifications: NotificationsService,
     private accessProjection: AccessProjectionService,
+    private chatter: ChatterService,
   ) {}
+
+  /** Имя пользователя для снапшотов хроники (удалённый/неизвестный → «Пользователь»). */
+  private async chatterUserName(userId: string, tx?: Prisma.TransactionClient): Promise<string> {
+    const u = await (tx ?? this.db).user.findUnique({
+      where: { id: userId },
+      select: { firstName: true, lastName: true },
+    });
+    return fullName(u);
+  }
 
   // ============================================================
   // Справочники (одним ответом — для вкладок и форм)
@@ -438,11 +452,28 @@ export class StaffService {
 
     await this.accessProjection.resyncWorkspaceStaff(workspaceId);
 
+    await this.chatter.log(null, {
+      refType: 'workspace',
+      refId: workspaceId,
+      workspaceId,
+      actorId: actorId,
+      actorName: await this.chatterUserName(actorId),
+      typeKey: 'staff.position_assigned',
+      payload: {
+        targetUserId,
+        targetName: await this.chatterUserName(targetUserId),
+        positionName: position.name,
+        // Сырой branchName — суффикс «· филиал «…»» строит renderChatterText (презентация
+        // не запекается в вечную запись; формат меняется без миграции данных).
+        branchName: created.branch?.name ?? null,
+      },
+    });
+
     const ws = await this.db.workspace.findUnique({
       where: { id: workspaceId },
       select: { name: true },
     });
-    this.events.emit(
+    this.notifications.emitEvent(
       'workspace.position.assigned',
       {
         workspaceId,
@@ -499,13 +530,52 @@ export class StaffService {
 
     await this.accessProjection.resyncWorkspaceStaff(workspaceId);
 
+    // Хроника: перевод между филиалами / аттестация.
+    const targetName = await this.chatterUserName(current.userId);
+    if (data.branchId !== undefined && data.branchId !== current.branchId) {
+      await this.chatter.log(null, {
+        refType: 'workspace',
+        refId: workspaceId,
+        workspaceId,
+        actorId,
+        actorName: await this.chatterUserName(actorId),
+        typeKey: 'staff.position_updated',
+        changes: [
+          {
+            field: 'branch',
+            label: 'Филиал',
+            from: current.branch?.name ?? 'без филиала',
+            to: updated.branch?.name ?? 'без филиала',
+          },
+        ],
+        payload: {
+          targetUserId: current.userId,
+          targetName,
+          positionName: current.position.name,
+        },
+      });
+    }
+
     // Аттестация (training → certified) — пока вручную; Додзё будет дергать тот же путь.
     if (data.status === 'certified' && current.status === 'training') {
+      await this.chatter.log(null, {
+        refType: 'workspace',
+        refId: workspaceId,
+        workspaceId,
+        actorId,
+        actorName: await this.chatterUserName(actorId),
+        typeKey: 'staff.position_certified',
+        payload: {
+          targetUserId: updated.userId,
+          targetName,
+          positionName: updated.position.name,
+        },
+      });
       const ws = await this.db.workspace.findUnique({
         where: { id: workspaceId },
         select: { name: true },
       });
-      this.events.emit(
+      this.notifications.emitEvent(
         'workspace.position.certified',
         {
           workspaceId,
@@ -524,21 +594,65 @@ export class StaffService {
     await this.assertStaffManage(actorId, workspaceId);
     const current = await this.db.staffAssignment.findUnique({
       where: { id: assignmentId },
-      select: { id: true, workspaceId: true },
+      select: {
+        id: true,
+        workspaceId: true,
+        userId: true,
+        position: { select: { name: true } },
+      },
     });
     if (!current || current.workspaceId !== workspaceId) {
       throw new NotFoundException('Назначение не найдено');
     }
     await this.db.staffAssignment.delete({ where: { id: assignmentId } });
     await this.accessProjection.resyncWorkspaceStaff(workspaceId);
+
+    await this.chatter.log(null, {
+      refType: 'workspace',
+      refId: workspaceId,
+      workspaceId,
+      actorId,
+      actorName: await this.chatterUserName(actorId),
+      typeKey: 'staff.position_removed',
+      payload: {
+        targetUserId: current.userId,
+        targetName: await this.chatterUserName(current.userId),
+        positionName: current.position.name,
+      },
+    });
   }
 
   /** Каскад при увольнении/выходе — вызывается WorkspacesService (без проверки прав). */
-  async removeAllAssignmentsForUser(workspaceId: string, userId: string) {
+  async removeAllAssignmentsForUser(workspaceId: string, userId: string, actorId: string) {
+    // Снимок должностей ДО удаления — чтобы «Журнал» получил staff.position_removed
+    // по каждой (ручное снятие пишет ту же запись; на увольнении она терялась —
+    // HR-аудит был неполон именно на ключевом для комплаенса событии).
+    const assignments = await this.db.staffAssignment.findMany({
+      where: { workspaceId, userId },
+      select: { position: { select: { name: true } } },
+    });
     const { count } = await this.db.staffAssignment.deleteMany({
       where: { workspaceId, userId },
     });
-    if (count > 0) await this.accessProjection.resyncWorkspaceStaff(workspaceId);
+    if (count === 0) return;
+    await this.accessProjection.resyncWorkspaceStaff(workspaceId);
+
+    const [actorName, targetName] = await Promise.all([
+      this.chatterUserName(actorId),
+      this.chatterUserName(userId),
+    ]);
+    await this.chatter.logMany(
+      null,
+      assignments.map((a) => ({
+        refType: 'workspace',
+        refId: workspaceId,
+        workspaceId,
+        actorId,
+        actorName,
+        typeKey: 'staff.position_removed',
+        payload: { targetUserId: userId, targetName, positionName: a.position.name },
+      })),
+    );
   }
 
   /**
@@ -573,15 +687,17 @@ export class StaffService {
     // Справочники могли исчезнуть между отправкой приглашения и принятием — мягко скипаем.
     const position = await tx.staffPosition.findFirst({
       where: { id: args.positionId, workspaceId: args.workspaceId },
-      select: { id: true },
+      select: { id: true, name: true },
     });
     if (!position) return false;
+    let branchName: string | null = null;
     if (args.branchId) {
       const branch = await tx.staffBranch.findFirst({
         where: { id: args.branchId, workspaceId: args.workspaceId },
-        select: { id: true },
+        select: { id: true, name: true },
       });
       if (!branch) args.branchId = null;
+      else branchName = branch.name;
     }
     const dup = await tx.staffAssignment.findFirst({
       where: {
@@ -601,6 +717,20 @@ export class StaffService {
         branchId: args.branchId ?? null,
         status: 'training', // найм = стажировка по должности
         assignedBy: args.assignedBy,
+      },
+    });
+    await this.chatter.log(tx, {
+      refType: 'workspace',
+      refId: args.workspaceId,
+      workspaceId: args.workspaceId,
+      actorId: args.assignedBy,
+      actorName: await this.chatterUserName(args.assignedBy, tx),
+      typeKey: 'staff.position_assigned',
+      payload: {
+        targetUserId: args.userId,
+        targetName: await this.chatterUserName(args.userId, tx),
+        positionName: position.name,
+        branchName: branchName ?? null,
       },
     });
     return true;

@@ -4,23 +4,32 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnApplicationBootstrap,
   OnModuleInit,
 } from '@nestjs/common';
 import { SCHEDULED_MESSAGE_LIMITS, type ScheduledMessageItem } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { AccessService } from '../../core/access/access.service';
+import { JobDiscardError, JobsRegistry } from '../../core/jobs/jobs.registry';
+import { JobsService } from '../../core/jobs/jobs.service';
 import { QuickActionRegistry } from '../../core/quick-actions/quick-actions.registry';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MessengerService } from './messenger.service';
 
+/** Тип джоба выстрела (core/jobs); один живой джоб на ВЕРСИЮ времени: uniqueKey `sm:<id>:<sendAtMs>`. */
+const SCHEDULED_FIRE_JOB = 'messenger.scheduled.fire';
+
 /**
- * Scheduled messages ("Напомнить", Phase 7): the author schedules a message; ScheduledCron
- * fires due ones → posts a normal message FROM the author into the chat + pings the author
- * (so their own message — which won't show as unread — still reminds them). The author can
- * view/edit/cancel while pending. Registers the 'message.schedule' quick-action on init.
+ * Scheduled messages ("Напомнить", Phase 7): the author schedules a message; a core/jobs
+ * job with runAt=sendAt fires it → posts a normal message FROM the author into the chat +
+ * pings the author. Постановка/перенос/отмена джоба — в одной транзакции с доменной
+ * строкой (outbox); ключ джоба несёт версию времени, поэтому перенос = отмена старого
+ * ключа + новый джоб, а гонка «правка в момент выстрела» решается сверкой sendAt в
+ * обработчике. Личный крон-поллер (fireDue) движку больше не нужен.
+ * Registers the 'message.schedule' quick-action on init.
  */
 @Injectable()
-export class ScheduledMessageService implements OnModuleInit {
+export class ScheduledMessageService implements OnModuleInit, OnApplicationBootstrap {
   private readonly logger = new Logger(ScheduledMessageService.name);
 
   constructor(
@@ -29,6 +38,8 @@ export class ScheduledMessageService implements OnModuleInit {
     private readonly notifications: NotificationsService,
     private readonly messenger: MessengerService,
     private readonly quickActions: QuickActionRegistry,
+    private readonly jobs: JobsService,
+    private readonly jobsRegistry: JobsRegistry,
   ) {}
 
   /** Чистка закрытых строк (sent/cancelled) старше 30 дней — история отправки живёт
@@ -49,6 +60,27 @@ export class ScheduledMessageService implements OnModuleInit {
       scopes: ['composer', 'message'],
       description: 'Отложенное сообщение в этот чат',
     });
+    // Ретраев больше, чем дефолт движка: напоминание ценнее, чем экономия попыток
+    // (старый крон ретраил бесконечно; 8 попыток с бэкоффом ≈ до ~2 часов).
+    this.jobsRegistry.register(
+      SCHEDULED_FIRE_JOB,
+      (payload) => this.handleFireJob(payload),
+      { maxAttempts: 8 },
+    );
+  }
+
+  /**
+   * Бэкфилл деплой-перехода: pending-строки без джоба (доджобовая эра) получают джоб;
+   * uniqueKey с версией времени дедупит против уже живых.
+   */
+  onApplicationBootstrap(): void {
+    void this.backfillJobs().catch((err) =>
+      this.logger.warn(`scheduled backfill failed: ${String((err as Error)?.message ?? err)}`),
+    );
+  }
+
+  private jobKey(id: string, sendAt: Date): string {
+    return `sm:${id}:${sendAt.getTime()}`;
   }
 
   private async assertChatAccess(userId: string, chatId: string): Promise<void> {
@@ -96,8 +128,18 @@ export class ScheduledMessageService implements OnModuleInit {
       throw new BadRequestException('Слишком много запланированных сообщений в этом чате');
     }
 
-    const row = await this.db.scheduledMessage.create({
-      data: { chatId, authorId: userId, content, replyToId: replyToId ?? null, sendAt, status: 'pending' },
+    // Строка + джоб выстрела в одной транзакции (outbox: откат не оставляет ни того, ни другого).
+    const row = await this.db.$transaction(async (tx) => {
+      const created = await tx.scheduledMessage.create({
+        data: { chatId, authorId: userId, content, replyToId: replyToId ?? null, sendAt, status: 'pending' },
+      });
+      await this.jobs.enqueue(tx, {
+        type: SCHEDULED_FIRE_JOB,
+        payload: { scheduledMessageId: created.id, sendAtMs: sendAt.getTime() },
+        uniqueKey: this.jobKey(created.id, sendAt),
+        runAt: sendAt,
+      });
+      return created;
     });
     return this.toItem(row);
   }
@@ -125,7 +167,24 @@ export class ScheduledMessageService implements OnModuleInit {
     if (patch.content !== undefined) data.content = patch.content;
     if (patch.sendAt !== undefined) data.sendAt = this.validateSendAt(patch.sendAt);
 
-    const updated = await this.db.scheduledMessage.update({ where: { id }, data });
+    // Перенос времени = новый ключ джоба (версия времени): старый отменяем, новый ставим —
+    // в одной транзакции с правкой строки. Если старый джоб прямо сейчас executing
+    // (правка в момент выстрела), его отмена промахнётся — обработчик сам увидит
+    // несовпадение sendAt и завершится no-op'ом. Правка только текста джоб не трогает
+    // (обработчик читает строку заново).
+    const updated = await this.db.$transaction(async (tx) => {
+      const upd = await tx.scheduledMessage.update({ where: { id }, data });
+      if (data.sendAt) {
+        await this.jobs.cancelByUniqueKey(tx, SCHEDULED_FIRE_JOB, this.jobKey(id, row.sendAt));
+        await this.jobs.enqueue(tx, {
+          type: SCHEDULED_FIRE_JOB,
+          payload: { scheduledMessageId: id, sendAtMs: data.sendAt.getTime() },
+          uniqueKey: this.jobKey(id, data.sendAt),
+          runAt: data.sendAt,
+        });
+      }
+      return upd;
+    });
     return this.toItem(updated);
   }
 
@@ -133,76 +192,84 @@ export class ScheduledMessageService implements OnModuleInit {
     const row = await this.db.scheduledMessage.findUnique({ where: { id } });
     if (!row || row.authorId !== userId) throw new NotFoundException('Запланированное сообщение не найдено');
     if (row.status !== 'pending') return;
-    await this.db.scheduledMessage.update({ where: { id }, data: { status: 'cancelled' } });
+    await this.db.$transaction(async (tx) => {
+      await tx.scheduledMessage.update({ where: { id }, data: { status: 'cancelled' } });
+      // Промах по executing не страшен: обработчик увидит status=cancelled → no-op.
+      await this.jobs.cancelByUniqueKey(tx, SCHEDULED_FIRE_JOB, this.jobKey(id, row.sendAt));
+    });
   }
 
   /**
-   * Fire all due pending messages (called by the cron under a Redis lock). Posts each as a
-   * normal message from the author + pings the author. A permanent failure (author lost chat
-   * access / chat gone) cancels the row; a transient error leaves it pending to retry.
+   * Обработчик джоба выстрела. Ретраи/бэкофф/dead-letter — у движка; здесь — доменная
+   * идемпотентность: сверка версии времени (перенос = чужой ключ → no-op), claim
+   * pending→sending. Строка в 'sending' = наш же упавший заход (джоб на версию один) —
+   * продолжаем отправку: at-least-once, дубль напоминания лучше тихой потери (прежняя
+   * семантика fireDue). Постоянная ошибка (вышел из чата / чат удалён) → строка
+   * cancelled + JobDiscardError.
    */
-  async fireDue(): Promise<number> {
-    // Recover rows stuck in 'sending' (an instance died mid-send): >10 min past due → re-deliver.
-    // At-least-once for reminders is the right trade-off (losing one silently is worse than a dupe).
-    await this.db.scheduledMessage.updateMany({
-      where: { status: 'sending', sendAt: { lte: new Date(Date.now() - 10 * 60_000) } },
-      data: { status: 'pending' },
-    });
+  private async handleFireJob(payload: Record<string, unknown>): Promise<void> {
+    const id = String(payload.scheduledMessageId ?? '');
+    const sendAtMs = Number(payload.sendAtMs ?? 0);
+    const row = await this.db.scheduledMessage.findUnique({ where: { id } });
+    if (!row || row.status === 'sent' || row.status === 'cancelled') return;
+    if (row.sendAt.getTime() !== sendAtMs) return; // время переназначили — живёт джоб новой версии
 
-    const due = await this.db.scheduledMessage.findMany({
-      where: { status: 'pending', sendAt: { lte: new Date() } },
-      orderBy: { sendAt: 'asc' },
-      take: 100,
+    const claimed = await this.db.scheduledMessage.updateMany({
+      where: { id, status: { in: ['pending', 'sending'] } },
+      data: { status: 'sending' },
     });
+    if (claimed.count === 0) return;
 
-    let fired = 0;
-    for (const sm of due) {
-      // Claim the row (pending → sending) BEFORE sending: overlapping cron runs (a stolen/expired
-      // Redis lock) then can't double-send — exactly one instance wins the updateMany.
-      const claimed = await this.db.scheduledMessage.updateMany({
-        where: { id: sm.id, status: 'pending' },
-        data: { status: 'sending' },
+    try {
+      const msg = await this.messenger.sendMessage(
+        row.authorId,
+        row.chatId,
+        row.content,
+        row.replyToId ?? undefined,
+      );
+      await this.db.scheduledMessage.update({
+        where: { id },
+        data: { status: 'sent', sentMessageId: msg.id },
       });
-      if (claimed.count === 0) continue;
       try {
-        const msg = await this.messenger.sendMessage(
-          sm.authorId,
-          sm.chatId,
-          sm.content,
-          sm.replyToId ?? undefined,
+        await this.notifications.notify(
+          row.authorId,
+          'messenger.scheduled.sent',
+          { snippet: row.content.slice(0, 140) },
+          { actionUrl: `/messenger?chat=${row.chatId}&msg=${msg.id}` },
         );
-        await this.db.scheduledMessage.update({
-          where: { id: sm.id },
-          data: { status: 'sent', sentMessageId: msg.id },
-        });
-        fired++;
-        try {
-          await this.notifications.notify(
-            sm.authorId,
-            'messenger.scheduled.sent',
-            { snippet: sm.content.slice(0, 140) },
-            { actionUrl: `/messenger?chat=${sm.chatId}&msg=${msg.id}` },
-          );
-        } catch (e) {
-          this.logger.warn(`scheduled notify failed for ${sm.id}: ${String(e)}`);
-        }
       } catch (e) {
-        if (e instanceof ForbiddenException || e instanceof NotFoundException) {
-          // Permanent (left chat / chat deleted) → cancel so it doesn't retry forever.
-          await this.db.scheduledMessage
-            .update({ where: { id: sm.id }, data: { status: 'cancelled' } })
-            .catch(() => {});
-          this.logger.warn(`scheduled ${sm.id} cancelled (no access): ${String(e)}`);
-        } else {
-          // Transient → release the claim so the next run retries.
-          await this.db.scheduledMessage
-            .updateMany({ where: { id: sm.id, status: 'sending' }, data: { status: 'pending' } })
-            .catch(() => {});
-          this.logger.warn(`scheduled ${sm.id} send failed (will retry): ${String(e)}`);
-        }
+        this.logger.warn(`scheduled notify failed for ${id}: ${String(e)}`);
       }
+    } catch (e) {
+      if (e instanceof ForbiddenException || e instanceof NotFoundException) {
+        await this.db.scheduledMessage
+          .update({ where: { id }, data: { status: 'cancelled' } })
+          .catch(() => {});
+        throw new JobDiscardError(`нет доступа/чат удалён: ${(e as Error).message}`);
+      }
+      // Transient → вернуть строку в pending и отдать ошибку движку (бэкофф-ретрай).
+      await this.db.scheduledMessage
+        .updateMany({ where: { id, status: 'sending' }, data: { status: 'pending' } })
+        .catch(() => {});
+      throw e;
     }
-    return fired;
+  }
+
+  /** Бэкфилл: pending-строки без живого джоба (см. onApplicationBootstrap). */
+  private async backfillJobs(): Promise<void> {
+    const rows = await this.db.scheduledMessage.findMany({
+      where: { status: { in: ['pending', 'sending'] } },
+      select: { id: true, sendAt: true },
+    });
+    for (const r of rows) {
+      await this.jobs.enqueue(null, {
+        type: SCHEDULED_FIRE_JOB,
+        payload: { scheduledMessageId: r.id, sendAtMs: r.sendAt.getTime() },
+        uniqueKey: this.jobKey(r.id, r.sendAt),
+        runAt: r.sendAt,
+      });
+    }
   }
 
   private toItem(r: {

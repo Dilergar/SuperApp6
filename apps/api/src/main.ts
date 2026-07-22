@@ -28,6 +28,12 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule);
 
+  // Graceful shutdown (движок джобов + хвост блока 7): без этого Nest НЕ зовёт
+  // onModuleDestroy на SIGTERM/SIGINT — docker stop убивал бы in-flight джобы без
+  // дренажа (аренды их вернули бы, но зачем терять работу), а Redis/EventBus не
+  // закрывали соединения. Дренаж воркера ограничен JOB_LIMITS.shutdownDrainMs.
+  app.enableShutdownHooks();
+
   // API versioning (arch-review block 7): /api/v1 — КАНОНИЧЕСКИЙ префикс. Установленные
   // мобильные сборки живут у людей месяцами и пиняются на v1 — будущий ломающий v2
   // сможет сосуществовать. /api (без версии) остаётся legacy-алиасом для совместимости

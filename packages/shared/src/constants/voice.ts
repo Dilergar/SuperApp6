@@ -33,12 +33,6 @@ export const VOICE_LIMITS = {
   sttTimeoutPerAudioFactor: 3,
   /** Потолок HTTP-таймаута STT, мс */
   sttTimeoutMaxMs: 30 * 60 * 1000,
-  /** Надбавка бюджета джоба сверх HTTP-таймаута STT: скачивание байтов + ffmpeg-подготовка (probe и транскод — до 10 мин каждый) */
-  sttJobOverheadMs: 25 * 60 * 1000,
-  /** Запас аренды джоба (leaseUntil) поверх бюджета — крон не переклеймит живой джоб */
-  sttLeaseMarginMs: 2 * 60 * 1000,
-  /** TTL Redis-лока джоба — больше ХУДШЕГО бюджета (overhead + sttTimeoutMaxMs + margin) */
-  sttLockTtlMs: 60 * 60 * 1000,
   /** Столбиков в волне голосового (meta.waveform) */
   waveformBuckets: 96,
   /** Волну считаем только до этой длительности (у часовых записей волна не нужна) */

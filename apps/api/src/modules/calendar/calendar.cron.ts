@@ -12,15 +12,8 @@ export class CalendarCron {
     private redis: RedisService,
   ) {}
 
-  // Dispatch due reminders — frequent, idempotent (sentAt guards re-sends).
-  @Cron('*/5 * * * *')
-  async handleReminders() {
-    const ran = await this.redis.withLock('cron:calendar-reminders', 4 * 60 * 1000, async () => {
-      const n = await this.calendar.dispatchReminders();
-      if (n > 0) this.logger.log(`Dispatched ${n} calendar reminder(s)`);
-    });
-    if (ran === null) this.logger.debug('Skipped calendar reminders — another instance holds the lock');
-  }
+  // Напоминания больше не рассылает крон: каждое — джоб core/jobs с runAt=fireAt
+  // (точность ~секунды, пропущенное не теряется). Здесь остались только горизонт и чистка.
 
   // Extend the reminder horizon for recurring events — daily at 03:15 UTC.
   @Cron('15 3 * * *')
@@ -28,6 +21,9 @@ export class CalendarCron {
     const ran = await this.redis.withLock('cron:calendar-reminder-topup', 10 * 60 * 1000, async () => {
       const n = await this.calendar.topUpReminders();
       if (n > 0) this.logger.log(`Topped up reminders for ${n} recurring event(s)`);
+      // Ремонт напоминаний без живого джоба: постановка джоба идёт отдельным стейтментом
+      // после createMany, поэтому её сбой оставил бы «немое» напоминание до перезапуска.
+      await this.calendar.repairReminderJobs();
     });
     if (ran === null) this.logger.debug('Skipped reminder top-up — another instance holds the lock');
   }

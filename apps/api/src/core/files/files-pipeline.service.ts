@@ -1,14 +1,16 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnApplicationBootstrap, OnModuleInit } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { FILE_LIMITS, FILE_PROFILES, VOICE_LIMITS, FileProfileSpec } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
-import { RedisService } from '../../shared/redis/redis.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { execFF, ffBinaries, ffprobeFormat } from '../../shared/ffmpeg/ffmpeg.util';
 import { mediaSemaphore } from '../../shared/utils/semaphore';
+import { JobsRegistry } from '../jobs/jobs.registry';
+import { JobsService } from '../jobs/jobs.service';
 import { STORAGE_DRIVER, StorageDriver } from './storage/storage-driver';
 
 /**
@@ -25,33 +27,83 @@ interface SharpInstance {
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const sharp = require('sharp') as (input?: string) => SharpInstance;
 
+/** Тип джоба медиа-конвейера в реестре core/jobs. */
+const FILES_PIPELINE_JOB = 'files.pipeline';
+
 /**
  * Медиа-конвейер движка файлов: варианты изображений (sharp: EXIF/GPS срезается по
  * умолчанию, rotate() до среза — портреты не лягут набок), постер-кадр видео (ffmpeg,
  * decode-only) и длительность аудио/видео (ffprobe). Асинхронный: файл уже ready,
- * ошибка варианта НЕ ошибка файла (meta.pipeline=failed, крон ретраит ≤3 раз).
- * Клейм — Redis-лок на файл (двойной запуск complete+крон не задвоит работу).
+ * ошибка варианта НЕ ошибка файла — джоб core/jobs (очередь 'media', cap 3) ретраит
+ * с бэкоффом; meta.pipeline='done' — терминальный ремень идемпотентности обработчика.
  */
 @Injectable()
-export class FilesPipelineService {
+export class FilesPipelineService implements OnModuleInit, OnApplicationBootstrap {
   private readonly logger = new Logger(FilesPipelineService.name);
 
   constructor(
     private readonly db: DatabaseService,
-    private readonly redis: RedisService,
     private readonly events: EventBusService,
+    private readonly jobs: JobsService,
+    private readonly jobsRegistry: JobsRegistry,
     @Inject(STORAGE_DRIVER) private readonly driver: StorageDriver,
   ) {}
 
-  /** Запуск обработки файла (fire-and-forget из complete(); повторно — из крона) */
-  async process(fileId: string): Promise<void> {
-    // Redis-лок — ПЕР-ФАЙЛОВЫЙ (не задваивает один файл); mediaSemaphore —
-    // пер-инстансный потолок конкуренции: без него 30 одновременных загрузок видео
-    // = 30 параллельных ffmpeg/sharp, душащих event-loop инстанса.
-    const ran = await this.redis.withLock(`files:pipeline:${fileId}`, 5 * 60 * 1000, () =>
-      mediaSemaphore.run(() => this.run(fileId)),
+  /**
+   * Медиа-конвейер — джоб core/jobs (очередь 'media', cap 3 замещает семафор для
+   * самих джобов; ffmpeg-постер/варианты — leaseMs 10 мин, maxAttempts 4). Обёртка
+   * mediaSemaphore внутри — общий пер-инстансный потолок тяжёлых ffmpeg/sharp
+   * (делится с подготовкой аудио core/voice). Ретраи/бэкофф/dead-letter — у движка.
+   */
+  onModuleInit(): void {
+    this.jobsRegistry.register(
+      FILES_PIPELINE_JOB,
+      (payload) => mediaSemaphore.run(() => this.run(String(payload.fileId))),
+      {
+        queue: 'media',
+        queueConcurrency: 3,
+        // Окно ретраев должно перекрывать реальный простой хранилища/ffmpeg: прежний крон
+        // добивал конвейер десятками минут, а 4 попытки по 30с — это всего ~3.5 минуты.
+        maxAttempts: 5,
+        backoffBaseMs: 60_000,
+        // Аренда с запасом: обработчик сперва ЖДЁТ mediaSemaphore (общий с core/voice и
+        // с синхронным /voice/stt), и это ожидание тоже течёт внутри аренды.
+        leaseMs: 15 * 60 * 1000,
+        onDiscard: (payload) => this.markPipelineExhausted(String(payload.fileId)),
+      },
     );
-    if (ran === null) this.logger.debug(`pipeline ${fileId}: занят другим инстансом`);
+  }
+
+  onApplicationBootstrap(): void {
+    void this.backfillPipelineJobs().catch((err) =>
+      this.logger.warn(`pipeline backfill failed: ${String((err as Error)?.message ?? err)}`),
+    );
+  }
+
+  /**
+   * Джоб конвейера окончательно похоронен (в т.ч. reaper'ом по аренде — тогда обработчик
+   * вообще не отрабатывал). Пишем ТЕРМИНАЛЬНЫЙ meta.pipeline='exhausted': иначе строка
+   * осталась бы 'pending' и бэкфилл поднимал бы безнадёжный файл на каждом старте.
+   */
+  private async markPipelineExhausted(fileId: string): Promise<void> {
+    const row = await this.db.fileObject.findUnique({ where: { id: fileId }, select: { meta: true } });
+    if (!row) return;
+    const meta = (row.meta as Record<string, unknown> | null) ?? {};
+    if (meta.pipeline === 'done') return;
+    await this.setPipeline(fileId, meta, { pipeline: 'exhausted' });
+  }
+
+  /**
+   * Поставить джоб конвейера — В ТОЙ ЖЕ транзакции, что и переход файла в ready
+   * (complete/ingest): коммит = джоб есть, откат = джоба нет (transactional outbox).
+   * uniqueKey `fp:<id>` дедупит повторную постановку среди живых джобов.
+   */
+  async enqueue(tx: Prisma.TransactionClient | null, fileId: string): Promise<void> {
+    await this.jobs.enqueue(tx, {
+      type: FILES_PIPELINE_JOB,
+      payload: { fileId },
+      uniqueKey: `fp:${fileId}`,
+    });
   }
 
   private async run(fileId: string): Promise<void> {
@@ -85,46 +137,60 @@ export class FilesPipelineService {
       }
 
       await this.setPipeline(fileId, meta, { ...patch, pipeline: 'done', pipelineError: undefined });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const retries = typeof meta.pipelineRetries === 'number' ? meta.pipelineRetries + 1 : 1;
-      this.logger.warn(`pipeline ${fileId} failed (retry ${retries}): ${message}`);
-      // Исчерпав попытки — терминальный 'exhausted', НЕ 'failed': иначе такие строки
-      // навсегда занимают окно retryPending (take:20) и новые pending не доходят.
-      await this.setPipeline(fileId, meta, {
-        pipeline: retries >= FILE_LIMITS.pipelineMaxRetries ? 'exhausted' : 'failed',
-        pipelineRetries: retries,
-        pipelineError: message.slice(0, 500),
-      });
+      // Ошибку НЕ гасим: бросаем — движок джобов ретраит с бэкоффом, исчерпание →
+      // dead-letter (meta.pipeline остаётся 'pending', backfill пропустит по discarded-джобу).
     } finally {
       if (tempSource) await fs.promises.unlink(tempSource).catch(() => undefined);
     }
   }
 
-  /** Ретрай зависших/упавших конвейеров (зовёт FilesCron). Возвращает число запусков. */
-  async retryPending(): Promise<number> {
-    const cutoff = new Date(Date.now() - 10 * 60 * 1000);
+  /**
+   * Бэкфилл доджобовых конвейеров при старте (onApplicationBootstrap): ready-файлы,
+   * застрявшие в meta.pipeline pending|failed без джоба (потерянный kickoff до
+   * перезапуска). uniqueKey дедупит; наличие ЛЮБОГО джоба (в т.ч. discarded — «уже
+   * сдались») → пропуск, чтобы не переигрывать безнадёжный конвейер на каждом старте.
+   */
+  private async backfillPipelineJobs(): Promise<void> {
     const rows = await this.db.fileObject.findMany({
       where: {
         status: 'ready',
-        readyAt: { lt: cutoff },
         OR: [
           { meta: { path: ['pipeline'], equals: 'pending' } },
           { meta: { path: ['pipeline'], equals: 'failed' } },
         ],
       },
       orderBy: { readyAt: 'asc' },
-      take: 20,
+      take: 500,
+      select: { id: true, meta: true },
     });
-    let started = 0;
-    for (const row of rows) {
-      const meta = (row.meta as Record<string, unknown> | null) ?? {};
+    // Доджобовые 'failed' с исчерпанными старыми ретраями не воскрешаем.
+    const eligible = rows.filter((r) => {
+      const meta = (r.meta as Record<string, unknown> | null) ?? {};
       const retries = typeof meta.pipelineRetries === 'number' ? meta.pipelineRetries : 0;
-      if (retries >= FILE_LIMITS.pipelineMaxRetries) continue;
-      await this.process(row.id);
-      started++;
+      return retries < FILE_LIMITS.pipelineMaxRetries;
+    });
+    if (eligible.length === 0) return;
+    const keys = eligible.map((r) => `fp:${r.id}`);
+    // ТОЛЬКО живые джобы: терминальные (discarded/completed) не должны «вечно занимать»
+    // ключ — иначе застрявший файл никогда не был бы поднят. От повторов безнадёжных
+    // файлов защищает терминальный meta.pipeline='exhausted' (см. markPipelineExhausted).
+    // Бонус: с этим предикатом запрос попадает в partial-unique jobs_unique_key_live.
+    const existing = await this.db.job.findMany({
+      where: {
+        type: FILES_PIPELINE_JOB,
+        uniqueKey: { in: keys },
+        status: { in: ['available', 'executing'] },
+      },
+      select: { uniqueKey: true },
+    });
+    const have = new Set(existing.map((j) => j.uniqueKey));
+    let enqueued = 0;
+    for (const r of eligible) {
+      if (have.has(`fp:${r.id}`)) continue;
+      await this.enqueue(null, r.id);
+      enqueued++;
     }
-    return started;
+    if (enqueued > 0) this.logger.log(`pipeline backfill: enqueued ${enqueued} job(s)`);
   }
 
   // ---------- image ----------

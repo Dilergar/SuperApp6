@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api } from '@/lib/api';
-import { WORKSPACE_ROLES, type Workspace, type WorkspaceRole } from '@superapp/shared';
+import { WORKSPACE_ROLES, WORKSPACE_ROLE_RANK, type Workspace, type WorkspaceRole } from '@superapp/shared';
 
 // Единый источник лейблов ролей — shared (Стажёр/Подрядчик уже включены).
 const ROLE_LABELS: Record<string, string> = Object.fromEntries(
@@ -40,6 +40,9 @@ export default function WorkspaceHome() {
     { title: 'Виртуальный офис', desc: 'Видеовстречи и собрания организации', href: `/workspaces/${id}/office`, color: 'var(--secondary-container)' },
     ...(ws.myRole === 'owner'
       ? [{ title: 'Кошелёк компании', desc: 'Валюта, казна, начисления', href: `/workspaces/${id}/wallet`, color: 'var(--secondary-container)' }]
+      : []),
+    ...(ws.myRole && (WORKSPACE_ROLE_RANK[ws.myRole as WorkspaceRole] ?? 0) >= WORKSPACE_ROLE_RANK.manager
+      ? [{ title: 'Журнал организации', desc: 'Хроника: найм, роли, должности, задачи', href: `/workspaces/${id}/journal`, color: 'var(--primary-container)' }]
       : []),
     { title: 'Задачи организации', desc: 'Скоро', color: 'var(--secondary-container)' },
     { title: 'Календарь организации', desc: 'Скоро', color: 'var(--tertiary-container)' },

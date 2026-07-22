@@ -1,17 +1,26 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { DatabaseService } from '../../shared/database/database.service';
+import { EventBusService } from '../../shared/events/event-bus.service';
+import { JobsService } from '../../core/jobs/jobs.service';
 import {
   NOTIFICATION_REGISTRY,
   NOTIFICATION_LIMITS,
+  interpolateTemplate,
   type NotificationType,
 } from '@superapp/shared';
 import type { Prisma } from '@prisma/client';
+import { MAPPED_EVENT_TYPES, NOTIFY_DISPATCH_JOB } from './notifications.map';
 
 /**
  * Central cross-module notifications service.
  *
  * - `notify(userId, type, payload)` is the single entry-point all modules
- *   (directly or via EventBus) should use to create a notification row.
+ *   should use to create a notification row.
+ * - `emitEvent(type, payload, emittedBy)` — точка эмиттеров доменных событий
+ *   (Волна 1 движка джобов): событие уходит на шину (для остальных листенеров)
+ *   И — для типов из MAPPED_EVENT_TYPES — ставится джоб notifications.dispatch,
+ *   который надёжно (at-least-once + dedupKey) создаст строки уведомлений.
  * - Title / body / icon come from NOTIFICATION_REGISTRY in @superapp/shared,
  *   so all three layers (api / web / mobile) agree on presentation.
  * - Push delivery is not yet wired; when it is, `pushByDefault` from the
@@ -19,14 +28,25 @@ import type { Prisma } from '@prisma/client';
  */
 @Injectable()
 export class NotificationsService {
-  constructor(private db: DatabaseService) {}
+  private readonly logger = new Logger(NotificationsService.name);
 
-  /** Create a notification for a single user. Returns the created row. */
+  constructor(
+    private db: DatabaseService,
+    private readonly events: EventBusService,
+    private readonly jobs: JobsService,
+  ) {}
+
+  /**
+   * Create a notification for a single user. Returns the created row, or null
+   * when a `dedupKey` was given and the row already exists (идемпотентность
+   * at-least-once джоба: ретрай после частичного фанаута не дублит строки —
+   * INSERT ON CONFLICT DO NOTHING, как enqueue движка джобов).
+   */
   async notify(
     userId: string,
     type: NotificationType,
     payload: Record<string, unknown> = {},
-    options: { actionUrl?: string | null } = {},
+    options: { actionUrl?: string | null; dedupKey?: string } = {},
   ) {
     const meta = NOTIFICATION_REGISTRY[type];
     if (!meta) {
@@ -35,6 +55,15 @@ export class NotificationsService {
 
     const title = renderTemplate(meta.title, payload);
     const body = meta.body ? renderTemplate(meta.body, payload) : null;
+
+    if (options.dedupKey) {
+      await this.db.$executeRaw`
+        INSERT INTO notifications (id, user_id, type, title, body, payload, action_url, dedup_key, created_at)
+        VALUES (${randomUUID()}, ${userId}, ${type}, ${title}, ${body}, ${JSON.stringify(payload)}::jsonb, ${options.actionUrl ?? null}, ${options.dedupKey}, now())
+        ON CONFLICT ("dedup_key") DO NOTHING
+      `;
+      return null;
+    }
 
     return this.db.notification.create({
       data: {
@@ -45,6 +74,41 @@ export class NotificationsService {
         payload: payload as Prisma.InputJsonValue,
         actionUrl: options.actionUrl ?? null,
       },
+    });
+  }
+
+  /**
+   * Эмиттер доменного события: шина (сигнал остальным листенерам — плашки,
+   * google-sync, подстраховки) + джоб надёжной раскладки уведомлений для
+   * маппленных типов. Замена голому events.emit на ~40 сайтах 6 модулей —
+   * пара «событие + уведомление» не может разъехаться.
+   */
+  emitEvent(type: string, payload: Record<string, unknown>, emittedBy: string): void {
+    this.events.emit(type, payload, emittedBy);
+    if (!MAPPED_EVENT_TYPES.has(type)) return;
+    void this.enqueueForEvent(null, type, payload).catch((err) =>
+      this.logger.error(
+        `enqueue notifications.dispatch for ${type} failed: ${String((err as Error)?.message ?? err)}`,
+      ),
+    );
+  }
+
+  /**
+   * Поставить джоб раскладки уведомлений (для точечного in-tx outbox там, где
+   * транзакция эмиттера под рукой; emitEvent зовёт с tx=null после коммита).
+   */
+  async enqueueForEvent(
+    tx: Prisma.TransactionClient | null,
+    type: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    if (!MAPPED_EVENT_TYPES.has(type)) {
+      this.logger.warn(`enqueueForEvent: событие "${type}" не в карте уведомлений — джоб не ставлю`);
+      return;
+    }
+    await this.jobs.enqueue(tx, {
+      type: NOTIFY_DISPATCH_JOB,
+      payload: { event: type, data: payload },
     });
   }
 
@@ -160,16 +224,12 @@ export class NotificationsService {
 }
 
 /**
- * Very small `{{placeholder}}` renderer used against the NOTIFICATION_REGISTRY
- * templates. Missing payload keys are replaced with an empty string so the
- * client never sees a stray `{{...}}` token.
+ * `{{placeholder}}` renderer для шаблонов NOTIFICATION_REGISTRY — единый движок
+ * подстановки на весь проект (interpolateTemplate из @superapp/shared; тот же
+ * используют хроника и «Процессы»). Пропущенный ключ → пустая строка.
  */
 function renderTemplate(template: string, payload: Record<string, unknown>): string {
-  return template.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, key) => {
-    const value = payload[key];
-    if (value === undefined || value === null) return '';
-    return String(value);
-  });
+  return interpolateTemplate(template, payload);
 }
 
 /** Opaque keyset cursor: "<ISO createdAt>_<id>". Neither part contains '_'. */

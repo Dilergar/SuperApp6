@@ -1,6 +1,7 @@
 import { Module, Global } from '@nestjs/common';
 import { WorkspacesService } from './workspaces.service';
 import { WorkspacesController } from './workspaces.controller';
+import { WorkspaceJournalController } from './journal.controller';
 import { StaffModule } from '../staff/staff.module';
 
 /**
@@ -14,7 +15,7 @@ import { StaffModule } from '../staff/staff.module';
 @Global()
 @Module({
   imports: [StaffModule],
-  controllers: [WorkspacesController],
+  controllers: [WorkspacesController, WorkspaceJournalController],
   // Строковый токен для нод «Процессов» (ctx.deps.getService), как 'MessengerService'.
   providers: [WorkspacesService, { provide: 'WorkspacesService', useExisting: WorkspacesService }],
   exports: [WorkspacesService, 'WorkspacesService'],

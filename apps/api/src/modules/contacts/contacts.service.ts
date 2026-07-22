@@ -10,6 +10,7 @@ import { ModuleRef } from '@nestjs/core';
 import { DI_TOKENS } from '../../shared/di-tokens';
 import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { WorkspaceContextService } from '../../shared/context/workspace-context.service';
 import { AccessProjectionService } from '../../core/access/access-projection.service';
@@ -48,6 +49,7 @@ export class ContactsService {
   constructor(
     private db: DatabaseService,
     private events: EventBusService,
+    private notifications: NotificationsService,
     private redis: RedisService,
     private accessProjection: AccessProjectionService,
     private workspaceContext: WorkspaceContextService,
@@ -359,7 +361,7 @@ export class ContactsService {
     await this.revokeMembershipTuples(link);
     await this.revokeFinbookSharesBetween(link.userAId, link.userBId);
 
-    this.events.emit(
+    this.notifications.emitEvent(
       'contact.removed',
       {
         contactLinkId: linkId,
@@ -509,7 +511,7 @@ export class ContactsService {
       },
     });
 
-    this.events.emit(
+    this.notifications.emitEvent(
       'contact.invitation.sent',
       {
         invitationId: invitation.id,
@@ -634,7 +636,7 @@ export class ContactsService {
       select: { firstName: true, lastName: true },
     });
 
-    this.events.emit(
+    this.notifications.emitEvent(
       'contact.invitation.accepted',
       {
         invitationId: invitation.id,
@@ -660,7 +662,7 @@ export class ContactsService {
       recipient?.firstName ?? '',
       recipient?.lastName ?? null,
     );
-    this.events.emit(
+    this.notifications.emitEvent(
       'contact.linked',
       {
         contactLinkId: link.id,
@@ -698,7 +700,7 @@ export class ContactsService {
       select: { firstName: true, lastName: true },
     });
 
-    this.events.emit(
+    this.notifications.emitEvent(
       'contact.invitation.rejected',
       {
         invitationId: invitation.id,
@@ -727,7 +729,7 @@ export class ContactsService {
       data: { status: 'cancelled', respondedAt: new Date() },
     });
 
-    this.events.emit(
+    this.notifications.emitEvent(
       'contact.invitation.cancelled',
       {
         invitationId: invitation.id,
@@ -836,7 +838,7 @@ export class ContactsService {
     });
 
     for (const inv of pending) {
-      this.events.emit(
+      this.notifications.emitEvent(
         'contact.invitation.activated',
         {
           invitationId: inv.id,

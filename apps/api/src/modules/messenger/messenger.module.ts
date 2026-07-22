@@ -9,7 +9,7 @@ import { ScheduledMessageService } from './scheduled-message.service';
 import { ScheduledMessageCron } from './scheduled-message.cron';
 import { PresenceService } from './presence.service';
 import { MessengerGateway } from './messenger.gateway';
-import { TaskSystemListener } from './task-system.listener';
+import { ChatterChatSink } from './chatter-chat.sink';
 import { OrderSystemListener } from './order-system.listener';
 import { CalendarSystemListener } from './calendar-system.listener';
 import { OfficeSystemListener } from './office-system.listener';
@@ -32,7 +32,8 @@ import { ChatCallsListener } from './chat-calls.listener';
     // lazily (ModuleRef.get('MessengerService')) for shareToChat without a module cycle.
     { provide: 'MessengerService', useExisting: MessengerService },
     MessengerGateway,
-    TaskSystemListener,
+    // Плашки задач = проекция хроники core/chatter (chat-sink; заменил TaskSystemListener)
+    ChatterChatSink,
     OrderSystemListener,
     CalendarSystemListener,
     OfficeSystemListener,

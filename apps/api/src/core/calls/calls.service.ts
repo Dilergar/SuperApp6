@@ -22,6 +22,10 @@ import { EventBusService } from '../../shared/events/event-bus.service';
 import { CallsLivekitClient } from './calls-livekit.client';
 import { CallsRefRegistry, CallsRefResolver } from './calls-ref.registry';
 import { CallsRecordingService } from './calls-recording.service';
+import { JobsService } from '../jobs/jobs.service';
+
+/** Тип джоба итоговой плашки чата в реестре core/jobs (обработчик регистрирует мессенджер). */
+export const CALLS_SESSION_SUMMARIZE_JOB = 'calls.session.summarize';
 
 /**
  * Движок звонков (core/calls, 8-й платформенный): аудио/видеокомнаты LiveKit,
@@ -42,6 +46,7 @@ export class CallsService {
     private readonly livekit: CallsLivekitClient,
     private readonly registry: CallsRefRegistry,
     private readonly recording: CallsRecordingService,
+    private readonly jobs: JobsService,
   ) {}
 
   getStatus(): CallsStatusDto {
@@ -379,15 +384,30 @@ export class CallsService {
       select: { userId: true, joinedAt: true },
     });
     const endedAt = new Date();
-    const done = await this.db.callSession.updateMany({
-      where: { id: session.id, status: 'active' },
-      data: { status: 'ended', endedAt },
+    const done = await this.db.$transaction(async (tx) => {
+      const res = await tx.callSession.updateMany({
+        where: { id: session.id, status: 'active' },
+        data: { status: 'ended', endedAt },
+      });
+      if (res.count !== 1) return false; // уже закрыта (второй вебхук/гонка) — идемпотентность
+      await tx.callSessionParticipant.updateMany({
+        where: { sessionId: session.id, leftAt: null },
+        data: { leftAt: endedAt },
+      });
+      // Итоговая плашка чата — джоб core/jobs (тип регистрирует мессенджер; «core ставит,
+      // фича обрабатывает»): коммит закрытия сессии = джоб есть. endedById в payload (в БД
+      // не хранится) — DM «Отклонить» не шлёт «Пропущенный» тому, кто сам завершил.
+      if (session.refType === 'chat') {
+        await this.jobs.enqueue(tx, {
+          type: CALLS_SESSION_SUMMARIZE_JOB,
+          payload: { sessionId: session.id, endedById: endedById ?? null },
+          uniqueKey: `cs:${session.id}`,
+        });
+      }
+      return true;
     });
-    if (done.count !== 1) return; // уже закрыта (второй вебхук/гонка) — идемпотентность
-    await this.db.callSessionParticipant.updateMany({
-      where: { sessionId: session.id, leftAt: null },
-      data: { leftAt: endedAt },
-    });
+    if (!done) return;
+
     const participantUserIds = [...new Set(parts.map((p) => p.userId))];
     const firstJoinedAt = parts.reduce<Date | null>(
       (min, p) => (min === null || p.joinedAt < min ? p.joinedAt : min),

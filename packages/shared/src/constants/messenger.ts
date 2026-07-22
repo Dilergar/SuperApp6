@@ -35,13 +35,20 @@ export const SYSTEM_MESSAGE_EVENTS = [
   'group.member_left',
   'group.renamed',
   'group.admin_granted',
-  // task lifecycle (mirrored into the task chat)
+  // task lifecycle (плашки задач = проекция хроники core/chatter; eventType = typeKey записи)
   'task.assigned',
   'task.submitted',
   'task.accepted',
   'task.returned',
   'task.completed',
+  'task.cancelled',
   'task.deadline_changed',
+  'task.priority_changed',
+  'task.reward_changed',
+  'task.title_changed',
+  'task.description_changed',
+  'task.participant_added',
+  'task.participant_removed',
   // calls (плашка только по завершении: итог «Звонок · N мин» / «Пропущенный звонок»)
   'call.ended',
   'call.missed',

@@ -1,8 +1,10 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  OnApplicationBootstrap,
   OnModuleInit,
 } from '@nestjs/common';
 import { RRule } from 'rrule';
@@ -10,6 +12,7 @@ import { CalendarEvent as CalEventRow } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { fullName } from '../../shared/utils/user-name';
 import { EventBusService } from '../../shared/events/event-bus.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { TasksService } from '../tasks/tasks.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { FinancesService } from '../finances/finances.service';
@@ -17,6 +20,8 @@ import { ResourcesService } from './resources.service';
 import { AccessService } from '../../core/access/access.service';
 import { Principal } from '../../core/access/access.types';
 import { QuickActionRegistry } from '../../core/quick-actions/quick-actions.registry';
+import { JobsRegistry } from '../../core/jobs/jobs.registry';
+import { JobsService } from '../../core/jobs/jobs.service';
 import {
   DEFAULT_REMINDER_OFFSETS,
   CALENDAR_LIMITS,
@@ -46,6 +51,14 @@ import type {
 } from '@superapp/shared';
 
 const MS_PER_DAY = 86_400_000;
+/** Тип джоба напоминания календаря в реестре core/jobs. */
+const CALENDAR_REMINDER_JOB = 'calendar.reminder.fire';
+/**
+ * Максимальное опоздание напоминания: старше — помечаем отработанным, но НЕ шлём.
+ * Сохраняет семантику прежнего grace-окна крона (2ч): после долгого простоя ремонт
+ * иначе высыпал бы залп «событие через 30 минут» о встречах, которые давно прошли.
+ */
+const REMINDER_MAX_LATENESS_MS = 2 * 3600 * 1000;
 type UserMini = { id: string; firstName: string; lastName: string | null; avatar: string | null };
 /** Context passed to occurrenceDto describing how the viewer sees this row. */
 interface OccCtx {
@@ -58,16 +71,21 @@ interface OccCtx {
 }
 
 @Injectable()
-export class CalendarService implements OnModuleInit {
+export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
+  private readonly logger = new Logger(CalendarService.name);
+
   constructor(
     private db: DatabaseService,
     private events: EventBusService,
+    private notifications: NotificationsService,
     private tasks: TasksService,
     private resources: ResourcesService,
     private access: AccessService,
     private quickActions: QuickActionRegistry,
     private contacts: ContactsService,
     private finances: FinancesService,
+    private jobs: JobsService,
+    private jobsRegistry: JobsRegistry,
   ) {}
 
   onModuleInit(): void {
@@ -80,6 +98,114 @@ export class CalendarService implements OnModuleInit {
       scopes: ['composer'],
       description: 'Создать событие в календаре',
     });
+    // Напоминание = джоб core/jobs с runAt=fireAt: точность ~секунды вместо окна крона
+    // в 5 минут, а пропущенное больше не теряется навсегда (было: grace 2ч).
+    // maxAttempts щедрый: напоминание ценнее экономии попыток (как messenger.scheduled.fire).
+    this.jobsRegistry.register(
+      CALENDAR_REMINDER_JOB,
+      (payload) => this.handleReminderFireJob(String(payload.reminderId)),
+      { maxAttempts: 8 },
+    );
+  }
+
+  onApplicationBootstrap(): void {
+    void this.repairReminderJobs().catch((err) =>
+      this.logger.warn(`reminder backfill failed: ${String((err as Error)?.message ?? err)}`),
+    );
+  }
+
+  /** Поставить джоб напоминания на его срок (uniqueKey `cer:<id>` дедупит). */
+  private async enqueueReminder(reminderId: string, fireAt: Date): Promise<void> {
+    await this.jobs.enqueue(null, {
+      type: CALENDAR_REMINDER_JOB,
+      payload: { reminderId },
+      runAt: fireAt,
+      uniqueKey: `cer:${reminderId}`,
+    });
+  }
+
+  /**
+   * Обработчик джоба `calendar.reminder.fire`: АТОМАРНЫЙ пер-строчный клейм sentAt
+   * (строка удалена правкой события / уже отправлена → no-op), затем эмит события —
+   * строку уведомления надёжно создаст джоб notifications.dispatch (Волна 1).
+   */
+  private async handleReminderFireJob(reminderId: string): Promise<void> {
+    // Клейм sentAt И постановка джоба уведомления — в ОДНОЙ транзакции (outbox):
+    // коммит = отправлено ровно один раз, откат = ретрай движка попробует заново
+    // (иначе fire-and-forget emitEvent мог потерять уведомление уже после клейма).
+    const fired = await this.db.$transaction(async (tx) => {
+      const claimed = await tx.calendarEventReminder.updateMany({
+        where: { id: reminderId, sentAt: null },
+        data: { sentAt: new Date() },
+      });
+      if (claimed.count !== 1) return null; // строка удалена правкой / уже отправлено
+      const r = await tx.calendarEventReminder.findUnique({
+        where: { id: reminderId },
+        include: { event: { select: { id: true, title: true } } },
+      });
+      if (!r) return null;
+      // Протухшее напоминание (долгий простой/ремонт) — строку закрываем, уведомление нет.
+      if (Date.now() - +r.fireAt > REMINDER_MAX_LATENESS_MS) return null;
+      const payload = {
+        userId: r.userId,
+        eventTitle: r.event.title,
+        eventId: r.eventId,
+        occurrenceStart: r.occurrenceStart.toISOString(),
+      };
+      await this.notifications.enqueueForEvent(tx, 'calendar.event.reminder', payload);
+      return payload;
+    });
+    if (!fired) return;
+    // Шина — необязательный сигнал остальным листенерам (at-most-once, вне транзакции).
+    this.events.emit('calendar.event.reminder', fired, 'calendar');
+  }
+
+  /**
+   * Ремонт: неотправленные напоминания недавнего окна БЕЗ живого джоба. Закрывает две
+   * дыры сразу — доджобовые строки и «строки создались, а постановка джоба упала»
+   * (createMany и enqueue не в одной транзакции осознанно: обернуть ~3750 вставок
+   * часовой серии в одну tx — это гарантированный таймаут Prisma на правке события).
+   * Зовётся и на старте, и ежедневно из topUp-крона. Окно 24ч не воскрешает древние.
+   */
+  async repairReminderJobs(): Promise<void> {
+    const cutoff = new Date(Date.now() - 24 * 3600 * 1000);
+    let cursor: string | null = null;
+    for (;;) {
+      const rows: Array<{ id: string; fireAt: Date }> =
+        await this.db.calendarEventReminder.findMany({
+          where: {
+            sentAt: null,
+            fireAt: { gt: cutoff },
+            ...(cursor !== null ? { id: { gt: cursor } } : {}),
+          },
+          orderBy: { id: 'asc' },
+          take: 500,
+          select: { id: true, fireAt: true },
+        });
+      if (rows.length === 0) return;
+      const keys = rows.map((r) => `cer:${r.id}`);
+      const existing = await this.db.job.findMany({
+        where: {
+          type: CALENDAR_REMINDER_JOB,
+          uniqueKey: { in: keys },
+          // Только ЖИВЫЕ: вопрос буквально «есть ли непогашенный джоб». Без этого
+          // предиката запрос не попадает в partial-unique jobs_unique_key_live и
+          // сканирует всю таблицу — а его дёргает ночной topUp на каждую серию.
+          status: { in: ['available', 'executing'] },
+        },
+        select: { uniqueKey: true },
+      });
+      const have = new Set(existing.map((j) => j.uniqueKey));
+      let enqueued = 0;
+      for (const r of rows) {
+        if (have.has(`cer:${r.id}`)) continue;
+        await this.enqueueReminder(r.id, r.fireAt);
+        enqueued++;
+      }
+      if (enqueued > 0) this.logger.log(`reminder backfill: enqueued ${enqueued} job(s)`);
+      cursor = rows[rows.length - 1].id;
+      if (rows.length < 500) return;
+    }
   }
 
   private user(id: string): Principal {
@@ -540,7 +666,7 @@ export class CalendarService implements OnModuleInit {
     }
 
     if (toAdd.length) {
-      this.events.emit(
+      this.notifications.emitEvent(
         'calendar.event.invited',
         { recipientIds: toAdd, eventTitle: event.title, eventId, byUserId: organizerId },
         'calendar',
@@ -564,7 +690,7 @@ export class CalendarService implements OnModuleInit {
     });
     if (event) {
       const me = await this.userMini(userId);
-      this.events.emit(
+      this.notifications.emitEvent(
         'calendar.event.rsvp',
         {
           recipientIds: [event.userId],
@@ -1005,6 +1131,24 @@ export class CalendarService implements OnModuleInit {
     }
     if (rows.length) {
       await this.db.calendarEventReminder.createMany({ data: rows, skipDuplicates: true });
+      // Джоб на КАЖДУЮ живую будущую строку этого события/участника: id известен только
+      // после вставки (createManyAndReturn + skipDuplicates ненадёжен), поэтому перечитываем.
+      // При topUpOnly сюда попадут и ранее поставленные — их uniqueKey дедупит.
+      const fresh = await this.db.calendarEventReminder.findMany({
+        where: { eventId: event.id, userId, sentAt: null, fireAt: { gt: now } },
+        select: { id: true, fireAt: true },
+      });
+      // Одним запросом отсекаем уже поставленные: важно для ежедневного topUp-крона —
+      // иначе каждый прогон делал бы INSERT на каждое из ~70 напоминаний горизонта.
+      const existing = await this.db.job.findMany({
+        where: { type: CALENDAR_REMINDER_JOB, uniqueKey: { in: fresh.map((r) => `cer:${r.id}`) } },
+        select: { uniqueKey: true },
+      });
+      const have = new Set(existing.map((j) => j.uniqueKey));
+      for (const r of fresh) {
+        if (have.has(`cer:${r.id}`)) continue;
+        await this.enqueueReminder(r.id, r.fireAt);
+      }
     }
   }
 
@@ -1013,36 +1157,6 @@ export class CalendarService implements OnModuleInit {
     await this.materializeRemindersFor(event, event.userId, event.reminderOffsets, opts);
     const ps = await this.db.eventParticipant.findMany({ where: { eventId: event.id } });
     for (const p of ps) await this.materializeRemindersFor(event, p.userId, p.reminderOffsets, opts);
-  }
-
-  async dispatchReminders(): Promise<number> {
-    const now = new Date();
-    const graceStart = new Date(+now - 2 * 3600 * 1000);
-    const due = await this.db.calendarEventReminder.findMany({
-      where: { sentAt: null, fireAt: { lte: now, gte: graceStart } },
-      include: { event: { select: { id: true, title: true } } },
-      orderBy: { fireAt: 'asc' },
-      take: 500,
-    });
-    for (const r of due) {
-      this.events.emit(
-        'calendar.event.reminder',
-        {
-          userId: r.userId,
-          eventTitle: r.event.title,
-          eventId: r.eventId,
-          occurrenceStart: r.occurrenceStart.toISOString(),
-        },
-        'calendar',
-      );
-    }
-    if (due.length) {
-      await this.db.calendarEventReminder.updateMany({
-        where: { id: { in: due.map((d) => d.id) } },
-        data: { sentAt: now },
-      });
-    }
-    return due.length;
   }
 
   async topUpReminders(): Promise<number> {
@@ -1161,7 +1275,7 @@ export class CalendarService implements OnModuleInit {
     });
     const recipientIds = ps.map((p) => p.userId);
     if (recipientIds.length) {
-      this.events.emit(type, { recipientIds, eventTitle, eventId, byUserId }, 'calendar');
+      this.notifications.emitEvent(type, { recipientIds, eventTitle, eventId, byUserId }, 'calendar');
     }
   }
 

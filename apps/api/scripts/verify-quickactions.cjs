@@ -1,8 +1,9 @@
 /* eslint-disable */
-// Phase 7 e2e: Quick Actions registry + reply/quote + scheduled messages ("Напомнить").
+// Phase 7 e2e: Quick Actions registry + reply/quote + scheduled messages ("Напомнить";
+// выстрел — джоб core/jobs с runAt=sendAt).
 // Covers: GET /quick-actions (scope/permission filter), reply (replyTo preview, cross-chat 400),
-// scheduled lifecycle (schedule/list/update/cancel + validation + access), and the cron FIRE
-// (a due row → posted message + author ping). The fire test waits for the every-minute cron.
+// scheduled lifecycle (schedule/list/update/cancel + validation + access), and the job FIRE
+// (a due row + hand-inserted job → posted message + author ping, ≤20s).
 // Requires API on 3001 + seeded testers. Run: node scripts/verify-quickactions.cjs
 const fs = require('fs'), path = require('path');
 for (const l of fs.readFileSync(path.join(__dirname, '..', '.env'), 'utf8').split(/\r?\n/)) {
@@ -88,18 +89,22 @@ async function main() {
   list = (await http('GET', `/messenger/chats/${dmId}/scheduled`, { token: t1.token })).json?.data || [];
   check('cancel removes it from pending list', !list.some((x) => x.id === schedId));
 
-  console.log('\n-- scheduled fire (waits for the every-minute cron, up to ~80s) --');
+  console.log('\n-- scheduled fire (джоб core/jobs с runAt=sendAt, до ~20с) --');
+  // Строка мимо API = без джоба (доджобовая эра); джоб вставляем руками — ровно то,
+  // что делает bootstrap-бэкфилл ScheduledMessageService (uniqueKey с версией времени).
   const token = 'Сработало7' + Date.now();
-  await prisma.scheduledMessage.create({ data: { chatId: dmId, authorId: t1.id, content: `Напоминание ${token}`, sendAt: new Date(Date.now() - 5000), status: 'pending' } });
+  const sendAtPast = new Date(Date.now() - 5000);
+  const smRow = await prisma.scheduledMessage.create({ data: { chatId: dmId, authorId: t1.id, content: `Напоминание ${token}`, sendAt: sendAtPast, status: 'pending' } });
+  await prisma.job.create({ data: { type: 'messenger.scheduled.fire', payload: { scheduledMessageId: smRow.id, sendAtMs: sendAtPast.getTime() }, uniqueKey: `sm:${smRow.id}:${sendAtPast.getTime()}`, maxAttempts: 8 } });
   let fired = false;
-  for (let i = 0; i < 22 && !fired; i++) {
-    await sleep(4000);
+  for (let i = 0; i < 10 && !fired; i++) {
+    await sleep(2000);
     const m = (await http('GET', `/messenger/chats/${dmId}/messages`, { token: t1.token })).json?.data || [];
     if (m.some((x) => (x.content || '').includes(token))) fired = true;
     else process.stdout.write('.');
   }
   console.log('');
-  check('cron fired the due scheduled message into the chat', fired);
+  check('джоб выстрелил due-сообщение в чат', fired);
   if (fired) {
     const row = await prisma.scheduledMessage.findFirst({ where: { chatId: dmId, authorId: t1.id, content: `Напоминание ${token}` } });
     check('scheduled row marked sent (+sentMessageId)', row?.status === 'sent' && !!row.sentMessageId, row?.status);

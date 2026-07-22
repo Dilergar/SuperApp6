@@ -5,14 +5,19 @@ import {
   ForbiddenException,
   BadRequestException,
   ConflictException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { DI_TOKENS } from '../../shared/di-tokens';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { StaffService } from '../staff/staff.service';
 import { FilesService } from '../../core/files/files.service';
+import { ChatterService } from '../../core/chatter/chatter.service';
+import { ChatterRefRegistry } from '../../core/chatter/chatter-ref.registry';
+import { fullName } from '../../shared/utils/user-name';
 import {
   WORKSPACE_LIMITS,
   WORKSPACE_ROLES,
@@ -56,17 +61,40 @@ type UserNameRow = { firstName: string; lastName: string | null };
  *     ТОЛЬКО Владелец; «Подрядчик» (contractor) вручную не назначается — только сервисами.
  */
 @Injectable()
-export class WorkspacesService {
+export class WorkspacesService implements OnModuleInit {
   private readonly logger = new Logger(WorkspacesService.name);
 
   constructor(
     private db: DatabaseService,
     private roles: RolesService,
     private events: EventBusService,
+    private notifications: NotificationsService,
     private staff: StaffService,
     private files: FilesService,
+    private chatter: ChatterService,
+    private chatterRegistry: ChatterRefRegistry,
     private moduleRef: ModuleRef,
   ) {}
+
+  onModuleInit(): void {
+    // Хроника организации (core/chatter): HR-события чувствительны — чтение хроники
+    // воркспейса закрыто тем же гейтом, что и «Журнал организации» (роль ≥ Менеджер).
+    this.chatterRegistry.register('workspace', {
+      canView: async (viewerId, workspaceId) => {
+        const role = await this.getMyRole(viewerId, workspaceId);
+        return !!role && ROLE_RANK[role] >= ROLE_RANK.manager;
+      },
+    });
+  }
+
+  /** Имя пользователя для снапшотов хроники (удалённый/неизвестный → «Пользователь»). */
+  private async userName(userId: string): Promise<string> {
+    const u = await this.db.user.findUnique({
+      where: { id: userId },
+      select: { firstName: true, lastName: true },
+    });
+    return fullName(u);
+  }
 
   /**
    * Каскад увольнения/выхода: снять участия человека во встречах Виртуального офиса
@@ -241,6 +269,10 @@ export class WorkspacesService {
       throw new BadRequestException('Новый владелец должен быть участником организации');
     }
 
+    const [actorName, targetName] = await Promise.all([
+      this.userName(userId),
+      this.userName(toUserId),
+    ]);
     await this.db.$transaction(async (tx) => {
       await tx.workspace.update({
         where: { id: workspaceId },
@@ -250,6 +282,15 @@ export class WorkspacesService {
       // so ownership can't split (two owners / zero owners) on a partial failure.
       await this.setSoleWorkspaceRoleTx(tx, toUserId, workspaceId, 'owner', userId);
       await this.setSoleWorkspaceRoleTx(tx, userId, workspaceId, 'admin', userId);
+      await this.chatter.log(tx, {
+        refType: 'workspace',
+        refId: workspaceId,
+        workspaceId,
+        actorId: userId,
+        actorName,
+        typeKey: 'staff.ownership_transferred',
+        payload: { targetUserId: toUserId, targetName },
+      });
     });
 
     // Both users' role rows changed inside the tx → bust both caches now.
@@ -400,7 +441,24 @@ export class WorkspacesService {
 
     if (data.role !== targetRole) {
       await this.setSoleWorkspaceRole(targetUserId, workspaceId, data.role, userId);
-      this.events.emit(
+      await this.chatter.log(null, {
+        refType: 'workspace',
+        refId: workspaceId,
+        workspaceId,
+        actorId: userId,
+        actorName: await this.userName(userId),
+        typeKey: 'staff.role_changed',
+        changes: [
+          {
+            field: 'role',
+            label: 'Роль',
+            from: WORKSPACE_ROLES[targetRole]?.name ?? targetRole,
+            to: WORKSPACE_ROLES[data.role]?.name ?? data.role,
+          },
+        ],
+        payload: { targetUserId, targetName: await this.userName(targetUserId) },
+      });
+      this.notifications.emitEvent(
         'workspace.role.changed',
         {
           workspaceId,
@@ -427,15 +485,24 @@ export class WorkspacesService {
     }
 
     await this.revokeAllWorkspaceRoles(targetUserId, workspaceId);
-    // Каскад: назначения должностей + их рёбра в движке доступа.
-    await this.staff.removeAllAssignmentsForUser(workspaceId, targetUserId);
+    // Каскад: назначения должностей + их рёбра в движке доступа (+ хроника снятия).
+    await this.staff.removeAllAssignmentsForUser(workspaceId, targetUserId, userId);
     // Каскад: участия во встречах офиса (доступ к чатам встреч).
     await this.purgeOfficeParticipations(workspaceId, targetUserId);
     await this.db.workspaceMember.deleteMany({
       where: { workspaceId, userId: targetUserId },
     });
 
-    this.events.emit(
+    await this.chatter.log(null, {
+      refType: 'workspace',
+      refId: workspaceId,
+      workspaceId,
+      actorId: userId,
+      actorName: await this.userName(userId),
+      typeKey: 'staff.fired',
+      payload: { targetUserId, targetName: await this.userName(targetUserId) },
+    });
+    this.notifications.emitEvent(
       'workspace.member.removed',
       { workspaceId, workspaceName: ws.name, userId: targetUserId },
       'WorkspacesService',
@@ -451,9 +518,18 @@ export class WorkspacesService {
       throw new BadRequestException('Владелец не может выйти — сначала передайте права');
     }
     await this.revokeAllWorkspaceRoles(userId, workspaceId);
-    await this.staff.removeAllAssignmentsForUser(workspaceId, userId);
+    await this.staff.removeAllAssignmentsForUser(workspaceId, userId, userId);
     await this.purgeOfficeParticipations(workspaceId, userId);
     await this.db.workspaceMember.deleteMany({ where: { workspaceId, userId } });
+
+    await this.chatter.log(null, {
+      refType: 'workspace',
+      refId: workspaceId,
+      workspaceId,
+      actorId: userId,
+      actorName: await this.userName(userId),
+      typeKey: 'staff.left',
+    });
   }
 
   // ============================================================
@@ -541,7 +617,7 @@ export class WorkspacesService {
       include: INVITATION_INCLUDE,
     });
 
-    this.events.emit(
+    this.notifications.emitEvent(
       'workspace.invitation.sent',
       {
         invitationId: inv.id,
@@ -557,6 +633,18 @@ export class WorkspacesService {
     const inviter = await this.db.user.findUnique({
       where: { id: userId },
       select: { firstName: true, lastName: true },
+    });
+    await this.chatter.log(null, {
+      refType: 'workspace',
+      refId: workspaceId,
+      workspaceId,
+      actorId: userId,
+      actorName: inviter ? this.fullName(inviter) : 'Пользователь',
+      typeKey: 'staff.invited',
+      payload: {
+        targetUserId: target?.id ?? null,
+        targetName: target ? await this.userName(target.id) : data.phone,
+      },
     });
     return (await this.serializeInvitations([{ ...inv, workspace: ws, inviter }]))[0];
   }
@@ -624,6 +712,11 @@ export class WorkspacesService {
       throw new BadRequestException('Организация неактивна');
     }
 
+    const me = await this.db.user.findUnique({
+      where: { id: userId },
+      select: { firstName: true, lastName: true },
+    });
+
     // All writes in one transaction. The status flip is the atomic guard against a
     // double-accept race (and accept-after-cancel): only the first concurrent call
     // that flips pending→accepted proceeds; the rest see count 0 and bail (rollback).
@@ -651,6 +744,15 @@ export class WorkspacesService {
         inv.invitedBy,
       );
 
+      await this.chatter.log(tx, {
+        refType: 'workspace',
+        refId: inv.workspaceId,
+        workspaceId: inv.workspaceId,
+        actorId: userId,
+        actorName: me ? this.fullName(me) : 'Пользователь',
+        typeKey: 'staff.hired',
+      });
+
       // Должность «с порога»: назначение со статусом «стажируется» (Додзё этой должности).
       // Несколько филиалов → назначение на каждый (сотрудник обслуживает несколько);
       // без филиалов → одно назначение без филиала.
@@ -673,11 +775,7 @@ export class WorkspacesService {
     // Назначение создано в tx (мимо StaffService-проекции) — спроецировать рёбра.
     if (inv.positionId) await this.staff.projectWorkspaceStaff(inv.workspaceId);
 
-    const me = await this.db.user.findUnique({
-      where: { id: userId },
-      select: { firstName: true, lastName: true },
-    });
-    this.events.emit(
+    this.notifications.emitEvent(
       'workspace.invitation.accepted',
       {
         workspaceId: inv.workspaceId,
@@ -717,7 +815,7 @@ export class WorkspacesService {
       where: { id: userId },
       select: { firstName: true, lastName: true },
     });
-    this.events.emit(
+    this.notifications.emitEvent(
       'workspace.invitation.rejected',
       {
         workspaceId: inv.workspaceId,
@@ -746,7 +844,7 @@ export class WorkspacesService {
     });
 
     for (const inv of pending) {
-      this.events.emit(
+      this.notifications.emitEvent(
         'workspace.invitation.sent',
         {
           invitationId: inv.id,
@@ -765,8 +863,10 @@ export class WorkspacesService {
   // Helpers
   // ============================================================
 
+  // Единый источник отображаемого имени — shared/utils/user-name (та же реализация,
+  // что и в staff.service; локальная копия разъезжалась бы с ней по фолбэку/маске).
   private fullName(u: UserNameRow): string {
-    return u.lastName ? `${u.firstName} ${u.lastName}` : u.firstName;
+    return fullName(u);
   }
 
   private async getWorkspaceOrThrow(workspaceId: string) {

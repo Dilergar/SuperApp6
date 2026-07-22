@@ -639,8 +639,8 @@ export class MessengerService implements OnModuleInit {
 
   /**
    * Find or create the chat for a task. NOTE: in practice the chat is created
-   * EAGERLY — the first task.* lifecycle event (e.g. task.assigned) fires the
-   * TaskSystemListener which calls postTaskSystemMessage → here — so by the time
+   * EAGERLY — the first chat-posted chronicle entry (e.g. task.assigned) is drained
+   * by the ChatterChatSink which calls postTaskSystemMessage → here — so by the time
    * anyone opens the task the chat + its first system plaque already exist. Opening
    * a task with no lifecycle event yet creates it on demand. Member access follows
    * the task's roles via usersets (chat#member@task#<role>), so a participant
@@ -679,7 +679,7 @@ export class MessengerService implements OnModuleInit {
 
     // ATOMIC creation: commit the chat row AND its access-membership tuples in ONE
     // transaction. Previously the row was committed first and the tuples granted in a
-    // separate step; a concurrent reader (the eager TaskSystemListener racing the user's
+    // separate step; a concurrent reader (the eager chatter chat-sink racing the user's
     // own open — the window widens at cold start when queries are slow) could find the row
     // in that gap and see a chat with NO members → chat.view computed false → transient
     // false 403. Committing them together makes a findable chat ALWAYS grant its members.
@@ -809,15 +809,18 @@ export class MessengerService implements OnModuleInit {
 
   /**
    * Public: post a system message to a task's chat, ensuring the chat exists.
-   * Used by the task-lifecycle listener (task.assigned / submitted / …).
+   * Плашки задач производит движок хроники (core/chatter → ChatterChatSink):
+   * eventType = typeKey записи, extra несёт chatterEntryId (идемпотентность —
+   * на claim'е движка).
    */
   async postTaskSystemMessage(
     taskId: string,
     eventType: SystemMessageEvent | string,
     text: string,
+    extra: Record<string, unknown> = {},
   ): Promise<void> {
     const chat = await this.getOrCreateTaskChat(taskId);
-    await this.postSystemMessage(chat.id, eventType, text);
+    await this.postSystemMessage(chat.id, eventType, text, extra);
   }
 
   // ============================================================
@@ -1351,6 +1354,27 @@ export class MessengerService implements OnModuleInit {
     text: string,
     extra: Record<string, unknown> = {},
   ): Promise<void> {
+    // Идемпотентность плашки хроники: движок мог переклеймить запись после краха
+    // между постом и отметкой успеха — если сообщение для этой записи уже есть,
+    // выходим без дубля (chatterEntryId кладёт ChatterChatSink).
+    const chatterEntryId =
+      typeof extra.chatterEntryId === 'string' ? extra.chatterEntryId : null;
+    if (chatterEntryId) {
+      const dup = await this.db.message.findFirst({
+        where: {
+          chatId,
+          type: 'system',
+          payload: { path: ['chatterEntryId'], equals: chatterEntryId },
+        },
+        select: { id: true },
+      });
+      if (dup) return;
+    }
+
+    // memberIds — ДО транзакции: после коммита сообщения не должно остаться
+    // throwable-шага (иначе ошибка после durable-вставки → un-claim в движке →
+    // дубль при редрайве). emit синхронный и не бросает.
+    const memberUserIds = await this.memberIds(chatId);
     const msg = await this.db.$transaction(async (tx) => {
       const chat = await tx.chat.update({
         where: { id: chatId },
@@ -1370,7 +1394,6 @@ export class MessengerService implements OnModuleInit {
       });
     });
 
-    const memberUserIds = await this.memberIds(chatId);
     this.events.emit(
       'messenger.message.created',
       {

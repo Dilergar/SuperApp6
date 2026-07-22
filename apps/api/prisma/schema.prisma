@@ -311,6 +311,10 @@ model Notification {
   body      String?
   payload   Json? // flexible, shape depends on type
   actionUrl String?   @map("action_url") // deep link the client opens on tap
+  // Идемпотентность at-least-once джоба notifications.dispatch (core/jobs):
+  // `j<jobId>:<userId>:<type>` — ретрай джоба не дублит строки (ON CONFLICT DO NOTHING).
+  // NULL у прямых notify()-вызовов; в Postgres NULL'ы в unique не конфликтуют.
+  dedupKey  String?   @unique @map("dedup_key")
   readAt    DateTime? @map("read_at")
   createdAt DateTime  @default(now()) @map("created_at")
 
@@ -1898,6 +1902,77 @@ model FinAuditLog {
 }
 
 // ============================================
+// CHATTER ENGINE (core/chatter) — «Хроника записи», 9-й платформенный движок
+// Универсальная лента «кто/что/когда + было → стало» на любой сущности.
+// Полиморфно по refType+refId (как FileLink), FK-free (как fin_audit_logs) —
+// хроника переживает свои сущности. Пишется СИНХРОННО в транзакции доменной
+// мутации (шина at-most-once и без old-значений не годится). Доступ на чтение —
+// canView-резолвер потребителя (ChatterRefRegistry, паттерн FilesRefRegistry).
+// Плашки контекстных чатов = проекция записей: needsChatPost → джоб chatter.chatpost
+// движка core/jobs, поставленный В ТОЙ ЖЕ транзакции (outbox); дедуп мессенджера
+// по chatterEntryId. НЕ в chokepoint; workspaceId — денормализация для «Журнала организации».
+// ============================================
+
+model ChatterEntry {
+  id            BigInt    @id @default(autoincrement()) // append-log; он же курсор
+  refType       String    @map("ref_type") // 'task' | 'workspace' | ...
+  refId         String    @map("ref_id")
+  workspaceId   String?   @map("workspace_id")
+  actorId       String?   @map("actor_id") // null = система (крон/движок)
+  actorName     String?   @map("actor_name") // снапшот — переживает удаление аккаунта
+  typeKey       String    @map("type_key") // ключ CHATTER_REGISTRY: 'task.deadline_changed', 'staff.role_changed'…
+  changes            Json? // [{field,label,from,to}] — display-ready строки
+  payload            Json? // переменные шаблона: targetUserId, targetName, branchName…
+  needsChatPost      Boolean   @default(false) @map("needs_chat_post")
+  chatPostedAt       DateTime? @map("chat_posted_at") // терминал успешной проекции в чат (ремень идемпотентности хэндлера джоба)
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  @@index([refType, refId, id]) // хроника записи (keyset DESC)
+  @@index([workspaceId, id]) // журнал организации (keyset DESC)
+  @@index([workspaceId, typeKey, id]) // журнал с фильтром category → typeKey IN
+  // Частичный индекс незапощенных плашек (id) WHERE needs_chat_post AND chat_posted_at IS NULL —
+  // держит ~0 строк; пересоздан руками в миграции jobs_engine (бэкфилл/страховка движка джобов).
+  @@map("chatter_entries")
+}
+
+// ============================================
+// JOBS ENGINE (core/jobs) — фоновые джобы / transactional outbox, 10-й платформенный движок
+// Модель Oban/River/Solid Queue: джоб ставится В ТОЙ ЖЕ транзакции, что и доменная
+// мутация (enqueue(tx, …): коммит = джоб есть, откат = джоба нет), исполнение
+// at-least-once — claim пачкой FOR UPDATE SKIP LOCKED, attempts инкрементится ПРИ
+// клейме и служит клейм-токеном финальных записей (поздний зомби-врайт = no-op),
+// аренда leaseUntil → reaper, экспоненциальный бэкофф с джиттером, dead-letter.
+// Статусы: available | executing | completed | discarded | cancelled
+// («retryable» видно по attempts>0, «scheduled» — по runAt>now). НЕ в chokepoint.
+// payload — только id-шки, не объекты (правило Sidekiq). Обработчики — JobsRegistry.
+// ============================================
+
+model Job {
+  id          BigInt    @id @default(autoincrement())
+  type        String // ключ обработчика в JobsRegistry: 'messenger.scheduled.fire', 'chatter.chatpost'…
+  queue       String    @default("default") // группа concurrency (per-queue cap, модель Solid Queue)
+  payload     Json      @default("{}")
+  status      String    @default("available") // available | executing | completed | discarded | cancelled
+  priority    Int       @default(0) // 0 = самый высокий (модель Oban)
+  runAt       DateTime  @default(now()) @map("run_at") // видимость: отложенный запуск и бэкофф ретраев
+  attempts    Int       @default(0) // инкремент при клейме = клейм-токен поздних записей
+  maxAttempts Int       @default(5) @map("max_attempts")
+  leaseUntil  DateTime? @map("lease_until") // протухла у executing → reaper вернёт в очередь/похоронит
+  uniqueKey   String?   @map("unique_key") // идемпотентная постановка/отмена; unique среди живых (partial, руками)
+  lastError   String?   @map("last_error")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  finishedAt  DateTime? @map("finished_at")
+
+  // Партиальные индексы — руками в миграции jobs_engine (Prisma не выражает WHERE):
+  //   jobs_claim_idx        (queue, priority, run_at, id)  WHERE status='available'
+  //   jobs_lease_idx        (lease_until)                   WHERE status='executing'
+  //   jobs_unique_key_live  UNIQUE (type, unique_key)       WHERE status IN ('available','executing') AND unique_key IS NOT NULL
+  //   jobs_retention_idx    (status, finished_at)           WHERE status IN ('completed','discarded','cancelled')
+  @@map("jobs")
+}
+
+// ============================================
 // FILES ENGINE (core/files) — платформенное хранилище файлов
 // Метаданные здесь; байты — у драйвера (local disk | S3-совместимое хранилище).
 // Доступ: владелец/загрузивший/public + наследование от привязанной сущности
@@ -2005,19 +2080,15 @@ model VoiceTranscript {
   durationMs       Int?      @map("duration_ms")
   diarize          Boolean   @default(false)
   error            String?
-  attempts         Int       @default(0)
+  attempts         Int       @default(0) // счётчик попыток джоба (для UI/дебага; ставится из ctx.attempt)
   requestedById    String    @map("requested_by_id")
-  // Аренда джоба: клейм ставит now+бюджет (overhead+STT-таймаут+запас); крон
-  // переклеймивает processing только с протухшей арендой — живой джоб не задваивается
-  leaseUntil       DateTime? @map("lease_until")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
   readyAt          DateTime? @map("ready_at")
 
   file FileObject @relation(fields: [fileId], references: [id], onDelete: Cascade)
 
-  @@index([status, updatedAt]) // крон-редрайв потерянных queued
-  @@index([status, leaseUntil]) // крон-редрайв processing с протухшей арендой
+  @@index([status, updatedAt]) // бэкфилл на старте: незавершённые queued|processing
   @@map("voice_transcripts")
 }
 

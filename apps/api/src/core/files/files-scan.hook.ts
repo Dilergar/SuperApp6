@@ -1,9 +1,15 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnApplicationBootstrap, OnModuleInit } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import * as net from 'net';
 import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../../modules/notifications/notifications.service';
+import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
+import { JobsService } from '../jobs/jobs.service';
 import { STORAGE_DRIVER, StorageDriver } from './storage/storage-driver';
+
+/** Тип джоба антивирусного скана в реестре core/jobs. */
+const FILES_SCAN_JOB = 'files.scan';
 
 /**
  * Антивирусная проверка файлов (модель Discord: доставляем сразу, скан фоном;
@@ -13,13 +19,15 @@ import { STORAGE_DRIVER, StorageDriver } from './storage/storage-driver';
  * Базовая гигиена (whitelist MIME, magic-bytes, blacklist расширений) — в FilesService.
  */
 @Injectable()
-export class FilesScanHook {
+export class FilesScanHook implements OnModuleInit, OnApplicationBootstrap {
   private readonly logger = new Logger(FilesScanHook.name);
 
   constructor(
     private readonly db: DatabaseService,
     private readonly events: EventBusService,
     private readonly notifications: NotificationsService,
+    private readonly jobs: JobsService,
+    private readonly jobsRegistry: JobsRegistry,
     @Inject(STORAGE_DRIVER) private readonly driver: StorageDriver,
   ) {}
 
@@ -35,15 +43,56 @@ export class FilesScanHook {
     return Number(process.env.CLAMAV_PORT ?? 3310);
   }
 
-  /** Сколько раз перескан по транзиентной ошибке (clamd недоступен), потом — terminal */
-  private readonly maxRetries = 5;
+  /** Попыток скана до dead-letter (транзиентная недоступность clamd). */
+  private static readonly SCAN_MAX_ATTEMPTS = 6;
 
-  /** Поставить файл в очередь скана (fire-and-forget из complete/крона) */
-  enqueue(fileId: string): void {
+  onModuleInit(): void {
     if (!this.enabled) return;
-    this.scan(fileId).catch((err) =>
-      this.logger.warn(`scan ${fileId}: ${err instanceof Error ? err.message : err}`),
+    this.jobsRegistry.register(
+      FILES_SCAN_JOB,
+      (payload) => this.scan(String(payload.fileId)),
+      {
+        maxAttempts: FilesScanHook.SCAN_MAX_ATTEMPTS,
+        // Аренда ОБЯЗАТЕЛЬНА и должна быть больше socket-таймаута INSTREAM (120с):
+        // с дефолтом 60с reaper переклеймивал бы файл прямо во время скана 200-МБ потока
+        // и отправлял бы его в clamd вторым потоком параллельно.
+        leaseMs: 5 * 60 * 1000,
+        // Прежний крон пересканировал каждые 5 минут очень долго; 30с-бэкофф давал ~7 минут.
+        backoffBaseMs: 60_000,
+        onDiscard: (payload) => this.markScanError(String(payload.fileId)),
+      },
     );
+  }
+
+  /**
+   * Джоб скана похоронен (в т.ч. reaper'ом): фиксируем терминальный scanStatus='error',
+   * иначе файл навсегда остался бы 'pending' и бэкфилл поднимал бы его на каждом старте.
+   */
+  private async markScanError(fileId: string): Promise<void> {
+    await this.db.fileObject.updateMany({
+      where: { id: fileId, scanStatus: 'pending' },
+      data: { scanStatus: 'error' },
+    });
+  }
+
+  onApplicationBootstrap(): void {
+    if (!this.enabled) return;
+    void this.backfillScanJobs().catch((err) =>
+      this.logger.warn(`scan backfill failed: ${String((err as Error)?.message ?? err)}`),
+    );
+  }
+
+  /**
+   * Поставить джоб скана — В ТОЙ ЖЕ транзакции, что и переход файла в ready
+   * (complete/ingest). Инертен без CLAMAV_HOST. uniqueKey `fs:<id>` дедупит.
+   */
+  async enqueue(tx: Prisma.TransactionClient | null, fileId: string): Promise<void> {
+    if (!this.enabled) return;
+    await this.jobs.enqueue(tx, {
+      type: FILES_SCAN_JOB,
+      payload: { fileId },
+      uniqueKey: `fs:${fileId}`,
+    });
   }
 
   async scan(fileId: string): Promise<void> {
@@ -64,20 +113,20 @@ export class FilesScanHook {
       signature = res.signature;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const meta = (file.meta as Record<string, unknown> | null) ?? {};
-      const retries = (typeof meta.scanRetries === 'number' ? meta.scanRetries : 0) + 1;
-      // clamd ОТВЕТИЛ, но отверг поток (напр. StreamMaxLength) — ретрай не поможет →
-      // терминальный 'error'. Сетевая ошибка — транзиентна: pending до лимита попыток.
-      const terminal = /unexpected/.test(message) || retries >= this.maxRetries;
-      this.logger.warn(`clamd ${fileId} (retry ${retries}${terminal ? ', terminal' : ''}): ${message}`);
-      await this.db.fileObject.updateMany({
-        where: { id: fileId, status: 'ready', scanStatus: 'pending' },
-        data: {
-          meta: { ...meta, scanRetries: retries } as object,
-          ...(terminal ? { scanStatus: 'error' } : {}),
-        },
-      });
-      return;
+      // ПУСТОЙ ответ — это оборванное соединение (clamd рестартовал / упёрся в MaxQueue),
+      // т.е. ТРАНЗИЕНТ: его нельзя хоронить терминально, иначе всплеск загрузок оставит
+      // пачку файлов навсегда неотсканированными. Терминален только осмысленный отказ.
+      if (/unexpected/.test(message) && !/\(empty\)/.test(message)) {
+        // clamd ОТВЕТИЛ, но отверг поток (напр. StreamMaxLength) — ретрай не поможет:
+        // терминальный scanStatus='error' + discard (не инцидент, dead-letter не нужен).
+        await this.db.fileObject.updateMany({
+          where: { id: fileId, status: 'ready', scanStatus: 'pending' },
+          data: { scanStatus: 'error' },
+        });
+        throw new JobDiscardError(`clamd отверг поток ${fileId}: ${message}`);
+      }
+      // Сетевая ошибка (clamd недоступен) — транзиентна: бросаем, движок ретраит с бэкоффом.
+      throw err;
     }
 
     await this.db.fileObject.updateMany({
@@ -93,6 +142,49 @@ export class FilesScanHook {
         // уведомление best-effort
       }
       this.logger.warn(`Файл ${fileId} заражён (${signature}) — выдача заблокирована`);
+    }
+  }
+
+  /**
+   * Бэкфилл при старте: ready-файлы, застрявшие в scanStatus='pending' (потерянный
+   * enqueue до перезапуска). uniqueKey + проверка существующих джобов дедупят.
+   */
+  private async backfillScanJobs(): Promise<void> {
+    let cursor: string | null = null;
+    for (;;) {
+      const rows: Array<{ id: string }> = await this.db.fileObject.findMany({
+        where: {
+          status: 'ready',
+          scanStatus: 'pending',
+          ...(cursor !== null ? { id: { gt: cursor } } : {}),
+        },
+        orderBy: { id: 'asc' },
+        take: 200,
+        select: { id: true },
+      });
+      if (rows.length === 0) return;
+      const keys = rows.map((r) => `fs:${r.id}`);
+      // Только ЖИВЫЕ джобы (см. тот же приём в конвейере): терминальный джоб не должен
+      // навсегда блокировать повторную постановку, а от безнадёжных файлов защищает
+      // терминальный scanStatus='error' из markScanError.
+      const existing = await this.db.job.findMany({
+        where: {
+          type: FILES_SCAN_JOB,
+          uniqueKey: { in: keys },
+          status: { in: ['available', 'executing'] },
+        },
+        select: { uniqueKey: true },
+      });
+      const have = new Set(existing.map((j) => j.uniqueKey));
+      let enqueued = 0;
+      for (const r of rows) {
+        if (have.has(`fs:${r.id}`)) continue;
+        await this.enqueue(null, r.id);
+        enqueued++;
+      }
+      if (enqueued > 0) this.logger.log(`scan backfill: enqueued ${enqueued} job(s)`);
+      cursor = rows[rows.length - 1].id;
+      if (rows.length < 200) return;
     }
   }
 

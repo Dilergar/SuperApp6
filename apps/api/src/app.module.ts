@@ -21,6 +21,8 @@ import { QuickActionsModule } from './core/quick-actions/quick-actions.module';
 import { FilesModule } from './core/files/files.module';
 import { VoiceModule } from './core/voice/voice.module';
 import { CallsModule } from './core/calls/calls.module';
+import { ChatterModule } from './core/chatter/chatter.module';
+import { JobsModule } from './core/jobs/jobs.module';
 
 // Feature modules (MVP)
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -102,6 +104,16 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // Комната привязана к сущности полиморфно (refType+refId); доступ решает резолвер
     // потребителя (CallsRefRegistry). Инертен без LIVEKIT_*.
     CallsModule,
+    // Chatter engine — 9-й платформенный движок: «Хроника записи» (кто/что/когда +
+    // «было → стало») полиморфно по refType+refId. Пишется синхронно из доменных
+    // сервисов; доступ = canView-резолвер потребителя (ChatterRefRegistry); плашки
+    // контекстных чатов = проекция записей (chat-sink мессенджера + крон-редрайв).
+    ChatterModule,
+    // Jobs engine — 10-й платформенный движок: фоновые джобы / transactional outbox
+    // (Oban/River/Solid Queue-модель). enqueue(tx, …) в транзакции доменной мутации,
+    // at-least-once исполнение (SKIP LOCKED, бэкофф, dead-letter), обработчики —
+    // регистрацией в JobsRegistry. Правило: на шину — только необязательное.
+    JobsModule,
 
     // Feature modules — each is self-contained.
     // Load order: Notifications → Contacts (@Global, consumed by AuthService)

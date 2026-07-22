@@ -25,6 +25,8 @@ export * from './types/file';
 export * from './types/voice';
 export * from './types/calls';
 export * from './types/office';
+export * from './types/chatter';
+export * from './types/jobs';
 export * from './types/common';
 
 // Validation schemas
@@ -50,12 +52,14 @@ export * from './validation/file';
 export * from './validation/voice';
 export * from './validation/calls';
 export * from './validation/office';
+export * from './validation/chatter';
 
 // Utils
 export * from './utils/phone';
 export * from './utils/date';
 export * from './utils/name';
 export * from './utils/attachments';
+export * from './utils/interpolate';
 
 // Constants
 export * from './constants/roles';
@@ -82,3 +86,5 @@ export * from './constants/files';
 export * from './constants/voice';
 export * from './constants/calls';
 export * from './constants/office';
+export * from './constants/chatter';
+export * from './constants/jobs';

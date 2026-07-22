@@ -40,17 +40,5 @@ export const WEEKDAYS_SHORT = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', '
 /** axios-config с bookId для запросов в чужую книгу. */
 export const bookParams = (bookId: string | null | undefined) => (bookId ? { params: { bookId } } : undefined);
 
-/** Local YYYY-MM-DD (the date the user perceives, not UTC). */
-export const localToday = (): string => new Intl.DateTimeFormat('en-CA').format(new Date());
-
-/** YYYY-MM-DD → «Сегодня» / «Вчера» / «2 июля» (+год, если не текущий). */
-export function formatDayLabel(iso: string): string {
-  const today = localToday();
-  if (iso === today) return 'Сегодня';
-  const y = new Date();
-  y.setDate(y.getDate() - 1);
-  if (iso === new Intl.DateTimeFormat('en-CA').format(y)) return 'Вчера';
-  const d = new Date(`${iso}T00:00:00`);
-  const sameYear = d.getFullYear() === new Date().getFullYear();
-  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', ...(sameYear ? {} : { year: 'numeric' }) });
-}
+// Группировка по дню — общий web-util (lib/day-groups): переиспользуется Хроникой/Журналом.
+export { localToday, formatDayLabel } from '@/lib/day-groups';

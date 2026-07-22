@@ -36,6 +36,7 @@ import { FilesRefRegistry } from '../../core/files/files-ref.registry';
 import { DatabaseService } from '../../shared/database/database.service';
 import { WorkspaceContextService } from '../../shared/context/workspace-context.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { AccessService } from '../../core/access/access.service';
 import { AccessProjectionService } from '../../core/access/access-projection.service';
 import { Principal, RelationTupleInput } from '../../core/access/access.types';
@@ -72,6 +73,7 @@ export class ShopService implements OnModuleInit {
     private readonly accessProjection: AccessProjectionService,
     private readonly escrow: EscrowService,
     private readonly events: EventBusService,
+    private readonly notifications: NotificationsService,
     private readonly tasks: TasksService,
     private readonly calendar: CalendarService,
     private readonly contacts: ContactsService,
@@ -585,7 +587,7 @@ export class ShopService implements OnModuleInit {
     // Project order roles SYNCHRONOUSLY so the order rich-card / chat is accessible
     // immediately (the shop.order.* listener is an idempotent safety net, not the source).
     await this.accessProjection.resyncOrderRoles(order.id);
-    this.events.emit('shop.order.placed', { orderId: order.id, sellerId, buyerId, title: order.titleSnapshot }, 'shop');
+    this.notifications.emitEvent('shop.order.placed', { orderId: order.id, sellerId, buyerId, title: order.titleSnapshot }, 'shop');
     return this.serializeOrder(order, await this.currencyMap(order.prices.map((p) => p.currencyId)));
   }
 
@@ -677,9 +679,9 @@ export class ShopService implements OnModuleInit {
 
     // Sync roles now so the campaign chat/card includes this contributor immediately.
     await this.accessProjection.resyncOrderRoles(campaignId);
-    this.events.emit('shop.order.placed', { orderId: campaignId, sellerId, buyerId: contributorId, title: order.titleSnapshot }, 'shop');
+    this.notifications.emitEvent('shop.order.placed', { orderId: campaignId, sellerId, buyerId: contributorId, title: order.titleSnapshot }, 'shop');
     if (order.status === 'pending') {
-      this.events.emit('shop.order.funded', { orderId: campaignId, sellerId, title: order.titleSnapshot }, 'shop');
+      this.notifications.emitEvent('shop.order.funded', { orderId: campaignId, sellerId, title: order.titleSnapshot }, 'shop');
     }
     return this.serializeOrder(order, await this.currencyMap(order.prices.map((p) => p.currencyId)), { viewerId: contributorId });
   }
@@ -712,7 +714,7 @@ export class ShopService implements OnModuleInit {
     });
     // Contributor removed → re-project roles (drops their order.view) immediately.
     await this.accessProjection.resyncOrderRoles(orderId);
-    this.events.emit('shop.order.cancelled', { orderId, sellerId: order.sellerId, title: order.titleSnapshot }, 'shop');
+    this.notifications.emitEvent('shop.order.cancelled', { orderId, sellerId: order.sellerId, title: order.titleSnapshot }, 'shop');
     return this.reloadOrder(orderId, contributorId);
   }
 
@@ -833,7 +835,7 @@ export class ShopService implements OnModuleInit {
           .catch(() => {});
         throw err;
       }
-      this.events.emit('shop.order.confirmed', { orderId, buyerId: order.buyerId, title: order.titleSnapshot }, 'shop');
+      this.notifications.emitEvent('shop.order.confirmed', { orderId, buyerId: order.buyerId, title: order.titleSnapshot }, 'shop');
       return this.reloadOrder(orderId);
     }
 
@@ -862,7 +864,7 @@ export class ShopService implements OnModuleInit {
       }
     }
     await this.markWishFulfilledIfSourced(order.listingId);
-    this.events.emit('shop.order.confirmed', { orderId, buyerId: order.buyerId, title: order.titleSnapshot }, 'shop');
+    this.notifications.emitEvent('shop.order.confirmed', { orderId, buyerId: order.buyerId, title: order.titleSnapshot }, 'shop');
     return this.reloadOrder(orderId);
   }
 
@@ -908,7 +910,7 @@ export class ShopService implements OnModuleInit {
       await this.escrow.releaseAll(tx, { refType: 'order', refId: orderId });
       await this.restoreStock(tx, order.listingId);
     });
-    this.events.emit('shop.order.rejected', { orderId, buyerId: order.buyerId, title: order.titleSnapshot }, 'shop');
+    this.notifications.emitEvent('shop.order.rejected', { orderId, buyerId: order.buyerId, title: order.titleSnapshot }, 'shop');
     return this.reloadOrder(orderId);
   }
 
@@ -928,7 +930,7 @@ export class ShopService implements OnModuleInit {
       await this.escrow.releaseAll(tx, { refType: 'order', refId: orderId });
       await this.restoreStock(tx, order.listingId);
     });
-    this.events.emit('shop.order.cancelled', { orderId, sellerId: order.sellerId, title: order.titleSnapshot }, 'shop');
+    this.notifications.emitEvent('shop.order.cancelled', { orderId, sellerId: order.sellerId, title: order.titleSnapshot }, 'shop');
     return this.reloadOrder(orderId);
   }
 
@@ -947,10 +949,12 @@ export class ShopService implements OnModuleInit {
       });
       if (claimed.count === 0) throw new BadRequestException('Вернуть можно только заказ в работе');
       await this.escrow.releaseAll(tx, { refType: 'order', refId: orderId });
-      if (order.taskId) await tx.task.updateMany({ where: { id: order.taskId }, data: { status: 'cancelled' } });
+      // Отмена задачи-исполнения — через TasksService (статус + хроника task.cancelled),
+      // а не прямым updateMany мимо хроники: движок владеет записями задачи.
+      if (order.taskId) await this.tasks.cancelFulfilmentTaskTrusted(tx, order.taskId, actorId);
       await this.restoreStock(tx, order.listingId);
     });
-    this.events.emit('shop.order.rejected', { orderId, buyerId: order.buyerId, title: order.titleSnapshot }, 'shop');
+    this.notifications.emitEvent('shop.order.rejected', { orderId, buyerId: order.buyerId, title: order.titleSnapshot }, 'shop');
     return this.reloadOrder(orderId);
   }
 
@@ -974,7 +978,7 @@ export class ShopService implements OnModuleInit {
     });
     if (!settled) return;
     await this.markWishFulfilledIfSourced(order.listingId);
-    this.events.emit('shop.order.confirmed', { orderId: order.id, buyerId: order.buyerId, title: order.titleSnapshot }, 'shop');
+    this.notifications.emitEvent('shop.order.confirmed', { orderId: order.id, buyerId: order.buyerId, title: order.titleSnapshot }, 'shop');
   }
 
   /**
@@ -1037,7 +1041,7 @@ export class ShopService implements OnModuleInit {
         return true;
       });
       if (claimed) {
-        this.events.emit('shop.order.cancelled', { orderId: c.id, sellerId: c.sellerId, title: c.titleSnapshot }, 'shop');
+        this.notifications.emitEvent('shop.order.cancelled', { orderId: c.id, sellerId: c.sellerId, title: c.titleSnapshot }, 'shop');
         expired++;
       }
     }

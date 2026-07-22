@@ -1,9 +1,9 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { DatabaseService } from '../../shared/database/database.service';
-import { RedisService } from '../../shared/redis/redis.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { JobsRegistry } from '../../core/jobs/jobs.registry';
+import { CALLS_SESSION_SUMMARIZE_JOB } from '../../core/calls/calls.service';
 import { MessengerService } from './messenger.service';
 
 /**
@@ -30,58 +30,17 @@ export class ChatCallsListener implements OnModuleInit {
   constructor(
     private readonly events: EventBusService,
     private readonly db: DatabaseService,
-    private readonly redis: RedisService,
     private readonly messenger: MessengerService,
     private readonly notifications: NotificationsService,
+    private readonly jobsRegistry: JobsRegistry,
   ) {}
 
-  /**
-   * Подстраховка: если событие call.session.ended потерялось (шина at-most-once —
-   * ack до хэндлера), плашка/уведомление «Пропущенный» не появились бы вовсе, а
-   * summarizedAt так и остался бы null. Крон добивает завершённые chat-сессии без
-   * плашки, пересобирая payload из журнала. Идемпотентность — тот же клейм summarizedAt.
-   */
-  @Cron('*/2 * * * *')
-  async sweepUnsummarized(): Promise<void> {
-    await this.redis.withLock('cron:chat-call-plaques', 60_000, async () => {
-      const ended = await this.db.callSession.findMany({
-        where: {
-          refType: 'chat',
-          status: 'ended',
-          summarizedAt: null,
-          endedAt: { lt: new Date(Date.now() - 60_000) }, // дать листенеру фору
-        },
-        take: 50,
-      });
-      for (const s of ended) {
-        try {
-          const parts = await this.db.callSessionParticipant.findMany({
-            where: { sessionId: s.id },
-            select: { userId: true, joinedAt: true },
-          });
-          const firstJoinedAt = parts.reduce<Date | null>(
-            (min, p) => (min === null || p.joinedAt < min ? p.joinedAt : min),
-            null,
-          );
-          await this.postSummaryPlaque(s.refId, {
-            sessionId: s.id,
-            refType: 'chat',
-            refId: s.refId,
-            startedById: s.startedById,
-            startedAt: s.startedAt.toISOString(),
-            endedAt: (s.endedAt ?? s.updatedAt).toISOString(),
-            firstJoinedAt: firstJoinedAt ? firstJoinedAt.toISOString() : null,
-            endedById: null,
-            participantUserIds: [...new Set(parts.map((p) => p.userId))],
-          });
-        } catch (err) {
-          this.logger.warn(`sweep plaque ${s.id}: ${String((err as Error)?.message ?? err)}`);
-        }
-      }
-    });
-  }
-
   onModuleInit() {
+    // Итоговая плашка звонка чата — джоб core/jobs (ставит core/calls в tx закрытия сессии):
+    // заменил и бус-плашку, и sweep-крон. endedById приходит в payload (в БД не хранится).
+    this.jobsRegistry.register(CALLS_SESSION_SUMMARIZE_JOB, (payload) =>
+      this.handleSummarizeJob(String(payload.sessionId), (payload.endedById as string | null) ?? null),
+    );
     this.events.onPattern('call.session.*').subscribe((e) => {
       void this.handleSession(e.type, (e.payload ?? {}) as ChatCallPayload);
     });
@@ -90,6 +49,35 @@ export class ChatCallsListener implements OnModuleInit {
     });
     this.events.onPattern('call.recording.*').subscribe((e) => {
       void this.handleParticipant((e.payload ?? {}) as ChatCallPayload);
+    });
+  }
+
+  /**
+   * Обработчик джоба `calls.session.summarize`: реконструирует payload из журнала сессии
+   * (endedById приходит в payload — в БД не хранится) и постит итоговую плашку. Идемпотентно
+   * по CallSession.summarizedAt (ретрай/дубль не задвоят). Заменил и бус-плашку, и sweep-крон.
+   */
+  private async handleSummarizeJob(sessionId: string, endedById: string | null): Promise<void> {
+    const s = await this.db.callSession.findUnique({ where: { id: sessionId } });
+    if (!s || s.refType !== 'chat') return; // не chat / удалена — no-op
+    const parts = await this.db.callSessionParticipant.findMany({
+      where: { sessionId: s.id },
+      select: { userId: true, joinedAt: true },
+    });
+    const firstJoinedAt = parts.reduce<Date | null>(
+      (min, p) => (min === null || p.joinedAt < min ? p.joinedAt : min),
+      null,
+    );
+    await this.postSummaryPlaque(s.refId, {
+      sessionId: s.id,
+      refType: 'chat',
+      refId: s.refId,
+      startedById: s.startedById,
+      startedAt: s.startedAt.toISOString(),
+      endedAt: (s.endedAt ?? s.updatedAt).toISOString(),
+      firstJoinedAt: firstJoinedAt ? firstJoinedAt.toISOString() : null,
+      endedById,
+      participantUserIds: [...new Set(parts.map((p) => p.userId))],
     });
   }
 
@@ -111,9 +99,9 @@ export class ChatCallsListener implements OnModuleInit {
         return;
       }
       if (type === 'call.session.ended') {
-        // Снимок уже пуст (сессия ended) — рассылаем гашение явно
+        // Снимок уже пуст (сессия ended) — рассылаем гашение явно (realtime).
+        // Итоговую плашку постит джоб calls.session.summarize (надёжно, в tx закрытия сессии).
         await this.messenger.broadcastCallState(chatId, null);
-        await this.postSummaryPlaque(chatId, p);
         return;
       }
     } catch (err) {

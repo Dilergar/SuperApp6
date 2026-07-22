@@ -94,6 +94,15 @@ async function main() {
     check('конвейер: medium не создан для крошечной картинки', !meta?.variants?.some((v) => v.kind === 'medium'));
     check('конвейер: pipeline=done', meta?.meta?.pipeline === 'done');
 
+    // Конвейер исполняется джобом core/jobs (очередь 'media'), поставленным в tx complete (outbox).
+    let pipeJob = null;
+    for (let i = 0; i < 6; i++) {
+      pipeJob = await prisma.job.findFirst({ where: { type: 'files.pipeline', uniqueKey: `fp:${fileId}` } });
+      if (pipeJob?.status === 'completed') break;
+      await sleep(500);
+    }
+    check('outbox: джоб files.pipeline поставлен в tx complete и завершён', pipeJob?.status === 'completed', pipeJob?.status);
+
     // ===== Приватная выдача (HMAC-ссылка, без JWT) =====
     const dl = await call('GET', `/files/${fileId}/download`, t1);
     check('download: выдана ссылка с expiresAt', dl.ok && typeof dl.json?.data?.url === 'string' && !!dl.json?.data?.expiresAt);
@@ -171,7 +180,7 @@ async function main() {
       const { FilesCron } = require('../dist/core/files/files.cron');
       const { LocalStorageDriver } = require('../dist/core/files/storage/local.driver');
       const driver = new LocalStorageDriver();
-      const cron = new FilesCron(prisma, { withLock: async (_k, _t, fn) => fn() }, { retryPending: async () => 0 }, { enabled: false, enqueue: () => {} }, driver);
+      const cron = new FilesCron(prisma, { withLock: async (_k, _t, fn) => fn() }, driver);
 
       const staleId = crypto.randomUUID();
       await prisma.fileObject.create({ data: { id: staleId, ownerType: 'user', ownerId: u1, uploaderId: u1, profile: 'generic', kind: 'other', name: 'stale.bin', mime: 'application/octet-stream', size: BigInt(10), status: 'uploading', visibility: 'private', storageDriver: 'local', storageKey: `zz/zz/${staleId}`, createdAt: new Date(Date.now() - 25 * 3600 * 1000) } });

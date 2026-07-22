@@ -137,6 +137,15 @@ async function main() {
       check('текст непустой', !!tr?.text && tr.text.length > 10, tr?.text?.slice(0, 40));
       check('сегменты со спикерами (диаризация)', Array.isArray(tr?.segments) && tr.segments.length >= 2 && tr.segments.some((s) => s.speaker), `segments ${tr?.segments?.length}`);
 
+      // исполнение — джоб core/jobs (очередь 'voice'), поставленный в tx запроса (outbox)
+      let vj = null;
+      for (let i = 0; i < 6; i++) {
+        vj = await prisma.job.findFirst({ where: { type: 'voice.transcribe', uniqueKey: `vt:${voiceFileId}` } });
+        if (vj?.status === 'completed') break;
+        await sleep(500);
+      }
+      check('outbox: джоб voice.transcribe поставлен и завершён', vj?.status === 'completed', vj?.status);
+
       // идемпотентность: повторный запрос → та же строка
       const req2 = await call('POST', '/voice/transcripts', t1, { fileId: voiceFileId });
       check('повторный POST → тот же транскрипт (кэш навсегда)', req2.ok && req2.json.data.status === 'ready' && req2.json.data.createdAt === tr.createdAt, req2.json?.data?.createdAt);
