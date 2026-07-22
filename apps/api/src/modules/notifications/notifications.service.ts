@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { DatabaseService } from '../../shared/database/database.service';
+import { utcTs } from '../../shared/database/sql-time';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { JobsService } from '../../core/jobs/jobs.service';
 import {
@@ -57,9 +58,15 @@ export class NotificationsService {
     const body = meta.body ? renderTemplate(meta.body, payload) : null;
 
     if (options.dedupKey) {
+      // created_at — через utcTs(), а не SQL now(). Колонка `timestamp` БЕЗ пояса, и
+      // now() (timestamptz) пишется в неё ПОЯСОМ СЕССИИ. Именно этим путём создаются
+      // все уведомления от джоба notifications.dispatch, а соседний ORM-путь ниже
+      // пишет UTC — то есть на сервере с местным поясом в ОДНОЙ колонке оказались бы
+      // два разных времени: часть ленты уезжала бы вперёд на смещение и вставала бы
+      // не на своё место, а keyset-курсор пагинации на такой смеси пропускал бы строки.
       await this.db.$executeRaw`
         INSERT INTO notifications (id, user_id, type, title, body, payload, action_url, dedup_key, created_at)
-        VALUES (${randomUUID()}, ${userId}, ${type}, ${title}, ${body}, ${JSON.stringify(payload)}::jsonb, ${options.actionUrl ?? null}, ${options.dedupKey}, now())
+        VALUES (${randomUUID()}, ${userId}, ${type}, ${title}, ${body}, ${JSON.stringify(payload)}::jsonb, ${options.actionUrl ?? null}, ${options.dedupKey}, ${utcTs(new Date())})
         ON CONFLICT ("dedup_key") DO NOTHING
       `;
       return null;
@@ -83,14 +90,20 @@ export class NotificationsService {
    * маппленных типов. Замена голому events.emit на ~40 сайтах 6 модулей —
    * пара «событие + уведомление» не может разъехаться.
    */
-  emitEvent(type: string, payload: Record<string, unknown>, emittedBy: string): void {
+  async emitEvent(
+    type: string,
+    payload: Record<string, unknown>,
+    emittedBy: string,
+  ): Promise<void> {
     this.events.emit(type, payload, emittedBy);
     if (!MAPPED_EVENT_TYPES.has(type)) return;
-    void this.enqueueForEvent(null, type, payload).catch((err) =>
-      this.logger.error(
-        `enqueue notifications.dispatch for ${type} failed: ${String((err as Error)?.message ?? err)}`,
-      ),
-    );
+    // ВАЖНО: постановку джоба ЖДЁМ (раньше было void … .catch(log)). Fire-and-forget
+    // означал, что HTTP-ответ уходил, пока INSERT джоба ещё висел в микротаске: SIGTERM
+    // при деплое или блип БД — и уведомление терялось навсегда с одной строкой в логе.
+    // Теперь ошибка постановки поднимается вызывающему (доменная операция честно
+    // падает), а не проглатывается. Полная атомарность с доменной транзакцией
+    // достигается только через enqueueForEvent(tx, …) — см. её комментарий.
+    await this.enqueueForEvent(null, type, payload);
   }
 
   /**

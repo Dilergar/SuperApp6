@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, OnApplicationBootstrap, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import * as net from 'net';
+import { Readable } from 'stream';
 import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../../modules/notifications/notifications.service';
@@ -52,6 +53,14 @@ export class FilesScanHook implements OnModuleInit, OnApplicationBootstrap {
       FILES_SCAN_JOB,
       (payload) => this.scan(String(payload.fileId)),
       {
+        // СВОЯ очередь (правило движка: тяжёлым типам — своя, а не сужение 'default').
+        // Скан 200-МБ потока держит слот до 120с; в 'default' он делил бы те же 10 слотов
+        // с латентно-чувствительными типами (отложенные сообщения, напоминания календаря,
+        // уведомления, плашки чатов), и пачка загрузок подпирала бы их на минуты.
+        queue: 'scan',
+        // Слотов у своей очереди — 3 (как у 'media'): clamd пилит поток на воркеров сам,
+        // десяток параллельных INSTREAM его только душит.
+        queueConcurrency: 3,
         maxAttempts: FilesScanHook.SCAN_MAX_ATTEMPTS,
         // Аренда ОБЯЗАТЕЛЬНА и должна быть больше socket-таймаута INSTREAM (120с):
         // с дефолтом 60с reaper переклеймивал бы файл прямо во время скана 200-МБ потока
@@ -88,6 +97,16 @@ export class FilesScanHook implements OnModuleInit, OnApplicationBootstrap {
    */
   async enqueue(tx: Prisma.TransactionClient | null, fileId: string): Promise<void> {
     if (!this.enabled) return;
+    // Метку 'pending' ставим ЗДЕСЬ, в одной транзакции с постановкой джоба, а не в
+    // начале скана: если все попытки лягут ДО первого запроса обработчика (БД
+    // недоступна весь бэкофф-круг), файл остался бы в 'none' — неотличимо от
+    // «антивирус выключен». Тогда onDiscard (его гвард — ровно scanStatus='pending')
+    // промолчал бы, а бэкфилл, который ищет 'pending', никогда бы файл не поднял:
+    // он навсегда остался бы без вердикта и без следа в БД.
+    await (tx ?? this.db).fileObject.updateMany({
+      where: { id: fileId, scanStatus: 'none' },
+      data: { scanStatus: 'pending' },
+    });
     await this.jobs.enqueue(tx, {
       type: FILES_SCAN_JOB,
       payload: { fileId },
@@ -197,9 +216,19 @@ export class FilesScanHook implements OnModuleInit, OnApplicationBootstrap {
       const socket = net.createConnection({ host: this.host, port: this.port });
       let response = '';
       let settled = false;
+      // Ссылка на поток хранилища живёт СНАРУЖИ колбэка connect, иначе его некому
+      // закрыть: clamd обрывает соединение, едва нашёл сигнатуру, не дочитывая поток.
+      // Без явного destroy() поток остаётся открытым (fd на диске / HTTP-соединение
+      // S3), а если он в этот момент стоял на паузе по бэкпрешеру — 'drain' с мёртвого
+      // сокета не придёт уже НИКОГДА. Каждый неуспешный скан (заражён / таймаут /
+      // рестарт clamd) тёк бы дескриптором, и движок повторял бы это до 6 раз на файл:
+      // EMFILE (валит весь API) либо исчерпание пула соединений S3.
+      let source: Readable | null = null;
       const done = (fn: () => void) => {
         if (settled) return;
         settled = true;
+        source?.destroy();
+        source = null;
         socket.destroy();
         fn();
       };
@@ -224,6 +253,13 @@ export class FilesScanHook implements OnModuleInit, OnApplicationBootstrap {
         try {
           socket.write('zINSTREAM\0');
           const { stream } = await this.driver.getStream(storageKey);
+          // Пока открывали поток, сокет мог умереть (таймаут/ошибка) — тогда done()
+          // уже отработал и этот поток закрыть больше некому.
+          if (settled) {
+            stream.destroy();
+            return;
+          }
+          source = stream;
           // Backpressure: если сокет забит (clamd читает медленнее диска), пауза до
           // 'drain' — иначе весь 200-МБ файл буферизуется в очереди сокета (RSS/OOM).
           stream.on('data', (chunk: Buffer) => {

@@ -16,6 +16,7 @@ import {
   type SkinRarity,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { utcTs } from '../../shared/database/sql-time';
 import { LedgerService } from '../wallet/ledger.service';
 
 type Tx = Prisma.TransactionClient;
@@ -112,15 +113,20 @@ export class CardSkinsService {
       const currency = await this.getPlatformCurrency(tx);
       // Atomically reserve a copy: increments minted only if active, in-window and not sold out.
       // Oversell-safe (same pattern as the Shop stock reservation).
+      // Время — через utcTs(), а не SQL now(): колонки окна продаж и updated_at —
+      // `timestamp` БЕЗ пояса с UTC-значениями, а now() возвращает timestamptz и
+      // приводится ПОЯСОМ СЕССИИ. На сервере с местным поясом (+05) окно продаж
+      // лимитированного скина открывалось и закрывалось бы на 5 часов не тогда.
+      const now = new Date();
       const reserved = await tx.$queryRaw<Array<{ minted: number; supply: number | null; price_amount: bigint }>>(
         Prisma.sql`
           UPDATE card_skins
-          SET minted = minted + 1, updated_at = now()
+          SET minted = minted + 1, updated_at = ${utcTs(now)}
           WHERE id = ${skinId}
             AND status = 'active'
             AND (supply IS NULL OR minted < supply)
-            AND (available_from IS NULL OR available_from <= now())
-            AND (available_until IS NULL OR available_until >= now())
+            AND (available_from IS NULL OR available_from <= ${utcTs(now)})
+            AND (available_until IS NULL OR available_until >= ${utcTs(now)})
           RETURNING minted, supply, price_amount
         `,
       );

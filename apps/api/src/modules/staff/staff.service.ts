@@ -473,7 +473,7 @@ export class StaffService {
       where: { id: workspaceId },
       select: { name: true },
     });
-    this.notifications.emitEvent(
+    await this.notifications.emitEvent(
       'workspace.position.assigned',
       {
         workspaceId,
@@ -575,7 +575,7 @@ export class StaffService {
         where: { id: workspaceId },
         select: { name: true },
       });
-      this.notifications.emitEvent(
+      await this.notifications.emitEvent(
         'workspace.position.certified',
         {
           workspaceId,

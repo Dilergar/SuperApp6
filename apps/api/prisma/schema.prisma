@@ -1964,6 +1964,9 @@ model Job {
   updatedAt   DateTime  @updatedAt @map("updated_at")
   finishedAt  DateTime? @map("finished_at")
 
+  // ВНИМАНИЕ: новая NOT NULL-колонка ОБЯЗАНА иметь DEFAULT — иначе сломается сырой
+  // INSERT в JobsService.enqueue (он перечисляет колонки руками, т.к. ON CONFLICT
+  // DO NOTHING иначе не выразить), причём сломается внутри чужих доменных транзакций.
   // Партиальные индексы — руками в миграции jobs_engine (Prisma не выражает WHERE):
   //   jobs_claim_idx        (queue, priority, run_at, id)  WHERE status='available'
   //   jobs_lease_idx        (lease_until)                   WHERE status='executing'

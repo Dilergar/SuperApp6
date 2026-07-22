@@ -1702,6 +1702,11 @@ export class MessengerService implements OnModuleInit {
       fileIds?: string[];
     },
   ): Promise<{ msg: Prisma.MessageGetPayload<{ include: typeof MESSAGE_REPLY_INCLUDE }>; chatType: string }> {
+    // memberIds — ДО транзакции (то же правило, что в postSystemMessage): после коммита
+    // сообщения не должно остаться ни одного throwable-шага. Иначе блип БД здесь →
+    // отправитель-джоб (messenger.scheduled.fire) вернёт свою строку в pending и отдаст
+    // ошибку движку → ретрай создаст ВТОРОЕ сообщение, и так до 8 копий в чате.
+    const memberUserIds = await this.memberIds(chatId);
     const { msg, chatType } = await this.db.$transaction(async (tx) => {
       // Assign the next per-chat seq (atomic increment under the row).
       const chat = await tx.chat.update({
@@ -1738,7 +1743,6 @@ export class MessengerService implements OnModuleInit {
       return { msg: created, chatType: chat.type };
     });
 
-    const memberUserIds = await this.memberIds(chatId);
     const recipientIds = memberUserIds.filter((id) => id !== userId);
 
     this.events.emit(

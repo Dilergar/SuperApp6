@@ -666,7 +666,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     }
 
     if (toAdd.length) {
-      this.notifications.emitEvent(
+      await this.notifications.emitEvent(
         'calendar.event.invited',
         { recipientIds: toAdd, eventTitle: event.title, eventId, byUserId: organizerId },
         'calendar',
@@ -690,7 +690,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     });
     if (event) {
       const me = await this.userMini(userId);
-      this.notifications.emitEvent(
+      await this.notifications.emitEvent(
         'calendar.event.rsvp',
         {
           recipientIds: [event.userId],
@@ -1141,7 +1141,15 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
       // Одним запросом отсекаем уже поставленные: важно для ежедневного topUp-крона —
       // иначе каждый прогон делал бы INSERT на каждое из ~70 напоминаний горизонта.
       const existing = await this.db.job.findMany({
-        where: { type: CALENDAR_REMINDER_JOB, uniqueKey: { in: fresh.map((r) => `cer:${r.id}`) } },
+        where: {
+          type: CALENDAR_REMINDER_JOB,
+          uniqueKey: { in: fresh.map((r) => `cer:${r.id}`) },
+          // Тот же предикат живости, что и в repairReminderJobs: без него запрос
+          // не попадает в partial-unique jobs_unique_key_live и сканирует всю таблицу
+          // jobs — а это горячий путь, его дёргает ночной topUp на КАЖДУЮ серию
+          // (для владельца и каждого участника), батчами по 500.
+          status: { in: ['available', 'executing'] },
+        },
         select: { uniqueKey: true },
       });
       const have = new Set(existing.map((j) => j.uniqueKey));
@@ -1275,7 +1283,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     });
     const recipientIds = ps.map((p) => p.userId);
     if (recipientIds.length) {
-      this.notifications.emitEvent(type, { recipientIds, eventTitle, eventId, byUserId }, 'calendar');
+      await this.notifications.emitEvent(type, { recipientIds, eventTitle, eventId, byUserId }, 'calendar');
     }
   }
 

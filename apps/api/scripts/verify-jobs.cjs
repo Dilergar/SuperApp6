@@ -142,16 +142,29 @@ async function main() {
     check('джоб взят в исполнение', !!executing, `got ${(await byKey(k7))?.status}`);
     r = await http('POST', '/jobs/dev/expire-lease', { token: t1.token, body: { uniqueKey: k7 } });
     check('аренда протушена', r.json?.data?.expired === 1, JSON.stringify(r.json?.data));
+    const reapAt = Date.now();
     await http('POST', '/jobs/dev/reap', { token: t1.token });
     let j7 = await byKey(k7);
     check('reaper вернул джоб в очередь (available, попытка учтена)', j7?.status === 'available' && j7?.attempts === 1,
       `status ${j7?.status}, attempts ${j7?.attempts}`);
-    check('бэкофф назначен (runAt в будущем)', new Date(j7?.runAt ?? 0).getTime() > Date.now() + 5000, j7?.runAt);
-    // Спящий «зомби»-заход (5с) сейчас завершится и попробует complete: клейм-токен
-    // (attempts в WHERE) должен превратить его в no-op — джоб остаётся available.
+    // Бэкофф reaper считает по базе ТИПА (у дев-типа она намеренно мала — 500мс, чтобы
+    // verify не ждал минутами), поэтому сравниваем с моментом реапа, а не с «сейчас»:
+    // к моменту чтения короткая пауза уже могла истечь.
+    check('бэкофф назначен (runAt сдвинут вперёд от момента реапа)',
+      new Date(j7?.runAt ?? 0).getTime() >= reapAt, j7?.runAt);
+    // Отодвигаем повтор, чтобы вторая попытка не стартовала, пока мы ждём зомби:
+    // проверяем именно клейм-токен, а не гонку с ретраем.
+    await prisma.job.updateMany({
+      where: { type: 'jobs.dev.echo', uniqueKey: k7 },
+      data: { runAt: new Date(Date.now() + 60_000) },
+    });
+    // Спящий «зомби»-заход (5с) сейчас завершится и попробует complete с ПРОШЛЫМ
+    // номером попытки: клейм-токен (attempts в WHERE) обязан превратить его в no-op.
+    // Признак того, что зомби ПРОШЁЛ бы, — ровно completed при attempts === 1.
     await sleep(6500);
     j7 = await byKey(k7);
-    check('зомби-врайт не прошёл (джоб всё ещё available)', j7?.status === 'available', `got ${j7?.status}`);
+    check('зомби-врайт не прошёл (джоб не завершён прошлой попыткой)',
+      !(j7?.status === 'completed' && j7?.attempts === 1), `got ${j7?.status}/${j7?.attempts}`);
     // Ускоряем ретрай: runAt → сейчас; вторая попытка отрабатывает штатно.
     await prisma.job.updateMany({
       where: { type: 'jobs.dev.echo', uniqueKey: k7 },
@@ -186,8 +199,45 @@ async function main() {
     const counts = r.json?.data?.counts ?? [];
     check('счётчики по типу/статусу есть', counts.some((c) => c.type === 'jobs.dev.echo' && c.count > 0));
     check('recentDiscarded непуст (после секций 4–5)', (r.json?.data?.recentDiscarded ?? []).length >= 2);
+
+    // Джоб типа без обработчика бессмертен (claim идёт по реестру, ретеншн — только
+    // терминальные). Движок обязан его ВИДЕТЬ, не пускать в прибор «очередь встала»
+    // и давать похоронить осознанно — но не убивать сам (чаще это выключенная фича).
+    console.log('\n-- 11. тип без обработчика: виден, не портит прибор, чистится осознанно --');
+    const ghostType = 'jobs.dev.ghost';
+    await prisma.job.deleteMany({ where: { type: ghostType } });
+    const ghostAge = new Date(Date.now() - 72 * 3600 * 1000); // «висит трое суток»
+    await prisma.job.create({
+      data: { type: ghostType, queue: 'default', status: 'available', runAt: ghostAge, createdAt: ghostAge, updatedAt: ghostAge },
+    });
+    await sleep(1500); // поллер обязан его ПРОИГНОРИРОВАТЬ, а не взять в работу
+    let ghost = await prisma.job.findFirst({ where: { type: ghostType } });
+    check('бесхозный джоб не взят в работу', ghost?.status === 'available' && ghost?.attempts === 0, `${ghost?.status}/${ghost?.attempts}`);
+
+    r = await http('GET', '/jobs/stats', { token: t1.token });
+    const unhandled = r.json?.data?.unhandled ?? [];
+    const ghostRow = unhandled.find((u) => u.type === ghostType);
+    check('бесхозный тип назван в stats.unhandled', !!ghostRow && ghostRow.count === 1, JSON.stringify(unhandled));
+    check('его возраст показан (~72ч)', !!ghostRow && ghostRow.oldestAgeSec > 71 * 3600);
+    const oldestSec = r.json?.data?.oldestAvailableAgeSec;
+    check(
+      'прибор «очередь встала» им НЕ отравлен',
+      oldestSec === null || oldestSec < 71 * 3600,
+      `oldestAvailableAgeSec=${oldestSec}`,
+    );
+
+    r = await http('POST', '/jobs/dev/purge-unhandled', { token: t1.token, body: { type: 'jobs.dev.echo' } });
+    check('чистка ЗАРЕГИСТРИРОВАННОГО типа запрещена', !r.ok, `status ${r.status}`);
+
+    r = await http('POST', '/jobs/dev/purge-unhandled', { token: t1.token, body: { type: ghostType } });
+    check('осознанная чистка бесхозного типа прошла', r.ok && r.json?.data?.purged === 1, JSON.stringify(r.json));
+    ghost = await prisma.job.findFirst({ where: { type: ghostType } });
+    check('строка похоронена как cancelled + finishedAt (заберёт ретеншн)', ghost?.status === 'cancelled' && !!ghost?.finishedAt, ghost?.status);
+
+    r = await http('GET', '/jobs/stats', { token: t1.token });
+    check('после чистки тип ушёл из unhandled', !(r.json?.data?.unhandled ?? []).some((u) => u.type === ghostType));
   } finally {
-    await prisma.job.deleteMany({ where: { type: 'jobs.dev.echo' } });
+    await prisma.job.deleteMany({ where: { type: { in: ['jobs.dev.echo', 'jobs.dev.ghost'] } } });
     await prisma.$disconnect();
   }
 

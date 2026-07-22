@@ -361,7 +361,7 @@ export class ContactsService {
     await this.revokeMembershipTuples(link);
     await this.revokeFinbookSharesBetween(link.userAId, link.userBId);
 
-    this.notifications.emitEvent(
+    await this.notifications.emitEvent(
       'contact.removed',
       {
         contactLinkId: linkId,
@@ -511,7 +511,7 @@ export class ContactsService {
       },
     });
 
-    this.notifications.emitEvent(
+    await this.notifications.emitEvent(
       'contact.invitation.sent',
       {
         invitationId: invitation.id,
@@ -636,7 +636,7 @@ export class ContactsService {
       select: { firstName: true, lastName: true },
     });
 
-    this.notifications.emitEvent(
+    await this.notifications.emitEvent(
       'contact.invitation.accepted',
       {
         invitationId: invitation.id,
@@ -662,7 +662,7 @@ export class ContactsService {
       recipient?.firstName ?? '',
       recipient?.lastName ?? null,
     );
-    this.notifications.emitEvent(
+    await this.notifications.emitEvent(
       'contact.linked',
       {
         contactLinkId: link.id,
@@ -700,7 +700,7 @@ export class ContactsService {
       select: { firstName: true, lastName: true },
     });
 
-    this.notifications.emitEvent(
+    await this.notifications.emitEvent(
       'contact.invitation.rejected',
       {
         invitationId: invitation.id,
@@ -729,7 +729,7 @@ export class ContactsService {
       data: { status: 'cancelled', respondedAt: new Date() },
     });
 
-    this.notifications.emitEvent(
+    await this.notifications.emitEvent(
       'contact.invitation.cancelled',
       {
         invitationId: invitation.id,
@@ -838,7 +838,7 @@ export class ContactsService {
     });
 
     for (const inv of pending) {
-      this.notifications.emitEvent(
+      await this.notifications.emitEvent(
         'contact.invitation.activated',
         {
           invitationId: inv.id,

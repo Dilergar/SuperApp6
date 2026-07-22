@@ -69,6 +69,12 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
       FINALIZE_JOB,
       (payload, ctx) => this.handleFinalizeJob(String(payload.recordingId), payload, ctx),
       {
+        // Своя очередь (правило платформы «тяжёлый/долгий тип — не в 'default'»):
+        // обработчик считает sha256 и копирует файл до 200 МБ, занимая слот минутами.
+        // В 'default' он подпирал бы латентно-чувствительные типы — напоминания
+        // календаря, уведомления, отложенные сообщения, плашки хроники.
+        queue: 'recording',
+        queueConcurrency: 2,
         maxAttempts: MAX_FINALIZE_ATTEMPTS,
         leaseMs: 15 * 60 * 1000,
         onDiscard: (payload, info) =>
@@ -236,11 +242,19 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
     await this.requirePresenceDuringRecording(sessionId, userId, rec.startedAt, rec.endedAt);
 
     await this.addClaim(rec.id, userId);
-    // Джоб доставки ставим ВСЕГДА, а не только на ready: финализация может коммитить
-    // ready прямо сейчас — её транзакция нашего клейма ещё не видит, а мы её ready ещё
-    // не видим, и тогда клеймant остался бы без доставки. Обработчик сам дождётся ready.
-    await this.enqueueDeliver(null, rec.id, userId);
     const fresh = await this.db.callRecording.findUnique({ where: { id: rec.id } });
+    // Джоб доставки ставим ТОЛЬКО на готовую запись. Если она ещё не ready — джоб
+    // поставит транзакция финализации, и это гарантировано порядком операций: наш клейм
+    // записан ДО этого чтения статуса, а статус мы прочитали ДО того, как финализация
+    // закоммитила ready (иначе увидели бы ready) — значит, когда финализация уже после
+    // своего коммита читала список клеймов, наш там был.
+    // Ставить джоб безусловно (как было) нельзя: на ещё идущей записи обработчик уходил
+    // в «не ready → throw», жёг 8 попыток с бэкоффом ≈ час и хоронился ложным
+    // dead-letter'ом; вдобавок его живой executing-джоб глушил бы по uniqueKey
+    // (ON CONFLICT DO NOTHING) настоящую постановку от финализации — и доставка терялась.
+    if (fresh?.status === 'ready' && fresh.fileId) {
+      await this.enqueueDeliver(null, rec.id, userId);
+    }
     return this.serialize(fresh ?? rec, true);
   }
 
@@ -307,7 +321,15 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
         info.status === EgressStatus.EGRESS_STARTING ||
         info.status === EgressStatus.EGRESS_ENDING
       ) {
-        throw new Error(`egress ещё активен (${EgressStatus[info.status] ?? info.status})`);
+        // Запись ИДЁТ прямо сейчас (бэкфилл после рестарта поднял живой звонок).
+        // Это не ошибка и не «работа на потом»: ретраить нечего — финализацию принесёт
+        // вебхук egress_ended, а если он потеряется — крон-редрайв (redrive() для этого
+        // же условия делает ровно `continue`). Бросать здесь НЕЛЬЗЯ: движок считает
+        // обычную ошибку транзиентной, 5 попыток сгорели бы за ~7.5 мин, dead-letter
+        // дёрнул бы onDiscard → markError, и ИДУЩАЯ запись была бы объявлена
+        // провалившейся — а в терминальный error файл egress принять уже некуда.
+        this.logger.log(`recording ${recordingId}: egress ещё идёт — финализация будет позже`);
+        return;
       }
       complete = info.status === EgressStatus.EGRESS_COMPLETE;
       containerFile = info.fileResults?.[0]?.filename ?? null;
@@ -340,22 +362,35 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
       // access ДО ingest: файл ещё не сброшен на диск → бросаем без сироты в files
       await fs.promises.access(hostPath, fs.constants.R_OK);
 
-      const started = rec.startedAt;
-      const title = `Звонок · ${started.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })} ${started.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
-      const file = await this.files.ingestLocalFile({
-        path: hostPath,
-        name: `${title}.ogg`,
-        mime: 'audio/ogg',
-        profile: 'dictaphone',
-        ownerUserId: rec.startedById,
-      });
+      // Файл от ПРЕДЫДУЩЕЙ попытки переиспользуем. Инжест не идемпотентен (создаёт
+      // FileObject и инкрементит квоту владельца, дедупа по содержимому нет), а между
+      // ним и записью ready есть окно: упасть там (или получить SIGKILL при деплое —
+      // дренаж всего 10с) означало бы второй инжест тех же байт на ретрае, второй файл
+      // и дважды съеденную квоту. Поэтому fileId фиксируем сразу после инжеста.
+      let fileId = rec.fileId;
+      if (!fileId) {
+        const started = rec.startedAt;
+        const title = `Звонок · ${started.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })} ${started.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+        const file = await this.files.ingestLocalFile({
+          path: hostPath,
+          name: `${title}.ogg`,
+          mime: 'audio/ogg',
+          profile: 'dictaphone',
+          ownerUserId: rec.startedById,
+        });
+        fileId = file.id;
+        await this.db.callRecording.updateMany({
+          where: { id: rec.id, status: 'ingesting', attempts: token },
+          data: { fileId },
+        });
+      }
 
       // ready + постановка джобов доставки — в одной транзакции (outbox): либо запись
       // готова и доставки поставлены, либо (проигранная гонка на клейме) откат без сирот.
       const readied = await this.db.$transaction(async (tx) => {
         const done = await tx.callRecording.updateMany({
           where: { id: rec.id, status: 'ingesting', attempts: token },
-          data: { status: 'ready', fileId: file.id, endedAt: new Date(), error: null },
+          data: { status: 'ready', fileId, endedAt: new Date(), error: null },
         });
         if (done.count !== 1) return false;
         const claims = await tx.callRecordingClaim.findMany({

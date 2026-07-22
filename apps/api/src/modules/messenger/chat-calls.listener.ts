@@ -122,6 +122,26 @@ export class ChatCallsListener implements OnModuleInit {
     });
     if (claimed.count !== 1) return;
 
+    // Клейм коммитится ДО побочного эффекта и вне его транзакции, поэтому любая
+    // транзиентная ошибка ниже (дедлок, таймаут БД) без отката клейма означала бы,
+    // что ретрай увидит count!==1 и молча выйдет — плашки «Звонок · N» / «Пропущенный»
+    // не будет уже никогда. Возвращаем клейм на место и отдаём ошибку движку.
+    try {
+      await this.postSummaryEffects(chatId, p, joined);
+    } catch (err) {
+      await this.db.callSession
+        .updateMany({ where: { id: p.sessionId }, data: { summarizedAt: null } })
+        .catch(() => undefined);
+      throw err;
+    }
+  }
+
+  /** Сам эффект плашки (вынесен, чтобы клейм откатывался при любой ошибке — см. выше). */
+  private async postSummaryEffects(
+    chatId: string,
+    p: ChatCallPayload,
+    joined: string[],
+  ): Promise<void> {
     const chat = await this.db.chat.findUnique({
       where: { id: chatId },
       select: { type: true, members: { select: { userId: true } } },

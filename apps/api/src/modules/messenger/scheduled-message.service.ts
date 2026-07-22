@@ -65,7 +65,15 @@ export class ScheduledMessageService implements OnModuleInit, OnApplicationBoots
     this.jobsRegistry.register(
       SCHEDULED_FIRE_JOB,
       (payload) => this.handleFireJob(payload),
-      { maxAttempts: 8 },
+      {
+        maxAttempts: 8,
+        // Джоб может умереть по протухшей аренде (краш инстанса) — тогда catch
+        // обработчика не выполнится, и строка навсегда залипнет в 'sending':
+        // из UI она уже скрыта (listForChat берёт только pending), ретеншном не
+        // чистится (purgeOld трогает sent|cancelled), а каждый деплой бэкфилл
+        // поднимает её заново. Терминальный статус ставим здесь.
+        onDiscard: (payload) => this.markFireDiscarded(String(payload.scheduledMessageId ?? '')),
+      },
     );
   }
 
@@ -214,8 +222,12 @@ export class ScheduledMessageService implements OnModuleInit, OnApplicationBoots
     if (!row || row.status === 'sent' || row.status === 'cancelled') return;
     if (row.sendAt.getTime() !== sendAtMs) return; // время переназначили — живёт джоб новой версии
 
+    // sendAt в claim'е обязателен: сверка версии выше сделана на СТАРОМ чтении, и в
+    // зазоре между ней и клеймом пользователь может успеть перенести время (его
+    // cancelByUniqueKey промахнётся — наш джоб уже executing). Без этого условия
+    // сообщение ушло бы по отменённому сроку.
     const claimed = await this.db.scheduledMessage.updateMany({
-      where: { id, status: { in: ['pending', 'sending'] } },
+      where: { id, status: { in: ['pending', 'sending'] }, sendAt: new Date(sendAtMs) },
       data: { status: 'sending' },
     });
     if (claimed.count === 0) return;
@@ -253,6 +265,23 @@ export class ScheduledMessageService implements OnModuleInit, OnApplicationBoots
         .updateMany({ where: { id, status: 'sending' }, data: { status: 'pending' } })
         .catch(() => {});
       throw e;
+    }
+  }
+
+  /**
+   * Джоб выстрела похоронен (исчерпаны попытки ЛИБО смерть по аренде — тогда catch
+   * обработчика вообще не отрабатывал). Строке нельзя остаться в 'sending'/'pending':
+   * в первом случае она невидима и вечна, во втором — врёт пользователю «ещё отправится».
+   * Терминал — 'cancelled' (та же ветка, что при отозванном доступе): не ушло и не уйдёт.
+   */
+  private async markFireDiscarded(id: string): Promise<void> {
+    if (!id) return;
+    const res = await this.db.scheduledMessage.updateMany({
+      where: { id, status: { in: ['pending', 'sending'] } },
+      data: { status: 'cancelled' },
+    });
+    if (res.count > 0) {
+      this.logger.warn(`отложенное сообщение ${id}: джоб выстрела похоронен → cancelled`);
     }
   }
 

@@ -458,7 +458,7 @@ export class WorkspacesService implements OnModuleInit {
         ],
         payload: { targetUserId, targetName: await this.userName(targetUserId) },
       });
-      this.notifications.emitEvent(
+      await this.notifications.emitEvent(
         'workspace.role.changed',
         {
           workspaceId,
@@ -502,7 +502,7 @@ export class WorkspacesService implements OnModuleInit {
       typeKey: 'staff.fired',
       payload: { targetUserId, targetName: await this.userName(targetUserId) },
     });
-    this.notifications.emitEvent(
+    await this.notifications.emitEvent(
       'workspace.member.removed',
       { workspaceId, workspaceName: ws.name, userId: targetUserId },
       'WorkspacesService',
@@ -617,7 +617,7 @@ export class WorkspacesService implements OnModuleInit {
       include: INVITATION_INCLUDE,
     });
 
-    this.notifications.emitEvent(
+    await this.notifications.emitEvent(
       'workspace.invitation.sent',
       {
         invitationId: inv.id,
@@ -775,7 +775,7 @@ export class WorkspacesService implements OnModuleInit {
     // Назначение создано в tx (мимо StaffService-проекции) — спроецировать рёбра.
     if (inv.positionId) await this.staff.projectWorkspaceStaff(inv.workspaceId);
 
-    this.notifications.emitEvent(
+    await this.notifications.emitEvent(
       'workspace.invitation.accepted',
       {
         workspaceId: inv.workspaceId,
@@ -815,7 +815,7 @@ export class WorkspacesService implements OnModuleInit {
       where: { id: userId },
       select: { firstName: true, lastName: true },
     });
-    this.notifications.emitEvent(
+    await this.notifications.emitEvent(
       'workspace.invitation.rejected',
       {
         workspaceId: inv.workspaceId,
@@ -844,7 +844,7 @@ export class WorkspacesService implements OnModuleInit {
     });
 
     for (const inv of pending) {
-      this.notifications.emitEvent(
+      await this.notifications.emitEvent(
         'workspace.invitation.sent',
         {
           invitationId: inv.id,

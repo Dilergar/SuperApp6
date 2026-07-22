@@ -4,12 +4,13 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
+import { pipeline as streamPipeline } from 'stream/promises';
 import { FILE_LIMITS, FILE_PROFILES, VOICE_LIMITS, FileProfileSpec } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { execFF, ffBinaries, ffprobeFormat } from '../../shared/ffmpeg/ffmpeg.util';
 import { mediaSemaphore } from '../../shared/utils/semaphore';
-import { JobsRegistry } from '../jobs/jobs.registry';
+import { JobContext, JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { JobsService } from '../jobs/jobs.service';
 import { STORAGE_DRIVER, StorageDriver } from './storage/storage-driver';
 
@@ -29,6 +30,13 @@ const sharp = require('sharp') as (input?: string) => SharpInstance;
 
 /** Тип джоба медиа-конвейера в реестре core/jobs. */
 const FILES_PIPELINE_JOB = 'files.pipeline';
+
+/**
+ * Сколько попыток даём декодеру, прежде чем счесть вход НЕПОДДЕРЖИВАЕМЫМ. Одна попытка
+ * на транзиент (диск/память/занятый ffmpeg), дальше — терминал без dead-letter'а:
+ * неподдерживаемый формат ретраями не лечится, а инцидент по нему ложный.
+ */
+const DECODE_RETRY_ATTEMPTS = 2;
 
 /**
  * Медиа-конвейер движка файлов: варианты изображений (sharp: EXIF/GPS срезается по
@@ -58,7 +66,7 @@ export class FilesPipelineService implements OnModuleInit, OnApplicationBootstra
   onModuleInit(): void {
     this.jobsRegistry.register(
       FILES_PIPELINE_JOB,
-      (payload) => mediaSemaphore.run(() => this.run(String(payload.fileId))),
+      (payload, ctx) => this.run(String(payload.fileId), ctx),
       {
         queue: 'media',
         queueConcurrency: 3,
@@ -106,11 +114,18 @@ export class FilesPipelineService implements OnModuleInit, OnApplicationBootstra
     });
   }
 
-  private async run(fileId: string): Promise<void> {
+  private async run(fileId: string, ctx: JobContext): Promise<void> {
     const row = await this.db.fileObject.findUnique({ where: { id: fileId } });
     if (!row || row.status !== 'ready') return;
     const meta = (row.meta as Record<string, unknown> | null) ?? {};
     if (meta.pipeline === 'done') return;
+    // Заражённый файл не декодируем: скан идёт параллельно в своей очереди и мог уже
+    // вынести вердикт. Скармливать эти байты sharp/ffmpeg (да ещё до 5 раз на ретраях)
+    // незачем — движок голоса ровно такую проверку и делает.
+    if (row.scanStatus === 'infected') {
+      await this.setPipeline(fileId, meta, { pipeline: 'skipped_infected' });
+      return;
+    }
     const spec = FILE_PROFILES[row.profile] ?? FILE_PROFILES.generic;
     if (!spec.makeVariants || !['image', 'video', 'audio'].includes(row.kind)) {
       await this.setPipeline(fileId, meta, { pipeline: 'done' });
@@ -127,18 +142,43 @@ export class FilesPipelineService implements OnModuleInit, OnApplicationBootstra
         source = tempSource;
       }
 
-      const patch: Record<string, unknown> = {};
-      if (row.kind === 'image') {
-        Object.assign(patch, await this.processImage(row.id, row.storageKey, source));
-      } else if (row.kind === 'video') {
-        Object.assign(patch, await this.processVideo(row.id, row.storageKey, source));
-      } else if (row.kind === 'audio') {
-        Object.assign(patch, await this.processAudio(spec, source));
+      const src = source;
+      let patch: Record<string, unknown>;
+      try {
+        // Семафор — ТОЛЬКО вокруг тяжёлого CPU-шага (ffmpeg/sharp). Раньше он держался
+        // и на время скачивания из S3: пачка загрузок занимала все 3 слота сетью и
+        // подпирала подготовку звука core/voice и синхронный /voice/stt, которые стоят
+        // в той же очереди семафора, хотя ждали не процессор.
+        patch = await mediaSemaphore.run(async () => {
+          const out: Record<string, unknown> = {};
+          if (row.kind === 'image') {
+            Object.assign(out, await this.processImage(row.id, row.storageKey, src));
+          } else if (row.kind === 'video') {
+            Object.assign(out, await this.processVideo(row.id, row.storageKey, src));
+          } else if (row.kind === 'audio') {
+            Object.assign(out, await this.processAudio(spec, src));
+          }
+          return out;
+        });
+      } catch (err) {
+        // Декодер отверг вход. Транзиент (диск/память/занятый ffmpeg) лечится ретраем, а
+        // НЕПОДДЕРЖИВАЕМЫЙ формат не лечится ничем: .heic с айфона в чат (профиль
+        // chat_attachment пускает любой MIME), .bmp, видео без дорожки будут падать
+        // одинаково все 5 попыток по минуте бэкоффа, а в конце движок напишет error-лог
+        // и job.discarded — ложный инцидент на исправном файле (он уже отдан
+        // пользователю, просто без превью). Поэтому терминал после первой же неудачи.
+        const msg = err instanceof Error ? err.message : String(err);
+        if (ctx.attempt >= DECODE_RETRY_ATTEMPTS) {
+          await this.setPipeline(fileId, meta, {
+            pipeline: 'unsupported',
+            pipelineError: msg.slice(0, 300),
+          });
+          throw new JobDiscardError(`файл ${fileId}: медиа не декодируется (${msg.slice(0, 120)})`);
+        }
+        throw err;
       }
 
       await this.setPipeline(fileId, meta, { ...patch, pipeline: 'done', pipelineError: undefined });
-      // Ошибку НЕ гасим: бросаем — движок джобов ретраит с бэкоффом, исчерпание →
-      // dead-letter (meta.pipeline остаётся 'pending', backfill пропустит по discarded-джобу).
     } finally {
       if (tempSource) await fs.promises.unlink(tempSource).catch(() => undefined);
     }
@@ -163,12 +203,11 @@ export class FilesPipelineService implements OnModuleInit, OnApplicationBootstra
       take: 500,
       select: { id: true, meta: true },
     });
-    // Доджобовые 'failed' с исчерпанными старыми ретраями не воскрешаем.
-    const eligible = rows.filter((r) => {
-      const meta = (r.meta as Record<string, unknown> | null) ?? {};
-      const retries = typeof meta.pipelineRetries === 'number' ? meta.pipelineRetries : 0;
-      return retries < FILE_LIMITS.pipelineMaxRetries;
-    });
+    // Фильтр по meta.pipelineRetries убран: это поле НИКОГДА и НИГДЕ не писалось —
+    // `retries` всегда был 0, то есть фильтр был вечным no-op и создавал ложное
+    // ощущение защиты. Настоящий ремень от воскрешения безнадёжных файлов — терминальные
+    // маркеры 'exhausted'/'unsupported'/'skipped_infected': выборка выше их не берёт.
+    const eligible = rows;
     if (eligible.length === 0) return;
     const keys = eligible.map((r) => `fp:${r.id}`);
     // ТОЛЬКО живые джобы: терминальные (discarded/completed) не должны «вечно занимать»
@@ -379,20 +418,23 @@ export class FilesPipelineService implements OnModuleInit, OnApplicationBootstra
   ): Promise<void> {
     const next: Record<string, unknown> = { ...currentMeta, ...patch };
     for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
-    await this.db.fileObject.update({
+    // Ошибку записи НЕ глушим (было `.catch(() => undefined)`): здесь пишутся оба
+    // терминальных маркера идемпотентности — 'done' и 'exhausted'/'unsupported'. Молча
+    // потерянный маркер означает, что файл навсегда остаётся 'pending' и бэкфилл
+    // воскрешает его на КАЖДОМ старте, каждый раз заново перекодируя (или заново
+    // выжигая попытки безнадёжного). updateMany — чтобы удалённый файл не бросал P2025.
+    await this.db.fileObject.updateMany({
       where: { id: fileId },
       data: { meta: next as object },
-    }).catch(() => undefined);
+    });
   }
 
   private async downloadToFile(key: string, dest: string): Promise<void> {
     const { stream } = await this.driver.getStream(key);
-    await new Promise<void>((resolve, reject) => {
-      const out = fs.createWriteStream(dest);
-      stream.pipe(out);
-      stream.on('error', reject);
-      out.on('error', reject);
-      out.on('finish', () => resolve());
-    });
+    // stream/promises.pipeline, а не голый .pipe(): при ошибке любой из сторон (диск
+    // полон / оборвалось соединение S3) он уничтожает ОБА конца. С голым .pipe()
+    // исходный поток оставался висеть открытым соединением, и каждый ретрай добавлял
+    // ещё одно. Тот же приём уже используется в core/voice.
+    await streamPipeline(stream, fs.createWriteStream(dest));
   }
 }

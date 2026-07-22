@@ -48,6 +48,21 @@ export class JobsController {
     return { success: true, data: await this.jobs.stats() };
   }
 
+  /**
+   * Осознанная чистка джобов мёртвого типа. Ручка dev-only: в проде это редкая
+   * операция «раз в жизни типа», а её место — будущий кабинет platform_admin
+   * (No Placeholder UI). До него в проде — тот же `purgeUnhandled` из консоли/SQL.
+   * Тип называется ЯВНО: движок сам не решает, что «незнакомое» = «мёртвое»
+   * (чаще это выключенная фича — см. JobsService.listUnhandled).
+   */
+  @Post('dev/purge-unhandled')
+  @ApiOperation({ summary: 'Похоронить живые джобы типа без обработчика (только development)' })
+  async devPurgeUnhandled(@Body() body: unknown) {
+    this.assertDev();
+    const { type } = z.object({ type: z.string().min(1).max(100) }).strict().parse(body ?? {});
+    return { success: true, data: { purged: await this.jobs.purgeUnhandled(type) } };
+  }
+
   @Post('dev/enqueue')
   @ApiOperation({ summary: 'Дев-полигон: поставить тест-джоб (в транзакции; rollback=true — откатить её)' })
   async devEnqueue(@Body() body: unknown) {

@@ -587,7 +587,7 @@ export class ShopService implements OnModuleInit {
     // Project order roles SYNCHRONOUSLY so the order rich-card / chat is accessible
     // immediately (the shop.order.* listener is an idempotent safety net, not the source).
     await this.accessProjection.resyncOrderRoles(order.id);
-    this.notifications.emitEvent('shop.order.placed', { orderId: order.id, sellerId, buyerId, title: order.titleSnapshot }, 'shop');
+    await this.notifications.emitEvent('shop.order.placed', { orderId: order.id, sellerId, buyerId, title: order.titleSnapshot }, 'shop');
     return this.serializeOrder(order, await this.currencyMap(order.prices.map((p) => p.currencyId)));
   }
 
@@ -679,9 +679,9 @@ export class ShopService implements OnModuleInit {
 
     // Sync roles now so the campaign chat/card includes this contributor immediately.
     await this.accessProjection.resyncOrderRoles(campaignId);
-    this.notifications.emitEvent('shop.order.placed', { orderId: campaignId, sellerId, buyerId: contributorId, title: order.titleSnapshot }, 'shop');
+    await this.notifications.emitEvent('shop.order.placed', { orderId: campaignId, sellerId, buyerId: contributorId, title: order.titleSnapshot }, 'shop');
     if (order.status === 'pending') {
-      this.notifications.emitEvent('shop.order.funded', { orderId: campaignId, sellerId, title: order.titleSnapshot }, 'shop');
+      await this.notifications.emitEvent('shop.order.funded', { orderId: campaignId, sellerId, title: order.titleSnapshot }, 'shop');
     }
     return this.serializeOrder(order, await this.currencyMap(order.prices.map((p) => p.currencyId)), { viewerId: contributorId });
   }
@@ -714,7 +714,7 @@ export class ShopService implements OnModuleInit {
     });
     // Contributor removed → re-project roles (drops their order.view) immediately.
     await this.accessProjection.resyncOrderRoles(orderId);
-    this.notifications.emitEvent('shop.order.cancelled', { orderId, sellerId: order.sellerId, title: order.titleSnapshot }, 'shop');
+    await this.notifications.emitEvent('shop.order.cancelled', { orderId, sellerId: order.sellerId, title: order.titleSnapshot }, 'shop');
     return this.reloadOrder(orderId, contributorId);
   }
 
@@ -835,7 +835,7 @@ export class ShopService implements OnModuleInit {
           .catch(() => {});
         throw err;
       }
-      this.notifications.emitEvent('shop.order.confirmed', { orderId, buyerId: order.buyerId, title: order.titleSnapshot }, 'shop');
+      await this.notifications.emitEvent('shop.order.confirmed', { orderId, buyerId: order.buyerId, title: order.titleSnapshot }, 'shop');
       return this.reloadOrder(orderId);
     }
 
@@ -864,7 +864,7 @@ export class ShopService implements OnModuleInit {
       }
     }
     await this.markWishFulfilledIfSourced(order.listingId);
-    this.notifications.emitEvent('shop.order.confirmed', { orderId, buyerId: order.buyerId, title: order.titleSnapshot }, 'shop');
+    await this.notifications.emitEvent('shop.order.confirmed', { orderId, buyerId: order.buyerId, title: order.titleSnapshot }, 'shop');
     return this.reloadOrder(orderId);
   }
 
@@ -910,7 +910,7 @@ export class ShopService implements OnModuleInit {
       await this.escrow.releaseAll(tx, { refType: 'order', refId: orderId });
       await this.restoreStock(tx, order.listingId);
     });
-    this.notifications.emitEvent('shop.order.rejected', { orderId, buyerId: order.buyerId, title: order.titleSnapshot }, 'shop');
+    await this.notifications.emitEvent('shop.order.rejected', { orderId, buyerId: order.buyerId, title: order.titleSnapshot }, 'shop');
     return this.reloadOrder(orderId);
   }
 
@@ -930,7 +930,7 @@ export class ShopService implements OnModuleInit {
       await this.escrow.releaseAll(tx, { refType: 'order', refId: orderId });
       await this.restoreStock(tx, order.listingId);
     });
-    this.notifications.emitEvent('shop.order.cancelled', { orderId, sellerId: order.sellerId, title: order.titleSnapshot }, 'shop');
+    await this.notifications.emitEvent('shop.order.cancelled', { orderId, sellerId: order.sellerId, title: order.titleSnapshot }, 'shop');
     return this.reloadOrder(orderId);
   }
 
@@ -954,7 +954,7 @@ export class ShopService implements OnModuleInit {
       if (order.taskId) await this.tasks.cancelFulfilmentTaskTrusted(tx, order.taskId, actorId);
       await this.restoreStock(tx, order.listingId);
     });
-    this.notifications.emitEvent('shop.order.rejected', { orderId, buyerId: order.buyerId, title: order.titleSnapshot }, 'shop');
+    await this.notifications.emitEvent('shop.order.rejected', { orderId, buyerId: order.buyerId, title: order.titleSnapshot }, 'shop');
     return this.reloadOrder(orderId);
   }
 
@@ -978,7 +978,7 @@ export class ShopService implements OnModuleInit {
     });
     if (!settled) return;
     await this.markWishFulfilledIfSourced(order.listingId);
-    this.notifications.emitEvent('shop.order.confirmed', { orderId: order.id, buyerId: order.buyerId, title: order.titleSnapshot }, 'shop');
+    await this.notifications.emitEvent('shop.order.confirmed', { orderId: order.id, buyerId: order.buyerId, title: order.titleSnapshot }, 'shop');
   }
 
   /**
@@ -1041,7 +1041,7 @@ export class ShopService implements OnModuleInit {
         return true;
       });
       if (claimed) {
-        this.notifications.emitEvent('shop.order.cancelled', { orderId: c.id, sellerId: c.sellerId, title: c.titleSnapshot }, 'shop');
+        await this.notifications.emitEvent('shop.order.cancelled', { orderId: c.id, sellerId: c.sellerId, title: c.titleSnapshot }, 'shop');
         expired++;
       }
     }

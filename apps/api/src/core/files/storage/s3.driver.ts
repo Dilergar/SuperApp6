@@ -43,6 +43,16 @@ export class S3StorageDriver implements StorageDriver {
         accessKeyId: process.env.S3_ACCESS_KEY_ID as string,
         secretAccessKey: process.env.S3_SECRET_ACCESS_KEY as string,
       },
+      // Таймауты обязательны: своих у SDK НЕТ вовсе, и зависшее соединение к хранилищу
+      // висит вечно. Для фоновых джобов это отдельно опасно — скачивание байт течёт
+      // внутри аренды, поэтому «вечное» ожидание = переклейм reaper'ом и вторая
+      // параллельная тяжёлая работа (расшифровка/конвейер). requestTimeout — это простой
+      // сокета БЕЗ данных, а не общий потолок, так что медленную, но живую загрузку
+      // 200-МБ файла он не рвёт.
+      requestHandler: {
+        connectionTimeout: 10_000,
+        requestTimeout: 120_000,
+      },
     });
     // Dev-удобство: пробуем создать бакет (ошибка не валит процесс — прод-бакет создают руками)
     void this.ensureBucket();

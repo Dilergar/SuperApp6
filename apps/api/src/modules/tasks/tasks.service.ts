@@ -433,7 +433,7 @@ export class TasksService implements OnModuleInit {
     // Notify everyone who was put on the task (not the creator).
     const recipientIds = participantsCreate.map((p) => p.userId).filter((id) => id !== userId);
     if (recipientIds.length > 0) {
-      this.notifications.emitEvent(
+      await this.notifications.emitEvent(
         'task.assigned',
         { taskId: task.id, taskTitle: task.title, byUserId: userId, byName: fullName(task.creator), recipientIds },
         'tasks',
@@ -1075,7 +1075,7 @@ export class TasksService implements OnModuleInit {
         typeKey: 'task.completed',
         payload: { taskTitle: task.title },
       });
-      this.notifications.emitEvent('task.completed', { taskId, taskTitle: task.title, recipientIds: [userId] }, 'tasks');
+      await this.notifications.emitEvent('task.completed', { taskId, taskTitle: task.title, recipientIds: [userId] }, 'tasks');
       await this.settleLinkedOrder(taskId);
       await this.settleLinkedProcess(taskId);
       try {
@@ -1110,7 +1110,7 @@ export class TasksService implements OnModuleInit {
         typeKey: 'task.submitted',
         payload: { taskTitle: task.title },
       });
-      this.notifications.emitEvent(
+      await this.notifications.emitEvent(
         'task.submitted',
         { taskId, taskTitle: task.title, byUserId: userId, byName, recipientIds: [task.creatorId] },
         'tasks',
@@ -1149,13 +1149,13 @@ export class TasksService implements OnModuleInit {
         payload: { taskTitle: task.title, targetUserId: target.userId, targetName },
       });
     });
-    this.notifications.emitEvent(
+    await this.notifications.emitEvent(
       'task.accepted',
       { taskId, taskTitle: task.title, recipientIds: [target.userId] },
       'tasks',
     );
     if (captured) {
-      this.notifications.emitEvent(
+      await this.notifications.emitEvent(
         'wallet.coins.received',
         {
           recipientIds: [target.userId],
@@ -1194,7 +1194,7 @@ export class TasksService implements OnModuleInit {
         payload: { taskTitle: task.title, targetUserId: target.userId, targetName },
       });
     });
-    this.notifications.emitEvent(
+    await this.notifications.emitEvent(
       'task.returned',
       { taskId, taskTitle: task.title, recipientIds: [target.userId] },
       'tasks',
@@ -1270,7 +1270,7 @@ export class TasksService implements OnModuleInit {
         typeKey: 'task.completed',
         payload: { taskTitle: task.title },
       });
-      this.notifications.emitEvent(
+      await this.notifications.emitEvent(
         'task.completed',
         { taskId, taskTitle: task.title, recipientIds: [...new Set(recipients)] },
         'tasks',
@@ -1382,7 +1382,7 @@ export class TasksService implements OnModuleInit {
     });
     await this.accessProjection.resyncTaskRoles(taskId);
     await this.messenger.syncTaskChatMembers(taskId);
-    this.notifications.emitEvent(
+    await this.notifications.emitEvent(
       'task.assigned',
       { taskId, taskTitle: task.title, byUserId: task.creatorId, byName: '', recipientIds: [newExecutorId] },
       'tasks',
@@ -1533,7 +1533,7 @@ export class TasksService implements OnModuleInit {
       take: 500,
     });
     for (const t of due) {
-      this.notifications.emitEvent(
+      await this.notifications.emitEvent(
         'task.due_soon',
         { taskId: t.id, taskTitle: t.title, recipientIds: this.taskAudience(t) },
         'tasks',
@@ -1556,7 +1556,7 @@ export class TasksService implements OnModuleInit {
       take: 500,
     });
     for (const t of overdue) {
-      this.notifications.emitEvent(
+      await this.notifications.emitEvent(
         'task.overdue',
         { taskId: t.id, taskTitle: t.title, recipientIds: this.taskAudience(t) },
         'tasks',

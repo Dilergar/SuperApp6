@@ -34,6 +34,19 @@ import { VoiceAudioPrep } from './voice-audio';
 const VOICE_TRANSCRIBE_JOB = 'voice.transcribe';
 
 /**
+ * Постоянный отказ STT-провайдера. Клиент бросает Error с текстом `STT <код>: …`;
+ * 4xx — претензия к НАШЕМУ запросу (формат, ключ, размер), от повтора он валиднее не
+ * станет. Исключения — 408 и 429 (перегрузка) и все 5xx: это транзиент, их ретраим.
+ */
+function isPermanentSttFailure(message: string): boolean {
+  const m = /^STT (\d{3}):/.exec(message);
+  if (!m) return false;
+  const status = Number(m[1]);
+  if (status === 408 || status === 429) return false;
+  return status >= 400 && status < 500;
+}
+
+/**
  * Голосовой движок (core/voice, 7-й платформенный): транскрипция аудио-файлов
  * движка файлов. Транскрипт ключуется по fileId — 1 файл = 1 расчёт навсегда
  * (Telegram-модель «Расшифровать»). Исполнение — джоб core/jobs `voice.transcribe`
@@ -67,7 +80,9 @@ export class VoiceService implements OnModuleInit, OnApplicationBootstrap {
         queue: 'voice',
         queueConcurrency: 2,
         maxAttempts: VOICE_LIMITS.transcriptMaxAttempts,
-        leaseMs: 60 * 60 * 1000,
+        // Аренда — из общей константы, чтобы её нельзя было разъехать с суммой
+        // внутренних таймаутов обработчика (см. комментарий к jobLeaseMs).
+        leaseMs: VOICE_LIMITS.jobLeaseMs,
         onDiscard: (payload, info) =>
           this.markTranscriptDiscarded(String(payload.fileId), info.error),
       },
@@ -383,6 +398,14 @@ export class VoiceService implements OnModuleInit, OnApplicationBootstrap {
     } catch (err) {
       const message = (err instanceof Error ? err.message : String(err)).slice(0, 500);
       this.logger.warn(`transcript ${fileId} (попытка ${ctx.attempt}/${ctx.maxAttempts}): ${message}`);
+      // ПОСТОЯННЫЙ отказ STT ретраить бессмысленно: 400 «unsupported format», 401
+      // «неверный ключ», 413 «слишком большой файл» повторятся слово в слово, а в конце
+      // движок напишет error-лог и job.discarded — ложный инцидент вместо честного
+      // «расшифровать нельзя». Транзиентными оставляем 408/429 (перегрузка) и все 5xx.
+      if (isPermanentSttFailure(message)) {
+        await this.finishError(fileId, message, row.requestedById, { attempt });
+        throw new JobDiscardError(`transcript ${fileId}: STT отказал постоянно — ${message}`);
+      }
       // На последней попытке пишем терминальный error (API/поллинг увидит финал), затем
       // бросаем — движок кладёт джоб в dead-letter. Иначе просто бросаем → бэкофф-ретрай
       // (строка остаётся 'processing', следующий заход её переклеймит).

@@ -20,7 +20,7 @@ import {
   chatterTypeKeysOf,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
-import { JobsRegistry } from '../jobs/jobs.registry';
+import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { JobsService } from '../jobs/jobs.service';
 import { ChatterRefRegistry } from './chatter-ref.registry';
 
@@ -84,7 +84,14 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
     this.jobsRegistry.register(
       CHATTER_CHATPOST_JOB,
       (payload) => this.handleChatPostJob(payload),
-      { maxAttempts: CHATTER_LIMITS.chatPostMaxAttempts },
+      {
+        maxAttempts: CHATTER_LIMITS.chatPostMaxAttempts,
+        // Джоб может умереть по протухшей аренде — тогда catch обработчика (где
+        // гасится needsChatPost) не выполнится, и запись навсегда останется в частичном
+        // индексе chatter_entries_chat_post_pending_idx, который по замыслу держит ~0
+        // строк, а бэкфилл будет поднимать её на каждом старте ближайшие сутки.
+        onDiscard: (payload) => this.markChatPostDiscarded(String(payload.entryId ?? '')),
+      },
     );
   }
 
@@ -198,11 +205,46 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
       // Систематическое отсутствие (потребитель удалён) → бэкофф → dead-letter в логах.
       throw new Error(`нет chat-sink для refType "${row.refType}"`);
     }
-    await sink.post(this.toDto(row));
+    try {
+      await sink.post(this.toDto(row));
+    } catch (err) {
+      // Родитель записи удалён (задачу снесли после мутации, породившей хронику):
+      // постить плашку некуда и НИКОГДА не будет куда — это конец жизни проекции,
+      // а не сбой. Без этой ветки движок жёг все попытки (~2ч бэкоффа) и хоронил
+      // джоб error-логом + событием job.discarded, т.е. ложным инцидентом.
+      // Сама запись хроники остаётся жить (она FK-free и переживает сущности) —
+      // гасим только флаг её чат-проекции, чтобы строка ушла из pending-индекса.
+      if (err instanceof NotFoundException) {
+        await this.db.chatterEntry.updateMany({
+          where: { id: entryId, chatPostedAt: null },
+          data: { needsChatPost: false },
+        });
+        throw new JobDiscardError(
+          `chatter ${entryId}: родитель ${row.refType}/${row.refId} удалён — плашка отменена`,
+        );
+      }
+      throw err;
+    }
     await this.db.chatterEntry.updateMany({
       where: { id: entryId, chatPostedAt: null },
       data: { chatPostedAt: new Date() },
     });
+  }
+
+  /**
+   * Джоб плашки похоронен (исчерпаны попытки ЛИБО смерть по аренде — тогда обработчик
+   * не отрабатывал вовсе). Гасим флаг проекции: плашки не будет, но запись хроники
+   * живёт дальше (она FK-free и самоценна). Иначе строка вечно висела бы в частичном
+   * индексе pending-плашек и в окне бэкфилла на каждом старте.
+   */
+  private async markChatPostDiscarded(entryId: string): Promise<void> {
+    if (!entryId) return;
+    await this.db.chatterEntry
+      .updateMany({
+        where: { id: BigInt(entryId), chatPostedAt: null },
+        data: { needsChatPost: false },
+      })
+      .catch(() => undefined);
   }
 
   /** Бэкфилл незапощенных записей без джоба (см. onApplicationBootstrap). */
@@ -224,8 +266,17 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
       if (rows.length === 0) return;
 
       const keys = rows.map((r) => `ce:${r.id.toString()}`);
+      // Фильтр по статусу обязателен: (1) смысл — «занят ли ключ ЖИВЫМ джобом»,
+      // терминальный занимать его не должен; (2) единственный индекс по unique_key —
+      // партиальный jobs_unique_key_live (WHERE status IN ('available','executing')),
+      // и без этого предиката запрос в него не попадает, превращаясь в seq-scan
+      // таблицы jobs (а там 7 дней completed + 30 дней discarded).
       const existing = await this.db.job.findMany({
-        where: { type: CHATTER_CHATPOST_JOB, uniqueKey: { in: keys } },
+        where: {
+          type: CHATTER_CHATPOST_JOB,
+          uniqueKey: { in: keys },
+          status: { in: ['available', 'executing'] },
+        },
         select: { uniqueKey: true },
       });
       const have = new Set(existing.map((j) => j.uniqueKey));
