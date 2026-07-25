@@ -1,0 +1,31 @@
+SuperApp6 Docs Editor
+=====================
+
+Этот образ собран из открытых исходников и включает следующие компоненты.
+
+Collabora Online
+  Copyright (C) Collabora Productivity Ltd. и участники проекта.
+  Лицензия: Mozilla Public License, v. 2.0 (MPL-2.0).
+  Текст лицензии: https://mozilla.org/MPL/2.0/
+  Исходники:      https://gerrit.collaboraoffice.com/online
+                  (зеркало: https://github.com/CollaboraOnline/online)
+  Каталог browser/ распространяется под BSD.
+
+LibreOffice / LibreOfficeKit («движок»)
+  Copyright (C) The Document Foundation и участники проекта.
+  Лицензия: Mozilla Public License, v. 2.0 (MPL-2.0).
+  Исходники: https://git.libreoffice.org/core
+
+Сторонние библиотеки, поставляемые в составе указанного выше, сохраняют свои
+собственные лицензии (Apache-2.0, MPL-1.1, MIT, BSD и другие); их тексты лежат
+внутри образа рядом с соответствующими компонентами и НЕ удалялись.
+
+О товарных знаках
+-----------------
+Эта сборка изменена по сравнению с оригинальной и обезличена: товарные знаки
+и логотипы Collabora Productivity Ltd. из пользовательского интерфейса удалены,
+как того требует их политика товарных знаков для изменённых сборок. Уведомления
+об авторских правах и лицензиях при этом сохранены полностью (MPL-2.0, §3.4).
+
+Collabora, Collabora Online и CODE — товарные знаки Collabora Productivity Ltd.
+SuperApp6 не связан с Collabora Productivity Ltd. и не поддерживается ею.

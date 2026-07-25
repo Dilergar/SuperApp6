@@ -1,0 +1,37 @@
+# Слой поверх готового base: обезличивание + шрифты + мелочи для эксплуатации.
+#
+# Почему отдельным слоем, а не внутри build.sh: список файлов брендинга заранее
+# неизвестен (приватный репозиторий тем Collabora нам недоступен, их SDK-доки закрыты
+# анти-ботом), и находить его приходится опытным путём — см. probe.ps1. Если бы правка
+# бренда жила в build.sh, каждая итерация стоила бы полной пересборки. А так — секунды.
+ARG BASE
+FROM ${BASE}
+
+USER root
+
+# Шрифты. Базовый образ upstream ставит только CJK-набор и droid-fallback, а нам нужны:
+#   * DejaVu — расширенная кириллица, включая казахские ә ғ қ ң ө ұ ү һ і;
+#   * Carlito и Caladea — МЕТРИЧЕСКИ совместимые замены Calibri и Cambria. Без них
+#     .docx из Word поедет по переносам и разбивке на страницы: подставится шрифт
+#     с другой шириной глифов. Это не косметика, а верность формата — то, ради чего
+#     весь движок документов и затевался.
+#   * Liberation2 — то же для Arial / Times New Roman / Courier New.
+# curl — исключительно ради healthcheck в docker-compose: в базовом образе его нет.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        fonts-dejavu-core fonts-liberation2 \
+        fonts-crosextra-carlito fonts-crosextra-caladea \
+        curl \
+    && fc-cache -f \
+    && rm -rf /var/lib/apt/lists/*
+
+# Оверлей обезличивания. Пути внутри зеркалят /usr/share/coolwsd/browser/dist/.
+# ВНИМАНИЕ: в репозитории каталог называется browser-dist (без сегмента «dist»),
+# потому что корневой .gitignore глушит dist/ глобально и git молча отказался бы
+# версионировать содержимое. Сегмент возвращается здесь.
+COPY brand/browser-dist/ /usr/share/coolwsd/browser/dist/
+
+# Атрибуция: под SaaS-моделью MPL §3.2 не срабатывает и отдавать исходники мы никому
+# не обязаны, но файл стоит одну строку и снимает вопрос при развороте на on-prem.
+COPY NOTICE /usr/share/doc/superapp6-docs-editor/NOTICE
+
+USER 100

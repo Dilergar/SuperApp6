@@ -1,0 +1,24 @@
+# Происхождение вендоренных файлов. Меняется ТОЛЬКО вместе с pins.env.
+#
+# Файлы в этой папке скопированы ДОСЛОВНО из репозитория Collabora Online.
+# Ничего здесь не правим руками: наши изменения живут в ../patches/*.patch,
+# чтобы переход на следующую версию был «перекачать + переналожить», а не археология.
+#
+# Источник кода:   https://gerrit.collaboraoffice.com/online   (истина)
+# Качали с зеркала: https://github.com/CollaboraOnline/online.mirror
+#   (зеркало сверено: git ls-remote к gerrit и к зеркалу дали ОДИН sha на этой ветке)
+#
+# Ветка:  distro/collabora/co-26.04
+# Коммит: 52df04ea84a2fea550558e02a54ec5d89a05c080
+# Снято:  2026-07-26
+
+docker/from-source/build.sh              -> build.sh
+docker/from-source/Ubuntu                -> Ubuntu
+docker/from-source/README.md             -> README.md
+docker/from-source/.dockerignore         -> .dockerignore
+docker/cool-seccomp-profile.json         -> cool-seccomp-profile.json
+
+# Лицензия исходников — MPL-2.0, заголовки в файлах сохранены (MPL §3.4).
+# Почему именно co-26.04, а не co-25.04: только новая обвязка умеет ENGINE_ASSETS
+# (готовый движок вместо многочасовой сборки LibreOffice), у co-25.04 её README
+# дословно «FIXME. This folder needs to be updated for Collabora Online 23.05».
