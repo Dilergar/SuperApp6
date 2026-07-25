@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { RedisIoAdapter } from './redis-io.adapter';
 import { validateEnv } from './shared/config/env.validation';
+import { wopiRawBodyMiddleware } from './core/docs/wopi-raw-body.middleware';
 
 // Защитная сеть: одна «забытая» асинхронная ошибка (unhandled rejection) в новых
 // версиях Node роняет ВЕСЬ процесс. Логируем и продолжаем работать — сервер не падает
@@ -66,6 +67,12 @@ async function bootstrap() {
   // Потолок тела занижен до 64kb: вебхуки LiveKit — маленькие JSON'ы (<10kb), а эндпоинт
   // @Public (без JWT) — узкий лимит режет DoS-амплификацию на неаутентифицированном пути.
   app.use('/api/calls/livekit/webhook', express.raw({ type: () => true, limit: '64kb' }));
+
+  // PutFile движка документов (core/docs): тело — БАЙТЫ документа, а не JSON. Принимаем
+  // потоком на диск (десятки мегабайт в памяти на каждое автосохранение = OOM) до того,
+  // как до тела доберётся body-parser. Alias /api/v1→/api отработал выше — один use
+  // покрывает оба префикса, как у вебхука LiveKit.
+  app.use('/api/wopi/files', wopiRawBodyMiddleware());
 
   // Заголовки безопасности. API отдаёт JSON и байты файлов, HTML приложения рендерит
   // веб — поэтому основной CSP живёт в apps/web/next.config.ts, а здесь берём остальное

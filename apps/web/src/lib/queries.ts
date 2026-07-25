@@ -90,6 +90,11 @@ export const taskAttachmentsKey = (taskId: string) => ['tasks', 'attachments', t
 export const voiceStatusKey = ['voice', 'status'] as const;
 export const voiceTranscriptKey = (fileId: string) => ['voice', 'transcript', fileId] as const;
 export const recorderRecordingsKey = ['recorder', 'recordings'] as const;
+// Движок документов (core/docs): статус кэшируется надолго — от него зависит только
+// показ кнопок «Открыть/Редактировать» у офисных вложений.
+export const docsStatusKey = ['docs', 'status'] as const;
+export const documentKey = (id: string) => ['docs', 'document', id] as const;
+export const documentVersionsKey = (id: string) => ['docs', 'versions', id] as const;
 // Движок звонков (core/calls) + сервис «Виртуальный офис» (B2B)
 export const callsStatusKey = ['calls', 'status'] as const;
 export const officeRoomsKey = (wsId: string) => ['workspaces', wsId, 'office'] as const;

@@ -195,6 +195,53 @@ services:
       redis:
         condition: service_healthy
 
+  # Редактор документов движка core/docs: Collabora Online Development Edition (CODE) —
+  # WOPI-клиент поверх LibreOffice. Опциональный профиль:
+  #   docker compose --profile docs up -d
+  # Затем в apps/api/.env:
+  #   DOCS_EDITOR_URL=http://localhost:9980
+  #   DOCS_WOPI_PUBLIC_URL=http://host.docker.internal:3001
+  # ВАЖНО про два адреса: iframe грузит БРАУЗЕР (localhost:9980), а за содержимым
+  # документа редактор ходит ИЗ КОНТЕЙНЕРА к нашему API (host.docker.internal:3001).
+  # Перепутанные адреса = классическое «WOPI::CheckFileInfo failed».
+  # К продакшену — своя сборка из исходников (MPL-2.0: свой бренд, сняты dev-лимиты
+  # на число документов и соединений; марки Collabora лицензия требует убрать).
+  collabora:
+    image: collabora/code:24.04.13.1.1
+    container_name: superapp6-collabora
+    profiles: ['docs']
+    restart: unless-stopped
+    ports:
+      - '9980:9980'
+    environment:
+      # Хосты, которым CODE доверяет как WOPI-хосту (регэксп с экранированными точками).
+      # host\.docker\.internal — наш API, как его видит контейнер.
+      aliasgroup1: 'http://host\.docker\.internal:3001'
+      # В dev редактор говорит ЧИСТЫМ http. Оба флага обязательны: ssl.enable=false
+      # выключает собственный TLS, а ssl.termination=false (дефолт образа — true!)
+      # запрещает считать, что впереди стоит https-прокси. С termination=true сервер
+      # раздаёт в discovery https-адреса и строит wss-сокеты — браузер стучится TLS'ом
+      # в открытый порт, и в логе появляется «Looks like SSL/TLS traffic on plain http
+      # port», а документ не открывается. В проде, где впереди реальный https-прокси,
+      # termination возвращается в true.
+      # welcome.enable / feedback.show — встроенные экраны CODE («Узнайте о новой
+      # версии», опрос). Внутри НАШЕГО продукта чужой маркетинг показываться не должен;
+      # к тому же оба тянутся с внешних адресов Collabora. В своей сборке из исходников
+      # они убираются вместе с брендингом, а здесь гасятся конфигом.
+      extra_params: --o:ssl.enable=false --o:ssl.termination=false --o:welcome.enable=false --o:feedback.show=false
+      # Без пароля админ-консоль CODE недоступна — в dev она и не нужна
+      DONT_GEN_SSL_CERT: 'true'
+      username: ''
+      password: ''
+    extra_hosts:
+      - 'host.docker.internal:host-gateway' # Docker Desktop имеет из коробки; строка — для Linux-хостов
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fs http://localhost:9980/hosting/discovery > /dev/null || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+
 volumes:
   postgres_data:
   redis_data:

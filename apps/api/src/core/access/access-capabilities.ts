@@ -44,6 +44,11 @@ export const CAPABILITIES = {
   // office room (Виртуальный офис — чат встречи + rich card)
   'office_room.view': { resourceType: 'office_room', relation: 'viewer' },
   'office_room.manage': { resourceType: 'office_room', relation: 'host' },
+  // document (core/docs) — явный шеринг документа людям/Группам; наследование от места
+  // (задача/чат) считает resolveMode() движка, а не тапл
+  'document.view': { resourceType: 'document', relation: 'viewer' },
+  'document.edit': { resourceType: 'document', relation: 'editor' },
+  'document.manage': { resourceType: 'document', relation: 'owner' },
 } as const satisfies Record<string, CapabilityDef>;
 
 export type CapabilityKey = keyof typeof CAPABILITIES;

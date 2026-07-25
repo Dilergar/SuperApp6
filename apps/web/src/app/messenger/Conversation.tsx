@@ -1271,7 +1271,7 @@ const MessageBubble = memo(function MessageBubble({
             </div>
           ) : message.type === 'attachment' ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
-              <AttachmentContent payload={message.payload as never} />
+              <AttachmentContent payload={message.payload as never} messageId={message.id} />
               {message.content && (
                 <span style={{ fontSize: '0.9rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                   {renderMessageContent(message.content, currentUserId)}

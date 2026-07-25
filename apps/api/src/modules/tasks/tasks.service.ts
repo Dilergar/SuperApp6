@@ -148,6 +148,18 @@ export class TasksService implements OnModuleInit {
         if (!task) return false;
         return this.isCreatorOrParticipant(task, userId);
       },
+      // Правка СОДЕРЖИМОГО вложения (движок документов): «внесите свои дни рождения» —
+      // правят все участники задачи. Предикат сейчас совпадает с canAttach и объявлен
+      // ЯВНО намеренно: если прикрепление когда-нибудь сузят до Постановщика, право
+      // править документ не должно измениться молча вместе с ним.
+      canEditContent: async (userId, taskId) => {
+        const task = await this.db.task.findUnique({
+          where: { id: taskId },
+          select: { creatorId: true, participants: { select: { userId: true } } },
+        });
+        if (!task) return false;
+        return this.isCreatorOrParticipant(task, userId);
+      },
     }, { allowedProfiles: ['chat_attachment', 'document', 'voice_message', 'generic'] });
 
     // Хроника задачи (core/chatter): «видишь задачу → видишь её хронику»

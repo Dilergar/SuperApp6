@@ -10,6 +10,7 @@ import {
   PayloadTooLargeException,
 } from '@nestjs/common';
 import * as fs from 'fs';
+import * as nodePath from 'path';
 import { Prisma } from '@prisma/client';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import { fromBuffer as fileTypeFromBuffer, fromFile as fileTypeFromFile } from 'file-type';
@@ -343,8 +344,20 @@ export class FilesService implements OnModuleInit {
     name: string;
     mime: string;
     profile: string;
+    /** Загрузивший (uploaderId) и владелец по умолчанию */
     ownerUserId: string;
+    /**
+     * Владелец-организация: снимок-веха документа организации обязана числиться (и
+     * тратить квоту) за организацией, а не за тем, кто случайно закрыл вкладку последним.
+     * Членство здесь НЕ перепроверяется — вызывающий движок работает headless и берёт
+     * владение из уже существующей строки-родителя.
+     */
+    ownerType?: FileOwnerType;
+    ownerId?: string;
   }): Promise<FileDto> {
+    const ownerType: FileOwnerType = opts.ownerType ?? 'user';
+    const ownerId = ownerType === 'user' ? (opts.ownerId ?? opts.ownerUserId) : opts.ownerId ?? '';
+    if (!ownerId) throw new BadRequestException('Не указан владелец файла');
     const spec = this.profileSpec(opts.profile);
     const ext = fileExtension(opts.name);
     if (ext && EXEC_EXT_BLACKLIST.includes(ext)) {
@@ -362,7 +375,7 @@ export class FilesService implements OnModuleInit {
         `Файл слишком большой: лимит профиля ${Math.floor(spec.maxSize / (1024 * 1024))} МБ`,
       );
     }
-    await this.assertQuota('user', opts.ownerUserId, stat.size);
+    await this.assertQuota(ownerType, ownerId, stat.size);
 
     const detected = await fileTypeFromFile(opts.path).catch(() => undefined);
     const sniffError = this.validateMagicBytes(mime, detected?.mime);
@@ -388,8 +401,8 @@ export class FilesService implements OnModuleInit {
         const created = await tx.fileObject.create({
           data: {
             id,
-            ownerType: 'user',
-            ownerId: opts.ownerUserId,
+            ownerType,
+            ownerId,
             uploaderId: opts.ownerUserId,
             profile: opts.profile,
             kind: fileKindFromMime(mime),
@@ -407,8 +420,8 @@ export class FilesService implements OnModuleInit {
           },
         });
         await tx.fileQuotaUsage.upsert({
-          where: { ownerType_ownerId: { ownerType: 'user', ownerId: opts.ownerUserId } },
-          create: { ownerType: 'user', ownerId: opts.ownerUserId, bytesUsed: BigInt(stat.size), filesCount: 1 },
+          where: { ownerType_ownerId: { ownerType, ownerId } },
+          create: { ownerType, ownerId, bytesUsed: BigInt(stat.size), filesCount: 1 },
           update: { bytesUsed: { increment: BigInt(stat.size) }, filesCount: { increment: 1 } },
         });
         // Джобы обработки/скана — в транзакции создания файла (transactional outbox).
@@ -426,6 +439,188 @@ export class FilesService implements OnModuleInit {
       await this.driver.delete(storageKey).catch(() => undefined);
       throw err;
     }
+  }
+
+  /**
+   * ЗАМЕНА СОДЕРЖИМОГО живого файла (движок документов core/docs: редактор сохраняет
+   * правки в тот же FileObject). Id файла НЕ меняется — на нём держатся снимок вложения
+   * внутри Message.payload, listLinked, ссылки скачивания и все привязки; перевешивание
+   * ссылки на новый файл выбросило бы вложение из чата, а осиротевший файл прибрал бы
+   * реап. Права здесь НЕ проверяются: это контракт вызывающего движка (у core/docs —
+   * WOPI-токен + resolveMode).
+   *
+   * ИСХОДНИК ПОТРЕБЛЯЕТСЯ: sourcePath переходит во владение движка (rename в хранилище);
+   * при любой ошибке движок сам его прибирает — вызывающему чистить нечего.
+   *
+   * Байты пишутся в НОВЫЙ ключ, а подмена ключа идёт в одной транзакции с size/sha256 —
+   * поэтому метаданные не могут разъехаться с байтами ни при каком падении: оборвались
+   * до коммита — жива старая пара (ключ+мета), после — новая. Перезапись того же ключа
+   * такой гарантии не даёт: упавшая транзакция оставила бы новые байты со старым
+   * размером, то есть битые Content-Length и Range на каждой последующей выдаче.
+   */
+  async replaceContent(opts: {
+    fileId: string;
+    sourcePath: string;
+    /** Кто сохранил — только для события (право проверил вызывающий движок) */
+    actorId: string;
+  }): Promise<{ size: number; sha256: string; previousSha256: string | null; changed: boolean }> {
+    let consumed = false;
+    try {
+      const row = await this.db.fileObject.findUnique({ where: { id: opts.fileId } });
+      if (!row || row.status !== 'ready') throw new NotFoundException('Файл не найден или не готов');
+      // Публичные раздаются вечной ссылкой с Cache-Control: immutable — заменённые байты
+      // жили бы в кэшах браузеров и CDN сколь угодно долго. Документом может стать
+      // только приватный файл.
+      if (row.visibility !== 'private') throw new BadRequestException('Публичный файл нельзя редактировать');
+      if (row.scanStatus === 'infected') throw new ForbiddenException('Файл помечен как заражённый');
+
+      const spec = this.profileSpec(row.profile);
+      const stat = await fs.promises.stat(opts.sourcePath);
+      if (stat.size <= 0) throw new BadRequestException('Пустое содержимое');
+      if (stat.size > spec.maxSize) {
+        throw new PayloadTooLargeException(
+          `Файл слишком большой: лимит профиля ${Math.floor(spec.maxSize / (1024 * 1024))} МБ`,
+        );
+      }
+
+      // Формат не меняется: тот же MIME и та же сигнатура (редактор сохраняет документ
+      // в родном формате). Сюда же упрётся попытка подсунуть под видом правки чужой тип.
+      const detected = await fileTypeFromFile(opts.sourcePath).catch(() => undefined);
+      const sniffError = this.validateMagicBytes(row.mime, detected?.mime);
+      if (sniffError) throw new BadRequestException(sniffError);
+
+      const sha256 = await this.sha256File(opts.sourcePath);
+      const delta = stat.size - Number(row.size);
+      if (delta > 0) await this.assertQuota(row.ownerType as FileOwnerType, row.ownerId, delta);
+
+      const newId = randomUUID();
+      const newKey = `${newId.slice(0, 2)}/${newId.slice(2, 4)}/${newId}`;
+      await this.driver.putFromFile(newKey, opts.sourcePath, row.mime);
+      consumed = true;
+
+      // Производные (PDF-отпечаток, извлечённый текст, миниатюры) относятся к СТАРЫМ
+      // байтам — после замены они врут и должны исчезнуть вместе с подменой ключа.
+      const staleVariants = await this.db.fileVariant.findMany({
+        where: { fileId: row.id },
+        select: { storageKey: true },
+      });
+
+      let swapped = false;
+      try {
+        swapped = await this.db.$transaction(async (tx) => {
+          const res = await tx.fileObject.updateMany({
+            // storageKey в условии = оптимистичная блокировка: параллельная замена
+            // (второй PutFile) проигрывает гонку и получает 409 вместо тихой потери правок.
+            where: { id: row.id, status: 'ready', storageKey: row.storageKey },
+            data: {
+              storageKey: newKey,
+              size: BigInt(stat.size),
+              sha256,
+              // Вердикт антивируса относился к прежним байтам: сбрасываем в 'none' и тут
+              // же ставим новый скан. Порядок важен — клейм в scanHook.enqueue ищет
+              // ровно scanStatus='none', иначе он молча не сработал бы.
+              scanStatus: 'none',
+              error: null,
+            },
+          });
+          if (res.count !== 1) return false;
+          if (delta !== 0) {
+            await tx.fileQuotaUsage.upsert({
+              where: { ownerType_ownerId: { ownerType: row.ownerType, ownerId: row.ownerId } },
+              create: {
+                ownerType: row.ownerType,
+                ownerId: row.ownerId,
+                bytesUsed: BigInt(Math.max(stat.size, 0)),
+                filesCount: 1,
+              },
+              update: { bytesUsed: { increment: BigInt(delta) } },
+            });
+          }
+          if (staleVariants.length) await tx.fileVariant.deleteMany({ where: { fileId: row.id } });
+          await this.scanHook.enqueue(tx, row.id);
+          return true;
+        });
+      } catch (err) {
+        await this.driver.delete(newKey).catch(() => undefined);
+        throw err;
+      }
+      if (!swapped) {
+        await this.driver.delete(newKey).catch(() => undefined);
+        throw new ConflictException('Файл изменён параллельно — повторите сохранение');
+      }
+
+      // После коммита прибираем старые байты и протухшие производные. Best-effort:
+      // осиротевший объект в хранилище безобиднее потерянных правок, а ночной свип
+      // квот всё равно пересчитывает занятое от file_objects.
+      await this.driver.delete(row.storageKey).catch(() => undefined);
+      for (const v of staleVariants) await this.driver.delete(v.storageKey).catch(() => undefined);
+
+      this.events.emit(
+        'file.replaced',
+        { fileId: row.id, actorId: opts.actorId, size: stat.size, sha256 },
+        'files',
+      );
+      return {
+        size: stat.size,
+        sha256,
+        previousSha256: row.sha256,
+        changed: (row.sha256 ?? '').toLowerCase() !== sha256.toLowerCase(),
+      };
+    } finally {
+      if (!consumed) await fs.promises.unlink(opts.sourcePath).catch(() => undefined);
+    }
+  }
+
+  /**
+   * Сохранить ПРОИЗВОДНУЮ файла, посчитанную чужим движком (core/docs: PDF-отпечаток
+   * документа и извлечённый текст под RAG). Ключ варианта живёт рядом с оригиналом;
+   * замена содержимого (replaceContent) сносит все варианты — протухшая производная
+   * не переживает правку.
+   *
+   * ИСХОДНИК ПОТРЕБЛЯЕТСЯ (rename в хранилище), как и у остальных путей записи байт.
+   */
+  async putDerivedVariant(opts: {
+    fileId: string;
+    kind: string;
+    sourcePath: string;
+    mime: string;
+    meta?: Record<string, unknown>;
+  }): Promise<void> {
+    const row = await this.db.fileObject.findUnique({
+      where: { id: opts.fileId },
+      select: { storageKey: true, status: true },
+    });
+    if (!row || row.status !== 'ready') {
+      await fs.promises.unlink(opts.sourcePath).catch(() => undefined);
+      throw new NotFoundException('Файл не найден или не готов');
+    }
+    const stat = await fs.promises.stat(opts.sourcePath);
+    const dir = nodePath.posix.dirname(row.storageKey.split(nodePath.sep).join('/'));
+    const ext = opts.mime === 'application/pdf' ? 'pdf' : opts.mime.startsWith('text/') ? 'txt' : 'bin';
+    const key = `${dir}/${opts.fileId}_${opts.kind}.${ext}`;
+    await this.driver.putFromFile(key, opts.sourcePath, opts.mime);
+    await this.db.fileVariant.upsert({
+      where: { fileId_kind: { fileId: opts.fileId, kind: opts.kind } },
+      create: {
+        fileId: opts.fileId,
+        kind: opts.kind,
+        storageKey: key,
+        mime: opts.mime,
+        size: BigInt(stat.size),
+        meta: (opts.meta ?? {}) as object,
+      },
+      update: { storageKey: key, mime: opts.mime, size: BigInt(stat.size), meta: (opts.meta ?? {}) as object },
+    });
+    this.events.emit('file.variant.created', { fileId: opts.fileId, kind: opts.kind, mime: opts.mime }, 'files');
+  }
+
+  /** Готовая производная файла (движок документов проверяет, не протухла ли она) */
+  async getVariant(fileId: string, kind: string): Promise<{ mime: string; meta: Record<string, unknown> | null } | null> {
+    const variant = await this.db.fileVariant.findUnique({
+      where: { fileId_kind: { fileId, kind } },
+      select: { mime: true, meta: true },
+    });
+    return variant ? { mime: variant.mime, meta: variant.meta as Record<string, unknown> | null } : null;
   }
 
   // ============================================================
@@ -590,6 +785,38 @@ export class FilesService implements OnModuleInit {
     this.assertProfileAllowed(refType, rows.map((r) => r.profile));
     await tx.fileLink.createMany({
       data: fileIds.map((fileId) => ({ fileId, refType, refId, role, createdById: actorId })),
+      skipDuplicates: true,
+    });
+  }
+
+  /**
+   * СИСТЕМНАЯ привязка внутри чужой транзакции: без canAttach и без «файл мой».
+   * Ставит её сам движок-потребитель, уже проверивший право человека по своему
+   * контракту (core/docs пришивает refType='document', чтобы живой черновик под
+   * открытым редактором не прибрал реап сирот при удалении исходного сообщения).
+   * Требование авторства здесь было бы неверным: документом становится файл, который
+   * загрузил кто-то другой — вложение задачи от коллеги.
+   */
+  async linkSystemInTx(
+    tx: Prisma.TransactionClient,
+    opts: { fileId: string; refType: string; refId: string; role?: string; createdById: string },
+  ): Promise<void> {
+    const file = await tx.fileObject.findUnique({
+      where: { id: opts.fileId },
+      select: { status: true, profile: true },
+    });
+    if (!file || file.status !== 'ready') throw new NotFoundException('Файл не найден или не готов');
+    this.assertProfileAllowed(opts.refType, [file.profile]);
+    await tx.fileLink.createMany({
+      data: [
+        {
+          fileId: opts.fileId,
+          refType: opts.refType,
+          refId: opts.refId,
+          role: opts.role ?? 'attachment',
+          createdById: opts.createdById,
+        },
+      ],
       skipDuplicates: true,
     });
   }
@@ -900,6 +1127,48 @@ export class FilesService implements OnModuleInit {
   private async assertCanView(viewerId: string, row: FileRow): Promise<void> {
     if (await this.canView(viewerId, row)) return;
     throw new ForbiddenException('Нет доступа к файлу');
+  }
+
+  /**
+   * Публичный предикат «виден ли файл» по id — для движков-потребителей (core/docs
+   * считает им ПРОСМОТР: объединение по всем привязкам, ровно как обычная выдача файла).
+   */
+  async canViewFile(viewerId: string, fileId: string): Promise<boolean> {
+    const row = await this.db.fileObject.findUnique({ where: { id: fileId } });
+    if (!row || row.status === 'deleted') return false;
+    return this.canView(viewerId, row);
+  }
+
+  /**
+   * Может ли пользователь менять СОДЕРЖИМОЕ файла через конкретную привязку. Отдельный
+   * предикат: canAttach у мессенджера требует авторства сообщения, а общий документ в
+   * чате правят все участники (п.7 грилла). Резолвер без canEditContent откатывается
+   * на canAttach — движок расширяется, поведение остальных потребителей не меняется.
+   *
+   * ВАЖНО: спрашивается ровно ОДНА привязка — та, через которую человек пришёл. Право
+   * править НЕ объединяется по всем местам файла, иначе «переслал документ в свой чат»
+   * тихо раздавал бы право менять чужой файл.
+   */
+  async canEditContentVia(userId: string, refType: string, refId: string): Promise<boolean> {
+    const resolver = this.registry.get(refType);
+    if (!resolver) return false;
+    try {
+      return resolver.canEditContent
+        ? await resolver.canEditContent(userId, refId)
+        : await resolver.canAttach(userId, refId);
+    } catch (err) {
+      this.logger.warn(`resolver ${refType}.canEditContent упал: ${err instanceof Error ? err.message : err}`);
+      return false;
+    }
+  }
+
+  /** Есть ли у файла привязка к этой сущности (место, откуда пришёл человек, — настоящее) */
+  async hasLink(fileId: string, refType: string, refId: string): Promise<boolean> {
+    const link = await this.db.fileLink.findFirst({
+      where: { fileId, refType, refId },
+      select: { id: true },
+    });
+    return !!link;
   }
 
   private async canView(viewerId: string, row: FileRow): Promise<boolean> {

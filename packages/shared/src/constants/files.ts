@@ -19,6 +19,11 @@ export const DOCUMENT_MIME = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.ms-powerpoint',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  // ODF: родные форматы LibreOffice/Collabora — движок документов (core/docs) обязан
+  // принимать их наравне с OOXML, иначе .ods из редактора не загрузится обратно.
+  'application/vnd.oasis.opendocument.text',
+  'application/vnd.oasis.opendocument.spreadsheet',
+  'application/vnd.oasis.opendocument.presentation',
   'text/plain',
   'text/csv',
 ];

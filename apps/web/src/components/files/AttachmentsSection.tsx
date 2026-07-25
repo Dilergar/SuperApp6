@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { FileDto } from '@superapp/shared';
+import type { DocsPlace } from '../../lib/docs-api';
 import { useFileUpload } from '../../lib/hooks/useFileUpload';
 import { useFileDisplayUrl } from '../../lib/hooks/useFileUrl';
 import { FileDropzone } from './FileDropzone';
@@ -15,6 +16,11 @@ interface AttachmentsSectionProps {
   canEdit: boolean;
   /** Профиль загрузки (по умолчанию chat_attachment — приватный, любой тип) */
   profile?: string;
+  /**
+   * Место вложения (напр. {refType:'task', refId}) — включает у офисных файлов
+   * кнопку «Редактировать»: право правки документа наследуется именно от места.
+   */
+  docPlace?: DocsPlace;
   onAttach: (file: FileDto) => void;
   onRemove: (fileId: string) => void;
 }
@@ -28,6 +34,7 @@ export function AttachmentsSection({
   files,
   canEdit,
   profile = 'chat_attachment',
+  docPlace,
   onAttach,
   onRemove,
 }: AttachmentsSectionProps) {
@@ -42,7 +49,12 @@ export function AttachmentsSection({
             f.kind === 'image' ? (
               <ImageTile key={f.id} file={f} canEdit={canEdit} onOpen={() => setLightbox(f)} onRemove={() => onRemove(f.id)} />
             ) : (
-              <FileChip key={f.id} file={f} onRemove={canEdit ? () => onRemove(f.id) : undefined} />
+              <FileChip
+                key={f.id}
+                file={f}
+                docPlace={docPlace}
+                onRemove={canEdit ? () => onRemove(f.id) : undefined}
+              />
             ),
           )}
         </div>

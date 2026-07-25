@@ -16,6 +16,11 @@ const apiWsOrigin = apiOrigin.replace(/^http/, 'ws');
 // NEXT_PUBLIC_LIVEKIT_WS_URL и подставив его сюда.
 const LIVEKIT_WS = process.env.NEXT_PUBLIC_LIVEKIT_WS_URL || 'ws: wss:';
 
+// Редактор документов (core/docs) грузится в iframe с СОБСТВЕННОГО origin, и его
+// адрес, как и LiveKit, приходит от API в рантайме. Пока — широкий http:/https: в
+// frame-src; сузить можно, заведя NEXT_PUBLIC_DOCS_EDITOR_URL.
+const DOCS_FRAME_SRC = process.env.NEXT_PUBLIC_DOCS_EDITOR_URL || 'http: https:';
+
 // Полный CSP пока в режиме ОТЧЁТА: приложение живое (LiveKit, socket.io, xyflow,
 // Lottie, blob-медиа), и включать его enforcing без прогона всех экранов — верный
 // способ молча сломать звонок или канвас. Тюним по отчётам, потом переносим в
@@ -30,9 +35,12 @@ const cspReportOnly = [
   `connect-src 'self' ${apiOrigin} ${apiWsOrigin} ${LIVEKIT_WS}`,
   "font-src 'self' data:",
   "worker-src 'self' blob:", // LiveKit
+  `frame-src 'self' ${DOCS_FRAME_SRC}`, // iframe редактора документов
+  // Форма запуска редактора POST'ит токен прямо в его iframe — origin редактора
+  // обязан быть в form-action, иначе браузер отменит отправку.
+  `form-action 'self' ${DOCS_FRAME_SRC}`,
   "object-src 'none'",
   "base-uri 'none'",
-  "form-action 'self'",
   "frame-ancestors 'none'",
 ].join('; ');
 

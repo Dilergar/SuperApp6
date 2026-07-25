@@ -2309,3 +2309,97 @@ model VerifyChallenge {
   @@index([createdAt]) // ретеншн-крон (7 дней)
   @@map("verify_challenges")
 }
+
+// ============================================
+// DOCS ENGINE (core/docs) — 12-й платформенный движок: работа с документами.
+// Документ = ЖИВОЙ файл core/files, который редактор МУТИРУЕТ НА МЕСТЕ (модель Google
+// Drive: стабильный id файла, ревизии — отдельными блобами). Перевешивание FileLink'а
+// на новый файл сюда не годится: мессенджер хранит снимок вложения внутри Message.payload,
+// и вложение просто исчезло бы из чата, а осиротевший файл прибрал бы реап.
+// Редактор — внешний WOPI-клиент (Collabora), сменная деталь; контракт WOPI не меняется.
+// FK на file_objects НЕТ намеренно (паттерн FileLink/CallSession): физическая уборка
+// файла не имеет права каскадом стереть журнал версий и сам документ.
+// ============================================
+
+model Document {
+  id            String    @id @default(uuid())
+  fileId        String    @unique @map("file_id") // ЖИВОЙ ЧЕРНОВИК (мутируется на месте)
+  ownerType     String    @map("owner_type") // user | workspace (владение файла)
+  ownerId       String    @map("owner_id")
+  createdById   String    @map("created_by_id")
+  title         String
+  ext           String // docx | xlsx | pptx | odt | ods | odp
+  mime          String
+  editorKind    String    @map("editor_kind") // writer | calc | impress
+  mode          String    @default("edit") // edit | readonly (владелец «заморозил» правку)
+  status        String    @default("active") // active | archived
+  // Узел редактора, липкий на время сессии: два узла на одном документе = два брокера
+  // в памяти = потерянные правки (задел под шардирование, в v1 узел один).
+  editorBaseUrl String?   @map("editor_base_url")
+  // Рубильник самодостаточных WOPI-токенов: инкремент гасит ВСЕ выданные (вердикт
+  // «заражён», перевод в readonly, отзыв доступа) — токены в БД не хранятся.
+  tokenEpoch    Int       @default(1) @map("token_epoch")
+  lastVersionNo Int       @default(0) @map("last_version_no")
+  lastSavedAt   DateTime? @map("last_saved_at")
+  lastEditorId  String?   @map("last_editor_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  versions DocumentVersion[]
+  sessions DocumentSession[]
+
+  @@index([ownerType, ownerId, status])
+  @@map("documents")
+}
+
+// Неизменяемая веха: снимок черновика отдельным FileObject + sha256. Режется при уходе
+// последнего редактора (Unlock) и по кнопке «Сохранить версию»; создаётся в статусе
+// pending В ТОЙ ЖЕ транзакции, что и джоб docs.milestone (transactional outbox).
+model DocumentVersion {
+  id          String   @id @default(uuid())
+  documentId  String   @map("document_id")
+  versionNo   Int      @map("version_no")
+  status      String   @default("pending") // pending | ready | skipped (байты не менялись) | failed
+  fileId      String?  @map("file_id") // FileObject снимка (появляется после инжеста)
+  sha256      String?
+  size        BigInt?
+  reason      String // session_end | manual | pre_sign (отпечаток под ЭЦП)
+  createdById String?  @map("created_by_id")
+  authorIds   String[] @default([]) @map("author_ids") // кто правил в сессии вехи
+  signed      Boolean  @default(false) // ретеншн (20 последних) подписанные не трогает
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, versionNo]) // ремень от гонки двух одновременных Unlock
+  @@index([documentId, createdAt])
+  @@index([status, createdAt]) // подбор зависших pending
+  @@map("document_versions")
+}
+
+// Сессия правки = ОДНА WOPI-блокировка на документ (не на пользователя): в COOL все
+// соредакторы сидят за одним брокером и держат общий lock. Закрывается тремя ремнями:
+// Unlock (основной), подсказка IsExitSave (укороченный простой) и крон-жнец.
+model DocumentSession {
+  id             String    @id @default(uuid())
+  documentId     String    @map("document_id")
+  lockValue      String    @map("lock_value") // строка блокировки, выданная WOPI-клиентом
+  editorBaseUrl  String    @map("editor_base_url")
+  status         String    @default("open") // open | closed | expired
+  lockedAt       DateTime  @default(now()) @map("locked_at")
+  expiresAt      DateTime  @map("expires_at") // +30 мин, двигается RefreshLock
+  lastPutAt      DateTime? @map("last_put_at")
+  exitSaveSeen   Boolean   @default(false) @map("exit_save_seen")
+  participantIds String[]  @default([]) @map("participant_ids")
+  closedAt       DateTime? @map("closed_at")
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  // ПАРТИАЛЬНЫЙ UNIQUE ДОПИСАН РУКАМИ в миграции docs_engine (Prisma не выражает WHERE —
+  // тот же приём, что у jobs и call_sessions):
+  //   CREATE UNIQUE INDEX document_sessions_live ON document_sessions(document_id) WHERE status = 'open';
+  @@index([documentId]) // «сессии этого документа» + каскад удаления (FK-колонки Postgres не индексирует сам)
+  @@index([status, expiresAt]) // крон-жнец протухших блокировок
+  @@map("document_sessions")
+}

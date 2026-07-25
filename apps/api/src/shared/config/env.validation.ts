@@ -15,6 +15,24 @@ import { z } from 'zod';
 const blank = <T extends z.ZodTypeAny>(schema: T) =>
   z.preprocess((v) => (v === '' ? undefined : v), schema);
 
+/** Список адресов через запятую (белый список узлов): каждая запись обязана быть URL */
+const urlList = (what: string) =>
+  blank(
+    z
+      .string()
+      .min(1)
+      .refine(
+        (v) =>
+          v
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .every((s) => z.string().url().safeParse(s).success),
+        `${what}: URL или несколько URL через запятую`,
+      )
+      .optional(),
+  );
+
 /**
  * Единый предикат окружения для ВСЕЙ платформы. Dev/test — только явно объявленные;
  * всё остальное (опечатка, а главное — НЕЗАДАННАЯ переменная) трактуется как production.
@@ -78,6 +96,19 @@ const envSchema = z
     // Запись звонков: хост-путь выходного каталога egress (bind-mount ↔ /out контейнера);
     // пусто → запись выключена (кнопка ⏺ скрыта)
     LIVEKIT_EGRESS_DIR: blank(z.string().min(1).optional()),
+    // --- Движок документов (core/docs) — WOPI-клиент; пусто → документы выключены ---
+    // Адрес(а) редактора: белый список узлов, из которого DocsRouterService выбирает базу
+    // ПО ДОКУМЕНТУ (липко на время сессии). Никогда не берётся из пользовательского ввода:
+    // это адрес, на который наш сервер ходит сам (discovery/convert-to) — иначе SSRF.
+    DOCS_EDITOR_URL: urlList('DOCS_EDITOR_URL'),
+    // Адрес НАШЕГО API, каким его видит КОНТЕЙНЕР редактора (WOPISrc резолвится изнутри
+    // контейнера, а iframe грузится браузером — в разработке это разные адреса, обычно
+    // http://host.docker.internal:3001). Пусто → откат на API_PUBLIC_URL. Пропуск этой
+    // переменной — причина классического «WOPI::CheckFileInfo failed».
+    DOCS_WOPI_PUBLIC_URL: blank(z.string().url('должен быть URL API, видимый ИЗ контейнера редактора').optional()),
+    // Ключ подписи WOPI-токенов. Пусто → выводится из JWT_SECRET (JWT_SECRET и так мастер-ключ
+    // нескольких подсистем); отдельная переменная даёт возможность ротировать её независимо.
+    DOCS_TOKEN_SECRET: blank(z.string().min(32, 'минимум 32 символа').optional()),
     // --- Движок подтверждений (core/verify) — SMS-OTP ---
     SMS_DRIVER: blank(
       z.enum(['kazinfoteh', 'mock'], { errorMap: () => ({ message: 'должен быть kazinfoteh | mock' }) }).optional(),
@@ -144,6 +175,19 @@ const envSchema = z
         code: z.ZodIssueCode.custom,
         path: ['LIVEKIT_EGRESS_DIR'],
         message: 'требует включённого LiveKit (LIVEKIT_URL/API_KEY/API_SECRET)',
+      });
+    }
+    // Движок документов: редактор ходит на НАШ API за содержимым файла, поэтому адрес,
+    // по которому мы для него доступны, обязан быть известен ЯВНО. Молчаливый откат на
+    // дефолт API_PUBLIC_URL (http://localhost:PORT) означал бы «localhost внутри чужого
+    // контейнера» — редактор открывался бы с ошибкой на каждом документе.
+    if (env.DOCS_EDITOR_URL && !env.DOCS_WOPI_PUBLIC_URL && !env.API_PUBLIC_URL) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['DOCS_WOPI_PUBLIC_URL'],
+        message:
+          'обязателен при DOCS_EDITOR_URL (адрес API, видимый ИЗ контейнера редактора, ' +
+          'обычно http://host.docker.internal:3001) — либо задайте API_PUBLIC_URL',
       });
     }
     // Kazinfoteh включается только целиком

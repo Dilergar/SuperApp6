@@ -520,7 +520,17 @@ function TaskAttachments({ taskId, canEdit }: { taskId: string; canEdit: boolean
     await api.delete(`/tasks/${taskId}/attachments/${fileId}`);
     queryClient.invalidateQueries({ queryKey: taskAttachmentsKey(taskId) });
   };
-  return <AttachmentsSection files={files} canEdit={canEdit} onAttach={attach} onRemove={remove} />;
+  return (
+    <AttachmentsSection
+      files={files}
+      canEdit={canEdit}
+      // Место вложения: от задачи наследуется право ПРАВИТЬ документ — «внесите свои
+      // дни рождения» правят все участники, а не только приложивший файл.
+      docPlace={{ refType: 'task', refId: taskId }}
+      onAttach={attach}
+      onRemove={remove}
+    />
+  );
 }
 
 // (local Avatar removed — people now render via the shared skin-aware PersonAvatar)

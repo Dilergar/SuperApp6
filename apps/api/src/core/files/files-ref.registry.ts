@@ -13,6 +13,15 @@ export interface FileRefResolver {
   canView(viewerId: string, refId: string): Promise<boolean>;
   /** Может ли userId привязывать/отвязывать файлы к refId */
   canAttach(userId: string, refId: string): Promise<boolean>;
+  /**
+   * Может ли userId МЕНЯТЬ СОДЕРЖИМОЕ уже привязанного файла (движок документов:
+   * «место даёт и просмотр, и правку»). Отдельный предикат, потому что canAttach у
+   * мессенджера требует АВТОРСТВА сообщения — а общий .xlsx в чате правят все
+   * участники, не только тот, кто его прислал.
+   *
+   * Не задан → откат на canAttach (остальные потребители не затронуты).
+   */
+  canEditContent?(userId: string, refId: string): Promise<boolean>;
 }
 
 export interface FileRefOptions {

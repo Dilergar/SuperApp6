@@ -125,6 +125,18 @@ export class MessengerService implements OnModuleInit {
         if (!m || m.deletedAt || m.authorId !== uid) return false;
         return this.access.can(this.user(uid), 'chat.post', m.chatId);
       },
+      // Правка СОДЕРЖИМОГО (движок документов): общий .xlsx в чате правят ВСЕ участники,
+      // а не только приславший — поэтому здесь, в отличие от canAttach, авторства
+      // сообщения не требуется. Прикрепить новый файл к чужому сообщению по-прежнему
+      // нельзя: это разные права, и именно ради этого предикат отдельный.
+      canEditContent: async (uid, messageId) => {
+        const m = await this.db.message.findUnique({
+          where: { id: messageId },
+          select: { chatId: true, deletedAt: true },
+        });
+        if (!m || m.deletedAt) return false;
+        return this.access.can(this.user(uid), 'chat.post', m.chatId);
+      },
     }, { allowedProfiles: ['chat_attachment', 'voice_message'] });
 
     // Звонки в чатах (refType='chat', движок core/calls): DM с дозвоном, группы и

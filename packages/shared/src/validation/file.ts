@@ -55,7 +55,7 @@ export const completeFileSchema = z.object({
 
 /** GET /files/:id/download?variant= */
 export const downloadQuerySchema = z.object({
-  variant: z.enum(['thumb', 'medium', 'poster', 'waveform', 'text']).optional(),
+  variant: z.enum(['thumb', 'medium', 'poster', 'waveform', 'text', 'pdf']).optional(),
 });
 
 export type InitFileInput = z.infer<typeof initFileSchema>;

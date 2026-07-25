@@ -130,6 +130,20 @@ export const ACCESS_SCHEMA: Record<string, ResourceTypeConfig> = {
     },
   },
 
+  // ---- Documents (core/docs): ЯВНЫЙ шеринг документа людям и Группам. Наследование от
+  //      МЕСТА (задача/чат) сюда НЕ проецируется — его считает resolveMode() через
+  //      FilesRefRegistry, потому что «правка» наследуется только от той привязки, через
+  //      которую человек пришёл, а объединение по всем привязкам остаётся для просмотра.
+  //      Отдельной таблицы грантов у движка нет — это ровно то, для чего есть core/access
+  //      (гранты на Группу заработали бесплатно). ----
+  document: {
+    relations: {
+      owner: THIS,
+      editor: union(THIS, computed('owner')),
+      viewer: union(THIS, computed('editor')),
+    },
+  },
+
   // ---- Platform personas (system-level grants that unlock features; additive, gate nothing
   //      existing — used by future Marketplace / Jobs «Тайный гость» / UGC). Singleton resource id. ----
   platform: {
@@ -228,11 +242,16 @@ export const EPOCH_FANOUT: Record<string, string[]> = {
   showcase: ['showcase'],
   wishlist: ['wishlist'],
   finbook: ['finbook'],
+  // Без этой строки ЛЮБОЙ грант документа бил бы ГЛОБАЛЬНУЮ эпоху и сбрасывал ACL-кэш
+  // всей платформы (фолбэк неизвестных типов — безопасный, но дорогой).
+  document: ['document'],
   calendar: ['calendar'],
   card: ['card'],
   platform: ['platform'],
   workspace: ['workspace', 'shop', 'showcase'],
-  circle: ['circle', 'showcase', 'wishlist', 'calendar', 'card', 'finbook'],
+  // 'document' — гранты документа Группе живые: вышел из Группы ⇒ доступ к документу
+  // обязан пропасть на следующем check(), а не дожить в кэше.
+  circle: ['circle', 'showcase', 'wishlist', 'calendar', 'card', 'finbook', 'document'],
   // Staff-оси («Сотрудники»): membership-рёбра могут нести гранты на карточки
   // (card.full_viewer), витрины B2B и календарь — будущие аудитории Ленты/отпусков.
   department: ['department', 'card', 'showcase', 'calendar'],

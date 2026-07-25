@@ -64,6 +64,15 @@ export const CHATTER_REGISTRY = {
     category: 'tasks',
     chatPost: true,
   },
+  // Движок документов: вложение стало ОБЩИМ редактируемым документом. Это явный акт
+  // человека, и участники места обязаны его увидеть — оживление раздаёт право правки
+  // всем, кто может писать в это место.
+  'task.document_created': {
+    template: '{{actorName}} открыл(а) файл «{{title}}» для совместного редактирования',
+    icon: '📄',
+    category: 'tasks',
+    chatPost: true,
+  },
   'task.cancelled': {
     template: '{{actorName}} отменил(а) задачу',
     icon: '🚫',

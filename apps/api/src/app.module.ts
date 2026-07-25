@@ -25,6 +25,7 @@ import { CallsModule } from './core/calls/calls.module';
 import { ChatterModule } from './core/chatter/chatter.module';
 import { JobsModule } from './core/jobs/jobs.module';
 import { VerifyModule } from './core/verify/verify.module';
+import { DocsModule } from './core/docs/docs.module';
 
 // Feature modules (MVP)
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -123,6 +124,11 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // расширяем под step-up денежных операций). Драйверы kazinfoteh|mock, отправка
     // синхронная; consume() гасится в транзакции потребителя. Secure-by-default в prod.
     VerifyModule,
+    // Docs engine — 12-й платформенный движок: работа с офисными документами без
+    // потери верности формата (файл всегда в родном формате). WOPI-хост + версии +
+    // блокировки + права; редактор — внешний WOPI-клиент (Collabora), сменная деталь.
+    // Инертен без DOCS_EDITOR_URL.
+    DocsModule,
 
     // Feature modules — each is self-contained.
     // Load order: Notifications → Contacts (@Global, consumed by AuthService)

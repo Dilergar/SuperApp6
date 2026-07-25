@@ -16,8 +16,11 @@ export type FileVisibility = 'private' | 'public';
 /** none — не сканировался; error — скан не удался терминально (не блокирует выдачу) */
 export type FileScanStatus = 'none' | 'pending' | 'clean' | 'infected' | 'error';
 
-/** Производные файла: миниатюры/постер сейчас; text/waveform — слоты под RAG/голосовые */
-export type FileVariantKind = 'thumb' | 'medium' | 'poster' | 'waveform' | 'text';
+/**
+ * Производные файла: миниатюры/постер/волна сейчас; text — слот RAG, pdf — ленивый
+ * отпечаток документа (core/docs: печать и будущее подписание ЭЦП неизменяемой версии).
+ */
+export type FileVariantKind = 'thumb' | 'medium' | 'poster' | 'waveform' | 'text' | 'pdf';
 
 /** Транспорт байтов, выбирается движком в init */
 export type FileTransport = 'api' | 'multipart';

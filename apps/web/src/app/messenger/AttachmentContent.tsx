@@ -29,7 +29,14 @@ function isViewFresh(view: AttachmentFileView | undefined): view is AttachmentFi
   return new Date(view.urlExpiresAt).getTime() > Date.now() + 30_000;
 }
 
-export function AttachmentContent({ payload }: { payload: AttachmentsPayload }) {
+export function AttachmentContent({
+  payload,
+  messageId,
+}: {
+  payload: AttachmentsPayload;
+  /** Сообщение-носитель: от него наследуется право править офисный документ */
+  messageId?: string;
+}) {
   const files = Array.isArray(payload?.files) ? payload.files : [];
   const media = files.filter((f) => f.kind === 'image' || f.kind === 'video');
   const audio = files.filter((f) => f.kind === 'audio');
@@ -58,7 +65,7 @@ export function AttachmentContent({ payload }: { payload: AttachmentsPayload }) 
       {rest.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', alignItems: 'flex-start' }}>
           {rest.map((f) => (
-            <DocChip key={f.fileId} fileRef={f} />
+            <DocChip key={f.fileId} fileRef={f} messageId={messageId} />
           ))}
         </div>
       )}
@@ -219,7 +226,7 @@ function AudioTile({ fileRef }: { fileRef: AttachmentFileRef }) {
 }
 
 /** Документ/прочее: чип со скачиванием (данные из снимка payload — без meta-запроса) */
-function DocChip({ fileRef }: { fileRef: AttachmentFileRef }) {
+function DocChip({ fileRef, messageId }: { fileRef: AttachmentFileRef; messageId?: string }) {
   return (
     <FileChip
       file={{
@@ -230,6 +237,9 @@ function DocChip({ fileRef }: { fileRef: AttachmentFileRef }) {
         mime: fileRef.mime ?? 'application/octet-stream',
         status: 'ready',
       }}
+      // Правят все участники чата (не только приславший) — предикат canEditContent
+      // резолвера 'chat_message' в мессенджере.
+      docPlace={messageId ? { refType: 'chat_message', refId: messageId } : undefined}
     />
   );
 }
