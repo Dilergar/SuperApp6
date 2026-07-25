@@ -85,6 +85,19 @@ const TRIGGER_NODE_TYPE: Record<string, 'schedule' | 'webhook' | 'event' | 'tele
   'trigger.telegram': 'telegram',
 };
 
+// --- Санитайзер переменных ВНЕШНЕГО старта (публичный вебхук / приёмник Telegram) ---
+/** Служебные ключи движка в variables (_item, _subprocessDepth, _loopIdx_*) — только изнутри. */
+const ENGINE_RESERVED_PREFIX = '_';
+/** Адресат ответа Telegram: приходит от Telegram-триггера, а не из чужого вебхука. */
+const TELEGRAM_OWNED_KEYS = new Set(['chatId', 'fromId', 'messageId']);
+const EXT_MAX_DECLARED_LEN = 500; // как в анкете интерактивного запуска
+const EXT_MAX_FREE_LEN = 4096; // нераспознанный ключ: потолок сообщения Telegram
+const EXT_MAX_KEYS = 100;
+const EXT_MAX_DEPTH = 5;
+const EXT_MAX_ARRAY = 200;
+/** Телеграмный chat id: число или @username. */
+const TELEGRAM_CHAT_ID_RE = /^(-?\d{1,20}|@[A-Za-z0-9_]{5,32})$/;
+
 /** Локальный адрес (вебхуки Telegram/Meta до него не достучатся) — авто-регистрацию пропускаем. */
 function isLocalBase(base: string): boolean {
   return /localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0/i.test(base);
@@ -260,6 +273,9 @@ export class ProcessesService implements OnModuleInit {
     // webhook-URL/статуса в панели соответствующей ноды на канвасе.
     const triggerRows = await this.db.processTrigger.findMany({ where: { definitionId } });
     const base = apiBaseUrl();
+    // Вычисляем ДО сборки триггеров: URL вебхука несёт секретный токен и отдаётся
+    // только тем, кто и так может править процесс.
+    const canEdit = (WORKSPACE_ROLE_RANK[role] ?? 0) >= WORKSPACE_ROLE_RANK.manager;
     const triggers = triggerRows.map((t) => {
       const cfg = (t.config ?? {}) as { nodeId?: string };
       // Telegram-вебхук слушается на отдельном пути (там разбирается Telegram-апдейт).
@@ -268,13 +284,16 @@ export class ProcessesService implements OnModuleInit {
         nodeId: cfg.nodeId ?? '',
         type: t.type as 'schedule' | 'webhook' | 'event' | 'telegram',
         enabled: t.enabled,
-        webhookUrl: t.webhookToken ? `${base}/api/processes/${webhookPath}/${t.webhookToken}` : null,
+        // Чтение определения открыто всей команде (assertTeamMember, стажёр+), а токен —
+        // это ключ к публичному эндпоинту, который стартует процесс ОТ ИМЕНИ сотрудника
+        // из runAsUserId. Раньше его видел любой стажёр.
+        webhookUrl:
+          canEdit && t.webhookToken ? `${base}/api/processes/${webhookPath}/${t.webhookToken}` : null,
         nextRunAt: t.nextRunAt?.toISOString() ?? null,
         lastRunAt: t.lastRunAt?.toISOString() ?? null,
       };
     });
 
-    const canEdit = (WORKSPACE_ROLE_RANK[role] ?? 0) >= WORKSPACE_ROLE_RANK.manager;
     return {
       ...this.toDefinitionDto(
         { ...def, versions: [{ version: latestMeta.version, status: latestMeta.status }] },
@@ -371,9 +390,14 @@ export class ProcessesService implements OnModuleInit {
       latest.document as unknown as ProcessDocument,
       this.registry,
     );
+    // Правило «от имени» показываем только тем, кто МОЖЕТ публиковать. Стажёру,
+    // открывшему чужой процесс, ошибка про чужой ранг бесполезна, а её наличие/отсутствие
+    // работало бы оракулом ролей коллег на read-only эндпоинте.
+    const rank = WORKSPACE_ROLE_RANK[role] ?? 0;
     const memberIssues = await this.validateMembers(
       workspaceId,
       latest.document as unknown as ProcessDocument,
+      rank >= WORKSPACE_ROLE_RANK.manager ? rank : null,
     );
     return { issues: [...issues, ...memberIssues] };
   }
@@ -392,7 +416,8 @@ export class ProcessesService implements OnModuleInit {
     }
     const document = latest.document as unknown as ProcessDocument;
     const { plan, issues } = compileProcessDocument(document, this.registry);
-    const memberIssues = await this.validateMembers(workspaceId, document);
+    const actorRank = WORKSPACE_ROLE_RANK[role] ?? 0;
+    const memberIssues = await this.validateMembers(workspaceId, document, actorRank);
     const all = [...issues, ...memberIssues];
     if (!plan || all.length > 0) {
       throw new BadRequestException({
@@ -415,7 +440,8 @@ export class ProcessesService implements OnModuleInit {
         data: { currentVersionId: latest.id },
       });
       // Триггер-ноды холста → строки ProcessTrigger (роутер/крон/вебхук читают их).
-      await this.syncTriggersOnPublish(tx, definitionId, workspaceId, document, userId);
+      // actorRank запоминается в строке: роли меняются, а триггер живёт дальше.
+      await this.syncTriggersOnPublish(tx, definitionId, workspaceId, document, userId, actorRank);
     });
     // Авто-регистрация вебхуков Telegram-ботов (вне транзакции — внешний вызов; best-effort).
     await this.registerTelegramWebhooks(definitionId).catch(() => undefined);
@@ -723,21 +749,14 @@ export class ProcessesService implements OnModuleInit {
 
     const plan = version.compiled as unknown as CompiledPlan;
 
-    // Лениво по форме: берём только распознанные поля; остальное кладём как есть (для {{form.x}}).
-    const variables: Record<string, unknown> = { ...rawVariables };
-    for (const f of plan.form) {
-      const raw = rawVariables[f.key];
-      if (raw === undefined || raw === null || raw === '') continue;
-      if (typeof raw === 'object') continue;
-      if (f.type === 'number') {
-        const n = Number(raw);
-        if (!Number.isNaN(n)) variables[f.key] = n;
-      } else if (f.type === 'boolean') {
-        variables[f.key] = raw === true || raw === 'true' || raw === 'да';
-      } else {
-        variables[f.key] = String(raw);
-      }
-    }
+    // ВНЕШНИЙ источник (публичный вебхук / приёмник Telegram) — тело чужое, санитайзим.
+    // Внутренние (событие платформы, расписание, под-процесс) идут прежним ленивым путём:
+    // их payload собран нашим же кодом, а под-процесс ОБЯЗАН пронести служебный
+    // _subprocessDepth, который санитайзер отбрасывает.
+    const variables =
+      triggerType === 'webhook' || triggerType === 'telegram'
+        ? this.sanitizeExternalVariables(plan.form, rawVariables, triggerType)
+        : this.coerceLenientVariables(plan.form, rawVariables);
 
     const instanceId = await this.engine.startInstance({
       definitionId,
@@ -786,6 +805,13 @@ export class ProcessesService implements OnModuleInit {
     workspaceId: string,
     document: ProcessDocument,
     publishedById: string,
+    /**
+     * Ранг публикатора на момент публикации — потолок для «от имени» при СРАБАТЫВАНИИ.
+     * Роли меняются, а строка триггера живёт: без этого опубликованный законно
+     * runAs = сотрудник, которого потом повысили до владельца, стрелял бы правами
+     * владельца. Хранится в config (JSON) — миграция не нужна.
+     */
+    publisherRank: number,
   ): Promise<void> {
     const triggerNodes = document.nodes.filter((n) => TRIGGER_NODE_TYPE[n.type]);
     const existing = await tx.processTrigger.findMany({ where: { definitionId } });
@@ -803,7 +829,7 @@ export class ProcessesService implements OnModuleInit {
         const everyValue = Math.max(1, Number(cfg.everyValue ?? 1));
         const everyUnit = cfg.everyUnit === 'days' ? 'days' : 'hours';
         const ms = everyValue * (everyUnit === 'days' ? 86_400_000 : 3_600_000);
-        const config = { nodeId: n.id, everyValue, everyUnit };
+        const config = { nodeId: n.id, everyValue, everyUnit, publisherRank };
         if (prev) {
           await tx.processTrigger.update({
             where: { id: prev.id },
@@ -820,6 +846,7 @@ export class ProcessesService implements OnModuleInit {
         const config = {
           nodeId: n.id,
           eventType,
+          publisherRank,
           condField: cfg.condField ? String(cfg.condField) : undefined,
           condOp: cfg.condOp ? String(cfg.condOp) : undefined,
           condValue: cfg.condValue != null && cfg.condValue !== '' ? String(cfg.condValue) : undefined,
@@ -832,7 +859,7 @@ export class ProcessesService implements OnModuleInit {
         }
       } else if (type === 'webhook') {
         // webhook — токен стабилен между публикациями (внешний URL не должен «протухать»).
-        const config = { nodeId: n.id };
+        const config = { nodeId: n.id, publisherRank };
         if (prev) {
           await tx.processTrigger.update({ where: { id: prev.id }, data: { type, config, runAsUserId, enabled: true } });
         } else {
@@ -842,7 +869,7 @@ export class ProcessesService implements OnModuleInit {
         }
       } else {
         // telegram — вебхук бота: токен пути стабилен; credentialId (токен @BotFather) в config.
-        const config = { nodeId: n.id, credentialId: String(cfg.credentialId ?? '') };
+        const config = { nodeId: n.id, credentialId: String(cfg.credentialId ?? ''), publisherRank };
         if (prev) {
           await tx.processTrigger.update({ where: { id: prev.id }, data: { type, config, runAsUserId, enabled: true } });
         } else {
@@ -873,7 +900,12 @@ export class ProcessesService implements OnModuleInit {
         const cfg = (t.config ?? {}) as { credentialId?: string };
         if (!cfg.credentialId || !t.webhookToken) continue;
         const cred = await this.db.processCredential.findUnique({ where: { id: cfg.credentialId } });
-        if (!cred) continue;
+        // Скоуп по организации — как у трёх соседних загрузчиков кредов
+        // (process-service-nodes:13/293, process-ai-nodes:46). Без него менеджер мог
+        // указать в холсте credentialId ЧУЖОЙ организации: сервер расшифровывал её
+        // токен бота и переводил вебхук этого бота на свой процесс.
+        // Чокпоинт DatabaseService тут не спасает — он авто-скоупит только Task.
+        if (!cred || cred.workspaceId !== t.workspaceId) continue;
         const secret = JSON.parse(decryptSecret(cred.data)) as { token?: string };
         if (!secret.token) continue;
         const url = `${base}/api/processes/webhook/telegram/${t.webhookToken}`;
@@ -1083,12 +1115,28 @@ export class ProcessesService implements OnModuleInit {
     return latest;
   }
 
-  /** Исполнители/получатели нод — действующие члены команды организации (не Подрядчик). */
+  /**
+   * Исполнители/получатели нод — действующие члены команды организации (не Подрядчик),
+   * ПЛЮС правило ранга для запуска «от имени».
+   *
+   * Почему ранг проверяется ТОЛЬКО у runAsUserId: назначить задачу или уведомление
+   * начальнику — нормально и должно работать. А вот «от имени» одалживает его ПРАВА:
+   * движок кладёт runAsUserId в ctx.startedById, и оттуда он уходит актором в
+   * workspaces.role (смена ролей), staff.assignPosition, rich-cards.execute (деньги),
+   * startSubprocess. Без этого правила менеджер публиковал триггер с runAsUserId
+   * владельца и повышал себя до админа: updateMember видел актора-владельца и
+   * пропускал гейт «Админов назначает только Владелец».
+   *
+   * @param actorRank ранг того, кто публикует. null = проверять только членство
+   *                  (мягкая валидация чужого процесса тем, кто публиковать не может).
+   */
   private async validateMembers(
     workspaceId: string,
     document: ProcessDocument,
+    actorRank: number | null,
   ): Promise<ProcessValidationIssue[]> {
-    const wanted = new Map<string, string>(); // userId → nodeId
+    const wanted = new Map<string, string>(); // userId → nodeId (членство: все ссылки на людей)
+    const runAs = new Map<string, string>(); // userId → nodeId (ТОЛЬКО «от имени»)
     for (const n of document.nodes) {
       const cfg = (n.config ?? {}) as Record<string, unknown>;
       const id =
@@ -1096,7 +1144,11 @@ export class ProcessesService implements OnModuleInit {
         (n.type === 'notify' && cfg.to === 'member' && cfg.userId) ||
         // авто-триггеры идут «от имени» сотрудника — он должен работать в организации
         (TRIGGER_NODE_TYPE[n.type] && cfg.runAsUserId);
-      if (typeof id === 'string' && id) wanted.set(id, n.id);
+      if (typeof id !== 'string' || !id) continue;
+      wanted.set(id, n.id);
+      // Отдельная карта, а не флаг: один и тот же человек может быть и целью notify на
+      // одной ноде, и runAs на другой — общая карта ключуется по userId и затёрла бы себя.
+      if (TRIGGER_NODE_TYPE[n.type]) runAs.set(id, n.id);
     }
     if (wanted.size === 0) return [];
     const rows = await this.db.userRole.findMany({
@@ -1107,16 +1159,168 @@ export class ProcessesService implements OnModuleInit {
         isActive: true,
         role: { not: 'contractor' },
       },
-      select: { userId: true },
+      select: { userId: true, role: true },
     });
-    const members = new Set(rows.map((r) => r.userId));
+    // У человека может быть НЕСКОЛЬКО ролей в организации (@@unique[userId, role, …]):
+    // «от имени» одалживает сильнейшую, поэтому сравниваем по максимальному рангу.
+    const rankOf = new Map<string, number>();
+    for (const r of rows) {
+      const rank = WORKSPACE_ROLE_RANK[r.role as WorkspaceRole] ?? 0;
+      if (rank > (rankOf.get(r.userId) ?? 0)) rankOf.set(r.userId, rank);
+    }
     const issues: ProcessValidationIssue[] = [];
     for (const [userId, nodeId] of wanted) {
-      if (!members.has(userId)) {
+      if (!rankOf.has(userId)) {
         issues.push({ nodeId, message: 'Выбранный человек не является сотрудником организации' });
       }
     }
+    if (actorRank === null) return issues;
+    for (const [userId, nodeId] of runAs) {
+      const rank = rankOf.get(userId);
+      // rank === undefined → человек не в команде, сообщение об этом уже добавлено выше.
+      if (rank !== undefined && rank > actorRank) {
+        issues.push({
+          nodeId,
+          message:
+            'Запускать «от имени» можно только сотрудника не выше вашей роли — ' +
+            'иначе процесс одолжил бы чужие права',
+        });
+      }
+    }
     return issues;
+  }
+
+  /**
+   * Ленивая коэрсия для ДОВЕРЕННЫХ программных запусков (событие/расписание/под-процесс).
+   * Дословно прежнее поведение startInstanceProgrammatic: распознанные поля приводим к
+   * типу, всё остальное проносим как есть — включая служебный _subprocessDepth, на
+   * котором держится защита от рекурсии под-процессов.
+   */
+  private coerceLenientVariables(
+    form: ProcessFormField[],
+    rawVariables: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const variables: Record<string, unknown> = { ...rawVariables };
+    for (const f of form) {
+      const raw = rawVariables[f.key];
+      if (raw === undefined || raw === null || raw === '') continue;
+      if (typeof raw === 'object') continue;
+      if (f.type === 'number') {
+        const n = Number(raw);
+        if (!Number.isNaN(n)) variables[f.key] = n;
+      } else if (f.type === 'boolean') {
+        variables[f.key] = raw === true || raw === 'true' || raw === 'да';
+      } else {
+        variables[f.key] = String(raw);
+      }
+    }
+    return variables;
+  }
+
+  /**
+   * Санитайзер переменных ВНЕШНЕГО старта. Отличия от анкеты интерактивного запуска
+   * (validateFormInput) намеренные:
+   *  - required НЕ валим и НИЧЕГО не бросаем: внешнему вызывающему некому чинить тело по
+   *    400; негодное значение просто выпадает, нода получит '' и уйдёт в ветку «Ошибка»;
+   *  - нераспознанные ключи СОХРАНЯЮТСЯ (очищенными) и сохраняют СТРУКТУРУ: {{form.x}} по
+   *    телу вебхука — задокументированный сценарий (нода «Перебрать список» читает
+   *    {{form.items}} как массив, притом что анкета у процесса пустая);
+   *  - ключи движка (_*) выбрасываются на ЛЮБОЙ глубине: тело {"_subprocessDepth": -1e6}
+   *    обходило защиту от рекурсии, а {"_loopIdx_x": 999} — перематывало цикл;
+   *  - «телеграмные» ключи из ЧУЖОГО вебхука выбрасываются: схема из документации —
+   *    «Chat ID = {{form.chatId}}», и подставленный chatId уводит бота организации в
+   *    произвольный чат;
+   *  - ОБЪЯВЛЕННОЕ поле держит тот же контракт, что в интерактивном запуске (500 символов,
+   *    отказ на [<>]); свободный текст незадекларированного ключа только обрезается по
+   *    длине — экранирование под HTML делает сам сток (escapeTelegramHtml), и делает это
+   *    полнее: он видит ещё и {{steps.*}} (ответы HTTP/AI), недоступные санитайзеру.
+   */
+  private sanitizeExternalVariables(
+    form: ProcessFormField[],
+    raw: Record<string, unknown>,
+    source: 'webhook' | 'telegram',
+  ): Record<string, unknown> {
+    const declared = new Map(form.map((f) => [f.key, f]));
+    const out: Record<string, unknown> = {};
+    let budget = EXT_MAX_KEYS;
+
+    const clean = (v: unknown, depth: number): unknown => {
+      if (v === null) return null;
+      if (typeof v === 'number') return Number.isFinite(v) ? v : undefined;
+      if (typeof v === 'boolean') return v;
+      if (typeof v === 'string') {
+        // Только длина. Угловые скобки НЕ трогаем намеренно: экранирование делает сам
+        // сток (escapeTelegramHtml в kz.telegram), и он покрывает больше — через
+        // {{steps.*}} туда приходят ответы HTTP/AI, которых санитайзер не видит.
+        // Вырезать их ещё и здесь значило бы портить легитимный текст: сообщение
+        // «5 < 10» от живого человека превратилось бы в «5  10».
+        return v.slice(0, EXT_MAX_FREE_LEN);
+      }
+      if (depth >= EXT_MAX_DEPTH) return undefined;
+      if (Array.isArray(v)) {
+        const arr: unknown[] = [];
+        for (const el of v.slice(0, EXT_MAX_ARRAY)) {
+          const c = clean(el, depth + 1);
+          if (c !== undefined) arr.push(c);
+        }
+        return arr;
+      }
+      if (typeof v === 'object') {
+        const o: Record<string, unknown> = {};
+        for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+          if (k.startsWith(ENGINE_RESERVED_PREFIX)) continue;
+          if (budget-- <= 0) break;
+          const c = clean(val, depth + 1);
+          if (c !== undefined) o[k] = c;
+        }
+        return o;
+      }
+      return undefined;
+    };
+
+    for (const [key, value] of Object.entries(raw ?? {})) {
+      if (key.startsWith(ENGINE_RESERVED_PREFIX)) continue;
+      // Поле, ЯВНО объявленное в анкете, = осознанное согласие менеджера принять его снаружи.
+      if (source === 'webhook' && TELEGRAM_OWNED_KEYS.has(key) && !declared.has(key)) continue;
+      // Даже от самого приёмника Telegram chat id обязан быть формы id/@username:
+      // эндпоинт публичный и защищён только токеном пути.
+      if (key === 'chatId' && typeof value === 'string' && !TELEGRAM_CHAT_ID_RE.test(value)) continue;
+      if (budget-- <= 0) break;
+
+      const f = declared.get(key);
+      const v =
+        f && value !== null && typeof value !== 'object'
+          ? this.coerceDeclared(f, value)
+          : clean(value, 1);
+      if (v !== undefined) out[key] = v;
+    }
+    return out;
+  }
+
+  /** Мягкая коэрсия ОБЪЯВЛЕННОГО поля: типы как в анкете, но без required и без исключений. */
+  private coerceDeclared(f: ProcessFormField, raw: unknown): unknown {
+    if (raw === undefined || raw === null || raw === '') return undefined;
+    switch (f.type) {
+      case 'number': {
+        const n = Number(raw);
+        return Number.isNaN(n) ? undefined : n;
+      }
+      case 'boolean':
+        return raw === true || raw === 'true' || raw === 'да';
+      case 'date': {
+        const d = new Date(String(raw));
+        return Number.isNaN(d.getTime()) ? undefined : d.toISOString().slice(0, 10);
+      }
+      case 'select': {
+        const v = String(raw);
+        return f.options?.includes(v) ? v : undefined;
+      }
+      default: {
+        const s = String(raw);
+        // Объявленное поле — ровно те же рамки, что в интерактивном запуске.
+        return s.length > EXT_MAX_DECLARED_LEN || /[<>]/.test(s) ? undefined : s;
+      }
+    }
   }
 
   /** Анкета при запуске: обязательность + типизация (number/boolean/date/select). */

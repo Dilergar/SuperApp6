@@ -1,32 +1,61 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ForbiddenException,
+  OnModuleInit,
   UnauthorizedException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
-import { authAliveKey } from '../auth/jwt.strategy';
+import { authAliveKey } from '../../shared/auth/session-validator.service';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { AccessProjectionService } from '../access/access-projection.service';
 import { FilesService } from '../files/files.service';
-import { resolveCardVisibility, type UpdateProfileInput } from '@superapp/shared';
+import { VerifyService } from '../verify/verify.service';
+import { JobsService } from '../jobs/jobs.service';
+import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
+import { ContactsService } from '../../modules/contacts/contacts.service';
+import { WorkspacesService } from '../../modules/workspaces/workspaces.service';
+import { NotificationsService } from '../../modules/notifications/notifications.service';
+import {
+  maskPhone,
+  resolveCardVisibility,
+  type ChangePasswordInput,
+  type ChangePhoneInput,
+  type UpdateProfileInput,
+} from '@superapp/shared';
 
 /** Days a deleted account stays recoverable before permanent anonymization. */
 export const ACCOUNT_GRACE_DAYS = 30;
 
+/** Джоб core/jobs: активация приглашений, висевших на НОВОМ номере после его смены. */
+export const USER_PHONE_INVITATIONS_JOB = 'users.phone.invitations';
+
 @Injectable()
-export class UsersService {
+export class UsersService implements OnModuleInit {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     private db: DatabaseService,
     private redis: RedisService,
     private events: EventBusService,
     private accessProjection: AccessProjectionService,
     private files: FilesService,
+    private verify: VerifyService,
+    private jobs: JobsService,
+    private jobsRegistry: JobsRegistry,
+    private contacts: ContactsService,
+    private workspaces: WorkspacesService,
+    private notifications: NotificationsService,
   ) {}
+
+  onModuleInit(): void {
+    this.jobsRegistry.register(USER_PHONE_INVITATIONS_JOB, (payload) => this.runPhoneInvitationsJob(payload));
+  }
 
   async getProfile(userId: string) {
     // Try cache first
@@ -48,7 +77,7 @@ export class UsersService {
         maritalStatus: true,
         socialLinks: true,
         onlineStatusMode: true,
-        isVerified: true,
+        phoneVerifiedAt: true,
         locale: true,
         timezone: true,
         cardVisibility: true,
@@ -86,10 +115,12 @@ export class UsersService {
       throw new NotFoundException('Пользователь не найден');
     }
 
-    const { _count, subscription, cardVisibility, companyCardVisibility, dateOfBirth, ...rest } = user;
+    const { _count, subscription, cardVisibility, companyCardVisibility, dateOfBirth, phoneVerifiedAt, ...rest } = user;
 
     const profile = {
       ...rest,
+      // Наружу — прежний boolean (веб/mobile не меняются); истина в БД — timestamp.
+      isVerified: !!phoneVerifiedAt,
       dateOfBirth: dateOfBirth ? dateOfBirth.toISOString().slice(0, 10) : null,
       // Owner's DEFAULT visibility — applied to contacts in none of the
       // owner's groups. Per-group visibility lives on Circle.
@@ -199,6 +230,148 @@ export class UsersService {
     return { scheduled: true, gracePeriodDays: ACCOUNT_GRACE_DAYS };
   }
 
+  /**
+   * Смена пароля из профиля (движок core/verify): текущий пароль + SMS-код на свой
+   * номер (purpose=password_change — Kaspi-модель step-up). Отзываются все ДРУГИЕ
+   * сессии (текущая, чей refresh передан, живёт); уведомление в ленту.
+   *
+   * Пароль здесь проверяется ВТОРОЙ раз: первый — при запуске цепочки (движок не даёт
+   * жечь SMS до верного пароля), этот — на случай, если пароль сменили между шагами.
+   */
+  async changePassword(userId: string, input: ChangePasswordInput) {
+    const user = await this.db.user.findUnique({
+      where: { id: userId },
+      select: { password: true, deletedAt: true },
+    });
+    if (!user || user.deletedAt) throw new NotFoundException('Аккаунт не найден');
+    const ok = await bcrypt.compare(input.currentPassword, user.password);
+    if (!ok) throw new UnauthorizedException('Неверный текущий пароль');
+
+    const hashedPassword = await bcrypt.hash(input.newPassword, 12); // CPU — до транзакции
+    const keepToken = input.currentRefreshToken ? this.hashRefreshToken(input.currentRefreshToken) : null;
+
+    await this.db.$transaction(async (tx) => {
+      // Гашение SMS-пропуска в транзакции смены: откат = пропуск не потрачен.
+      await this.verify.consume(tx, {
+        verifyToken: input.verifyToken,
+        purpose: 'password_change',
+        expectedUserId: userId,
+      });
+      await tx.user.update({
+        where: { id: userId },
+        // Поколение токенов вперёд: чужие ACCESS-токены (а не только refresh-строки)
+        // умирают сразу. Текущая вкладка переживает это прозрачно — её refresh цел,
+        // и клиентский single-flight refresh выдаст токен нового поколения.
+        data: { password: hashedPassword, tokenEpoch: { increment: 1 } },
+      });
+      await tx.session.deleteMany({
+        where: { userId, ...(keepToken ? { NOT: { token: keepToken } } : {}) },
+      });
+    });
+
+    await this.redis.invalidateUserProfile(userId);
+    await this.redis.del(authAliveKey(userId)).catch(() => undefined);
+    // Сокеты со старыми сессиями рвём; текущая вкладка переподключится живым access-токеном.
+    this.events.emit('auth.sessions.revoked', { userId }, 'users');
+    // Уведомление не имеет права уронить ответ: пароль УЖЕ сменён, а 500 клиенту
+    // читается как «не сменился» и провоцирует повтор с уже негодным пропуском.
+    this.notifications
+      .notify(userId, 'auth.password.changed', {})
+      .catch((err) => this.logger.error(`Уведомление о смене пароля не создано: ${err.message}`));
+    return { changed: true };
+  }
+
+  /**
+   * Смена номера телефона (строгий v1 — решение продукта): пароль + SMS-код на СТАРЫЙ
+   * номер + SMS-код на НОВЫЙ (оба пропуска гасятся в одной транзакции со сменой).
+   * Кейс «старый номер утерян» осознанно НЕ поддержан (v2 — задержка 48ч с отменой).
+   * После смены: pending-приглашения, висевшие на новом номере, активируются —
+   * та же механика, что при регистрации нового пользователя.
+   */
+  async changePhone(userId: string, input: ChangePhoneInput) {
+    const user = await this.db.user.findUnique({
+      where: { id: userId },
+      select: { phone: true, password: true, deletedAt: true },
+    });
+    if (!user || user.deletedAt) throw new NotFoundException('Аккаунт не найден');
+    const ok = await bcrypt.compare(input.password, user.password);
+    if (!ok) throw new UnauthorizedException('Неверный пароль');
+
+    const keepToken = input.currentRefreshToken ? this.hashRefreshToken(input.currentRefreshToken) : null;
+
+    await this.db.$transaction(async (tx) => {
+      // Оба владения доказаны: старым номером (никто не уводит аккаунт с угнанной
+      // сессией+паролем на свою симку) и новым (не привяжем чужой/опечатанный номер).
+      await this.verify.consume(tx, {
+        verifyToken: input.oldVerifyToken,
+        purpose: 'phone_change_old',
+        expectedUserId: userId,
+        expectedPhone: user.phone,
+      });
+      await this.verify.consume(tx, {
+        verifyToken: input.newVerifyToken,
+        purpose: 'phone_change_new',
+        expectedUserId: userId,
+        expectedPhone: input.newPhone,
+      });
+      // Гонка «номер заняли между start и сменой» ловится @unique(phone) → P2002 → 409.
+      await tx.user.update({
+        where: { id: userId },
+        data: { phone: input.newPhone, phoneVerifiedAt: new Date(), tokenEpoch: { increment: 1 } },
+      });
+      await tx.session.deleteMany({
+        where: { userId, ...(keepToken ? { NOT: { token: keepToken } } : {}) },
+      });
+      // Приглашения (Окружение + организации), отправленные на новый номер, пока он
+      // был «ничьим», теперь адресованы этому аккаунту. Это ОБЯЗАТЕЛЬНАЯ работа, а не
+      // сигнал: раньше два вызова шли после транзакции голыми await'ами — упал первый,
+      // второй не выполнился, а номер уже сменён, и приглашения организации потерялись
+      // навсегда. Джоб ставится В ЭТОЙ ЖЕ транзакции (правило платформы: обязательное —
+      // в core/jobs; коммит = работа будет сделана, откат = джоба нет).
+      await this.jobs.enqueue(tx, {
+        type: USER_PHONE_INVITATIONS_JOB,
+        payload: { userId, phone: input.newPhone },
+        uniqueKey: `phone-inv:${userId}:${input.newPhone}`,
+      });
+    });
+
+    await this.redis.invalidateUserProfile(userId);
+    await this.redis.del(authAliveKey(userId)).catch(() => undefined);
+    this.events.emit('auth.sessions.revoked', { userId }, 'users');
+    this.notifications
+      .notify(userId, 'auth.phone.changed', { newPhoneMasked: maskPhone(input.newPhone) })
+      .catch((err) => this.logger.error(`Уведомление о смене номера не создано: ${err.message}`));
+    return { changed: true, phone: input.newPhone };
+  }
+
+  /**
+   * Обработчик джоба активации приглашений после смены номера. Идемпотентен:
+   * обе сервисные функции берут только строки с toUserId=null, повторный заход
+   * ничего не дублирует. Аккаунта уже нет → работа потеряла смысл (постоянная
+   * ошибка, а не транзиентная) → хороним без ретраев.
+   */
+  private async runPhoneInvitationsJob(payload: Record<string, unknown>) {
+    const userId = String(payload.userId);
+    const phone = String(payload.phone);
+    const user = await this.db.user.findUnique({ where: { id: userId }, select: { phone: true, deletedAt: true } });
+    if (!user || user.deletedAt) {
+      throw new JobDiscardError(`Аккаунт ${userId} удалён — активировать приглашения некому`);
+    }
+    if (user.phone !== phone) {
+      throw new JobDiscardError(`Номер аккаунта ${userId} уже другой — джоб устарел`);
+    }
+    await this.contacts.activatePendingInvitationsForNewUser(userId, phone);
+    await this.workspaces.activatePendingWorkspaceInvitationsForNewUser(userId, phone);
+  }
+
+  /**
+   * Детерминированный SHA-256 refresh-токена — тот же примитив, что в AuthService
+   * (поиск по равенству на unique session.token; токен высокоэнтропийный).
+   */
+  private hashRefreshToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
+
   /** Cancel a pending deletion (called on login during the grace window). */
   async restoreAccount(userId: string) {
     await this.db.user.update({
@@ -246,6 +419,10 @@ export class UsersService {
   async anonymizeAccount(userId: string) {
     // JWT-guard кэширует «жив» — терминальное удаление чистит кэш первым делом.
     await this.redis.del(authAliveKey(userId)).catch(() => undefined);
+    // Живые сокеты рвём, как и все остальные пути отзыва (сброс/смена пароля, смена
+    // номера, logout-all, планирование удаления). Необратимая анонимизация — единственный
+    // путь, который этого не делал, и открытое соединение её переживало.
+    this.events.emit('auth.sessions.revoked', { userId }, 'users');
     // Former contacts whose contactsCount changes — bust their caches afterwards.
     const links = await this.db.contactLink.findMany({
       where: { OR: [{ userAId: userId }, { userBId: userId }] },
@@ -321,6 +498,7 @@ export class UsersService {
           firstName: 'Удалённый пользователь',
           lastName: null,
           phone: `deleted:${userId}`, // frees the real number for re-registration
+          phoneVerifiedAt: null, // подтверждение принадлежало освобождённому номеру
           email: null,
           password: deadHash, // unusable
           avatar: null,

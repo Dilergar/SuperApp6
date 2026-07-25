@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import * as express from 'express';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { RedisIoAdapter } from './redis-io.adapter';
 import { validateEnv } from './shared/config/env.validation';
@@ -28,6 +29,19 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule);
 
+  // Доверенные прокси. Пока это не настроено, Express ИГНОРИРУЕТ X-Forwarded-For, и
+  // req.ip = адрес сокета. Именно так и надо: любой клиент может написать в этот
+  // заголовок что угодно, и всё, что считает «по IP» (троттлер платформы, IP-эшелоны
+  // движка подтверждений — а это деньги на SMS), обнулялось бы случайной строкой в
+  // запросе. За балансировщиком выставьте TRUST_PROXY в число прокси-хопов (обычно 1)
+  // или в список подсетей — тогда Express возьмёт из XFF ровно столько, сколько мы
+  // объявили доверенным, и подделать клиентский IP снаружи станет нельзя.
+  const trustProxy = process.env.TRUST_PROXY;
+  if (trustProxy) {
+    const hops = Number(trustProxy);
+    app.getHttpAdapter().getInstance().set('trust proxy', Number.isFinite(hops) ? hops : trustProxy);
+  }
+
   // Graceful shutdown (движок джобов + хвост блока 7): без этого Nest НЕ зовёт
   // onModuleDestroy на SIGTERM/SIGINT — docker stop убивал бы in-flight джобы без
   // дренажа (аренды их вернули бы, но зачем терять работу), а Redis/EventBus не
@@ -52,6 +66,21 @@ async function bootstrap() {
   // Потолок тела занижен до 64kb: вебхуки LiveKit — маленькие JSON'ы (<10kb), а эндпоинт
   // @Public (без JWT) — узкий лимит режет DoS-амплификацию на неаутентифицированном пути.
   app.use('/api/calls/livekit/webhook', express.raw({ type: () => true, limit: '64kb' }));
+
+  // Заголовки безопасности. API отдаёт JSON и байты файлов, HTML приложения рендерит
+  // веб — поэтому основной CSP живёт в apps/web/next.config.ts, а здесь берём остальное
+  // (nosniff, frameguard, Referrer-Policy, HSTS, скрытие X-Powered-By).
+  app.use(
+    helmet({
+      // CSP выключен намеренно: (1) API не рендерит HTML приложения; (2) дефолтный CSP
+      // helmet ломает inline-скрипты Swagger UI (/api/docs, поднимается в development).
+      contentSecurityPolicy: false,
+      // КРИТИЧНО: по умолчанию helmet ставит CORP same-origin, а веб (:3000) грузит
+      // аватарки, фото товаров, вложения чата, голосовые и записи звонков с API (:3001).
+      // same-origin убил бы всю медиа-выдачу на другом порту/домене.
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+    }),
+  );
 
   // Global prefix
   app.setGlobalPrefix('api');

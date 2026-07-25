@@ -10,6 +10,7 @@ import { PersonCard } from '../../circles/PersonCard';
 import { WalletSection } from '../WalletSection';
 import { SkinsSection } from '../SkinsSection';
 import { AvatarUploadBlock } from '@/components/files/AvatarUploadBlock';
+import { ChangePasswordDialog, ChangePhoneDialog } from './security-dialogs';
 import type { CardSkinRender } from '../../circles/card-skin';
 
 // ============================================================
@@ -72,6 +73,8 @@ export default function ProfileSectionPage() {
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [showPhoneDialog, setShowPhoneDialog] = useState(false);
   const [deletePassword, setDeletePassword] = useState('');
   const [deleteError, setDeleteError] = useState('');
   const [deleting, setDeleting] = useState(false);
@@ -583,10 +586,19 @@ export default function ProfileSectionPage() {
           )}
 
           <div style={{ marginTop: 'var(--spacing-8)' }}>
-            <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>Смена пароля</h3>
-            <button className="btn-secondary" style={{ opacity: 0.5, cursor: 'not-allowed', fontSize: '0.85rem' }}>
-              Изменить пароль (скоро)
-            </button>
+            <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>Пароль и номер</h3>
+            <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)', opacity: 0.75, maxWidth: '460px', lineHeight: 1.5 }}>
+              Обе операции подтверждаются SMS-кодом. Смена номера требует доступ и к текущему,
+              и к новому номеру.
+            </p>
+            <div style={{ display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
+              <button className="btn-secondary" style={{ fontSize: '0.85rem' }} onClick={() => setShowPasswordDialog(true)}>
+                Изменить пароль
+              </button>
+              <button className="btn-secondary" style={{ fontSize: '0.85rem' }} onClick={() => setShowPhoneDialog(true)}>
+                Сменить номер телефона
+              </button>
+            </div>
           </div>
 
           <div style={{ marginTop: 'var(--spacing-8)' }}>
@@ -600,6 +612,10 @@ export default function ProfileSectionPage() {
           </div>
         </div>
       )}
+
+      {/* Смена пароля / номера (движок core/verify) */}
+      {showPasswordDialog && <ChangePasswordDialog onClose={() => setShowPasswordDialog(false)} />}
+      {showPhoneDialog && <ChangePhoneDialog onClose={() => setShowPhoneDialog(false)} />}
 
       {/* Delete-account confirmation */}
       {showDeleteModal && (

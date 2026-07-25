@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { PROCESS_EVENT_TYPES } from '@superapp/shared';
+import { PROCESS_EVENT_TYPES, WORKSPACE_ROLE_RANK, type WorkspaceRole } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { ProcessesService } from './processes.service';
@@ -60,6 +60,50 @@ export class ProcessTriggerRouter implements OnModuleInit {
     { prefix: 'finance.', resolve: async (p) => (p.workspaceId as string) ?? null },
   ];
 
+  /**
+   * Гейт «от имени» на МОМЕНТ СРАБАТЫВАНИЯ. Строка триггера переживает роли, поэтому
+   * одной проверки при публикации мало:
+   *  (1) исполнитель всё ещё действующий сотрудник (не Подрядчик) — уволенный не запускает;
+   *  (2) его ТЕКУЩИЙ ранг не выше ранга публикатора — повышение ПОСЛЕ публикации не
+   *      превращает старый триггер в лестницу к чужим правам.
+   * Один индексированный запрос на срабатывание; рядом и так идут чтение определения,
+   * чтение версии, подсчёт бегущих инстансов и полный старт — это шум.
+   */
+  private async runAsAllowed(t: {
+    id: string;
+    workspaceId: string;
+    runAsUserId: string;
+    config: unknown;
+  }): Promise<boolean> {
+    const rows = await this.db.userRole.findMany({
+      where: {
+        context: 'workspace',
+        tenantId: t.workspaceId,
+        userId: t.runAsUserId,
+        isActive: true,
+        role: { not: 'contractor' },
+      },
+      select: { role: true },
+    });
+    if (rows.length === 0) {
+      this.logger.warn(`trigger ${t.id}: «от имени» ${t.runAsUserId} больше не сотрудник — запуск пропущен`);
+      return false;
+    }
+    const publisherRank = Number((t.config as { publisherRank?: number } | null)?.publisherRank ?? 0);
+    // Строки, опубликованные ДО появления publisherRank, ранга не несут — проверяем
+    // только членство. Без этого фолбэка раскатка молча погасила бы все живые триггеры.
+    if (!publisherRank) return true;
+    const rank = Math.max(...rows.map((r) => WORKSPACE_ROLE_RANK[r.role as WorkspaceRole] ?? 0));
+    if (rank > publisherRank) {
+      this.logger.warn(
+        `trigger ${t.id}: «от имени» ${t.runAsUserId} повышен после публикации (${rank} > ${publisherRank}) — ` +
+          'запуск пропущен, переопубликуйте процесс',
+      );
+      return false;
+    }
+    return true;
+  }
+
   /** Определяем организацию события через реестр резолверов (по префиксу типа). */
   private async resolveWorkspace(eventType: string, payload: Record<string, unknown>): Promise<string | null> {
     for (const r of this.workspaceResolvers) {
@@ -92,6 +136,7 @@ export class ProcessTriggerRouter implements OnModuleInit {
         const tcfg = (t.config ?? {}) as { nodeId?: string; condField?: string; condOp?: string; condValue?: string };
         // Ф2 (sfflow#1): entry-condition — фильтр по полю данных события ДО старта.
         if (tcfg.condField && tcfg.condOp && !evalCondition(payload[tcfg.condField], tcfg.condOp, tcfg.condValue)) continue;
+        if (!(await this.runAsAllowed(t))) continue;
         const id = await this.processes.startInstanceProgrammatic(t.definitionId, t.runAsUserId, payload, 'event', tcfg.nodeId);
         if (id) await this.db.processTrigger.update({ where: { id: t.id }, data: { lastRunAt: new Date() } });
       } catch (err) {
@@ -112,6 +157,9 @@ export class ProcessTriggerRouter implements OnModuleInit {
     for (const t of due) {
       const cfg = (t.config ?? {}) as { everyValue?: number; everyUnit?: string };
       const ms = (cfg.everyValue ?? 1) * (cfg.everyUnit === 'days' ? 86_400_000 : 3_600_000);
+      // Гейт «от имени» — ДО claim: иначе заблокированное расписание молча сжигало бы
+      // своё окно, прокручивая nextRunAt без единого запуска.
+      if (!(await this.runAsAllowed(t))) continue;
       // Сначала переносим nextRunAt (защита от двойного запуска при гонке), потом стартуем.
       const claimed = await this.db.processTrigger.updateMany({
         where: { id: t.id, nextRunAt: t.nextRunAt },
@@ -131,6 +179,7 @@ export class ProcessTriggerRouter implements OnModuleInit {
   async fireWebhook(token: string, body: Record<string, unknown>): Promise<string | null> {
     const trigger = await this.db.processTrigger.findUnique({ where: { webhookToken: token } });
     if (!trigger || !trigger.enabled || trigger.type !== 'webhook') return null;
+    if (!(await this.runAsAllowed(trigger))) return null;
     const nodeId = ((trigger.config ?? {}) as { nodeId?: string }).nodeId;
     const id = await this.processes.startInstanceProgrammatic(trigger.definitionId, trigger.runAsUserId, body ?? {}, 'webhook', nodeId);
     if (id) await this.db.processTrigger.update({ where: { id: trigger.id }, data: { lastRunAt: new Date() } });
@@ -144,6 +193,7 @@ export class ProcessTriggerRouter implements OnModuleInit {
   async fireTelegram(token: string, update: Record<string, unknown>): Promise<string | null> {
     const trigger = await this.db.processTrigger.findUnique({ where: { webhookToken: token } });
     if (!trigger || !trigger.enabled || trigger.type !== 'telegram') return null;
+    if (!(await this.runAsAllowed(trigger))) return null;
 
     const msg = (update.message ?? update.edited_message) as Record<string, unknown> | undefined;
     const text = typeof msg?.text === 'string' ? msg.text : null;

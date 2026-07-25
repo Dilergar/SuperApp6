@@ -77,6 +77,8 @@ jobs:
       # The verify scripts read apps/api/.env directly — give them the CI connection strings.
       # VOICE_STT_MOCK=true — голосовой движок на mock-драйвере: verify-voice.cjs
       # гоняет полный пайплайн транскрипции без whisper-контейнера и сети.
+      # VERIFY_TEST_PHONES — тест-карта движка подтверждений: verify-otp.cjs проверяет
+      # на ней ресенд без кулдауна (иначе блок помечается SKIP).
       - name: Write apps/api/.env for verify scripts
         working-directory: apps/api
         run: |
@@ -87,6 +89,7 @@ jobs:
             echo "NODE_ENV=test"
             echo "PORT=3001"
             echo "VOICE_STT_MOCK=true"
+            echo "VERIFY_TEST_PHONES=+77099999999:424242"
           } > .env
 
       - name: Start API

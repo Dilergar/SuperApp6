@@ -49,6 +49,9 @@ export type NotificationType =
   | 'shop.order.funded' // a crowdfunding campaign reached its goal (→ seller / co-managers)
   // Mentions
   | 'mention.received' // someone @mentioned you (messenger / task / event …)
+  // Auth / безопасность аккаунта (движок core/verify)
+  | 'auth.password.changed' // пароль изменён (сброс по SMS или смена из профиля)
+  | 'auth.phone.changed' // номер телефона аккаунта изменён
   // Files engine — антивирус
   | 'files.scan.infected' // загруженный вами файл заражён и заблокирован
   // Voice engine — Диктофон

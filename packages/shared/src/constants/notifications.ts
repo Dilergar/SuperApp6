@@ -242,6 +242,21 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
     pushByDefault: true,
     category: 'system',
   },
+  // Auth / безопасность аккаунта (движок core/verify)
+  'auth.password.changed': {
+    title: 'Пароль изменён',
+    body: 'Если это были не вы — срочно смените пароль и завершите чужие сессии.',
+    icon: '🔒',
+    pushByDefault: true,
+    category: 'system',
+  },
+  'auth.phone.changed': {
+    title: 'Номер телефона изменён',
+    body: 'Новый номер входа: {{newPhoneMasked}}. Если это были не вы — свяжитесь с нами.',
+    icon: '📱',
+    pushByDefault: true,
+    category: 'system',
+  },
   // Files engine — антивирус
   'files.scan.infected': {
     title: 'Файл «{{name}}» заражён и заблокирован',

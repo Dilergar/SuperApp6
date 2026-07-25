@@ -85,9 +85,16 @@ export default function LoginPage() {
           </div>
 
           <div style={{ marginBottom: 'var(--spacing-10)' }}>
-            <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>
-              Пароль
-            </label>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 'var(--spacing-2)' }}>
+              <label className="label-md">Пароль</label>
+              <Link
+                href="/reset-password"
+                className="label-sm"
+                style={{ color: 'var(--secondary)', fontWeight: 600 }}
+              >
+                Забыли пароль?
+              </Link>
+            </div>
             <input
               type="password"
               value={password}

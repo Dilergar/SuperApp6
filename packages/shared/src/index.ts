@@ -27,6 +27,7 @@ export * from './types/calls';
 export * from './types/office';
 export * from './types/chatter';
 export * from './types/jobs';
+export * from './types/verify';
 export * from './types/common';
 
 // Validation schemas
@@ -53,6 +54,7 @@ export * from './validation/voice';
 export * from './validation/calls';
 export * from './validation/office';
 export * from './validation/chatter';
+export * from './validation/verify';
 
 // Utils
 export * from './utils/phone';
@@ -88,3 +90,4 @@ export * from './constants/calls';
 export * from './constants/office';
 export * from './constants/chatter';
 export * from './constants/jobs';
+export * from './constants/verify';

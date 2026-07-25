@@ -8,6 +8,7 @@ import {
   loginSchema,
   registerSchema,
   refreshTokenSchema,
+  passwordResetCompleteSchema,
 } from '@superapp/shared';
 
 @ApiTags('Auth')
@@ -33,6 +34,17 @@ export class AuthController {
   async login(@Body() body: { phone: string; password: string }) {
     const data = loginSchema.parse(body);
     const tokens = await this.authService.login(data.phone, data.password);
+    return { success: true, data: tokens };
+  }
+
+  @Public()
+  @Post('password-reset')
+  @Throttle({ long: { limit: 5, ttl: 900000 } })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Завершить сброс пароля (verifyToken из /verify/check) → автовход' })
+  async passwordReset(@Body() body: unknown) {
+    const data = passwordResetCompleteSchema.parse(body);
+    const tokens = await this.authService.resetPassword(data.verifyToken, data.newPassword);
     return { success: true, data: tokens };
   }
 

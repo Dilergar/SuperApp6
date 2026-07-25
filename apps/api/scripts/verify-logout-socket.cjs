@@ -61,6 +61,44 @@ async function main() {
   check('socket was force-disconnected by the server', await disconnected);
   socket.close();
 
+  // Регрессия: «выброс» живых сокетов НЕ закрывает дыру сам по себе — socket.io
+  // переподключается автоматически. Рукопожатие обязано проверять поколение токена
+  // (users.token_epoch), иначе отозванный токен просто открывает новое соединение и
+  // до 15 минут продолжает получать переписку жертвы.
+  // Приём проверки — как в verify-messenger-socket.cjs («bad token is rejected»):
+  // Nest зовёт handleConnection ПОСЛЕ установки соединения, поэтому клиент успевает
+  // увидеть 'connect'; отказ виден как немедленный разрыв (socket.connected === false).
+  let revokedRejected = false;
+  const reSocket = io('http://localhost:3001/messenger', {
+    auth: { token }, // тот же, уже отозванный logout-all токен
+    transports: ['websocket'],
+    reconnection: false,
+  });
+  await new Promise((resolve) => {
+    reSocket.on('disconnect', () => { revokedRejected = true; resolve(); });
+    reSocket.on('connect_error', () => { revokedRejected = true; resolve(); });
+    reSocket.on('connect', () => setTimeout(() => { revokedRejected = !reSocket.connected; resolve(); }, 1500));
+    setTimeout(resolve, 4000);
+  });
+  check('РЕКОННЕКТ отозванным токеном отбит рукопожатием', revokedRejected);
+  reSocket.close();
+
+  // Контроль: свежий токен после повторного входа по-прежнему пускают — проверка
+  // отзыва не должна ломать нормальный вход.
+  const relogin = await call('POST', '/auth/login', null, { phone: P1, password: PW });
+  const freshSocket = io('http://localhost:3001/messenger', {
+    auth: { token: relogin.json.data.accessToken },
+    transports: ['websocket'],
+    reconnection: false,
+  });
+  const freshOk = await new Promise((resolve) => {
+    const t = setTimeout(() => resolve(false), 5000);
+    freshSocket.on('connect', () => { clearTimeout(t); resolve(true); });
+    freshSocket.on('connect_error', () => { clearTimeout(t); resolve(false); });
+  });
+  check('свежий токен после повторного входа подключается', freshOk);
+  freshSocket.close();
+
   console.log(`\n${fails === 0 ? '✅ LOGOUT-SOCKET E2E ПРОЙДЕН' : `❌ ПРОВАЛЕНО: ${fails}`}`);
   process.exit(fails === 0 ? 0 : 1);
 }

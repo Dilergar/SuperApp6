@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isKzMobilePhone } from '../constants/verify';
 
 // XSS protection: reject HTML tags and dangerous characters
 const noHtml = (s: string) => !/[<>]/.test(s);
@@ -7,9 +8,24 @@ const noHtmlMsg = 'Недопустимые символы';
 // Kazakhstan phone: +7 XXX XXX XX XX
 const phoneRegex = /^\+7\d{10}$/;
 
+/**
+ * ШИРОКАЯ форма номера (+7 и 10 цифр) — для чтения того, что уже лежит в базе:
+ * вход, поиск по номеру, приглашение на чужой номер. Аккаунты, заведённые до
+ * гео-щита, обязаны продолжать логиниться.
+ */
 export const phoneSchema = z
   .string()
   .regex(phoneRegex, 'Номер телефона должен быть в формате +7XXXXXXXXXX');
+
+/**
+ * УЗКАЯ форма — казахстанский мобильный. Применяется там, где номер выбирает
+ * клиент И движок подтверждений должен послать на него SMS (регистрация,
+ * сброс пароля, новый номер при смене). Раньше это ограничение жило только
+ * внутри движка, и форма принимала +7 999…, чтобы через шаг ответить 400.
+ */
+export const kzMobilePhoneSchema = z
+  .string()
+  .refine(isKzMobilePhone, 'Введите казахстанский мобильный номер: +7 (7XX) XXX-XX-XX');
 
 export const passwordSchema = z
   .string()
@@ -37,16 +53,20 @@ export const loginSchema = z.object({
 });
 
 export const registerSchema = z.object({
-  phone: phoneSchema,
+  // Узкая форма: регистрация всегда проходит через SMS-подтверждение (в production —
+  // обязательно), а SMS движок шлёт только на казахстанские мобильные.
+  phone: kzMobilePhoneSchema,
   password: passwordSchema,
   firstName: z.string().min(1, 'Имя обязательно').max(50).refine(noHtml, noHtmlMsg),
   lastName: z.string().max(50).refine(noHtml, noHtmlMsg).optional(),
   dateOfBirth: dateOfBirthSchema.optional(),
-});
-
-export const verifyOtpSchema = z.object({
-  phone: phoneSchema,
-  code: z.string().length(6, 'Код должен быть 6 цифр'),
+  // Одноразовый пропуск движка подтверждений (POST /verify/check, purpose=register).
+  // На уровне схемы опционален: ОБЯЗАТЕЛЬНОСТЬ решает сервер (secure-by-default —
+  // в production без него регистрация отклоняется; dev/test живут без SMS).
+  verifyToken: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/, 'Некорректный токен подтверждения')
+    .optional(),
 });
 
 export const refreshTokenSchema = z.object({

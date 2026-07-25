@@ -1,0 +1,87 @@
+// ============================================================
+// Движок подтверждений (core/verify, 11-й платформенный) — SMS-OTP
+// ============================================================
+// Параметры — консенсус Twilio Verify / Supabase / SuperTokens / Kaspi:
+// 6 цифр · TTL 10 мин · 5 попыток на ЦЕПОЧКУ (ресенд не сбрасывает) ·
+// ресенд 60→120с · потолки на номер · одноразовый verifyToken.
+
+export const VERIFY_PURPOSES = [
+  'register', // регистрация (verify-first: аккаунта ещё нет)
+  'password_reset', // «забыли пароль» (не залогинен)
+  'password_change', // смена пароля из профиля (залогинен, step-up)
+  'phone_change_old', // смена номера: подтверждение владения СТАРЫМ
+  'phone_change_new', // смена номера: подтверждение владения НОВЫМ
+] as const;
+
+export type VerifyPurpose = (typeof VERIFY_PURPOSES)[number];
+
+export const VERIFY_LIMITS = {
+  codeLength: 6,
+  // Жизнь кода. Ресенд в этом окне пишет в ту же цепочку НОВЫЙ код (храним только
+  // хэш — «переслать тот же» невозможно, модель Supabase) и перезаводит TTL;
+  // attempts при этом НЕ сбрасываются (модель SuperTokens).
+  codeTtlMin: 10,
+  maxAttempts: 5, // неверных вводов на цепочку → цепочка сгорает
+  maxSendsPerChain: 5, // SMS-отправок (1 + ресенды) на одну цепочку (модель Twilio)
+  resendCooldownSec: 60, // до первого ресенда
+  resendCooldownNextSec: 120, // между последующими ресендами
+  phoneHourlyMax: 5, // SMS на один номер в час (по всем цепочкам)
+  phoneDailyMax: 10, // SMS на один номер в сутки
+  ipStartHourlyMax: 10, // запусков цепочек с одного IP в час
+  ipCheckPer5MinMax: 30, // проверок кода с одного IP за 5 минут (анти-брут, Supabase)
+  verifyTokenTtlMin: 15, // жизнь одноразового пропуска после успешной проверки
+  retentionDays: 7, // хранение цепочек (аудит), дальше крон удаляет
+  globalHourlyBudgetDefault: 200, // дефолт стоп-крана SMS-бюджета (env VERIFY_SMS_HOURLY_BUDGET)
+  // Нейтральный сброс пароля по НЕсуществующему номеру: цепочка заводится настоящая
+  // (код никуда не уходит), а «время похода к SMS-шлюзу» имитируется задержкой из
+  // этого окна — иначе мгновенный ответ сам по себе выдаёт «аккаунта нет».
+  simulatedSendDelayMinMs: 180,
+  simulatedSendDelayMaxMs: 520,
+} as const;
+
+/**
+ * Машиночитаемые коды ошибок движка (уходят в `details.code` конверта ошибок).
+ * Клиент ветвится по ним, а НЕ по русскому тексту сообщения.
+ */
+export const VERIFY_ERROR_CODES = {
+  /** verifyToken потрачен/просрочен/не той цели — нужен новый код. */
+  tokenStale: 'verify_token_stale',
+  /** Код неверен (в details ещё и attemptsLeft). */
+  codeWrong: 'verify_code_wrong',
+  /** Цепочка исчерпала попытки или истекла — запрашивать новую. */
+  chainDead: 'verify_chain_dead',
+  /** Кулдаун ресенда/потолок отправок — в details resendInSec. */
+  cooldown: 'verify_cooldown',
+} as const;
+
+export type VerifyErrorCode = (typeof VERIFY_ERROR_CODES)[keyof typeof VERIFY_ERROR_CODES];
+
+/**
+ * Казахстанский МОБИЛЬНЫЙ номер: +7 7NX XXX XX XX, где N ∈ {0,4,5,6,7}.
+ * Живые диапазоны операторов КЗ: 700–708, 747, 750–751, 760–764, 771–778 —
+ * все начинаются на 7 и вторым разрядом имеют 0/4/5/6/7. Городские коды
+ * (71x Астана/Караганда…, 72x Алматы/Шымкент…) сюда НЕ попадают: SMS на
+ * стационарный номер провайдер всё равно отобьёт, а нам это лишние деньги
+ * и ложное «код отправлен».
+ *
+ * Гео-щит движка подтверждений (SMS шлём только в Казахстан — рекомендация №1
+ * Twilio против SMS-пампинга). Применяется там, где номер выбирает клиент
+ * (регистрация, сброс, НОВЫЙ номер при смене). Для step-up на СОБСТВЕННЫЙ номер
+ * аккаунта щит не нужен: номер уже в БД, пампинг им не сделать — иначе легаси-
+ * аккаунт с не-казахстанским номером навсегда лишился бы смены пароля.
+ */
+export function isKzMobilePhone(phone: string): boolean {
+  return /^\+77[04567]\d{8}$/.test(phone);
+}
+
+/**
+ * Текст SMS с кодом. Решение продукта: БЕЗ СЛОВ («SuperApp6: 123456») — мультиязычно
+ * и всегда 1 SMS-сегмент (~17 символов при лимите 70 у кириллицы / 160 у латиницы).
+ * originDomain (env VERIFY_SMS_ORIGIN_DOMAIN, когда появится домен) добавляет
+ * последнюю строку W3C-формата «@domain #code» — включает автозаполнение
+ * iOS/Android на 100% и защищает от фишинга (домен должен совпасть с сайтом).
+ */
+export function buildOtpSmsText(code: string, originDomain?: string): string {
+  const base = `SuperApp6: ${code}`;
+  return originDomain ? `${base}\n@${originDomain} #${code}` : base;
+}

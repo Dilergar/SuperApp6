@@ -25,7 +25,16 @@ model User {
   maritalStatus    String?   @map("marital_status")
   socialLinks      Json?     @map("social_links")
   onlineStatusMode String    @default("everyone") @map("online_status_mode")
-  isVerified       Boolean   @default(false) @map("is_verified")
+  // Момент подтверждения владения номером SMS-кодом (движок core/verify).
+  // null = номер не подтверждён (в production такой аккаунт создать нельзя —
+  // register требует verifyToken). Наружу в DTO уходит isVerified = !!phoneVerifiedAt.
+  phoneVerifiedAt  DateTime? @map("phone_verified_at")
+  // Поколение токенов: попадает в payload JWT и сверяется в JwtStrategy. Инкремент
+  // = МГНОВЕННЫЙ отзыв всех выданных access-токенов. Без него «отозвали все сессии»
+  // (сброс/смена пароля, смена номера, logout-all) удаляло только строки session, а
+  // украденный access-токен продолжал работать до 15 минут — ровно те минуты, ради
+  // которых сброс пароля и делают.
+  tokenEpoch       Int       @default(0) @map("token_epoch")
   locale           String    @default("ru")
   timezone         String    @default("Asia/Almaty")
 
@@ -2258,4 +2267,45 @@ model OfficeRoomParticipant {
   @@unique([roomId, userId])
   @@index([userId])
   @@map("office_room_participants")
+}
+
+// ============================================
+// ДВИЖОК ПОДТВЕРЖДЕНИЙ (core/verify, 11-й платформенный) — SMS-OTP.
+// Цепочка подтверждения (challenge): одна АКТИВНАЯ на (phone, purpose); ресенд в живом
+// TTL шлёт НОВЫЙ код в ту же цепочку (перезапись code_hash + send_count++ + новый TTL):
+// храним только хэш, поэтому «переслать тот же» невозможно (модель Supabase). attempts
+// при ресенде НЕ сбрасываются (модель SuperTokens). Код хранится ТОЛЬКО HMAC-хэшем
+// (контекст = phone+purpose). После успешной проверки выдаётся одноразовый verifyToken
+// (тоже хэшем), который потребитель гасит (consumedAt) В ТРАНЗАКЦИИ своего действия.
+// FK на users НЕТ: register-цепочки живут до существования пользователя.
+// ============================================
+
+model VerifyChallenge {
+  id              String    @id @default(uuid())
+  phone           String
+  purpose         String // register | password_reset | password_change | phone_change_old | phone_change_new
+  codeHash        String    @map("code_hash")
+  attempts        Int       @default(0) // неверные вводы на цепочку; 5 → цепочка сгорает
+  sendCount       Int       @default(1) @map("send_count") // отправки SMS этой цепочки (ресенды)
+  lastSentAt      DateTime  @default(now()) @map("last_sent_at")
+  expiresAt       DateTime  @map("expires_at")
+  verifiedAt      DateTime? @map("verified_at")
+  consumedAt      DateTime? @map("consumed_at")
+  verifyTokenHash String?   @unique @map("verify_token_hash")
+  requestIp       String?   @map("request_ip")
+  userId          String?   @map("user_id") // владелец цели: step-up залогиненных И password_reset (привязка к аккаунту, не только к номеру)
+  // Ответ SMS-шлюза на последнюю отправку: id сообщения у провайдера (доказательство
+  // отправки для поддержки «мне не пришла SMS») и признак «код никуда не уходил»
+  // (нейтральная имитация сброса по несуществующему номеру / тест-карта).
+  providerMessageId String? @map("provider_message_id")
+  delivery        String    @default("sms") // sms | simulated | test_map
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  // Активная цепочка ищется по (phone, purpose) среди неистёкших.
+  @@index([phone, purpose, createdAt])
+  // Потолки SMS на номер: окно считается по времени ПОСЛЕДНЕЙ отправки, а не по
+  // созданию цепочки (ресенды долгоживущей цепочки иначе выпадали бы из часового окна).
+  @@index([phone, lastSentAt])
+  @@index([createdAt]) // ретеншн-крон (7 дней)
+  @@map("verify_challenges")
 }

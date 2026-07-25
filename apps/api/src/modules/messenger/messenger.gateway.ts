@@ -9,7 +9,7 @@ import {
   ConnectedSocket,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { JwtService } from '@nestjs/jwt';
+import { SessionValidatorService } from '../../shared/auth/session-validator.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { MessengerService } from './messenger.service';
 import { PresenceService } from './presence.service';
@@ -38,7 +38,7 @@ export class MessengerGateway
   @WebSocketServer() server!: Server;
 
   constructor(
-    private jwt: JwtService,
+    private sessions: SessionValidatorService,
     private events: EventBusService,
     private messenger: MessengerService,
     private presence: PresenceService,
@@ -72,10 +72,13 @@ export class MessengerGateway
       const header = client.handshake.headers?.authorization;
       const token = auth?.token || (header ? header.replace(/^Bearer\s+/i, '') : undefined);
       if (!token) throw new Error('no token');
-      const payload = this.jwt.verify(token, {
-        secret: process.env.JWT_SECRET,
-      }) as { sub: string };
+      // Паритет с HTTP: подпись + срок + ОТЗЫВ сессии + удалённый аккаунт.
+      // Раньше здесь стояла только проверка подписи, и отозванный токен (logout-all,
+      // смена пароля/номера, удаление аккаунта) спокойно открывал новое соединение:
+      // «выброс» живых сокетов по событию не мешает socket.io переподключиться.
+      const payload = await this.sessions.verifyAccessToken(token);
       client.data.userId = payload.sub;
+      client.data.epoch = payload.epoch ?? 0;
       await client.join(`user:${payload.sub}`);
       // Presence: count this connection + tell contacts I may now be online.
       await this.presence.onConnect(payload.sub);

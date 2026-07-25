@@ -1,9 +1,9 @@
-import { Controller, Get, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { UsersService } from './users.service';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
-import { updateProfileSchema, maskLastName } from '@superapp/shared';
+import { updateProfileSchema, changePasswordSchema, changePhoneSchema, maskLastName } from '@superapp/shared';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -45,6 +45,26 @@ export class UsersController {
   ) {
     await this.usersService.deleteSession(user.sub, sessionId);
     return { success: true };
+  }
+
+  @Post('me/change-password')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ long: { limit: 5, ttl: 900000 } })
+  @ApiOperation({ summary: 'Сменить пароль (текущий пароль + SMS-код; другие сессии отзываются)' })
+  async changePassword(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
+    const data = changePasswordSchema.parse(body);
+    const result = await this.usersService.changePassword(user.sub, data);
+    return { success: true, data: result };
+  }
+
+  @Post('me/change-phone')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ long: { limit: 5, ttl: 900000 } })
+  @ApiOperation({ summary: 'Сменить номер (пароль + SMS-код на старый + SMS-код на новый)' })
+  async changePhone(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
+    const data = changePhoneSchema.parse(body);
+    const result = await this.usersService.changePhone(user.sub, data);
+    return { success: true, data: result };
   }
 
   @Delete('me')

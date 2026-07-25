@@ -1390,12 +1390,26 @@ export class ShopService implements OnModuleInit {
   }
 
   async revokeStaff(viewerId: string, userId: string, scope: string, showcaseId?: string): Promise<void> {
+    // scope и showcaseId приходят сырыми query-параметрами (в отличие от assignStaff,
+    // у которого есть Zod-схема). Валидируем здесь — сервис общий для всех вызывающих.
+    if (scope !== 'shop' && scope !== 'showcase') {
+      throw new BadRequestException('Некорректная область: shop | showcase');
+    }
+    if (scope === 'showcase' && !showcaseId) throw new BadRequestException('Не указана витрина');
     const { ownerType, ownerId } = this.resolveOwner(viewerId);
     const shop = await this.getOrCreateShop(ownerType, ownerId);
     if (!(await this.canManageShop(viewerId, shop))) throw new ForbiddenException('Нет прав на этот магазин');
     if (scope === 'shop') {
       await this.access.revoke({ resourceType: 'shop', resourceId: shop.id, relation: 'manager', subjectType: 'user', subjectId: userId });
     } else if (showcaseId) {
+      // Проверка принадлежности витрины — та же, что делает assignStaff выше. Без неё
+      // гейт на строке 1395 вырождается: getOrCreateShop ЛЕНИВО создаёт магазин звонящему
+      // и тут же выдаёт ему owner-тапл, поэтому canManageShop проходит у ЛЮБОГО
+      // авторизованного, а showcaseId уходил в access.revoke (сырой примитив без
+      // собственной авторизации) как есть — можно было снять права со-управляющего
+      // на чужой витрине.
+      const sc = await this.db.showcase.findUnique({ where: { id: showcaseId } });
+      if (!sc || sc.shopId !== shop.id) throw new NotFoundException('Витрина не найдена');
       await this.access.revoke({ resourceType: 'showcase', resourceId: showcaseId, relation: 'manager', subjectType: 'user', subjectId: userId });
     }
   }

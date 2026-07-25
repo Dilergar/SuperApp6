@@ -48,11 +48,38 @@ export class AllExceptionsFilter implements ExceptionFilter {
       // Nest's body is either a string or { message: string | string[], ... }.
       const raw = typeof body === 'string' ? body : (body as { message?: string | string[] }).message;
       const message = Array.isArray(raw) ? raw[0] ?? exception.message : raw ?? exception.message;
+      // Опциональные машиночитаемые детали: сервис бросает
+      // `new HttpException({ message, details: {...} }, status)` — details уходят в конверт
+      // как есть (первый потребитель — core/verify: resendInSec / attemptsLeft для таймеров UI).
+      const details =
+        typeof body === 'object' && body !== null && 'details' in body
+          ? (body as { details?: Record<string, unknown> }).details
+          : undefined;
+      // Стандартный Retry-After на 429: его понимают браузеры, http-клиенты и боты,
+      // и он бесплатно достаётся всем, кто уже кладёт resendInSec в details.
+      const retryAfter = details?.resendInSec;
+      if (status === 429 && typeof retryAfter === 'number' && retryAfter > 0) {
+        res.setHeader('Retry-After', String(Math.ceil(retryAfter)));
+      }
+      // Явный errors из тела исключения: сервис бросает
+      // `new BadRequestException({ message, errors: [{field, message}] })`. Раньше конверт
+      // его терял (пробрасывался только случай, когда массивом был сам message), и клиент
+      // получал «Процесс не готов к публикации» / «Проверьте анкету процесса» БЕЗ указания,
+      // что именно не так — в том числе для отказов по правам.
+      const explicitErrors =
+        typeof body === 'object' && body !== null && Array.isArray((body as { errors?: unknown }).errors)
+          ? (body as { errors: unknown[] }).errors
+          : undefined;
       res.status(status).json({
         success: false,
         statusCode: status,
         message,
-        ...(Array.isArray(raw) && raw.length > 1 ? { errors: raw.map((m) => ({ message: m })) } : {}),
+        ...(details ? { details } : {}),
+        ...(explicitErrors
+          ? { errors: explicitErrors }
+          : Array.isArray(raw) && raw.length > 1
+            ? { errors: raw.map((m) => ({ message: m })) }
+            : {}),
       });
       return;
     }

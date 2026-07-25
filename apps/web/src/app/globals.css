@@ -737,3 +737,47 @@ body::before {
     transition: none !important;
   }
 }
+
+/* ============================================================
+   Движок подтверждений (core/verify) — ввод SMS-кода
+   ============================================================ */
+
+/* Ячейки кода: бумажные квадратики с «призрачной» рамкой (не 1px-бокс:
+   иррегулярные радиусы + полупрозрачный контур) и рукописной цифрой */
+.otp-cell {
+  width: 46px;
+  height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-container-lowest);
+  border: 2px solid color-mix(in srgb, var(--outline-variant) 35%, transparent);
+  border-radius: 0.9rem 0.6rem 1rem 0.7rem;
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--on-surface);
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.otp-cell--active {
+  border-color: var(--secondary);
+  transform: translateY(-2px);
+}
+.otp-cell--filled {
+  border-color: color-mix(in srgb, var(--on-surface) 30%, transparent);
+}
+.otp-cell--error {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+@keyframes otp-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+.otp-shake {
+  animation: otp-shake 0.35s ease;
+}

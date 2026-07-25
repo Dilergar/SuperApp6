@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
 import { MessengerController } from './messenger.controller';
 import { MentionsController } from './mentions.controller';
 import { MessengerService } from './messenger.service';
@@ -16,10 +15,9 @@ import { OfficeSystemListener } from './office-system.listener';
 import { ChatCallsListener } from './chat-calls.listener';
 
 @Module({
-  // JwtModule provides JwtService for verifying the socket-handshake token
-  // (the secret is passed explicitly at verify time, read from ConfigService).
+  // Токен рукопожатия сокета проверяет SessionValidatorService (@Global,
+  // shared/auth) — он же держит проверку отзыва сессии, общую с HTTP-путём.
   // ContactsService (used for role tags) is available globally (ContactsModule @Global).
-  imports: [JwtModule.register({})],
   controllers: [MessengerController, MentionsController],
   providers: [
     MessengerService,

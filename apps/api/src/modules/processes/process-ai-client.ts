@@ -1,4 +1,4 @@
-import { assertPublicUrl } from './process-service-nodes';
+import { assertPublicUrl, safeFetch } from './process-service-nodes';
 
 // ============================================================
 // LLM-клиент Ф4 — чистый fetch к Anthropic Messages / OpenAI Chat
@@ -31,22 +31,30 @@ export interface LlmToolCall {
 
 const LLM_TIMEOUT_MS = 40_000;
 
+/**
+ * ВСЕ исходящие вызовы модуля идут через safeFetch — единственную защищённую точку
+ * выхода. Здесь раньше стоял голый fetch, и это была дыра SSRF:
+ *  - assertPublicUrl проверяет только СТРОКУ хоста (literalHostIsPrivate возвращает null
+ *    для любого не-IP-литерала), поэтому домен с A-записью 169.254.169.254 проходил;
+ *  - реальный DNS-чек assertResolvedPublic живёт внутри safeFetch и сюда не доставал;
+ *  - голый fetch следует редиректам по умолчанию, так что 302 на внутренний адрес
+ *    отрабатывал молча — и уносил с собой заголовок с ключом.
+ * safeFetch даёт DNS-резолв каждого хопа, ручные редиректы и срезание кредов.
+ */
 async function postJson(url: string, headers: Record<string, string>, body: unknown): Promise<{ status: number; json: any }> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+  const res = await safeFetch(
+    url,
+    { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) },
+    { timeoutMs: LLM_TIMEOUT_MS },
+  );
+  const text = await res.text();
+  let json: any = null;
   try {
-    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body), signal: controller.signal });
-    const text = await res.text();
-    let json: any = null;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      json = { raw: text.slice(0, 1000) };
-    }
-    return { status: res.status, json };
-  } finally {
-    clearTimeout(timer);
+    json = JSON.parse(text);
+  } catch {
+    json = { raw: text.slice(0, 1000) };
   }
+  return { status: res.status, json };
 }
 
 function openaiBase(cfg: LlmConfig): string {

@@ -184,8 +184,12 @@ export async function safeFetch(
       const next = assertPublicUrl(new URL(loc, url).toString());
       await assertResolvedPublic(next.hostname);
       if (next.host !== prevHost) {
-        // кросс-хост: не утекаем креды на новый хост (как браузеры)
-        for (const k of Object.keys(headers)) if (/^authorization$/i.test(k) || /^cookie$/i.test(k)) delete headers[k];
+        // кросс-хост: не утекаем креды на новый хост (как браузеры).
+        // x-api-key — ключ Anthropic (process-ai-client шлёт его именно так): без него
+        // в списке подставной редирект уводил бы ключ организации на чужой хост.
+        for (const k of Object.keys(headers)) {
+          if (/^authorization$/i.test(k) || /^cookie$/i.test(k) || /^x-api-key$/i.test(k)) delete headers[k];
+        }
       }
       // 303 и 301/302-для-не-GET → GET без тела; 307/308 сохраняют метод/тело
       if (res.status === 303 || ((res.status === 301 || res.status === 302) && method !== 'GET' && method !== 'HEAD')) {

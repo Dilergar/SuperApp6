@@ -1,22 +1,30 @@
 import {
   Injectable,
+  Logger,
   UnauthorizedException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 // Нативный bcrypt (libuv threadpool): bcryptjs считал cost-12 хэш НА event-loop'е
 // (~0.5–1.5с CPU) — десяток одновременных логинов душил все запросы инстанса.
 import * as bcrypt from 'bcrypt';
 import { createHash, randomUUID } from 'node:crypto';
+import type { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { ContactsService } from '../../modules/contacts/contacts.service';
 import { WorkspacesService } from '../../modules/workspaces/workspaces.service';
+import { NotificationsService } from '../../modules/notifications/notifications.service';
+import { VerifyService } from '../verify/verify.service';
 import type { JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { authAliveKey } from '../../shared/auth/session-validator.service';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private db: DatabaseService,
     private jwt: JwtService,
@@ -24,6 +32,8 @@ export class AuthService {
     private contacts: ContactsService,
     private workspaces: WorkspacesService,
     private events: EventBusService,
+    private notifications: NotificationsService,
+    private verify: VerifyService,
   ) {}
 
   async register(data: {
@@ -32,7 +42,15 @@ export class AuthService {
     firstName: string;
     lastName?: string;
     dateOfBirth?: string; // ISO YYYY-MM-DD
+    verifyToken?: string; // одноразовый пропуск движка подтверждений (purpose=register)
   }) {
+    // Secure-by-default (движок core/verify): в production аккаунт без подтверждённого
+    // SMS-кодом номера создать нельзя — иначе возвращается дыра «занял чужой номер —
+    // получил его приглашения». В development/test токен опционален (seed/verify-скрипты).
+    if (this.verify.required && !data.verifyToken) {
+      throw new BadRequestException('Требуется подтверждение номера по SMS');
+    }
+
     // Check if phone already exists
     const existing = await this.db.user.findUnique({
       where: { phone: data.phone },
@@ -52,6 +70,16 @@ export class AuthService {
 
     // Create user + system role + trial subscription in one transaction
     const user = await this.db.$transaction(async (tx) => {
+      // Гашение пропуска — В ТРАНЗАКЦИИ создания (откат = пропуск не потрачен).
+      // expectedPhone гарантирует: подтверждён именно ТОТ номер, на который регистрируемся.
+      if (data.verifyToken) {
+        await this.verify.consume(tx, {
+          verifyToken: data.verifyToken,
+          purpose: 'register',
+          expectedPhone: data.phone,
+        });
+      }
+
       const newUser = await tx.user.create({
         data: {
           phone: data.phone,
@@ -59,6 +87,7 @@ export class AuthService {
           firstName: data.firstName,
           lastName: data.lastName,
           dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
+          phoneVerifiedAt: data.verifyToken ? new Date() : null,
         },
       });
 
@@ -98,7 +127,7 @@ export class AuthService {
     );
 
     // Generate tokens — system role goes into JWT
-    return this.generateTokens(user.id, user.phone, 'user');
+    return this.generateTokens(user.id, user.phone, 'user', user.tokenEpoch);
   }
 
   async login(phone: string, password: string) {
@@ -145,7 +174,77 @@ export class AuthService {
     // Get highest system role
     const systemRole = this.getHighestSystemRole(user.roles.map((r) => r.role));
 
-    const tokens = await this.generateTokens(user.id, user.phone, systemRole);
+    const tokens = await this.generateTokens(user.id, user.phone, systemRole, user.tokenEpoch);
+    return { ...tokens, restored };
+  }
+
+  /**
+   * Завершение «Забыли пароль?» (движок core/verify, purpose=password_reset):
+   * verifyToken доказывает владение номером → смена пароля + отзыв ВСЕХ сессий +
+   * уведомление + АВТОВХОД (решение продукта: человек только что подтвердил номер
+   * и задал пароль — заставлять вводить его снова через 3 секунды бессмысленно).
+   * Аккаунт в грейс-периоде удаления восстанавливается (симметрия с login).
+   */
+  async resetPassword(verifyToken: string, newPassword: string) {
+    const hashedPassword = await bcrypt.hash(newPassword, 12); // CPU — до транзакции
+
+    const { userId, phone, restored, epoch } = await this.db.$transaction(async (tx) => {
+      // Гашение пропуска в этой же транзакции: откат = пропуск не потрачен.
+      const consumed = await this.verify.consume(tx, {
+        verifyToken,
+        purpose: 'password_reset',
+      });
+      // Аккаунт берём по id, зафиксированному при ЗАПУСКЕ цепочки, а не по строке
+      // номера: иначе пропуск, выданный на номер, который его владелец успел
+      // освободить (смена номера / удаление аккаунта), в свои 15 минут жизни сбросил
+      // бы пароль НОВОМУ владельцу этого номера. Фолбэк по телефону — для цепочек,
+      // заведённых до появления привязки (окно ретеншна, 7 дней).
+      const user = consumed.userId
+        ? await tx.user.findUnique({
+            where: { id: consumed.userId },
+            select: { id: true, phone: true, deletedAt: true, deletionScheduledAt: true },
+          })
+        : await tx.user.findUnique({
+            where: { phone: consumed.phone },
+            select: { id: true, phone: true, deletedAt: true, deletionScheduledAt: true },
+          });
+      // Нейтральная формулировка (анти-энумерация reset-потока сохраняется).
+      // Проверка phone: номер аккаунта не должен был поменяться после выдачи пропуска.
+      if (!user || user.deletedAt || user.phone !== consumed.phone) {
+        throw new BadRequestException('Подтверждение недействительно или устарело. Запросите код заново');
+      }
+      await tx.user.update({
+        where: { id: user.id },
+        data: { password: hashedPassword, deletionScheduledAt: null },
+      });
+      // Все сессии — в отставку: чужие руки со старым паролем/refresh-токенами отрезаны.
+      await tx.session.deleteMany({ where: { userId: user.id } });
+      // …и выданные access-токены вместе с ними (иначе жили бы ещё до 15 минут).
+      const epoch = await this.bumpTokenEpochTx(tx, user.id);
+      return { userId: user.id, phone: user.phone, restored: !!user.deletionScheduledAt, epoch };
+    });
+
+    await this.redis.delPattern(`user:${userId}:*`);
+    // Кэш поколения — сразу после коммита, иначе до минуты старые токены проходят.
+    await this.redis.del(authAliveKey(userId)).catch(() => undefined);
+    // Живые сокеты со старыми сессиями рвём немедленно (паттерн logout-all).
+    this.events.emit('auth.sessions.revoked', { userId }, 'auth');
+    // Уведомление — ПОСЛЕ коммита и без права уронить ответ: пароль уже сменён, а в
+    // ответе едут токены автовхода. Упавшая лента не должна выглядеть как «сброс не удался».
+    this.notifications
+      .notify(userId, 'auth.password.changed', {})
+      .catch((err) => this.logger.error(`Уведомление о смене пароля не создано: ${err.message}`));
+
+    const roles = await this.db.userRole.findMany({
+      where: { userId, context: 'system', isActive: true },
+      select: { role: true },
+    });
+    const tokens = await this.generateTokens(
+      userId,
+      phone,
+      this.getHighestSystemRole(roles.map((r) => r.role)),
+      epoch,
+    );
     return { ...tokens, restored };
   }
 
@@ -177,7 +276,7 @@ export class AuthService {
       session.user.roles.map((r) => r.role),
     );
 
-    return this.generateTokens(session.user.id, session.user.phone, systemRole);
+    return this.generateTokens(session.user.id, session.user.phone, systemRole, session.user.tokenEpoch);
   }
 
   async logout(userId: string, refreshToken: string) {
@@ -188,9 +287,15 @@ export class AuthService {
   }
 
   async logoutAll(userId: string) {
-    await this.db.session.deleteMany({ where: { userId } });
+    // Поколение токенов вперёд — иначе «выход со всех устройств» убирал только
+    // refresh-строки, а выданные access-токены работали ещё до 15 минут.
+    await this.db.$transaction(async (tx) => {
+      await tx.session.deleteMany({ where: { userId } });
+      await this.bumpTokenEpochTx(tx, userId);
+    });
     // Invalidate all cached data for this user
     await this.redis.delPattern(`user:${userId}:*`);
+    await this.redis.del(authAliveKey(userId)).catch(() => undefined);
     // Hard-disconnect live messenger sockets too: socket auth happens only on the
     // handshake, so without this a revoked session keeps receiving realtime traffic.
     this.events.emit('auth.sessions.revoked', { userId }, 'auth');
@@ -203,8 +308,23 @@ export class AuthService {
     return 'user';
   }
 
-  private async generateTokens(userId: string, phone: string, role: string) {
-    const payload: JwtPayload = { sub: userId, phone, role };
+  /**
+   * Инкремент поколения токенов = отзыв ВСЕХ ранее выданных access-токенов
+   * (JwtStrategy сверяет epoch). Зовётся в транзакции действия, которое обещает
+   * «все сессии завершены»; кэш «жив» чистится сразу после коммита — иначе до
+   * минуты старые токены проходили бы по закэшированному поколению.
+   */
+  private async bumpTokenEpochTx(tx: Prisma.TransactionClient, userId: string): Promise<number> {
+    const user = await tx.user.update({
+      where: { id: userId },
+      data: { tokenEpoch: { increment: 1 } },
+      select: { tokenEpoch: true },
+    });
+    return user.tokenEpoch;
+  }
+
+  private async generateTokens(userId: string, phone: string, role: string, epoch: number) {
+    const payload: JwtPayload = { sub: userId, phone, role, epoch };
 
     const accessToken = this.jwt.sign(payload);
 

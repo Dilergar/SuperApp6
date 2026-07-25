@@ -25,6 +25,16 @@ function fail(message: string): NodeRunResult {
 // Telegram — ОДНА нода (модель n8n): отправляет сообщение в потоке И подключается к
 // AI-Агенту как инструмент (выход «как инструмент»/astool — агент сам решает звать).
 // ------------------------------------------------------------
+/**
+ * Экранирование под parse_mode:'HTML'. Текст ноды собирается подстановками, и туда
+ * приходит НЕ только анкета: {{steps.<http>.body}} и вывод AI-нод санитайзер переменных
+ * не видит вообще. Экранируем в самом стоке — это единственная точка, через которую
+ * проходит всё, что реально уезжает в Telegram.
+ */
+function escapeTelegramHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 async function sendTelegram(
   ctx: NodeRunContext,
   credentialId: string,
@@ -36,7 +46,7 @@ async function sendTelegram(
   return fetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
+    body: JSON.stringify({ chat_id: chatId, text: escapeTelegramHtml(text), parse_mode: 'HTML' }),
   });
 }
 

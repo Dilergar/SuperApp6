@@ -7,6 +7,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 // Shared infrastructure
 import { DatabaseModule } from './shared/database/database.module';
 import { RedisModule } from './shared/redis/redis.module';
+import { SessionValidatorModule } from './shared/auth/session-validator.module';
 import { EventBusModule } from './shared/events/event-bus.module';
 import { WorkspaceContextModule } from './shared/context/workspace-context.module';
 
@@ -23,6 +24,7 @@ import { VoiceModule } from './core/voice/voice.module';
 import { CallsModule } from './core/calls/calls.module';
 import { ChatterModule } from './core/chatter/chatter.module';
 import { JobsModule } from './core/jobs/jobs.module';
+import { VerifyModule } from './core/verify/verify.module';
 
 // Feature modules (MVP)
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -75,6 +77,8 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     WorkspaceContextModule,
     DatabaseModule,
     RedisModule,
+    // Живость/отзыв сессии — общая проверка для HTTP (JwtStrategy) и рукопожатия сокета.
+    SessionValidatorModule,
     EventBusModule,
 
     // Core — auth, users & universal identity
@@ -114,6 +118,11 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // at-least-once исполнение (SKIP LOCKED, бэкофф, dead-letter), обработчики —
     // регистрацией в JobsRegistry. Правило: на шину — только необязательное.
     JobsModule,
+    // Verify engine — 11-й платформенный движок: SMS-OTP «владеешь ли ты номером»
+    // (регистрация verify-first, сброс/смена пароля, смена номера; purpose-реестр
+    // расширяем под step-up денежных операций). Драйверы kazinfoteh|mock, отправка
+    // синхронная; consume() гасится в транзакции потребителя. Secure-by-default в prod.
+    VerifyModule,
 
     // Feature modules — each is self-contained.
     // Load order: Notifications → Contacts (@Global, consumed by AuthService)

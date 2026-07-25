@@ -17,8 +17,10 @@ const { RedisService } = require('../dist/shared/redis/redis.service');
 const { AccessService } = require('../dist/core/access/access.service');
 const { AccessProjectionService } = require('../dist/core/access/access-projection.service');
 
-const PHONE_OWN = '+79990001011';
-const PHONE_MEM = '+79990001012';
+// Казахстанские мобильные: с движка подтверждений регистрация принимает только их
+// (гео-щит перестал быть внутренним делом core/verify и переехал в registerSchema).
+const PHONE_OWN = '+77069990011';
+const PHONE_MEM = '+77069990012';
 const WS = 'acl-test-ws-0001';
 const GHOST = 'acl-test-ghost';
 

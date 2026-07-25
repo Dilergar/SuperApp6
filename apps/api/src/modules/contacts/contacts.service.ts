@@ -783,11 +783,8 @@ export class ContactsService {
     });
     return invitations.map((inv) => ({
       ...this.serializeInvitation(inv),
-      // No link/groups yet → sender's default visibility.
-      from: this.toContactUserCard(
-        inv.fromUser,
-        resolveCardVisibility(inv.fromUser.cardVisibility as Partial<CardVisibility> | null),
-      ),
+      // Связи ещё НЕТ — отдаём пре-линк карточку (см. toPreLinkUserCard).
+      from: this.toPreLinkUserCard(inv.fromUser),
     }));
   }
 
@@ -802,12 +799,7 @@ export class ContactsService {
     });
     return invitations.map((inv) => ({
       ...this.serializeInvitation(inv),
-      to: inv.toUser
-        ? this.toContactUserCard(
-            inv.toUser,
-            resolveCardVisibility(inv.toUser.cardVisibility as Partial<CardVisibility> | null),
-          )
-        : null,
+      to: inv.toUser ? this.toPreLinkUserCard(inv.toUser) : null,
     }));
   }
 
@@ -1101,6 +1093,38 @@ export class ContactsService {
       initiatedBy: link.initiatedBy,
       confirmedAt: link.confirmedAt.toISOString(),
       myCircleIds,
+    };
+  }
+
+  /**
+   * Карточка человека, с которым связи ещё НЕТ (pending-приглашение в обе стороны).
+   *
+   * Правило платформы задано в самом maskLastName: «показываем человеку, с которым
+   * связь ещё не подтверждена → только инициал». Ему подчиняются /users/lookup и
+   * listBlocks, а списки приглашений отдавали ПОЛНУЮ карточку по видимости «по
+   * умолчанию» — то есть больше, чем специально ужесточённый lookup: фамилию целиком,
+   * био, город, соцсети и возраст (в DEFAULT_CARD_VISIBILITY эти поля открыты).
+   * Получалось, что достаточно отправить приглашение на номер, прочитать свой же
+   * список исходящих и отменить его.
+   *
+   * Форма ответа не меняется (ContactUserCard) — веб читает отсюда только имя и факт
+   * регистрации, поэтому UI не затронут.
+   */
+  private toPreLinkUserCard(row: UserCardRow): ContactUserCard {
+    return {
+      id: row.id,
+      phone: row.phone,
+      firstName: row.firstName,
+      lastName: maskLastName(row.lastName),
+      avatar: row.avatar,
+      dateOfBirth: null,
+      bio: null,
+      city: null,
+      email: null,
+      maritalStatus: null,
+      socialLinks: null,
+      age: null,
+      showOnlineStatus: false,
     };
   }
 

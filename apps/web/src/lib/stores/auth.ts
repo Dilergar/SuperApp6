@@ -48,7 +48,11 @@ interface AuthState {
     firstName: string;
     lastName?: string;
     dateOfBirth?: string;
+    /** Одноразовый пропуск движка подтверждений (/verify/check, purpose=register). */
+    verifyToken?: string;
   }) => Promise<void>;
+  /** Принять готовую пару токенов (автовход после сброса пароля) и подтянуть профиль. */
+  applySession: (tokens: { accessToken: string; refreshToken: string }) => Promise<void>;
   logout: () => Promise<void>;
   fetchProfile: () => Promise<void>;
 }
@@ -97,6 +101,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   register: async (input) => {
     const { data } = await api.post('/auth/register', input);
     setTokens(data.data.accessToken, data.data.refreshToken);
+    await get().fetchProfile();
+  },
+
+  applySession: async ({ accessToken, refreshToken }) => {
+    setTokens(accessToken, refreshToken);
     await get().fetchProfile();
   },
 
