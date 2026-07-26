@@ -195,8 +195,8 @@ services:
       redis:
         condition: service_healthy
 
-  # Редактор документов движка core/docs: Collabora Online Development Edition (CODE) —
-  # WOPI-клиент поверх LibreOffice. Опциональный профиль:
+  # Редактор документов движка core/docs — WOPI-клиент поверх LibreOffice.
+  # Опциональный профиль:
   #   docker compose --profile docs up -d
   # Затем в apps/api/.env:
   #   DOCS_EDITOR_URL=http://localhost:9980
@@ -204,35 +204,71 @@ services:
   # ВАЖНО про два адреса: iframe грузит БРАУЗЕР (localhost:9980), а за содержимым
   # документа редактор ходит ИЗ КОНТЕЙНЕРА к нашему API (host.docker.internal:3001).
   # Перепутанные адреса = классическое «WOPI::CheckFileInfo failed».
-  # К продакшену — своя сборка из исходников (MPL-2.0: свой бренд, сняты dev-лимиты
-  # на число документов и соединений; марки Collabora лицензия требует убрать).
-  collabora:
-    image: collabora/code:24.04.13.1.1
-    container_name: superapp6-collabora
+  #
+  # Образ — НАШ, собранный из исходников Collabora Online (MPL-2.0) и обезличенный:
+  # готовый collabora/code не годится для продажи, потому что их БИНАРНИКИ идут на
+  # дополнительных проприетарных условиях, а политика товарных знаков требует убирать
+  # марки из изменённой сборки. Как собирается и как обновляется — infra/docs-editor/
+  # (рунбук в README.md, обязанности в LICENSING.md, версии в pins.env).
+  #
+  # ПОСЛЕ КАЖДОЙ ПЕРЕСБОРКИ образа обязательно сбрасывать кэш discovery, иначе iframe
+  # час стучится в 404 без единой ошибки на сервере (в адресе редактора зашит хэш
+  # сборки, а DocsEditorClient кэширует его в Redis на час):
+  #   .\infra\docs-editor\build.ps1 -Stage brand -FlushDiscovery
+  #
+  # Откат: вернуть сюда collabora/code:24.04.13.1.1 и сбросить тот же кэш.
+  docs-editor:
+    image: superapp6/docs-editor:26.04-52df04e-b1
+    container_name: superapp6-docs-editor
     profiles: ['docs']
     restart: unless-stopped
     ports:
       - '9980:9980'
     environment:
-      # Хосты, которым CODE доверяет как WOPI-хосту (регэксп с экранированными точками).
-      # host\.docker\.internal — наш API, как его видит контейнер.
+      # Конфигурация переменными окружения работает и в своей сборке: ENTRYPOINT образа
+      # несёт --use-env-vars, и сам coolwsd читает aliasgroup1..N, extra_params,
+      # DONT_GEN_SSL_CERT, username/password, server_name (проверено по исходникам
+      # wsd/COOLWSD.cpp). Раньше это разбирал entrypoint-скрипт образа CODE — поэтому
+      # при переходе на свою сборку блок не пришлось переписывать.
+      #
+      # Хосты, которым редактор доверяет как WOPI-хосту (регэксп с экранированными
+      # точками). host\.docker\.internal — наш API, как его видит контейнер.
       aliasgroup1: 'http://host\.docker\.internal:3001'
-      # В dev редактор говорит ЧИСТЫМ http. Оба флага обязательны: ssl.enable=false
-      # выключает собственный TLS, а ssl.termination=false (дефолт образа — true!)
-      # запрещает считать, что впереди стоит https-прокси. С termination=true сервер
-      # раздаёт в discovery https-адреса и строит wss-сокеты — браузер стучится TLS'ом
-      # в открытый порт, и в логе появляется «Looks like SSL/TLS traffic on plain http
-      # port», а документ не открывается. В проде, где впереди реальный https-прокси,
-      # termination возвращается в true.
-      # welcome.enable / feedback.show — встроенные экраны CODE («Узнайте о новой
-      # версии», опрос). Внутри НАШЕГО продукта чужой маркетинг показываться не должен;
-      # к тому же оба тянутся с внешних адресов Collabora. В своей сборке из исходников
-      # они убираются вместе с брендингом, а здесь гасятся конфигом.
-      extra_params: --o:ssl.enable=false --o:ssl.termination=false --o:welcome.enable=false --o:feedback.show=false
-      # Без пароля админ-консоль CODE недоступна — в dev она и не нужна
+      # В dev редактор говорит ЧИСТЫМ http. Оба флага задаём явно: ssl.enable=false
+      # выключает собственный TLS, а ssl.termination=false запрещает считать, что
+      # впереди стоит https-прокси. С termination=true сервер раздаёт в discovery
+      # https-адреса и строит wss-сокеты — браузер стучится TLS'ом в открытый порт,
+      # в логе появляется «Looks like SSL/TLS traffic on plain http port», и документ
+      # не открывается. В проде, где впереди реальный https-прокси, termination
+      # возвращается в true (см. infra/docs-editor/prod.env.example).
+      # (В исходниках дефолт termination = false; true был особенностью образа CODE,
+      # чей entrypoint-скрипт его подставлял. В своей сборке пишем оба явно и не
+      # зависим от того, кто какой дефолт считает разумным.)
+      # Обезличивание штатными ручками конфига (это поддерживаемый путь, а не хак):
+      #   brandProductName — имя продукта в интерфейсе;
+      #   brandProductURL  — ссылка «о продукте»; ПУСТОЕ значение по описанию самого
+      #                      конфига «makes disable the link». В поставке там стоит
+      #                      https://www.collaboraonline.com — единственная чужая ссылка,
+      #                      оставшаяся в сборке из исходников.
+      # Экранов welcome/feedback и обращений к remote_config/remote_font_config в сборке
+      # из исходников НЕТ вовсе (в образе CODE их включал entrypoint-скрипт) — проверено
+      # по /etc/coolwsd/coolwsd.xml: welcome.enable уже false, блока feedback нет,
+      # remote-адреса пустые. welcome.enable оставлен явным как страховка от смены дефолта.
+      extra_params: --o:ssl.enable=false --o:ssl.termination=false --o:welcome.enable=false --o:user_interface.brandProductName=SuperApp6 --o:user_interface.brandProductURL=
+      # Без пароля админ-консоль недоступна — в dev она и не нужна
       DONT_GEN_SSL_CERT: 'true'
       username: ''
       password: ''
+    # ОЖИДАЕМЫЙ ШУМ В ЛОГЕ на старте: три ERR про «CLONE_NEWUSER unshare failed» и
+    # «Failed to exec coolmount … needs CAP_SYS_ADMIN». Помощник coolmount готовит
+    # песочницы через bind-mount, а CAP_SYS_ADMIN в дефолтный набор Docker не входит.
+    # coolwsd сам откатывается на копирование файлов («Bind-Mounting fails and will be
+    # disabled for this run») и работает нормально — verify-docs зелёный. Выдавать
+    # контейнеру SYS_ADMIN ради тишины в логе не стоит: это заметное расширение прав
+    # ради чуть более быстрой подготовки песочницы.
+    # Штатный `--o:mount_jail_tree=false` этот шум НЕ убирает (проверено: до слияния
+    # аргументов командной строки проба уже отработала), поэтому флаг здесь не стоит —
+    # он создавал бы ложное впечатление, что вопрос закрыт.
     extra_hosts:
       - 'host.docker.internal:host-gateway' # Docker Desktop имеет из коробки; строка — для Linux-хостов
     healthcheck:

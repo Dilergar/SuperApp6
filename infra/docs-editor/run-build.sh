@@ -57,9 +57,20 @@ if [ -n "${ENGINE_ASSETS_URL:-}" ]; then
   else
     echo "sha256 совпал с пином"
   fi
-  ENGINE_ASSETS="file://$ASSET_FILE"
-  # wget умеет file://, но проверим это ДО двадцати минут сборки, а не после.
-  wget -q -O /dev/null "$ENGINE_ASSETS" || die "wget не смог прочитать $ENGINE_ASSETS — сборка всё равно упала бы на этом шаге"
+  # build.sh забирает ассет через `wget "$ENGINE_ASSETS"`, а wget в Ubuntu отвечает на
+  # file:// «Unsupported scheme» (проверено: GNU Wget 1.21.4). Патчить upstream ради
+  # одной схемы не хочется, поэтому поднимаем на минуту локальный HTTP поверх тома —
+  # ассет никуда не уходит с машины, слушаем только 127.0.0.1.
+  ( cd /assets && python3 -m http.server 18080 --bind 127.0.0.1 >/dev/null 2>&1 ) &
+  ASSET_SRV=$!
+  trap 'kill "$ASSET_SRV" 2>/dev/null || true' EXIT
+  ENGINE_ASSETS="http://127.0.0.1:18080/$(basename "$ASSET_FILE")"
+  for _ in $(seq 1 20); do
+    wget -q -O /dev/null "$ENGINE_ASSETS" && break
+    sleep 0.5
+  done
+  wget -q -O /dev/null "$ENGINE_ASSETS" || die "локальная раздача ассета не поднялась — сборка всё равно упала бы на этом шаге"
+  echo "ассет раздаётся локально: $ENGINE_ASSETS"
 else
   echo "ENGINE_ASSETS_URL пуст → движок будет собран из исходников (часы, много памяти)"
   ENGINE_ASSETS=""

@@ -138,7 +138,13 @@ SuperApp6/                       # Монорепо (pnpm + Turborepo)
 │           ├── validation/      # Zod-схемы тех же доменов
 │           ├── utils/           # phone.ts (нормализация), date.ts (относительное время)
 │           └── constants/       # roles, modules, contacts, card-visibility, notifications, tasks, calendar, workspaces, presence, mention, search и др.
-├── docker-compose.yml           # PostgreSQL 16 + Redis 7
+├── infra/
+│   └── docs-editor/             # Своя сборка WOPI-редактора движка core/docs из исходников
+│                                # (MPL-2.0, обезличенная): pins.env (коммит+sha256 ассета),
+│                                # вендоренная обвязка upstream/, слой бренда brand/,
+│                                # build.ps1/probe.ps1, LICENSING.md. Рунбук — README.md
+├── docker-compose.yml           # PostgreSQL 16 + Redis 7 + опциональные профили
+│                                # (s3, scan, voice, calls, docs)
 └── CLAUDE.md                    # Этот файл
 ```
 

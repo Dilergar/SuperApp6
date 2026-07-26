@@ -51,13 +51,21 @@
 ## Подмена и проверка
 
 ```powershell
-# 1. образ в docker-compose.yml (сервис docs-editor), затем:
+# 1. ПЕРВЫЙ раз: убрать старый контейнер ТОЧЕЧНО. Сервис переименован
+#    collabora → docs-editor, для compose старый контейнер стал «сиротой», обычный
+#    `down` его не тронет, а порт 9980 он держит и новый подняться не даст.
+#    ВНИМАНИЕ: `down --remove-orphans` здесь НЕЛЬЗЯ — с активным только профилем docs
+#    compose сочтёт сиротами и контейнеры остальных профилей (clamav, whisper,
+#    livekit, egress) и снесёт их заодно.
+docker rm -f superapp6-collabora
+
+# 2. образ прописан в docker-compose.yml (сервис docs-editor), поднимаем:
 docker compose --profile docs up -d
 
-# 2. ОБЯЗАТЕЛЬНО после каждой пересборки — сбросить кэш discovery
+# 3. ОБЯЗАТЕЛЬНО после каждой пересборки — сбросить кэш discovery
 .\infra\docs-editor\build.ps1 -Stage brand -FlushDiscovery
 
-# 3. проверка
+# 4. проверка
 cd apps\api; node scripts\verify-docs.cjs      # ждём 64/0, а НЕ SKIP
 ```
 
@@ -80,6 +88,65 @@ cd apps\api; node scripts\verify-docs.cjs      # ждём 64/0, а НЕ SKIP
 Красная черта: `COPYING*`, `LICENSE*`, `licenses/`, `NOTICE` и копирайт-шапки
 **не трогаем никогда** — MPL-2.0 §3.4. Диалог «О программе» теряет марку, но
 сохраняет копирайт upstream.
+
+## Ловушки, на которые уже наступили
+
+Здесь только то, что реально останавливало сборку — чтобы следующий раз не искать заново.
+
+**Ветка решает всё.** Готовый движок (`ENGINE_ASSETS`) умеет брать только новая обвязка,
+она есть на `co-26.04`/`main`. На `co-25.04` `build.sh` всегда клонирует и собирает
+LibreOffice сам, а её `docker/from-source/README.md` дословно гласит «FIXME. This folder
+needs to be updated for Collabora Online 23.05». Разница — часы сборки против минут.
+
+**Ассет движка содержит только `instdir`.** А POCO собирается в `workdir` дерева движка,
+и в ассет не попадает. `configure` это переживает («falling back to system POCO»), но
+системный POCO должен быть установлен — иначе конфигурация обрывается на
+`Poco/Net/WebSocket.h`. Отсюда `libpoco-dev` в `Dockerfile.builder`: он не «на всякий
+случай», а обязательная половина связки «готовый движок».
+
+**Node из Ubuntu не подходит.** В 24.04 приезжает 18.19, а `configure.ac` проверяет
+версию явно и обрывается: «This node version is old, upgrade to >= 20.0.0». Ставим 22
+из NodeSource.
+
+**Пропущенная библиотека ломает сборку в чужом файле — читайте `config.log`.**
+Самая поучительная поломка здесь. Симптом был такой:
+
+```
+common/Syscall.cpp:155: error: 'set_fds_cloexec_nonblock' was not declared in this scope
+```
+
+Файл к делу отношения не имеет. Настоящая цепочка: не было `libexpat1-dev` → в `LIBS`
+попадает `-lexpat` → **линковка** тестовых программ configure падает → а `AC_CHECK_FUNCS`
+проверяет функции именно линковкой, поэтому разом «пропали» `ppoll`, `memrchr` и `pipe2`,
+которые все есть в glibc → `HAVE_PIPE2=no` → компилируется ветка «для платформ без
+pipe2, вроде macOS» → и вот там лежит недообъявленная функция.
+
+Правило: если configure говорит «нет» про что-то заведомо существующее — не верить,
+а идти в `config.log` и искать `cannot find -l`:
+
+```powershell
+docker run --rm -v superapp6-docs-editor-build:/build --entrypoint sh superapp6/docs-editor-builder:1 -c `
+  "grep -oE 'cannot find -l[a-zA-Z0-9_.+-]+' /build/from-source/builddir/online/config.log | sort | uniq -c"
+```
+
+`-lpfm` и `-ldld` в этом выводе — норма, они опциональны. А вот **`cannot find -lPoco*`
+нормой НЕ является**: это значит, что нужный компонент POCO не собран. Именно так
+и вышло с `-lPocoZip`: список `--omit` был скопирован со старой ветки, где Zip не
+использовался, configure стерпел, а компиляция упала на `wsd/Unzip.cpp`. Отсюда правило:
+из POCO выбрасываем только заведомо ненужное и тяжёлое (драйверы БД, MongoDB, Redis,
+PDF, PageCompiler), а всё остальное собираем — лишние минуты дешевле круга диагностики.
+
+**`wget` не умеет `file://`.** Отвечает «Unsupported scheme», хотя `curl` умеет. Поэтому
+ассет на время сборки раздаётся локальным HTTP на 127.0.0.1 — патчить upstream ради
+одной схемы не стали.
+
+**`ONLINE_EXTRA_BUILD_OPTIONS` подставляется в `configure` без кавычек и без `eval`.**
+Шелл разобьёт значение по пробелам, поэтому `--with-app-name="Имя с пробелом"` приедет
+двумя аргументами и либо сломается, либо запишет мусор. Только ASCII без пробелов;
+человеческое название — оверлеем l10n.
+
+**Дефолт `ssl.termination` в исходниках — `false`.** Привычка «в образе было `true`» —
+свойство entrypoint-скрипта CODE, а не самого coolwsd. Пишем оба флага явно.
 
 ## Обновление версии
 

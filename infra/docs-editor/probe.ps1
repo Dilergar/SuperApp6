@@ -46,25 +46,35 @@ Write-Host '-- метки образа --'
 docker inspect --format '{{json .Config.Labels}}' $Image
 Write-Host '-- версия coolwsd (сюда попадает --with-vendor / --with-app-name) --'
 docker run --rm --entrypoint /usr/bin/coolwsd $Image --version 2>&1 | Select-Object -First 5
-Write-Host '-- локали: есть ли русская (мы открываем редактор с lang=ru-RU) --'
+Write-Host '-- локали: нужны ru (мы открываем редактор с lang=ru-RU) и kk (рынок КЗ) --'
 docker run --rm --entrypoint sh $Image -c `
-    "ls /usr/share/coolwsd/browser/dist/l10n/uilocale 2>/dev/null | grep -i '^ru' || echo 'НЕ НАЙДЕНО — проверьте путь к локалям'"
+    "ls /usr/share/coolwsd/browser/dist/l10n/ 2>/dev/null | grep -E '^(ui|help)-(ru|kk)\.json' | tr '\n' ' '; echo"
 Write-Host '-- шрифты: метрические замены обязаны находиться, иначе .docx поедет --'
 docker run --rm --entrypoint sh $Image -c `
     "fc-match Calibri; fc-match Cambria; fc-match 'Times New Roman'; echo -n 'кириллических шрифтов: '; fc-list :lang=ru | wc -l"
 
 if ($CheckLicenses) {
     Section 'Контроль: оверлей не съел атрибуцию'
-    Write-Host 'Ожидаем НЕПУСТОЙ список файлов лицензий. Пустой результат означает, что мы'
-    Write-Host 'удалили уведомления, которые MPL-2.0 §3.4 обязывает сохранить.'
-    $lic = docker run --rm --entrypoint sh $Image -c `
-        "grep -ril collabora /usr/share/coolwsd 2>/dev/null | grep -iE 'copying|license|licenses/|notice' | sort"
-    if ([string]::IsNullOrWhiteSpace($lic)) {
-        Write-Host 'ПРОВАЛ: файлов лицензий не осталось.' -ForegroundColor Red
-    } else {
-        $lic
-        Write-Host 'ок: атрибуция на месте.' -ForegroundColor Green
+    Write-Host 'MPL-2.0 §3.4 запрещает удалять уведомления о лицензии и авторских правах.'
+    Write-Host 'Снимая ТОВАРНЫЕ ЗНАКИ, легко задеть их заодно — поэтому проверяем явно.'
+    Write-Host 'Искать надо в /opt/collaboraoffice (там движок и его лицензии), а НЕ только'
+    Write-Host 'в /usr/share/coolwsd: в браузерной части файлы лицензий называются иначе.'
+
+    $checks = @(
+        @{ n = 'LICENSE движка';        c = "test -s /opt/collaboraoffice/LICENSE && echo ok" },
+        @{ n = 'NOTICE движка';         c = "test -s /opt/collaboraoffice/NOTICE && echo ok" },
+        @{ n = 'CREDITS движка';        c = "test -s /opt/collaboraoffice/CREDITS.fodt && echo ok" },
+        @{ n = 'копирайт Collabora';    c = "grep -qi collabora /opt/collaboraoffice/LICENSE && echo ok" },
+        @{ n = 'наш NOTICE';            c = "test -s /usr/share/doc/superapp6-docs-editor/NOTICE && echo ok" }
+    )
+    $bad = 0
+    foreach ($chk in $checks) {
+        $r = docker run --rm --entrypoint sh $Image -c $chk.c 2>$null
+        if ($r -match 'ok') { Write-Host ("  ok   " + $chk.n) -ForegroundColor Green }
+        else { Write-Host ("  ПРОВАЛ " + $chk.n) -ForegroundColor Red; $bad++ }
     }
+    if ($bad -eq 0) { Write-Host 'Атрибуция на месте.' -ForegroundColor Green }
+    else { Write-Host "Удалено то, что обязаны были сохранить: $bad шт." -ForegroundColor Red }
 }
 
 Write-Host "`nДальше — проход C в браузере на живом редакторе:" -ForegroundColor Yellow
