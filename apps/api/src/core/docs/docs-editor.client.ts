@@ -1,4 +1,7 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import * as fs from 'fs';
+import { Readable } from 'stream';
+import { pipeline } from 'stream/promises';
 import { DOCS_LIMITS } from '@superapp/shared';
 import { RedisService } from '../../shared/redis/redis.service';
 import { DocsRouterService } from './docs-router.service';
@@ -120,15 +123,21 @@ export class DocsEditorClient {
 
   /**
    * Конвертация документа средствами редактора (ленивый PDF-отпечаток под печать и
-   * будущую ЭЦП; извлечение текста для RAG). Возвращает сырые байты результата.
+   * будущую ЭЦП; извлечение текста для RAG).
+   *
+   * Работаем ФАЙЛ→ФАЙЛ, а не байты→байты: документ бывает в сотни мегабайт, и держать
+   * его в памяти трижды (исходник + копия под Blob + результат) — это OOM на паре
+   * параллельных джобов. openAsBlob отдаёт содержимое лениво, ответ пишем потоком.
    */
-  async convertTo(base: string, target: 'pdf' | 'txt', content: Buffer, filename: string): Promise<Buffer> {
+  async convertTo(
+    base: string,
+    target: 'pdf' | 'txt',
+    sourcePath: string,
+    filename: string,
+    outPath: string,
+  ): Promise<void> {
     const form = new FormData();
-    // Копия в «чистый» ArrayBuffer: Buffer из пула Node типизирован как ArrayBufferLike
-    // и Blob его не принимает.
-    const bytes = new Uint8Array(content.byteLength);
-    bytes.set(content);
-    form.append('file', new Blob([bytes]), filename);
+    form.append('file', await fs.openAsBlob(sourcePath), filename);
     let res: Response;
     try {
       res = await fetch(`${base}/cool/convert-to/${target}`, {
@@ -141,7 +150,7 @@ export class DocsEditorClient {
         `Конвертация недоступна: ${String((err as Error)?.message ?? err)}`,
       );
     }
-    if (!res.ok) throw new ServiceUnavailableException(`Конвертация вернула ${res.status}`);
-    return Buffer.from(await res.arrayBuffer());
+    if (!res.ok || !res.body) throw new ServiceUnavailableException(`Конвертация вернула ${res.status}`);
+    await pipeline(Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]), fs.createWriteStream(outPath));
   }
 }

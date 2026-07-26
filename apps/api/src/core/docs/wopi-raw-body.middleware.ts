@@ -4,9 +4,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Transform, pipeline } from 'stream';
 import type { NextFunction, Request, Response } from 'express';
-import { FILE_PROFILES } from '@superapp/shared';
+import { FILE_LIMITS } from '@superapp/shared';
+import { DocsTokenService } from './docs-token.service';
 
 const logger = new Logger('WopiRawBody');
+
+/** Проверка подписи не имеет зависимостей — экземпляр создаётся прямо здесь, вне DI */
+const tokens = new DocsTokenService();
 
 export interface WopiRawBody {
   /** Временный файл с телом запроса (потребляется движком файлов) */
@@ -29,16 +33,33 @@ function tmpDir(): string {
  * в main.ts — ПОСЛЕ алиаса /api/v1→/api (один use покрывает оба префикса) и ДО listen,
  * ровно как express.raw для вебхука LiveKit.
  */
-export function wopiRawBodyMiddleware(maxBytes = FILE_PROFILES.document.maxSize) {
+export function wopiRawBodyMiddleware(maxBytes = FILE_LIMITS.hardMaxSize) {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (req.method !== 'POST' || !/\/contents(\?|$)/.test(req.originalUrl)) {
       next();
       return;
     }
-    // Ранний отказ по объявленной длине — не тянем мегабайты, чтобы отвергнуть в конце
+    // Ранний отказ по объявленной длине — не тянем мегабайты, чтобы отвергнуть в конце.
+    // Потолок здесь — АБСОЛЮТНЫЙ (hardMaxSize), а не лимит профиля «document»: документом
+    // становится файл, приехавший вложением чата (профиль на 200 МБ), и потолок в 50 МБ
+    // означал бы 413 на каждое автосохранение — человек час правит и теряет работу.
+    // Точный лимит по профилю КОНКРЕТНОГО файла проверит replaceContent движка файлов.
     const declared = Number(req.headers['content-length'] ?? 0);
     if (Number.isFinite(declared) && declared > maxBytes) {
       res.status(413).end();
+      return;
+    }
+
+    // Подпись токена проверяем ДО того, как начать писать байты на диск. Мидлварь живёт
+    // на уровне Express, то есть ДО guard'ов Nest, а троттлер на WOPI-контроллере снят
+    // (у контейнера редактора один IP на всех) — без этой проверки любой желающий, не
+    // предъявляя ничего, заливал бы нам сотни мегабайт в тот же том, где лежит
+    // хранилище файлов, и клал бы вместе с редактором все загрузки платформы.
+    // Неверный токен НЕ отвечаем сами: пусть контроллер вернёт свой 401/404 (движок
+    // может быть вовсе выключен) — мы лишь не читаем тело.
+    const token = new URL(req.originalUrl, 'http://local').searchParams.get('access_token');
+    if (!tokens.verify(token).ok) {
+      next();
       return;
     }
 

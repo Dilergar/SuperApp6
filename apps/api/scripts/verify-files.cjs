@@ -202,7 +202,9 @@ async function main() {
     }
 
     // ===== abort =====
-    const ab = await call('POST', '/files', t1, { profile: 'generic', name: 'будет отменён.bin', mime: 'application/octet-stream', size: 100 });
+    // .dat, а не .bin: сырые двоичные дампы (.bin/.conf/.ini) запрещены к загрузке
+    // как класс — проверка этого запрета живёт в verify-files-scan.
+    const ab = await call('POST', '/files', t1, { profile: 'generic', name: 'будет отменён.dat', mime: 'application/octet-stream', size: 100 });
     const abId = ab.json?.data?.file?.id;
     const abRes = await call('POST', `/files/${abId}/abort`, t1);
     check('abort незавершённой загрузки → ok', abRes.ok, `status ${abRes.status}`);

@@ -5,7 +5,14 @@ import { DOCS_LIMITS, DOCUMENT_MODES } from '../constants/documents';
 // Docs Engine — Zod-схемы
 // ============================================
 
-const title = z.string().trim().min(1, 'Название обязательно').max(DOCS_LIMITS.maxTitleLength);
+// Название едет в имя файла-снимка, в BaseFileName редактора и в плашки чатов —
+// угловые скобки в пользовательском тексте платформа не пропускает нигде.
+const title = z
+  .string()
+  .trim()
+  .min(1, 'Название обязательно')
+  .max(DOCS_LIMITS.maxTitleLength)
+  .refine((s) => !/[<>]/.test(s), 'Недопустимые символы');
 
 /**
  * Место, откуда человек пришёл к документу (кнопка на вложении задачи/чата). ПРАВКА
@@ -49,17 +56,39 @@ export const documentUpdateSchema = z
   .strict()
   .refine((v) => v.title !== undefined || v.mode !== undefined, { message: 'Нечего обновлять' });
 
-/** POST /docs/:id/versions — «Сохранить версию» вручную (pre_sign — задел под ЭЦП) */
+/**
+ * POST /docs/:id/versions — «Сохранить версию» вручную (pre_sign — задел под ЭЦП).
+ * Место обязательно принимать и здесь: право на эти действия считается ровно так же,
+ * как право на правку, а оно наследуется от места. Без него участник задачи, который
+ * прямо сейчас правит документ, получал бы на свою же кнопку 403.
+ */
 export const documentVersionCreateSchema = z
   .object({
     reason: z.enum(['manual', 'pre_sign']).default('manual'),
+    refType: refType.optional(),
+    refId: refId.optional(),
   })
-  .strict();
+  .strict()
+  .refine(bothOrNeither, bothOrNeitherMsg);
+
+/** POST /docs/:id/versions/:versionId/restore — вернуть веху как текущее содержимое */
+export const documentRestoreSchema = z
+  .object({
+    refType: refType.optional(),
+    refId: refId.optional(),
+  })
+  .strict()
+  .refine(bothOrNeither, bothOrNeitherMsg);
 
 /** POST /docs/:id/rendition — заказать ленивую производную (PDF-отпечаток / текст для ИИ) */
 export const documentRenditionSchema = z
-  .object({ target: z.enum(['pdf', 'text']).default('pdf') })
-  .strict();
+  .object({
+    target: z.enum(['pdf', 'text']).default('pdf'),
+    refType: refType.optional(),
+    refId: refId.optional(),
+  })
+  .strict()
+  .refine(bothOrNeither, bothOrNeitherMsg);
 
 export type DocumentFromFileInput = z.infer<typeof documentFromFileSchema>;
 export type DocumentOpenInput = z.infer<typeof documentOpenSchema>;

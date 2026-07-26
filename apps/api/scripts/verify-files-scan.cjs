@@ -91,6 +91,57 @@ async function main() {
     check('чистый файл → scanStatus=clean', scan2 === 'clean', scan2);
     const okDl = await call('GET', `/files/${okId}/download`, t1);
     check('чистый → выдача 200', okDl.ok, `status ${okDl.status}`);
+
+    // ===== Политика «что вообще проверяем» (решение продукта 2026-07-26) =====
+    // Офисный документ НЕ проверяем: его правит наш редактор, и полный скан на каждое
+    // автосохранение — дорогая работа впустую. Кладём внутрь EICAR: если бы файл ушёл
+    // в скан, вердикт был бы 'infected'.
+    const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    const officeId = await uploadWhole(t1, { name: 'смета.xlsx', mime: XLSX_MIME, bytes: Buffer.from(EICAR) });
+    let officeScan = 'none';
+    for (let i = 0; i < 15; i++) {
+      officeScan = (await prisma.fileObject.findUnique({ where: { id: officeId }, select: { scanStatus: true } }))?.scanStatus;
+      if (officeScan !== 'none' && officeScan !== 'pending') break;
+      await sleep(1000);
+    }
+    check('офисный документ антивирусом НЕ гоняется (scanStatus=skipped)', officeScan === 'skipped', officeScan);
+    check('…и выдаётся нормально', (await call('GET', `/files/${officeId}/download`, t1)).ok);
+
+    // Архив — единственный класс, внутрь которого не смотрит ни один наш конвейер:
+    // его антивирус обязан вскрывать сам.
+    const zipId = await uploadWhole(t1, { name: 'вложение.zip', mime: 'application/zip', bytes: Buffer.from(EICAR) });
+    let zipScan = 'none';
+    for (let i = 0; i < 60; i++) {
+      zipScan = (await prisma.fileObject.findUnique({ where: { id: zipId }, select: { scanStatus: true } }))?.scanStatus;
+      if (zipScan === 'infected' || zipScan === 'clean') break;
+      await sleep(1000);
+    }
+    check('архив проверяется → EICAR внутри найден', zipScan === 'infected', zipScan);
+
+    // Макро-формат — исключением НЕ является: макрос в офисном файле это классический
+    // способ разослать вирус коллегам.
+    const macroId = await uploadWhole(t1, {
+      name: 'отчёт.xlsm',
+      mime: 'application/vnd.ms-excel.sheet.macroEnabled.12',
+      bytes: Buffer.from(EICAR),
+    });
+    let macroScan = 'none';
+    for (let i = 0; i < 60; i++) {
+      macroScan = (await prisma.fileObject.findUnique({ where: { id: macroId }, select: { scanStatus: true } }))?.scanStatus;
+      if (macroScan === 'infected' || macroScan === 'clean') break;
+      await sleep(1000);
+    }
+    check('макро-офис проверяется (.xlsm)', macroScan === 'infected', macroScan);
+
+    // Системные/конфигурационные расширения не принимаются вовсе
+    for (const bad of ['вирус.exe', 'дамп.bin', 'настройки.conf', 'ключи.ini', 'правка.reg']) {
+      const res = await call('POST', '/files', t1, { profile: 'generic', name: bad, mime: 'application/octet-stream', size: 10 });
+      check(`«${bad}» не принимается вовсе`, res.status === 400, `status ${res.status}`);
+    }
+
+    for (const id of [officeId, zipId, macroId]) {
+      await prisma.fileObject.deleteMany({ where: { id } });
+    }
   } finally {
     await prisma.$disconnect();
   }

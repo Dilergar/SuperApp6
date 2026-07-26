@@ -73,6 +73,42 @@ export const CHATTER_REGISTRY = {
     category: 'tasks',
     chatPost: true,
   },
+  /**
+   * Заход правки закончился (вышел последний редактор). Пишется ОДИН РАЗ НА ЗАХОД, а не
+   * на каждое сохранение: редактор сохраняет примерно раз в полминуты, и запись на
+   * каждое превратила бы чат в ленту «правил… правил… правил…».
+   */
+  'task.document_edited': {
+    template: '{{actorName}} правил(а) документ «{{title}}» ({{period}})',
+    icon: '✏️',
+    category: 'tasks',
+    chatPost: true,
+  },
+  /** То же самое, но в хронике САМОГО документа — она есть и у файла без задачи и чата */
+  'document.edited': {
+    template: '{{actorName}} правил(а) документ ({{period}})',
+    icon: '✏️',
+    category: 'tasks',
+    chatPost: false,
+  },
+  'document.version_saved': {
+    template: '{{actorName}} сохранил(а) версию {{versionNo}}',
+    icon: '🔖',
+    category: 'tasks',
+    chatPost: false,
+  },
+  'document.restored': {
+    template: '{{actorName}} вернул(а) версию {{versionNo}} как текущую',
+    icon: '↩️',
+    category: 'tasks',
+    chatPost: false,
+  },
+  'document.created': {
+    template: '{{actorName}} открыл(а) файл «{{title}}» для совместного редактирования',
+    icon: '📄',
+    category: 'tasks',
+    chatPost: false,
+  },
   'task.cancelled': {
     template: '{{actorName}} отменил(а) задачу',
     icon: '🚫',

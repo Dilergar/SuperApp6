@@ -14,7 +14,8 @@ export type FileStatus = 'uploading' | 'ready' | 'failed' | 'deleted';
 export type FileVisibility = 'private' | 'public';
 
 /** none — не сканировался; error — скан не удался терминально (не блокирует выдачу) */
-export type FileScanStatus = 'none' | 'pending' | 'clean' | 'infected' | 'error';
+/** 'skipped' — тип файла не проверяем по политике (shouldScanFile), это НЕ сбой */
+export type FileScanStatus = 'none' | 'pending' | 'clean' | 'infected' | 'error' | 'skipped';
 
 /**
  * Производные файла: миниатюры/постер/волна сейчас; text — слот RAG, pdf — ленивый

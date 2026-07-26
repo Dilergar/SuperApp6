@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   documentFromFileSchema,
   documentOpenSchema,
   documentRenditionSchema,
+  documentRestoreSchema,
   documentUpdateSchema,
   documentVersionCreateSchema,
 } from '@superapp/shared';
@@ -57,6 +58,13 @@ export class DocsController {
     return { success: true, data: await this.docs.update(user.sub, id, dto) };
   }
 
+  @Delete(':id')
+  @ApiOperation({ summary: 'Закрыть документ навсегда (владелец): правка и история вех' })
+  async remove(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    await this.docs.archiveByUser(user.sub, id);
+    return { success: true };
+  }
+
   @Get(':id/versions')
   @ApiOperation({ summary: 'Вехи документа (неизменяемые снимки)' })
   async versions(
@@ -77,7 +85,22 @@ export class DocsController {
     @Body() body: Record<string, unknown>,
   ) {
     const dto = documentVersionCreateSchema.parse(body ?? {});
-    await this.docs.createVersion(user.sub, id, dto.reason);
+    const ctx = dto.refType && dto.refId ? { refType: dto.refType, refId: dto.refId } : null;
+    await this.docs.createVersion(user.sub, id, dto.reason, ctx);
+    return { success: true };
+  }
+
+  @Post(':id/versions/:versionId/restore')
+  @ApiOperation({ summary: 'Вернуть веху как текущее содержимое (право — как на правку)' })
+  async restoreVersion(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Param('versionId') versionId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    const dto = documentRestoreSchema.parse(body ?? {});
+    const ctx = dto.refType && dto.refId ? { refType: dto.refType, refId: dto.refId } : null;
+    await this.docs.restoreVersion(user.sub, id, versionId, ctx);
     return { success: true };
   }
 
@@ -89,7 +112,8 @@ export class DocsController {
     @Body() body: Record<string, unknown>,
   ) {
     const dto = documentRenditionSchema.parse(body ?? {});
-    return { success: true, data: await this.docs.requestRendition(user.sub, id, dto.target) };
+    const ctx = dto.refType && dto.refId ? { refType: dto.refType, refId: dto.refId } : null;
+    return { success: true, data: await this.docs.requestRendition(user.sub, id, dto.target, ctx) };
   }
 
   @Post(':id/open')

@@ -6,6 +6,22 @@
 export const APP_TIMEZONE = 'Asia/Almaty';
 
 /**
+ * Промежуток «14:20–14:45» для записей хроники (заход правки документа). Как и дедлайн,
+ * фиксируется в APP_TIMEZONE: запись живёт вечно, а сервер может стоять в UTC.
+ * Один и тот же час на обоих концах — не ошибка: заход мог занять минуту.
+ */
+export function formatTimeRange(from: Date, to: Date): string {
+  const fmt = new Intl.DateTimeFormat('ru-RU', {
+    timeZone: APP_TIMEZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const start = fmt.format(from);
+  const end = fmt.format(to);
+  return start === end ? start : `${start}–${end}`;
+}
+
+/**
  * Дедлайн задачи в строку для хроники/плашек — ДЕТЕРМИНИРОВАННО в APP_TIMEZONE
  * (иначе прод-сервер в UTC зафиксировал бы дату на день раньше для пользователей
  * UTC+5..+6). Для задач «на весь день» — только дата; иначе дата + время (чтобы

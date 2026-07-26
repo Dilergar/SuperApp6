@@ -121,6 +121,35 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
     return this.logMany(tx, [entry]);
   }
 
+  /**
+   * Была ли недавно такая же запись — сервисный предикат для потребителей, которые
+   * склеивают повторяющиеся события (движок документов: не чаще одной плашки «правил
+   * документ» в час на пару «человек + документ», иначе десять заходов подряд дают
+   * десять одинаковых плашек в чате). Чтение своей таблицы остаётся внутри движка —
+   * потребителю незачем знать её устройство.
+   */
+  async hasRecent(opts: {
+    refType: string;
+    refId: string;
+    typeKey: string;
+    actorId?: string | null;
+    withinMs: number;
+    payloadPath?: { path: string[]; equals: string };
+  }): Promise<boolean> {
+    const found = await this.db.chatterEntry.findFirst({
+      where: {
+        refType: opts.refType,
+        refId: opts.refId,
+        typeKey: opts.typeKey,
+        ...(opts.actorId ? { actorId: opts.actorId } : {}),
+        createdAt: { gte: new Date(Date.now() - opts.withinMs) },
+        ...(opts.payloadPath ? { payload: opts.payloadPath } : {}),
+      },
+      select: { id: true },
+    });
+    return !!found;
+  }
+
   /** Записать пачку записей (updateTask может дать несколько диффов за раз). */
   async logMany(tx: Tx | null, entries: ChatterLogInput[]): Promise<void> {
     if (entries.length === 0) return;

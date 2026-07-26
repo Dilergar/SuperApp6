@@ -12,6 +12,7 @@ import { ChatterChatSink } from './chatter-chat.sink';
 import { OrderSystemListener } from './order-system.listener';
 import { CalendarSystemListener } from './calendar-system.listener';
 import { OfficeSystemListener } from './office-system.listener';
+import { DocsSystemListener } from './docs-system.listener';
 import { ChatCallsListener } from './chat-calls.listener';
 
 @Module({
@@ -35,6 +36,8 @@ import { ChatCallsListener } from './chat-calls.listener';
     OrderSystemListener,
     CalendarSystemListener,
     OfficeSystemListener,
+    // Плашка «файл открыт как документ» (движок core/docs объявляет событие на шину)
+    DocsSystemListener,
     ChatCallsListener,
   ],
   exports: [MessengerService],

@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { HttpException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
@@ -8,6 +8,7 @@ import {
   DOCS_JOB_TYPES,
   DOCS_LIMITS,
   DOCS_QUEUE,
+  documentFormatByExt,
   type DocumentVersionDto,
   type DocumentVersionReason,
   type FileOwnerType,
@@ -90,8 +91,16 @@ export class DocsVersionsService implements OnModuleInit {
     });
     if (file.sha256 && lastReady?.sha256 && file.sha256 === lastReady.sha256) return;
 
-    const versionNo = doc.lastVersionNo + 1;
-    await tx.document.update({ where: { id: doc.id }, data: { lastVersionNo: versionNo } });
+    // Номер берём АТОМАРНЫМ инкрементом и читаем обратно: «прочитал lastVersionNo и
+    // записал +1» — гонка, а на (documentId, versionNo) стоит unique, и двойной клик по
+    // «Сохранить версию» (или ручная веха ровно в момент закрытия сессии) отдавал бы
+    // человеку 500 вместо версии. increment сериализуется блокировкой строки документа.
+    const bumped = await tx.document.update({
+      where: { id: doc.id },
+      data: { lastVersionNo: { increment: 1 } },
+      select: { lastVersionNo: true },
+    });
+    const versionNo = bumped.lastVersionNo;
     await tx.documentVersion.create({
       data: {
         documentId: doc.id,
@@ -143,6 +152,8 @@ export class DocsVersionsService implements OnModuleInit {
       versionNo: v.versionNo,
       status: v.status as DocumentVersionDto['status'],
       reason: v.reason as DocumentVersionReason,
+      // Без fileId версию нечем ни скачать, ни показать — список был бы витриной
+      fileId: v.fileId,
       size: v.size === null ? null : Number(v.size),
       sha256: v.sha256,
       signed: v.signed,
@@ -150,6 +161,47 @@ export class DocsVersionsService implements OnModuleInit {
       authorIds: v.authorIds,
       createdAt: v.createdAt.toISOString(),
     }));
+  }
+
+  /**
+   * Вернуть веху как текущее содержимое. Право проверяет вызывающий (как на правку).
+   *
+   * Порядок важен: СНАЧАЛА фиксируем то, что есть сейчас (если этого содержимого ещё нет
+   * в истории), и только потом подменяем байты — иначе «вернуть» было бы действием без
+   * отмены. Фиксируем СИНХРОННО, потому что снимок делается от ТЕКУЩИХ байт: отдай мы
+   * это джобу, он бы проснулся уже после подмены и снял копию с возвращённой версии.
+   */
+  async restore(
+    doc: { id: string; fileId: string },
+    versionId: string,
+    actorId: string,
+  ): Promise<number> {
+    const version = await this.db.documentVersion.findFirst({
+      where: { id: versionId, documentId: doc.id, status: 'ready' },
+      select: { id: true, versionNo: true, fileId: true },
+    });
+    if (!version?.fileId) throw new NotFoundException('Версия недоступна');
+
+    await this.db.$transaction((tx) =>
+      this.requestMilestone(tx, { documentId: doc.id, reason: 'manual', createdById: actorId }),
+    );
+    await this.materialize(doc.id); // тот же обработчик, что у джоба, — он идемпотентен
+
+    const tmp = path.join(this.tmpDir(), `docs-restore-${randomUUID()}`);
+    try {
+      const { result } = await this.files.openRawStream(version.fileId, null);
+      await pipeline(result.stream, fs.createWriteStream(tmp));
+      // replaceContent ПОТРЕБЛЯЕТ исходник и сам его прибирает при любой ошибке
+      await this.files.replaceContent({ fileId: doc.fileId, sourcePath: tmp, actorId });
+    } finally {
+      await fs.promises.unlink(tmp).catch(() => undefined);
+    }
+    await this.db.document.update({
+      where: { id: doc.id },
+      data: { lastSavedAt: new Date(), lastEditorId: actorId },
+    });
+    this.logger.log(`документ ${doc.id}: версия ${version.versionNo} возвращена как текущая`);
+    return version.versionNo;
   }
 
   // ============================================================
@@ -209,14 +261,20 @@ export class DocsVersionsService implements OnModuleInit {
       const { result } = await this.files.openRawStream(doc.fileId, null);
       await pipeline(result.stream, fs.createWriteStream(tmp));
 
-      const snapshot = await this.files.ingestLocalFile({
+      const snapshot = await this.ingestSnapshot(target.id, {
         path: tmp,
         name: `${doc.title} (в${target.versionNo}).${doc.ext}`,
-        mime: doc.mime,
-        profile: 'document',
+        // Канонический MIME формата: у документов, оживлённых до этой правки, в строке
+        // может лежать application/octet-stream, который белый список профиля не примет.
+        mime: documentFormatByExt(doc.ext)?.mime ?? doc.mime,
+        // Профиль ИСХОДНИКА, а не жёсткий 'document': снимок — это копия уже принятого
+        // файла, и мерить её более строгим профилем нечестно. 60-МБ презентация из чата
+        // (профиль на 200 МБ) иначе не получила бы ни одной вехи: ingest падал бы на
+        // потолке в 50 МБ, джоб выжигал бы 5 попыток и уходил в dead-letter.
+        profile: file.profile,
         // Владелец снимка = владелец документа: квота вех организации ложится на
         // организацию, а не на того, кто случайно закрыл вкладку последним.
-        ownerUserId: doc.createdById,
+        ownerUserId: file.uploaderId,
         ownerType: doc.ownerType as FileOwnerType,
         ownerId: doc.ownerId,
       });
@@ -251,17 +309,65 @@ export class DocsVersionsService implements OnModuleInit {
   }
 
   /**
-   * Ретеншн в хвосте того же джоба, что режет новую веху (иначе история молча съедала
-   * бы квоту): держим последние N + ВСЕ подписанные — подписанную версию удалять
-   * нельзя никогда, на неё будет ссылаться ЭЦП.
+   * Инжест снимка с разделением ошибок на два класса (контракт core/jobs). Кончилась
+   * квота, файл больше лимита профиля, тип не в белом списке — это ПОСТОЯННЫЕ отказы:
+   * ретраить их бессмысленно, а 5 попыток по полминуты бэкоффа заканчиваются
+   * dead-letter'ом и error-логом, то есть ложной аварией в проде. Помечаем веху failed
+   * и хороним джоб сразу; сетевые/дисковые сбои по-прежнему уходят в обычный ретрай.
+   */
+  private async ingestSnapshot(
+    versionId: string,
+    opts: Parameters<FilesService['ingestLocalFile']>[0],
+  ) {
+    try {
+      return await this.files.ingestLocalFile(opts);
+    } catch (err) {
+      const status = err instanceof HttpException ? err.getStatus() : 0;
+      const permanent = status >= 400 && status < 500 && status !== 408 && status !== 429;
+      if (!permanent) throw err;
+      await this.db.documentVersion.updateMany({
+        where: { id: versionId, status: 'pending' },
+        data: { status: 'failed' },
+      });
+      throw new JobDiscardError(
+        `снимок вехи невозможен (${status}): ${String((err as Error)?.message ?? err)}`,
+      );
+    }
+  }
+
+  /**
+   * Ретеншн в хвосте того же джоба, что режет новую веху (иначе история молча съедала бы
+   * квоту). Правило — БЮДЖЕТ МЕСТА, а не число копий: снимок это полная копия файла, и
+   * «20 версий» у 200-МБ презентации означало бы 4 ГБ на один документ. Идём от самой
+   * свежей версии и набираем, пока укладываемся в бюджет; при этом минимум оставляем
+   * всегда (предыдущая версия должна быть у любого документа), а максимум не превышаем
+   * даже у крошечного файла. Подписанные не удаляются никогда и слотов не занимают —
+   * на них сошлётся ЭЦП.
    */
   private async applyRetention(documentId: string): Promise<void> {
     const ready = await this.db.documentVersion.findMany({
       where: { documentId, status: 'ready' },
       orderBy: { versionNo: 'desc' },
-      select: { id: true, signed: true },
+      select: { id: true, signed: true, size: true },
     });
-    const doomed = ready.slice(DOCS_LIMITS.keepVersions).filter((v) => !v.signed);
+    const doomed: Array<{ id: string }> = [];
+    let kept = 0;
+    let used = 0;
+    for (const v of ready) {
+      const size = Number(v.size ?? 0);
+      if (v.signed) {
+        used += size; // место занимает, но выселению не подлежит
+        continue;
+      }
+      const mustKeep = kept < DOCS_LIMITS.minVersions;
+      const fits = kept < DOCS_LIMITS.keepVersions && used + size <= DOCS_LIMITS.historyBudgetBytes;
+      if (mustKeep || fits) {
+        kept += 1;
+        used += size;
+        continue;
+      }
+      doomed.push(v);
+    }
     for (const version of doomed) {
       // unlinkAllForRef снимает связь и прибирает осиротевший снимок (единая точка
       // уборки движка файлов — квота возвращается владельцу).

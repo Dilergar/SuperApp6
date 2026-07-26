@@ -6,8 +6,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DocumentOpenDto } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { apiErrorMessage } from '@/lib/api';
-import { documentKey, documentVersionsKey } from '@/lib/queries';
+import { chronicleKey, documentKey, documentVersionsKey } from '@/lib/queries';
 import { getDocument, openDocument, saveDocumentVersion } from '@/lib/docs-api';
+import { DocumentHistory } from './DocumentHistory';
 
 const FRAME_NAME = 'sa6-docs-frame';
 
@@ -45,6 +46,7 @@ export default function DocumentEditor() {
   const [error, setError] = useState<string | null>(null);
   const [modified, setModified] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const { data: doc } = useQuery({
     queryKey: documentKey(documentId),
@@ -95,14 +97,29 @@ export default function DocumentEditor() {
   }, [session?.editorUrl]);
 
   /**
-   * Документ открывается в ОТДЕЛЬНОЙ вкладке, и «назад» в ней вести некуда — такую
-   * вкладку закрываем. Если же на страницу пришли по прямой ссылке (история есть),
-   * ведём себя обычно: шаг назад.
+   * Закрытие документа.
+   *
+   * ВАЖНО: опираться на window.history.length здесь НЕЛЬЗЯ. Каждая навигация iframe'а
+   * попадает в СОВМЕСТНУЮ историю вкладки, и после перехода «просмотр → правка» (форма
+   * пост'ится в редактор второй раз) длина истории всегда > 1 — «Закрыть» превращался
+   * в «шаг назад», то есть возвращал предыдущий документ редактора вместо закрытия
+   * вкладки. В режиме просмотра форма пост'ится ровно один раз, в пустой iframe, и такая
+   * навигация историю не растит — поэтому там кнопка работала, а после правки нет.
+   *
+   * Признак «вкладку открыли мы» — живой opener (FileChip открывает её через
+   * window.open без noopener именно ради этого). Такую вкладку скрипту закрывать можно
+   * независимо от истории. Пришли по прямой ссылке — возвращаем в место, откуда документ
+   * растёт (задача/чат), а не «назад» вслепую.
    */
   const closeDocument = useCallback(() => {
-    if (window.history.length > 1) router.back();
-    else window.close();
-  }, [router]);
+    if (window.opener) {
+      window.close();
+      return;
+    }
+    if (refType === 'task' && refId) router.push(`/tasks/${refId}`);
+    else if (refType === 'chat_message') router.push('/messenger');
+    else router.push('/dashboard');
+  }, [router, refType, refId]);
 
   // postMessage-мост
   useEffect(() => {
@@ -167,9 +184,11 @@ export default function DocumentEditor() {
   const canSwitchToEdit = session?.mode === 'view' && doc?.access === 'edit';
 
   const saveVersion = useMutation({
-    mutationFn: () => saveDocumentVersion(documentId),
+    mutationFn: () => saveDocumentVersion(documentId, place),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: documentVersionsKey(documentId) });
+      void qc.invalidateQueries({ queryKey: chronicleKey('document', documentId) });
+      setHistoryOpen(true); // результат нажатия должен быть виден сразу
     },
   });
 
@@ -189,9 +208,20 @@ export default function DocumentEditor() {
         <button
           type="button"
           onClick={closeDocument}
-          className="btn-ghost"
           title="Закрыть документ"
-          style={{ fontSize: '0.85rem', border: 'none', background: 'transparent', cursor: 'pointer' }}
+          style={{
+            fontSize: '0.85rem',
+            fontWeight: 600,
+            // Уход со страницы — действие с последствиями, поэтому красный: тот же
+            // --danger, что у «Опасной зоны» профиля, но мягким washem, а не заливкой
+            color: 'var(--danger)',
+            background: 'color-mix(in srgb, var(--danger) 10%, transparent)',
+            border: 'none',
+            borderRadius: 'var(--radius-sketch)',
+            padding: '0.35rem 0.7rem',
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+          }}
         >
           ✕ Закрыть
         </button>
@@ -220,7 +250,9 @@ export default function DocumentEditor() {
               padding: '0.35rem 0.8rem',
               borderRadius: 'var(--radius-sketch)',
               border: 'none',
-              background: 'var(--primary-container, var(--surface-container-high))',
+              // Зелёный «разрешающий» — противовес красной кнопке ухода
+              color: 'var(--success)',
+              background: 'color-mix(in srgb, var(--success) 14%, transparent)',
               cursor: 'pointer',
               fontSize: '0.8rem',
               fontWeight: 600,
@@ -230,6 +262,23 @@ export default function DocumentEditor() {
             ✏️ Редактировать
           </button>
         )}
+        <button
+          type="button"
+          onClick={() => setHistoryOpen((v) => !v)}
+          title="Версии документа и кто его правил"
+          style={{
+            padding: '0.35rem 0.8rem',
+            borderRadius: 'var(--radius-sketch)',
+            border: 'none',
+            background: historyOpen ? 'var(--surface-container-high)' : 'transparent',
+            cursor: 'pointer',
+            fontSize: '0.8rem',
+            fontWeight: 600,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          🕘 История
+        </button>
         {session?.mode === 'edit' && (
           <button
             type="button"
@@ -257,6 +306,20 @@ export default function DocumentEditor() {
         </div>
       )}
 
+      {/* Большой файл открывается долго — честная строчка вместо «зависшего» экрана */}
+      {session?.warning && !loaded && (
+        <div
+          className="body-sm"
+          style={{
+            padding: '0.5rem 1rem',
+            background: 'color-mix(in srgb, var(--warning) 12%, transparent)',
+            color: 'var(--warning)',
+          }}
+        >
+          ⏳ {session.warning}
+        </div>
+      )}
+
       {/* Скрытая форма: POST'ит токен прямо в iframe (в URL его класть нельзя) */}
       {session && (
         <form ref={formRef} action={session.editorUrl} target={FRAME_NAME} method="post" style={{ display: 'none' }}>
@@ -266,12 +329,38 @@ export default function DocumentEditor() {
         </form>
       )}
 
-      <iframe
-        name={FRAME_NAME}
-        title={doc?.title ?? 'Документ'}
-        allow="clipboard-read; clipboard-write; fullscreen"
-        style={{ flex: 1, width: '100%', border: 'none', background: 'var(--surface)' }}
-      />
+      {/*
+        key меняется на каждую выданную сессию — iframe пересоздаётся, и form POST
+        попадает в СВЕЖИЙ пустой фрейм. Навигация из начального about:blank идёт
+        «с заменой» и историю вкладки не растит; без этого каждый перезапуск редактора
+        (переход в правку, молчаливое продление токена) добавлял запись в совместную
+        историю, и кнопки «назад»/«закрыть» начинали ходить по состояниям редактора.
+      */}
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        <iframe
+          key={session ? `${session.mode}:${session.accessTokenTtl}` : 'idle'}
+          name={FRAME_NAME}
+          title={doc?.title ?? 'Документ'}
+          allow="clipboard-read; clipboard-write; fullscreen"
+          style={{ flex: 1, width: '100%', border: 'none', background: 'var(--surface)' }}
+        />
+        {historyOpen && (
+          <DocumentHistory
+            documentId={documentId}
+            title={doc?.title ?? 'Документ'}
+            place={place}
+            canEdit={doc?.access === 'edit'}
+            onClose={() => setHistoryOpen(false)}
+            // Возврат версии подменяет байты, поэтому редактор на это время гасим:
+            // session=null снимает iframe, и редактор отпускает документ (Unlock)
+            onSuspendEditor={() => {
+              setLoaded(false);
+              setSession(null);
+            }}
+            onResumeEditor={() => void start()}
+          />
+        )}
+      </div>
     </div>
   );
 }

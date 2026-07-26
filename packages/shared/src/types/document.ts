@@ -77,6 +77,11 @@ export interface DocumentOpenDto {
   mode: Exclude<DocumentAccess, 'none'>;
   /** Когда клиенту молча перепостить форму со свежим токеном (ISO) */
   refreshAt: string;
+  /**
+   * Честное предупреждение вместо белого прямоугольника: файл в «жёлтой зоне» размера
+   * (открываем, но это может занять до минуты). null — открывается обычно.
+   */
+  warning: string | null;
 }
 
 export interface DocumentVersionDto {
@@ -84,6 +89,8 @@ export interface DocumentVersionDto {
   versionNo: number;
   status: DocumentVersionStatus;
   reason: DocumentVersionReason;
+  /** Файл-снимок: по нему версию скачивают обычной ссылкой движка файлов */
+  fileId: string | null;
   size: number | null;
   sha256: string | null;
   /** Подписанные версии ретеншн не удаляет никогда */

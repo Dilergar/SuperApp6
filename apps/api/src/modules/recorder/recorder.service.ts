@@ -105,9 +105,13 @@ export class RecorderService implements OnModuleInit {
 
     const created = row;
     try {
-      // linkFile НЕ требует uploaderId (файл чужой — включившего запись): гейт —
-      // canAttach резолвера voice_recording (владелец строки = клеймант)
-      await this.files.linkFile(ctx.claimantUserId, ctx.fileId, 'voice_recording', created.id);
+      // system: файл ЧУЖОЙ (принадлежит включившему запись), а забирает его каждый
+      // клеймант — право проверил движок звонков (участие в сессии), гейт привязки —
+      // canAttach резолвера voice_recording (владелец строки = клеймант). Это
+      // единственный обоснованный обход правила «привязываю только свой файл».
+      await this.files.linkFile(ctx.claimantUserId, ctx.fileId, 'voice_recording', created.id, 'attachment', {
+        system: true,
+      });
     } catch (err) {
       // Компенсация: строка без файла бессмысленна; клейм останется недоставленным — крон доретраит
       await this.db.voiceRecording.delete({ where: { id: created.id } }).catch(() => undefined);

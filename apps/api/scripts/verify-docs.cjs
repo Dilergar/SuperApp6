@@ -156,7 +156,7 @@ async function main() {
     create: { userAId: a, userBId: b, roleAForB: 'Коллега', roleBForA: 'Коллега', initiatedBy: u1 },
   });
 
-  let docId = null, taskId = null, fileId = null;
+  let docId = null, taskId = null, fileId = null, doc2Id = null, file2Id = null;
   const ORIGINAL = xlsx('дни рождения');
   try {
     const task = await call('POST', '/tasks', t1, { title: 'Внесите свои дни рождения', executorId: u2 });
@@ -261,7 +261,13 @@ async function main() {
     check('РЕГРЕССИЯ п.6: id файла не изменился (вложение живо)', !!savedFile && savedFile.status === 'ready');
     check('размер файла обновился на новые байты', Number(savedFile.size) === EDITED.length, `${savedFile.size} vs ${EDITED.length}`);
     check('sha256 пересчитан', savedFile.sha256 === crypto.createHash('sha256').update(EDITED).digest('hex'));
-    check('вердикт антивируса сброшен (байты новые)', savedFile.scanStatus === 'none' || savedFile.scanStatus === 'pending', savedFile.scanStatus);
+    // 'skipped' — офисные документы антивирус не гоняет (решение продукта): их правит
+    // наш же редактор, и полный скан на каждое автосохранение стоил бы дорого впустую.
+    check(
+      'вердикт антивируса пересчитан (байты новые)',
+      ['none', 'pending', 'skipped'].includes(savedFile.scanStatus),
+      savedFile.scanStatus,
+    );
 
     const afterPut = await wopi.get(docId, tokenWrite);
     check('GetFile отдаёт уже новое содержимое', Buffer.from(await afterPut.arrayBuffer()).equals(EDITED));
@@ -298,6 +304,28 @@ async function main() {
     await sleep(1500);
     const versionsAgain = (await call('GET', `/docs/${docId}/versions`, t1)).json?.data ?? [];
     check('правка без изменений не создаёт новую веху', versionsAgain.length === 1, `версий ${versionsAgain.length}`);
+
+    // ===== РЕВЬЮ: протокол и неаутентифицированный путь =====
+    const gvRes = await wopi.get(docId, tokenWrite);
+    await gvRes.arrayBuffer();
+    const gvInfo = await (await wopi.info(docId, tokenWrite)).json();
+    check(
+      'X-WOPI-ItemVersion в GetFile совпадает с Version из CheckFileInfo',
+      gvRes.headers.get('x-wopi-itemversion') === gvInfo.Version,
+      `${gvRes.headers.get('x-wopi-itemversion')} vs ${gvInfo.Version}`,
+    );
+
+    await wopi.op(docId, tokenWrite, 'LOCK', { 'X-WOPI-Lock': 'LOCK-G' });
+    const putNoLock = await wopi.put(docId, tokenWrite, xlsx('без блокировки'));
+    check(
+      'PutFile БЕЗ блокировки при живой блокировке → 409 + X-WOPI-Lock',
+      putNoLock.status === 409 && putNoLock.headers.get('x-wopi-lock') === 'LOCK-G',
+      `status ${putNoLock.status}`,
+    );
+    await wopi.op(docId, tokenWrite, 'UNLOCK', { 'X-WOPI-Lock': 'LOCK-G' });
+
+    const putBadToken = await wopi.put(docId, 'v1.bXVzb3I.cG9kcGlz', xlsx('мусор'));
+    check('PutFile с недействительным токеном → 401 (тело на диск не пишется)', putBadToken.status === 401, `status ${putBadToken.status}`);
 
     // ===== Заражённый файл =====
     await prisma.fileObject.update({ where: { id: fileId }, data: { scanStatus: 'infected' } });
@@ -354,11 +382,29 @@ async function main() {
     for (let i = 0; i < 25; i++) {
       ready = await prisma.documentVersion.count({ where: { documentId: docId, status: 'ready' } });
       signedAlive = await prisma.documentVersion.count({ where: { documentId: docId, signed: true } });
-      if (ready === 21) break;
+      if (ready === 11) break;
       await sleep(1000);
     }
-    check('ретеншн оставил 20 последних вех', ready === 21, `готовых версий ${ready} (20 + подписанная)`);
+    check('ретеншн держит потолок числа версий', ready === 11, `готовых версий ${ready} (10 + подписанная)`);
     check('подписанная веха переживает ретеншн (на неё сошлётся ЭЦП)', signedAlive === 1);
+
+    // Бюджет места: у ТЯЖЁЛЫХ версий счёт идёт не по числу, а по занятому месту —
+    // 10 копий по 150 МБ съели бы полторы гигабайта квоты владельца.
+    await prisma.documentVersion.updateMany({
+      where: { documentId: docId, status: 'ready', signed: false },
+      data: { size: BigInt(150 * 1024 * 1024) },
+    });
+    await wopi.op(docId, tokenFresh, 'LOCK', { 'X-WOPI-Lock': 'LOCK-F' });
+    await wopi.put(docId, tokenFresh, xlsx('бюджет'), { 'X-WOPI-Lock': 'LOCK-F' });
+    await wopi.op(docId, tokenFresh, 'UNLOCK', { 'X-WOPI-Lock': 'LOCK-F' });
+    let heavy = 99;
+    for (let i = 0; i < 25; i++) {
+      heavy = await prisma.documentVersion.count({ where: { documentId: docId, status: 'ready', signed: false } });
+      if (heavy <= 2) break;
+      await sleep(1000);
+    }
+    check('тяжёлые версии режутся по бюджету места, а не по числу', heavy === 2, `осталось ${heavy} (минимум 2)`);
+    check('подписанная переживает и бюджет', (await prisma.documentVersion.count({ where: { documentId: docId, signed: true } })) === 1);
 
     // ===== Жнец брошенной блокировки =====
     await wopi.op(docId, tokenFresh, 'LOCK', { 'X-WOPI-Lock': 'LOCK-E' });
@@ -368,16 +414,183 @@ async function main() {
     });
     const staleLock = await wopi.op(docId, tokenFresh, 'GET_LOCK');
     check('протухшая блокировка не держит документ', staleLock.headers.get('x-wopi-lock') === '', `«${staleLock.headers.get('x-wopi-lock')}»`);
-  } finally {
-    // Уборка: документ (каскадом версии/сессии) + вложение + задача
-    if (docId) {
-      const versionIds = (await prisma.documentVersion.findMany({ where: { documentId: docId }, select: { id: true } })).map((v) => v.id);
-      const snapshotIds = (await prisma.fileLink.findMany({ where: { refType: 'document_version', refId: { in: versionIds } }, select: { fileId: true } })).map((l) => l.fileId);
-      await prisma.document.delete({ where: { id: docId } }).catch(() => {});
-      await prisma.fileObject.deleteMany({ where: { id: { in: snapshotIds } } });
-      await prisma.relationTuple.deleteMany({ where: { resourceType: 'document', resourceId: docId } });
+
+    // =========================================================================
+    // РЕВЬЮ: владение, отзыв прав на лету, «неудобный» MIME, конец жизни
+    // Отдельный документ: файл льёт t1, а ОЖИВЛЯЕТ его t2 (участник задачи) — и
+    // MIME у файла тот, что реально шлют браузеры на офисных файлах.
+    // =========================================================================
+    const file2 = await uploadFile(t1, xlsx('второй'), 'смета.xlsx', 'application/octet-stream', 'chat_attachment');
+    file2Id = file2.id;
+    await call('POST', `/tasks/${taskId}/attachments`, t1, { fileId: file2Id });
+
+    const foreign = await call('POST', '/tasks', t2, { title: 'Своя задача t2' });
+    const foreignTaskId = foreign.json?.data?.id;
+    const steal = await call('POST', `/tasks/${foreignTaskId}/attachments`, t2, { fileId: file2Id });
+    check('чужой файл нельзя прицепить к своей задаче (иначе место = самовыдача прав)', !steal.ok, `status ${steal.status}`);
+    await call('DELETE', `/tasks/${foreignTaskId}`, t2);
+
+    const doc2res = await call('POST', '/docs/from-file', t2, { fileId: file2Id, refType: 'task', refId: taskId });
+    check('участник оживляет вложение коллеги', doc2res.ok, `status ${doc2res.status} ${JSON.stringify(doc2res.json?.message ?? '')}`);
+    doc2Id = doc2res.json?.data?.id;
+    check('MIME документа канонический, а не octet-stream клиента', doc2res.json?.data?.mime === XLSX_MIME, doc2res.json?.data?.mime);
+    check('ВЛАДЕЛЕЦ документа — владелец файла, а не тот, кто нажал «Редактировать»', doc2res.json?.data?.createdById === u1, `createdById ${doc2res.json?.data?.createdById === u2 ? 't2' : doc2res.json?.data?.createdById}`);
+
+    const rename2 = await call('PATCH', `/docs/${doc2Id}`, t2, { title: 'Захват' });
+    check('ожививший НЕ управляет чужим документом (не запрёт автора в его же файле)', rename2.status === 403, `status ${rename2.status}`);
+    const rename1 = await call('PATCH', `/docs/${doc2Id}`, t1, { title: 'Смета' });
+    check('владелец файла управляет документом, хотя оживил не он', rename1.ok, `status ${rename1.status}`);
+
+    // Правка исполнителем + веха: до фикса снимок падал на белом списке MIME профиля
+    const open2 = await call('POST', `/docs/${doc2Id}/open`, t2, { refType: 'task', refId: taskId });
+    check('исполнитель получает токен на правку', open2.ok && open2.json?.data?.mode === 'edit', `mode ${open2.json?.data?.mode}`);
+    const token2 = open2.json.data.accessToken;
+    await wopi.op(doc2Id, token2, 'LOCK', { 'X-WOPI-Lock': 'LOCK-2' });
+    const put2 = await wopi.put(doc2Id, token2, xlsx('правка исполнителя'), { 'X-WOPI-Lock': 'LOCK-2' });
+    check('исполнитель сохраняет правки', put2.status === 200, `status ${put2.status}`);
+    const noPlaceVersion = await call('POST', `/docs/${doc2Id}/versions`, t2, { reason: 'manual' });
+    check('«Сохранить версию» без места — 403 (право правки по привязкам не объединяется)', noPlaceVersion.status === 403, `status ${noPlaceVersion.status}`);
+    const placeVersion = await call('POST', `/docs/${doc2Id}/versions`, t2, { reason: 'manual', refType: 'task', refId: taskId });
+    check('…и работает, когда место передано (иначе кнопка 403 у того, кто прямо сейчас правит)', placeVersion.ok, `status ${placeVersion.status}`);
+    const [vA, vB] = await Promise.all([
+      call('POST', `/docs/${doc2Id}/versions`, t2, { reason: 'manual', refType: 'task', refId: taskId }),
+      call('POST', `/docs/${doc2Id}/versions`, t2, { reason: 'manual', refType: 'task', refId: taskId }),
+    ]);
+    check('две одновременные «Сохранить версию» не дают 500 (номер вехи атомарен)', vA.status < 500 && vB.status < 500, `${vA.status}/${vB.status}`);
+    await wopi.op(doc2Id, token2, 'UNLOCK', { 'X-WOPI-Lock': 'LOCK-2' });
+
+    let v2 = [];
+    for (let i = 0; i < 25; i++) {
+      v2 = await prisma.documentVersion.findMany({ where: { documentId: doc2Id } });
+      if (v2.some((v) => v.status === 'ready')) break;
+      await sleep(1000);
     }
-    if (fileId) await prisma.fileObject.deleteMany({ where: { id: fileId } });
+    check('веха режется и у файла с «неудобным» MIME', v2.some((v) => v.status === 'ready'), JSON.stringify(v2.map((v) => v.status)));
+    check('ни одна веха не ушла в failed', !v2.some((v) => v.status === 'failed'), JSON.stringify(v2.map((v) => v.status)));
+
+    // ===== Версию видно, можно скачать и вернуть =====
+    const vList = (await call('GET', `/docs/${doc2Id}/versions?refType=task&refId=${taskId}`, t2)).json?.data ?? [];
+    const snapshot = vList.find((v) => v.status === 'ready');
+    check('версия отдаёт fileId (иначе список — витрина без содержимого)', !!snapshot?.fileId, JSON.stringify(vList.map((v) => v.status)));
+    if (snapshot?.fileId) {
+      const dlV = await call('GET', `/files/${snapshot.fileId}/download`, t2);
+      const vBytes = Buffer.from(await (await fetch(dlV.json.data.url)).arrayBuffer());
+      check('версию можно скачать', dlV.ok && vBytes.length > 0, `${vBytes.length} байт`);
+    }
+
+    // Меняем содержимое поверх версии — и возвращаем версию как текущую
+    const openT1 = await call('POST', `/docs/${doc2Id}/open`, t1, {});
+    const tok1 = openT1.json.data.accessToken;
+    await wopi.op(doc2Id, tok1, 'LOCK', { 'X-WOPI-Lock': 'LOCK-3' });
+    await wopi.put(doc2Id, tok1, xlsx('поверх версии'), { 'X-WOPI-Lock': 'LOCK-3' });
+    const restoreBusy = await call('POST', `/docs/${doc2Id}/versions/${snapshot?.id}/restore`, t1, {});
+    check('вернуть версию при открытом редакторе нельзя (409)', restoreBusy.status === 409, `status ${restoreBusy.status}`);
+    await wopi.op(doc2Id, tok1, 'UNLOCK', { 'X-WOPI-Lock': 'LOCK-3' });
+
+    const restored = await call('POST', `/docs/${doc2Id}/versions/${snapshot?.id}/restore`, t1, {});
+    check('версия возвращена как текущая', restored.ok, `status ${restored.status} ${JSON.stringify(restored.json?.message ?? '')}`);
+    const liveDl = await call('GET', `/files/${file2Id}/download`, t1);
+    const liveBytes = Buffer.from(await (await fetch(liveDl.json.data.url)).arrayBuffer());
+    check('содержимое файла = содержимое возвращённой версии', liveBytes.equals(xlsx('правка исполнителя')), `${liveBytes.length} байт`);
+    check(
+      'нынешнее содержимое перед возвратом уехало в историю (возврат отменяем)',
+      (await prisma.documentVersion.count({ where: { documentId: doc2Id, status: 'ready' } })) >= 2,
+    );
+
+    // ===== Хроника: кто когда правил =====
+    const docChron = await prisma.chatterEntry.findFirst({
+      where: { refType: 'document', refId: doc2Id, typeKey: 'document.edited' },
+    });
+    check('заход правки записан в хронику документа', !!docChron, docChron ? String(docChron.payload?.period ?? '') : 'нет записи');
+    check('запись несёт промежуток времени', !!docChron?.payload?.period);
+    const placeChron = await prisma.chatterEntry.findFirst({
+      where: { refType: 'task', refId: taskId, typeKey: 'task.document_edited' },
+    });
+    check('и в хронику МЕСТА (оттуда плашка в чат задачи)', !!placeChron);
+    // Склейка: у ПЕРВОГО документа было три захода с сохранениями (LOCK-A, LOCK-D,
+    // LOCK-F) — и все от одного человека. В чат должна уйти ОДНА плашка, иначе он
+    // превратится в ленту «правил… правил… правил…». Записи по другому документу или
+    // от другого человека склеиваться не должны — это разные факты.
+    const glued = await prisma.chatterEntry.count({
+      where: {
+        refType: 'task',
+        refId: taskId,
+        typeKey: 'task.document_edited',
+        payload: { path: ['documentId'], equals: docId },
+      },
+    });
+    check('повторные заходы одного человека дают ОДНУ плашку в чат', glued === 1, `записей ${glued}`);
+    check(
+      'возврат версии тоже попал в историю',
+      !!(await prisma.chatterEntry.findFirst({ where: { refType: 'document', refId: doc2Id, typeKey: 'document.restored' } })),
+    );
+
+    // ===== Потолок размера: белого прямоугольника вместо документа не будет =====
+    const hugeId = crypto.randomUUID();
+    await prisma.fileObject.create({
+      data: {
+        id: hugeId, ownerType: 'user', ownerId: u1, uploaderId: u1, profile: 'chat_attachment',
+        kind: 'document', name: 'огромная.xlsx', mime: XLSX_MIME, size: BigInt(90 * 1024 * 1024),
+        status: 'ready', visibility: 'private', storageDriver: 'local', storageKey: `zz/zz/${hugeId}`,
+      },
+    });
+    const huge = await call('POST', '/docs/from-file', t1, { fileId: hugeId });
+    check('файл больше потолка не оживляется в документ', huge.status === 400, `status ${huge.status}`);
+    check('…и отказ объясняет, что делать', String(huge.json?.message ?? '').includes('скачайте'), huge.json?.message);
+    await prisma.fileObject.deleteMany({ where: { id: hugeId } });
+
+    // ===== Отзыв доступа на лету: выданный токен перестаёт работать сразу =====
+    const infoBefore = await wopi.info(doc2Id, token2);
+    check('до отзыва токен исполнителя работает', infoBefore.status === 200, `status ${infoBefore.status}`);
+    // Снимаем через API: доменная мутация ещё и пересобирает проекцию ролей в core/access
+    // (прямая правка таблицы оставила бы устаревший тапл и проверяла бы не то).
+    const reassign = await call('PATCH', `/tasks/${taskId}`, t1, { executorId: u1 });
+    check('исполнитель заменён (t2 больше не участник)', reassign.ok, `status ${reassign.status}`);
+    const infoAfter = await wopi.info(doc2Id, token2);
+    check('сняли с задачи → выданный WOPI-токен мёртв немедленно', infoAfter.status === 401, `status ${infoAfter.status}`);
+    const putAfter = await wopi.put(doc2Id, token2, xlsx('после отзыва'), { 'X-WOPI-Lock': 'LOCK-2' });
+    check('и записать он уже ничего не может', putAfter.status === 401, `status ${putAfter.status}`);
+    const openOwner = await call('POST', `/docs/${doc2Id}/open`, t1, {});
+    check('отзыв точечный: владелец продолжает работать', openOwner.ok && (await wopi.info(doc2Id, openOwner.json.data.accessToken)).status === 200);
+
+    // ===== Место удалили → документ закрыт, байты и квота возвращены =====
+    const detach = await call('DELETE', `/tasks/${taskId}/attachments/${file2Id}`, t1);
+    check('вложение снято с задачи', detach.ok, `status ${detach.status}`);
+    let doc2row = null, file2row = null;
+    for (let i = 0; i < 10; i++) {
+      doc2row = await prisma.document.findUnique({ where: { id: doc2Id } });
+      file2row = await prisma.fileObject.findUnique({ where: { id: file2Id } });
+      if (doc2row?.status === 'archived' && file2row?.status === 'deleted') break;
+      await sleep(500);
+    }
+    check('места не осталось → документ закрыт', doc2row?.status === 'archived', `status ${doc2row?.status}`);
+    check('…и файл больше не висит вечно якорем документа (квота вернулась)', file2row?.status === 'deleted', `status ${file2row?.status}`);
+    check('закрытый документ недоступен', (await call('GET', `/docs/${doc2Id}`, t1)).status === 404);
+
+    // ===== Кнопка владельца «закрыть документ» (файл-вложение остаётся жить) =====
+    const killByStranger = await call('DELETE', `/docs/${docId}`, t2);
+    check('закрыть документ может только владелец', killByStranger.status === 403, `status ${killByStranger.status}`);
+    const kill = await call('DELETE', `/docs/${docId}`, t1);
+    check('владелец закрывает документ', kill.ok, `status ${kill.status}`);
+    check('закрытие документа НЕ уносит вложение задачи', (await prisma.fileObject.findUnique({ where: { id: fileId } }))?.status === 'ready');
+  } finally {
+    // Уборка: документы (каскадом версии/сессии) + вложения + задача
+    for (const id of [docId, doc2Id].filter(Boolean)) {
+      const versionIds = (await prisma.documentVersion.findMany({ where: { documentId: id }, select: { id: true } })).map((v) => v.id);
+      const snapshotIds = (await prisma.fileLink.findMany({ where: { refType: 'document_version', refId: { in: versionIds } }, select: { fileId: true } })).map((l) => l.fileId);
+      await prisma.document.delete({ where: { id } }).catch(() => {});
+      await prisma.fileObject.deleteMany({ where: { id: { in: snapshotIds } } });
+      await prisma.relationTuple.deleteMany({ where: { resourceType: 'document', resourceId: id } });
+      // Хроника FK-free (переживает сущность) — чистим сами, иначе повторный прогон
+      // считал бы записи прошлого
+      await prisma.chatterEntry.deleteMany({ where: { refType: 'document', refId: id } });
+    }
+    if (taskId) {
+      await prisma.chatterEntry.deleteMany({ where: { refType: 'task', refId: taskId } });
+    }
+    for (const id of [fileId, file2Id].filter(Boolean)) {
+      await prisma.fileObject.deleteMany({ where: { id } });
+    }
     if (taskId) await prisma.task.delete({ where: { id: taskId } }).catch(() => {});
     await prisma.$disconnect();
   }

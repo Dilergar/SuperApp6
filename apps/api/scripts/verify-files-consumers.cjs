@@ -60,6 +60,7 @@ async function uploadWhole(token, { profile, name, mime, bytes, extra }) {
 async function main() {
   const prisma = new PrismaClient();
   const t1 = await login(P1), t2 = await login(P2);
+  let createdWorkspaceId = null;
 
   try {
     // ============ Ф1: аватарка пользователя ============
@@ -84,8 +85,11 @@ async function main() {
 
     // ============ Ф1: лого организации ============
     const ws = await call('POST', '/workspaces', t1, { name: `Ф1-Лого ${Date.now()}` });
-    check('Ф1: организация создана', ws.ok, `status ${ws.status}`);
+    check('Ф1: организация создана', ws.ok, `status ${ws.status} ${JSON.stringify(ws.json?.message ?? '')}`);
     const wsId = ws.json?.data?.id;
+    createdWorkspaceId = wsId; // прибрать в finally: иначе каждый прогон съедает слот
+                               // из лимита «20 организаций на владельца», и через
+                               // двадцать запусков сьют падает на ровном месте
 
     const logo = await uploadWhole(t1, { profile: 'avatar', name: 'лого.png', mime: 'image/png', bytes: PNG_1PX, extra: { ownerWorkspaceId: wsId } });
     check('Ф1: лого загружено во владение организации', logo.file?.ownerType === 'workspace' && logo.file?.ownerId === wsId, `${logo.file?.ownerType}/${logo.file?.ownerId}`);
@@ -265,6 +269,11 @@ async function main() {
     const taskFileRow = await prisma.fileObject.findUnique({ where: { id: taskFile.id } });
     check('Ф4: осиротевшее вложение soft-deleted (К-5)', taskFileRow?.status === 'deleted', taskFileRow?.status);
   } finally {
+    if (createdWorkspaceId) {
+      await prisma.workspace
+        .update({ where: { id: createdWorkspaceId }, data: { isActive: false } })
+        .catch(() => {});
+    }
     await prisma.$disconnect();
   }
 

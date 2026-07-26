@@ -4,7 +4,7 @@
 // ============================================================
 
 import { api } from './api';
-import { documentFormatForFile } from '@superapp/shared';
+import { DOCS_LIMITS, documentFormatForFile } from '@superapp/shared';
 import type {
   DocsStatusDto,
   DocumentDto,
@@ -55,8 +55,18 @@ export async function listDocumentVersions(
   return res.data.data;
 }
 
-export async function saveDocumentVersion(id: string): Promise<void> {
-  await api.post(`/docs/${id}/versions`, { reason: 'manual' });
+/** Место передаём и сюда: право «сохранить версию» = право правки, а оно от места */
+export async function saveDocumentVersion(id: string, place?: DocsPlace | null): Promise<void> {
+  await api.post(`/docs/${id}/versions`, { reason: 'manual', ...(place ?? {}) });
+}
+
+/** Вернуть веху как текущее содержимое (место — как и везде, несёт право правки) */
+export async function restoreDocumentVersion(
+  id: string,
+  versionId: string,
+  place?: DocsPlace | null,
+): Promise<void> {
+  await api.post(`/docs/${id}/versions/${versionId}/restore`, { ...(place ?? {}) });
 }
 
 export async function setDocumentMode(id: string, mode: 'edit' | 'readonly'): Promise<DocumentDto> {
@@ -64,9 +74,18 @@ export async function setDocumentMode(id: string, mode: 'edit' | 'readonly'): Pr
   return res.data.data;
 }
 
-/** Можно ли этот файл открыть в редакторе (формат из реестра движка) */
-export function isEditableDocument(file: { name?: string | null; mime?: string | null }): boolean {
-  return !!documentFormatForFile(file);
+/**
+ * Можно ли этот файл открыть в редакторе: формат из реестра движка И размер в пределах
+ * потолка. Потолок проверяем и здесь: сервер откажет всё равно, но лучше не показывать
+ * кнопку, которая заведомо ответит отказом — скачивание такому файлу никто не запрещает.
+ */
+export function isEditableDocument(file: {
+  name?: string | null;
+  mime?: string | null;
+  size?: number | null;
+}): boolean {
+  if (!documentFormatForFile(file)) return false;
+  return !file.size || file.size <= DOCS_LIMITS.openHardLimitBytes;
 }
 
 /**

@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, OnApplicationBootstrap, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { shouldScanFile } from '@superapp/shared';
 import * as net from 'net';
 import { Readable } from 'stream';
 import { DatabaseService } from '../../shared/database/database.service';
@@ -97,13 +98,35 @@ export class FilesScanHook implements OnModuleInit, OnApplicationBootstrap {
    */
   async enqueue(tx: Prisma.TransactionClient | null, fileId: string): Promise<void> {
     if (!this.enabled) return;
+    const client = tx ?? this.db;
+
+    // Политика «что вообще имеет смысл проверять» — ОДНА на движок и живёт в shared
+    // (shouldScanFile). Здесь она применяется ко ВСЕМ путям сразу: загрузка, headless-
+    // инжест и замена содержимого из редактора документов. Последнее — главное:
+    // COOL сохраняет правки примерно раз в полминуты, и без этой отсечки каждая
+    // 30-МБ таблица уезжала бы в полный проход антивируса дважды в минуту на каждого
+    // правящего, хотя байты меняет наш же редактор под нашей же блокировкой.
+    const row = await client.fileObject.findUnique({
+      where: { id: fileId },
+      select: { name: true, mime: true },
+    });
+    if (!row) return;
+    if (!shouldScanFile(row)) {
+      // Честный терминальный статус: «не проверяли по политике» — это не то же самое,
+      // что 'none' («антивирус выключен») и не 'error'.
+      await client.fileObject.updateMany({
+        where: { id: fileId, scanStatus: 'none' },
+        data: { scanStatus: 'skipped' },
+      });
+      return;
+    }
     // Метку 'pending' ставим ЗДЕСЬ, в одной транзакции с постановкой джоба, а не в
     // начале скана: если все попытки лягут ДО первого запроса обработчика (БД
     // недоступна весь бэкофф-круг), файл остался бы в 'none' — неотличимо от
     // «антивирус выключен». Тогда onDiscard (его гвард — ровно scanStatus='pending')
     // промолчал бы, а бэкфилл, который ищет 'pending', никогда бы файл не поднял:
     // он навсегда остался бы без вердикта и без следа в БД.
-    await (tx ?? this.db).fileObject.updateMany({
+    await client.fileObject.updateMany({
       where: { id: fileId, scanStatus: 'none' },
       data: { scanStatus: 'pending' },
     });

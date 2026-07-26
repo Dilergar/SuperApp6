@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, OnModuleInit } from '@nestjs/c
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { pipeline } from 'stream/promises';
 import { DOCS_JOB_TYPES, DOCS_LIMITS, DOCS_QUEUE } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { FilesService } from '../files/files.service';
@@ -90,30 +91,39 @@ export class DocsRenditionService implements OnModuleInit {
     const existing = await this.files.getVariant(doc.fileId, kind);
     if (existing && file.sha256 && existing.meta?.sha256 === file.sha256) return; // уже посчитано
 
-    const { result } = await this.files.openRawStream(doc.fileId, null);
-    const chunks: Buffer[] = [];
-    for await (const chunk of result.stream) chunks.push(chunk as Buffer);
-    const source = Buffer.concat(chunks);
-
-    const base = this.router.resolveBase(doc.id, doc.editorBaseUrl);
-    const converted = await this.editor.convertTo(
-      base,
-      target === 'pdf' ? 'pdf' : 'txt',
-      source,
-      `${doc.title}.${doc.ext}`,
-    );
-
+    // Файл→файл через диск: документ бывает в сотни мегабайт, и держать его в памяти
+    // (да ещё копией под Blob и копией результата) — прямой OOM на паре джобов разом.
+    const src = path.join(this.tmpDir(), `docs-src-${randomUUID()}`);
     const tmp = path.join(this.tmpDir(), `docs-${kind}-${randomUUID()}`);
-    await fs.promises.writeFile(tmp, converted);
-    await this.files.putDerivedVariant({
-      fileId: doc.fileId,
-      kind,
-      sourcePath: tmp,
-      mime: target === 'pdf' ? 'application/pdf' : 'text/plain',
-      // sha исходника — по нему видно, не протухла ли производная
-      meta: { sha256: file.sha256 },
-    });
-    this.logger.log(`производная ${kind} документа ${documentId} готова (${converted.length} байт)`);
+    try {
+      const { result } = await this.files.openRawStream(doc.fileId, null);
+      await pipeline(result.stream, fs.createWriteStream(src));
+
+      const base = this.router.resolveBase(doc.id, doc.editorBaseUrl);
+      await this.editor.convertTo(
+        base,
+        target === 'pdf' ? 'pdf' : 'txt',
+        src,
+        `${doc.title}.${doc.ext}`,
+        tmp,
+      );
+
+      const size = (await fs.promises.stat(tmp)).size;
+      if (size <= 0) throw new Error('редактор вернул пустую производную');
+      await this.files.putDerivedVariant({
+        fileId: doc.fileId,
+        kind,
+        sourcePath: tmp,
+        mime: target === 'pdf' ? 'application/pdf' : 'text/plain',
+        // sha исходника — по нему видно, не протухла ли производная
+        meta: { sha256: file.sha256 },
+      });
+      this.logger.log(`производная ${kind} документа ${documentId} готова (${size} байт)`);
+    } finally {
+      await fs.promises.unlink(src).catch(() => undefined);
+      // putDerivedVariant ПОТРЕБЛЯЕТ вход (rename) — здесь обычно уже ENOENT
+      await fs.promises.unlink(tmp).catch(() => undefined);
+    }
   }
 
   private tmpDir(): string {

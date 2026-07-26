@@ -125,7 +125,59 @@ export const EXEC_EXT_BLACKLIST = [
   'exe', 'bat', 'cmd', 'com', 'msi', 'msix', 'scr', 'pif', 'cpl', 'dll', 'sys',
   'sh', 'bash', 'ps1', 'psm1', 'vbs', 'vbe', 'wsf', 'wsh', 'hta', 'reg', 'lnk',
   'jar', 'apk', 'appx', 'js', 'jse', 'mjs',
+  // Установщики, драйверы, ярлыки и всё, что правит систему или реестр
+  'msc', 'msp', 'mst', 'ocx', 'drv', 'vxd', 'scf', 'url', 'chm', 'hlp', 'jnlp',
+  'gadget', 'ps1xml', 'psc1', 'ws', 'vb', 'inf',
+  // Конфиги и сырые двоичные дампы: деловой переписке не нужны, а системе вредят
+  'bin', 'conf', 'cfg', 'ini',
 ];
+
+/**
+ * Архивы — единственный класс, внутрь которого не смотрит ни один наш конвейер.
+ * Именно так и носят вредоносное вложение, поэтому вскрывать их должен антивирус.
+ */
+export const ARCHIVE_EXT = [
+  'zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'tbz', 'xz', 'cab', 'iso', 'img',
+  'arj', 'lzh', 'lha', 'ace', 'zst', 'z',
+];
+
+/** Обычные офисные форматы БЕЗ макросов (у .doc/.xls/.ppt макросы есть — их проверяем) */
+const OFFICE_PLAIN_MIME = new Set([
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.oasis.opendocument.text',
+  'application/vnd.oasis.opendocument.spreadsheet',
+  'application/vnd.oasis.opendocument.presentation',
+]);
+
+/** Офисные форматы С макросами — классический способ разослать вирус коллегам */
+const OFFICE_MACRO_EXT = ['docm', 'dotm', 'xlsm', 'xltm', 'xlsb', 'pptm', 'potm', 'ppsm'];
+
+/**
+ * Нужно ли гнать файл через антивирус (решение продукта 2026-07-26).
+ *
+ * Правило построено «по умолчанию ПРОВЕРЯЕМ, исключения перечислены явно»: новый
+ * неизвестный тип попадёт в проверку сам, а не проскочит мимо.
+ *
+ * Исключены:
+ *   • картинки, аудио, видео — исполняемого кода в них нет, а вес большой;
+ *   • обычные офисные документы — их правит наш собственный редактор, и каждое его
+ *     автосохранение это «новые байты»: полный проход по 30-МБ таблице дважды в минуту
+ *     на каждого правящего стоил бы дорого и не давал ничего.
+ *
+ * Остаются под проверкой: архивы, PDF, текст, макро-офис, всё неопознанное
+ * (`application/octet-stream` и прочее).
+ */
+export function shouldScanFile(file: { name?: string | null; mime?: string | null }): boolean {
+  const ext = fileExtension(file.name ?? '');
+  const mime = (file.mime ?? '').split(';')[0].trim().toLowerCase();
+  if (ext && OFFICE_MACRO_EXT.includes(ext)) return true;
+  if (ext && ARCHIVE_EXT.includes(ext)) return true;
+  if (mime.startsWith('image/') || mime.startsWith('audio/') || mime.startsWith('video/')) return false;
+  if (OFFICE_PLAIN_MIME.has(mime)) return false;
+  return true;
+}
 
 export const FILE_LIMITS = {
   /** До этого размера байты идут через API одним запросом; выше — S3 multipart */

@@ -729,16 +729,31 @@ export class FilesService implements OnModuleInit {
   // Связи (полиморфика: файл ↔ сущность сервиса)
   // ============================================================
 
-  /** Сервисный API для потребителей (REST в v1 нет — резолверов ещё ноль) */
+  /**
+   * Сервисный API для потребителей.
+   *
+   * Привязывать можно ТОЛЬКО свой файл (как в linkManyInTx) — иначе привязка сама себе
+   * выдаёт права: место наследует доступ, а с появлением core/docs ещё и право менять
+   * СОДЕРЖИМОЕ. Без этой проверки достаточно было бы знать чужой fileId, прицепить его
+   * к своей задаче — и получить запись в чужой файл. Проверка живёт в движке, а не в
+   * договорённости с потребителями: следующий потребитель её просто не напишет.
+   *
+   * `system: true` — привязка от имени движка, когда право проверено ЧУЖИМ контрактом и
+   * актор заведомо не владелец файла (единственный случай — клеймант записи звонка:
+   * файл принадлежит включившему запись, а забирает его каждый участник).
+   */
   async linkFile(
     actorId: string,
     fileId: string,
     refType: string,
     refId: string,
     role = 'attachment',
+    opts: { system?: boolean } = {},
   ): Promise<void> {
     const row = await this.db.fileObject.findUnique({ where: { id: fileId } });
     if (!row || row.status !== 'ready') throw new NotFoundException('Файл не найден');
+    const owns = row.uploaderId === actorId || (row.ownerType === 'user' && row.ownerId === actorId);
+    if (!opts.system && !owns) throw new ForbiddenException('Привязать можно только свой файл');
     const resolver = this.registry.get(refType);
     if (!resolver) throw new BadRequestException(`Неизвестный тип привязки: ${refType}`);
     this.assertProfileAllowed(refType, [row.profile]);
@@ -959,6 +974,16 @@ export class FilesService implements OnModuleInit {
     });
   }
 
+  /**
+   * Снять СЛУЖЕБНУЮ связь (anchorOnly) без проверки прав человека и прибрать файл, если
+   * настоящих мест у него не осталось. Зовёт движок-владелец якоря, закончив уборку своей
+   * сущности (core/docs — архивируя документ): право он проверил по своему контракту.
+   */
+  async unlinkSystem(fileId: string, refType: string, refId: string): Promise<void> {
+    await this.db.fileLink.deleteMany({ where: { fileId, refType, refId } });
+    await this.reapOrphan(fileId);
+  }
+
   /** Отвязать конкретную связь. Возвращает true, если связь реально была снята. */
   async unlinkFile(actorId: string, fileId: string, refType: string, refId: string, role = 'attachment'): Promise<boolean> {
     const link = await this.db.fileLink.findUnique({
@@ -1007,8 +1032,35 @@ export class FilesService implements OnModuleInit {
     for (const fileId of fileIds) await this.reapOrphan(fileId);
   }
 
-  /** Файл без единой связи → системный soft-delete (квота не копит невидимое) */
+  /**
+   * Файл без единой связи → системный soft-delete (квота не копит невидимое).
+   *
+   * СЛУЖЕБНЫЕ связи (anchorOnly, напр. 'document' движка документов) местом не считаются:
+   * иначе один якорь навсегда превращал бы файл в неприбираемый — удалили сообщение с
+   * вложением, а байты и квота висят вечно. Не осталось настоящих мест → зовём хук
+   * владельца якоря (он прибирает свою сущность и снимает связь) и досчитываем заново.
+   */
   private async reapOrphan(fileId: string): Promise<void> {
+    const links = await this.db.fileLink.findMany({
+      where: { fileId },
+      select: { refType: true, refId: true },
+    });
+    const anchors = links.filter((l) => this.registry.options(l.refType)?.anchorOnly);
+    if (links.length > anchors.length) return; // настоящее место ещё есть
+
+    for (const anchor of anchors) {
+      const hook = this.registry.get(anchor.refType)?.onOrphaned;
+      if (!hook) continue;
+      try {
+        await hook(anchor.refId);
+      } catch (err) {
+        // Не смогли — файл просто остаётся жить: лучше лишние байты, чем снесённый
+        // документ, чью сущность не удалось привести в согласованное состояние.
+        this.logger.warn(
+          `onOrphaned ${anchor.refType}:${anchor.refId} упал: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
     const remaining = await this.db.fileLink.count({ where: { fileId } });
     if (remaining === 0) await this.systemSoftDelete(fileId).catch(() => undefined);
   }

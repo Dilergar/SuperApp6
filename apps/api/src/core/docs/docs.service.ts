@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -11,6 +12,7 @@ import {
   DOCS_LIMITS,
   documentFormatForFile,
   fileExtension,
+  formatTimeRange,
   type DocsStatusDto,
   type DocumentAccess,
   type DocumentDto,
@@ -21,10 +23,11 @@ import {
   type FileOwnerType,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { EventBusService } from '../../shared/events/event-bus.service';
 import { AccessService } from '../access/access.service';
 import { FilesService } from '../files/files.service';
 import { FilesRefRegistry } from '../files/files-ref.registry';
-import { ChatterService } from '../chatter/chatter.service';
+import { ChatterService, type ChatterLogInput } from '../chatter/chatter.service';
 import { ChatterRefRegistry } from '../chatter/chatter-ref.registry';
 import { DocsEditorClient } from './docs-editor.client';
 import { DocsRouterService } from './docs-router.service';
@@ -86,6 +89,7 @@ export class DocsService implements OnModuleInit {
     private readonly rendition: DocsRenditionService,
     private readonly chatter: ChatterService,
     private readonly chatterRegistry: ChatterRefRegistry,
+    private readonly events: EventBusService,
   ) {}
 
   onModuleInit(): void {
@@ -93,11 +97,31 @@ export class DocsService implements OnModuleInit {
     // сообщения с вложением прибрало бы файл сиротой прямо под открытым редактором.
     // canView здесь смотрит ТОЛЬКО на явные гранты документа: наследование «от места»
     // считает сам движок файлов, обходя привязки, и вызов его отсюда закольцевался бы.
-    this.filesRegistry.register('document', {
-      canView: (viewerId, documentId) => this.canViewByGrant(viewerId, documentId),
-      // Прикреплять файлы «к документу» руками нельзя: единственную связь ставит движок
-      // при оживлении файла (linkSystemInTx).
-      canAttach: async () => false,
+    this.filesRegistry.register(
+      'document',
+      {
+        canView: (viewerId, documentId) => this.canViewByGrant(viewerId, documentId),
+        // Прикреплять файлы «к документу» руками нельзя: единственную связь ставит движок
+        // при оживлении файла (linkSystemInTx).
+        canAttach: async () => false,
+        // У файла не осталось настоящих мест (удалили сообщение, сняли вложение) —
+        // документу тоже конец: архивируем, гасим выданные пропуска и снимаем якорь,
+        // после чего движок файлов доводит уборку до конца и возвращает квоту.
+        onOrphaned: (documentId) => this.archive(documentId),
+      },
+      // Связь служебная: она держит черновик под открытым редактором, но местом файла
+      // не является и не имеет права делать его вечным.
+      { anchorOnly: true },
+    );
+
+    // Хроника САМОГО документа: «кто когда правил» видно и у файла, который не лежит ни
+    // в задаче, ни в чате — там это единственное место, где такая история вообще есть.
+    this.chatterRegistry.register('document', {
+      canView: async (viewerId, documentId) => {
+        const doc = await this.db.document.findUnique({ where: { id: documentId } });
+        if (!doc) return false;
+        return (await this.resolveMode(viewerId, doc)) !== 'none';
+      },
     });
 
     // Снимок-веха: виден тому же, кому виден сам документ. Рекурсии нет — цепочка
@@ -145,6 +169,7 @@ export class DocsService implements OnModuleInit {
 
     const format = documentFormatForFile({ name: file.name, mime: file.mime });
     if (!format) throw new BadRequestException('Этот формат нельзя редактировать');
+    this.assertOpenable(Number(file.size));
 
     const ctx = dto.refType && dto.refId ? { refType: dto.refType, refId: dto.refId } : null;
     const existing = await this.db.document.findUnique({ where: { fileId: file.id } });
@@ -165,6 +190,11 @@ export class DocsService implements OnModuleInit {
     }
 
     const title = (dto.title ?? this.titleFromFileName(file.name)).slice(0, DOCS_LIMITS.maxTitleLength);
+    // Владелец документа = ВЛАДЕЛЕЦ ФАЙЛА, а не тот, кто нажал «Редактировать». Грант
+    // владельца вечен и местом не ограничен, поэтому выдавать его актору нельзя: участник
+    // чата, ожививший чужое вложение, сохранял бы право правки и после удаления из чата,
+    // а «заморозить в только чтение» позволяло бы ему запереть автора в его же файле.
+    const ownerUserId = file.uploaderId || (file.ownerType === 'user' ? file.ownerId : '');
     const created = await this.db.$transaction(async (tx) => {
       const doc = await tx.document.create({
         data: {
@@ -173,10 +203,15 @@ export class DocsService implements OnModuleInit {
           // организации (и квота снимков ложится на неё же).
           ownerType: file.ownerType,
           ownerId: file.ownerId,
-          createdById: userId,
+          createdById: ownerUserId || userId,
           title,
           ext: format.ext,
-          mime: file.mime,
+          // КАНОНИЧЕСКИЙ MIME формата, а не тот, что прислал клиент: браузеры и мобильные
+          // регулярно шлют application/octet-stream на офисных файлах (ровно ради этого
+          // у documentFormatForFile есть фолбэк по расширению). Сохранив октет-стрим, мы
+          // получили бы документ, который правится, но чьи вехи-снимки не проходят
+          // белый список MIME профиля и умирают в dead-letter.
+          mime: format.mime,
           editorKind: format.editorKind,
         },
       });
@@ -189,16 +224,18 @@ export class DocsService implements OnModuleInit {
       });
       // Явный шеринг документа людям и Группам живёт в core/access — своей таблицы
       // грантов у движка нет намеренно (гранты на Группу работают из коробки).
-      await this.access.grant(
-        {
-          resourceType: 'document',
-          resourceId: doc.id,
-          relation: 'owner',
-          subjectType: 'user',
-          subjectId: userId,
-        },
-        tx,
-      );
+      if (ownerUserId) {
+        await this.access.grant(
+          {
+            resourceType: 'document',
+            resourceId: doc.id,
+            relation: 'owner',
+            subjectType: 'user',
+            subjectId: ownerUserId,
+          },
+          tx,
+        );
+      }
       return doc;
     });
 
@@ -214,19 +251,44 @@ export class DocsService implements OnModuleInit {
    * не документа — там её читают люди; для мест без хроники (чат) просто пропускаем.
    */
   private async logRevival(userId: string, doc: DocumentRow, ctx: DocsPlaceCtx | null): Promise<void> {
-    if (!ctx || !this.chatterRegistry.get(ctx.refType)) return;
     const user = await this.db.user.findUnique({
       where: { id: userId },
       select: { firstName: true, lastName: true },
     });
+    const actorName = [user?.firstName, user?.lastName].filter(Boolean).join(' ') || null;
+
+    // Первая строка собственной истории документа — она есть всегда, даже без места
     await this.chatter.log(null, {
-      refType: ctx.refType,
-      refId: ctx.refId,
+      refType: 'document',
+      refId: doc.id,
       actorId: userId,
-      actorName: [user?.firstName, user?.lastName].filter(Boolean).join(' ') || null,
-      typeKey: 'task.document_created',
+      actorName,
+      typeKey: 'document.created',
       payload: { title: doc.title, documentId: doc.id },
     });
+    if (!ctx) return;
+
+    if (this.chatterRegistry.get(ctx.refType)) {
+      await this.chatter.log(null, {
+        refType: ctx.refType,
+        refId: ctx.refId,
+        actorId: userId,
+        actorName,
+        typeKey: 'task.document_created',
+        payload: { title: doc.title, documentId: doc.id },
+      });
+      return;
+    }
+
+    // У места нет хроники (сообщение чата) — объявляем событие на шину, плашку в чате
+    // ставит мессенджер. Раздача права правки не должна происходить тихо НИГДЕ, а не
+    // только там, где хроника уже есть. Шина здесь уместна: потеря плашки не отбирает
+    // и не выдаёт прав (они считаются от места на каждом запросе), это уведомление.
+    this.events.emit(
+      'docs.document.created',
+      { documentId: doc.id, title: doc.title, refType: ctx.refType, refId: ctx.refId, actorId: userId, actorName },
+      'docs',
+    );
   }
 
   // ============================================================
@@ -257,6 +319,52 @@ export class DocsService implements OnModuleInit {
       throw new ForbiddenException('Версию сохраняет тот, кто может редактировать документ');
     }
     await this.versions.createManual(doc.id, userId, reason);
+    await this.logDocEvent(userId, doc, 'document.version_saved', {
+      versionNo: doc.lastVersionNo + 1,
+    });
+  }
+
+  /**
+   * Вернуть веху как текущее содержимое. Право — как на правку. Пока документ открыт в
+   * редакторе, подменять байты под ним нельзя: редактор держит блокировку и своё
+   * состояние в памяти, и подмена обернулась бы конфликтом или потерей правок.
+   */
+  async restoreVersion(
+    userId: string,
+    id: string,
+    versionId: string,
+    ctx?: DocsPlaceCtx | null,
+  ): Promise<void> {
+    const doc = await this.loadOrThrow(id);
+    if ((await this.resolveMode(userId, doc, ctx)) !== 'edit') {
+      throw new ForbiddenException('Вернуть версию может тот, кто может редактировать документ');
+    }
+    if (await this.getActiveSession(doc.id)) {
+      throw new ConflictException('Документ сейчас открыт в редакторе — закройте его и повторите');
+    }
+    const versionNo = await this.versions.restore(doc, versionId, userId);
+    await this.logDocEvent(userId, doc, 'document.restored', { versionNo });
+  }
+
+  /** Короткая запись в хронику самого документа (вне транзакции — best-effort) */
+  private async logDocEvent(
+    userId: string,
+    doc: DocumentRow,
+    typeKey: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    const user = await this.db.user.findUnique({
+      where: { id: userId },
+      select: { firstName: true, lastName: true },
+    });
+    await this.chatter.log(null, {
+      refType: 'document',
+      refId: doc.id,
+      actorId: userId,
+      actorName: [user?.firstName, user?.lastName].filter(Boolean).join(' ') || null,
+      typeKey,
+      payload: { title: doc.title, documentId: doc.id, ...payload },
+    });
   }
 
   /**
@@ -312,6 +420,60 @@ export class DocsService implements OnModuleInit {
   }
 
   /**
+   * Закрыть документ навсегда (владелец). Файл при этом НЕ пропадает сам по себе: он
+   * остаётся обычным вложением своего места и живёт по правилам движка файлов — пропадает
+   * только «документность» (правка в редакторе, история вех).
+   */
+  async archiveByUser(userId: string, id: string): Promise<void> {
+    const doc = await this.loadOrThrow(id);
+    if (!(await this.access.can({ type: 'user', id: userId }, 'document.manage', doc.id))) {
+      throw new ForbiddenException('Закрыть документ может владелец');
+    }
+    await this.archive(doc.id);
+  }
+
+  /**
+   * Архивация — единственная точка конца жизни (кнопка владельца и хук осиротевшего
+   * файла). Идемпотентна. Порядок важен: сначала статус и бамп поколения (все выданные
+   * пропуска гаснут, authorizeWopi отвечает 404), потом уборка снимков и якоря.
+   */
+  async archive(documentId: string): Promise<void> {
+    const doc = await this.db.document.findUnique({ where: { id: documentId } });
+    if (!doc) return;
+    if (doc.status === 'active') {
+      await this.db.$transaction(async (tx) => {
+        await tx.document.updateMany({
+          where: { id: doc.id, status: 'active' },
+          data: { status: 'archived', tokenEpoch: { increment: 1 } },
+        });
+        // Открытую сессию закрываем БЕЗ вехи: резать снимок содержимого ровно в тот
+        // момент, когда файл уезжает в уборку, — значит создать копию, которую тут же
+        // придётся прибирать.
+        await tx.documentSession.updateMany({
+          where: { documentId: doc.id, status: 'open' },
+          data: { status: 'expired', closedAt: new Date() },
+        });
+        await tx.documentVersion.updateMany({
+          where: { documentId: doc.id, status: 'pending' },
+          data: { status: 'skipped' },
+        });
+      });
+      this.logger.log(`документ ${doc.id} закрыт (архив)`);
+    }
+
+    // Снимки-вехи уходят вместе с документом — кроме подписанных: на них сошлётся ЭЦП,
+    // и удалять их нельзя никогда (то же правило, что у ретеншна).
+    const versions = await this.db.documentVersion.findMany({
+      where: { documentId: doc.id, signed: false },
+      select: { id: true },
+    });
+    for (const v of versions) {
+      await this.files.unlinkAllForRef('document_version', v.id).catch(() => undefined);
+    }
+    await this.files.unlinkSystem(doc.fileId, 'document', doc.id);
+  }
+
+  /**
    * Запуск редактора: адрес узла + одноразовая пара «токен + WOPISrc» для form POST.
    *
    * Режим НЕ кладём в WOPISrc: клиент выводит из него ключ документа, и разные WOPISrc
@@ -324,6 +486,15 @@ export class DocsService implements OnModuleInit {
     const mode = await this.resolveMode(userId, doc, ctx);
     if (mode === 'none') throw new ForbiddenException('Нет доступа к документу');
     const effective: 'edit' | 'view' = dto.readonly ? 'view' : mode;
+
+    // Размер проверяем и здесь, а не только при оживлении: файл живой и мог вырасти
+    // правками с прошлого раза.
+    const file = await this.db.fileObject.findUnique({
+      where: { id: doc.fileId },
+      select: { size: true },
+    });
+    const size = Number(file?.size ?? 0);
+    this.assertOpenable(size);
 
     // Узел липкий: пока жива правка, все соредакторы обязаны попасть на ТОТ ЖЕ узел.
     const session = await this.getActiveSession(doc.id);
@@ -339,6 +510,8 @@ export class DocsService implements OnModuleInit {
       userId,
       canWrite: effective === 'edit',
       epoch: doc.tokenEpoch,
+      // Место едет в токене, чтобы authorizeWopi мог перерешать права на каждом запросе
+      place: ctx,
     });
 
     const sep = urlsrc.endsWith('?') || urlsrc.endsWith('&') ? '' : urlsrc.includes('?') ? '&' : '?';
@@ -350,7 +523,29 @@ export class DocsService implements OnModuleInit {
       accessTokenTtl: expiresAtMs,
       mode: effective,
       refreshAt: new Date(expiresAtMs - DOCS_LIMITS.tokenRefreshLeadMin * 60 * 1000).toISOString(),
+      warning: this.openWarning(size),
     };
+  }
+
+  /**
+   * Потолок на ОТКРЫТИЕ в редакторе (скачивание не ограничено никогда). Редактору нужно
+   * около 50 МБ памяти на правящего, и слишком большой файл не «медленно откроется», а
+   * положит сеанс соседям или покажет человеку белый прямоугольник при полностью зелёном
+   * сервере — худший вид отказа. Поэтому отвечаем честно и сразу.
+   */
+  private assertOpenable(size: number): void {
+    if (size > DOCS_LIMITS.openHardLimitBytes) {
+      const mb = Math.round(DOCS_LIMITS.openHardLimitBytes / (1024 * 1024));
+      throw new BadRequestException(
+        `Файл слишком большой для правки в браузере (больше ${mb} МБ) — скачайте его и откройте на компьютере`,
+      );
+    }
+  }
+
+  /** «Жёлтая зона»: открываем, но предупреждаем — иначе долгая загрузка выглядит зависанием */
+  private openWarning(size: number): string | null {
+    if (size <= DOCS_LIMITS.openSoftLimitBytes) return null;
+    return `Файл большой (${Math.round(size / (1024 * 1024))} МБ) — открытие может занять до минуты`;
   }
 
   private async loadOrThrow(id: string): Promise<DocumentRow> {
@@ -442,10 +637,18 @@ export class DocsService implements OnModuleInit {
 
   /**
    * Проверка запроса WOPI-клиента. Токен самодостаточный (в БД не лежит), поэтому
-   * сверяем ТРИ вещи: подпись+срок, что токен выдан именно на этот документ, и что
-   * поколение токенов документа не сдвинули (заражён / переведён в «только чтение» /
-   * отозвали доступ). Любая осечка — 401: 403 на RefreshLock загоняет COOL в
-   * бесконечный цикл ретраев (CollaboraOnline/online#5870).
+   * сверяем подпись+срок, что он выдан именно на этот документ, и что поколение токенов
+   * документа не сдвинули (перевод в «только чтение»). Любая осечка — 401: 403 на
+   * RefreshLock загоняет COOL в бесконечный цикл ретраев (CollaboraOnline/online#5870).
+   *
+   * И ГЛАВНОЕ — права ПЕРЕРЕШИВАЮТСЯ здесь на КАЖДОМ запросе (Hard Revoke платформы).
+   * Токен живёт часами; полагаться на то, что каждый путь отзыва (убрали из задачи,
+   * удалили сообщение, сняли вложение, отозвали грант, удалили документ) не забудет
+   * сдвинуть поколение, нельзя — забудет ровно один, и человек ещё полсуток правит и
+   * читает чужой файл. Поэтому источник правды один и тот же и для кнопки, и для
+   * редактора: resolveMode. Цена — несколько кэшированных проверок доступа на запрос
+   * редактора (CheckFileInfo/PutFile ~ раз в полминуты активной правки, RefreshLock —
+   * раз в 5 минут), и это несопоставимо дешевле дыры.
    */
   async authorizeWopi(documentId: string, token: string | undefined): Promise<WopiContext> {
     if (!this.router.enabled) throw new NotFoundException('Редактор документов не подключен');
@@ -458,7 +661,14 @@ export class DocsService implements OnModuleInit {
     if (!doc || doc.status !== 'active' || doc.deletedAt) throw new NotFoundException('Документ не найден');
     if (doc.tokenEpoch !== payload.e) throw new UnauthorizedException('Токен отозван');
 
-    return { doc, userId: payload.u, canWrite: payload.m === 'w' };
+    const mode = await this.resolveMode(payload.u, doc, this.tokens.placeOf(payload));
+    // Доступ пропал совсем — редактор обязан выйти. 401 (а не 403) сознательно: на нём
+    // контроллер ещё и закроет брошенную блокировку, а COOL не уйдёт в цикл ретраев.
+    if (mode === 'none') throw new UnauthorizedException('Доступ к документу отозван');
+
+    // Право правки могли снять, не трогая просмотр (сняли с задачи роль, документ
+    // заморозили): токен на запись мгновенно вырождается в «только чтение».
+    return { doc, userId: payload.u, canWrite: payload.m === 'w' && mode === 'edit' };
   }
 
   /** Метка «последнего изменения» для CheckFileInfo/PutFile-конфликта (риск 7).
@@ -636,6 +846,8 @@ export class DocsService implements OnModuleInit {
    * две версии одного и того же содержимого).
    */
   async closeSession(session: SessionRow, status: 'closed' | 'expired'): Promise<boolean> {
+    // Всё, что требует запросов, готовим ДО транзакции: внутри остаются только записи.
+    const entries = await this.buildEditEntries(session);
     return this.db.$transaction(async (tx) => {
       const res = await tx.documentSession.updateMany({
         where: { id: session.id, status: 'open' },
@@ -647,8 +859,66 @@ export class DocsService implements OnModuleInit {
         reason: 'session_end',
         authorIds: session.participantIds,
       });
+      // Хроника захода правки — В ТОЙ ЖЕ транзакции (контракт core/chatter): либо
+      // сессия закрыта и запись есть, либо не случилось ни того, ни другого.
+      if (entries.length) await this.chatter.logMany(tx, entries);
       return true;
     });
+  }
+
+  /**
+   * Записи хроники о заходе правки. ОДНА на заход, а не на сохранение: редактор
+   * сохраняет примерно раз в полминуты, и запись на каждое превратила бы чат в ленту
+   * «правил… правил… правил…».
+   *
+   * Пишем в два адреса: в хронику САМОГО документа (она есть и у файла, который не
+   * лежит ни в задаче, ни в чате — там это единственное место, где видно, кто что делал)
+   * и в место, если у него есть хроника (задача) — оттуда плашка в чат приезжает сама.
+   * Плашка в место склеивается: не чаще раза в час на пару «человек + документ».
+   */
+  private async buildEditEntries(session: SessionRow): Promise<ChatterLogInput[]> {
+    const doc = await this.db.document.findUnique({ where: { id: session.documentId } });
+    // Правок не было вовсе (открыли и закрыли) — молчим: это не событие.
+    if (!doc || !session.lastPutAt) return [];
+
+    const actorId = session.participantIds[0] ?? null;
+    const others = Math.max(session.participantIds.length - 1, 0);
+    const actor = actorId
+      ? await this.db.user.findUnique({
+          where: { id: actorId },
+          select: { firstName: true, lastName: true },
+        })
+      : null;
+    const name = [actor?.firstName, actor?.lastName].filter(Boolean).join(' ') || 'Кто-то';
+    const actorName = others ? `${name} и ещё ${others}` : name;
+    const period = formatTimeRange(session.lockedAt, session.lastPutAt);
+    const payload = { title: doc.title, documentId: doc.id, period };
+
+    const entries: ChatterLogInput[] = [
+      { refType: 'document', refId: doc.id, actorId, actorName, typeKey: 'document.edited', payload },
+    ];
+
+    for (const link of await this.files.listLinksOfFile(doc.fileId)) {
+      if (link.refType === 'document' || !this.chatterRegistry.get(link.refType)) continue;
+      const recent = await this.chatter.hasRecent({
+        refType: link.refType,
+        refId: link.refId,
+        typeKey: 'task.document_edited',
+        actorId,
+        withinMs: DOCS_LIMITS.chatEditNoticeCooldownMin * 60 * 1000,
+        payloadPath: { path: ['documentId'], equals: doc.id },
+      });
+      if (recent) continue;
+      entries.push({
+        refType: link.refType,
+        refId: link.refId,
+        actorId,
+        actorName,
+        typeKey: 'task.document_edited',
+        payload,
+      });
+    }
+    return entries;
   }
 
   // ============================================================
@@ -674,7 +944,10 @@ export class DocsService implements OnModuleInit {
     if (!ctx.canWrite) throw new ForbiddenException('Документ открыт только для чтения');
 
     let session = await this.getActiveSession(ctx.doc.id);
-    if (session && opts.lock && session.lockValue !== opts.lock) {
+    // Блокировка живая, а запрос пришёл без неё или с чужой — по протоколу это конфликт.
+    // Пропускать «без блокировки» нельзя: именно так посторонний держатель валидного
+    // токена подменил бы содержимое целиком, ни разу не спросив блокировку.
+    if (session && session.lockValue !== (opts.lock ?? '')) {
       throw new WopiLockConflict(session.lockValue);
     }
     if (!session && opts.lock) {
@@ -733,8 +1006,17 @@ export class DocsService implements OnModuleInit {
     };
   }
 
-  /** Байты документа для GetFile (заражённые режет сам движок файлов) */
+  /**
+   * Байты документа для GetFile (заражённые режет сам движок файлов) + ТА ЖЕ строка
+   * версии, что отдаёт CheckFileInfo: по протоколу X-WOPI-ItemVersion обязан совпадать
+   * с полем Version, иначе клиент считает выданное содержимое протухшим.
+   */
   async openContent(ctx: WopiContext) {
-    return this.files.openRawStream(ctx.doc.fileId, null);
+    const file = await this.db.fileObject.findUnique({
+      where: { id: ctx.doc.fileId },
+      select: { sha256: true },
+    });
+    const stream = await this.files.openRawStream(ctx.doc.fileId, null);
+    return { ...stream, version: this.versionOf(ctx.doc, file?.sha256 ?? null) };
   }
 }

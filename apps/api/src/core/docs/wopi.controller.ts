@@ -59,8 +59,9 @@ export class WopiController {
     @Res() res: Response,
   ): Promise<void> {
     const ctx = await this.docs.authorizeWopi(id, token);
-    const { result, mime, name } = await this.docs.openContent(ctx);
-    res.setHeader('X-WOPI-ItemVersion', this.docs.lastModifiedTime(ctx.doc));
+    const { result, mime, name, version } = await this.docs.openContent(ctx);
+    // Совпадает с CheckFileInfo.Version — этого требует протокол
+    res.setHeader('X-WOPI-ItemVersion', version);
     sendStorageStream(res, result, false, {
       mime,
       disposition: `attachment; filename="${encodeURIComponent(name)}"`,
