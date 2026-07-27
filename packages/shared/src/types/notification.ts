@@ -39,6 +39,7 @@ export type NotificationType =
   | 'workspace.role.changed' // your role in an organization changed (→ member)
   | 'workspace.position.assigned' // a position was assigned to you (→ member)
   | 'workspace.position.certified' // your position training was certified (→ member)
+  | 'workspace.archive.expiring' // your archived org is about to be deleted for good (→ owner)
   // Wallet
   | 'wallet.coins.received' // you were paid coins for a completed task (→ executor)
   // My Wish & Shop (orders)

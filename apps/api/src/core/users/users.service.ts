@@ -103,7 +103,10 @@ export class UsersService implements OnModuleInit {
         _count: {
           select: {
             ownedCircles: true,
-            workspaceMembers: true,
+            // Только ЖИВЫЕ организации: `GET /workspaces` показывает список с этим же
+            // фильтром, и без него счётчик «Пространств» считал деактивированные —
+            // человек видел «2 Пространств» над надписью «У вас пока нет организаций».
+            workspaceMembers: { where: { workspace: { isActive: true } } },
             contactLinksA: true,
             contactLinksB: true,
           },

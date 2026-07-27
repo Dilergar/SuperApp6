@@ -14,7 +14,7 @@ for (const line of fs.readFileSync(path.join(__dirname, '..', '.env'), 'utf8').s
 const { PrismaClient } = require('@prisma/client');
 const crypto = require('crypto');
 const BASE = 'http://localhost:3001/api';
-const P1 = '+77001234567', P2 = '+77012345678', PW = 'Test1234!';
+const P1 = '+77009990001', P2 = '+77009990002', PW = 'Test1234!';
 
 const PNG_1PX = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
@@ -55,9 +55,15 @@ async function main() {
   const uid = async (p) => (await prisma.user.findUnique({ where: { phone: p }, select: { id: true } })).id;
   const u1 = await uid(P1), u2 = await uid(P2);
 
-  // Чистый старт: файлы тестеров + их квоты
-  await prisma.fileObject.deleteMany({ where: { uploaderId: { in: [u1, u2] } } });
-  await prisma.fileQuotaUsage.deleteMany({ where: { ownerType: 'user', ownerId: { in: [u1, u2] } } });
+  // Никакого «чистого старта» сносом всех файлов аккаунта: прежний
+  // deleteMany({uploaderId}) уносил аватарки и вложения задач/чатов (FileLink каскадится
+  // за FileObject, и вложение исчезало из задачи молча). Вместо этого — базовая линия
+  // квоты и проверки на ДЕЛЬТУ, а в конце уборка штатным DELETE ровно своих файлов.
+  // Правило держится и на выделенных аккаунтах сьюта: тест не должен зависеть от того,
+  // что до него в аккаунте было пусто.
+  const mine = new Set();
+  const track = (id) => { if (id) mine.add(id); return id; };
+  const base = (await call('GET', '/files/usage', t1)).json?.data ?? { bytesUsed: 0, filesCount: 0 };
 
   try {
     // ===== Загрузка: init → байты → complete =====
@@ -66,7 +72,7 @@ async function main() {
     check('init: создан intent (uploading)', init.ok && init.json?.data?.file?.status === 'uploading', `status ${init.status}`);
     check('init: транспорт api для мелкого файла', init.json?.data?.transport === 'api');
     check('init: publicUrl скрыт до готовности', init.json?.data?.file?.publicUrl === null);
-    const fileId = init.json.data.file.id;
+    const fileId = track(init.json.data.file.id);
 
     const put = await upload(`/files/${fileId}/content`, t1, PNG_1PX, 'аватар тест.png', 'image/png');
     check('байты приняты через API', put.ok, `status ${put.status}`);
@@ -136,6 +142,7 @@ async function main() {
 
     // ===== Доступ: приватный файл чужому =====
     const priv = await uploadWhole(t1, { profile: 'chat_attachment', name: 'секрет.png', mime: 'image/png', bytes: PNG_1PX });
+    track(priv.id);
     check('приватный файл загружен (chat_attachment)', !!priv.file && priv.file.visibility === 'private');
     const strangerMeta = await call('GET', `/files/${priv.id}`, t2);
     check('чужой: метаданные приватного → 403', strangerMeta.status === 403, `status ${strangerMeta.status}`);
@@ -153,23 +160,24 @@ async function main() {
     check('6МБ в avatar (лимит 5МБ) → 400', tooBig.status === 400, `status ${tooBig.status}`);
 
     const fake = await call('POST', '/files', t1, { profile: 'document', name: 'отчёт.pdf', mime: 'application/pdf', size: PNG_1PX.length });
-    const fakeId = fake.json?.data?.file?.id;
+    const fakeId = track(fake.json?.data?.file?.id);
     const fakePut = await upload(`/files/${fakeId}/content`, t1, PNG_1PX, 'отчёт.pdf', 'application/pdf');
     check('magic-bytes: png под видом pdf → 400', fakePut.status === 400, `status ${fakePut.status}`);
     const fakeRow = await prisma.fileObject.findUnique({ where: { id: fakeId } });
     check('файл-обманка помечен failed', fakeRow?.status === 'failed', fakeRow?.status);
 
-    // ===== Квоты =====
+    // ===== Квоты (дельты к базовой линии: у тестера есть и свои, ручные файлы) =====
     const usage1 = await call('GET', '/files/usage', t1);
     const expectedBytes = PNG_1PX.length * 2; // avatar + приватный (обманка не завершена)
-    check('usage: bytesUsed = сумма ready-файлов', usage1.json?.data?.bytesUsed === expectedBytes, `${usage1.json?.data?.bytesUsed} vs ${expectedBytes}`);
-    check('usage: filesCount = 2', usage1.json?.data?.filesCount === 2);
+    const grewBy = usage1.json?.data?.bytesUsed - base.bytesUsed;
+    check('usage: bytesUsed вырос на сумму ready-файлов', grewBy === expectedBytes, `${grewBy} vs ${expectedBytes}`);
+    check('usage: filesCount вырос на 2', usage1.json?.data?.filesCount - base.filesCount === 2);
     check('usage: лимит отдан', usage1.json?.data?.limitBytes > 0);
 
     const del = await call('DELETE', `/files/${priv.id}`, t1);
     check('удаление своего файла → ok', del.ok, `status ${del.status}`);
     const usage2 = await call('GET', '/files/usage', t1);
-    check('usage уменьшился после удаления', usage2.json?.data?.bytesUsed === PNG_1PX.length && usage2.json?.data?.filesCount === 1, `${usage2.json?.data?.bytesUsed}`);
+    check('usage уменьшился после удаления', usage2.json?.data?.bytesUsed - base.bytesUsed === PNG_1PX.length && usage2.json?.data?.filesCount - base.filesCount === 1, `${usage2.json?.data?.bytesUsed - base.bytesUsed}`);
     const delMeta = await call('GET', `/files/${priv.id}`, t1);
     check('удалённый файл → 404', delMeta.status === 404, `status ${delMeta.status}`);
     const strangerDel = await call('DELETE', `/files/${fileId}`, t2);
@@ -182,21 +190,29 @@ async function main() {
       const driver = new LocalStorageDriver();
       const cron = new FilesCron(prisma, { withLock: async (_k, _t, fn) => fn() }, driver);
 
-      const staleId = crypto.randomUUID();
+      const staleId = track(crypto.randomUUID());
       await prisma.fileObject.create({ data: { id: staleId, ownerType: 'user', ownerId: u1, uploaderId: u1, profile: 'generic', kind: 'other', name: 'stale.bin', mime: 'application/octet-stream', size: BigInt(10), status: 'uploading', visibility: 'private', storageDriver: 'local', storageKey: `zz/zz/${staleId}`, createdAt: new Date(Date.now() - 25 * 3600 * 1000) } });
       await cron.sweepStaleUploads();
       const staleRow = await prisma.fileObject.findUnique({ where: { id: staleId } });
       check('GC: брошенная загрузка (25ч) → failed', staleRow?.status === 'failed', staleRow?.status);
 
-      const purgeId = crypto.randomUUID();
+      const purgeId = track(crypto.randomUUID());
       await prisma.fileObject.create({ data: { id: purgeId, ownerType: 'user', ownerId: u1, uploaderId: u1, profile: 'generic', kind: 'other', name: 'old.bin', mime: 'application/octet-stream', size: BigInt(10), status: 'deleted', visibility: 'private', storageDriver: 'local', storageKey: `zz/zz/${purgeId}`, deletedAt: new Date(Date.now() - 8 * 24 * 3600 * 1000) } });
       await cron.sweepDeleted();
       const purgedRow = await prisma.fileObject.findUnique({ where: { id: purgeId } });
       check('GC: soft-deleted (8д) удалён физически', purgedRow === null);
 
       await cron.reconcileQuotas();
+      // Сверка пересчитывает квоту от ФАКТА по всем ready-файлам владельца, включая
+      // те, что человек загрузил руками. Ожидание считаем от них, а не от нуля.
+      const others = await prisma.fileObject.aggregate({
+        where: { ownerType: 'user', ownerId: u1, status: 'ready', id: { notIn: [...mine] } },
+        _sum: { size: true },
+        _count: { _all: true },
+      });
+      const expect3 = Number(others._sum.size ?? 0) + PNG_1PX.length; // + наш avatar
       const usage3 = await call('GET', '/files/usage', t1);
-      check('GC: сверка квот сходится с фактом', usage3.json?.data?.bytesUsed === PNG_1PX.length && usage3.json?.data?.filesCount === 1, `${usage3.json?.data?.bytesUsed}`);
+      check('GC: сверка квот сходится с фактом', usage3.json?.data?.bytesUsed === expect3 && usage3.json?.data?.filesCount === others._count._all + 1, `${usage3.json?.data?.bytesUsed} vs ${expect3}`);
     } else {
       console.log('…  GC-блок пропущен (FILES_DRIVER=s3)');
     }
@@ -205,12 +221,15 @@ async function main() {
     // .dat, а не .bin: сырые двоичные дампы (.bin/.conf/.ini) запрещены к загрузке
     // как класс — проверка этого запрета живёт в verify-files-scan.
     const ab = await call('POST', '/files', t1, { profile: 'generic', name: 'будет отменён.dat', mime: 'application/octet-stream', size: 100 });
-    const abId = ab.json?.data?.file?.id;
+    const abId = track(ab.json?.data?.file?.id);
     const abRes = await call('POST', `/files/${abId}/abort`, t1);
     check('abort незавершённой загрузки → ok', abRes.ok, `status ${abRes.status}`);
     const abRow = await prisma.fileObject.findUnique({ where: { id: abId } });
     check('abort: статус failed', abRow?.status === 'failed', abRow?.status);
   } finally {
+    // Прибираем ТОЛЬКО свои файлы и штатным путём: квота декрементится, байты заберёт
+    // крон ретеншна. Файлы человека остаются на месте.
+    for (const id of mine) await call('DELETE', `/files/${id}`, t1).catch(() => {});
     await prisma.$disconnect();
   }
 

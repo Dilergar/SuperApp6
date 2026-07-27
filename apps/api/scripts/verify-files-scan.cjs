@@ -12,7 +12,7 @@ for (const line of fs.readFileSync(path.join(__dirname, '..', '.env'), 'utf8').s
 }
 const { PrismaClient } = require('@prisma/client');
 const BASE = 'http://localhost:3001/api';
-const P1 = '+77001234567', PW = 'Test1234!';
+const P1 = '+77009990001', PW = 'Test1234!';
 // Стандартная тест-строка EICAR (не настоящий вирус; детектится всеми антивирусами).
 const EICAR = 'X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*';
 

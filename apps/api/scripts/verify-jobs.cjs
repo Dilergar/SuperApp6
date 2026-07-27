@@ -5,7 +5,7 @@
 // отложенный runAt, /jobs/stats. Requires API on 3001 (NODE_ENV=development) + tester1.
 // Run: node apps/api/scripts/verify-jobs.cjs
 const BASE = process.env.API_URL || 'http://localhost:3001/api';
-const CREDS = { t1: { phone: '+77001234567', password: 'Test1234!' } };
+const CREDS = { t1: { phone: '+77009990001', password: 'Test1234!' } };
 async function http(method, path, { token, body } = {}) {
   const res = await fetch(`${BASE}${path}`, {
     method,

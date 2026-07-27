@@ -10,7 +10,7 @@ for (const line of fs.readFileSync(path.join(__dirname, '..', '.env'), 'utf8').s
 }
 const { PrismaClient } = require('@prisma/client');
 const BASE = 'http://localhost:3001/api';
-const P1 = '+77001234567', P2 = '+77012345678', PW = 'Test1234!';
+const P1 = '+77009990001', P2 = '+77009990002', PW = 'Test1234!';
 const DAY = 86_400_000;
 
 let fails = 0;

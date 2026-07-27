@@ -17,7 +17,7 @@ const { PrismaClient } = require('@prisma/client');
 const crypto = require('crypto');
 const zlib = require('zlib');
 const BASE = 'http://localhost:3001/api';
-const P1 = '+77001234567', P2 = '+77012345678', P3 = '+77023456789', PW = 'Test1234!';
+const P1 = '+77009990001', P2 = '+77009990002', P3 = '+77009990003', PW = 'Test1234!';
 
 let fails = 0, skipped = 0;
 const check = (n, ok, extra) => { console.log(`${ok ? '✓' : '✗ FAIL'}  ${n}${extra ? `  (${extra})` : ''}`); if (!ok) fails++; };

@@ -11,9 +11,9 @@ for (const l of fs.readFileSync(path.join(__dirname, '..', '.env'), 'utf8').spli
 const { PrismaClient } = require('@prisma/client');
 const BASE = process.env.API_URL || 'http://localhost:3001/api';
 const CREDS = {
-  t1: { phone: '+77001234567', password: 'Test1234!' }, // author
-  t2: { phone: '+77012345678', password: 'Test1234!' }, // chat member (mentionable)
-  t3: { phone: '+77023456789', password: 'Test1234!' }, // NOT in the chat
+  t1: { phone: '+77009990001', password: 'Test1234!' }, // author
+  t2: { phone: '+77009990002', password: 'Test1234!' }, // chat member (mentionable)
+  t3: { phone: '+77009990003', password: 'Test1234!' }, // NOT in the chat
 };
 async function http(method, p, { token, body } = {}) {
   const res = await fetch(`${BASE}${p}`, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });

@@ -3,9 +3,9 @@
 const BASE = process.env.API_URL || 'http://localhost:3001/api';
 
 const CREDS = {
-  t1: { phone: '+77001234567', password: 'Test1234!' },
-  t2: { phone: '+77012345678', password: 'Test1234!' },
-  t3: { phone: '+77023456789', password: 'Test1234!' },
+  t1: { phone: '+77009990001', password: 'Test1234!' },
+  t2: { phone: '+77009990002', password: 'Test1234!' },
+  t3: { phone: '+77009990003', password: 'Test1234!' },
 };
 
 async function http(method, path, { token, body } = {}) {

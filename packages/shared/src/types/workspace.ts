@@ -53,6 +53,10 @@ export interface Workspace {
   /** Active (non-cancelled) task count — present in the single-workspace view. */
   tasksCount?: number;
   isActive: boolean;
+  /** Когда организацию отправили в архив (деактивировали). null у живой. */
+  archivedAt?: string | null;
+  /** Когда архивная организация будет удалена НАВСЕГДА (archivedAt + ретеншн). */
+  purgeAt?: string | null;
   /** The viewing user's role in this workspace (from UserRole). Present in "my workspaces" lists. */
   myRole?: WorkspaceRoleT;
   createdAt: string;

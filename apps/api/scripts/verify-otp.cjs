@@ -10,7 +10,7 @@
 // Тест-карта проверяется, только если в .env API задан VERIFY_TEST_PHONES с парой ниже.
 // Run: node apps/api/scripts/verify-otp.cjs
 const BASE = process.env.API_URL || 'http://localhost:3001/api';
-const T1 = { phone: '+77001234567', password: 'Test1234!' };
+const T1 = { phone: '+77009990001', password: 'Test1234!' };
 const PW = 'Test1234!';
 const PW2 = 'Test12345!';
 // Пара из .env.example / CI — если карта не настроена, блок теста помечается SKIP.

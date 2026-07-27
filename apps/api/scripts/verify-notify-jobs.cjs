@@ -6,8 +6,8 @@
 // Run: node apps/api/scripts/verify-notify-jobs.cjs
 const BASE = process.env.API_URL || 'http://localhost:3001/api';
 const CREDS = {
-  t1: { phone: '+77001234567', password: 'Test1234!' },
-  t2: { phone: '+77012345678', password: 'Test1234!' },
+  t1: { phone: '+77009990001', password: 'Test1234!' },
+  t2: { phone: '+77009990002', password: 'Test1234!' },
 };
 async function http(method, path, { token, body } = {}) {
   const res = await fetch(`${BASE}${path}`, {
