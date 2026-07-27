@@ -40,10 +40,27 @@ export function Tooltip({ content, children, placement = 'top', delay = 350 }: T
 
   useEffect(() => () => { if (timer.current) window.clearTimeout(timer.current); }, []);
 
+  // Пока подсказка видна: прокрутка/клик/ресайз её прячут. Иначе она (а) отстаёт
+  // от якоря при скролле (позиция считается один раз) и (б) виснет поверх модалки,
+  // открытой кликом — mouseleave в этот момент браузер не шлёт.
+  useEffect(() => {
+    if (!pos) return;
+    const off = () => hide();
+    window.addEventListener('scroll', off, { capture: true, passive: true });
+    window.addEventListener('resize', off, { passive: true });
+    document.addEventListener('pointerdown', off, true);
+    return () => {
+      window.removeEventListener('scroll', off, true);
+      window.removeEventListener('resize', off);
+      document.removeEventListener('pointerdown', off, true);
+    };
+  }, [pos, hide]);
+
   const child = cloneElement(children, {
     ref: (node: HTMLElement | null) => {
       anchor.current = node;
-      const r = (children as unknown as { ref?: unknown }).ref;
+      // React 19: ref лежит в props, обращение к element.ref удалено.
+      const r = (children.props as { ref?: unknown }).ref;
       if (typeof r === 'function') (r as (n: HTMLElement | null) => void)(node);
     },
     onMouseEnter: show,

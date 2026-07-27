@@ -26,7 +26,8 @@
 .ui-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .ui-btn:disabled, .ui-btn[aria-disabled='true'] { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
 
-.ui-btn--md { padding: 0.625rem 1.125rem; font-size: 0.8125rem; min-height: 38px; }
+/* md-высота — через токены плотности: .density-compact сжимает контролы (DESIGN §6) */
+.ui-btn--md { padding: var(--control-py, 0.625rem) 1.125rem; font-size: 0.8125rem; min-height: var(--control-h, 38px); }
 .ui-btn--sm { padding: 0.4375rem 0.875rem; font-size: 0.75rem; min-height: 32px; }
 .ui-btn--lg { padding: 0.8125rem 1.5rem; font-size: 0.875rem; min-height: 44px; }
 .ui-btn--block { width: 100%; }
@@ -38,7 +39,7 @@
 .ui-btn--primary {
   background: var(--tone-solid, var(--primary));
   color: var(--on-primary);
-  box-shadow: 0 4px 14px var(--tone-glow, rgba(88, 140, 211, 0.3));
+  /* Без цветного свечения: тень в системе одна — DESIGN.md §4 */
 }
 .ui-btn--primary:hover:not(:disabled) { background: var(--tone-solid-hover, var(--primary-dim)); }
 
@@ -95,7 +96,8 @@
 }
 .ui-input {
   width: 100%;
-  padding: 0.625rem 0.875rem;
+  padding: var(--control-py, 0.625rem) 0.875rem;
+  min-height: var(--control-h, 38px);
   background: var(--block);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -133,7 +135,8 @@ textarea.ui-input { resize: vertical; min-height: 5rem; line-height: 1.55; }
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.625rem 0.75rem 0.625rem 0.875rem;
+  padding: var(--control-py, 0.625rem) 0.75rem var(--control-py, 0.625rem) 0.875rem;
+  min-height: var(--control-h, 38px);
   background: var(--block);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -157,7 +160,9 @@ textarea.ui-input { resize: vertical; min-height: 5rem; line-height: 1.55; }
   box-shadow: var(--shadow-pop);
   padding: 0.25rem;
   overflow-y: auto;
-  z-index: 200;
+  /* Выше подложки модалки (300): селект, открытый ВНУТРИ окна, обязан быть
+     кликабельным, а не тонуть под затемнением. Ниже подсказки (400). */
+  z-index: 320;
 }
 .ui-option {
   display: flex;
@@ -177,6 +182,9 @@ textarea.ui-input { resize: vertical; min-height: 5rem; line-height: 1.55; }
 }
 .ui-option:hover, .ui-option[data-active='true'] { background: var(--hover); }
 .ui-option[data-selected='true'] { background: var(--primary-container); color: var(--primary-dim); font-weight: 700; }
+/* Курсор на выбранном пункте должен быть виден — иначе стрелки «пропадают» */
+.ui-option[data-selected='true']:hover,
+.ui-option[data-selected='true'][data-active='true'] { background: var(--primary-border); }
 .ui-option:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* ---------- Переключатель, чекбокс, радио ---------- */
@@ -246,20 +254,32 @@ textarea.ui-input { resize: vertical; min-height: 5rem; line-height: 1.55; }
   opacity: 0.65;
 }
 .ui-chip-x:hover { opacity: 1; }
+.ui-chip-x:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; opacity: 1; }
 
 /* ---------- Модалка ---------- */
 .ui-backdrop {
   position: fixed;
   inset: 0;
   z-index: 300;
-  background: rgba(29, 27, 29, 0.35);
-  backdrop-filter: blur(3px);
   display: flex;
   align-items: flex-start;
   justify-content: center;
   padding: 6vh 1rem 4vh;
   overflow-y: auto;
 }
+/* Затемнение и блюр — на НЕподвижном псевдослое: если бы blur висел на самом
+   скроллящемся .ui-backdrop, каждая прокрутка длинной формы пересобирала бы
+   полноэкранное размытие покадрово. */
+.ui-backdrop::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: rgba(29, 27, 29, 0.35);
+  backdrop-filter: blur(3px);
+}
+/* Центровка окон ModalShell (по умолчанию слой прижат к верху) */
+.ui-backdrop--center { align-items: center; }
 .ui-modal {
   background: var(--block);
   border-radius: var(--radius-card);
@@ -289,7 +309,7 @@ textarea.ui-input { resize: vertical; min-height: 5rem; line-height: 1.55; }
   padding: 0 var(--pad-card) var(--pad-card);
 }
 @media (max-width: 640px) {
-  .ui-backdrop { padding: 0; align-items: flex-end; }
+  .ui-backdrop, .ui-backdrop--center { padding: 0; align-items: flex-end; }
   .ui-modal { max-height: 92vh; border-radius: var(--radius-card) var(--radius-card) 0 0; }
 }
 
@@ -313,7 +333,8 @@ textarea.ui-input { resize: vertical; min-height: 5rem; line-height: 1.55; }
   white-space: nowrap;
   transition: background 0.2s ease, color 0.2s ease;
 }
-.ui-segment-item[aria-selected='true'] {
+.ui-segment-item[aria-selected='true'],
+.ui-segment-item[aria-pressed='true'] {
   background: var(--block);
   color: var(--on-surface);
   font-weight: 800;
@@ -321,7 +342,7 @@ textarea.ui-input { resize: vertical; min-height: 5rem; line-height: 1.55; }
 }
 .ui-segment-item:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
-.ui-tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--divider); }
+.ui-tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--divider); overflow-x: auto; }
 .ui-tab {
   position: relative;
   padding: 0.625rem 0.875rem;
@@ -393,7 +414,7 @@ textarea.ui-input { resize: vertical; min-height: 5rem; line-height: 1.55; }
 }
 .ui-cal-day:hover:not(:disabled) { background: var(--hover); }
 .ui-cal-day[data-today='true'] { border-color: rgba(88, 140, 211, 0.5); color: var(--primary-dim); }
-.ui-cal-day[aria-selected='true'] { background: var(--primary); color: var(--on-primary); border-color: transparent; }
+.ui-cal-day[aria-pressed='true'] { background: var(--primary); color: var(--on-primary); border-color: transparent; }
 .ui-cal-day:disabled { opacity: 0.3; cursor: default; }
 .ui-cal-day:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 
@@ -457,10 +478,15 @@ textarea.ui-input { resize: vertical; min-height: 5rem; line-height: 1.55; }
   text-decoration: none;
 }
 .ui-menu-item:hover, .ui-menu-item[data-active='true'] { background: var(--hover); }
+/* Фокус двигается по пунктам по-настоящему (roving) — подсветка как у ховера */
+.ui-menu-item:focus { background: var(--hover); outline: none; }
 .ui-menu-item--danger { color: var(--danger); }
 .ui-menu-item--danger:hover { background: var(--danger-container); }
 .ui-menu-item:disabled { opacity: 0.45; cursor: not-allowed; }
-.ui-menu-sep { height: 1px; background: var(--divider); margin: 0.25rem 0.25rem; }
+.ui-menu-item:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+/* display:block обязателен: у inline-<span> высота и вертикальные отступы
+   игнорируются — разделитель не рисовался вовсе */
+.ui-menu-sep { display: block; height: 1px; background: var(--divider); margin: 0.25rem 0.25rem; }
 
 /* ---------- Индикаторы загрузки ---------- */
 @keyframes ui-spin { to { transform: rotate(360deg); } }
@@ -471,16 +497,42 @@ textarea.ui-input { resize: vertical; min-height: 5rem; line-height: 1.55; }
   border-top-color: var(--primary);
   animation: ui-spin 0.7s linear infinite;
 }
-@keyframes ui-shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+/* Шиммер — transform-анимацией (композитор), а не background-position:
+   тот перерисовывал каждый скелетон покадрово ровно в момент загрузки экрана. */
+@keyframes ui-shimmer { to { transform: translateX(100%); } }
 .ui-skeleton {
-  background: linear-gradient(90deg, var(--surface-container) 25%, var(--hover) 37%, var(--surface-container) 63%);
-  background-size: 200% 100%;
-  animation: ui-shimmer 1.4s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-container);
   border-radius: var(--radius-sm);
+}
+.ui-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--hover), transparent);
+  animation: ui-shimmer 1.4s ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {
   .ui-spinner { animation-duration: 2s; }
-  .ui-skeleton { animation: none; }
+  .ui-skeleton::after { animation: none; }
+}
+
+/* ---------- Карточка-ссылка (ховер бенто) ---------- */
+/* Подъём — только transform (композитор); тень не меняется: тень в системе одна */
+.ui-card-hover { transition: transform 0.2s ease; }
+.ui-card-hover:hover { transform: translateY(-2px); }
+@media (prefers-reduced-motion: reduce) {
+  .ui-card-hover, .ui-card-hover:hover { transition: none; transform: none; }
+}
+
+/* ---------- Бенто-сетка ---------- */
+.ui-bento { display: grid; grid-template-columns: repeat(12, 1fr); gap: var(--gap-grid); }
+@media (max-width: 700px) {
+  .ui-bento { grid-template-columns: 1fr; }
+  /* span задаётся инлайном (gridColumn) — на телефоне его перекрывает сетка */
+  .ui-bento > * { grid-column: 1 / -1 !important; }
 }
 
 /* ---------- Каркас приложения (AppShell) ---------- */

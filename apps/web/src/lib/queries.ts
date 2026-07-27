@@ -80,6 +80,23 @@ export const processReportKey = (wsId: string, defId: string) =>
   ['workspaces', wsId, 'processes', defId, 'report'] as const;
 export const processCredentialsKey = (wsId: string) =>
   ['workspaces', wsId, 'processes', 'credentials'] as const;
+// Скины карточки (профиль → «Скины карточки»)
+export const cardSkinsWalletKey = ['card-skins', 'wallet'] as const;
+export const cardSkinsCatalogKey = ['card-skins', 'catalog'] as const;
+export const cardSkinsInventoryKey = ['card-skins', 'inventory'] as const;
+export const cardSkinsEquipKey = ['card-skins', 'equip'] as const;
+// Кошелёк (профиль → «Кошелёк» и кошелёк организации)
+export const walletOverviewKey = ['wallet', 'overview'] as const;
+export const walletHistoryKey = ['wallet', 'history'] as const;
+export const walletCurrencyKey = ['wallet', 'currency'] as const;
+export const walletHoldersKey = ['wallet', 'holders'] as const;
+export const companyWalletKey = (wsId: string) => ['workspaces', wsId, 'wallet'] as const;
+export const companyHoldersKey = (wsId: string) => ['workspaces', wsId, 'wallet', 'holders'] as const;
+// Магазин (My Wish & Shop)
+export const shopMineKey = ['shop', 'mine'] as const;
+export const shopAccessibleKey = ['shop', 'accessible'] as const;
+export const shopOfKey = (ownerId: string) => ['shop', 'of', ownerId] as const;
+export const shopListingsKey = (showcaseId: string) => ['shop', 'listings', showcaseId] as const;
 // Files engine (core/files)
 export const filesUsageKey = ['files', 'usage'] as const;
 export const fileUrlKey = (id: string, variant?: string) =>

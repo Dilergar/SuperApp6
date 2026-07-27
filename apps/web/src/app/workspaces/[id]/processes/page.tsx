@@ -5,6 +5,7 @@
 // менеджеры (строить) и участники (смотреть свои запуски в Журнале).
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
@@ -65,7 +66,11 @@ export default function ProcessesPage() {
     queryKey: processInstancesKey(wsId),
     queryFn: () => fetchProcessInstances(wsId),
     enabled: isReady && tab === 'journal',
-    refetchInterval: 5000,
+    // Адаптивный поллинг (паттерн Виртуального офиса): часто — только пока есть
+    // бегущий инстанс; тихий журнал не молотит сервер каждые 5 секунд.
+    // На скрытой вкладке React Query сам ставит интервал на паузу.
+    refetchInterval: (q) =>
+      (q.state.data ?? []).some((i) => i.status === 'running') ? 7_000 : 30_000,
   });
   const { data: inbox } = useQuery({
     queryKey: processInboxKey(wsId),
@@ -139,7 +144,8 @@ export default function ProcessesPage() {
           ) : (
             (defs ?? []).map((d) => (
               <Card key={d.id} span={6} hoverable>
-                <a href={`/workspaces/${wsId}/processes/${d.id}`} style={{ color: 'inherit', display: 'block' }}>
+                {/* next/link: сырой <a> перезагружал всё приложение перед самым тяжёлым роутом */}
+                <Link href={`/workspaces/${wsId}/processes/${d.id}`} style={{ color: 'inherit', display: 'block' }}>
                   <CardHeader
                     title={d.name}
                     subtitle={d.description || undefined}
@@ -158,7 +164,7 @@ export default function ProcessesPage() {
                       <Chip size="sm" tone="neutral" icon="lock">только админы</Chip>
                     )}
                   </div>
-                </a>
+                </Link>
               </Card>
             ))
           )}

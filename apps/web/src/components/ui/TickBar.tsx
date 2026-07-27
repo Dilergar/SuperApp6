@@ -46,10 +46,13 @@ export function TickBar({ value, tone = 'accent', height = 10, label, showValue,
         aria-valuemax={100}
         aria-label={aria['aria-label'] ?? label}
       >
+        {/* Заполнение раскрывается clip-path'ом, а не width: клип не трогает layout
+            (анимация width = пересчёт раскладки каждый кадр) и не масштабирует
+            штрихи 2px/5px, как это сделал бы transform: scaleX. */}
         <div
           className="tick-bar-fill"
           style={{
-            width: `${pct}%`,
+            clipPath: `inset(0 ${100 - pct}% 0 0)`,
             background: `repeating-linear-gradient(90deg, ${base} 0 2px, transparent 2px 5px)`,
           }}
         />

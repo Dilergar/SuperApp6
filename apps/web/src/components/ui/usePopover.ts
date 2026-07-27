@@ -51,12 +51,14 @@ export function usePopover<A extends HTMLElement = HTMLElement>({
     const flipped = below < Math.min(maxHeight, 160) && above > below;
     const width = matchWidth ? r.width : Math.max(r.width, 180);
     const left = align === 'end' ? Math.max(8, r.right - width) : Math.min(r.left, window.innerWidth - width - 8);
-    setPos({
+    const next = {
       top: flipped ? Math.max(8, r.top - gap) : r.bottom + gap,
       left: Math.max(8, left),
       width,
       flipped,
-    });
+    };
+    // Позиция не изменилась → тот же объект, без ре-рендера портала.
+    setPos((p) => (p.top === next.top && p.left === next.left && p.width === next.width && p.flipped === next.flipped ? p : next));
   }, [align, gap, matchWidth, maxHeight]);
 
   useLayoutEffect(() => {
@@ -72,20 +74,31 @@ export function usePopover<A extends HTMLElement = HTMLElement>({
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        // capture-фаза: Esc гасится ЗДЕСЬ, иначе модалка под слоем закроется тем же
+        // нажатием и человек потеряет заполненную форму (React слушает на корне —
+        // это ниже document по дереву, наш обработчик срабатывает раньше).
         e.stopPropagation();
+        e.preventDefault();
         setOpen(false);
         anchorRef.current?.focus();
       }
     };
-    // capture у скролла — ловим прокрутку любого родителя, не только окна
-    const onScroll = () => measure();
+    // capture у скролла — ловим прокрутку любого родителя, не только окна.
+    // Пересчёт не чаще кадра: сырой scroll стреляет на каждый тик, и каждый вызов
+    // measure() — это принудительный layout + setState.
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => { raf = 0; measure(); });
+    };
     document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    window.addEventListener('resize', onScroll);
-    window.addEventListener('scroll', onScroll, true);
+    document.addEventListener('keydown', onKey, true);
+    window.addEventListener('resize', onScroll, { passive: true });
+    window.addEventListener('scroll', onScroll, { capture: true, passive: true });
     return () => {
+      if (raf) cancelAnimationFrame(raf);
       document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('keydown', onKey, true);
       window.removeEventListener('resize', onScroll);
       window.removeEventListener('scroll', onScroll, true);
     };

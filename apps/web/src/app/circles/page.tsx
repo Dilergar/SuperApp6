@@ -394,6 +394,39 @@ export default function CirclesPage() {
     }
   };
 
+  // Стабильные обработчики карточек. PersonCard обёрнут в memo, и чтобы кейстрок
+  // в форме приглашения не перерисовывал весь грид, колбэки каждой карточки
+  // обязаны переживать рендер. Вызов идёт через ref — карточка всегда зовёт
+  // СВЕЖИЙ обработчик (замыкание на activeGroup не протухает).
+  const cardActionsRef = useRef({ handleDeleteContact, handleBlock, handleRemoveFromGroup, handleAddToGroup });
+  cardActionsRef.current = { handleDeleteContact, handleBlock, handleRemoveFromGroup, handleAddToGroup };
+  const gridContacts = activeGroup && activeGroupData ? activeGroupData.members : contacts;
+  const cardHandlers = useMemo(() => {
+    const map = new Map<string, {
+      onDelete: () => void;
+      onBlock: () => void;
+      onRemoveFromFolder: () => void;
+      onAddToFolder: (groupId: string) => void;
+    }>();
+    for (const c of gridContacts) {
+      map.set(c.linkId, {
+        onDelete: () => {
+          if (confirm('Удалить из окружения? Это действие двустороннее.')) void cardActionsRef.current.handleDeleteContact(c.linkId);
+        },
+        onBlock: () => void cardActionsRef.current.handleBlock(c.them.id, c.them.firstName),
+        onRemoveFromFolder: () => void cardActionsRef.current.handleRemoveFromGroup(c.linkId),
+        onAddToFolder: (groupId: string) => void cardActionsRef.current.handleAddToGroup(c.linkId, groupId),
+      });
+    }
+    return map;
+  }, [gridContacts]);
+  const myCoinsBy = useMemo(() => {
+    if (!myCoinIcon) return null;
+    const map = new Map<string, { icon: string; balance: number }>();
+    for (const c of gridContacts) map.set(c.them.id, { icon: myCoinIcon, balance: coinsByUser[c.them.id] ?? 0 });
+    return map;
+  }, [gridContacts, myCoinIcon, coinsByUser]);
+
   // Optimistically reflect a group's saved visibility in both caches.
   const handleGroupVisibilitySaved = (updated: Circle) => {
     queryClient.setQueryData<Circle[]>(circlesKey, (prev) =>
@@ -727,11 +760,11 @@ export default function CirclesPage() {
                 contact={c}
                 folders={groups}
                 activeFolder={activeGroup}
-                onDelete={() => { if (confirm('Удалить из окружения? Это действие двустороннее.')) handleDeleteContact(c.linkId); }}
-                onBlock={() => handleBlock(c.them.id, c.them.firstName)}
-                onRemoveFromFolder={() => handleRemoveFromGroup(c.linkId)}
-                onAddToFolder={(groupId) => handleAddToGroup(c.linkId, groupId)}
-                myCoins={myCoinIcon ? { icon: myCoinIcon, balance: coinsByUser[c.them.id] ?? 0 } : null}
+                onDelete={cardHandlers.get(c.linkId)!.onDelete}
+                onBlock={cardHandlers.get(c.linkId)!.onBlock}
+                onRemoveFromFolder={cardHandlers.get(c.linkId)!.onRemoveFromFolder}
+                onAddToFolder={cardHandlers.get(c.linkId)!.onAddToFolder}
+                myCoins={myCoinsBy?.get(c.them.id) ?? null}
                 presence={presenceByUser[c.them.id] ?? null}
                 skin={skinByUser[c.them.id] ?? undefined}
               />

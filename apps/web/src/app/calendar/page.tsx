@@ -5,6 +5,7 @@ import {
   SegmentedControl,
 } from '@/components/ui';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api, apiErrorMessage } from '@/lib/api';
@@ -412,6 +413,7 @@ function MonthView({
 }
 
 function ItemChip({ item, onEvent, onTask }: { item: CalendarItem; onEvent: (o: CalendarEventOccurrence) => void; onTask: (t: CalendarTaskItem) => void }) {
+  const router = useRouter();
   const color = itemColor(item);
   const done = isTask(item) && item.status === 'done';
   const drag = canDragItem(item);
@@ -420,7 +422,7 @@ function ItemChip({ item, onEvent, onTask }: { item: CalendarItem; onEvent: (o: 
       draggable={drag}
       onDragStart={drag ? (e) => { e.stopPropagation(); setDrag(isEvent(item) ? eventDrag(item) : { kind: 'task', id: (item as CalendarTaskItem).taskId, title: item.title }, e); } : undefined}
       onDragEnd={drag ? clearDrag : undefined}
-      onClick={(e) => { e.stopPropagation(); if (isEvent(item)) onEvent(item); else if (isTask(item)) onTask(item); else window.location.href = '/finance'; }}
+      onClick={(e) => { e.stopPropagation(); if (isEvent(item)) onEvent(item); else if (isTask(item)) onTask(item); else router.push('/finance'); }}
       title={item.title}
       style={{
         display: 'flex', alignItems: 'center', gap: 4, width: '100%', textAlign: 'left',
@@ -667,12 +669,13 @@ function AgendaView({
 }
 
 function AgendaRow({ item, onEvent, onTask }: { item: CalendarItem; onEvent: (o: CalendarEventOccurrence) => void; onTask: (t: CalendarTaskItem) => void }) {
+  const router = useRouter();
   const color = itemColor(item);
   const done = isTask(item) && item.status === 'done';
   const timeLabel = isAllDayItem(item) ? 'весь день' : fmtTime(item.start);
   return (
     <button
-      onClick={() => { if (isEvent(item)) onEvent(item); else if (isTask(item)) onTask(item); else window.location.href = '/finance'; }}
+      onClick={() => { if (isEvent(item)) onEvent(item); else if (isTask(item)) onTask(item); else router.push('/finance'); }}
       style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', padding: '0.4375rem 0.5rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--divider)', background: 'transparent', cursor: 'pointer', textAlign: 'left', width: '100%' }}
     >
       <span className="label-sm" style={{ width: 78, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{timeLabel}</span>

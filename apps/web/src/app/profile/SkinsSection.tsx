@@ -1,7 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import {
+  cardSkinsCatalogKey, cardSkinsEquipKey, cardSkinsInventoryKey, cardSkinsWalletKey,
+  circlesKey, fetchCircles,
+} from '@/lib/queries';
 import {
   resolveCardVisibility,
   SKIN_RARITY_META,
@@ -45,63 +50,74 @@ interface SkinsSectionProps {
  * equip a default skin, and (premium) assign a different skin per group.
  */
 export function SkinsSection({ profile }: SkinsSectionProps) {
-  const [wallet, setWallet] = useState<CardSkinWallet | null>(null);
-  const [catalog, setCatalog] = useState<CardSkinCatalogItem[]>([]);
-  const [inventory, setInventory] = useState<CardSkinInstanceDto[]>([]);
-  const [equip, setEquip] = useState<CardSkinEquipState | null>(null);
-  const [groups, setGroups] = useState<Circle[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Данные — в общем кэше React Query: повторный заход в секцию рисуется из
+  // кэша мгновенно, а каждое действие обновляет ТОЛЬКО затронутые ключи
+  // (раньше любой клик «Купить/Надеть» перезапрашивал все 5 эндпоинтов).
+  const qc = useQueryClient();
+  const walletQ = useQuery({
+    queryKey: cardSkinsWalletKey,
+    queryFn: async () => (await api.get('/card-skins/wallet')).data.data as CardSkinWallet,
+    staleTime: 60_000,
+  });
+  const catalogQ = useQuery({
+    queryKey: cardSkinsCatalogKey,
+    queryFn: async () => (await api.get('/card-skins/catalog')).data.data as CardSkinCatalogItem[],
+    staleTime: 60_000,
+  });
+  const inventoryQ = useQuery({
+    queryKey: cardSkinsInventoryKey,
+    queryFn: async () => (await api.get('/card-skins/inventory')).data.data as CardSkinInstanceDto[],
+    staleTime: 60_000,
+  });
+  const equipQ = useQuery({
+    queryKey: cardSkinsEquipKey,
+    queryFn: async () => (await api.get('/card-skins/equip')).data.data as CardSkinEquipState,
+    staleTime: 60_000,
+  });
+  // Группы — ОБЩИЙ ключ приложения: список уже загружен «Окружением»/пикерами
+  const groupsQ = useQuery({ queryKey: circlesKey, queryFn: fetchCircles, staleTime: 60_000 });
+
+  const wallet = walletQ.data ?? null;
+  const catalog: CardSkinCatalogItem[] = catalogQ.data ?? [];
+  const inventory: CardSkinInstanceDto[] = inventoryQ.data ?? [];
+  const equip = equipQ.data ?? null;
+  const groups: Circle[] = groupsQ.data ?? [];
+  const loading = walletQ.isPending || catalogQ.isPending || inventoryQ.isPending || equipQ.isPending;
+  const loadError = walletQ.error ?? catalogQ.error ?? inventoryQ.error ?? equipQ.error;
+
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
   const [topAmt, setTopAmt] = useState('1000');
   const inFlight = useRef(false);
 
-  const load = useCallback(async () => {
-    try {
-      const [w, c, inv, eq, gr] = await Promise.all([
-        api.get('/card-skins/wallet'),
-        api.get('/card-skins/catalog'),
-        api.get('/card-skins/inventory'),
-        api.get('/card-skins/equip'),
-        api.get('/circles'),
-      ]);
-      setWallet(w.data.data);
-      setCatalog(c.data.data);
-      setInventory(inv.data.data);
-      setEquip(eq.data.data);
-      setGroups(gr.data.data);
-    } catch (e) {
-      setError(errMsg(e, 'Не удалось загрузить скины'));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
   const flash = (m: string) => { setOk(m); setError(''); setTimeout(() => setOk(''), 2500); };
-  const run = async (fn: () => Promise<void>, success?: string) => {
+  const run = async (fn: () => Promise<void>, keys: ReadonlyArray<readonly unknown[]>, success?: string) => {
     if (inFlight.current) return; // synchronous guard — blocks double-click double-submit (e.g. buying twice)
     inFlight.current = true;
     setError(''); setBusy(true);
-    try { await fn(); await load(); if (success) flash(success); }
-    catch (e) { setError(errMsg(e)); }
+    try {
+      await fn();
+      await Promise.all(keys.map((k) => qc.invalidateQueries({ queryKey: k })));
+      if (success) flash(success);
+    } catch (e) { setError(errMsg(e)); }
     finally { setBusy(false); inFlight.current = false; }
   };
 
   const topUp = () => {
     const n = parseInt(topAmt, 10);
     if (!Number.isInteger(n) || n <= 0) return setError('Введите целое число больше 0');
-    return run(async () => { await api.post('/card-skins/wallet/topup', { amount: n }); }, `Пополнено на ${fmt(n)}`);
+    return run(async () => { await api.post('/card-skins/wallet/topup', { amount: n }); }, [cardSkinsWalletKey], `Пополнено на ${fmt(n)}`);
   };
-  const buy = (id: string) => run(async () => { await api.post(`/card-skins/${id}/buy`); }, 'Скин куплен');
+  const buy = (id: string) =>
+    run(async () => { await api.post(`/card-skins/${id}/buy`); }, [cardSkinsWalletKey, cardSkinsCatalogKey, cardSkinsInventoryKey], 'Скин куплен');
   const equipDefault = (instanceId: string | null) =>
-    run(async () => { await api.put('/card-skins/equip/default', { instanceId }); invalidatePersonSkins(); }, instanceId ? 'Скин надет' : 'Скин снят');
+    run(async () => { await api.put('/card-skins/equip/default', { instanceId }); invalidatePersonSkins(); }, [cardSkinsEquipKey], instanceId ? 'Скин надет' : 'Скин снят');
   const equipGroup = (circleId: string, instanceId: string | null) =>
-    run(async () => { await api.put('/card-skins/equip/group', { circleId, instanceId }); invalidatePersonSkins(); }, 'Готово');
+    run(async () => { await api.put('/card-skins/equip/group', { circleId, instanceId }); invalidatePersonSkins(); }, [cardSkinsEquipKey], 'Готово');
 
   if (loading) return <p className="label-md">Загрузка скинов…</p>;
+  if (loadError && !wallet) return <p style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>{errMsg(loadError, 'Не удалось загрузить скины')}</p>;
 
   const defaultInst = inventory.find((i) => i.id === equip?.defaultInstanceId) || null;
   const previewSkin: CardSkinRender = defaultInst ? defaultInst.skin : DEFAULT_SKIN;

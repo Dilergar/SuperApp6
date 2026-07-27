@@ -1,7 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import {
+  currencyBadgeKey, walletCurrencyKey, walletHistoryKey, walletHoldersKey, walletOverviewKey,
+} from '@/lib/queries';
 import {
   WALLET_LIMITS,
   LEDGER_ENTRY_LABELS,
@@ -22,11 +26,37 @@ const fmt = (n: number) => n.toLocaleString('ru-RU');
  * / delete), see your multi-currency balances, transaction history and who holds your coins.
  */
 export function WalletSection() {
-  const [currency, setCurrency] = useState<Currency | null>(null);
-  const [wallet, setWallet] = useState<WalletEntry[]>([]);
-  const [history, setHistory] = useState<LedgerEntryDto[]>([]);
-  const [holders, setHolders] = useState<CurrencyHolder[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Общий кэш React Query: повторный заход рисуется мгновенно, действия
+  // обновляют только затронутые ключи (раньше каждый клик перезапрашивал всё).
+  const qc = useQueryClient();
+  const currencyQ = useQuery({
+    queryKey: walletCurrencyKey,
+    queryFn: async () => (await api.get('/wallet/currency')).data.data as Currency | null,
+    staleTime: 60_000,
+  });
+  const walletQ = useQuery({
+    queryKey: walletOverviewKey,
+    queryFn: async () => (await api.get('/wallet')).data.data as WalletEntry[],
+    staleTime: 60_000,
+  });
+  const historyQ = useQuery({
+    queryKey: walletHistoryKey,
+    queryFn: async () => (await api.get('/wallet/history')).data.data as LedgerEntryDto[],
+    staleTime: 60_000,
+  });
+  const holdersQ = useQuery({
+    queryKey: walletHoldersKey,
+    queryFn: async () => (await api.get('/wallet/currency/holders')).data.data as CurrencyHolder[],
+    enabled: !!currencyQ.data,
+    staleTime: 60_000,
+  });
+  const currency = currencyQ.data ?? null;
+  const wallet: WalletEntry[] = walletQ.data ?? [];
+  const history: LedgerEntryDto[] = historyQ.data ?? [];
+  const holders: CurrencyHolder[] = currency ? holdersQ.data ?? [] : [];
+  const loading = currencyQ.isPending || walletQ.isPending || historyQ.isPending;
+  const loadError = currencyQ.error ?? walletQ.error ?? historyQ.error;
+
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
 
@@ -41,46 +71,18 @@ export function WalletSection() {
   const [burnId, setBurnId] = useState<string | null>(null);
   const [burnAmt, setBurnAmt] = useState('');
 
-  const load = useCallback(async () => {
-    try {
-      const [cur, w, h] = await Promise.all([
-        api.get('/wallet/currency'),
-        api.get('/wallet'),
-        api.get('/wallet/history'),
-      ]);
-      const c: Currency | null = cur.data.data;
-      setCurrency(c);
-      setWallet(w.data.data);
-      setHistory(h.data.data);
-      if (c) {
-        const ho = await api.get('/wallet/currency/holders');
-        setHolders(ho.data.data);
-      } else {
-        setHolders([]);
-      }
-    } catch (e) {
-      setError(errMsg(e, 'Не удалось загрузить кошелёк'));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
   const flash = (m: string) => {
     setOk(m);
     setError('');
     setTimeout(() => setOk(''), 2500);
   };
 
-  const run = async (fn: () => Promise<void>, success?: string) => {
+  const run = async (fn: () => Promise<void>, keys: ReadonlyArray<readonly unknown[]>, success?: string) => {
     setError('');
     setBusy(true);
     try {
       await fn();
-      await load();
+      await Promise.all(keys.map((k) => qc.invalidateQueries({ queryKey: k })));
       if (success) flash(success);
     } catch (e) {
       setError(errMsg(e));
@@ -94,7 +96,7 @@ export function WalletSection() {
     return run(async () => {
       await api.post('/wallet/currency', { name: cName.trim(), icon: cIcon });
       setCName('');
-    }, 'Валюта создана');
+    }, [walletCurrencyKey, walletOverviewKey, currencyBadgeKey], 'Валюта создана');
   };
 
   const mint = () => {
@@ -103,20 +105,20 @@ export function WalletSection() {
     return run(async () => {
       await api.post('/wallet/currency/mint', { amount: n });
       setMintAmt('');
-    }, `Выпущено ${fmt(n)}`);
+    }, [walletOverviewKey, walletHistoryKey, walletHoldersKey, currencyBadgeKey], `Выпущено ${fmt(n)}`);
   };
 
   const saveEdit = () =>
     run(async () => {
       await api.patch('/wallet/currency', { name: eName.trim(), icon: eIcon });
       setEditing(false);
-    }, 'Сохранено');
+    }, [walletCurrencyKey, walletHistoryKey, currencyBadgeKey], 'Сохранено');
 
   const del = () =>
     run(async () => {
       await api.delete('/wallet/currency');
       setConfirmDel(false);
-    }, 'Валюта удалена');
+    }, [walletCurrencyKey, walletOverviewKey, walletHistoryKey, walletHoldersKey, currencyBadgeKey], 'Валюта удалена');
 
   const burnCoins = (currencyId: string) => {
     const n = parseInt(burnAmt, 10);
@@ -125,10 +127,13 @@ export function WalletSection() {
       await api.post('/wallet/burn', { currencyId, amount: n });
       setBurnId(null);
       setBurnAmt('');
-    }, 'Сожжено');
+    }, [walletOverviewKey, walletHistoryKey], 'Сожжено');
   };
 
   if (loading) return <p className="label-md">Загрузка кошелька…</p>;
+  if (loadError && wallet.length === 0) {
+    return <p style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>{errMsg(loadError, 'Не удалось загрузить кошелёк')}</p>;
+  }
 
   const own = wallet.find((w) => w.isOwn);
   const foreign = wallet.filter((w) => !w.isOwn);

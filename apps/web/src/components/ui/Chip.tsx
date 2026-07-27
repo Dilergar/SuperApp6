@@ -3,7 +3,7 @@
 // ============================================================
 // Chip / Badge / StatusDot — матовые метки статусов и фильтров.
 // ============================================================
-import type { CSSProperties, ReactNode } from 'react';
+import { memo, type CSSProperties, type ReactNode } from 'react';
 import { Icon, type IconName } from './Icon';
 import { cx, toneVars, TONE_BASE, type Tone } from './tones';
 
@@ -25,7 +25,9 @@ export interface ChipProps {
   style?: CSSProperties;
 }
 
-export function Chip({
+// memo: чипы рендерятся сотнями в списках; текстовые children сравниваются по
+// значению, так что ре-рендер родителя чип с теми же пропсами не перестраивает.
+export const Chip = memo(function Chip({
   children,
   tone = 'neutral',
   icon,
@@ -73,7 +75,7 @@ export function Chip({
     );
   }
   return <span className={cls} style={css} title={title}>{inner}</span>;
-}
+});
 
 /** Счётчик-пилюля (непрочитанное, количество). */
 export function Badge({ children, tone = 'accent', style }: { children: ReactNode; tone?: Tone; style?: CSSProperties }) {
@@ -88,13 +90,14 @@ export function Badge({ children, tone = 'accent', style }: { children: ReactNod
 }
 
 /** Цветная точка статуса (в строках списков, где чип слишком тяжёлый). */
-export function StatusDot({ tone = 'neutral', size = 8, title }: { tone?: Tone; size?: number; title?: string }) {
+export const StatusDot = memo(function StatusDot({ tone = 'neutral', size = 8, title }: { tone?: Tone; size?: number; title?: string }) {
   return (
     <span
       title={title}
       aria-hidden={title ? undefined : true}
       aria-label={title}
+      role={title ? 'img' : undefined}
       style={{ width: size, height: size, minWidth: size, borderRadius: '50%', background: TONE_BASE[tone], display: 'inline-block' }}
     />
   );
-}
+});

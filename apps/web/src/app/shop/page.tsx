@@ -6,9 +6,11 @@
 // Формы и панели — окна кита (shop-modals), карточки — shop-ui.
 // ============================================================
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiErrorMessage } from '@/lib/api';
+import { contactsKey, fetchAllContacts, shopAccessibleKey, shopListingsKey, shopMineKey, shopOfKey } from '@/lib/queries';
 import { executeRichCardAction } from '@/lib/messenger-api';
 import { ShareCardModal } from '../messenger/ShareCardModal';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
@@ -31,19 +33,12 @@ export default function ShopPage() {
   const { isReady } = useRequireAuth();
   const router = useRouter();
 
+  const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>('shops');
   const [viewOwnerId, setViewOwnerId] = useState<string | null>(null); // null = мой магазин
-  const [accessible, setAccessible] = useState<AccessibleShopRef[]>([]);
-  const [shop, setShop] = useState<Shop | null>(null);
-  const [showcases, setShowcases] = useState<Showcase[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [listings, setListings] = useState<Listing[]>([]);
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
-  const [loading, setLoading] = useState(true);
-
-  // пикеры владельца
-  const [contacts, setContacts] = useState<Contact[]>([]);
 
   // ui
   const [showcaseModal, setShowcaseModal] = useState<{ editing?: Showcase } | null>(null);
@@ -55,58 +50,63 @@ export default function ShopPage() {
   const [removingShowcase, setRemovingShowcase] = useState<Showcase | null>(null);
   const [removingListing, setRemovingListing] = useState<Listing | null>(null);
 
+  // Магазин и витрины — в общем кэше React Query (свой ключ на каждого владельца):
+  // возврат на страницу и переключение магазинов рисуются из кэша, а мутации
+  // инвалидируют точечно (раньше 4 разрозненных эффекта + полный reload на клик).
+  const shopKey = viewOwnerId ? shopOfKey(viewOwnerId) : shopMineKey;
+  const shopQ = useQuery({
+    queryKey: shopKey,
+    queryFn: async () => {
+      const r = await api.get(viewOwnerId ? `/shop/of/${viewOwnerId}` : '/shop');
+      return r.data.data as { shop: Shop; showcases: Showcase[] };
+    },
+    enabled: isReady,
+    staleTime: 30_000,
+  });
+  const shop = shopQ.data?.shop ?? null;
+  const showcases: Showcase[] = shopQ.data?.showcases ?? [];
   const canManage = shop?.canManage ?? false;
 
-  const loadShop = useCallback(async () => {
-    setError('');
-    try {
-      const url = viewOwnerId ? `/shop/of/${viewOwnerId}` : '/shop';
-      const r = await api.get(url);
-      const sc: Showcase[] = r.data.data.showcases;
-      setShop(r.data.data.shop);
-      setShowcases(sc);
-      setSelectedId((prev) => (prev && sc.some((s) => s.id === prev) ? prev : sc[0]?.id ?? null));
-    } catch (e) {
-      setError(apiErrorMessage(e));
-      setShop(null);
-      setShowcases([]);
-      setSelectedId(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [viewOwnerId]);
-
+  // Выбор витрины следует за списком: пропала выбранная → первая доступная
   useEffect(() => {
-    if (isReady) loadShop();
-  }, [isReady, loadShop]);
+    if (!shopQ.data) return;
+    const sc = shopQ.data.showcases;
+    setSelectedId((prev) => (prev && sc.some((s) => s.id === prev) ? prev : sc[0]?.id ?? null));
+  }, [shopQ.data]);
 
-  useEffect(() => {
-    if (!isReady) return;
-    api.get('/shop/accessible').then((r) => setAccessible(r.data.data)).catch(() => {});
-  }, [isReady]);
+  const accessibleQ = useQuery({
+    queryKey: shopAccessibleKey,
+    queryFn: async () => (await api.get('/shop/accessible')).data.data as AccessibleShopRef[],
+    enabled: isReady,
+    staleTime: 60_000,
+  });
+  const accessible: AccessibleShopRef[] = accessibleQ.data ?? [];
 
-  // товары выбранной витрины
-  useEffect(() => {
-    if (!selectedId) { setListings([]); return; }
-    api.get(`/shop/showcases/${selectedId}/listings`)
-      .then((r) => setListings(r.data.data))
-      .catch((e) => setError(apiErrorMessage(e)));
-  }, [selectedId]);
+  const listingsQ = useQuery({
+    queryKey: shopListingsKey(selectedId ?? 'none'),
+    queryFn: async () => (await api.get(`/shop/showcases/${selectedId}/listings`)).data.data as Listing[],
+    enabled: isReady && !!selectedId,
+    staleTime: 30_000,
+  });
+  const listings: Listing[] = selectedId ? listingsQ.data ?? [] : [];
 
-  // пикер людей нужен только в своём магазине (назначение сотрудников)
-  useEffect(() => {
-    if (!isReady || viewOwnerId || !canManage) return;
-    api.get('/contacts').then((r) => setContacts(r.data.data)).catch(() => {});
-  }, [isReady, viewOwnerId, canManage]);
+  // Пикер людей нужен только в своём магазине (назначение сотрудников) —
+  // ОБЩИЙ ключ Окружения: список, загруженный /circles, переиспользуется здесь
+  const contactsQ = useQuery({
+    queryKey: contactsKey,
+    queryFn: fetchAllContacts,
+    enabled: isReady && !viewOwnerId && canManage,
+    staleTime: 60_000,
+  });
+  const contacts: Contact[] = contactsQ.data ?? [];
 
+  // Имена сохранены (их зовут модалки ниже), семантика — точечная инвалидация
+  const loadShop = async () => { await qc.invalidateQueries({ queryKey: shopKey }); };
   const reload = async () => {
-    await loadShop();
-    if (selectedId) {
-      try {
-        const r = await api.get(`/shop/showcases/${selectedId}/listings`);
-        setListings(r.data.data);
-      } catch { /* витрина могла исчезнуть — список перечитает loadShop */ }
-    }
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: shopKey }),
+      selectedId ? qc.invalidateQueries({ queryKey: shopListingsKey(selectedId) }) : Promise.resolve(),
+    ]);
   };
 
   const deleteShowcase = async () => {
@@ -154,9 +154,10 @@ export default function ShopPage() {
     router.push(viewOwnerId ? `/messenger?dm=${viewOwnerId}` : '/messenger');
   };
 
-  if (!isReady || loading) return <LoadingBlock />;
+  if (!isReady || shopQ.isPending) return <LoadingBlock />;
 
   const selected = showcases.find((s) => s.id === selectedId) ?? null;
+  const shownError = error || (shopQ.error ? apiErrorMessage(shopQ.error) : '');
 
   const tabs: TabItem<Tab>[] = [
     { key: 'shops', label: 'Магазины', icon: 'shop' },
@@ -198,9 +199,9 @@ export default function ShopPage() {
         <Tabs aria-label="Разделы магазина" items={tabs} value={tab} onChange={setTab} />
       </div>
 
-      {(error || ok) && (
+      {(shownError || ok) && (
         <div style={{ marginBottom: 'var(--gap-grid)' }}>
-          {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
+          {shownError && <Alert tone="danger" onClose={() => setError('')}>{shownError}</Alert>}
           {ok && <Alert tone="success" onClose={() => setOk('')}>{ok}</Alert>}
         </div>
       )}

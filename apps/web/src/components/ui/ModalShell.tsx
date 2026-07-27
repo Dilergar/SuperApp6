@@ -45,26 +45,27 @@ export function ModalShell({
   className,
 }: ModalShellProps) {
   const boxRef = useRef<HTMLDivElement | null>(null);
+  const backdropRef = useRef<HTMLDivElement | null>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);
 
-  // Прокрутка фона + компенсация ширины скроллбара (иначе страница дёргается)
+  // Блокировка прокрутки фона; сдвиг скроллбара гасит `scrollbar-gutter: stable`
+  // на html (паддинг тут не помогал бы — он не действует на position:fixed топбар).
   useEffect(() => {
     const { body } = document;
     const prevOverflow = body.style.overflow;
-    const prevPad = body.style.paddingRight;
-    const bar = window.innerWidth - document.documentElement.clientWidth;
     body.style.overflow = 'hidden';
-    if (bar > 0) body.style.paddingRight = `${bar}px`;
     return () => {
       body.style.overflow = prevOverflow;
-      body.style.paddingRight = prevPad;
     };
   }, []);
 
-  // Фокус: запомнить источник → увести внутрь → вернуть при закрытии
+  // Фокус: запомнить источник → увести внутрь → вернуть при закрытии.
+  // Фолбэк — ПОДЛОЖКА (реальный бокс с tabIndex=-1): контейнер содержимого
+  // это display:contents, у него focus() не работает — фокус оставался бы на
+  // кнопке ПОД окном, и Esc/ловушка Tab не включались, пока не кликнешь внутрь.
   useEffect(() => {
     restoreRef.current = document.activeElement as HTMLElement | null;
     const t = window.setTimeout(() => {
@@ -74,7 +75,7 @@ export function ModalShell({
         box.querySelector<HTMLElement>('[autofocus],[data-autofocus]') ??
         box.querySelector<HTMLElement>('input:not([type="hidden"]):not([disabled]),textarea:not([disabled])') ??
         box.querySelector<HTMLElement>(FOCUSABLE);
-      (target ?? box).focus();
+      (target ?? backdropRef.current)?.focus();
     }, 0);
     return () => {
       window.clearTimeout(t);
@@ -105,27 +106,27 @@ export function ModalShell({
   if (!mounted) return null;
 
   return createPortal(
+    // role="dialog" и клавиатура — на ПОДЛОЖКЕ: это реальный элемент (в отличие
+    // от display:contents-обёртки, которую Chrome выкидывает из дерева
+    // доступности вместе с ролью), и keydown ловится отовсюду внутри окна.
     <div
-      className={cx('ui-backdrop', className)}
-      style={{
-        alignItems: align === 'center' ? 'center' : 'flex-start',
-        zIndex,
-      }}
+      ref={backdropRef}
+      className={cx('ui-backdrop', align === 'center' && 'ui-backdrop--center', className)}
+      // Центровка — классом, не инлайном: инлайн-стиль перекрывал медиазапрос
+      // «на телефоне окно прижато к низу», и ModalShell вёл себя не как Modal.
+      style={{ zIndex }}
+      role="dialog"
+      aria-modal="true"
+      aria-label={label}
+      tabIndex={-1}
+      onKeyDown={onKeyDown}
       onMouseDown={(e) => {
         // именно по самому фону: выделение текста, начатое внутри окна и
         // отпущенное на подложке, закрывать не должно
         if (closeOnBackdrop && e.target === e.currentTarget) onClose();
       }}
     >
-      <div
-        ref={boxRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={label}
-        tabIndex={-1}
-        onKeyDown={onKeyDown}
-        style={{ display: 'contents' }}
-      >
+      <div ref={boxRef} style={{ display: 'contents' }}>
         {children}
       </div>
     </div>,

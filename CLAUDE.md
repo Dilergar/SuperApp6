@@ -279,6 +279,9 @@ cd apps/api && pnpm db:generate && npx prisma migrate deploy
 #    ВАЖНО: db push больше НЕ использовать — разойдётся с миграциями.
 
 # 5. Запустить все приложения одновременно
+#    dev веба идёт на Turbopack (в скрипте next dev --turbopack; переключено 2026-07-27 —
+#    на webpack холодная компиляция маршрута занимала 6–11 секунд и клики «зависали»).
+#    Запасной путь при проблемах Turbopack: pnpm --filter ./apps/web dev:webpack
 pnpm dev
 
 # Запустить отдельно (через PowerShell на Windows):

@@ -15,13 +15,30 @@ const cache = new Map<string, CardSkinRender | null>();
 const inflight = new Set<string>();
 let queue = new Set<string>();
 let scheduled = false;
-const subs = new Set<() => void>();
+// Подписки ПО userId: батч-резолв будит только аватары затронутых людей.
+// Общий Set будил бы КАЖДЫЙ смонтированный PersonAvatar/чип (на ростере в
+// сотню карточек — сотни принудительных ре-рендеров на один ответ сети).
+const subs = new Map<string, Set<() => void>>();
 // Ids currently needed by mounted hooks (ref-counted) — so invalidate() can
 // re-fetch exactly what's on screen instead of leaving it on the default skin.
 const active = new Map<string, number>();
 
-function notify() {
-  for (const f of subs) f();
+function notify(ids: Iterable<string>) {
+  const woken = new Set<() => void>();
+  for (const id of ids) {
+    const set = subs.get(id);
+    if (!set) continue;
+    for (const f of set) {
+      if (!woken.has(f)) {
+        woken.add(f);
+        f();
+      }
+    }
+  }
+}
+
+function notifyAll() {
+  notify(subs.keys());
 }
 
 async function flush() {
@@ -39,7 +56,7 @@ async function flush() {
     // leaving ids uncached lets a later request()/invalidate retry them.
   } finally {
     ids.forEach((id) => inflight.delete(id));
-    notify();
+    notify(ids);
   }
 }
 
@@ -65,11 +82,24 @@ export function usePersonSkins(userIds: (string | undefined | null)[]): Record<s
 
   useEffect(() => {
     const cb = () => force((n) => n + 1);
-    subs.add(cb);
+    for (const id of ids) {
+      let set = subs.get(id);
+      if (!set) {
+        set = new Set();
+        subs.set(id, set);
+      }
+      set.add(cb);
+    }
     retain(ids);
     request(ids);
     return () => {
-      subs.delete(cb);
+      for (const id of ids) {
+        const set = subs.get(id);
+        if (set) {
+          set.delete(cb);
+          if (set.size === 0) subs.delete(id);
+        }
+      }
       release(ids);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -106,5 +136,5 @@ export function invalidatePersonSkins() {
   cache.clear();
   inflight.clear();
   request([...active.keys()]);
-  notify();
+  notifyAll();
 }

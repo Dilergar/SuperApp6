@@ -28,29 +28,42 @@ interface BaseProps<K extends string> {
 
 function useArrowNav<K extends string>(items: TabItem<K>[], value: K, onChange: (k: K) => void) {
   return (e: React.KeyboardEvent) => {
-    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    const isArrow = e.key === 'ArrowRight' || e.key === 'ArrowLeft';
+    const isEdge = e.key === 'Home' || e.key === 'End';
+    if (!isArrow && !isEdge) return;
     e.preventDefault();
-    const step = e.key === 'ArrowRight' ? 1 : -1;
-    const cur = items.findIndex((i) => i.key === value);
-    let i = cur;
-    for (let guard = 0; guard < items.length; guard += 1) {
-      i = (i + step + items.length) % items.length;
-      if (!items[i]?.disabled) { onChange(items[i].key); return; }
+    const usable = items.filter((i) => !i.disabled);
+    if (usable.length === 0) return;
+    let next: TabItem<K>;
+    if (e.key === 'Home') next = usable[0];
+    else if (e.key === 'End') next = usable[usable.length - 1];
+    else {
+      const step = e.key === 'ArrowRight' ? 1 : -1;
+      const cur = usable.findIndex((i) => i.key === value);
+      next = usable[(cur + step + usable.length) % usable.length];
     }
+    onChange(next.key);
+    // Roving tabindex обязан ПЕРЕНОСИТЬ фокус: без .focus() кольцо остаётся на
+    // старой кнопке, у которой уже tabIndex=-1, и следующая Tab-навигация ломается.
+    e.currentTarget.querySelector<HTMLElement>(`[data-key="${CSS.escape(next.key)}"]`)?.focus();
   };
 }
 
+/**
+ * Сегменты — это фильтр-пилюля, а не вкладки: role="group" + aria-pressed.
+ * role="tablist" без связанных tabpanel был бы ложью для скринридера.
+ */
 export function SegmentedControl<K extends string = string>({ items, value, onChange, className, ...aria }: BaseProps<K>) {
   const onKeyDown = useArrowNav(items, value, onChange);
   return (
-    <div className={cx('ui-segment', className)} role="tablist" aria-label={aria['aria-label']} onKeyDown={onKeyDown}>
+    <div className={cx('ui-segment', className)} role="group" aria-label={aria['aria-label']} onKeyDown={onKeyDown}>
       {items.map((it) => (
         <button
           key={it.key}
           type="button"
-          role="tab"
+          data-key={it.key}
           className="ui-segment-item"
-          aria-selected={it.key === value}
+          aria-pressed={it.key === value}
           tabIndex={it.key === value ? 0 : -1}
           disabled={it.disabled}
           onClick={() => onChange(it.key)}
@@ -71,6 +84,7 @@ export function Tabs<K extends string = string>({ items, value, onChange, classN
         <button
           key={it.key}
           type="button"
+          data-key={it.key}
           role="tab"
           className="ui-tab"
           aria-selected={it.key === value}

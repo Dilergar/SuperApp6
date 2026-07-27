@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api } from '@/lib/api';
@@ -139,7 +140,8 @@ export default function WorkspaceHome() {
               );
               return s.href ? (
                 <Card key={s.title} small hoverable>
-                  <a href={s.href} style={{ color: 'inherit', display: 'block' }}>{inner}</a>
+                  {/* next/link: сырой <a> перезагружал всё приложение целиком */}
+                  <Link href={s.href} style={{ color: 'inherit', display: 'block' }}>{inner}</Link>
                 </Card>
               ) : (
                 <Card key={s.title} small style={{ opacity: 0.6 }}>{inner}</Card>

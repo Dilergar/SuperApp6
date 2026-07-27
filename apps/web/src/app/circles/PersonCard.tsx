@@ -1,7 +1,7 @@
 'use client';
 
 import { ModalShell } from '@/components/ui';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '@/components/ui';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
@@ -151,17 +151,20 @@ type PersonCardProps = CompactProps | FullProps;
 // Component
 // ============================================================
 
-export function PersonCard(props: PersonCardProps) {
+// memo: карточки рендерятся гридом на сотню человек, а состояние страницы
+// (поиск, форма приглашения) живёт в родителе — без memo каждый кейстрок
+// перерисовывал бы все карточки со скинами и эффектами.
+export const PersonCard = memo(function PersonCard(props: PersonCardProps) {
   const mode = props.mode || 'compact';
   if (mode === 'full') return <FullCard {...(props as FullProps)} />;
   return <CompactCard {...(props as CompactProps)} />;
-}
+});
 
 /**
  * Plain, sized person card (no grid chrome) — reusable wherever a person is shown
  * inline: task pickers (M), mention rows (S), tight spots (XS). Resolves the skin itself.
  */
-export function PersonChip({
+export const PersonChip = memo(function PersonChip({
   size, userId, firstName, lastName = null, role = null, bio = null, avatar = null,
 }: {
   size: CardSize;
@@ -187,7 +190,7 @@ export function PersonChip({
       <CardBody person={person} size={size} skin={skin} />
     </CardShell>
   );
-}
+});
 
 // ============================================================
 // Card shell — skin-driven container + decoration layers
@@ -740,7 +743,7 @@ export interface StaffCardData {
   showOnlineStatus: boolean;
 }
 
-export function StaffPersonCard({
+export const StaffPersonCard = memo(function StaffPersonCard({
   userId, card, positions, branches, onWrite, onManage,
 }: {
   userId: string;
@@ -848,7 +851,7 @@ export function StaffPersonCard({
       )}
     </>
   );
-}
+});
 
 // ============================================================
 // Full card (profile page) — size switcher + optional toggles

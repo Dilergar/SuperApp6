@@ -1,9 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { useParams } from 'next/navigation';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api, apiErrorMessage } from '@/lib/api';
+import { companyHoldersKey, companyWalletKey, workspaceMembersKey } from '@/lib/queries';
 import { EntitySelector } from '@/components/EntitySelector';
 import {
   Alert, BentoGrid, Button, Card, CardHeader, EmptyState, Input, LoadingBlock, PageHeader, StatTile,
@@ -21,14 +23,40 @@ type Member = { userId: string; name?: string; firstName?: string; lastName?: st
 export default function CompanyWalletPage() {
   const { isReady } = useRequireAuth();
   const { id } = useParams<{ id: string }>();
+  const qc = useQueryClient();
   const cfg = { headers: { 'X-Workspace-Id': id } };
 
-  const [currency, setCurrency] = useState<Currency | null>(null);
-  const [treasury, setTreasury] = useState<WalletEntry | null>(null);
-  const [holders, setHolders] = useState<CurrencyHolder[]>([]);
-  const [members, setMembers] = useState<Member[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [denied, setDenied] = useState(false);
+  // Данные — в общем кэше React Query: повторный заход мгновенный, действие
+  // обновляет только затронутые ключи (раньше каждый mint/pay перезапрашивал всё).
+  const companyQ = useQuery({
+    queryKey: companyWalletKey(id),
+    queryFn: async () =>
+      (await api.get('/wallet/company', cfg)).data.data as { currency: Currency | null; treasury: WalletEntry | null },
+    enabled: isReady,
+    staleTime: 30_000,
+  });
+  const currency = companyQ.data?.currency ?? null;
+  const treasury = companyQ.data?.treasury ?? null;
+  const denied = (companyQ.error as { response?: { status?: number } } | null)?.response?.status === 403;
+
+  const holdersQ = useQuery({
+    queryKey: companyHoldersKey(id),
+    queryFn: async () => (await api.get('/wallet/company/holders', cfg)).data.data as CurrencyHolder[],
+    enabled: isReady && !!currency,
+    staleTime: 30_000,
+  });
+  const holders: CurrencyHolder[] = holdersQ.data ?? [];
+
+  // Ростер — ОБЩИЙ ключ с сервисом «Сотрудники»: если человек заходил в ростер,
+  // список уже в кэше и пикер заполняется без запроса.
+  const membersQ = useQuery({
+    queryKey: workspaceMembersKey(id),
+    queryFn: async () => (await api.get(`/workspaces/${id}/members`)).data.data as Member[],
+    enabled: isReady,
+    staleTime: 60_000,
+  });
+  const members: Member[] = membersQ.data ?? [];
+
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
   const [busy, setBusy] = useState(false);
@@ -40,57 +68,41 @@ export default function CompanyWalletPage() {
   const [payUser, setPayUser] = useState('');
   const [payAmt, setPayAmt] = useState('');
 
-  const load = useCallback(async () => {
-    setError('');
-    try {
-      const r = await api.get('/wallet/company', cfg);
-      setCurrency(r.data.data.currency);
-      setTreasury(r.data.data.treasury);
-      if (r.data.data.currency) api.get('/wallet/company/holders', cfg).then((h) => setHolders(h.data.data)).catch(() => {});
-    } catch (e) {
-      const st = (e as { response?: { status?: number } })?.response?.status;
-      if (st === 403) setDenied(true); else setError(apiErrorMessage(e));
-    } finally {
-      setLoading(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
-
-  useEffect(() => {
-    if (!isReady) return;
-    load();
-    api.get(`/workspaces/${id}/members`).then((r) => setMembers(r.data.data)).catch(() => {});
-  }, [isReady, id, load]);
-
   const flash = (m: string) => { setOk(m); setTimeout(() => setOk(''), 4000); };
-  const run = async (fn: () => Promise<void>) => {
+  const run = async (fn: () => Promise<void>, keys: ReadonlyArray<readonly unknown[]>) => {
     setError('');
     setBusy(true);
-    try { await fn(); } catch (e) { setError(apiErrorMessage(e)); } finally { setBusy(false); }
+    try {
+      await fn();
+      await Promise.all(keys.map((k) => qc.invalidateQueries({ queryKey: k })));
+    } catch (e) { setError(apiErrorMessage(e)); } finally { setBusy(false); }
   };
 
   const createCurrency = () => run(async () => {
     if (!name.trim()) return setError('Введите название');
     await api.post('/wallet/company/currency', { name: name.trim(), icon: icon || '🏢' }, cfg);
-    flash('Валюта компании создана'); await load();
-  });
+    flash('Валюта компании создана');
+  }, [companyWalletKey(id)]);
   const mint = () => run(async () => {
     const amount = parseInt(mintAmt, 10);
     if (!(amount > 0)) return setError('Сумма — целое число больше нуля');
     await api.post('/wallet/company/currency/mint', { amount }, cfg);
-    setMintAmt(''); flash(`Выпущено ${amount} в казну`); await load();
-  });
+    setMintAmt(''); flash(`Выпущено ${amount} в казну`);
+  }, [companyWalletKey(id)]);
   const pay = () => run(async () => {
     const amount = parseInt(payAmt, 10);
     if (!payUser) return setError('Выберите сотрудника');
     if (!(amount > 0)) return setError('Сумма — целое число больше нуля');
     await api.post('/wallet/company/pay', { userId: payUser, amount }, cfg);
-    setPayAmt(''); flash('Начислено сотруднику'); await load();
-  });
+    setPayAmt(''); flash('Начислено сотруднику');
+  }, [companyWalletKey(id), companyHoldersKey(id)]);
 
   const memberName = (m: Member) => m.name || `${m.firstName ?? ''} ${m.lastName ?? ''}`.trim() || m.userId.slice(0, 8);
 
-  if (!isReady || loading) return <LoadingBlock />;
+  const loadError = !denied && companyQ.error ? apiErrorMessage(companyQ.error) : '';
+  const shownError = error || loadError;
+
+  if (!isReady || companyQ.isPending) return <LoadingBlock />;
 
   if (denied) {
     return (
@@ -118,9 +130,9 @@ export default function CompanyWalletPage() {
         description="Внутренняя валюта для наград сотрудникам и магазина компании"
       />
 
-      {(error || ok) && (
+      {(shownError || ok) && (
         <div style={{ marginBottom: 'var(--gap-grid)' }}>
-          {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
+          {shownError && <Alert tone="danger" onClose={() => setError('')}>{shownError}</Alert>}
           {ok && <Alert tone="success" onClose={() => setOk('')}>{ok}</Alert>}
         </div>
       )}

@@ -18,9 +18,12 @@ export interface FieldProps {
   children: ReactNode;
   className?: string;
   htmlFor?: string;
+  /** id блока ошибки/подсказки — контрол ссылается на него aria-describedby,
+   *  иначе скринридер знает, ЧТО поле невалидно, но не ПОЧЕМУ. */
+  descId?: string;
 }
 
-export function Field({ label, hint, error, required, children, className, htmlFor }: FieldProps) {
+export function Field({ label, hint, error, required, children, className, htmlFor, descId }: FieldProps) {
   return (
     <div className={className}>
       {label && (
@@ -30,7 +33,7 @@ export function Field({ label, hint, error, required, children, className, htmlF
         </label>
       )}
       {children}
-      {error ? <div className="ui-field-error">{error}</div> : hint ? <div className="ui-field-hint">{hint}</div> : null}
+      {error ? <div id={descId} className="ui-field-error">{error}</div> : hint ? <div id={descId} className="ui-field-hint">{hint}</div> : null}
     </div>
   );
 }
@@ -50,6 +53,7 @@ export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 
 export function Input({ label, hint, error, icon, pill, wrapClassName, className, id, required, ...rest }: InputProps) {
   const auto = useId();
   const inputId = id ?? auto;
+  const descId = `${inputId}-desc`;
   const field = (
     <div style={{ position: 'relative' }}>
       {icon && (
@@ -63,6 +67,7 @@ export function Input({ label, hint, error, icon, pill, wrapClassName, className
         id={inputId}
         className={cx('ui-input', pill && 'ui-input--pill', icon && 'ui-input--with-icon', error && 'ui-input--invalid', className)}
         aria-invalid={error ? true : undefined}
+        aria-describedby={error || hint ? descId : undefined}
         required={required}
         {...rest}
       />
@@ -70,7 +75,7 @@ export function Input({ label, hint, error, icon, pill, wrapClassName, className
   );
   if (!label && !hint && !error) return <div className={wrapClassName}>{field}</div>;
   return (
-    <Field label={label} hint={hint} error={error} required={required} htmlFor={inputId} className={wrapClassName}>
+    <Field label={label} hint={hint} error={error} required={required} htmlFor={inputId} descId={descId} className={wrapClassName}>
       {field}
     </Field>
   );
@@ -86,18 +91,20 @@ export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElemen
 export function Textarea({ label, hint, error, wrapClassName, className, id, required, ...rest }: TextareaProps) {
   const auto = useId();
   const areaId = id ?? auto;
+  const descId = `${areaId}-desc`;
   const field = (
     <textarea
       id={areaId}
       className={cx('ui-input', error && 'ui-input--invalid', className)}
       aria-invalid={error ? true : undefined}
+      aria-describedby={error || hint ? descId : undefined}
       required={required}
       {...rest}
     />
   );
   if (!label && !hint && !error) return <div className={wrapClassName}>{field}</div>;
   return (
-    <Field label={label} hint={hint} error={error} required={required} htmlFor={areaId} className={wrapClassName}>
+    <Field label={label} hint={hint} error={error} required={required} htmlFor={areaId} descId={descId} className={wrapClassName}>
       {field}
     </Field>
   );

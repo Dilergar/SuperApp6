@@ -21,6 +21,7 @@ export interface ToggleProps {
 
 export function Toggle({ checked, onChange, label, description, disabled, className, ...aria }: ToggleProps) {
   const id = useId();
+  const descId = `${id}-desc`;
   const control = (
     <button
       type="button"
@@ -28,6 +29,7 @@ export function Toggle({ checked, onChange, label, description, disabled, classN
       role="switch"
       aria-checked={checked}
       aria-label={!label ? aria['aria-label'] : undefined}
+      aria-describedby={description ? descId : undefined}
       className="ui-switch"
       disabled={disabled}
       onClick={() => onChange(!checked)}
@@ -46,7 +48,7 @@ export function Toggle({ checked, onChange, label, description, disabled, classN
             {label}
           </label>
         )}
-        {description && <div style={{ fontSize: '0.6875rem', fontWeight: 500, color: 'var(--muted)', marginTop: '0.125rem' }}>{description}</div>}
+        {description && <div id={descId} style={{ fontSize: '0.6875rem', fontWeight: 500, color: 'var(--muted)', marginTop: '0.125rem' }}>{description}</div>}
       </div>
       {control}
     </div>

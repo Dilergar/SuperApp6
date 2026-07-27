@@ -108,7 +108,9 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
 
   if (href && !disabled) {
     return (
-      <Link href={href} className={cls} style={css} aria-label={label} title={label} {...(rest as Record<string, unknown>)}>
+      // ref пробрасывается и ссылке: якорь нужен Menu/Tooltip — без него слой
+      // позиционировался бы в левом верхнем углу экрана.
+      <Link ref={ref as React.Ref<HTMLAnchorElement>} href={href} className={cls} style={css} aria-label={label} title={label} {...(rest as Record<string, unknown>)}>
         {glyph}
       </Link>
     );

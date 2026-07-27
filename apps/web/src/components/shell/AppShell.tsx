@@ -25,12 +25,22 @@ import {
   SIDEBAR_COOKIE, buildPersonalNav, buildWorkspaceNav, isBranchActive, isNavItemActive,
   type AppNavConfig, type AppNavItem,
 } from '@/lib/app-nav';
-import { Icon, IconButton, SearchField, Menu } from '@/components/ui';
+// Прямые импорты из файлов кита, НЕ из барабана '@/components/ui': шелл сидит
+// в корневом графе каждой страницы, а барабан утащил бы туда весь кит
+// (Modal, DatePicker, Dropzone…) — лишние сотни КБ в каждом чанке dev-сборки.
+import { Icon } from '@/components/ui/Icon';
+import { IconButton } from '@/components/ui/Button';
+import { SearchField } from '@/components/ui/Input';
+import { Menu } from '@/components/ui/Menu';
 import { PersonAvatar } from '@/app/messenger/messenger-ui';
 import { useMentionsUnread } from '@/lib/hooks/useMentionsUnread';
 import { fetchTaskStats, taskStatsKey } from '@/lib/queries';
 
 interface WorkspaceLite { id: string; name: string; myRole?: string | null }
+
+// Стабильный пустой список: дефолт `= []` в деструктуризации рождал бы новый
+// массив на каждый рендер и заставлял пересчитывать nav-меню.
+const NO_WORKSPACES: WorkspaceLite[] = [];
 
 function writeSidebarCookie(collapsed: boolean) {
   document.cookie = `${SIDEBAR_COOKIE}=${collapsed ? 'collapsed' : 'expanded'}; path=/; max-age=31536000; samesite=lax`;
@@ -52,7 +62,7 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
   const wsMatch = pathname.match(/^\/workspaces\/([^/]+)/);
   const activeWsId = wsMatch?.[1] ?? null;
 
-  const { data: workspaces = [] } = useQuery<WorkspaceLite[]>({
+  const { data: workspaces = NO_WORKSPACES } = useQuery<WorkspaceLite[]>({
     queryKey: ['workspaces'],
     queryFn: async () => (await api.get('/workspaces')).data.data,
     staleTime: 60_000,
@@ -158,7 +168,8 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
           <Link href="/mentions" aria-label="Упоминания" style={{ position: 'relative', display: 'inline-flex' }}>
             <IconButton icon="bell" label="Упоминания" />
             {!!mentionsUnread && mentionsUnread > 0 && (
-              <span style={{ position: 'absolute', top: 7, right: 8, width: 8, height: 8, borderRadius: '50%', background: 'var(--danger-base)', border: '2px solid var(--surface)' }} />
+              // Синяя точка: красный в системе означает только опасность
+              <span style={{ position: 'absolute', top: 7, right: 8, width: 8, height: 8, borderRadius: '50%', background: 'var(--primary)', border: '2px solid var(--surface)' }} />
             )}
           </Link>
           <Menu
@@ -186,6 +197,13 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
       {/* ---------------- Сайдбар ---------------- */}
       <aside className={`svc-sidebar${drawerOpen ? ' drawer-open' : ''}`} aria-label="Навигация приложения">
         <div className="svc-side-head">
+          {/* Кнопка закрытия видна только в мобильной шторке (медиазапрос) */}
+          <div className="svc-drawer-top">
+            <span className="label-caps">Меню</span>
+            <button className="svc-drawer-close" aria-label="Закрыть меню" onClick={() => setDrawerOpen(false)}>
+              <Icon name="close" size={20} />
+            </button>
+          </div>
           <Link href="/dashboard" className="app-logo" aria-label="SuperApp6 — на главную">
             <span className="app-logo-mark">S</span>
             {!rail && (
@@ -321,14 +339,15 @@ function ContextSwitcher({
 
   if (contexts.length <= 3) {
     return (
-      <div className="ui-segment" role="tablist" aria-label="Контекст">
+      // role="group"+aria-pressed: это переключатель контекста, а не вкладки —
+      // role="tab" без tabpanel был бы ложью для скринридера
+      <div className="ui-segment" role="group" aria-label="Контекст">
         {contexts.map((c) => (
           <button
             key={c.id ?? 'personal'}
             type="button"
-            role="tab"
             className="ui-segment-item"
-            aria-selected={c.id === activeId}
+            aria-pressed={c.id === activeId}
             onClick={() => onSwitch(c.id)}
           >
             {c.label}

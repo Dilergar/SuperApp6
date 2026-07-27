@@ -1,6 +1,8 @@
 'use client';
 
-import { Icon } from '@/components/ui';
+// Icon — напрямую из файла, не из барабана '@/components/ui': этот модуль сидит
+// в корневом графе (аватар топбара), и барабан утащил бы туда весь кит.
+import { Icon } from '@/components/ui/Icon';
 import type { MessageDeliveryStatus, CardSkinRender } from '@superapp/shared';
 import { usePersonSkin } from '@/lib/person-skins';
 

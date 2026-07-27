@@ -7,7 +7,7 @@
 // день), а не по timestamp: сравнение через toISOString даёт вчерашнее число
 // восточнее Гринвича — у нас пояс +05, и «сегодня» подсвечивалось бы неверно.
 // ============================================================
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from './Icon';
 import { Field } from './Input';
@@ -49,6 +49,17 @@ export function Calendar({ value, onChange, defaultMonth, min, max, className }:
   const start = value ?? defaultMonth ?? new Date();
   const [cursor, setCursor] = useState(() => new Date(start.getFullYear(), start.getMonth(), 1));
 
+  // Внешняя смена значения (кнопка «Завтра», сброс формы) перелистывает сетку
+  // к месяцу нового значения — иначе открытый календарь показывает старый месяц.
+  useEffect(() => {
+    if (!value) return;
+    setCursor((c) =>
+      c.getFullYear() === value.getFullYear() && c.getMonth() === value.getMonth()
+        ? c
+        : new Date(value.getFullYear(), value.getMonth(), 1),
+    );
+  }, [value]);
+
   const today = useMemo(() => new Date(), []);
   const y = cursor.getFullYear();
   const m = cursor.getMonth();
@@ -82,7 +93,11 @@ export function Calendar({ value, onChange, defaultMonth, min, max, className }:
         ))}
       </div>
 
-      <div className="ui-cal-grid" role="grid">
+      {/* Без role="grid": полноценная grid-семантика требует row/gridcell и
+          стрелочную навигацию — честнее набор кнопок с полными именами.
+          aria-pressed вместо aria-selected: selected валиден только в
+          grid/listbox-контексте. */}
+      <div className="ui-cal-grid">
         {Array.from({ length: blanks }, (_, i) => <span key={`b${i}`} aria-hidden />)}
         {Array.from({ length: total }, (_, i) => {
           const d = new Date(y, m, i + 1);
@@ -93,7 +108,8 @@ export function Calendar({ value, onChange, defaultMonth, min, max, className }:
               key={k}
               type="button"
               className="ui-cal-day"
-              aria-selected={k === selectedKey}
+              aria-pressed={k === selectedKey}
+              aria-label={`${i + 1} ${MONTHS[m].toLowerCase()} ${y}`}
               data-today={k === todayKey ? 'true' : 'false'}
               disabled={off}
               onClick={() => onChange(d)}
@@ -143,11 +159,15 @@ export function DatePicker({
   const { anchorRef, layerRef, open, setOpen, layerStyle } = usePopover<HTMLButtonElement>({ maxHeight: 340 });
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  const triggerId = useId();
+  const descId = `${triggerId}-desc`;
+  const showClear = !!(clearable && value && !disabled);
 
   const body = (
-    <div className={cx(className)} style={{ width }}>
+    <div className={cx(className)} style={{ width, position: 'relative' }}>
       <button
         ref={anchorRef}
+        id={triggerId}
         type="button"
         className="ui-select-trigger"
         data-placeholder={value ? 'false' : 'true'}
@@ -156,24 +176,28 @@ export function DatePicker({
         onClick={() => setOpen(!open)}
         aria-haspopup="dialog"
         aria-expanded={open}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error || hint ? descId : undefined}
       >
         <Icon name="calendar" size={16} style={{ color: 'var(--label)' }} />
         <span>{value ? formatDate(value) : placeholder}</span>
-        {clearable && value && !disabled ? (
-          <span
-            role="button"
-            tabIndex={0}
-            aria-label="Очистить дату"
-            style={{ marginLeft: 'auto', display: 'inline-flex', opacity: 0.6 }}
-            onClick={(e) => { e.stopPropagation(); onChange(null); }}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onChange(null); } }}
-          >
-            <Icon name="close" size={13} />
-          </span>
-        ) : (
-          <Icon name="caretDown" size={14} style={{ marginLeft: 'auto', color: 'var(--label)' }} />
-        )}
+        {!showClear && <Icon name="caretDown" size={14} style={{ marginLeft: 'auto', color: 'var(--label)' }} />}
       </button>
+
+      {/* Крестик очистки — СОСЕДНЯЯ кнопка, не вложенная в триггер:
+          интерактивный элемент внутри <button> — невалидный HTML,
+          и в Firefox такой «крестик» не получал фокус вовсе. */}
+      {showClear && (
+        <button
+          type="button"
+          aria-label="Очистить дату"
+          className="ui-iconbtn"
+          style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', width: 24, height: 24, borderRadius: 'var(--radius-pill)' }}
+          onClick={() => onChange(null)}
+        >
+          <Icon name="close" size={13} />
+        </button>
+      )}
 
       {open && mounted &&
         createPortal(
@@ -191,5 +215,5 @@ export function DatePicker({
   );
 
   if (!label && !hint && !error) return body;
-  return <Field label={label} hint={hint} error={error}>{body}</Field>;
+  return <Field label={label} hint={hint} error={error} htmlFor={triggerId} descId={descId}>{body}</Field>;
 }

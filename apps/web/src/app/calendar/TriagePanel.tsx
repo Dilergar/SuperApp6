@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { Badge, Card, CardHeader, Icon, IconButton, StatusDot, type Tone } from '@/components/ui';
 import {
   TASK_STATUS_META,
@@ -117,6 +118,7 @@ function UndatedCard({ t }: { t: UndatedTask }) {
 }
 
 function Row({ i, onEvent, onTask, withDay }: { i: CalendarItem; onEvent: (o: CalendarEventOccurrence) => void; onTask: (t: CalendarTaskItem) => void; withDay?: boolean }) {
+  const router = useRouter();
   const color = itemColor(i);
   const time = withDay
     ? new Date(i.start).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
@@ -127,7 +129,7 @@ function Row({ i, onEvent, onTask, withDay }: { i: CalendarItem; onEvent: (o: Ca
       draggable={draggableTask}
       onDragStart={draggableTask ? (e) => setDrag({ kind: 'task', id: (i as CalendarTaskItem).taskId, title: i.title }, e) : undefined}
       onDragEnd={draggableTask ? clearDrag : undefined}
-      onClick={() => { if (isEvent(i)) onEvent(i); else if (isTask(i)) onTask(i); else window.location.href = '/finance'; }}
+      onClick={() => { if (isEvent(i)) onEvent(i); else if (isTask(i)) onTask(i); else router.push('/finance'); }}
       style={cardStyle(color)}
     >
       <span aria-hidden style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />

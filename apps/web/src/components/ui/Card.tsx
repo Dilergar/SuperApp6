@@ -5,6 +5,7 @@
 // — структурные блоки бенто-сетки.
 // ============================================================
 import type { CSSProperties, ReactNode } from 'react';
+import Link from 'next/link';
 import { Icon, type IconName } from './Icon';
 import { cx, toneVars, type Tone } from './tones';
 
@@ -22,24 +23,22 @@ export interface CardProps {
 }
 
 export function Card({ children, small, span, hoverable, className, style, onClick }: CardProps) {
+  // Ховер — CSS-классом (.ui-card-hover в ui.css), а не записью в element.style:
+  // JS-ховер на каждой карточке бенто-сетки — ровно тот антипаттерн, ради
+  // устранения которого кит и заведён.
+  const lift = hoverable || !!onClick;
   return (
     <div
-      className={cx(small ? 'card-sm' : 'card', className)}
+      className={cx(small ? 'card-sm' : 'card', lift && 'ui-card-hover', className)}
       onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
       style={{
         gridColumn: span ? `span ${span}` : undefined,
         cursor: onClick ? 'pointer' : undefined,
-        transition: hoverable || onClick ? 'transform 0.2s ease, box-shadow 0.2s ease' : undefined,
         ...style,
       }}
-      onMouseEnter={hoverable || onClick ? (e) => {
-        e.currentTarget.style.transform = 'translateY(-2px)';
-        e.currentTarget.style.boxShadow = '0 8px 28px rgba(0, 0, 0, 0.08)';
-      } : undefined}
-      onMouseLeave={hoverable || onClick ? (e) => {
-        e.currentTarget.style.transform = 'none';
-        e.currentTarget.style.boxShadow = 'var(--shadow-card)';
-      } : undefined}
     >
       {children}
     </div>
@@ -155,7 +154,9 @@ export function StatTile({
   );
   return (
     <Card small span={span} hoverable={!!(href || onClick)} onClick={onClick}>
-      {href ? <a href={href} style={{ color: 'inherit', display: 'block' }}>{body}</a> : body}
+      {/* next/link, НЕ сырой <a>: сырой якорь на внутренний адрес = полная
+          перезагрузка приложения (потеря кэша, сокета и всего состояния). */}
+      {href ? <Link href={href} style={{ color: 'inherit', display: 'block' }}>{body}</Link> : body}
     </Card>
   );
 }
@@ -194,10 +195,10 @@ export function Divider({ style }: { style?: CSSProperties }) {
   return <div style={{ height: 1, background: 'var(--divider)', margin: 'var(--spacing-4) 0', ...style }} />;
 }
 
-/** Бенто-сетка на 12 колонок. */
+/** Бенто-сетка на 12 колонок; на телефоне складывается в одну (класс .ui-bento). */
 export function BentoGrid({ children, style }: { children: ReactNode; style?: CSSProperties }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 'var(--gap-grid)', ...style }}>
+    <div className="ui-bento" style={style}>
       {children}
     </div>
   );

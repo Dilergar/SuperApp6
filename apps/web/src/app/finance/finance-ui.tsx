@@ -6,6 +6,7 @@
 // ============================================================
 
 import type { CSSProperties, ReactNode } from 'react';
+import Link from 'next/link';
 import { EmojiIcon, Icon, ICONS, TickBar, type IconName, type Tone } from '@/components/ui';
 import { formatMoney } from './finance-lib';
 
@@ -178,7 +179,7 @@ export function FinRow({
     width: '100%',
   };
 
-  if (href) return <a href={href} style={css}>{inner}</a>;
+  if (href) return <Link href={href} style={css}>{inner}</Link>;
   if (onClick) {
     return (
       <button type="button" onClick={onClick} style={{ ...css, background: 'none', cursor: 'pointer' }}>

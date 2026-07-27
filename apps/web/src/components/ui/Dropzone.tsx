@@ -53,7 +53,13 @@ export function Dropzone({
       className={cx('ui-dropzone', className)}
       data-drag={drag ? 'true' : 'false'}
       onDragOver={(e) => { if (disabled) return; e.preventDefault(); setDrag(true); }}
-      onDragLeave={(e) => { e.preventDefault(); setDrag(false); }}
+      onDragLeave={(e) => {
+        e.preventDefault();
+        // dragleave всплывает от каждого ребёнка зоны — гасим подсветку только
+        // когда курсор реально покинул зону, иначе она мигает при проводке файла.
+        if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+        setDrag(false);
+      }}
       onDrop={(e) => {
         if (disabled) return;
         e.preventDefault();

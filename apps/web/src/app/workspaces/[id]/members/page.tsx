@@ -234,22 +234,34 @@ function PeopleTab({
   const hasFilter = !!(fDep || fPos || fBr || fRole || q);
   const clearFilters = () => { setFDep(''); setFPos(''); setFBr(''); setFRole(''); setQ(''); };
 
-  // Бейдж карты = Должности; филиалы — отдельные чипы (роль организации на карте не видна).
-  const positionsOf = (m: WorkspaceMember) =>
-    [...new Set(m.assignments.map((a) => a.positionName))];
-  const branchesOf = (m: WorkspaceMember) =>
-    [...new Set(m.assignments.map((a) => a.branchName).filter((b): b is string => !!b))];
-
-  // Страховка от устаревшего кэша (member без card после обновления контракта).
-  const cardOf = (m: WorkspaceMember): StaffCardData => {
-    if (m.card) return m.card;
-    const [fn, ln] = splitName(m.userName);
-    return {
-      phone: '', firstName: fn, lastName: ln, avatar: m.userAvatar,
-      dateOfBirth: null, bio: null, city: null, email: null, maritalStatus: null,
-      socialLinks: null, age: null, showOnlineStatus: false,
-    };
-  };
+  // Пропсы карточек считаются ОДИН раз на список и переживают кейстроки поиска:
+  // StaffPersonCard обёрнут в memo, и именно стабильность этих объектов позволяет
+  // ему НЕ перерисовываться на каждый ввод в фильтрах (раньше сотня карточек со
+  // скинами пересобиралась на каждую букву).
+  const cardProps = useMemo(() => {
+    const map = new Map<string, { card: StaffCardData; positions: string[]; branches: string[] }>();
+    for (const m of members) {
+      // Страховка от устаревшего кэша (member без card после обновления контракта).
+      let card: StaffCardData;
+      if (m.card) {
+        card = m.card;
+      } else {
+        const [fn, ln] = splitName(m.userName);
+        card = {
+          phone: '', firstName: fn, lastName: ln, avatar: m.userAvatar,
+          dateOfBirth: null, bio: null, city: null, email: null, maritalStatus: null,
+          socialLinks: null, age: null, showOnlineStatus: false,
+        };
+      }
+      map.set(m.userId, {
+        card,
+        // Бейдж карты = Должности; филиалы — отдельные чипы (роль организации на карте не видна).
+        positions: [...new Set(m.assignments.map((a) => a.positionName))],
+        branches: [...new Set(m.assignments.map((a) => a.branchName).filter((b): b is string => !!b))],
+      });
+    }
+    return map;
+  }, [members]);
 
   const managed = managedId ? members.find((m) => m.userId === managedId) ?? null : null;
 
@@ -266,6 +278,20 @@ function PeopleTab({
       onError(apiErrorMessage(e));
     }
   };
+  // Стабильные обработчики поверх ref: сами колбэки не пересоздаются между
+  // рендерами (иначе memo карточек не работал бы), а зовут всегда свежий writeTo.
+  const writeToRef = useRef(writeTo);
+  writeToRef.current = writeTo;
+  const actions = useMemo(() => {
+    const map = new Map<string, { onWrite?: () => void; onManage?: () => void }>();
+    for (const m of members) {
+      map.set(m.userId, {
+        onWrite: m.userId !== meId ? () => void writeToRef.current(m) : undefined,
+        onManage: canStaff || canManage ? () => setManagedId(m.userId) : undefined,
+      });
+    }
+    return map;
+  }, [members, meId, canStaff, canManage]);
 
   const renderGrid = (list: WorkspaceMember[]) => (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 'var(--gap-grid)', alignItems: 'start' }}>
@@ -273,11 +299,11 @@ function PeopleTab({
         <StaffPersonCard
           key={m.id}
           userId={m.userId}
-          card={cardOf(m)}
-          positions={positionsOf(m)}
-          branches={branchesOf(m)}
-          onWrite={m.userId !== meId ? () => writeTo(m) : undefined}
-          onManage={canStaff || canManage ? () => setManagedId(m.userId) : undefined}
+          card={cardProps.get(m.userId)!.card}
+          positions={cardProps.get(m.userId)!.positions}
+          branches={cardProps.get(m.userId)!.branches}
+          onWrite={actions.get(m.userId)?.onWrite}
+          onManage={actions.get(m.userId)?.onManage}
         />
       ))}
     </div>

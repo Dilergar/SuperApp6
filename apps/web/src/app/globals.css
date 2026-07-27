@@ -73,6 +73,13 @@
   --danger-border: rgba(222, 109, 104, 0.32);
   --error: #b04a45;               /* использовался в коде, но не был определён */
 
+  /* Ховеры сплошных кнопок тонов (жили хардкодом в tones.ts — перекраска
+     через переменные их не достигала) */
+  --success-hover: #5f8c63;
+  --warning-hover: #bd7f57;
+  --danger-hover: #c25a55;
+  --neutral-hover: #565049;
+
   /* --- Линии ---
      В прежней системе 1px-бордеры были запрещены. В этой они несущие. */
   --outline: #a39d92;
@@ -124,6 +131,10 @@
   --gap-grid: 16px;
   --row-py: 12px;
   --control-h: 38px;
+  /* Вертикальный паддинг контролов: вместе с --control-h даёт DESIGN.md §6
+     «компактная плотность меняет и высоту контролов». Дефолт = прежним
+     хардкодам (0.625rem), т.е. просторный вид не меняется ни на пиксель. */
+  --control-py: 0.625rem;
 
   /* --- Каркас --- */
   --sidebar-w: 264px;
@@ -137,10 +148,18 @@
   --gap-grid: 10px;
   --row-py: 7px;
   --control-h: 32px;
+  --control-py: 0.375rem;
 }
 
 * {
   box-sizing: border-box;
+}
+
+html {
+  /* Место под скроллбар зарезервировано всегда: модалка прячет прокрутку body,
+     и без этого фиксированный топбар прыгал бы вправо при каждом открытии окна
+     (padding-компенсация не действует на position:fixed). */
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -382,7 +401,8 @@ a:hover {
 
 .input {
   width: 100%;
-  padding: 0.625rem 0.875rem;
+  padding: var(--control-py, 0.625rem) 0.875rem;
+  min-height: var(--control-h, 38px);
   background: var(--block);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -425,9 +445,6 @@ a:hover {
   padding: var(--pad-card-sm);
   box-shadow: var(--shadow-card);
 }
-
-/* Легаси-акварели: остались точками входа, но теперь это матовые подложки */
-
 
 .ghost-border {
   border: 1px solid var(--border);
@@ -490,8 +507,11 @@ a:hover {
   top: 0;
   bottom: 0;
   left: 0;
+  width: 100%;
   background: repeating-linear-gradient(90deg, var(--primary) 0 2px, transparent 2px 5px);
-  transition: width 0.25s ease;
+  /* Раскрытие — clip-path'ом (TickBar.tsx): анимация width пересчитывала бы
+     раскладку каждый кадр, а scaleX сжимал бы штрихи 2px/5px. */
+  transition: clip-path 0.25s ease;
 }
 
 /* Градиентный вариант — 3 слоя: градиент, маска промежутков, «крышка»
@@ -521,13 +541,8 @@ a:hover {
 
 /* ============================================================
    Карточка человека (PersonCard)
-   Скетчбук снят: ни наклона, ни кривых рамок, ни восковых мазков.
-   Полная перерисовка форм-факторов — волна 4.
+   Визуал задаёт скин через инлайн-стили; база — ниже.
    ============================================================ */
-
-
-
-
 
 
 
@@ -622,8 +637,6 @@ a:hover {
   padding: 0 var(--spacing-6);
   background: var(--surface);
 }
-.svc-topbar-back { text-decoration: none; }
-
 .svc-burger {
   display: none;
   background: none;
@@ -647,10 +660,10 @@ a:hover {
   flex-direction: column;
   background: var(--block);
   box-shadow: var(--shadow-card);
-  transition: width 0.25s cubic-bezier(0.2, 0, 0, 1);
+  /* Ширина НЕ анимируется: width — layout-свойство, и 250 мс его анимации
+     означали 250 мс полных перелейаутов всего приложения на каждый Ctrl+B. */
   overflow: hidden;
 }
-.svc-shell.collapsed .svc-sidebar { transition-duration: 0.2s; }
 
 .svc-side-head { padding: var(--spacing-4) var(--spacing-3) var(--spacing-2); }
 .svc-side-foot { padding: var(--spacing-2) var(--spacing-3) var(--spacing-3); }
@@ -744,7 +757,6 @@ a:hover {
   text-align: center;
   flex: none;
 }
-.svc-flyout-label .svc-badge { margin-left: 0.45rem; }
 .svc-badge-dot {
   position: absolute;
   top: 6px;
@@ -752,7 +764,8 @@ a:hover {
   width: 7px;
   height: 7px;
   border-radius: var(--radius-pill);
-  background: var(--danger-base);
+  /* Синяя: красный в системе означает ТОЛЬКО опасность, а это «непрочитанное» */
+  background: var(--primary);
   border: 2px solid var(--block);
 }
 
@@ -818,65 +831,12 @@ a:hover {
   pointer-events: none;
 }
 
-.svc-rail-service {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  padding: 0.4rem 0;
-  font-size: 1.25rem;
-  background: var(--surface-container);
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-}
-.svc-rail-service:hover { background: var(--active); }
-
-.svc-flyout {
-  position: fixed;
-  left: calc(var(--svc-w-rail) + 10px);
-  transform: translateY(-50%);
-  z-index: 70;
-  background: var(--block);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-pop);
-  padding: 0.35rem 0.5rem;
-  min-width: 0;
-  max-width: 260px;
-}
-.svc-flyout-label {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--on-surface);
-  padding: 0.15rem 0.4rem;
-  white-space: nowrap;
-}
-.svc-flyout-label.group {
-  font-size: 0.625rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--label);
-}
-.svc-flyout-items {
-  margin-top: 0.25rem;
-  padding-left: 0.95rem;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 190px;
-}
-
-.svc-collapse .svc-ico svg { display: block; }
-
 .svc-main {
   margin-left: var(--svc-w);
   padding-top: var(--svc-topbar-h);
   min-height: 100vh;
-  transition: margin-left 0.25s cubic-bezier(0.2, 0, 0, 1);
+  /* margin-left не анимируется — см. комментарий у .svc-sidebar */
 }
-.svc-shell.collapsed .svc-main { transition-duration: 0.2s; }
 .svc-main-inner {
   max-width: var(--content-max);
   margin: 0 auto;
@@ -923,7 +883,7 @@ a:hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .svc-sidebar, .svc-main, .svc-item, .svc-label, .svc-group-label, .svc-collapse .svc-ico svg {
+  .svc-sidebar, .svc-main, .svc-item, .svc-label, .svc-group-label {
     transition: none !important;
   }
 }

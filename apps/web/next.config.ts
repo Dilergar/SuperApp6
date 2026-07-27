@@ -50,7 +50,9 @@ const nextConfig: NextConfig = {
     // Реестр иконок (components/ui/Icon.tsx) импортирует ~150 имён из одного
     // пакета. Без этого Next тянет в бандл весь набор Phosphor (несколько тысяч
     // иконок) и заметно тормозит dev-пересборку.
-    optimizePackageImports: ['@phosphor-icons/react'],
+    // @superapp/shared — барабан на ~60 модулей (включая все zod-схемы):
+    // один value-импорт константы утаскивал их целиком в корневой граф.
+    optimizePackageImports: ['@phosphor-icons/react', '@superapp/shared'],
   },
   async headers() {
     return [

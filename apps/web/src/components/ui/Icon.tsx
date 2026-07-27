@@ -135,7 +135,7 @@ import {
   WarningCircle,
   X,
 } from '@phosphor-icons/react/ssr';
-import type { CSSProperties } from 'react';
+import { memo, type CSSProperties } from 'react';
 
 /**
  * Реестр иконок: семантический ключ → компонент Phosphor.
@@ -311,7 +311,9 @@ export interface IconProps {
   label?: string;
 }
 
-export function Icon({ name, size = 20, color, weight = 'light', className, style, label }: IconProps) {
+// memo: иконка — самый массовый компонент приложения (строки списков, меню,
+// карточки); пропсы примитивные, так что ре-рендер родителя не перестраивает SVG.
+export const Icon = memo(function Icon({ name, size = 20, color, weight = 'light', className, style, label }: IconProps) {
   const Glyph = ICONS[name];
   return (
     <Glyph
@@ -325,7 +327,7 @@ export function Icon({ name, size = 20, color, weight = 'light', className, styl
       role={label ? 'img' : undefined}
     />
   );
-}
+});
 
 /**
  * Эмодзи, выбранный пользователем (иконка Группы, валюты, категории, лота).

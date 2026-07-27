@@ -8,7 +8,7 @@
 // должен уходить на страницу под окном), возврат фокуса на кнопку-источник,
 // блокировка прокрутки фона. Всё это здесь — один раз.
 // ============================================================
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from './Button';
 import { IconButton } from './Button';
@@ -51,22 +51,20 @@ export function Modal({
   const boxRef = useRef<HTMLDivElement | null>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
   const [mounted, setMounted] = useState(false);
+  const titleId = useId();
 
   useEffect(() => setMounted(true), []);
 
-  // Блокировка прокрутки фона + компенсация ширины скроллбара, иначе
-  // страница под окном дёргается вбок в момент открытия.
+  // Блокировка прокрутки фона. Сдвиг от исчезнувшего скроллбара гасится не
+  // паддингом (он не действует на position:fixed — топбар всё равно прыгал бы),
+  // а `scrollbar-gutter: stable` на html в globals.css.
   useEffect(() => {
     if (!open) return;
     const { body } = document;
     const prevOverflow = body.style.overflow;
-    const prevPad = body.style.paddingRight;
-    const barWidth = window.innerWidth - document.documentElement.clientWidth;
     body.style.overflow = 'hidden';
-    if (barWidth > 0) body.style.paddingRight = `${barWidth}px`;
     return () => {
       body.style.overflow = prevOverflow;
-      body.style.paddingRight = prevPad;
     };
   }, [open]);
 
@@ -136,14 +134,16 @@ export function Modal({
         className={cx('ui-modal', `ui-modal--${size}`, className)}
         role="dialog"
         aria-modal="true"
-        aria-label={typeof title === 'string' ? title : undefined}
+        // aria-labelledby переживает и НЕстроковый title (например «Задача <b>№12</b>»),
+        // с которым aria-label оставлял окно безымянным
+        aria-labelledby={title ? titleId : undefined}
         tabIndex={-1}
         onKeyDown={onKeyDown}
       >
         {(title || !hideClose) && (
           <div className="ui-modal-head">
             <div style={{ minWidth: 0 }}>
-              {title && <div className="title-md">{title}</div>}
+              {title && <div id={titleId} className="title-md">{title}</div>}
               {subtitle && <div className="label-sm" style={{ marginTop: '0.25rem' }}>{subtitle}</div>}
             </div>
             {!hideClose && <IconButton icon="close" label="Закрыть" size={32} onClick={onClose} />}
@@ -190,9 +190,12 @@ export function ConfirmDialog({
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>{cancelLabel}</Button>
+          {/* DESIGN.md §1: опасное подтверждение — сплошная красная, обычное —
+              зелёная («Подтвердить/Принять»). Матовая кнопка тут выглядела бы
+              слабее безопасной «Отмены». */}
           <Button
-            variant={danger ? 'matte' : 'primary'}
-            tone={danger ? 'danger' : 'accent'}
+            variant="primary"
+            tone={danger ? 'danger' : 'success'}
             loading={loading}
             onClick={() => void onConfirm()}
           >
