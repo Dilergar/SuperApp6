@@ -70,7 +70,7 @@ export function PriceLinesEditor({
 
   return (
     <Field label={label} hint="Можно назначить цену в нескольких валютах — покупатель платит по всем">
-      <div style={{ display: 'grid', gap: '0.375rem' }}>
+      <div className="ui-stack" style={{ gap: '0.375rem' }}>
         {lines.map((line, idx) => {
           const used = usedElsewhere(idx);
           return (
@@ -186,7 +186,7 @@ export function ContributeModal({
         )
       }
     >
-      <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
         <CampaignBars prices={listing.prices} raised={listing.campaign?.raised} />
 
@@ -195,7 +195,7 @@ export function ContributeModal({
             Вы уже вложили <b>{mineText}</b>. Чтобы изменить — сначала отзовите вклад.
           </Alert>
         ) : (
-          <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
+          <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
             {progressLines(listing.prices, listing.campaign?.raised).map((l) => {
               const remaining = Math.max(0, l.amount - l.raised);
               return (
@@ -338,10 +338,10 @@ export function ListingForm({
         </>
       }
     >
-      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '5rem 1fr', gap: 'var(--spacing-3)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '5rem minmax(0, 1fr)', gap: 'var(--spacing-3)' }}>
           <Input
             label="Значок"
             value={icon}
@@ -425,7 +425,7 @@ export function ListingForm({
           )}
         </div>
 
-        <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
+        <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
           <Checkbox checked={limited} onChange={setLimited} label="Ограниченное время" />
           <Checkbox checked={withTask} onChange={setWithTask} label="С задачей — исполнение оформится задачей в Задачнике" />
           {withTask && (
@@ -478,7 +478,7 @@ export function SharePanel({
       size="sm"
       footer={<Button variant="ghost" onClick={onClose}>Готово</Button>}
     >
-      <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
         <EntitySelector
           types={['user', 'circle']}
@@ -551,7 +551,7 @@ export function StaffPanel({
       size="md"
       footer={<Button variant="ghost" onClick={onClose}>Готово</Button>}
     >
-      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
 
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -602,7 +602,7 @@ export function StaffPanel({
         {staff.length === 0 ? (
           <EmptyState icon="people" title="Сотрудников нет" description="Назначьте того, кто будет вести витрины вместе с вами." />
         ) : (
-          <div style={{ display: 'grid', gap: '0.375rem' }}>
+          <div className="ui-stack" style={{ gap: '0.375rem' }}>
             {staff.map((s, i) => (
               <div
                 key={i}

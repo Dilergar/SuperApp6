@@ -14,6 +14,7 @@ import {
 } from '@/components/ui';
 import { bookParams } from './finance-lib';
 import { FinGlyph } from './finance-ui';
+import { toastError } from '@/lib/toast';
 
 export function CategoriesPanel({
   categories,
@@ -43,7 +44,7 @@ export function CategoriesPanel({
       setRemoving(null);
       onChanged();
     } catch (e) {
-      window.alert(apiErrorMessage(e));
+      toastError(apiErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -77,7 +78,7 @@ export function CategoriesPanel({
           />
 
           {roots.length > 0 ? (
-            <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+            <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
               {roots.map((root) => {
                 const kids = childrenOf(root.id);
                 return (
@@ -195,9 +196,9 @@ function NewCategoryModal({
         </>
       }
     >
-      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 5rem', gap: 'var(--spacing-3)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 5rem', gap: 'var(--spacing-3)' }}>
           <Input label="Название" placeholder="Продукты" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
           <Input label="Значок" placeholder="🙂" value={icon} onChange={(e) => setIcon(e.target.value)} maxLength={4} />
         </div>

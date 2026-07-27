@@ -172,7 +172,7 @@ export function ReportView({
         <Card span={7}>
           <CardHeader title="Расходы по категориям" subtitle="Лимит родителя считает и подкатегории" />
           {expenseRoots.length > 0 ? (
-            <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+            <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
               {expenseRoots.map((root) => (
                 <CategoryReportRow
                   key={root.id}
@@ -358,7 +358,7 @@ function CategoryReportRow({
       />
 
       {expanded && childrenRows.length > 0 && (
-        <div style={{ marginTop: 'var(--spacing-3)', display: 'grid', gap: 'var(--spacing-3)', paddingLeft: '2.375rem' }}>
+        <div className="ui-stack" style={{ marginTop: 'var(--spacing-3)', gap: 'var(--spacing-3)', paddingLeft: '2.375rem' }}>
           {childrenRows.map(({ cat, sums: childSums }) => (
             <div key={cat.id}>
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.5rem' }}>
@@ -480,7 +480,7 @@ function BudgetModal({
         </>
       }
     >
-      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
         <Input
           label="Лимит на месяц"
@@ -519,7 +519,7 @@ function TrendBars({
   }
 
   return (
-    <div style={{ display: 'grid', gap: 'var(--spacing-6)' }}>
+    <div className="ui-stack" style={{ gap: 'var(--spacing-6)' }}>
       {currencies.map((code) => {
         const max = Math.max(
           1,
@@ -531,19 +531,19 @@ function TrendBars({
         return (
           <div key={code}>
             {currencies.length > 1 && <div className="label-caps" style={{ marginBottom: 'var(--spacing-3)' }}>{code}</div>}
-            <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+            <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
               {trend.map((p) => {
                 const exp = p.expense.find((e) => e.currencyCode === code)?.amount ?? 0;
                 const inc = p.income.find((i) => i.currencyCode === code)?.amount ?? 0;
                 const month = new Date(`${p.period}-01T00:00:00`).toLocaleDateString('ru-RU', { month: 'long' });
                 return (
-                  <div key={p.period} style={{ display: 'grid', gridTemplateColumns: '5.5rem 1fr', gap: 'var(--spacing-3)', alignItems: 'center' }}>
+                  <div key={p.period} style={{ display: 'grid', gridTemplateColumns: '5.5rem minmax(0, 1fr)', gap: 'var(--spacing-3)', alignItems: 'center' }}>
                     <span className="label-sm" style={{ textTransform: 'capitalize' }}>{month}</span>
                     {exp === 0 && inc === 0 ? (
                       /* Пустой месяц: две шкалы по нулям читались бы как «данные есть» */
                       <span className="label-sm" style={{ color: 'var(--muted)' }}>записей нет</span>
                     ) : (
-                      <div style={{ display: 'grid', gap: '0.375rem' }}>
+                      <div className="ui-stack" style={{ gap: '0.375rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
                           <TickBar
                             value={(exp / max) * 100}

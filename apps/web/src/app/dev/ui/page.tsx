@@ -105,7 +105,7 @@ export default function DevUiPage() {
         {/* ---------- Поля ---------- */}
         <Card span={6}>
           <CardHeader title="Поля ввода" />
-          <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+          <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
             <Input label="Название" placeholder="Например, Квартальный отчёт" />
             <Input label="Телефон" icon="device" placeholder="+7 700 000 00 00" hint="Только казахстанский мобильный" />
             <Input label="Сумма" placeholder="0" error="Введите число больше нуля" defaultValue="абв" />
@@ -193,7 +193,7 @@ export default function DevUiPage() {
         {/* ---------- Переключатели ---------- */}
         <Card span={4}>
           <CardHeader title="Переключатели" />
-          <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+          <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
             <Toggle
               checked={toggles.alerts}
               onChange={(v) => setToggles((s) => ({ ...s, alerts: v }))}
@@ -267,7 +267,7 @@ export default function DevUiPage() {
             title="Сообщения"
             actions={<IconButton icon="undo" label="Вернуть все" size={32} onClick={() => setAlerts({ success: true, warning: true, danger: true })} />}
           />
-          <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
+          <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
             {alerts.success && <Alert tone="success" onClose={() => setAlerts((s) => ({ ...s, success: false }))}>Изменения сохранены.</Alert>}
             {alerts.warning && <Alert tone="warning" onClose={() => setAlerts((s) => ({ ...s, warning: false }))}>Срок задачи наступает завтра.</Alert>}
             {alerts.danger && <Alert tone="danger" title="Не удалось отправить" onClose={() => setAlerts((s) => ({ ...s, danger: false }))}>Проверьте связь и попробуйте ещё раз.</Alert>}
@@ -283,7 +283,7 @@ export default function DevUiPage() {
             note="Макс. размер: 20 МБ"
           />
           {files.length > 0 && (
-            <div style={{ marginTop: 'var(--spacing-4)', display: 'grid', gap: '0.5rem' }}>
+            <div className="ui-stack" style={{ marginTop: 'var(--spacing-4)', gap: '0.5rem' }}>
               {files.map((n, i) => (
                 <div key={`${n}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', padding: '0.625rem 0.75rem', border: '1px solid var(--divider)', borderRadius: 'var(--radius-md)' }}>
                   <EmojiIcon emoji={null} fallback="file" tone="success" size={30} square />
@@ -312,7 +312,7 @@ export default function DevUiPage() {
             <Spinner size={24} />
             <Button variant="matte" loading>Сохраняем</Button>
           </Row>
-          <div style={{ display: 'grid', gap: '0.5rem', margin: 'var(--spacing-4) 0' }}>
+          <div className="ui-stack" style={{ gap: '0.5rem', margin: 'var(--spacing-4) 0' }}>
             <Skeleton width="40%" height={18} />
             <Skeleton />
             <Skeleton width="70%" />
@@ -377,7 +377,7 @@ export default function DevUiPage() {
           </>
         }
       >
-        <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+        <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
           <Input label="Название" placeholder="Что нужно сделать" autoFocus />
           <Textarea label="Описание" rows={3} placeholder="Подробности" />
           <DatePicker label="Срок" value={date} onChange={setDate} />

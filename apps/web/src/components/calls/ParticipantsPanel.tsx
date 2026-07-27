@@ -3,9 +3,11 @@
 import { useState } from 'react';
 import { Track } from 'livekit-client';
 import { useParticipants } from '@livekit/components-react';
+import { useConfirm } from '@/components/ui';
 import { PersonChip } from '@/app/circles/PersonCard';
 import { kickCallParticipant, muteCallTrack } from '@/lib/calls-api';
 import { ConnectionQualityBadge } from './CallResilience';
+import { toastError } from '@/lib/toast';
 
 /**
  * Панель «Участники» живого звонка: PersonChip (принцип 2) + модератору
@@ -23,14 +25,21 @@ export function ParticipantsPanel({
 }) {
   const participants = useParticipants();
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [confirm, confirmUI] = useConfirm();
 
-  const kick = async (identity: string, name: string) => {
-    if (!confirm(`Исключить ${name} из звонка?`)) return;
+  const kick = (identity: string, name: string) => {
+    confirm(
+      { title: `Исключить ${name} из звонка?`, message: 'Человек выйдет из комнаты и сможет вернуться только по новой ссылке.', confirmLabel: 'Исключить', danger: true },
+      () => kickNow(identity),
+    );
+  };
+
+  const kickNow = async (identity: string) => {
     setBusyId(identity);
     try {
       await kickCallParticipant(sessionId, identity);
     } catch {
-      alert('Не удалось исключить участника');
+      toastError('Не удалось исключить участника');
     } finally {
       setBusyId(null);
     }
@@ -44,7 +53,7 @@ export function ParticipantsPanel({
     try {
       await muteCallTrack(sessionId, identity, sid, true);
     } catch {
-      alert('Не удалось выключить микрофон участнику');
+      toastError('Не удалось выключить микрофон участнику');
     } finally {
       setBusyId(null);
     }
@@ -101,6 +110,7 @@ export function ParticipantsPanel({
         );
       })}
       {participants.length === 0 && <p className="label-sm">Пока никого</p>}
+      {confirmUI}
     </div>
   );
 }

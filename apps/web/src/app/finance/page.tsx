@@ -205,7 +205,7 @@ export default function FinanceOverviewPage() {
             actions={<Button variant="ghost" size="sm" href={withBook('/finance/reports')} iconRight="caretRight">Отчёты</Button>}
           />
           {budgets.length > 0 ? (
-            <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+            <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
               {budgets.map((b) => {
                 const { over } = budgetProgress(b.spent, b.amount);
                 return (

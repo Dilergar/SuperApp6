@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Chip, useConfirm } from '@/components/ui';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api } from '@/lib/api';
 import { PersonAvatar } from '../../messenger/messenger-ui';
@@ -35,6 +36,7 @@ import {
   type SocketMessageDeleted,
   type SocketReceipt,
 } from '@/lib/hooks/useMessengerSocket';
+import { TASK_PRIORITY_TONE, TASK_STATUS_VIEW } from '../tasks-ui';
 import { Conversation } from '../../messenger/Conversation';
 import { ShareCardModal } from '../../messenger/ShareCardModal';
 import { AttachmentsSection } from '@/components/files/AttachmentsSection';
@@ -55,6 +57,7 @@ export default function TaskDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [confirm, confirmUI] = useConfirm();
   const [showForward, setShowForward] = useState(false);
 
   const load = useCallback(async () => {
@@ -357,7 +360,14 @@ export default function TaskDetailPage() {
               {task.status !== 'cancelled' && task.status !== 'done' && (
                 <button onClick={cancel} disabled={busy} className="btn-ghost-inline" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>Отменить</button>
               )}
-              <button onClick={() => { if (confirm('Удалить задачу?')) remove(); }} disabled={busy} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: '0.8rem', fontWeight: 600 }}>Удалить</button>
+              <button
+                onClick={() => confirm(
+                  { title: 'Удалить задачу?', message: 'Задача и её чат исчезнут у всех участников. Отменить это нельзя.', confirmLabel: 'Удалить', danger: true },
+                  remove,
+                )}
+                disabled={busy}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: '0.8rem', fontWeight: 600 }}
+              >Удалить</button>
             </>
           )}
         </div>
@@ -369,8 +379,10 @@ export default function TaskDetailPage() {
         {/* Header */}
         <div style={{ marginBottom: 'var(--spacing-5)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-2)' }}>
-            <span style={{ color: st.color, fontWeight: 600, fontSize: '0.8rem', background: 'var(--surface-container)', padding: '0.15rem 0.6rem', borderRadius: 'var(--radius-sketch)' }}>{st.icon} {st.label}</span>
-            <span style={{ color: pr.color, fontWeight: 700, fontSize: '0.75rem' }}>{pr.label} приоритет</span>
+            {/* Те же чипы, что в строке списка (`tasks-ui.tsx`) — статус в одном
+                месте не имеет права выглядеть иначе, чем в другом. */}
+            <Chip tone={TASK_STATUS_VIEW[task.status].tone} icon={TASK_STATUS_VIEW[task.status].icon}>{st.label}</Chip>
+            <Chip size="sm" tone={TASK_PRIORITY_TONE[task.priority]}>{pr.label} приоритет</Chip>
           </div>
           <h1 className="title-lg" style={{ marginBottom: 'var(--spacing-2)', textDecoration: task.status === 'done' ? 'line-through' : 'none' }}>{task.title}</h1>
           {task.description && <p className="label-md" style={{ fontSize: '0.95rem', whiteSpace: 'pre-wrap' }}>{task.description}</p>}
@@ -469,6 +481,7 @@ export default function TaskDetailPage() {
           onClose={() => setShowForward(false)}
         />
       )}
+      {confirmUI}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { Icon } from '@/components/ui';
+import { Icon, useConfirm } from '@/components/ui';
 import { useEffect, useRef, useState } from 'react';
 import type { CallActiveDto, CallTokenDto, ChatType } from '@superapp/shared';
 import { CALL_LIMITS } from '@superapp/shared';
@@ -16,6 +16,7 @@ import { CallRoomShell, type CallLeaveReason } from '@/components/calls/CallRoom
 import { CallStage } from '@/components/calls/CallStage';
 import { ControlsBar } from '@/components/calls/ControlsBar';
 import { PersonAvatar } from './messenger-ui';
+import { toastError } from '@/lib/toast';
 
 /**
  * Полноэкранный оверлей звонка поверх /messenger (Telegram Web-модель, WhatsApp-флоу):
@@ -49,6 +50,7 @@ export function CallOverlay({
   onClose: (reason: CallLeaveReason | 'cancelled') => void;
 }) {
   const [call, setCall] = useState<CallTokenDto | null>(null);
+  const [confirm, confirmUI] = useConfirm();
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const callRef = useRef<CallTokenDto | null>(null);
@@ -64,7 +66,7 @@ export function CallOverlay({
       .then((t) => { if (!cancelled) setCall(t); })
       .catch((e) => {
         if (!cancelled) {
-          alert(apiErrorMessage(e));
+          toastError(apiErrorMessage(e));
           onCloseRef.current('error');
         }
       });
@@ -180,11 +182,10 @@ export function CallOverlay({
             <ControlsBar
               // DM: «Завершить для всех» прячем — «Покинуть» и есть трубка (см. handleLeft)
               moderator={!isDm && call.moderator}
-              onEndForAll={() => {
-                if (confirm('Завершить звонок для всех участников?')) {
-                  endCallSession(call.sessionId).catch((e) => alert(apiErrorMessage(e)));
-                }
-              }}
+              onEndForAll={() => confirm(
+                { title: 'Завершить звонок для всех?', message: 'Комната закроется у каждого участника.', confirmLabel: 'Завершить', danger: true },
+                () => endCallSession(call.sessionId).catch((e) => toastError(apiErrorMessage(e))),
+              )}
               extra={
                 recordingEnabled ? (
                   <RecordingControls sessionId={call.sessionId} recording={!!active?.recording} />
@@ -198,6 +199,7 @@ export function CallOverlay({
           <p className="label-md">Подключение к звонку…</p>
         </div>
       )}
+      {confirmUI}
     </div>
   );
 }
@@ -224,7 +226,7 @@ function RecordingControls({ sessionId, recording }: { sessionId: string; record
     try {
       await fn();
     } catch (e) {
-      alert(apiErrorMessage(e));
+      toastError(apiErrorMessage(e));
     } finally {
       setBusy(false);
     }

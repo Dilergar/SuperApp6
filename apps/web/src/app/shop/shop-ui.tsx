@@ -26,7 +26,7 @@ import { fmtAmount, fmtPrices, listingAvailability, progressLines } from './shop
 /** Прогресс сбора по каждой валюте цели — фирменными штрихами (DESIGN.md §5). */
 export function CampaignBars({ prices, raised }: { prices: ListingPriceDto[]; raised?: ContributionLine[] }) {
   return (
-    <div style={{ display: 'grid', gap: '0.5rem', margin: 'var(--spacing-3) 0' }}>
+    <div className="ui-stack" style={{ gap: '0.5rem', margin: 'var(--spacing-3) 0' }}>
       {progressLines(prices, raised).map((l) => {
         const pct = l.amount > 0 ? Math.min(100, Math.round((l.raised / l.amount) * 100)) : 0;
         return (

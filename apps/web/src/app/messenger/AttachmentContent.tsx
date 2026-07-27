@@ -50,7 +50,7 @@ export function AttachmentContent({
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: media.length === 1 ? '1fr' : 'repeat(auto-fill, minmax(120px, 1fr))',
+            gridTemplateColumns: media.length === 1 ? 'minmax(0, 1fr)' : 'repeat(auto-fill, minmax(120px, 1fr))',
             gap: '0.35rem',
             maxWidth: media.length === 1 ? '20rem' : '22rem',
           }}

@@ -73,6 +73,23 @@
   --danger-border: rgba(222, 109, 104, 0.32);
   --error: #b04a45;               /* использовался в коде, но не был определён */
 
+  /* --- Два дополнительных матовых тона (канвас «Процессов») ---
+     Категорий нод шесть, а системных тонов четыре, причём красный занят
+     опасностью и категорией быть не может. Недостающие два взяты в ту же
+     приглушённую гамму (та же светлота и насыщенность, что у синего и
+     зелёного) — фиолетовый для AI, бирюзовый для интеграций. Ими же
+     красятся типизированные порты AI-кластера (Модель / Память).
+     Вне канваса Процессов не используются. */
+  --violet-base: #9186c4;
+  --violet: #63589b;
+  --violet-container: rgba(145, 134, 196, 0.14);
+  --violet-border: rgba(145, 134, 196, 0.32);
+
+  --teal-base: #5ea39c;
+  --teal: #37706a;
+  --teal-container: rgba(94, 163, 156, 0.14);
+  --teal-border: rgba(94, 163, 156, 0.32);
+
   /* Ховеры сплошных кнопок тонов (жили хардкодом в tones.ts — перекраска
      через переменные их не достигала) */
   --success-hover: #5f8c63;
@@ -626,9 +643,12 @@ a:hover {
 .svc-shell { --svc-w: var(--svc-w-expanded); }
 .svc-shell.collapsed { --svc-w: var(--svc-w-rail); }
 
+/* Топбар начинается ПОСЛЕ сайдбара: сайдбар — полноценная колонка во всю
+   высоту экрана (логотип в самом верху), а переключатель контекста стоит
+   в области содержимого и выравнивается по его левому краю. */
 .svc-topbar {
   position: fixed;
-  top: 0; left: 0; right: 0;
+  top: 0; left: var(--svc-w); right: 0;
   z-index: 50;
   height: var(--svc-topbar-h);
   display: flex;
@@ -651,7 +671,7 @@ a:hover {
 
 .svc-sidebar {
   position: fixed;
-  top: var(--svc-topbar-h);
+  top: 0;
   bottom: 0;
   left: 0;
   z-index: 40;
@@ -868,6 +888,8 @@ a:hover {
 
 @media (max-width: 767px) {
   .svc-burger { display: flex; }
+  /* Сайдбара как колонки нет — он шторка поверх, топбар снова во всю ширину */
+  .svc-topbar { left: 0; }
   .svc-sidebar {
     top: 0;
     height: 100dvh;
@@ -928,4 +950,94 @@ a:hover {
 }
 .otp-shake {
   animation: otp-shake 0.35s ease;
+}
+
+/* Поле «Название организации» на дашборде: тянется на всю свободную ширину строки
+   рядом с кнопкой «Создать» (обёртка кита не принимает инлайновый стиль). */
+.ws-create-field {
+  flex: 1;
+  min-width: 220px;
+}
+
+/* Валюта кошелька: узкое поле иконки и тянущееся поле названия в одну строку
+   (обёртка кита не принимает инлайновый стиль). */
+.wallet-icon-field {
+  width: 64px;
+}
+.wallet-name-field {
+  flex: 1;
+  min-width: 160px;
+}
+
+/* Тест-пополнение платформенной валюты на странице скинов. */
+.skin-topup-field {
+  width: 110px;
+}
+
+/* Название новой группы в «Моём окружении»: тянется рядом с палитрой цветов. */
+.group-name-field {
+  flex: 1;
+  min-width: 150px;
+}
+
+/* ── Тосты (lib/toast.tsx): замена нативному alert() ───────────────────── */
+.toast-stack {
+  position: fixed;
+  right: var(--spacing-5);
+  bottom: var(--spacing-5);
+  z-index: 200; /* выше модалок кита (100–110) — ошибка видна и поверх окна */
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  max-width: min(380px, calc(100vw - 2rem));
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-3);
+  padding: var(--spacing-3) var(--spacing-4);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  border: 1px solid var(--outline-variant);
+  box-shadow: var(--shadow-card);
+  font-size: 0.85rem;
+  line-height: 1.45;
+  animation: toast-in 0.18s ease-out;
+}
+.toast--danger {
+  border-color: var(--danger-base);
+  background: var(--danger-container);
+  color: var(--danger);
+}
+.toast--success {
+  border-color: var(--success-base);
+  background: var(--success-container);
+}
+.toast-text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+.toast-close {
+  flex: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.55;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0 0.15rem;
+}
+.toast-close:hover {
+  opacity: 1;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
 }

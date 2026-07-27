@@ -16,7 +16,7 @@ import { ShareCardModal } from '../messenger/ShareCardModal';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import {
   Alert, BentoGrid, Button, Card, CardHeader, Chip, ConfirmDialog, EmojiIcon, EmptyState,
-  Icon, IconButton, Input, LoadingBlock, Modal, PageHeader, Select, Tabs, type TabItem,
+  Icon, IconButton, Input, LoadingBlock, Modal, PageHeader, Select, SegmentedControl, type TabItem,
 } from '@/components/ui';
 import {
   pluralRu,
@@ -196,7 +196,7 @@ export default function ShopPage() {
       />
 
       <div style={{ marginBottom: 'var(--gap-grid)' }}>
-        <Tabs aria-label="Разделы магазина" items={tabs} value={tab} onChange={setTab} />
+        <SegmentedControl aria-label="Разделы магазина" items={tabs} value={tab} onChange={setTab} />
       </div>
 
       {(shownError || ok) && (
@@ -230,7 +230,7 @@ export default function ShopPage() {
                 action={canManage ? <Button variant="matte" size="sm" icon="add" onClick={() => setShowcaseModal({})}>Витрина</Button> : undefined}
               />
             ) : (
-              <div style={{ display: 'grid', gap: '0.25rem' }}>
+              <div className="ui-stack" style={{ gap: '0.25rem' }}>
                 {showcases.map((s) => {
                   const active = selectedId === s.id;
                   return (
@@ -430,9 +430,9 @@ function ShowcaseModal({
         </>
       }
     >
-      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
-        <div style={{ display: 'grid', gridTemplateColumns: '5rem 1fr', gap: 'var(--spacing-3)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '5rem minmax(0, 1fr)', gap: 'var(--spacing-3)' }}>
           <Input
             label="Значок"
             value={icon}

@@ -16,6 +16,7 @@ export { Chip, Badge, StatusDot, type ChipProps } from './Chip';
 export { Card, CardHeader, PageHeader, StatTile, EmptyState, Divider, BentoGrid, type CardProps } from './Card';
 export { TickBar, GradientTickBar, type TickBarProps } from './TickBar';
 export { Modal, ConfirmDialog, type ModalProps, type ModalSize } from './Modal';
+export { useConfirm, type ConfirmOptions } from './useConfirm';
 export { ModalShell, type ModalShellProps } from './ModalShell';
 export { Menu, type MenuAction, type MenuProps } from './Menu';
 export { Tooltip } from './Tooltip';

@@ -16,8 +16,12 @@ import {
   type IconName, type Tone,
 } from '@/components/ui';
 
-/** Статус задачи → иконка и тон системы (в shared лежат текстовые глифы). */
-const STATUS_VIEW: Record<TaskStatus, { icon: IconName; tone: Tone }> = {
+/**
+ * Статус задачи → иконка и тон системы. Живёт здесь, а не в shared: shared общий
+ * с API и мобильным, а имена иконок — из веб-реестра `ICONS`. Экспортируется,
+ * чтобы деталька задачи рисовала тот же чип, что и строка списка.
+ */
+export const TASK_STATUS_VIEW: Record<TaskStatus, { icon: IconName; tone: Tone }> = {
   todo: { icon: 'tasks', tone: 'neutral' },
   in_progress: { icon: 'inProgress', tone: 'accent' },
   on_review: { icon: 'eye', tone: 'warning' },
@@ -25,7 +29,7 @@ const STATUS_VIEW: Record<TaskStatus, { icon: IconName; tone: Tone }> = {
   cancelled: { icon: 'blocked', tone: 'neutral' },
 };
 
-const PRIORITY_TONE: Record<TaskPriority, Tone> = {
+export const TASK_PRIORITY_TONE: Record<TaskPriority, Tone> = {
   low: 'neutral',
   medium: 'accent',
   high: 'warning',
@@ -38,7 +42,7 @@ const PRIORITY_TONE: Record<TaskPriority, Tone> = {
 
 export function TaskRow({ task, extra }: { task: Task; extra?: React.ReactNode }) {
   const st = TASK_STATUS_META[task.status];
-  const view = STATUS_VIEW[task.status];
+  const view = TASK_STATUS_VIEW[task.status];
   const pr = TASK_PRIORITY_META[task.priority];
   const done = task.status === 'done';
   const assigneeLabel = task.assignedCircleName
@@ -63,7 +67,7 @@ export function TaskRow({ task, extra }: { task: Task; extra?: React.ReactNode }
               {task.title}
             </span>
             {task.priority !== 'medium' && (
-              <KitChip size="sm" tone={PRIORITY_TONE[task.priority]}>{pr.label}</KitChip>
+              <KitChip size="sm" tone={TASK_PRIORITY_TONE[task.priority]}>{pr.label}</KitChip>
             )}
           </div>
 

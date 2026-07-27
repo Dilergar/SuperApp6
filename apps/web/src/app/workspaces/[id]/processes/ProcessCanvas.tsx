@@ -3,7 +3,11 @@
 // Канвас процессов — обёртка над @xyflow/react (MIT; тот же класс канваса, что у
 // Langflow/Flowise/Dify; n8n сидит на Vue-собрате). Используется редактором
 // (editable) и страницей инстанса (read-only со статусами шагов).
-// Скетч-стиль DESIGN.md: поверхности и мягкие тени вместо линий.
+//
+// Organic Bento (DESIGN.md): полотно — тёплая бумага, нода — светлый блок с
+// 1px-бордером и единственной тенью системы, категория показана матовым кругом
+// с иконкой Phosphor Light. Состояния и чужие классы React Flow — в
+// process-canvas.css (инлайном они не выражаются).
 
 import { memo, useCallback, useMemo } from 'react';
 import {
@@ -25,9 +29,13 @@ import {
   type ReactFlowInstance,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+// Порядок важен: наши правила должны идти ПОСЛЕ стилей библиотеки.
+import './process-canvas.css';
 import { PROCESS_STEP_STATUS_LABELS, type ProcessNodeInput, type ProcessNodeTypeDto } from '@superapp/shared';
+import { Icon } from '@/components/ui';
 import {
-  CATEGORY_COLORS,
+  categoryTone,
+  nodeIcon,
   PORT_COLORS,
   PORT_LABELS,
   portType,
@@ -36,14 +44,6 @@ import {
   type PNode,
   type PNodeData,
 } from './process-lib';
-
-const HANDLE_STYLE: React.CSSProperties = {
-  width: 13,
-  height: 13,
-  background: 'var(--surface)',
-  border: '2.5px solid var(--secondary)',
-  borderRadius: '50%',
-};
 
 /** Входные порты ноды (по умолчанию: один main; у триггеров/под-нод — пусто). */
 function nodeInputs(t: ProcessNodeTypeDto): ProcessNodeInput[] {
@@ -55,24 +55,22 @@ function nodeInputs(t: ProcessNodeTypeDto): ProcessNodeInput[] {
 const ProcessNodeView = memo(function ProcessNodeView({ data, selected }: NodeProps<PNode>) {
   const d = data as PNodeData;
   const t = d.typeDto;
-  const ringColor = d.stepStatus ? STEP_STATUS_COLORS[d.stepStatus] : null;
-  const badge = d.stepStatus ? STEP_STATUS_BADGE[d.stepStatus] : null;
+  const tone = categoryTone(t.category);
+  const status = d.stepStatus ? STEP_STATUS_BADGE[d.stepStatus] : null;
   // Триггеры теперь — полноценные ноды (со своими настройками); точкой остаётся только «Конец».
   const isDot = t.type === 'end';
   return (
     <div
-      style={{
-        minWidth: isDot ? 132 : 196,
-        maxWidth: 250,
-        background: 'var(--surface-container-lowest)',
-        borderRadius: 'var(--radius-lg)',
-        padding: '0.7rem 0.9rem',
-        boxShadow: selected
-          ? '0 0 0 2.5px var(--secondary), 0 10px 26px rgba(0, 0, 0, 0.10)'
-          : ringColor
-            ? `0 0 0 2.5px ${ringColor}, 0 8px 22px rgba(0, 0, 0, 0.08)`
-            : '0 8px 22px rgba(0, 0, 0, 0.10)',
-      }}
+      className={`pnode${isDot ? ' pnode--dot' : ''}${selected ? ' is-selected' : ''}`}
+      // Статус шага красит рамку ноды; выделение перебивает его классом.
+      style={
+        d.stepStatus
+          ? ({
+              '--pnode-ring': STEP_STATUS_COLORS[d.stepStatus],
+              '--pnode-halo': status?.bg,
+            } as React.CSSProperties)
+          : undefined
+      }
     >
       {/* входы: main — слева; типизированные (Модель/Память/Инструменты) — снизу */}
       {(() => {
@@ -81,14 +79,14 @@ const ProcessNodeView = memo(function ProcessNodeView({ data, selected }: NodePr
         return (
           <>
             {inputs.some((i) => i.type === 'main') && (
-              <Handle id="main" type="target" position={Position.Left} style={{ ...HANDLE_STYLE, left: -7 }} />
+              <Handle id="main" type="target" position={Position.Left} style={{ left: -6 }} />
             )}
             {aiInputs.map((inp, i) => {
               const left = `${((i + 1) / (aiInputs.length + 1)) * 100}%`;
               const color = PORT_COLORS[inp.type];
               return (
-                <Handle key={inp.key} id={inp.key} type="target" position={Position.Bottom} style={{ ...HANDLE_STYLE, bottom: -7, left, borderColor: color }}>
-                  <span style={{ position: 'absolute', top: 14, left: '50%', transform: 'translateX(-50%)', fontSize: '0.58rem', fontWeight: 700, color, pointerEvents: 'none', whiteSpace: 'nowrap' }}>
+                <Handle key={inp.key} id={inp.key} type="target" position={Position.Bottom} style={{ bottom: -6, left, borderColor: color }}>
+                  <span className="pnode-port-label pnode-port-label--bottom" style={{ color }}>
                     {inp.label ?? PORT_LABELS[inp.type]}
                   </span>
                 </Handle>
@@ -98,51 +96,25 @@ const ProcessNodeView = memo(function ProcessNodeView({ data, selected }: NodePr
         );
       })()}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
-        <div
-          style={{
-            width: '2rem',
-            height: '2rem',
-            flexShrink: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '1.05rem',
-            background: CATEGORY_COLORS[t.category] ?? 'var(--surface-container)',
-            borderRadius: '50%',
-            opacity: 0.9,
-          }}
-        >
-          {t.icon}
-        </div>
-        <div style={{ minWidth: 0 }}>
-          <div
-            className="title-md"
-            style={{ fontSize: '0.86rem', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis' }}
-          >
-            {d.label}
-          </div>
-          <div className="label-md" style={{ fontSize: '0.68rem', opacity: 0.75 }}>
-            {t.title}
-          </div>
-        </div>
+      <div className="pnode-row">
+        <span className="pnode-icon" style={{ background: tone.bg, borderColor: tone.border, color: tone.fg }}>
+          <Icon name={nodeIcon(t)} size={17} />
+        </span>
+        <span className="pnode-text">
+          <span className="pnode-title" title={d.label}>{d.label}</span>
+          {/* Подпись типа — только когда она добавляет смысл: у неназванной ноды
+              подпись равна названию типа, и вторая строка была бы эхом. */}
+          {d.label !== t.title && <span className="pnode-sub">{t.title}</span>}
+        </span>
       </div>
 
       {(d.stepStatus || d.stepBadge) && (
-        <div
-          style={{
-            marginTop: '0.45rem',
-            display: 'inline-block',
-            padding: '0.12rem 0.55rem',
-            fontSize: '0.67rem',
-            fontWeight: 700,
-            color: badge?.fg ?? 'var(--on-surface)',
-            background: badge?.bg ?? 'var(--surface-container-high)',
-            borderRadius: 'var(--radius-sm)',
-          }}
+        <span
+          className="pnode-badge"
+          style={{ background: status?.bg, borderColor: status?.border, color: status?.fg }}
         >
           {d.stepBadge ?? (d.stepStatus ? PROCESS_STEP_STATUS_LABELS[d.stepStatus] : '')}
-        </div>
+        </span>
       )}
 
       {/* выходы: main — справа (подписи Да/Нет); типизированный (astool) — сверху */}
@@ -154,10 +126,8 @@ const ProcessNodeView = memo(function ProcessNodeView({ data, selected }: NodePr
             {mainOuts.map((out, i) => {
               const top = `${((i + 1) / (mainOuts.length + 1)) * 100}%`;
               return (
-                <Handle key={out.key} id={out.key} type="source" position={Position.Right} style={{ ...HANDLE_STYLE, right: -7, top }}>
-                  {out.label && (
-                    <span style={{ position: 'absolute', right: 16, top: -6, fontSize: '0.62rem', fontWeight: 700, color: 'var(--secondary)', pointerEvents: 'none', whiteSpace: 'nowrap' }}>{out.label}</span>
-                  )}
+                <Handle key={out.key} id={out.key} type="source" position={Position.Right} style={{ right: -6, top }}>
+                  {out.label && <span className="pnode-port-label pnode-port-label--right">{out.label}</span>}
                 </Handle>
               );
             })}
@@ -165,8 +135,8 @@ const ProcessNodeView = memo(function ProcessNodeView({ data, selected }: NodePr
               const left = `${((i + 1) / (aiOuts.length + 1)) * 100}%`;
               const color = PORT_COLORS[portType(out)];
               return (
-                <Handle key={out.key} id={out.key} type="source" position={Position.Top} style={{ ...HANDLE_STYLE, top: -7, left, borderColor: color }}>
-                  <span style={{ position: 'absolute', bottom: 14, left: '50%', transform: 'translateX(-50%)', fontSize: '0.56rem', fontWeight: 700, color, pointerEvents: 'none', whiteSpace: 'nowrap' }}>{out.label}</span>
+                <Handle key={out.key} id={out.key} type="source" position={Position.Top} style={{ top: -6, left, borderColor: color }}>
+                  <span className="pnode-port-label pnode-port-label--top" style={{ color }}>{out.label}</span>
                 </Handle>
               );
             })}
@@ -248,8 +218,10 @@ function CanvasInner({
     [onConnectEndOnPane, screenToFlowPosition],
   );
 
+  // Миникарта красит ноды базой тона категории. CSS-переменные тут работают:
+  // React Flow кладёт цвет в inline-style прямоугольника, а не в атрибут fill.
   const miniMapNodeColor = useMemo(
-    () => (n: PNode) => CATEGORY_COLORS[n.data?.typeDto?.category ?? 'flow'] ?? '#ddd',
+    () => (n: PNode) => categoryTone(n.data?.typeDto?.category).base,
     [],
   );
 
@@ -292,18 +264,21 @@ function CanvasInner({
       maxZoom={2}
       fitView
       fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
-      connectionLineStyle={{ stroke: 'var(--secondary)', strokeWidth: 2.5 }}
+      connectionLineStyle={{ stroke: 'var(--primary)', strokeWidth: 2 }}
       proOptions={{ hideAttribution: false }}
     >
-      <Background variant={BackgroundVariant.Dots} gap={22} size={1.6} color="#ddd6c8" />
+      <Background variant={BackgroundVariant.Dots} gap={20} size={1.4} color="var(--line)" />
       <Controls showInteractive={false} position="bottom-left" />
       {withMiniMap && (
         <MiniMap
           pannable
           zoomable
           nodeColor={miniMapNodeColor}
-          style={{ background: 'var(--surface)', borderRadius: 12, overflow: 'hidden' }}
-          maskColor="rgba(228,228,209,0.55)"
+          nodeStrokeWidth={0}
+          nodeBorderRadius={4}
+          // Затемнение вне вида задаётся ИНЛАЙНОМ библиотеки и перебило бы CSS,
+          // поэтому цвет считается из токена здесь (прозрачности у токена нет).
+          maskColor="color-mix(in srgb, var(--surface-container) 62%, transparent)"
         />
       )}
     </ReactFlow>
@@ -312,14 +287,7 @@ function CanvasInner({
 
 export function ProcessCanvas(props: ProcessCanvasProps) {
   return (
-    <div
-      style={{
-        height: props.height ?? '62vh',
-        background: 'var(--surface-container-low)',
-        borderRadius: 'var(--radius-lg)',
-        overflow: 'hidden',
-      }}
-    >
+    <div className="pcanvas" style={{ height: props.height ?? '62vh' }}>
       <ReactFlowProvider>
         <CanvasInner {...props} />
       </ReactFlowProvider>

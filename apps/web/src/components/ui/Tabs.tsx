@@ -68,8 +68,13 @@ export function SegmentedControl<K extends string = string>({ items, value, onCh
           disabled={it.disabled}
           onClick={() => onChange(it.key)}
         >
-          {it.icon && <Icon name={it.icon} size={15} style={{ marginRight: '0.35rem', verticalAlign: '-2px' }} />}
-          {it.label}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem' }}>
+            {it.icon && <Icon name={it.icon} size={15} />}
+            {it.label}
+            {/* Счётчик разделов сервиса: пилюля тоже обязана его показывать —
+                иначе переход с вкладок стоил бы «Сотрудникам» их цифр. */}
+            {it.count !== undefined && it.count > 0 && <Badge tone="neutral">{it.count}</Badge>}
+          </span>
         </button>
       ))}
     </div>

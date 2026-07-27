@@ -127,6 +127,10 @@ export function SearchField({ onClear, width = 240, className, style, value, ...
       />
       <input
         type="search"
+        // Подпись у поиска всегда одна — сама иконка лупы, а её скринридер не читает.
+        // Дефолт здесь чинит все места разом (в топбаре поиск на КАЖДОЙ странице);
+        // конкретное место может уточнить своим aria-label через ...rest.
+        aria-label="Поиск"
         className={cx('ui-input', 'ui-input--pill', 'ui-input--with-icon', className)}
         value={value}
         style={hasValue && onClear ? { paddingRight: '2.25rem' } : undefined}

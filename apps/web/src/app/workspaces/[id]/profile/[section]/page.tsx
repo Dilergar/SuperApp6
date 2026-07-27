@@ -239,7 +239,7 @@ export default function WorkspaceSectionPage() {
         <BentoGrid>
           <Card span={7}>
             <CardHeader title="Данные компании" subtitle="Название и логотип видны всем сотрудникам всегда" />
-            <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+            <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
               <Input label="Название" value={form.name} maxLength={100} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               {/* Лого через движок файлов (профиль 'avatar', владелец — организация).
                   Сохраняется сразу; старые внешние URL продолжают работать. */}
@@ -282,7 +282,7 @@ export default function WorkspaceSectionPage() {
               title="Видимость для сотрудников"
               subtitle="Что сотрудники видят в карточке компании. Название и логотип видны всегда"
             />
-            <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
+            <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
               {VIS_FIELDS.map((f) => (
                 <Toggle key={f.key} checked={!!vis[f.key]} label={f.label} onChange={(v) => toggleVis(f.key, v)} />
               ))}

@@ -233,7 +233,7 @@ export const httpNode: ProcessNodeProvider = {
     description:
       'Вызывает внешний API (Kaspi, 1С, любой REST). Поддерживает подстановки {{form.поле}} в URL/теле, заголовки и креды из сейфа. Ответ доступен следующим шагам.',
     category: 'integration',
-    icon: '🌐',
+    icon: 'globe',
     tier: 'standard',
     io: true, // внешний HTTP → исполняется вне инстанс-лока (P3)
     // success/error — поток; astool — подключение к AI-Агенту как инструмент (один узел = действие И инструмент, модель n8n).

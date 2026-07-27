@@ -184,7 +184,8 @@ export default function ProcessInstancePage() {
         }
         actions={
           <>
-            <Button variant="ghost" icon="arrowLeft" href={`/workspaces/${wsId}/processes`}>Процессы</Button>
+            {/* Контурная: шапка страницы лежит на фоне, а не на блоке */}
+            <Button variant="outline" icon="arrowLeft" href={`/workspaces/${wsId}/processes`}>Процессы</Button>
             {inst.canCancel && (
               <Button variant="matte" tone="danger" icon="close" loading={cancelMut.isPending} onClick={() => setConfirmCancel(true)}>
                 Отменить
@@ -229,7 +230,7 @@ export default function ProcessInstancePage() {
         {/* ---------- Шаги: «секундомер отделов» ---------- */}
         <Card span={8}>
           <CardHeader title="Шаги" subtitle="Сколько каждый шаг занял и кто его вёл" />
-          <div className="density-compact" style={{ display: 'grid', gap: '0.375rem' }}>
+          <div className="density-compact ui-stack" style={{ gap: '0.375rem' }}>
             {inst.steps.map((s) => {
               const queued = s.status === 'active' && !!s.departmentId && !s.taskId;
               const decision = s.decision === 'approved' ? 'одобрено' : s.decision === 'rejected' ? 'отклонено' : null;
@@ -301,7 +302,7 @@ export default function ProcessInstancePage() {
           {Object.keys(inst.variables).length === 0 ? (
             <EmptyState icon="empty" title="Анкета пуста" />
           ) : (
-            <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
+            <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
               {Object.entries(inst.variables).map(([k, v]) => (
                 <div key={k}>
                   <div className="label-caps">{k}</div>

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Input } from '@/components/ui';
 import { api } from '@/lib/api';
 import {
   currencyBadgeKey, walletCurrencyKey, walletHistoryKey, walletHoldersKey, walletOverviewKey,
@@ -157,14 +158,22 @@ export function WalletSection() {
             У вас ещё нет своей валюты. Придумайте название и иконку — ею вы будете награждать людей из окружения за задачи.
           </p>
           <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-            <div style={{ width: '64px' }}>
-              <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Иконка</label>
-              <input value={cIcon} onChange={(e) => setCIcon(e.target.value)} maxLength={WALLET_LIMITS.maxIconLength} className="ui-input" style={{ textAlign: 'center', fontSize: '1.3rem' }} />
-            </div>
-            <div style={{ flex: 1, minWidth: '180px' }}>
-              <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Название</label>
-              <input value={cName} onChange={(e) => setCName(e.target.value)} maxLength={WALLET_LIMITS.maxCurrencyNameLength} placeholder="Напр. Монеты Мамы" className="ui-input" />
-            </div>
+            <Input
+              label="Иконка"
+              value={cIcon}
+              onChange={(e) => setCIcon(e.target.value)}
+              maxLength={WALLET_LIMITS.maxIconLength}
+              wrapClassName="wallet-icon-field"
+              style={{ textAlign: 'center', fontSize: '1.3rem' }}
+            />
+            <Input
+              label="Название"
+              value={cName}
+              onChange={(e) => setCName(e.target.value)}
+              maxLength={WALLET_LIMITS.maxCurrencyNameLength}
+              placeholder="Напр. Монеты Мамы"
+              wrapClassName="wallet-name-field"
+            />
             <button className="btn-success" disabled={busy} onClick={createCurrency} style={{ fontSize: '0.85rem' }}>Создать</button>
           </div>
         </div>
@@ -184,10 +193,15 @@ export function WalletSection() {
               </div>
 
               <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'flex-end', marginBottom: 'var(--spacing-4)' }}>
-                <div style={{ flex: 1 }}>
-                  <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Выпустить себе</label>
-                  <input type="number" min={1} value={mintAmt} onChange={(e) => setMintAmt(e.target.value)} placeholder="Сколько монет" className="ui-input" />
-                </div>
+                <Input
+                  label="Выпустить себе"
+                  type="number"
+                  min={1}
+                  value={mintAmt}
+                  onChange={(e) => setMintAmt(e.target.value)}
+                  placeholder="Сколько монет"
+                  wrapClassName="wallet-name-field"
+                />
                 <button className="btn-success" disabled={busy} onClick={mint} style={{ fontSize: '0.85rem' }}>Выпустить</button>
               </div>
               <p className="label-sm" style={{ fontSize: '0.7rem', opacity: 0.55, marginBottom: 'var(--spacing-4)' }}>
@@ -224,14 +238,21 @@ export function WalletSection() {
             </>
           ) : (
             <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-              <div style={{ width: '64px' }}>
-                <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Иконка</label>
-                <input value={eIcon} onChange={(e) => setEIcon(e.target.value)} maxLength={WALLET_LIMITS.maxIconLength} className="ui-input" style={{ textAlign: 'center', fontSize: '1.3rem' }} />
-              </div>
-              <div style={{ flex: 1, minWidth: '160px' }}>
-                <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Название</label>
-                <input value={eName} onChange={(e) => setEName(e.target.value)} maxLength={WALLET_LIMITS.maxCurrencyNameLength} className="ui-input" />
-              </div>
+              <Input
+                label="Иконка"
+                value={eIcon}
+                onChange={(e) => setEIcon(e.target.value)}
+                maxLength={WALLET_LIMITS.maxIconLength}
+                wrapClassName="wallet-icon-field"
+                style={{ textAlign: 'center', fontSize: '1.3rem' }}
+              />
+              <Input
+                label="Название"
+                value={eName}
+                onChange={(e) => setEName(e.target.value)}
+                maxLength={WALLET_LIMITS.maxCurrencyNameLength}
+                wrapClassName="wallet-name-field"
+              />
               <button className="btn-success" disabled={busy} onClick={saveEdit} style={{ fontSize: '0.85rem' }}>Сохранить</button>
               <button className="btn-ghost-inline" disabled={busy} onClick={() => setEditing(false)} style={{ fontSize: '0.85rem' }}>Отмена</button>
             </div>
@@ -266,7 +287,16 @@ export function WalletSection() {
               </div>
               {burnId === w.currencyId && (
                 <div style={{ marginTop: 'var(--spacing-2)', display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center' }}>
-                  <input type="number" min={1} value={burnAmt} onChange={(e) => setBurnAmt(e.target.value)} placeholder="Сколько сжечь" className="ui-input" style={{ flex: 1, padding: '0.3rem 0.6rem', fontSize: '0.8rem' }} />
+                  <Input
+                    aria-label={`Сколько монет «${w.name}» сжечь`}
+                    type="number"
+                    min={1}
+                    value={burnAmt}
+                    onChange={(e) => setBurnAmt(e.target.value)}
+                    placeholder="Сколько сжечь"
+                    wrapClassName="wallet-name-field"
+                    style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem' }}
+                  />
                   <button onClick={() => burnCoins(w.currencyId)} disabled={busy} style={{ fontSize: '0.78rem', fontWeight: 600, color: '#fff', background: 'var(--danger)', border: 'none', borderRadius: '8px', padding: '0.3rem 0.7rem', cursor: 'pointer' }}>Сжечь</button>
                   <button onClick={() => setBurnId(null)} className="btn-ghost-inline" style={{ fontSize: '0.78rem', padding: '0.3rem 0.7rem' }}>Отмена</button>
                 </div>

@@ -55,7 +55,7 @@ export const startNode: ProcessNodeProvider = {
     description:
       'Запуск кнопкой «Запустить»: инициатор заполняет анкету и стартует процесс. Точка входа — её можно удалить, если запуск только автоматический.',
     category: 'trigger',
-    icon: '🚀',
+    icon: 'click',
     tier: 'standard',
     trigger: true,
     outputs: [{ key: 'main', label: '' }],
@@ -75,7 +75,7 @@ export const scheduleTriggerNode: ProcessNodeProvider = {
     title: 'По расписанию',
     description: 'Запускает процесс автоматически каждые N часов/дней. Анкета не заполняется (берёт значения по умолчанию).',
     category: 'trigger',
-    icon: '⏰',
+    icon: 'clock',
     tier: 'standard',
     trigger: true,
     outputs: [{ key: 'main', label: '' }],
@@ -109,7 +109,7 @@ export const webhookTriggerNode: ProcessNodeProvider = {
     title: 'Веб-хук',
     description: 'Внешняя система (Kaspi, 1С, сайт…) вызывает публичный URL — процесс запускается. URL появится в этой панели после публикации; тело запроса попадает в анкету.',
     category: 'trigger',
-    icon: '🌐',
+    icon: 'plug',
     tier: 'standard',
     trigger: true,
     outputs: [{ key: 'main', label: '' }],
@@ -131,7 +131,7 @@ export const eventTriggerNode: ProcessNodeProvider = {
     title: 'Событие в SuperApp',
     description: 'Запускает процесс на событие платформы: принят сотрудник, назначена должность, завершена/создана задача и т.п.',
     category: 'trigger',
-    icon: '📡',
+    icon: 'broadcast',
     tier: 'standard',
     trigger: true,
     outputs: [{ key: 'main', label: '' }],
@@ -176,7 +176,7 @@ export const telegramTriggerNode: ProcessNodeProvider = {
     description:
       'Запускает процесс, когда боту пишут в Telegram. Доступно нодам: текст → {{form.text}}, чат → {{form.chatId}}, имя → {{form.fromName}}. Ответ — нодой «Telegram» с Chat ID = {{form.chatId}}.',
     category: 'trigger',
-    icon: '✈️',
+    icon: 'telegram',
     tier: 'standard',
     trigger: true,
     outputs: [{ key: 'main', label: '' }],
@@ -229,7 +229,7 @@ export const humanTaskNode: ProcessNodeProvider = {
     description:
       'Создаёт задачу в Задачнике (чат, напоминания) и ждёт приёмки. Режим «Отдел» — задача встаёт в очередь, её забирает любой сотрудник отдела. Подстановки {{form.поле}}.',
     category: 'people',
-    icon: '📋',
+    icon: 'tasks',
     tier: 'standard',
     outputs: [{ key: 'main', label: '' }],
     fields: [
@@ -335,7 +335,7 @@ export const approvalNode: ProcessNodeProvider = {
     description:
       'Ждёт решения согласующего: «Одобрить» или «Отклонить» — токен идёт по соответствующей ветке (отклонение можно вернуть назад связью). Подстановки {{form.поле}}.',
     category: 'people',
-    icon: '✅',
+    icon: 'checkCircle',
     tier: 'standard',
     outputs: [
       { key: 'approved', label: 'Одобрено' },
@@ -390,7 +390,7 @@ export const delayNode: ProcessNodeProvider = {
     title: 'Пауза',
     description: 'Останавливает процесс на заданное время, затем продолжает.',
     category: 'flow',
-    icon: '⏳',
+    icon: 'hourglass',
     tier: 'standard',
     outputs: [{ key: 'main', label: '' }],
     fields: [
@@ -430,7 +430,7 @@ export const conditionNode: ProcessNodeProvider = {
     title: 'Если',
     description: 'Сравнивает поле анкеты с значением и ведёт токен по ветке «Да» или «Нет».',
     category: 'flow',
-    icon: '🔀',
+    icon: 'condition',
     tier: 'standard',
     outputs: [
       { key: 'true', label: 'Да' },
@@ -518,7 +518,7 @@ export const notifyNode: ProcessNodeProvider = {
     title: 'Уведомить',
     description: 'Отправляет уведомление инициатору или выбранному сотруднику. Поддерживает подстановки {{form.поле}}.',
     category: 'service',
-    icon: '🔔',
+    icon: 'bell',
     tier: 'standard',
     // main — поток; astool — подключение к AI-Агенту как инструмент (один узел = действие И инструмент, модель n8n).
     outputs: [
@@ -595,7 +595,7 @@ export const splitNode: ProcessNodeProvider = {
     title: 'Развилка',
     description: 'Запускает несколько веток одновременно — все идут параллельно. Соедините выход с 2+ нодами.',
     category: 'flow',
-    icon: '🔱',
+    icon: 'split',
     tier: 'standard',
     outputs: [{ key: 'main', label: '' }],
     fields: [],
@@ -615,7 +615,7 @@ export const joinNode: ProcessNodeProvider = {
     title: 'Слияние',
     description: 'Ждёт, пока завершатся все параллельные ветки, затем продолжает. Соедините 2+ ветки в его вход.',
     category: 'flow',
-    icon: '⥇',
+    icon: 'merge',
     tier: 'standard',
     outputs: [{ key: 'main', label: '' }],
     fields: [],
@@ -644,7 +644,7 @@ export const loopEachNode: ProcessNodeProvider = {
     description:
       'Берёт список (результат прошлого шага/анкета) и прогоняет ветку «Каждый» на КАЖДЫЙ элемент — элемент доступен как {{item.поле}}. Ветку «Каждый» соедините связью ОБРАТНО в эту ноду. Когда элементы кончатся — процесс идёт по «Готово».',
     category: 'flow',
-    icon: '🔁',
+    icon: 'loop',
     tier: 'standard',
     outputs: [
       { key: 'loop', label: 'Каждый' },
@@ -689,7 +689,7 @@ export const setDataNode: ProcessNodeProvider = {
     description:
       'Вычисляет поля и сохраняет в данные процесса. Каждая строка: «имя = выражение», напр. «итог = item.sum * 1.12» или «привет = upper(item.name)». Дальше — {{form.имя}}.',
     category: 'flow',
-    icon: '🧮',
+    icon: 'variables',
     tier: 'standard',
     outputs: [{ key: 'main', label: '' }],
     fields: [
@@ -722,7 +722,7 @@ export const endNode: ProcessNodeProvider = {
     title: 'Конец',
     description: 'Завершает процесс.',
     category: 'flow',
-    icon: '🏁',
+    icon: 'finish',
     tier: 'standard',
     outputs: [],
     terminal: true,

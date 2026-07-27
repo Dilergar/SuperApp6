@@ -1,6 +1,6 @@
 'use client';
 
-import { ModalShell } from '@/components/ui';
+import { Input, ModalShell } from '@/components/ui';
 /**
  * Диалоги безопасности профиля (движок core/verify):
  *  - Смена пароля: текущий пароль + SMS-код на свой номер (Kaspi-модель step-up);
@@ -86,10 +86,25 @@ export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
         <form onSubmit={requestCode}>
           <h3 className="title-md" style={{ marginBottom: 'var(--spacing-4)' }}>Смена пароля</h3>
           {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: 'var(--spacing-3)' }}>{error}</p>}
-          <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Текущий пароль</label>
-          <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required autoFocus className="ui-input" autoComplete="current-password" style={{ marginBottom: 'var(--spacing-5)' }} />
-          <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Новый пароль</label>
-          <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required className="ui-input" placeholder="Минимум 8 символов" autoComplete="new-password" />
+          <Input
+            label="Текущий пароль"
+            type="password"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+            required
+            autoFocus
+            autoComplete="current-password"
+            wrapClassName="mb-5"
+          />
+          <Input
+            label="Новый пароль"
+            type="password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            required
+            placeholder="Минимум 8 символов"
+            autoComplete="new-password"
+          />
           <p className="label-sm" style={{ marginTop: 'var(--spacing-2)', marginBottom: 'var(--spacing-5)', opacity: 0.7 }}>
             Подтвердим SMS-кодом на ваш номер. Остальные сессии будут завершены
           </p>
@@ -218,10 +233,25 @@ export function ChangePhoneDialog({ onClose }: { onClose: () => void }) {
             номеру больше нет — смена пока невозможна.
           </p>
           {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: 'var(--spacing-3)' }}>{error}</p>}
-          <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Пароль</label>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus className="ui-input" autoComplete="current-password" style={{ marginBottom: 'var(--spacing-5)' }} />
-          <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Новый номер</label>
-          <input type="tel" value={newPhone} onChange={(e) => setNewPhone(e.target.value)} required className="ui-input" placeholder="+77001234567" />
+          <Input
+            label="Пароль"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            autoFocus
+            autoComplete="current-password"
+            wrapClassName="mb-5"
+          />
+          <Input
+            label="Новый номер"
+            type="tel"
+            value={newPhone}
+            onChange={(e) => setNewPhone(e.target.value)}
+            required
+            placeholder="+77001234567"
+            autoComplete="tel"
+          />
           <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end', marginTop: 'var(--spacing-5)' }}>
             <button type="button" className="btn-ghost-inline" disabled={busy} style={{ fontSize: '0.85rem' }} onClick={onClose}>Отмена</button>
             <button type="submit" className="btn-primary" disabled={busy || !password} style={{ fontSize: '0.85rem', opacity: busy ? 0.6 : 1 }}>

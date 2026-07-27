@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Input, useConfirm } from '@/components/ui';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api } from '@/lib/api';
 import {
@@ -111,6 +112,7 @@ export default function CirclesPage() {
   const [showBlocked, setShowBlocked] = useState(false);
 
   const clear = () => { setError(''); setSuccessMsg(''); };
+  const [confirm, confirmUI] = useConfirm();
 
   // ============================================================
   // Data — React Query with SHARED keys (contacts/circles are reused by other
@@ -283,8 +285,19 @@ export default function CirclesPage() {
     }
   };
 
-  const handleBlock = async (userId: string, name: string) => {
-    if (!confirm(`Заблокировать ${name}? Связь будет удалена у обоих; он(а) больше не сможет вам писать, приглашать и видеть ваши данные.`)) return;
+  const handleBlock = (userId: string, name: string) => {
+    confirm(
+      {
+        title: `Заблокировать ${name}?`,
+        message: 'Связь будет удалена у обоих. Он(а) больше не сможет вам писать, приглашать и видеть ваши данные.',
+        confirmLabel: 'Заблокировать',
+        danger: true,
+      },
+      () => blockNow(userId),
+    );
+  };
+
+  const blockNow = async (userId: string) => {
     clear();
     try {
       await api.post('/contacts/blocks', { userId });
@@ -398,8 +411,8 @@ export default function CirclesPage() {
   // в форме приглашения не перерисовывал весь грид, колбэки каждой карточки
   // обязаны переживать рендер. Вызов идёт через ref — карточка всегда зовёт
   // СВЕЖИЙ обработчик (замыкание на activeGroup не протухает).
-  const cardActionsRef = useRef({ handleDeleteContact, handleBlock, handleRemoveFromGroup, handleAddToGroup });
-  cardActionsRef.current = { handleDeleteContact, handleBlock, handleRemoveFromGroup, handleAddToGroup };
+  const cardActionsRef = useRef({ handleDeleteContact, handleBlock, handleRemoveFromGroup, handleAddToGroup, confirm });
+  cardActionsRef.current = { handleDeleteContact, handleBlock, handleRemoveFromGroup, handleAddToGroup, confirm };
   const gridContacts = activeGroup && activeGroupData ? activeGroupData.members : contacts;
   const cardHandlers = useMemo(() => {
     const map = new Map<string, {
@@ -411,7 +424,10 @@ export default function CirclesPage() {
     for (const c of gridContacts) {
       map.set(c.linkId, {
         onDelete: () => {
-          if (confirm('Удалить из окружения? Это действие двустороннее.')) void cardActionsRef.current.handleDeleteContact(c.linkId);
+          cardActionsRef.current.confirm(
+            { title: 'Удалить из окружения?', message: 'Действие двустороннее — связь исчезнет у обоих.', confirmLabel: 'Удалить', danger: true },
+            () => cardActionsRef.current.handleDeleteContact(c.linkId),
+          );
         },
         onBlock: () => void cardActionsRef.current.handleBlock(c.them.id, c.them.firstName),
         onRemoveFromFolder: () => void cardActionsRef.current.handleRemoveFromGroup(c.linkId),
@@ -493,10 +509,17 @@ export default function CirclesPage() {
           <form onSubmit={handleSendInvitation} className="card-elevated" style={{ marginBottom: 'var(--spacing-8)', padding: 'var(--spacing-6)' }}>
             <h3 className="title-md" style={{ marginBottom: 'var(--spacing-4)' }}>Добавить в окружение</h3>
 
-            <div style={{ marginBottom: 'var(--spacing-4)' }}>
-              <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Номер телефона</label>
-              <input type="tel" value={invPhone} onChange={(e) => handlePhoneLookup(e.target.value)} placeholder="+77001234567" className="ui-input" autoFocus />
-            </div>
+            <Input
+              label="Номер телефона"
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              value={invPhone}
+              onChange={(e) => handlePhoneLookup(e.target.value)}
+              placeholder="+77001234567"
+              autoFocus
+              wrapClassName="mb-4"
+            />
 
             {invLookupLoading && <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)' }}>Поиск...</p>}
             {invLookupDone && invLookup && (
@@ -528,10 +551,13 @@ export default function CirclesPage() {
               />
             </div>
 
-            <div style={{ marginBottom: 'var(--spacing-6)' }}>
-              <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Сообщение</label>
-              <input type="text" value={invMessage} onChange={(e) => setInvMessage(e.target.value)} placeholder="Привет! Давай добавимся..." className="ui-input" />
-            </div>
+            <Input
+              label="Сообщение"
+              value={invMessage}
+              onChange={(e) => setInvMessage(e.target.value)}
+              placeholder="Привет! Давай добавимся..."
+              wrapClassName="mb-6"
+            />
 
             <button type="submit" disabled={sending || invPhone.length < 12} className="btn-success" style={{ fontSize: '0.9rem', opacity: (sending || invPhone.length < 12) ? 0.6 : 1 }}>
               {sending ? 'Отправка...' : 'Отправить приглашение'}
@@ -671,7 +697,13 @@ export default function CirclesPage() {
                 <span style={{ marginLeft: '0.3rem', fontSize: '0.65rem', opacity: 0.6 }}>{g.membersCount}</span>
               </button>
               <button
-                onClick={(e) => { e.stopPropagation(); if (confirm(`Удалить группу "${g.name}"?`)) handleDeleteGroup(g.id); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  confirm(
+                    { title: `Удалить группу «${g.name}»?`, message: 'Люди останутся в окружении — исчезнет только сама группа и её настройки видимости.', confirmLabel: 'Удалить', danger: true },
+                    () => handleDeleteGroup(g.id),
+                  );
+                }}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.7rem', color: 'var(--outline)', opacity: 0.3, padding: '0 0.15rem' }}
                 onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.8'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.3'; }}
@@ -696,10 +728,15 @@ export default function CirclesPage() {
         {showCreateGroup && (
           <form onSubmit={handleCreateGroup} className="card" style={{ padding: 'var(--spacing-4)', marginBottom: 'var(--spacing-4)' }}>
             <div style={{ display: 'flex', gap: 'var(--spacing-3)', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-              <div style={{ flex: 1, minWidth: '150px' }}>
-                <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Название группы</label>
-                <input type="text" value={groupName} onChange={(e) => setGroupName(e.target.value)} placeholder="Семья, Родственники..." className="ui-input" autoFocus style={{ fontSize: '0.85rem' }} />
-              </div>
+              <Input
+                label="Название группы"
+                value={groupName}
+                onChange={(e) => setGroupName(e.target.value)}
+                placeholder="Семья, Родственники..."
+                autoFocus
+                wrapClassName="group-name-field"
+                style={{ fontSize: '0.85rem' }}
+              />
               <div style={{ display: 'flex', gap: 'var(--spacing-1)' }}>
                 {GROUP_COLORS.slice(0, 6).map((color) => (
                   <button key={color} type="button" onClick={() => setGroupColor(color)}
@@ -772,6 +809,7 @@ export default function CirclesPage() {
           </div>
         )}
       </div>
+      {confirmUI}
     </div>
   );
 }
@@ -961,12 +999,11 @@ function RolePicker({ label, value, onChange }: { label: string; value: string; 
         </button>
       </div>
       {isCustom && (
-        <input
-          type="text"
+        <Input
+          aria-label={`${label}: свой вариант`}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="Введите свой вариант..."
-          className="ui-input"
           autoFocus
           style={{ marginTop: 'var(--spacing-3)', fontSize: '0.85rem' }}
         />

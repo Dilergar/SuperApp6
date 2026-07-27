@@ -251,9 +251,9 @@ function WishForm({ init, onClose, onSaved }: { init?: WishItem; onClose: () => 
         </>
       }
     >
-      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
-        <div style={{ display: 'grid', gridTemplateColumns: '5rem 1fr', gap: 'var(--spacing-3)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '5rem minmax(0, 1fr)', gap: 'var(--spacing-3)' }}>
           <Input
             label="Значок"
             value={icon}
@@ -321,7 +321,7 @@ function WishSharePanel({
       size="sm"
       footer={<Button variant="ghost" onClick={onClose}>Готово</Button>}
     >
-      <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
         <EntitySelector
           types={['user', 'circle']}
@@ -409,7 +409,7 @@ function CopyWishModal({ wish, onClose, onDone }: { wish: WishItem; onClose: () 
         </>
       }
     >
-      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
 
         <Select

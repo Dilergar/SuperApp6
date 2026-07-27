@@ -41,6 +41,8 @@ import type {
   Task,
   TaskFilter,
   TaskStats,
+  Workspace,
+  WorkspaceInvitation,
 } from '@superapp/shared';
 
 // ---- Keys (stable, shared between pages) ----
@@ -57,6 +59,14 @@ export const currencyBadgeKey = ['wallet', 'currency-badge'] as const;
 export const messengerChatsKey = ['messenger', 'chats'] as const;
 export const messengerChatDetailKey = (chatId: string) => ['messenger', 'detail', chatId] as const;
 export const messengerMessagesKey = (chatId: string) => ['messenger', 'messages', chatId] as const;
+// Организации (B2B): список кормит И переключатель контекста в топбаре (AppShell),
+// И панель на дашборде. Ключ ОБЩИЙ и живёт здесь: пока панель держала свой запрос
+// мимо кэша, созданная организация (принятый найм, возврат из архива) не появлялась
+// в переключателе до перезагрузки — обозреватель шелла смонтирован постоянно и сам
+// не перезапрашивает. Мутации панели инвалидируют этот префикс.
+export const workspacesKey = ['workspaces'] as const;
+export const workspacesArchivedKey = ['workspaces', 'archived'] as const;
+export const workspacesIncomingInvitationsKey = ['workspaces', 'invitations', 'incoming'] as const;
 // Сервис «Сотрудники» (B2B)
 export const workspaceKey = (id: string) => ['workspaces', id] as const;
 export const workspaceMembersKey = (id: string) => ['workspaces', id, 'members'] as const;
@@ -157,6 +167,23 @@ export async function fetchOutgoingInvitations(): Promise<OutgoingInvitation[]> 
 
 export async function fetchBlocks(): Promise<ContactBlockRecord[]> {
   const res = await api.get('/contacts/blocks');
+  return res.data.data;
+}
+
+// ---- Организации (B2B) ----
+
+export async function fetchWorkspaces(): Promise<Workspace[]> {
+  const res = await api.get('/workspaces');
+  return res.data.data;
+}
+
+export async function fetchWorkspacesArchived(): Promise<Workspace[]> {
+  const res = await api.get('/workspaces/archived');
+  return res.data.data;
+}
+
+export async function fetchWorkspaceIncomingInvitations(): Promise<WorkspaceInvitation[]> {
+  const res = await api.get('/workspaces/invitations/incoming');
   return res.data.data;
 }
 

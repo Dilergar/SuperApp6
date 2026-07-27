@@ -1,7 +1,6 @@
 'use client';
 
-import { ModalShell } from '@/components/ui';
-import { Icon } from '@/components/ui';
+import { Icon, Input, ModalShell } from '@/components/ui';
 import { useEffect, useRef, useState } from 'react';
 import { MESSENGER_LIMITS } from '@superapp/shared';
 import type { FileDto } from '@superapp/shared';
@@ -125,11 +124,10 @@ export function FileAttachmentModal({
           </div>
         )}
 
-        <input
-          type="text"
+        <Input
+          aria-label="Подпись к вложению"
           value={caption}
           onChange={(e) => setCaption(e.target.value)}
-          className="ui-input"
           placeholder="Подпись (необязательно)"
           maxLength={MESSENGER_LIMITS.maxMessageLength}
           onKeyDown={(e) => {

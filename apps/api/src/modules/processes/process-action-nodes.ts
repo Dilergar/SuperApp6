@@ -59,7 +59,7 @@ export const richCardActionNode: ProcessNodeProvider = {
     description:
       'Выполняет действие над заказом/задачей/событием/лотом (подтвердить заказ, принять/взять задачу, RSVP…) от имени инициатора. Права перепроверяются. ID объекта — из анкеты/прошлого шага.',
     category: 'service',
-    icon: '⚡',
+    icon: 'bolt',
     tier: 'standard',
     io: true,
     outputs: [
@@ -128,7 +128,7 @@ export const messageSendNode: ProcessNodeProvider = {
     description:
       'Отправляет сообщение в чат или в личку сотруднику от имени инициатора (он должен иметь доступ к чату). Подстановки {{form.x}}/{{steps.x}}. Можно подключить к AI-Агенту как инструмент.',
     category: 'service',
-    icon: '💬',
+    icon: 'messenger',
     tier: 'standard',
     io: true,
     outputs: [
@@ -184,7 +184,7 @@ export const staffAssignNode: ProcessNodeProvider = {
     title: 'Назначить должность',
     description: 'Назначает сотруднику должность (и филиал) от имени инициатора — инициатор должен быть Менеджер+. Напр.: при найме автоматически выдать должность.',
     category: 'people',
-    icon: '💼',
+    icon: 'position',
     tier: 'standard',
     io: true,
     outputs: [
@@ -224,7 +224,7 @@ export const roleChangeNode: ProcessNodeProvider = {
     title: 'Сменить роль сотрудника',
     description: 'Меняет роль сотрудника в организации от имени инициатора — инициатор должен быть Админ+ (владельца/подрядчика назначить нельзя).',
     category: 'people',
-    icon: '🎚️',
+    icon: 'sliders',
     tier: 'standard',
     io: true,
     outputs: [
@@ -270,7 +270,7 @@ export const startSubprocessNode: ProcessNodeProvider = {
     title: 'Запустить процесс',
     description: 'Запускает другой опубликованный процесс этой организации как под-процесс (от имени инициатора). Есть защита от рекурсии по глубине. Анкету передайте JSON-ом.',
     category: 'service',
-    icon: '▶️',
+    icon: 'processes',
     tier: 'standard',
     io: true,
     outputs: [
@@ -323,7 +323,7 @@ export const financeRecordNode: ProcessNodeProvider = {
     description:
       'Записывает расход или доход в книгу «Финансы» ОРГАНИЗАЦИИ (управленческий учёт; книга создаётся сама). Сумма в тенге, поддерживает подстановки {{form.amount}} / {{steps.x.…}}. Категория ищется по имени и создаётся при первом использовании.',
     category: 'service',
-    icon: '📒',
+    icon: 'receipt',
     tier: 'standard',
     io: true,
     outputs: [

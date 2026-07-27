@@ -1,6 +1,8 @@
 import { create } from 'zustand';
+import { isAxiosError } from 'axios';
 import type { CardVisibility } from '@superapp/shared';
 import { api } from '../api';
+import { resetSessionCaches } from '../session-reset';
 
 export interface UserRole {
   role: string;
@@ -86,14 +88,24 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const { data } = await api.get('/users/me');
       set({ user: data.data, isAuthenticated: true, isHydrated: true });
-    } catch {
-      clearTokens();
+    } catch (err) {
+      // Токены сносим ТОЛЬКО когда сервер отказал в доступе. 401 сюда долетает уже
+      // после неудачной попытки обновления (интерсептор в lib/api), то есть сессия
+      // действительно мертва. А вот 500, таймаут и оффлайн — не повод: раньше любой
+      // блип API на старте уничтожал refresh-токен и выкидывал человека вводить
+      // пароль заново.
+      const status = isAxiosError(err) ? err.response?.status : undefined;
+      const rejected = status === 401 || status === 403;
+      if (rejected) clearTokens();
       set({ user: null, isAuthenticated: false, isHydrated: true });
     }
   },
 
   login: async (phone, password) => {
     const { data } = await api.post('/auth/login', { phone, password });
+    // Второй ремень к сбросу в logout: на /login можно прийти и не выходя (ссылкой),
+    // и тогда чужой кэш дожил бы до входа следующего человека.
+    resetSessionCaches();
     setTokens(data.data.accessToken, data.data.refreshToken);
     await get().fetchProfile();
   },
@@ -105,6 +117,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   applySession: async ({ accessToken, refreshToken }) => {
+    resetSessionCaches();
     setTokens(accessToken, refreshToken);
     await get().fetchProfile();
   },
@@ -120,6 +133,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } finally {
       clearTokens();
       set({ user: null, isAuthenticated: false });
+      // Выход — клиентский переход, вкладка не перезагружается: без явного сброса
+      // кэши пережили бы смену аккаунта (см. lib/session-reset).
+      resetSessionCaches();
     }
   },
 

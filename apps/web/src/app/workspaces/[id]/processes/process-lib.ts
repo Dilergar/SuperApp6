@@ -11,28 +11,75 @@ import type { Edge, MarkerType, Node } from '@xyflow/react';
 import type {
   ProcessDocument,
   ProcessFormField,
+  ProcessNodeCategory,
   ProcessNodeTypeDto,
   ProcessPortType,
   ProcessStepStatus,
 } from '@superapp/shared';
+import { ICONS, type IconName } from '@/components/ui';
 
-/** Визуальный язык категорий (DESIGN.md: цвет фона, не линии). */
-export const CATEGORY_COLORS: Record<string, string> = {
-  trigger: '#ffe1b0', // тёплый янтарь — триггеры запуска заметны (модель n8n: вход = особая нода)
-  flow: 'var(--tertiary-container)',
-  people: 'var(--primary-container)',
-  service: 'var(--secondary-container)',
-  ai: '#e7d9ff',
-  integration: '#d9f2e0',
+/**
+ * Матовый тон — базовый приём системы (DESIGN.md §1): заливка rgba(база,0.12–0.16)
+ * + бордер rgba(база,0.30–0.35) + тёмный текст. Категорию ноды показывает ровно
+ * он: подложка иконки на ноде и в палитре, точка на миникарте.
+ *
+ * Цвета — только переменными. В SVG React Flow (миникарта, стрелки рёбер) они
+ * работают: библиотека кладёт их в inline-style, а не в атрибут fill.
+ */
+export interface NodeTone {
+  /** Заливка матовой подложки. */
+  bg: string;
+  /** Бордер подложки. */
+  border: string;
+  /** Цвет штриха иконки и текста на подложке. */
+  fg: string;
+  /** Насыщенная база — точка на миникарте, кольцо статуса. */
+  base: string;
+}
+
+/** Шесть категорий на четыре системных тона не ложатся — два взяты из
+ *  расширения палитры (violet/teal в globals.css). Красный не участвует:
+ *  в системе он означает только опасность. */
+export const CATEGORY_TONE: Record<ProcessNodeCategory, NodeTone> = {
+  trigger: { bg: 'var(--warning-container)', border: 'var(--warning-border)', fg: 'var(--warning)', base: 'var(--warning-base)' },
+  flow: { bg: 'var(--surface-container)', border: 'var(--border)', fg: 'var(--on-surface-variant)', base: 'var(--line)' },
+  people: { bg: 'var(--primary-container)', border: 'var(--primary-border)', fg: 'var(--primary-dim)', base: 'var(--primary)' },
+  service: { bg: 'var(--success-container)', border: 'var(--success-border)', fg: 'var(--success)', base: 'var(--success-base)' },
+  ai: { bg: 'var(--violet-container)', border: 'var(--violet-border)', fg: 'var(--violet)', base: 'var(--violet-base)' },
+  integration: { bg: 'var(--teal-container)', border: 'var(--teal-border)', fg: 'var(--teal)', base: 'var(--teal-base)' },
 };
+
+export function categoryTone(category: string | undefined): NodeTone {
+  return CATEGORY_TONE[(category ?? 'flow') as ProcessNodeCategory] ?? CATEGORY_TONE.flow;
+}
+
+/**
+ * Иконка ноды. Паспорт присылает семантический ключ реестра кита ('robot',
+ * 'clock', …) — незнакомый ключ (нода нового бэкенда на старом фронте) не
+ * ломает палитру, а рисуется запасной иконкой категории.
+ */
+const CATEGORY_FALLBACK_ICON: Record<ProcessNodeCategory, IconName> = {
+  trigger: 'bolt',
+  flow: 'processes',
+  people: 'people',
+  service: 'apps',
+  ai: 'ai',
+  integration: 'plug',
+};
+
+export function nodeIcon(t: { icon?: string; category?: string } | undefined): IconName {
+  const key = t?.icon;
+  if (key && key in ICONS) return key as IconName;
+  return CATEGORY_FALLBACK_ICON[(t?.category ?? 'flow') as ProcessNodeCategory] ?? 'processes';
+}
 
 /** Ф4.5: цвет типизированного порта (поток vs подключение под-ноды к агенту). */
 export const PORT_COLORS: Record<string, string> = {
-  main: 'var(--secondary)',
-  ai_model: '#8b5cf6', // фиолетовый — Модель
-  ai_memory: '#14b8a6', // бирюзовый — Память
-  ai_tool: '#f59e0b', // янтарный — Инструменты
-  ai_output: '#10b981', // зелёный — Парсер (структурированный ответ)
+  main: 'var(--outline)',
+  ai_model: 'var(--violet-base)', // фиолетовый — Модель
+  ai_memory: 'var(--teal-base)', // бирюзовый — Память
+  ai_tool: 'var(--warning-base)', // янтарный — Инструменты
+  ai_output: 'var(--success-base)', // зелёный — Парсер (структурированный ответ)
 };
 export const PORT_LABELS: Record<string, string> = {
   ai_model: 'Модель',
@@ -44,32 +91,27 @@ export function portType(out: { type?: ProcessPortType }): string {
   return out.type ?? 'main';
 }
 
-/** Цвет «точки/кольца» статуса шага (насыщенный — для маленьких индикаторов). */
+/** Кольцо статуса шага вокруг ноды (страница инстанса). */
 export const STEP_STATUS_COLORS: Record<ProcessStepStatus, string> = {
-  active: '#e8a33d',
-  done: '#4f9d69',
-  error: 'var(--primary)',
-  cancelled: '#9a9a8a',
+  active: 'var(--warning-base)',
+  done: 'var(--success-base)',
+  // Раньше здесь стоял --primary: в прежней палитре он был красным. Ошибка
+  // осталась после смены бренда на синий — «упавший шаг» подсвечивался акцентом.
+  error: 'var(--danger-base)',
+  cancelled: 'var(--muted)',
 };
 
-/** Бейджи статусов: тёмный текст на светлой подложке (контраст + скетч-стиль). */
-export const STEP_STATUS_BADGE: Record<ProcessStepStatus, { bg: string; fg: string }> = {
-  active: { bg: '#f6e3bd', fg: '#7a4f10' },
-  done: { bg: '#dff0e4', fg: '#27563a' },
-  error: { bg: 'var(--primary-container)', fg: '#8c1416' },
-  cancelled: { bg: '#e6e6da', fg: '#55554a' },
-};
-
-export const INSTANCE_STATUS_BADGE: Record<string, { bg: string; fg: string }> = {
-  running: { bg: '#f6e3bd', fg: '#7a4f10' },
-  done: { bg: '#dff0e4', fg: '#27563a' },
-  cancelled: { bg: '#e6e6da', fg: '#55554a' },
-  error: { bg: 'var(--primary-container)', fg: '#8c1416' },
+/** Матовый чип статуса внутри ноды (полноценный `<Chip>` туда не помещается). */
+export const STEP_STATUS_BADGE: Record<ProcessStepStatus, NodeTone> = {
+  active: { bg: 'var(--warning-container)', border: 'var(--warning-border)', fg: 'var(--warning)', base: 'var(--warning-base)' },
+  done: { bg: 'var(--success-container)', border: 'var(--success-border)', fg: 'var(--success)', base: 'var(--success-base)' },
+  error: { bg: 'var(--danger-container)', border: 'var(--danger-border)', fg: 'var(--danger)', base: 'var(--danger-base)' },
+  cancelled: { bg: 'var(--surface-container)', border: 'var(--border)', fg: 'var(--on-surface-variant)', base: 'var(--muted)' },
 };
 
 /**
  * Тон статуса для чипов кита — вне канваса статусы рисует `<Chip tone>`,
- * а не своя подложка (пары bg/fg выше остаются только внутри нод канваса,
+ * а не своя подложка (пары выше остаются только внутри нод канваса,
  * где чип не помещается).
  */
 export const INSTANCE_STATUS_TONE: Record<string, 'accent' | 'success' | 'warning' | 'danger' | 'neutral'> = {
@@ -131,12 +173,16 @@ export function makeFlowEdge(
     target: to,
     targetHandle: toPort,
     label: isAttach ? undefined : out?.label || undefined,
-    style: { stroke: color, strokeWidth: isAttach ? 2.5 : 2, strokeDasharray: isAttach ? '6 4' : undefined },
+    // Поток — тонкая карандашная линия; подключение под-ноды к агенту —
+    // пунктир цветом своего порта (Модель/Память/Инструменты видны сразу).
+    style: { stroke: color, strokeWidth: isAttach ? 1.75 : 1.5, strokeDasharray: isAttach ? '5 4' : undefined },
     markerEnd: isAttach
       ? undefined
-      : { type: 'arrowclosed' as MarkerType, width: 17, height: 17, color },
-    labelStyle: { fontSize: 11, fontWeight: 600, fill: 'var(--on-surface)' },
-    labelBgStyle: { fill: 'var(--surface)', fillOpacity: 0.9 },
+      : { type: 'arrowclosed' as MarkerType, width: 15, height: 15, color },
+    labelStyle: { fontSize: 10.5, fontWeight: 700, fill: 'var(--on-surface-variant)' },
+    labelBgStyle: { fill: 'var(--block)', fillOpacity: 0.95 },
+    labelBgPadding: [6, 3] as [number, number],
+    labelBgBorderRadius: 8,
   };
 }
 

@@ -91,6 +91,12 @@ export interface ProcessNodeTypeDto {
   title: string;
   description: string;
   category: ProcessNodeCategory;
+  /**
+   * Семантический ключ иконки из реестра клиента (`ICONS` веб-кита): 'play',
+   * 'clock', 'robot'… Эмодзи здесь ЗАПРЕЩЕНЫ (DESIGN.md §3: интерфейсная
+   * иконка — Phosphor Light, эмодзи остаются только у пользовательских данных).
+   * Неизвестный клиенту ключ рисуется запасной иконкой, а не ломает палитру.
+   */
   icon: string;
   /** system-ноды видны только платформенной роли (platform_admin). */
   tier: 'standard' | 'system';

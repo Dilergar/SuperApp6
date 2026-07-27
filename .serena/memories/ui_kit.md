@@ -9,9 +9,12 @@
 ## Состав
 Icon / EmojiIcon · Button / IconButton · Field / Input / Textarea / SearchField · Select ·
 Toggle / Checkbox · Chip / Badge / StatusDot · Card / CardHeader / BentoGrid / PageHeader /
-StatTile / EmptyState / Divider · TickBar / GradientTickBar · Modal / ConfirmDialog · Menu ·
-Tooltip · Tabs / SegmentedControl · Pagination · Calendar / DatePicker · Dropzone · Alert ·
-Spinner / LoadingBlock / Skeleton / AvatarStack · usePopover · toneVars / cx.
+StatTile / EmptyState / Divider · TickBar / GradientTickBar · Modal / ConfirmDialog /
+**useConfirm** · Menu · Tooltip · Tabs / SegmentedControl · Pagination · Calendar / DatePicker ·
+Dropzone · Alert · Spinner / LoadingBlock / Skeleton / AvatarStack · usePopover · toneVars / cx.
+
+Рядом, но НЕ в ките: `lib/toast.tsx` (`toastError` + `Toaster` смонтирован в providers) —
+всплывашка не примитив формы и не должна тянуть Modal в корневой граф каждой страницы.
 
 Стили — `components/ui/ui.css` (подключён в `app/layout.tsx` после globals.css).
 Состояния :hover/:focus-visible/:disabled/:checked живут ТАМ, а не в инлайне —
@@ -41,3 +44,19 @@ Spinner / LoadingBlock / Skeleton / AvatarStack · usePopover · toneVars / cx.
 - Модалка фокусирует первое ПОЛЕ, а не первый фокусируемый элемент (иначе курсор
   встаёт на крестик «Закрыть»); при закрытии возвращает фокус на источник.
 - `IconButton` — forwardRef: якорь нужен всплывающим слоям для позиционирования.
+
+## Запрещено (ревью веба 2026-07-27, было 30 нарушений)
+- **Нативные `confirm()` и `alert()`.** Не про дизайн: браузер даёт человеку галочку
+  «Блокировать создание диалогов», после которой `confirm()` МОЛЧА возвращает false —
+  кнопка «Удалить» перестаёт работать без единого признака, — а `alert()` не
+  показывается вовсе, и сбой выглядит как успех. Вместо них: `useConfirm()` из кита
+  (возвращает `[confirm, confirmUI]`, окно рендерит вызывающий) и `toastError()`.
+  `useConfirm` — локальный хук, а НЕ глобальный провайдер: `ConfirmDialog` тянет
+  `Modal`, и провайдер в корне утащил бы его в граф КАЖДОЙ страницы.
+- **Свой `<input className="ui-input">` рядом с несвязанным `<label>`.** Кит связывает
+  подпись с полем сам (`htmlFor`+`id` через `useId`); ручная вёрстка оставляла поле
+  без имени для скринридера и без клика по подписи — на `/profile/form` так было
+  13 полей из 13. Нужен свой ряд (например ссылка «Забыли пароль?» справа) —
+  делай настоящий `<label htmlFor>` + `id` на поле, а не `<span>`.
+- Обёртка кита не принимает инлайновый `style` — ширина/flex задаются через
+  `wrapClassName` (`Input`) или `className` (`Select`, там он на обёртке).

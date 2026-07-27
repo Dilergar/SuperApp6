@@ -57,7 +57,7 @@ export const aiGenerateNode: ProcessNodeProvider = {
     title: 'AI',
     description: 'Простой запрос к ИИ по API (Claude/GPT). Свой промпт/модель на каждой ноде. Подстановки {{form.x}}/{{steps.x}}. Результат в output.text.',
     category: 'ai',
-    icon: '✨',
+    icon: 'spark',
     tier: 'standard',
     io: true, // LLM-вызов → вне инстанс-лока (P3): долгий ответ не задваивается
     outputs: [
@@ -96,7 +96,7 @@ export const aiModelNode: ProcessNodeProvider = {
     title: 'Модель',
     description: 'Модель ИИ (Claude/GPT) — подключается к агенту. Одну модель можно подключить к нескольким агентам.',
     category: 'ai',
-    icon: '🧠',
+    icon: 'brain',
     tier: 'standard',
     subNode: true,
     inputs: [],
@@ -117,7 +117,7 @@ export const aiMemoryNode: ProcessNodeProvider = {
     title: 'Память',
     description: 'Память агента по ключу сессии: помнит контекст между запусками процесса с тем же ключом (напр. id клиента из анкеты).',
     category: 'ai',
-    icon: '💾',
+    icon: 'memory',
     tier: 'standard',
     subNode: true,
     inputs: [],
@@ -148,7 +148,7 @@ export const aiParserNode: ProcessNodeProvider = {
     title: 'Структурированный ответ',
     description: 'Подключается к агенту: заставляет вернуть строгий JSON с нужными полями. Результат — в output.data (поля доступны как {{steps.агент.data.поле}}).',
     category: 'ai',
-    icon: '🧩',
+    icon: 'braces',
     tier: 'standard',
     subNode: true,
     inputs: [],
@@ -222,7 +222,7 @@ export const aiAgentNode: ProcessNodeProvider = {
     description:
       'Мозг-оркестратор (n8n-модель): снизу портами подключаются Модель (обязательно), Память (опц.) и Инструменты (сколько угодно). Агент сам решает, какие инструменты звать. Можно подключить как инструмент к другому агенту.',
     category: 'ai',
-    icon: '🤖',
+    icon: 'robot',
     tier: 'standard',
     io: true, // агент-цикл (LLM + инструменты) → вне инстанс-лока (P3)
     inputs: [

@@ -36,7 +36,12 @@ export interface AppNavConfig {
   /** Что показывает переключатель контекста. */
   contextLabel: string;
   groups: AppNavGroup[];
-  /** Нижний блок: профиль, настройки, поддержка. */
+  /**
+   * Нижний блок сайдбара. В ЛИЧНОМ контексте он пуст осознанно: Профиль,
+   * Кошелёк и Настройки живут в меню аватарки топбара, а Упоминания — под
+   * колокольчиком там же. Дублировать их слева значит показывать одно и то
+   * же дважды и растить сайдбар пунктами, которые человек уже нашёл справа.
+   */
   footer: AppNavItem[];
 }
 
@@ -45,7 +50,6 @@ export interface AppNavCounters {
   tasksInbox?: number;
   tasksToday?: number;
   tasksReview?: number;
-  mentions?: number;
   messenger?: number;
 }
 
@@ -61,7 +65,6 @@ export function buildPersonalNav(c: AppNavCounters = {}): AppNavConfig {
           { key: 'dashboard', label: 'Главная', icon: 'home', href: '/dashboard', exact: true },
           { key: 'circles', label: 'Моё окружение', icon: 'circle', href: '/circles' },
           { key: 'messenger', label: 'Мессенджер', icon: 'messenger', href: '/messenger', badge: c.messenger },
-          { key: 'mentions', label: 'Упоминания', icon: 'mentions', href: '/mentions', badge: c.mentions },
         ],
       },
       {
@@ -110,11 +113,8 @@ export function buildPersonalNav(c: AppNavCounters = {}): AppNavConfig {
         ],
       },
     ],
-    footer: [
-      { key: 'profile', label: 'Профиль', icon: 'profile', href: '/profile/card' },
-      { key: 'wallet', label: 'Кошелёк', icon: 'coins', href: '/profile/wallet' },
-      { key: 'settings', label: 'Настройки', icon: 'settings', href: '/profile/settings' },
-    ],
+    // Профиль/Кошелёк/Настройки — в меню аватарки топбара, не здесь.
+    footer: [],
   };
 }
 

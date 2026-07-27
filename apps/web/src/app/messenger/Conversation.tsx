@@ -1,6 +1,6 @@
 'use client';
 
-import { Icon, ICONS, type IconName } from '@/components/ui';
+import { Icon, ICONS, useConfirm, type IconName } from '@/components/ui';
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
@@ -990,6 +990,7 @@ const MessageBubble = memo(function MessageBubble({
   const [hover, setHover] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const [confirmDelete, confirmDeleteUI] = useConfirm();
 
   // Close the corner menu on outside click / Escape.
   useEffect(() => {
@@ -1147,7 +1148,10 @@ const MessageBubble = memo(function MessageBubble({
                       danger
                       onClick={() => {
                         setMenuOpen(false);
-                        if (confirm('Удалить сообщение?')) onDelete(message.id);
+                        confirmDelete(
+                          { title: 'Удалить сообщение?', message: 'Оно исчезнет у всех участников чата.', confirmLabel: 'Удалить', danger: true },
+                          () => onDelete(message.id),
+                        );
                       }}
                     />
                   </>
@@ -1300,6 +1304,7 @@ const MessageBubble = memo(function MessageBubble({
           {mine && !deleted && <StatusTicks status={message.status} />}
         </div>
       )}
+      {confirmDeleteUI}
     </div>
   );
 });

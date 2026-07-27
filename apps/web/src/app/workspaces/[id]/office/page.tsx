@@ -221,7 +221,7 @@ export default function OfficePage() {
               }
             />
           ) : (
-            <div style={{ display: 'grid', gap: '0.375rem' }}>
+            <div className="ui-stack" style={{ gap: '0.375rem' }}>
               {idleRooms.map((room) => (
                 <div
                   key={room.id}
@@ -263,7 +263,7 @@ export default function OfficePage() {
         {history.length > 0 && (
           <Card span={12}>
             <CardHeader title="История" subtitle="Чат завершённой встречи остаётся — там же будут протоколы" />
-            <div className="density-compact" style={{ display: 'grid', gap: '0.375rem' }}>
+            <div className="density-compact ui-stack" style={{ gap: '0.375rem' }}>
               {history.map((room) => (
                 <div
                   key={room.id}
@@ -404,7 +404,7 @@ function InviteModal({
         </>
       }
     >
-      <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
         {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
         <EntitySelector
           value={selected}

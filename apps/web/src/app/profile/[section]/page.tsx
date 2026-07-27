@@ -1,6 +1,6 @@
 'use client';
 
-import { ModalShell } from '@/components/ui';
+import { Button, Input, ModalShell, Select } from '@/components/ui';
 import { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
@@ -302,60 +302,41 @@ export default function ProfileSectionPage() {
                   setTimeout(() => setSuccessMsg(''), 2500);
                 }}
               />
+              {/* Поля — из кита: он сам связывает подпись с полем (htmlFor+id).
+                  Раньше подписи стояли отдельными <label> без связи, и ни одно поле
+                  анкеты не имело имени для скринридера, а клик по подписи не наводил
+                  курсор в поле. */}
               <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)' }}>
-                <div>
-                  <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Имя *</label>
-                  <input type="text" value={editData.firstName} onChange={(e) => setEditData({ ...editData, firstName: e.target.value })} className="ui-input" />
-                </div>
-                <div>
-                  <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Фамилия</label>
-                  <input type="text" value={editData.lastName} onChange={(e) => setEditData({ ...editData, lastName: e.target.value })} className="ui-input" />
-                </div>
+                <Input label="Имя" required value={editData.firstName} onChange={(e) => setEditData({ ...editData, firstName: e.target.value })} />
+                <Input label="Фамилия" value={editData.lastName} onChange={(e) => setEditData({ ...editData, lastName: e.target.value })} />
               </div>
-              <div>
-                <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>О себе (до 160 символов)</label>
-                <input type="text" value={editData.bio} onChange={(e) => setEditData({ ...editData, bio: e.target.value.slice(0, 160) })} className="ui-input" placeholder="Расскажите о себе..." />
-                <span className="label-sm" style={{ fontSize: '0.65rem' }}>{editData.bio.length}/160</span>
-              </div>
+              <Input
+                label="О себе"
+                hint={`${editData.bio.length}/160 символов`}
+                value={editData.bio}
+                onChange={(e) => setEditData({ ...editData, bio: e.target.value.slice(0, 160) })}
+                placeholder="Расскажите о себе..."
+              />
               <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)' }}>
-                <div>
-                  <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Город</label>
-                  <input type="text" value={editData.city} onChange={(e) => setEditData({ ...editData, city: e.target.value })} className="ui-input" placeholder="Алматы" />
-                </div>
-                <div>
-                  <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Дата рождения</label>
-                  <input type="date" value={editData.dateOfBirth} onChange={(e) => setEditData({ ...editData, dateOfBirth: e.target.value })} className="ui-input" />
-                </div>
+                <Input label="Город" value={editData.city} onChange={(e) => setEditData({ ...editData, city: e.target.value })} placeholder="Алматы" />
+                <Input label="Дата рождения" type="date" value={editData.dateOfBirth} onChange={(e) => setEditData({ ...editData, dateOfBirth: e.target.value })} />
               </div>
-              <div>
-                <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Email</label>
-                <input type="email" value={editData.email} onChange={(e) => setEditData({ ...editData, email: e.target.value })} className="ui-input" placeholder="user@example.com" />
-              </div>
-              <div>
-                <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Семейное положение</label>
-                <select value={editData.maritalStatus} onChange={(e) => setEditData({ ...editData, maritalStatus: e.target.value })} className="ui-input" style={{ cursor: 'pointer' }}>
-                  {MARITAL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </div>
+              <Input label="Email" type="email" value={editData.email} onChange={(e) => setEditData({ ...editData, email: e.target.value })} placeholder="user@example.com" />
+              <Select
+                label="Семейное положение"
+                value={editData.maritalStatus}
+                onChange={(v) => setEditData({ ...editData, maritalStatus: v })}
+                options={MARITAL_OPTIONS}
+              />
               <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)' }}>
-                <div>
-                  <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Telegram</label>
-                  <input type="text" value={editData.telegram} onChange={(e) => setEditData({ ...editData, telegram: e.target.value })} className="ui-input" placeholder="@username" />
-                </div>
-                <div>
-                  <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Instagram</label>
-                  <input type="text" value={editData.instagram} onChange={(e) => setEditData({ ...editData, instagram: e.target.value })} className="ui-input" placeholder="@username" />
-                </div>
-                <div>
-                  <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>LinkedIn</label>
-                  <input type="text" value={editData.linkedin} onChange={(e) => setEditData({ ...editData, linkedin: e.target.value })} className="ui-input" placeholder="linkedin.com/in/..." />
-                </div>
-                <div>
-                  <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>WhatsApp</label>
-                  <input type="text" value={editData.whatsapp} onChange={(e) => setEditData({ ...editData, whatsapp: e.target.value })} className="ui-input" placeholder="+77001234567" />
-                </div>
+                <Input label="Telegram" value={editData.telegram} onChange={(e) => setEditData({ ...editData, telegram: e.target.value })} placeholder="@username" />
+                <Input label="Instagram" value={editData.instagram} onChange={(e) => setEditData({ ...editData, instagram: e.target.value })} placeholder="@username" />
+                <Input label="LinkedIn" value={editData.linkedin} onChange={(e) => setEditData({ ...editData, linkedin: e.target.value })} placeholder="linkedin.com/in/..." />
+                <Input label="WhatsApp" value={editData.whatsapp} onChange={(e) => setEditData({ ...editData, whatsapp: e.target.value })} placeholder="+77001234567" />
               </div>
-              <button onClick={handleSaveProfile} className="btn-success" style={{ marginTop: 'var(--spacing-2)' }}>Сохранить анкету</button>
+              <Button variant="primary" tone="success" onClick={handleSaveProfile} style={{ marginTop: 'var(--spacing-2)', alignSelf: 'flex-start' }}>
+                Сохранить анкету
+              </Button>
             </div>
           </div>
 
@@ -432,17 +413,16 @@ export default function ProfileSectionPage() {
             <h2 className="title-lg">Моя карточка</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
               <span className="label-sm">Как видит:</span>
-              <select
+              <Select
+                aria-label="Чьими глазами смотреть на карточку"
                 value={previewId}
-                onChange={(e) => setPreviewId(e.target.value)}
-                className="ui-input"
-                style={{ cursor: 'pointer', padding: '0.3rem 0.6rem', fontSize: '0.8rem' }}
-              >
-                <option value={DEFAULT_PREVIEW}>По умолчанию (без группы)</option>
-                {groups.map((g) => (
-                  <option key={g.id} value={g.id}>{g.name}</option>
-                ))}
-              </select>
+                onChange={setPreviewId}
+                width={240}
+                options={[
+                  { value: DEFAULT_PREVIEW, label: 'По умолчанию (без группы)' },
+                  ...groups.map((g) => ({ value: g.id, label: g.name })),
+                ]}
+              />
             </div>
           </div>
           <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)', opacity: 0.7 }}>
@@ -533,29 +513,31 @@ export default function ProfileSectionPage() {
         <div>
           <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-6)' }}>Настройки</h2>
           <div className="card-elevated" style={{ padding: 'var(--spacing-6)', maxWidth: '400px', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
-            <div>
-              <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Язык</label>
-              <select defaultValue={p.locale || 'ru'} className="ui-input" disabled style={{ cursor: 'not-allowed', opacity: 0.6 }}>
-                <option value="ru">Русский</option>
-                <option value="kk">Қазақша</option>
-                <option value="en">English</option>
-              </select>
-              <span className="label-sm" style={{ fontSize: '0.65rem', opacity: 0.5 }}>Смена языка — скоро</span>
-            </div>
-            <div>
-              <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Часовой пояс</label>
-              <input type="text" defaultValue={p.timezone || 'Asia/Almaty'} className="ui-input" disabled style={{ opacity: 0.6 }} />
-            </div>
-            <div>
-              <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Онлайн-статус видят</label>
-              <select defaultValue={p.onlineStatusMode || 'everyone'} className="ui-input" onChange={async (e) => {
-                try { await api.patch('/users/me', { onlineStatusMode: e.target.value }); await fetchProfile(); setSuccessMsg('Сохранено'); } catch { setError('Ошибка'); }
-              }} style={{ cursor: 'pointer' }}>
-                <option value="everyone">Все</option>
-                <option value="contacts">Только контакты</option>
-                <option value="nobody">Никто</option>
-              </select>
-            </div>
+            <Select
+              label="Язык"
+              hint="Смена языка — скоро"
+              disabled
+              value={p.locale || 'ru'}
+              onChange={() => {}}
+              options={[
+                { value: 'ru', label: 'Русский' },
+                { value: 'kk', label: 'Қазақша' },
+                { value: 'en', label: 'English' },
+              ]}
+            />
+            <Input label="Часовой пояс" defaultValue={p.timezone || 'Asia/Almaty'} disabled />
+            <Select
+              label="Онлайн-статус видят"
+              value={p.onlineStatusMode || 'everyone'}
+              onChange={async (v) => {
+                try { await api.patch('/users/me', { onlineStatusMode: v }); await fetchProfile(); setSuccessMsg('Сохранено'); } catch { setError('Ошибка'); }
+              }}
+              options={[
+                { value: 'everyone', label: 'Все' },
+                { value: 'contacts', label: 'Только контакты' },
+                { value: 'nobody', label: 'Никто' },
+              ]}
+            />
           </div>
         </div>
       )}
@@ -626,7 +608,15 @@ export default function ProfileSectionPage() {
             <p className="label-md" style={{ marginBottom: 'var(--spacing-4)', lineHeight: 1.55 }}>
               Аккаунт будет помечен на удаление. У вас есть <b>30 дней</b>, чтобы передумать — просто войдите снова, и он восстановится. По истечении срока данные удаляются безвозвратно.
             </p>
-            <input type="password" value={deletePassword} onChange={(e) => setDeletePassword(e.target.value)} placeholder="Подтвердите текущим паролем" className="ui-input" style={{ marginBottom: 'var(--spacing-3)' }} />
+            <Input
+              label="Текущий пароль"
+              type="password"
+              autoComplete="current-password"
+              value={deletePassword}
+              onChange={(e) => setDeletePassword(e.target.value)}
+              placeholder="Подтвердите текущим паролем"
+              wrapClassName="mb-3"
+            />
             {deleteError && <p style={{ color: 'var(--danger)', fontSize: '0.8rem', marginBottom: 'var(--spacing-3)' }}>{deleteError}</p>}
             <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end' }}>
               <button className="btn-ghost-inline" disabled={deleting} style={{ fontSize: '0.85rem' }} onClick={() => { setShowDeleteModal(false); setDeletePassword(''); setDeleteError(''); }}>Отмена</button>

@@ -1,6 +1,6 @@
 'use client';
 
-import { ModalShell } from '@/components/ui';
+import { Input, ModalShell } from '@/components/ui';
 import { useState, useEffect } from 'react';
 import { MESSENGER_LIMITS } from '@superapp/shared';
 import { ContactPicker, useContacts } from './ContactPicker';
@@ -143,15 +143,15 @@ export function NewChatModal({
 
         {mode === 'group' && (
           <>
-            <input
-              type="text"
+            <Input
+              label="Название группы"
               value={groupName}
               onChange={(e) => setGroupName(e.target.value)}
               placeholder="Название группы"
-              className="ui-input"
               autoFocus
               maxLength={MESSENGER_LIMITS.maxGroupNameLength}
-              style={{ marginBottom: 'var(--spacing-3)', fontSize: '0.95rem', fontWeight: 600 }}
+              wrapClassName="mb-3"
+              style={{ fontSize: '0.95rem', fontWeight: 600 }}
             />
             <label className="label-md" style={{ marginBottom: 'var(--spacing-2)' }}>
               Участники {selected.length > 0 && <span style={{ color: 'var(--secondary)' }}>· {selected.length}</span>}

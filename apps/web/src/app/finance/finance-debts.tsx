@@ -12,6 +12,7 @@ import {
 import { WEEKDAYS_SHORT, currencySymbol, formatMoney, parseMoneyInput } from './finance-lib';
 import { FinList, FinRow, Money, MoneyStack } from './finance-ui';
 import { PersonChip } from '../circles/PersonCard';
+import { toastError } from '@/lib/toast';
 
 /** Обёртка выбора вокруг карточки человека (сама карточка — PersonChip, принцип 2). */
 function PersonPick({
@@ -111,7 +112,7 @@ export function DebtsPanel({
           />
 
           {open.length > 0 ? (
-            <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+            <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
               {open.map((d) => {
                 const paidPct = d.total > 0 ? Math.min(100, Math.round(((d.total - d.remaining) / d.total) * 100)) : 0;
                 return (
@@ -271,7 +272,7 @@ function NewDebtModal({
         </>
       }
     >
-      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
 
         <SegmentedControl
@@ -292,7 +293,7 @@ function NewDebtModal({
           autoFocus
         />
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--spacing-3)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 'var(--spacing-3)' }}>
           <Input label="Платёж/мес" inputMode="decimal" placeholder="10 000" value={monthly} onChange={(e) => setMonthly(e.target.value)} />
           <Input label="Месяцев" inputMode="numeric" value={months} onChange={(e) => setMonths(e.target.value)} />
           <Input label="День платежа" inputMode="numeric" value={dueDay} onChange={(e) => setDueDay(e.target.value)} />
@@ -414,7 +415,7 @@ function PayDebtModal({
         </>
       }
     >
-      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
         <Select
           label="Со счёта"
@@ -467,7 +468,7 @@ export function RecurringPanel({
       await api.patch(`/finance/recurring/${r.id}`, { active: !r.active }, cfg);
       changed();
     } catch (e) {
-      window.alert(apiErrorMessage(e));
+      toastError(apiErrorMessage(e));
     }
   };
   const recordNow = async (r: FinRecurringRuleDto) => {
@@ -475,7 +476,7 @@ export function RecurringPanel({
       await api.post(`/finance/recurring/${r.id}/record-now`, {}, cfg);
       changed();
     } catch (e) {
-      window.alert(apiErrorMessage(e));
+      toastError(apiErrorMessage(e));
     }
   };
   const remove = async () => {
@@ -486,7 +487,7 @@ export function RecurringPanel({
       setRemoving(null);
       changed();
     } catch (e) {
-      window.alert(apiErrorMessage(e));
+      toastError(apiErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -658,7 +659,7 @@ function NewRecurringModal({
         </>
       }
     >
-      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
 
         <SegmentedControl

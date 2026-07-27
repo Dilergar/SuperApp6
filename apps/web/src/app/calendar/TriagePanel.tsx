@@ -79,7 +79,7 @@ function Group({ title, tone, count, children }: { title: string; tone: Tone; co
       {count === 0 ? (
         <p className="label-sm" style={{ margin: 0, color: 'var(--muted)' }}>—</p>
       ) : (
-        <div style={{ display: 'grid', gap: '0.25rem' }}>{children}</div>
+        <div className="ui-stack" style={{ gap: '0.25rem' }}>{children}</div>
       )}
     </div>
   );
@@ -145,7 +145,9 @@ function rk(i: CalendarItem, idx: number): string {
 }
 
 const ellipsis: React.CSSProperties = {
-  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600, fontSize: '0.8125rem',
+  // minWidth: 0 обязателен — без него флекс-элемент не сжимается ниже своего
+  // текста (min-width: auto), и длинное название вылезает за край панели.
+  minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600, fontSize: '0.8125rem',
 };
 
 function cardStyle(color: string): React.CSSProperties {

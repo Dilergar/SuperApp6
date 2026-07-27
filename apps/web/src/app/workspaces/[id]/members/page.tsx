@@ -15,7 +15,7 @@ import { invalidateEntities, type Principal } from '@/lib/entities';
 import { EntitySelector } from '@/components/EntitySelector';
 import {
   Alert, BentoGrid, Button, Card, CardHeader, Chip, ConfirmDialog, Divider, EmptyState, Field,
-  Icon, IconButton, Input, LoadingBlock, Modal, PageHeader, SearchField, Select, StatTile, Tabs,
+  Icon, IconButton, Input, LoadingBlock, Modal, PageHeader, SearchField, Select, StatTile, SegmentedControl,
   type TabItem,
 } from '@/components/ui';
 import { PersonChip, StaffPersonCard, type StaffCardData } from '../../../circles/PersonCard';
@@ -128,9 +128,11 @@ export default function WorkspaceStaffPage() {
         title="Сотрудники"
         description="Ростер, справочники должностей и отделов, наём по номеру"
         chip={<Chip tone="accent" icon="people">{ws.membersCount} чел.</Chip>}
+        // Матовая, а не призрачная: кнопка стоит на ФОНЕ СТРАНИЦЫ, а призрачная
+        // там остаётся без подложки и выпадает из системы (правило из календаря).
         actions={
           myRole && myRole !== 'owner' ? (
-            <Button variant="ghost" tone="danger" icon="signOut" onClick={() => setLeaving(true)}>
+            <Button variant="matte" tone="danger" icon="signOut" onClick={() => setLeaving(true)}>
               Выйти из организации
             </Button>
           ) : undefined
@@ -138,7 +140,7 @@ export default function WorkspaceStaffPage() {
       />
 
       <div style={{ marginBottom: 'var(--gap-grid)' }}>
-        <Tabs aria-label="Разделы сервиса" items={tabs} value={tab} onChange={(k) => { setTab(k); setError(''); }} />
+        <SegmentedControl aria-label="Разделы сервиса" items={tabs} value={tab} onChange={(k) => { setTab(k); setError(''); }} />
       </div>
 
       {error && (
@@ -510,7 +512,7 @@ function MemberModal({
         </>
       }
     >
-      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {localError && <Alert tone="danger" onClose={() => setLocalError('')}>{localError}</Alert>}
 
         {isContractor ? (
@@ -554,7 +556,7 @@ function MemberModal({
               {member.assignments.length === 0 ? (
                 <p className="label-sm" style={{ margin: '0 0 var(--spacing-3)' }}>Должностей пока нет</p>
               ) : (
-                <div style={{ display: 'grid', gap: '0.375rem', marginBottom: 'var(--spacing-3)' }}>
+                <div className="ui-stack" style={{ gap: '0.375rem', marginBottom: 'var(--spacing-3)' }}>
                   {member.assignments.map((a) => (
                     <div
                       key={a.id}
@@ -685,7 +687,7 @@ function PositionsTab({
               description={canStaff ? 'Создайте первую: например «Официант» или «Бухгалтер».' : 'Справочник заполняют управляющие.'}
             />
           ) : (
-            <div style={{ display: 'grid', gap: '0.375rem' }}>
+            <div className="ui-stack" style={{ gap: '0.375rem' }}>
               {dir.positions.map((p) => (
                 <DirectoryRow
                   key={p.id}
@@ -825,7 +827,7 @@ function DepartmentsTab({
               description={canStaff ? 'Например «Финансовый отдел» или «Кухня».' : 'Справочник заполняют управляющие.'}
             />
           ) : (
-            <div style={{ display: 'grid', gap: '0.375rem' }}>
+            <div className="ui-stack" style={{ gap: '0.375rem' }}>
               {ordered.map(({ dep, depth }) => (
                 <DirectoryRow
                   key={dep.id}
@@ -908,7 +910,7 @@ function BranchesTab({
               description={canStaff ? 'Например «Алматинский филиал» или «Офис 1».' : 'Справочник заполняют управляющие.'}
             />
           ) : (
-            <div style={{ display: 'grid', gap: '0.375rem' }}>
+            <div className="ui-stack" style={{ gap: '0.375rem' }}>
               {dir.branches.map((b) => (
                 <DirectoryRow
                   key={b.id}
@@ -1074,7 +1076,7 @@ function InvitesTab({
             title="Пригласить сотрудника"
             subtitle="Каждый наём — в роли «Стажёр». Роль повышается вручную (позже — после обучения в Додзё)"
           />
-          <form onSubmit={(e) => { e.preventDefault(); invite.mutate(); }} style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+          <form onSubmit={(e) => { e.preventDefault(); invite.mutate(); }} className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
             <Input
               label="Номер телефона"
               type="tel"
@@ -1151,7 +1153,7 @@ function InvitesTab({
           {invites.length === 0 ? (
             <EmptyState icon="userAdd" title="Нет ожидающих приглашений" description="Отправленные наймы появятся здесь." />
           ) : (
-            <div style={{ display: 'grid', gap: '0.375rem' }}>
+            <div className="ui-stack" style={{ gap: '0.375rem' }}>
               {invites.map((inv) => (
                 <div
                   key={inv.id}

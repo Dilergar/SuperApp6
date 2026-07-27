@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useConfirm } from '@/components/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DocumentVersionDto } from '@superapp/shared';
 import { apiErrorMessage } from '@/lib/api';
@@ -51,6 +52,7 @@ export function DocumentHistory({
 }) {
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
+  const [confirm, confirmUI] = useConfirm();
 
   const { data: versions = [], isPending: versionsPending } = useQuery({
     queryKey: documentVersionsKey(documentId),
@@ -190,15 +192,14 @@ export function DocumentHistory({
                   {canEdit && (
                     <button
                       type="button"
-                      onClick={() => {
-                        if (
-                          confirm(
-                            `Вернуть версию ${v.versionNo} как текущую?\n\nРедактор закроется и откроется заново, а нынешнее содержимое останется в истории — возврат можно отменить.`,
-                          )
-                        ) {
-                          restore.mutate(v.id);
-                        }
-                      }}
+                      onClick={() => confirm(
+                        {
+                          title: `Вернуть версию ${v.versionNo} как текущую?`,
+                          message: 'Редактор закроется и откроется заново. Нынешнее содержимое останется в истории — возврат можно отменить.',
+                          confirmLabel: 'Вернуть',
+                        },
+                        () => restore.mutate(v.id),
+                      )}
                       disabled={restore.isPending}
                       title="Сделать эту версию текущим содержимым"
                       style={chipBtn(true)}
@@ -221,6 +222,7 @@ export function DocumentHistory({
           emptyText="Пока никто не правил"
         />
       </section>
+      {confirmUI}
     </aside>
   );
 }

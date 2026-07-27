@@ -30,8 +30,9 @@ import {
   type SocketMessageUpdated,
   type SocketReceipt,
 } from '@/lib/hooks/useMessengerSocket';
-import { Button, Card, EmptyState, LoadingBlock, type IconName } from '@/components/ui';
+import { Button, Card, EmptyState, LoadingBlock, useConfirm, type IconName } from '@/components/ui';
 import type { CallTokenDto, ChatMessage } from '@superapp/shared';
+import { toastError } from '@/lib/toast';
 
 // Ключ сообщений — общий messengerMessagesKey из lib/queries.ts (кэш чата встречи
 // делится со страницей /messenger; локальная копия литерала разорвала бы его)
@@ -58,6 +59,7 @@ export default function MeetingRoom() {
   });
   const room = roomQ.data ?? null;
 
+  const [confirm, confirmUI] = useConfirm();
   const [phase, setPhase] = useState<Phase>('prejoin');
   const [joinError, setJoinError] = useState<string | null>(null);
   const [call, setCall] = useState<CallTokenDto | null>(null);
@@ -452,11 +454,10 @@ export default function MeetingRoom() {
           <CallStage />
           <ControlsBar
             moderator={call.moderator}
-            onEndForAll={() => {
-              if (confirm('Завершить звонок для всех участников?')) {
-                endCallSession(call.sessionId).catch((e) => alert(apiErrorMessage(e)));
-              }
-            }}
+            onEndForAll={() => confirm(
+              { title: 'Завершить звонок для всех?', message: 'Комната закроется у каждого участника встречи.', confirmLabel: 'Завершить', danger: true },
+              () => endCallSession(call.sessionId).catch((e) => toastError(apiErrorMessage(e))),
+            )}
           />
         </div>
 
@@ -499,6 +500,7 @@ export default function MeetingRoom() {
           )}
         </aside>
       </div>
+      {confirmUI}
     </CallRoomShell>
   );
 }

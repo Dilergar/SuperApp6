@@ -72,7 +72,7 @@ export function SharePanel({ contacts, onClose }: { contacts: Contact[]; onClose
       size="md"
       footer={<Button variant="ghost" onClick={() => onClose(changed)}>Готово</Button>}
     >
-      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
 
         <Field label="Открыть человеку">
@@ -103,7 +103,7 @@ export function SharePanel({ contacts, onClose }: { contacts: Contact[]; onClose
         {shares.length === 0 ? (
           <EmptyState icon="lock" title="Пока никому не открыт" description="Выберите человека выше — он увидит занятость или детали." />
         ) : (
-          <div style={{ display: 'grid', gap: '0.375rem' }}>
+          <div className="ui-stack" style={{ gap: '0.375rem' }}>
             {shares.map((s) => (
               <div
                 key={s.sharedWithUserId}
@@ -193,7 +193,7 @@ export function SmartMatchDialog({
           description="Пока никто не открыл вам свой календарь — попросите доступ или откройте свой первым."
         />
       ) : (
-        <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+        <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
           {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
 
           <Field label="С кем">
@@ -259,7 +259,7 @@ export function SmartMatchDialog({
               <Alert tone="neutral" icon="info">Свободных окон не нашлось — попробуйте другой период или часы.</Alert>
             ) : (
               <Field label="Свободные окна">
-                <div style={{ display: 'grid', gap: '0.25rem' }}>
+                <div className="ui-stack" style={{ gap: '0.25rem' }}>
                   {slots.slice(0, 20).map((s) => (
                     <button
                       key={s.start}

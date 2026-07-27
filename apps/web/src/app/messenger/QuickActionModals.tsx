@@ -1,6 +1,6 @@
 'use client';
 
-import { ModalShell } from '@/components/ui';
+import { Input, ModalShell, Select, Textarea } from '@/components/ui';
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { SCHEDULED_MESSAGE_LIMITS } from '@superapp/shared';
@@ -90,23 +90,25 @@ function DialogFrame({
   );
 }
 
-/** Sketchbook datetime-local input (no white surface, no 1px gray border). */
+/** Поле «дата и время» на ките: подпись связана с полем самим китом. */
 function DateTimeField({
+  label,
   value,
   onChange,
   min,
 }: {
+  label: string;
   value: string;
   onChange: (v: string) => void;
   min?: string;
 }) {
   return (
-    <input
+    <Input
+      label={label}
       type="datetime-local"
       value={value}
       min={min}
       onChange={(e) => onChange(e.target.value)}
-      className="ui-input"
       style={{ fontSize: '0.9rem', fontFamily: 'var(--font-body)' }}
     />
   );
@@ -193,14 +195,14 @@ export function CreateTaskModal({
     >
       {err && <p style={errStyle}>{err}</p>}
 
-      <input
-        type="text"
+      <Input
+        label="Задача"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         placeholder="Что нужно сделать?"
-        className="ui-input"
         autoFocus
-        style={{ marginBottom: 'var(--spacing-3)', fontSize: '0.95rem', fontWeight: 600 }}
+        wrapClassName="mb-3"
+        style={{ fontSize: '0.95rem', fontWeight: 600 }}
       />
 
       {prefillDescription?.trim() && (
@@ -248,11 +250,8 @@ export function CreateTaskModal({
         </p>
       )}
 
-      <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>
-        Срок (необязательно)
-      </label>
       <div style={{ marginBottom: 'var(--spacing-4)' }}>
-        <DateTimeField value={due} onChange={setDue} min={minDue} />
+        <DateTimeField label="Срок (необязательно)" value={due} onChange={setDue} min={minDue} />
       </div>
 
       <div style={{ display: 'flex', gap: 'var(--spacing-2)', justifyContent: 'flex-end' }}>
@@ -337,21 +336,18 @@ export function CreateEventModal({
     >
       {err && <p style={errStyle}>{err}</p>}
 
-      <input
-        type="text"
+      <Input
+        label="Событие"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         placeholder="Название события"
-        className="ui-input"
         autoFocus
-        style={{ marginBottom: 'var(--spacing-3)', fontSize: '0.95rem', fontWeight: 600 }}
+        wrapClassName="mb-3"
+        style={{ fontSize: '0.95rem', fontWeight: 600 }}
       />
 
-      <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>
-        Начало
-      </label>
       <div style={{ marginBottom: 'var(--spacing-4)' }}>
-        <DateTimeField value={start} onChange={setStart} min={minStart} />
+        <DateTimeField label="Начало" value={start} onChange={setStart} min={minStart} />
       </div>
 
       <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>
@@ -449,21 +445,19 @@ export function ScheduleMessageModal({
     >
       {err && <p style={errStyle}>{err}</p>}
 
-      <textarea
+      <Textarea
+        label="Сообщение"
         value={content}
         onChange={(e) => setContent(e.target.value)}
         placeholder="Текст сообщения…"
-        className="ui-input"
         rows={3}
         autoFocus
-        style={{ marginBottom: 'var(--spacing-4)', resize: 'vertical' }}
+        wrapClassName="mb-4"
+        style={{ resize: 'vertical' }}
       />
 
-      <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>
-        Когда отправить
-      </label>
       <div style={{ marginBottom: 'var(--spacing-4)' }}>
-        <DateTimeField value={when} onChange={setWhen} min={minWhen} />
+        <DateTimeField label="Когда отправить" value={when} onChange={setWhen} min={minWhen} />
       </div>
 
       <div style={{ display: 'flex', gap: 'var(--spacing-2)', justifyContent: 'flex-end' }}>
@@ -549,41 +543,51 @@ export function AddExpenseModal({
     }
   };
 
+  // Дерево категорий (2 уровня) плющится в плоский список кита: вложенность
+  // показывает отступ в подписи, иконка живёт отдельным полем emoji.
   const catOptions = useMemo(() => {
     const roots = cats.filter((c) => !c.parentId);
-    return roots.flatMap((root) => {
-      const children = cats.filter((c) => c.parentId === root.id);
-      return [
-        <option key={root.id} value={root.id}>{root.icon ? `${root.icon} ` : ''}{root.name}</option>,
-        ...children.map((c) => (
-          <option key={c.id} value={c.id}>&nbsp;&nbsp;{c.icon ? `${c.icon} ` : ''}{c.name}</option>
-        )),
-      ];
-    });
+    return roots.flatMap((root) => [
+      { value: root.id, label: root.name, emoji: root.icon },
+      ...cats
+        .filter((c) => c.parentId === root.id)
+        .map((c) => ({ value: c.id, label: `— ${c.name}`, emoji: c.icon })),
+    ]);
   }, [cats]);
 
   return (
     <DialogFrame title="Записать расход" subtitle="Трата попадёт в вашу книгу Финансов, карточка — в чат" onClose={onClose}>
-      <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Сумма</label>
-      <input
-        className="ui-input"
+      <Input
+        label="Сумма"
         inputMode="decimal"
         placeholder="2 500"
         value={amount}
         onChange={(e) => setAmount(e.target.value)}
         autoFocus
-        style={{ marginBottom: 'var(--spacing-4)', fontSize: '1.3rem', fontFamily: 'var(--font-display)', fontWeight: 700 }}
+        wrapClassName="mb-4"
+        style={{ fontSize: '1.3rem', fontFamily: 'var(--font-display)', fontWeight: 700 }}
       />
-      <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Со счёта</label>
-      <select className="ui-input" value={fromId} onChange={(e) => setFromId(e.target.value)} style={{ marginBottom: 'var(--spacing-4)' }}>
-        {accounts.map((a) => <option key={a.id} value={a.id}>{a.icon ? `${a.icon} ` : ''}{a.name}</option>)}
-      </select>
-      <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Категория</label>
-      <select className="ui-input" value={toId} onChange={(e) => setToId(e.target.value)} style={{ marginBottom: 'var(--spacing-4)' }}>
-        {catOptions}
-      </select>
-      <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Заметка</label>
-      <input className="ui-input" placeholder="Magnum…" value={note} onChange={(e) => setNote(e.target.value)} style={{ marginBottom: 'var(--spacing-4)' }} />
+      <Select
+        label="Со счёта"
+        value={fromId}
+        onChange={setFromId}
+        className="mb-4"
+        options={accounts.map((a) => ({ value: a.id, label: a.name, emoji: a.icon }))}
+      />
+      <Select
+        label="Категория"
+        value={toId}
+        onChange={setToId}
+        className="mb-4"
+        options={catOptions}
+      />
+      <Input
+        label="Заметка"
+        placeholder="Magnum…"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        wrapClassName="mb-4"
+      />
 
       {error && <p className="label-sm" style={{ color: 'var(--danger)', marginBottom: 'var(--spacing-3)' }}>{error}</p>}
 

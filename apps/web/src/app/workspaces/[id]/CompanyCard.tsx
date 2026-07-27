@@ -116,7 +116,7 @@ export function CompanyCard({
       {(fields.length > 0 || showMembers) && (
         <>
           <Divider />
-          <div style={{ display: 'grid', gap: 'var(--spacing-2)' }}>
+          <div className="ui-stack" style={{ gap: 'var(--spacing-2)' }}>
             {fields.map(([label, value]) => (
               <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--spacing-3)' }}>
                 <span className="label-caps">{label}</span>

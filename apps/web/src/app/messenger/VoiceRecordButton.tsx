@@ -7,6 +7,7 @@ import { apiErrorMessage } from '@/lib/api';
 import { uploadFile } from '@/lib/files-api';
 import { useVoiceRecorder } from '@/lib/hooks/useVoiceRecorder';
 import { formatDuration } from '@/components/files/files-ui';
+import { toastError } from '@/lib/toast';
 
 // ============================================================
 // Кнопка 🎤 в композере: клик → полоса записи (пульс, таймер,
@@ -36,7 +37,7 @@ export function VoiceRecordButton({ onSent }: { onSent: (fileId: string) => void
       });
       onSent(dto.id);
     } catch (err) {
-      alert(`Не удалось отправить голосовое: ${apiErrorMessage(err)}`);
+      toastError(`Не удалось отправить голосовое: ${apiErrorMessage(err)}`);
     } finally {
       sendingRef.current = false;
       setUploading(false);

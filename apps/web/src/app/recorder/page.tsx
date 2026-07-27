@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { FileDto, VoiceLanguage, VoiceRecordingDto, VoiceRecordingSource } from '@superapp/shared';
 import { AUDIO_EXT_TO_MIME, VOICE_LANGUAGES, VOICE_LANGUAGE_LABELS, VOICE_LIMITS } from '@superapp/shared';
+import { useConfirm } from '@/components/ui';
 import { apiErrorMessage } from '@/lib/api';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { useVoiceRecorder } from '@/lib/hooks/useVoiceRecorder';
@@ -24,6 +25,7 @@ import {
 } from '@/lib/voice-api';
 import { recorderRecordingsKey, voiceStatusKey } from '@/lib/queries';
 import { TranscriptView } from './TranscriptView';
+import { toastError } from '@/lib/toast';
 
 // ============================================================
 // «Диктофон» — прото-Plaud без железки: записал/загрузил собрание →
@@ -266,7 +268,7 @@ function RecorderInner() {
           </div>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(16rem, 22rem) 1fr', gap: 'var(--spacing-6)', alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(16rem, 22rem) minmax(0, 1fr)', gap: 'var(--spacing-6)', alignItems: 'start' }}>
           {/* Левая колонка: вкладки + загрузка + список */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
             <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
@@ -373,6 +375,7 @@ function RecordingRow({
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(rec.title);
+  const [confirm, confirmUI] = useConfirm();
 
   const saveTitle = async () => {
     setEditing(false);
@@ -392,13 +395,19 @@ function RecordingRow({
     }
   };
 
-  const remove = async () => {
-    if (!confirm(`Удалить запись «${rec.title}» вместе с расшифровкой?`)) return;
+  const remove = () => {
+    confirm(
+      { title: `Удалить запись «${rec.title}»?`, message: 'Аудио и расшифровка будут удалены безвозвратно.', confirmLabel: 'Удалить', danger: true },
+      removeNow,
+    );
+  };
+
+  const removeNow = async () => {
     try {
       await deleteRecording(rec.id);
       onDeleted();
     } catch (err) {
-      alert(`Не удалось удалить: ${apiErrorMessage(err)}`);
+      toastError(`Не удалось удалить: ${apiErrorMessage(err)}`);
     }
   };
 
@@ -484,6 +493,7 @@ function RecordingRow({
         <span>{rec.source === 'web' ? '⏺ браузер' : rec.source === 'terminal' ? 'терминал' : rec.source === 'call' ? 'звонок' : 'файл'}</span>
         {statusBadge && <span style={{ color: statusBadge.color, fontWeight: 700 }}>{statusBadge.text}</span>}
       </div>
+      {confirmUI}
     </div>
   );
 }

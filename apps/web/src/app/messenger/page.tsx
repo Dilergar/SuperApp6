@@ -902,7 +902,7 @@ function MessengerInner() {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'minmax(260px, 340px) 1fr',
+            gridTemplateColumns: 'minmax(260px, 340px) minmax(0, 1fr)',
             gap: 'var(--spacing-6)',
             height: 'calc(100vh - 220px)',
             minHeight: '480px',

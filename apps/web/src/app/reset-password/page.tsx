@@ -99,7 +99,7 @@ export default function ResetPasswordPage() {
       )}
 
       {step === 'phone' && (
-        <form onSubmit={requestCode} style={{ display: 'grid', gap: 'var(--spacing-4)', marginTop: error ? 'var(--spacing-4)' : 0 }}>
+        <form onSubmit={requestCode} className="ui-stack" style={{ gap: 'var(--spacing-4)', marginTop: error ? 'var(--spacing-4)' : 0 }}>
           <Input
             label="Телефон"
             type="tel"
@@ -123,7 +123,7 @@ export default function ResetPasswordPage() {
       )}
 
       {step === 'password' && (
-        <form onSubmit={handleComplete} style={{ display: 'grid', gap: 'var(--spacing-4)', marginTop: error ? 'var(--spacing-4)' : 0 }}>
+        <form onSubmit={handleComplete} className="ui-stack" style={{ gap: 'var(--spacing-4)', marginTop: error ? 'var(--spacing-4)' : 0 }}>
           <Input
             label="Новый пароль"
             type="password"

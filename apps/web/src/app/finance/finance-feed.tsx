@@ -19,6 +19,7 @@ import {
   parseMoneyInput, ymdToDate,
 } from './finance-lib';
 import { FinList, FinRow, Money } from './finance-ui';
+import { toastError } from '@/lib/toast';
 
 type EntryTab = 'expense' | 'income' | 'transfer';
 
@@ -446,7 +447,7 @@ export function TransactionFeed({
       setRemoving(null);
       onDeleted();
     } catch (e) {
-      window.alert(apiErrorMessage(e));
+      toastError(apiErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -472,7 +473,7 @@ export function TransactionFeed({
           description="Задайте остаток счёта в «Счетах» и запишите первую трату."
         />
       ) : (
-        <div className="density-compact" style={{ display: 'grid', gap: 'var(--spacing-5)' }}>
+        <div className="density-compact ui-stack" style={{ gap: 'var(--spacing-5)' }}>
           {groups.map(([day, items]) => {
             const dayExpense = items
               .filter((t) => t.type === 'expense')

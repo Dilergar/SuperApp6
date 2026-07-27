@@ -45,7 +45,7 @@ export default function LoginPage() {
         </>
       }
     >
-      <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+      <form onSubmit={handleSubmit} className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {deletedNote && (
           <Alert tone="warning" title="Аккаунт помечен на удаление">
             У вас есть 30 дней — войдите, чтобы восстановить его.
@@ -66,10 +66,16 @@ export default function LoginPage() {
 
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-            <span className="ui-field-label">Пароль</span>
+            {/* Настоящий <label>, а не <span>: иначе у поля нет подписи для скринридера
+                (он читал плейсхолдер «Минимум 8 символов») и по подписи нельзя кликнуть.
+                Свой ряд нужен, потому что справа стоит ссылка «Забыли пароль?». */}
+            <label className="ui-field-label" htmlFor="login-password">
+              Пароль<span style={{ color: 'var(--danger)' }}> *</span>
+            </label>
             <Link href="/reset-password" className="label-sm" style={{ fontWeight: 700 }}>Забыли пароль?</Link>
           </div>
           <Input
+            id="login-password"
             type="password"
             icon="lock"
             value={password}

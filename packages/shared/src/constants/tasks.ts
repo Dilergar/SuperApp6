@@ -18,15 +18,21 @@ export const TASK_ROLE_LABELS: Record<TaskRole, string> = {
   observer: 'Наблюдатель',
 };
 
+/**
+ * Подпись и цвет статуса — общие для API, веба и мобильного.
+ * Значка здесь НЕТ намеренно: рисунок — дело клиента, и веб берёт иконку с тоном
+ * из `TASK_STATUS_VIEW` (`app/tasks/tasks-ui.tsx`). Прежнее текстовое поле `icon`
+ * («○ ◐ ⏳ ✓ ✕») читало ровно одно место и тащило эмодзи в интерфейс — убрано.
+ */
 export const TASK_STATUS_META: Record<
   TaskStatus,
-  { label: string; icon: string; color: string }
+  { label: string; color: string }
 > = {
-  todo: { label: 'К выполнению', icon: '○', color: '#8a8478' },
-  in_progress: { label: 'В работе', icon: '◐', color: '#588cd3' },
-  on_review: { label: 'На проверке', icon: '⏳', color: '#d6966c' },
-  done: { label: 'Готово', icon: '✓', color: '#74a277' },
-  cancelled: { label: 'Отменена', icon: '✕', color: '#a39d92' },
+  todo: { label: 'К выполнению', color: '#8a8478' },
+  in_progress: { label: 'В работе', color: '#588cd3' },
+  on_review: { label: 'На проверке', color: '#d6966c' },
+  done: { label: 'Готово', color: '#74a277' },
+  cancelled: { label: 'Отменена', color: '#a39d92' },
 };
 
 export const TASK_PRIORITY_META: Record<

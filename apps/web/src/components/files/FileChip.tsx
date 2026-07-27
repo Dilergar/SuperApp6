@@ -11,6 +11,7 @@ import { docsStatusKey } from '../../lib/queries';
 import { apiErrorMessage } from '../../lib/api';
 import { humanSize } from './files-ui';
 import { Icon, IconButton, toneVars, type IconName } from '@/components/ui';
+import { toastError } from '@/lib/toast';
 
 /** Вид файла → иконка кита. */
 const KIND_ICON: Record<string, IconName> = {
@@ -99,7 +100,7 @@ export function FileChip({ file, onRemove, onClick, docPlace }: FileChipProps) {
       else router.push(href); // попап всё-таки заблокирован — открываем на месте
     } catch (err) {
       tab?.close();
-      alert(apiErrorMessage(err));
+      toastError(apiErrorMessage(err));
     } finally {
       setOpening(false);
     }

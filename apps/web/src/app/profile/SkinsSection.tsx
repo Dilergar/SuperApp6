@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Input, Select } from '@/components/ui';
 import { api } from '@/lib/api';
 import {
   cardSkinsCatalogKey, cardSkinsEquipKey, cardSkinsInventoryKey, cardSkinsWalletKey,
@@ -140,10 +141,15 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
           <div className="title-md">{wallet?.icon} {fmt(wallet?.balance ?? 0)} <span style={{ fontSize: '0.8rem', opacity: 0.6 }}>{wallet?.name}</span></div>
         </div>
         <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'flex-end' }}>
-          <div>
-            <label className="label-sm" style={{ display: 'block', marginBottom: 2 }}>Пополнить (тест)</label>
-            <input type="number" min={1} value={topAmt} onChange={(e) => setTopAmt(e.target.value)} className="ui-input" style={{ width: 110, padding: '0.3rem 0.5rem', fontSize: '0.85rem' }} />
-          </div>
+          <Input
+            label="Пополнить (тест)"
+            type="number"
+            min={1}
+            value={topAmt}
+            onChange={(e) => setTopAmt(e.target.value)}
+            wrapClassName="skin-topup-field"
+            style={{ padding: '0.3rem 0.5rem', fontSize: '0.85rem' }}
+          />
           <button className="btn-success" disabled={busy} onClick={topUp} style={{ fontSize: '0.8rem' }}>Пополнить</button>
         </div>
       </div>
@@ -259,18 +265,20 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <GroupChip size="M" icon={g.icon} name={g.name} color={g.color} count={g.membersCount} />
                 </div>
-                <select
+                <Select
+                  aria-label={`Скин для группы «${g.name}»`}
                   value={cur}
                   disabled={busy || !equip?.premium}
-                  onChange={(e) => equipGroup(g.id, e.target.value || null)}
-                  className="ui-input"
-                  style={{ width: 180, padding: '0.25rem 0.5rem', fontSize: '0.8rem', cursor: equip?.premium ? 'pointer' : 'not-allowed', opacity: equip?.premium ? 1 : 0.5 }}
-                >
-                  <option value="">По умолчанию</option>
-                  {inventory.map((i) => (
-                    <option key={i.id} value={i.id}>{i.skin.name}{i.serial !== null ? ` #${i.serial}` : ''}</option>
-                  ))}
-                </select>
+                  onChange={(v) => equipGroup(g.id, v || null)}
+                  width={180}
+                  options={[
+                    { value: '', label: 'По умолчанию' },
+                    ...inventory.map((i) => ({
+                      value: i.id,
+                      label: `${i.skin.name}${i.serial !== null ? ` #${i.serial}` : ''}`,
+                    })),
+                  ]}
+                />
               </div>
             );
           })}

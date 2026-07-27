@@ -144,7 +144,7 @@ export default function CompanyWalletPage() {
               title="Создайте валюту компании"
               subtitle="Ею платят награды за задачи и покупают в магазине организации"
             />
-            <div style={{ display: 'grid', gridTemplateColumns: '5rem 1fr', gap: 'var(--spacing-3)', maxWidth: 460 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '5rem minmax(0, 1fr)', gap: 'var(--spacing-3)', maxWidth: 460 }}>
               <Input
                 label="Значок"
                 value={icon}
@@ -205,7 +205,7 @@ export default function CompanyWalletPage() {
           {/* ---------- Начислить сотруднику ---------- */}
           <Card span={6}>
             <CardHeader title="Начислить сотруднику" subtitle="Списывается из казны организации" />
-            <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
+            <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
               <EntitySelector
                 types={['user']}
                 options={members.map((m) => ({
@@ -245,7 +245,7 @@ export default function CompanyWalletPage() {
                 description="Начислите первому сотруднику — он появится здесь."
               />
             ) : (
-              <div style={{ display: 'grid', gap: '0.375rem' }}>
+              <div className="ui-stack" style={{ gap: '0.375rem' }}>
                 {holders.map((h) => (
                   <div
                     key={h.userId}

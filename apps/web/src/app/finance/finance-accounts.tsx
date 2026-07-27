@@ -198,7 +198,7 @@ function NewAccountModal({ bookId, onClose, onDone }: { bookId: string | null; o
         </>
       }
     >
-      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
         <Input label="Название" placeholder="Kaspi Gold…" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
         <Select
@@ -270,7 +270,7 @@ function SetBalanceModal({
         </>
       }
     >
-      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
         <Input
           label={`Сейчас на счёте · ${currencySymbol(account.currencyCode)}`}

@@ -192,5 +192,5 @@ export function FinRow({
 
 /** Вертикальный список строк с шагом плотности. */
 export function FinList({ children, style }: { children: ReactNode; style?: CSSProperties }) {
-  return <div style={{ display: 'grid', gap: '0.375rem', ...style }}>{children}</div>;
+  return <div className="ui-stack" style={{ gap: '0.375rem', ...style }}>{children}</div>;
 }

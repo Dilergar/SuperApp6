@@ -1,6 +1,6 @@
 'use client';
 
-import { ModalShell } from '@/components/ui';
+import { Input, ModalShell, useConfirm } from '@/components/ui';
 import { useState } from 'react';
 import type { ScheduledMessageItem } from '@superapp/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -120,6 +120,7 @@ function ScheduledRow({ item, onChanged }: { item: ScheduledMessageItem; onChang
   const [when, setWhen] = useState(toLocalInput(new Date(item.sendAt)));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [confirm, confirmUI] = useConfirm();
 
   const minWhen = toLocalInput(new Date(Date.now() + 60_000));
 
@@ -142,8 +143,14 @@ function ScheduledRow({ item, onChanged }: { item: ScheduledMessageItem; onChang
     }
   };
 
-  const cancel = async () => {
-    if (!confirm('Отменить это сообщение?')) return;
+  const cancel = () => {
+    confirm(
+      { title: 'Отменить это сообщение?', message: 'Оно не будет отправлено.', confirmLabel: 'Отменить отправку', danger: true },
+      cancelNow,
+    );
+  };
+
+  const cancelNow = async () => {
     setBusy(true);
     setErr(null);
     try {
@@ -171,12 +178,12 @@ function ScheduledRow({ item, onChanged }: { item: ScheduledMessageItem; onChang
 
       {editing ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
-          <input
+          <Input
+            aria-label="Когда отправить"
             type="datetime-local"
             value={when}
             min={minWhen}
             onChange={(e) => setWhen(e.target.value)}
-            className="ui-input"
             style={{ fontSize: '0.85rem', fontFamily: 'var(--font-body)' }}
           />
           {err && <p style={{ color: 'var(--danger)', fontSize: '0.78rem' }}>{err}</p>}
@@ -239,6 +246,7 @@ function ScheduledRow({ item, onChanged }: { item: ScheduledMessageItem; onChang
         </div>
       )}
       {!editing && err && <p style={{ color: 'var(--danger)', fontSize: '0.78rem' }}>{err}</p>}
+      {confirmUI}
     </div>
   );
 }

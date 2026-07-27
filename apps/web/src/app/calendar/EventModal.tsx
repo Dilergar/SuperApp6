@@ -334,7 +334,7 @@ export function EventModal({
         {loading ? (
           <LoadingBlock />
         ) : canEdit ? (
-          <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+          <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
             <Input
               autoFocus
               value={title}
@@ -504,7 +504,7 @@ export function EventModal({
           </div>
         ) : (
           /* Режим ответа/просмотра (не организатор) */
-          <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
+          <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <span aria-hidden style={{ width: 12, height: 12, borderRadius: '50%', background: detail?.color ?? DEFAULT_EVENT_COLOR }} />
               <span className="title-md">{detail?.title}</span>
@@ -638,7 +638,7 @@ function ParticipantBlocks({
 
   const groups: RsvpStatus[] = ['accepted', 'tentative', 'pending', 'declined'];
   return (
-    <div style={{ display: 'grid', gap: 'var(--spacing-2)' }}>
+    <div className="ui-stack" style={{ gap: 'var(--spacing-2)' }}>
       {groups.map((g) => {
         const list = all.filter((p) => p.rsvp === g);
         if (!list.length) return null;

@@ -81,13 +81,13 @@ export function ResourcesPanel({
       size="lg"
       footer={<Button variant="ghost" onClick={() => onClose(changed)}>Готово</Button>}
     >
-      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
 
         {/* Заявки на бронь моих ресурсов */}
         {requests.length > 0 && (
           <Field label={`Заявки на бронь · ${requests.length}`}>
-            <div style={{ display: 'grid', gap: '0.375rem' }}>
+            <div className="ui-stack" style={{ gap: '0.375rem' }}>
               {requests.map((r) => (
                 <div
                   key={r.eventId}
@@ -146,7 +146,7 @@ export function ResourcesPanel({
             action={<Button variant="matte" icon="add" onClick={() => setEditing('new')}>Создать ресурс</Button>}
           />
         ) : (
-          <div style={{ display: 'grid', gap: '0.375rem' }}>
+          <div className="ui-stack" style={{ gap: '0.375rem' }}>
             {mine.map((r) => (
               <div
                 key={r.id}
@@ -212,7 +212,7 @@ function ResourceForm({
 
   return (
     <Card small>
-      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
 
         <Input label="Название" value={name} onChange={(e) => setName(e.target.value)} placeholder="Переговорка" autoFocus />

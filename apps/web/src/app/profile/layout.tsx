@@ -49,7 +49,7 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
       
 
       <div className="" style={{ paddingBottom: 'var(--spacing-16)' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 'var(--spacing-8)', minHeight: '70vh' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '200px minmax(0, 1fr)', gap: 'var(--spacing-8)', minHeight: '70vh' }}>
           {/* Sidebar */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-1)' }}>
             <h2 className="title-md" style={{ marginBottom: 'var(--spacing-4)' }}>Профиль</h2>

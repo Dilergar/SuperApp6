@@ -246,7 +246,7 @@ export default function CalendarPage() {
         }
       />
 
-      <div style={{ display: 'grid', gap: 'var(--spacing-3)', marginBottom: 'var(--gap-grid)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-3)', marginBottom: 'var(--gap-grid)' }}>
         {/* Вид + слои + инструменты — одна полоса управления над сеткой */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
           <SegmentedControl items={VIEWS.map((v) => ({ key: v.key, label: v.label }))} value={view} onChange={(k) => setView(k as typeof view)} aria-label="Вид календаря" />
@@ -255,11 +255,16 @@ export default function CalendarPage() {
             <Chip tone="danger" icon="tasks" selected={layers.tasks} onClick={() => setLayers((l) => ({ ...l, tasks: !l.tasks }))}>Задачи</Chip>
             <Chip tone="warning" icon="finance" selected={layers.finance} onClick={() => setLayers((l) => ({ ...l, finance: !l.finance }))}>Платежи</Chip>
           </div>
-          <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
-            <Button size="sm" variant="ghost" icon="target" onClick={() => setShowSmart(true)}>Подобрать</Button>
-            <Button size="sm" variant="ghost" icon="folder" onClick={() => setShowResources(true)}>Ресурсы</Button>
-            <Button size="sm" variant="ghost" icon="link" onClick={() => setShowGoogle(true)}>Google</Button>
-            <Button size="sm" variant="ghost" icon="share" onClick={() => setShowShare(true)}>Поделиться</Button>
+          {/* Контурные, а не призрачные: эти кнопки лежат на ФОНЕ СТРАНИЦЫ, а
+              не на белом блоке. Призрачная там остаётся без подложки — серый
+              текст со штрихом висит в воздухе и выпадает из системы, где у
+              каждого элемента управления есть поверхность (пилюля вида слева,
+              матовые чипы слоёв в середине). */}
+          <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
+            <Button size="sm" variant="outline" icon="target" onClick={() => setShowSmart(true)}>Подобрать</Button>
+            <Button size="sm" variant="outline" icon="folder" onClick={() => setShowResources(true)}>Ресурсы</Button>
+            <Button size="sm" variant="outline" icon="link" onClick={() => setShowGoogle(true)}>Google</Button>
+            <Button size="sm" variant="outline" icon="share" onClick={() => setShowShare(true)}>Поделиться</Button>
           </div>
         </div>
 
@@ -368,7 +373,11 @@ function MonthView({
 
   return (
     <Card className="density-compact" style={{ padding: 'var(--spacing-3)' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '0.25rem' }}>
+      {/* minmax(0, 1fr), а НЕ 1fr: `1fr` = `minmax(auto, 1fr)`, то есть колонка
+          не может стать уже своего содержимого — одно длинное название записи
+          раздувало колонку, сетка вылезала за экран, и суббота с воскресеньем
+          уезжали за правый край под горизонтальный скролл. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: '0.25rem' }}>
         {WEEKDAYS_SHORT.map((w) => (
           <div key={w} className="label-caps" style={{ textAlign: 'center', padding: '0.25rem 0 0.375rem' }}>{w}</div>
         ))}
@@ -389,6 +398,9 @@ function MonthView({
                 background: today ? 'var(--secondary-container)' : 'transparent',
                 opacity: inMonth ? 1 : 0.45,
                 display: 'flex', flexDirection: 'column', gap: 2,
+                // Ячейка — тоже элемент грида: без этого её min-content (самая
+                // длинная запись) снова стал бы шириной колонки.
+                minWidth: 0, overflow: 'hidden',
               }}
             >
               <div
@@ -425,7 +437,7 @@ function ItemChip({ item, onEvent, onTask }: { item: CalendarItem; onEvent: (o: 
       onClick={(e) => { e.stopPropagation(); if (isEvent(item)) onEvent(item); else if (isTask(item)) onTask(item); else router.push('/finance'); }}
       title={item.title}
       style={{
-        display: 'flex', alignItems: 'center', gap: 4, width: '100%', textAlign: 'left',
+        display: 'flex', alignItems: 'center', gap: 4, width: '100%', minWidth: 0, textAlign: 'left',
         padding: '1px 5px', borderRadius: 'var(--radius-sm)', border: 'none', cursor: drag ? 'grab' : 'pointer',
         background: isTask(item) ? 'transparent' : color + '22',
         fontSize: '0.7rem', fontWeight: 600, color: 'var(--on-surface)',
@@ -442,7 +454,9 @@ function ItemChip({ item, onEvent, onTask }: { item: CalendarItem; onEvent: (o: 
       ) : (
         !item.allDay && <span style={{ opacity: 0.7, flexShrink: 0 }}>{fmtTime(item.start)}</span>
       )}
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: done ? 'line-through' : 'none' }}>{item.title}</span>
+      {/* minWidth: 0 — иначе флекс-элемент не даёт себя сжать (min-width: auto),
+          и обрезание многоточием не срабатывает: строка распирает ячейку. */}
+      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: done ? 'line-through' : 'none' }}>{item.title}</span>
     </button>
   );
 }
@@ -503,7 +517,7 @@ function TimeGridView({
   return (
     <Card className="density-compact" style={{ padding: 0, overflow: 'hidden' }}>
       {/* Day headers */}
-      <div style={{ display: 'grid', gridTemplateColumns: `52px repeat(${days.length}, 1fr)` }}>
+      <div style={{ display: 'grid', gridTemplateColumns: `52px repeat(${days.length}, minmax(0, 1fr))` }}>
         <div />
         {days.map((d) => {
           const h = fmtDayHeader(d);
@@ -517,12 +531,12 @@ function TimeGridView({
       </div>
 
       {/* All-day band */}
-      <div style={{ display: 'grid', gridTemplateColumns: `52px repeat(${days.length}, 1fr)`, borderTop: '1px solid var(--divider)', borderBottom: '1px solid var(--divider)', minHeight: 30 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: `52px repeat(${days.length}, minmax(0, 1fr))`, borderTop: '1px solid var(--divider)', borderBottom: '1px solid var(--divider)', minHeight: 30 }}>
         <div className="label-caps" style={{ padding: '4px 6px', alignSelf: 'center' }}>весь день</div>
         {days.map((d) => {
           const all = (byDay.get(dayKey(d)) ?? []).filter(isAllDayItem);
           return (
-            <div key={d.toISOString()} onClick={() => onAllDay(d)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); onDropSlot(d, 9); }} style={{ padding: 3, display: 'flex', flexDirection: 'column', gap: 2, cursor: 'pointer', minHeight: 26 }}>
+            <div key={d.toISOString()} onClick={() => onAllDay(d)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); onDropSlot(d, 9); }} style={{ padding: 3, display: 'flex', flexDirection: 'column', gap: 2, cursor: 'pointer', minHeight: 26, minWidth: 0 }}>
               {all.map((it, idx) => <ItemChip key={chipKey(it, idx)} item={it} onEvent={onEvent} onTask={onTask} />)}
             </div>
           );
@@ -531,7 +545,7 @@ function TimeGridView({
 
       {/* Hour grid */}
       <div ref={scroller} style={{ maxHeight: '62vh', overflowY: 'auto' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: `52px repeat(${days.length}, 1fr)`, position: 'relative' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: `52px repeat(${days.length}, minmax(0, 1fr))`, position: 'relative' }}>
           {/* hour gutter */}
           <div>
             {Array.from({ length: 24 }, (_, h) => (
@@ -648,7 +662,7 @@ function AgendaView({
   }
 
   return (
-    <div className="density-compact" style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
+    <div className="density-compact ui-stack" style={{ gap: 'var(--spacing-3)' }}>
       {days.map((d) => {
         const list = [...(byDay.get(dayKey(d)) ?? [])].sort((a, b) => a.start.localeCompare(b.start));
         return (
@@ -658,7 +672,7 @@ function AgendaView({
               <span className="label-sm">{d.toLocaleDateString('ru-RU', { weekday: 'long', month: 'long' })}</span>
               {isToday(d) && <Chip size="sm" tone="accent">сегодня</Chip>}
             </div>
-            <div style={{ display: 'grid', gap: '0.25rem' }}>
+            <div className="ui-stack" style={{ gap: '0.25rem' }}>
               {list.map((it, idx) => <AgendaRow key={chipKey(it, idx)} item={it} onEvent={onEvent} onTask={onTask} />)}
             </div>
           </Card>
@@ -734,7 +748,7 @@ function TaskPopover({ task, onClose }: { task: CalendarTaskItem; onClose: (chan
         </>
       }
     >
-      <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
         {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
         <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
           <Chip size="sm" tone={statusTone[task.status] ?? 'neutral'}>{st.label}</Chip>

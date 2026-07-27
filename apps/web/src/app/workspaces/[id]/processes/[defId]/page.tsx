@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  Alert, Button, Checkbox, Chip, Icon, IconButton, Input, Modal, Select, Textarea,
+  Alert, Button, Checkbox, Chip, Field, Icon, IconButton, Input, Modal, Select, Textarea, useConfirm,
 } from '@/components/ui';
 // Редактор процесса — полноэкранный канвас (как n8n) + плавающие панели.
 // ИСТОЧНИК ПРАВДЫ во время правки — flow-state (applyNodeChanges/applyEdgeChanges):
@@ -51,11 +51,12 @@ import type { EntityOption } from '@/lib/entities';
 import { ProcessCanvas } from '../ProcessCanvas';
 import {
   buildDocument,
-  CATEGORY_COLORS,
+  categoryTone,
   docToFlow,
   makeFlowEdge,
   nextEdgeId,
   nextNodeId,
+  nodeIcon,
   autoLayout,
   portType,
   type PNode,
@@ -69,6 +70,11 @@ function errText(e: unknown): string {
 }
 
 const CATEGORY_ORDER = ['trigger', 'flow', 'people', 'service', 'ai', 'integration'] as const;
+
+/** Виджеты паспорта, которые рисуют подпись сами (кит связывает label с контролом). */
+const SELF_LABELED_FIELDS = new Set<ProcessNodeField['kind']>([
+  'text', 'textarea', 'number', 'select', 'credential', 'formField',
+]);
 
 export default function ProcessEditorPage() {
   const { isReady } = useRequireAuth();
@@ -120,6 +126,7 @@ export default function ProcessEditorPage() {
   const [edges, setEdges] = useState<Edge[]>([]);
   const [form, setForm] = useState<ProcessFormField[]>([]);
   const [dirty, setDirty] = useState(false);
+  const [confirm, confirmUI] = useConfirm();
   const editSeq = useRef(0); // против гонки «сохранил→onSuccess стёр dirty, а правки уже новые»
   const hydratedKey = useRef<string | null>(null);
   const rfRef = useRef<ReactFlowInstance<PNode, Edge> | null>(null);
@@ -348,9 +355,13 @@ export default function ProcessEditorPage() {
   }, [dirty]);
 
   const leave = useCallback(() => {
-    if (dirty && !confirm('Есть несохранённые изменения. Уйти без сохранения?')) return;
-    router.push(`/workspaces/${wsId}/processes`);
-  }, [dirty, router, wsId]);
+    const go = () => router.push(`/workspaces/${wsId}/processes`);
+    if (!dirty) { go(); return; }
+    confirm(
+      { title: 'Уйти без сохранения?', message: 'Несохранённые изменения канваса будут потеряны.', confirmLabel: 'Уйти', danger: true },
+      go,
+    );
+  }, [dirty, router, wsId, confirm]);
 
   const onSave = useCallback(() => saveMut.mutate(currentDocument()), [saveMut, currentDocument]);
 
@@ -385,17 +396,17 @@ export default function ProcessEditorPage() {
   const issues = detail.issues;
 
   return (
-    // Полноэкранный слой под навбаром организации (z-40 < nav z-50) — простор как в n8n.
-    <div style={{ position: 'fixed', inset: 0, top: '3.75rem', zIndex: 40, display: 'flex', flexDirection: 'column', background: 'var(--surface)' }}>
-      {/* Тулбар */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap', padding: '0.55rem 1rem', background: 'rgba(234, 230, 222, 0.75)', backdropFilter: 'blur(8px)' }}>
+    // Полноэкранный слой под топбаром каркаса (z-40 < топбар z-50) — простор как в n8n.
+    <div style={{ position: 'fixed', inset: 0, top: 'var(--svc-topbar-h)', zIndex: 40, display: 'flex', flexDirection: 'column', background: 'var(--page)' }}>
+      {/* Тулбар — светлый блок с несущим 1px-бордером снизу, как топбар каркаса */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap', padding: '0.5rem var(--spacing-5)', background: 'var(--block)', borderBottom: '1px solid var(--border)' }}>
         <Button variant="ghost" size="sm" icon="arrowLeft" onClick={leave}>Процессы</Button>
         <strong className="title-md">{detail.name}</strong>
         <Chip size="sm" tone="neutral">
           v{detail.editableVersion} · {PROCESS_VERSION_STATUS_LABELS[detail.editableVersionStatus]}
           {detail.publishedVersion && detail.publishedVersion !== detail.editableVersion ? ` · запуск v${detail.publishedVersion}` : ''}
         </Chip>
-        {dirty && <Chip size="sm" tone="warning">не сохранено</Chip>}
+        {dirty && <Chip size="sm" tone="warning" icon="pending">не сохранено</Chip>}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.375rem', alignItems: 'center' }}>
           <Button
             variant={settingsOpen ? 'matte' : 'ghost'}
@@ -491,87 +502,99 @@ export default function ProcessEditorPage() {
 
         {/* Палитра (плавающая, сворачиваемая) */}
         {canEdit && (
-          <div style={{ position: 'absolute', top: '0.8rem', left: '0.8rem', width: paletteOpen ? '12rem' : 'auto', maxHeight: 'calc(100% - 1.6rem)', overflowY: 'auto', background: 'var(--surface-container-lowest)', borderRadius: 'var(--radius-lg)', boxShadow: '0 10px 26px rgba(0, 0, 0, 0.12)', padding: paletteOpen ? '0.7rem' : '0.4rem' }}>
+          <div className="pfloat ppalette" style={{ width: paletteOpen ? '13.5rem' : 'auto' }}>
             <button
-              className="title-sm"
+              className="ppalette-head title-sm"
               aria-expanded={paletteOpen}
               aria-label={paletteOpen ? 'Свернуть палитру нод' : 'Развернуть палитру нод'}
-              style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', width: '100%', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface)' }}
               onClick={() => setPaletteOpen((v) => !v)}
             >
-              <Icon name={paletteOpen ? 'caretLeft' : 'caretRight'} size={15} />
+              <Icon name={paletteOpen ? 'caretLeft' : 'caretRight'} size={16} />
               {paletteOpen && <span>Ноды</span>}
             </button>
-            {paletteOpen &&
-              CATEGORY_ORDER.filter((cat) => nodeTypes.some((t) => t.category === cat)).map((cat) => (
-                <div key={cat} style={{ marginTop: 'var(--spacing-3)' }}>
-                  <div className="label-md" style={{ fontSize: '0.64rem', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.3rem', paddingLeft: '0.2rem' }}>
-                    {PROCESS_NODE_CATEGORY_LABELS[cat]}
-                  </div>
-                  {nodeTypes.filter((t) => t.category === cat).map((t) => (
-                    <button
-                      key={t.type}
-                      draggable
-                      onDragStart={(e) => { e.dataTransfer.setData('application/superapp-process-node', t.type); e.dataTransfer.effectAllowed = 'move'; }}
-                      onClick={() => addNodeCentered(t)}
-                      title={`${t.description}\n(перетащите на холст или кликните)`}
-                      style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '0.4rem 0.5rem', marginBottom: '0.3rem', background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', cursor: 'grab', textAlign: 'left' }}
-                    >
-                      <span style={{ width: '1.5rem', height: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', background: CATEGORY_COLORS[cat], borderRadius: '50%' }}>{t.icon}</span>
-                      <span className="label-md" style={{ fontSize: '0.77rem', fontWeight: 600, color: 'var(--on-surface)' }}>{t.title}</span>
-                    </button>
-                  ))}
-                </div>
-              ))}
-            {paletteOpen && nodes.length <= 2 && (
-              <p className="label-md" style={{ fontSize: '0.64rem', opacity: 0.65, marginTop: 'var(--spacing-3)', paddingLeft: '0.2rem' }}>
-                Перетащите ноду на холст. Соедините точки-порты. Из порта в пустоту — быстрый выбор следующей ноды.
-              </p>
+            {paletteOpen && (
+              <div className="ppalette-body">
+                {CATEGORY_ORDER.filter((cat) => nodeTypes.some((t) => t.category === cat)).map((cat) => {
+                  const tone = categoryTone(cat);
+                  return (
+                    <div key={cat} className="ppalette-group">
+                      <div className="ppalette-group-label label-caps">{PROCESS_NODE_CATEGORY_LABELS[cat]}</div>
+                      {nodeTypes.filter((t) => t.category === cat).map((t) => (
+                        <button
+                          key={t.type}
+                          className="ppalette-item"
+                          draggable
+                          onDragStart={(e) => { e.dataTransfer.setData('application/superapp-process-node', t.type); e.dataTransfer.effectAllowed = 'move'; }}
+                          onClick={() => addNodeCentered(t)}
+                          title={`${t.description}\n(перетащите на холст или кликните)`}
+                        >
+                          <span className="pnode-chip" style={{ background: tone.bg, borderColor: tone.border, color: tone.fg }}>
+                            <Icon name={nodeIcon(t)} size={15} />
+                          </span>
+                          <span className="ppalette-item-title">{t.title}</span>
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })}
+                {nodes.length <= 2 && (
+                  <p className="label-sm" style={{ marginTop: 'var(--spacing-3)', padding: '0 0.375rem' }}>
+                    Перетащите ноду на холст. Соедините точки-порты. Из порта в пустоту — быстрый выбор следующей ноды.
+                  </p>
+                )}
+              </div>
             )}
           </div>
         )}
 
-        {/* Правая панель: настройки ВЫБРАННОЙ ноды (по клику) ИЛИ настройки процесса (кнопка ⚙).
+        {/* Правая панель: настройки ВЫБРАННОЙ ноды (по клику) ИЛИ настройки процесса (кнопка «Настройки»).
             Если ничего не выбрано и настройки закрыты — панели нет (холст во весь экран). */}
         {(settingsOpen || selectedNode) && (
-          <div style={{ position: 'absolute', top: '0.8rem', right: '0.8rem', bottom: '0.8rem', width: '20rem', display: 'flex', flexDirection: 'column', background: 'var(--surface-container-lowest)', borderRadius: 'var(--radius-lg)', boxShadow: '0 10px 26px rgba(0, 0, 0, 0.12)', overflow: 'hidden' }}>
-            <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--spacing-4)' }}>
-              {settingsOpen ? (
-                <ProcessPanel
-                  wsId={wsId}
-                  detail={detail}
-                  readOnly={!canEdit}
-                  onClose={() => setSettingsOpen(false)}
-                  onMeta={(data) => metaMut.mutate(data)}
-                  onArchive={() => { if (confirm('Архивировать процесс? Он исчезнет из списка (запущенные блокируют).')) archiveMut.mutate(); }}
-                />
-              ) : selectedNode ? (
-                <NodePanel
-                  key={selectedNode.id}
-                  wsId={wsId}
-                  node={selectedNode}
-                  form={form}
-                  triggerInfo={detail.triggers.find((t) => t.nodeId === selectedNode.id) ?? null}
-                  memberOptions={memberOptions}
-                  readOnly={!canEdit}
-                  onChange={(patch) => updateNode(selectedNode.id, patch)}
-                  onFormChange={(f) => { setForm(f); markDirty(); }}
-                  onClose={() => setSelectedId(null)}
-                  onDelete={() => deleteNode(selectedNode.id)}
-                />
-              ) : null}
-            </div>
+          <div className="pfloat ppanel">
+            {settingsOpen ? (
+              <ProcessPanel
+                wsId={wsId}
+                detail={detail}
+                readOnly={!canEdit}
+                onClose={() => setSettingsOpen(false)}
+                onMeta={(data) => metaMut.mutate(data)}
+                onArchive={() => confirm(
+                  { title: 'Архивировать процесс?', message: 'Он исчезнет из списка. Запущенные экземпляры блокируют архивацию.', confirmLabel: 'Архивировать', danger: true },
+                  () => archiveMut.mutate(),
+                )}
+              />
+            ) : selectedNode ? (
+              <NodePanel
+                key={selectedNode.id}
+                wsId={wsId}
+                node={selectedNode}
+                form={form}
+                triggerInfo={detail.triggers.find((t) => t.nodeId === selectedNode.id) ?? null}
+                memberOptions={memberOptions}
+                readOnly={!canEdit}
+                onChange={(patch) => updateNode(selectedNode.id, patch)}
+                onFormChange={(f) => { setForm(f); markDirty(); }}
+                onClose={() => setSelectedId(null)}
+                onDelete={() => deleteNode(selectedNode.id)}
+              />
+            ) : null}
           </div>
         )}
 
         {/* Проблемы публикации — плавающая карточка снизу по центру (видна всегда, когда есть) */}
         {issues.length > 0 && (
-          <div style={{ position: 'absolute', bottom: '0.8rem', left: '50%', transform: 'translateX(-50%)', zIndex: 20, width: '30rem', maxWidth: 'calc(100% - 2rem)', maxHeight: '11rem', overflowY: 'auto', padding: '0.6rem 0.95rem', background: 'var(--surface-container)', borderRadius: 'var(--radius-lg)', boxShadow: '0 10px 26px rgba(0, 0, 0, 0.16)' }}>
-            <div className="title-md" style={{ fontSize: '0.78rem', marginBottom: '0.3rem' }}>⚠ Мешает публикации · {issues.length}</div>
+          <div className="pfloat pissues">
+            <div className="title-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.3rem' }}>
+              <Icon name="warning" size={16} style={{ color: 'var(--warning-icon)' }} />
+              Мешает публикации · {issues.length}
+            </div>
             {issues.map((iss, i) => (
-              <button key={i} className="label-md" style={{ display: 'block', fontSize: '0.74rem', padding: '0.1rem 0', color: 'var(--primary)', textAlign: 'left' }} onClick={() => iss.nodeId && selectNode(iss.nodeId)}>• {iss.message}</button>
+              <button key={i} className="pissue" onClick={() => iss.nodeId && selectNode(iss.nodeId)}>
+                <Icon name="caretRight" size={12} style={{ marginTop: 2, color: 'var(--label)' }} />
+                {iss.message}
+              </button>
             ))}
-            {dirty && <p className="label-md" style={{ fontSize: '0.66rem', opacity: 0.6 }}>Сохраните, чтобы перепроверить.</p>}
+            {dirty && <p className="label-sm" style={{ margin: '0.25rem 0 0', padding: '0 0.375rem' }}>Сохраните, чтобы перепроверить.</p>}
           </div>
         )}
 
@@ -579,14 +602,22 @@ export default function ProcessEditorPage() {
         {picker && (
           <>
             <div style={{ position: 'fixed', inset: 0, zIndex: 70 }} onClick={() => setPicker(null)} />
-            <div style={{ position: 'fixed', left: Math.min(picker.x, window.innerWidth - 200), top: Math.min(picker.y, window.innerHeight - 260), zIndex: 71, width: '11rem', maxHeight: '15rem', overflowY: 'auto', background: 'var(--surface-container-lowest)', borderRadius: 'var(--radius-md)', boxShadow: '0 12px 30px rgba(0, 0, 0, 0.18)', padding: '0.4rem' }}>
-              <div className="label-md" style={{ fontSize: '0.66rem', opacity: 0.7, padding: '0.2rem 0.4rem' }}>Добавить и связать</div>
-              {addableTypes.map((t) => (
-                <button key={t.type} onClick={() => { addNodeAt(t, picker.flow, picker.from); setPicker(null); }} style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', width: '100%', padding: '0.35rem 0.45rem', borderRadius: '0.6rem', textAlign: 'left' }}>
-                  <span style={{ fontSize: '0.85rem' }}>{t.icon}</span>
-                  <span className="label-md" style={{ fontSize: '0.76rem', fontWeight: 600, color: 'var(--on-surface)' }}>{t.title}</span>
-                </button>
-              ))}
+            <div
+              className="pfloat ppicker"
+              style={{ left: Math.min(picker.x, window.innerWidth - 230), top: Math.min(picker.y, window.innerHeight - 290) }}
+            >
+              <div className="label-caps" style={{ padding: '0.25rem 0.5rem 0.375rem' }}>Добавить и связать</div>
+              {addableTypes.map((t) => {
+                const tone = categoryTone(t.category);
+                return (
+                  <button key={t.type} className="ppalette-item" onClick={() => { addNodeAt(t, picker.flow, picker.from); setPicker(null); }}>
+                    <span className="pnode-chip" style={{ background: tone.bg, borderColor: tone.border, color: tone.fg }}>
+                      <Icon name={nodeIcon(t)} size={15} />
+                    </span>
+                    <span className="ppalette-item-title">{t.title}</span>
+                  </button>
+                );
+              })}
             </div>
           </>
         )}
@@ -602,6 +633,7 @@ export default function ProcessEditorPage() {
           onStarted={(instId) => { void qc.invalidateQueries({ queryKey: processInstancesKey(wsId) }); router.push(`/workspaces/${wsId}/processes/instances/${instId}`); }}
         />
       )}
+      {confirmUI}
     </div>
   );
 }
@@ -643,54 +675,75 @@ function NodePanel({
   onDelete?: () => void;
 }) {
   const t = node.data.typeDto;
+  const tone = categoryTone(t.category);
   const cfg = node.data.config ?? {};
   const setCfg = (key: string, value: unknown) => onChange({ config: { ...cfg, [key]: value } });
   const visible = (f: ProcessNodeField) => !f.showIf || f.showIf.in.includes(String(cfg[f.showIf.field] ?? ''));
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-        <span style={{ fontSize: '1.1rem' }}>{t.icon}</span>
+    <>
+      <div className="ppanel-head">
+        <span className="pnode-chip" style={{ background: tone.bg, borderColor: tone.border, color: tone.fg }}>
+          <Icon name={nodeIcon(t)} size={15} />
+        </span>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div className="title-md" style={{ fontSize: '0.9rem' }}>{t.title}</div>
-          {t.trigger && <div className="label-md" style={{ fontSize: '0.62rem', fontWeight: 700, color: '#9a6a16' }}>ТРИГГЕР ЗАПУСКА</div>}
+          <div className="title-sm">{t.title}</div>
+          {t.trigger && <div className="label-caps" style={{ color: 'var(--warning)' }}>Триггер запуска</div>}
         </div>
         <IconButton icon="close" label="Закрыть настройки ноды" size={28} onClick={onClose} />
       </div>
-      <p className="label-md" style={{ fontSize: '0.74rem', opacity: 0.8 }}>{t.description}</p>
 
-      <Field label="Подпись на холсте">
-        <Input value={node.data.label ?? ''} disabled={readOnly} onChange={(e) => onChange({ label: e.target.value })} aria-label="Подпись на холсте" />
-      </Field>
+      <div className="ppanel-body ui-stack" style={{ gap: 'var(--spacing-4)' }}>
+        <p className="body-sm" style={{ margin: 0 }}>{t.description}</p>
+
+        <Input
+          label="Подпись на холсте"
+          value={node.data.label ?? ''}
+          disabled={readOnly}
+          onChange={(e) => onChange({ label: e.target.value })}
+        />
 
       {t.fields.filter(visible).map((f) => (
-        <Field key={f.key} label={f.label + (f.required ? ' *' : '')} help={f.help}>
+        // Поля кита подписывают себя сами (label связан с контролом через htmlFor).
+        // Обёртка-Field нужна только тем, у кого своей подписи нет: группе флажков
+        // и пикерам сущностей — иначе подпись задвоится.
+        <Field
+          key={f.key}
+          label={SELF_LABELED_FIELDS.has(f.kind) ? undefined : f.label}
+          required={SELF_LABELED_FIELDS.has(f.kind) ? undefined : f.required}
+          hint={SELF_LABELED_FIELDS.has(f.kind) ? undefined : f.help}
+        >
           {f.kind === 'text' && (
-            <Input value={String(cfg[f.key] ?? '')} placeholder={f.placeholder} disabled={readOnly} onChange={(e) => setCfg(f.key, e.target.value)} aria-label={f.label} />
+            <Input label={f.label} required={f.required} hint={f.help} value={String(cfg[f.key] ?? '')} placeholder={f.placeholder} disabled={readOnly} onChange={(e) => setCfg(f.key, e.target.value)} />
           )}
           {f.kind === 'textarea' && (
             <Textarea
+              label={f.label}
+              required={f.required}
+              hint={f.help}
               value={String(cfg[f.key] ?? '')}
               placeholder={f.placeholder}
               disabled={readOnly}
               onChange={(e) => setCfg(f.key, e.target.value)}
-              aria-label={f.label}
               style={{ minHeight: '4.5rem', resize: 'vertical' }}
             />
           )}
           {f.kind === 'number' && (
             <Input
+              label={f.label}
+              required={f.required}
+              hint={f.help}
               type="number"
               value={cfg[f.key] === undefined || cfg[f.key] === '' ? '' : Number(cfg[f.key])}
               placeholder={f.placeholder}
               disabled={readOnly}
               onChange={(e) => setCfg(f.key, e.target.value === '' ? undefined : Number(e.target.value))}
-              aria-label={f.label}
             />
           )}
           {f.kind === 'select' && (
             <Select
-              aria-label={f.label}
+              label={f.label}
+              hint={f.help}
               value={String(cfg[f.key] ?? '')}
               disabled={readOnly}
               width="100%"
@@ -699,7 +752,7 @@ function NodePanel({
             />
           )}
           {f.kind === 'multiselect' && (
-            <div style={{ display: 'grid', gap: '0.25rem' }}>
+            <div className="ui-stack" style={{ gap: '0.25rem' }}>
               {(f.options ?? []).map((o) => {
                 const arr = Array.isArray(cfg[f.key]) ? (cfg[f.key] as string[]) : [];
                 const on = arr.includes(o.value);
@@ -728,11 +781,12 @@ function NodePanel({
             <EntitySelector value={cfg[f.key] ? [{ type: 'branch', id: String(cfg[f.key]) }] : []} onChange={(next) => setCfg(f.key, next[0]?.id)} multi={false} types={['branch']} context={{ workspaceId: wsId }} placeholder="Выберите филиал…" />
           )}
           {f.kind === 'credential' && (
-            <CredentialField wsId={wsId} value={cfg[f.key] ? String(cfg[f.key]) : ''} disabled={readOnly} onChange={(v) => setCfg(f.key, v || undefined)} />
+            <CredentialField wsId={wsId} label={f.label} hint={f.help} value={cfg[f.key] ? String(cfg[f.key]) : ''} disabled={readOnly} onChange={(v) => setCfg(f.key, v || undefined)} />
           )}
           {f.kind === 'formField' && (
             <Select
-              aria-label={f.label}
+              label={f.label}
+              hint={f.help}
               value={String(cfg[f.key] ?? '')}
               disabled={readOnly}
               width="100%"
@@ -747,7 +801,7 @@ function NodePanel({
       {(t.type === 'trigger.webhook' || t.type === 'trigger.telegram') && (
         <Field
           label={t.type === 'trigger.telegram' ? 'Адрес вебхука бота' : 'URL вебхука'}
-          help={
+          hint={
             t.type === 'trigger.telegram'
               ? 'После публикации бот подключается автоматически (нужен публичный API-адрес). На localhost задайте этот адрес боту вручную через setWebhook.'
               : 'Внешняя система (Kaspi, 1С, сайт…) вызывает этот адрес методом POST — процесс запускается. Тело запроса попадает в анкету.'
@@ -767,44 +821,49 @@ function NodePanel({
               <IconButton
                 icon="copy"
                 label="Копировать адрес"
-                size={30}
+                variant="outline"
+                size={34}
                 onClick={() => navigator.clipboard?.writeText(triggerInfo.webhookUrl!)}
               />
             </div>
           ) : (
-            <p className="label-md" style={{ fontSize: '0.72rem', opacity: 0.7 }}>URL появится после публикации процесса.</p>
+            <p className="body-sm" style={{ margin: 0 }}>URL появится после публикации процесса.</p>
           )}
         </Field>
       )}
 
       {/* Telegram-триггер: какие переменные доступны дальше + как ответить */}
       {t.type === 'trigger.telegram' && (
-        <div style={{ padding: '0.65rem 0.75rem', background: 'var(--surface-container)', borderRadius: 'var(--radius-md)' }}>
-          <div className="label-md" style={{ fontSize: '0.68rem', fontWeight: 700, marginBottom: '0.25rem' }}>Доступно следующим нодам:</div>
-          <div className="label-md" style={{ fontSize: '0.68rem', opacity: 0.85, lineHeight: 1.6 }}>
+        <div className="ppanel-note">
+          <div className="label-caps" style={{ marginBottom: '0.3rem' }}>Доступно следующим нодам</div>
+          <div className="body-sm" style={{ lineHeight: 1.9 }}>
             <code>{'{{form.text}}'}</code> — текст · <code>{'{{form.chatId}}'}</code> — чат · <code>{'{{form.fromName}}'}</code> — имя
           </div>
-          <div className="label-md" style={{ fontSize: '0.66rem', opacity: 0.7, marginTop: '0.4rem' }}>
+          <p className="label-sm" style={{ margin: '0.4rem 0 0' }}>
             Чтобы ответить: добавьте ноду «Telegram» (тот же кред-токен), Chat ID = <code>{'{{form.chatId}}'}</code>, Текст = ответ AI-Агента.
-          </div>
+          </p>
         </div>
       )}
 
       {/* Запуск вручную: анкета, которую инициатор заполняет при старте (модель Form Trigger n8n) */}
       {t.type === 'start' && (
-        <div style={{ marginTop: '0.2rem', padding: '0.75rem', background: 'var(--surface-container)', borderRadius: 'var(--radius-md)' }}>
-          <div className="title-md" style={{ fontSize: '0.82rem', marginBottom: '0.25rem' }}>📋 Анкета запуска</div>
-          <p className="label-md" style={{ fontSize: '0.68rem', opacity: 0.7, marginBottom: '0.55rem' }}>Поля, которые инициатор заполняет при нажатии «Запустить». Доступны нодам как {'{{form.ключ}}'}.</p>
+        <div className="ppanel-note">
+          <div className="title-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <Icon name="list" size={15} style={{ color: 'var(--muted)' }} />
+            Анкета запуска
+          </div>
+          <p className="label-sm" style={{ margin: '0.25rem 0 0.625rem' }}>Поля, которые инициатор заполняет при нажатии «Запустить». Доступны нодам как {'{{form.ключ}}'}.</p>
           <FormPanel form={form} readOnly={readOnly} onChange={onFormChange} />
         </div>
       )}
 
-      {!readOnly && onDelete && (
-        <div>
-          <Button variant="ghost" tone="danger" size="sm" icon="delete" onClick={onDelete}>Удалить ноду</Button>
-        </div>
-      )}
-    </div>
+        {!readOnly && onDelete && (
+          <div>
+            <Button variant="ghost" tone="danger" size="sm" icon="delete" onClick={onDelete}>Удалить ноду</Button>
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -828,12 +887,12 @@ function FormPanel({ form, readOnly, onChange }: { form: ProcessFormField[]; rea
     return m;
   }, [form]);
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
-      <p className="label-md" style={{ fontSize: '0.74rem', opacity: 0.8 }}>Анкета заполняется при запуске. Поля доступны нодам как {'{{form.ключ}}'} и в условиях «Если».</p>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
       {form.map((f, i) => (
         <div
           key={i}
-          style={{ border: '1px solid var(--divider)', borderRadius: 'var(--radius-md)', padding: '0.625rem', display: 'grid', gap: '0.4rem' }}
+          className="ui-stack"
+          style={{ background: 'var(--block)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '0.625rem', gap: '0.4rem' }}
         >
           <div style={{ display: 'flex', gap: '0.4rem' }}>
             <div style={{ flex: 2, minWidth: 0 }}>
@@ -905,36 +964,32 @@ function ProcessPanel({
   const [description, setDescription] = useState(detail.description ?? '');
   useEffect(() => { setName(detail.name); setDescription(detail.description ?? ''); }, [detail.name, detail.description]);
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span className="title-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem' }}>
-          <Icon name="settings" size={16} />
-          Настройки процесса
-        </span>
+    <>
+      <div className="ppanel-head">
+        <Icon name="settings" size={17} style={{ color: 'var(--on-surface-variant)' }} />
+        <span className="title-sm" style={{ flex: 1 }}>Настройки процесса</span>
         <IconButton icon="close" label="Закрыть настройки" size={28} onClick={onClose} />
       </div>
-      <Field label="Название">
+
+      <div className="ppanel-body ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         <Input
+          label="Название"
           value={name}
           disabled={readOnly}
-          aria-label="Название процесса"
           onChange={(e) => setName(e.target.value)}
           onBlur={() => name.trim() && name !== detail.name && onMeta({ name: name.trim() })}
         />
-      </Field>
-      <Field label="Описание">
         <Textarea
+          label="Описание"
           value={description}
           disabled={readOnly}
-          aria-label="Описание процесса"
           style={{ minHeight: '3.6rem', resize: 'vertical' }}
           onChange={(e) => setDescription(e.target.value)}
           onBlur={() => description !== (detail.description ?? '') && onMeta({ description: description || null })}
         />
-      </Field>
-      <Field label="Кому виден" help="«Только админы» — процессы для разработчиков/руководства">
         <Select
-          aria-label="Кому виден процесс"
+          label="Кому виден"
+          hint="«Только админы» — процессы для разработчиков/руководства"
           value={detail.visibility}
           disabled={readOnly}
           width="100%"
@@ -944,25 +999,32 @@ function ProcessPanel({
             { value: 'admins', label: 'Только админы', icon: 'lock' },
           ]}
         />
-      </Field>
-      <div>
-        <div className="label-md" style={{ fontSize: '0.72rem', marginBottom: '0.3rem' }}>Версии</div>
-        {detail.versions.map((v) => (
-          <div key={v.version} className="label-md" style={{ fontSize: '0.76rem', padding: '0.12rem 0' }}>
-            v{v.version} — {PROCESS_VERSION_STATUS_LABELS[v.status] ?? v.status}{v.publishedAt ? ` · ${new Date(v.publishedAt).toLocaleDateString('ru-RU')}` : ''}
-          </div>
-        ))}
-        <p className="label-md" style={{ fontSize: '0.66rem', opacity: 0.65, marginTop: '0.3rem' }}>Запущенные процессы доживают на своей версии — правки им не мешают.</p>
-      </div>
 
-      {!readOnly && <CredentialsSection wsId={wsId} />}
-
-      {!readOnly && (
         <div>
-          <Button variant="ghost" tone="danger" size="sm" icon="archive" onClick={onArchive}>Архивировать процесс</Button>
+          <div className="label-caps" style={{ marginBottom: '0.375rem' }}>Версии</div>
+          <div className="ui-stack" style={{ gap: '0.25rem' }}>
+            {detail.versions.map((v) => (
+              <div key={v.version} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Chip size="sm" tone={v.status === 'published' ? 'success' : 'neutral'}>v{v.version}</Chip>
+                <span className="body-sm">{PROCESS_VERSION_STATUS_LABELS[v.status] ?? v.status}</span>
+                {v.publishedAt && (
+                  <span className="label-sm" style={{ marginLeft: 'auto' }}>{new Date(v.publishedAt).toLocaleDateString('ru-RU')}</span>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="label-sm" style={{ margin: '0.375rem 0 0' }}>Запущенные процессы доживают на своей версии — правки им не мешают.</p>
         </div>
-      )}
-    </div>
+
+        {!readOnly && <CredentialsSection wsId={wsId} />}
+
+        {!readOnly && (
+          <div>
+            <Button variant="ghost" tone="danger" size="sm" icon="archive" onClick={onArchive}>Архивировать процесс</Button>
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -986,7 +1048,7 @@ function CredentialsSection({ wsId }: { wsId: string }) {
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   return (
-    <div style={{ display: 'grid', gap: '0.375rem' }}>
+    <div className="ui-stack" style={{ gap: '0.375rem' }}>
       <div className="label-caps">Креды для HTTP-нод</div>
       {(creds ?? []).map((c) => (
         <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
@@ -999,7 +1061,7 @@ function CredentialsSection({ wsId }: { wsId: string }) {
         </div>
       ))}
       {adding ? (
-        <div style={{ border: '1px solid var(--divider)', borderRadius: 'var(--radius-md)', padding: '0.625rem', display: 'grid', gap: '0.4rem' }}>
+        <div className="ui-stack" style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '0.625rem', gap: '0.4rem' }}>
           <Input placeholder="Название" aria-label="Название кредов" value={form.name} onChange={(e) => set('name', e.target.value)} />
           <Select
             aria-label="Тип кредов"
@@ -1040,11 +1102,13 @@ function CredentialsSection({ wsId }: { wsId: string }) {
   );
 }
 
-function CredentialField({ wsId, value, disabled, onChange }: { wsId: string; value: string; disabled: boolean; onChange: (v: string) => void }) {
+function CredentialField({ wsId, label, hint, value, disabled, onChange }: { wsId: string; label?: string; hint?: string; value: string; disabled: boolean; onChange: (v: string) => void }) {
   const { data: creds } = useQuery({ queryKey: processCredentialsKey(wsId), queryFn: () => fetchProcessCredentials(wsId), staleTime: 30_000 });
   return (
     <Select
-      aria-label="Креды"
+      label={label}
+      hint={hint}
+      aria-label={label ?? 'Креды'}
       value={value}
       disabled={disabled}
       width="100%"
@@ -1086,29 +1150,29 @@ function StartModal({ wsId, defId, name, form, onClose, onStarted }: { wsId: str
         </>
       }
     >
-      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
         {form.map((f) => (
-          <Field key={f.key} label={f.label + (f.required ? ' *' : '')}>
+          <div key={f.key}>
             {f.type === 'text' && (
-              <Input aria-label={f.label} onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))} />
+              <Input label={f.label} required={f.required} onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))} />
             )}
             {f.type === 'number' && (
-              <Input type="number" aria-label={f.label} onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))} />
+              <Input label={f.label} required={f.required} type="number" onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))} />
             )}
             {f.type === 'date' && (
-              <Input type="date" aria-label={f.label} onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))} />
+              <Input label={f.label} required={f.required} type="date" onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))} />
             )}
             {f.type === 'boolean' && (
               <Checkbox
                 checked={values[f.key] === true}
-                label="да"
+                label={f.label}
                 onChange={(next) => setValues((v) => ({ ...v, [f.key]: next }))}
               />
             )}
             {f.type === 'select' && (
               <Select
-                aria-label={f.label}
+                label={f.label}
                 value={typeof values[f.key] === 'string' ? (values[f.key] as string) : ''}
                 width="100%"
                 placeholder="Выберите…"
@@ -1116,19 +1180,9 @@ function StartModal({ wsId, defId, name, form, onClose, onStarted }: { wsId: str
                 options={(f.options ?? []).map((o) => ({ value: o, label: o }))}
               />
             )}
-          </Field>
+          </div>
         ))}
       </div>
     </Modal>
-  );
-}
-
-function Field({ label, help, children }: { label: string; help?: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="label-md" style={{ display: 'block', fontSize: '0.72rem', marginBottom: '0.3rem' }}>{label}</label>
-      {children}
-      {help && <p className="label-md" style={{ fontSize: '0.64rem', opacity: 0.65, marginTop: '0.25rem' }}>{help}</p>}
-    </div>
   );
 }

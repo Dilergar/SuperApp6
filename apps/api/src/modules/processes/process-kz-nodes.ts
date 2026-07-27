@@ -57,7 +57,7 @@ export const telegramNode: ProcessNodeProvider = {
     description:
       'Отправляет сообщение через Telegram-бота (токен @BotFather в кредах). В потоке шлёт заданный текст; если подключить выход «как инструмент» к AI-Агенту — агент сам решает, когда писать, и придумывает текст. Подстановки {{form.x}}/{{steps.x}}.',
     category: 'integration',
-    icon: '✈️',
+    icon: 'telegram',
     tier: 'standard',
     io: true, // внешний API → вне инстанс-лока (P3)
     // success/error — поток; astool — подключение к AI-Агенту как инструмент (n8n: один узел = действие И инструмент).
@@ -106,7 +106,7 @@ export const whatsappNode: ProcessNodeProvider = {
     title: 'WhatsApp',
     description: 'Отправляет сообщение через WhatsApp Cloud API (access-токен в кредах; шаблоны — вне 24ч-окна). Подстановки.',
     category: 'integration',
-    icon: '🟢',
+    icon: 'whatsapp',
     tier: 'standard',
     io: true, // внешний API → вне инстанс-лока (P3)
     outputs: SUCCESS_ERR,
@@ -150,7 +150,7 @@ export const smsNode: ProcessNodeProvider = {
     title: 'SMS (Mobizon)',
     description: 'Отправляет SMS через Mobizon.kz (apiKey в кредах). Альфа-имя отправителя регистрируется заранее.',
     category: 'integration',
-    icon: '📨',
+    icon: 'sms',
     tier: 'standard',
     io: true, // внешний API → вне инстанс-лока (P3)
     outputs: SUCCESS_ERR,
@@ -194,7 +194,7 @@ export const kaspiNode: ProcessNodeProvider = {
     title: 'Kaspi Магазин',
     description: 'Заказы Kaspi Магазина: получить новые / принять / завершить (токен из кабинета продавца). Вебхуков у Kaspi нет — опрашивайте по расписанию.',
     category: 'integration',
-    icon: '🛒',
+    icon: 'cart',
     tier: 'standard',
     io: true, // внешний API → вне инстанс-лока (P3)
     outputs: SUCCESS_ERR,
@@ -252,7 +252,7 @@ export const odataNode: ProcessNodeProvider = {
     title: '1С (OData)',
     description: 'Запрос к опубликованной базе 1С через стандартный OData (Basic-auth в кредах). База должна быть доступна публично.',
     category: 'integration',
-    icon: '🟡',
+    icon: 'database',
     tier: 'standard',
     io: true, // внешний API → вне инстанс-лока (P3)
     outputs: SUCCESS_ERR,

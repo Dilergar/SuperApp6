@@ -138,3 +138,17 @@ export function invalidatePersonSkins() {
   request([...active.keys()]);
   notifyAll();
 }
+
+/**
+ * Полный сброс при СМЕНЕ ПОЛЬЗОВАТЕЛЯ (выход из аккаунта). В отличие от
+ * invalidatePersonSkins НЕ перезапрашивает: скины резолвятся «для меня», и повторный
+ * запрос ушёл бы уже без токена. Кэш модульный и без TTL — не почистив его, следующий
+ * вошедший в этой же вкладке увидел бы скины, разрешённые предыдущему.
+ */
+export function resetPersonSkins() {
+  cache.clear();
+  inflight.clear();
+  queue = new Set();
+  active.clear();
+  notifyAll();
+}

@@ -19,7 +19,6 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
 import { useAuthStore } from '@/lib/stores/auth';
 import {
   SIDEBAR_COOKIE, buildPersonalNav, buildWorkspaceNav, isBranchActive, isNavItemActive,
@@ -34,13 +33,12 @@ import { SearchField } from '@/components/ui/Input';
 import { Menu } from '@/components/ui/Menu';
 import { PersonAvatar } from '@/app/messenger/messenger-ui';
 import { useMentionsUnread } from '@/lib/hooks/useMentionsUnread';
-import { fetchTaskStats, taskStatsKey } from '@/lib/queries';
-
-interface WorkspaceLite { id: string; name: string; myRole?: string | null }
+import { fetchTaskStats, fetchWorkspaces, taskStatsKey, workspacesKey } from '@/lib/queries';
+import type { Workspace } from '@superapp/shared';
 
 // Стабильный пустой список: дефолт `= []` в деструктуризации рождал бы новый
 // массив на каждый рендер и заставлял пересчитывать nav-меню.
-const NO_WORKSPACES: WorkspaceLite[] = [];
+const NO_WORKSPACES: Workspace[] = [];
 
 function writeSidebarCookie(collapsed: boolean) {
   document.cookie = `${SIDEBAR_COOKIE}=${collapsed ? 'collapsed' : 'expanded'}; path=/; max-age=31536000; samesite=lax`;
@@ -62,10 +60,14 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
   const wsMatch = pathname.match(/^\/workspaces\/([^/]+)/);
   const activeWsId = wsMatch?.[1] ?? null;
 
-  const { data: workspaces = NO_WORKSPACES } = useQuery<WorkspaceLite[]>({
-    queryKey: ['workspaces'],
-    queryFn: async () => (await api.get('/workspaces')).data.data,
+  // Ключ и загрузчик — общие с панелью организаций на дашборде (lib/queries):
+  // её мутации инвалидируют этот же префикс, и переключатель контекста узнаёт
+  // о новой организации сразу, а не после перезагрузки страницы.
+  const { data: workspaces = NO_WORKSPACES } = useQuery({
+    queryKey: workspacesKey,
+    queryFn: fetchWorkspaces,
     staleTime: 60_000,
+    enabled: !!profile,
   });
 
   // Бейджи «требует внимания». Тихо падаем в ноль: сломанный счётчик не имеет
@@ -80,6 +82,7 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
   });
   // Готовый хук приложения, а не свой запрос: ключ у них общий, и второй
   // queryFn на том же ключе конфликтует с первым (ровно это и случилось).
+  // Кормит ТОЛЬКО точку на колокольчике — пункта «Упоминания» в сайдбаре нет.
   const mentionsUnread = useMentionsUnread(!!profile);
 
   const nav: AppNavConfig = useMemo(() => {
@@ -91,9 +94,8 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
       tasksInbox: taskStats?.inbox,
       tasksToday: taskStats?.today,
       tasksReview: taskStats?.onReview,
-      mentions: mentionsUnread,
     });
-  }, [activeWsId, workspaces, taskStats, mentionsUnread]);
+  }, [activeWsId, workspaces, taskStats]);
 
   // ---- ширина экрана: <768 шторка, 768–1199 авто-рейл, ≥1200 выбор человека
   useEffect(() => {
@@ -233,17 +235,22 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
           ))}
         </nav>
 
-        <div className="svc-side-foot">
-          {nav.footer.map((item) => (
-            <NavItem key={item.key} item={item} pathname={pathname} rail={rail} open={false} onToggle={() => {}} />
-          ))}
-          {!isMobile && (
-            <button className="svc-item" onClick={toggleCollapsed} aria-label={rail ? 'Развернуть меню' : 'Свернуть меню'}>
-              <span className="svc-ico"><Icon name={rail ? 'caretRight' : 'caretLeft'} size={18} /></span>
-              {!rail && <span className="svc-label">Свернуть</span>}
-            </button>
-          )}
-        </div>
+        {/* В личном контексте футер пуст (всё ушло в меню аватарки), и в
+            мобильной шторке «Свернуть» тоже не рисуется — блок не должен
+            оставлять от себя полосу пустого отступа. */}
+        {(nav.footer.length > 0 || !isMobile) && (
+          <div className="svc-side-foot">
+            {nav.footer.map((item) => (
+              <NavItem key={item.key} item={item} pathname={pathname} rail={rail} open={false} onToggle={() => {}} />
+            ))}
+            {!isMobile && (
+              <button className="svc-item" onClick={toggleCollapsed} aria-label={rail ? 'Развернуть меню' : 'Свернуть меню'}>
+                <span className="svc-ico"><Icon name={rail ? 'caretRight' : 'caretLeft'} size={18} /></span>
+                {!rail && <span className="svc-label">Свернуть</span>}
+              </button>
+            )}
+          </div>
+        )}
       </aside>
 
       <main className="svc-main">

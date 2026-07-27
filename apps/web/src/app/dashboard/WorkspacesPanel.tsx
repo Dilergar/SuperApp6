@@ -1,12 +1,21 @@
 'use client';
 
-import { Button } from '@/components/ui';
-import { useState, useEffect, useCallback } from 'react';
+import { Button, Input } from '@/components/ui';
+import { useState } from 'react';
 import Link from 'next/link';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiErrorMessage } from '@/lib/api';
 import { useAuthStore } from '@/lib/stores/auth';
 import { CompanyCard } from '../workspaces/[id]/CompanyCard';
 import { PersonChip } from '../circles/PersonCard';
+import {
+  fetchWorkspaces,
+  fetchWorkspacesArchived,
+  fetchWorkspaceIncomingInvitations,
+  workspacesKey,
+  workspacesArchivedKey,
+  workspacesIncomingInvitationsKey,
+} from '@/lib/queries';
 import { daysUntilPurge, pluralDays, WORKSPACE_ARCHIVE_WARN_DAYS } from '@superapp/shared';
 import type { Workspace, WorkspaceInvitation } from '@superapp/shared';
 
@@ -20,16 +29,17 @@ function formatPurgeMoment(iso: string): string {
 
 const daysWord = (n: number) => (n === 0 ? 'меньше суток' : pluralDays(n));
 
+// Стабильные пустые списки: `= []` в деструктуризации рождал бы новый массив на
+// каждый рендер и зря будил бы всё, что зависит от этих значений.
+const EMPTY: Workspace[] = [];
+const EMPTY_INVITES: WorkspaceInvitation[] = [];
+
 /**
  * Dashboard panel: the user's organizations (B2B) + incoming hiring invitations.
  * Clicking an organization card opens its page (the "switch into context" entry point).
  */
 export function WorkspacesPanel() {
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [invites, setInvites] = useState<WorkspaceInvitation[]>([]);
-  const [archived, setArchived] = useState<Workspace[]>([]);
   const [showArchive, setShowArchive] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState('');
 
@@ -41,36 +51,39 @@ export function WorkspacesPanel() {
   // со списком, иначе после создания/архивации/возврата число расходится со списком до
   // перезагрузки (ровно та картинка, из-за которой архив и понадобился).
   const fetchProfile = useAuthStore((s) => s.fetchProfile);
+  const queryClient = useQueryClient();
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [ws, inc, arch] = await Promise.all([
-        api.get('/workspaces'),
-        api.get('/workspaces/invitations/incoming'),
-        api.get('/workspaces/archived'),
-      ]);
-      setWorkspaces(ws.data.data);
-      setInvites(inc.data.data);
-      setArchived(arch.data.data);
-      await fetchProfile().catch(() => undefined); // счётчик — не повод рушить список
-    } catch {
-      setError('Не удалось загрузить организации');
-    } finally {
-      setLoading(false);
-    }
-  }, [fetchProfile]);
+  // Ключи общие с переключателем контекста в топбаре (AppShell) — список организаций
+  // на дашборде и в шелле это ОДИН кэш, поэтому лишнего запроса больше нет, а любая
+  // мутация ниже обновляет оба места разом.
+  const { data: workspaces = EMPTY, isPending: loading } = useQuery({
+    queryKey: workspacesKey,
+    queryFn: fetchWorkspaces,
+    staleTime: 60_000,
+  });
+  const { data: invites = EMPTY_INVITES } = useQuery({
+    queryKey: workspacesIncomingInvitationsKey,
+    queryFn: fetchWorkspaceIncomingInvitations,
+    staleTime: 60_000,
+  });
+  const { data: archived = EMPTY } = useQuery({
+    queryKey: workspacesArchivedKey,
+    queryFn: fetchWorkspacesArchived,
+    staleTime: 60_000,
+  });
 
-  useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+  /** Обновить оба места сразу: префикс накрывает список, архив и приглашения. */
+  const refreshAll = async () => {
+    await queryClient.invalidateQueries({ queryKey: workspacesKey });
+    await fetchProfile().catch(() => undefined); // счётчик — не повод рушить список
+  };
 
   const respond = async (id: string, action: 'accept' | 'reject') => {
     setBusyId(id);
     setError('');
     try {
       await api.post(`/workspaces/invitations/${id}/${action}`);
-      await fetchAll();
+      await refreshAll();
     } catch {
       setError('Не удалось обработать приглашение');
     } finally {
@@ -83,7 +96,7 @@ export function WorkspacesPanel() {
     setError('');
     try {
       await api.post(`/workspaces/${id}/restore`);
-      await fetchAll();
+      await refreshAll();
     } catch (err) {
       setError(apiErrorMessage(err)); // сервер объясняет отказ сам (например, упёрлись в лимит)
     } finally {
@@ -99,7 +112,7 @@ export function WorkspacesPanel() {
       await api.post('/workspaces', { name: name.trim() });
       setName('');
       setShowCreate(false);
-      await fetchAll();
+      await refreshAll();
     } catch {
       setError('Не удалось создать организацию');
     } finally {
@@ -139,13 +152,13 @@ export function WorkspacesPanel() {
       {/* Create form */}
       {showCreate && (
         <div className="card" style={{ marginBottom: 'var(--spacing-6)', display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
-          <input
+          <Input
+            aria-label="Название организации"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Название организации"
             maxLength={100}
-            className="input"
-            style={{ flex: 1, minWidth: '220px' }}
+            wrapClassName="ws-create-field"
             onKeyDown={(e) => e.key === 'Enter' && create()}
           />
           <Button onClick={create} disabled={!name.trim()} loading={creating} variant="primary" tone="success" icon="add">Создать</Button>
@@ -154,7 +167,7 @@ export function WorkspacesPanel() {
 
       {/* Incoming invitations */}
       {invites.length > 0 && (
-        <div style={{ marginBottom: 'var(--spacing-6)', display: 'grid', gap: 'var(--spacing-4)' }}>
+        <div className="ui-stack" style={{ marginBottom: 'var(--spacing-6)', gap: 'var(--spacing-4)' }}>
           {invites.map((inv) => (
             <div
               key={inv.id}
@@ -215,21 +228,18 @@ export function WorkspacesPanel() {
           данные, роли и справочники на месте, поэтому возврат в один клик. */}
       {!loading && archived.length > 0 && (
         <div style={{ marginTop: 'var(--spacing-6)', paddingLeft: 'var(--spacing-2)' }}>
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={showArchive ? 'caretDown' : 'caretRight'}
+            aria-expanded={showArchive}
             onClick={() => setShowArchive((v) => !v)}
-            className="label-md"
-            style={{
-              background: 'none',
-              cursor: 'pointer',
-              opacity: 0.75,
-              padding: 'var(--spacing-1) 0',
-            }}
           >
-            {showArchive ? '▾' : '▸'} Архив · {archived.length}
-          </button>
+            Архив · {archived.length}
+          </Button>
 
           {showArchive && (
-            <div style={{ marginTop: 'var(--spacing-3)', display: 'grid', gap: 'var(--spacing-3)' }}>
+            <div className="ui-stack" style={{ marginTop: 'var(--spacing-3)', gap: 'var(--spacing-3)' }}>
               {archived.map((ws) => (
                 <div
                   key={ws.id}

@@ -34,7 +34,7 @@ import {
 import { PersonChip } from '@/app/circles/PersonCard';
 import {
   Alert, BentoGrid, Button, Card, CardHeader, Chip, EmptyState, Icon, Input, LoadingBlock,
-  Modal, PageHeader, StatTile, Tabs, type TabItem,
+  Modal, PageHeader, StatTile, SegmentedControl, type TabItem,
 } from '@/components/ui';
 import { humanizeDuration, INSTANCE_STATUS_TONE } from './process-lib';
 
@@ -117,7 +117,7 @@ export default function ProcessesPage() {
       />
 
       <div style={{ marginBottom: 'var(--gap-grid)' }}>
-        <Tabs aria-label="Разделы Процессов" items={tabs} value={tab} onChange={setTab} />
+        <SegmentedControl aria-label="Разделы Процессов" items={tabs} value={tab} onChange={setTab} />
       </div>
 
       {tab === 'defs' && (
@@ -198,7 +198,7 @@ export default function ProcessesPage() {
             </>
           }
         >
-          <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+          <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
             {createError && <Alert tone="danger" onClose={() => setCreateError(null)}>{createError}</Alert>}
             <Input
               label="Название процесса"
@@ -250,7 +250,7 @@ function InboxList({ wsId, items }: { wsId: string; items: ProcessInboxItem[] })
         {items.length === 0 ? (
           <EmptyState icon="empty" title="Входящих нет" description="Здесь появятся задачи отдела, которые можно забрать, и согласования." />
         ) : (
-          <div style={{ display: 'grid', gap: '0.5rem' }}>
+          <div className="ui-stack" style={{ gap: '0.5rem' }}>
             {items.map((it) => (
               <div
                 key={it.stepId}
@@ -344,19 +344,19 @@ function Analytics({ wsId, defs }: { wsId: string; defs: ProcessDefinitionDto[] 
             <div className="density-compact">
               <div
                 className="label-caps"
-                style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 0.6fr', gap: '0.5rem', padding: '0 0.75rem 0.5rem' }}
+                style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.6fr)', gap: '0.5rem', padding: '0 0.75rem 0.5rem' }}
               >
                 <span>Шаг</span>
                 <span style={{ textAlign: 'right' }}>Среднее</span>
                 <span style={{ textAlign: 'right' }}>Максимум</span>
                 <span style={{ textAlign: 'right' }}>Раз</span>
               </div>
-              <div style={{ display: 'grid', gap: '0.25rem' }}>
+              <div className="ui-stack" style={{ gap: '0.25rem' }}>
                 {report.rows.map((r) => (
                   <div
                     key={r.nodeId}
                     style={{
-                      display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 0.6fr', gap: '0.5rem',
+                      display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.6fr)', gap: '0.5rem',
                       alignItems: 'center', padding: '0.5rem 0.75rem',
                       border: '1px solid var(--divider)', borderRadius: 'var(--radius-md)',
                     }}
@@ -387,7 +387,7 @@ function JournalTable({ wsId, instances }: { wsId: string; instances: ProcessIns
         {instances.length === 0 ? (
           <EmptyState icon="journal" title="Запущенных процессов пока нет" description="Запустите процесс — он появится здесь с таймингом по шагам." />
         ) : (
-          <div className="density-compact" style={{ display: 'grid', gap: '0.375rem' }}>
+          <div className="density-compact ui-stack" style={{ gap: '0.375rem' }}>
             {instances.map((inst) => (
               <a
                 key={inst.id}

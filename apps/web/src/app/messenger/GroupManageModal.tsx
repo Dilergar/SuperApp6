@@ -1,7 +1,6 @@
 'use client';
 
-import { ModalShell } from '@/components/ui';
-import { Icon } from '@/components/ui';
+import { Icon, Input, ModalShell, useConfirm } from '@/components/ui';
 import { useState, useEffect } from 'react';
 import type { ChatDetail, ChatMemberRole, ChatParticipantInfo } from '@superapp/shared';
 import { MESSENGER_LIMITS } from '@superapp/shared';
@@ -51,6 +50,7 @@ export function GroupManageModal({
 
   const [pane, setPane] = useState<Pane>('list');
   const [busy, setBusy] = useState(false);
+  const [confirm, confirmUI] = useConfirm();
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(detail.title);
 
@@ -182,15 +182,15 @@ export function GroupManageModal({
               <label className="label-md" style={{ marginBottom: 'var(--spacing-2)' }}>Название</label>
               {editingName ? (
                 <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
-                  <input
-                    type="text"
+                  <Input
+                    aria-label="Название группы"
                     value={nameDraft}
                     onChange={(e) => setNameDraft(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') { setEditingName(false); setNameDraft(detail.title); } }}
-                    className="ui-input"
                     autoFocus
                     maxLength={MESSENGER_LIMITS.maxGroupNameLength}
-                    style={{ flex: 1, fontSize: '0.9rem' }}
+                    wrapClassName="group-name-field"
+                    style={{ fontSize: '0.9rem' }}
                   />
                   <button onClick={saveName} disabled={busy} className="btn-success" style={{ fontSize: '0.8rem', padding: '0.4rem 0.9rem' }}>Сохранить</button>
                 </div>
@@ -235,7 +235,10 @@ export function GroupManageModal({
             <div style={{ marginTop: 'var(--spacing-4)', display: 'flex', justifyContent: 'flex-end', gap: 'var(--spacing-3)' }}>
               {isOwner ? (
                 <button
-                  onClick={() => { if (confirm('Удалить группу для всех? Это действие необратимо.')) run(onDelete); }}
+                  onClick={() => confirm(
+                    { title: 'Удалить группу для всех?', message: 'Чат и вся переписка исчезнут у каждого участника. Отменить это нельзя.', confirmLabel: 'Удалить группу', danger: true },
+                    () => run(onDelete),
+                  )}
                   disabled={busy}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: '0.85rem', fontWeight: 600 }}
                 >
@@ -243,7 +246,10 @@ export function GroupManageModal({
                 </button>
               ) : (
                 <button
-                  onClick={() => { if (confirm('Покинуть группу?')) run(onLeave); }}
+                  onClick={() => confirm(
+                    { title: 'Покинуть группу?', message: 'Вы перестанете получать сообщения этой группы.', confirmLabel: 'Покинуть', danger: true },
+                    () => run(onLeave),
+                  )}
                   disabled={busy}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: '0.85rem', fontWeight: 600 }}
                 >
@@ -254,6 +260,7 @@ export function GroupManageModal({
           </>
         )}
       </div>
+      {confirmUI}
     </ModalShell>
   );
 }
@@ -279,6 +286,7 @@ function ParticipantRow({
   // Owner can toggle admin on non-owner members. Owner/admin can remove non-owners (and not themselves here).
   const canToggleAdmin = viewerIsOwner && !isTargetOwner && !isMe;
   const canRemove = viewerCanManage && !isTargetOwner && !isMe;
+  const [confirm, confirmUI] = useConfirm();
 
   return (
     <div
@@ -317,12 +325,16 @@ function ParticipantRow({
       )}
       {canRemove && (
         <button
-          onClick={() => { if (confirm(`Убрать ${p.name} из группы?`)) onRemove(); }}
+          onClick={() => confirm(
+            { title: `Убрать ${p.name} из группы?`, message: 'Человек потеряет доступ к чату и его истории.', confirmLabel: 'Убрать', danger: true },
+            onRemove,
+          )}
           disabled={busy}
           title="Убрать"
           style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: '0.95rem', flexShrink: 0, opacity: 0.7 }}
         ><Icon name="close" size={15} /></button>
       )}
+      {confirmUI}
     </div>
   );
 }

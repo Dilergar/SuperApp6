@@ -28,6 +28,7 @@ const PREFIXES = ['ТестКорп ', 'fin-e2e-', 'chatter-e2e-', 'Ф1-Лого
 const EXACT = [
   'b2b-reach-e2e', 'staff-e2e', 'proc-e2e', 'office-e2e', 'sec-fixes-e2e',
   'crash-test', 'crash-agent', 'ui-check-triggers', 'tg-check', 'palette-check', 'palette2',
+  'Вид карточки запуска',
 ];
 
 async function main() {

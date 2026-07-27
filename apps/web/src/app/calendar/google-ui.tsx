@@ -103,7 +103,7 @@ export function GooglePanel({ onClose }: { onClose: (changed: boolean) => void }
         )
       }
     >
-      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+      <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
         {msg && <Alert tone="success" onClose={() => setMsg('')}>{msg}</Alert>}
 
@@ -135,7 +135,7 @@ export function GooglePanel({ onClose }: { onClose: (changed: boolean) => void }
               {calendars === null ? (
                 <Button variant="matte" size="sm" icon="calendar" onClick={loadCalendars}>Сменить календарь…</Button>
               ) : (
-                <div style={{ display: 'grid', gap: '0.25rem' }}>
+                <div className="ui-stack" style={{ gap: '0.25rem' }}>
                   <CalendarRow
                     label="Создать отдельный «SuperApp6»"
                     icon="calendarAdd"

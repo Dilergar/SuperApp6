@@ -135,7 +135,7 @@ export default function DashboardPage() {
             actions={<Button variant="ghost" size="sm" href="/tasks/today" iconRight="caretRight">Все задачи</Button>}
           />
           {todayTasks?.items?.length ? (
-            <div style={{ display: 'grid', gap: '0.375rem' }}>
+            <div className="ui-stack" style={{ gap: '0.375rem' }}>
               {todayTasks.items.slice(0, 5).map((t: Task) => (
                 <Link
                   key={t.id}
@@ -202,7 +202,7 @@ export default function DashboardPage() {
         {unreadChats.length > 0 && (
           <Card span={6}>
             <CardHeader title="Непрочитанные" actions={<Button variant="ghost" size="sm" href="/messenger" iconRight="caretRight">Мессенджер</Button>} />
-            <div style={{ display: 'grid', gap: '0.375rem' }}>
+            <div className="ui-stack" style={{ gap: '0.375rem' }}>
               {unreadChats.slice(0, 4).map((c) => (
                 <Link
                   key={c.id}

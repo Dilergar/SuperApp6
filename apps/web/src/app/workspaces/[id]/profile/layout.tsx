@@ -47,7 +47,7 @@ export default function WorkspaceProfileLayout({ children }: { children: React.R
     g === 'all' || (g === 'manage' && canManage) || (g === 'owner' && isOwner);
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 'var(--spacing-8)', minHeight: '70vh' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '200px minmax(0, 1fr)', gap: 'var(--spacing-8)', minHeight: '70vh' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-1)' }}>
         <Link
           href={`/workspaces/${id}`}

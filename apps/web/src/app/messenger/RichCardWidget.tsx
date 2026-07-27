@@ -1,21 +1,26 @@
 'use client';
 
-import { Icon, type IconName } from '@/components/ui';
 import { useState } from 'react';
 import Link from 'next/link';
+import {
+  Alert, Button, Card, Chip, EmojiIcon, IconButton, TickBar,
+  type IconName, type Tone,
+} from '@/components/ui';
 import type { RichCardPayload, RichCardAction } from '@superapp/shared';
 import { executeRichCardAction } from '@/lib/messenger-api';
 import { ShareCardModal } from './ShareCardModal';
 
 // ============================================================
-// Rich Card (Phase 3) — an interactive, service-posted card in the
-// message stream. Generic: driven entirely by the RichCardPayload
-// (order / listing / crowdfunding / task / event). A button POSTs an
-// action key to the server, which re-checks permissions and returns
-// the UPDATED card — we patch it in place via onActionDone.
+// Rich Card (Ф3) — интерактивная карточка сервиса в ленте сообщений.
+// Универсальна: всё рисуется из RichCardPayload (заказ / лот / сбор /
+// задача / событие / финансы / встреча). Кнопка шлёт ключ действия на
+// сервер, тот перепроверяет права и возвращает ОБНОВЛЁННУЮ карточку —
+// её кладём на место через onActionDone.
 //
-// Rendered full-width-ish (centred, ~80%), like a system block but
-// tactile and interactive. Never editable/deletable via bubble hover.
+// Оформление — Organic Bento (DESIGN.md): блок #fafbf8 с несущим
+// 1px-бордером (карточка лежит НА белом блоке чата, тень её там не
+// отделяет), радиус панели, эмодзи сервиса в матовом квадрате,
+// прогресс — фирменный штриховой. Все примитивы — из кита.
 // ============================================================
 
 export function RichCardWidget({
@@ -23,7 +28,7 @@ export function RichCardWidget({
   onActionDone,
 }: {
   payload: RichCardPayload;
-  /** Lift the freshly re-rendered card so the parent patches the message's payload in cache. */
+  /** Отдаём свежую карточку наверх, чтобы родитель заменил payload сообщения в кэше. */
   onActionDone?: (updatedCard: RichCardPayload) => void;
 }) {
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -56,97 +61,60 @@ export function RichCardWidget({
     progress && progress.target > 0
       ? Math.min(100, Math.round((progress.current / progress.target) * 100))
       : 0;
+  const tone = statusTone(payload.status);
 
   return (
     <div style={{ display: 'flex', justifyContent: 'center', padding: '0.3rem 0' }}>
-      <div
-        className="card-elevated"
+      <Card
+        small
         style={{
           width: '100%',
           maxWidth: '80%',
-          background: 'var(--surface-container-high)',
-          borderRadius: 'var(--radius-sketch)',
-          padding: 'var(--spacing-4)',
-          boxShadow: '0 4px 16px rgba(0, 0, 0, 0.10)',
+          border: '1px solid var(--border)',
         }}
       >
-        {/* Header: icon + title (+ status chip) + subtitle */}
+        {/* Шапка: эмодзи сервиса + заголовок (+ статус-чип) + подпись */}
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--spacing-3)' }}>
-          <div
-            style={{
-              fontSize: '1.6rem',
-              lineHeight: 1,
-              flexShrink: 0,
-              marginTop: '0.1rem',
-            }}
-          >
-            {payload.icon ? <span aria-hidden>{payload.icon}</span> : <Icon name={CARD_TYPE_ICON[payload.cardType] ?? 'folder'} size={20} />}
-          </div>
+          {/* Эмодзи из БД — данные, не иконка (DESIGN.md §3): матовый квадрат.
+              Нет эмодзи — подставляется иконка типа карточки. */}
+          <EmojiIcon
+            emoji={payload.icon}
+            size={38}
+            square
+            tone={tone}
+            fallback={CARD_TYPE_ICON[payload.cardType] ?? 'folder'}
+          />
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
               {payload.href ? (
                 <Link
                   href={payload.href}
-                  className="title-md"
-                  style={{ fontSize: '1rem', color: 'var(--secondary)', textDecoration: 'none' }}
+                  className="title-sm"
+                  style={{ color: 'var(--primary-dim)', textDecoration: 'none' }}
                 >
                   {payload.title}
                 </Link>
               ) : (
-                <span className="title-md" style={{ fontSize: '1rem' }}>
-                  {payload.title}
-                </span>
+                <span className="title-sm">{payload.title}</span>
               )}
-              {payload.status && (
-                <span
-                  className="label-sm"
-                  style={{
-                    fontSize: '0.66rem',
-                    fontWeight: 600,
-                    color: 'var(--secondary)',
-                    background: 'var(--secondary-container)',
-                    padding: '0.1rem 0.55rem',
-                    borderRadius: 'var(--radius-sketch)',
-                  }}
-                >
-                  {payload.status}
-                </span>
-              )}
+              {payload.status && <Chip size="sm" tone={tone}>{payload.status}</Chip>}
             </div>
             {payload.subtitle && (
-              <p
-                className="label-sm"
-                style={{ fontSize: '0.76rem', opacity: 0.7, marginTop: '0.1rem' }}
-              >
+              <p className="body-sm" style={{ margin: '0.125rem 0 0', color: 'var(--on-surface-variant)' }}>
                 {payload.subtitle}
               </p>
             )}
           </div>
-          {/* Share affordance */}
-          <button
+          <IconButton
+            icon="share"
+            label="Поделиться карточкой"
+            size={32}
             onClick={() => setShowShare(true)}
-            title="Поделиться карточкой"
-            aria-label="Поделиться карточкой"
-            style={{
-              flexShrink: 0,
-              background: 'var(--surface-container)',
-              border: 'none',
-              cursor: 'pointer',
-              width: '1.9rem',
-              height: '1.9rem',
-              borderRadius: 'var(--radius-sketch)',
-              fontSize: '0.85rem',
-              color: 'var(--on-surface-variant)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            ↗
-          </button>
+            style={{ flexShrink: 0, marginTop: -2 }}
+          />
         </div>
 
-        {/* Optional image */}
+        {/* Картинка лота */}
         {payload.imageUrl && (
           <img
             src={payload.imageUrl}
@@ -161,16 +129,9 @@ export function RichCardWidget({
           />
         )}
 
-        {/* Fields */}
+        {/* Поля «подпись → значение» */}
         {payload.fields.length > 0 && (
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '0.3rem',
-              marginTop: 'var(--spacing-3)',
-            }}
-          >
+          <div style={{ marginTop: 'var(--spacing-3)', borderTop: '1px solid var(--divider)', paddingTop: 'var(--spacing-2)' }}>
             {payload.fields.map((f, i) => (
               <div
                 key={i}
@@ -179,15 +140,14 @@ export function RichCardWidget({
                   alignItems: 'baseline',
                   justifyContent: 'space-between',
                   gap: 'var(--spacing-3)',
+                  padding: '0.1875rem 0',
                 }}
               >
-                <span className="label-sm" style={{ fontSize: '0.74rem', opacity: 0.65 }}>
-                  {f.label}
-                </span>
+                <span className="label-sm" style={{ color: 'var(--muted)' }}>{f.label}</span>
                 <span
                   style={{
-                    fontSize: '0.82rem',
-                    fontWeight: 500,
+                    fontSize: '0.8125rem',
+                    fontWeight: 700,
                     textAlign: 'right',
                     wordBreak: 'break-word',
                   }}
@@ -199,85 +159,52 @@ export function RichCardWidget({
           </div>
         )}
 
-        {/* Progress bar (e.g. crowdfunding goal) */}
+        {/* Прогресс (сбор средств) — фирменный штриховой, сплошных полос в системе нет */}
         {progress && (
+          <TickBar
+            value={pct}
+            tone={pct >= 100 ? 'success' : 'accent'}
+            label={progress.label ?? `${progress.current} / ${progress.target}`}
+            showValue
+            style={{ marginTop: 'var(--spacing-3)' }}
+          />
+        )}
+
+        {/* Итог действия или ошибка */}
+        {note && (
           <div style={{ marginTop: 'var(--spacing-3)' }}>
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                fontSize: '0.72rem',
-                opacity: 0.85,
-                marginBottom: '0.2rem',
-              }}
-            >
-              <span>{progress.label ?? `${progress.current} / ${progress.target}`}</span>
-              <span>{pct}%</span>
-            </div>
-            <div
-              style={{
-                height: 7,
-                background: 'rgba(0, 0, 0, 0.10)',
-                borderRadius: 5,
-                overflow: 'hidden',
-              }}
-            >
-              <div
-                style={{
-                  width: `${pct}%`,
-                  height: '100%',
-                  background: pct >= 100 ? 'var(--secondary)' : 'var(--primary)',
-                }}
-              />
-            </div>
+            <Alert tone={noteIsError ? 'danger' : 'success'} onClose={() => setNote(null)}>
+              {note}
+            </Alert>
           </div>
         )}
 
-        {/* Inline note (action result message OR error) */}
-        {note && (
-          <p
-            className="label-sm"
-            style={{
-              fontSize: '0.74rem',
-              marginTop: 'var(--spacing-2)',
-              color: noteIsError ? 'var(--danger)' : 'var(--secondary)',
-            }}
-          >
-            {note}
-          </p>
-        )}
-
-        {/* Action buttons */}
+        {/* Кнопки действий: цвет по смыслу (DESIGN.md §1) */}
         {payload.actions.length > 0 && (
           <div
             style={{
               display: 'flex',
               flexWrap: 'wrap',
               gap: 'var(--spacing-2)',
-              marginTop: 'var(--spacing-4)',
+              marginTop: 'var(--spacing-3)',
             }}
           >
             {payload.actions.map((action) => (
-              <button
+              <Button
                 key={action.key}
+                size="sm"
+                variant={action.style === 'primary' ? 'primary' : 'matte'}
+                tone={ACTION_TONE[action.style ?? 'default']}
+                loading={busyKey === action.key}
+                disabled={busyKey != null && busyKey !== action.key}
                 onClick={() => runAction(action)}
-                disabled={busyKey != null}
-                className={action.style === 'primary' ? 'btn-success' : 'btn-secondary'}
-                style={{
-                  fontSize: '0.78rem',
-                  padding: '0.3rem 0.95rem',
-                  opacity: busyKey != null && busyKey !== action.key ? 0.5 : 1,
-                  ...(action.style === 'danger'
-                    ? { color: 'var(--danger)' }
-                    : {}),
-                }}
               >
-                {busyKey === action.key ? '…' : action.label}
-              </button>
+                {action.label}
+              </Button>
             ))}
           </div>
         )}
-      </div>
+      </Card>
 
       {showShare && (
         <ShareCardModal
@@ -292,12 +219,64 @@ export function RichCardWidget({
 }
 
 const CARD_TYPE_ICON: Record<string, IconName> = {
-  order: 'shop',
+  order: 'receipt',
   listing: 'gift',
   crowdfunding: 'target',
   task: 'checkCircle',
   event: 'calendar',
+  fin_transaction: 'coins',
+  fin_month: 'chart',
+  office_room: 'office',
 };
+
+/**
+ * Основное действие — зелёное (Купить/Принять/Подтвердить), разрушающее —
+ * красное, но МАТОВОЕ: сплошной красный блок в ленте сообщений кричит,
+ * а «Отклонить» здесь стоит рядом с обычными кнопками.
+ */
+const ACTION_TONE: Record<string, Tone> = {
+  primary: 'success',
+  danger: 'danger',
+  default: 'neutral',
+};
+
+/**
+ * Тон статуса. В payload приходит уже готовое СЛОВО (сервер сам его строит),
+ * поэтому сверяемся со словарями провайдеров: задачи, заказы, RSVP календаря,
+ * встречи офиса. Незнакомое слово → нейтральный чип, а не выдуманный цвет.
+ */
+const STATUS_TONE: Record<string, Tone> = {
+  // задачи
+  'к выполнению': 'neutral',
+  'в работе': 'accent',
+  'на проверке': 'warning',
+  'выполнена': 'success',
+  'отменена': 'danger',
+  // заказы и сборы
+  'идёт сбор': 'accent',
+  'ожидает подтверждения': 'warning',
+  'завершён': 'success',
+  'отклонён': 'danger',
+  'отменён': 'danger',
+  'возвращён': 'danger',
+  // календарь
+  'организатор': 'accent',
+  'не ответил(а)': 'warning',
+  'иду': 'success',
+  'не иду': 'danger',
+  'возможно': 'warning',
+  // виртуальный офис
+  'встреча': 'accent',
+  'завершена': 'neutral',
+};
+
+function statusTone(status?: string | null): Tone {
+  if (!status) return 'accent';
+  const key = status.trim().toLowerCase();
+  // «Идёт сейчас · 3» — счётчик в хвосте, поэтому по началу строки
+  if (key.startsWith('идёт сейчас')) return 'success';
+  return STATUS_TONE[key] ?? 'neutral';
+}
 
 function errMsg(e: unknown, fallback = 'Не удалось выполнить'): string {
   const ax = e as { response?: { data?: { message?: string; error?: string } } };

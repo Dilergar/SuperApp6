@@ -137,7 +137,7 @@ export function OrdersView({ onError }: { onError: (m: string) => void }) {
         {incoming.length === 0 ? (
           <EmptyState icon="receipt" title="Пока нет заказов" description="Заказы на ваши товары появятся здесь." />
         ) : (
-          <div className="density-compact" style={{ display: 'grid', gap: '0.375rem' }}>
+          <div className="density-compact ui-stack" style={{ gap: '0.375rem' }}>
             {incoming.map((o) => row(o, 'incoming'))}
           </div>
         )}
@@ -148,7 +148,7 @@ export function OrdersView({ onError }: { onError: (m: string) => void }) {
         {mine.length === 0 ? (
           <EmptyState icon="shop" title="Вы ещё ничего не покупали" description="Витрины друзей — на вкладке «Магазины»." />
         ) : (
-          <div className="density-compact" style={{ display: 'grid', gap: '0.375rem' }}>
+          <div className="density-compact ui-stack" style={{ gap: '0.375rem' }}>
             {mine.map((o) => row(o, 'mine'))}
           </div>
         )}

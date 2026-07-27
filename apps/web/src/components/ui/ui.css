@@ -342,7 +342,22 @@ textarea.ui-input { resize: vertical; min-height: 5rem; line-height: 1.55; }
 }
 .ui-segment-item:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
-.ui-tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--divider); overflow-x: auto; }
+/* Прокрутка ТОЛЬКО по горизонтали и без фантомного ползунка.
+   Ловушка CSS: если один из overflow задан не-visible, второй ('visible')
+   вычисляется в 'auto' — а подчёркивание активной вкладки стояло на
+   bottom: -1px, то есть на 1px выходило за padding-box. Итог: у полосы
+   вкладок появлялся настоящий ВЕРТИКАЛЬНЫЙ скроллбар шириной 15px
+   (виден в магазине, «Сотрудниках» и «Процессах»). Поэтому overflow-y
+   задаётся явно, а подчёркивание уводится внутрь коробки. */
+.ui-tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--divider);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.ui-tabs::-webkit-scrollbar { display: none; }
 .ui-tab {
   position: relative;
   padding: 0.625rem 0.875rem;
@@ -360,7 +375,7 @@ textarea.ui-input { resize: vertical; min-height: 5rem; line-height: 1.55; }
 .ui-tab[aria-selected='true']::after {
   content: '';
   position: absolute;
-  left: 0.5rem; right: 0.5rem; bottom: -1px;
+  left: 0.5rem; right: 0.5rem; bottom: 0;
   height: 2px;
   border-radius: 2px;
   background: var(--primary);
@@ -528,7 +543,20 @@ textarea.ui-input { resize: vertical; min-height: 5rem; line-height: 1.55; }
 }
 
 /* ---------- Бенто-сетка ---------- */
-.ui-bento { display: grid; grid-template-columns: repeat(12, 1fr); gap: var(--gap-grid); }
+/* minmax(0, …) и min-width: 0 у детей — несущая пара, а не перестраховка:
+   `1fr` = `minmax(auto, 1fr)`, и auto-минимум грид-элемента равен его
+   min-content. Одна длинная строка без переносов (название витрины,
+   заголовок задачи) распирала колонку, сетка становилась шире экрана,
+   и правые блоки уезжали за край под горизонтальный скролл. */
+.ui-bento { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--gap-grid); }
+.ui-bento > * { min-width: 0; }
+
+/* Список-колонка внутри блока. Тот же капкан этажом ниже: у `display: grid`
+   без явных колонок неявный трек — `auto`, а его базовый размер = min-content
+   самой длинной строки. Поэтому строки списков живут в .ui-stack, а не в
+   голом инлайновом `display: grid`. */
+.ui-stack { display: grid; grid-template-columns: minmax(0, 1fr); }
+.ui-stack > * { min-width: 0; }
 @media (max-width: 700px) {
   .ui-bento { grid-template-columns: 1fr; }
   /* span задаётся инлайном (gridColumn) — на телефоне его перекрывает сетка */

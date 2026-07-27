@@ -110,7 +110,7 @@ export default function RegisterPage() {
     >
       {/* ===== Шаг 1: номер ===== */}
       {step === 'phone' && (
-        <form onSubmit={requestCode} style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+        <form onSubmit={requestCode} className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
           {phoneError && (
             <Alert tone="danger">
               {phoneError}
@@ -153,7 +153,7 @@ export default function RegisterPage() {
 
       {/* ===== Шаг 3: о себе ===== */}
       {step === 'profile' && (
-        <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+        <form onSubmit={handleSubmit} className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
           {error && (
             <Alert tone="danger">
               {error}
@@ -169,7 +169,7 @@ export default function RegisterPage() {
             </Alert>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 'var(--spacing-4)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr)', gap: 'var(--spacing-4)' }}>
             <Input label="Имя" value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="Санжар" required autoFocus />
             <Input label="Фамилия" value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Не обяз." />
           </div>
