@@ -42,7 +42,7 @@ const HANDLE_STYLE: React.CSSProperties = {
   height: 13,
   background: 'var(--surface)',
   border: '2.5px solid var(--secondary)',
-  borderRadius: '40% 60% 55% 45%',
+  borderRadius: '50%',
 };
 
 /** Входные порты ноды (по умолчанию: один main; у триггеров/под-нод — пусто). */
@@ -65,14 +65,13 @@ const ProcessNodeView = memo(function ProcessNodeView({ data, selected }: NodePr
         minWidth: isDot ? 132 : 196,
         maxWidth: 250,
         background: 'var(--surface-container-lowest)',
-        borderRadius: '0.9rem 0.6rem 1rem 0.7rem',
+        borderRadius: 'var(--radius-lg)',
         padding: '0.7rem 0.9rem',
         boxShadow: selected
-          ? '0 0 0 2.5px var(--secondary), 0 10px 26px rgba(198,26,30,0.10)'
+          ? '0 0 0 2.5px var(--secondary), 0 10px 26px rgba(0, 0, 0, 0.10)'
           : ringColor
-            ? `0 0 0 2.5px ${ringColor}, 0 8px 22px rgba(56,57,45,0.08)`
-            : '0 8px 22px rgba(56,57,45,0.10)',
-        transform: 'rotate(-0.3deg)',
+            ? `0 0 0 2.5px ${ringColor}, 0 8px 22px rgba(0, 0, 0, 0.08)`
+            : '0 8px 22px rgba(0, 0, 0, 0.10)',
       }}
     >
       {/* входы: main — слева; типизированные (Модель/Память/Инструменты) — снизу */}
@@ -110,7 +109,7 @@ const ProcessNodeView = memo(function ProcessNodeView({ data, selected }: NodePr
             justifyContent: 'center',
             fontSize: '1.05rem',
             background: CATEGORY_COLORS[t.category] ?? 'var(--surface-container)',
-            borderRadius: '45% 55% 50% 60%',
+            borderRadius: '50%',
             opacity: 0.9,
           }}
         >
@@ -139,7 +138,7 @@ const ProcessNodeView = memo(function ProcessNodeView({ data, selected }: NodePr
             fontWeight: 700,
             color: badge?.fg ?? 'var(--on-surface)',
             background: badge?.bg ?? 'var(--surface-container-high)',
-            borderRadius: '0.6rem 0.4rem 0.7rem 0.5rem',
+            borderRadius: 'var(--radius-sm)',
           }}
         >
           {d.stepBadge ?? (d.stepStatus ? PROCESS_STEP_STATUS_LABELS[d.stepStatus] : '')}
@@ -296,7 +295,7 @@ function CanvasInner({
       connectionLineStyle={{ stroke: 'var(--secondary)', strokeWidth: 2.5 }}
       proOptions={{ hideAttribution: false }}
     >
-      <Background variant={BackgroundVariant.Dots} gap={22} size={1.6} color="#bbbaab" />
+      <Background variant={BackgroundVariant.Dots} gap={22} size={1.6} color="#ddd6c8" />
       <Controls showInteractive={false} position="bottom-left" />
       {withMiniMap && (
         <MiniMap
@@ -317,7 +316,7 @@ export function ProcessCanvas(props: ProcessCanvasProps) {
       style={{
         height: props.height ?? '62vh',
         background: 'var(--surface-container-low)',
-        borderRadius: '1rem 0.7rem 1.1rem 0.8rem',
+        borderRadius: 'var(--radius-lg)',
         overflow: 'hidden',
       }}
     >

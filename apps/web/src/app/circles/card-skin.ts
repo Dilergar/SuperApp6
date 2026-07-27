@@ -7,42 +7,47 @@
 // ============================================================
 
 import type { SkinRarity, CardSkinTokens, CardSkinRender } from '@superapp/shared';
+import { SKIN_RARITY_META } from '@superapp/shared';
 export type { SkinRarity, CardSkinTokens, CardSkinRender };
 
 export type CardSize = 'XL' | 'L' | 'M' | 'S' | 'XS';
 
-/** Canonical rarity ladder — label + ring color (Diablo/WoW convention). */
-export const RARITY_META: Record<SkinRarity, { label: string; color: string }> = {
-  common: { label: 'Обычный', color: '#9a958a' },
-  uncommon: { label: 'Необычный', color: '#2d7a3a' },
-  rare: { label: 'Редкий', color: '#326a8b' },
-  epic: { label: 'Эпический', color: '#7a3a8b' },
-  legendary: { label: 'Легендарный', color: '#b8860b' },
-  mythic: { label: 'Мифический', color: '#c61a1e' },
-};
+/**
+ * Лестница редкости — ре-экспорт единственной таблицы из shared.
+ * Раньше здесь лежала ВТОРАЯ копия с другими цветами, и один и тот же скин
+ * показывал одну редкость в магазине и другую на карточке.
+ */
+export const RARITY_META = SKIN_RARITY_META;
 
-/** Built-in free skin — reproduces the current sketchbook look. */
+/**
+ * Встроенный бесплатный скин — базовая карточка системы.
+ *
+ * Это НЕ «один из скинов»: его получает каждый, у кого нет купленного, то есть
+ * он определяет, как человек выглядит на 20+ экранах. Поэтому база обязана быть
+ * ровно системной — чистый матовый блок, без рамок-«карандашей» и наклонов.
+ * Платные скины рисуют своё поверх этой базы.
+ */
 export const DEFAULT_SKIN: CardSkinRender = {
   id: 'default',
-  name: 'Скетчбук',
+  name: 'Базовый',
   rarity: 'common',
-  decor: 'crayon',
+  decor: 'none',
   tokens: {
-    cardBg: '#F4F1E8',
-    cardBorder: '2px solid #CFC7B8',
-    cardRadius: '1rem 1.5rem 1.2rem 1.4rem',
-    cardShadow: '0 6px 24px rgba(56,57,45,0.08), 0 2px 8px rgba(198,26,30,0.04)',
+    cardBg: 'var(--block)',
+    cardBorder: '1px solid var(--border)',
+    cardRadius: 'var(--radius-card)',
+    cardShadow: 'var(--shadow-card)',
     nameColor: 'var(--on-surface)',
     nameFont: 'var(--font-display)',
     metaColor: 'var(--on-surface-variant)',
-    avatarBg: 'var(--secondary-container)',
-    avatarColor: 'var(--secondary)',
-    avatarRing: '2.5px solid rgba(167,159,144,0.4)',
-    avatarInnerBorder: '2px solid rgba(207,199,184,0.55)',
-    avatarRadius: '1rem 1.4rem 1.2rem 1.3rem',
-    badgeBg: '#EADFC8',
-    badgeColor: 'var(--on-surface)',
-    badgeShadow: '0 0 0 1.5px rgba(207,199,184,0.5), 0 0 0 4px rgba(207,199,184,0.2)',
+    avatarBg: 'var(--primary-container)',
+    avatarColor: 'var(--primary-dim)',
+    avatarRing: '1px solid var(--border)',
+    avatarInnerBorder: 'none',
+    avatarRadius: 'var(--radius-pill)',
+    badgeBg: 'var(--surface-container)',
+    badgeColor: 'var(--on-surface-variant)',
+    badgeShadow: '0 0 0 1px var(--border)',
     accent: 'var(--primary)',
     effectPreset: null,
   },

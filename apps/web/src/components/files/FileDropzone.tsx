@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon, toneVars } from '@/components/ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface FileDropzoneProps {
@@ -13,6 +14,8 @@ interface FileDropzoneProps {
   hint?: string;
   compact?: boolean;
   disabled?: boolean;
+  /** Потолок размера, МБ — подписью-капсом под зоной (приём дизайн-пакета). */
+  maxSizeMb?: number;
 }
 
 /**
@@ -24,8 +27,9 @@ export function FileDropzone({
   accept,
   multiple = true,
   paste = false,
-  label = 'Перетащи файлы сюда или нажми',
+  label = 'Перетащите файлы или нажмите',
   hint,
+  maxSizeMb,
   compact = false,
   disabled = false,
 }: FileDropzoneProps) {
@@ -77,15 +81,26 @@ export function FileDropzone({
         cursor: disabled ? 'not-allowed' : 'pointer',
         padding: compact ? '0.75rem 1rem' : '1.75rem 1.25rem',
         textAlign: 'center',
-        background: over ? 'var(--secondary-container)' : 'var(--surface-container-low)',
-        border: `2px dashed ${over ? 'var(--secondary)' : 'var(--outline-variant)'}`,
-        borderRadius: 'var(--radius-sketch)',
+        background: over ? 'rgba(88, 140, 211, 0.06)' : 'transparent',
+        border: `2px dashed ${over ? 'var(--primary)' : 'var(--line)'}`,
+        borderRadius: 'var(--radius-lg)',
         transition: 'background 0.15s ease, border-color 0.15s ease',
         opacity: disabled ? 0.6 : 1,
         userSelect: 'none',
       }}
     >
-      <div style={{ fontSize: compact ? '1.1rem' : '1.6rem', lineHeight: 1 }}>📎</div>
+      <span
+        style={{
+          ...toneVars('warning'),
+          width: compact ? 32 : 44,
+          height: compact ? 32 : 44,
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          borderRadius: 'var(--radius-md)',
+          background: 'var(--tone-bg)', border: '1px solid var(--tone-border)', color: 'var(--tone-fg)',
+        }}
+      >
+        <Icon name="upload" size={compact ? 16 : 21} />
+      </span>
       <div
         style={{
           marginTop: '0.4rem',
@@ -102,6 +117,7 @@ export function FileDropzone({
           {hint ?? 'Можно вставить из буфера — Ctrl+V'}
         </div>
       )}
+      {maxSizeMb && <div className="label-caps" style={{ marginTop: '0.45rem' }}>Макс. размер: {maxSizeMb} МБ</div>}
       <input
         ref={inputRef}
         type="file"

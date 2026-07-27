@@ -70,7 +70,7 @@ export function OnlineDot({ size = 11 }: { size?: number }) {
         bottom: -1,
         right: -1,
         zIndex: 2,
-        filter: 'drop-shadow(0 1px 2px rgba(56, 57, 45, 0.2))',
+        filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2))',
       }}
     >
       <path

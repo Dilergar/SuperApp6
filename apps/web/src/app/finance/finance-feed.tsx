@@ -7,59 +7,90 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { FinAccountDto, FinPersonDto, FinTransactionDto } from '@superapp/shared';
-import { api } from '@/lib/api';
+import { api, apiErrorMessage } from '@/lib/api';
 import { EntitySelector } from '@/components/EntitySelector';
+import {
+  Alert, Button, Card, CardHeader, ConfirmDialog, DatePicker, EmptyState, Field, IconButton,
+  Input, SegmentedControl, Select, type SelectOption, type Tone,
+} from '@/components/ui';
 import { PersonChip } from '../circles/PersonCard';
-import { bookParams, currencySymbol, formatDayLabel, formatMoney, localToday, parseMoneyInput } from './finance-lib';
+import {
+  bookParams, currencySymbol, dateToYmd, formatDayLabel, formatMoney, localToday,
+  parseMoneyInput, ymdToDate,
+} from './finance-lib';
+import { FinList, FinRow, Money } from './finance-ui';
 
 type EntryTab = 'expense' | 'income' | 'transfer';
 
-/** Иконка/заголовок/знак операции — общая презентация для ленты и «Обзора». */
+/**
+ * Иконка/заголовок/знак операции — общая презентация для ленты и «Обзора».
+ *
+ * `icon` — либо имя иконки кита (интерфейсный смысл операции), либо эмодзи
+ * категории/счёта из БД (выбор человека). Рисует его только `FinGlyph`.
+ */
 export function txPresentation(
   tx: FinTransactionDto,
   accountById: Map<string, FinAccountDto>,
-): { icon: string; title: string; sign: '+' | '−' | ''; color: string } {
+): { icon: string; title: string; sign: '+' | '−' | ''; tone: Tone } {
   const from = accountById.get(tx.fromAccountId);
   const to = accountById.get(tx.toAccountId);
 
-  let icon = '🔁';
+  let icon = 'refresh';
   let title = '';
   let sign: '+' | '−' | '' = '';
-  let color = 'var(--on-surface)';
+  let tone: Tone = 'neutral';
   switch (tx.type) {
     case 'expense':
-      icon = to?.icon ?? '🧾';
+      icon = to?.icon ?? 'receipt';
       title = to?.name ?? 'Расход';
       sign = '−';
-      color = 'var(--danger)';
+      tone = 'danger';
       break;
     case 'income':
-      icon = from?.icon ?? '💰';
+      icon = from?.icon ?? 'coins';
       title = from?.name ?? 'Доход';
       sign = '+';
-      color = 'var(--success)';
+      tone = 'success';
       break;
     case 'transfer':
-      icon = '🔁';
+      icon = 'refresh';
       title = `${from?.name ?? '—'} → ${to?.name ?? '—'}`;
       break;
     case 'debt_payment':
-      icon = '📉';
+      icon = 'debt';
       title = `Платёж: ${to?.name ?? 'долг'}`;
+      tone = 'accent';
       break;
     case 'debt_draw':
-      icon = '🏦';
+      icon = 'savings';
       title = `Кредит: ${from?.name ?? 'долг'}`;
       sign = '+';
-      color = 'var(--success)';
+      tone = 'success';
       break;
     case 'opening':
-      icon = '⚖️';
+      icon = 'scales';
       title = 'Корректировка остатка';
       break;
   }
-  return { icon, title, sign, color };
+  return { icon, title, sign, tone };
 }
+
+/** Плоский список опций из дерева категорий: подкатегория несёт подпись родителя. */
+function categoryOptions(cats: FinAccountDto[]): SelectOption[] {
+  const roots = cats.filter((c) => !c.parentId);
+  const out: SelectOption[] = [];
+  for (const root of roots) {
+    const children = cats.filter((c) => c.parentId === root.id);
+    out.push({ value: root.id, label: root.name, emoji: root.icon, hint: children.length ? 'в целом' : undefined });
+    for (const child of children) {
+      out.push({ value: child.id, label: child.name, emoji: child.icon, hint: root.name });
+    }
+  }
+  return out;
+}
+
+const moneyOptions = (money: FinAccountDto[]): SelectOption[] =>
+  money.map((m) => ({ value: m.id, label: m.name, emoji: m.icon, hint: currencySymbol(m.currencyCode) }));
 
 // ============================================================
 // Быстрый ввод (создание + правка)
@@ -75,6 +106,7 @@ export function QuickEntry({
   bookId,
   meId,
   meName,
+  span,
 }: {
   accounts: FinAccountDto[];
   categories: FinAccountDto[];
@@ -85,6 +117,8 @@ export function QuickEntry({
   bookId: string | null;
   meId: string | null;
   meName: string;
+  /** Колонок бенто-сетки (страница решает, как широко стоит форма). */
+  span?: number;
 }) {
   const [tab, setTab] = useState<EntryTab>('expense');
   const [amount, setAmount] = useState('');
@@ -96,6 +130,7 @@ export function QuickEntry({
   const [personUserId, setPersonUserId] = useState<string | null>(null);
   const [personPickerOpen, setPersonPickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const money = accounts.filter((a) => a.kind === 'asset' || a.kind === 'liability');
   const expenseCats = categories.filter((c) => c.kind === 'expense' && !c.archived);
@@ -144,15 +179,19 @@ export function QuickEntry({
   const needsAmountTo = tab === 'transfer' && fromAcc && toAcc && fromAcc.currencyCode !== toAcc.currencyCode;
 
   const reset = () => {
-    setAmount(''); setAmountTo(''); setNote(''); setDate(localToday()); setPersonUserId(null); setPersonPickerOpen(false);
+    setAmount(''); setAmountTo(''); setNote(''); setDate(localToday()); setPersonUserId(null); setPersonPickerOpen(false); setError(null);
   };
 
   const submit = async () => {
     const minor = parseMoneyInput(amount);
-    if (!minor || !fromId || !toId || busy) return;
+    if (!minor || !fromId || !toId || busy) {
+      setError(minor ? 'Выберите счёт и категорию' : 'Укажите сумму');
+      return;
+    }
     const minorTo = needsAmountTo ? parseMoneyInput(amountTo) : null;
-    if (needsAmountTo && !minorTo) { alert('Укажите сумму зачисления во второй валюте'); return; }
+    if (needsAmountTo && !minorTo) { setError('Укажите сумму зачисления во второй валюте'); return; }
     setBusy(true);
+    setError(null);
     try {
       const personAllowed = tab === 'expense' || tab === 'income';
       const payload = {
@@ -169,176 +208,125 @@ export function QuickEntry({
       reset();
       onSaved();
     } catch (e) {
-      alert((e as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Не удалось сохранить операцию');
+      setError(apiErrorMessage(e));
     } finally {
       setBusy(false);
     }
   };
 
-  const catOptions = (cats: FinAccountDto[]) => {
-    const roots = cats.filter((c) => !c.parentId);
-    return roots.map((root) => {
-      const children = cats.filter((c) => c.parentId === root.id);
-      if (children.length === 0) {
-        return <option key={root.id} value={root.id}>{root.icon ? `${root.icon} ` : ''}{root.name}</option>;
-      }
-      return (
-        <optgroup key={root.id} label={`${root.icon ? `${root.icon} ` : ''}${root.name}`}>
-          <option value={root.id}>{root.name} (в целом)</option>
-          {children.map((c) => <option key={c.id} value={c.id}>{c.icon ? `${c.icon} ` : ''}{c.name}</option>)}
-        </optgroup>
-      );
-    });
-  };
-  const moneyOptions = money.map((m) => (
-    <option key={m.id} value={m.id}>{m.icon ? `${m.icon} ` : ''}{m.name} · {currencySymbol(m.currencyCode)}</option>
-  ));
+  const personLabel = tab === 'expense' ? 'На кого (не обязательно)' : 'От кого (не обязательно)';
 
   return (
-    <div className="card-elevated" style={{ transform: 'rotate(0.25deg)' }}>
-      <div className="flex items-center justify-between" style={{ marginBottom: 'var(--spacing-4)' }}>
-        <h2 className="title-md">{editingTx ? 'Исправить операцию' : 'Записать'}</h2>
-        {editingTx && (
-          <button className="label-sm" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--secondary)' }} onClick={() => { reset(); onCancelEdit(); }}>
-            отменить правку
-          </button>
-        )}
-      </div>
+    <Card span={span}>
+      <CardHeader
+        title={editingTx ? 'Исправить операцию' : 'Записать'}
+        actions={
+          editingTx ? (
+            <Button variant="ghost" size="sm" onClick={() => { reset(); onCancelEdit(); }}>Отменить правку</Button>
+          ) : undefined
+        }
+      />
 
-      <div className="flex" style={{ gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-6)' }}>
-        {([['expense', 'Расход'], ['income', 'Доход'], ['transfer', 'Перевод']] as Array<[EntryTab, string]>).map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            style={{
-              border: 'none',
-              cursor: 'pointer',
-              padding: '0.4rem 1.2rem',
-              borderRadius: 'var(--radius-sketch)',
-              fontFamily: 'var(--font-display)',
-              fontWeight: 600,
-              fontSize: '0.9rem',
-              background: tab === key
-                ? key === 'expense' ? 'var(--primary-container)' : key === 'income' ? 'rgba(45,122,58,0.2)' : 'var(--secondary-container)'
-                : 'transparent',
-              color: 'var(--on-surface)',
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <SegmentedControl
+        aria-label="Тип операции"
+        value={tab}
+        onChange={setTab}
+        items={[
+          { key: 'expense', label: 'Расход', icon: 'trendDown' },
+          { key: 'income', label: 'Доход', icon: 'trendUp' },
+          { key: 'transfer', label: 'Перевод', icon: 'refresh' },
+        ]}
+      />
 
-      <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4) var(--spacing-6)' }}>
-        <div>
-          <div className="label-sm" style={{ marginBottom: '0.2rem' }}>Сумма{fromAcc && tab !== 'income' ? ` (${currencySymbol(fromAcc.currencyCode)})` : ''}</div>
-          <input className="input-sketch" inputMode="decimal" placeholder="2 500" value={amount} onChange={(e) => setAmount(e.target.value)} style={{ fontSize: '1.4rem', fontFamily: 'var(--font-display)', fontWeight: 700 }} />
-        </div>
-        <div>
-          <div className="label-sm" style={{ marginBottom: '0.2rem' }}>Дата</div>
-          <input type="date" className="input-sketch" value={date} onChange={(e) => setDate(e.target.value)} />
-        </div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+          gap: 'var(--spacing-4)',
+          marginTop: 'var(--spacing-5)',
+        }}
+      >
+        <Input
+          label={`Сумма${fromAcc && tab !== 'income' ? ` · ${currencySymbol(fromAcc.currencyCode)}` : ''}`}
+          inputMode="decimal"
+          placeholder="2 500"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          style={{ fontSize: '1.25rem', fontFamily: 'var(--font-display)', fontWeight: 700 }}
+        />
+        <DatePicker label="Дата" value={ymdToDate(date)} onChange={(d) => setDate(dateToYmd(d) ?? localToday())} />
 
         {tab === 'expense' && (
           <>
-            <div>
-              <div className="label-sm" style={{ marginBottom: '0.2rem' }}>Со счёта</div>
-              <select className="input-sketch" value={fromId} onChange={(e) => setFromId(e.target.value)}>{moneyOptions}</select>
-            </div>
-            <div>
-              <div className="label-sm" style={{ marginBottom: '0.2rem' }}>Категория</div>
-              <select className="input-sketch" value={toId} onChange={(e) => setToId(e.target.value)}>{catOptions(expenseCats)}</select>
-            </div>
+            <Select label="Со счёта" value={fromId || null} onChange={setFromId} options={moneyOptions(money)} placeholder="Счёт…" />
+            <Select label="Категория" value={toId || null} onChange={setToId} options={categoryOptions(expenseCats)} placeholder="Категория…" />
           </>
         )}
         {tab === 'income' && (
           <>
-            <div>
-              <div className="label-sm" style={{ marginBottom: '0.2rem' }}>Источник</div>
-              <select className="input-sketch" value={fromId} onChange={(e) => setFromId(e.target.value)}>{catOptions(incomeCats)}</select>
-            </div>
-            <div>
-              <div className="label-sm" style={{ marginBottom: '0.2rem' }}>На счёт</div>
-              <select className="input-sketch" value={toId} onChange={(e) => setToId(e.target.value)}>{moneyOptions}</select>
-            </div>
+            <Select label="Источник" value={fromId || null} onChange={setFromId} options={categoryOptions(incomeCats)} placeholder="Источник…" />
+            <Select label="На счёт" value={toId || null} onChange={setToId} options={moneyOptions(money)} placeholder="Счёт…" />
           </>
         )}
         {tab === 'transfer' && (
           <>
-            <div>
-              <div className="label-sm" style={{ marginBottom: '0.2rem' }}>Со счёта</div>
-              <select className="input-sketch" value={fromId} onChange={(e) => setFromId(e.target.value)}>{moneyOptions}</select>
-            </div>
-            <div>
-              <div className="label-sm" style={{ marginBottom: '0.2rem' }}>На счёт</div>
-              <select className="input-sketch" value={toId} onChange={(e) => setToId(e.target.value)}>{moneyOptions}</select>
-            </div>
+            <Select label="Со счёта" value={fromId || null} onChange={setFromId} options={moneyOptions(money)} placeholder="Счёт…" />
+            <Select label="На счёт" value={toId || null} onChange={setToId} options={moneyOptions(money)} placeholder="Счёт…" />
             {needsAmountTo && (
-              <div>
-                <div className="label-sm" style={{ marginBottom: '0.2rem' }}>Зачислено ({toAcc ? currencySymbol(toAcc.currencyCode) : ''})</div>
-                <input className="input-sketch" inputMode="decimal" placeholder="100" value={amountTo} onChange={(e) => setAmountTo(e.target.value)} />
-              </div>
+              <Input
+                label={`Зачислено · ${toAcc ? currencySymbol(toAcc.currencyCode) : ''}`}
+                inputMode="decimal"
+                placeholder="100"
+                value={amountTo}
+                onChange={(e) => setAmountTo(e.target.value)}
+              />
             )}
           </>
         )}
 
         <div style={{ gridColumn: '1 / -1' }}>
-          <div className="label-sm" style={{ marginBottom: '0.2rem' }}>Заметка</div>
-          <input className="input-sketch" placeholder="Magnum, подарок…" value={note} onChange={(e) => setNote(e.target.value)} />
+          <Input
+            label="Заметка"
+            placeholder="Magnum, подарок…"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
         </div>
 
         {(tab === 'expense' || tab === 'income') && (
           <div style={{ gridColumn: '1 / -1' }}>
-            <div className="label-sm" style={{ marginBottom: '0.3rem' }}>
-              {tab === 'expense' ? 'На кого (не обязательно)' : 'От кого (не обязательно)'}
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 'var(--spacing-2)' }}>
-              {/* «Я» — всегда первый: потратил/получил на себя (моя карточка). */}
-              {meId && (
-                <button
-                  onClick={() => setPersonUserId((cur) => (cur === meId ? null : meId))}
-                  style={{
-                    background: personUserId === meId ? 'var(--secondary-container)' : 'transparent',
-                    border: 'none',
-                    cursor: 'pointer',
-                    borderRadius: 'var(--radius-sketch)',
-                    padding: '0.15rem 0.3rem',
-                  }}
-                  title={personUserId === meId ? 'Убрать' : tab === 'income' ? 'От себя' : 'На себя'}
-                >
-                  <PersonChip size="S" userId={meId} firstName={meName} role="Я" />
-                </button>
-              )}
-              {people.filter((p) => p.userId !== meId).map((p) => (
-                <button
-                  key={p.userId}
-                  onClick={() => setPersonUserId((cur) => (cur === p.userId ? null : p.userId))}
-                  style={{
-                    background: personUserId === p.userId ? 'var(--secondary-container)' : 'transparent',
-                    border: 'none',
-                    cursor: 'pointer',
-                    borderRadius: 'var(--radius-sketch)',
-                    padding: '0.15rem 0.3rem',
-                  }}
-                  title={personUserId === p.userId ? 'Убрать' : `На ${p.name}`}
-                >
-                  <PersonChip size="S" userId={p.userId} firstName={p.name} avatar={p.avatar} />
-                </button>
-              ))}
-              <button
-                className="label-sm"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--secondary)' }}
-                onClick={() => setPersonPickerOpen((v) => !v)}
-              >
-                {personPickerOpen ? 'скрыть' : 'из окружения…'}
-              </button>
-              {personUserId && personUserId !== meId && !people.some((p) => p.userId === personUserId) && (
-                <span className="wash-secondary label-sm" style={{ padding: '0.2rem 0.6rem' }}>
-                  выбран человек
-                  <button onClick={() => setPersonUserId(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontWeight: 700, marginLeft: '0.3rem' }}>×</button>
-                </span>
-              )}
-            </div>
+            <Field label={personLabel}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 'var(--spacing-2)' }}>
+                {/* «Я» — всегда первый: потратил/получил на себя (моя карточка). */}
+                {meId && (
+                  <PersonPickChip
+                    selected={personUserId === meId}
+                    onClick={() => setPersonUserId((cur) => (cur === meId ? null : meId))}
+                    title={personUserId === meId ? 'Убрать' : tab === 'income' ? 'От себя' : 'На себя'}
+                  >
+                    <PersonChip size="S" userId={meId} firstName={meName} role="Я" />
+                  </PersonPickChip>
+                )}
+                {people.filter((p) => p.userId !== meId).map((p) => (
+                  <PersonPickChip
+                    key={p.userId}
+                    selected={personUserId === p.userId}
+                    onClick={() => setPersonUserId((cur) => (cur === p.userId ? null : p.userId))}
+                    title={personUserId === p.userId ? 'Убрать' : `На ${p.name}`}
+                  >
+                    <PersonChip size="S" userId={p.userId} firstName={p.name} avatar={p.avatar} />
+                  </PersonPickChip>
+                ))}
+                <Button variant="ghost" size="sm" onClick={() => setPersonPickerOpen((v) => !v)}>
+                  {personPickerOpen ? 'Скрыть' : 'Из окружения…'}
+                </Button>
+                {personUserId && personUserId !== meId && !people.some((p) => p.userId === personUserId) && (
+                  <Button variant="matte" tone="accent" size="sm" icon="close" onClick={() => setPersonUserId(null)}>
+                    Выбран человек
+                  </Button>
+                )}
+              </div>
+            </Field>
             {personPickerOpen && (
               <div style={{ marginTop: 'var(--spacing-2)' }}>
                 <EntitySelector
@@ -354,10 +342,51 @@ export function QuickEntry({
         )}
       </div>
 
-      <button className="btn-primary" style={{ marginTop: 'var(--spacing-6)' }} onClick={submit} disabled={busy}>
-        {editingTx ? 'Сохранить правку' : 'Записать'}
-      </button>
-    </div>
+      {error && (
+        <div style={{ marginTop: 'var(--spacing-4)' }}>
+          <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>
+        </div>
+      )}
+
+      <div style={{ marginTop: 'var(--spacing-5)' }}>
+        <Button variant="primary" tone="success" icon={editingTx ? 'save' : 'add'} onClick={submit} loading={busy}>
+          {editingTx ? 'Сохранить правку' : 'Записать'}
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+/** Обёртка выбора вокруг карточки человека (сама карточка — PersonChip, принцип 2). */
+function PersonPickChip({
+  selected,
+  onClick,
+  title,
+  children,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-pressed={selected}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        padding: '0.1875rem 0.3125rem',
+        borderRadius: 'var(--radius-pill)',
+        cursor: 'pointer',
+        background: selected ? 'var(--secondary-container)' : 'transparent',
+        border: `1px solid ${selected ? 'var(--primary)' : 'var(--border)'}`,
+      }}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -379,6 +408,7 @@ export function TransactionFeed({
   canEdit,
   bookId,
   meId,
+  span,
 }: {
   transactions: FinTransactionDto[];
   accountById: Map<string, FinAccountDto>;
@@ -393,7 +423,11 @@ export function TransactionFeed({
   canEdit: boolean;
   bookId: string | null;
   meId: string | null;
+  span?: number;
 }) {
+  const [removing, setRemoving] = useState<FinTransactionDto | null>(null);
+  const [busy, setBusy] = useState(false);
+
   const groups = useMemo(() => {
     const byDay = new Map<string, FinTransactionDto[]>();
     for (const t of transactions) {
@@ -404,69 +438,95 @@ export function TransactionFeed({
     return [...byDay.entries()];
   }, [transactions]);
 
-  const remove = async (tx: FinTransactionDto) => {
-    if (!window.confirm('Удалить операцию? Удаление останется в аудите книги.')) return;
+  const remove = async () => {
+    if (!removing || busy) return;
+    setBusy(true);
     try {
-      await api.delete(`/finance/transactions/${tx.id}`, bookParams(bookId));
+      await api.delete(`/finance/transactions/${removing.id}`, bookParams(bookId));
+      setRemoving(null);
       onDeleted();
     } catch (e) {
-      alert((e as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Не удалось удалить');
+      window.alert(apiErrorMessage(e));
+    } finally {
+      setBusy(false);
     }
   };
 
   return (
-    <div className="card" style={{ transform: 'rotate(-0.2deg)' }}>
-      <div className="flex items-center justify-between" style={{ marginBottom: 'var(--spacing-4)' }}>
-        <h2 className="title-md">Операции</h2>
-        {filterLabel && (
-          <button className="wash-secondary label-sm" style={{ border: 'none', cursor: 'pointer', padding: '0.25rem 0.8rem' }} onClick={onClearFilter}>
-            {filterLabel} ×
-          </button>
-        )}
-      </div>
+    <Card span={span}>
+      <CardHeader
+        title="Операции"
+        actions={
+          filterLabel ? (
+            <Button variant="matte" tone="accent" size="sm" icon="close" onClick={onClearFilter}>
+              {filterLabel}
+            </Button>
+          ) : undefined
+        }
+      />
 
-      {groups.length === 0 && (
-        <p className="label-md" style={{ padding: 'var(--spacing-4) 0' }}>
-          Пока пусто. Задайте остаток счёта в «Счетах» и запишите первую трату.
-        </p>
-      )}
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
-        {groups.map(([day, items]) => {
-          const dayExpense = items
-            .filter((t) => t.type === 'expense')
-            .reduce((acc, t) => {
-              acc.set(t.currencyCode, (acc.get(t.currencyCode) ?? 0) + t.amount);
-              return acc;
-            }, new Map<string, number>());
-          return (
-            <div key={day}>
-              <div className="flex items-center justify-between" style={{ marginBottom: 'var(--spacing-2)' }}>
-                <span className="label-md" style={{ fontWeight: 700 }}>{formatDayLabel(day)}</span>
-                {dayExpense.size > 0 && (
-                  <span className="label-sm">
-                    −{[...dayExpense.entries()].map(([code, sum]) => formatMoney(sum, code)).join(' · ')}
-                  </span>
-                )}
+      {groups.length === 0 ? (
+        <EmptyState
+          icon="receipt"
+          title="Пока пусто"
+          description="Задайте остаток счёта в «Счетах» и запишите первую трату."
+        />
+      ) : (
+        <div className="density-compact" style={{ display: 'grid', gap: 'var(--spacing-5)' }}>
+          {groups.map(([day, items]) => {
+            const dayExpense = items
+              .filter((t) => t.type === 'expense')
+              .reduce((acc, t) => {
+                acc.set(t.currencyCode, (acc.get(t.currencyCode) ?? 0) + t.amount);
+                return acc;
+              }, new Map<string, number>());
+            return (
+              <div key={day}>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.5rem', marginBottom: 'var(--spacing-2)' }}>
+                  <span className="label-caps">{formatDayLabel(day)}</span>
+                  {dayExpense.size > 0 && (
+                    <span className="label-sm">
+                      −{[...dayExpense.entries()].map(([code, sum]) => formatMoney(sum, code)).join(' · ')}
+                    </span>
+                  )}
+                </div>
+                <FinList>
+                  {items.map((t) => (
+                    <TransactionRow
+                      key={t.id}
+                      tx={t}
+                      accountById={accountById}
+                      canEdit={canEdit}
+                      meId={meId}
+                      onEdit={() => onEdit(t)}
+                      onShare={() => onShare(t)}
+                      onRemove={() => setRemoving(t)}
+                    />
+                  ))}
+                </FinList>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
-                {items.map((t) => (
-                  <TransactionRow key={t.id} tx={t} accountById={accountById} canEdit={canEdit} meId={meId} onEdit={() => onEdit(t)} onShare={() => onShare(t)} onRemove={() => remove(t)} />
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {hasMore && (
-        <div style={{ textAlign: 'center', marginTop: 'var(--spacing-6)' }}>
-          <button className="btn-secondary" style={{ padding: '0.4rem 1.4rem', fontSize: '0.85rem' }} onClick={onLoadMore} disabled={loadingMore}>
-            {loadingMore ? 'Загружаю…' : 'Показать ещё'}
-          </button>
+            );
+          })}
         </div>
       )}
-    </div>
+
+      {hasMore && (
+        <div style={{ textAlign: 'center', marginTop: 'var(--spacing-5)' }}>
+          <Button variant="matte" size="sm" onClick={onLoadMore} loading={loadingMore}>Показать ещё</Button>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={!!removing}
+        onClose={() => setRemoving(null)}
+        onConfirm={remove}
+        title="Удалить операцию?"
+        message="Удаление останется в аудите книги — след операции не исчезает."
+        confirmLabel="Удалить"
+        danger
+        loading={busy}
+      />
+    </Card>
   );
 }
 
@@ -487,29 +547,18 @@ function TransactionRow({
   onShare: () => void;
   onRemove: () => void;
 }) {
-  const [hover, setHover] = useState(false);
   const from = accountById.get(tx.fromAccountId);
   const to = accountById.get(tx.toAccountId);
-  const { icon, title, sign, color } = txPresentation(tx, accountById);
-
+  const { icon, title, sign, tone } = txPresentation(tx, accountById);
   const editable = tx.type !== 'opening';
 
   return (
-    <div
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 'var(--spacing-3)',
-        background: 'var(--surface-container-lowest)',
-        borderRadius: 'var(--radius-sketch)',
-        padding: '0.55rem var(--spacing-4)',
-      }}
-    >
-      <span style={{ fontSize: '1.15rem' }}>{icon}</span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 600, fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+    <FinRow
+      glyph={icon}
+      glyphTone={tone}
+      glyphFallback="receipt"
+      title={
+        <>
           <span>{title}</span>
           {tx.personName && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
@@ -523,32 +572,24 @@ function TransactionRow({
               <PersonChip size="S" userId={tx.createdById} firstName={tx.createdByName} />
             </span>
           )}
-        </div>
-        {(tx.note || tx.type === 'expense') && (
-          <div className="label-sm" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {tx.note ?? (tx.type === 'expense' ? `со счёта: ${from?.name ?? '—'}` : '')}
-          </div>
-        )}
-      </div>
-      {hover && (
-        <div className="flex" style={{ gap: 'var(--spacing-2)' }}>
-          <button onClick={onShare} title="Отправить в чат" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.9rem' }}>💬</button>
-          {editable && canEdit && (
-            <button onClick={onEdit} title="Исправить" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.9rem' }}>✎</button>
+        </>
+      }
+      subtitle={tx.note ?? (tx.type === 'expense' ? `со счёта: ${from?.name ?? '—'}` : undefined)}
+      actions={
+        <>
+          <IconButton icon="messenger" label="Отправить в чат" size={28} onClick={onShare} />
+          {editable && canEdit && <IconButton icon="edit" label="Исправить" size={28} onClick={onEdit} />}
+          {canEdit && <IconButton icon="delete" label="Удалить" size={28} onClick={onRemove} />}
+        </>
+      }
+      right={
+        <>
+          <Money minor={tx.amount} code={tx.currencyCode} sign={sign} tone={tone === 'danger' ? 'danger' : tone === 'success' ? 'success' : undefined} />
+          {tx.amountTo != null && to && (
+            <div className="label-sm">→ {formatMoney(tx.amountTo, to.currencyCode)}</div>
           )}
-          {canEdit && (
-            <button onClick={onRemove} title="Удалить" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontWeight: 700 }}>×</button>
-          )}
-        </div>
-      )}
-      <div style={{ textAlign: 'right' }}>
-        <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color }}>
-          {sign}{formatMoney(tx.amount, tx.currencyCode)}
-        </div>
-        {tx.amountTo != null && to && (
-          <div className="label-sm">→ {formatMoney(tx.amountTo, to.currencyCode)}</div>
-        )}
-      </div>
-    </div>
+        </>
+      }
+    />
   );
 }

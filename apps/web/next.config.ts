@@ -46,6 +46,12 @@ const cspReportOnly = [
 
 const nextConfig: NextConfig = {
   transpilePackages: ['@superapp/shared'],
+  experimental: {
+    // Реестр иконок (components/ui/Icon.tsx) импортирует ~150 имён из одного
+    // пакета. Без этого Next тянет в бандл весь набор Phosphor (несколько тысяч
+    // иконок) и заметно тормозит dev-пересборку.
+    optimizePackageImports: ['@phosphor-icons/react'],
+  },
   async headers() {
     return [
       {

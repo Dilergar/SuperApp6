@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { FinAccountDto, FinBudgetDto, FinMonthReportDto } from '@superapp/shared';
-import { api } from '@/lib/api';
+import { api, apiErrorMessage } from '@/lib/api';
 import {
   financeMonthReportKey,
   financeTrendKey,
@@ -12,8 +12,12 @@ import {
   fetchFinanceTrend,
   fetchFinancePeopleReport,
 } from '@/lib/queries';
+import {
+  Alert, BentoGrid, Button, Card, CardHeader, Divider, EmptyState, IconButton, Input,
+  Modal, StatTile, TickBar,
+} from '@/components/ui';
 import { formatMoney, localToday, parseMoneyInput } from './finance-lib';
-import { BudgetBar, budgetProgress } from './finance-ui';
+import { BudgetBar, FinGlyph, FinList, FinRow, Money, MoneyStack, budgetProgress } from './finance-ui';
 import { PersonChip } from '../circles/PersonCard';
 import { ShareCardModal } from '../messenger/ShareCardModal';
 
@@ -45,6 +49,7 @@ export function ReportView({
   const qc = useQueryClient();
   const [period, setPeriod] = useState(localToday().slice(0, 7));
   const [shareMonth, setShareMonth] = useState(false);
+  const [budgetFor, setBudgetFor] = useState<{ category: FinAccountDto; budget?: FinBudgetDto } | null>(null);
 
   const { data: report } = useQuery({
     queryKey: financeMonthReportKey(period, queryBookId),
@@ -101,96 +106,141 @@ export function ReportView({
       .filter((r) => r.categoryId === catId)
       .map((r) => [r.currencyCode, r.amount] as [string, number]);
 
+  const incomeRows = incomeCats
+    .map((cat) => ({ cat, sums: incomeSum(cat.id) }))
+    .filter((x) => x.sums.length > 0);
+
+  const debtPayments = report?.debtPayments ?? [];
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-6)' }}>
-      {/* Месяц + итоги */}
-      <div className="card-elevated" style={{ transform: 'rotate(-0.2deg)' }}>
-        <div className="flex items-center justify-between" style={{ marginBottom: 'var(--spacing-4)' }}>
-          <button className="btn-secondary" style={{ padding: '0.2rem 0.7rem', fontSize: '0.8rem' }} onClick={() => setPeriod((p) => shiftPeriod(p, -1))}>←</button>
-          <div className="flex items-center" style={{ gap: 'var(--spacing-3)' }}>
-            <h2 className="title-md">{periodLabel(period)}</h2>
+    <>
+      {/* ---------- Переключатель месяца ---------- */}
+      <Card small style={{ marginBottom: 'var(--gap-grid)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-3)' }}>
+          <IconButton icon="caretLeft" label="Предыдущий месяц" onClick={() => setPeriod((p) => shiftPeriod(p, -1))} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
+            <span className="title-md">{periodLabel(period)}</span>
             {bookId && (
-              <button
-                title="Отправить итоги месяца в чат"
+              <IconButton
+                icon="messenger"
+                label="Отправить итоги месяца в чат"
+                size={30}
                 onClick={() => setShareMonth(true)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem' }}
-              >
-                💬
-              </button>
+              />
             )}
           </div>
-          <button className="btn-secondary" style={{ padding: '0.2rem 0.7rem', fontSize: '0.8rem' }} onClick={() => setPeriod((p) => shiftPeriod(p, 1))}>→</button>
+          <IconButton icon="caretRight" label="Следующий месяц" onClick={() => setPeriod((p) => shiftPeriod(p, 1))} />
         </div>
-        {shareMonth && bookId && (
-          <ShareCardModal
-            refType="fin_month"
-            refId={`${bookId}:${period}`}
-            title="Отправить итоги месяца в чат"
-            onClose={() => setShareMonth(false)}
+      </Card>
+
+      {shareMonth && bookId && (
+        <ShareCardModal
+          refType="fin_month"
+          refId={`${bookId}:${period}`}
+          title="Отправить итоги месяца в чат"
+          onClose={() => setShareMonth(false)}
+        />
+      )}
+
+      <BentoGrid>
+        {/* ---------- Итоги месяца ---------- */}
+        <StatTile
+          span={debtPayments.length > 0 ? 4 : 6}
+          label="Расходы"
+          value={<MoneyStack sums={report?.totalExpense ?? []} sign="−" tone="danger" />}
+          icon="trendDown"
+          tone={(report?.totalExpense?.length ?? 0) > 0 ? 'danger' : 'neutral'}
+        />
+        <StatTile
+          span={debtPayments.length > 0 ? 4 : 6}
+          label="Доходы"
+          value={<MoneyStack sums={report?.totalIncome ?? []} sign="+" tone="success" />}
+          icon="trendUp"
+          tone={(report?.totalIncome?.length ?? 0) > 0 ? 'success' : 'neutral'}
+        />
+        {debtPayments.length > 0 && (
+          <StatTile
+            span={4}
+            label="Платежи по долгам"
+            value={<MoneyStack sums={debtPayments} />}
+            icon="debt"
+            tone="accent"
           />
         )}
-        <div className="grid grid-cols-2 md:grid-cols-3" style={{ gap: 'var(--spacing-4)' }}>
-          <SummaryCell label="Расходы" sums={report?.totalExpense ?? []} color="var(--danger)" sign="−" />
-          <SummaryCell label="Доходы" sums={report?.totalIncome ?? []} color="var(--success)" sign="+" />
-          {(report?.debtPayments?.length ?? 0) > 0 && (
-            <SummaryCell label="Платежи по долгам" sums={report?.debtPayments ?? []} color="var(--secondary)" sign="" />
+
+        {/* ---------- Расходы по категориям ---------- */}
+        <Card span={7}>
+          <CardHeader title="Расходы по категориям" subtitle="Лимит родителя считает и подкатегории" />
+          {expenseRoots.length > 0 ? (
+            <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+              {expenseRoots.map((root) => (
+                <CategoryReportRow
+                  key={root.id}
+                  category={root}
+                  sums={rolledUp(root.id)}
+                  childrenRows={(childrenOf.get(root.id) ?? [])
+                    .map((child) => ({ cat: child, sums: [...(spendMap.get(child.id) ?? [])] as Array<[string, number]> }))
+                    .filter((c) => c.sums.length > 0)}
+                  budget={budgetsByCat.get(root.id)}
+                  childBudgets={(childrenOf.get(root.id) ?? []).map((c) => budgetsByCat.get(c.id)).filter(Boolean) as FinBudgetDto[]}
+                  canEdit={canEdit}
+                  onEditBudget={(category, budget) => setBudgetFor({ category, budget })}
+                />
+              ))}
+            </div>
+          ) : (
+            <EmptyState icon="receipt" title="Нет категорий расходов" description="Дерево категорий живёт в разделе «Категории»." />
           )}
-        </div>
-      </div>
+        </Card>
 
-      {/* Категории план-факт */}
-      <div className="card" style={{ transform: 'rotate(0.2deg)' }}>
-        <h3 className="title-md" style={{ marginBottom: 'var(--spacing-4)' }}>Расходы по категориям</h3>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
-          {expenseRoots.map((root) => (
-            <CategoryReportRow
-              key={root.id}
-              category={root}
-              sums={rolledUp(root.id)}
-              childrenRows={(childrenOf.get(root.id) ?? [])
-                .map((child) => ({ cat: child, sums: [...(spendMap.get(child.id) ?? [])] as Array<[string, number]> }))
-                .filter((c) => c.sums.length > 0)}
-              budget={budgetsByCat.get(root.id)}
-              childBudgets={(childrenOf.get(root.id) ?? []).map((c) => budgetsByCat.get(c.id)).filter(Boolean) as FinBudgetDto[]}
-              period={period}
-              categoriesById={new Map(categories.map((c) => [c.id, c]))}
-              onChanged={invalidate}
-              queryBookId={queryBookId}
-              canEdit={canEdit}
-            />
-          ))}
-          {expenseRoots.length === 0 && <p className="label-md">Нет категорий расходов.</p>}
-        </div>
-      </div>
+        {/* ---------- Доходы ---------- */}
+        <Card span={5}>
+          <CardHeader title="Доходы" />
+          {incomeRows.length > 0 ? (
+            <FinList>
+              {incomeRows.map(({ cat, sums }) => (
+                <FinRow
+                  key={cat.id}
+                  glyph={cat.icon ?? 'coins'}
+                  glyphTone="success"
+                  glyphFallback="coins"
+                  title={cat.name}
+                  right={
+                    <span style={{ display: 'grid' }}>
+                      {sums.map(([code, amount]) => (
+                        <Money key={code} minor={amount} code={code} sign="+" tone="success" />
+                      ))}
+                    </span>
+                  }
+                />
+              ))}
+            </FinList>
+          ) : (
+            <EmptyState icon="coins" title="Доходов не записано" description="В этом месяце поступлений нет." />
+          )}
+        </Card>
 
-      {/* Доходы */}
-      <div className="card" style={{ transform: 'rotate(-0.15deg)' }}>
-        <h3 className="title-md" style={{ marginBottom: 'var(--spacing-4)' }}>Доходы</h3>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
-          {incomeCats
-            .map((cat) => ({ cat, sums: incomeSum(cat.id) }))
-            .filter((x) => x.sums.length > 0)
-            .map(({ cat, sums }) => (
-              <div key={cat.id} className="flex items-center justify-between" style={{ padding: '0.35rem 0' }}>
-                <span style={{ fontWeight: 600 }}>{cat.icon ? `${cat.icon} ` : ''}{cat.name}</span>
-                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--success)' }}>
-                  +{sums.map(([code, amount]) => formatMoney(amount, code)).join(' · ')}
-                </span>
-              </div>
-            ))}
-          {(report?.totalIncome?.length ?? 0) === 0 && <p className="label-md">В этом месяце доходов не записано.</p>}
-        </div>
-      </div>
+        {/* ---------- По людям ---------- */}
+        <PeopleReportSection period={period} queryBookId={queryBookId} />
 
-      {/* По людям */}
-      <PeopleReportSection period={period} queryBookId={queryBookId} />
+        {/* ---------- Тренд ---------- */}
+        <Card span={12}>
+          <CardHeader title="Динамика, 6 месяцев" subtitle="Длина штриховой шкалы сравнима внутри одной валюты" />
+          <TrendBars trend={trend ?? []} />
+        </Card>
+      </BentoGrid>
 
-      {/* Тренд */}
-      <div className="card" style={{ transform: 'rotate(0.25deg)' }}>
-        <h3 className="title-md" style={{ marginBottom: 'var(--spacing-4)' }}>Динамика, 6 месяцев</h3>
-        <TrendBars trend={trend ?? []} />
-      </div>
-    </div>
+      {budgetFor && canEdit && (
+        <BudgetModal
+          category={budgetFor.category}
+          budget={budgetFor.budget}
+          period={period}
+          queryBookId={queryBookId}
+          onClose={() => setBudgetFor(null)}
+          onDone={() => { setBudgetFor(null); invalidate(); }}
+        />
+      )}
+    </>
   );
 }
 
@@ -204,46 +254,48 @@ function PeopleReportSection({ period, queryBookId }: { period: string; queryBoo
   });
   if (rows.length === 0) return null;
   return (
-    <div className="card" style={{ transform: 'rotate(-0.25deg)' }}>
-      <h3 className="title-md" style={{ marginBottom: 'var(--spacing-1)' }}>По людям</h3>
-      <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)' }}>Сколько потратили «на кого» и получили «от кого» — видно только тем, у кого есть доступ к книге.</p>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
+    <Card span={12}>
+      <CardHeader
+        title="По людям"
+        subtitle="Сколько потратили «на кого» и получили «от кого» — видно только тем, у кого есть доступ к книге"
+      />
+      <FinList>
         {rows.map((r) => (
-          <div key={r.userId} className="flex items-center justify-between" style={{ gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
-            <PersonChip size="M" userId={r.userId} firstName={r.name} avatar={r.avatar} />
-            <div style={{ textAlign: 'right' }}>
-              {r.spent.length > 0 && (
-                <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--danger)' }}>
-                  −{r.spent.map((s) => formatMoney(s.amount, s.currencyCode)).join(' · ')}
-                </div>
-              )}
-              {r.received.length > 0 && (
-                <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--success)' }}>
-                  +{r.received.map((s) => formatMoney(s.amount, s.currencyCode)).join(' · ')}
-                </div>
-              )}
-            </div>
-          </div>
+          <FinRow
+            key={r.userId}
+            title={<PersonChip size="M" userId={r.userId} firstName={r.name} avatar={r.avatar} />}
+            right={
+              <span style={{ display: 'grid' }}>
+                {r.spent.length > 0 && (
+                  <MoneyLine sums={r.spent} sign="−" tone="danger" />
+                )}
+                {r.received.length > 0 && (
+                  <MoneyLine sums={r.received} sign="+" tone="success" />
+                )}
+              </span>
+            }
+          />
         ))}
-      </div>
-    </div>
+      </FinList>
+    </Card>
   );
 }
 
-function SummaryCell({ label, sums, color, sign }: { label: string; sums: Array<{ currencyCode: string; amount: number }>; color: string; sign: string }) {
+function MoneyLine({
+  sums,
+  sign,
+  tone,
+}: {
+  sums: Array<{ currencyCode: string; amount: number }>;
+  sign: '+' | '−';
+  tone: 'success' | 'danger';
+}) {
   return (
-    <div>
-      <div className="label-sm">{label}</div>
-      {sums.length === 0 ? (
-        <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.2rem' }}>—</div>
-      ) : (
-        sums.map((s) => (
-          <div key={s.currencyCode} style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.2rem', color }}>
-            {sign}{formatMoney(s.amount, s.currencyCode)}
-          </div>
-        ))
-      )}
-    </div>
+    <span>
+      {sums.map((s) => (
+        <Money key={s.currencyCode} minor={s.amount} code={s.currencyCode} sign={sign} tone={tone} />
+      ))}
+    </span>
   );
 }
 
@@ -253,155 +305,206 @@ function CategoryReportRow({
   childrenRows,
   budget,
   childBudgets,
-  period,
-  categoriesById,
-  onChanged,
-  queryBookId,
   canEdit,
+  onEditBudget,
 }: {
   category: FinAccountDto;
   sums: Array<[string, number]>;
   childrenRows: Array<{ cat: FinAccountDto; sums: Array<[string, number]> }>;
   budget?: FinBudgetDto;
   childBudgets: FinBudgetDto[];
-  period: string;
-  categoriesById: Map<string, FinAccountDto>;
-  onChanged: () => void;
-  queryBookId: string | null;
   canEdit: boolean;
+  onEditBudget: (category: FinAccountDto, budget?: FinBudgetDto) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const hasActivity = sums.length > 0 || !!budget || childBudgets.length > 0;
   if (!hasActivity && category.archived) return null;
 
   return (
-    <div style={{ background: 'var(--surface-container-lowest)', borderRadius: 'var(--radius-sketch)', padding: '0.6rem var(--spacing-4)' }}>
-      <div className="flex items-center justify-between" style={{ cursor: childrenRows.length ? 'pointer' : 'default' }} onClick={() => setExpanded((v) => !v)}>
-        <span style={{ fontWeight: 600 }}>
-          {category.icon ? `${category.icon} ` : ''}{category.name}
-          {childrenRows.length > 0 && <span className="label-sm" style={{ marginLeft: '0.4rem' }}>{expanded ? '▾' : '▸'}</span>}
-        </span>
-        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700 }}>
-          {sums.length === 0 ? '—' : sums.map(([code, amount]) => formatMoney(amount, code)).join(' · ')}
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+        <FinGlyph glyph={category.icon} fallback="receipt" size={30} />
+        {childrenRows.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            className="title-sm"
+            style={{
+              flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '0.25rem',
+              background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--on-surface)', textAlign: 'left',
+            }}
+          >
+            {category.name}
+            <span className="label-sm">· {childrenRows.length}</span>
+          </button>
+        ) : (
+          <span className="title-sm" style={{ flex: 1, minWidth: 0 }}>{category.name}</span>
+        )}
+        <span style={{ flex: 'none' }}>
+          {sums.length === 0 ? (
+            <span className="label-sm">—</span>
+          ) : (
+            sums.map(([code, amount]) => <Money key={code} minor={amount} code={code} />)
+          )}
         </span>
       </div>
 
-      <BudgetLine categoryId={category.id} budget={budget} period={period} onChanged={onChanged} queryBookId={queryBookId} canEdit={canEdit} />
+      <BudgetLine
+        category={category}
+        budget={budget}
+        canEdit={canEdit}
+        onEdit={onEditBudget}
+      />
 
       {expanded && childrenRows.length > 0 && (
-        <div style={{ marginTop: 'var(--spacing-2)', display: 'flex', flexDirection: 'column', gap: '0.3rem', paddingLeft: 'var(--spacing-6)' }}>
+        <div style={{ marginTop: 'var(--spacing-3)', display: 'grid', gap: 'var(--spacing-3)', paddingLeft: '2.375rem' }}>
           {childrenRows.map(({ cat, sums: childSums }) => (
             <div key={cat.id}>
-              <div className="flex items-center justify-between">
-                <span className="label-md">{cat.icon ? `${cat.icon} ` : ''}{cat.name}</span>
-                <span className="label-md" style={{ fontWeight: 700 }}>
-                  {childSums.map(([code, amount]) => formatMoney(amount, code)).join(' · ')}
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.5rem' }}>
+                <span className="body-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                  {cat.icon && <span aria-hidden>{cat.icon}</span>}
+                  {cat.name}
+                </span>
+                <span>
+                  {childSums.map(([code, amount]) => <Money key={code} minor={amount} code={code} size="0.8125rem" />)}
                 </span>
               </div>
               <BudgetLine
-                categoryId={cat.id}
+                category={cat}
                 budget={childBudgets.find((b) => b.categoryAccountId === cat.id)}
-                period={period}
-                onChanged={onChanged}
-                queryBookId={queryBookId}
                 canEdit={canEdit}
+                onEdit={onEditBudget}
                 small
               />
             </div>
           ))}
         </div>
       )}
-      {/* Подкатегории с лимитами, но без трат в этом месяце, всё равно доступны из categoriesById — не рендерим, чтобы не шуметь. */}
-      {void categoriesById}
     </div>
   );
 }
 
 function BudgetLine({
-  categoryId,
+  category,
   budget,
-  period,
-  onChanged,
-  queryBookId,
   canEdit,
+  onEdit,
   small,
 }: {
-  categoryId: string;
+  category: FinAccountDto;
   budget?: FinBudgetDto;
-  period: string;
-  onChanged: () => void;
-  queryBookId: string | null;
   canEdit: boolean;
+  onEdit: (category: FinAccountDto, budget?: FinBudgetDto) => void;
   small?: boolean;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(budget ? String(budget.amount / 100) : '');
-  const [busy, setBusy] = useState(false);
-
-  const save = async (amount: number | null) => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await api.put('/finance/budgets', { period, categoryAccountId: categoryId, amount }, queryBookId ? { params: { bookId: queryBookId } } : undefined);
-      setEditing(false);
-      onChanged();
-    } catch (e) {
-      alert((e as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Не удалось сохранить лимит');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (editing) {
+  if (!budget) {
+    if (!canEdit) return null;
     return (
-      <div className="flex items-center" style={{ gap: 'var(--spacing-2)', marginTop: '0.25rem' }} onClick={(e) => e.stopPropagation()}>
-        <input className="input-sketch" inputMode="decimal" placeholder="Лимит на месяц" value={value} onChange={(e) => setValue(e.target.value)} style={{ fontSize: '0.85rem' }} />
-        <button className="btn-secondary" style={{ padding: '0.2rem 0.7rem', fontSize: '0.75rem' }} onClick={() => save(parseMoneyInput(value))} disabled={busy}>OK</button>
-        {budget && (
-          <button className="label-sm" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)' }} onClick={() => save(null)}>убрать</button>
-        )}
+      <div style={{ marginTop: '0.25rem' }}>
+        <Button variant="ghost" size="sm" icon="target" onClick={() => onEdit(category)}>Задать лимит</Button>
       </div>
     );
   }
 
-  if (!budget) {
-    if (!canEdit) return null;
-    return (
-      <button
-        className="label-sm"
-        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--secondary)', padding: 0, marginTop: '0.15rem' }}
-        onClick={(e) => { e.stopPropagation(); setEditing(true); }}
-      >
-        задать лимит…
-      </button>
-    );
-  }
-
   const { pct, over } = budgetProgress(budget.spent, budget.amount);
-  const percent = Math.min(150, pct);
 
   return (
-    <div style={{ marginTop: '0.3rem' }} onClick={(e) => e.stopPropagation()}>
+    <div style={{ marginTop: '0.375rem' }}>
       <BudgetBar spent={budget.spent} amount={budget.amount} small={small} />
-      <div className="flex items-center justify-between" style={{ marginTop: '0.15rem' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.5rem', marginTop: '0.25rem' }}>
         <span className="label-sm" style={{ color: over ? 'var(--danger)' : undefined, fontWeight: over ? 700 : undefined }}>
-          {formatMoney(budget.spent, budget.currencyCode)} из {formatMoney(budget.amount, budget.currencyCode)} · {percent}%
+          {formatMoney(budget.spent, budget.currencyCode)} из {formatMoney(budget.amount, budget.currencyCode)} · {Math.min(150, pct)}%
         </span>
         {canEdit && (
-          <button
-            className="label-sm"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--secondary)' }}
-            onClick={() => { setValue(String(budget.amount / 100)); setEditing(true); }}
-          >
-            изменить
-          </button>
+          <Button variant="ghost" size="sm" icon="edit" onClick={() => onEdit(category, budget)}>Изменить</Button>
         )}
       </div>
     </div>
   );
 }
 
-function TrendBars({ trend }: { trend: Array<{ period: string; expense: Array<{ currencyCode: string; amount: number }>; income: Array<{ currencyCode: string; amount: number }> }> }) {
+function BudgetModal({
+  category,
+  budget,
+  period,
+  queryBookId,
+  onClose,
+  onDone,
+}: {
+  category: FinAccountDto;
+  budget?: FinBudgetDto;
+  period: string;
+  queryBookId: string | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [value, setValue] = useState(budget ? String(budget.amount / 100) : '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async (amount: number | null) => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.put(
+        '/finance/budgets',
+        { period, categoryAccountId: category.id, amount },
+        queryBookId ? { params: { bookId: queryBookId } } : undefined,
+      );
+      onDone();
+    } catch (e) {
+      setError(apiErrorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`Лимит: ${category.name}`}
+      subtitle="Предупредим при 80% и 100% от лимита"
+      size="sm"
+      footer={
+        <>
+          {budget && (
+            <Button variant="primary" tone="danger" icon="delete" onClick={() => save(null)} loading={busy}>Убрать</Button>
+          )}
+          <Button variant="ghost" onClick={onClose}>Отмена</Button>
+          <Button variant="primary" tone="success" icon="save" onClick={() => save(parseMoneyInput(value))} loading={busy}>
+            Сохранить
+          </Button>
+        </>
+      }
+    >
+      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+        {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
+        <Input
+          label="Лимит на месяц"
+          inputMode="decimal"
+          placeholder="150 000"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          autoFocus
+        />
+        {budget && (
+          <div className="label-sm">
+            Уже израсходовано: {formatMoney(budget.spent, budget.currencyCode)}
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function TrendBars({
+  trend,
+}: {
+  trend: Array<{ period: string; expense: Array<{ currencyCode: string; amount: number }>; income: Array<{ currencyCode: string; amount: number }> }>;
+}) {
   const currencies = useMemo(() => {
     const set = new Set<string>();
     for (const p of trend) {
@@ -411,10 +514,12 @@ function TrendBars({ trend }: { trend: Array<{ period: string; expense: Array<{ 
     return [...set];
   }, [trend]);
 
-  if (currencies.length === 0) return <p className="label-md">Пока нет данных для динамики.</p>;
+  if (currencies.length === 0) {
+    return <EmptyState icon="chart" title="Пока нет данных" description="Динамика появится со вторым месяцем записей." />;
+  }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-6)' }}>
+    <div style={{ display: 'grid', gap: 'var(--spacing-6)' }}>
       {currencies.map((code) => {
         const max = Math.max(
           1,
@@ -425,20 +530,42 @@ function TrendBars({ trend }: { trend: Array<{ period: string; expense: Array<{ 
         );
         return (
           <div key={code}>
-            {currencies.length > 1 && <div className="label-sm" style={{ marginBottom: 'var(--spacing-2)' }}>{code}</div>}
-            <div className="flex items-end" style={{ gap: 'var(--spacing-3)', height: 120 }}>
+            {currencies.length > 1 && <div className="label-caps" style={{ marginBottom: 'var(--spacing-3)' }}>{code}</div>}
+            <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
               {trend.map((p) => {
                 const exp = p.expense.find((e) => e.currencyCode === code)?.amount ?? 0;
                 const inc = p.income.find((i) => i.currencyCode === code)?.amount ?? 0;
+                const month = new Date(`${p.period}-01T00:00:00`).toLocaleDateString('ru-RU', { month: 'long' });
                 return (
-                  <div key={p.period} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem', height: '100%', justifyContent: 'flex-end' }}>
-                    <div className="flex items-end" style={{ gap: 3, height: '100%' }} title={`−${formatMoney(exp, code)} / +${formatMoney(inc, code)}`}>
-                      <div style={{ width: 14, height: `${Math.max(2, (exp / max) * 100)}%`, background: 'var(--primary-container)', borderRadius: '4px 4px 0 0' }} />
-                      <div style={{ width: 14, height: `${Math.max(2, (inc / max) * 100)}%`, background: 'rgba(45,122,58,0.35)', borderRadius: '4px 4px 0 0' }} />
-                    </div>
-                    <span className="label-sm" style={{ fontSize: '0.65rem' }}>
-                      {new Date(`${p.period}-01T00:00:00`).toLocaleDateString('ru-RU', { month: 'short' })}
-                    </span>
+                  <div key={p.period} style={{ display: 'grid', gridTemplateColumns: '5.5rem 1fr', gap: 'var(--spacing-3)', alignItems: 'center' }}>
+                    <span className="label-sm" style={{ textTransform: 'capitalize' }}>{month}</span>
+                    {exp === 0 && inc === 0 ? (
+                      /* Пустой месяц: две шкалы по нулям читались бы как «данные есть» */
+                      <span className="label-sm" style={{ color: 'var(--muted)' }}>записей нет</span>
+                    ) : (
+                      <div style={{ display: 'grid', gap: '0.375rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
+                          <TickBar
+                            value={(exp / max) * 100}
+                            tone="danger"
+                            height={9}
+                            style={{ flex: 1 }}
+                            aria-label={`Расходы за ${month}`}
+                          />
+                          <Money minor={exp} code={code} sign="−" tone="danger" size="0.75rem" bold={600} />
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
+                          <TickBar
+                            value={(inc / max) * 100}
+                            tone="success"
+                            height={9}
+                            style={{ flex: 1 }}
+                            aria-label={`Доходы за ${month}`}
+                          />
+                          <Money minor={inc} code={code} sign="+" tone="success" size="0.75rem" bold={600} />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -446,7 +573,8 @@ function TrendBars({ trend }: { trend: Array<{ period: string; expense: Array<{ 
           </div>
         );
       })}
-      <div className="label-sm">розовый — расходы · зелёный — доходы</div>
+      <Divider style={{ margin: 0 }} />
+      <div className="meta">Красные штрихи — расходы, зелёные — доходы</div>
     </div>
   );
 }

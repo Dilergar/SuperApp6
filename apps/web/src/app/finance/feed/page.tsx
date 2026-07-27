@@ -9,6 +9,7 @@ import { useSearchParams } from 'next/navigation';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import type { FinAccountDto, FinTransactionDto } from '@superapp/shared';
 import { financeTransactionsKey, fetchFinanceTransactions } from '@/lib/queries';
+import { BentoGrid, Chip, PageHeader } from '@/components/ui';
 import { ShareCardModal } from '../../messenger/ShareCardModal';
 import { QuickEntry, TransactionFeed } from '../finance-feed';
 import { formatMoney } from '../finance-lib';
@@ -48,74 +49,76 @@ export default function FinanceFeedPage() {
   const transactions = useMemo(() => (txQuery.data?.pages ?? []).flatMap((p) => p.items), [txQuery.data]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-6)', maxWidth: 920 }}>
-      {/* Фильтр по счёту — чипы с балансами */}
+    <>
+      <PageHeader
+        breadcrumb="Финансы"
+        title="Лента"
+        description="Каждая запись — пара счетов: откуда ушло и куда пришло"
+        chip={accountFilter ? <Chip tone="accent" icon="filter">{accountById.get(accountFilter)?.name ?? 'фильтр'}</Chip> : undefined}
+      />
+
+      {/* Фильтр по счёту — чипы с балансами (эмодзи счёта выбирает человек) */}
       {accounts.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: 'var(--gap-grid)' }}>
           {accounts.map((a) => {
             const active = accountFilter === a.id;
             return (
-              <button
+              <Chip
                 key={a.id}
+                tone="accent"
+                selected={active}
+                emoji={a.icon}
+                icon={a.icon ? undefined : 'card'}
                 onClick={() => setAccountFilter((cur) => (cur === a.id ? null : a.id))}
-                className="ghost-border"
                 title={active ? 'Убрать фильтр' : `Показать операции: ${a.name}`}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.4rem',
-                  padding: '0.3rem 0.8rem',
-                  cursor: 'pointer',
-                  fontSize: '0.82rem',
-                  fontWeight: 600,
-                  background: active ? 'var(--secondary-container)' : 'var(--surface-container-lowest)',
-                  color: 'var(--on-surface)',
-                }}
               >
-                <span>{a.icon ?? '💼'}</span>
-                <span>{a.name}</span>
+                {a.name}
                 <span className="label-sm" style={{ fontWeight: 500 }}>{formatMoney(a.balance, a.currencyCode)}</span>
-              </button>
+              </Chip>
             );
           })}
         </div>
       )}
 
-      {canEdit && (
-        <QuickEntry
-          accounts={accounts}
-          categories={categories}
-          people={people}
-          editingTx={editingTx}
-          onCancelEdit={() => setEditingTx(null)}
-          onSaved={() => {
-            setEditingTx(null);
-            invalidate();
-          }}
+      <BentoGrid>
+        {canEdit && (
+          <QuickEntry
+            span={12}
+            accounts={accounts}
+            categories={categories}
+            people={people}
+            editingTx={editingTx}
+            onCancelEdit={() => setEditingTx(null)}
+            onSaved={() => {
+              setEditingTx(null);
+              invalidate();
+            }}
+            bookId={bookId}
+            meId={meId}
+            meName={meName}
+          />
+        )}
+
+        <TransactionFeed
+          span={12}
+          canEdit={canEdit}
           bookId={bookId}
           meId={meId}
-          meName={meName}
+          transactions={transactions}
+          accountById={accountById}
+          filterLabel={accountFilter ? accountById.get(accountFilter)?.name ?? null : null}
+          onClearFilter={() => setAccountFilter(null)}
+          onEdit={(tx) => {
+            setEditingTx(tx);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          onShare={(tx) => setShareTxId(tx.id)}
+          onDeleted={invalidate}
+          hasMore={!!txQuery.hasNextPage}
+          loadingMore={txQuery.isFetchingNextPage}
+          onLoadMore={() => txQuery.fetchNextPage()}
         />
-      )}
-
-      <TransactionFeed
-        canEdit={canEdit}
-        bookId={bookId}
-        meId={meId}
-        transactions={transactions}
-        accountById={accountById}
-        filterLabel={accountFilter ? accountById.get(accountFilter)?.name ?? null : null}
-        onClearFilter={() => setAccountFilter(null)}
-        onEdit={(tx) => {
-          setEditingTx(tx);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }}
-        onShare={(tx) => setShareTxId(tx.id)}
-        onDeleted={invalidate}
-        hasMore={!!txQuery.hasNextPage}
-        loadingMore={txQuery.isFetchingNextPage}
-        onLoadMore={() => txQuery.fetchNextPage()}
-      />
+      </BentoGrid>
 
       {shareTxId && (
         <ShareCardModal
@@ -125,6 +128,6 @@ export default function FinanceFeedPage() {
           onClose={() => setShareTxId(null)}
         />
       )}
-    </div>
+    </>
   );
 }

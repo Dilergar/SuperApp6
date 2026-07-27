@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/ui';
 import { useEffect, useRef, useState } from 'react';
 import { VOICE_LIMITS } from '@superapp/shared';
 import { apiErrorMessage } from '@/lib/api';
@@ -66,7 +67,7 @@ export function VoiceRecordButton({ onSent }: { onSent: (fileId: string) => void
           color: 'var(--on-surface-variant)',
         }}
       >
-        <span>🎤 Отправка… {progress}%</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}><Icon name="mic" size={14} /> Отправка… {progress}%</span>
       </div>
     );
   }
@@ -110,9 +111,7 @@ export function VoiceRecordButton({ onSent }: { onSent: (fileId: string) => void
             color: 'var(--on-surface-variant)',
             padding: '0 0.25rem',
           }}
-        >
-          ✕
-        </button>
+        ><Icon name="close" size={15} /></button>
         <button
           onClick={() => void finishAndSend()}
           title="Отправить голосовое"
@@ -130,9 +129,7 @@ export function VoiceRecordButton({ onSent }: { onSent: (fileId: string) => void
             alignItems: 'center',
             justifyContent: 'center',
           }}
-        >
-          ➤
-        </button>
+        ><Icon name="send" size={15} /></button>
         <style>{`@keyframes sa6VoicePulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.8); } }`}</style>
       </div>
     );
@@ -158,8 +155,6 @@ export function VoiceRecordButton({ onSent }: { onSent: (fileId: string) => void
         justifyContent: 'center',
         opacity: state === 'denied' ? 0.5 : 1,
       }}
-    >
-      🎤
-    </button>
+    ><Icon name="mic" size={15} /></button>
   );
 }

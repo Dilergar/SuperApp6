@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
@@ -20,6 +19,10 @@ import { EntitySelector } from '@/components/EntitySelector';
 import type { EntityOption, Principal } from '@/lib/entities';
 import { PersonAvatar } from '@/app/messenger/messenger-ui';
 import { PersonChip } from '@/app/circles/PersonCard';
+import {
+  Alert, AvatarStack, BentoGrid, Button, Card, CardHeader, Chip, ConfirmDialog, Divider,
+  EmptyState, LoadingBlock, Modal, PageHeader,
+} from '@/components/ui';
 import {
   OFFICE_LIMITS,
   WORKSPACE_ROLE_RANK,
@@ -41,6 +44,7 @@ export default function OfficePage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [inviteFor, setInviteFor] = useState<OfficeRoomDto | null>(null);
+  const [endFor, setEndFor] = useState<OfficeRoomDto | null>(null);
   const [error, setError] = useState('');
 
   const wsQ = useQuery({
@@ -91,182 +95,219 @@ export default function OfficePage() {
 
   const endMut = useMutation({
     mutationFn: (roomId: string) => api.post(`/workspaces/${wsId}/office/rooms/${roomId}/end`, {}),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: officeRoomsKey(wsId) }),
-    onError: (e) => setError(apiErrorMessage(e)),
+    onSuccess: () => {
+      setEndFor(null);
+      void queryClient.invalidateQueries({ queryKey: officeRoomsKey(wsId) });
+    },
+    onError: (e) => { setEndFor(null); setError(apiErrorMessage(e)); },
   });
 
-  if (!isReady || wsQ.isLoading) return <p className="label-md">Загрузка…</p>;
+  if (!isReady || wsQ.isLoading) return <LoadingBlock />;
+
   if (!myRole || isContractor) {
-    return <p className="label-md">Нет доступа к Виртуальному офису этой организации.</p>;
+    return (
+      <>
+        <PageHeader breadcrumb={wsQ.data?.name ?? 'Организация'} title="Виртуальный офис" />
+        <BentoGrid>
+          <Card span={12}>
+            <EmptyState
+              icon="lock"
+              title="Нет доступа к Виртуальному офису"
+              description="Встречи организации открыты её команде."
+            />
+          </Card>
+        </BentoGrid>
+      </>
+    );
   }
 
   const canManage = (room: OfficeRoomDto) =>
     room.myRole === 'host' || myRank >= WORKSPACE_ROLE_RANK.manager;
 
+  const meetingWhen = (iso: string) =>
+    new Date(iso).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
   return (
-    <div>
-      {/* Шапка сервиса */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-4)', marginBottom: 'var(--spacing-8)', flexWrap: 'wrap' }}>
-        <div>
-          <h1 className="display-md" style={{ fontSize: '1.9rem' }}>🎥 Виртуальный офис</h1>
-          <p className="label-md">Видеовстречи и собрания — устойчивы даже на слабом интернете</p>
-        </div>
-        <button
-          className="btn-primary"
-          disabled={createMut.isPending || !callsEnabled}
-          onClick={() => createMut.mutate()}
-          style={{ padding: '0.65rem 1.6rem', fontSize: '0.95rem' }}
-        >
-          {createMut.isPending ? 'Создание…' : '+ Новая встреча'}
-        </button>
-      </div>
+    <>
+      <PageHeader
+        breadcrumb={wsQ.data?.name ?? 'Организация'}
+        title="Виртуальный офис"
+        description="Видеовстречи и собрания — устойчивы даже на слабом интернете"
+        actions={
+          <Button
+            variant="primary"
+            tone="success"
+            icon="video"
+            loading={createMut.isPending}
+            disabled={!callsEnabled}
+            onClick={() => createMut.mutate()}
+          >
+            Новая встреча
+          </Button>
+        }
+      />
 
       {!callsEnabled && (
-        <div className="wash-primary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-5)', fontSize: '0.875rem', color: 'var(--primary)' }}>
-          Звонки не подключены: поднимите LiveKit (docker compose --profile calls up -d) и задайте LIVEKIT_* в apps/api/.env
+        <div style={{ marginBottom: 'var(--gap-grid)' }}>
+          <Alert tone="warning" title="Звонки не подключены">
+            Поднимите LiveKit (docker compose --profile calls up -d) и задайте LIVEKIT_* в apps/api/.env
+          </Alert>
         </div>
       )}
       {error && (
-        <div className="wash-primary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-5)', fontSize: '0.875rem', color: 'var(--primary)' }}>
-          {error}
+        <div style={{ marginBottom: 'var(--gap-grid)' }}>
+          <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>
         </div>
       )}
 
-      {/* Идут сейчас */}
-      {liveRooms.length > 0 && (
-        <>
-          <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-4)' }}>Идут сейчас</h2>
-          <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-5)', marginBottom: 'var(--spacing-10)' }}>
-            {liveRooms.map((room, i) => (
-              <div key={room.id} className="card-elevated" style={{ transform: `rotate(${i % 2 === 0 ? '-0.4' : '0.4'}deg)` }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-3)' }}>
-                  <div className="title-md" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{room.name}</div>
-                  <span style={{ flexShrink: 0, fontSize: '0.72rem', fontWeight: 700, color: 'var(--primary)', background: 'var(--primary-container)', padding: '0.15rem 0.6rem', borderRadius: '0.6rem 0.4rem 0.55rem 0.45rem' }}>
-                    ● в эфире
-                  </span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', marginBottom: 'var(--spacing-4)' }}>
-                  <div style={{ display: 'flex' }}>
-                    {(room.live?.participants ?? []).slice(0, 5).map((p, idx) => (
-                      <div key={p.id} style={{ marginLeft: idx === 0 ? 0 : -10 }}>
-                        <PersonAvatar userId={p.id} name={`${p.firstName} ${p.lastName ?? ''}`.trim()} avatar={p.avatar} size="sm" />
-                      </div>
-                    ))}
-                  </div>
-                  <span className="label-md" style={{ fontSize: '0.85rem' }}>
-                    {room.live?.participantCount ?? 0} в звонке
-                  </span>
-                </div>
-                <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
-                  <Link href={`/workspaces/${wsId}/office/${room.id}`} className="btn-primary" style={{ padding: '0.45rem 1.3rem', fontSize: '0.85rem', textDecoration: 'none' }}>
-                    Присоединиться
-                  </Link>
-                  <button className="btn-secondary" style={{ padding: '0.45rem 1rem', fontSize: '0.85rem' }} onClick={() => setInviteFor(room)}>
-                    Пригласить
-                  </button>
-                  {canManage(room) && (
-                    <button
-                      onClick={() => { if (confirm('Завершить встречу для всех?')) endMut.mutate(room.id); }}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--primary)', fontSize: '0.8rem', fontWeight: 600 }}
-                    >
-                      Завершить
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-
-      {/* Активные встречи (ссылки живут) */}
-      <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-4)' }}>Встречи</h2>
-      {roomsQ.isLoading && <p className="label-md">Загрузка…</p>}
-      {!roomsQ.isLoading && idleRooms.length === 0 && liveRooms.length === 0 && (
-        <div className="card" style={{ padding: 'var(--spacing-8)', textAlign: 'center' }}>
-          <div style={{ fontSize: '2.2rem', marginBottom: 'var(--spacing-3)' }}>🎥</div>
-          <p className="title-md" style={{ marginBottom: 'var(--spacing-2)' }}>Пока нет встреч</p>
-          <p className="label-md">Создайте первую — ссылка сразу заработает для всех сотрудников</p>
-        </div>
-      )}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
-        {idleRooms.map((room) => (
-          <div key={room.id} className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
-            <div style={{ minWidth: 0 }}>
-              <div className="title-md" style={{ marginBottom: '0.2rem' }}>{room.name}</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
-                {room.createdBy && (
-                  <PersonChip size="S" userId={room.createdBy.id} firstName={room.createdBy.firstName} avatar={room.createdBy.avatar} />
-                )}
-                <span className="label-sm" style={{ opacity: 0.7 }}>
-                  {new Date(room.createdAt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                </span>
-              </div>
+      <BentoGrid>
+        {/* ---------- Идут сейчас ---------- */}
+        {liveRooms.map((room) => (
+          <Card key={room.id} span={6}>
+            <CardHeader
+              title={room.name}
+              actions={<Chip tone="success" icon="record">в эфире</Chip>}
+            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', marginBottom: 'var(--spacing-4)' }}>
+              <AvatarStack
+                size={32}
+                overflow={(room.live?.participantCount ?? 0) > 5 ? (room.live?.participantCount ?? 0) - 5 : undefined}
+              >
+                {(room.live?.participants ?? []).slice(0, 5).map((p) => (
+                  <PersonAvatar
+                    key={p.id}
+                    userId={p.id}
+                    name={`${p.firstName} ${p.lastName ?? ''}`.trim()}
+                    avatar={p.avatar}
+                    size="sm"
+                  />
+                ))}
+              </AvatarStack>
+              <span className="label-sm">{room.live?.participantCount ?? 0} в звонке</span>
             </div>
-            <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center', flexShrink: 0, flexWrap: 'wrap' }}>
-              <Link href={`/workspaces/${wsId}/office/${room.id}`} className="btn-secondary" style={{ padding: '0.4rem 1.1rem', fontSize: '0.82rem', textDecoration: 'none' }}>
-                Открыть
-              </Link>
-              <button className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.82rem' }} onClick={() => setInviteFor(room)}>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <Button variant="primary" size="sm" icon="video" href={`/workspaces/${wsId}/office/${room.id}`}>
+                Присоединиться
+              </Button>
+              <Button variant="matte" tone="accent" size="sm" icon="userAdd" onClick={() => setInviteFor(room)}>
                 Пригласить
-              </button>
+              </Button>
               {canManage(room) && (
-                <button
-                  onClick={() => { if (confirm('Завершить встречу? Ссылка перестанет работать.')) endMut.mutate(room.id); }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--primary)', fontSize: '0.78rem', fontWeight: 600 }}
-                >
+                <Button variant="ghost" size="sm" tone="danger" icon="callEnd" onClick={() => setEndFor(room)}>
                   Завершить
-                </button>
+                </Button>
               )}
             </div>
-          </div>
+          </Card>
         ))}
-      </div>
 
-      {/* История: завершённые встречи — вход в чат встречи (дом будущих транскрипций/протоколов) */}
-      {history.length > 0 && (
-        <>
-          <h2 className="title-lg" style={{ margin: 'var(--spacing-10) 0 var(--spacing-4)' }}>История</h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
-            {history.map((room) => (
-              <div
-                key={room.id}
-                className="card"
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-3)', flexWrap: 'wrap', opacity: 0.92 }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <div className="title-md" style={{ fontSize: '0.95rem', marginBottom: '0.15rem' }}>{room.name}</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
-                    {room.createdBy && (
-                      <PersonChip size="S" userId={room.createdBy.id} firstName={room.createdBy.firstName} avatar={room.createdBy.avatar} />
+        {/* ---------- Встречи (ссылки живут) ---------- */}
+        <Card span={12}>
+          <CardHeader
+            title="Встречи"
+            subtitle="Ссылка работает для всех сотрудников, пока встречу не завершили"
+          />
+          {roomsQ.isLoading ? (
+            <LoadingBlock />
+          ) : idleRooms.length === 0 && liveRooms.length === 0 ? (
+            <EmptyState
+              icon="video"
+              title="Пока нет встреч"
+              description="Создайте первую — ссылка сразу заработает для всех сотрудников."
+              action={
+                <Button variant="primary" tone="success" icon="video" disabled={!callsEnabled} onClick={() => createMut.mutate()}>
+                  Новая встреча
+                </Button>
+              }
+            />
+          ) : (
+            <div style={{ display: 'grid', gap: '0.375rem' }}>
+              {idleRooms.map((room) => (
+                <div
+                  key={room.id}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-3)',
+                    flexWrap: 'wrap', padding: '0.625rem 0.75rem', border: '1px solid var(--divider)',
+                    borderRadius: 'var(--radius-md)',
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div className="title-sm">{room.name}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
+                      {room.createdBy && (
+                        <PersonChip size="S" userId={room.createdBy.id} firstName={room.createdBy.firstName} avatar={room.createdBy.avatar} />
+                      )}
+                      <span className="label-sm">{meetingWhen(room.createdAt)}</span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flex: 'none', flexWrap: 'wrap' }}>
+                    <Button variant="outline" size="sm" icon="external" href={`/workspaces/${wsId}/office/${room.id}`}>
+                      Открыть
+                    </Button>
+                    <Button variant="matte" tone="accent" size="sm" icon="userAdd" onClick={() => setInviteFor(room)}>
+                      Пригласить
+                    </Button>
+                    {canManage(room) && (
+                      <Button variant="ghost" size="sm" tone="danger" icon="close" onClick={() => setEndFor(room)}>
+                        Завершить
+                      </Button>
                     )}
-                    <span className="label-sm" style={{ opacity: 0.7 }}>
-                      Завершена{room.endedAt ? ` ${new Date(room.endedAt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}
-                    </span>
                   </div>
                 </div>
-                <Link
-                  href={`/workspaces/${wsId}/office/${room.id}`}
-                  className="btn-secondary"
-                  style={{ padding: '0.35rem 1rem', fontSize: '0.8rem', textDecoration: 'none', flexShrink: 0 }}
-                >
-                  Чат и история
-                </Link>
-              </div>
-            ))}
-          </div>
-          {historyQ.hasNextPage && (
-            <button
-              className="btn-secondary"
-              style={{ marginTop: 'var(--spacing-3)', padding: '0.4rem 1.2rem', fontSize: '0.82rem' }}
-              disabled={historyQ.isFetchingNextPage}
-              onClick={() => void historyQ.fetchNextPage()}
-            >
-              {historyQ.isFetchingNextPage ? 'Загрузка…' : 'Показать ещё'}
-            </button>
+              ))}
+            </div>
           )}
-        </>
-      )}
+        </Card>
+
+        {/* ---------- История: завершённые встречи (дом протоколов) ---------- */}
+        {history.length > 0 && (
+          <Card span={12}>
+            <CardHeader title="История" subtitle="Чат завершённой встречи остаётся — там же будут протоколы" />
+            <div className="density-compact" style={{ display: 'grid', gap: '0.375rem' }}>
+              {history.map((room) => (
+                <div
+                  key={room.id}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-3)',
+                    flexWrap: 'wrap', padding: '0.5rem 0.75rem', border: '1px solid var(--divider)',
+                    borderRadius: 'var(--radius-md)',
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div className="title-sm">{room.name}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.125rem' }}>
+                      {room.createdBy && (
+                        <PersonChip size="S" userId={room.createdBy.id} firstName={room.createdBy.firstName} avatar={room.createdBy.avatar} />
+                      )}
+                      <span className="label-sm">
+                        Завершена{room.endedAt ? ` ${meetingWhen(room.endedAt)}` : ''}
+                      </span>
+                    </div>
+                  </div>
+                  <Button variant="outline" size="sm" icon="messenger" href={`/workspaces/${wsId}/office/${room.id}`}>
+                    Чат и история
+                  </Button>
+                </div>
+              ))}
+            </div>
+            {historyQ.hasNextPage && (
+              <>
+                <Divider />
+                <div style={{ textAlign: 'center' }}>
+                  <Button
+                    variant="matte"
+                    size="sm"
+                    loading={historyQ.isFetchingNextPage}
+                    onClick={() => void historyQ.fetchNextPage()}
+                  >
+                    Показать ещё
+                  </Button>
+                </div>
+              </>
+            )}
+          </Card>
+        )}
+      </BentoGrid>
 
       {inviteFor && (
         <InviteModal
@@ -276,7 +317,22 @@ export default function OfficePage() {
           onClose={() => setInviteFor(null)}
         />
       )}
-    </div>
+
+      <ConfirmDialog
+        open={!!endFor}
+        onClose={() => setEndFor(null)}
+        onConfirm={() => { if (endFor) endMut.mutate(endFor.id); }}
+        title={endFor ? `Завершить «${endFor.name}»?` : 'Завершить встречу?'}
+        message={
+          endFor?.live
+            ? 'Звонок закончится для всех участников, ссылка перестанет работать. Чат встречи останется.'
+            : 'Ссылка перестанет работать. Чат встречи останется.'
+        }
+        confirmLabel="Завершить"
+        danger
+        loading={endMut.isPending}
+      />
+    </>
   );
 }
 
@@ -326,34 +382,37 @@ function InviteModal({
   });
 
   return (
-    <div
-      onClick={onClose}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(56,57,45,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 'var(--spacing-4)' }}
+    <Modal
+      open
+      onClose={onClose}
+      title="Пригласить на встречу"
+      subtitle={`«${room.name}» — коллеги получат уведомление со ссылкой`}
+      size="sm"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>Отмена</Button>
+          <Button
+            variant="primary"
+            tone="success"
+            icon="send"
+            disabled={selected.length === 0}
+            loading={inviteMut.isPending}
+            onClick={() => inviteMut.mutate()}
+          >
+            Пригласить
+          </Button>
+        </>
+      }
     >
-      <div className="card-elevated" style={{ width: '26rem', maxWidth: '100%', background: 'var(--surface)' }} onClick={(e) => e.stopPropagation()}>
-        <div className="title-lg" style={{ fontSize: '1.05rem', marginBottom: 'var(--spacing-1)' }}>Пригласить на встречу</div>
-        <p className="label-md" style={{ marginBottom: 'var(--spacing-4)' }}>«{room.name}» — коллеги получат уведомление со ссылкой</p>
+      <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
+        {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
         <EntitySelector
           value={selected}
           onChange={setSelected}
           options={memberOptions}
           placeholder="Выберите сотрудников…"
         />
-        {error && <p style={{ color: 'var(--primary)', fontSize: '0.8rem', marginTop: 'var(--spacing-2)' }}>{error}</p>}
-        <div style={{ display: 'flex', gap: 'var(--spacing-2)', marginTop: 'var(--spacing-5)' }}>
-          <button
-            className="btn-primary"
-            disabled={selected.length === 0 || inviteMut.isPending}
-            onClick={() => inviteMut.mutate()}
-            style={{ padding: '0.5rem 1.4rem', fontSize: '0.85rem' }}
-          >
-            {inviteMut.isPending ? 'Отправка…' : 'Пригласить'}
-          </button>
-          <button className="btn-secondary" style={{ padding: '0.5rem 1.1rem', fontSize: '0.85rem' }} onClick={onClose}>
-            Отмена
-          </button>
-        </div>
       </div>
-    </div>
+    </Modal>
   );
 }

@@ -1,5 +1,7 @@
 'use client';
 
+import { ModalShell } from '@/components/ui';
+import { Icon } from '@/components/ui';
 import { useEffect, useRef, useState } from 'react';
 import { MESSENGER_LIMITS } from '@superapp/shared';
 import type { FileDto } from '@superapp/shared';
@@ -69,20 +71,7 @@ export function FileAttachmentModal({
   };
 
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(56,57,45,0.35)',
-        backdropFilter: 'blur(4px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 100,
-        padding: '1rem',
-      }}
-    >
+    <ModalShell onClose={onClose} zIndex={100}>
       <div
         onClick={(e) => e.stopPropagation()}
         className="card-elevated"
@@ -105,9 +94,7 @@ export function FileAttachmentModal({
             onClick={onClose}
             style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '1rem' }}
             aria-label="Закрыть"
-          >
-            ✕
-          </button>
+          ><Icon name="close" size={15} /></button>
         </div>
 
         <FileDropzone
@@ -142,7 +129,7 @@ export function FileAttachmentModal({
           type="text"
           value={caption}
           onChange={(e) => setCaption(e.target.value)}
-          className="input-sketch"
+          className="ui-input"
           placeholder="Подпись (необязательно)"
           maxLength={MESSENGER_LIMITS.maxMessageLength}
           onKeyDown={(e) => {
@@ -154,7 +141,7 @@ export function FileAttachmentModal({
 
         <button
           type="button"
-          className="btn-primary"
+          className="btn-success"
           onClick={submit}
           disabled={!ready.length || uploader.busy}
           style={{ opacity: !ready.length || uploader.busy ? 0.6 : 1 }}
@@ -162,6 +149,6 @@ export function FileAttachmentModal({
           {uploader.busy ? 'Загрузка…' : `Отправить${ready.length ? ` (${ready.length})` : ''}`}
         </button>
       </div>
-    </div>
+    </ModalShell>
   );
 }

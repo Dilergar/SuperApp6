@@ -30,6 +30,7 @@ import {
   type SocketMessageUpdated,
   type SocketReceipt,
 } from '@/lib/hooks/useMessengerSocket';
+import { Button, Card, EmptyState, LoadingBlock, type IconName } from '@/components/ui';
 import type { CallTokenDto, ChatMessage } from '@superapp/shared';
 
 // Ключ сообщений — общий messengerMessagesKey из lib/queries.ts (кэш чата встречи
@@ -328,14 +329,18 @@ export default function MeetingRoom() {
   // Рендер
   // ============================================================
 
-  if (!isReady || roomQ.isLoading) return <p className="label-md">Загрузка…</p>;
+  if (!isReady || roomQ.isLoading) return <LoadingBlock />;
 
   if (!room) {
     return (
-      <div style={{ textAlign: 'center', paddingTop: 'var(--spacing-12)' }}>
-        <p className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>Встреча не найдена или нет доступа</p>
-        <Link href={`/workspaces/${wsId}/office`} className="btn-secondary" style={{ padding: '0.5rem 1.2rem', textDecoration: 'none' }}>← К встречам</Link>
-      </div>
+      <Card>
+        <EmptyState
+          icon="blocked"
+          title="Встреча не найдена или нет доступа"
+          description="Возможно, встречу завершили или вас не приглашали."
+          action={<Button variant="matte" icon="arrowLeft" href={`/workspaces/${wsId}/office`}>К встречам</Button>}
+        />
+      </Card>
     );
   }
 
@@ -390,7 +395,7 @@ export default function MeetingRoom() {
   if (phase === 'left' || phase === 'callEnded' || phase === 'kicked') {
     return (
       <FinalScreen
-        icon={phase === 'kicked' ? '🚪' : phase === 'callEnded' ? '🏁' : '👋'}
+        icon={phase === 'kicked' ? 'signOut' : phase === 'callEnded' ? 'checkCircle' : 'call'}
         title={
           phase === 'kicked'
             ? 'Вас исключили из звонка'
@@ -462,8 +467,9 @@ export default function MeetingRoom() {
             flexShrink: 0,
             display: 'flex',
             flexDirection: 'column',
-            borderRadius: 'var(--radius-sketch)',
-            background: 'var(--surface-container-low)',
+            borderRadius: 'var(--radius-lg)',
+            background: 'var(--block)',
+            border: '1px solid var(--border)',
             padding: 'var(--spacing-3)',
             minHeight: 0,
           }}
@@ -507,7 +513,7 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
         fontWeight: 600,
         border: 'none',
         cursor: 'pointer',
-        borderRadius: '0.7rem 0.5rem 0.65rem 0.55rem',
+        borderRadius: 'var(--radius-sm)',
         background: active ? 'var(--secondary-container)' : 'var(--surface-container)',
         color: active ? 'var(--secondary)' : 'inherit',
       }}
@@ -524,27 +530,27 @@ function FinalScreen({
   wsId,
   onRejoin,
 }: {
-  icon: string;
+  icon: IconName;
   title: string;
   note?: string;
   wsId: string;
   onRejoin?: () => void;
 }) {
   return (
-    <div style={{ textAlign: 'center', paddingTop: 'var(--spacing-12)' }}>
-      <div style={{ fontSize: '2.6rem', marginBottom: 'var(--spacing-3)' }}>{icon}</div>
-      <p className="title-lg" style={{ marginBottom: 'var(--spacing-2)' }}>{title}</p>
-      {note && <p className="label-md" style={{ marginBottom: 'var(--spacing-2)' }}>{note}</p>}
-      <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'center', marginTop: 'var(--spacing-5)' }}>
-        {onRejoin && (
-          <button className="btn-primary" style={{ padding: '0.55rem 1.5rem' }} onClick={onRejoin}>
-            Присоединиться снова
-          </button>
-        )}
-        <Link href={`/workspaces/${wsId}/office`} className="btn-secondary" style={{ padding: '0.55rem 1.3rem', textDecoration: 'none' }}>
-          ← К встречам
-        </Link>
-      </div>
-    </div>
+    <Card>
+      <EmptyState
+        icon={icon}
+        title={title}
+        description={note}
+        action={
+          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+            {onRejoin && (
+              <Button variant="primary" icon="video" onClick={onRejoin}>Присоединиться снова</Button>
+            )}
+            <Button variant="ghost" icon="arrowLeft" href={`/workspaces/${wsId}/office`}>К встречам</Button>
+          </div>
+        }
+      />
+    </Card>
   );
 }

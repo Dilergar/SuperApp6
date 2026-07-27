@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/ui';
 // ============================================================
 // ChronicleFeed — переиспользуемая лента хроники (core/chatter).
 // Первый потребитель — «Журнал организации»; позже — секции «История»
@@ -239,7 +240,7 @@ function DiffChips({ from, to }: { from: string | null; to: string | null }) {
       >
         {from ?? '—'}
       </span>
-      <span aria-hidden style={{ fontSize: '0.8rem' }}>→</span>
+      <span aria-hidden style={{ fontSize: '0.8rem' }}><Icon name="arrowRight" size={15} /></span>
       <span
         className="label-sm"
         style={{

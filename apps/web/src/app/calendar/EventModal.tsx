@@ -1,10 +1,14 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { api } from '@/lib/api';
+import { api, apiErrorMessage } from '@/lib/api';
 import { EntitySelector } from '@/components/EntitySelector';
 import type { Principal } from '@/lib/entities';
 import { PersonChip } from '../circles/PersonCard';
+import {
+  Alert, Button, Card, Chip, Field, Icon, IconButton, Input, LoadingBlock, Modal,
+  SegmentedControl, Select, Textarea, type Tone,
+} from '@/components/ui';
 import {
   CALENDAR_RECURRENCE_PRESETS,
   CALENDAR_REMINDER_PRESETS,
@@ -18,6 +22,7 @@ import {
   type CalendarEventDetail,
   type CalendarEventVisibility,
   type RecurrenceEditScope,
+  type ResourceBookingStatus,
   type RsvpStatus,
   type Contact,
   type Circle,
@@ -29,6 +34,19 @@ import { ShareCardModal } from '../messenger/ShareCardModal';
 export type ModalTarget =
   | { mode: 'create'; start: Date; allDay: boolean; participantUserIds?: string[] }
   | { mode: 'event'; occurrence: CalendarEventOccurrence };
+
+/** Тон статуса RSVP/брони — цвет берём из системы, а не из хардкода констант. */
+const RSVP_TONE: Record<RsvpStatus, Tone> = {
+  pending: 'neutral',
+  accepted: 'success',
+  declined: 'danger',
+  tentative: 'warning',
+};
+const BOOKING_TONE: Record<ResourceBookingStatus, Tone> = {
+  pending: 'warning',
+  confirmed: 'success',
+  rejected: 'danger',
+};
 
 export function EventModal({
   target,
@@ -108,9 +126,8 @@ export function EventModal({
       setResourceId(d.resourceId);
       setInitialResourceId(d.resourceId);
       setError('');
-    } catch (e: unknown) {
-      const a = e as { response?: { data?: { message?: string } } };
-      setError(a.response?.data?.message || 'Не удалось загрузить событие');
+    } catch (e) {
+      setError(apiErrorMessage(e));
     } finally {
       setLoading(false);
     }
@@ -178,9 +195,8 @@ export function EventModal({
         await api.patch(`/calendar/events/${eventId}`, payload);
       }
       onClose(true);
-    } catch (e: unknown) {
-      const a = e as { response?: { data?: { message?: string } } };
-      setError(a.response?.data?.message || 'Не удалось сохранить');
+    } catch (e) {
+      setError(apiErrorMessage(e));
       setBusyAction(false);
     }
   };
@@ -193,8 +209,8 @@ export function EventModal({
       if (isSeries) { params.editScope = scope; params.occurrenceStart = occ!.occurrenceStart; }
       await api.delete(`/calendar/events/${eventId}`, { params });
       onClose(true);
-    } catch {
-      setError('Не удалось удалить');
+    } catch (e) {
+      setError(apiErrorMessage(e));
       setBusyAction(false);
     }
   };
@@ -206,8 +222,8 @@ export function EventModal({
       await api.post(`/calendar/events/${eventId}/rsvp`, { status });
       setChanged(true);
       await loadDetail();
-    } catch {
-      setError('Не удалось ответить');
+    } catch (e) {
+      setError(apiErrorMessage(e));
     } finally {
       setBusyAction(false);
     }
@@ -219,8 +235,8 @@ export function EventModal({
     try {
       await api.post(`/calendar/events/${eventId}/reminders`, { offsets: reminders });
       setChanged(true);
-    } catch {
-      setError('Не удалось сохранить напоминания');
+    } catch (e) {
+      setError(apiErrorMessage(e));
     } finally {
       setBusyAction(false);
     }
@@ -234,9 +250,8 @@ export function EventModal({
       setChanged(true);
       setShowInvite(false);
       await loadDetail();
-    } catch (e: unknown) {
-      const a = e as { response?: { data?: { message?: string } } };
-      setError(a.response?.data?.message || 'Не удалось пригласить');
+    } catch (e) {
+      setError(apiErrorMessage(e));
     } finally {
       setBusyAction(false);
     }
@@ -249,8 +264,8 @@ export function EventModal({
       await api.delete(`/calendar/events/${eventId}/participants/${uid}`);
       setChanged(true);
       await loadDetail();
-    } catch {
-      setError('Не удалось убрать участника');
+    } catch (e) {
+      setError(apiErrorMessage(e));
     } finally {
       setBusyAction(false);
     }
@@ -263,8 +278,8 @@ export function EventModal({
       await api.post(`/resources/bookings/${eventId}/${action}`);
       setChanged(true);
       await loadDetail();
-    } catch {
-      setError('Не удалось обработать бронь');
+    } catch (e) {
+      setError(apiErrorMessage(e));
     } finally {
       setBusyAction(false);
     }
@@ -273,175 +288,294 @@ export function EventModal({
   const participants = detail?.participants ?? [];
   const bookable = resources.filter((r) => r.canBook || r.id === resourceId);
 
-  return (
-    <div onClick={close} style={overlay}>
-      <div onClick={(e) => e.stopPropagation()} className="card-elevated" style={{ width: '100%', maxWidth: 560, padding: 'var(--spacing-6)', maxHeight: '90vh', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--spacing-4)' }}>
-          <h3 className="title-md">{creating ? 'Новое событие' : canEdit ? 'Событие' : 'Приглашение'}</h3>
-          <button onClick={close} style={iconBtn}>✕</button>
-        </div>
+  const footer = loading ? undefined : canEdit ? (
+    <>
+      {!creating && (
+        <Button variant="ghost" tone="danger" icon="delete" disabled={busyAction} onClick={remove}>Удалить</Button>
+      )}
+      {!creating && eventId && (
+        <Button variant="ghost" icon="share" onClick={() => setShowForward(true)}>В чат</Button>
+      )}
+      <Button variant="ghost" onClick={close}>Отмена</Button>
+      <Button variant="primary" tone="success" icon="save" loading={busyAction} onClick={save}>Сохранить</Button>
+    </>
+  ) : isParticipant ? (
+    <>
+      {eventId && <Button variant="ghost" icon="share" onClick={() => setShowForward(true)}>В чат</Button>}
+      <Button variant="ghost" tone="danger" icon="close" disabled={busyAction} onClick={() => removeParticipant(meId)}>
+        Убрать из календаря
+      </Button>
+      <Button variant="primary" tone="success" icon="save" loading={busyAction} onClick={saveMyReminders}>
+        Сохранить напоминания
+      </Button>
+    </>
+  ) : (
+    <>
+      {eventId && <Button variant="ghost" icon="share" onClick={() => setShowForward(true)}>В чат</Button>}
+      <Button variant="ghost" onClick={close}>Закрыть</Button>
+    </>
+  );
 
-        {error && <div className="wash-primary" style={{ padding: 'var(--spacing-2) var(--spacing-3)', marginBottom: 'var(--spacing-3)', color: 'var(--primary)', fontSize: '0.8rem' }}>{error}</div>}
+  return (
+    <>
+      <Modal
+        open
+        onClose={close}
+        title={creating ? 'Новое событие' : canEdit ? 'Событие' : 'Приглашение'}
+        size="md"
+        footer={footer}
+      >
+        {error && (
+          <div style={{ marginBottom: 'var(--spacing-4)' }}>
+            <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>
+          </div>
+        )}
 
         {loading ? (
-          <p className="label-md" style={{ padding: 'var(--spacing-6)', textAlign: 'center' }}>Загрузка…</p>
+          <LoadingBlock />
         ) : canEdit ? (
-          <>
-            <input autoFocus type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Название события" className="input-sketch" style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: 'var(--spacing-4)' }} />
+          <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+            <Input
+              autoFocus
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Название события"
+              aria-label="Название события"
+              style={{ fontSize: '1.05rem', fontWeight: 600 }}
+            />
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-2)' }}>
-              <label className="label-md">Когда</label>
-              <button type="button" onClick={toggleAllDay} style={linkBtn}>{allDay ? '🕒 со временем' : '📅 весь день'}</button>
-            </div>
-            <div style={{ display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap', marginBottom: 'var(--spacing-4)' }}>
-              <input type={allDay ? 'date' : 'datetime-local'} value={startInput} onChange={(e) => setStartInput(e.target.value)} className="input-sketch" style={{ flex: 1, minWidth: 170 }} />
-              <span style={{ alignSelf: 'center', color: 'var(--on-surface-variant)' }}>→</span>
-              <input type={allDay ? 'date' : 'datetime-local'} value={endInput} onChange={(e) => setEndInput(e.target.value)} className="input-sketch" style={{ flex: 1, minWidth: 170 }} />
-            </div>
+            <Field label="Когда">
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 165 }}>
+                  <Input
+                    type={allDay ? 'date' : 'datetime-local'}
+                    value={startInput}
+                    onChange={(e) => setStartInput(e.target.value)}
+                    aria-label="Начало"
+                  />
+                </div>
+                <Icon name="arrowRight" size={15} style={{ color: 'var(--muted)' }} />
+                <div style={{ flex: 1, minWidth: 165 }}>
+                  <Input
+                    type={allDay ? 'date' : 'datetime-local'}
+                    value={endInput}
+                    onChange={(e) => setEndInput(e.target.value)}
+                    aria-label="Конец"
+                  />
+                </div>
+                <Chip tone="accent" icon="clock" selected={allDay} onClick={toggleAllDay}>
+                  весь день
+                </Chip>
+              </div>
+            </Field>
 
             {!isSeries && (
-              <div style={{ marginBottom: 'var(--spacing-4)' }}>
-                <label className="label-md" style={lblBlock}>Повтор</label>
-                <select className="input-sketch" value={recurrence ?? ''} onChange={(e) => { const v = e.target.value || null; setRecurrence(v); if (v) setResourceId(null); }}>
-                  {CALENDAR_RECURRENCE_PRESETS.map((r) => <option key={r.label} value={r.rule ?? ''}>{r.label}</option>)}
-                </select>
-              </div>
+              <Select
+                label="Повтор"
+                value={recurrence ?? ''}
+                onChange={(v) => { const next = v || null; setRecurrence(next); if (next) setResourceId(null); }}
+                options={CALENDAR_RECURRENCE_PRESETS.map((r) => ({
+                  value: r.rule ?? '',
+                  label: r.label,
+                  icon: r.rule ? 'refresh' : undefined,
+                }))}
+              />
             )}
             {isSeries && (
-              <div className="wash-secondary" style={{ padding: 'var(--spacing-3)', marginBottom: 'var(--spacing-4)' }}>
-                <label className="label-md" style={{ ...lblBlock, color: 'var(--secondary)' }}>Применить к:</label>
-                <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
-                  {([['this', 'Только это'], ['this_and_following', 'Это и следующие'], ['all', 'Вся серия']] as [RecurrenceEditScope, string][]).map(([v, l]) => (
-                    <button key={v} type="button" onClick={() => setScope(v)} style={chip(scope === v)}>{l}</button>
-                  ))}
-                </div>
-              </div>
+              <Field label="Применить к" hint="Правка серии затрагивает и будущие вхождения">
+                <SegmentedControl
+                  aria-label="Область правки серии"
+                  value={scope}
+                  onChange={setScope}
+                  items={[
+                    { key: 'this', label: 'Только это' },
+                    { key: 'this_and_following', label: 'Это и следующие' },
+                    { key: 'all', label: 'Вся серия' },
+                  ]}
+                />
+              </Field>
             )}
 
-            {/* Resource booking — non-recurring events only */}
+            {/* Бронь ресурса — только у разовых событий */}
             {!isSeries && !recurrence && (bookable.length > 0 || resourceId) && (
-              <div style={{ marginBottom: 'var(--spacing-4)' }}>
-                <label className="label-md" style={lblBlock}>Ресурс</label>
-                <select className="input-sketch" value={resourceId ?? ''} onChange={(e) => setResourceId(e.target.value || null)}>
-                  <option value="">— без ресурса —</option>
-                  {bookable.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-                </select>
+              <div>
+                <Select
+                  label="Ресурс"
+                  value={resourceId ?? ''}
+                  onChange={(v) => setResourceId(v || null)}
+                  options={[
+                    { value: '', label: 'Без ресурса' },
+                    ...bookable.map((r) => ({ value: r.id, label: r.name, icon: 'folder' as const })),
+                  ]}
+                />
                 {detail?.resourceStatus && (
-                  <p className="label-sm" style={{ marginTop: 4, color: RESOURCE_BOOKING_STATUS_META[detail.resourceStatus].color, fontWeight: 600 }}>
-                    Бронь: {RESOURCE_BOOKING_STATUS_META[detail.resourceStatus].label}
-                  </p>
-                )}
-                {detail?.isResourceOwner && detail.resourceStatus === 'pending' && (
-                  <div style={{ display: 'flex', gap: 'var(--spacing-2)', marginTop: 'var(--spacing-2)' }}>
-                    <button onClick={() => bookingAction('confirm')} disabled={busyAction} className="btn-primary" style={{ padding: '0.35rem 0.9rem', fontSize: '0.8rem' }}>Подтвердить</button>
-                    <button onClick={() => bookingAction('reject')} disabled={busyAction} style={{ ...chip(false), color: 'var(--primary)' }}>Отклонить</button>
+                  <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <Chip size="sm" tone={BOOKING_TONE[detail.resourceStatus]}>
+                      Бронь: {RESOURCE_BOOKING_STATUS_META[detail.resourceStatus].label}
+                    </Chip>
+                    {detail.isResourceOwner && detail.resourceStatus === 'pending' && (
+                      <>
+                        <Button variant="primary" tone="success" size="sm" icon="check" disabled={busyAction} onClick={() => bookingAction('confirm')}>
+                          Подтвердить
+                        </Button>
+                        <Button variant="matte" tone="danger" size="sm" icon="close" disabled={busyAction} onClick={() => bookingAction('reject')}>
+                          Отклонить
+                        </Button>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
             )}
 
-            {/* Participants */}
-            <label className="label-md" style={lblBlock}>Участники</label>
-            <ParticipantBlocks participants={participants} pendingIds={creating ? pendingUserIds : []} contacts={contacts} canManage onRemove={creating ? undefined : removeParticipant} />
-            <div style={{ marginTop: 'var(--spacing-2)', marginBottom: 'var(--spacing-4)' }}>
-              <button type="button" onClick={() => setShowInvite((v) => !v)} style={chip(showInvite)}>+ Позвать</button>
-              {showInvite && (
-                <InvitePicker
-                  contacts={contacts} circles={circles}
-                  onPick={(userIds, circleId) => {
-                    if (creating) { setPendingUserIds((c) => [...new Set([...c, ...userIds])]); setPendingCircleId(circleId); setShowInvite(false); }
-                    else inviteNow(userIds, circleId);
-                  }}
-                />
-              )}
-            </div>
-
-            <label className="label-md" style={lblBlock}>Мои напоминания</label>
-            <div style={{ display: 'flex', gap: 'var(--spacing-1)', flexWrap: 'wrap', marginBottom: 'var(--spacing-4)' }}>
-              {CALENDAR_REMINDER_PRESETS.map((r) => <button key={r.minutesBefore} type="button" onClick={() => toggleReminder(r.minutesBefore)} style={chip(reminders.includes(r.minutesBefore))}>{r.label}</button>)}
-            </div>
-
-            <label className="label-md" style={lblBlock}>Цвет</label>
-            <div style={{ display: 'flex', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-4)' }}>
-              {CALENDAR_EVENT_COLORS.map((c) => (
-                <button key={c.value} type="button" title={c.name} onClick={() => setColor(c.value)} style={{ width: 26, height: 26, borderRadius: '0.4rem 0.6rem 0.5rem 0.55rem', cursor: 'pointer', background: c.value, border: 'none', boxShadow: color === c.value ? `0 0 0 2px var(--surface-container-lowest), 0 0 0 4px ${c.value}` : 'none' }} />
-              ))}
-            </div>
-
-            <input type="text" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="📍 Место (необязательно)" className="input-sketch" style={{ marginBottom: 'var(--spacing-3)' }} />
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Заметки (необязательно)" rows={2} className="input-sketch" style={{ resize: 'vertical', marginBottom: 'var(--spacing-4)' }} />
-
-            <label className="label-md" style={lblBlock}>Приватность</label>
-            <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', marginBottom: 'var(--spacing-5)' }}>
-              {EVENT_VISIBILITY_OPTIONS.map((v) => <button key={v.value} type="button" onClick={() => setVisibility(v.value)} title={v.hint} style={chip(visibility === v.value)}>{v.label}</button>)}
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--spacing-3)' }}>
-              <div style={{ display: 'flex', gap: 'var(--spacing-3)', alignItems: 'center' }}>
-                {!creating && <button onClick={remove} disabled={busyAction} style={{ ...linkBtn, color: 'var(--primary)', fontWeight: 700 }}>Удалить</button>}
-                {!creating && eventId && <button onClick={() => setShowForward(true)} style={{ ...linkBtn, color: 'var(--secondary)', fontWeight: 700 }}>↗ Переслать в чат</button>}
+            {/* Участники */}
+            <Field label="Участники">
+              <ParticipantBlocks
+                participants={participants}
+                pendingIds={creating ? pendingUserIds : []}
+                contacts={contacts}
+                canManage
+                onRemove={creating ? undefined : removeParticipant}
+              />
+              <div style={{ marginTop: 'var(--spacing-2)' }}>
+                <Button variant="ghost" size="sm" icon="userAdd" onClick={() => setShowInvite((v) => !v)}>
+                  {showInvite ? 'Скрыть' : 'Позвать'}
+                </Button>
+                {showInvite && (
+                  <InvitePicker
+                    contacts={contacts}
+                    circles={circles}
+                    onPick={(userIds, circleId) => {
+                      if (creating) {
+                        setPendingUserIds((c) => [...new Set([...c, ...userIds])]);
+                        setPendingCircleId(circleId);
+                        setShowInvite(false);
+                      } else inviteNow(userIds, circleId);
+                    }}
+                  />
+                )}
               </div>
-              <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
-                <button onClick={close} className="btn-secondary" style={smallBtn}>Отмена</button>
-                <button onClick={save} disabled={busyAction} className="btn-primary" style={{ ...smallBtn, opacity: busyAction ? 0.6 : 1 }}>{busyAction ? '…' : 'Сохранить'}</button>
+            </Field>
+
+            <Field label="Мои напоминания">
+              <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
+                {CALENDAR_REMINDER_PRESETS.map((r) => (
+                  <Chip
+                    key={r.minutesBefore}
+                    size="sm"
+                    tone="accent"
+                    selected={reminders.includes(r.minutesBefore)}
+                    onClick={() => toggleReminder(r.minutesBefore)}
+                  >
+                    {r.label}
+                  </Chip>
+                ))}
               </div>
-            </div>
-          </>
+            </Field>
+
+            <ColorPicker value={color} onChange={setColor} />
+
+            <Input label="Место" icon="location" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Необязательно" />
+            <Textarea
+              label="Заметки"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Необязательно"
+              rows={2}
+              style={{ resize: 'vertical' }}
+            />
+
+            <Field label="Приватность">
+              <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
+                {EVENT_VISIBILITY_OPTIONS.map((v) => (
+                  <Chip
+                    key={v.value}
+                    size="sm"
+                    tone="accent"
+                    selected={visibility === v.value}
+                    onClick={() => setVisibility(v.value)}
+                    title={v.hint}
+                  >
+                    {v.label}
+                  </Chip>
+                ))}
+              </div>
+            </Field>
+          </div>
         ) : (
-          /* Respond / view mode (not organizer) */
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-2)' }}>
-              <span style={{ width: 12, height: 12, borderRadius: '50%', background: detail?.color ?? DEFAULT_EVENT_COLOR }} />
-              <h2 className="title-md" style={{ fontFamily: 'var(--font-display)' }}>{detail?.title}</h2>
+          /* Режим ответа/просмотра (не организатор) */
+          <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span aria-hidden style={{ width: 12, height: 12, borderRadius: '50%', background: detail?.color ?? DEFAULT_EVENT_COLOR }} />
+              <span className="title-md">{detail?.title}</span>
             </div>
-            <p className="label-md" style={{ marginBottom: 'var(--spacing-1)' }}>{whenLabel(detail)}</p>
+            <div className="body-md">{whenLabel(detail)}</div>
+
             {occ && occ.ownerName && (
-              <div className="label-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap', marginBottom: 'var(--spacing-1)' }}>
-                Организатор: <PersonChip size="S" userId={occ.ownerId} firstName={occ.ownerName} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', flexWrap: 'wrap' }}>
+                <span className="label-caps">Организатор</span>
+                <PersonChip size="S" userId={occ.ownerId} firstName={occ.ownerName} />
               </div>
             )}
-            {detail?.location && <p className="label-sm" style={{ marginTop: 'var(--spacing-1)' }}>📍 {detail.location}</p>}
-            {occ?.resourceName && <p className="label-sm" style={{ marginTop: 'var(--spacing-1)' }}>📦 {occ.resourceName}{occ.resourceStatus ? ` · ${RESOURCE_BOOKING_STATUS_META[occ.resourceStatus].label}` : ''}</p>}
-            {detail?.description && <p className="label-md" style={{ marginTop: 'var(--spacing-2)' }}>{detail.description}</p>}
+            {detail?.location && (
+              <div className="body-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                <Icon name="location" size={15} style={{ color: 'var(--muted)' }} />
+                {detail.location}
+              </div>
+            )}
+            {occ?.resourceName && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', flexWrap: 'wrap' }}>
+                <Chip size="sm" tone="neutral" icon="folder">{occ.resourceName}</Chip>
+                {occ.resourceStatus && (
+                  <Chip size="sm" tone={BOOKING_TONE[occ.resourceStatus]}>
+                    {RESOURCE_BOOKING_STATUS_META[occ.resourceStatus].label}
+                  </Chip>
+                )}
+              </div>
+            )}
+            {detail?.description && <p className="body-md" style={{ margin: 0 }}>{detail.description}</p>}
 
-            <div style={{ margin: 'var(--spacing-4) 0' }}>
-              <ParticipantBlocks participants={participants} pendingIds={[]} contacts={contacts} canManage={false} />
-            </div>
+            <ParticipantBlocks participants={participants} pendingIds={[]} contacts={contacts} canManage={false} />
 
             {isParticipant && (
               <>
-                <label className="label-md" style={lblBlock}>Ваш ответ</label>
-                <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', marginBottom: 'var(--spacing-4)' }}>
-                  {(['accepted', 'tentative', 'declined'] as RsvpStatus[]).map((s) => (
-                    <button key={s} onClick={() => doRsvp(s)} disabled={busyAction}
-                      style={{ ...chip(myRsvp === s), background: myRsvp === s ? RSVP_META[s].color : 'var(--surface-container)', color: myRsvp === s ? '#fff' : 'var(--on-surface-variant)', padding: '0.4rem 0.9rem' }}>
-                      {RSVP_META[s].icon} {RSVP_META[s].label}
-                    </button>
-                  ))}
-                </div>
-
-                <label className="label-md" style={lblBlock}>Мои напоминания</label>
-                <div style={{ display: 'flex', gap: 'var(--spacing-1)', flexWrap: 'wrap', marginBottom: 'var(--spacing-3)' }}>
-                  {CALENDAR_REMINDER_PRESETS.map((r) => <button key={r.minutesBefore} type="button" onClick={() => toggleReminder(r.minutesBefore)} style={chip(reminders.includes(r.minutesBefore))}>{r.label}</button>)}
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--spacing-3)' }}>
-                  {eventId ? <button onClick={() => setShowForward(true)} style={{ ...linkBtn, color: 'var(--secondary)', fontWeight: 700 }}>↗ Переслать в чат</button> : <span />}
-                  <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
-                    <button onClick={() => removeParticipant(meId)} disabled={busyAction} style={{ ...linkBtn, color: 'var(--primary)' }}>Убрать из календаря</button>
-                    <button onClick={saveMyReminders} disabled={busyAction} className="btn-secondary" style={smallBtn}>Сохранить напоминания</button>
+                <Field label="Ваш ответ">
+                  <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
+                    {(['accepted', 'tentative', 'declined'] as RsvpStatus[]).map((s) => (
+                      <Button
+                        key={s}
+                        variant={myRsvp === s ? 'primary' : 'matte'}
+                        tone={RSVP_TONE[s]}
+                        size="sm"
+                        disabled={busyAction}
+                        onClick={() => doRsvp(s)}
+                      >
+                        {RSVP_META[s].label}
+                      </Button>
+                    ))}
                   </div>
-                </div>
+                </Field>
+
+                <Field label="Мои напоминания">
+                  <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
+                    {CALENDAR_REMINDER_PRESETS.map((r) => (
+                      <Chip
+                        key={r.minutesBefore}
+                        size="sm"
+                        tone="accent"
+                        selected={reminders.includes(r.minutesBefore)}
+                        onClick={() => toggleReminder(r.minutesBefore)}
+                      >
+                        {r.label}
+                      </Chip>
+                    ))}
+                  </div>
+                </Field>
               </>
             )}
-            {!isParticipant && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                {eventId ? <button onClick={() => setShowForward(true)} style={{ ...linkBtn, color: 'var(--secondary)', fontWeight: 700 }}>↗ Переслать в чат</button> : <span />}
-                <button onClick={close} className="btn-secondary" style={smallBtn}>Закрыть</button>
-              </div>
-            )}
-          </>
+          </div>
         )}
-      </div>
+      </Modal>
 
       {showForward && eventId && (
         <ShareCardModal
@@ -451,7 +585,36 @@ export function EventModal({
           onClose={() => setShowForward(false)}
         />
       )}
-    </div>
+    </>
+  );
+}
+
+/** Цвет события — палитра из shared; свой примитив, потому что в ките нет выбора цвета. */
+function ColorPicker({ value, onChange }: { value: string; onChange: (c: string) => void }) {
+  return (
+    <Field label="Цвет">
+      <div role="radiogroup" aria-label="Цвет события" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        {CALENDAR_EVENT_COLORS.map((c) => {
+          const active = value === c.value;
+          return (
+            <button
+              key={c.value}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              aria-label={c.name}
+              title={c.name}
+              onClick={() => onChange(c.value)}
+              style={{
+                width: 26, height: 26, borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+                background: c.value, border: 'none',
+                boxShadow: active ? `0 0 0 2px var(--block), 0 0 0 4px ${c.value}` : 'none',
+              }}
+            />
+          );
+        })}
+      </div>
+    </Field>
   );
 }
 
@@ -471,21 +634,23 @@ function ParticipantBlocks({
     return { userId: id, firstName: c?.them.firstName ?? '?', lastName: c?.them.lastName ?? null, rsvp: 'pending' as RsvpStatus };
   });
   const all = [...participants, ...pendingPeople];
-  if (all.length === 0) return <p className="label-sm">Пока никого</p>;
+  if (all.length === 0) return <p className="label-sm" style={{ margin: 0 }}>Пока никого</p>;
 
   const groups: RsvpStatus[] = ['accepted', 'tentative', 'pending', 'declined'];
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
+    <div style={{ display: 'grid', gap: 'var(--spacing-2)' }}>
       {groups.map((g) => {
         const list = all.filter((p) => p.rsvp === g);
         if (!list.length) return null;
         return (
-          <div key={g} style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
-            <span className="label-sm" style={{ color: RSVP_META[g].color, fontWeight: 700, minWidth: 92 }}>{RSVP_META[g].icon} {RSVP_META[g].group}</span>
+          <div key={g} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <Chip size="sm" tone={RSVP_TONE[g]}>{RSVP_META[g].group}</Chip>
             {list.map((p) => (
-              <span key={p.userId} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <span key={p.userId} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.125rem' }}>
                 <PersonChip size="S" userId={p.userId} firstName={p.firstName} lastName={p.lastName ?? null} />
-                {canManage && onRemove && <button onClick={() => onRemove(p.userId)} title="Убрать" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)', fontSize: '0.7rem' }}>✕</button>}
+                {canManage && onRemove && (
+                  <IconButton icon="close" label={`Убрать ${p.firstName}`} size={22} iconSize={12} onClick={() => onRemove(p.userId)} />
+                )}
               </span>
             ))}
           </div>
@@ -517,12 +682,16 @@ function InvitePicker({
     setSel([]);
   };
   return (
-    <div className="card" style={{ marginTop: 'var(--spacing-2)', padding: 'var(--spacing-3)' }}>
+    <Card small style={{ marginTop: 'var(--spacing-2)' }}>
       <EntitySelector types={['user', 'circle']} multi options={options} value={sel} onChange={setSel} placeholder="Люди или Группы из окружения…" />
       {sel.length > 0 && (
-        <button type="button" onClick={add} className="btn-primary" style={{ ...smallBtn, fontSize: '0.8rem', marginTop: 'var(--spacing-3)' }}>Добавить ({sel.length})</button>
+        <div style={{ marginTop: 'var(--spacing-3)' }}>
+          <Button variant="primary" tone="success" size="sm" icon="userAdd" onClick={add}>
+            Добавить ({sel.length})
+          </Button>
+        </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -533,14 +702,4 @@ function whenLabel(d: CalendarEventDetail | null): string {
     ? { day: 'numeric', month: 'long', weekday: 'long' }
     : { day: 'numeric', month: 'long', weekday: 'long', hour: '2-digit', minute: '2-digit' };
   return s.toLocaleDateString('ru-RU', opts);
-}
-
-const overlay: React.CSSProperties = { position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '5vh 1rem', background: 'rgba(56,57,45,0.28)', backdropFilter: 'blur(3px)', overflowY: 'auto' };
-const iconBtn: React.CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', color: 'var(--on-surface-variant)' };
-const linkBtn: React.CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--secondary)', fontWeight: 600 };
-const lblBlock: React.CSSProperties = { display: 'block', marginBottom: 'var(--spacing-2)' };
-const smallBtn: React.CSSProperties = { padding: '0.5rem 1.3rem', fontSize: '0.85rem' };
-
-function chip(active: boolean): React.CSSProperties {
-  return { padding: '0.3rem 0.7rem', fontSize: '0.78rem', borderRadius: 'var(--radius-sketch)', border: 'none', cursor: 'pointer', fontWeight: 600, background: active ? 'var(--secondary-container)' : 'var(--surface-container)', color: active ? 'var(--secondary)' : 'var(--on-surface-variant)' };
 }

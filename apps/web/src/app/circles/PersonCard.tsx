@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { ModalShell } from '@/components/ui';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Icon } from '@/components/ui';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
@@ -226,7 +228,6 @@ function CardShell({
         ...style,
       } as React.CSSProperties}
     >
-      {skin.decor === 'crayon' && <CrayonDecor />}
       {cfg.effect !== 'none' && (
         skin.effectUrl && cfg.effect === 'full' ? (
           <LottieEffect url={skin.effectUrl} preset={t.effectPreset ?? null} level={cfg.effect} accent={t.accent} />
@@ -366,22 +367,6 @@ function SkinEffect({ preset, level, accent }: {
   return null;
 }
 
-// Crayon strokes — the built-in sketchbook decoration (was a CSS ::before).
-function CrayonDecor() {
-  return (
-    <div
-      aria-hidden
-      style={{
-        position: 'absolute', inset: 0, pointerEvents: 'none', borderRadius: 'inherit', zIndex: 0,
-        background:
-          'linear-gradient(92deg, rgba(198,26,30,0.55) 0%, rgba(198,26,30,0.1) 100%) no-repeat 12px calc(100% - 14px) / 38px 5px,' +
-          'linear-gradient(85deg, rgba(198,26,30,0.35) 0%, rgba(198,26,30,0.05) 100%) no-repeat 18px calc(100% - 22px) / 30px 4px,' +
-          'linear-gradient(88deg, rgba(50,106,139,0.5) 0%, rgba(50,106,139,0.08) 100%) no-repeat calc(100% - 16px) calc(100% - 16px) / 34px 4px,' +
-          'linear-gradient(95deg, rgba(50,106,139,0.3) 0%, rgba(50,106,139,0.05) 100%) no-repeat calc(100% - 20px) calc(100% - 24px) / 28px 5px',
-      }}
-    />
-  );
-}
 
 // ============================================================
 // Card body — avatar + name + fields, sized + skinned
@@ -495,7 +480,7 @@ function Avatar({ initial, avatar, size, skin, showDot }: {
       width: size, height: size, borderRadius: t.avatarRadius, border: t.avatarInnerBorder,
       background: t.avatarBg, color: t.avatarColor, display: 'flex', alignItems: 'center',
       justifyContent: 'center', fontFamily: 'var(--font-display)', fontWeight: 800,
-      fontSize: Math.round(size * 0.4), boxShadow: 'inset 0 2px 8px rgba(56,57,45,0.06)',
+      fontSize: Math.round(size * 0.4), boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.06)',
     }}>
       {initial}
     </div>
@@ -519,7 +504,7 @@ function RoleBadge({ role, skin, size }: { role: string; skin: CardSkinRender; s
   return (
     <div style={{
       display: 'inline-block', padding: small ? '0.12rem 0.55rem' : '0.3rem 1.2rem',
-      background: t.badgeBg, color: t.badgeColor, borderRadius: '0.6rem 0.9rem 0.7rem 0.8rem',
+      background: t.badgeBg, color: t.badgeColor, borderRadius: 'var(--radius-md)',
       fontFamily: 'var(--font-display)', fontSize: small ? '0.62rem' : '0.85rem', fontWeight: 600,
       letterSpacing: '0.03em', boxShadow: t.badgeShadow,
     }}>
@@ -534,7 +519,7 @@ function RarityChip({ rarity }: { rarity: CardSkinRender['rarity'] }) {
     <div style={{
       display: 'inline-block', padding: '0.1rem 0.6rem', fontSize: '0.62rem', fontWeight: 700,
       fontFamily: 'var(--font-display)', letterSpacing: '0.08em', textTransform: 'uppercase',
-      color: m.color, borderRadius: '0.5rem 0.7rem 0.55rem 0.65rem',
+      color: m.color, borderRadius: 'var(--radius-sm)',
       boxShadow: `0 0 0 1.5px ${m.color}55, 0 0 0 4px ${m.color}1f`,
     }}>
       {m.label}
@@ -588,7 +573,7 @@ function CompactCard({
                 >+</button>
               )}
               {showFolderMenu && foldersNotIn.length > 0 && (
-                <div style={{ position: 'absolute', right: 0, top: '100%', zIndex: 10, background: 'var(--surface-container-lowest)', borderRadius: 'var(--radius-md)', boxShadow: '0 8px 32px rgba(56, 57, 45, 0.15)', padding: 'var(--spacing-2)', minWidth: '120px' }}>
+                <div style={{ position: 'absolute', right: 0, top: '100%', zIndex: 10, background: 'var(--surface-container-lowest)', borderRadius: 'var(--radius-md)', boxShadow: '0 8px 32px rgba(0, 0, 0, 0.15)', padding: 'var(--spacing-2)', minWidth: '120px' }}>
                   {foldersNotIn.map((f) => (
                     <button key={f.id} onClick={() => { onAddToFolder(f.id); setShowFolderMenu(false); }}
                       style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', padding: '0.3rem 0.5rem', width: '100%', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', borderRadius: 'var(--radius-sm)', color: 'var(--on-surface)' }}
@@ -646,7 +631,7 @@ function CompactCard({
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--secondary-container)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
-              📞 Позвонить
+              <Icon name="call" size={14} /> Позвонить
             </button>
             )}
           </div>
@@ -683,14 +668,7 @@ function ExpandedCard({ person, skin, onClose, onWrite, onCall }: {
   person: CardPerson; skin: CardSkinRender; onClose: () => void; onWrite?: () => void; onCall?: () => void;
 }) {
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center',
-        justifyContent: 'center', padding: 'var(--spacing-6)',
-        background: 'rgba(56,57,45,0.35)', backdropFilter: 'blur(4px)',
-      }}
-    >
+    <ModalShell onClose={onClose} zIndex={1000}>
       <div onClick={(e) => e.stopPropagation()} style={{ position: 'relative', maxWidth: 420, width: '100%' }}>
         <button
           onClick={onClose}
@@ -699,7 +677,7 @@ function ExpandedCard({ person, skin, onClose, onWrite, onCall }: {
             position: 'absolute', top: -10, right: -10, zIndex: 5, width: '2rem', height: '2rem',
             borderRadius: '50%', border: 'none', cursor: 'pointer', fontSize: '1.1rem',
             background: 'var(--surface-container-lowest)', color: 'var(--on-surface)',
-            boxShadow: '0 4px 16px rgba(56,57,45,0.2)',
+            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.2)',
           }}
         >×</button>
         <CardShell size="XL" skin={skin} rotation={-1}>
@@ -728,14 +706,14 @@ function ExpandedCard({ person, skin, onClose, onWrite, onCall }: {
                     borderRadius: 'var(--radius-sketch)', cursor: 'pointer',
                   }}
                 >
-                  📞 Позвонить
+                  <Icon name="call" size={14} /> Позвонить
                 </button>
               )}
             </div>
           )}
         </CardShell>
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -818,7 +796,7 @@ export function StaffPersonCard({
                     color: 'var(--on-surface-variant)',
                   }}
                 >
-                  📍 {b}
+                  <Icon name="office" size={12} /> {b}
                 </span>
               ))}
             </div>

@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/light/style.css" rel="stylesheet">
+<style>
+html,body{margin:0;padding:0;background:#eae6de;}
+*{box-sizing:border-box;}
+a{color:#3f6aa8;text-decoration:none;}
+a:hover{color:#588cd3;}
+input::placeholder{color:#a39d92;}
+</style>
+</helmet>
+<div style="display:flex;height:100vh;overflow:hidden;background:#eae6de;font-family:'Manrope',ui-sans-serif,system-ui,sans-serif;color:#1d1b1d;">
+  <nav style="width:264px;min-width:264px;background:#fafbf8;box-shadow:0 4px 20px rgba(0,0,0,0.04);display:flex;flex-direction:column;padding:24px 16px;gap:4px;z-index:2;overflow-y:auto;scrollbar-width:thin;">
+    <div style="display:flex;align-items:center;gap:12px;padding:0 8px;margin-bottom:28px;">
+      <div style="width:40px;height:40px;border-radius:12px;background:#588cd3;color:#ffffff;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;">S</div>
+      <div>
+        <div style="font-size:17px;font-weight:800;letter-spacing:-0.01em;">SuperApp</div>
+        <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#a39d92;">Workspace</div>
+      </div>
+    </div>
+    <a onClick="{{ go.dashboard }}" style="display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:14px;font-size:14px;font-weight:600;cursor:pointer;transition:background 0.2s;background:{{ nav.dashboard.bg }};color:{{ nav.dashboard.color }};" style-hover="background:#f1ede3;">
+      <i class="ph-light ph-house" style="font-size:20px;"></i>Dashboard
+    </a>
+    <a onClick="{{ go.inbox }}" style="display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:14px;font-size:14px;font-weight:600;cursor:pointer;transition:background 0.2s;background:{{ nav.inbox.bg }};color:{{ nav.inbox.color }};" style-hover="background:#f1ede3;">
+      <i class="ph-light ph-chat-circle" style="font-size:20px;"></i>Inbox
+    </a>
+    <a onClick="{{ go.projects }}" style="display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:14px;font-size:14px;font-weight:600;cursor:pointer;transition:background 0.2s;background:{{ nav.projects.bg }};color:{{ nav.projects.color }};" style-hover="background:#f1ede3;">
+      <i class="ph-light ph-squares-four" style="font-size:20px;"></i>Projects
+      <i class="ph-light ph-caret-down" style="font-size:14px;margin-left:auto;color:#a39d92;transition:transform 0.2s;transform:{{ treeCaret }};"></i>
+    </a>
+    <sc-if value="{{ showTree }}" hint-placeholder-val="{{ true }}">
+      <div style="display:flex;flex-direction:column;padding-left:24px;">
+        <div style="position:relative;display:flex;align-items:center;gap:10px;padding:8px 0 8px 22px;">
+          <div style="position:absolute;left:0;top:-6px;height:calc(50% + 6px);width:14px;border-left:1px solid {{ path.line }};border-bottom:1px solid {{ path.line }};border-bottom-left-radius:10px;"></div>
+          <div style="position:absolute;left:0;top:50%;bottom:0;width:1px;background:#ddd6c8;"></div>
+          <i class="ph-light ph-file-text" style="font-size:17px;color:{{ path.icon }};"></i>
+          <span style="font-size:13px;font-weight:600;color:{{ path.text }};cursor:pointer;transition:color 0.2s;" style-hover="color:#1d1b1d;">Survey Data</span>
+        </div>
+        <div style="position:relative;display:flex;align-items:center;gap:10px;padding:7px 0 7px 44px;">
+          <div style="position:absolute;left:0;top:0;bottom:0;width:1px;background:#ddd6c8;"></div>
+          <div style="position:absolute;left:22px;top:-6px;height:calc(50% + 6px);width:14px;border-left:1px solid #ddd6c8;border-bottom:1px solid #ddd6c8;border-bottom-left-radius:10px;"></div>
+          <div style="position:absolute;left:22px;top:50%;bottom:0;width:1px;background:#ddd6c8;"></div>
+          <i class="ph-light ph-calendar-blank" style="font-size:16px;color:#8a8478;"></i>
+          <span style="font-size:13px;font-weight:500;color:#8a8478;cursor:pointer;transition:color 0.2s;" style-hover="color:#1d1b1d;">Valuation Survey</span>
+        </div>
+        <div onClick="{{ go.risk }}" style="position:relative;display:flex;align-items:center;padding:4px 0 4px 38px;cursor:pointer;">
+          <div style="position:absolute;left:0;top:0;bottom:0;width:1px;background:#ddd6c8;"></div>
+          <div style="position:absolute;left:22px;top:-6px;height:calc(50% + 6px);width:14px;border-left:1px solid {{ path.line }};border-bottom:1px solid {{ path.line }};border-bottom-left-radius:10px;"></div>
+          <span style="display:flex;align-items:center;gap:10px;padding:4px 10px;border-radius:10px;transition:background 0.2s;background:{{ nav.risk.bg }};" style-hover="background:#f1ede3;">
+            <i class="ph-light ph-calendar-blank" style="font-size:16px;color:{{ nav.risk.color }};"></i>
+            <span style="font-size:13px;font-weight:600;color:{{ nav.risk.color }};">Risk Survey</span>
+          </span>
+        </div>
+        <div style="position:relative;display:flex;align-items:center;gap:10px;padding:8px 0 8px 22px;">
+          <div style="position:absolute;left:0;top:-6px;height:calc(50% + 6px);width:14px;border-left:1px solid #ddd6c8;border-bottom:1px solid #ddd6c8;border-bottom-left-radius:10px;"></div>
+          <div style="position:absolute;left:22px;top:50%;bottom:0;width:1px;background:#ddd6c8;"></div>
+          <i class="ph-light ph-table" style="font-size:17px;color:#5d574e;"></i>
+          <span style="font-size:13px;font-weight:600;color:#5d574e;cursor:pointer;transition:color 0.2s;" style-hover="color:#1d1b1d;">Financial Data</span>
+        </div>
+        <div style="position:relative;display:flex;align-items:center;gap:10px;padding:7px 0 7px 44px;">
+          <div style="position:absolute;left:22px;top:-6px;height:calc(50% + 6px);width:14px;border-left:1px solid #ddd6c8;border-bottom:1px solid #ddd6c8;border-bottom-left-radius:10px;"></div>
+          <div style="position:absolute;left:22px;top:50%;bottom:0;width:1px;background:#ddd6c8;"></div>
+          <i class="ph-light ph-globe" style="font-size:16px;color:#8a8478;"></i>
+          <span style="font-size:13px;font-weight:500;color:#8a8478;cursor:pointer;transition:color 0.2s;" style-hover="color:#1d1b1d;">Financial Performance</span>
+        </div>
+        <div style="position:relative;display:flex;align-items:center;gap:10px;padding:7px 0 7px 44px;">
+          <div style="position:absolute;left:22px;top:-6px;height:calc(50% + 6px);width:14px;border-left:1px solid #ddd6c8;border-bottom:1px solid #ddd6c8;border-bottom-left-radius:10px;"></div>
+          <i class="ph-light ph-scales" style="font-size:16px;color:#8a8478;"></i>
+          <span style="font-size:13px;font-weight:500;color:#8a8478;cursor:pointer;transition:color 0.2s;" style-hover="color:#1d1b1d;">Financial Standards</span>
+        </div>
+      </div>
+    </sc-if>
+    <a onClick="{{ go.calendar }}" style="display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:14px;font-size:14px;font-weight:600;cursor:pointer;transition:background 0.2s;background:{{ nav.calendar.bg }};color:{{ nav.calendar.color }};" style-hover="background:#f1ede3;">
+      <i class="ph-light ph-calendar-blank" style="font-size:20px;"></i>Calendar
+    </a>
+    <div style="margin-top:auto;display:flex;flex-direction:column;gap:4px;">
+      <button style="display:flex;align-items:center;gap:10px;padding:13px 14px;margin-bottom:12px;border-radius:14px;border:1px solid #e2dccf;background:#fafbf8;color:#1d1b1d;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;transition:background 0.2s;" style-hover="background:#f1ede3;">
+        <i class="ph-light ph-circles-three-plus" style="font-size:20px;color:#588cd3;"></i>Connected apps
+        <i class="ph-light ph-caret-right" style="font-size:14px;margin-left:auto;color:#a39d92;"></i>
+      </button>
+      <div style="height:1px;background:#eee9dd;margin:0 8px 8px;"></div>
+      <a onClick="{{ go.settings }}" style="display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:14px;font-size:14px;font-weight:600;cursor:pointer;transition:background 0.2s;background:{{ nav.settings.bg }};color:{{ nav.settings.color }};" style-hover="background:#f1ede3;">
+        <i class="ph-light ph-gear" style="font-size:20px;"></i>Settings
+      </a>
+      <a onClick="{{ go.support }}" style="display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:14px;font-size:14px;font-weight:600;cursor:pointer;transition:background 0.2s;background:{{ nav.support.bg }};color:{{ nav.support.color }};" style-hover="background:#f1ede3;">
+        <i class="ph-light ph-question" style="font-size:20px;"></i>Support
+      </a>
+    </div>
+  </nav>
+  <main style="flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;">
+    <header style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:20px 28px;">
+      <div style="display:flex;background:rgba(29,27,29,0.06);border-radius:999px;padding:3px;">
+        <button style="padding:7px 18px;border-radius:999px;border:none;background:#fafbf8;color:#1d1b1d;font-family:inherit;font-size:12px;font-weight:800;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,0.08);">Overview</button>
+        <button style="padding:7px 18px;border-radius:999px;border:none;background:transparent;color:#6b655e;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;">Analytics</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="position:relative;">
+          <i class="ph-light ph-magnifying-glass" style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:16px;color:#a39d92;"></i>
+          <input type="text" placeholder="Search..." style="width:240px;padding:10px 16px 10px 38px;border-radius:999px;border:1px solid #e2dccf;background:#fafbf8;font-family:inherit;font-size:13px;font-weight:500;color:#1d1b1d;outline:none;transition:border-color 0.2s, box-shadow 0.2s;" style-focus="border-color:#588cd3;box-shadow:0 0 0 3px rgba(88,140,211,0.15);">
+        </div>
+        <button style="width:38px;height:38px;border-radius:999px;border:none;background:transparent;color:#5d574e;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background 0.2s;" style-hover="background:rgba(29,27,29,0.06);"><i class="ph-light ph-plus" style="font-size:20px;"></i></button>
+        <button style="position:relative;width:38px;height:38px;border-radius:999px;border:none;background:transparent;color:#5d574e;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background 0.2s;" style-hover="background:rgba(29,27,29,0.06);">
+          <i class="ph-light ph-bell" style="font-size:20px;"></i>
+          <span style="position:absolute;top:8px;right:9px;width:7px;height:7px;background:#de6d68;border-radius:999px;border:2px solid #eae6de;"></span>
+        </button>
+        <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuAVA8eAIatHl5fB5i89W5RC0OXNQ39ayOmJvtlxwNZiU9m7eBgIssjl6WswMHDTBsTOfsa5Gyrx017uK_ZJuxTObbMwLtmkwnO06GRrM_UAMSONfxLapo7Ft9sV6uYKc26xlbh834m3dRrAcq-xOBBSVnFqaXckg2qJLBnxDGsqO2mnrc9RjdYrgEzAVMdniWCoqRhRzvcbm1hM15jzOv4ArttPQfTGz82DBoQSyHH7KdKNlsImoTeYSjYGMCc28BkDZO9YY-o4IQ" style="width:36px;height:36px;border-radius:999px;object-fit:cover;border:2px solid #fafbf8;box-shadow:0 1px 4px rgba(0,0,0,0.08);">
+      </div>
+    </header>
+    <div style="flex:1;overflow-y:auto;padding:4px 28px 36px;">
+      <div style="max-width:1120px;margin:0 auto;">
+        <sc-if value="{{ showDashboard }}" hint-placeholder-val="{{ true }}">
+          <div data-screen-label="Dashboard" style="display:grid;grid-template-columns:repeat(12,1fr);gap:16px;">
+            <div style="grid-column:span 8;background:#fafbf8;border-radius:24px;box-shadow:0 4px 20px rgba(0,0,0,0.04);padding:28px;display:flex;flex-direction:column;">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:18px;">
+                <div>
+                  <h2 style="margin:0 0 4px;font-size:26px;font-weight:800;letter-spacing:-0.02em;">Q4 Platform Redesign</h2>
+                  <p style="margin:0;font-size:13px;font-weight:500;color:#6b655e;">Client: Acme Corp</p>
+                </div>
+                <span style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:999px;background:rgba(116,162,119,0.14);border:1px solid rgba(116,162,119,0.32);color:#3c6842;font-size:12px;font-weight:700;"><i class="ph-light ph-check-circle" style="font-size:15px;"></i>Active</span>
+              </div>
+              <p style="margin:0 0 28px;max-width:560px;font-size:14px;line-height:22px;font-weight:500;color:#6b655e;text-wrap:pretty;">Overhaul of the primary dashboard interface focusing on user retention and bento-grid adoption. Phase 2 deliverables due this Friday.</p>
+              <div style="margin-top:auto;">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;">
+                  <span style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#a39d92;">Progress</span>
+                  <span style="font-size:12px;font-weight:800;color:#3f6aa8;">{{ progressLabel }}</span>
+                </div>
+                <div style="position:relative;height:16px;border-radius:2px;overflow:hidden;background:repeating-linear-gradient(90deg,#ddd6c8 0px,#ddd6c8 2px,transparent 2px,transparent 5px);margin-bottom:24px;">
+                  <div style="position:absolute;top:0;bottom:0;left:0;background:repeating-linear-gradient(90deg,#588cd3 0px,#588cd3 2px,transparent 2px,transparent 5px);width:{{ progressWidth }};"></div>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid #eee9dd;padding-top:18px;">
+                  <div style="display:flex;align-items:center;">
+                    <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuA_2P_wUaDbj1DQpBtMYL7M-rkOY0MEmobMWKYObvHzKU64Vugr_TAo8rlDMnfjuMpebWhbwQ_E6d0B1vzehoR-PK3E6Moj-OZk-cW7fXl0FrqcBMXygg68bqYu023in0BIFEB6IGFIcIdHVon8L58YIBZE-NLRDXTSUtEJdgyDoTrUdvYBTEyp1XBJbiKNz1qGlyBbt6HU1VgkMVKxRefPsX2IXkIWWkbaiqyokkKOb1lQvHatnYqg6sE0YuAuCjuMlGPsxw9ZLA" style="width:32px;height:32px;border-radius:999px;object-fit:cover;border:2px solid #fafbf8;">
+                    <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuAp6ltlH1VRp4Utg1_sI1DeJgFUY1RX-TQbI_09WLh_jFkMKEfWcf_nOE482nqK5IdaJCn5pRsL68968E45NrZ_6SpENpNaTyRU9h7rPLutjxDJTr9Zv0UviJkTrngMTcYjjHnNfQYVcTniUcfhI082IsiBAUEnwvngvWb3PL70p0XiZakadctGLdKM86mYVuBgqncj2r5vvtBL8UIF2S89f63Lc-gb7AfMRFFWhJvsrtv6xoGGkGL-ZjlttXg4gozJkUybojoCcQ" style="width:32px;height:32px;border-radius:999px;object-fit:cover;border:2px solid #fafbf8;margin-left:-10px;">
+                    <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuC6AR5OT8tnVJammJUAMH8ABmDo1f-O9Szl0_Q9mm1GTf4wqpVjArf9c5GFh_fKVOD_Nkmi_yZ-xL9GPJTxG6dhOAvgrJTI1DXKk-dHN_RPY9NFBXpIxAUjOIsct3FWC4LPEQ6GHJevZ028sFGEEPo5u1R5F_t3aZkdgazKvj_i09_uA6KEu5onkduY-rKMr61gCSxyP7emPp5fPbcb7uciaez1-7CLWROmzy10VwcdHQvXZTwGqO-LN6jtevvdQmqQsriba16IqQ" style="width:32px;height:32px;border-radius:999px;object-fit:cover;border:2px solid #fafbf8;margin-left:-10px;">
+                    <div style="width:32px;height:32px;border-radius:999px;border:2px solid #fafbf8;background:#ece7dc;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#6b655e;margin-left:-10px;">+2</div>
+                  </div>
+                  <button style="padding:10px 18px;border-radius:12px;border:1px solid rgba(88,140,211,0.25);background:rgba(88,140,211,0.12);color:#3f6aa8;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;transition:background 0.2s;" style-hover="background:rgba(88,140,211,0.2);">View Details</button>
+                </div>
+              </div>
+            </div>
+            <div style="grid-column:span 4;display:flex;flex-direction:column;gap:16px;">
+              <div style="background:#fafbf8;border-radius:24px;box-shadow:0 4px 20px rgba(0,0,0,0.04);padding:20px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+                  <span style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#a39d92;">Monthly Revenue</span>
+                  <div style="width:34px;height:34px;border-radius:999px;background:rgba(88,140,211,0.12);display:flex;align-items:center;justify-content:center;"><i class="ph-light ph-coins" style="font-size:18px;color:#3f6aa8;"></i></div>
+                </div>
+                <div style="font-size:30px;font-weight:800;letter-spacing:-0.02em;margin-bottom:8px;">$42,850</div>
+                <div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#4c7a50;"><i class="ph-light ph-trend-up" style="font-size:16px;"></i>+14.5% vs last month</div>
+              </div>
+              <div style="background:#fafbf8;border-radius:24px;box-shadow:0 4px 20px rgba(0,0,0,0.04);padding:20px;display:flex;align-items:center;gap:14px;">
+                <div style="width:46px;height:46px;border-radius:999px;background:rgba(214,150,108,0.16);display:flex;align-items:center;justify-content:center;"><i class="ph-light ph-sun" style="font-size:24px;color:#b06a38;"></i></div>
+                <div>
+                  <div style="font-size:15px;font-weight:700;">San Francisco</div>
+                  <div style="font-size:13px;font-weight:500;color:#6b655e;">72°F · Sunny</div>
+                </div>
+              </div>
+              <sc-if value="{{ showAlert }}" hint-placeholder-val="{{ true }}">
+                <div style="background:#fafbf8;border-radius:24px;box-shadow:0 4px 20px rgba(0,0,0,0.04);padding:20px;">
+                  <div style="display:flex;gap:12px;margin-bottom:16px;">
+                    <div style="width:34px;height:34px;border-radius:12px;background:rgba(222,109,104,0.14);display:flex;align-items:center;justify-content:center;flex-shrink:0;"><i class="ph-light ph-warning-circle" style="font-size:19px;color:#b04a45;"></i></div>
+                    <div>
+                      <div style="font-size:13px;font-weight:700;">Server Load High</div>
+                      <div style="font-size:12px;line-height:17px;font-weight:500;color:#6b655e;margin-top:2px;">Cluster A is running hot. Scaling recommended.</div>
+                    </div>
+                  </div>
+                  <div style="position:relative;height:12px;border-radius:2px;overflow:hidden;background:repeating-linear-gradient(90deg,#e4ded1 0px,#e4ded1 2px,transparent 2px,transparent 5px);">
+                    <div style="position:absolute;top:0;bottom:0;left:0;background:repeating-linear-gradient(90deg,#de6d68 0px,#de6d68 2px,transparent 2px,transparent 5px);width:{{ loadWidth }};"></div>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;margin-top:8px;">
+                    <span style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#b04a45;">{{ loadLabel }} load</span>
+                    <span style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#a39d92;">Cluster A</span>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+            <div style="grid-column:span 12;margin-top:8px;">
+              <h3 style="margin:0 0 14px;padding:0 4px;font-size:18px;font-weight:800;letter-spacing:-0.01em;">Recent Services</h3>
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
+                <div style="background:#fafbf8;border-radius:20px;box-shadow:0 4px 20px rgba(0,0,0,0.04);padding:18px;display:flex;gap:14px;align-items:flex-start;cursor:pointer;transition:transform 0.2s;" style-hover="transform:translateY(-2px);">
+                  <div style="width:44px;height:44px;border-radius:14px;background:rgba(88,140,211,0.12);display:flex;align-items:center;justify-content:center;flex-shrink:0;"><i class="ph-light ph-database" style="font-size:22px;color:#3f6aa8;"></i></div>
+                  <div>
+                    <div style="font-size:15px;font-weight:700;">Database Sync</div>
+                    <div style="font-size:12px;font-weight:500;color:#6b655e;margin:2px 0 8px;">Completed successfully</div>
+                    <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#a39d92;">10 min ago</div>
+                  </div>
+                </div>
+                <div style="background:#fafbf8;border-radius:20px;box-shadow:0 4px 20px rgba(0,0,0,0.04);padding:18px;display:flex;gap:14px;align-items:flex-start;cursor:pointer;transition:transform 0.2s;" style-hover="transform:translateY(-2px);">
+                  <div style="width:44px;height:44px;border-radius:14px;background:rgba(116,162,119,0.14);display:flex;align-items:center;justify-content:center;flex-shrink:0;"><i class="ph-light ph-shield-check" style="font-size:22px;color:#3c6842;"></i></div>
+                  <div>
+                    <div style="font-size:15px;font-weight:700;">Security Audit</div>
+                    <div style="font-size:12px;font-weight:500;color:#6b655e;margin:2px 0 8px;">No vulnerabilities found</div>
+                    <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#a39d92;">2 hours ago</div>
+                  </div>
+                </div>
+                <div style="background:#fafbf8;border-radius:20px;box-shadow:0 4px 20px rgba(0,0,0,0.04);padding:18px;display:flex;gap:14px;align-items:flex-start;cursor:pointer;transition:transform 0.2s;" style-hover="transform:translateY(-2px);">
+                  <div style="width:44px;height:44px;border-radius:14px;background:rgba(214,150,108,0.16);display:flex;align-items:center;justify-content:center;flex-shrink:0;"><i class="ph-light ph-plugs" style="font-size:22px;color:#b06a38;"></i></div>
+                  <div>
+                    <div style="font-size:15px;font-weight:700;">API Gateway</div>
+                    <div style="font-size:12px;font-weight:500;color:#6b655e;margin:2px 0 8px;">Deployed v2.4.1</div>
+                    <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#a39d92;">Yesterday</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ showProjects }}" hint-placeholder-val="{{ false }}">
+          <div data-screen-label="Projects">
+            <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:20px;padding:0 4px;">
+              <div>
+                <h2 style="margin:0 0 4px;font-size:26px;font-weight:800;letter-spacing:-0.02em;">Projects Overview</h2>
+                <p style="margin:0;font-size:13px;font-weight:500;color:#6b655e;">Manage your tasks and track team progress.</p>
+              </div>
+              <button style="display:flex;align-items:center;gap:8px;padding:11px 20px;border-radius:12px;border:none;background:#588cd3;color:#ffffff;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(88,140,211,0.3);transition:opacity 0.2s;" style-hover="opacity:0.9;" style-active="transform:scale(0.97);"><i class="ph-light ph-plus" style="font-size:16px;"></i>Add Task</button>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(12,1fr);gap:16px;">
+              <div style="grid-column:span 4;background:#fafbf8;border-radius:24px;box-shadow:0 4px 20px rgba(0,0,0,0.04);padding:24px;display:flex;flex-direction:column;">
+                <h3 style="margin:0 0 16px;font-size:18px;font-weight:800;letter-spacing:-0.01em;">All Tasks</h3>
+                <div style="display:flex;flex-direction:column;gap:6px;">
+                  <div style="display:flex;align-items:center;gap:12px;padding:12px;border-radius:14px;cursor:pointer;transition:background 0.2s;" style-hover="background:rgba(29,27,29,0.04);">
+                    <i class="ph-light ph-arrows-clockwise" style="font-size:19px;color:#3f6aa8;"></i>
+                    <span style="font-size:14px;font-weight:600;color:#3f6aa8;">In Progress</span>
+                    <span style="margin-left:auto;font-size:16px;font-weight:800;">24</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:12px;padding:12px;border-radius:14px;cursor:pointer;transition:background 0.2s;" style-hover="background:rgba(29,27,29,0.04);">
+                    <i class="ph-light ph-pause-circle" style="font-size:19px;color:#9a5f2f;"></i>
+                    <span style="font-size:14px;font-weight:600;color:#9a5f2f;">On Hold</span>
+                    <span style="margin-left:auto;font-size:16px;font-weight:800;">12</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:12px;padding:12px;border-radius:14px;cursor:pointer;transition:background 0.2s;" style-hover="background:rgba(29,27,29,0.04);">
+                    <i class="ph-light ph-check" style="font-size:19px;color:#3c6842;"></i>
+                    <span style="font-size:14px;font-weight:600;color:#3c6842;">Completed</span>
+                    <span style="margin-left:auto;font-size:16px;font-weight:800;">156</span>
+                  </div>
+                </div>
+                <div style="margin-top:auto;">
+                  <div style="height:1px;background:#eee9dd;margin:8px 4px;"></div>
+                  <div style="display:flex;align-items:center;gap:12px;padding:12px;border-radius:14px;cursor:pointer;transition:background 0.2s;" style-hover="background:rgba(29,27,29,0.04);">
+                    <i class="ph-light ph-trash" style="font-size:19px;color:#b04a45;"></i>
+                    <span style="font-size:14px;font-weight:600;color:#b04a45;">Deleted</span>
+                    <span style="margin-left:auto;font-size:16px;font-weight:800;">8</span>
+                  </div>
+                </div>
+              </div>
+              <div style="grid-column:span 8;display:flex;flex-direction:column;gap:12px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:0 4px;">
+                  <h3 style="margin:0;font-size:18px;font-weight:800;letter-spacing:-0.01em;">Recent Activity</h3>
+                  <div style="display:flex;gap:8px;">
+                    <button style="width:36px;height:36px;border-radius:12px;border:1px solid #e2dccf;background:#fafbf8;color:#5d574e;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background 0.2s;" style-hover="background:#f1ede3;"><i class="ph-light ph-funnel" style="font-size:17px;"></i></button>
+                    <button style="width:36px;height:36px;border-radius:12px;border:1px solid #e2dccf;background:#fafbf8;color:#5d574e;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background 0.2s;" style-hover="background:#f1ede3;"><i class="ph-light ph-dots-three" style="font-size:17px;"></i></button>
+                  </div>
+                </div>
+                <div style="background:#fafbf8;border-radius:20px;box-shadow:0 4px 20px rgba(0,0,0,0.04);padding:18px 20px;display:flex;gap:14px;align-items:flex-start;">
+                  <input type="checkbox" style="width:18px;height:18px;margin-top:3px;accent-color:#588cd3;cursor:pointer;">
+                  <div style="flex:1;min-width:0;">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:4px;">
+                      <h4 style="margin:0;font-size:15px;font-weight:700;">Design System Audit</h4>
+                      <span style="display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:999px;background:rgba(88,140,211,0.12);border:1px solid rgba(88,140,211,0.3);color:#3f6aa8;font-size:11px;font-weight:700;white-space:nowrap;"><i class="ph-light ph-arrows-clockwise" style="font-size:13px;"></i>In Progress</span>
+                    </div>
+                    <p style="margin:0 0 12px;font-size:13px;font-weight:500;color:#6b655e;">Review all shared components against the new style guidance documentation.</p>
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                      <div style="display:flex;gap:16px;align-items:center;color:#8a8478;font-size:11px;font-weight:600;letter-spacing:0.03em;">
+                        <span style="display:flex;align-items:center;gap:5px;"><i class="ph-light ph-calendar-blank" style="font-size:14px;"></i>Oct 24</span>
+                        <span style="display:flex;align-items:center;gap:5px;"><i class="ph-light ph-chat-circle" style="font-size:14px;"></i>3 comments</span>
+                      </div>
+                      <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuBRwwBCChT1l1rSeJXPUzZ2y62S7GjP5YFU6YS1y_IgTTPiFePU79CL-Q6Udub_Q5sndQgFpxKs6MDxyso5odnQE24YG5mw3BEsrj5qSy3hLmR8iQgN8x96cy-kqiPfiGln_HabpIc90KU56T7xmuoxgokCGcEtohOMlpL4_z4nxmrGzocpAjpiosTwi2Qt8QzecX419GAMAEhh6QfA5gtvQop7J7VC0EAJDtmEztdoEQm8IIKUzjcXmTF3j_zJpwt6FFYcDb76xQ" style="width:26px;height:26px;border-radius:999px;object-fit:cover;border:2px solid #fafbf8;">
+                    </div>
+                  </div>
+                </div>
+                <div style="background:#fafbf8;border-radius:20px;box-shadow:0 4px 20px rgba(0,0,0,0.04);padding:18px 20px;display:flex;gap:14px;align-items:flex-start;">
+                  <input type="checkbox" style="width:18px;height:18px;margin-top:3px;accent-color:#588cd3;cursor:pointer;">
+                  <div style="flex:1;min-width:0;">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:4px;">
+                      <h4 style="margin:0;font-size:15px;font-weight:700;">Client Presentation Deck</h4>
+                      <span style="display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:999px;background:rgba(214,150,108,0.16);border:1px solid rgba(214,150,108,0.35);color:#9a5f2f;font-size:11px;font-weight:700;white-space:nowrap;"><i class="ph-light ph-pause-circle" style="font-size:13px;"></i>On Hold</span>
+                    </div>
+                    <p style="margin:0 0 12px;font-size:13px;font-weight:500;color:#6b655e;">Awaiting final brand assets from the marketing team before proceeding.</p>
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                      <div style="display:flex;gap:16px;align-items:center;color:#8a8478;font-size:11px;font-weight:600;letter-spacing:0.03em;">
+                        <span style="display:flex;align-items:center;gap:5px;"><i class="ph-light ph-calendar-blank" style="font-size:14px;"></i>Oct 26</span>
+                      </div>
+                      <div style="display:flex;">
+                        <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuB13D9fllQBxXj1lhOJg5jf3KKogTOxs9lfl9Du3tKxPKFzMZETK5ymK7jRGnGBF285KNJaeX6wLHoZZbW4oPjMQlfY44eNVHRsaPqv53Q9bGOGoEQbqNxstU30hoqM5aZldrUmZKRkvaHzu-uPMzuhxDImUjWUgciQRQUcHiIn17NRYydY6nNyz0nUuvASy_C0vfAlK7vKiYitM2wmzoAuWpDKN-zadNZwGvZ9ZkRPQFg5R24LmaWjFxBTYiS5ZtvR0ppFaSzEug" style="width:26px;height:26px;border-radius:999px;object-fit:cover;border:2px solid #fafbf8;">
+                        <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuCbTzR7uGg3rR6E0rNWkbDctDcqsZiZdPSdl-EwLojYUgVfYdS3JoN02w0ZHwTYXk3usWxwqx5B_s524puL3OeG2QW-EMxCECOOQRnCJRamwyOAfLKyyfYIOixeJEox5yB6OZ9jcbo2Tgm1triWHrAljzja9IgGPGcxuIm8-j_l8TLP5olzCTKJ4y-E2FSf0kn1MfarFiaHOQRSE66b7weQmLKq6j2-Bf2R8kjvXQ7TADDWW8IJRyn3QQscaI023LqSGPMZbaZjTA" style="width:26px;height:26px;border-radius:999px;object-fit:cover;border:2px solid #fafbf8;margin-left:-8px;">
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div style="background:#fafbf8;border-radius:20px;box-shadow:0 4px 20px rgba(0,0,0,0.04);padding:18px 20px;display:flex;gap:14px;align-items:flex-start;opacity:0.65;">
+                  <input type="checkbox" defaultChecked="{{ true }}" style="width:18px;height:18px;margin-top:3px;accent-color:#588cd3;cursor:pointer;">
+                  <div style="flex:1;min-width:0;">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:4px;">
+                      <h4 style="margin:0;font-size:15px;font-weight:700;text-decoration:line-through;">User Interview Transcripts</h4>
+                      <span style="display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:999px;background:rgba(116,162,119,0.14);border:1px solid rgba(116,162,119,0.32);color:#3c6842;font-size:11px;font-weight:700;white-space:nowrap;"><i class="ph-light ph-check-circle" style="font-size:13px;"></i>Completed</span>
+                    </div>
+                    <p style="margin:0 0 12px;font-size:13px;font-weight:500;color:#6b655e;text-decoration:line-through;">Compile and tag all quotes from the Q3 qualitative study.</p>
+                    <div style="display:flex;gap:16px;align-items:center;color:#8a8478;font-size:11px;font-weight:600;letter-spacing:0.03em;">
+                      <span style="display:flex;align-items:center;gap:5px;"><i class="ph-light ph-check-circle" style="font-size:14px;"></i>Oct 20</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ showRisk }}" hint-placeholder-val="{{ false }}">
+          <div data-screen-label="Risk Survey">
+            <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:20px;padding:0 4px;">
+              <div>
+                <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#a39d92;margin-bottom:6px;">Projects / Survey Data</div>
+                <h2 style="margin:0 0 4px;font-size:26px;font-weight:800;letter-spacing:-0.02em;">Risk Survey</h2>
+                <p style="margin:0;font-size:13px;font-weight:500;color:#6b655e;">Component playground for the new SuperApp modules.</p>
+              </div>
+              <span style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:999px;background:rgba(88,140,211,0.12);border:1px solid rgba(88,140,211,0.3);color:#3f6aa8;font-size:12px;font-weight:700;"><i class="ph-light ph-cube" style="font-size:15px;"></i>UI Kit Preview</span>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(12,1fr);gap:16px;">
+              <div style="grid-column:span 4;background:#fafbf8;border-radius:24px;box-shadow:0 4px 20px rgba(0,0,0,0.04);padding:20px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+                  <span style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#a39d92;">Date Picker</span>
+                  <div style="display:flex;align-items:center;gap:6px;">
+                    <button style="width:26px;height:26px;border-radius:8px;border:1px solid #e2dccf;background:#fafbf8;color:#5d574e;display:flex;align-items:center;justify-content:center;cursor:pointer;" style-hover="background:#f1ede3;"><i class="ph-light ph-caret-left" style="font-size:13px;"></i></button>
+                    <span style="font-size:12px;font-weight:700;">July 2026</span>
+                    <button style="width:26px;height:26px;border-radius:8px;border:1px solid #e2dccf;background:#fafbf8;color:#5d574e;display:flex;align-items:center;justify-content:center;cursor:pointer;" style-hover="background:#f1ede3;"><i class="ph-light ph-caret-right" style="font-size:13px;"></i></button>
+                  </div>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:4px;">
+                  <span style="text-align:center;font-size:9px;font-weight:700;letter-spacing:0.06em;color:#a39d92;">MO</span>
+                  <span style="text-align:center;font-size:9px;font-weight:700;letter-spacing:0.06em;color:#a39d92;">TU</span>
+                  <span style="text-align:center;font-size:9px;font-weight:700;letter-spacing:0.06em;color:#a39d92;">WE</span>
+                  <span style="text-align:center;font-size:9px;font-weight:700;letter-spacing:0.06em;color:#a39d92;">TH</span>
+                  <span style="text-align:center;font-size:9px;font-weight:700;letter-spacing:0.06em;color:#a39d92;">FR</span>
+                  <span style="text-align:center;font-size:9px;font-weight:700;letter-spacing:0.06em;color:#a39d92;">SA</span>
+                  <span style="text-align:center;font-size:9px;font-weight:700;letter-spacing:0.06em;color:#a39d92;">SU</span>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;">
+                  <sc-for list="{{ days }}" as="day" hint-placeholder-count="35">
+                    <button onClick="{{ day.pick }}" style="height:32px;padding:0;min-width:0;border-radius:999px;border:{{ day.border }};background:{{ day.bg }};color:{{ day.color }};font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.15s;">{{ day.n }}</button>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="grid-column:span 4;background:#fafbf8;border-radius:24px;box-shadow:0 4px 20px rgba(0,0,0,0.04);padding:20px;display:flex;flex-direction:column;gap:18px;">
+                <span style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#a39d92;">Gradient Progress</span>
+                <div>
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
+                    <span style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#b04a45;">Risk exposure</span>
+                    <span style="font-size:12px;font-weight:800;color:#b04a45;">68%</span>
+                  </div>
+                  <div style="position:relative;height:14px;border-radius:2px;overflow:hidden;">
+                    <div style="position:absolute;top:0;bottom:0;left:0;right:0;background:linear-gradient(90deg,#74a277 0%,#d6a04c 55%,#de6d68 100%);"></div>
+                    <div style="position:absolute;top:0;bottom:0;left:0;right:0;background:repeating-linear-gradient(90deg,transparent 0px,transparent 2px,#fafbf8 2px,#fafbf8 5px);"></div>
+                    <div style="position:absolute;top:0;bottom:0;left:68%;right:0;background:repeating-linear-gradient(90deg,#e4ded1 0px,#e4ded1 2px,#fafbf8 2px,#fafbf8 5px);"></div>
+                  </div>
+                  <div style="font-size:11px;font-weight:500;color:#8a8478;margin-top:6px;">Green → Red · load builds up</div>
+                </div>
+                <div>
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
+                    <span style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#3c6842;">Mitigation coverage</span>
+                    <span style="font-size:12px;font-weight:800;color:#3c6842;">82%</span>
+                  </div>
+                  <div style="position:relative;height:14px;border-radius:2px;overflow:hidden;">
+                    <div style="position:absolute;top:0;bottom:0;left:0;right:0;background:linear-gradient(90deg,#de6d68 0%,#d6a04c 45%,#74a277 100%);"></div>
+                    <div style="position:absolute;top:0;bottom:0;left:0;right:0;background:repeating-linear-gradient(90deg,transparent 0px,transparent 2px,#fafbf8 2px,#fafbf8 5px);"></div>
+                    <div style="position:absolute;top:0;bottom:0;left:82%;right:0;background:repeating-linear-gradient(90deg,#e4ded1 0px,#e4ded1 2px,#fafbf8 2px,#fafbf8 5px);"></div>
+                  </div>
+                  <div style="font-size:11px;font-weight:500;color:#8a8478;margin-top:6px;">Red → Green · recovery</div>
+                </div>
+              </div>
+              <div style="grid-column:span 4;background:#fafbf8;border-radius:24px;box-shadow:0 4px 20px rgba(0,0,0,0.04);padding:20px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+                  <span style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#a39d92;">Alerts</span>
+                  <button onClick="{{ resetAlerts }}" style="width:26px;height:26px;border-radius:8px;border:1px solid #e2dccf;background:#fafbf8;color:#5d574e;display:flex;align-items:center;justify-content:center;cursor:pointer;" style-hover="background:#f1ede3;"><i class="ph-light ph-arrow-counter-clockwise" style="font-size:13px;"></i></button>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                  <sc-if value="{{ alS }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;border-radius:12px;background:rgba(116,162,119,0.14);border:1px solid rgba(116,162,119,0.32);">
+                      <i class="ph-light ph-check-circle" style="font-size:17px;color:#3c6842;flex-shrink:0;"></i>
+                      <span style="flex:1;font-size:12px;font-weight:600;color:#3c6842;">Survey published successfully.</span>
+                      <i onClick="{{ hideS }}" class="ph-light ph-x" style="font-size:13px;color:#3c6842;cursor:pointer;"></i>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ alW }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;border-radius:12px;background:rgba(214,150,108,0.16);border:1px solid rgba(214,150,108,0.35);">
+                      <i class="ph-light ph-warning" style="font-size:17px;color:#9a5f2f;flex-shrink:0;"></i>
+                      <span style="flex:1;font-size:12px;font-weight:600;color:#9a5f2f;">3 responses need manual review.</span>
+                      <i onClick="{{ hideW }}" class="ph-light ph-x" style="font-size:13px;color:#9a5f2f;cursor:pointer;"></i>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ alD }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;border-radius:12px;background:rgba(222,109,104,0.14);border:1px solid rgba(222,109,104,0.32);">
+                      <i class="ph-light ph-warning-circle" style="font-size:17px;color:#b04a45;flex-shrink:0;"></i>
+                      <span style="flex:1;font-size:12px;font-weight:600;color:#b04a45;">Deadline exceeded for Block C.</span>
+                      <i onClick="{{ hideD }}" class="ph-light ph-x" style="font-size:13px;color:#b04a45;cursor:pointer;"></i>
+                    </div>
+                  </sc-if>
+                </div>
+              </div>
+              <div style="grid-column:span 5;background:#fafbf8;border-radius:24px;box-shadow:0 4px 20px rgba(0,0,0,0.04);padding:20px;">
+                <span style="display:block;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#a39d92;margin-bottom:14px;">Drag &amp; Drop</span>
+                <div onDragOver="{{ onDragOver }}" onDragLeave="{{ onDragLeave }}" onDrop="{{ onDrop }}" style="border:2px dashed {{ dropBorder }};background:{{ dropBg }};border-radius:16px;padding:24px;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;transition:border-color 0.2s, background 0.2s;margin-bottom:12px;">
+                  <div style="width:40px;height:40px;border-radius:12px;background:rgba(214,150,108,0.16);display:flex;align-items:center;justify-content:center;margin-bottom:4px;"><i class="ph-light ph-upload-simple" style="font-size:20px;color:#b06a38;"></i></div>
+                  <div style="font-size:13px;font-weight:600;">Drag and drop or <span style="color:#3f6aa8;cursor:pointer;">browse files</span></div>
+                  <div style="font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#a39d92;">Max file size: 20 MB</div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                  <div style="display:flex;align-items:center;gap:12px;padding:12px;border-radius:14px;border:1px solid #eee9dd;">
+                    <div style="width:36px;height:36px;border-radius:10px;background:rgba(116,162,119,0.14);display:flex;align-items:center;justify-content:center;flex-shrink:0;"><i class="ph-light ph-file-text" style="font-size:18px;color:#3c6842;"></i></div>
+                    <div style="flex:1;min-width:0;">
+                      <div style="font-size:13px;font-weight:700;">risk-block-c.pdf</div>
+                      <div style="font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#3c6842;margin-top:2px;">4 MB · Complete</div>
+                    </div>
+                    <i class="ph-light ph-trash" style="font-size:16px;color:#a39d92;cursor:pointer;"></i>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:12px;padding:12px;border-radius:14px;border:1px solid #eee9dd;">
+                    <div style="width:36px;height:36px;border-radius:10px;background:rgba(88,140,211,0.12);display:flex;align-items:center;justify-content:center;flex-shrink:0;"><i class="ph-light ph-file" style="font-size:18px;color:#3f6aa8;"></i></div>
+                    <div style="flex:1;min-width:0;">
+                      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                        <span style="font-size:13px;font-weight:700;">survey-data.fig</span>
+                        <span style="font-size:10px;font-weight:700;letter-spacing:0.06em;color:#8a8478;">75%</span>
+                      </div>
+                      <div style="position:relative;height:8px;border-radius:2px;overflow:hidden;">
+                        <div style="position:absolute;top:0;bottom:0;left:0;right:0;background:linear-gradient(90deg,#de6d68 0%,#d6a04c 50%,#74a277 100%);"></div>
+                        <div style="position:absolute;top:0;bottom:0;left:0;right:0;background:repeating-linear-gradient(90deg,transparent 0px,transparent 2px,#fafbf8 2px,#fafbf8 5px);"></div>
+                        <div style="position:absolute;top:0;bottom:0;left:75%;right:0;background:repeating-linear-gradient(90deg,#e4ded1 0px,#e4ded1 2px,#fafbf8 2px,#fafbf8 5px);"></div>
+                      </div>
+                    </div>
+                    <i class="ph-light ph-x" style="font-size:16px;color:#a39d92;cursor:pointer;"></i>
+                  </div>
+                </div>
+              </div>
+              <div style="grid-column:span 4;background:#fafbf8;border-radius:24px;box-shadow:0 4px 20px rgba(0,0,0,0.04);padding:20px;display:flex;flex-direction:column;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+                  <span style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#a39d92;">Text Scramble</span>
+                  <button onClick="{{ replay }}" style="width:26px;height:26px;border-radius:8px;border:1px solid #e2dccf;background:#fafbf8;color:#5d574e;display:flex;align-items:center;justify-content:center;cursor:pointer;" style-hover="background:#f1ede3;"><i class="ph-light ph-arrow-clockwise" style="font-size:13px;"></i></button>
+                </div>
+                <div style="flex:1;display:flex;align-items:center;min-height:56px;font-size:20px;font-weight:800;letter-spacing:-0.01em;color:#1d1b1d;overflow-wrap:anywhere;">{{ scramble }}</div>
+                <div style="font-size:11px;font-weight:500;color:#8a8478;margin-top:10px;">Headline assembles itself from glyphs.</div>
+              </div>
+              <div style="grid-column:span 3;background:#fafbf8;border-radius:24px;box-shadow:0 4px 20px rgba(0,0,0,0.04);padding:20px;display:flex;flex-direction:column;">
+                <span style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#a39d92;margin-bottom:12px;">Slider</span>
+                <div style="font-size:24px;font-weight:800;color:#3f6aa8;margin-bottom:12px;">{{ sliderLabel }}</div>
+                <div style="position:relative;height:10px;border-radius:2px;overflow:hidden;background:repeating-linear-gradient(90deg,#e4ded1 0px,#e4ded1 2px,transparent 2px,transparent 5px);margin-bottom:14px;">
+                  <div style="position:absolute;top:0;bottom:0;left:0;width:{{ sliderWidth }};background:repeating-linear-gradient(90deg,#588cd3 0px,#588cd3 2px,transparent 2px,transparent 5px);"></div>
+                </div>
+                <input type="range" min="0" max="100" defaultValue="40" onInput="{{ onSlider }}" style="width:100%;accent-color:#588cd3;cursor:pointer;margin-top:auto;">
+              </div>
+              <div style="grid-column:span 6;background:#fafbf8;border-radius:24px;box-shadow:0 4px 20px rgba(0,0,0,0.04);padding:20px;">
+                <span style="display:block;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#a39d92;margin-bottom:14px;">Pagination</span>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;min-width:0;">
+                  <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0;">
+                    <button onClick="{{ prevPage }}" style="width:34px;height:34px;border-radius:10px;border:1px solid #e2dccf;background:#fafbf8;color:#5d574e;display:flex;align-items:center;justify-content:center;cursor:pointer;" style-hover="background:#f1ede3;"><i class="ph-light ph-caret-left" style="font-size:14px;"></i></button>
+                    <sc-for list="{{ pages }}" as="pg" hint-placeholder-count="6">
+                      <button onClick="{{ pg.pick }}" style="width:34px;height:34px;border-radius:10px;border:{{ pg.border }};background:{{ pg.bg }};color:{{ pg.color }};font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.15s;">{{ pg.n }}</button>
+                    </sc-for>
+                    <button onClick="{{ nextPage }}" style="width:34px;height:34px;border-radius:10px;border:1px solid #e2dccf;background:#fafbf8;color:#5d574e;display:flex;align-items:center;justify-content:center;cursor:pointer;" style-hover="background:#f1ede3;"><i class="ph-light ph-caret-right" style="font-size:14px;"></i></button>
+                  </div>
+                  <span style="font-size:11px;font-weight:600;color:#8a8478;">{{ pageLabel }}</span>
+                </div>
+              </div>
+              <div style="grid-column:span 6;background:#fafbf8;border-radius:24px;box-shadow:0 4px 20px rgba(0,0,0,0.04);padding:20px;">
+                <span style="display:block;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#a39d92;margin-bottom:14px;">Project Settings</span>
+                <div style="display:flex;flex-direction:column;gap:4px;">
+                  <div style="display:flex;align-items:center;gap:12px;padding:9px 4px;">
+                    <div style="flex:1;">
+                      <div style="font-size:13px;font-weight:700;">Email alerts</div>
+                      <div style="font-size:11px;font-weight:500;color:#8a8478;">Notify on new responses</div>
+                    </div>
+                    <button onClick="{{ tgAlerts.pick }}" style="width:44px;height:26px;border-radius:999px;border:none;background:{{ tgAlerts.bg }};position:relative;cursor:pointer;transition:background 0.2s;padding:0;flex-shrink:0;"><span style="position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:999px;background:#ffffff;box-shadow:0 1px 3px rgba(0,0,0,0.15);transition:transform 0.2s;transform:{{ tgAlerts.knob }};"></span></button>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:12px;padding:9px 4px;">
+                    <div style="flex:1;">
+                      <div style="font-size:13px;font-weight:700;">Auto-scaling</div>
+                      <div style="font-size:11px;font-weight:500;color:#8a8478;">Add capacity on load spikes</div>
+                    </div>
+                    <button onClick="{{ tgScale.pick }}" style="width:44px;height:26px;border-radius:999px;border:none;background:{{ tgScale.bg }};position:relative;cursor:pointer;transition:background 0.2s;padding:0;flex-shrink:0;"><span style="position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:999px;background:#ffffff;box-shadow:0 1px 3px rgba(0,0,0,0.15);transition:transform 0.2s;transform:{{ tgScale.knob }};"></span></button>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:12px;padding:9px 4px;">
+                    <div style="flex:1;">
+                      <div style="font-size:13px;font-weight:700;">Require 2FA</div>
+                      <div style="font-size:11px;font-weight:500;color:#8a8478;">For all survey editors</div>
+                    </div>
+                    <button onClick="{{ tgTfa.pick }}" style="width:44px;height:26px;border-radius:999px;border:none;background:{{ tgTfa.bg }};position:relative;cursor:pointer;transition:background 0.2s;padding:0;flex-shrink:0;"><span style="position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:999px;background:#ffffff;box-shadow:0 1px 3px rgba(0,0,0,0.15);transition:transform 0.2s;transform:{{ tgTfa.knob }};"></span></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ showEmpty }}" hint-placeholder-val="{{ false }}">
+          <div data-screen-label="Empty section" style="background:#fafbf8;border-radius:24px;box-shadow:0 4px 20px rgba(0,0,0,0.04);padding:72px 24px;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;">
+            <div style="width:52px;height:52px;border-radius:999px;background:rgba(29,27,29,0.05);display:flex;align-items:center;justify-content:center;margin-bottom:10px;"><i class="ph-light ph-tray" style="font-size:26px;color:#a39d92;"></i></div>
+            <div style="font-size:17px;font-weight:800;">{{ emptyTitle }}</div>
+            <div style="font-size:13px;font-weight:500;color:#6b655e;">Nothing here yet — this section is next in the redesign.</div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;projectProgress&quot;: {&quot;editor&quot;: &quot;range&quot;, &quot;default&quot;: 75, &quot;min&quot;: 0, &quot;max&quot;: 100, &quot;step&quot;: 1, &quot;unit&quot;: &quot;%&quot;, &quot;tsType&quot;: &quot;number&quot;, &quot;section&quot;: &quot;Dashboard&quot;},
+  &quot;serverLoad&quot;: {&quot;editor&quot;: &quot;range&quot;, &quot;default&quot;: 92, &quot;min&quot;: 0, &quot;max&quot;: 100, &quot;step&quot;: 1, &quot;unit&quot;: &quot;%&quot;, &quot;tsType&quot;: &quot;number&quot;, &quot;section&quot;: &quot;Dashboard&quot;},
+  &quot;showAlert&quot;: {&quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: true, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;Dashboard&quot;}
+}">
+class Component extends DCLogic {
+  state = { view: 'dashboard', treeOpen: true, selectedDay: 14, page: 2, slider: 40,
+    tg: { alerts: true, scale: false, tfa: true },
+    al: { s: true, w: true, d: true },
+    drag: false, scramble: 'Risk Survey 2026' };
+  phrases = ['Risk Survey 2026', 'Text Scramble FX', 'SuperApp Modules'];
+  componentDidMount() { this._ph = 0; this.runScramble(); }
+  componentWillUnmount() { clearInterval(this._si); clearTimeout(this._st); }
+  runScramble() {
+    const chars = '!<>-_/[]{}=+*^?#';
+    const target = this.phrases[this._ph % this.phrases.length];
+    let frame = 0;
+    clearInterval(this._si); clearTimeout(this._st);
+    this._si = setInterval(() => {
+      if (this.state.view !== 'risk') return;
+      frame++;
+      const reveal = Math.floor(frame / 3);
+      let out = '';
+      for (let i = 0; i < target.length; i++) out += i < reveal ? target[i] : chars[Math.floor(Math.random() * chars.length)];
+      this.setState({ scramble: out });
+      if (reveal >= target.length) {
+        clearInterval(this._si);
+        this._st = setTimeout(() => { this._ph++; this.runScramble(); }, 2600);
+      }
+    }, 40);
+  }
+  renderVals() {
+    const v = this.state.view;
+    const keys = ['dashboard', 'inbox', 'projects', 'calendar', 'settings', 'support'];
+    const titles = { inbox: 'Inbox', calendar: 'Calendar', settings: 'Settings', support: 'Support' };
+    const nav = {}, go = {};
+    keys.forEach(k => {
+      nav[k] = { bg: v === k ? '#ece7dc' : 'transparent', color: v === k ? '#1d1b1d' : '#5d574e' };
+      go[k] = () => this.setState({ view: k });
+    });
+    go.projects = () => this.setState(s => ({ view: 'projects', treeOpen: s.view === 'projects' ? !s.treeOpen : true }));
+    go.risk = () => this.setState({ view: 'risk' });
+    nav.risk = { bg: v === 'risk' ? '#ece7dc' : 'transparent', color: v === 'risk' ? '#1d1b1d' : '#8a8478' };
+    if (v === 'risk') nav.projects = { bg: '#f1ede3', color: '#1d1b1d' };
+    const path = v === 'risk'
+      ? { line: '#b3a98f', text: '#1d1b1d', icon: '#1d1b1d' }
+      : { line: '#ddd6c8', text: '#5d574e', icon: '#5d574e' };
+    const days = [];
+    for (let i = 0; i < 2; i++) days.push({ n: '', bg: 'transparent', color: 'transparent', border: '1px solid transparent', pick: null });
+    for (let d = 1; d <= 31; d++) {
+      const sel = d === this.state.selectedDay;
+      days.push({
+        n: d, pick: () => this.setState({ selectedDay: d }),
+        bg: sel ? '#588cd3' : 'transparent',
+        color: sel ? '#ffffff' : (d === 26 ? '#3f6aa8' : '#5d574e'),
+        border: (d === 26 && !sel) ? '1px solid rgba(88,140,211,0.5)' : '1px solid transparent'
+      });
+    }
+    const pages = [];
+    for (let p = 1; p <= 6; p++) {
+      const a = p === this.state.page;
+      pages.push({
+        n: p, pick: () => this.setState({ page: p }),
+        bg: a ? 'rgba(88,140,211,0.14)' : 'transparent',
+        color: a ? '#3f6aa8' : '#5d574e',
+        border: a ? '1px solid rgba(88,140,211,0.35)' : '1px solid transparent'
+      });
+    }
+    const mkTg = k => ({
+      bg: this.state.tg[k] ? '#74a277' : '#ddd6c8',
+      knob: this.state.tg[k] ? 'translateX(18px)' : 'translateX(0px)',
+      pick: () => this.setState(s => ({ tg: { ...s.tg, [k]: !s.tg[k] } }))
+    });
+    const clamp = n => Math.max(0, Math.min(100, n));
+    const progress = clamp(this.props.projectProgress ?? 75);
+    const load = clamp(this.props.serverLoad ?? 92);
+    return {
+      nav, go,
+      showDashboard: v === 'dashboard',
+      showProjects: v === 'projects',
+      showRisk: v === 'risk',
+      showEmpty: v !== 'dashboard' && v !== 'projects' && v !== 'risk',
+      emptyTitle: titles[v] || '',
+      progressWidth: progress + '%', progressLabel: progress + '%',
+      loadWidth: load + '%', loadLabel: load + '%',
+      showAlert: this.props.showAlert ?? true,
+      showTree: this.state.treeOpen,
+      treeCaret: this.state.treeOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+      days, pages, path,
+      prevPage: () => this.setState(s => ({ page: Math.max(1, s.page - 1) })),
+      nextPage: () => this.setState(s => ({ page: Math.min(6, s.page + 1) })),
+      pageLabel: 'Page ' + this.state.page + ' of 6',
+      sliderLabel: this.state.slider + '%',
+      sliderWidth: this.state.slider + '%',
+      onSlider: e => this.setState({ slider: +e.target.value }),
+      tgAlerts: mkTg('alerts'), tgScale: mkTg('scale'), tgTfa: mkTg('tfa'),
+      alS: this.state.al.s, alW: this.state.al.w, alD: this.state.al.d,
+      hideS: () => this.setState(s => ({ al: { ...s.al, s: false } })),
+      hideW: () => this.setState(s => ({ al: { ...s.al, w: false } })),
+      hideD: () => this.setState(s => ({ al: { ...s.al, d: false } })),
+      resetAlerts: () => this.setState({ al: { s: true, w: true, d: true } }),
+      scramble: this.state.scramble,
+      replay: () => { this._ph++; this.runScramble(); },
+      dropBorder: this.state.drag ? '#588cd3' : '#ddd6c8',
+      dropBg: this.state.drag ? 'rgba(88,140,211,0.06)' : 'transparent',
+      onDragOver: e => { e.preventDefault(); if (!this.state.drag) this.setState({ drag: true }); },
+      onDragLeave: () => this.setState({ drag: false }),
+      onDrop: e => { e.preventDefault(); this.setState({ drag: false }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

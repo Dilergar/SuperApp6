@@ -143,7 +143,7 @@ export function CallRoomShell({
       <RoomAudioRenderer />
       {reconnecting && (
         <div
-          className="wash-secondary"
+          className="alert-accent-inline"
           style={{
             padding: 'var(--spacing-2) var(--spacing-4)',
             marginBottom: 'var(--spacing-3)',

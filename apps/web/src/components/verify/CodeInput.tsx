@@ -67,7 +67,6 @@ export function CodeInput({
             .filter(Boolean)
             .join(' ')}
           // лёгкий рукописный «разнобой» ячеек (наклон как у PersonCard)
-          style={{ transform: `rotate(${[-1.2, 0.8, -0.5, 1.1, -0.9, 0.6][i % 6]}deg)` }}
         >
           {ch}
         </div>

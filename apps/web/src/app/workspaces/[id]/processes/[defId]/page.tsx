@@ -1,5 +1,8 @@
 'use client';
 
+import {
+  Alert, Button, Checkbox, Chip, Icon, IconButton, Input, Modal, Select, Textarea,
+} from '@/components/ui';
 // Редактор процесса — полноэкранный канвас (как n8n) + плавающие панели.
 // ИСТОЧНИК ПРАВДЫ во время правки — flow-state (applyNodeChanges/applyEdgeChanges):
 // драг двигает ноды внутренним механизмом React Flow без пересборки объектов → нет
@@ -385,56 +388,81 @@ export default function ProcessEditorPage() {
     // Полноэкранный слой под навбаром организации (z-40 < nav z-50) — простор как в n8n.
     <div style={{ position: 'fixed', inset: 0, top: '3.75rem', zIndex: 40, display: 'flex', flexDirection: 'column', background: 'var(--surface)' }}>
       {/* Тулбар */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap', padding: '0.55rem 1rem', background: 'rgba(245,245,220,0.75)', backdropFilter: 'blur(8px)' }}>
-        <button className="label-md" style={{ opacity: 0.75, fontWeight: 600 }} onClick={leave}>← Процессы</button>
-        <strong className="title-md" style={{ fontSize: '1rem' }}>{detail.name}</strong>
-        <span className="ghost-border label-md" style={{ padding: '0.15rem 0.6rem', fontSize: '0.7rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap', padding: '0.55rem 1rem', background: 'rgba(234, 230, 222, 0.75)', backdropFilter: 'blur(8px)' }}>
+        <Button variant="ghost" size="sm" icon="arrowLeft" onClick={leave}>Процессы</Button>
+        <strong className="title-md">{detail.name}</strong>
+        <Chip size="sm" tone="neutral">
           v{detail.editableVersion} · {PROCESS_VERSION_STATUS_LABELS[detail.editableVersionStatus]}
           {detail.publishedVersion && detail.publishedVersion !== detail.editableVersion ? ` · запуск v${detail.publishedVersion}` : ''}
-        </span>
-        {dirty && <span className="label-md" style={{ fontSize: '0.72rem', color: 'var(--primary)', fontWeight: 700 }}>● не сохранено</span>}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center' }}>
-          <button
-            className="btn-secondary"
-            style={{ padding: '0.4rem 0.9rem', fontSize: '0.78rem', background: settingsOpen ? 'var(--secondary-container)' : undefined }}
+        </Chip>
+        {dirty && <Chip size="sm" tone="warning">не сохранено</Chip>}
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.375rem', alignItems: 'center' }}>
+          <Button
+            variant={settingsOpen ? 'matte' : 'ghost'}
+            tone="accent"
+            size="sm"
+            icon="settings"
             onClick={() => { setSettingsOpen((v) => !v); setSelectedId(null); }}
             title="Настройки процесса: имя, видимость, креды, архив"
           >
-            ⚙ Настройки
-          </button>
+            Настройки
+          </Button>
           {canEdit && (
             <>
-              <button className="btn-secondary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.78rem' }} onClick={() => { setNodes((ns) => autoLayout(ns, edges)); markDirty(); }} title="Авто-раскладка">
-                ⤢ Разложить
-              </button>
-              <button
-                className="btn-secondary"
-                style={{ padding: '0.4rem 0.9rem', fontSize: '0.78rem', opacity: dirty ? 1 : 0.55 }}
-                disabled={!dirty || saveMut.isPending}
+              <Button
+                variant="ghost"
+                size="sm"
+                icon="processes"
+                title="Авто-раскладка"
+                onClick={() => { setNodes((ns) => autoLayout(ns, edges)); markDirty(); }}
+              >
+                Разложить
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                icon="save"
+                disabled={!dirty}
+                loading={saveMut.isPending}
                 onClick={onSave}
               >
-                {saveMut.isPending ? 'Сохраняю…' : dirty ? 'Сохранить (Ctrl+S)' : 'Сохранено'}
-              </button>
-              <button className="btn-primary" style={{ padding: '0.4rem 1rem', fontSize: '0.78rem' }} disabled={publishMut.isPending} onClick={() => publishMut.mutate()}>
+                {dirty ? 'Сохранить (Ctrl+S)' : 'Сохранено'}
+              </Button>
+              <Button variant="primary" tone="success" size="sm" icon="uploadCloud" loading={publishMut.isPending} onClick={() => publishMut.mutate()}>
                 Опубликовать
-              </button>
+              </Button>
             </>
           )}
           {detail.canStart && (
-            <button className="btn-primary" style={{ padding: '0.4rem 1rem', fontSize: '0.78rem' }} onClick={() => setStartOpen(true)}>▶ Запустить</button>
+            <Button variant="primary" size="sm" icon="play" onClick={() => setStartOpen(true)}>Запустить</Button>
           )}
         </div>
       </div>
 
+      {/* Всплывающие сообщения над канвасом — плашки кита в фиксированной позиции */}
       {banner && (
-        <div style={{ position: 'absolute', top: '3.6rem', left: '50%', transform: 'translateX(-50%)', zIndex: 60, padding: '0.5rem 1.1rem', borderRadius: '0.8rem 0.5rem 0.9rem 0.6rem', background: banner.kind === 'ok' ? '#dff0e4' : 'var(--primary-container)', boxShadow: '0 8px 22px rgba(56,57,45,0.14)' }}>
-          <span className="label-md" style={{ fontWeight: 700, fontSize: '0.82rem' }}>{banner.text}</span>
+        <div style={{ position: 'absolute', top: '3.6rem', left: '50%', transform: 'translateX(-50%)', zIndex: 60, maxWidth: 420, boxShadow: 'var(--shadow-pop)' }}>
+          <Alert tone={banner.kind === 'ok' ? 'success' : 'danger'}>{banner.text}</Alert>
         </div>
       )}
       {conflict && (
-        <div style={{ position: 'absolute', top: '3.6rem', left: '50%', transform: 'translateX(-50%)', zIndex: 60, padding: '0.5rem 1.1rem', borderRadius: '0.8rem', background: 'var(--primary-container)', boxShadow: '0 8px 22px rgba(56,57,45,0.14)' }}>
-          <span className="label-md" style={{ fontWeight: 700, fontSize: '0.8rem' }}>Процесс изменён в другом месте. </span>
-          <button className="label-md" style={{ fontWeight: 700, fontSize: '0.8rem', color: 'var(--secondary)' }} onClick={() => { hydratedKey.current = null; setDirty(false); setConflict(false); void detailQ.refetch(); }}>Загрузить заново</button>
+        <div style={{ position: 'absolute', top: '3.6rem', left: '50%', transform: 'translateX(-50%)', zIndex: 60, maxWidth: 460, boxShadow: 'var(--shadow-pop)' }}>
+          <Alert
+            tone="warning"
+            action={
+              <Button
+                variant="matte"
+                tone="warning"
+                size="sm"
+                icon="refresh"
+                onClick={() => { hydratedKey.current = null; setDirty(false); setConflict(false); void detailQ.refetch(); }}
+              >
+                Загрузить заново
+              </Button>
+            }
+          >
+            Процесс изменён в другом месте.
+          </Alert>
         </div>
       )}
 
@@ -463,9 +491,16 @@ export default function ProcessEditorPage() {
 
         {/* Палитра (плавающая, сворачиваемая) */}
         {canEdit && (
-          <div style={{ position: 'absolute', top: '0.8rem', left: '0.8rem', width: paletteOpen ? '12rem' : 'auto', maxHeight: 'calc(100% - 1.6rem)', overflowY: 'auto', background: 'var(--surface-container-lowest)', borderRadius: '0.9rem 0.6rem 1rem 0.7rem', boxShadow: '0 10px 26px rgba(56,57,45,0.12)', padding: paletteOpen ? '0.7rem' : '0.4rem' }}>
-            <button className="title-md" style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem', width: '100%' }} onClick={() => setPaletteOpen((v) => !v)}>
-              <span>{paletteOpen ? '◀' : '▶'}</span>{paletteOpen && <span>Ноды</span>}
+          <div style={{ position: 'absolute', top: '0.8rem', left: '0.8rem', width: paletteOpen ? '12rem' : 'auto', maxHeight: 'calc(100% - 1.6rem)', overflowY: 'auto', background: 'var(--surface-container-lowest)', borderRadius: 'var(--radius-lg)', boxShadow: '0 10px 26px rgba(0, 0, 0, 0.12)', padding: paletteOpen ? '0.7rem' : '0.4rem' }}>
+            <button
+              className="title-sm"
+              aria-expanded={paletteOpen}
+              aria-label={paletteOpen ? 'Свернуть палитру нод' : 'Развернуть палитру нод'}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', width: '100%', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface)' }}
+              onClick={() => setPaletteOpen((v) => !v)}
+            >
+              <Icon name={paletteOpen ? 'caretLeft' : 'caretRight'} size={15} />
+              {paletteOpen && <span>Ноды</span>}
             </button>
             {paletteOpen &&
               CATEGORY_ORDER.filter((cat) => nodeTypes.some((t) => t.category === cat)).map((cat) => (
@@ -480,9 +515,9 @@ export default function ProcessEditorPage() {
                       onDragStart={(e) => { e.dataTransfer.setData('application/superapp-process-node', t.type); e.dataTransfer.effectAllowed = 'move'; }}
                       onClick={() => addNodeCentered(t)}
                       title={`${t.description}\n(перетащите на холст или кликните)`}
-                      style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '0.4rem 0.5rem', marginBottom: '0.3rem', background: 'var(--surface-container)', borderRadius: '0.7rem 0.5rem 0.8rem 0.55rem', cursor: 'grab', textAlign: 'left' }}
+                      style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '0.4rem 0.5rem', marginBottom: '0.3rem', background: 'var(--surface-container)', borderRadius: 'var(--radius-md)', cursor: 'grab', textAlign: 'left' }}
                     >
-                      <span style={{ width: '1.5rem', height: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', background: CATEGORY_COLORS[cat], borderRadius: '45% 55% 50% 60%' }}>{t.icon}</span>
+                      <span style={{ width: '1.5rem', height: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', background: CATEGORY_COLORS[cat], borderRadius: '50%' }}>{t.icon}</span>
                       <span className="label-md" style={{ fontSize: '0.77rem', fontWeight: 600, color: 'var(--on-surface)' }}>{t.title}</span>
                     </button>
                   ))}
@@ -499,7 +534,7 @@ export default function ProcessEditorPage() {
         {/* Правая панель: настройки ВЫБРАННОЙ ноды (по клику) ИЛИ настройки процесса (кнопка ⚙).
             Если ничего не выбрано и настройки закрыты — панели нет (холст во весь экран). */}
         {(settingsOpen || selectedNode) && (
-          <div style={{ position: 'absolute', top: '0.8rem', right: '0.8rem', bottom: '0.8rem', width: '20rem', display: 'flex', flexDirection: 'column', background: 'var(--surface-container-lowest)', borderRadius: '0.9rem 0.6rem 1rem 0.7rem', boxShadow: '0 10px 26px rgba(56,57,45,0.12)', overflow: 'hidden' }}>
+          <div style={{ position: 'absolute', top: '0.8rem', right: '0.8rem', bottom: '0.8rem', width: '20rem', display: 'flex', flexDirection: 'column', background: 'var(--surface-container-lowest)', borderRadius: 'var(--radius-lg)', boxShadow: '0 10px 26px rgba(0, 0, 0, 0.12)', overflow: 'hidden' }}>
             <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--spacing-4)' }}>
               {settingsOpen ? (
                 <ProcessPanel
@@ -531,7 +566,7 @@ export default function ProcessEditorPage() {
 
         {/* Проблемы публикации — плавающая карточка снизу по центру (видна всегда, когда есть) */}
         {issues.length > 0 && (
-          <div style={{ position: 'absolute', bottom: '0.8rem', left: '50%', transform: 'translateX(-50%)', zIndex: 20, width: '30rem', maxWidth: 'calc(100% - 2rem)', maxHeight: '11rem', overflowY: 'auto', padding: '0.6rem 0.95rem', background: 'var(--surface-container)', borderRadius: '0.9rem 0.6rem 1rem 0.7rem', boxShadow: '0 10px 26px rgba(56,57,45,0.16)' }}>
+          <div style={{ position: 'absolute', bottom: '0.8rem', left: '50%', transform: 'translateX(-50%)', zIndex: 20, width: '30rem', maxWidth: 'calc(100% - 2rem)', maxHeight: '11rem', overflowY: 'auto', padding: '0.6rem 0.95rem', background: 'var(--surface-container)', borderRadius: 'var(--radius-lg)', boxShadow: '0 10px 26px rgba(0, 0, 0, 0.16)' }}>
             <div className="title-md" style={{ fontSize: '0.78rem', marginBottom: '0.3rem' }}>⚠ Мешает публикации · {issues.length}</div>
             {issues.map((iss, i) => (
               <button key={i} className="label-md" style={{ display: 'block', fontSize: '0.74rem', padding: '0.1rem 0', color: 'var(--primary)', textAlign: 'left' }} onClick={() => iss.nodeId && selectNode(iss.nodeId)}>• {iss.message}</button>
@@ -544,7 +579,7 @@ export default function ProcessEditorPage() {
         {picker && (
           <>
             <div style={{ position: 'fixed', inset: 0, zIndex: 70 }} onClick={() => setPicker(null)} />
-            <div style={{ position: 'fixed', left: Math.min(picker.x, window.innerWidth - 200), top: Math.min(picker.y, window.innerHeight - 260), zIndex: 71, width: '11rem', maxHeight: '15rem', overflowY: 'auto', background: 'var(--surface-container-lowest)', borderRadius: '0.8rem 0.5rem 0.9rem 0.6rem', boxShadow: '0 12px 30px rgba(56,57,45,0.18)', padding: '0.4rem' }}>
+            <div style={{ position: 'fixed', left: Math.min(picker.x, window.innerWidth - 200), top: Math.min(picker.y, window.innerHeight - 260), zIndex: 71, width: '11rem', maxHeight: '15rem', overflowY: 'auto', background: 'var(--surface-container-lowest)', borderRadius: 'var(--radius-md)', boxShadow: '0 12px 30px rgba(0, 0, 0, 0.18)', padding: '0.4rem' }}>
               <div className="label-md" style={{ fontSize: '0.66rem', opacity: 0.7, padding: '0.2rem 0.4rem' }}>Добавить и связать</div>
               {addableTypes.map((t) => (
                 <button key={t.type} onClick={() => { addNodeAt(t, picker.flow, picker.from); setPicker(null); }} style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', width: '100%', padding: '0.35rem 0.45rem', borderRadius: '0.6rem', textAlign: 'left' }}>
@@ -575,7 +610,7 @@ function CenteredMsg({ text, action }: { text: string; action?: { label: string;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--spacing-4)', padding: 'var(--spacing-12)' }}>
       <p className="label-md">{text}</p>
-      {action && <button className="btn-secondary" style={{ padding: '0.4rem 1rem' }} onClick={action.onClick}>{action.label}</button>}
+      {action && <Button variant="outline" size="sm" onClick={action.onClick}>{action.label}</Button>}
     </div>
   );
 }
@@ -620,46 +655,62 @@ function NodePanel({
           <div className="title-md" style={{ fontSize: '0.9rem' }}>{t.title}</div>
           {t.trigger && <div className="label-md" style={{ fontSize: '0.62rem', fontWeight: 700, color: '#9a6a16' }}>ТРИГГЕР ЗАПУСКА</div>}
         </div>
-        <button className="label-md" onClick={onClose} title="Закрыть" style={{ fontSize: '1rem', lineHeight: 1, opacity: 0.6, padding: '0.1rem 0.3rem' }}>✕</button>
+        <IconButton icon="close" label="Закрыть настройки ноды" size={28} onClick={onClose} />
       </div>
       <p className="label-md" style={{ fontSize: '0.74rem', opacity: 0.8 }}>{t.description}</p>
 
       <Field label="Подпись на холсте">
-        <input className="input-sketch" style={{ width: '100%' }} value={node.data.label ?? ''} disabled={readOnly} onChange={(e) => onChange({ label: e.target.value })} />
+        <Input value={node.data.label ?? ''} disabled={readOnly} onChange={(e) => onChange({ label: e.target.value })} aria-label="Подпись на холсте" />
       </Field>
 
       {t.fields.filter(visible).map((f) => (
         <Field key={f.key} label={f.label + (f.required ? ' *' : '')} help={f.help}>
           {f.kind === 'text' && (
-            <input className="input-sketch" style={{ width: '100%' }} value={String(cfg[f.key] ?? '')} placeholder={f.placeholder} disabled={readOnly} onChange={(e) => setCfg(f.key, e.target.value)} />
+            <Input value={String(cfg[f.key] ?? '')} placeholder={f.placeholder} disabled={readOnly} onChange={(e) => setCfg(f.key, e.target.value)} aria-label={f.label} />
           )}
           {f.kind === 'textarea' && (
-            <textarea className="input-sketch" style={{ width: '100%', minHeight: '4.5rem', resize: 'vertical' }} value={String(cfg[f.key] ?? '')} placeholder={f.placeholder} disabled={readOnly} onChange={(e) => setCfg(f.key, e.target.value)} />
+            <Textarea
+              value={String(cfg[f.key] ?? '')}
+              placeholder={f.placeholder}
+              disabled={readOnly}
+              onChange={(e) => setCfg(f.key, e.target.value)}
+              aria-label={f.label}
+              style={{ minHeight: '4.5rem', resize: 'vertical' }}
+            />
           )}
           {f.kind === 'number' && (
-            <input className="input-sketch" type="number" style={{ width: '100%' }} value={cfg[f.key] === undefined || cfg[f.key] === '' ? '' : Number(cfg[f.key])} placeholder={f.placeholder} disabled={readOnly} onChange={(e) => setCfg(f.key, e.target.value === '' ? undefined : Number(e.target.value))} />
+            <Input
+              type="number"
+              value={cfg[f.key] === undefined || cfg[f.key] === '' ? '' : Number(cfg[f.key])}
+              placeholder={f.placeholder}
+              disabled={readOnly}
+              onChange={(e) => setCfg(f.key, e.target.value === '' ? undefined : Number(e.target.value))}
+              aria-label={f.label}
+            />
           )}
           {f.kind === 'select' && (
-            <select className="input-sketch" style={{ width: '100%' }} value={String(cfg[f.key] ?? '')} disabled={readOnly} onChange={(e) => setCfg(f.key, e.target.value || undefined)}>
-              <option value="">—</option>
-              {(f.options ?? []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
+            <Select
+              aria-label={f.label}
+              value={String(cfg[f.key] ?? '')}
+              disabled={readOnly}
+              width="100%"
+              onChange={(v) => setCfg(f.key, v || undefined)}
+              options={[{ value: '', label: '—' }, ...(f.options ?? []).map((o) => ({ value: o.value, label: o.label }))]}
+            />
           )}
           {f.kind === 'multiselect' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+            <div style={{ display: 'grid', gap: '0.25rem' }}>
               {(f.options ?? []).map((o) => {
                 const arr = Array.isArray(cfg[f.key]) ? (cfg[f.key] as string[]) : [];
                 const on = arr.includes(o.value);
                 return (
-                  <label key={o.value} className="label-md" style={{ fontSize: '0.78rem', display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-                    <input
-                      type="checkbox"
-                      checked={on}
-                      disabled={readOnly}
-                      onChange={(e) => setCfg(f.key, e.target.checked ? [...arr, o.value] : arr.filter((x) => x !== o.value))}
-                    />
-                    {o.label}
-                  </label>
+                  <Checkbox
+                    key={o.value}
+                    checked={on}
+                    disabled={readOnly}
+                    label={o.label}
+                    onChange={(next) => setCfg(f.key, next ? [...arr, o.value] : arr.filter((x) => x !== o.value))}
+                  />
                 );
               })}
             </div>
@@ -680,10 +731,14 @@ function NodePanel({
             <CredentialField wsId={wsId} value={cfg[f.key] ? String(cfg[f.key]) : ''} disabled={readOnly} onChange={(v) => setCfg(f.key, v || undefined)} />
           )}
           {f.kind === 'formField' && (
-            <select className="input-sketch" style={{ width: '100%' }} value={String(cfg[f.key] ?? '')} disabled={readOnly} onChange={(e) => setCfg(f.key, e.target.value || undefined)}>
-              <option value="">—</option>
-              {form.map((ff) => <option key={ff.key} value={ff.key}>{ff.label} ({ff.key})</option>)}
-            </select>
+            <Select
+              aria-label={f.label}
+              value={String(cfg[f.key] ?? '')}
+              disabled={readOnly}
+              width="100%"
+              onChange={(v) => setCfg(f.key, v || undefined)}
+              options={[{ value: '', label: '—' }, ...form.map((ff) => ({ value: ff.key, label: ff.label, hint: ff.key }))]}
+            />
           )}
         </Field>
       ))}
@@ -700,8 +755,21 @@ function NodePanel({
         >
           {triggerInfo?.webhookUrl ? (
             <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-              <input className="input-sketch" style={{ flex: 1, fontSize: '0.68rem' }} value={triggerInfo.webhookUrl} readOnly onFocus={(e) => e.currentTarget.select()} />
-              <button className="btn-secondary" style={{ padding: '0.3rem 0.6rem', fontSize: '0.72rem' }} onClick={() => navigator.clipboard?.writeText(triggerInfo.webhookUrl!)}>Копировать</button>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <Input
+                  value={triggerInfo.webhookUrl}
+                  readOnly
+                  aria-label="URL вебхука"
+                  onFocus={(e) => e.currentTarget.select()}
+                  style={{ fontSize: '0.6875rem' }}
+                />
+              </div>
+              <IconButton
+                icon="copy"
+                label="Копировать адрес"
+                size={30}
+                onClick={() => navigator.clipboard?.writeText(triggerInfo.webhookUrl!)}
+              />
             </div>
           ) : (
             <p className="label-md" style={{ fontSize: '0.72rem', opacity: 0.7 }}>URL появится после публикации процесса.</p>
@@ -711,7 +779,7 @@ function NodePanel({
 
       {/* Telegram-триггер: какие переменные доступны дальше + как ответить */}
       {t.type === 'trigger.telegram' && (
-        <div style={{ padding: '0.65rem 0.75rem', background: 'var(--surface-container)', borderRadius: '0.7rem 0.5rem 0.8rem 0.55rem' }}>
+        <div style={{ padding: '0.65rem 0.75rem', background: 'var(--surface-container)', borderRadius: 'var(--radius-md)' }}>
           <div className="label-md" style={{ fontSize: '0.68rem', fontWeight: 700, marginBottom: '0.25rem' }}>Доступно следующим нодам:</div>
           <div className="label-md" style={{ fontSize: '0.68rem', opacity: 0.85, lineHeight: 1.6 }}>
             <code>{'{{form.text}}'}</code> — текст · <code>{'{{form.chatId}}'}</code> — чат · <code>{'{{form.fromName}}'}</code> — имя
@@ -724,7 +792,7 @@ function NodePanel({
 
       {/* Запуск вручную: анкета, которую инициатор заполняет при старте (модель Form Trigger n8n) */}
       {t.type === 'start' && (
-        <div style={{ marginTop: '0.2rem', padding: '0.75rem', background: 'var(--surface-container)', borderRadius: '0.8rem 0.55rem 0.9rem 0.6rem' }}>
+        <div style={{ marginTop: '0.2rem', padding: '0.75rem', background: 'var(--surface-container)', borderRadius: 'var(--radius-md)' }}>
           <div className="title-md" style={{ fontSize: '0.82rem', marginBottom: '0.25rem' }}>📋 Анкета запуска</div>
           <p className="label-md" style={{ fontSize: '0.68rem', opacity: 0.7, marginBottom: '0.55rem' }}>Поля, которые инициатор заполняет при нажатии «Запустить». Доступны нодам как {'{{form.ключ}}'}.</p>
           <FormPanel form={form} readOnly={readOnly} onChange={onFormChange} />
@@ -732,7 +800,9 @@ function NodePanel({
       )}
 
       {!readOnly && onDelete && (
-        <button className="label-md" style={{ color: 'var(--primary)', fontWeight: 700, textAlign: 'left', fontSize: '0.78rem' }} onClick={onDelete}>✕ Удалить ноду</button>
+        <div>
+          <Button variant="ghost" tone="danger" size="sm" icon="delete" onClick={onDelete}>Удалить ноду</Button>
+        </div>
       )}
     </div>
   );
@@ -761,28 +831,52 @@ function FormPanel({ form, readOnly, onChange }: { form: ProcessFormField[]; rea
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
       <p className="label-md" style={{ fontSize: '0.74rem', opacity: 0.8 }}>Анкета заполняется при запуске. Поля доступны нодам как {'{{form.ключ}}'} и в условиях «Если».</p>
       {form.map((f, i) => (
-        <div key={i} className="ghost-border" style={{ padding: '0.7rem' }}>
-          <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.4rem' }}>
-            <input className="input-sketch" style={{ flex: 2 }} value={f.label} placeholder="Название поля" disabled={readOnly} onChange={(e) => setField(i, { label: e.target.value })} />
-            <input className="input-sketch" style={{ flex: 1, fontSize: '0.74rem' }} value={f.key} placeholder="ключ" disabled={readOnly} onChange={(e) => setField(i, { key: e.target.value.replace(/[^a-zA-Z0-9_-]/g, '_') })} />
+        <div
+          key={i}
+          style={{ border: '1px solid var(--divider)', borderRadius: 'var(--radius-md)', padding: '0.625rem', display: 'grid', gap: '0.4rem' }}
+        >
+          <div style={{ display: 'flex', gap: '0.4rem' }}>
+            <div style={{ flex: 2, minWidth: 0 }}>
+              <Input value={f.label} placeholder="Название поля" disabled={readOnly} aria-label="Название поля" onChange={(e) => setField(i, { label: e.target.value })} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <Input value={f.key} placeholder="ключ" disabled={readOnly} aria-label="Ключ поля" onChange={(e) => setField(i, { key: e.target.value.replace(/[^a-zA-Z0-9_-]/g, '_') })} />
+            </div>
           </div>
-          {(keyCounts.get(f.key) ?? 0) > 1 && <p className="label-md" style={{ fontSize: '0.66rem', color: 'var(--primary)' }}>Ключ «{f.key}» повторяется</p>}
+          {(keyCounts.get(f.key) ?? 0) > 1 && (
+            <p className="label-sm" style={{ margin: 0, color: 'var(--danger)' }}>Ключ «{f.key}» повторяется</p>
+          )}
           <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <select className="input-sketch" style={{ flex: 1 }} value={f.type} disabled={readOnly} onChange={(e) => setField(i, { type: e.target.value as ProcessFormField['type'] })}>
-              {FORM_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
-            <label className="label-md" style={{ fontSize: '0.72rem', display: 'flex', gap: '0.3rem', alignItems: 'center' }}>
-              <input type="checkbox" checked={!!f.required} disabled={readOnly} onChange={(e) => setField(i, { required: e.target.checked })} /> обяз.
-            </label>
-            {!readOnly && <button className="label-md" style={{ color: 'var(--primary)', fontWeight: 700 }} onClick={() => onChange(form.filter((_, idx) => idx !== i))}>✕</button>}
+            <div style={{ flex: 1, minWidth: 120 }}>
+              <Select
+                aria-label="Тип поля"
+                value={f.type}
+                disabled={readOnly}
+                width="100%"
+                onChange={(v) => setField(i, { type: v as ProcessFormField['type'] })}
+                options={FORM_TYPES.map((t) => ({ value: t.value, label: t.label }))}
+              />
+            </div>
+            <Checkbox checked={!!f.required} disabled={readOnly} label="обяз." onChange={(next) => setField(i, { required: next })} />
+            {!readOnly && (
+              <IconButton icon="close" label="Убрать поле" size={28} onClick={() => onChange(form.filter((_, idx) => idx !== i))} />
+            )}
           </div>
           {f.type === 'select' && (
-            <input className="input-sketch" style={{ width: '100%', marginTop: '0.4rem', fontSize: '0.76rem' }} value={(f.options ?? []).join(', ')} placeholder="Варианты через запятую" disabled={readOnly} onChange={(e) => setField(i, { options: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })} />
+            <Input
+              value={(f.options ?? []).join(', ')}
+              placeholder="Варианты через запятую"
+              disabled={readOnly}
+              aria-label="Варианты"
+              onChange={(e) => setField(i, { options: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })}
+            />
           )}
         </div>
       ))}
       {!readOnly && (
-        <button className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.78rem' }} onClick={() => onChange([...form, { key: `field_${form.length + 1}`, label: '', type: 'text' }])}>+ Поле анкеты</button>
+        <Button variant="ghost" size="sm" icon="add" onClick={() => onChange([...form, { key: `field_${form.length + 1}`, label: '', type: 'text' }])}>
+          Поле анкеты
+        </Button>
       )}
     </div>
   );
@@ -813,20 +907,43 @@ function ProcessPanel({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div className="title-md" style={{ fontSize: '0.9rem' }}>⚙ Настройки процесса</div>
-        <button className="label-md" onClick={onClose} title="Закрыть" style={{ fontSize: '1rem', lineHeight: 1, opacity: 0.6, padding: '0.1rem 0.3rem' }}>✕</button>
+        <span className="title-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem' }}>
+          <Icon name="settings" size={16} />
+          Настройки процесса
+        </span>
+        <IconButton icon="close" label="Закрыть настройки" size={28} onClick={onClose} />
       </div>
       <Field label="Название">
-        <input className="input-sketch" style={{ width: '100%' }} value={name} disabled={readOnly} onChange={(e) => setName(e.target.value)} onBlur={() => name.trim() && name !== detail.name && onMeta({ name: name.trim() })} />
+        <Input
+          value={name}
+          disabled={readOnly}
+          aria-label="Название процесса"
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => name.trim() && name !== detail.name && onMeta({ name: name.trim() })}
+        />
       </Field>
       <Field label="Описание">
-        <textarea className="input-sketch" style={{ width: '100%', minHeight: '3.6rem', resize: 'vertical' }} value={description} disabled={readOnly} onChange={(e) => setDescription(e.target.value)} onBlur={() => description !== (detail.description ?? '') && onMeta({ description: description || null })} />
+        <Textarea
+          value={description}
+          disabled={readOnly}
+          aria-label="Описание процесса"
+          style={{ minHeight: '3.6rem', resize: 'vertical' }}
+          onChange={(e) => setDescription(e.target.value)}
+          onBlur={() => description !== (detail.description ?? '') && onMeta({ description: description || null })}
+        />
       </Field>
       <Field label="Кому виден" help="«Только админы» — процессы для разработчиков/руководства">
-        <select className="input-sketch" style={{ width: '100%' }} value={detail.visibility} disabled={readOnly} onChange={(e) => onMeta({ visibility: e.target.value as 'team' | 'admins' })}>
-          <option value="team">Вся команда</option>
-          <option value="admins">Только админы</option>
-        </select>
+        <Select
+          aria-label="Кому виден процесс"
+          value={detail.visibility}
+          disabled={readOnly}
+          width="100%"
+          onChange={(v) => onMeta({ visibility: v as 'team' | 'admins' })}
+          options={[
+            { value: 'team', label: 'Вся команда', icon: 'people' },
+            { value: 'admins', label: 'Только админы', icon: 'lock' },
+          ]}
+        />
       </Field>
       <div>
         <div className="label-md" style={{ fontSize: '0.72rem', marginBottom: '0.3rem' }}>Версии</div>
@@ -841,7 +958,9 @@ function ProcessPanel({
       {!readOnly && <CredentialsSection wsId={wsId} />}
 
       {!readOnly && (
-        <button className="label-md" style={{ color: 'var(--primary)', fontWeight: 700, textAlign: 'left', fontSize: '0.78rem' }} onClick={onArchive}>🗂 Архивировать процесс</button>
+        <div>
+          <Button variant="ghost" tone="danger" size="sm" icon="archive" onClick={onArchive}>Архивировать процесс</Button>
+        </div>
       )}
     </div>
   );
@@ -867,31 +986,55 @@ function CredentialsSection({ wsId }: { wsId: string }) {
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   return (
-    <div>
-      <div className="label-md" style={{ fontSize: '0.72rem', fontWeight: 700, marginBottom: '0.3rem' }}>Креды для HTTP-нод</div>
+    <div style={{ display: 'grid', gap: '0.375rem' }}>
+      <div className="label-caps">Креды для HTTP-нод</div>
       {(creds ?? []).map((c) => (
-        <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.2rem 0' }}>
-          <span className="label-md" style={{ fontSize: '0.76rem' }}>🔑 {c.name} <span style={{ opacity: 0.6 }}>· {c.type}</span></span>
-          <button className="label-md" style={{ fontSize: '0.7rem', color: 'var(--primary)' }} onClick={() => delMut.mutate(c.id)}>✕</button>
+        <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', minWidth: 0 }}>
+            <Icon name="key" size={14} style={{ color: 'var(--muted)' }} />
+            <span className="body-sm">{c.name}</span>
+            <span className="label-sm">· {c.type}</span>
+          </span>
+          <IconButton icon="close" label={`Удалить кред ${c.name}`} size={26} iconSize={12} onClick={() => delMut.mutate(c.id)} />
         </div>
       ))}
       {adding ? (
-        <div className="ghost-border" style={{ padding: '0.6rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-          <input className="input-sketch" placeholder="Название" value={form.name} onChange={(e) => set('name', e.target.value)} />
-          <select className="input-sketch" value={form.type} onChange={(e) => set('type', e.target.value)}>
-            {Object.entries(PROCESS_CREDENTIAL_TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-          {form.type === 'bearer' && <input className="input-sketch" placeholder="Токен" value={form.token ?? ''} onChange={(e) => set('token', e.target.value)} />}
-          {form.type === 'basic' && (<><input className="input-sketch" placeholder="Логин" value={form.username ?? ''} onChange={(e) => set('username', e.target.value)} /><input className="input-sketch" type="password" placeholder="Пароль" value={form.password ?? ''} onChange={(e) => set('password', e.target.value)} /></>)}
-          {form.type === 'header' && (<><input className="input-sketch" placeholder="Имя заголовка (напр. X-Auth-Token)" value={form.headerName ?? ''} onChange={(e) => set('headerName', e.target.value)} /><input className="input-sketch" placeholder="Значение" value={form.headerValue ?? ''} onChange={(e) => set('headerValue', e.target.value)} /></>)}
-          {err && <p className="label-md" style={{ fontSize: '0.7rem', color: 'var(--primary)' }}>{err}</p>}
+        <div style={{ border: '1px solid var(--divider)', borderRadius: 'var(--radius-md)', padding: '0.625rem', display: 'grid', gap: '0.4rem' }}>
+          <Input placeholder="Название" aria-label="Название кредов" value={form.name} onChange={(e) => set('name', e.target.value)} />
+          <Select
+            aria-label="Тип кредов"
+            value={form.type}
+            width="100%"
+            onChange={(v) => set('type', v)}
+            options={Object.entries(PROCESS_CREDENTIAL_TYPE_LABELS).map(([v, l]) => ({ value: v, label: l, icon: 'key' as const }))}
+          />
+          {form.type === 'bearer' && (
+            <Input placeholder="Токен" aria-label="Токен" value={form.token ?? ''} onChange={(e) => set('token', e.target.value)} />
+          )}
+          {form.type === 'basic' && (
+            <>
+              <Input placeholder="Логин" aria-label="Логин" value={form.username ?? ''} onChange={(e) => set('username', e.target.value)} />
+              <Input type="password" placeholder="Пароль" aria-label="Пароль" value={form.password ?? ''} onChange={(e) => set('password', e.target.value)} />
+            </>
+          )}
+          {form.type === 'header' && (
+            <>
+              <Input placeholder="Имя заголовка (напр. X-Auth-Token)" aria-label="Имя заголовка" value={form.headerName ?? ''} onChange={(e) => set('headerName', e.target.value)} />
+              <Input placeholder="Значение" aria-label="Значение заголовка" value={form.headerValue ?? ''} onChange={(e) => set('headerValue', e.target.value)} />
+            </>
+          )}
+          {err && <Alert tone="danger" onClose={() => setErr(null)}>{err}</Alert>}
           <div style={{ display: 'flex', gap: '0.4rem' }}>
-            <button className="btn-primary" style={{ padding: '0.3rem 0.9rem', fontSize: '0.74rem' }} disabled={!form.name || addMut.isPending} onClick={() => addMut.mutate()}>Сохранить</button>
-            <button className="btn-secondary" style={{ padding: '0.3rem 0.8rem', fontSize: '0.74rem' }} onClick={() => setAdding(false)}>Отмена</button>
+            <Button variant="primary" tone="success" size="sm" icon="save" disabled={!form.name} loading={addMut.isPending} onClick={() => addMut.mutate()}>
+              Сохранить
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setAdding(false)}>Отмена</Button>
           </div>
         </div>
       ) : (
-        <button className="btn-secondary" style={{ padding: '0.3rem 0.9rem', fontSize: '0.74rem' }} onClick={() => setAdding(true)}>+ Креды</button>
+        <div>
+          <Button variant="ghost" size="sm" icon="add" onClick={() => setAdding(true)}>Креды</Button>
+        </div>
       )}
     </div>
   );
@@ -900,10 +1043,17 @@ function CredentialsSection({ wsId }: { wsId: string }) {
 function CredentialField({ wsId, value, disabled, onChange }: { wsId: string; value: string; disabled: boolean; onChange: (v: string) => void }) {
   const { data: creds } = useQuery({ queryKey: processCredentialsKey(wsId), queryFn: () => fetchProcessCredentials(wsId), staleTime: 30_000 });
   return (
-    <select className="input-sketch" style={{ width: '100%' }} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
-      <option value="">— без кредов —</option>
-      {(creds ?? []).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.type})</option>)}
-    </select>
+    <Select
+      aria-label="Креды"
+      value={value}
+      disabled={disabled}
+      width="100%"
+      onChange={onChange}
+      options={[
+        { value: '', label: 'Без кредов', icon: 'key' },
+        ...(creds ?? []).map((c) => ({ value: c.id, label: c.name, hint: c.type, icon: 'key' as const })),
+      ]}
+    />
   );
 }
 
@@ -923,33 +1073,53 @@ function StartModal({ wsId, defId, name, form, onClose, onStarted }: { wsId: str
     } catch (e) { setError(errText(e)); setBusy(false); }
   };
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'rgba(56,57,45,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} onClick={onClose}>
-      <div className="card-elevated" style={{ width: '26rem', maxWidth: '100%', maxHeight: '85vh', overflowY: 'auto', background: 'var(--surface)' }} onClick={(e) => e.stopPropagation()}>
-        <div className="title-lg" style={{ fontSize: '1.1rem', marginBottom: 'var(--spacing-4)' }}>▶ Запустить «{name}»</div>
-        {form.length === 0 && <p className="label-md" style={{ marginBottom: 'var(--spacing-4)' }}>Анкета не требуется — процесс стартует сразу.</p>}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
-          {form.map((f) => (
-            <Field key={f.key} label={f.label + (f.required ? ' *' : '')}>
-              {f.type === 'text' && <input className="input-sketch" style={{ width: '100%' }} onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))} />}
-              {f.type === 'number' && <input className="input-sketch" type="number" style={{ width: '100%' }} onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))} />}
-              {f.type === 'date' && <input className="input-sketch" type="date" style={{ width: '100%' }} onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))} />}
-              {f.type === 'boolean' && <label className="label-md" style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}><input type="checkbox" onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.checked }))} /> да</label>}
-              {f.type === 'select' && (
-                <select className="input-sketch" style={{ width: '100%' }} defaultValue="" onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}>
-                  <option value="" disabled>Выберите…</option>
-                  {(f.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
-                </select>
-              )}
-            </Field>
-          ))}
-        </div>
-        {error && <p className="label-md" style={{ color: 'var(--primary)', marginTop: 'var(--spacing-3)' }}>{error}</p>}
-        <div style={{ display: 'flex', gap: 'var(--spacing-3)', marginTop: 'var(--spacing-6)' }}>
-          <button className="btn-primary" style={{ padding: '0.5rem 1.3rem' }} disabled={busy} onClick={start}>{busy ? 'Запускаю…' : 'Запустить'}</button>
-          <button className="btn-secondary" style={{ padding: '0.5rem 1rem' }} onClick={onClose}>Отмена</button>
-        </div>
+    <Modal
+      open
+      onClose={onClose}
+      title={`Запустить «${name}»`}
+      subtitle={form.length === 0 ? 'Анкета не требуется — процесс стартует сразу' : 'Значения анкеты уйдут в первый шаг'}
+      size="sm"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>Отмена</Button>
+          <Button variant="primary" icon="play" loading={busy} onClick={start}>Запустить</Button>
+        </>
+      }
+    >
+      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+        {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
+        {form.map((f) => (
+          <Field key={f.key} label={f.label + (f.required ? ' *' : '')}>
+            {f.type === 'text' && (
+              <Input aria-label={f.label} onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))} />
+            )}
+            {f.type === 'number' && (
+              <Input type="number" aria-label={f.label} onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))} />
+            )}
+            {f.type === 'date' && (
+              <Input type="date" aria-label={f.label} onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))} />
+            )}
+            {f.type === 'boolean' && (
+              <Checkbox
+                checked={values[f.key] === true}
+                label="да"
+                onChange={(next) => setValues((v) => ({ ...v, [f.key]: next }))}
+              />
+            )}
+            {f.type === 'select' && (
+              <Select
+                aria-label={f.label}
+                value={typeof values[f.key] === 'string' ? (values[f.key] as string) : ''}
+                width="100%"
+                placeholder="Выберите…"
+                onChange={(val) => setValues((v) => ({ ...v, [f.key]: val }))}
+                options={(f.options ?? []).map((o) => ({ value: o, label: o }))}
+              />
+            )}
+          </Field>
+        ))}
       </div>
-    </div>
+    </Modal>
   );
 }
 

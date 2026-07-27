@@ -2049,7 +2049,8 @@ export class FinancesService {
           items.push({
             kind: 'finance',
             id: `debt:${debt.id}:${dateStr}`,
-            title: `📅 Платёж: ${debt.name}`,
+            // значок рисует клиент по kind: эмодзи в тексте — не дело сервера
+            title: `Платёж: ${debt.name}`,
             start: iso,
             allDay: true,
             amount: Number(debt.debtMonthly ?? 0n),
@@ -2067,7 +2068,7 @@ export class FinancesService {
           items.push({
             kind: 'finance',
             id: `recurring:${rule.id}:${dateStr}`,
-            title: `🔁 ${rule.title}`,
+            title: rule.title,  // значок рисует клиент по kind: эмодзи в тексте — не дело сервера
             start: iso,
             allDay: true,
             amount: Number(rule.amount),

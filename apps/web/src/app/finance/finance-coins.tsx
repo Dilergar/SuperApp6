@@ -5,7 +5,11 @@ import Link from 'next/link';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import type { FinCoinFeedItemDto } from '@superapp/shared';
 import { api } from '@/lib/api';
+import {
+  BentoGrid, Button, Card, CardHeader, EmptyState, StatTile, type IconName, type Tone,
+} from '@/components/ui';
 import { PersonChip } from '../circles/PersonCard';
+import { FinList, FinRow } from './finance-ui';
 
 const coinFeedKey = ['finance', 'coins'] as const;
 const walletSummaryKey = ['finance', 'coins', 'wallet'] as const;
@@ -30,6 +34,14 @@ async function fetchWalletSummary(): Promise<WalletRow[]> {
   return res.data.data as WalletRow[];
 }
 
+/** Интерфейсный значок события ленты по его виду (валюта — эмодзи эмитента, это данные). */
+const KIND_GLYPH: Record<string, { icon: IconName; tone: Tone }> = {
+  task: { icon: 'checkCircle', tone: 'success' },
+  order: { icon: 'shop', tone: 'accent' },
+  mint: { icon: 'spark', tone: 'warning' },
+  burn: { icon: 'bolt', tone: 'danger' },
+};
+
 /**
  * Вкладка «Коины» — внутренняя экономика экосистемы, ВИЗУАЛЬНО ОТДЕЛЬНО от фиата (PRD):
  * балансы кошелька + авто-лента (награды задач, покупки, казна) из леджера. Read-only.
@@ -44,62 +56,115 @@ export function CoinsView() {
   });
   const items = useMemo(() => (feed.data?.pages ?? []).flatMap((p) => p.items), [feed.data]);
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-6)' }}>
-      <div className="card-elevated" style={{ transform: 'rotate(-0.2deg)' }}>
-        <div className="flex items-center justify-between" style={{ marginBottom: 'var(--spacing-3)' }}>
-          <h2 className="title-md">Коины</h2>
-          <Link href="/profile/wallet" className="label-sm" style={{ color: 'var(--secondary)' }}>Кошелёк →</Link>
-        </div>
-        <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)' }}>
-          Внутренняя экономика SuperApp6 — отдельно от реальных денег, чтобы не искажать вашу финансовую картину.
-        </p>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-3)' }}>
-          {wallet.map((w) => (
-            <span key={w.currencyId} className="ghost-border" style={{ padding: '0.35rem 0.9rem', background: 'var(--surface-container-lowest)', fontFamily: 'var(--font-display)', fontWeight: 700 }}>
-              {w.icon} {w.balance.toLocaleString('ru-RU')} <span className="label-sm">{w.name}</span>
-            </span>
-          ))}
-          {wallet.length === 0 && <p className="label-md">Кошелёк пока пуст.</p>}
-        </div>
-      </div>
+  // До 4 валют — плитками показателей; остальные уходят в карточку кошелька
+  const tiles = wallet.slice(0, 4);
+  const rest = wallet.slice(4);
 
-      <div className="card" style={{ transform: 'rotate(0.2deg)' }}>
-        <h3 className="title-md" style={{ marginBottom: 'var(--spacing-1)' }}>Лента экосистемы</h3>
-        <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)' }}>
-          Награды за задачи, покупки в магазинах и выплаты казны попадают сюда сами — с комментарием и ссылкой.
-        </p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
-          {items.map((it) => (
-            <div key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', background: 'var(--surface-container-lowest)', borderRadius: 'var(--radius-sketch)', padding: '0.5rem var(--spacing-4)' }}>
-              <span style={{ fontSize: '1.1rem' }}>{it.kind === 'task' ? '✓' : it.kind === 'order' ? '🛍️' : it.kind === 'mint' ? '✨' : it.kind === 'burn' ? '🔥' : it.currencyIcon}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: '0.92rem', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                  {it.href ? <Link href={it.href} style={{ textDecoration: 'none', color: 'inherit' }}>{it.title}</Link> : <span>{it.title}</span>}
-                  {it.counterpartyUserId && it.counterpartyName && (
-                    <PersonChip size="S" userId={it.counterpartyUserId} firstName={it.counterpartyName} />
-                  )}
-                  {!it.counterpartyUserId && it.counterpartyName && (
-                    <span className="label-sm">{it.counterpartyName}</span>
-                  )}
-                </div>
-                <div className="label-sm">{new Date(it.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</div>
-              </div>
-              <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: it.direction === 'in' ? 'var(--success)' : 'var(--danger)' }}>
-                {it.direction === 'in' ? '+' : '−'}{it.amount.toLocaleString('ru-RU')} {it.currencyIcon}
+  return (
+    <BentoGrid>
+      {tiles.map((w) => (
+        <StatTile
+          key={w.currencyId}
+          span={3}
+          label={w.name}
+          value={w.balance.toLocaleString('ru-RU')}
+          emoji={w.icon}
+          tone={w.isOwn ? 'accent' : 'neutral'}
+        />
+      ))}
+      {tiles.length === 0 && (
+        <Card span={12}>
+          <EmptyState
+            icon="coins"
+            title="Кошелёк пока пуст"
+            description="Награда за первую выполненную задачу появится здесь сама."
+            action={<Button variant="matte" icon="tasks" href="/tasks">К задачам</Button>}
+          />
+        </Card>
+      )}
+
+      {rest.length > 0 && (
+        <Card span={12} small>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+            <span className="label-caps">Ещё валюты</span>
+            {rest.map((w) => (
+              <span key={w.currencyId} className="title-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                <span aria-hidden>{w.icon}</span>
+                {w.balance.toLocaleString('ru-RU')}
+                <span className="label-sm">{w.name}</span>
               </span>
-            </div>
-          ))}
-          {items.length === 0 && <p className="label-md">Пока пусто — получите первую награду за задачу!</p>}
-        </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      <Card span={12}>
+        <CardHeader
+          title="Лента экосистемы"
+          subtitle="Награды за задачи, покупки в магазинах и выплаты казны попадают сюда сами"
+          actions={<Button variant="ghost" size="sm" href="/profile/wallet" iconRight="caretRight">Кошелёк</Button>}
+        />
+
+        {items.length > 0 ? (
+          <div className="density-compact">
+            <FinList>
+              {items.map((it) => {
+                const g = KIND_GLYPH[it.kind];
+                return (
+                  <FinRow
+                    key={it.id}
+                    glyph={g ? g.icon : it.currencyIcon}
+                    glyphTone={g ? g.tone : 'neutral'}
+                    glyphFallback="coins"
+                    title={
+                      <>
+                        {it.href ? (
+                          <Link href={it.href} style={{ textDecoration: 'none', color: 'inherit' }}>{it.title}</Link>
+                        ) : (
+                          <span>{it.title}</span>
+                        )}
+                        {it.counterpartyUserId && it.counterpartyName && (
+                          <PersonChip size="S" userId={it.counterpartyUserId} firstName={it.counterpartyName} />
+                        )}
+                        {!it.counterpartyUserId && it.counterpartyName && (
+                          <span className="label-sm">{it.counterpartyName}</span>
+                        )}
+                      </>
+                    }
+                    subtitle={new Date(it.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
+                    right={
+                      <span
+                        style={{
+                          fontFamily: 'var(--font-display)',
+                          fontWeight: 700,
+                          whiteSpace: 'nowrap',
+                          color: it.direction === 'in' ? 'var(--success)' : 'var(--danger)',
+                        }}
+                      >
+                        {it.direction === 'in' ? '+' : '−'}{it.amount.toLocaleString('ru-RU')} <span aria-hidden>{it.currencyIcon}</span>
+                      </span>
+                    }
+                  />
+                );
+              })}
+            </FinList>
+          </div>
+        ) : (
+          <EmptyState
+            icon="coins"
+            title="Пока пусто"
+            description="Получите первую награду за задачу — событие появится в ленте."
+          />
+        )}
+
         {feed.hasNextPage && (
-          <div style={{ textAlign: 'center', marginTop: 'var(--spacing-4)' }}>
-            <button className="btn-secondary" style={{ padding: '0.4rem 1.4rem', fontSize: '0.85rem' }} onClick={() => feed.fetchNextPage()} disabled={feed.isFetchingNextPage}>
-              {feed.isFetchingNextPage ? 'Загружаю…' : 'Показать ещё'}
-            </button>
+          <div style={{ textAlign: 'center', marginTop: 'var(--spacing-5)' }}>
+            <Button variant="matte" size="sm" onClick={() => feed.fetchNextPage()} loading={feed.isFetchingNextPage}>
+              Показать ещё
+            </Button>
           </div>
         )}
-      </div>
-    </div>
+      </Card>
+    </BentoGrid>
   );
 }

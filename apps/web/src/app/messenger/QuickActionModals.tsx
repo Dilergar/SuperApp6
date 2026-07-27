@@ -1,5 +1,6 @@
 'use client';
 
+import { ModalShell } from '@/components/ui';
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { SCHEDULED_MESSAGE_LIMITS } from '@superapp/shared';
@@ -26,7 +27,7 @@ import { errMsg } from './ShareCardModal';
 // ============================================================
 
 /** Shared modal shell — warm paper, backdrop blur, slight rotation. */
-function ModalShell({
+function DialogFrame({
   title,
   subtitle,
   onClose,
@@ -38,20 +39,7 @@ function ModalShell({
   children: React.ReactNode;
 }) {
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(56,57,45,0.35)',
-        backdropFilter: 'blur(4px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 110,
-        padding: '1rem',
-      }}
-    >
+    <ModalShell onClose={onClose} zIndex={110}>
       <div
         onClick={(e) => e.stopPropagation()}
         className="card-elevated"
@@ -64,7 +52,6 @@ function ModalShell({
           display: 'flex',
           flexDirection: 'column',
           borderRadius: 'var(--radius-md)',
-          transform: 'rotate(-0.3deg)',
         }}
       >
         <div
@@ -99,7 +86,7 @@ function ModalShell({
         )}
         {children}
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -119,7 +106,7 @@ function DateTimeField({
       value={value}
       min={min}
       onChange={(e) => onChange(e.target.value)}
-      className="input-sketch"
+      className="ui-input"
       style={{ fontSize: '0.9rem', fontFamily: 'var(--font-body)' }}
     />
   );
@@ -199,7 +186,7 @@ export function CreateTaskModal({
   };
 
   return (
-    <ModalShell
+    <DialogFrame
       title="Создать задачу"
       subtitle="Поставьте задачу человеку из окружения — её карточка появится в этом чате."
       onClose={onClose}
@@ -211,7 +198,7 @@ export function CreateTaskModal({
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         placeholder="Что нужно сделать?"
-        className="input-sketch"
+        className="ui-input"
         autoFocus
         style={{ marginBottom: 'var(--spacing-3)', fontSize: '0.95rem', fontWeight: 600 }}
       />
@@ -257,7 +244,7 @@ export function CreateTaskModal({
       </div>
       {executorId && (
         <p className="label-sm" style={{ fontSize: '0.74rem', color: 'var(--secondary)', marginBottom: 'var(--spacing-3)' }}>
-          Исполнитель выбран ✓
+          Исполнитель выбран
         </p>
       )}
 
@@ -269,19 +256,19 @@ export function CreateTaskModal({
       </div>
 
       <div style={{ display: 'flex', gap: 'var(--spacing-2)', justifyContent: 'flex-end' }}>
-        <button onClick={onClose} className="btn-secondary" style={{ fontSize: '0.85rem' }}>
+        <button onClick={onClose} className="btn-ghost-inline">
           Отмена
         </button>
         <button
           onClick={submit}
           disabled={busy || !executorId || !title.trim()}
-          className="btn-primary"
+          className="btn-success"
           style={{ fontSize: '0.85rem', opacity: busy || !executorId || !title.trim() ? 0.5 : 1 }}
         >
           {busy ? '…' : 'Создать'}
         </button>
       </div>
-    </ModalShell>
+    </DialogFrame>
   );
 }
 
@@ -343,7 +330,7 @@ export function CreateEventModal({
   };
 
   return (
-    <ModalShell
+    <DialogFrame
       title="Создать событие"
       subtitle="Запланируйте событие и пригласите людей — карточка появится в этом чате."
       onClose={onClose}
@@ -355,7 +342,7 @@ export function CreateEventModal({
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         placeholder="Название события"
-        className="input-sketch"
+        className="ui-input"
         autoFocus
         style={{ marginBottom: 'var(--spacing-3)', fontSize: '0.95rem', fontWeight: 600 }}
       />
@@ -390,19 +377,19 @@ export function CreateEventModal({
       </div>
 
       <div style={{ display: 'flex', gap: 'var(--spacing-2)', justifyContent: 'flex-end' }}>
-        <button onClick={onClose} className="btn-secondary" style={{ fontSize: '0.85rem' }}>
+        <button onClick={onClose} className="btn-ghost-inline">
           Отмена
         </button>
         <button
           onClick={submit}
           disabled={busy || !title.trim() || !start}
-          className="btn-primary"
+          className="btn-success"
           style={{ fontSize: '0.85rem', opacity: busy || !title.trim() || !start ? 0.5 : 1 }}
         >
           {busy ? '…' : 'Создать'}
         </button>
       </div>
-    </ModalShell>
+    </DialogFrame>
   );
 }
 
@@ -455,7 +442,7 @@ export function ScheduleMessageModal({
   };
 
   return (
-    <ModalShell
+    <DialogFrame
       title="Запланировать сообщение"
       subtitle="Сообщение отправится автоматически в выбранное время."
       onClose={onClose}
@@ -466,7 +453,7 @@ export function ScheduleMessageModal({
         value={content}
         onChange={(e) => setContent(e.target.value)}
         placeholder="Текст сообщения…"
-        className="input-sketch"
+        className="ui-input"
         rows={3}
         autoFocus
         style={{ marginBottom: 'var(--spacing-4)', resize: 'vertical' }}
@@ -480,19 +467,19 @@ export function ScheduleMessageModal({
       </div>
 
       <div style={{ display: 'flex', gap: 'var(--spacing-2)', justifyContent: 'flex-end' }}>
-        <button onClick={onClose} className="btn-secondary" style={{ fontSize: '0.85rem' }}>
+        <button onClick={onClose} className="btn-ghost-inline">
           Отмена
         </button>
         <button
           onClick={submit}
           disabled={busy || !content.trim() || !when}
-          className="btn-primary"
+          className="btn-success"
           style={{ fontSize: '0.85rem', opacity: busy || !content.trim() || !when ? 0.5 : 1 }}
         >
           {busy ? '…' : 'Запланировать'}
         </button>
       </div>
-    </ModalShell>
+    </DialogFrame>
   );
 }
 
@@ -576,10 +563,10 @@ export function AddExpenseModal({
   }, [cats]);
 
   return (
-    <ModalShell title="Записать расход" subtitle="Трата попадёт в вашу книгу Финансов, карточка — в чат" onClose={onClose}>
+    <DialogFrame title="Записать расход" subtitle="Трата попадёт в вашу книгу Финансов, карточка — в чат" onClose={onClose}>
       <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Сумма</label>
       <input
-        className="input-sketch"
+        className="ui-input"
         inputMode="decimal"
         placeholder="2 500"
         value={amount}
@@ -588,30 +575,30 @@ export function AddExpenseModal({
         style={{ marginBottom: 'var(--spacing-4)', fontSize: '1.3rem', fontFamily: 'var(--font-display)', fontWeight: 700 }}
       />
       <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Со счёта</label>
-      <select className="input-sketch" value={fromId} onChange={(e) => setFromId(e.target.value)} style={{ marginBottom: 'var(--spacing-4)' }}>
+      <select className="ui-input" value={fromId} onChange={(e) => setFromId(e.target.value)} style={{ marginBottom: 'var(--spacing-4)' }}>
         {accounts.map((a) => <option key={a.id} value={a.id}>{a.icon ? `${a.icon} ` : ''}{a.name}</option>)}
       </select>
       <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Категория</label>
-      <select className="input-sketch" value={toId} onChange={(e) => setToId(e.target.value)} style={{ marginBottom: 'var(--spacing-4)' }}>
+      <select className="ui-input" value={toId} onChange={(e) => setToId(e.target.value)} style={{ marginBottom: 'var(--spacing-4)' }}>
         {catOptions}
       </select>
       <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Заметка</label>
-      <input className="input-sketch" placeholder="Magnum…" value={note} onChange={(e) => setNote(e.target.value)} style={{ marginBottom: 'var(--spacing-4)' }} />
+      <input className="ui-input" placeholder="Magnum…" value={note} onChange={(e) => setNote(e.target.value)} style={{ marginBottom: 'var(--spacing-4)' }} />
 
       {error && <p className="label-sm" style={{ color: 'var(--danger)', marginBottom: 'var(--spacing-3)' }}>{error}</p>}
 
       <div style={{ display: 'flex', gap: 'var(--spacing-2)', justifyContent: 'flex-end' }}>
-        <button onClick={onClose} className="btn-secondary" style={{ fontSize: '0.85rem' }}>Отмена</button>
+        <button onClick={onClose} className="btn-ghost-inline">Отмена</button>
         <button
           onClick={submit}
           disabled={busy || !parseAmount(amount)}
-          className="btn-primary"
+          className="btn-success"
           style={{ fontSize: '0.85rem', opacity: busy || !parseAmount(amount) ? 0.5 : 1 }}
         >
           {busy ? '…' : 'Записать'}
         </button>
       </div>
-    </ModalShell>
+    </DialogFrame>
   );
 }
 

@@ -48,7 +48,7 @@ export function ControlsBar({
   const roundBtn = (active: boolean, danger = false): CSSProperties => ({
     width: '3rem',
     height: '3rem',
-    borderRadius: '1rem 0.7rem 1.1rem 0.8rem',
+    borderRadius: 'var(--radius-lg)',
     border: 'none',
     cursor: 'pointer',
     fontSize: '1.1rem',
@@ -106,7 +106,7 @@ export function ControlsBar({
 
       <div style={{ width: 1 }} />
 
-      <button className="btn-secondary" style={{ padding: '0.55rem 1.2rem', fontSize: '0.85rem' }} onClick={() => void room.disconnect()}>
+      <button className="btn-danger-soft" style={{ padding: '0.55rem 1.2rem', fontSize: '0.85rem' }} onClick={() => void room.disconnect()}>
         Покинуть
       </button>
       {moderator && (
@@ -118,7 +118,7 @@ export function ControlsBar({
             fontWeight: 700,
             border: 'none',
             cursor: 'pointer',
-            borderRadius: '0.8rem 0.55rem 0.75rem 0.6rem',
+            borderRadius: 'var(--radius-md)',
             background: 'var(--primary)',
             color: 'white',
           }}

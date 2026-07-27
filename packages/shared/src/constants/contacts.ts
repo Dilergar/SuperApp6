@@ -38,9 +38,9 @@ export const DEFAULT_CIRCLE_PRESETS: Array<{
   icon: string;
   color: string;
 }> = [
-  { name: 'Семья', icon: '👨‍👩‍👧', color: '#c61a1e' },
-  { name: 'Друзья', icon: '🤝', color: '#326a8b' },
-  { name: 'Работа', icon: '💼', color: '#6b7280' },
+  { name: 'Семья', icon: '👨‍👩‍👧', color: '#de6d68' },
+  { name: 'Друзья', icon: '🤝', color: '#588cd3' },
+  { name: 'Работа', icon: '💼', color: '#8a8478' },
 ];
 
 // ============================================================

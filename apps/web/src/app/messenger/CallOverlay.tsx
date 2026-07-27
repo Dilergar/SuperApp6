@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/ui';
 import { useEffect, useRef, useState } from 'react';
 import type { CallActiveDto, CallTokenDto, ChatType } from '@superapp/shared';
 import { CALL_LIMITS } from '@superapp/shared';
@@ -152,7 +153,7 @@ export function CallOverlay({
         <PersonAvatar userId={isDm ? peerUserId : undefined} name={title} avatar={peerAvatar} size="md" />
         <div style={{ minWidth: 0 }}>
           <div className="title-lg" style={{ fontSize: '1.05rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            📞 {title}
+            <Icon name="call" size={16} /> {title}
           </div>
           <div className="label-md" style={{ color: 'var(--on-surface-variant)' }}>
             {!call
@@ -247,7 +248,7 @@ function RecordingControls({ sessionId, recording }: { sessionId: string; record
           fontWeight: 700,
           border: 'none',
           cursor: 'pointer',
-          borderRadius: '0.8rem 0.55rem 0.75rem 0.6rem',
+          borderRadius: 'var(--radius-md)',
           background: 'var(--surface-container-high)',
         }}
       >
@@ -273,7 +274,7 @@ function RecordingControls({ sessionId, recording }: { sessionId: string; record
           fontSize: '0.85rem',
           border: 'none',
           cursor: 'pointer',
-          borderRadius: '0.8rem 0.55rem 0.75rem 0.6rem',
+          borderRadius: 'var(--radius-md)',
           background: 'var(--surface-container-high)',
         }}
       >
@@ -291,7 +292,7 @@ function RecordingControls({ sessionId, recording }: { sessionId: string; record
         className="btn-secondary"
         style={{ padding: '0.5rem 1rem', fontSize: '0.8rem', opacity: claimed ? 0.7 : 1 }}
       >
-        {claimed ? '✓ Придёт в Диктофон' : 'Получить запись'}
+        {claimed ? 'Придёт в Диктофон' : 'Получить запись'}
       </button>
     </>
   );

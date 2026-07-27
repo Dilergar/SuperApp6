@@ -1,5 +1,6 @@
 'use client';
 
+import { ModalShell } from '@/components/ui';
 import { useState, useEffect } from 'react';
 import { MESSENGER_LIMITS } from '@superapp/shared';
 import { ContactPicker, useContacts } from './ContactPicker';
@@ -67,20 +68,7 @@ export function NewChatModal({
   };
 
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 100,
-        background: 'rgba(56, 57, 45, 0.25)',
-        backdropFilter: 'blur(4px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 'var(--spacing-4)',
-      }}
-    >
+    <ModalShell onClose={onClose} zIndex={100}>
       <div
         onClick={(e) => e.stopPropagation()}
         className="card-elevated"
@@ -91,7 +79,6 @@ export function NewChatModal({
           display: 'flex',
           flexDirection: 'column',
           padding: 'var(--spacing-6)',
-          transform: 'rotate(-0.4deg)',
         }}
       >
         <div
@@ -145,7 +132,7 @@ export function NewChatModal({
                 borderRadius: 'var(--radius-sm)',
                 background: mode === m ? 'var(--surface)' : 'none',
                 color: mode === m ? 'var(--on-surface)' : 'var(--on-surface-variant)',
-                boxShadow: mode === m ? '0 2px 10px rgba(56, 57, 45, 0.08)' : 'none',
+                boxShadow: mode === m ? '0 2px 10px rgba(0, 0, 0, 0.08)' : 'none',
                 transition: 'background 0.15s ease',
               }}
             >
@@ -161,7 +148,7 @@ export function NewChatModal({
               value={groupName}
               onChange={(e) => setGroupName(e.target.value)}
               placeholder="Название группы"
-              className="input-sketch"
+              className="ui-input"
               autoFocus
               maxLength={MESSENGER_LIMITS.maxGroupNameLength}
               style={{ marginBottom: 'var(--spacing-3)', fontSize: '0.95rem', fontWeight: 600 }}
@@ -198,13 +185,13 @@ export function NewChatModal({
           <button
             onClick={create}
             disabled={!canCreate}
-            className="btn-primary"
+            className="btn-success"
             style={{ marginTop: 'var(--spacing-4)', fontSize: '0.9rem', opacity: canCreate ? 1 : 0.5 }}
           >
             {creating ? 'Создание...' : 'Создать группу'}
           </button>
         )}
       </div>
-    </div>
+    </ModalShell>
   );
 }

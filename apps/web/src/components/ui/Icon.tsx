@@ -1,0 +1,389 @@
+// ============================================================
+// <Icon /> — единственный способ нарисовать интерфейсную иконку.
+//
+// Правило системы (DESIGN.md): интерфейсные иконки — Phosphor, начертание
+// Light (тонкий штрих ~1.5px). Прямой импорт из '@phosphor-icons/react' в
+// страницах ЗАПРЕЩЁН — иначе набор расползётся, а сменить поставщика иконок
+// станет невозможно. Не хватает иконки — добавь строку в ICONS ниже.
+//
+// Эмодзи, которые пользователь выбрал САМ и которые лежат в БД (иконка
+// Группы, своей валюты, категории финансов, лота, хотелки), иконками НЕ
+// заменяются — они остаются эмодзи и подаются через <EmojiIcon/>.
+//
+// Импорт из подпути '/ssr': эти версии не читают React-контекст, поэтому
+// работают и в серверных, и в клиентских компонентах без 'use client'.
+// ============================================================
+import {
+  Archive,
+  ArrowClockwise,
+  ArrowCounterClockwise,
+  ArrowLeft,
+  ArrowRight,
+  ArrowSquareOut,
+  ArrowsClockwise,
+  At,
+  Bell,
+  BellRinging,
+  Briefcase,
+  Buildings,
+  CalendarBlank,
+  CalendarCheck,
+  CalendarPlus,
+  Camera,
+  CameraSlash,
+  CaretDown,
+  CaretLeft,
+  CaretRight,
+  CaretUp,
+  ChartLine,
+  ChatCircle,
+  ChatsCircle,
+  Check,
+  CheckCircle,
+  CirclesThreePlus,
+  Clock,
+  ClockCountdown,
+  CloudArrowUp,
+  Coins,
+  Copy,
+  CreditCard,
+  Crown,
+  Database,
+  DeviceMobile,
+  DotsSixVertical,
+  DotsThree,
+  DownloadSimple,
+  Envelope,
+  Eye,
+  EyeSlash,
+  FileArrowDown,
+  FilePlus,
+  FileText,
+  Flag,
+  FloppyDisk,
+  Folder,
+  FolderOpen,
+  Funnel,
+  Gear,
+  Gift,
+  Globe,
+  GraduationCap,
+  HandCoins,
+  Handshake,
+  Heart,
+  House,
+  Image as ImageIcon,
+  Info,
+  Key,
+  Lightning,
+  Link as LinkIcon,
+  List,
+  ListChecks,
+  LockSimple,
+  MagicWand,
+  MagnifyingGlass,
+  MapPin,
+  Microphone,
+  MicrophoneSlash,
+  Minus,
+  Monitor,
+  Note,
+  Paperclip,
+  PauseCircle,
+  Pencil,
+  PencilSimple,
+  Phone,
+  PhoneSlash,
+  PiggyBank,
+  Play,
+  Plugs,
+  Plus,
+  Prohibit,
+  Question,
+  Receipt,
+  Record as RecordIcon,
+  Scales,
+  ShareNetwork,
+  ShieldCheck,
+  SignIn,
+  SignOut,
+  Sparkle,
+  SpeakerHigh,
+  SpeakerSlash,
+  SquaresFour,
+  Stop,
+  Storefront,
+  Sun,
+  Table,
+  Target,
+  Tray,
+  TreeStructure,
+  TrendDown,
+  TrendUp,
+  Trash,
+  UploadSimple,
+  User,
+  UserCircle,
+  UserPlus,
+  Users,
+  UsersFour,
+  UsersThree,
+  VideoCamera,
+  VideoCameraSlash,
+  Wallet,
+  Warning,
+  WarningCircle,
+  X,
+} from '@phosphor-icons/react/ssr';
+import type { CSSProperties } from 'react';
+
+/**
+ * Реестр иконок: семантический ключ → компонент Phosphor.
+ * Ключ описывает СМЫСЛ, а не рисунок («delete», а не «trash»), чтобы можно
+ * было поменять рисунок в одном месте, не трогая 47 страниц.
+ */
+export const ICONS = {
+  // --- навигация и сервисы ---
+  home: House,
+  dashboard: SquaresFour,
+  tasks: ListChecks,
+  calendar: CalendarBlank,
+  messenger: ChatCircle,
+  chats: ChatsCircle,
+  circle: Users,
+  people: UsersThree,
+  shop: Storefront,
+  finance: Wallet,
+  recorder: Microphone,
+  mentions: At,
+  workspace: Buildings,
+  staff: Briefcase,
+  processes: TreeStructure,
+  office: Monitor,
+  journal: Note,
+  docs: FileText,
+  settings: Gear,
+  support: Question,
+  profile: UserCircle,
+  apps: CirclesThreePlus,
+
+  // --- действия ---
+  add: Plus,
+  remove: Minus,
+  close: X,
+  edit: PencilSimple,
+  draw: Pencil,
+  delete: Trash,
+  save: FloppyDisk,
+  search: MagnifyingGlass,
+  filter: Funnel,
+  more: DotsThree,
+  drag: DotsSixVertical,
+  copy: Copy,
+  share: ShareNetwork,
+  link: LinkIcon,
+  download: DownloadSimple,
+  upload: UploadSimple,
+  uploadCloud: CloudArrowUp,
+  attach: Paperclip,
+  refresh: ArrowsClockwise,
+  replay: ArrowClockwise,
+  undo: ArrowCounterClockwise,
+  external: ArrowSquareOut,
+  archive: Archive,
+  send: ArrowRight,
+
+  // --- стрелки и каретки ---
+  caretDown: CaretDown,
+  caretUp: CaretUp,
+  caretLeft: CaretLeft,
+  caretRight: CaretRight,
+  arrowLeft: ArrowLeft,
+  arrowRight: ArrowRight,
+
+  // --- статусы ---
+  check: Check,
+  checkCircle: CheckCircle,
+  warning: Warning,
+  warningCircle: WarningCircle,
+  info: Info,
+  blocked: Prohibit,
+  pending: PauseCircle,
+  inProgress: ArrowsClockwise,
+  overdue: ClockCountdown,
+  clock: Clock,
+  flag: Flag,
+  target: Target,
+
+  // --- люди ---
+  user: User,
+  userAdd: UserPlus,
+  crown: Crown,
+  graduation: GraduationCap,
+  handshake: Handshake,
+
+  // --- оргструктура (сервис «Сотрудники») ---
+  // Должность — тот же портфель, что у сервиса: ключи описывают смысл, а не рисунок.
+  position: Briefcase,
+  department: UsersFour,
+  branch: MapPin,
+  /** Место события/встречи — та же булавка, другой смысл. */
+  location: MapPin,
+
+  // --- деньги ---
+  coins: Coins,
+  card: CreditCard,
+  receipt: Receipt,
+  debt: HandCoins,
+  savings: PiggyBank,
+  gift: Gift,
+  trendUp: TrendUp,
+  trendDown: TrendDown,
+  chart: ChartLine,
+
+  // --- медиа и связь ---
+  call: Phone,
+  callEnd: PhoneSlash,
+  video: VideoCamera,
+  videoOff: VideoCameraSlash,
+  mic: Microphone,
+  micOff: MicrophoneSlash,
+  camera: Camera,
+  cameraOff: CameraSlash,
+  speaker: SpeakerHigh,
+  speakerOff: SpeakerSlash,
+  play: Play,
+  stop: Stop,
+  record: RecordIcon,
+  bell: Bell,
+  bellRinging: BellRinging,
+  mail: Envelope,
+
+  // --- файлы ---
+  file: FileText,
+  filePlus: FilePlus,
+  fileDownload: FileArrowDown,
+  folder: Folder,
+  folderOpen: FolderOpen,
+  image: ImageIcon,
+  table: Table,
+  list: List,
+
+  // --- прочее ---
+  eye: Eye,
+  eyeOff: EyeSlash,
+  lock: LockSimple,
+  key: Key,
+  signIn: SignIn,
+  signOut: SignOut,
+  shield: ShieldCheck,
+  database: Database,
+  plug: Plugs,
+  globe: Globe,
+  scales: Scales,
+  device: DeviceMobile,
+  ai: MagicWand,
+  spark: Sparkle,
+  bolt: Lightning,
+  heart: Heart,
+  sun: Sun,
+  empty: Tray,
+  calendarAdd: CalendarPlus,
+  calendarCheck: CalendarCheck,
+} as const;
+
+export type IconName = keyof typeof ICONS;
+
+/** Начертания Phosphor. По умолчанию light — так требует дизайн-система. */
+export type IconWeight = 'thin' | 'light' | 'regular' | 'bold' | 'fill' | 'duotone';
+
+export interface IconProps {
+  name: IconName;
+  /** Размер в px. Нав — 20, в карточках 16–22. */
+  size?: number;
+  /** По умолчанию наследует цвет текста. */
+  color?: string;
+  weight?: IconWeight;
+  className?: string;
+  style?: CSSProperties;
+  /** Иконка декоративная (по умолчанию) — скрыта от скринридеров.
+   *  Если иконка единственный смысл кнопки, передай подпись. */
+  label?: string;
+}
+
+export function Icon({ name, size = 20, color, weight = 'light', className, style, label }: IconProps) {
+  const Glyph = ICONS[name];
+  return (
+    <Glyph
+      size={size}
+      color={color ?? 'currentColor'}
+      weight={weight}
+      className={className}
+      style={{ flex: 'none', ...style }}
+      aria-hidden={label ? undefined : true}
+      aria-label={label}
+      role={label ? 'img' : undefined}
+    />
+  );
+}
+
+/**
+ * Эмодзи, выбранный пользователем (иконка Группы, валюты, категории, лота).
+ * Такие иконки — ДАННЫЕ, их нельзя заменить на Phosphor. Чтобы они не
+ * выглядели случайными рядом с тонким штрихом, система подаёт их в матовом
+ * круге/квадрате — приём из дизайн-пакета (иконки сервисов).
+ */
+export interface EmojiIconProps {
+  emoji: string | null | undefined;
+  /** Размер подложки в px. */
+  size?: number;
+  /** Матовый тон подложки. */
+  tone?: 'accent' | 'success' | 'warning' | 'danger' | 'neutral';
+  /** Квадрат со скруглением вместо круга. */
+  square?: boolean;
+  /** Чем заполнить, если эмодзи нет. */
+  fallback?: IconName;
+  className?: string;
+  style?: CSSProperties;
+}
+
+const EMOJI_TONES: Record<NonNullable<EmojiIconProps['tone']>, { bg: string; border: string }> = {
+  accent: { bg: 'var(--primary-container)', border: 'var(--primary-border)' },
+  success: { bg: 'var(--success-container)', border: 'var(--success-border)' },
+  warning: { bg: 'var(--warning-container)', border: 'var(--warning-border)' },
+  danger: { bg: 'var(--danger-container)', border: 'var(--danger-border)' },
+  neutral: { bg: 'var(--surface-container)', border: 'var(--border)' },
+};
+
+export function EmojiIcon({
+  emoji,
+  size = 34,
+  tone = 'neutral',
+  square = false,
+  fallback,
+  className,
+  style,
+}: EmojiIconProps) {
+  const t = EMOJI_TONES[tone];
+  return (
+    <span
+      className={className}
+      style={{
+        width: size,
+        height: size,
+        minWidth: size,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: square ? 'var(--radius-md)' : 'var(--radius-pill)',
+        background: t.bg,
+        border: `1px solid ${t.border}`,
+        fontSize: Math.round(size * 0.5),
+        lineHeight: 1,
+        ...style,
+      }}
+    >
+      {emoji || (fallback ? <Icon name={fallback} size={Math.round(size * 0.52)} /> : null)}
+    </span>
+  );
+}

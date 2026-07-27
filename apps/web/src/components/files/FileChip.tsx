@@ -9,14 +9,21 @@ import { createDocumentFromFile, documentHref, getDocsStatus, isEditableDocument
 import type { DocsPlace } from '../../lib/docs-api';
 import { docsStatusKey } from '../../lib/queries';
 import { apiErrorMessage } from '../../lib/api';
-import { fileIcon, humanSize } from './files-ui';
+import { humanSize } from './files-ui';
+import { Icon, IconButton, toneVars, type IconName } from '@/components/ui';
+
+/** Вид файла → иконка кита. */
+const KIND_ICON: Record<string, IconName> = {
+  image: 'image', video: 'video', audio: 'speaker',
+  document: 'file', archive: 'folder', other: 'file',
+};
 
 /** Кнопки открытия документа: правка выделена цветом — это действие с последствиями */
 function docButtonStyle(busy: boolean, accent: boolean): React.CSSProperties {
   return {
     border: 'none',
     background: accent ? 'var(--primary-container, var(--surface-container-high))' : 'var(--surface-container-high)',
-    borderRadius: 'var(--radius-sketch)',
+    borderRadius: 'var(--radius-sm)',
     cursor: busy ? 'default' : 'pointer',
     fontSize: '0.7rem',
     fontWeight: 600,
@@ -26,6 +33,9 @@ function docButtonStyle(busy: boolean, accent: boolean): React.CSSProperties {
     flexShrink: 0,
     opacity: busy ? 0.5 : 1,
     whiteSpace: 'nowrap',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.25rem',
   };
 }
 
@@ -124,13 +134,24 @@ export function FileChip({ file, onRemove, onClick, docPlace }: FileChipProps) {
         alignItems: 'center',
         gap: '0.5rem',
         maxWidth: '100%',
-        padding: '0.35rem 0.6rem',
-        background: 'var(--surface-container)',
-        borderRadius: 'var(--radius-sketch)',
+        padding: '0.375rem 0.625rem',
+        background: 'var(--block)',
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--radius-md)',
         cursor: chipClick ? 'pointer' : 'default',
       }}
     >
-      <span style={{ fontSize: '1rem', lineHeight: 1 }}>{fileIcon(file.kind)}</span>
+      <span
+        style={{
+          ...toneVars('accent'),
+          width: 26, height: 26, minWidth: 26,
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          borderRadius: 'var(--radius-sm)',
+          background: 'var(--tone-bg)', border: '1px solid var(--tone-border)', color: 'var(--tone-fg)',
+        }}
+      >
+        <Icon name={KIND_ICON[file.kind] ?? 'file'} size={14} />
+      </span>
       <span
         style={{
           fontSize: '0.8rem',
@@ -157,7 +178,7 @@ export function FileChip({ file, onRemove, onClick, docPlace }: FileChipProps) {
             title="Открыть только для чтения — ничего не изменится"
             style={docButtonStyle(opening, false)}
           >
-            👁 Просмотр
+            <Icon name="eye" size={12} /> Просмотр
           </button>
           <button
             type="button"
@@ -166,49 +187,15 @@ export function FileChip({ file, onRemove, onClick, docPlace }: FileChipProps) {
             title="Открыть на правку: изменения сохраняются автоматически и видны всем, кому доступен файл"
             style={docButtonStyle(opening, true)}
           >
-            ✏️ Редактировать
+            <Icon name="edit" size={12} /> Редактировать
           </button>
         </>
       )}
       {file.status === 'ready' && (
-        <button
-          type="button"
-          onClick={download}
-          disabled={busy}
-          title="Скачать"
-          style={{
-            border: 'none',
-            background: 'transparent',
-            cursor: 'pointer',
-            fontSize: '0.85rem',
-            lineHeight: 1,
-            padding: '0.1rem',
-            opacity: busy ? 0.4 : 0.8,
-          }}
-        >
-          ⬇️
-        </button>
+        <IconButton icon="download" label="Скачать" size={24} disabled={busy} onClick={download} />
       )}
       {onRemove && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove();
-          }}
-          title="Убрать"
-          style={{
-            border: 'none',
-            background: 'transparent',
-            cursor: 'pointer',
-            fontSize: '0.8rem',
-            lineHeight: 1,
-            padding: '0.1rem',
-            color: 'var(--on-surface-variant)',
-          }}
-        >
-          ✕
-        </button>
+        <IconButton icon="close" label="Убрать" size={24} onClick={(e) => { e.stopPropagation(); onRemove(); }} />
       )}
     </div>
   );

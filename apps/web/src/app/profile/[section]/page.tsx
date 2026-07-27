@@ -1,5 +1,6 @@
 'use client';
 
+import { ModalShell } from '@/components/ui';
 import { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
@@ -275,8 +276,8 @@ export default function ProfileSectionPage() {
   return (
     <div>
       {/* Messages */}
-      {error && <div className="wash-primary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-4)', color: 'var(--primary)', fontSize: '0.875rem' }}>{error}</div>}
-      {successMsg && <div className="wash-secondary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-4)', color: 'var(--secondary)', fontSize: '0.875rem' }}>{successMsg}</div>}
+      {error && <div className="alert-neutral-inline" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-4)', color: 'var(--primary)', fontSize: '0.875rem' }}>{error}</div>}
+      {successMsg && <div className="alert-accent-inline" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-4)', color: 'var(--secondary)', fontSize: '0.875rem' }}>{successMsg}</div>}
 
       {/* === Моя Анкета: данные + видимость по умолчанию === */}
       {section === 'form' && (
@@ -292,7 +293,7 @@ export default function ProfileSectionPage() {
                   Сохраняется сразу, не через кнопку «Сохранить анкету». */}
               <AvatarUploadBlock
                 current={profile?.avatar ?? null}
-                fallback={(profile?.firstName?.[0] ?? '🙂').toUpperCase()}
+                fallback={(profile?.firstName?.[0] ?? '?').toUpperCase()}
                 label="Аватарка"
                 onSaved={async (url) => {
                   await api.patch('/users/me', { avatar: url });
@@ -304,57 +305,57 @@ export default function ProfileSectionPage() {
               <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)' }}>
                 <div>
                   <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Имя *</label>
-                  <input type="text" value={editData.firstName} onChange={(e) => setEditData({ ...editData, firstName: e.target.value })} className="input-sketch" />
+                  <input type="text" value={editData.firstName} onChange={(e) => setEditData({ ...editData, firstName: e.target.value })} className="ui-input" />
                 </div>
                 <div>
                   <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Фамилия</label>
-                  <input type="text" value={editData.lastName} onChange={(e) => setEditData({ ...editData, lastName: e.target.value })} className="input-sketch" />
+                  <input type="text" value={editData.lastName} onChange={(e) => setEditData({ ...editData, lastName: e.target.value })} className="ui-input" />
                 </div>
               </div>
               <div>
                 <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>О себе (до 160 символов)</label>
-                <input type="text" value={editData.bio} onChange={(e) => setEditData({ ...editData, bio: e.target.value.slice(0, 160) })} className="input-sketch" placeholder="Расскажите о себе..." />
+                <input type="text" value={editData.bio} onChange={(e) => setEditData({ ...editData, bio: e.target.value.slice(0, 160) })} className="ui-input" placeholder="Расскажите о себе..." />
                 <span className="label-sm" style={{ fontSize: '0.65rem' }}>{editData.bio.length}/160</span>
               </div>
               <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)' }}>
                 <div>
                   <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Город</label>
-                  <input type="text" value={editData.city} onChange={(e) => setEditData({ ...editData, city: e.target.value })} className="input-sketch" placeholder="Алматы" />
+                  <input type="text" value={editData.city} onChange={(e) => setEditData({ ...editData, city: e.target.value })} className="ui-input" placeholder="Алматы" />
                 </div>
                 <div>
                   <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Дата рождения</label>
-                  <input type="date" value={editData.dateOfBirth} onChange={(e) => setEditData({ ...editData, dateOfBirth: e.target.value })} className="input-sketch" />
+                  <input type="date" value={editData.dateOfBirth} onChange={(e) => setEditData({ ...editData, dateOfBirth: e.target.value })} className="ui-input" />
                 </div>
               </div>
               <div>
                 <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Email</label>
-                <input type="email" value={editData.email} onChange={(e) => setEditData({ ...editData, email: e.target.value })} className="input-sketch" placeholder="user@example.com" />
+                <input type="email" value={editData.email} onChange={(e) => setEditData({ ...editData, email: e.target.value })} className="ui-input" placeholder="user@example.com" />
               </div>
               <div>
                 <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Семейное положение</label>
-                <select value={editData.maritalStatus} onChange={(e) => setEditData({ ...editData, maritalStatus: e.target.value })} className="input-sketch" style={{ cursor: 'pointer' }}>
+                <select value={editData.maritalStatus} onChange={(e) => setEditData({ ...editData, maritalStatus: e.target.value })} className="ui-input" style={{ cursor: 'pointer' }}>
                   {MARITAL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
               <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)' }}>
                 <div>
                   <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Telegram</label>
-                  <input type="text" value={editData.telegram} onChange={(e) => setEditData({ ...editData, telegram: e.target.value })} className="input-sketch" placeholder="@username" />
+                  <input type="text" value={editData.telegram} onChange={(e) => setEditData({ ...editData, telegram: e.target.value })} className="ui-input" placeholder="@username" />
                 </div>
                 <div>
                   <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Instagram</label>
-                  <input type="text" value={editData.instagram} onChange={(e) => setEditData({ ...editData, instagram: e.target.value })} className="input-sketch" placeholder="@username" />
+                  <input type="text" value={editData.instagram} onChange={(e) => setEditData({ ...editData, instagram: e.target.value })} className="ui-input" placeholder="@username" />
                 </div>
                 <div>
                   <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>LinkedIn</label>
-                  <input type="text" value={editData.linkedin} onChange={(e) => setEditData({ ...editData, linkedin: e.target.value })} className="input-sketch" placeholder="linkedin.com/in/..." />
+                  <input type="text" value={editData.linkedin} onChange={(e) => setEditData({ ...editData, linkedin: e.target.value })} className="ui-input" placeholder="linkedin.com/in/..." />
                 </div>
                 <div>
                   <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>WhatsApp</label>
-                  <input type="text" value={editData.whatsapp} onChange={(e) => setEditData({ ...editData, whatsapp: e.target.value })} className="input-sketch" placeholder="+77001234567" />
+                  <input type="text" value={editData.whatsapp} onChange={(e) => setEditData({ ...editData, whatsapp: e.target.value })} className="ui-input" placeholder="+77001234567" />
                 </div>
               </div>
-              <button onClick={handleSaveProfile} className="btn-primary" style={{ marginTop: 'var(--spacing-2)' }}>Сохранить анкету</button>
+              <button onClick={handleSaveProfile} className="btn-success" style={{ marginTop: 'var(--spacing-2)' }}>Сохранить анкету</button>
             </div>
           </div>
 
@@ -434,7 +435,7 @@ export default function ProfileSectionPage() {
               <select
                 value={previewId}
                 onChange={(e) => setPreviewId(e.target.value)}
-                className="input-sketch"
+                className="ui-input"
                 style={{ cursor: 'pointer', padding: '0.3rem 0.6rem', fontSize: '0.8rem' }}
               >
                 <option value={DEFAULT_PREVIEW}>По умолчанию (без группы)</option>
@@ -494,7 +495,7 @@ export default function ProfileSectionPage() {
           {p.roles && p.roles.length > 0 ? (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-3)' }}>
               {p.roles.map((r, i) => (
-                <span key={i} className="sketch-role-badge">
+                <span key={i} className="ui-chip ui-chip--sm">
                   {r.role}
                   <span style={{ opacity: 0.5, marginLeft: '0.3rem', fontSize: '0.7rem' }}>@ {r.context}</span>
                 </span>
@@ -511,10 +512,10 @@ export default function ProfileSectionPage() {
         <div>
           <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-6)' }}>Подписка</h2>
           {p.activeSubscription ? (
-            <div className="wash-secondary" style={{ padding: 'var(--spacing-6)', maxWidth: '400px' }}>
+            <div className="alert-accent-inline" style={{ padding: 'var(--spacing-6)', maxWidth: '400px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--spacing-3)' }}>
                 <span className="title-md" style={{ textTransform: 'capitalize' }}>{p.activeSubscription.plan}</span>
-                <span className="sketch-role-badge">{p.activeSubscription.status === 'trial' ? 'Пробный период' : p.activeSubscription.status}</span>
+                <span className="ui-chip ui-chip--sm">{p.activeSubscription.status === 'trial' ? 'Пробный период' : p.activeSubscription.status}</span>
               </div>
               <p className="label-sm">Истекает: {new Date(p.activeSubscription.expiresAt).toLocaleDateString('ru-RU')}</p>
             </div>
@@ -534,7 +535,7 @@ export default function ProfileSectionPage() {
           <div className="card-elevated" style={{ padding: 'var(--spacing-6)', maxWidth: '400px', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
             <div>
               <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Язык</label>
-              <select defaultValue={p.locale || 'ru'} className="input-sketch" disabled style={{ cursor: 'not-allowed', opacity: 0.6 }}>
+              <select defaultValue={p.locale || 'ru'} className="ui-input" disabled style={{ cursor: 'not-allowed', opacity: 0.6 }}>
                 <option value="ru">Русский</option>
                 <option value="kk">Қазақша</option>
                 <option value="en">English</option>
@@ -543,11 +544,11 @@ export default function ProfileSectionPage() {
             </div>
             <div>
               <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Часовой пояс</label>
-              <input type="text" defaultValue={p.timezone || 'Asia/Almaty'} className="input-sketch" disabled style={{ opacity: 0.6 }} />
+              <input type="text" defaultValue={p.timezone || 'Asia/Almaty'} className="ui-input" disabled style={{ opacity: 0.6 }} />
             </div>
             <div>
               <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Онлайн-статус видят</label>
-              <select defaultValue={p.onlineStatusMode || 'everyone'} className="input-sketch" onChange={async (e) => {
+              <select defaultValue={p.onlineStatusMode || 'everyone'} className="ui-input" onChange={async (e) => {
                 try { await api.patch('/users/me', { onlineStatusMode: e.target.value }); await fetchProfile(); setSuccessMsg('Сохранено'); } catch { setError('Ошибка'); }
               }} style={{ cursor: 'pointer' }}>
                 <option value="everyone">Все</option>
@@ -592,10 +593,10 @@ export default function ProfileSectionPage() {
               и к новому номеру.
             </p>
             <div style={{ display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
-              <button className="btn-secondary" style={{ fontSize: '0.85rem' }} onClick={() => setShowPasswordDialog(true)}>
+              <button className="btn-ghost-inline" style={{ fontSize: '0.85rem' }} onClick={() => setShowPasswordDialog(true)}>
                 Изменить пароль
               </button>
-              <button className="btn-secondary" style={{ fontSize: '0.85rem' }} onClick={() => setShowPhoneDialog(true)}>
+              <button className="btn-ghost-inline" style={{ fontSize: '0.85rem' }} onClick={() => setShowPhoneDialog(true)}>
                 Сменить номер телефона
               </button>
             </div>
@@ -619,20 +620,20 @@ export default function ProfileSectionPage() {
 
       {/* Delete-account confirmation */}
       {showDeleteModal && (
-        <div onClick={() => !deleting && setShowDeleteModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(40,40,30,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 'var(--spacing-4)' }}>
+        <ModalShell onClose={() => !deleting && setShowDeleteModal(false)} zIndex={200}>
           <div onClick={(e) => e.stopPropagation()} className="card" style={{ maxWidth: '440px', width: '100%', padding: 'var(--spacing-6)' }}>
             <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)', color: 'var(--danger)' }}>Удалить аккаунт?</h3>
             <p className="label-md" style={{ marginBottom: 'var(--spacing-4)', lineHeight: 1.55 }}>
               Аккаунт будет помечен на удаление. У вас есть <b>30 дней</b>, чтобы передумать — просто войдите снова, и он восстановится. По истечении срока данные удаляются безвозвратно.
             </p>
-            <input type="password" value={deletePassword} onChange={(e) => setDeletePassword(e.target.value)} placeholder="Подтвердите текущим паролем" className="input-sketch" style={{ marginBottom: 'var(--spacing-3)' }} />
+            <input type="password" value={deletePassword} onChange={(e) => setDeletePassword(e.target.value)} placeholder="Подтвердите текущим паролем" className="ui-input" style={{ marginBottom: 'var(--spacing-3)' }} />
             {deleteError && <p style={{ color: 'var(--danger)', fontSize: '0.8rem', marginBottom: 'var(--spacing-3)' }}>{deleteError}</p>}
             <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end' }}>
-              <button className="btn-secondary" disabled={deleting} style={{ fontSize: '0.85rem' }} onClick={() => { setShowDeleteModal(false); setDeletePassword(''); setDeleteError(''); }}>Отмена</button>
+              <button className="btn-ghost-inline" disabled={deleting} style={{ fontSize: '0.85rem' }} onClick={() => { setShowDeleteModal(false); setDeletePassword(''); setDeleteError(''); }}>Отмена</button>
               <button disabled={deleting} onClick={handleDeleteAccount} style={{ fontSize: '0.85rem', fontWeight: 600, color: '#fff', background: 'var(--danger)', border: 'none', borderRadius: '10px', padding: 'var(--spacing-2) var(--spacing-5)', cursor: deleting ? 'default' : 'pointer', opacity: deleting ? 0.6 : 1 }}>{deleting ? 'Удаление…' : 'Удалить'}</button>
             </div>
           </div>
-        </div>
+        </ModalShell>
       )}
     </div>
   );

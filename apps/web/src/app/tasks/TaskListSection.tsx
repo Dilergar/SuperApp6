@@ -10,6 +10,7 @@
 //  • пагинация по meta.totalPages
 // ============================================================
 
+import { Alert, EmptyState, LoadingBlock, Pagination, SearchField } from '@/components/ui';
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { fetchTasks, tasksListKey } from '@/lib/queries';
@@ -33,6 +34,8 @@ const ROLE_OPTIONS: Array<{ key: ViewerTaskRole; label: string }> = [
   { key: 'co_executor', label: TASK_ROLE_LABELS.co_executor },
   { key: 'observer', label: TASK_ROLE_LABELS.observer },
 ];
+
+const PRIORITY_CHIP_TONE = { low: 'neutral', medium: 'accent', high: 'warning', urgent: 'danger' } as const;
 
 export function TaskListSection({
   filter,
@@ -111,22 +114,15 @@ export function TaskListSection({
   return (
     <div>
       {enableSearch && (
-        <div style={{ position: 'relative', marginBottom: 'var(--spacing-3)' }}>
-          <input
-            type="search"
+        <div style={{ marginBottom: 'var(--spacing-3)' }}>
+          <SearchField
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
+            onClear={() => setSearchText('')}
             placeholder="Поиск по названию и описанию…"
-            className="input-sketch"
-            style={{ paddingLeft: '2.1rem' }}
             aria-label="Поиск задач"
+            width="100%"
           />
-          <span aria-hidden style={{ position: 'absolute', left: '0.7rem', top: '50%', transform: 'translateY(-50%)', opacity: 0.55 }}>🔍</span>
-          {q.isFetching && search && (
-            <span className="label-sm" style={{ position: 'absolute', right: '0.8rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--on-surface-variant)' }}>
-              ищем…
-            </span>
-          )}
         </div>
       )}
 
@@ -136,14 +132,14 @@ export function TaskListSection({
             <span className="label-sm" style={{ minWidth: 74 }}>Статус</span>
             {(Object.keys(TASK_STATUS_META) as TaskStatus[]).map((s) => (
               <Chip key={s} active={statusSel.includes(s)} onClick={() => toggleStatus(s)}>
-                {TASK_STATUS_META[s].icon} {TASK_STATUS_META[s].label}
+                {TASK_STATUS_META[s].label}
               </Chip>
             ))}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
             <span className="label-sm" style={{ minWidth: 74 }}>Приоритет</span>
             {(Object.keys(TASK_PRIORITY_META) as TaskPriority[]).map((p) => (
-              <Chip key={p} active={prioritySel.includes(p)} color={TASK_PRIORITY_META[p].color} onClick={() => togglePriority(p)}>
+              <Chip key={p} active={prioritySel.includes(p)} tone={PRIORITY_CHIP_TONE[p]} onClick={() => togglePriority(p)}>
                 {TASK_PRIORITY_META[p].label}
               </Chip>
             ))}
@@ -160,20 +156,15 @@ export function TaskListSection({
       )}
 
       {q.isLoading ? (
-        <p className="label-md" style={{ padding: 'var(--spacing-6) 0', textAlign: 'center' }}>Загрузка…</p>
+        <LoadingBlock />
       ) : q.isError ? (
-        <div className="wash-primary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', color: 'var(--primary)', fontSize: '0.875rem' }}>
-          Не удалось загрузить задачи
-        </div>
+        <Alert tone="danger">Не удалось загрузить задачи</Alert>
       ) : items.length === 0 ? (
-        <div className="card" style={{ textAlign: 'center', padding: 'var(--spacing-10)', color: 'var(--on-surface-variant)' }}>
-          <p className="label-md">{hasActiveFilters ? 'Ничего не найдено' : emptyText}</p>
-          {(hasActiveFilters ? 'Попробуйте изменить запрос или фильтры' : emptyHint) && (
-            <p className="label-sm" style={{ marginTop: 'var(--spacing-2)' }}>
-              {hasActiveFilters ? 'Попробуйте изменить запрос или фильтры' : emptyHint}
-            </p>
-          )}
-        </div>
+        <EmptyState
+          icon={hasActiveFilters ? 'search' : 'tasks'}
+          title={hasActiveFilters ? 'Ничего не найдено' : emptyText}
+          description={hasActiveFilters ? 'Попробуйте изменить запрос или фильтры' : emptyHint}
+        />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)', opacity: q.isFetching ? 0.75 : 1, transition: 'opacity 0.15s ease' }}>
           {items.map((t) => (renderRow ? <Fragment key={t.id}>{renderRow(t)}</Fragment> : <TaskRow key={t.id} task={t} />))}
@@ -181,24 +172,8 @@ export function TaskListSection({
       )}
 
       {enablePagination && meta && totalPages > 1 && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 'var(--spacing-3)', marginTop: 'var(--spacing-5)' }}>
-          <button
-            className="btn-secondary"
-            style={{ padding: '0.35rem 0.9rem', fontSize: '0.8rem', opacity: page <= 1 ? 0.5 : 1 }}
-            disabled={page <= 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-          >
-            ← Назад
-          </button>
-          <span className="label-sm">стр. {meta.page} из {totalPages} · всего {meta.total}</span>
-          <button
-            className="btn-secondary"
-            style={{ padding: '0.35rem 0.9rem', fontSize: '0.8rem', opacity: page >= totalPages ? 0.5 : 1 }}
-            disabled={page >= totalPages}
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-          >
-            Вперёд →
-          </button>
+        <div style={{ marginTop: 'var(--spacing-5)' }}>
+          <Pagination page={meta.page} pageCount={totalPages} onChange={setPage} />
         </div>
       )}
     </div>

@@ -1,79 +1,237 @@
-```markdown
-# Design System Specification: The Digital Atelier
+# Дизайн-система SuperApp6 — Organic Bento (warm matte)
 
-## 1. Overview & Creative North Star
-**Creative North Star: "The Living Sketchbook"**
+**Обязательна к чтению перед созданием или правкой ЛЮБОГО UI-компонента (веб + мобильное).**
 
-This design system rejects the sterile, pixel-perfect rigidity of modern SaaS platforms. Instead, it celebrates the "soul of the hand." Our goal is to create a high-fidelity digital experience that feels like a master artist’s personal sketchbook—where every stroke is intentional, and every "imperfection" is a deliberate design choice. 
+Тёплая матовая бумага под чистыми светлыми блоками-бенто. Тонкий контурный штрих
+иконок, матовые полупрозрачные чипы, штриховые прогресс-индикаторы. Спокойно,
+аккуратно, без украшательства — интерфейс, в котором работают каждый день.
 
-We break the "template" look by utilizing intentional asymmetry, staggered layouts, and tactile depth. We aren't building a grid of boxes; we are composing a series of mixed-media pages. The interface should feel warm, personal, and premium, balancing the raw energy of charcoal and wax crayons with the sophisticated clarity of high-end editorial typography.
+Исходный дизайн-пакет-референс (HTML-прототип 3 экранов + описание компонентов) —
+папка `design-reference/`. Прототип открывается локально: `SuperApp6 Redesign.dc.html`
+рядом с `support.js`. **В код `support.js` не переносится.**
 
----
-
-## 2. Colors: The Pigment Palette
-The palette is rooted in a base of textured paper, accented by vibrant "crayon" primary tones and soft "watercolor" washes.
-
-*   **The "No-Line" Rule:** Standard 1px solid borders are strictly prohibited for defining sections. Structure must be created through background shifts. For example, a `surface_container_low` section should sit directly on the `surface` background to define its boundaries.
-*   **Surface Hierarchy & Nesting:** Treat the UI as stacked sheets of watercolor paper. Use `surface_container_lowest` (#ffffff) for the "brightest" highlights or top-most floating elements, and `surface_dim` (#e4e4d1) for recessed areas or "back pages." 
-*   **Watercolor Washes:** Use `primary_container` (#ffaca3) and `secondary_container` (#c7e7ff) with a 40-60% opacity fill to create "wash" effects behind CTAs. These should not be perfect rectangles; use SVG masks to create slightly bleeding, organic edges.
-*   **Wax & Charcoal Accents:** Use `primary` (#c61a1e) for bold, wax-red "drawn" accents and `on_surface` (#38392d) for charcoal-like text and sketches.
+> Эта система ЗАМЕНИЛА прежнюю — «Digital Atelier / Живой скетчбук». Правила
+> прежней системы (кривые радиусы, наклон карточек, запрет 1px-бордеров, шум
+> «бумага», восковые мазки, акварельные wash-эффекты, шрифты Epilogue и Plus
+> Jakarta Sans) **отменены целиком**. Если встретишь их в коде — это остаток,
+> его нужно убрать, а не поддержать.
 
 ---
 
-## 3. Typography: The Artist’s Hand
-We utilize a hierarchy that mimics the difference between a bold title marker and a fine-point technical pencil.
+## 1. Цвета
 
-*   **Display & Headlines (Epilogue):** This is our "Marker" style. Use `display-lg` (3.5rem) for main hero statements. The weight of Epilogue provides a bold, confident strike that mimics heavy ink.
-*   **Body & Labels (Plus Jakarta Sans):** This is our "Technical Pencil." While clean and highly legible, when paired with the sketchbook background, it acts as the neat, handwritten annotations of the designer. 
-*   **Editorial Intent:** Use `title-lg` for pull-quotes or emphasis. Ensure there is significant breathing room (using `spacing-12` or `spacing-16`) between headlines and body text to mimic the airy layout of an art book.
+Все цвета живут переменными в `apps/web/src/app/globals.css`. **Хардкодить цвет
+в компоненте запрещено** — если нужного оттенка нет, добавляется переменная.
+
+### Зафиксировано пользователем (менять нельзя)
+| Роль | Значение | Переменная |
+|---|---|---|
+| Фон страницы | `#eae6de` | `--surface` / `--page` |
+| Все блоки, карточки, сайдбар | `#fafbf8` | `--surface-container-lowest` / `--block` |
+
+### Текст
+| Роль | Значение | Переменная |
+|---|---|---|
+| Основной | `#1d1b1d` | `--on-surface` |
+| Вторичный | `#6b655e` | `--on-surface-variant` |
+| Приглушённый | `#8a8478` | `--muted` |
+| Подписи-капс | `#a39d92` | `--label` |
+
+### Акцент и статусы
+Каждый статус — пара «база» (заливка, иконка) и «текст» (тёмный вариант, читается
+на матовом).
+
+| Роль | База | Текст | Переменные |
+|---|---|---|---|
+| Акцент, действия, бренд | `#588cd3` | `#3f6aa8` | `--primary`, `--primary-dim` |
+| Успех | `#74a277` | `#3c6842` | `--success-base`, `--success` |
+| Предупреждение | `#d6966c` | `#9a5f2f` | `--warning-base`, `--warning` |
+| Опасность | `#de6d68` | `#b04a45` | `--danger-base`, `--danger` |
+
+**Красный — только опасность.** Кнопка «Сохранить» и кнопка «Удалить аккаунт» не
+имеют права быть одного цвета. Бренд теперь синий.
+
+### Цвет действия — по смыслу (правило продукта)
+
+| Действие | Цвет | Как получить |
+|---|---|---|
+| Создать, Сохранить, Подтвердить, Принять, Купить, Одобрить | **зелёный** | `<Button variant="primary" tone="success">` · класс `.btn-success` |
+| Удалить, Выйти, Уволить, Отклонить, Покинуть, Отозвать | **красный** | `<Button variant="primary" tone="danger">` · `.btn-danger`, мягкий вариант `.btn-danger-soft` |
+| Открыть, Применить, Перейти, всё остальное | **синий** | `<Button variant="primary">` (тон `accent` по умолчанию) |
+
+«Отмена» в модалке — это закрытие диалога, а не разрушение: она остаётся
+призрачной (`variant="ghost"`), красить её нельзя.
+
+Это правило пользователя ПОВЕРХ дизайн-пакета: в самом пакете зелёных кнопок нет,
+основное действие там всегда синее. Классы `.btn-*` в `globals.css` нужны страницам,
+ещё не переведённым на кит; в новом коде — только `<Button>`.
+
+### Линии
+| Роль | Значение | Переменная |
+|---|---|---|
+| Бордер блока | `#e2dccf` | `--border` / `--outline-variant` |
+| Разделитель внутри блока | `#eee9dd` | `--divider` |
+| Линии дерева, пустые тики | `#ddd6c8` | `--line` |
+| Пустые тики на светлом блоке | `#e4ded1` | `--tick-empty` |
+| Активная подложка (пункт меню) | `#ece7dc` | `--active` |
+| Ховер-подложка | `#f1ede3` | `--hover` |
+| Середина градиентов | `#d6a04c` | `--grad-mid` |
+
+**1px-бордеры здесь несущие** (в прежней системе были запрещены).
+
+### Матовый чип — базовый приём системы
+Заливка `rgba(база, 0.12–0.16)` + бордер `1px rgba(база, 0.30–0.35)` + текст
+тёмным вариантом цвета. Готовые классы: `.chip`, `.chip-accent`, `.chip-success`,
+`.chip-warning`, `.chip-danger`.
 
 ---
 
-## 4. Elevation & Depth: Tonal Layering & Cross-Hatching
-Shadows and lines in this system are analog, not algorithmic.
+## 2. Типографика
 
-*   **The Cross-Hatch Principle:** Instead of standard CSS drop shadows, use a custom background pattern that mimics pencil cross-hatching for "shadowed" elements. Use the `outline_variant` token (#bbbaab) at 20% opacity to draw these diagonal lines behind cards.
-*   **Ambient Lift:** For elements that must "float," use an extra-diffused shadow with a 24px-32px blur and 5% opacity, tinted with the `surface_tint` (#c61a1e) to mimic light reflecting off the warm paper.
-*   **The "Ghost Border":** If a container requires a boundary, use the `outline_variant` at 15% opacity with an irregular `border-radius` (mix and match values like `0.5rem`, `1rem`, and `0.75rem` on a single element) to simulate a hand-drawn line.
-*   **Glassmorphism:** Use semi-transparent `surface_container_lowest` with a `backdrop-blur` of 8px-12px for floating navigation bars, allowing the "paper texture" underneath to remain visible.
+Шрифт один — **Manrope** (400–800), подключён через `next/font` (самохостится, что
+и быстрее, и совпадает с CSP `font-src 'self'`).
 
----
+| Класс | Размер / вес | Назначение |
+|---|---|---|
+| `.title-lg` | 26px / 800 / -0.02em | H2 экрана |
+| `.title-md` | 18px / 800 / -0.01em | Заголовок карточки |
+| `.title-sm` | 15px / 700 | Заголовок элемента |
+| `.body-md` / `.label-md` | 14 / 13px / 500 | Текст, line-height ~1.55 |
+| `.body-sm` / `.label-sm` | 13 / 12px / 500 | Мелкий текст |
+| `.label-caps` | 10px / 700 / 0.08em / uppercase | Подпись-капс |
+| `.meta` | 11px / 600 / 0.03em | Мета-строка |
 
-## 5. Components: Hand-Crafted Primitives
-
-### Buttons
-*   **Primary:** A "Watercolor Wash" using a gradient from `primary` (#c61a1e) to `primary_dim` (#b40414). The shape should have a slight "bleed" (irregular border-radius).
-*   **Secondary:** A "Crayon Outline." A 2px irregular stroke using `secondary` (#326a8b) with no fill, mimicking a sky-blue wax pencil.
-*   **Tertiary:** Pure text (`label-md`) with a `tertiary_container` "highlight" stroke that appears only on hover, like a yellow highlighter pen.
-
-### Inputs & Fields
-*   **Text Inputs:** Forbid 4-sided boxes. Use a single, "shaky" bottom border (2px) using the `outline` token. 
-*   **Labels:** Always use `label-md` in `on_surface_variant`, positioned slightly asymmetrically above the input field.
-
-### Cards
-*   **Construction:** Use `surface_container` with a `roundedness-md` (0.75rem). 
-*   **Visual Separation:** Never use divider lines. Use `spacing-6` to separate content blocks or a subtle shift to `surface_container_high` for nested content.
-
-### Selection Controls
-*   **Checkboxes:** Should look like hand-drawn "X" marks using the `primary` wax-red.
-*   **Radio Buttons:** Should look like charcoal-filled circles.
+Крупная цифра показателя — 30px / 800 / -0.02em.
 
 ---
 
-## 6. Do's and Don'ts
+## 3. Иконки
 
-### Do:
-*   **Embrace Asymmetry:** Stagger images and text blocks. Use `spacing-10` on one side and `spacing-12` on the other to create a "pasted-in" feel.
-*   **Use Texture:** Always ensure the `#fdffda` background has a subtle noise or paper grain overlay.
-*   **Layer Surfaces:** Place `surface_container_lowest` cards on a `surface_container_low` background to create soft depth.
+**Интерфейсные иконки — Phosphor, начертание Light**, всегда через `<Icon/>`
+(`apps/web/src/components/ui/Icon.tsx`). Прямой импорт из `@phosphor-icons/react`
+в страницах **запрещён**: иначе набор расползётся и сменить поставщика станет
+невозможно. Не хватает иконки — добавляется строка в реестр `ICONS`.
 
-### Don't:
-*   **Don't use 1px black borders.** This immediately breaks the artistic illusion.
-*   **Don't use perfect circles.** For icons or decorative elements, use slightly warped SVG paths.
-*   **Don't crowd the canvas.** High-end sketchbooks have plenty of "white space" (or in our case, "paper space"). If in doubt, increase spacing using the `spacing-8` or `spacing-12` tokens.
-*   **Don't use pure grey shadows.** Always tint shadows with a hint of the `primary` or `on_surface` color to maintain warmth.
+Размеры: навигация 20px, в карточках 16–22px.
+
+**Эмодзи, выбранные пользователем и лежащие в БД** (иконка Группы, своей валюты,
+категории финансов, лота, хотелки) — это ДАННЫЕ, иконками они не заменяются. Их
+показывает `<EmojiIcon/>` в матовом круге или квадрате.
 
 ---
 
-## 7. Director's Final Note
-This system succeeds when it feels **deliberate**. Every "sketchy" line must be a high-fidelity asset. We are not making a "messy" UI; we are making a "curated" one. Use the `spacing-scale` rigorously to ensure that despite the hand-drawn aesthetic, the information architecture remains crystalline and easy to navigate.
+## 4. Форма и глубина
+
+| Элемент | Радиус |
+|---|---|
+| Карточка-бенто | 24px (`--radius-card`) |
+| Мелкая карточка, панель | 20px (`--radius-lg`) |
+| Кнопка, поле, чип-квадрат | 12px (`--radius-md`) |
+| Пункт навигации | 14px |
+| Мелкая кнопка-иконка | 8px (`--radius-sm`) |
+| Пилюля, аватар | 999px (`--radius-pill`) |
+
+**Радиусы ровные.** Ни одного элемента с разными углами.
+
+Тень в системе одна: `0 4px 20px rgba(0,0,0,0.04)` (`--shadow-card`). Для
+всплывающего — `--shadow-pop`. Цветных и «тёплых» теней нет.
+
+Сетка: 12 колонок, gap 16px, внешние поля 24–28px, ширина контента до 1120px.
+
+---
+
+## 5. Штриховой (tick) прогресс — фирменный паттерн
+
+Вертикальные штрихи 2px с шагом 5px. Единственный вид прогресса в системе —
+сплошных полосок не бывает.
+
+```html
+<div class="tick-bar"><div class="tick-bar-fill" style="width:75%"></div></div>
+```
+
+Градиентный вариант (`.tick-bar-grad`) — зелёный→красный или красный→зелёный
+через `--grad-mid`; направление задаётся `--tick-from`/`--tick-to`, непройденная
+часть — `--tick-rest`.
+
+---
+
+## 6. Плотность
+
+Две плотности в токенах. Просторная — по умолчанию (как в дизайн-пакете).
+Компактная включается классом `.density-compact` на контейнере и нужна там, где
+просторная съедает половину экрана: лента чатов, сетка календаря, таблицы,
+ростер сотрудников, ленты операций. Меняются только отступы и высота контролов —
+цвета, шрифт и радиусы общие.
+
+---
+
+## 7. Компоненты
+
+**Единственный источник примитивов — `apps/web/src/components/ui/`.**
+Страницам запрещено рисовать свои кнопки, поля, модалки и чипы. Не хватает —
+расширяется кит (тот же Принцип 1, что у платформенных движков на бэкенде).
+
+Импорт всегда из корня кита: `import { Button, Modal, Chip } from '@/components/ui';`
+
+Живой каталог со всеми состояниями — страница `/dev/ui` (только в разработке).
+
+### Каталог кита
+
+| Компонент | Что делает | Ключевое |
+|---|---|---|
+| `Icon` | Интерфейсная иконка | Реестр `ICONS` семантических имён поверх Phosphor Light. Прямой импорт из пакета запрещён |
+| `EmojiIcon` | Пользовательский эмодзи из БД | Матовый круг/квадрат, тон, запасная иконка |
+| `Button` | Кнопка | `variant` primary/matte/outline/ghost, `tone`, `size` sm/md/lg, `icon`, `loading`, `href` |
+| `IconButton` | Кнопка-иконка | `label` обязателен (иначе кнопка безымянна для скринридера), `forwardRef` для якорей |
+| `Field` `Input` `Textarea` | Поля | Подпись-капс, подсказка, ошибка (красит рамку и ставит `aria-invalid`), иконка внутри |
+| `SearchField` | Поиск-пилюля | Иконка лупы, крестик очистки |
+| `Select` | Замена нативного `<select>` | Свой список: иконка/эмодзи/цветная точка в опции, клавиатура, портал. Для людей и Групп — не он, а `EntitySelector` |
+| `Toggle` | Тумблер | ON = зелёный (правило пакета), `role="switch"`, подпись с описанием |
+| `Checkbox` | Флажок | `strikethrough` для выполненных задач |
+| `Chip` | Матовая метка | Статус или чип-фильтр (`selected`+`onClick`); `onRemove`; невыбранный фильтр всегда нейтральный |
+| `Badge` `StatusDot` | Счётчик, точка статуса | |
+| `Card` `CardHeader` | Блок-бенто | `span` колонок, `small` (r20), `hoverable` |
+| `BentoGrid` | Сетка 12 колонок | gap из токена плотности |
+| `PageHeader` | Шапка экрана | Хлебная крошка-капс + H2 + чип + действия |
+| `StatTile` | Плитка показателя | Иконка в матовом круге, крупная цифра, тренд вверх/вниз |
+| `EmptyState` | Пустой раздел | Иконка в круге + заголовок + действие |
+| `Divider` | Разделитель внутри блока | Единственная допустимая линия внутри карточки |
+| `TickBar` | Штриховой прогресс | Тон, подпись, значение |
+| `GradientTickBar` | Градиентный штриховой | `direction` green-red / red-green |
+| `Modal` | Модальное окно | `role="dialog"`, Esc, ловушка Tab, возврат фокуса, блокировка прокрутки с компенсацией скроллбара, размеры sm–xl, на телефоне — снизу |
+| `ModalShell` | Оболочка окна | То же поведение, но БЕЗ своей вёрстки — для окон, чьё содержимое уже свёрстано. Замена на месте: внешний `<div style={{position:'fixed'…}}>` → `<ModalShell onClose={…}>`. Сырой fixed-оверлей законен только у не-модалок (ловушка клика, полноэкранный канвас, всплывашка звонка) |
+| `ConfirmDialog` | Подтверждение действия | `danger` для необратимого |
+| `Menu` | Меню действий | Пункты с иконками, опасные красным, разделители, клавиатура, портал |
+| `Tooltip` | Подсказка | По наведению И по фокусу с клавиатуры, задержка |
+| `SegmentedControl` | Пилюля-переключатель | Как в топбаре прототипа |
+| `Tabs` | Вкладки раздела | Иконка, счётчик, подчёркивание активной |
+| `Pagination` | Постранично | Многоточия, клампинг стрелок, «Страница X из N» |
+| `Calendar` `DatePicker` | Дата | Неделя с понедельника, сравнение по локальным частям даты (не по UTC) |
+| `Dropzone` | Зона перетаскивания | Визуальный примитив; загрузку делает `components/files/*` |
+| `Alert` | Плашка сообщения | Тон, заголовок, закрытие, действие |
+| `Spinner` `LoadingBlock` `Skeleton` | Загрузка | |
+| `AvatarStack` | Стек участников | Нахлёст + «+N»; лица рисует `PersonAvatar` |
+| `usePopover` | Механизм всплывания | Переворот вверх при нехватке места, закрытие по клику вне и Esc, пересчёт при скролле |
+| `toneVars` `cx` | Тона и склейка классов | |
+
+### Что кит НЕ заменяет
+
+- Человек в интерфейсе — ВСЕГДА одна из 5 карточек (`PersonChip`/`PersonAvatar`),
+  никогда голым текстом. Несущее продуктовое правило: от него зависит видимость
+  платных скинов карточек.
+- Выбор человека, Группы, отдела, должности, филиала — `EntitySelector`.
+- Файлы (загрузка, чипы, плееры, лайтбокс) — `components/files/*` поверх `core/files`.
+- Звонки — `components/calls/*`, хроника — `components/chatter/*`,
+  подтверждения по SMS — `components/verify/*`.
+
+---
+
+## 8. Чего не делаем
+
+- Не хардкодим цвет, радиус и отступ — только переменные.
+- Не рисуем свою кнопку/поле/модалку мимо `components/ui/`.
+- Не используем красный ни для чего, кроме опасного действия.
+- Не ставим сплошные полоски прогресса — только штриховые.
+- Не возвращаем кривые радиусы, наклоны, шум и восковые мазки прежней системы.
+- Не ставим эмодзи вместо интерфейсной иконки (и наоборот — не заменяем
+  пользовательские эмодзи из БД на Phosphor).

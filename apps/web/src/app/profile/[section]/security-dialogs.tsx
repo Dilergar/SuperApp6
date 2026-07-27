@@ -1,5 +1,6 @@
 'use client';
 
+import { ModalShell } from '@/components/ui';
 /**
  * Диалоги безопасности профиля (движок core/verify):
  *  - Смена пароля: текущий пароль + SMS-код на свой номер (Kaspi-модель step-up);
@@ -19,16 +20,13 @@ import { useAuthStore } from '@/lib/stores/auth';
 import { useOtpFlow } from '@/components/verify/otp-flow';
 import { OtpStep } from '@/components/verify/OtpStep';
 
-function ModalShell({ children, onClose, busy }: { children: React.ReactNode; onClose: () => void; busy: boolean }) {
+function DialogFrame({ children, onClose, busy }: { children: React.ReactNode; onClose: () => void; busy: boolean }) {
   return (
-    <div
-      onClick={() => !busy && onClose()}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(40,40,30,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 'var(--spacing-4)' }}
-    >
+    <ModalShell onClose={() => !busy && onClose()} zIndex={200}>
       <div onClick={(e) => e.stopPropagation()} className="card" style={{ maxWidth: '460px', width: '100%', padding: 'var(--spacing-6)' }}>
         {children}
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -83,20 +81,20 @@ export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <ModalShell onClose={onClose} busy={busy}>
+    <DialogFrame onClose={onClose} busy={busy}>
       {step === 'form' && (
         <form onSubmit={requestCode}>
           <h3 className="title-md" style={{ marginBottom: 'var(--spacing-4)' }}>Смена пароля</h3>
           {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: 'var(--spacing-3)' }}>{error}</p>}
           <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Текущий пароль</label>
-          <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required autoFocus className="input-sketch" autoComplete="current-password" style={{ marginBottom: 'var(--spacing-5)' }} />
+          <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required autoFocus className="ui-input" autoComplete="current-password" style={{ marginBottom: 'var(--spacing-5)' }} />
           <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Новый пароль</label>
-          <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required className="input-sketch" placeholder="Минимум 8 символов" autoComplete="new-password" />
+          <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required className="ui-input" placeholder="Минимум 8 символов" autoComplete="new-password" />
           <p className="label-sm" style={{ marginTop: 'var(--spacing-2)', marginBottom: 'var(--spacing-5)', opacity: 0.7 }}>
             Подтвердим SMS-кодом на ваш номер. Остальные сессии будут завершены
           </p>
           <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end' }}>
-            <button type="button" className="btn-secondary" disabled={busy} style={{ fontSize: '0.85rem' }} onClick={onClose}>Отмена</button>
+            <button type="button" className="btn-ghost-inline" disabled={busy} style={{ fontSize: '0.85rem' }} onClick={onClose}>Отмена</button>
             <button type="submit" className="btn-primary" disabled={busy || !currentPassword || !newPassword} style={{ fontSize: '0.85rem', opacity: busy ? 0.6 : 1 }}>
               {busy ? 'Отправка…' : 'Получить код'}
             </button>
@@ -125,7 +123,7 @@ export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
           </div>
         </div>
       )}
-    </ModalShell>
+    </DialogFrame>
   );
 }
 
@@ -211,7 +209,7 @@ export function ChangePhoneDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <ModalShell onClose={onClose} busy={busy}>
+    <DialogFrame onClose={onClose} busy={busy}>
       {step === 'form' && (
         <form onSubmit={submitForm}>
           <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>Смена номера</h3>
@@ -221,11 +219,11 @@ export function ChangePhoneDialog({ onClose }: { onClose: () => void }) {
           </p>
           {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: 'var(--spacing-3)' }}>{error}</p>}
           <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Пароль</label>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus className="input-sketch" autoComplete="current-password" style={{ marginBottom: 'var(--spacing-5)' }} />
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus className="ui-input" autoComplete="current-password" style={{ marginBottom: 'var(--spacing-5)' }} />
           <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Новый номер</label>
-          <input type="tel" value={newPhone} onChange={(e) => setNewPhone(e.target.value)} required className="input-sketch" placeholder="+77001234567" />
+          <input type="tel" value={newPhone} onChange={(e) => setNewPhone(e.target.value)} required className="ui-input" placeholder="+77001234567" />
           <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end', marginTop: 'var(--spacing-5)' }}>
-            <button type="button" className="btn-secondary" disabled={busy} style={{ fontSize: '0.85rem' }} onClick={onClose}>Отмена</button>
+            <button type="button" className="btn-ghost-inline" disabled={busy} style={{ fontSize: '0.85rem' }} onClick={onClose}>Отмена</button>
             <button type="submit" className="btn-primary" disabled={busy || !password} style={{ fontSize: '0.85rem', opacity: busy ? 0.6 : 1 }}>
               {busy ? 'Отправка…' : oldToken ? 'Код на новый номер' : 'Код на текущий номер'}
             </button>
@@ -264,6 +262,6 @@ export function ChangePhoneDialog({ onClose }: { onClose: () => void }) {
           </div>
         </div>
       )}
-    </ModalShell>
+    </DialogFrame>
   );
 }

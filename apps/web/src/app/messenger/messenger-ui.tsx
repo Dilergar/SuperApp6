@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/ui';
 import type { MessageDeliveryStatus, CardSkinRender } from '@superapp/shared';
 import { usePersonSkin } from '@/lib/person-skins';
 
@@ -83,7 +84,7 @@ export function PersonAvatar({
   return <Avatar name={name} avatar={avatar} size={size} skin={skin} />;
 }
 
-/** Delivery ticks on MY messages: ✓ sent / ✓✓ delivered / ✓✓ (blue) read. */
+/** Галочки на МОИХ сообщениях: одна — отправлено, две — доставлено, две синие — прочитано. */
 export function StatusTicks({ status }: { status?: MessageDeliveryStatus }) {
   if (!status) return null;
   const read = status === 'read';
@@ -92,14 +93,14 @@ export function StatusTicks({ status }: { status?: MessageDeliveryStatus }) {
     <span
       title={status === 'sent' ? 'Отправлено' : status === 'delivered' ? 'Доставлено' : 'Прочитано'}
       style={{
-        fontSize: '0.7rem',
-        letterSpacing: '-0.18em',
-        marginLeft: '0.15rem',
-        color: read ? 'var(--secondary)' : 'rgba(255,255,255,0.75)',
-        fontWeight: 700,
+        display: 'inline-flex',
+        alignItems: 'center',
+        marginLeft: '0.2rem',
+        color: read ? 'var(--primary)' : 'rgba(255,255,255,0.75)',
       }}
     >
-      {doubled ? '✓✓' : '✓'}
+      <Icon name="check" size={12} />
+      {doubled && <Icon name="check" size={12} style={{ marginLeft: -6 }} />}
     </span>
   );
 }

@@ -107,7 +107,7 @@ export function TranscriptView({
           className="btn-secondary"
           style={{ padding: '0.3rem 0.8rem', fontSize: '0.75rem' }}
         >
-          {copied ? 'Скопировано ✓' : 'Скопировать текст'}
+          {copied ? 'Скопировано' : 'Скопировать текст'}
         </button>
       </div>
 

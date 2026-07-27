@@ -126,9 +126,9 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
         <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'flex-end' }}>
           <div>
             <label className="label-sm" style={{ display: 'block', marginBottom: 2 }}>Пополнить (тест)</label>
-            <input type="number" min={1} value={topAmt} onChange={(e) => setTopAmt(e.target.value)} className="input-sketch" style={{ width: 110, padding: '0.3rem 0.5rem', fontSize: '0.85rem' }} />
+            <input type="number" min={1} value={topAmt} onChange={(e) => setTopAmt(e.target.value)} className="ui-input" style={{ width: 110, padding: '0.3rem 0.5rem', fontSize: '0.85rem' }} />
           </div>
-          <button className="btn-secondary" disabled={busy} onClick={topUp} style={{ fontSize: '0.8rem' }}>Пополнить</button>
+          <button className="btn-success" disabled={busy} onClick={topUp} style={{ fontSize: '0.8rem' }}>Пополнить</button>
         </div>
       </div>
 
@@ -213,7 +213,7 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
                 {isDefault ? (
                   <>
                     <span className="label-sm" style={{ color: 'var(--secondary)', fontWeight: 600 }}>Надето ✓</span>
-                    <button onClick={() => equipDefault(null)} disabled={busy} className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.25rem 0.7rem' }}>Снять</button>
+                    <button onClick={() => equipDefault(null)} disabled={busy} className="btn-ghost-inline" style={{ fontSize: '0.75rem', padding: '0.25rem 0.7rem' }}>Снять</button>
                   </>
                 ) : (
                   <button onClick={() => equipDefault(i.id)} disabled={busy} className="btn-primary" style={{ fontSize: '0.75rem', padding: '0.25rem 0.8rem' }}>Надеть</button>
@@ -247,7 +247,7 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
                   value={cur}
                   disabled={busy || !equip?.premium}
                   onChange={(e) => equipGroup(g.id, e.target.value || null)}
-                  className="input-sketch"
+                  className="ui-input"
                   style={{ width: 180, padding: '0.25rem 0.5rem', fontSize: '0.8rem', cursor: equip?.premium ? 'pointer' : 'not-allowed', opacity: equip?.premium ? 1 : 0.5 }}
                 >
                   <option value="">По умолчанию</option>

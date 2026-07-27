@@ -68,15 +68,15 @@ export const DEFAULT_REMINDER_OFFSETS: readonly number[] = [1440, 30];
 
 // Sketchbook palette for events (DESIGN.md aesthetic).
 export const CALENDAR_EVENT_COLORS: Array<{ name: string; value: string }> = [
-  { name: 'Восковой красный', value: '#c61a1e' },
-  { name: 'Голубой карандаш', value: '#326a8b' },
-  { name: 'Охра', value: '#d97706' },
-  { name: 'Зелёный мел', value: '#16a34a' },
-  { name: 'Слива', value: '#7c3aed' },
-  { name: 'Графит', value: '#475569' },
+  { name: 'Красный', value: '#de6d68' },
+  { name: 'Синий', value: '#588cd3' },
+  { name: 'Персиковый', value: '#d6966c' },
+  { name: 'Зелёный', value: '#74a277' },
+  { name: 'Сливовый', value: '#8a6fae' },
+  { name: 'Графитовый', value: '#6b655e' },
 ];
 
-export const DEFAULT_EVENT_COLOR = '#326a8b';
+export const DEFAULT_EVENT_COLOR = '#588cd3';
 
 export const CALENDAR_LIMITS = {
   maxTitleLength: 500,
@@ -104,10 +104,10 @@ export const RSVP_META: Record<
   RsvpStatus,
   { label: string; group: string; color: string; icon: string }
 > = {
-  pending: { label: 'Не ответил', group: 'Не ответили', color: '#9ca3af', icon: '○' },
-  accepted: { label: 'Приду', group: 'Придут', color: '#16a34a', icon: '✓' },
-  declined: { label: 'Не приду', group: 'Не придут', color: '#c61a1e', icon: '✕' },
-  tentative: { label: 'Может быть', group: 'Думают', color: '#d97706', icon: '?' },
+  pending: { label: 'Не ответил', group: 'Не ответили', color: '#a39d92', icon: '○' },
+  accepted: { label: 'Приду', group: 'Придут', color: '#74a277', icon: '✓' },
+  declined: { label: 'Не приду', group: 'Не придут', color: '#de6d68', icon: '✕' },
+  tentative: { label: 'Может быть', group: 'Думают', color: '#d6966c', icon: '?' },
 };
 
 /** Smart Match defaults: working window + slot granularity. */
@@ -138,7 +138,7 @@ export const RESOURCE_BOOKING_STATUS_META: Record<
   ResourceBookingStatus,
   { label: string; color: string }
 > = {
-  pending: { label: 'Ожидает подтверждения', color: '#d97706' },
-  confirmed: { label: 'Подтверждена', color: '#16a34a' },
-  rejected: { label: 'Отклонена', color: '#c61a1e' },
+  pending: { label: 'Ожидает подтверждения', color: '#d6966c' },
+  confirmed: { label: 'Подтверждена', color: '#74a277' },
+  rejected: { label: 'Отклонена', color: '#de6d68' },
 };

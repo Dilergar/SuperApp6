@@ -183,31 +183,14 @@ function RecorderInner() {
   }
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--surface)' }}>
-      <nav
-        className="fixed top-0 w-full z-50 px-6 py-4"
-        style={{ background: 'rgba(245, 245, 220, 0.7)', backdropFilter: 'blur(10px)' }}
-      >
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <Link href="/dashboard" className="title-md" style={{ color: 'var(--primary)' }}>
-            SuperApp6
-          </Link>
-          <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
-            <Link href="/messenger" className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>
-              Мессенджер
-            </Link>
-            <Link href="/dashboard" className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>
-              Главная
-            </Link>
-          </div>
-        </div>
-      </nav>
+    <div className="">
+      
 
-      <div className="max-w-5xl mx-auto px-6 pt-24" style={{ paddingBottom: 'var(--spacing-12)' }}>
+      <div className="" style={{ paddingBottom: 'var(--spacing-12)' }}>
         {/* Шапка сервиса */}
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--spacing-4)', marginBottom: 'var(--spacing-6)' }}>
           <div>
-            <h1 className="title-lg" style={{ transform: 'rotate(-0.5deg)' }}>🎙️ Диктофон</h1>
+            <h1 className="title-lg" style={{ transform: 'none' }}>🎙️ Диктофон</h1>
             <p className="label-sm" style={{ opacity: 0.75, marginTop: '0.3rem' }}>
               Запиши собрание или загрузи файл — получишь текст с разбивкой по спикерам
             </p>
@@ -229,7 +212,7 @@ function RecorderInner() {
                   style={{ width: '0.6rem', height: '0.6rem', borderRadius: '50%', background: 'var(--primary)', animation: 'sa6RecPulse 1.1s ease-in-out infinite' }}
                 />
                 <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>{formatDuration(recorder.elapsedMs) ?? '0:00'}</span>
-                <button onClick={recorder.cancel} className="btn-secondary" style={{ padding: '0.3rem 0.7rem', fontSize: '0.75rem' }}>
+                <button onClick={recorder.cancel} className="btn-ghost-inline" style={{ padding: '0.3rem 0.7rem', fontSize: '0.75rem' }}>
                   Отмена
                 </button>
                 <button onClick={() => void finishBrowserRecording()} className="btn-primary" style={{ padding: '0.3rem 0.9rem', fontSize: '0.75rem' }}>
@@ -241,7 +224,7 @@ function RecorderInner() {
               recorder.state !== 'unsupported' && (
                 <button
                   onClick={() => void recorder.start()}
-                  className="btn-primary"
+                  className="btn-success"
                   style={{ padding: '0.5rem 1.1rem', fontSize: '0.85rem' }}
                   title={recorder.state === 'denied' ? 'Доступ к микрофону запрещён в браузере' : 'Записать с микрофона'}
                 >
@@ -319,12 +302,11 @@ function RecorderInner() {
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
-                {visibleRecordings.map((r, i) => (
+                {visibleRecordings.map((r) => (
                   <RecordingRow
                     key={r.id}
                     rec={r}
                     active={r.id === selectedId}
-                    tilt={i % 2 === 0 ? -0.3 : 0.3}
                     onSelect={() => setSelectedId(r.id)}
                     onDeleted={() => {
                       if (selectedId === r.id) setSelectedId(null);
@@ -365,7 +347,7 @@ function RecorderTab({ active, onClick, children }: { active: boolean; onClick: 
         fontWeight: 700,
         border: 'none',
         cursor: 'pointer',
-        borderRadius: '0.8rem 0.55rem 0.75rem 0.6rem',
+        borderRadius: 'var(--radius-md)',
         background: active ? 'var(--secondary-container)' : 'var(--surface-container-high)',
         color: active ? 'var(--secondary)' : 'var(--on-surface-variant)',
       }}
@@ -380,13 +362,11 @@ function RecorderTab({ active, onClick, children }: { active: boolean; onClick: 
 function RecordingRow({
   rec,
   active,
-  tilt,
   onSelect,
   onDeleted,
 }: {
   rec: VoiceRecordingDto;
   active: boolean;
-  tilt: number;
   onSelect: () => void;
   onDeleted: () => void;
 }) {
@@ -439,7 +419,6 @@ function RecordingRow({
         padding: '0.7rem 0.9rem',
         background: active ? 'var(--secondary-container)' : 'var(--surface-container)',
         borderRadius: 'var(--radius-sketch, var(--radius-md))',
-        transform: `rotate(${tilt}deg)`,
         display: 'flex',
         flexDirection: 'column',
         gap: '0.25rem',
@@ -502,7 +481,7 @@ function RecordingRow({
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '0.7rem', color: 'var(--on-surface-variant)' }}>
         <span>{new Date(rec.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</span>
         {rec.durationMs != null && <span>{formatDuration(rec.durationMs)}</span>}
-        <span>{rec.source === 'web' ? '⏺ браузер' : rec.source === 'terminal' ? '📟 терминал' : rec.source === 'call' ? '📞 звонок' : '📄 файл'}</span>
+        <span>{rec.source === 'web' ? '⏺ браузер' : rec.source === 'terminal' ? 'терминал' : rec.source === 'call' ? 'звонок' : 'файл'}</span>
         {statusBadge && <span style={{ color: statusBadge.color, fontWeight: 700 }}>{statusBadge.text}</span>}
       </div>
     </div>

@@ -1,12 +1,14 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { api } from '@/lib/api';
+import { api, apiErrorMessage } from '@/lib/api';
 import { EntitySelector } from '@/components/EntitySelector';
 import { PersonChip } from '../circles/PersonCard';
 import {
+  Alert, Button, Chip, EmptyState, Field, IconButton, Input, Modal,
+} from '@/components/ui';
+import {
   CALENDAR_ACCESS_LEVEL_META,
-  SMART_MATCH_DEFAULTS,
   SMART_MATCH_DURATIONS,
   type Contact,
   type CalendarShare,
@@ -14,17 +16,8 @@ import {
   type SmartMatchSlot,
 } from '@superapp/shared';
 
-const overlay: React.CSSProperties = { position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 1rem', background: 'rgba(56,57,45,0.28)', backdropFilter: 'blur(3px)', overflowY: 'auto' };
-const card: React.CSSProperties = { width: '100%', maxWidth: 520, padding: 'var(--spacing-6)' };
-const lbl: React.CSSProperties = { display: 'block', marginBottom: 'var(--spacing-2)' };
-const closeBtn: React.CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', color: 'var(--on-surface-variant)' };
-
-function chip(active: boolean): React.CSSProperties {
-  return { padding: '0.3rem 0.7rem', fontSize: '0.78rem', borderRadius: 'var(--radius-sketch)', border: 'none', cursor: 'pointer', fontWeight: 600, background: active ? 'var(--secondary-container)' : 'var(--surface-container)', color: active ? 'var(--secondary)' : 'var(--on-surface-variant)' };
-}
-
 // ============================================================
-// Share panel — manage who can see my calendar (per person)
+// Доступ к моему календарю (персональный, поверх доступа по Группам)
 // ============================================================
 
 export function SharePanel({ contacts, onClose }: { contacts: Contact[]; onClose: (changed: boolean) => void }) {
@@ -33,79 +26,110 @@ export function SharePanel({ contacts, onClose }: { contacts: Contact[]; onClose
   const [pickId, setPickId] = useState<string>('');
   const [level, setLevel] = useState<'busy' | 'detailed'>('busy');
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
   const load = useCallback(async () => {
-    try { setShares((await api.get('/calendar/shares')).data.data); } catch { /* ignore */ }
+    try { setShares((await api.get('/calendar/shares')).data.data); } catch { /* тихо: панель откроется пустой */ }
   }, []);
   useEffect(() => { load(); }, [load]);
 
   const add = async () => {
     if (!pickId) return;
     setBusy(true);
+    setError('');
     try {
       await api.post('/calendar/shares', { sharedWithUserId: pickId, accessLevel: level });
-      setChanged(true); setPickId('');
+      setChanged(true);
+      setPickId('');
       await load();
-    } catch { /* ignore */ } finally { setBusy(false); }
+    } catch (e) {
+      setError(apiErrorMessage(e));
+    } finally {
+      setBusy(false);
+    }
   };
   const remove = async (uid: string) => {
     setBusy(true);
-    try { await api.delete(`/calendar/shares/${uid}`); setChanged(true); await load(); } catch { /* ignore */ } finally { setBusy(false); }
+    try {
+      await api.delete(`/calendar/shares/${uid}`);
+      setChanged(true);
+      await load();
+    } catch (e) {
+      setError(apiErrorMessage(e));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const available = contacts.filter((c) => !shares.some((s) => s.sharedWithUserId === c.them.id));
 
   return (
-    <div onClick={() => onClose(changed)} style={overlay}>
-      <div onClick={(e) => e.stopPropagation()} className="card-elevated" style={card}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--spacing-4)' }}>
-          <h3 className="title-md">Доступ к моему календарю</h3>
-          <button onClick={() => onClose(changed)} style={closeBtn}>✕</button>
-        </div>
-        <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)' }}>
-          По умолчанию календарь приватный. Здесь — персональный доступ; по Группам — в настройках Группы на «Моё окружение».
-        </p>
+    <Modal
+      open
+      onClose={() => onClose(changed)}
+      title="Доступ к моему календарю"
+      subtitle="По умолчанию календарь приватный. Здесь — персональный доступ; по Группам — в настройках Группы на «Моё окружение»"
+      size="md"
+      footer={<Button variant="ghost" onClick={() => onClose(changed)}>Готово</Button>}
+    >
+      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+        {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
 
-        {/* add */}
-        <label className="label-md" style={lbl}>Открыть человеку</label>
-        <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', marginBottom: 'var(--spacing-2)' }}>
-          <div style={{ flex: 1, minWidth: 200 }}>
-            <EntitySelector
-              types={['user']}
-              multi={false}
-              options={available.map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole }))}
-              value={pickId ? [{ type: 'user', id: pickId }] : []}
-              onChange={(p) => setPickId(p[0]?.id ?? '')}
-              placeholder="Выберите человека…"
-            />
+        <Field label="Открыть человеку">
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <EntitySelector
+                types={['user']}
+                multi={false}
+                options={available.map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole }))}
+                value={pickId ? [{ type: 'user', id: pickId }] : []}
+                onChange={(p) => setPickId(p[0]?.id ?? '')}
+                placeholder="Выберите человека…"
+              />
+            </div>
+            <div style={{ display: 'flex', gap: '0.25rem' }}>
+              {(['busy', 'detailed'] as const).map((l) => (
+                <Chip key={l} size="sm" tone="accent" selected={level === l} onClick={() => setLevel(l)}>
+                  {CALENDAR_ACCESS_LEVEL_META[l].label}
+                </Chip>
+              ))}
+            </div>
+            <Button variant="primary" size="sm" icon="check" disabled={!pickId} loading={busy} onClick={add}>
+              Дать доступ
+            </Button>
           </div>
-          <div style={{ display: 'flex', gap: 'var(--spacing-1)' }}>
-            {(['busy', 'detailed'] as const).map((l) => (
-              <button key={l} type="button" onClick={() => setLevel(l)} style={chip(level === l)}>{CALENDAR_ACCESS_LEVEL_META[l].label}</button>
+        </Field>
+
+        {shares.length === 0 ? (
+          <EmptyState icon="lock" title="Пока никому не открыт" description="Выберите человека выше — он увидит занятость или детали." />
+        ) : (
+          <div style={{ display: 'grid', gap: '0.375rem' }}>
+            {shares.map((s) => (
+              <div
+                key={s.sharedWithUserId}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-3)',
+                  border: '1px solid var(--divider)', borderRadius: 'var(--radius-md)', padding: '0.4375rem 0.625rem',
+                }}
+              >
+                <PersonChip size="M" userId={s.sharedWithUserId} firstName={s.firstName} lastName={s.lastName ?? null} />
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Chip size="sm" tone={s.accessLevel === 'detailed' ? 'accent' : 'neutral'}>
+                    {CALENDAR_ACCESS_LEVEL_META[s.accessLevel].label}
+                  </Chip>
+                  <IconButton icon="close" label="Закрыть доступ" size={28} onClick={() => remove(s.sharedWithUserId)} />
+                </span>
+              </div>
             ))}
           </div>
-          <button onClick={add} disabled={!pickId || busy} className="btn-primary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem', opacity: !pickId || busy ? 0.6 : 1 }}>Дать доступ</button>
-        </div>
-
-        {/* current */}
-        <div style={{ marginTop: 'var(--spacing-4)', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
-          {shares.length === 0 ? <p className="label-sm">Пока никому не открыт</p> : shares.map((s) => (
-            <div key={s.sharedWithUserId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--surface-container-low)', borderRadius: 'var(--radius-sm)', padding: '0.4rem 0.6rem' }}>
-              <PersonChip size="M" userId={s.sharedWithUserId} firstName={s.firstName} lastName={s.lastName ?? null} />
-              <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
-                <span className="label-sm" style={{ color: 'var(--secondary)' }}>{CALENDAR_ACCESS_LEVEL_META[s.accessLevel].label}</span>
-                <button onClick={() => remove(s.sharedWithUserId)} style={closeBtn} title="Закрыть доступ">✕</button>
-              </span>
-            </div>
-          ))}
-        </div>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 }
 
 // ============================================================
-// Smart Match — find common free time with people who shared with me
+// Smart Match — общее свободное время с теми, кто открыл календарь
 // ============================================================
 
 export function SmartMatchDialog({
@@ -130,7 +154,7 @@ export function SmartMatchDialog({
     const now = new Date();
     const from = new Date(now.getTime() + 5 * 60_000); // a few minutes ahead
     const to = new Date(now.getFullYear(), now.getMonth(), now.getDate() + days, 23, 59);
-    // convert local working hours -> UTC minutes-from-midnight (KZ has no DST)
+    // локальные рабочие часы → минуты от полуночи UTC (в КЗ нет перехода на летнее время)
     const ref = new Date(now.getFullYear(), now.getMonth(), now.getDate(), fromHour, 0);
     const ref2 = new Date(now.getFullYear(), now.getMonth(), now.getDate(), toHour, 0);
     const dayStartMin = ref.getUTCHours() * 60 + ref.getUTCMinutes();
@@ -141,77 +165,124 @@ export function SmartMatchDialog({
         dayStartMin, dayEndMin: dayEndMin > dayStartMin ? dayEndMin : dayStartMin + 720,
       });
       setSlots(data.data.slots);
-    } catch (e: unknown) {
-      const a = e as { response?: { data?: { message?: string } } };
-      setError(a.response?.data?.message || 'Не удалось подобрать время');
+    } catch (e) {
+      setError(apiErrorMessage(e));
     } finally { setBusy(false); }
   };
 
   return (
-    <div onClick={onClose} style={overlay}>
-      <div onClick={(e) => e.stopPropagation()} className="card-elevated" style={card}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--spacing-2)' }}>
-          <h3 className="title-md">Подобрать общее время</h3>
-          <button onClick={onClose} style={closeBtn}>✕</button>
-        </div>
-        <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)' }}>Среди тех, кто открыл тебе календарь. Чужая занятость не раскрывается — только свободные окна.</p>
+    <Modal
+      open
+      onClose={onClose}
+      title="Подобрать общее время"
+      subtitle="Среди тех, кто открыл вам календарь. Чужая занятость не раскрывается — только свободные окна"
+      size="md"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>Закрыть</Button>
+          {sources.length > 0 && (
+            <Button variant="primary" icon="search" loading={busy} onClick={search}>Найти окна</Button>
+          )}
+        </>
+      }
+    >
+      {sources.length === 0 ? (
+        <EmptyState
+          icon="people"
+          title="Некого подбирать"
+          description="Пока никто не открыл вам свой календарь — попросите доступ или откройте свой первым."
+        />
+      ) : (
+        <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+          {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
 
-        {sources.length === 0 ? (
-          <p className="label-md">Пока никто не открыл тебе свой календарь — некого подбирать.</p>
-        ) : (
-          <>
-            <label className="label-md" style={lbl}>С кем</label>
-            <div style={{ marginBottom: 'var(--spacing-4)' }}>
-              <EntitySelector
-                types={['user']}
-                multi
-                options={sources.map((s) => ({ type: 'user', id: s.userId, title: `${s.firstName} ${s.lastName ?? ''}`.trim(), firstName: s.firstName, lastName: s.lastName }))}
-                value={sel.map((id) => ({ type: 'user', id }))}
-                onChange={(p) => setSel(p.map((x) => x.id))}
-                placeholder="Выберите людей…"
-              />
-            </div>
+          <Field label="С кем">
+            <EntitySelector
+              types={['user']}
+              multi
+              options={sources.map((s) => ({ type: 'user', id: s.userId, title: `${s.firstName} ${s.lastName ?? ''}`.trim(), firstName: s.firstName, lastName: s.lastName }))}
+              value={sel.map((id) => ({ type: 'user', id }))}
+              onChange={(p) => setSel(p.map((x) => x.id))}
+              placeholder="Выберите людей…"
+            />
+          </Field>
 
-            <div style={{ display: 'flex', gap: 'var(--spacing-4)', flexWrap: 'wrap', marginBottom: 'var(--spacing-4)' }}>
-              <div>
-                <label className="label-md" style={lbl}>Длительность</label>
-                <div style={{ display: 'flex', gap: 'var(--spacing-1)', flexWrap: 'wrap' }}>
-                  {SMART_MATCH_DURATIONS.map((d) => <button key={d.min} onClick={() => setDuration(d.min)} style={chip(duration === d.min)}>{d.label}</button>)}
-                </div>
-              </div>
-              <div>
-                <label className="label-md" style={lbl}>Период</label>
-                <div style={{ display: 'flex', gap: 'var(--spacing-1)' }}>
-                  {[7, 14, 30].map((d) => <button key={d} onClick={() => setDays(d)} style={chip(days === d)}>{d} дн.</button>)}
-                </div>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: 'var(--spacing-3)', alignItems: 'center', marginBottom: 'var(--spacing-4)' }}>
-              <label className="label-md">Часы</label>
-              <input type="number" min={0} max={23} value={fromHour} onChange={(e) => setFromHour(Math.min(23, Math.max(0, +e.target.value)))} className="input-sketch" style={{ width: 64 }} />
-              <span>—</span>
-              <input type="number" min={1} max={24} value={toHour} onChange={(e) => setToHour(Math.min(24, Math.max(1, +e.target.value)))} className="input-sketch" style={{ width: 64 }} />
-            </div>
-
-            {error && <p className="label-sm" style={{ color: 'var(--primary)', marginBottom: 'var(--spacing-3)' }}>{error}</p>}
-
-            <button onClick={search} disabled={busy} className="btn-primary" style={{ fontSize: '0.85rem', padding: '0.5rem 1.3rem', marginBottom: 'var(--spacing-4)' }}>{busy ? 'Ищу…' : 'Найти окна'}</button>
-
-            {slots && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-1)' }}>
-                {slots.length === 0 ? <p className="label-sm">Свободных окон не нашлось — попробуй другой период или часы.</p> : slots.slice(0, 20).map((s) => (
-                  <button key={s.start} onClick={() => onPick(s.start, sel)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--surface-container-low)', border: 'none', borderRadius: 'var(--radius-sm)', padding: '0.5rem 0.7rem', cursor: 'pointer', textAlign: 'left' }}>
-                    <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>{slotLabel(s.start)}</span>
-                    <span className="label-sm" style={{ color: 'var(--secondary)' }}>выбрать →</span>
-                  </button>
+          <div style={{ display: 'flex', gap: 'var(--spacing-6)', flexWrap: 'wrap' }}>
+            <Field label="Длительность">
+              <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
+                {SMART_MATCH_DURATIONS.map((d) => (
+                  <Chip key={d.min} size="sm" tone="accent" selected={duration === d.min} onClick={() => setDuration(d.min)}>
+                    {d.label}
+                  </Chip>
                 ))}
               </div>
-            )}
-          </>
-        )}
-      </div>
-    </div>
+            </Field>
+            <Field label="Период">
+              <div style={{ display: 'flex', gap: '0.25rem' }}>
+                {[7, 14, 30].map((d) => (
+                  <Chip key={d} size="sm" tone="accent" selected={days === d} onClick={() => setDays(d)}>
+                    {d} дн.
+                  </Chip>
+                ))}
+              </div>
+            </Field>
+          </div>
+
+          <Field label="Рабочие часы">
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <div style={{ width: 80 }}>
+                <Input
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={fromHour}
+                  onChange={(e) => setFromHour(Math.min(23, Math.max(0, +e.target.value)))}
+                  aria-label="С какого часа"
+                />
+              </div>
+              <span className="label-sm">—</span>
+              <div style={{ width: 80 }}>
+                <Input
+                  type="number"
+                  min={1}
+                  max={24}
+                  value={toHour}
+                  onChange={(e) => setToHour(Math.min(24, Math.max(1, +e.target.value)))}
+                  aria-label="До какого часа"
+                />
+              </div>
+            </div>
+          </Field>
+
+          {slots && (
+            slots.length === 0 ? (
+              <Alert tone="neutral" icon="info">Свободных окон не нашлось — попробуйте другой период или часы.</Alert>
+            ) : (
+              <Field label="Свободные окна">
+                <div style={{ display: 'grid', gap: '0.25rem' }}>
+                  {slots.slice(0, 20).map((s) => (
+                    <button
+                      key={s.start}
+                      type="button"
+                      onClick={() => onPick(s.start, sel)}
+                      style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        border: '1px solid var(--divider)', background: 'transparent',
+                        borderRadius: 'var(--radius-md)', padding: '0.5rem 0.625rem',
+                        cursor: 'pointer', textAlign: 'left', color: 'var(--on-surface)',
+                      }}
+                    >
+                      <span className="title-sm">{slotLabel(s.start)}</span>
+                      <span className="label-sm" style={{ color: 'var(--primary-dim)' }}>выбрать</span>
+                    </button>
+                  ))}
+                </div>
+              </Field>
+            )
+          )}
+        </div>
+      )}
+    </Modal>
   );
 }
 

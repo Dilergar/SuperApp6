@@ -1,11 +1,24 @@
 'use client';
 
+import { Button } from '@/components/ui';
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { api } from '@/lib/api';
+import { api, apiErrorMessage } from '@/lib/api';
+import { useAuthStore } from '@/lib/stores/auth';
 import { CompanyCard } from '../workspaces/[id]/CompanyCard';
 import { PersonChip } from '../circles/PersonCard';
+import { daysUntilPurge, pluralDays, WORKSPACE_ARCHIVE_WARN_DAYS } from '@superapp/shared';
 import type { Workspace, WorkspaceInvitation } from '@superapp/shared';
+
+/** «26.10.2026 в 19:14» — дата и время удаления в поясе зрителя. */
+function formatPurgeMoment(iso: string): string {
+  const d = new Date(iso);
+  const date = d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  return `${date} в ${time}`;
+}
+
+const daysWord = (n: number) => (n === 0 ? 'меньше суток' : pluralDays(n));
 
 /**
  * Dashboard panel: the user's organizations (B2B) + incoming hiring invitations.
@@ -14,6 +27,8 @@ import type { Workspace, WorkspaceInvitation } from '@superapp/shared';
 export function WorkspacesPanel() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [invites, setInvites] = useState<WorkspaceInvitation[]>([]);
+  const [archived, setArchived] = useState<Workspace[]>([]);
+  const [showArchive, setShowArchive] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -22,21 +37,29 @@ export function WorkspacesPanel() {
   const [name, setName] = useState('');
   const [creating, setCreating] = useState(false);
 
+  // Счётчик «Пространств» на этой же странице живёт в профиле — перечитываем его вместе
+  // со списком, иначе после создания/архивации/возврата число расходится со списком до
+  // перезагрузки (ровно та картинка, из-за которой архив и понадобился).
+  const fetchProfile = useAuthStore((s) => s.fetchProfile);
+
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [ws, inc] = await Promise.all([
+      const [ws, inc, arch] = await Promise.all([
         api.get('/workspaces'),
         api.get('/workspaces/invitations/incoming'),
+        api.get('/workspaces/archived'),
       ]);
       setWorkspaces(ws.data.data);
       setInvites(inc.data.data);
+      setArchived(arch.data.data);
+      await fetchProfile().catch(() => undefined); // счётчик — не повод рушить список
     } catch {
       setError('Не удалось загрузить организации');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchProfile]);
 
   useEffect(() => {
     fetchAll();
@@ -50,6 +73,19 @@ export function WorkspacesPanel() {
       await fetchAll();
     } catch {
       setError('Не удалось обработать приглашение');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const restore = async (id: string) => {
+    setBusyId(id);
+    setError('');
+    try {
+      await api.post(`/workspaces/${id}/restore`);
+      await fetchAll();
+    } catch (err) {
+      setError(apiErrorMessage(err)); // сервер объясняет отказ сам (например, упёрлись в лимит)
     } finally {
       setBusyId(null);
     }
@@ -72,7 +108,7 @@ export function WorkspacesPanel() {
   };
 
   return (
-    <div style={{ marginBottom: 'var(--spacing-12)' }}>
+    <div>
       <div
         style={{
           display: 'flex',
@@ -82,18 +118,20 @@ export function WorkspacesPanel() {
           paddingLeft: 'var(--spacing-2)',
         }}
       >
-        <h2 className="title-lg">Организации</h2>
-        <button
+        <h2 className="title-md">Организации</h2>
+        <Button
+          size="sm"
+          variant={showCreate ? 'ghost' : 'primary'}
+          tone={showCreate ? 'neutral' : 'success'}
+          icon={showCreate ? 'close' : 'add'}
           onClick={() => setShowCreate((v) => !v)}
-          className="btn-secondary"
-          style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}
         >
-          {showCreate ? 'Отмена' : '+ Создать'}
-        </button>
+          {showCreate ? 'Отмена' : 'Создать'}
+        </Button>
       </div>
 
       {error && (
-        <p className="label-md" style={{ color: 'var(--primary)', marginBottom: 'var(--spacing-4)' }}>
+        <p className="label-md" style={{ color: 'var(--danger)', marginBottom: 'var(--spacing-4)' }}>
           {error}
         </p>
       )}
@@ -110,9 +148,7 @@ export function WorkspacesPanel() {
             style={{ flex: 1, minWidth: '220px' }}
             onKeyDown={(e) => e.key === 'Enter' && create()}
           />
-          <button onClick={create} disabled={creating || !name.trim()} className="btn-primary" style={{ padding: '0.5rem 1.25rem' }}>
-            {creating ? 'Создаём…' : 'Создать'}
-          </button>
+          <Button onClick={create} disabled={!name.trim()} loading={creating} variant="primary" tone="success" icon="add">Создать</Button>
         </div>
       )}
 
@@ -122,7 +158,7 @@ export function WorkspacesPanel() {
           {invites.map((inv) => (
             <div
               key={inv.id}
-              className="wash-secondary"
+              className="alert-accent-inline"
               style={{
                 padding: 'var(--spacing-5)',
                 display: 'flex',
@@ -139,28 +175,14 @@ export function WorkspacesPanel() {
                   <PersonChip size="S" userId={inv.invitedBy} firstName={inv.invitedByName} />
                   <span className="label-md" style={{ fontSize: '0.85rem' }}>
                     Нанимаетесь Стажёром
-                    {inv.positionName ? ` · 💼 ${inv.positionName}` : ''}
-                    {inv.branchNames.length ? ` · 📍 ${inv.branchNames.join(', ')}` : ''}
+                    {inv.positionName ? ` · ${inv.positionName}` : ''}
+                    {inv.branchNames.length ? ` · ${inv.branchNames.join(', ')}` : ''}
                   </span>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
-                <button
-                  onClick={() => respond(inv.id, 'accept')}
-                  disabled={busyId === inv.id}
-                  className="btn-primary"
-                  style={{ padding: '0.45rem 1.1rem', fontSize: '0.85rem' }}
-                >
-                  Принять
-                </button>
-                <button
-                  onClick={() => respond(inv.id, 'reject')}
-                  disabled={busyId === inv.id}
-                  className="btn-secondary"
-                  style={{ padding: '0.45rem 1.1rem', fontSize: '0.85rem' }}
-                >
-                  Отклонить
-                </button>
+                <Button size="sm" variant="primary" tone="success" icon="check" disabled={busyId === inv.id} onClick={() => respond(inv.id, 'accept')}>Принять</Button>
+                <Button size="sm" variant="matte" tone="danger" icon="close" disabled={busyId === inv.id} onClick={() => respond(inv.id, 'reject')}>Отклонить</Button>
               </div>
             </div>
           ))}
@@ -176,16 +198,93 @@ export function WorkspacesPanel() {
         </p>
       ) : (
         <div className="grid md:grid-cols-3" style={{ gap: 'var(--spacing-6)' }}>
-          {workspaces.map((ws, i) => (
+          {workspaces.map((ws) => (
             <Link
               key={ws.id}
               href={`/workspaces/${ws.id}`}
               className="card-elevated"
-              style={{ transform: `rotate(${i % 3 === 0 ? '-0.4' : i % 3 === 2 ? '0.4' : '0'}deg)`, display: 'block' }}
+              style={{ display: 'block' }}
             >
               <CompanyCard ws={ws} compact />
             </Link>
           ))}
+        </div>
+      )}
+
+      {/* Архив: деактивированные организации владельца. Деактивация ничего не удаляет —
+          данные, роли и справочники на месте, поэтому возврат в один клик. */}
+      {!loading && archived.length > 0 && (
+        <div style={{ marginTop: 'var(--spacing-6)', paddingLeft: 'var(--spacing-2)' }}>
+          <button
+            onClick={() => setShowArchive((v) => !v)}
+            className="label-md"
+            style={{
+              background: 'none',
+              cursor: 'pointer',
+              opacity: 0.75,
+              padding: 'var(--spacing-1) 0',
+            }}
+          >
+            {showArchive ? '▾' : '▸'} Архив · {archived.length}
+          </button>
+
+          {showArchive && (
+            <div style={{ marginTop: 'var(--spacing-3)', display: 'grid', gap: 'var(--spacing-3)' }}>
+              {archived.map((ws) => (
+                <div
+                  key={ws.id}
+                  className="alert-accent-inline"
+                  style={{
+                    padding: 'var(--spacing-4) var(--spacing-5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 'var(--spacing-4)',
+                    flexWrap: 'wrap',
+                    opacity: 0.85,
+                  }}
+                >
+                  <div>
+                    <div className="title-md">{ws.name}</div>
+                    <div className="label-md" style={{ fontSize: '0.85rem', opacity: 0.8 }}>
+                      В архиве · участников {ws.membersCount}
+                    </div>
+                    {ws.purgeAt &&
+                      (() => {
+                        // Те же рубежи, что и у писем-предупреждений: на последней неделе
+                        // строка становится заметной — центра уведомлений в вебе ещё нет,
+                        // и архив остаётся единственным местом, где это видно.
+                        const left = daysUntilPurge(ws.purgeAt);
+                        const urgent = left <= Math.max(...WORKSPACE_ARCHIVE_WARN_DAYS);
+                        return (
+                          <div
+                            className="label-md"
+                            style={{
+                              fontSize: '0.85rem',
+                              marginTop: 'var(--spacing-1)',
+                              color: 'var(--primary)',
+                              fontWeight: urgent ? 700 : undefined,
+                            }}
+                          >
+                            {urgent ? '⚠️ ' : ''}Будет удалена навсегда {formatPurgeMoment(ws.purgeAt)} · осталось{' '}
+                            {daysWord(left)}
+                          </div>
+                        );
+                      })()}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="matte"
+                    icon="undo"
+                    loading={busyId === ws.id}
+                    onClick={() => restore(ws.id)}
+                  >
+                    Восстановить
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

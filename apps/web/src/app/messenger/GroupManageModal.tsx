@@ -1,5 +1,7 @@
 'use client';
 
+import { ModalShell } from '@/components/ui';
+import { Icon } from '@/components/ui';
 import { useState, useEffect } from 'react';
 import type { ChatDetail, ChatMemberRole, ChatParticipantInfo } from '@superapp/shared';
 import { MESSENGER_LIMITS } from '@superapp/shared';
@@ -111,20 +113,7 @@ export function GroupManageModal({
   };
 
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 110,
-        background: 'rgba(56, 57, 45, 0.25)',
-        backdropFilter: 'blur(4px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 'var(--spacing-4)',
-      }}
-    >
+    <ModalShell onClose={onClose} zIndex={110}>
       <div
         onClick={(e) => e.stopPropagation()}
         className="card-elevated"
@@ -135,7 +124,6 @@ export function GroupManageModal({
           display: 'flex',
           flexDirection: 'column',
           padding: 'var(--spacing-6)',
-          transform: 'rotate(0.3deg)',
         }}
       >
         {/* Header */}
@@ -162,7 +150,7 @@ export function GroupManageModal({
             {loading ? (
               <p className="label-sm" style={{ padding: 'var(--spacing-3)' }}>Загрузка...</p>
             ) : error ? (
-              <div className="wash-primary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', color: 'var(--primary)', fontSize: '0.85rem' }}>{error}</div>
+              <div className="alert-neutral-inline" style={{ padding: 'var(--spacing-3) var(--spacing-4)', color: 'var(--primary)', fontSize: '0.85rem' }}>{error}</div>
             ) : (
               <EntitySelector
                 types={['user', 'circle']}
@@ -174,13 +162,13 @@ export function GroupManageModal({
               />
             )}
             <div style={{ display: 'flex', gap: 'var(--spacing-2)', marginTop: 'var(--spacing-4)', justifyContent: 'flex-end' }}>
-              <button onClick={() => { setPane('list'); setToAdd([]); }} className="btn-secondary" style={{ fontSize: '0.85rem', padding: '0.45rem 1rem' }}>
+              <button onClick={() => { setPane('list'); setToAdd([]); }} className="btn-ghost-inline">
                 Назад
               </button>
               <button
                 onClick={addSelected}
                 disabled={busy || toAdd.length === 0 || toAdd.length > MESSENGER_LIMITS.maxAddMembersAtOnce}
-                className="btn-primary"
+                className="btn-success"
                 style={{ fontSize: '0.85rem', padding: '0.45rem 1rem', opacity: toAdd.length ? 1 : 0.5 }}
               >
                 Добавить{toAdd.length ? ` (${toAdd.length})` : ''}
@@ -199,19 +187,19 @@ export function GroupManageModal({
                     value={nameDraft}
                     onChange={(e) => setNameDraft(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') { setEditingName(false); setNameDraft(detail.title); } }}
-                    className="input-sketch"
+                    className="ui-input"
                     autoFocus
                     maxLength={MESSENGER_LIMITS.maxGroupNameLength}
                     style={{ flex: 1, fontSize: '0.9rem' }}
                   />
-                  <button onClick={saveName} disabled={busy} className="btn-primary" style={{ fontSize: '0.8rem', padding: '0.4rem 0.9rem' }}>Сохранить</button>
+                  <button onClick={saveName} disabled={busy} className="btn-success" style={{ fontSize: '0.8rem', padding: '0.4rem 0.9rem' }}>Сохранить</button>
                 </div>
               ) : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
                   <span className="title-md" style={{ fontSize: '1.05rem' }}>{detail.title}</span>
                   {canManage && (
                     <button onClick={() => { setNameDraft(detail.title); setEditingName(true); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--secondary)', fontSize: '0.78rem', fontWeight: 600 }}>
-                      ✎ Переименовать
+                      <Icon name="edit" size={14} /> Переименовать
                     </button>
                   )}
                 </div>
@@ -222,7 +210,7 @@ export function GroupManageModal({
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-2)' }}>
               <label className="label-md">Участники</label>
               {canManage && (
-                <button onClick={() => setPane('add')} className="btn-secondary" style={{ fontSize: '0.78rem', padding: '0.3rem 0.8rem' }}>
+                <button onClick={() => setPane('add')} className="btn-success" style={{ fontSize: '0.78rem', padding: '0.3rem 0.8rem' }}>
                   + Добавить
                 </button>
               )}
@@ -266,7 +254,7 @@ export function GroupManageModal({
           </>
         )}
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -333,9 +321,7 @@ function ParticipantRow({
           disabled={busy}
           title="Убрать"
           style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: '0.95rem', flexShrink: 0, opacity: 0.7 }}
-        >
-          ✕
-        </button>
+        ><Icon name="close" size={15} /></button>
       )}
     </div>
   );

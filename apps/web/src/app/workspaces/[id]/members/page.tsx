@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { api } from '@/lib/api';
+import { api, apiErrorMessage } from '@/lib/api';
 import {
   workspaceKey,
   workspaceMembersKey,
@@ -13,6 +13,11 @@ import {
 } from '@/lib/queries';
 import { invalidateEntities, type Principal } from '@/lib/entities';
 import { EntitySelector } from '@/components/EntitySelector';
+import {
+  Alert, BentoGrid, Button, Card, CardHeader, Chip, ConfirmDialog, Divider, EmptyState, Field,
+  Icon, IconButton, Input, LoadingBlock, Modal, PageHeader, SearchField, Select, StatTile, Tabs,
+  type TabItem,
+} from '@/components/ui';
 import { PersonChip, StaffPersonCard, type StaffCardData } from '../../../circles/PersonCard';
 import { PersonAvatar } from '../../../messenger/messenger-ui';
 import {
@@ -37,17 +42,6 @@ const splitName = (full: string): [string, string | null] => {
 
 type Tab = 'people' | 'positions' | 'departments' | 'branches' | 'invites';
 
-const TABS: Array<{ key: Tab; label: string; manage?: boolean }> = [
-  { key: 'people', label: 'Сотрудники' },
-  { key: 'positions', label: 'Должности' },
-  { key: 'departments', label: 'Отделы' },
-  { key: 'branches', label: 'Филиалы' },
-  { key: 'invites', label: 'Приглашения', manage: true },
-];
-
-const errMsg = (e: unknown, fallback: string) =>
-  (e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? fallback;
-
 /**
  * Сервис «Сотрудники» (B2B): одна страница с вкладками — ростер L-карточками (как
  * «Моё окружение»), справочники Должности/Отделы/Филиалы, наём (всегда в Стажёра,
@@ -62,6 +56,7 @@ export default function WorkspaceStaffPage() {
 
   const [tab, setTab] = useState<Tab>('people');
   const [error, setError] = useState('');
+  const [leaving, setLeaving] = useState(false);
 
   const wsQ = useQuery({
     queryKey: workspaceKey(workspaceId),
@@ -106,50 +101,50 @@ export default function WorkspaceStaffPage() {
       await api.post(`/workspaces/${workspaceId}/leave`);
       router.push('/dashboard');
     } catch (e) {
-      setError(errMsg(e, 'Не удалось выйти'));
+      setLeaving(false);
+      setError(apiErrorMessage(e));
     }
   };
 
-  if (!isReady || wsQ.isLoading || !ws) return <p className="label-md">Загрузка…</p>;
+  if (!isReady || wsQ.isLoading || !ws) return <LoadingBlock />;
 
   const dir = staffQ.data ?? { departments: [], positions: [], branches: [] };
   const members = membersQ.data ?? [];
-  const visibleTabs = TABS.filter((t) => !t.manage || canStaff);
+
+  const tabs: TabItem<Tab>[] = [
+    { key: 'people', label: 'Сотрудники', icon: 'people', count: members.length },
+    { key: 'positions', label: 'Должности', icon: 'position', count: dir.positions.length },
+    { key: 'departments', label: 'Отделы', icon: 'department', count: dir.departments.length },
+    { key: 'branches', label: 'Филиалы', icon: 'branch', count: dir.branches.length },
+    ...(canStaff
+      ? [{ key: 'invites' as Tab, label: 'Приглашения', icon: 'userAdd' as const, count: invitesQ.data?.length ?? 0 }]
+      : []),
+  ];
 
   return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--spacing-3)', marginBottom: 'var(--spacing-5)' }}>
-        <h1 className="title-lg">Сотрудники</h1>
-        <span className="label-md" style={{ fontSize: '0.85rem' }}>{ws.membersCount} чел.</span>
-      </div>
+    <>
+      <PageHeader
+        breadcrumb={ws.name}
+        title="Сотрудники"
+        description="Ростер, справочники должностей и отделов, наём по номеру"
+        chip={<Chip tone="accent" icon="people">{ws.membersCount} чел.</Chip>}
+        actions={
+          myRole && myRole !== 'owner' ? (
+            <Button variant="ghost" tone="danger" icon="signOut" onClick={() => setLeaving(true)}>
+              Выйти из организации
+            </Button>
+          ) : undefined
+        }
+      />
 
-      {/* Вкладки — разделение цветом фона, без линий (DESIGN.md) */}
-      <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', marginBottom: 'var(--spacing-6)' }}>
-        {visibleTabs.map((t, i) => (
-          <button
-            key={t.key}
-            onClick={() => { setTab(t.key); setError(''); }}
-            className="label-md"
-            style={{
-              padding: '0.45rem 1rem',
-              borderRadius: 'var(--radius-md)',
-              border: 'none',
-              cursor: 'pointer',
-              transform: `rotate(${i % 2 ? 0.4 : -0.4}deg)`,
-              background: tab === t.key ? 'var(--secondary-container)' : 'var(--surface-container-low)',
-              color: tab === t.key ? 'var(--on-secondary-container)' : 'var(--on-surface-variant)',
-              boxShadow: tab === t.key ? '2px 3px 0 rgba(56,57,45,0.12)' : 'none',
-              fontWeight: tab === t.key ? 700 : 500,
-            }}
-          >
-            {t.label}
-            {t.key === 'invites' && (invitesQ.data?.length ?? 0) > 0 ? ` · ${invitesQ.data!.length}` : ''}
-          </button>
-        ))}
+      <div style={{ marginBottom: 'var(--gap-grid)' }}>
+        <Tabs aria-label="Разделы сервиса" items={tabs} value={tab} onChange={(k) => { setTab(k); setError(''); }} />
       </div>
 
       {error && (
-        <p className="label-md" style={{ color: 'var(--primary)', marginBottom: 'var(--spacing-4)' }}>{error}</p>
+        <div style={{ marginBottom: 'var(--gap-grid)' }}>
+          <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>
+        </div>
       )}
 
       {tab === 'people' && (
@@ -184,15 +179,16 @@ export default function WorkspaceStaffPage() {
         />
       )}
 
-      {/* Выход (не владелец) */}
-      {myRole && myRole !== 'owner' && (
-        <div style={{ marginTop: 'var(--spacing-10)' }}>
-          <button onClick={leave} className="btn-secondary" style={{ padding: '0.5rem 1.25rem', color: 'var(--primary)' }}>
-            Выйти из организации
-          </button>
-        </div>
-      )}
-    </div>
+      <ConfirmDialog
+        open={leaving}
+        onClose={() => setLeaving(false)}
+        onConfirm={leave}
+        title="Выйти из организации?"
+        message="Ваши назначения снимутся, доступ к рабочим данным закроется. Вернуться можно только по новому приглашению."
+        confirmLabel="Выйти"
+        danger
+      />
+    </>
   );
 }
 
@@ -235,6 +231,9 @@ function PeopleTab({
     return true;
   });
 
+  const hasFilter = !!(fDep || fPos || fBr || fRole || q);
+  const clearFilters = () => { setFDep(''); setFPos(''); setFBr(''); setFRole(''); setQ(''); };
+
   // Бейдж карты = Должности; филиалы — отдельные чипы (роль организации на карте не видна).
   const positionsOf = (m: WorkspaceMember) =>
     [...new Set(m.assignments.map((a) => a.positionName))];
@@ -264,12 +263,12 @@ function PeopleTab({
       );
       router.push(`/messenger?chat=${r.data.data.id}`);
     } catch (e) {
-      onError(errMsg(e, 'Не удалось открыть чат'));
+      onError(apiErrorMessage(e));
     }
   };
 
   const renderGrid = (list: WorkspaceMember[]) => (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 'var(--spacing-6)', alignItems: 'start' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 'var(--gap-grid)', alignItems: 'start' }}>
       {list.map((m) => (
         <StaffPersonCard
           key={m.id}
@@ -285,48 +284,85 @@ function PeopleTab({
   );
 
   return (
-    <div>
-      {/* Фильтры */}
-      <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', marginBottom: 'var(--spacing-5)' }}>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск по имени…" className="input" style={{ width: 180 }} />
-        <select value={fDep} onChange={(e) => setFDep(e.target.value)} className="input" style={{ width: 160 }}>
-          <option value="">Все отделы</option>
-          {dir.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-        </select>
-        <select value={fPos} onChange={(e) => setFPos(e.target.value)} className="input" style={{ width: 170 }}>
-          <option value="">Все должности</option>
-          {dir.positions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        <select value={fBr} onChange={(e) => setFBr(e.target.value)} className="input" style={{ width: 170 }}>
-          <option value="">Все филиалы</option>
-          {dir.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-        </select>
-        <select value={fRole} onChange={(e) => setFRole(e.target.value)} className="input" style={{ width: 150 }}>
-          <option value="">Все роли</option>
-          {(['owner', 'admin', 'manager', 'staff', 'trainee'] as const).map((r) => (
-            <option key={r} value={r}>{roleLabel(r)}</option>
-          ))}
-        </select>
-      </div>
+    <>
+      <BentoGrid>
+        {/* ---------- Фильтры ---------- */}
+        <Card span={12} small>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <SearchField
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onClear={() => setQ('')}
+              placeholder="Поиск по имени…"
+              width={200}
+              aria-label="Поиск по имени"
+            />
+            <Select
+              aria-label="Отдел"
+              value={fDep}
+              onChange={setFDep}
+              width={170}
+              options={[{ value: '', label: 'Все отделы', icon: 'department' }, ...dir.departments.map((d) => ({ value: d.id, label: d.name }))]}
+            />
+            <Select
+              aria-label="Должность"
+              value={fPos}
+              onChange={setFPos}
+              width={180}
+              options={[{ value: '', label: 'Все должности', icon: 'position' }, ...dir.positions.map((p) => ({ value: p.id, label: p.name }))]}
+            />
+            <Select
+              aria-label="Филиал"
+              value={fBr}
+              onChange={setFBr}
+              width={180}
+              options={[{ value: '', label: 'Все филиалы', icon: 'branch' }, ...dir.branches.map((b) => ({ value: b.id, label: b.name }))]}
+            />
+            <Select
+              aria-label="Роль"
+              value={fRole}
+              onChange={setFRole}
+              width={160}
+              options={[
+                { value: '', label: 'Все роли', icon: 'user' },
+                ...(['owner', 'admin', 'manager', 'staff', 'trainee'] as const).map((r) => ({ value: r, label: roleLabel(r) })),
+              ]}
+            />
+            {hasFilter && (
+              <Button variant="ghost" size="sm" icon="close" onClick={clearFilters}>Сбросить</Button>
+            )}
+          </div>
+        </Card>
 
-      {filtered.length === 0 ? (
-        <div className="card" style={{ textAlign: 'center', padding: 'var(--spacing-10)', color: 'var(--on-surface-variant)' }}>
-          <p className="label-md">Никого не найдено</p>
-        </div>
-      ) : (
-        renderGrid(filtered)
-      )}
+        {/* ---------- Ростер ---------- */}
+        <Card span={12}>
+          <CardHeader
+            title="Команда"
+            subtitle={hasFilter ? `Найдено: ${filtered.length} из ${team.length}` : `${team.length} чел.`}
+          />
+          {filtered.length === 0 ? (
+            <EmptyState
+              icon="people"
+              title={hasFilter ? 'Никого не найдено' : 'В команде пока никого'}
+              description={hasFilter ? 'Смягчите фильтры или сбросьте их.' : 'Наймите первого сотрудника на вкладке «Приглашения».'}
+              action={hasFilter ? <Button variant="matte" icon="close" onClick={clearFilters}>Сбросить фильтры</Button> : undefined}
+            />
+          ) : (
+            renderGrid(filtered)
+          )}
+        </Card>
 
-      {/* Подрядчики (Коллаб-модель) — отдельной секцией, только управляющим */}
-      {canManage && contractors.length > 0 && (
-        <div style={{ marginTop: 'var(--spacing-8)' }}>
-          <h2 className="title-md" style={{ marginBottom: 'var(--spacing-2)' }}>Подрядчики</h2>
-          <p className="label-md" style={{ fontSize: '0.78rem', opacity: 0.65, marginBottom: 'var(--spacing-4)' }}>
-            Внешние исполнители: видят только свои задачи. Назначаются сервисами (Тайный гость, UGC), не вручную.
-          </p>
-          {renderGrid(contractors)}
-        </div>
-      )}
+        {/* ---------- Подрядчики (Коллаб-модель) — только управляющим ---------- */}
+        {canManage && contractors.length > 0 && (
+          <Card span={12}>
+            <CardHeader
+              title="Подрядчики"
+              subtitle="Внешние исполнители: видят только свои задачи. Назначаются сервисами (Тайный гость, UGC), не вручную"
+            />
+            {renderGrid(contractors)}
+          </Card>
+        )}
+      </BentoGrid>
 
       {/* Окно управления сотрудником */}
       {managed && (canStaff || canManage) && (
@@ -340,17 +376,16 @@ function PeopleTab({
           canStaff={canStaff}
           isOwnerRow={managed.userId === ownerId}
           onClose={() => setManagedId(null)}
-          onError={onError}
           refreshStaff={refreshStaff}
         />
       )}
-    </div>
+    </>
   );
 }
 
 /** Окно управления сотрудником: роль + должности + увольнение. */
 function MemberModal({
-  workspaceId, member, dir, meId, myRole, canManage, canStaff, isOwnerRow, onClose, onError, refreshStaff,
+  workspaceId, member, dir, meId, myRole, canManage, canStaff, isOwnerRow, onClose, refreshStaff,
 }: {
   workspaceId: string;
   member: WorkspaceMember;
@@ -361,7 +396,6 @@ function MemberModal({
   canStaff: boolean;
   isOwnerRow: boolean;
   onClose: () => void;
-  onError: (m: string) => void;
   refreshStaff: () => void;
 }) {
   const qc = useQueryClient();
@@ -370,6 +404,7 @@ function MemberModal({
   const [pickBranch, setPickBranch] = useState('');
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState('');
+  const [firing, setFiring] = useState(false);
 
   const isSelf = member.userId === meId;
   const isContractor = member.role === 'contractor';
@@ -381,14 +416,14 @@ function MemberModal({
   const canFire =
     canManage && !isOwnerRow && !isSelf && (myRole === 'owner' || member.role !== 'admin');
 
-  const run = async (fn: () => Promise<unknown>, fallback: string) => {
+  const run = async (fn: () => Promise<unknown>) => {
     setBusy(true);
     setLocalError('');
     try {
       await fn();
       refreshStaff();
     } catch (e) {
-      setLocalError(errMsg(e, fallback));
+      setLocalError(apiErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -397,7 +432,7 @@ function MemberModal({
   const changeRole = () =>
     run(async () => {
       await api.patch(`/workspaces/${workspaceId}/members/${member.userId}`, { role: newRole });
-    }, 'Не удалось сменить роль');
+    });
 
   const assign = () =>
     run(async () => {
@@ -408,15 +443,14 @@ function MemberModal({
       });
       setPickPos([]);
       setPickBranch('');
-    }, 'Не удалось назначить должность');
+    });
 
   const unassign = (a: StaffAssignment) =>
     run(async () => {
       await api.delete(`/workspaces/${workspaceId}/staff/assignments/${a.id}`);
-    }, 'Не удалось снять назначение');
+    });
 
   const fire = async () => {
-    if (!confirm(`Уволить «${member.userName}»?`)) return;
     setBusy(true);
     setLocalError('');
     try {
@@ -425,7 +459,8 @@ function MemberModal({
       refreshStaff();
       onClose();
     } catch (e) {
-      setLocalError(errMsg(e, 'Не удалось уволить'));
+      setFiring(false);
+      setLocalError(apiErrorMessage(e));
       setBusy(false);
     }
   };
@@ -433,78 +468,90 @@ function MemberModal({
   const [fn, ln] = splitName(member.userName);
 
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed', inset: 0, zIndex: 90, background: 'rgba(56,57,45,0.35)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 'var(--spacing-4)',
-      }}
+    <Modal
+      open
+      onClose={onClose}
+      title={<PersonChip size="M" userId={member.userId} firstName={fn} lastName={ln} avatar={member.userAvatar} role={roleLabel(member.role)} />}
+      size="md"
+      footer={
+        <>
+          {canFire && (
+            <Button variant="primary" tone="danger" icon="signOut" disabled={busy} onClick={() => setFiring(true)}>
+              Уволить
+            </Button>
+          )}
+          <Button variant="ghost" onClick={onClose}>Готово</Button>
+        </>
+      }
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="card-elevated"
-        style={{ width: 'min(560px, 100%)', maxHeight: '85vh', overflowY: 'auto', padding: 'var(--spacing-6)', background: 'var(--surface)' }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 'var(--spacing-3)', marginBottom: 'var(--spacing-5)' }}>
-          <PersonChip
-            size="M"
-            userId={member.userId}
-            firstName={fn}
-            lastName={ln}
-            avatar={member.userAvatar}
-            role={roleLabel(member.role)}
-          />
-          <button onClick={onClose} title="Закрыть" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem', color: 'var(--on-surface-variant)', lineHeight: 1 }}>×</button>
-        </div>
-
-        {localError && (
-          <p className="label-md" style={{ color: 'var(--primary)', marginBottom: 'var(--spacing-4)' }}>{localError}</p>
-        )}
+      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+        {localError && <Alert tone="danger" onClose={() => setLocalError('')}>{localError}</Alert>}
 
         {isContractor ? (
-          <p className="label-md" style={{ fontSize: '0.85rem', opacity: 0.7, marginBottom: 'var(--spacing-5)' }}>
-            Подрядчик: доступ только к своим задачам. Роль и должности не назначаются — ими управляет выдавший сервис.
-          </p>
+          <Alert tone="neutral" icon="info" title="Подрядчик">
+            Доступ только к своим задачам. Роль и должности не назначаются — ими управляет выдавший сервис.
+          </Alert>
         ) : (
           <>
             {/* Роль */}
             {canChangeRole && (
-              <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center', flexWrap: 'wrap', marginBottom: 'var(--spacing-5)' }}>
-                <span className="label-md" style={{ fontSize: '0.8rem', width: 90 }}>Роль</span>
-                <select value={newRole} onChange={(e) => setNewRole(e.target.value as WorkspaceRole)} className="input" style={{ width: 170 }}>
-                  {assignable.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
-                </select>
-                <button onClick={changeRole} disabled={busy || newRole === member.role} className="btn-secondary" style={{ padding: '0.35rem 0.9rem', fontSize: '0.8rem' }}>
-                  Сменить
-                </button>
-              </div>
+              <Field label="Роль в организации">
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <Select
+                    aria-label="Роль в организации"
+                    value={newRole}
+                    onChange={(v) => setNewRole(v as WorkspaceRole)}
+                    width={190}
+                    options={assignable.map((r) => ({ value: r, label: roleLabel(r) }))}
+                  />
+                  <Button
+                    variant="matte"
+                    tone="accent"
+                    size="sm"
+                    icon="check"
+                    disabled={newRole === member.role}
+                    loading={busy}
+                    onClick={changeRole}
+                  >
+                    Сменить
+                  </Button>
+                </div>
+              </Field>
             )}
             {canManage && !canChangeRole && !isSelf && !isOwnerRow && member.role === 'admin' && (
-              <p className="label-md" style={{ fontSize: '0.75rem', opacity: 0.6, marginBottom: 'var(--spacing-4)' }}>
-                Роль Админа меняет только Владелец
-              </p>
+              <Alert tone="neutral" icon="lock">Роль Админа меняет только Владелец</Alert>
             )}
 
             {/* Должности */}
-            <div style={{ display: 'grid', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-5)' }}>
-              <span className="label-md" style={{ fontSize: '0.8rem' }}>Должности</span>
-              {member.assignments.length === 0 && (
-                <span className="label-md" style={{ fontSize: '0.8rem', opacity: 0.55 }}>Должностей пока нет</span>
-              )}
-              {member.assignments.map((a) => (
-                <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', flexWrap: 'wrap', background: 'var(--surface-container-low)', borderRadius: 'var(--radius-sm)', padding: '0.4rem 0.6rem' }}>
-                  <span className="label-md" style={{ fontSize: '0.85rem', fontWeight: 600, flex: 1, minWidth: 0 }}>
-                    💼 {a.positionName}
-                    {a.departmentName ? ` · ${a.departmentName}` : ''}
-                    {a.branchName ? ` · 📍 ${a.branchName}` : ''}
-                  </span>
-                  {canStaff && (
-                    <button onClick={() => unassign(a)} disabled={busy} title="Снять назначение" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)' }}>×</button>
-                  )}
+            <div>
+              <div className="label-caps" style={{ marginBottom: 'var(--spacing-2)' }}>Должности</div>
+              {member.assignments.length === 0 ? (
+                <p className="label-sm" style={{ margin: '0 0 var(--spacing-3)' }}>Должностей пока нет</p>
+              ) : (
+                <div style={{ display: 'grid', gap: '0.375rem', marginBottom: 'var(--spacing-3)' }}>
+                  {member.assignments.map((a) => (
+                    <div
+                      key={a.id}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap',
+                        border: '1px solid var(--divider)', borderRadius: 'var(--radius-md)', padding: '0.4375rem 0.625rem',
+                      }}
+                    >
+                      <Icon name="position" size={16} style={{ color: 'var(--muted)' }} />
+                      <span className="title-sm" style={{ flex: 1, minWidth: 0 }}>
+                        {a.positionName}
+                        {a.departmentName ? <span className="label-sm"> · {a.departmentName}</span> : null}
+                      </span>
+                      {a.branchName && <Chip size="sm" icon="branch">{a.branchName}</Chip>}
+                      {canStaff && (
+                        <IconButton icon="close" label="Снять назначение" size={26} iconSize={13} disabled={busy} onClick={() => unassign(a)} />
+                      )}
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
               {canStaff && (
-                <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
                   <div style={{ minWidth: 200, flex: 1 }}>
                     <EntitySelector
                       value={pickPos}
@@ -515,27 +562,34 @@ function MemberModal({
                       context={{ workspaceId }}
                     />
                   </div>
-                  <select value={pickBranch} onChange={(e) => setPickBranch(e.target.value)} className="input" style={{ width: 160 }}>
-                    <option value="">Без филиала</option>
-                    {dir.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                  </select>
-                  <button onClick={assign} disabled={busy || !pickPos[0]} className="btn-primary" style={{ padding: '0.45rem 1rem', fontSize: '0.8rem' }}>
+                  <Select
+                    aria-label="Филиал"
+                    value={pickBranch}
+                    onChange={setPickBranch}
+                    width={170}
+                    options={[{ value: '', label: 'Без филиала' }, ...dir.branches.map((b) => ({ value: b.id, label: b.name, icon: 'branch' as const }))]}
+                  />
+                  <Button variant="primary" tone="success" size="sm" icon="add" disabled={!pickPos[0]} loading={busy} onClick={assign}>
                     Назначить
-                  </button>
+                  </Button>
                 </div>
               )}
             </div>
           </>
         )}
-
-        {/* Увольнение */}
-        {canFire && (
-          <button onClick={fire} disabled={busy} className="btn-secondary" style={{ padding: '0.35rem 0.9rem', fontSize: '0.8rem', color: 'var(--primary)' }}>
-            Уволить
-          </button>
-        )}
       </div>
-    </div>
+
+      <ConfirmDialog
+        open={firing}
+        onClose={() => setFiring(false)}
+        onConfirm={fire}
+        title={`Уволить «${member.userName}»?`}
+        message="Назначения снимутся, доступ к рабочим данным закроется. Задачи и переписка сохранятся."
+        confirmLabel="Уволить"
+        danger
+        loading={busy}
+      />
+    </Modal>
   );
 }
 
@@ -552,6 +606,7 @@ function PositionsTab({
   const [name, setName] = useState('');
   const [depId, setDepId] = useState('');
   const [desc, setDesc] = useState('');
+  const [removing, setRemoving] = useState<{ id: string; name: string } | null>(null);
 
   const create = useMutation({
     mutationFn: async () =>
@@ -561,49 +616,106 @@ function PositionsTab({
         description: desc.trim() || null,
       }),
     onSuccess: () => { setName(''); setDepId(''); setDesc(''); onError(''); refresh(); },
-    onError: (e) => onError(errMsg(e, 'Не удалось создать должность')),
+    onError: (e) => onError(apiErrorMessage(e)),
   });
   const del = useMutation({
     mutationFn: async (id: string) => api.delete(`/workspaces/${workspaceId}/staff/positions/${id}`),
-    onSuccess: () => { onError(''); refresh(); },
-    onError: (e) => onError(errMsg(e, 'Не удалось удалить должность')),
+    onSuccess: () => { setRemoving(null); onError(''); refresh(); },
+    onError: (e) => { setRemoving(null); onError(apiErrorMessage(e)); },
   });
 
   return (
-    <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
-      {canStaff && (
-        <div className="card" style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', alignItems: 'center' }}>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Название (Официант, Бухгалтер…)" maxLength={100} className="input" style={{ width: 230 }} />
-          <select value={depId} onChange={(e) => setDepId(e.target.value)} className="input" style={{ width: 180 }}>
-            <option value="">Без отдела</option>
-            {dir.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
-          <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Описание (необязательно)" maxLength={500} className="input" style={{ flex: 1, minWidth: 180 }} />
-          <button onClick={() => name.trim() && create.mutate()} disabled={create.isPending || !name.trim()} className="btn-primary" style={{ padding: '0.5rem 1.1rem' }}>
-            Создать
-          </button>
-        </div>
-      )}
-      {dir.positions.map((p) => (
-        <div key={p.id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
-          <div>
-            <span className="title-md" style={{ fontSize: '0.95rem' }}>💼 {p.name}</span>
-            <p className="label-md" style={{ fontSize: '0.78rem', opacity: 0.7 }}>
-              {p.departmentName ? `${p.departmentName} · ` : ''}{p.holdersCount ?? 0} чел.{p.description ? ` · ${p.description}` : ''}
-            </p>
-          </div>
-          {canStaff && (
-            <button onClick={() => del.mutate(p.id)} disabled={del.isPending} className="btn-secondary" style={{ padding: '0.35rem 0.9rem', fontSize: '0.8rem' }}>
-              Удалить
-            </button>
+    <>
+      <BentoGrid>
+        {canStaff && (
+          <Card span={12} small>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div style={{ width: 240 }}>
+                <Input label="Название" value={name} onChange={(e) => setName(e.target.value)} placeholder="Официант, Бухгалтер…" maxLength={100} />
+              </div>
+              <Select
+                label="Отдел"
+                value={depId}
+                onChange={setDepId}
+                width={200}
+                options={[{ value: '', label: 'Без отдела' }, ...dir.departments.map((d) => ({ value: d.id, label: d.name, icon: 'department' as const }))]}
+              />
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <Input label="Описание" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Необязательно" maxLength={500} />
+              </div>
+              <Button variant="primary" tone="success" icon="add" disabled={!name.trim()} loading={create.isPending} onClick={() => create.mutate()}>
+                Создать
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        <Card span={12}>
+          <CardHeader title="Должности" subtitle="Отдел сотрудника — производный от его должности (модель штатного расписания)" />
+          {dir.positions.length === 0 ? (
+            <EmptyState
+              icon="position"
+              title="Должностей пока нет"
+              description={canStaff ? 'Создайте первую: например «Официант» или «Бухгалтер».' : 'Справочник заполняют управляющие.'}
+            />
+          ) : (
+            <div style={{ display: 'grid', gap: '0.375rem' }}>
+              {dir.positions.map((p) => (
+                <DirectoryRow
+                  key={p.id}
+                  icon="position"
+                  title={p.name}
+                  subtitle={`${p.departmentName ? `${p.departmentName} · ` : ''}${p.holdersCount ?? 0} чел.${p.description ? ` · ${p.description}` : ''}`}
+                  onRemove={canStaff ? () => setRemoving({ id: p.id, name: p.name }) : undefined}
+                />
+              ))}
+            </div>
           )}
-        </div>
-      ))}
-      {dir.positions.length === 0 && (
-        <p className="label-md" style={{ opacity: 0.6 }}>
-          Должностей пока нет{canStaff ? ' — создайте первую: например «Официант» или «Бухгалтер»' : ''}
-        </p>
-      )}
+        </Card>
+      </BentoGrid>
+
+      <ConfirmDialog
+        open={!!removing}
+        onClose={() => setRemoving(null)}
+        onConfirm={() => { if (removing) del.mutate(removing.id); }}
+        title={removing ? `Удалить должность «${removing.name}»?` : 'Удалить должность?'}
+        message="Если на должности есть люди — удалить не получится, сначала снимите назначения."
+        confirmLabel="Удалить"
+        danger
+        loading={del.isPending}
+      />
+    </>
+  );
+}
+
+/** Строка справочника: значок + название + мета + удаление. */
+function DirectoryRow({
+  icon,
+  title,
+  subtitle,
+  indent = 0,
+  onRemove,
+}: {
+  icon: 'position' | 'department' | 'branch';
+  title: string;
+  subtitle?: string;
+  indent?: number;
+  onRemove?: () => void;
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap',
+        marginLeft: indent, padding: '0.5rem 0.75rem',
+        border: '1px solid var(--divider)', borderRadius: 'var(--radius-md)',
+      }}
+    >
+      <Icon name={icon} size={18} style={{ color: 'var(--muted)' }} />
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span className="title-sm">{title}</span>
+        {subtitle && <span className="label-sm" style={{ display: 'block', marginTop: '0.125rem' }}>{subtitle}</span>}
+      </span>
+      {onRemove && <IconButton icon="delete" label={`Удалить «${title}»`} size={30} onClick={onRemove} />}
     </div>
   );
 }
@@ -616,6 +728,7 @@ function DepartmentsTab({
 }) {
   const [name, setName] = useState('');
   const [parentId, setParentId] = useState('');
+  const [removing, setRemoving] = useState<{ id: string; name: string } | null>(null);
 
   const create = useMutation({
     mutationFn: async () =>
@@ -624,12 +737,12 @@ function DepartmentsTab({
         parentId: parentId || null,
       }),
     onSuccess: () => { setName(''); setParentId(''); onError(''); refresh(); },
-    onError: (e) => onError(errMsg(e, 'Не удалось создать отдел')),
+    onError: (e) => onError(apiErrorMessage(e)),
   });
   const del = useMutation({
     mutationFn: async (id: string) => api.delete(`/workspaces/${workspaceId}/staff/departments/${id}`),
-    onSuccess: () => { onError(''); refresh(); },
-    onError: (e) => onError(errMsg(e, 'Не удалось удалить отдел')),
+    onSuccess: () => { setRemoving(null); onError(''); refresh(); },
+    onError: (e) => { setRemoving(null); onError(apiErrorMessage(e)); },
   });
 
   // Дерево → плоский список с отступами (UI пока простой; канвас оргструктуры — позже).
@@ -655,40 +768,64 @@ function DepartmentsTab({
   }, [dir.departments]);
 
   return (
-    <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
-      {canStaff && (
-        <div className="card" style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', alignItems: 'center' }}>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Название (Финансовый отдел…)" maxLength={100} className="input" style={{ width: 240 }} />
-          <select value={parentId} onChange={(e) => setParentId(e.target.value)} className="input" style={{ width: 200 }}>
-            <option value="">Корневой отдел</option>
-            {dir.departments.map((d) => <option key={d.id} value={d.id}>внутри: {d.name}</option>)}
-          </select>
-          <button onClick={() => name.trim() && create.mutate()} disabled={create.isPending || !name.trim()} className="btn-primary" style={{ padding: '0.5rem 1.1rem' }}>
-            Создать
-          </button>
-        </div>
-      )}
-      {ordered.map(({ dep, depth }) => (
-        <div key={dep.id} className="card" style={{ marginLeft: depth * 22, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
-          <div>
-            <span className="title-md" style={{ fontSize: '0.95rem' }}>🏛️ {dep.name}</span>
-            <p className="label-md" style={{ fontSize: '0.78rem', opacity: 0.7 }}>
-              {dep.membersCount ?? 0} чел. · {dep.positionsCount ?? 0} должн.
-            </p>
-          </div>
-          {canStaff && (
-            <button onClick={() => del.mutate(dep.id)} disabled={del.isPending} className="btn-secondary" style={{ padding: '0.35rem 0.9rem', fontSize: '0.8rem' }}>
-              Удалить
-            </button>
+    <>
+      <BentoGrid>
+        {canStaff && (
+          <Card span={12} small>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div style={{ width: 260 }}>
+                <Input label="Название" value={name} onChange={(e) => setName(e.target.value)} placeholder="Финансовый отдел…" maxLength={100} />
+              </div>
+              <Select
+                label="Родитель"
+                value={parentId}
+                onChange={setParentId}
+                width={220}
+                options={[{ value: '', label: 'Корневой отдел' }, ...dir.departments.map((d) => ({ value: d.id, label: `внутри: ${d.name}` }))]}
+              />
+              <Button variant="primary" tone="success" icon="add" disabled={!name.trim()} loading={create.isPending} onClick={() => create.mutate()}>
+                Создать
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        <Card span={12}>
+          <CardHeader title="Отделы" subtitle="Дерево: грант на отдел достаёт и сотрудников подотделов" />
+          {dir.departments.length === 0 ? (
+            <EmptyState
+              icon="department"
+              title="Отделов пока нет"
+              description={canStaff ? 'Например «Финансовый отдел» или «Кухня».' : 'Справочник заполняют управляющие.'}
+            />
+          ) : (
+            <div style={{ display: 'grid', gap: '0.375rem' }}>
+              {ordered.map(({ dep, depth }) => (
+                <DirectoryRow
+                  key={dep.id}
+                  icon="department"
+                  indent={depth * 22}
+                  title={dep.name}
+                  subtitle={`${dep.membersCount ?? 0} чел. · ${dep.positionsCount ?? 0} должн.`}
+                  onRemove={canStaff ? () => setRemoving({ id: dep.id, name: dep.name }) : undefined}
+                />
+              ))}
+            </div>
           )}
-        </div>
-      ))}
-      {dir.departments.length === 0 && (
-        <p className="label-md" style={{ opacity: 0.6 }}>
-          Отделов пока нет{canStaff ? ' — например «Финансовый отдел» или «Кухня»' : ''}
-        </p>
-      )}
-    </div>
+        </Card>
+      </BentoGrid>
+
+      <ConfirmDialog
+        open={!!removing}
+        onClose={() => setRemoving(null)}
+        onConfirm={() => { if (removing) del.mutate(removing.id); }}
+        title={removing ? `Удалить отдел «${removing.name}»?` : 'Удалить отдел?'}
+        message="Должности отцепятся от отдела, подотделы поднимутся в корень."
+        confirmLabel="Удалить"
+        danger
+        loading={del.isPending}
+      />
+    </>
   );
 }
 
@@ -700,6 +837,7 @@ function BranchesTab({
 }) {
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
+  const [removing, setRemoving] = useState<{ id: string; name: string } | null>(null);
 
   const create = useMutation({
     mutationFn: async () =>
@@ -708,46 +846,68 @@ function BranchesTab({
         address: address.trim() || null,
       }),
     onSuccess: () => { setName(''); setAddress(''); onError(''); refresh(); },
-    onError: (e) => onError(errMsg(e, 'Не удалось создать филиал')),
+    onError: (e) => onError(apiErrorMessage(e)),
   });
   const del = useMutation({
     mutationFn: async (id: string) => api.delete(`/workspaces/${workspaceId}/staff/branches/${id}`),
-    onSuccess: () => { onError(''); refresh(); },
-    onError: (e) => onError(errMsg(e, 'Не удалось удалить филиал')),
+    onSuccess: () => { setRemoving(null); onError(''); refresh(); },
+    onError: (e) => { setRemoving(null); onError(apiErrorMessage(e)); },
   });
 
   return (
-    <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
-      {canStaff && (
-        <div className="card" style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', alignItems: 'center' }}>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Название (Алматинский филиал…)" maxLength={100} className="input" style={{ width: 240 }} />
-          <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Адрес (необязательно)" maxLength={300} className="input" style={{ flex: 1, minWidth: 200 }} />
-          <button onClick={() => name.trim() && create.mutate()} disabled={create.isPending || !name.trim()} className="btn-primary" style={{ padding: '0.5rem 1.1rem' }}>
-            Создать
-          </button>
-        </div>
-      )}
-      {dir.branches.map((b) => (
-        <div key={b.id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
-          <div>
-            <span className="title-md" style={{ fontSize: '0.95rem' }}>📍 {b.name}</span>
-            <p className="label-md" style={{ fontSize: '0.78rem', opacity: 0.7 }}>
-              {b.membersCount ?? 0} чел.{b.address ? ` · ${b.address}` : ''}
-            </p>
-          </div>
-          {canStaff && (
-            <button onClick={() => del.mutate(b.id)} disabled={del.isPending} className="btn-secondary" style={{ padding: '0.35rem 0.9rem', fontSize: '0.8rem' }}>
-              Удалить
-            </button>
+    <>
+      <BentoGrid>
+        {canStaff && (
+          <Card span={12} small>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div style={{ width: 260 }}>
+                <Input label="Название" value={name} onChange={(e) => setName(e.target.value)} placeholder="Алматинский филиал…" maxLength={100} />
+              </div>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <Input label="Адрес" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Необязательно" maxLength={300} />
+              </div>
+              <Button variant="primary" tone="success" icon="add" disabled={!name.trim()} loading={create.isPending} onClick={() => create.mutate()}>
+                Создать
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        <Card span={12}>
+          <CardHeader title="Филиалы" subtitle="Сотрудник может обслуживать несколько филиалов" />
+          {dir.branches.length === 0 ? (
+            <EmptyState
+              icon="branch"
+              title="Филиалов пока нет"
+              description={canStaff ? 'Например «Алматинский филиал» или «Офис 1».' : 'Справочник заполняют управляющие.'}
+            />
+          ) : (
+            <div style={{ display: 'grid', gap: '0.375rem' }}>
+              {dir.branches.map((b) => (
+                <DirectoryRow
+                  key={b.id}
+                  icon="branch"
+                  title={b.name}
+                  subtitle={`${b.membersCount ?? 0} чел.${b.address ? ` · ${b.address}` : ''}`}
+                  onRemove={canStaff ? () => setRemoving({ id: b.id, name: b.name }) : undefined}
+                />
+              ))}
+            </div>
           )}
-        </div>
-      ))}
-      {dir.branches.length === 0 && (
-        <p className="label-md" style={{ opacity: 0.6 }}>
-          Филиалов пока нет{canStaff ? ' — например «Алматинский филиал» или «Офис 1»' : ''}
-        </p>
-      )}
-    </div>
+        </Card>
+      </BentoGrid>
+
+      <ConfirmDialog
+        open={!!removing}
+        onClose={() => setRemoving(null)}
+        onConfirm={() => { if (removing) del.mutate(removing.id); }}
+        title={removing ? `Удалить филиал «${removing.name}»?` : 'Удалить филиал?'}
+        message="Если к филиалу привязаны люди — удалить не получится, сначала переведите их."
+        confirmLabel="Удалить"
+        danger
+        loading={del.isPending}
+      />
+    </>
   );
 }
 
@@ -765,47 +925,41 @@ interface LookupResult {
 }
 
 /**
- * Блок выбора чипами — визуальный клон RolePicker из «Моё окружение» (серая карта,
- * label сверху, чипы flex-wrap). single = одно значение, multi = несколько (филиалы).
+ * Блок выбора чипами — та же форма, что RolePicker в «Моё окружение»:
+ * подпись сверху, матовые чипы кита в flex-wrap. single = одно значение,
+ * multi = несколько (филиалы).
  */
 function ChipPickerBlock({
-  label, options, selected, onToggle, emptyHint,
+  label, icon, options, selected, onToggle, emptyHint,
 }: {
   label: string;
+  icon: 'position' | 'branch';
   options: Array<{ id: string; label: string }>;
   selected: string[];
   onToggle: (id: string) => void;
   emptyHint: string;
 }) {
   return (
-    <div className="card" style={{ padding: 'var(--spacing-4)' }}>
-      <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-3)' }}>{label}</label>
+    <Field label={label}>
       {options.length === 0 ? (
-        <p className="label-sm" style={{ opacity: 0.6 }}>{emptyHint}</p>
+        <p className="label-sm" style={{ margin: 0 }}>{emptyHint}</p>
       ) : (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)' }}>
-          {options.map((o) => {
-            const on = selected.includes(o.id);
-            return (
-              <button
-                key={o.id}
-                type="button"
-                onClick={() => onToggle(o.id)}
-                style={{
-                  padding: '0.3rem 0.7rem', fontSize: '0.8rem', borderRadius: 'var(--radius-sketch)',
-                  border: 'none', cursor: 'pointer', fontWeight: 500,
-                  background: on ? 'var(--secondary-container)' : 'var(--surface-container-low)',
-                  color: on ? 'var(--secondary)' : 'var(--on-surface-variant)',
-                  transition: 'background 0.15s',
-                }}
-              >
-                {o.label}
-              </button>
-            );
-          })}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem' }}>
+          {options.map((o) => (
+            <Chip
+              key={o.id}
+              size="sm"
+              tone="accent"
+              icon={icon}
+              selected={selected.includes(o.id)}
+              onClick={() => onToggle(o.id)}
+            >
+              {o.label}
+            </Chip>
+          ))}
         </div>
       )}
-    </div>
+    </Field>
   );
 }
 
@@ -822,6 +976,7 @@ function InvitesTab({
   const [posId, setPosId] = useState('');
   const [branchIds, setBranchIds] = useState<string[]>([]);
   const [message, setMessage] = useState('');
+  const [cancelling, setCancelling] = useState<WorkspaceInvitation | null>(null);
 
   // Поиск по номеру — тот же механизм, что в «Моё окружение» (debounce + /users/lookup).
   const [lookup, setLookup] = useState<LookupResult | null>(null);
@@ -876,108 +1031,137 @@ function InvitesTab({
       onError(
         (e as Error)?.message === 'bad-phone'
           ? 'Номер в формате +7XXXXXXXXXX'
-          : errMsg(e, 'Не удалось отправить приглашение'),
+          : apiErrorMessage(e),
       ),
   });
   const cancel = useMutation({
     mutationFn: async (invId: string) => api.post(`/workspaces/${workspaceId}/invitations/${invId}/cancel`),
-    onSuccess: () => { onError(''); refresh(); },
-    onError: (e) => onError(errMsg(e, 'Не удалось отменить')),
+    onSuccess: () => { setCancelling(null); onError(''); refresh(); },
+    onError: (e) => { setCancelling(null); onError(apiErrorMessage(e)); },
   });
 
   return (
-    <div>
-      <form
-        onSubmit={(e) => { e.preventDefault(); invite.mutate(); }}
-        className="card-elevated"
-        style={{ marginBottom: 'var(--spacing-8)', padding: 'var(--spacing-6)' }}
-      >
-        <h3 className="title-md" style={{ marginBottom: 'var(--spacing-4)' }}>Пригласить сотрудника</h3>
-
-        <div style={{ marginBottom: 'var(--spacing-4)' }}>
-          <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Номер телефона</label>
-          <input
-            type="tel"
-            value={phone}
-            onChange={(e) => handlePhoneLookup(e.target.value)}
-            placeholder="+77001234567"
-            className="input-sketch"
-            autoFocus
+    <>
+      <BentoGrid>
+        <Card span={7}>
+          <CardHeader
+            title="Пригласить сотрудника"
+            subtitle="Каждый наём — в роли «Стажёр». Роль повышается вручную (позже — после обучения в Додзё)"
           />
-        </div>
+          <form onSubmit={(e) => { e.preventDefault(); invite.mutate(); }} style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+            <Input
+              label="Номер телефона"
+              type="tel"
+              value={phone}
+              onChange={(e) => handlePhoneLookup(e.target.value)}
+              placeholder="+77001234567"
+              icon="call"
+              autoFocus
+            />
 
-        {lookupLoading && <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)' }}>Поиск...</p>}
-        {lookupDone && lookup && (
-          <div className="wash-secondary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-6)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
-            <PersonAvatar userId={lookup.id} name={lookup.firstName} size="sm" />
+            {lookupLoading && <p className="label-sm" style={{ margin: 0 }}>Поиск…</p>}
+            {lookupDone && lookup && (
+              <div
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)',
+                  border: '1px solid var(--primary-border)', background: 'var(--primary-container)',
+                  borderRadius: 'var(--radius-md)', padding: '0.5rem 0.75rem',
+                }}
+              >
+                <PersonAvatar userId={lookup.id} name={lookup.firstName} size="sm" />
+                <span>
+                  <span className="title-sm">{lookup.firstName} {lookup.lastName || ''}</span>
+                  <span className="label-sm" style={{ display: 'block' }}>{lookup.phone}</span>
+                </span>
+              </div>
+            )}
+            {lookupDone && !lookup && (
+              <Alert tone="neutral" icon="info">Пользователь не найден — приглашение уйдёт на этот номер</Alert>
+            )}
+
+            {/* Должность (одна) + Филиалы (несколько) — чипами, как роли в «Окружении» */}
+            <ChipPickerBlock
+              label="Должность (необязательно)"
+              icon="position"
+              options={dir.positions.map((p) => ({ id: p.id, label: p.departmentName ? `${p.name} · ${p.departmentName}` : p.name }))}
+              selected={posId ? [posId] : []}
+              onToggle={(id) => setPosId((cur) => (cur === id ? '' : id))}
+              emptyHint="Создайте должности во вкладке «Должности»"
+            />
+            <ChipPickerBlock
+              label="Филиалы (можно несколько)"
+              icon="branch"
+              options={dir.branches.map((b) => ({ id: b.id, label: b.name }))}
+              selected={branchIds}
+              onToggle={(id) => setBranchIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]))}
+              emptyHint="Создайте филиалы во вкладке «Филиалы»"
+            />
+
+            <Input
+              label="Сообщение"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              maxLength={500}
+              placeholder="Привет! Приглашаем в команду…"
+            />
+
             <div>
-              <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{lookup.firstName} {lookup.lastName || ''}</div>
-              <div className="label-sm">{lookup.phone}</div>
+              <Button
+                type="submit"
+                variant="primary"
+                tone="success"
+                icon="send"
+                disabled={phone.length < 12}
+                loading={invite.isPending}
+              >
+                Отправить приглашение
+              </Button>
             </div>
-          </div>
-        )}
-        {lookupDone && !lookup && (
-          <div className="wash-primary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-6)', fontSize: '0.85rem', color: 'var(--on-surface-variant)' }}>
-            Пользователь не найден — приглашение уйдёт на этот номер
-          </div>
-        )}
+          </form>
+        </Card>
 
-        {/* Должность (одна) + Филиалы (несколько) — чипами, как роли в «Окружении» */}
-        <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)', marginBottom: 'var(--spacing-4)' }}>
-          <ChipPickerBlock
-            label="Должность (необязательно)"
-            options={dir.positions.map((p) => ({ id: p.id, label: p.departmentName ? `${p.name} · ${p.departmentName}` : p.name }))}
-            selected={posId ? [posId] : []}
-            onToggle={(id) => setPosId((cur) => (cur === id ? '' : id))}
-            emptyHint="Создайте должности во вкладке «Должности»"
-          />
-          <ChipPickerBlock
-            label="Филиалы (можно несколько)"
-            options={dir.branches.map((b) => ({ id: b.id, label: b.name }))}
-            selected={branchIds}
-            onToggle={(id) => setBranchIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]))}
-            emptyHint="Создайте филиалы во вкладке «Филиалы»"
-          />
-        </div>
-
-        <div style={{ marginBottom: 'var(--spacing-4)' }}>
-          <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Сообщение</label>
-          <input type="text" value={message} onChange={(e) => setMessage(e.target.value)} maxLength={500} placeholder="Привет! Приглашаем в команду..." className="input-sketch" />
-        </div>
-
-        <p className="label-sm" style={{ opacity: 0.65, marginBottom: 'var(--spacing-4)' }}>
-          Каждый наём — в роли «Стажёр». Роль повышается вручную (позже — автоматически после обучения в Додзё).
-        </p>
-
-        <button
-          type="submit"
-          disabled={invite.isPending || phone.length < 12}
-          className="btn-primary"
-          style={{ fontSize: '0.9rem', opacity: invite.isPending || phone.length < 12 ? 0.6 : 1 }}
-        >
-          {invite.isPending ? 'Отправка...' : 'Отправить приглашение'}
-        </button>
-      </form>
-
-      <h2 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>Ожидают ответа</h2>
-      <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
-        {invites.map((inv) => (
-          <div key={inv.id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
-            <div>
-              <span className="title-md" style={{ fontSize: '0.95rem' }}>{inv.toPhone}</span>
-              <p className="label-md" style={{ fontSize: '0.8rem' }}>
-                Стажёр
-                {inv.positionName ? ` · 💼 ${inv.positionName}` : ''}
-                {inv.branchNames.length ? ` · 📍 ${inv.branchNames.join(', ')}` : ''}
-              </p>
+        <Card span={5}>
+          <CardHeader title="Ожидают ответа" subtitle={invites.length ? `${invites.length} приглашений` : undefined} />
+          {invites.length === 0 ? (
+            <EmptyState icon="userAdd" title="Нет ожидающих приглашений" description="Отправленные наймы появятся здесь." />
+          ) : (
+            <div style={{ display: 'grid', gap: '0.375rem' }}>
+              {invites.map((inv) => (
+                <div
+                  key={inv.id}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-2)',
+                    flexWrap: 'wrap', padding: '0.5rem 0.75rem', border: '1px solid var(--divider)',
+                    borderRadius: 'var(--radius-md)',
+                  }}
+                >
+                  <span style={{ minWidth: 0 }}>
+                    <span className="title-sm">{inv.toPhone}</span>
+                    <span style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.25rem' }}>
+                      <Chip size="sm" tone="neutral" icon="graduation">Стажёр</Chip>
+                      {inv.positionName && <Chip size="sm" icon="position">{inv.positionName}</Chip>}
+                      {inv.branchNames.map((b) => <Chip key={b} size="sm" icon="branch">{b}</Chip>)}
+                    </span>
+                  </span>
+                  <IconButton icon="close" label="Отменить приглашение" size={30} onClick={() => setCancelling(inv)} />
+                </div>
+              ))}
             </div>
-            <button onClick={() => cancel.mutate(inv.id)} disabled={cancel.isPending} className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>
-              Отменить
-            </button>
-          </div>
-        ))}
-        {invites.length === 0 && <p className="label-md" style={{ opacity: 0.6 }}>Нет ожидающих приглашений</p>}
-      </div>
-    </div>
+          )}
+        </Card>
+      </BentoGrid>
+
+      <ConfirmDialog
+        open={!!cancelling}
+        onClose={() => setCancelling(null)}
+        onConfirm={() => { if (cancelling) cancel.mutate(cancelling.id); }}
+        title="Отменить приглашение?"
+        message={cancelling ? `Приглашение на ${cancelling.toPhone} перестанет действовать.` : ''}
+        confirmLabel="Отменить приглашение"
+        cancelLabel="Оставить"
+        danger
+        loading={cancel.isPending}
+      />
+    </>
   );
 }

@@ -43,16 +43,16 @@ import type {
 // ============================================================
 
 const GROUP_TEMPLATES = [
-  { name: 'Семья', color: '#ffaca3' },
+  { name: 'Семья', color: '#f0c4c2' },
   { name: 'Родственники', color: '#ffccbc' },
-  { name: 'Друзья', color: '#c7e7ff' },
-  { name: 'Коллеги', color: '#ffe08c' },
-  { name: 'Одноклассники', color: '#c8e6c9' },
+  { name: 'Друзья', color: '#c3d8f0' },
+  { name: 'Коллеги', color: '#eed6ae' },
+  { name: 'Одноклассники', color: '#c6ddc7' },
   { name: 'Университет', color: '#e1bee7' },
 ];
 
 const GROUP_COLORS = [
-  '#ffaca3', '#c7e7ff', '#ffe08c', '#c8e6c9',
+  '#f0c4c2', '#c3d8f0', '#eed6ae', '#c6ddc7',
   '#e1bee7', '#ffccbc', '#b2dfdb', '#f0f4c3',
 ];
 
@@ -424,41 +424,33 @@ export default function CirclesPage() {
   const activeGroupObj = activeGroup ? groups.find((g) => g.id === activeGroup) : null;
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--surface)' }}>
+    <div className="">
       {/* Nav */}
-      <nav className="fixed top-0 w-full z-50 px-6 py-4" style={{ background: 'rgba(245, 245, 220, 0.7)', backdropFilter: 'blur(10px)' }}>
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <Link href="/dashboard" className="title-md" style={{ color: 'var(--primary)' }}>SuperApp6</Link>
-          <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
-            <Link href="/profile" className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>Профиль</Link>
-            <Link href="/dashboard" className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>Главная</Link>
-          </div>
-        </div>
-      </nav>
+      
 
-      <div className="max-w-4xl mx-auto px-6 pt-24" style={{ paddingBottom: 'var(--spacing-16)' }}>
+      <div className="" style={{ paddingBottom: 'var(--spacing-16)' }}>
 
         {/* Header */}
         <div style={{ marginBottom: 'var(--spacing-6)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
-            <h1 className="display-md" style={{ marginBottom: 'var(--spacing-2)' }}>Моё окружение</h1>
+            <h1 className="title-lg" style={{ marginBottom: 'var(--spacing-2)' }}>Моё окружение</h1>
             <p className="label-md" style={{ fontSize: '0.95rem' }}>
               {contacts.length} {pluralize(contacts.length, 'человек', 'человека', 'человек')}
             </p>
           </div>
-          <button onClick={() => { setShowInvite(!showInvite); clear(); }} className="btn-primary" style={{ fontSize: '0.9rem', padding: '0.5rem 1.2rem' }}>
+          <button onClick={() => { setShowInvite(!showInvite); clear(); }} className={showInvite ? 'btn-danger-soft' : 'btn-success'} style={{ fontSize: '0.9rem', padding: '0.5rem 1.2rem' }}>
             {showInvite ? 'Отмена' : '+ Добавить'}
           </button>
         </div>
 
         {/* Messages */}
         {error && (
-          <div className="wash-primary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-4)', color: 'var(--primary)', fontSize: '0.875rem' }}>
+          <div className="alert-danger-inline" style={{ marginBottom: 'var(--spacing-4)' }}>
             {error}
           </div>
         )}
         {successMsg && (
-          <div className="wash-secondary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-4)', color: 'var(--secondary)', fontSize: '0.875rem' }}>
+          <div className="alert-success-inline" style={{ marginBottom: 'var(--spacing-4)' }}>
             {successMsg}
           </div>
         )}
@@ -470,12 +462,12 @@ export default function CirclesPage() {
 
             <div style={{ marginBottom: 'var(--spacing-4)' }}>
               <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Номер телефона</label>
-              <input type="tel" value={invPhone} onChange={(e) => handlePhoneLookup(e.target.value)} placeholder="+77001234567" className="input-sketch" autoFocus />
+              <input type="tel" value={invPhone} onChange={(e) => handlePhoneLookup(e.target.value)} placeholder="+77001234567" className="ui-input" autoFocus />
             </div>
 
             {invLookupLoading && <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)' }}>Поиск...</p>}
             {invLookupDone && invLookup && (
-              <div className="wash-secondary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-6)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
+              <div className="alert-accent-inline" style={{ marginBottom: 'var(--spacing-6)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
                 <PersonAvatar userId={invLookup.id} name={invLookup.firstName} size="sm" />
                 <div>
                   <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{invLookup.firstName} {invLookup.lastName || ''}</div>
@@ -484,7 +476,7 @@ export default function CirclesPage() {
               </div>
             )}
             {invLookupDone && !invLookup && (
-              <div className="wash-primary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-6)', fontSize: '0.85rem', color: 'var(--on-surface-variant)' }}>
+              <div className="alert-neutral-inline" style={{ marginBottom: 'var(--spacing-6)' }}>
                 Пользователь не найден — приглашение уйдёт на этот номер
               </div>
             )}
@@ -505,10 +497,10 @@ export default function CirclesPage() {
 
             <div style={{ marginBottom: 'var(--spacing-6)' }}>
               <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Сообщение</label>
-              <input type="text" value={invMessage} onChange={(e) => setInvMessage(e.target.value)} placeholder="Привет! Давай добавимся..." className="input-sketch" />
+              <input type="text" value={invMessage} onChange={(e) => setInvMessage(e.target.value)} placeholder="Привет! Давай добавимся..." className="ui-input" />
             </div>
 
-            <button type="submit" disabled={sending || invPhone.length < 12} className="btn-primary" style={{ fontSize: '0.9rem', opacity: (sending || invPhone.length < 12) ? 0.6 : 1 }}>
+            <button type="submit" disabled={sending || invPhone.length < 12} className="btn-success" style={{ fontSize: '0.9rem', opacity: (sending || invPhone.length < 12) ? 0.6 : 1 }}>
               {sending ? 'Отправка...' : 'Отправить приглашение'}
             </button>
           </form>
@@ -604,7 +596,7 @@ export default function CirclesPage() {
                         {b.blockedPhone} · заблокирован {new Date(b.createdAt).toLocaleDateString('ru-RU')}
                       </div>
                     </div>
-                    <button onClick={() => handleUnblock(b.blockedUserId)} className="btn-secondary"
+                    <button onClick={() => handleUnblock(b.blockedUserId)} className="btn-success"
                       style={{ padding: '0.3rem 0.9rem', fontSize: '0.8rem', flexShrink: 0 }}>
                       Разблокировать
                     </button>
@@ -624,7 +616,7 @@ export default function CirclesPage() {
               border: 'none', cursor: 'pointer', fontWeight: 600,
               background: activeGroup === null ? 'var(--surface-container-lowest)' : 'var(--surface-container)',
               color: activeGroup === null ? 'var(--on-surface)' : 'var(--on-surface-variant)',
-              boxShadow: activeGroup === null ? '0 2px 12px rgba(56, 57, 45, 0.08)' : 'none',
+              boxShadow: activeGroup === null ? '0 2px 12px rgba(0, 0, 0, 0.08)' : 'none',
             }}
           >
             Все
@@ -673,7 +665,7 @@ export default function CirclesPage() {
             <div style={{ display: 'flex', gap: 'var(--spacing-3)', alignItems: 'flex-end', flexWrap: 'wrap' }}>
               <div style={{ flex: 1, minWidth: '150px' }}>
                 <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Название группы</label>
-                <input type="text" value={groupName} onChange={(e) => setGroupName(e.target.value)} placeholder="Семья, Родственники..." className="input-sketch" autoFocus style={{ fontSize: '0.85rem' }} />
+                <input type="text" value={groupName} onChange={(e) => setGroupName(e.target.value)} placeholder="Семья, Родственники..." className="ui-input" autoFocus style={{ fontSize: '0.85rem' }} />
               </div>
               <div style={{ display: 'flex', gap: 'var(--spacing-1)' }}>
                 {GROUP_COLORS.slice(0, 6).map((color) => (
@@ -686,7 +678,7 @@ export default function CirclesPage() {
                   />
                 ))}
               </div>
-              <button type="submit" disabled={creatingGroup || !groupName.trim()} className="btn-primary" style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem' }}>
+              <button type="submit" disabled={creatingGroup || !groupName.trim()} className="btn-success" style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem' }}>
                 Создать
               </button>
               <button type="button" onClick={() => setShowCreateGroup(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--on-surface-variant)' }}>
@@ -863,7 +855,7 @@ function InvitationCard({
 }) {
   const isIncoming = direction === 'incoming';
   return (
-    <div className={isIncoming ? 'wash-secondary' : 'wash-primary'} style={{ padding: 'var(--spacing-4)', borderRadius: 'var(--radius-sketch)' }}>
+    <div className={isIncoming ? 'alert-accent-inline' : 'alert-neutral-inline'}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', marginBottom: 'var(--spacing-3)' }}>
         <PersonAvatar userId={theirUserId} name={theirName} />
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -882,8 +874,8 @@ function InvitationCard({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span className="label-sm">Истекает: {new Date(inv.expiresAt).toLocaleDateString('ru-RU')}</span>
         <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
-          {isIncoming && onAccept && <button onClick={onAccept} className="btn-primary" style={{ padding: '0.3rem 0.9rem', fontSize: '0.8rem' }}>Принять</button>}
-          {isIncoming && onReject && <button onClick={onReject} className="btn-secondary" style={{ padding: '0.3rem 0.9rem', fontSize: '0.8rem' }}>Отклонить</button>}
+          {isIncoming && onAccept && <button onClick={onAccept} className="btn-success" style={{ padding: '0.3rem 0.9rem', fontSize: '0.8rem' }}>Принять</button>}
+          {isIncoming && onReject && <button onClick={onReject} className="btn-danger-soft" style={{ padding: '0.3rem 0.9rem', fontSize: '0.8rem' }}>Отклонить</button>}
           {isIncoming && onBlock && (
             <button onClick={onBlock} title="Заблокировать — приглашения и сообщения от этого человека станут невозможны"
               style={{ background: 'none', border: 'none', fontSize: '0.8rem', color: 'var(--on-surface-variant)', cursor: 'pointer', fontWeight: 500, opacity: 0.7 }}>
@@ -941,7 +933,7 @@ function RolePicker({ label, value, onChange }: { label: string; value: string; 
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="Введите свой вариант..."
-          className="input-sketch"
+          className="ui-input"
           autoFocus
           style={{ marginTop: 'var(--spacing-3)', fontSize: '0.85rem' }}
         />

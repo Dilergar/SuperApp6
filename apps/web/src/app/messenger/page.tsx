@@ -889,30 +889,12 @@ function MessengerInner() {
   if (!isReady) return <FullScreenLoading />;
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--surface)' }}>
+    <div className="">
       {/* Nav — glassmorphism, matches other pages */}
-      <nav
-        className="fixed top-0 w-full z-50 px-6 py-4"
-        style={{ background: 'rgba(245, 245, 220, 0.7)', backdropFilter: 'blur(10px)' }}
-      >
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <Link href="/dashboard" className="title-md" style={{ color: 'var(--primary)' }}>
-            SuperApp6
-          </Link>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
-            <MentionsNavLink unread={mentionsUnread} />
-            <Link href="/circles" className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>
-              Окружение
-            </Link>
-            <Link href="/dashboard" className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>
-              Главная
-            </Link>
-          </div>
-        </div>
-      </nav>
+      
 
-      <div className="max-w-6xl mx-auto px-6 pt-24" style={{ paddingBottom: 'var(--spacing-8)' }}>
-        <h1 className="display-md" style={{ marginBottom: 'var(--spacing-6)', paddingLeft: 'var(--spacing-2)' }}>
+      <div className="" style={{ paddingBottom: 'var(--spacing-8)' }}>
+        <h1 className="title-lg" style={{ marginBottom: 'var(--spacing-6)', paddingLeft: 'var(--spacing-2)' }}>
           Мессенджер
         </h1>
 
@@ -1059,7 +1041,6 @@ function EmptyConversation({ loading }: { loading: boolean }) {
               background: 'var(--secondary-container)',
               marginBottom: 'var(--spacing-4)',
               opacity: 0.6,
-              transform: 'rotate(-4deg)',
             }}
           />
           <p className="title-md" style={{ marginBottom: 'var(--spacing-1)' }}>Выберите чат</p>

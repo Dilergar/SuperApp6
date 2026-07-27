@@ -129,9 +129,9 @@ export function itemDays(i: CalendarItem): Date[] {
 
 export function itemColor(i: CalendarItem): string {
   if (isEvent(i)) return i.color || DEFAULT_EVENT_COLOR;
-  if (isFinance(i)) return '#7c5800'; // tertiary — «highlighter» для платежей
-  if (i.overdue) return '#c61a1e';
-  return TASK_PRIORITY_META[i.priority]?.color || '#326a8b';
+  if (isFinance(i)) return '#d6966c'; // tertiary — «highlighter» для платежей
+  if (i.overdue) return '#de6d68';
+  return TASK_PRIORITY_META[i.priority]?.color || '#588cd3';
 }
 
 export function itemTitle(i: CalendarItem): string {

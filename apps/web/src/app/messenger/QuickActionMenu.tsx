@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon, ICONS, type IconName } from '@/components/ui';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { QuickActionDescriptor } from '@superapp/shared';
@@ -24,6 +25,19 @@ export const quickActionsKey = (chatId: string, scope: 'composer' | 'message') =
 const KNOWN_KEYS = new Set(['task.create', 'event.create', 'message.schedule', 'finance.add-expense']);
 
 type ModalKey = 'task.create' | 'event.create' | 'message.schedule' | 'finance.add-expense';
+
+/** Значок быстрого действия: имя иконки кита ИЛИ эмодзи из реестра. */
+function QuickGlyph({ icon }: { icon: string }) {
+  if (icon in ICONS) return <Icon name={icon as IconName} size={18} />;
+  const mapped = QUICK_GLYPH[icon];
+  if (mapped) return <Icon name={mapped} size={18} />;
+  return <span aria-hidden style={{ fontSize: '1.1rem', flexShrink: 0, lineHeight: 1 }}>{icon}</span>;
+}
+
+const QUICK_GLYPH: Record<string, IconName> = {
+  '✅': 'checkCircle', '✓': 'check', '⏰': 'clock', '🔔': 'bell',
+  '📅': 'calendar', '🗓': 'calendar', '💸': 'finance', '💰': 'coins', '📝': 'edit',
+};
 
 export function QuickActionMenu({
   chatId,
@@ -109,7 +123,6 @@ export function QuickActionMenu({
             flexDirection: 'column',
             gap: '0.2rem',
             zIndex: 60,
-            transform: 'rotate(-0.4deg)',
           }}
         >
           {actions.length === 0 && (
@@ -147,7 +160,7 @@ export function QuickActionMenu({
                   e.currentTarget.style.background = 'none';
                 }}
               >
-                <span style={{ fontSize: '1.2rem', flexShrink: 0, lineHeight: 1 }}>{a.icon}</span>
+                <QuickGlyph icon={a.icon} />
                 <span style={{ minWidth: 0, flex: 1 }}>
                   <span style={{ display: 'block', fontSize: '0.88rem', fontWeight: 600, color: 'var(--on-surface)' }}>
                     {a.label}

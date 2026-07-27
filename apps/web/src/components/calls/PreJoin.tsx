@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/ui';
 import { useEffect, useRef, useState } from 'react';
 
 export interface PreJoinChoice {
@@ -108,7 +109,7 @@ export function PreJoin({
   const toggleStyle = (on: boolean): React.CSSProperties => ({
     width: '3rem',
     height: '3rem',
-    borderRadius: '1rem 0.7rem 1.1rem 0.8rem',
+    borderRadius: 'var(--radius-lg)',
     border: 'none',
     cursor: 'pointer',
     fontSize: '1.15rem',
@@ -118,7 +119,7 @@ export function PreJoin({
 
   return (
     <div style={{ maxWidth: 560, margin: '0 auto' }}>
-      <h1 className="display-md" style={{ fontSize: '1.6rem', marginBottom: 'var(--spacing-5)' }}>
+      <h1 className="title-lg" style={{ marginBottom: 'var(--spacing-5)' }}>
         {title}
       </h1>
 
@@ -152,7 +153,7 @@ export function PreJoin({
               gap: 'var(--spacing-2)',
             }}
           >
-            <span style={{ fontSize: '2.4rem' }}>🎥</span>
+            <span style={{ fontSize: '2.4rem' }}><Icon name="video" size={15} /></span>
             <span className="label-md">{mediaError ?? 'Камера выключена'}</span>
           </div>
         )}
@@ -222,7 +223,7 @@ export function PreJoin({
       )}
 
       {error && (
-        <div className="wash-primary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-4)', color: 'var(--primary)', fontSize: '0.875rem' }}>
+        <div className="alert-neutral-inline" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-4)', color: 'var(--primary)', fontSize: '0.875rem' }}>
           {error}
         </div>
       )}

@@ -18,6 +18,8 @@ import { useAuthStore } from '@/lib/stores/auth';
 import { apiErrorMessage } from '@/lib/api';
 import { isTokenStale, useOtpFlow } from '@/components/verify/otp-flow';
 import { OtpStep } from '@/components/verify/OtpStep';
+import { Alert, Button, Input } from '@/components/ui';
+import { AuthLayout } from '../auth-ui';
 
 type Step = 'phone' | 'code' | 'profile';
 
@@ -100,180 +102,102 @@ export default function RegisterPage() {
   const stepIdx = STEPS.findIndex((s) => s.key === step);
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-6">
-      <div className="w-full max-w-sm">
-        {/* Back link */}
-        <Link
-          href="/"
-          className="label-md inline-block"
-          style={{ marginBottom: 'var(--spacing-8)', color: 'var(--on-surface-variant)' }}
-        >
-          ← на главную
-        </Link>
-
-        <h1 className="display-md" style={{ marginBottom: 'var(--spacing-2)' }}>
-          Создать аккаунт
-        </h1>
-        <p className="label-md" style={{ marginBottom: 'var(--spacing-6)', fontSize: '1rem' }}>
-          Один аккаунт — для всей жизни
-        </p>
-
-        {/* Прогресс: чернильные точки-шаги */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', marginBottom: 'var(--spacing-8)' }}>
-          {STEPS.map((s, i) => (
-            <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
-                <div
-                  style={{
-                    width: 22,
-                    height: 22,
-                    borderRadius: '50% 42% 55% 48%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '0.7rem',
-                    fontWeight: 700,
-                    color: i <= stepIdx ? '#fff' : 'var(--on-surface-variant)',
-                    background: i <= stepIdx ? 'var(--primary)' : 'transparent',
-                    border: i <= stepIdx ? 'none' : `2px solid color-mix(in srgb, var(--outline-variant) 60%, transparent)`,
-                    transform: `rotate(${(i - 1) * 4}deg)`,
-                  }}
-                >
-                  {i + 1}
+    <AuthLayout
+      title="Создать аккаунт"
+      subtitle="Один аккаунт — для всей жизни"
+      step={{ current: stepIdx, total: STEPS.length, labels: STEPS.map((s) => s.label) }}
+      footer={<>Уже есть аккаунт? <Link href="/login" style={{ fontWeight: 700 }}>Войти</Link></>}
+    >
+      {/* ===== Шаг 1: номер ===== */}
+      {step === 'phone' && (
+        <form onSubmit={requestCode} style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+          {phoneError && (
+            <Alert tone="danger">
+              {phoneError}
+              {phoneTaken && (
+                <div style={{ marginTop: '0.5rem', display: 'flex', gap: 'var(--spacing-4)' }}>
+                  <Link href="/login" style={{ fontWeight: 700 }}>Войти</Link>
+                  <Link href="/reset-password" style={{ fontWeight: 700 }}>Забыли пароль?</Link>
                 </div>
-                <span
-                  className="label-sm"
-                  style={{ fontWeight: i === stepIdx ? 700 : 500, color: i === stepIdx ? 'var(--on-surface)' : 'var(--on-surface-variant)' }}
-                >
-                  {s.label}
-                </span>
-              </div>
-              {i < STEPS.length - 1 && (
-                <div style={{ width: 26, height: 2, background: 'color-mix(in srgb, var(--outline-variant) 50%, transparent)', borderRadius: 2 }} />
               )}
-            </div>
-          ))}
-        </div>
+            </Alert>
+          )}
 
-        {/* ===== Шаг 1: номер ===== */}
-        {step === 'phone' && (
-          <form onSubmit={requestCode}>
-            {phoneError && (
-              <div className="wash-primary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-6)', color: 'var(--primary)', fontSize: '0.875rem' }}>
-                {phoneError}
-                {phoneTaken && (
-                  <div style={{ marginTop: 'var(--spacing-3)', display: 'flex', gap: 'var(--spacing-4)' }}>
-                    <Link href="/login" style={{ fontWeight: 700, color: 'var(--primary)' }}>Войти</Link>
-                    <Link href="/reset-password" style={{ fontWeight: 700, color: 'var(--secondary)' }}>Забыли пароль?</Link>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div style={{ marginBottom: 'var(--spacing-8)' }}>
-              <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>
-                Телефон
-              </label>
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+77001234567"
-                required
-                autoFocus
-                className="input-sketch"
-              />
-              <p className="label-sm" style={{ marginTop: 'var(--spacing-2)', opacity: 0.7 }}>
-                Отправим SMS с кодом подтверждения
-              </p>
-            </div>
-
-            <button type="submit" disabled={phoneBusy} className="btn-primary w-full" style={{ fontSize: '1.05rem', padding: 'var(--spacing-4)', opacity: phoneBusy ? 0.6 : 1 }}>
-              {phoneBusy ? 'Отправка…' : 'Получить код'}
-            </button>
-
-            <p className="label-sm" style={{ textAlign: 'center', marginTop: 'var(--spacing-4)' }}>
-              Бесплатный пробный период — 3 месяца
-            </p>
-          </form>
-        )}
-
-        {/* ===== Шаг 2: код ===== */}
-        {step === 'code' && (
-          <OtpStep
-            flow={flow}
-            onSubmit={submitCode}
-            onBack={() => {
-              flow.reset();
-              setStep('phone');
-            }}
+          <Input
+            label="Телефон"
+            type="tel"
+            icon="device"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="+77001234567"
+            hint="Отправим SMS с кодом подтверждения"
+            autoComplete="tel"
+            required
+            autoFocus
           />
-        )}
 
-        {/* ===== Шаг 3: о себе ===== */}
-        {step === 'profile' && (
-          <form onSubmit={handleSubmit}>
-            {error && (
-              <div className="wash-primary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-6)', color: 'var(--primary)', fontSize: '0.875rem' }}>
-                {error}
-                {tokenStale && (
-                  <button
-                    type="button"
-                    onClick={() => { setError(''); setTokenStale(false); void requestCode(); }}
-                    style={{ display: 'block', marginTop: 'var(--spacing-2)', background: 'none', border: 'none', padding: 0, fontWeight: 700, color: 'var(--secondary)', cursor: 'pointer' }}
-                  >
-                    Получить новый код
-                  </button>
-                )}
-              </div>
-            )}
+          <Button type="submit" variant="primary" size="lg" block loading={phoneBusy}>
+            {phoneBusy ? 'Отправляем…' : 'Получить код'}
+          </Button>
 
-            {/* Name fields — asymmetric grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 'var(--spacing-6)', marginBottom: 'var(--spacing-8)' }}>
-              <div>
-                <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>
-                  Имя
-                </label>
-                <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="Санжар" required autoFocus className="input-sketch" />
-              </div>
-              <div>
-                <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>
-                  Фамилия
-                </label>
-                <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Не обяз." className="input-sketch" />
-              </div>
-            </div>
+          <p className="label-sm" style={{ textAlign: 'center', margin: 0 }}>
+            Бесплатный пробный период — 3 месяца
+          </p>
+        </form>
+      )}
 
-            <div style={{ marginBottom: 'var(--spacing-8)' }}>
-              <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>
-                Дата рождения
-                <span style={{ opacity: 0.6, marginLeft: '0.4rem', fontSize: '0.75rem' }}>
-                  не обяз. — скрыта по умолчанию
-                </span>
-              </label>
-              <input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} className="input-sketch" />
-            </div>
+      {/* ===== Шаг 2: код ===== */}
+      {step === 'code' && (
+        <OtpStep flow={flow} onSubmit={submitCode} onBack={() => { flow.reset(); setStep('phone'); }} />
+      )}
 
-            <div style={{ marginBottom: 'var(--spacing-10)' }}>
-              <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>
-                Пароль
-              </label>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Минимум 8 символов" required className="input-sketch" autoComplete="new-password" />
-            </div>
+      {/* ===== Шаг 3: о себе ===== */}
+      {step === 'profile' && (
+        <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+          {error && (
+            <Alert tone="danger">
+              {error}
+              {tokenStale && (
+                <button
+                  type="button"
+                  onClick={() => { setError(''); setTokenStale(false); void requestCode(); }}
+                  style={{ display: 'block', marginTop: '0.4rem', background: 'none', border: 'none', padding: 0, fontWeight: 700, color: 'inherit', textDecoration: 'underline', cursor: 'pointer' }}
+                >
+                  Получить новый код
+                </button>
+              )}
+            </Alert>
+          )}
 
-            <button type="submit" disabled={loading} className="btn-primary w-full" style={{ fontSize: '1.05rem', padding: 'var(--spacing-4)', opacity: loading ? 0.6 : 1 }}>
-              {loading ? 'Создание…' : 'Создать аккаунт'}
-            </button>
-          </form>
-        )}
+          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 'var(--spacing-4)' }}>
+            <Input label="Имя" value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="Санжар" required autoFocus />
+            <Input label="Фамилия" value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Не обяз." />
+          </div>
 
-        <p style={{ textAlign: 'center', marginTop: 'var(--spacing-8)', color: 'var(--on-surface-variant)', fontSize: '0.9rem' }}>
-          Уже есть аккаунт?{' '}
-          <Link href="/login" style={{ color: 'var(--primary)', fontWeight: 600 }}>
-            Войти
-          </Link>
-        </p>
-      </div>
-    </div>
+          <Input
+            label="Дата рождения"
+            type="date"
+            value={dateOfBirth}
+            onChange={(e) => setDateOfBirth(e.target.value)}
+            hint="Не обязательно — скрыта по умолчанию"
+          />
+
+          <Input
+            label="Пароль"
+            type="password"
+            icon="lock"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Минимум 8 символов"
+            autoComplete="new-password"
+            required
+          />
+
+          <Button type="submit" variant="primary" tone="success" size="lg" block loading={loading}>
+            {loading ? 'Создаём…' : 'Создать аккаунт'}
+          </Button>
+        </form>
+      )}
+    </AuthLayout>
   );
 }

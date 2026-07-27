@@ -126,28 +126,11 @@ export default function MentionsPage() {
   }
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--surface)' }}>
+    <div className="">
       {/* Nav — glassmorphism, matches messenger/dashboard */}
-      <nav
-        className="fixed top-0 w-full z-50 px-6 py-4"
-        style={{ background: 'rgba(245, 245, 220, 0.7)', backdropFilter: 'blur(10px)' }}
-      >
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <Link href="/dashboard" className="title-md" style={{ color: 'var(--primary)' }}>
-            SuperApp6
-          </Link>
-          <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
-            <Link href="/messenger" className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>
-              Мессенджер
-            </Link>
-            <Link href="/dashboard" className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>
-              Главная
-            </Link>
-          </div>
-        </div>
-      </nav>
+      
 
-      <div className="max-w-3xl mx-auto px-6 pt-24" style={{ paddingBottom: 'var(--spacing-12)' }}>
+      <div className="" style={{ paddingBottom: 'var(--spacing-12)' }}>
         {/* Header — asymmetric, with the "mark all" action */}
         <div
           style={{
@@ -160,7 +143,7 @@ export default function MentionsPage() {
           }}
         >
           <div>
-            <h1 className="display-md" style={{ marginBottom: 'var(--spacing-1)' }}>
+            <h1 className="title-lg" style={{ marginBottom: 'var(--spacing-1)' }}>
               Упоминания
             </h1>
             <p className="label-md" style={{ fontSize: '0.9rem', opacity: 0.75 }}>
@@ -170,7 +153,7 @@ export default function MentionsPage() {
           {unreadCount > 0 && (
             <button
               onClick={markAllRead}
-              className="btn-secondary"
+              className="btn-ghost-inline"
               style={{ padding: '0.45rem 1.1rem', fontSize: '0.82rem', flexShrink: 0 }}
             >
               Прочитать все
@@ -207,7 +190,6 @@ export default function MentionsPage() {
                 color: 'var(--secondary)',
                 fontFamily: 'var(--font-display)',
                 fontWeight: 700,
-                transform: 'rotate(-5deg)',
               }}
             >
               @
@@ -221,12 +203,11 @@ export default function MentionsPage() {
 
         {items.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
-            {items.map((item, i) => (
+            {items.map((item) => (
               <MentionRow
                 key={item.id}
                 item={item}
                 currentUserId={currentUserId}
-                tilt={i % 2 === 0 ? -0.4 : 0.4}
                 onOpen={() => openMention(item)}
               />
             ))}
@@ -258,12 +239,10 @@ export default function MentionsPage() {
 function MentionRow({
   item,
   currentUserId,
-  tilt,
   onOpen,
 }: {
   item: MentionItem;
   currentUserId: string;
-  tilt: number;
   onOpen: () => void;
 }) {
   return (
@@ -280,8 +259,7 @@ function MentionRow({
         border: 'none',
         borderRadius: 'var(--radius-md)',
         cursor: 'pointer',
-        boxShadow: item.read ? 'none' : '0 2px 14px rgba(198, 26, 30, 0.07)',
-        transform: `rotate(${tilt}deg)`,
+        boxShadow: item.read ? 'none' : '0 2px 14px rgba(0, 0, 0, 0.07)',
         transition: 'background 0.15s ease, box-shadow 0.15s ease',
       }}
       onMouseEnter={(e) => {
@@ -367,7 +345,7 @@ function MentionRow({
             width: '0.6rem',
             height: '0.6rem',
             marginTop: '0.4rem',
-            borderRadius: '0.2rem 0.28rem 0.22rem 0.25rem',
+            borderRadius: '4px',
             background: 'var(--primary)',
           }}
         />

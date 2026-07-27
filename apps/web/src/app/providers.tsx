@@ -76,16 +76,13 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, ErrorBounda
         <div style={{
           minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
           flexDirection: 'column', gap: '1rem', padding: '2rem', textAlign: 'center',
-          fontFamily: 'Plus Jakarta Sans, sans-serif', color: '#38392d',
+          fontFamily: 'var(--font-body)', color: 'var(--on-surface)',
         }}>
-          <h2 style={{ fontFamily: 'Epilogue, sans-serif', fontSize: '1.5rem' }}>Что-то пошло не так</h2>
-          <p style={{ fontSize: '0.9rem', color: '#5e5e52' }}>{this.state.error?.message}</p>
+          <h2 className="title-lg">Что-то пошло не так</h2>
+          <p style={{ fontSize: '0.875rem', color: 'var(--on-surface-variant)' }}>{this.state.error?.message}</p>
           <button
             onClick={() => { this.setState({ hasError: false, error: null }); window.location.reload(); }}
-            style={{
-              padding: '0.5rem 1.5rem', background: '#c61a1e', color: '#fff',
-              border: 'none', borderRadius: '0.5rem', cursor: 'pointer', fontWeight: 600,
-            }}
+            className="btn-primary"
           >
             Перезагрузить
           </button>

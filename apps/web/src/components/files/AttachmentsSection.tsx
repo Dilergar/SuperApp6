@@ -107,7 +107,7 @@ function ImageTile({
           type="button"
           onClick={onRemove}
           title="Убрать"
-          style={{ position: 'absolute', top: 2, right: 2, width: 18, height: 18, border: 'none', borderRadius: '50%', background: 'rgba(56,57,45,0.65)', color: '#fff', fontSize: '0.6rem', cursor: 'pointer', lineHeight: 1 }}
+          style={{ position: 'absolute', top: 2, right: 2, width: 18, height: 18, border: 'none', borderRadius: '50%', background: 'rgba(0, 0, 0, 0.65)', color: '#fff', fontSize: '0.6rem', cursor: 'pointer', lineHeight: 1 }}
         >
           ✕
         </button>

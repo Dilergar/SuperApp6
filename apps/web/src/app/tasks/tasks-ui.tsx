@@ -3,15 +3,34 @@
 // ============================================================
 // Общие кирпичики сервиса «Задачи»: строка задачи, чип-фильтр,
 // быстрый ввод во «Входящие», хелперы дат.
-// Вынесены из старого монолитного page.tsx при переезде на ServiceShell.
 // ============================================================
 
 import { useState } from 'react';
 import Link from 'next/link';
 import { useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, apiErrorMessage } from '@/lib/api';
 import { PersonChip } from '../circles/PersonCard';
-import { TASK_STATUS_META, TASK_PRIORITY_META, type Task } from '@superapp/shared';
+import { TASK_STATUS_META, TASK_PRIORITY_META, type Task, type TaskStatus, type TaskPriority } from '@superapp/shared';
+import {
+  Button, Chip as KitChip, Icon, Input,
+  type IconName, type Tone,
+} from '@/components/ui';
+
+/** Статус задачи → иконка и тон системы (в shared лежат текстовые глифы). */
+const STATUS_VIEW: Record<TaskStatus, { icon: IconName; tone: Tone }> = {
+  todo: { icon: 'tasks', tone: 'neutral' },
+  in_progress: { icon: 'inProgress', tone: 'accent' },
+  on_review: { icon: 'eye', tone: 'warning' },
+  done: { icon: 'checkCircle', tone: 'success' },
+  cancelled: { icon: 'blocked', tone: 'neutral' },
+};
+
+const PRIORITY_TONE: Record<TaskPriority, Tone> = {
+  low: 'neutral',
+  medium: 'accent',
+  high: 'warning',
+  urgent: 'danger',
+};
 
 // ------------------------------------------------------------
 // Строка задачи (списки всех разделов)
@@ -19,7 +38,9 @@ import { TASK_STATUS_META, TASK_PRIORITY_META, type Task } from '@superapp/share
 
 export function TaskRow({ task, extra }: { task: Task; extra?: React.ReactNode }) {
   const st = TASK_STATUS_META[task.status];
+  const view = STATUS_VIEW[task.status];
   const pr = TASK_PRIORITY_META[task.priority];
+  const done = task.status === 'done';
   const assigneeLabel = task.assignedCircleName
     ? `Группа «${task.assignedCircleName}»`
     : task.executor?.name ?? (task.myRole === 'creator' ? 'Себе' : '—');
@@ -27,33 +48,56 @@ export function TaskRow({ task, extra }: { task: Task; extra?: React.ReactNode }
   return (
     <Link
       href={`/tasks/${task.id}`}
-      className="card"
-      style={{ display: 'block', padding: 'var(--spacing-4) var(--spacing-5)', textDecoration: 'none', color: 'inherit' }}
+      className="card-sm"
+      style={{ display: 'block', color: 'inherit', border: '1px solid var(--border)' }}
     >
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--spacing-3)' }}>
-        <span title={st.label} style={{ color: st.color, fontSize: '1.1rem', lineHeight: 1.4 }}>{st.icon}</span>
+        <Icon name={view.icon} size={18} style={{ marginTop: 2, color: 'var(--muted)' }} label={st.label} />
+
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
-            <span style={{ fontWeight: 600, fontSize: '0.95rem', textDecoration: task.status === 'done' ? 'line-through' : 'none', opacity: task.status === 'done' ? 0.6 : 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <span
+              className="title-sm"
+              style={{ textDecoration: done ? 'line-through' : 'none', opacity: done ? 0.6 : 1 }}
+            >
               {task.title}
             </span>
-            <span style={{ fontSize: '0.68rem', fontWeight: 700, color: pr.color, background: 'var(--surface-container)', padding: '0.05rem 0.4rem', borderRadius: 'var(--radius-sm)' }}>
-              {pr.label}
-            </span>
+            {task.priority !== 'medium' && (
+              <KitChip size="sm" tone={PRIORITY_TONE[task.priority]}>{pr.label}</KitChip>
+            )}
           </div>
-          <div style={{ display: 'flex', gap: 'var(--spacing-3)', marginTop: 'var(--spacing-1)', flexWrap: 'wrap', alignItems: 'center' }}>
+
+          <div style={{ display: 'flex', gap: 'var(--spacing-3)', marginTop: '0.375rem', flexWrap: 'wrap', alignItems: 'center' }}>
             {task.executor && !task.assignedCircleName ? (
               <PersonChip size="S" userId={task.executor.userId} firstName={task.executor.name} avatar={task.executor.avatar} />
             ) : (
-              <span className="label-sm">{assigneeLabel}</span>
+              <span className="meta">{assigneeLabel}</span>
             )}
-            {task.progress && <span className="label-sm" style={{ color: 'var(--secondary)' }}>{task.progress.accepted} из {task.progress.total} принято</span>}
-            {task.dueDate && <span className="label-sm" style={{ color: isOverdue(task) ? 'var(--primary)' : 'var(--on-surface-variant)' }}>⏰ {formatDue(task.dueDate, task.allDay)}</span>}
-            {task.coinReward > 0 && <span className="label-sm" style={{ color: 'var(--tertiary)' }}>🪙 {task.coinReward}{task.assignedCircleName ? '/чел' : ''}</span>}
+            {task.progress && (
+              <span className="meta" style={{ color: 'var(--primary-dim)' }}>
+                {task.progress.accepted} из {task.progress.total} принято
+              </span>
+            )}
+            {task.dueDate && (
+              <span
+                className="meta"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', color: isOverdue(task) ? 'var(--danger)' : undefined }}
+              >
+                <Icon name={isOverdue(task) ? 'overdue' : 'clock'} size={13} />
+                {formatDue(task.dueDate, task.allDay)}
+              </span>
+            )}
+            {task.coinReward > 0 && (
+              <span className="meta" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', color: 'var(--warning)' }}>
+                <Icon name="coins" size={13} />
+                {task.coinReward}{task.assignedCircleName ? '/чел' : ''}
+              </span>
+            )}
           </div>
           {extra}
         </div>
-        <span className="label-sm" style={{ color: st.color, fontWeight: 600, whiteSpace: 'nowrap' }}>{st.label}</span>
+
+        <KitChip size="sm" tone={view.tone}>{st.label}</KitChip>
       </div>
     </Link>
   );
@@ -61,20 +105,24 @@ export function TaskRow({ task, extra }: { task: Task; extra?: React.ReactNode }
 
 // ------------------------------------------------------------
 // Чип-переключатель (фильтры, режимы формы)
+// Тонкая обёртка над китом: имя сохранено, чтобы не трогать все вызовы.
 // ------------------------------------------------------------
 
-export function Chip({ active, color, onClick, children }: { active: boolean; color?: string; onClick: () => void; children: React.ReactNode }) {
+export function Chip({
+  active,
+  tone = 'accent',
+  onClick,
+  children,
+}: {
+  active: boolean;
+  tone?: Tone;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
   return (
-    <button type="button" onClick={onClick}
-      style={{
-        padding: '0.3rem 0.7rem', fontSize: '0.8rem', borderRadius: 'var(--radius-sketch)',
-        border: 'none', cursor: 'pointer', fontWeight: 600,
-        background: active ? (color ?? 'var(--secondary-container)') : 'var(--surface-container)',
-        color: active ? (color ? '#fff' : 'var(--secondary)') : 'var(--on-surface-variant)',
-      }}
-    >
+    <KitChip size="sm" tone={tone} selected={active} onClick={onClick}>
       {children}
-    </button>
+    </KitChip>
   );
 }
 
@@ -101,8 +149,7 @@ export function QuickAdd({ placeholder = 'Быстрая задачка себе
       setTitle('');
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
     } catch (err: unknown) {
-      const a = err as { response?: { data?: { message?: string } } };
-      setError(a.response?.data?.message || 'Не удалось добавить');
+      setError(apiErrorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -110,39 +157,22 @@ export function QuickAdd({ placeholder = 'Быстрая задачка себе
 
   return (
     <form onSubmit={submit}>
-      <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center' }}>
-        <input
-          type="text"
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+        <Input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder={placeholder}
-          className="input-sketch"
+          icon="add"
           autoFocus={autoFocus}
-          style={{ flex: 1, fontSize: '0.95rem' }}
           maxLength={500}
+          error={error || null}
+          wrapClassName="quick-add-field"
         />
-        <button type="submit" disabled={!title.trim() || busy} className="btn-primary" style={{ fontSize: '0.85rem', padding: '0.5rem 1rem', opacity: !title.trim() || busy ? 0.6 : 1, whiteSpace: 'nowrap' }}>
-          {busy ? '…' : '+ Во Входящие'}
-        </button>
+        <Button type="submit" variant="primary" tone="success" icon="add" disabled={!title.trim()} loading={busy}>
+          Во Входящие
+        </Button>
       </div>
-      {error && <p className="label-sm" style={{ color: 'var(--primary)', marginTop: 'var(--spacing-1)' }}>{error}</p>}
     </form>
-  );
-}
-
-// ------------------------------------------------------------
-// Заголовок раздела (единый вид всех страниц сервиса)
-// ------------------------------------------------------------
-
-export function SectionTitle({ title, subtitle, action }: { title: string; subtitle?: string; action?: React.ReactNode }) {
-  return (
-    <div style={{ marginBottom: 'var(--spacing-5)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
-      <div>
-        <h1 className="display-md" style={{ marginBottom: 'var(--spacing-1)' }}>{title}</h1>
-        {subtitle && <p className="label-md" style={{ fontSize: '0.95rem' }}>{subtitle}</p>}
-      </div>
-      {action}
-    </div>
   );
 }
 

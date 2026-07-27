@@ -154,13 +154,13 @@ export function WalletSection() {
           <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <div style={{ width: '64px' }}>
               <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Иконка</label>
-              <input value={cIcon} onChange={(e) => setCIcon(e.target.value)} maxLength={WALLET_LIMITS.maxIconLength} className="input-sketch" style={{ textAlign: 'center', fontSize: '1.3rem' }} />
+              <input value={cIcon} onChange={(e) => setCIcon(e.target.value)} maxLength={WALLET_LIMITS.maxIconLength} className="ui-input" style={{ textAlign: 'center', fontSize: '1.3rem' }} />
             </div>
             <div style={{ flex: 1, minWidth: '180px' }}>
               <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Название</label>
-              <input value={cName} onChange={(e) => setCName(e.target.value)} maxLength={WALLET_LIMITS.maxCurrencyNameLength} placeholder="Напр. Монеты Мамы" className="input-sketch" />
+              <input value={cName} onChange={(e) => setCName(e.target.value)} maxLength={WALLET_LIMITS.maxCurrencyNameLength} placeholder="Напр. Монеты Мамы" className="ui-input" />
             </div>
-            <button className="btn-primary" disabled={busy} onClick={createCurrency} style={{ fontSize: '0.85rem' }}>Создать</button>
+            <button className="btn-success" disabled={busy} onClick={createCurrency} style={{ fontSize: '0.85rem' }}>Создать</button>
           </div>
         </div>
       ) : (
@@ -181,9 +181,9 @@ export function WalletSection() {
               <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'flex-end', marginBottom: 'var(--spacing-4)' }}>
                 <div style={{ flex: 1 }}>
                   <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Выпустить себе</label>
-                  <input type="number" min={1} value={mintAmt} onChange={(e) => setMintAmt(e.target.value)} placeholder="Сколько монет" className="input-sketch" />
+                  <input type="number" min={1} value={mintAmt} onChange={(e) => setMintAmt(e.target.value)} placeholder="Сколько монет" className="ui-input" />
                 </div>
-                <button className="btn-primary" disabled={busy} onClick={mint} style={{ fontSize: '0.85rem' }}>Выпустить</button>
+                <button className="btn-success" disabled={busy} onClick={mint} style={{ fontSize: '0.85rem' }}>Выпустить</button>
               </div>
               <p className="label-sm" style={{ fontSize: '0.7rem', opacity: 0.55, marginBottom: 'var(--spacing-4)' }}>
                 Лимит эмиссии — 10 000 000 монет «на руках» (баланс + заморожено).
@@ -207,7 +207,7 @@ export function WalletSection() {
                   <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
                     <span className="label-sm" style={{ color: 'var(--danger)' }}>Сгорит у всех. Точно?</span>
                     <button onClick={del} disabled={busy} style={{ fontSize: '0.8rem', fontWeight: 600, color: '#fff', background: 'var(--danger)', border: 'none', borderRadius: '8px', padding: '0.25rem 0.7rem', cursor: 'pointer' }}>Да</button>
-                    <button onClick={() => setConfirmDel(false)} disabled={busy} className="btn-secondary" style={{ fontSize: '0.8rem', padding: '0.25rem 0.7rem' }}>Нет</button>
+                    <button onClick={() => setConfirmDel(false)} disabled={busy} className="btn-ghost-inline" style={{ fontSize: '0.8rem', padding: '0.25rem 0.7rem' }}>Нет</button>
                   </span>
                 )}
               </div>
@@ -221,14 +221,14 @@ export function WalletSection() {
             <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'flex-end', flexWrap: 'wrap' }}>
               <div style={{ width: '64px' }}>
                 <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Иконка</label>
-                <input value={eIcon} onChange={(e) => setEIcon(e.target.value)} maxLength={WALLET_LIMITS.maxIconLength} className="input-sketch" style={{ textAlign: 'center', fontSize: '1.3rem' }} />
+                <input value={eIcon} onChange={(e) => setEIcon(e.target.value)} maxLength={WALLET_LIMITS.maxIconLength} className="ui-input" style={{ textAlign: 'center', fontSize: '1.3rem' }} />
               </div>
               <div style={{ flex: 1, minWidth: '160px' }}>
                 <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>Название</label>
-                <input value={eName} onChange={(e) => setEName(e.target.value)} maxLength={WALLET_LIMITS.maxCurrencyNameLength} className="input-sketch" />
+                <input value={eName} onChange={(e) => setEName(e.target.value)} maxLength={WALLET_LIMITS.maxCurrencyNameLength} className="ui-input" />
               </div>
-              <button className="btn-primary" disabled={busy} onClick={saveEdit} style={{ fontSize: '0.85rem' }}>Сохранить</button>
-              <button className="btn-secondary" disabled={busy} onClick={() => setEditing(false)} style={{ fontSize: '0.85rem' }}>Отмена</button>
+              <button className="btn-success" disabled={busy} onClick={saveEdit} style={{ fontSize: '0.85rem' }}>Сохранить</button>
+              <button className="btn-ghost-inline" disabled={busy} onClick={() => setEditing(false)} style={{ fontSize: '0.85rem' }}>Отмена</button>
             </div>
           )}
         </div>
@@ -261,9 +261,9 @@ export function WalletSection() {
               </div>
               {burnId === w.currencyId && (
                 <div style={{ marginTop: 'var(--spacing-2)', display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center' }}>
-                  <input type="number" min={1} value={burnAmt} onChange={(e) => setBurnAmt(e.target.value)} placeholder="Сколько сжечь" className="input-sketch" style={{ flex: 1, padding: '0.3rem 0.6rem', fontSize: '0.8rem' }} />
+                  <input type="number" min={1} value={burnAmt} onChange={(e) => setBurnAmt(e.target.value)} placeholder="Сколько сжечь" className="ui-input" style={{ flex: 1, padding: '0.3rem 0.6rem', fontSize: '0.8rem' }} />
                   <button onClick={() => burnCoins(w.currencyId)} disabled={busy} style={{ fontSize: '0.78rem', fontWeight: 600, color: '#fff', background: 'var(--danger)', border: 'none', borderRadius: '8px', padding: '0.3rem 0.7rem', cursor: 'pointer' }}>Сжечь</button>
-                  <button onClick={() => setBurnId(null)} className="btn-secondary" style={{ fontSize: '0.78rem', padding: '0.3rem 0.7rem' }}>Отмена</button>
+                  <button onClick={() => setBurnId(null)} className="btn-ghost-inline" style={{ fontSize: '0.78rem', padding: '0.3rem 0.7rem' }}>Отмена</button>
                 </div>
               )}
             </div>
@@ -297,7 +297,7 @@ export function WalletSection() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-1)', maxWidth: '460px' }}>
           {history.map((h) => (
-            <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', padding: 'var(--spacing-2) 0', borderBottom: '1px dashed rgba(56,57,45,0.12)' }}>
+            <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', padding: 'var(--spacing-2) 0', borderBottom: '1px dashed rgba(0, 0, 0, 0.12)' }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: '0.85rem', fontWeight: 500 }}>{LEDGER_ENTRY_LABELS[h.entryType] ?? h.entryType}</div>
                 <div className="label-sm" style={{ fontSize: '0.7rem', opacity: 0.55 }}>{new Date(h.createdAt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>

@@ -33,28 +33,10 @@ export default function WorkspaceAreaLayout({ children }: { children: React.Reac
   }
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--surface)' }}>
-      <nav
-        className="fixed top-0 w-full z-50 px-6 py-4"
-        style={{ background: 'rgba(245, 245, 220, 0.7)', backdropFilter: 'blur(10px)' }}
-      >
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
-          {/* Org name → organization home */}
-          <Link href={`/workspaces/${id}`} className="title-md" style={{ color: 'var(--primary)' }}>
-            {name}
-          </Link>
-          <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
-            <Link href={`/workspaces/${id}/profile`} className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>
-              Профиль
-            </Link>
-            <Link href="/dashboard" className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>
-              Личная главная
-            </Link>
-          </div>
-        </div>
-      </nav>
+    <div className="">
+      
 
-      <div className="max-w-5xl mx-auto px-6 pt-24" style={{ paddingBottom: 'var(--spacing-16)' }}>
+      <div className="" style={{ paddingBottom: 'var(--spacing-16)' }}>
         {children}
       </div>
     </div>
