@@ -5,7 +5,7 @@
 
 import { Suspense } from 'react';
 import { cookies } from 'next/headers';
-import { SIDEBAR_COOKIE } from '@/lib/service-nav';
+import { SIDEBAR_COOKIE } from '@/lib/app-nav';
 import { FinanceShell } from './finance-shell';
 
 export default async function FinanceLayout({ children }: { children: React.ReactNode }) {

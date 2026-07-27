@@ -5,7 +5,7 @@ export default function HomePage() {
     <div className="min-h-screen flex flex-col">
       {/* Nav — glassmorphism */}
       <nav className="fixed top-0 w-full z-50 px-6 py-4" style={{
-        background: 'rgba(245, 245, 220, 0.7)',
+        background: 'rgba(234, 230, 222, 0.7)',
         backdropFilter: 'blur(10px)',
       }}>
         <div className="max-w-5xl mx-auto flex items-center justify-between">
@@ -43,7 +43,7 @@ export default function HomePage() {
                 Как скетчбук, в котором собрана вся ваша жизнь.
               </p>
               <div className="flex gap-4 items-center">
-                <Link href="/register" className="btn-primary" style={{ fontSize: '1.1rem', padding: '0.875rem 2.5rem' }}>
+                <Link href="/register" className="btn-success" style={{ fontSize: '1.1rem', padding: '0.875rem 2.5rem' }}>
                   Создать аккаунт
                 </Link>
                 <span className="label-sm">Бесплатно 3 месяца</span>
@@ -53,12 +53,11 @@ export default function HomePage() {
             {/* Right — stacked cards, asymmetric */}
             <div className="relative" style={{ minHeight: '360px' }}>
               {/* Background wash */}
-              <div className="wash-primary absolute" style={{
+              <div className="alert-neutral-inline absolute" style={{
                 width: '80%',
                 height: '70%',
                 top: '15%',
                 left: '10%',
-                transform: 'rotate(-2deg)',
               }} />
 
               {/* Card 1 — top */}
@@ -66,14 +65,13 @@ export default function HomePage() {
                 top: '0',
                 left: '5%',
                 width: '75%',
-                transform: 'rotate(-1.5deg)',
               }}>
                 <div className="label-sm" style={{ marginBottom: 'var(--spacing-2)' }}>Окружение</div>
                 <div className="title-md">Семья</div>
                 <div style={{ marginTop: 'var(--spacing-3)', display: 'flex', gap: 'var(--spacing-2)' }}>
-                  <span className="wash-secondary" style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}>жена</span>
-                  <span className="wash-secondary" style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}>мама</span>
-                  <span className="wash-secondary" style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}>брат</span>
+                  <span className="alert-accent-inline" style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}>жена</span>
+                  <span className="alert-accent-inline" style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}>мама</span>
+                  <span className="alert-accent-inline" style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}>брат</span>
                 </div>
               </div>
 
@@ -82,7 +80,6 @@ export default function HomePage() {
                 bottom: '0',
                 right: '0',
                 width: '70%',
-                transform: 'rotate(1deg)',
               }}>
                 <div className="label-sm" style={{ marginBottom: 'var(--spacing-2)' }}>Задача</div>
                 <div className="title-md">Купить продукты</div>

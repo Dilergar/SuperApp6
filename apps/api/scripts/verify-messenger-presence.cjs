@@ -15,8 +15,8 @@ try { io = require(path.resolve(__dirname, '../../web/node_modules/socket.io-cli
 catch (e) { console.error('socket.io-client not found in apps/web/node_modules', e.message); process.exit(1); }
 
 const CREDS = {
-  t1: { phone: '+77001234567', password: 'Test1234!' },
-  t2: { phone: '+77012345678', password: 'Test1234!' },
+  t1: { phone: '+77009990001', password: 'Test1234!' },
+  t2: { phone: '+77009990002', password: 'Test1234!' },
 };
 async function http(method, p, { token, body } = {}) {
   const res = await fetch(`${BASE}${p}`, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });

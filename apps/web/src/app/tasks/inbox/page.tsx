@@ -17,7 +17,8 @@ import { api } from '@/lib/api';
 import { contactsKey, fetchAllContacts } from '@/lib/queries';
 import { EntitySelector } from '@/components/EntitySelector';
 import { useTasksService } from '../tasks-shell';
-import { QuickAdd, SectionTitle, formatDue } from '../tasks-ui';
+import { QuickAdd, formatDue } from '../tasks-ui';
+import { Alert, Button, Card, Icon, Input, PageHeader } from '@/components/ui';
 import { TaskListSection } from '../TaskListSection';
 import type { Contact, Task } from '@superapp/shared';
 
@@ -27,15 +28,16 @@ export default function TasksInboxPage() {
   const contacts = contactsQ.data ?? [];
 
   return (
-    <div style={{ maxWidth: 920 }}>
-      <SectionTitle
+    <>
+      <PageHeader
+        breadcrumb="Задачи"
         title="Входящие"
-        subtitle="Быстрые записи себе. Разберите: задайте срок, поручите человеку или отметьте «Разобрано»."
+        description="Быстрые записи себе. Разберите: задайте срок, поручите человеку или отметьте «Разобрано»."
       />
 
-      <div className="card" style={{ padding: 'var(--spacing-4) var(--spacing-5)', marginBottom: 'var(--spacing-5)' }}>
+      <Card small style={{ marginBottom: 'var(--gap-grid)' }}>
         <QuickAdd autoFocus />
-      </div>
+      </Card>
 
       <TaskListSection
         filter={{ smartList: 'inbox' }}
@@ -43,7 +45,7 @@ export default function TasksInboxPage() {
         emptyHint="Пришла мысль? Запишите одной строкой выше — детали разберёте потом"
         renderRow={(t) => <InboxRow task={t} contacts={contacts} onChanged={invalidate} />}
       />
-    </div>
+    </>
   );
 }
 
@@ -102,14 +104,14 @@ function InboxRow({ task, contacts, onChanged }: { task: Task; contacts: Contact
           aria-label="Выполнить"
           title="Выполнить"
           style={{
-            width: 24, height: 24, minWidth: 24, borderRadius: '50% 45% 55% 48%', cursor: 'pointer',
-            border: '2px solid var(--on-surface-variant)', background: 'transparent',
+            width: 24, height: 24, minWidth: 24, borderRadius: '50%', cursor: 'pointer',
+            border: '1px solid var(--outline)', background: 'transparent', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
             color: 'transparent', fontSize: '0.8rem', lineHeight: 1,
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--success, #16a34a)'; }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--success-base)'; }}
           onMouseLeave={(e) => { e.currentTarget.style.color = 'transparent'; }}
         >
-          ✓
+          <Icon name="check" size={13} />
         </button>
 
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -122,31 +124,24 @@ function InboxRow({ task, contacts, onChanged }: { task: Task; contacts: Contact
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-1)', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <button style={actionStyle} onClick={() => setPanel(panel === 'date' ? null : 'date')}>📅 Срок</button>
-          <button style={actionStyle} onClick={() => setPanel(panel === 'assign' ? null : 'assign')}>👤 Поручить</button>
-          <button style={{ ...actionStyle, color: 'var(--on-surface-variant)' }} onClick={markSorted} title="Убрать из Входящих, оставить задачей без срока">✓ Разобрано</button>
+          <Button size="sm" variant="ghost" icon="calendar" onClick={() => setPanel(panel === 'date' ? null : 'date')}>Срок</Button>
+          <Button size="sm" variant="ghost" icon="userAdd" onClick={() => setPanel(panel === 'assign' ? null : 'assign')}>Поручить</Button>
+          <Button size="sm" variant="ghost" icon="check" onClick={markSorted} title="Убрать из Входящих, оставить задачей без срока">Разобрано</Button>
         </div>
       </div>
 
       {panel === 'date' && (
         <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center', marginTop: 'var(--spacing-3)', flexWrap: 'wrap' }}>
-          <input
+          <Input
             type={withTime ? 'datetime-local' : 'date'}
             value={due}
             onChange={(e) => setDue(e.target.value)}
-            className="input-sketch"
-            style={{ maxWidth: 230 }}
+            wrapClassName="inbox-due-field"
           />
-          <button
-            type="button"
-            onClick={() => { setWithTime(!withTime); setDue(''); }}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.75rem', color: 'var(--secondary)', fontWeight: 600 }}
-          >
-            {withTime ? '📅 весь день' : '🕒 со временем'}
-          </button>
-          <button className="btn-primary" style={{ fontSize: '0.8rem', padding: '0.4rem 0.9rem', opacity: due ? 1 : 0.6 }} disabled={!due || busy} onClick={saveDue}>
-            Сохранить
-          </button>
+          <Button size="sm" variant="ghost" icon={withTime ? 'calendar' : 'clock'} onClick={() => { setWithTime(!withTime); setDue(''); }}>
+            {withTime ? 'весь день' : 'со временем'}
+          </Button>
+          <Button size="sm" variant="primary" tone="success" icon="check" disabled={!due} loading={busy} onClick={saveDue}>Сохранить</Button>
         </div>
       )}
 
@@ -162,13 +157,11 @@ function InboxRow({ task, contacts, onChanged }: { task: Task; contacts: Contact
               placeholder="Кому поручить…"
             />
           </div>
-          <button className="btn-primary" style={{ fontSize: '0.8rem', padding: '0.4rem 0.9rem', opacity: executorId ? 1 : 0.6 }} disabled={!executorId || busy} onClick={saveExecutor}>
-            Поручить
-          </button>
+          <Button size="sm" variant="primary" tone="success" icon="userAdd" disabled={!executorId} loading={busy} onClick={saveExecutor}>Поручить</Button>
         </div>
       )}
 
-      {error && <p className="label-sm" style={{ color: 'var(--primary)', marginTop: 'var(--spacing-2)' }}>{error}</p>}
+      {error && <div style={{ marginTop: 'var(--spacing-2)' }}><Alert tone="danger">{error}</Alert></div>}
     </div>
   );
 }

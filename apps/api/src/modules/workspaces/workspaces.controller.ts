@@ -8,6 +8,7 @@ import {
   Param,
   HttpCode,
   HttpStatus,
+  NotFoundException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { WorkspacesService } from './workspaces.service';
@@ -44,6 +45,29 @@ export class WorkspacesController {
     const data = createWorkspaceSchema.parse(body);
     const ws = await this.workspaces.createWorkspace(user.sub, data);
     return { success: true, data: ws };
+  }
+
+  @Get('archived')
+  @ApiOperation({ summary: 'Архив: мои деактивированные организации (владелец)' })
+  async listArchived(@CurrentUser() user: JwtPayload) {
+    const data = await this.workspaces.listArchivedWorkspaces(user.sub);
+    return { success: true, data };
+  }
+
+  /**
+   * Прогнать ретеншн архива немедленно (удаление созревшего + предупреждения за 7/3/1
+   * день) — полигон verify-workspace-restore.cjs: ждать ночного крона тест не может.
+   * Только при NODE_ENV=development, как /jobs/dev/*: в любом другом окружении ручки
+   * будто нет.
+   */
+  @Post('dev/purge-archives')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'DEV: прогнать ретеншн архива сейчас (только development)' })
+  async devPurgeArchives() {
+    if (process.env.NODE_ENV !== 'development') throw new NotFoundException();
+    const purged = await this.workspaces.purgeExpiredArchives();
+    const warned = await this.workspaces.warnExpiringArchives();
+    return { success: true, data: { purged, warned } };
   }
 
   // ----- Incoming invitations (must precede ':id' routes) -----
@@ -103,6 +127,14 @@ export class WorkspacesController {
   @ApiOperation({ summary: 'Деактивировать организацию (владелец)' })
   async deactivate(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     await this.workspaces.deactivateWorkspace(user.sub, id);
+    return { success: true };
+  }
+
+  @Post(':id/restore')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Восстановить деактивированную организацию (владелец)' })
+  async restore(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    await this.workspaces.restoreWorkspace(user.sub, id);
     return { success: true };
   }
 

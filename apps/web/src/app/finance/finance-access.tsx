@@ -3,33 +3,40 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { FinShareRole } from '@superapp/shared';
-import { api } from '@/lib/api';
+import { api, apiErrorMessage } from '@/lib/api';
 import { financeSharesKey, fetchFinanceShares } from '@/lib/queries';
 import { EntitySelector } from '@/components/EntitySelector';
+import {
+  Alert, Button, Divider, EmptyState, Field, IconButton, Modal, SegmentedControl, Select,
+} from '@/components/ui';
 import { PersonChip } from '../circles/PersonCard';
 import { GroupChip } from '../circles/EntityChip';
 
-const errText = (e: unknown): string =>
-  (e as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Что-то пошло не так';
+const ROLE_OPTIONS = [
+  { value: 'editor' as FinShareRole, label: 'ведёт вместе' },
+  { value: 'viewer' as FinShareRole, label: 'смотрит' },
+];
 
 /** Модалка «Доступ к книге» — только для владельца.
- *  (Переключатель книг живёт в шапке сайдбара — FinanceBookCard в finance-shell.tsx.) */
+ *  (Переключатель книг живёт над содержимым раздела — FinanceBookCard в finance-shell.tsx.) */
 export function AccessModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const { data: shares = [] } = useQuery({ queryKey: financeSharesKey(), queryFn: () => fetchFinanceShares() });
   const [role, setRole] = useState<FinShareRole>('editor');
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = () => qc.invalidateQueries({ queryKey: financeSharesKey() });
 
   const add = async (principal: { type: string; id: string }) => {
     if (busy) return;
     setBusy(true);
+    setError(null);
     try {
       await api.post('/finance/shares', { principalType: principal.type, principalId: principal.id, role });
       refresh();
     } catch (e) {
-      alert(errText(e));
+      setError(apiErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -39,7 +46,7 @@ export function AccessModal({ onClose }: { onClose: () => void }) {
       await api.delete(`/finance/shares/${principalType}/${principalId}`);
       refresh();
     } catch (e) {
-      alert(errText(e));
+      setError(apiErrorMessage(e));
     }
   };
   const changeRole = async (principalType: string, principalId: string, newRole: FinShareRole) => {
@@ -47,68 +54,79 @@ export function AccessModal({ onClose }: { onClose: () => void }) {
       await api.post('/finance/shares', { principalType, principalId, role: newRole });
       refresh();
     } catch (e) {
-      alert(errText(e));
+      setError(apiErrorMessage(e));
     }
   };
 
   return (
-    <div
-      onClick={onClose}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(56,57,45,0.35)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 110, padding: '1rem' }}
+    <Modal
+      open
+      onClose={onClose}
+      title="Доступ к моим финансам"
+      subtitle="«Смотрит» — видит всё; «ведёт вместе» — записывает и правит. Разрыв связи в Окружении отзывает доступ сам"
+      size="md"
+      footer={<Button variant="ghost" onClick={onClose}>Готово</Button>}
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="card-elevated"
-        style={{ background: 'var(--surface-container-low)', padding: 'var(--spacing-6)', maxWidth: 480, width: '100%', maxHeight: '86vh', overflowY: 'auto', borderRadius: 'var(--radius-md)', transform: 'rotate(-0.3deg)' }}
-      >
-        <div className="flex items-center justify-between" style={{ marginBottom: 'var(--spacing-1)' }}>
-          <h3 className="title-md">Доступ к моим финансам</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem', opacity: 0.5 }}>×</button>
-        </div>
-        <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)' }}>
-          «Смотрит» — видит всё; «ведёт вместе» — записывает и правит. Разрыв связи в Окружении отзывает доступ сам.
-        </p>
+      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+        {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
 
-        <div className="flex items-center" style={{ gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-3)' }}>
-          <span className="label-sm">Роль для новых:</span>
-          {([['editor', 'ведёт вместе'], ['viewer', 'смотрит']] as Array<[FinShareRole, string]>).map(([r, label]) => (
-            <button
-              key={r}
-              onClick={() => setRole(r)}
-              style={{ border: 'none', cursor: 'pointer', padding: '0.2rem 0.8rem', borderRadius: 'var(--radius-sketch)', fontSize: '0.78rem', fontWeight: 600, background: role === r ? 'var(--primary-container)' : 'var(--surface-container)' }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <Field label="Роль для новых">
+          <SegmentedControl
+            aria-label="Роль для новых"
+            value={role}
+            onChange={setRole}
+            items={ROLE_OPTIONS.map((r) => ({ key: r.value, label: r.label }))}
+          />
+        </Field>
 
-        <EntitySelector value={[]} onChange={(next) => next[0] && add(next[0])} types={['user', 'circle']} multi={false} placeholder="Человек или Группа…" />
+        <EntitySelector
+          value={[]}
+          onChange={(next) => next[0] && add(next[0])}
+          types={['user', 'circle']}
+          multi={false}
+          placeholder="Человек или Группа…"
+        />
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)', marginTop: 'var(--spacing-4)' }}>
-          {shares.map((s) => (
-            <div key={`${s.principalType}:${s.principalId}`} className="flex items-center justify-between" style={{ gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
-              {s.principalType === 'user' ? (
-                <PersonChip size="S" userId={s.principalId} firstName={s.name ?? 'Пользователь'} avatar={s.avatar} />
-              ) : (
-                <GroupChip size="S" name={s.name ?? 'Группа'} />
-              )}
-              <span className="flex items-center" style={{ gap: 'var(--spacing-2)' }}>
-                <select
-                  className="input-sketch"
-                  value={s.role}
-                  onChange={(e) => changeRole(s.principalType, s.principalId, e.target.value as FinShareRole)}
-                  style={{ fontSize: '0.8rem', width: 'auto' }}
-                >
-                  <option value="editor">ведёт вместе</option>
-                  <option value="viewer">смотрит</option>
-                </select>
-                <button onClick={() => remove(s.principalType, s.principalId)} title="Отозвать" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontWeight: 700 }}>×</button>
-              </span>
-            </div>
-          ))}
-          {shares.length === 0 && <p className="label-md">Пока никому не открыто.</p>}
-        </div>
+        <Divider style={{ margin: 0 }} />
+
+        {shares.length > 0 ? (
+          <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
+            {shares.map((s) => (
+              <div
+                key={`${s.principalType}:${s.principalId}`}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}
+              >
+                {s.principalType === 'user' ? (
+                  <PersonChip size="S" userId={s.principalId} firstName={s.name ?? 'Пользователь'} avatar={s.avatar} />
+                ) : (
+                  <GroupChip size="S" name={s.name ?? 'Группа'} />
+                )}
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Select
+                    aria-label="Роль"
+                    value={s.role}
+                    onChange={(v) => changeRole(s.principalType, s.principalId, v as FinShareRole)}
+                    options={ROLE_OPTIONS.map((r) => ({ value: r.value, label: r.label }))}
+                    width={170}
+                  />
+                  <IconButton
+                    icon="close"
+                    label="Отозвать доступ"
+                    size={30}
+                    onClick={() => remove(s.principalType, s.principalId)}
+                  />
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            icon="lock"
+            title="Пока никому не открыто"
+            description="Выберите человека или Группу выше — книга станет видна им целиком."
+          />
+        )}
       </div>
-    </div>
+    </Modal>
   );
 }

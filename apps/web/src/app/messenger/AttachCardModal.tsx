@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon, ICONS, ModalShell, type IconName } from '@/components/ui';
 import { useEffect, useState } from 'react';
 import type { RichCardRefType } from '@superapp/shared';
 import { api } from '@/lib/api';
@@ -31,6 +32,12 @@ interface PickItem {
   refId: string;
 }
 
+/** Значок карточки: имя иконки кита ИЛИ пользовательский эмодзи лота. */
+function CardGlyph({ icon }: { icon: string }) {
+  if (icon in ICONS) return <Icon name={icon as IconName} size={20} />;
+  return <span aria-hidden style={{ fontSize: '1.2rem', flexShrink: 0, lineHeight: 1 }}>{icon}</span>;
+}
+
 export function AttachCardModal({
   chatId,
   onClose,
@@ -43,20 +50,7 @@ export function AttachCardModal({
   const [tab, setTab] = useState<TabKey>('tasks');
 
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(56,57,45,0.35)',
-        backdropFilter: 'blur(4px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 100,
-        padding: '1rem',
-      }}
-    >
+    <ModalShell onClose={onClose} zIndex={100}>
       <div
         onClick={(e) => e.stopPropagation()}
         className="card-elevated"
@@ -69,7 +63,6 @@ export function AttachCardModal({
           display: 'flex',
           flexDirection: 'column',
           borderRadius: 'var(--radius-md)',
-          transform: 'rotate(-0.3deg)',
         }}
       >
         <div
@@ -126,7 +119,7 @@ export function AttachCardModal({
                 borderRadius: 'var(--radius-sm)',
                 background: tab === t.key ? 'var(--surface)' : 'none',
                 color: tab === t.key ? 'var(--on-surface)' : 'var(--on-surface-variant)',
-                boxShadow: tab === t.key ? '0 2px 10px rgba(56, 57, 45, 0.08)' : 'none',
+                boxShadow: tab === t.key ? '0 2px 10px rgba(0, 0, 0, 0.08)' : 'none',
                 transition: 'background 0.15s ease',
               }}
             >
@@ -140,7 +133,7 @@ export function AttachCardModal({
           <EntityList key={tab} tab={tab} chatId={chatId} onShared={onShared} />
         </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -224,7 +217,7 @@ function EntityList({
                 opacity: sharing && sharing !== item.key ? 0.5 : 1,
               }}
             >
-              <span style={{ fontSize: '1.3rem', flexShrink: 0, lineHeight: 1 }}>{item.icon}</span>
+              <CardGlyph icon={item.icon} />
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span
                   style={{
@@ -244,7 +237,7 @@ function EntityList({
               </span>
               {done ? (
                 <span className="label-sm" style={{ fontSize: '0.72rem', color: 'var(--secondary)', flexShrink: 0 }}>
-                  Отправлено ✓
+                  Отправлено
                 </span>
               ) : sharing === item.key ? (
                 <span className="label-sm" style={{ fontSize: '0.72rem', opacity: 0.6, flexShrink: 0 }}>…</span>
@@ -278,7 +271,7 @@ async function loadTasks(): Promise<PickItem[]> {
   const rows: TaskRow[] = res.data.data ?? [];
   return rows.map((t) => ({
     key: t.id,
-    icon: '✅',
+    icon: 'checkCircle',
     title: t.title,
     refType: 'task' as const,
     refId: t.id,
@@ -315,7 +308,7 @@ async function loadEvents(): Promise<PickItem[]> {
     const when = it.start ?? it.startTime;
     out.push({
       key: id,
-      icon: '📅',
+      icon: 'calendar',
       title: it.title,
       subtitle: when ? fmtWhen(when) : undefined,
       refType: 'event' as const,
@@ -357,7 +350,7 @@ async function loadListings(): Promise<PickItem[]> {
       seen.add(l.id);
       out.push({
         key: l.id,
-        icon: l.icon ?? (l.crowdfunding ? '🎯' : '🎁'),
+        icon: l.icon ?? (l.crowdfunding ? 'target' : 'gift'),
         title: l.title,
         refType: l.crowdfunding ? ('crowdfunding' as const) : ('listing' as const),
         refId: l.id,

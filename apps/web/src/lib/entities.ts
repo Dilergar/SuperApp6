@@ -114,7 +114,7 @@ async function loadDepartments(ctx?: EntityLoadContext): Promise<EntityOption[]>
     type: 'department',
     id: d.id,
     title: d.name,
-    icon: '🏛️',
+    icon: 'workspace',
     count: d.membersCount,
   }));
 }
@@ -126,7 +126,7 @@ async function loadPositions(ctx?: EntityLoadContext): Promise<EntityOption[]> {
     type: 'position',
     id: p.id,
     title: p.departmentName ? `${p.name} · ${p.departmentName}` : p.name,
-    icon: '💼',
+    icon: 'staff',
     count: p.holdersCount,
   }));
 }
@@ -138,7 +138,7 @@ async function loadBranches(ctx?: EntityLoadContext): Promise<EntityOption[]> {
     type: 'branch',
     id: b.id,
     title: b.name,
-    icon: '📍',
+    icon: 'office',
     count: b.membersCount,
   }));
 }

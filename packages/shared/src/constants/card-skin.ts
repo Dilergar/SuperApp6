@@ -16,12 +16,12 @@ export const SKIN_RARITY_META: Record<
   SkinRarity,
   { label: string; color: string; priceHint: number }
 > = {
-  common: { label: 'Обычный', color: '#9a958a', priceHint: 0 },
-  uncommon: { label: 'Необычный', color: '#2d7a3a', priceHint: 150 },
-  rare: { label: 'Редкий', color: '#326a8b', priceHint: 400 },
-  epic: { label: 'Эпический', color: '#7a3a8b', priceHint: 900 },
-  legendary: { label: 'Легендарный', color: '#b8860b', priceHint: 1900 },
-  mythic: { label: 'Мифический', color: '#c61a1e', priceHint: 4000 },
+  common: { label: 'Обычный', color: '#8a8478', priceHint: 0 },
+  uncommon: { label: 'Необычный', color: '#74a277', priceHint: 150 },
+  rare: { label: 'Редкий', color: '#588cd3', priceHint: 400 },
+  epic: { label: 'Эпический', color: '#8a6fae', priceHint: 900 },
+  legendary: { label: 'Легендарный', color: '#d6a04c', priceHint: 1900 },
+  mythic: { label: 'Мифический', color: '#de6d68', priceHint: 4000 },
 };
 
 export const SKIN_RARITIES: SkinRarity[] = [

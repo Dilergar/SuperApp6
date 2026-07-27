@@ -635,6 +635,10 @@ model Workspace {
 
   ownerId  String  @map("owner_id") // founder; single owner (billing/delete/transfer)
   isActive Boolean @default(true) @map("is_active")
+  // Когда организацию деактивировали (отправили в архив). Отдельная колонка, а не
+  // updatedAt: тот двигает ЛЮБАЯ правка строки, и ретеншн-крон отсчитывал бы 90 дней
+  // заново после каждого касания. null у живой организации; restore обнуляет.
+  archivedAt DateTime? @map("archived_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -650,6 +654,8 @@ model Workspace {
   officeRooms      OfficeRoom[]
 
   @@index([ownerId])
+  // Ретеншн-крон архива: выборка «что пора удалять» идёт по этой колонке.
+  @@index([archivedAt])
   @@map("workspaces")
 }
 

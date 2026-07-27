@@ -17,9 +17,15 @@ import { StaffService } from '../staff/staff.service';
 import { FilesService } from '../../core/files/files.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { ChatterRefRegistry } from '../../core/chatter/chatter-ref.registry';
+import { RedisService } from '../../shared/redis/redis.service';
 import { fullName } from '../../shared/utils/user-name';
 import {
   WORKSPACE_LIMITS,
+  WORKSPACE_ARCHIVE_WARN_DAYS,
+  workspacePurgeAt,
+  daysUntilPurge,
+  pluralDays,
+  formatTaskDeadline,
   WORKSPACE_ROLES,
   WORKSPACE_ROLE_RANK,
   WORKSPACE_HIRE_ROLE,
@@ -73,6 +79,7 @@ export class WorkspacesService implements OnModuleInit {
     private files: FilesService,
     private chatter: ChatterService,
     private chatterRegistry: ChatterRefRegistry,
+    private redis: RedisService,
     private moduleRef: ModuleRef,
   ) {}
 
@@ -246,13 +253,215 @@ export class WorkspacesService implements OnModuleInit {
     return this.serializeWorkspace(ws, ws._count.members, role, ws._count.tasks);
   }
 
-  /** Soft-deactivate (owner only). Hard delete + grace period is deferred. */
+  /**
+   * Отправить в архив (владелец). Ничего не удаляет — гаснет флаг и ставится дата
+   * архивации, от которой ретеншн-крон отсчитывает `archiveRetentionDays` до полного
+   * удаления. Всё это время возврат — в один клик (`restoreWorkspace`).
+   */
   async deactivateWorkspace(userId: string, workspaceId: string) {
     await this.assertOwner(userId, workspaceId);
     await this.db.workspace.update({
       where: { id: workspaceId },
-      data: { isActive: false },
+      data: { isActive: false, archivedAt: new Date() },
     });
+    // Счётчик «Пространств» в /users/me считает ЖИВЫЕ организации и кэшируется 5 минут —
+    // без сброса человек полчаса видит «2 Пространств» над пустым списком.
+    await this.redis.invalidateUserProfile(userId);
+  }
+
+  /**
+   * Архив: деактивированные организации, которыми человек ВЛАДЕЕТ. Видит только
+   * владелец — восстановить может он один, а сотрудникам выключенная организация
+   * ничего не даёт (данные её сервисов и так закрыты).
+   */
+  async listArchivedWorkspaces(userId: string) {
+    const workspaces = await this.db.workspace.findMany({
+      where: { ownerId: userId, isActive: false },
+      include: { _count: { select: { members: true } } },
+      orderBy: { archivedAt: 'desc' },
+    });
+    return workspaces.map((w) =>
+      this.serializeWorkspace(w, w._count.members, 'owner'),
+    );
+  }
+
+  /**
+   * Вернуть деактивированную организацию в строй (владелец). Деактивация ничего, кроме
+   * флага, не трогает — роли, справочники и данные сервисов остаются на месте, поэтому
+   * восстановление симметрично и ничего не пересобирает.
+   */
+  async restoreWorkspace(userId: string, workspaceId: string) {
+    const ws = await this.assertOwner(userId, workspaceId);
+    if (ws.isActive) return; // идемпотентно: повторный клик — не ошибка
+    // Потолок проверяем и здесь: иначе восстановлением можно обойти лимит createWorkspace.
+    const owned = await this.db.workspace.count({
+      where: { ownerId: userId, isActive: true },
+    });
+    if (owned >= WORKSPACE_LIMITS.maxWorkspacesOwnedPerUser) {
+      throw new BadRequestException(
+        `Лимит организаций: ${WORKSPACE_LIMITS.maxWorkspacesOwnedPerUser}. Освободите место, чтобы восстановить`,
+      );
+    }
+    await this.db.workspace.update({
+      where: { id: workspaceId },
+      data: { isActive: true, archivedAt: null },
+    });
+    await this.redis.invalidateUserProfile(userId);
+  }
+
+  /**
+   * Полное, безвозвратное удаление организации. Каскад в схеме закрывает только семь
+   * таблиц (члены, приглашения, справочники, назначения, комнаты офиса), поэтому всё
+   * остальное сносим руками — и порядок здесь несущий:
+   *
+   * • `tasks.workspace_id` стоит на **SET NULL**. Удалить организацию, не тронув её
+   *   задачи, значит не убрать их, а превратить в ЛИЧНЫЕ задачи людей — мусор переехал
+   *   бы на видное место. Поэтому задачи удаляются явно и ПЕРВЫМИ.
+   * • Ещё десять таблиц (процессы, хроника, звонки, ресурсы, tuples доступа, роли)
+   *   ссылаются на `workspace_id` вообще без FK — их строки просто повисли бы навсегда.
+   * • Чаты задач и встреч физически принадлежат мессенджеру и на организацию не
+   *   ссылаются — ищем их через задачи и комнаты, иначе останутся в списке чатов
+   *   людей с мёртвым заголовком.
+   *
+   * НЕ трогаем осознанно: счета/валюты кошелька, магазин и книгу финансов организации.
+   * Журнал двойной записи неизменяем — удаление счёта ломает инвариант Σ=0 и ночную
+   * сверку WalletCron. Без организации они недостижимы.
+   */
+  async purgeWorkspace(workspaceId: string): Promise<void> {
+    const ws = await this.db.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { id: true, ownerId: true },
+    });
+    if (!ws) return;
+
+    const [tasks, rooms] = await Promise.all([
+      this.db.task.findMany({ where: { workspaceId }, select: { id: true } }),
+      this.db.officeRoom.findMany({ where: { workspaceId }, select: { id: true } }),
+    ]);
+    const taskIds = tasks.map((t) => t.id);
+    const roomIds = rooms.map((r) => r.id);
+    const chats = await this.db.chat.findMany({
+      where: {
+        OR: [
+          { parentType: 'task', parentId: { in: taskIds } },
+          { parentType: 'office_room', parentId: { in: roomIds } },
+        ],
+      },
+      select: { id: true },
+    });
+    const chatIds = chats.map((c) => c.id);
+    const refIds = [workspaceId, ...taskIds];
+
+    await this.db.$transaction(async (tx) => {
+      await tx.searchDocument.deleteMany({ where: { chatId: { in: chatIds } } });
+      await tx.chat.deleteMany({ where: { id: { in: chatIds } } }); // каскад: сообщения, участники, отложенные
+      await tx.chatterEntry.deleteMany({
+        where: { OR: [{ workspaceId }, { refType: 'task', refId: { in: taskIds } }] },
+      });
+      await tx.task.deleteMany({ where: { id: { in: taskIds } } }); // каскад: участники, теги
+      await tx.processInstance.deleteMany({ where: { workspaceId } });
+      await tx.processDefinition.deleteMany({ where: { workspaceId } });
+      await tx.processTrigger.deleteMany({ where: { workspaceId } });
+      await tx.processCredential.deleteMany({ where: { workspaceId } });
+      await tx.callRecording.deleteMany({ where: { workspaceId } });
+      await tx.callSession.deleteMany({ where: { workspaceId } });
+      await tx.resource.deleteMany({ where: { workspaceId } });
+      await tx.relationTuple.deleteMany({
+        where: { OR: [{ resourceId: { in: refIds } }, { subjectId: { in: refIds } }] },
+      });
+      await tx.userRole.deleteMany({ where: { context: WS_CONTEXT, tenantId: workspaceId } });
+      await tx.workspace.delete({ where: { id: workspaceId } });
+    });
+
+    await this.roles.invalidateUserCache(ws.ownerId);
+    await this.redis.invalidateUserProfile(ws.ownerId);
+    this.logger.log(`Организация ${workspaceId} удалена по ретеншну архива`);
+  }
+
+  /**
+   * Предупредить владельцев, у кого архивная организация вот-вот исчезнет: за 7, 3 и 1
+   * день до удаления. Возвращает число отправленных.
+   *
+   * Берётся ПЕРВЫЙ рубеж, под который попадает остаток (`daysLeft <= m`, список по
+   * возрастанию) — то есть за прогон уходит максимум одно письмо на организацию. Если
+   * крон простоял несколько дней, человек получит актуальное «остался 1 день», а не
+   * пачку из трёх просроченных. Повтор гасит `dedupKey` (unique в БД): каждый рубеж
+   * отправляется ровно один раз, сколько бы раз крон ни прогнали.
+   */
+  async warnExpiringArchives(): Promise<number> {
+    const maxWarn = Math.max(...WORKSPACE_ARCHIVE_WARN_DAYS);
+    // Интересуют только те, кому осталось не больше самого раннего рубежа.
+    const horizon = new Date(
+      Date.now() -
+        (WORKSPACE_LIMITS.archiveRetentionDays - maxWarn) * 24 * 3600 * 1000,
+    );
+    const rows = await this.db.workspace.findMany({
+      where: { isActive: false, archivedAt: { not: null, lt: horizon } },
+      select: { id: true, name: true, ownerId: true, archivedAt: true },
+      take: 500,
+    });
+
+    let sent = 0;
+    for (const w of rows) {
+      const purgeAt = workspacePurgeAt(w.archivedAt as Date);
+      const daysLeft = daysUntilPurge(purgeAt);
+      // 0 бывает только если удаление в этом же прогоне упало: срок уже вышел, и
+      // «будет удалена через 0 дней» — бессмыслица. Молчим, снесёт следующий заход.
+      if (daysLeft === 0) continue;
+      const milestone = WORKSPACE_ARCHIVE_WARN_DAYS.find((m) => daysLeft <= m);
+      if (milestone === undefined) continue; // ещё рано (или уже пора удалять — это дело purge)
+      try {
+        await this.notifications.notify(
+          w.ownerId,
+          'workspace.archive.expiring',
+          {
+            workspaceId: w.id,
+            workspaceName: w.name,
+            days: daysLeft,
+            daysWord: pluralDays(daysLeft),
+            purgeDate: formatTaskDeadline(purgeAt, true),
+          },
+          {
+            actionUrl: '/dashboard',
+            // Рубеж, а не остаток: иначе один и тот же рубеж слал бы письмо каждый день.
+            dedupKey: `wsarch:${w.id}:${milestone}`,
+          },
+        );
+        sent++;
+      } catch (err) {
+        // Упавшее уведомление не должно останавливать остальные — и уж точно не
+        // должно мешать удалению: оно идёт отдельным проходом.
+        this.logger.error(
+          `warnExpiringArchives ${w.id}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+    return sent;
+  }
+
+  /** Ретеншн архива: удалить организации, пролежавшие в нём дольше срока. Зовёт крон. */
+  async purgeExpiredArchives(): Promise<number> {
+    const cutoff = new Date(
+      Date.now() - WORKSPACE_LIMITS.archiveRetentionDays * 24 * 3600 * 1000,
+    );
+    const due = await this.db.workspace.findMany({
+      where: { isActive: false, archivedAt: { not: null, lt: cutoff } },
+      select: { id: true },
+      take: 100, // потолок на прогон: крон ежедневный, хвост доберёт завтра
+    });
+    let purged = 0;
+    for (const w of due) {
+      try {
+        await this.purgeWorkspace(w.id);
+        purged++;
+      } catch (err) {
+        // Одна сломанная организация не должна останавливать уборку остальных
+        this.logger.error(
+          `purgeWorkspace ${w.id}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+    return purged;
   }
 
   async transferOwnership(
@@ -1004,6 +1213,7 @@ export class WorkspacesService implements OnModuleInit {
       cardVisibility: Prisma.JsonValue | null;
       ownerId: string;
       isActive: boolean;
+      archivedAt?: Date | null;
       createdAt: Date;
       updatedAt: Date;
     },
@@ -1044,6 +1254,14 @@ export class WorkspacesService implements OnModuleInit {
       membersCount,
       ...(tasksCount !== undefined ? { tasksCount } : {}),
       isActive: ws.isActive,
+      // Дату полного удаления считает сервер: срок ретеншна — одна константа, клиенту
+      // остаётся показать её и обратный отсчёт.
+      ...(ws.archivedAt
+        ? {
+            archivedAt: ws.archivedAt.toISOString(),
+            purgeAt: workspacePurgeAt(ws.archivedAt).toISOString(),
+          }
+        : {}),
       ...(myRole ? { myRole } : {}),
       createdAt: ws.createdAt.toISOString(),
       updatedAt: ws.updatedAt.toISOString(),

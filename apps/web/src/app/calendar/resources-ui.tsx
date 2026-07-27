@@ -1,12 +1,15 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { api } from '@/lib/api';
+import { api, apiErrorMessage } from '@/lib/api';
 import { EntitySelector } from '@/components/EntitySelector';
 import { PersonChip } from '../circles/PersonCard';
 import {
+  Alert, Button, Card, Chip, Divider, EmptyState, Field, IconButton, Input, Modal,
+  type IconName,
+} from '@/components/ui';
+import {
   RESOURCE_TYPE_META,
-  RESOURCE_BOOKING_STATUS_META,
   type Resource,
   type ResourceBooking,
   type ResourceType,
@@ -14,14 +17,17 @@ import {
   type Circle,
 } from '@superapp/shared';
 
-const overlay: React.CSSProperties = { position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 1rem', background: 'rgba(56,57,45,0.28)', backdropFilter: 'blur(3px)', overflowY: 'auto' };
-const lbl: React.CSSProperties = { display: 'block', marginBottom: 'var(--spacing-2)' };
-const closeBtn: React.CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', color: 'var(--on-surface-variant)' };
-const smallBtn: React.CSSProperties = { padding: '0.4rem 1rem', fontSize: '0.8rem' };
-
-function chip(active: boolean): React.CSSProperties {
-  return { padding: '0.3rem 0.7rem', fontSize: '0.78rem', borderRadius: 'var(--radius-sketch)', border: 'none', cursor: 'pointer', fontWeight: 600, background: active ? 'var(--secondary-container)' : 'var(--surface-container)', color: active ? 'var(--secondary)' : 'var(--on-surface-variant)' };
-}
+/**
+ * Интерфейсная иконка типа ресурса. В shared у типа лежит эмодзи, но здесь это
+ * НЕ данные человека, а элемент интерфейса — значит рисуем иконкой кита
+ * (DESIGN.md §3), а эмодзи из константы не печатаем.
+ */
+const RESOURCE_TYPE_ICON: Record<ResourceType, IconName> = {
+  room: 'workspace',
+  vehicle: 'device',
+  equipment: 'plug',
+  other: 'folder',
+};
 
 export function ResourcesPanel({
   contacts, circles, onClose,
@@ -35,10 +41,11 @@ export function ResourcesPanel({
   const [changed, setChanged] = useState(false);
   const [editing, setEditing] = useState<Resource | 'new' | null>(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
   const load = useCallback(async () => {
-    try { setList((await api.get('/resources')).data.data); } catch { /* ignore */ }
-    try { setRequests((await api.get('/resources/requests')).data.data); } catch { /* ignore */ }
+    try { setList((await api.get('/resources')).data.data); } catch { /* тихо: панель откроется пустой */ }
+    try { setRequests((await api.get('/resources/requests')).data.data); } catch { /* заявок может не быть */ }
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -46,52 +53,79 @@ export function ResourcesPanel({
 
   const act = async (eventId: string, action: 'confirm' | 'reject') => {
     setBusy(true);
-    try { await api.post(`/resources/bookings/${eventId}/${action}`); setChanged(true); await load(); } catch { /* ignore */ } finally { setBusy(false); }
+    try {
+      await api.post(`/resources/bookings/${eventId}/${action}`);
+      setChanged(true);
+      await load();
+    } catch (e) {
+      setError(apiErrorMessage(e));
+    } finally { setBusy(false); }
   };
   const del = async (id: string) => {
     setBusy(true);
-    try { await api.delete(`/resources/${id}`); setChanged(true); await load(); } catch { /* ignore */ } finally { setBusy(false); }
+    try {
+      await api.delete(`/resources/${id}`);
+      setChanged(true);
+      await load();
+    } catch (e) {
+      setError(apiErrorMessage(e));
+    } finally { setBusy(false); }
   };
 
   return (
-    <div onClick={() => onClose(changed)} style={overlay}>
-      <div onClick={(e) => e.stopPropagation()} className="card-elevated" style={{ width: '100%', maxWidth: 600, padding: 'var(--spacing-6)', maxHeight: '90vh', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--spacing-4)' }}>
-          <h3 className="title-md">Ресурсы</h3>
-          <button onClick={() => onClose(changed)} style={closeBtn}>✕</button>
-        </div>
-        <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)' }}>
-          Общие вещи (переговорка, машина, оборудование) со своим расписанием. Бронируешь, прикрепляя ресурс к событию.
-        </p>
+    <Modal
+      open
+      onClose={() => onClose(changed)}
+      title="Ресурсы"
+      subtitle="Общие вещи (переговорка, машина, оборудование) со своим расписанием. Бронь — прикрепить ресурс к событию"
+      size="lg"
+      footer={<Button variant="ghost" onClick={() => onClose(changed)}>Готово</Button>}
+    >
+      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+        {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
 
-        {/* Incoming requests */}
+        {/* Заявки на бронь моих ресурсов */}
         {requests.length > 0 && (
-          <div className="wash-secondary" style={{ padding: 'var(--spacing-3)', marginBottom: 'var(--spacing-4)' }}>
-            <div className="title-md" style={{ fontSize: '0.9rem', marginBottom: 'var(--spacing-2)' }}>Заявки на бронь ({requests.length})</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
+          <Field label={`Заявки на бронь · ${requests.length}`}>
+            <div style={{ display: 'grid', gap: '0.375rem' }}>
               {requests.map((r) => (
-                <div key={r.eventId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-2)' }}>
+                <div
+                  key={r.eventId}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-3)',
+                    flexWrap: 'wrap', border: '1px solid var(--warning-border)', background: 'var(--warning-container)',
+                    borderRadius: 'var(--radius-md)', padding: '0.5rem 0.625rem',
+                  }}
+                >
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{r.resourceName}: {r.title}</div>
-                    <div className="label-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
+                    <div className="title-sm">{r.resourceName}: {r.title}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
                       <PersonChip size="S" userId={r.bookerId} firstName={r.bookerName} />
-                      <span>· {slot(r.start)}</span>
+                      <span className="label-sm">{slot(r.start)}</span>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 'var(--spacing-1)', flexShrink: 0 }}>
-                    <button onClick={() => act(r.eventId, 'confirm')} disabled={busy} className="btn-primary" style={{ padding: '0.35rem 0.8rem', fontSize: '0.78rem' }}>✓</button>
-                    <button onClick={() => act(r.eventId, 'reject')} disabled={busy} style={{ ...chip(false), color: 'var(--primary)' }}>✕</button>
+                  <div style={{ display: 'flex', gap: '0.375rem', flex: 'none' }}>
+                    <Button variant="primary" tone="success" size="sm" icon="check" disabled={busy} onClick={() => act(r.eventId, 'confirm')}>
+                      Подтвердить
+                    </Button>
+                    <Button variant="matte" tone="danger" size="sm" icon="close" disabled={busy} onClick={() => act(r.eventId, 'reject')}>
+                      Отклонить
+                    </Button>
                   </div>
                 </div>
               ))}
             </div>
-          </div>
+          </Field>
         )}
 
-        {/* My resources */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--spacing-2)' }}>
-          <label className="label-md">Мои ресурсы</label>
-          {editing === null && <button onClick={() => setEditing('new')} style={chip(false)}>+ Создать</button>}
+        {requests.length > 0 && <Divider style={{ margin: 0 }} />}
+
+        {/* Мои ресурсы */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--spacing-3)' }}>
+          <span className="label-caps">Мои ресурсы</span>
+          {editing === null && (
+            <Button variant="matte" tone="accent" size="sm" icon="add" onClick={() => setEditing('new')}>Создать</Button>
+          )}
         </div>
 
         {editing && (
@@ -105,25 +139,42 @@ export function ResourcesPanel({
         )}
 
         {mine.length === 0 && !editing ? (
-          <p className="label-sm">Пока нет ресурсов</p>
+          <EmptyState
+            icon="folder"
+            title="Ресурсов пока нет"
+            description="Создайте переговорку или машину — их можно будет бронировать событием."
+            action={<Button variant="matte" icon="add" onClick={() => setEditing('new')}>Создать ресурс</Button>}
+          />
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
+          <div style={{ display: 'grid', gap: '0.375rem' }}>
             {mine.map((r) => (
-              <div key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--surface-container-low)', borderRadius: 'var(--radius-sm)', padding: '0.5rem 0.7rem' }}>
-                <div>
-                  <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>{RESOURCE_TYPE_META[r.type].icon} {r.name}</span>
-                  <span className="label-sm" style={{ marginLeft: 'var(--spacing-2)' }}>вмест. {r.capacity} · доступ: {r.bookerUserIds.length + r.bookerCircleIds.length || '—'}</span>
+              <div
+                key={r.id}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-3)',
+                  flexWrap: 'wrap', border: '1px solid var(--divider)', borderRadius: 'var(--radius-md)',
+                  padding: '0.5rem 0.625rem',
+                }}
+              >
+                <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <Chip size="sm" tone="neutral" icon={RESOURCE_TYPE_ICON[r.type]}>
+                    {RESOURCE_TYPE_META[r.type].label}
+                  </Chip>
+                  <span className="title-sm">{r.name}</span>
+                  <span className="label-sm">
+                    вмест. {r.capacity} · доступ: {r.bookerUserIds.length + r.bookerCircleIds.length || '—'}
+                  </span>
                 </div>
-                <div style={{ display: 'flex', gap: 'var(--spacing-1)' }}>
-                  <button onClick={() => setEditing(r)} style={chip(false)}>✎</button>
-                  <button onClick={() => del(r.id)} disabled={busy} style={{ ...chip(false), color: 'var(--primary)' }}>🗑</button>
+                <div style={{ display: 'flex', gap: '0.25rem' }}>
+                  <IconButton icon="edit" label={`Изменить ${r.name}`} size={30} onClick={() => setEditing(r)} />
+                  <IconButton icon="delete" label={`Удалить ${r.name}`} size={30} disabled={busy} onClick={() => del(r.id)} />
                 </div>
               </div>
             ))}
           </div>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -142,56 +193,91 @@ function ResourceForm({
   const [userIds, setUserIds] = useState<string[]>(resource?.bookerUserIds ?? []);
   const [circleIds, setCircleIds] = useState<string[]>(resource?.bookerCircleIds ?? []);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
   const save = async () => {
     if (!name.trim()) return;
     setBusy(true);
+    setError('');
     const payload = { name: name.trim(), type, capacity, bookerUserIds: userIds, bookerCircleIds: circleIds };
     try {
       if (resource) await api.patch(`/resources/${resource.id}`, payload);
       else await api.post('/resources', payload);
       onSaved();
-    } catch { setBusy(false); }
+    } catch (e) {
+      setError(apiErrorMessage(e));
+      setBusy(false);
+    }
   };
 
   return (
-    <div className="card" style={{ padding: 'var(--spacing-4)', marginBottom: 'var(--spacing-3)' }}>
-      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Название (напр. Переговорка)" className="input-sketch" style={{ marginBottom: 'var(--spacing-3)', fontWeight: 600 }} autoFocus />
-      <div style={{ display: 'flex', gap: 'var(--spacing-4)', flexWrap: 'wrap', marginBottom: 'var(--spacing-3)' }}>
-        <div>
-          <label className="label-sm" style={lbl}>Тип</label>
-          <div style={{ display: 'flex', gap: 'var(--spacing-1)', flexWrap: 'wrap' }}>
-            {(Object.keys(RESOURCE_TYPE_META) as ResourceType[]).map((t) => (
-              <button key={t} type="button" onClick={() => setType(t)} style={chip(type === t)}>{RESOURCE_TYPE_META[t].icon} {RESOURCE_TYPE_META[t].label}</button>
-            ))}
+    <Card small>
+      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+        {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
+
+        <Input label="Название" value={name} onChange={(e) => setName(e.target.value)} placeholder="Переговорка" autoFocus />
+
+        <div style={{ display: 'flex', gap: 'var(--spacing-6)', flexWrap: 'wrap' }}>
+          <Field label="Тип">
+            <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
+              {(Object.keys(RESOURCE_TYPE_META) as ResourceType[]).map((t) => (
+                <Chip
+                  key={t}
+                  size="sm"
+                  tone="accent"
+                  icon={RESOURCE_TYPE_ICON[t]}
+                  selected={type === t}
+                  onClick={() => setType(t)}
+                >
+                  {RESOURCE_TYPE_META[t].label}
+                </Chip>
+              ))}
+            </div>
+          </Field>
+          <div style={{ width: 110 }}>
+            <Input
+              label="Вместимость"
+              type="number"
+              min={1}
+              value={capacity}
+              onChange={(e) => setCapacity(Math.max(1, Number(e.target.value) || 1))}
+            />
           </div>
         </div>
-        <div>
-          <label className="label-sm" style={lbl}>Вместимость</label>
-          <input type="number" min={1} value={capacity} onChange={(e) => setCapacity(Math.max(1, Number(e.target.value) || 1))} className="input-sketch" style={{ width: 80 }} />
+
+        <Field label="Кто может бронировать" hint="Остальным бронь уйдёт заявкой вам на подтверждение">
+          <EntitySelector
+            types={['user', 'circle']}
+            multi
+            options={[
+              ...contacts.map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole })),
+              ...circles.map((g) => ({ type: 'circle', id: g.id, title: g.name, icon: g.icon, color: g.color, count: g.membersCount })),
+            ]}
+            value={[...userIds.map((id) => ({ type: 'user', id })), ...circleIds.map((id) => ({ type: 'circle', id }))]}
+            onChange={(next) => {
+              setUserIds(next.filter((p) => p.type === 'user').map((p) => p.id));
+              setCircleIds(next.filter((p) => p.type === 'circle').map((p) => p.id));
+            }}
+            placeholder="Люди или Группы…"
+          />
+        </Field>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+          <Button variant="ghost" size="sm" onClick={onCancel}>Отмена</Button>
+          <Button
+            variant="primary"
+            tone="success"
+            size="sm"
+            icon={resource ? 'save' : 'add'}
+            disabled={!name.trim()}
+            loading={busy}
+            onClick={save}
+          >
+            {resource ? 'Сохранить' : 'Создать'}
+          </Button>
         </div>
       </div>
-
-      <label className="label-sm" style={lbl}>Кто может бронировать</label>
-      <div style={{ marginBottom: 'var(--spacing-3)' }}>
-        <EntitySelector
-          types={['user', 'circle']}
-          multi
-          options={[
-            ...contacts.map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole })),
-            ...circles.map((g) => ({ type: 'circle', id: g.id, title: g.name, icon: g.icon, color: g.color, count: g.membersCount })),
-          ]}
-          value={[...userIds.map((id) => ({ type: 'user', id })), ...circleIds.map((id) => ({ type: 'circle', id }))]}
-          onChange={(next) => { setUserIds(next.filter((p) => p.type === 'user').map((p) => p.id)); setCircleIds(next.filter((p) => p.type === 'circle').map((p) => p.id)); }}
-          placeholder="Люди или Группы…"
-        />
-      </div>
-
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--spacing-2)' }}>
-        <button onClick={onCancel} className="btn-secondary" style={smallBtn}>Отмена</button>
-        <button onClick={save} disabled={busy || !name.trim()} className="btn-primary" style={{ ...smallBtn, opacity: busy || !name.trim() ? 0.6 : 1 }}>{resource ? 'Сохранить' : 'Создать'}</button>
-      </div>
-    </div>
+    </Card>
   );
 }
 

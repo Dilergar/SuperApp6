@@ -4,10 +4,11 @@
  * Экран/блок «введите код из SMS» — единое представление шага кода для
  * регистрации, сброса пароля и step-up модалок профиля. Показывает: куда ушёл
  * код (маска номера), ячейки CodeInput (автосабмит), кнопку повторной отправки
- * с серверным таймером, «← изменить номер» и dev-подсказку кода (только когда
+ * с серверным таймером, «Изменить номер» и dev-подсказку кода (только когда
  * API в development-режиме отдаёт её ручкой last-code).
  */
 
+import { Alert, Button } from '@/components/ui';
 import { CodeInput } from './CodeInput';
 import { useVerifyStatus } from './use-verify-status';
 import type { OtpFlow } from './otp-flow';
@@ -23,7 +24,7 @@ export function OtpStep({
   flow,
   onSubmit,
   onBack,
-  backLabel = '← изменить номер',
+  backLabel = 'Изменить номер',
   title = 'Код из SMS',
 }: {
   flow: OtpFlow;
@@ -37,18 +38,18 @@ export function OtpStep({
 
   return (
     <div>
-      <h2 className="title-md" style={{ marginBottom: 'var(--spacing-2)' }}>{title}</h2>
-      <p className="label-md" style={{ marginBottom: 'var(--spacing-6)', lineHeight: 1.5 }}>
-        Отправили код на <b style={{ whiteSpace: 'nowrap' }}>{flow.phoneMasked || 'ваш номер'}</b>
+      <h2 className="title-md" style={{ margin: '0 0 0.375rem' }}>{title}</h2>
+      <p className="body-sm" style={{ margin: '0 0 var(--spacing-5)' }}>
+        Отправили код на <b style={{ whiteSpace: 'nowrap', color: 'var(--on-surface)' }}>{flow.phoneMasked || 'ваш номер'}</b>
       </p>
 
       {status && !status.smsEnabled && (
-        <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)', opacity: 0.7, lineHeight: 1.45 }}>
+        <Alert tone="warning" className="otp-alert">
           Отправка SMS не настроена — сообщение не придёт, код возьмите из подсказки ниже.
-        </p>
+        </Alert>
       )}
 
-      <div style={{ marginBottom: 'var(--spacing-4)' }}>
+      <div style={{ margin: 'var(--spacing-4) 0' }}>
         <CodeInput
           value={flow.code}
           onChange={flow.setCode}
@@ -58,51 +59,28 @@ export function OtpStep({
         />
       </div>
 
-      {flow.error && (
-        <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: 'var(--spacing-3)' }}>{flow.error}</p>
-      )}
+      {flow.error && <Alert tone="danger">{flow.error}</Alert>}
 
       {flow.devCode && (
-        <p className="label-sm" style={{ marginBottom: 'var(--spacing-3)', opacity: 0.65 }}>
+        <p className="label-sm" style={{ margin: 'var(--spacing-3) 0 0' }}>
           [dev] код: <b>{flow.devCode}</b>
         </p>
       )}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-5)', flexWrap: 'wrap' }}>
-        <button
-          type="button"
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginTop: 'var(--spacing-4)' }}>
+        <Button
+          variant="ghost"
+          size="sm"
+          icon="refresh"
           onClick={flow.resend}
           disabled={flow.resendLeft > 0 || flow.busy}
-          style={{
-            background: 'none',
-            border: 'none',
-            padding: 0,
-            cursor: flow.resendLeft > 0 || flow.busy ? 'default' : 'pointer',
-            color: flow.resendLeft > 0 ? 'var(--on-surface-variant)' : 'var(--secondary)',
-            fontWeight: 600,
-            fontSize: '0.85rem',
-          }}
         >
-          {flow.resendLeft > 0
-            ? `Отправить ещё раз (${formatCountdown(flow.resendLeft)})`
-            : 'Отправить ещё раз'}
-        </button>
+          {flow.resendLeft > 0 ? `Отправить ещё раз (${formatCountdown(flow.resendLeft)})` : 'Отправить ещё раз'}
+        </Button>
         {onBack && (
-          <button
-            type="button"
-            onClick={onBack}
-            disabled={flow.busy}
-            style={{
-              background: 'none',
-              border: 'none',
-              padding: 0,
-              cursor: 'pointer',
-              color: 'var(--on-surface-variant)',
-              fontSize: '0.85rem',
-            }}
-          >
+          <Button variant="ghost" size="sm" icon="arrowLeft" onClick={onBack} disabled={flow.busy}>
             {backLabel}
-          </button>
+          </Button>
         )}
       </div>
     </div>

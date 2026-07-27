@@ -1,9 +1,10 @@
 'use client';
 
 // «Счета» — управление счетами: создание, корректировка остатка.
-// «операции →» открывает Ленту с фильтром по счёту.
+// Кнопка-иконка «операции» открывает Ленту с фильтром по счёту.
 
 import { useRouter } from 'next/navigation';
+import { PageHeader } from '@/components/ui';
 import { AccountsPanel } from '../finance-accounts';
 import { useFinanceBook } from '../finance-shell';
 
@@ -12,7 +13,12 @@ export default function FinanceAccountsPage() {
   const { accounts, bookId, canEdit, invalidate, withBook } = useFinanceBook();
 
   return (
-    <div style={{ maxWidth: 680 }}>
+    <>
+      <PageHeader
+        breadcrumb="Финансы"
+        title="Счета"
+        description="Где лежат деньги: наличные, карты, депозиты и долговые счета"
+      />
       <AccountsPanel
         accounts={accounts}
         onChanged={invalidate}
@@ -20,6 +26,6 @@ export default function FinanceAccountsPage() {
         canEdit={canEdit}
         onOpenFeed={(accountId) => router.push(withBook('/finance/feed', { account: accountId }))}
       />
-    </div>
+    </>
   );
 }

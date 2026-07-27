@@ -1,19 +1,16 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { api } from '@/lib/api';
+import { api, apiErrorMessage } from '@/lib/api';
 import { EntitySelector } from '@/components/EntitySelector';
+import {
+  Alert, BentoGrid, Button, Card, CardHeader, EmptyState, Input, LoadingBlock, PageHeader, StatTile,
+} from '@/components/ui';
 import { PersonChip } from '../../../circles/PersonCard';
 import type { Currency, WalletEntry, CurrencyHolder } from '@superapp/shared';
 
-function errMsg(e: unknown, fallback = 'Ошибка'): string {
-  const ax = e as { response?: { data?: { message?: string; error?: string }; status?: number } };
-  const m = ax?.response?.data?.message || ax?.response?.data?.error;
-  return Array.isArray(m) ? m.join(', ') : m || fallback;
-}
 const fmt = (amount: number, scale: number) => (scale > 0 ? amount / 10 ** scale : amount).toLocaleString('ru-RU');
 type Member = { userId: string; name?: string; firstName?: string; lastName?: string };
 
@@ -34,6 +31,7 @@ export default function CompanyWalletPage() {
   const [denied, setDenied] = useState(false);
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
+  const [busy, setBusy] = useState(false);
 
   // forms
   const [name, setName] = useState('');
@@ -51,10 +49,11 @@ export default function CompanyWalletPage() {
       if (r.data.data.currency) api.get('/wallet/company/holders', cfg).then((h) => setHolders(h.data.data)).catch(() => {});
     } catch (e) {
       const st = (e as { response?: { status?: number } })?.response?.status;
-      if (st === 403) setDenied(true); else setError(errMsg(e, 'Не удалось загрузить кошелёк компании'));
+      if (st === 403) setDenied(true); else setError(apiErrorMessage(e));
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   useEffect(() => {
@@ -64,7 +63,11 @@ export default function CompanyWalletPage() {
   }, [isReady, id, load]);
 
   const flash = (m: string) => { setOk(m); setTimeout(() => setOk(''), 4000); };
-  const run = async (fn: () => Promise<void>) => { setError(''); try { await fn(); } catch (e) { setError(errMsg(e)); } };
+  const run = async (fn: () => Promise<void>) => {
+    setError('');
+    setBusy(true);
+    try { await fn(); } catch (e) { setError(apiErrorMessage(e)); } finally { setBusy(false); }
+  };
 
   const createCurrency = () => run(async () => {
     if (!name.trim()) return setError('Введите название');
@@ -73,99 +76,183 @@ export default function CompanyWalletPage() {
   });
   const mint = () => run(async () => {
     const amount = parseInt(mintAmt, 10);
-    if (!(amount > 0)) return setError('Сумма — целое > 0');
+    if (!(amount > 0)) return setError('Сумма — целое число больше нуля');
     await api.post('/wallet/company/currency/mint', { amount }, cfg);
     setMintAmt(''); flash(`Выпущено ${amount} в казну`); await load();
   });
   const pay = () => run(async () => {
     const amount = parseInt(payAmt, 10);
     if (!payUser) return setError('Выберите сотрудника');
-    if (!(amount > 0)) return setError('Сумма — целое > 0');
+    if (!(amount > 0)) return setError('Сумма — целое число больше нуля');
     await api.post('/wallet/company/pay', { userId: payUser, amount }, cfg);
     setPayAmt(''); flash('Начислено сотруднику'); await load();
   });
 
   const memberName = (m: Member) => m.name || `${m.firstName ?? ''} ${m.lastName ?? ''}`.trim() || m.userId.slice(0, 8);
 
-  if (!isReady || loading) return <p className="label-md">Загрузка…</p>;
+  if (!isReady || loading) return <LoadingBlock />;
+
   if (denied) {
     return (
-      <div className="card" style={{ padding: 'var(--spacing-8)', textAlign: 'center' }}>
-        <div className="title-md" style={{ marginBottom: 'var(--spacing-2)' }}>Только для владельца</div>
-        <p className="label-md" style={{ opacity: 0.7 }}>Кошельком компании управляет владелец организации.</p>
-        <Link href={`/workspaces/${id}`} className="btn-secondary" style={{ marginTop: 'var(--spacing-4)', display: 'inline-block' }}>← Назад</Link>
-      </div>
+      <>
+        <PageHeader breadcrumb="Организация" title="Кошелёк компании" />
+        <BentoGrid>
+          <Card span={12}>
+            <EmptyState
+              icon="lock"
+              title="Только для владельца"
+              description="Кошельком компании управляет владелец организации."
+              action={<Button variant="matte" icon="arrowLeft" href={`/workspaces/${id}`}>К организации</Button>}
+            />
+          </Card>
+        </BentoGrid>
+      </>
     );
   }
 
   return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', marginBottom: 'var(--spacing-6)' }}>
-        <Link href={`/workspaces/${id}`} className="label-md" style={{ color: 'var(--secondary)' }}>← Организация</Link>
-        <h1 className="display-md" style={{ fontSize: '1.8rem' }}>Кошелёк компании</h1>
-      </div>
-      {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: 'var(--spacing-4)' }}>{error}</p>}
-      {ok && <p style={{ color: 'var(--secondary)', fontSize: '0.85rem', marginBottom: 'var(--spacing-4)' }}>{ok}</p>}
+    <>
+      <PageHeader
+        breadcrumb="Организация"
+        title="Кошелёк компании"
+        description="Внутренняя валюта для наград сотрудникам и магазина компании"
+      />
+
+      {(error || ok) && (
+        <div style={{ marginBottom: 'var(--gap-grid)' }}>
+          {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
+          {ok && <Alert tone="success" onClose={() => setOk('')}>{ok}</Alert>}
+        </div>
+      )}
 
       {!currency ? (
-        <div className="card-elevated" style={{ padding: 'var(--spacing-6)', maxWidth: 460 }}>
-          <div className="title-md" style={{ marginBottom: 'var(--spacing-2)' }}>Создайте валюту компании</div>
-          <p className="label-sm" style={{ opacity: 0.7, marginBottom: 'var(--spacing-4)' }}>Внутренняя валюта для наград сотрудникам и магазина компании.</p>
-          <div style={{ display: 'flex', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-3)' }}>
-            <input value={icon} onChange={(e) => setIcon(e.target.value)} maxLength={8} className="input-sketch" style={{ width: 56, textAlign: 'center', fontSize: '1.3rem' }} />
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Например, БонусКоин" className="input-sketch" style={{ flex: 1 }} />
-          </div>
-          <button onClick={createCurrency} className="btn-primary" style={{ fontSize: '0.85rem' }}>Создать</button>
-        </div>
+        <BentoGrid>
+          <Card span={12}>
+            <CardHeader
+              title="Создайте валюту компании"
+              subtitle="Ею платят награды за задачи и покупают в магазине организации"
+            />
+            <div style={{ display: 'grid', gridTemplateColumns: '5rem 1fr', gap: 'var(--spacing-3)', maxWidth: 460 }}>
+              <Input
+                label="Значок"
+                value={icon}
+                onChange={(e) => setIcon(e.target.value)}
+                maxLength={8}
+                style={{ textAlign: 'center', fontSize: '1.15rem' }}
+              />
+              <Input label="Название" value={name} onChange={(e) => setName(e.target.value)} placeholder="Например, БонусКоин" />
+            </div>
+            <div style={{ marginTop: 'var(--spacing-4)' }}>
+              <Button variant="primary" tone="success" icon="add" onClick={createCurrency} loading={busy}>Создать</Button>
+            </div>
+          </Card>
+        </BentoGrid>
       ) : (
-        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 'var(--spacing-6)' }}>
-          {/* Treasury */}
-          <div className="card-elevated" style={{ padding: 'var(--spacing-5)' }}>
-            <div className="label-sm" style={{ opacity: 0.6 }}>КАЗНА</div>
-            <div className="display-md" style={{ color: 'var(--primary)', fontSize: '1.8rem' }}>
-              {currency.icon} {fmt(treasury?.balance ?? 0, currency.scale)}
-            </div>
-            <div className="label-sm" style={{ opacity: 0.7 }}>{currency.name}{(treasury?.held ?? 0) > 0 ? ` · держит ${fmt(treasury!.held, currency.scale)}` : ''}</div>
-            <div style={{ display: 'flex', gap: '0.4rem', marginTop: 'var(--spacing-3)' }}>
-              <input type="number" min={1} value={mintAmt} onChange={(e) => setMintAmt(e.target.value)} placeholder="сумма" className="input-sketch" style={{ width: 110, padding: '0.3rem 0.5rem' }} />
-              <button onClick={mint} className="btn-primary" style={{ fontSize: '0.8rem' }}>Выпустить в казну</button>
-            </div>
-          </div>
+        <BentoGrid>
+          {/* ---------- Казна ---------- */}
+          <StatTile
+            span={4}
+            label="Казна"
+            value={fmt(treasury?.balance ?? 0, currency.scale)}
+            emoji={currency.icon}
+            tone="accent"
+          />
+          <StatTile
+            span={4}
+            label="Заморожено"
+            value={fmt(treasury?.held ?? 0, currency.scale)}
+            icon="lock"
+            tone={(treasury?.held ?? 0) > 0 ? 'warning' : 'neutral'}
+          />
+          <StatTile
+            span={4}
+            label="Держателей"
+            value={holders.length}
+            icon="people"
+            tone={holders.length ? 'success' : 'neutral'}
+          />
 
-          {/* Pay an employee */}
-          <div className="card-elevated" style={{ padding: 'var(--spacing-5)' }}>
-            <div className="label-sm" style={{ opacity: 0.6, marginBottom: 'var(--spacing-2)' }}>НАЧИСЛИТЬ СОТРУДНИКУ</div>
-            <div style={{ marginBottom: '0.4rem' }}>
+          {/* ---------- Выпуск в казну ---------- */}
+          <Card span={6}>
+            <CardHeader title="Выпустить в казну" subtitle={`${currency.icon} ${currency.name} — эмитент организация`} />
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div style={{ width: 160 }}>
+                <Input
+                  label="Сумма"
+                  type="number"
+                  min={1}
+                  value={mintAmt}
+                  onChange={(e) => setMintAmt(e.target.value)}
+                  placeholder="1 000"
+                />
+              </div>
+              <Button variant="primary" tone="success" icon="spark" onClick={mint} loading={busy}>Выпустить</Button>
+            </div>
+          </Card>
+
+          {/* ---------- Начислить сотруднику ---------- */}
+          <Card span={6}>
+            <CardHeader title="Начислить сотруднику" subtitle="Списывается из казны организации" />
+            <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
               <EntitySelector
                 types={['user']}
-                options={members.map((m) => ({ type: 'user', id: m.userId, title: memberName(m), firstName: m.firstName ?? m.name ?? memberName(m), lastName: m.lastName ?? null }))}
+                options={members.map((m) => ({
+                  type: 'user',
+                  id: m.userId,
+                  title: memberName(m),
+                  firstName: m.firstName ?? m.name ?? memberName(m),
+                  lastName: m.lastName ?? null,
+                }))}
                 value={payUser ? [{ type: 'user', id: payUser }] : []}
                 onChange={(next) => setPayUser(next[next.length - 1]?.id ?? '')}
-                placeholder="— сотрудник —"
+                placeholder="Выберите сотрудника…"
               />
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div style={{ width: 160 }}>
+                  <Input
+                    label="Сумма"
+                    type="number"
+                    min={1}
+                    value={payAmt}
+                    onChange={(e) => setPayAmt(e.target.value)}
+                    placeholder="100"
+                  />
+                </div>
+                <Button variant="primary" tone="success" icon="send" onClick={pay} loading={busy}>Начислить</Button>
+              </div>
             </div>
-            <div style={{ display: 'flex', gap: '0.4rem' }}>
-              <input type="number" min={1} value={payAmt} onChange={(e) => setPayAmt(e.target.value)} placeholder="сумма" className="input-sketch" style={{ width: 110, padding: '0.3rem 0.5rem' }} />
-              <button onClick={pay} className="btn-primary" style={{ fontSize: '0.8rem' }}>Начислить</button>
-            </div>
-          </div>
+          </Card>
 
-          {/* Holders */}
-          <div className="card-elevated" style={{ padding: 'var(--spacing-5)' }}>
-            <div className="label-sm" style={{ opacity: 0.6, marginBottom: 'var(--spacing-2)' }}>ДЕРЖАТЕЛИ</div>
-            {holders.length === 0 ? <p className="label-sm" style={{ opacity: 0.6 }}>Пока ни у кого нет коинов.</p> : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+          {/* ---------- Держатели ---------- */}
+          <Card span={12}>
+            <CardHeader title="Держатели" subtitle="У кого на руках валюта организации" />
+            {holders.length === 0 ? (
+              <EmptyState
+                icon="people"
+                title="Пока ни у кого нет коинов"
+                description="Начислите первому сотруднику — он появится здесь."
+              />
+            ) : (
+              <div style={{ display: 'grid', gap: '0.375rem' }}>
                 {holders.map((h) => (
-                  <div key={h.userId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
+                  <div
+                    key={h.userId}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-3)',
+                      padding: '0.5rem 0.75rem', border: '1px solid var(--divider)', borderRadius: 'var(--radius-md)',
+                    }}
+                  >
                     <PersonChip size="S" userId={h.userId} firstName={h.name} />
-                    <span style={{ fontWeight: 600 }}>{fmt(h.balance, currency.scale)} {currency.icon}</span>
+                    <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700 }}>
+                      {fmt(h.balance, currency.scale)} <span aria-hidden>{currency.icon}</span>
+                    </span>
                   </div>
                 ))}
               </div>
             )}
-          </div>
-        </div>
+          </Card>
+        </BentoGrid>
       )}
-    </div>
+    </>
   );
 }

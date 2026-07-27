@@ -166,7 +166,7 @@ function IncomingCallWatcher({ meId }: { meId: string }) {
           alignItems: 'center',
           gap: 'var(--spacing-3)',
           background: 'var(--surface-container-lowest)',
-          borderRadius: '1.2rem 0.9rem 1.1rem 0.95rem',
+          borderRadius: 'var(--radius-lg)',
           boxShadow: '0 12px 40px color-mix(in srgb, var(--on-surface) 25%, transparent)',
         }}
       >
@@ -176,10 +176,10 @@ function IncomingCallWatcher({ meId }: { meId: string }) {
           <div className="label-md" style={{ color: 'var(--on-surface-variant)' }}>📞 Входящий звонок…</div>
         </div>
         <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
-          <button className="btn-primary" style={{ padding: '0.6rem 1.4rem' }} onClick={accept}>
+          <button className="btn-success" style={{ padding: '0.6rem 1.4rem' }} onClick={accept}>
             Принять
           </button>
-          <button className="btn-secondary" style={{ padding: '0.6rem 1.4rem' }} onClick={decline}>
+          <button className="btn-danger-soft" style={{ padding: '0.6rem 1.4rem' }} onClick={decline}>
             Отклонить
           </button>
         </div>

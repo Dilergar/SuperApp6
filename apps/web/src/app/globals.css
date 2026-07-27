@@ -1,69 +1,142 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Epilogue:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
 
 /* ============================================================
-   Design System: The Digital Atelier — "Living Sketchbook"
-   See DESIGN.md for full specification
+   Дизайн-система: Organic Bento (warm matte)
+   Полная спецификация — DESIGN.md в корне проекта.
+   Исходный дизайн-пакет-референс — design-reference/.
+
+   ВАЖНО про имена переменных: старые имена («--primary», «--radius-sketch»
+   и т.д.) СОХРАНЕНЫ намеренно. Ими пользуются ~2600 мест в 125 файлах —
+   переназначение значений перекрашивает приложение целиком, не трогая
+   страницы. Волны редизайна затем правят семантику там, где старое имя
+   означало другое (например «--primary» в смысле «опасно» → «--danger»).
    ============================================================ */
 
 :root {
-  /* Surface hierarchy (stacked paper sheets) */
-  --surface: #f5f5dc;
-  --surface-dim: #e4e4d1;
-  --surface-container-lowest: #ffffff;
-  --surface-container-low: #f0eedb;
-  --surface-container: #eae8d5;
-  --surface-container-high: #e0dec8;
-  --surface-tint: #c61a1e;
+  /* --- Поверхности -------------------------------------------------
+     Правило системы: фон страницы тёплый, ВСЕ блоки — один и тот же
+     светлый тон. Иерархия строится бордером и тенью, а не оттенком. */
+  --surface: #eae6de;                  /* фон страницы (зафиксирован) */
+  --surface-container-lowest: #fafbf8; /* блок/карточка/сайдбар (зафиксирован) */
+  --surface-container-low: #fafbf8;    /* то же: отдельного уровня больше нет */
+  --surface-container: #f1ede3;        /* нейтральная подложка чипа и hover */
+  --surface-container-high: #ece7dc;   /* подложка сильнее, трек, активная пилюля */
+  --surface-dim: #ece7dc;              /* утопленное */
+  --surface-tint: #588cd3;             /* тинт теней (теперь синий) */
 
-  /* Primary — wax-red accents */
-  --primary: #c61a1e;
-  --primary-dim: #b40414;
-  --primary-container: #ffaca3;
+  /* Семантические псевдонимы — предпочитать их в новом коде */
+  --page: #eae6de;
+  --block: #fafbf8;
+  --hover: #f1ede3;
+  --active: #ece7dc;
+
+  /* --- Текст --- */
+  --on-surface: #1d1b1d;          /* основной */
+  --on-surface-variant: #6b655e;  /* вторичный */
+  --muted: #8a8478;               /* приглушённый */
+  --label: #a39d92;               /* подписи-капс */
+
+  /* --- Акцент (действия, бренд) ---
+     Красный перестал быть брендом: теперь он означает только опасность. */
+  --primary: #588cd3;
+  --primary-dim: #3f6aa8;             /* тёмный вариант — текст на матовом */
+  --primary-container: rgba(88, 140, 211, 0.12);
+  --primary-border: rgba(88, 140, 211, 0.3);
   --on-primary: #ffffff;
 
-  /* Secondary — sky-blue crayon */
-  --secondary: #326a8b;
-  --secondary-container: #c7e7ff;
+  /* «Вторичный» исторически использовался как акцент ссылок/бейджей —
+     держим его тёмным вариантом синего, чтобы читался на матовом. */
+  --secondary: #3f6aa8;
+  --secondary-container: rgba(88, 140, 211, 0.12);
   --on-secondary: #ffffff;
+  --on-secondary-container: #3f6aa8;
 
-  /* Tertiary — highlighter */
-  --tertiary: #7c5800;
-  --tertiary-container: #ffe08c;
+  /* «Третичный» был жёлтым маркером — стал персиковым предупреждением. */
+  --tertiary: #9a5f2f;
+  --tertiary-container: rgba(214, 150, 108, 0.16);
 
-  /* Text — charcoal */
-  --on-surface: #38392d;
-  --on-surface-variant: #5e5e52;
+  /* --- Статусы: база (заливка/иконка) + текстовый вариант --- */
+  --success-base: #74a277;
+  --success: #3c6842;
+  --success-container: rgba(116, 162, 119, 0.14);
+  --success-border: rgba(116, 162, 119, 0.32);
 
-  /* Outlines */
-  --outline: #7a7a6e;
-  --outline-variant: #bbbaab;
+  --warning-base: #d6966c;
+  --warning: #9a5f2f;
+  --warning-container: rgba(214, 150, 108, 0.16);
+  --warning-border: rgba(214, 150, 108, 0.35);
+  --warning-icon: #b06a38;
 
-  /* Status */
-  --success: #2d7a3a;
-  --warning: #7c5800;
-  --danger: #c61a1e;
+  --danger-base: #de6d68;
+  --danger: #b04a45;
+  --danger-container: rgba(222, 109, 104, 0.14);
+  --danger-border: rgba(222, 109, 104, 0.32);
+  --error: #b04a45;               /* использовался в коде, но не был определён */
 
-  /* Typography */
-  --font-display: 'Epilogue', sans-serif;
-  --font-body: 'Plus Jakarta Sans', sans-serif;
+  /* --- Линии ---
+     В прежней системе 1px-бордеры были запрещены. В этой они несущие. */
+  --outline: #a39d92;
+  --outline-variant: #e2dccf;     /* бордер блока */
+  --border: #e2dccf;
+  --divider: #eee9dd;             /* разделитель внутри блока */
+  --line: #ddd6c8;                /* линии дерева, пустые тики */
+  --tick-empty: #e4ded1;          /* пустые тики на светлом блоке */
+  --grad-mid: #d6a04c;            /* середина градиентов зелёный↔красный */
 
-  /* Spacing scale */
+  /* --- Типографика --- */
+  --font-display: var(--font-manrope), 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  --font-body: var(--font-manrope), 'Manrope', ui-sans-serif, system-ui, sans-serif;
+
+  /* --- Шкала отступов ---
+     spacing-5 использовался 63 раза и НЕ БЫЛ ОПРЕДЕЛЁН (отступы молча не
+     работали) — добавлен вместе с остальными пропусками шкалы. */
   --spacing-1: 0.25rem;
   --spacing-2: 0.5rem;
   --spacing-3: 0.75rem;
   --spacing-4: 1rem;
+  --spacing-5: 1.25rem;
   --spacing-6: 1.5rem;
+  --spacing-7: 1.75rem;
   --spacing-8: 2rem;
   --spacing-10: 2.5rem;
   --spacing-12: 3rem;
   --spacing-16: 4rem;
 
-  /* Roundedness — irregular, hand-drawn */
-  --radius-sm: 0.375rem;
-  --radius-md: 0.75rem;
-  --radius-lg: 1rem;
-  --radius-sketch: 0.5rem 1rem 0.75rem 0.875rem;
+  /* --- Радиусы: ровные, одинаковые. Кривых больше нет. --- */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-card: 24px;
+  --radius-pill: 999px;
+  --radius-sketch: 12px;          /* легаси-имя: было кривым, стало ровным */
+
+  /* --- Тень: одна на всю систему --- */
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.04);
+  --shadow-pop: 0 8px 32px rgba(0, 0, 0, 0.12);
+  --shadow-inset: 0 1px 4px rgba(0, 0, 0, 0.08);
+
+  /* --- Плотность ---
+     Просторная по умолчанию (как в дизайн-пакете). Компактную включает
+     класс .density-compact на контейнере — для чата, таблиц, календаря
+     и лент, где просторная съедает половину экрана. */
+  --pad-card: 28px;
+  --pad-card-sm: 20px;
+  --gap-grid: 16px;
+  --row-py: 12px;
+  --control-h: 38px;
+
+  /* --- Каркас --- */
+  --sidebar-w: 264px;
+  --rail-w: 60px;
+  --content-max: 1120px;
+}
+
+.density-compact {
+  --pad-card: 16px;
+  --pad-card-sm: 12px;
+  --gap-grid: 10px;
+  --row-py: 7px;
+  --control-h: 32px;
 }
 
 * {
@@ -71,263 +144,412 @@
 }
 
 body {
+  margin: 0;
   background-color: var(--surface);
   color: var(--on-surface);
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
 }
 
-/* Paper texture overlay */
-body::before {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 9999;
-  opacity: 0.03;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
+a {
+  color: var(--primary-dim);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--primary);
 }
 
-/* Typography classes */
+::placeholder {
+  color: var(--label);
+}
+
+/* ============================================================
+   Типографика
+   ============================================================ */
+
 .display-lg {
   font-family: var(--font-display);
-  font-size: 3.5rem;
+  font-size: 2.25rem;
   font-weight: 800;
-  line-height: 1.1;
+  line-height: 1.15;
   letter-spacing: -0.02em;
 }
 
 .display-md {
   font-family: var(--font-display);
-  font-size: 2.5rem;
-  font-weight: 700;
-  line-height: 1.15;
+  font-size: 1.75rem;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+/* H2 экрана — 26px/800 по спецификации */
+.title-lg {
+  font-family: var(--font-display);
+  font-size: 1.625rem;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+
+/* Заголовок карточки — 18px/800 */
+.title-md {
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  font-weight: 800;
+  line-height: 1.3;
   letter-spacing: -0.01em;
 }
 
-.title-lg {
+/* Заголовок элемента — 15px/700. Использовался в коде, но не был определён. */
+.title-sm {
   font-family: var(--font-display);
-  font-size: 1.75rem;
+  font-size: 0.9375rem;
   font-weight: 700;
-  line-height: 1.2;
+  line-height: 1.35;
 }
 
-.title-md {
-  font-family: var(--font-display);
-  font-size: 1.25rem;
-  font-weight: 600;
-  line-height: 1.3;
+.body-md {
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.55;
+  color: var(--on-surface-variant);
+}
+
+/* Использовался в коде, но не был определён. */
+.body-sm {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.55;
+  color: var(--on-surface-variant);
 }
 
 .label-md {
-  font-family: var(--font-body);
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   font-weight: 500;
-  line-height: 1.4;
+  line-height: 1.5;
   color: var(--on-surface-variant);
 }
 
 .label-sm {
-  font-family: var(--font-body);
   font-size: 0.75rem;
   font-weight: 500;
-  line-height: 1.4;
+  line-height: 1.45;
   color: var(--on-surface-variant);
 }
 
-/* Button styles */
-.btn-primary {
-  background: linear-gradient(135deg, var(--primary), var(--primary-dim));
-  color: var(--on-primary);
-  font-family: var(--font-display);
+/* Подпись-капс — 10px/700/0.08em */
+.label-caps {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--label);
+}
+
+/* Мета — 11px/600/0.03em */
+.meta {
+  font-size: 0.6875rem;
   font-weight: 600;
-  padding: var(--spacing-3) var(--spacing-8);
-  border-radius: var(--radius-sketch);
-  border: none;
-  cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-  box-shadow: 0 4px 24px rgba(198, 26, 30, 0.15);
-}
-.btn-primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 32px rgba(198, 26, 30, 0.25);
-}
-
-.btn-secondary {
-  background: transparent;
-  color: var(--secondary);
-  font-family: var(--font-display);
-  font-weight: 600;
-  padding: var(--spacing-3) var(--spacing-8);
-  border-radius: var(--radius-sketch);
-  border: 2px solid var(--secondary);
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-.btn-secondary:hover {
-  background: var(--secondary-container);
-}
-
-/* Input — single bottom border, no box */
-.input-sketch {
-  width: 100%;
-  padding: var(--spacing-3) var(--spacing-1);
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid var(--outline-variant);
-  font-family: var(--font-body);
-  font-size: 1rem;
-  color: var(--on-surface);
-  outline: none;
-  transition: border-color 0.2s ease;
-}
-.input-sketch:focus {
-  border-bottom-color: var(--primary);
-}
-.input-sketch::placeholder {
-  color: var(--outline);
-}
-
-/* Card — surface shift, no borders */
-.card {
-  background: var(--surface-container);
-  border-radius: var(--radius-md);
-  padding: var(--spacing-6);
-  box-shadow: 0 4px 24px rgba(56, 57, 45, 0.05);
-}
-.card-elevated {
-  background: var(--surface-container-lowest);
-  border-radius: var(--radius-sketch);
-  padding: var(--spacing-6);
-  box-shadow: 0 8px 32px rgba(198, 26, 30, 0.06);
-}
-
-/* Wash effect backgrounds */
-.wash-primary {
-  background: rgba(255, 172, 163, 0.45);
-  border-radius: var(--radius-sketch);
-}
-.wash-secondary {
-  background: rgba(199, 231, 255, 0.5);
-  border-radius: var(--radius-sketch);
-}
-
-/* Ghost border — irregular, faint */
-.ghost-border {
-  border: 1.5px solid rgba(187, 186, 171, 0.15);
-  border-radius: var(--radius-sketch);
+  letter-spacing: 0.03em;
+  color: var(--muted);
 }
 
 /* ============================================================
-   PersonCard — sketch-on-paper style
+   Кнопки
    ============================================================ */
 
-.person-card-sketch {
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-family: var(--font-body);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  padding: 0.625rem 1.125rem;
+  border-radius: var(--radius-md);
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 4px 14px rgba(88, 140, 211, 0.3);
+}
+.btn-primary:hover {
+  background: var(--primary-dim);
+}
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* Цвет действия — по СМЫСЛУ, а не по важности.
+   Создать/подтвердить — зелёная, удалить/выйти/отклонить — красная,
+   всё остальное (открыть, применить, перейти) — синяя.
+   Классы ниже нужны страницам, ещё не переведённым на кит; в новом коде
+   то же самое даёт <Button variant="primary" tone="success|danger">. */
+.btn-success {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: var(--success-base);
+  color: #ffffff;
+  font-family: var(--font-body);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  padding: 0.625rem 1.125rem;
+  border-radius: var(--radius-md);
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  box-shadow: 0 4px 14px rgba(116, 162, 119, 0.32);
+}
+.btn-success:hover:not(:disabled) { background: #5f8c63; }
+.btn-success:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: var(--danger-base);
+  color: #ffffff;
+  font-family: var(--font-body);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  padding: 0.625rem 1.125rem;
+  border-radius: var(--radius-md);
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  box-shadow: 0 4px 14px rgba(222, 109, 104, 0.32);
+}
+.btn-danger:hover:not(:disabled) { background: #c25a55; }
+.btn-danger:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+
+/* Второстепенное опасное действие («Выйти» в шапке, «Удалить» в строке) —
+   матовое красное, чтобы не кричало наравне с основной кнопкой экрана. */
+.btn-danger-soft {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: var(--danger-container);
+  color: var(--danger);
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.625rem 1.125rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--danger-border);
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+.btn-danger-soft:hover:not(:disabled) { background: rgba(222, 109, 104, 0.22); }
+.btn-danger-soft:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Вторичная — матовая, не «восковой контур» */
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: var(--primary-container);
+  color: var(--primary-dim);
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.625rem 1.125rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--primary-border);
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+.btn-secondary:hover {
+  background: rgba(88, 140, 211, 0.2);
+}
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ============================================================
+   Поля ввода
+   ============================================================ */
+
+.input {
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  background: var(--block);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--on-surface);
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(88, 140, 211, 0.15);
+}
+
+/* ============================================================
+   Блоки-бенто
+   ============================================================ */
+
+.card {
+  background: var(--block);
+  border-radius: var(--radius-card);
+  padding: var(--pad-card);
+  box-shadow: var(--shadow-card);
+}
+
+/* Исторически «приподнятая» карточка. В этой системе тон у блоков один,
+   разницы нет — оставлено как псевдоним, чтобы страницы не ломались. */
+.card-elevated {
+  background: var(--block);
+  border-radius: var(--radius-card);
+  padding: var(--pad-card);
+  box-shadow: var(--shadow-card);
+}
+
+/* Мелкая карточка — радиус 20 */
+.card-sm {
+  background: var(--block);
+  border-radius: var(--radius-lg);
+  padding: var(--pad-card-sm);
+  box-shadow: var(--shadow-card);
+}
+
+/* Легаси-акварели: остались точками входа, но теперь это матовые подложки */
+
+
+.ghost-border {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+/* ============================================================
+   Матовый чип — базовый приём системы
+   Заливка rgba(база,0.12–0.16) + бордер rgba(база,0.30–0.35) + тёмный текст
+   ============================================================ */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.4375rem 0.875rem;
+  border-radius: var(--radius-pill);
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+  background: var(--surface-container);
+  border: 1px solid var(--border);
+  color: var(--on-surface-variant);
+}
+.chip-accent {
+  background: var(--primary-container);
+  border-color: var(--primary-border);
+  color: var(--primary-dim);
+}
+.chip-success {
+  background: var(--success-container);
+  border-color: var(--success-border);
+  color: var(--success);
+}
+.chip-warning {
+  background: var(--warning-container);
+  border-color: var(--warning-border);
+  color: var(--warning);
+}
+.chip-danger {
+  background: var(--danger-container);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+
+/* ============================================================
+   Штриховой (tick) прогресс — фирменный паттерн системы
+   Вертикальные штрихи 2px с шагом 5px.
+   ============================================================ */
+
+.tick-bar {
   position: relative;
-  background: #F4F1E8;
-  border: 2px solid #CFC7B8;
-  border-radius: 1rem 1.5rem 1.2rem 1.4rem;
-  padding: var(--spacing-8) var(--spacing-6) var(--spacing-6);
-  box-shadow: 0 6px 24px rgba(56, 57, 45, 0.08), 0 2px 8px rgba(198, 26, 30, 0.04);
-  transform: rotate(var(--card-rotation, -1.5deg));
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-  overflow: visible;
+  height: 10px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: repeating-linear-gradient(90deg, var(--line) 0 2px, transparent 2px 5px);
+}
+.tick-bar-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: repeating-linear-gradient(90deg, var(--primary) 0 2px, transparent 2px 5px);
+  transition: width 0.25s ease;
 }
 
-.person-card-sketch:hover {
-  transform: rotate(0deg) translateY(-3px);
-  box-shadow: 0 12px 36px rgba(56, 57, 45, 0.12), 0 4px 12px rgba(198, 26, 30, 0.06);
-  z-index: 2;
+/* Градиентный вариант — 3 слоя: градиент, маска промежутков, «крышка»
+   непройденной части. Направление задаёт --tick-from/--tick-to. */
+.tick-bar-grad {
+  position: relative;
+  height: 10px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: linear-gradient(90deg, var(--tick-from, var(--success-base)), var(--grad-mid), var(--tick-to, var(--danger-base)));
 }
-
-/* Crayon stroke decorations */
-.person-card-sketch::before {
+.tick-bar-grad::before {
   content: '';
   position: absolute;
   inset: 0;
-  pointer-events: none;
-  border-radius: inherit;
-  background:
-    /* Red stroke — bottom left */
-    linear-gradient(92deg, rgba(198,26,30,0.55) 0%, rgba(198,26,30,0.1) 100%)
-      no-repeat 12px calc(100% - 14px) / 38px 5px,
-    linear-gradient(85deg, rgba(198,26,30,0.35) 0%, rgba(198,26,30,0.05) 100%)
-      no-repeat 18px calc(100% - 22px) / 30px 4px,
-    /* Blue stroke — bottom right */
-    linear-gradient(88deg, rgba(50,106,139,0.5) 0%, rgba(50,106,139,0.08) 100%)
-      no-repeat calc(100% - 16px) calc(100% - 16px) / 34px 4px,
-    linear-gradient(95deg, rgba(50,106,139,0.3) 0%, rgba(50,106,139,0.05) 100%)
-      no-repeat calc(100% - 20px) calc(100% - 24px) / 28px 5px;
+  background: repeating-linear-gradient(90deg, transparent 0 2px, var(--block) 2px 5px);
+}
+.tick-bar-grad::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: var(--tick-rest, 0%);
+  background: repeating-linear-gradient(90deg, var(--tick-empty) 0 2px, var(--block) 2px 5px);
 }
 
-/* Double-frame avatar — outer ring */
-.avatar-frame-outer {
-  padding: 5px;
-  border-radius: 1.4rem 1.8rem 1.5rem 1.7rem;
-  border: 2.5px solid rgba(167, 159, 144, 0.4);
-  display: inline-flex;
-}
+/* ============================================================
+   Карточка человека (PersonCard)
+   Скетчбук снят: ни наклона, ни кривых рамок, ни восковых мазков.
+   Полная перерисовка форм-факторов — волна 4.
+   ============================================================ */
 
-/* Double-frame avatar — inner ring + initial */
-.avatar-frame-inner {
-  width: 120px;
-  height: 120px;
-  border-radius: 1rem 1.4rem 1.2rem 1.3rem;
-  border: 2px solid rgba(207, 199, 184, 0.55);
-  background: var(--secondary-container);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-display);
-  font-weight: 800;
-  font-size: 3rem;
-  color: var(--secondary);
-  box-shadow: inset 0 2px 8px rgba(56, 57, 45, 0.06);
-}
 
-/* Role badge — pencil-outlined pill */
-.sketch-role-badge {
-  display: inline-block;
-  padding: 0.3rem 1.2rem;
-  background: #EADFC8;
-  border-radius: 0.6rem 0.9rem 0.7rem 0.8rem;
-  font-family: var(--font-display);
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--on-surface);
-  letter-spacing: 0.03em;
-  box-shadow:
-    0 0 0 1.5px rgba(207,199,184,0.5),
-    0 0 0 4px rgba(207,199,184,0.2);
-}
 
-/* ------------------------------------------------------------
-   Tokenized card base — visuals are driven by skin tokens
-   (inline styles), this class only carries shared structure.
-   ------------------------------------------------------------ */
+
+
+
+
+
+
+
+/* Токенизированная база — визуал задаёт скин через инлайн-стили. */
 .person-card-base {
   position: relative;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
-  transform: rotate(var(--card-rotation, 0deg));
 }
 .person-card-base.interactive { cursor: pointer; }
 .person-card-base.interactive:hover {
-  transform: rotate(0deg) translateY(-3px);
+  transform: translateY(-2px);
   z-index: 2;
 }
 @media (prefers-reduced-motion: reduce) {
   .person-card-base { transition: none; }
-  .person-card-base.interactive:hover { transform: rotate(var(--card-rotation, 0deg)); }
+  .person-card-base.interactive:hover { transform: none; }
 }
 
-/* ------------------------------------------------------------
-   Card skin effects — built-in CSS presets (a Lottie effectUrl
-   would override these later). Heavy motion is dropped on small
-   sizes (by element count) and under prefers-reduced-motion.
-   ------------------------------------------------------------ */
+/* --- Эффекты скинов (перерисовка скинов — волна 4) --- */
 .skin-fx {
   position: absolute;
   inset: 0;
@@ -352,7 +574,7 @@ body::before {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  box-shadow: inset 0 0 18px rgba(54,249,246,0.45), inset 0 0 30px rgba(255,61,242,0.35);
+  box-shadow: inset 0 0 18px rgba(54, 249, 246, 0.45), inset 0 0 30px rgba(255, 61, 242, 0.35);
   animation: skin-pulse 2.4s ease-in-out infinite;
 }
 @keyframes skin-pulse {
@@ -376,21 +598,19 @@ body::before {
 }
 
 /* ============================================================
-   ServiceShell — каркас сервиса: верхняя полоска + левый сайдбар
-   (переиспользуемый; Digital Atelier: слои бумаги вместо линий).
-   Ширины-консенсус бенчмарков: 260px ↔ рейл 60px.
+   ServiceShell — каркас сервиса (Задачи, Финансы).
+   Живёт до волны 2, где его поглощает глобальный AppShell.
    ============================================================ */
 
 :root {
   --svc-topbar-h: 3.5rem;
-  --svc-w-expanded: 260px;
-  --svc-w-rail: 60px;
+  --svc-w-expanded: var(--sidebar-w);
+  --svc-w-rail: var(--rail-w);
 }
 
 .svc-shell { --svc-w: var(--svc-w-expanded); }
 .svc-shell.collapsed { --svc-w: var(--svc-w-rail); }
 
-/* --- верхняя полоска (glassmorphism, как у остальных страниц) --- */
 .svc-topbar {
   position: fixed;
   top: 0; left: 0; right: 0;
@@ -400,8 +620,7 @@ body::before {
   align-items: center;
   gap: var(--spacing-4);
   padding: 0 var(--spacing-6);
-  background: rgba(245, 245, 220, 0.7);
-  backdrop-filter: blur(10px);
+  background: var(--surface);
 }
 .svc-topbar-back { text-decoration: none; }
 
@@ -417,7 +636,6 @@ body::before {
   color: var(--on-surface);
 }
 
-/* --- сайдбар: отдельный лист бумаги (фон-сдвиг, без линий) --- */
 .svc-sidebar {
   position: fixed;
   top: var(--svc-topbar-h);
@@ -427,8 +645,8 @@ body::before {
   width: var(--svc-w);
   display: flex;
   flex-direction: column;
-  background: var(--surface-container-low);
-  box-shadow: 6px 0 24px rgba(56, 57, 45, 0.05);
+  background: var(--block);
+  box-shadow: var(--shadow-card);
   transition: width 0.25s cubic-bezier(0.2, 0, 0, 1);
   overflow: hidden;
 }
@@ -451,19 +669,16 @@ body::before {
 .svc-group { display: flex; flex-direction: column; gap: 2px; }
 
 .svc-group-label {
-  font-family: var(--font-body);
-  font-size: 0.68rem;
+  font-size: 0.625rem;
   font-weight: 700;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--on-surface-variant);
-  opacity: 0.7;
+  color: var(--label);
   padding: 0 var(--spacing-2);
   margin-bottom: var(--spacing-1);
   white-space: nowrap;
   transition: opacity 0.15s ease;
 }
-/* в рейле секции разделяются воздухом, заголовки прячутся */
 .svc-shell.collapsed .svc-sidebar:not(.drawer-open) .svc-group-label {
   opacity: 0;
   height: 0;
@@ -472,18 +687,17 @@ body::before {
   padding: 0;
 }
 
-/* --- пункт навигации --- */
 .svc-item {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.45rem 0.6rem;
-  border-radius: var(--radius-sketch);
+  gap: 0.75rem;
+  padding: 0.6875rem 0.875rem;
+  border-radius: 14px;
   font-family: var(--font-body);
   font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--on-surface-variant);
+  font-weight: 600;
+  color: #5d574e;
   text-decoration: none;
   cursor: pointer;
   border: none;
@@ -491,36 +705,23 @@ body::before {
   white-space: nowrap;
   width: 100%;
   text-align: left;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background 0.2s ease, color 0.2s ease;
 }
-.svc-item:hover { background: var(--surface-container); color: var(--on-surface); }
-.svc-item:focus-visible { outline: 2px solid var(--secondary); outline-offset: 1px; }
+.svc-item:hover { background: var(--hover); color: var(--on-surface); }
+.svc-item:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 .svc-item.active {
-  background: var(--surface-container-lowest);
+  background: var(--active);
   color: var(--on-surface);
-  font-weight: 600;
-  box-shadow: 0 2px 10px rgba(56, 57, 45, 0.07), 0 1px 4px rgba(198, 26, 30, 0.05);
-}
-/* восковой «мазок» слева у активного пункта */
-.svc-item.active::before {
-  content: '';
-  position: absolute;
-  left: -1px;
-  top: 22%;
-  width: 4px;
-  height: 56%;
-  border-radius: 3px 5px 4px 6px;
-  background: linear-gradient(175deg, rgba(198, 26, 30, 0.85), rgba(198, 26, 30, 0.35));
-  transform: rotate(-4deg);
 }
 
 .svc-ico {
-  font-size: 1.05rem;
-  width: 1.6rem;
-  min-width: 1.6rem;
+  font-size: 1.25rem;
+  width: 1.5rem;
+  min-width: 1.5rem;
   display: inline-flex;
+  align-items: center;
   justify-content: center;
-  color: var(--on-surface-variant);
+  color: inherit;
 }
 .svc-label {
   overflow: hidden;
@@ -528,47 +729,44 @@ body::before {
   transition: opacity 0.15s ease;
 }
 
-/* --- бейдж-счётчик пункта («требует внимания», модель Bitrix24/Slack) --- */
 .svc-badge {
   display: inline-block;
   margin-left: auto;
   min-width: 1.35rem;
-  padding: 0.06rem 0.4rem;
-  border-radius: 8px 11px 9px 12px;
-  background: var(--surface-container);
-  color: var(--secondary);
-  font-size: 0.66rem;
+  padding: 0.0625rem 0.4375rem;
+  border-radius: var(--radius-pill);
+  background: var(--primary-container);
+  border: 1px solid var(--primary-border);
+  color: var(--primary-dim);
+  font-size: 0.6875rem;
   font-weight: 700;
   line-height: 1.3;
   text-align: center;
   flex: none;
-  transform: rotate(-1deg);
 }
-.svc-item.active .svc-badge { background: var(--surface-container-high); }
 .svc-flyout-label .svc-badge { margin-left: 0.45rem; }
-/* рейл: подписи нет — карандашная точка на иконке намекает «внутри есть работа» */
 .svc-badge-dot {
   position: absolute;
-  top: 5px;
-  right: 7px;
+  top: 6px;
+  right: 8px;
   width: 7px;
   height: 7px;
-  border-radius: 55% 45% 50% 60%;
-  background: linear-gradient(160deg, rgba(198, 26, 30, 0.9), rgba(198, 26, 30, 0.55));
+  border-radius: var(--radius-pill);
+  background: var(--danger-base);
+  border: 2px solid var(--block);
 }
 
 .svc-shell.collapsed .svc-sidebar:not(.drawer-open) .svc-item { justify-content: center; padding: 0.5rem 0; }
 .svc-shell.collapsed .svc-sidebar:not(.drawer-open) .svc-ico { width: auto; min-width: 0; }
 
-/* --- родитель с детьми: ссылка + шеврон-дисклоужер в одном ряду --- */
 .svc-item.svc-parent { padding: 0; gap: 0; }
 .svc-parent-link {
   flex: 1;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.45rem 0 0.45rem 0.6rem;
+  gap: 0.75rem;
+  padding: 0.6875rem 0 0.6875rem 0.875rem;
   color: inherit;
   font: inherit;
   text-decoration: none;
@@ -579,50 +777,47 @@ body::before {
   background: none;
   border: none;
   cursor: pointer;
-  padding: 0.35rem 0.55rem;
-  color: var(--on-surface-variant);
+  padding: 0.35rem 0.6rem;
+  color: var(--label);
   display: inline-flex;
   align-items: center;
   border-radius: var(--radius-sm);
 }
-.svc-chevron svg { transition: transform 0.15s ease; display: block; }
+.svc-chevron svg { transition: transform 0.2s ease; display: block; }
 .svc-chevron[aria-expanded="true"] svg { transform: rotate(180deg); }
-.svc-chevron:focus-visible { outline: 2px solid var(--secondary); outline-offset: 1px; }
+.svc-chevron:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 
-/* --- второй уровень: ветки-линии (tree lines), карандашно-мягкие --- */
+/* Второй уровень: ветки со скруглёнными коленами (1px, как в системе) */
 .svc-children {
-  margin-left: 1.05rem;   /* ствол начинается под иконкой родителя */
-  padding-left: 0.95rem;  /* место для локтей */
+  margin-left: 1.05rem;
+  padding-left: 0.95rem;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 .svc-branch { position: relative; }
-/* локоть к пункту: вертикаль сверху + скруглённый поворот к строке */
 .svc-branch::before {
   content: '';
   position: absolute;
   left: -0.8rem;
   top: -0.4rem;
-  width: 0.6rem;
+  width: 0.75rem;
   height: calc(50% + 0.4rem);
-  border-left: 2px solid rgba(122, 122, 110, 0.28);
-  border-bottom: 2px solid rgba(122, 122, 110, 0.28);
-  border-bottom-left-radius: 0.55rem;
+  border-left: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  border-bottom-left-radius: 10px;
   pointer-events: none;
 }
-/* продолжение ствола вниз к следующему пункту (у последнего обрывается) */
 .svc-branch:not(:last-child)::after {
   content: '';
   position: absolute;
   left: -0.8rem;
   top: 50%;
   bottom: -0.45rem;
-  border-left: 2px solid rgba(122, 122, 110, 0.28);
+  border-left: 1px solid var(--line);
   pointer-events: none;
 }
 
-/* --- сервис-иконка в шапке рейла --- */
 .svc-rail-service {
   display: flex;
   align-items: center;
@@ -632,53 +827,49 @@ body::before {
   font-size: 1.25rem;
   background: var(--surface-container);
   border: none;
-  border-radius: var(--radius-sketch);
+  border-radius: var(--radius-md);
   cursor: pointer;
 }
-.svc-rail-service:hover { background: var(--surface-container-high); }
+.svc-rail-service:hover { background: var(--active); }
 
-/* --- флайаут рейла: бумажный чип справа --- */
 .svc-flyout {
   position: fixed;
   left: calc(var(--svc-w-rail) + 10px);
   transform: translateY(-50%);
   z-index: 70;
-  background: var(--surface-container-lowest);
-  border-radius: 0.6rem 1rem 0.7rem 0.9rem;
-  box-shadow: 0 8px 32px rgba(56, 57, 45, 0.16), 0 2px 8px rgba(198, 26, 30, 0.05);
+  background: var(--block);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-pop);
   padding: 0.35rem 0.5rem;
   min-width: 0;
   max-width: 260px;
 }
 .svc-flyout-label {
-  font-family: var(--font-body);
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--on-surface);
   padding: 0.15rem 0.4rem;
   white-space: nowrap;
 }
-/* у родителя с детьми заголовок флайаута — как заголовок секции (референс) */
 .svc-flyout-label.group {
-  font-size: 0.65rem;
+  font-size: 0.625rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--on-surface-variant);
+  color: var(--label);
 }
 .svc-flyout-items {
   margin-top: 0.25rem;
-  padding-left: 0.95rem; /* место для веток-локтей */
+  padding-left: 0.95rem;
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 190px;
 }
 
-/* --- кнопка «Свернуть» --- */
 .svc-collapse .svc-ico svg { display: block; }
 
-/* --- контент --- */
 .svc-main {
   margin-left: var(--svc-w);
   padding-top: var(--svc-topbar-h);
@@ -687,17 +878,16 @@ body::before {
 }
 .svc-shell.collapsed .svc-main { transition-duration: 0.2s; }
 .svc-main-inner {
-  max-width: 1160px;
+  max-width: var(--content-max);
   margin: 0 auto;
   padding: var(--spacing-8) var(--spacing-6) var(--spacing-16);
 }
 
-/* --- drawer (мобилка) --- */
 .svc-backdrop {
   position: fixed;
   inset: 0;
   z-index: 65;
-  background: rgba(56, 57, 45, 0.35);
+  background: rgba(29, 27, 29, 0.35);
   backdrop-filter: blur(3px);
 }
 .svc-drawer-top {
@@ -725,7 +915,7 @@ body::before {
     z-index: 66;
     transform: translateX(-105%);
     transition: transform 0.25s cubic-bezier(0.2, 0, 0, 1);
-    box-shadow: 12px 0 40px rgba(56, 57, 45, 0.18);
+    box-shadow: var(--shadow-pop);
   }
   .svc-sidebar.drawer-open { transform: none; }
   .svc-drawer-top { display: flex; }
@@ -742,33 +932,31 @@ body::before {
    Движок подтверждений (core/verify) — ввод SMS-кода
    ============================================================ */
 
-/* Ячейки кода: бумажные квадратики с «призрачной» рамкой (не 1px-бокс:
-   иррегулярные радиусы + полупрозрачный контур) и рукописной цифрой */
 .otp-cell {
   width: 46px;
   height: 58px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--surface-container-lowest);
-  border: 2px solid color-mix(in srgb, var(--outline-variant) 35%, transparent);
-  border-radius: 0.9rem 0.6rem 1rem 0.7rem;
+  background: var(--block);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   font-family: var(--font-display);
-  font-size: 1.6rem;
-  font-weight: 700;
+  font-size: 1.5rem;
+  font-weight: 800;
   color: var(--on-surface);
-  transition: border-color 0.15s ease, transform 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 .otp-cell--active {
-  border-color: var(--secondary);
-  transform: translateY(-2px);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(88, 140, 211, 0.15);
 }
 .otp-cell--filled {
-  border-color: color-mix(in srgb, var(--on-surface) 30%, transparent);
+  border-color: var(--outline);
 }
 .otp-cell--error {
-  border-color: var(--primary);
-  color: var(--primary);
+  border-color: var(--danger-base);
+  color: var(--danger);
 }
 
 @keyframes otp-shake {

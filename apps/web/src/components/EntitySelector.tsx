@@ -143,7 +143,7 @@ export function EntitySelector({
           style={{
             marginTop: 4, maxHeight: 340, overflowY: 'auto', padding: 'var(--spacing-2)',
             background: 'var(--surface-container-lowest)', borderRadius: 'var(--radius-md)',
-            boxShadow: '0 12px 36px rgba(56,57,45,0.16)',
+            boxShadow: '0 12px 36px rgba(0, 0, 0, 0.16)',
           }}
         >
           {flat.length === 0 ? (

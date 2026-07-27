@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon, type IconName } from '@/components/ui';
 import { useState } from 'react';
 import Link from 'next/link';
 import type { RichCardPayload, RichCardAction } from '@superapp/shared';
@@ -66,8 +67,7 @@ export function RichCardWidget({
           background: 'var(--surface-container-high)',
           borderRadius: 'var(--radius-sketch)',
           padding: 'var(--spacing-4)',
-          boxShadow: '0 4px 16px rgba(56, 57, 45, 0.10)',
-          transform: 'rotate(-0.4deg)',
+          boxShadow: '0 4px 16px rgba(0, 0, 0, 0.10)',
         }}
       >
         {/* Header: icon + title (+ status chip) + subtitle */}
@@ -80,7 +80,7 @@ export function RichCardWidget({
               marginTop: '0.1rem',
             }}
           >
-            {payload.icon ?? CARD_TYPE_ICON[payload.cardType] ?? '🗂️'}
+            {payload.icon ? <span aria-hidden>{payload.icon}</span> : <Icon name={CARD_TYPE_ICON[payload.cardType] ?? 'folder'} size={20} />}
           </div>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
@@ -217,7 +217,7 @@ export function RichCardWidget({
             <div
               style={{
                 height: 7,
-                background: 'rgba(56, 57, 45, 0.10)',
+                background: 'rgba(0, 0, 0, 0.10)',
                 borderRadius: 5,
                 overflow: 'hidden',
               }}
@@ -262,7 +262,7 @@ export function RichCardWidget({
                 key={action.key}
                 onClick={() => runAction(action)}
                 disabled={busyKey != null}
-                className={action.style === 'primary' ? 'btn-primary' : 'btn-secondary'}
+                className={action.style === 'primary' ? 'btn-success' : 'btn-secondary'}
                 style={{
                   fontSize: '0.78rem',
                   padding: '0.3rem 0.95rem',
@@ -291,12 +291,12 @@ export function RichCardWidget({
   );
 }
 
-const CARD_TYPE_ICON: Record<string, string> = {
-  order: '📦',
-  listing: '🎁',
-  crowdfunding: '🎯',
-  task: '✅',
-  event: '📅',
+const CARD_TYPE_ICON: Record<string, IconName> = {
+  order: 'shop',
+  listing: 'gift',
+  crowdfunding: 'target',
+  task: 'checkCircle',
+  event: 'calendar',
 };
 
 function errMsg(e: unknown, fallback = 'Не удалось выполнить'): string {

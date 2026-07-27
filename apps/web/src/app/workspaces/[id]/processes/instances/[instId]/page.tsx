@@ -4,11 +4,10 @@
 // «секундомер» по шагам, анкета, отмена. Автообновление, пока процесс идёт.
 
 import { useMemo, useState } from 'react';
-import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { api } from '@/lib/api';
+import { api, apiErrorMessage } from '@/lib/api';
 import {
   fetchProcessInstance,
   fetchProcessInstanceStatus,
@@ -28,13 +27,16 @@ import {
 import { EntitySelector } from '@/components/EntitySelector';
 import type { EntityOption, Principal } from '@/lib/entities';
 import { PersonChip } from '@/app/circles/PersonCard';
+import {
+  Alert, BentoGrid, Button, Card, CardHeader, Chip, ConfirmDialog, EmptyState, LoadingBlock,
+  Modal, PageHeader, StatusDot,
+} from '@/components/ui';
 import { ProcessCanvas } from '../../ProcessCanvas';
 import {
   docToFlow,
   humanizeDuration,
-  INSTANCE_STATUS_BADGE,
-  STEP_STATUS_BADGE,
-  STEP_STATUS_COLORS,
+  INSTANCE_STATUS_TONE,
+  STEP_STATUS_TONE,
 } from '../../process-lib';
 
 export default function ProcessInstancePage() {
@@ -43,6 +45,7 @@ export default function ProcessInstancePage() {
   const router = useRouter();
   const qc = useQueryClient();
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState(false);
 
   // Деталь (документ/анкета/канвас) — тянем ОДИН раз; статусы шагов — тонким эндпоинтом
   // на 4с-поллинге (P7): не перекачиваем документ и output-блобы каждые 4 секунды.
@@ -91,15 +94,12 @@ export default function ProcessInstancePage() {
     void qc.invalidateQueries({ queryKey: processInstancesKey(wsId) });
     void qc.invalidateQueries({ queryKey: ['workspaces', wsId, 'processes', 'inbox'] });
   };
-  const onMutError = (e: unknown) => {
-    const r = e as { response?: { data?: { message?: string } } };
-    setCancelError(r.response?.data?.message ?? 'Не удалось выполнить действие');
-  };
+  const onMutError = (e: unknown) => setCancelError(apiErrorMessage(e));
 
   const cancelMut = useMutation({
     mutationFn: async () => api.post(`/workspaces/${wsId}/processes/instances/${instId}/cancel`),
-    onSuccess: refresh,
-    onError: onMutError,
+    onSuccess: () => { setConfirmCancel(false); refresh(); },
+    onError: (e) => { setConfirmCancel(false); onMutError(e); },
   });
   const decideMut = useMutation({
     mutationFn: async (v: { stepId: string; decision: 'approved' | 'rejected' }) =>
@@ -147,141 +147,204 @@ export default function ProcessInstancePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inst?.id, stepDigest, typeMap]);
 
-  if (!isReady || detailQ.isLoading) return <p className="label-md">Загрузка…</p>;
-  if (detailQ.isError || !inst) return <p className="label-md">Процесс не найден</p>;
+  if (!isReady || detailQ.isLoading) return <LoadingBlock />;
 
-  const statusBadge = INSTANCE_STATUS_BADGE[inst.status] ?? { bg: 'var(--surface-container-high)', fg: 'var(--on-surface)' };
+  if (detailQ.isError || !inst) {
+    return (
+      <>
+        <PageHeader breadcrumb="Процессы" title="Запуск процесса" />
+        <BentoGrid>
+          <Card span={12}>
+            <EmptyState
+              icon="warningCircle"
+              title="Процесс не найден"
+              description="Возможно, он удалён или у вас нет доступа."
+              action={<Button variant="matte" icon="arrowLeft" href={`/workspaces/${wsId}/processes`}>К процессам</Button>}
+            />
+          </Card>
+        </BentoGrid>
+      </>
+    );
+  }
 
   return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-4)', flexWrap: 'wrap', marginBottom: 'var(--spacing-6)' }}>
-        <button className="label-md" style={{ opacity: 0.7 }} onClick={() => router.push(`/workspaces/${wsId}/processes`)}>
-          ← Процессы
-        </button>
-        <h1 className="display-md" style={{ fontSize: '1.5rem', flex: '1 1 auto' }}>
-          {inst.definitionName} <span className="label-md" style={{ fontSize: '0.8rem' }}>v{inst.version}</span>
-        </h1>
-        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: statusBadge.fg, padding: '0.25rem 0.8rem', borderRadius: '0.7rem 0.5rem 0.8rem 0.55rem', background: statusBadge.bg }}>
-          {PROCESS_INSTANCE_STATUS_LABELS[inst.status]}
-        </span>
-        {inst.canCancel && (
-          <button
-            className="btn-secondary"
-            style={{ padding: '0.4rem 1rem', fontSize: '0.78rem' }}
-            disabled={cancelMut.isPending}
-            onClick={() => confirm('Отменить процесс? Открытые задачи будут отменены.') && cancelMut.mutate()}
-          >
-            ✕ Отменить
-          </button>
-        )}
-      </div>
+    <>
+      <PageHeader
+        breadcrumb="Процессы"
+        title={
+          <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: '0.5rem', flexWrap: 'wrap' }}>
+            {inst.definitionName}
+            <span className="label-sm">v{inst.version}</span>
+          </span>
+        }
+        chip={
+          <Chip tone={INSTANCE_STATUS_TONE[inst.status] ?? 'neutral'}>
+            {PROCESS_INSTANCE_STATUS_LABELS[inst.status]}
+          </Chip>
+        }
+        actions={
+          <>
+            <Button variant="ghost" icon="arrowLeft" href={`/workspaces/${wsId}/processes`}>Процессы</Button>
+            {inst.canCancel && (
+              <Button variant="matte" tone="danger" icon="close" loading={cancelMut.isPending} onClick={() => setConfirmCancel(true)}>
+                Отменить
+              </Button>
+            )}
+          </>
+        }
+      />
 
       {(inst.error || cancelError) && (
-        <div className="card" style={{ marginBottom: 'var(--spacing-5)', background: 'var(--primary-container)' }}>
-          <span className="label-md" style={{ fontWeight: 700 }}>⚠ {cancelError ?? inst.error}</span>
+        <div style={{ marginBottom: 'var(--gap-grid)' }}>
+          <Alert tone="danger" onClose={cancelError ? () => setCancelError(null) : undefined}>
+            {cancelError ?? inst.error}
+          </Alert>
         </div>
       )}
 
-      {/* Шапка-факты */}
-      <div style={{ display: 'flex', gap: 'var(--spacing-6)', flexWrap: 'wrap', alignItems: 'center', marginBottom: 'var(--spacing-6)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <span className="label-md" style={{ fontSize: '0.75rem' }}>Запустил:</span>
-          <PersonChip size="S" userId={inst.startedBy.id} firstName={inst.startedBy.firstName} lastName={inst.startedBy.lastName} />
-        </div>
-        <span className="label-md" style={{ fontSize: '0.78rem' }}>
-          {new Date(inst.startedAt).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}
-        </span>
-        <span className="label-md" style={{ fontSize: '0.78rem', fontWeight: 700 }}>
-          {inst.finishedAt
-            ? `Длился ${humanizeDuration(inst.durationMs)}`
-            : `Идёт ${humanizeDuration(Date.now() - new Date(inst.startedAt).getTime())}`}
-        </span>
-      </div>
+      <BentoGrid>
+        {/* ---------- Факты запуска ---------- */}
+        <Card span={12} small>
+          <div style={{ display: 'flex', gap: 'var(--spacing-6)', flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span className="label-caps">Запустил</span>
+              <PersonChip size="S" userId={inst.startedBy.id} firstName={inst.startedBy.firstName} lastName={inst.startedBy.lastName} />
+            </span>
+            <span className="body-sm">
+              {new Date(inst.startedAt).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}
+            </span>
+            <span className="title-sm">
+              {inst.finishedAt
+                ? `Длился ${humanizeDuration(inst.durationMs)}`
+                : `Идёт ${humanizeDuration(Date.now() - new Date(inst.startedAt).getTime())}`}
+            </span>
+          </div>
+        </Card>
 
-      <ProcessCanvas nodes={nodes} edges={edges} editable={false} height="52vh" withMiniMap />
+        {/* ---------- Канвас со статусами ---------- */}
+        <Card span={12} style={{ padding: 0, overflow: 'hidden' }}>
+          <ProcessCanvas nodes={nodes} edges={edges} editable={false} height="52vh" withMiniMap />
+        </Card>
 
-      <div className="grid md:grid-cols-3" style={{ gap: 'var(--spacing-6)', marginTop: 'var(--spacing-8)', alignItems: 'start' }}>
-        {/* Шаги — «секундомер отделов» */}
-        <div className="md:col-span-2" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
-          <h2 className="title-lg" style={{ fontSize: '1rem' }}>Шаги</h2>
-          {inst.steps.map((s) => {
-            const badge = STEP_STATUS_BADGE[s.status];
-            const queued = s.status === 'active' && !!s.departmentId && !s.taskId;
-            const decision = s.decision === 'approved' ? 'одобрено' : s.decision === 'rejected' ? 'отклонено' : null;
-            return (
-              <div key={s.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-4)', flexWrap: 'wrap', padding: '0.7rem 1rem', boxShadow: s.overdue ? '0 0 0 2px var(--primary)' : undefined }}>
-                <span style={{ width: '0.7rem', height: '0.7rem', flexShrink: 0, borderRadius: '45% 55% 50% 60%', background: STEP_STATUS_COLORS[s.status] }} />
-                <div style={{ flex: '1 1 10rem', minWidth: 0 }}>
-                  <div className="title-md" style={{ fontSize: '0.86rem' }}>{s.label}</div>
-                  <div className="label-md" style={{ fontSize: '0.7rem' }}>
-                    <span style={{ color: badge.fg, fontWeight: 600 }}>{queued ? 'В очереди отдела' : PROCESS_STEP_STATUS_LABELS[s.status]}</span>
-                    {s.departmentName ? ` · ${s.departmentName}` : ''}
-                    {decision ? ` · ${decision}` : ''}
-                    {s.outcome && s.nodeType === 'condition' ? ` · ветка «${s.outcome === 'true' ? 'Да' : 'Нет'}»` : ''}
-                    {s.overdue ? ' · ⏰ просрочен' : s.deadlineAt && s.status === 'active' ? ` · срок ${new Date(s.deadlineAt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}
-                    {s.error ? ` · ${s.error}` : ''}
+        {/* ---------- Шаги: «секундомер отделов» ---------- */}
+        <Card span={8}>
+          <CardHeader title="Шаги" subtitle="Сколько каждый шаг занял и кто его вёл" />
+          <div className="density-compact" style={{ display: 'grid', gap: '0.375rem' }}>
+            {inst.steps.map((s) => {
+              const queued = s.status === 'active' && !!s.departmentId && !s.taskId;
+              const decision = s.decision === 'approved' ? 'одобрено' : s.decision === 'rejected' ? 'отклонено' : null;
+              return (
+                <div
+                  key={s.id}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap',
+                    padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-md)',
+                    border: `1px solid ${s.overdue ? 'var(--danger-base)' : 'var(--divider)'}`,
+                  }}
+                >
+                  <StatusDot tone={STEP_STATUS_TONE[s.status]} size={9} title={PROCESS_STEP_STATUS_LABELS[s.status]} />
+                  <div style={{ flex: '1 1 10rem', minWidth: 0 }}>
+                    <div className="title-sm">{s.label}</div>
+                    <div className="label-sm">
+                      <span style={{ fontWeight: 600 }}>{queued ? 'В очереди отдела' : PROCESS_STEP_STATUS_LABELS[s.status]}</span>
+                      {s.departmentName ? ` · ${s.departmentName}` : ''}
+                      {decision ? ` · ${decision}` : ''}
+                      {s.outcome && s.nodeType === 'condition' ? ` · ветка «${s.outcome === 'true' ? 'Да' : 'Нет'}»` : ''}
+                      {s.overdue
+                        ? ' · просрочен'
+                        : s.deadlineAt && s.status === 'active'
+                          ? ` · срок ${new Date(s.deadlineAt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
+                          : ''}
+                      {s.error ? ` · ${s.error}` : ''}
+                    </div>
+                  </div>
+                  {s.canDecide && (
+                    <span style={{ display: 'flex', gap: '0.375rem' }}>
+                      <Button variant="primary" tone="success" size="sm" icon="check" disabled={decideMut.isPending} onClick={() => decideMut.mutate({ stepId: s.id, decision: 'approved' })}>
+                        Одобрить
+                      </Button>
+                      <Button variant="matte" tone="danger" size="sm" icon="close" disabled={decideMut.isPending} onClick={() => decideMut.mutate({ stepId: s.id, decision: 'rejected' })}>
+                        Отклонить
+                      </Button>
+                    </span>
+                  )}
+                  {s.canClaim && (
+                    <Button variant="primary" tone="success" size="sm" icon="download" disabled={claimMut.isPending} onClick={() => claimMut.mutate(s.id)}>
+                      Забрать
+                    </Button>
+                  )}
+                  {s.canReassign && (
+                    <Button variant="ghost" size="sm" icon="refresh" onClick={() => setReassignFor(s.id)}>Переназначить</Button>
+                  )}
+                  {s.assignee && <PersonChip size="S" userId={s.assignee.id} firstName={s.assignee.firstName} lastName={s.assignee.lastName} />}
+                  {s.taskId && (
+                    <Button variant="ghost" size="sm" iconRight="caretRight" href={`/tasks/${s.taskId}`}>задача</Button>
+                  )}
+                  <div className="label-sm" style={{ textAlign: 'right' }}>
+                    <div>
+                      {new Date(s.startedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+                      {s.completedAt ? ` → ${new Date(s.completedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}` : ''}
+                    </div>
+                    <div style={{ fontWeight: 700 }}>
+                      {s.completedAt ? humanizeDuration(s.durationMs) : humanizeDuration(Date.now() - new Date(s.startedAt).getTime())}
+                    </div>
                   </div>
                 </div>
-                {s.canDecide && (
-                  <div style={{ display: 'flex', gap: '0.4rem' }}>
-                    <button className="btn-primary" style={{ padding: '0.3rem 0.8rem', fontSize: '0.74rem' }} disabled={decideMut.isPending} onClick={() => decideMut.mutate({ stepId: s.id, decision: 'approved' })}>✓ Одобрить</button>
-                    <button className="btn-secondary" style={{ padding: '0.3rem 0.8rem', fontSize: '0.74rem' }} disabled={decideMut.isPending} onClick={() => decideMut.mutate({ stepId: s.id, decision: 'rejected' })}>✕ Отклонить</button>
-                  </div>
-                )}
-                {s.canClaim && (
-                  <button className="btn-primary" style={{ padding: '0.3rem 0.9rem', fontSize: '0.74rem' }} disabled={claimMut.isPending} onClick={() => claimMut.mutate(s.id)}>📥 Забрать</button>
-                )}
-                {s.canReassign && (
-                  <button className="label-md" style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--secondary)' }} onClick={() => setReassignFor(s.id)}>↪ Переназначить</button>
-                )}
-                {s.assignee && <PersonChip size="S" userId={s.assignee.id} firstName={s.assignee.firstName} lastName={s.assignee.lastName} />}
-                {s.taskId && (
-                  <Link href={`/tasks/${s.taskId}`} className="label-md" style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--secondary)' }}>→ задача</Link>
-                )}
-                <div className="label-md" style={{ fontSize: '0.72rem', textAlign: 'right' }}>
-                  <div>{new Date(s.startedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}{s.completedAt ? ` → ${new Date(s.completedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}` : ''}</div>
-                  <div style={{ fontWeight: 700 }}>{s.completedAt ? humanizeDuration(s.durationMs) : humanizeDuration(Date.now() - new Date(s.startedAt).getTime())}</div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        </Card>
 
-        {/* Анкета */}
-        <div className="card" style={{ background: 'var(--surface-container)' }}>
-          <h2 className="title-md" style={{ fontSize: '0.9rem', marginBottom: 'var(--spacing-3)' }}>Анкета процесса</h2>
+        {/* ---------- Анкета ---------- */}
+        <Card span={4}>
+          <CardHeader title="Анкета процесса" subtitle="Значения, с которыми процесс запустили" />
           {Object.keys(inst.variables).length === 0 ? (
-            <p className="label-md" style={{ fontSize: '0.76rem' }}>Пусто</p>
+            <EmptyState icon="empty" title="Анкета пуста" />
           ) : (
-            Object.entries(inst.variables).map(([k, v]) => (
-              <div key={k} style={{ marginBottom: 'var(--spacing-2)' }}>
-                <div className="label-md" style={{ fontSize: '0.66rem', opacity: 0.7 }}>{k}</div>
-                <div className="label-md" style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--on-surface)' }}>
-                  {typeof v === 'boolean' ? (v ? 'да' : 'нет') : String(v)}
+            <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
+              {Object.entries(inst.variables).map(([k, v]) => (
+                <div key={k}>
+                  <div className="label-caps">{k}</div>
+                  <div className="title-sm" style={{ wordBreak: 'break-word' }}>
+                    {typeof v === 'boolean' ? (v ? 'да' : 'нет') : String(v)}
+                  </div>
                 </div>
-              </div>
-            ))
+              ))}
+            </div>
           )}
-        </div>
-      </div>
+        </Card>
+      </BentoGrid>
 
       {reassignFor && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'rgba(56,57,45,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} onClick={() => setReassignFor(null)}>
-          <div className="card-elevated" style={{ width: '24rem', maxWidth: '100%', background: 'var(--surface)' }} onClick={(e) => e.stopPropagation()}>
-            <div className="title-lg" style={{ fontSize: '1.05rem', marginBottom: 'var(--spacing-4)' }}>↪ Переназначить исполнителя</div>
-            <EntitySelector
-              value={[]}
-              onChange={(next: Principal[]) => { if (next[0]) reassignMut.mutate({ stepId: reassignFor, userId: next[0].id }); }}
-              multi={false}
-              options={memberOptions}
-              placeholder="Выберите нового исполнителя…"
-            />
-            <div style={{ marginTop: 'var(--spacing-5)' }}>
-              <button className="btn-secondary" style={{ padding: '0.45rem 1.1rem' }} onClick={() => setReassignFor(null)}>Отмена</button>
-            </div>
-          </div>
-        </div>
+        <Modal
+          open
+          onClose={() => setReassignFor(null)}
+          title="Переназначить исполнителя"
+          subtitle="Награда за задачу перемораживается на нового исполнителя"
+          size="sm"
+          footer={<Button variant="ghost" onClick={() => setReassignFor(null)}>Отмена</Button>}
+        >
+          <EntitySelector
+            value={[]}
+            onChange={(next: Principal[]) => { if (next[0]) reassignMut.mutate({ stepId: reassignFor, userId: next[0].id }); }}
+            multi={false}
+            options={memberOptions}
+            placeholder="Выберите нового исполнителя…"
+          />
+        </Modal>
       )}
-    </div>
+
+      <ConfirmDialog
+        open={confirmCancel}
+        onClose={() => setConfirmCancel(false)}
+        onConfirm={() => cancelMut.mutate()}
+        title="Отменить процесс?"
+        message="Открытые задачи-шаги будут отменены, процесс закроется как отменённый."
+        confirmLabel="Отменить процесс"
+        cancelLabel="Пусть идёт"
+        danger
+        loading={cancelMut.isPending}
+      />
+    </>
   );
 }

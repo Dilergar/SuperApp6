@@ -93,7 +93,7 @@ export class FinancesCardsProvider implements OnModuleInit {
       ref: { type: 'fin_transaction', id: tx.id },
       title: category ? `${TYPE_TITLES[type]} · ${category.name}` : TYPE_TITLES[type] ?? 'Операция',
       subtitle: tx.note,
-      icon: category?.icon ?? (type === 'transfer' ? '🔁' : '💸'),
+      icon: category?.icon ?? (type === 'transfer' ? 'refresh' : 'finance'),  // фолбэк — имя иконки кита, эмодзи категории остаётся как есть
       fields,
       status: null,
       actions: [],

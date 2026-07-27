@@ -1,5 +1,6 @@
 'use client';
 
+import { ModalShell } from '@/components/ui';
 import { useState } from 'react';
 import type { ScheduledMessageItem } from '@superapp/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -48,20 +49,7 @@ export function ScheduledPanel({ chatId, onClose }: { chatId: string; onClose: (
   const refresh = () => queryClient.invalidateQueries({ queryKey: scheduledKey(chatId) });
 
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(56,57,45,0.35)',
-        backdropFilter: 'blur(4px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 110,
-        padding: '1rem',
-      }}
-    >
+    <ModalShell onClose={onClose} zIndex={110}>
       <div
         onClick={(e) => e.stopPropagation()}
         className="card-elevated"
@@ -74,7 +62,6 @@ export function ScheduledPanel({ chatId, onClose }: { chatId: string; onClose: (
           display: 'flex',
           flexDirection: 'column',
           borderRadius: 'var(--radius-md)',
-          transform: 'rotate(-0.3deg)',
         }}
       >
         <div
@@ -119,12 +106,12 @@ export function ScheduledPanel({ chatId, onClose }: { chatId: string; onClose: (
         </div>
 
         <div style={{ marginTop: 'var(--spacing-4)', textAlign: 'right' }}>
-          <button onClick={onClose} className="btn-secondary" style={{ fontSize: '0.85rem' }}>
+          <button onClick={onClose} className="btn-ghost-inline">
             Закрыть
           </button>
         </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -189,7 +176,7 @@ function ScheduledRow({ item, onChanged }: { item: ScheduledMessageItem; onChang
             value={when}
             min={minWhen}
             onChange={(e) => setWhen(e.target.value)}
-            className="input-sketch"
+            className="ui-input"
             style={{ fontSize: '0.85rem', fontFamily: 'var(--font-body)' }}
           />
           {err && <p style={{ color: 'var(--danger)', fontSize: '0.78rem' }}>{err}</p>}
@@ -200,7 +187,7 @@ function ScheduledRow({ item, onChanged }: { item: ScheduledMessageItem; onChang
                 setErr(null);
                 setWhen(toLocalInput(new Date(item.sendAt)));
               }}
-              className="btn-secondary"
+              className="btn-ghost-inline"
               style={{ fontSize: '0.78rem', padding: '0.35rem 0.8rem' }}
             >
               Отмена
@@ -208,7 +195,7 @@ function ScheduledRow({ item, onChanged }: { item: ScheduledMessageItem; onChang
             <button
               onClick={saveTime}
               disabled={busy}
-              className="btn-primary"
+              className="btn-success"
               style={{ fontSize: '0.78rem', padding: '0.35rem 0.8rem', opacity: busy ? 0.5 : 1 }}
             >
               {busy ? '…' : 'Сохранить'}
@@ -227,7 +214,7 @@ function ScheduledRow({ item, onChanged }: { item: ScheduledMessageItem; onChang
             <button
               onClick={() => setEditing(true)}
               disabled={busy}
-              className="btn-secondary"
+              className="btn-ghost-inline"
               style={{ fontSize: '0.74rem', padding: '0.3rem 0.7rem' }}
             >
               Изменить время

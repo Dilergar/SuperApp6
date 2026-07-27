@@ -3,10 +3,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { api } from '@/lib/api';
+import { api, apiErrorMessage } from '@/lib/api';
 import { CompanyCard } from '../../CompanyCard';
 import { EntitySelector } from '@/components/EntitySelector';
 import { AvatarUploadBlock } from '@/components/files/AvatarUploadBlock';
+import {
+  Alert, BentoGrid, Button, Card, CardHeader, ConfirmDialog, Divider, Input, LoadingBlock,
+  PageHeader, SegmentedControl, StatTile, Textarea, Toggle,
+} from '@/components/ui';
 import { resolveWorkspaceCardVisibility } from '@superapp/shared';
 import type {
   Workspace,
@@ -16,6 +20,15 @@ import type {
 
 const KNOWN = ['card', 'anketa', 'stats', 'subscription', 'settings', 'security'] as const;
 type Section = (typeof KNOWN)[number];
+
+const SECTION_TITLE: Record<Section, string> = {
+  card: 'Карточка компании',
+  anketa: 'Анкета компании',
+  stats: 'Статистика',
+  subscription: 'Подписка',
+  settings: 'Настройки',
+  security: 'Безопасность',
+};
 
 const VIS_FIELDS: { key: keyof WorkspaceCardVisibility; label: string }[] = [
   { key: 'description', label: 'Описание' },
@@ -76,8 +89,8 @@ export default function WorkspaceSectionPage() {
         contactPhone: w.contactPhone ?? '',
       });
       setVis(resolveWorkspaceCardVisibility(w.cardVisibility ?? null));
-    } catch {
-      setError('Не удалось загрузить организацию');
+    } catch (e) {
+      setError(apiErrorMessage(e));
     } finally {
       setLoading(false);
     }
@@ -109,7 +122,7 @@ export default function WorkspaceSectionPage() {
     }
   }, [ws, section, isOwner, id]);
 
-  if (!isReady || loading || !ws) return <p className="label-md">Загрузка…</p>;
+  if (!isReady || loading || !ws) return <LoadingBlock />;
   if (!KNOWN.includes(section as Section)) {
     router.replace(`/workspaces/${id}/profile/card`);
     return null;
@@ -137,10 +150,7 @@ export default function WorkspaceSectionPage() {
       setSuccess('Анкета сохранена');
       await fetchWs();
     } catch (e) {
-      setError(
-        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-          'Не удалось сохранить',
-      );
+      setError(apiErrorMessage(e));
     } finally {
       setSaving(false);
     }
@@ -161,8 +171,8 @@ export default function WorkspaceSectionPage() {
     try {
       await api.post(`/workspaces/${id}/transfer`, { toUserId: transferTo });
       router.replace(`/workspaces/${id}/profile/card`);
-    } catch {
-      setError('Не удалось передать владение');
+    } catch (e) {
+      setError(apiErrorMessage(e));
       setBusy(false);
       setConfirm(null);
     }
@@ -173,8 +183,8 @@ export default function WorkspaceSectionPage() {
     try {
       await api.delete(`/workspaces/${id}`);
       router.push('/dashboard');
-    } catch {
-      setError('Не удалось деактивировать');
+    } catch (e) {
+      setError(apiErrorMessage(e));
       setBusy(false);
       setConfirm(null);
     }
@@ -195,269 +205,178 @@ export default function WorkspaceSectionPage() {
       : ws;
 
   return (
-    <div>
-      {error && (
-        <div className="wash-primary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-4)' }}>
-          <span className="label-md" style={{ color: 'var(--primary)' }}>{error}</span>
-        </div>
-      )}
-      {success && (
-        <div className="wash-secondary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-4)' }}>
-          <span className="label-md">{success}</span>
+    <>
+      <PageHeader
+        breadcrumb={ws.name}
+        title={SECTION_TITLE[section as Section]}
+        actions={
+          section === 'card' && canManage ? (
+            <SegmentedControl
+              aria-label="Чьими глазами смотреть карточку"
+              value={asMember ? 'member' : 'owner'}
+              onChange={(v) => setAsMember(v === 'member')}
+              items={[
+                { key: 'owner', label: 'Как видите вы' },
+                { key: 'member', label: 'Как видят сотрудники' },
+              ]}
+            />
+          ) : undefined
+        }
+      />
+
+      {(error || success) && (
+        <div style={{ marginBottom: 'var(--gap-grid)' }}>
+          {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
+          {success && <Alert tone="success" onClose={() => setSuccess('')}>{success}</Alert>}
         </div>
       )}
 
       {/* ---------- Карточка ---------- */}
-      {section === 'card' && (
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--spacing-3)', marginBottom: 'var(--spacing-6)', flexWrap: 'wrap' }}>
-            <h1 className="title-lg">Карточка компании</h1>
-            {canManage && (
-              <select
-                value={asMember ? 'member' : 'owner'}
-                onChange={(e) => setAsMember(e.target.value === 'member')}
-                className="input"
-                style={{ width: '210px' }}
-              >
-                <option value="owner">Как видите вы</option>
-                <option value="member">Как видят сотрудники</option>
-              </select>
-            )}
-          </div>
-          <CompanyCard ws={previewWs} />
-        </div>
-      )}
+      {section === 'card' && <CompanyCard ws={previewWs} />}
 
       {/* ---------- Анкета ---------- */}
       {section === 'anketa' && canManage && (
-        <div>
-          <h1 className="title-lg" style={{ marginBottom: 'var(--spacing-6)' }}>Анкета компании</h1>
-          <div className="card" style={{ display: 'grid', gap: 'var(--spacing-4)', maxWidth: '560px' }}>
-            <Field label="Название" value={form.name} onChange={(v) => setForm({ ...form, name: v })} max={100} />
-            {/* Лого через движок файлов (профиль 'avatar', владелец — организация).
-                Сохраняется сразу; старые внешние URL продолжают работать. */}
-            <AvatarUploadBlock
-              current={form.logo || null}
-              fallback="🏢"
-              shape="square"
-              label="Логотип"
-              ownerWorkspaceId={id}
-              onSaved={async (url) => {
-                await api.patch(`/workspaces/${id}`, { logo: url });
-                setForm((f) => ({ ...f, logo: url ?? '' }));
-                setSuccess(url ? 'Логотип обновлён' : 'Логотип удалён');
-                await fetchWs();
-              }}
-            />
-            <Field label="О компании" value={form.description} onChange={(v) => setForm({ ...form, description: v })} max={1000} textarea />
-            <Field label="Отрасль" value={form.industry} onChange={(v) => setForm({ ...form, industry: v })} max={100} />
-            <Field label="Город" value={form.city} onChange={(v) => setForm({ ...form, city: v })} max={100} />
-            <Field label="Сайт" value={form.website} onChange={(v) => setForm({ ...form, website: v })} max={200} placeholder="https://…" />
-            <Field label="Email" value={form.contactEmail} onChange={(v) => setForm({ ...form, contactEmail: v })} max={200} />
-            <Field label="Телефон" value={form.contactPhone} onChange={(v) => setForm({ ...form, contactPhone: v })} max={20} />
-            <button onClick={saveAnketa} disabled={saving} className="btn-primary" style={{ padding: '0.5rem 1.25rem', justifySelf: 'start' }}>
-              {saving ? 'Сохраняем…' : 'Сохранить анкету'}
-            </button>
-          </div>
+        <BentoGrid>
+          <Card span={7}>
+            <CardHeader title="Данные компании" subtitle="Название и логотип видны всем сотрудникам всегда" />
+            <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+              <Input label="Название" value={form.name} maxLength={100} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              {/* Лого через движок файлов (профиль 'avatar', владелец — организация).
+                  Сохраняется сразу; старые внешние URL продолжают работать. */}
+              <AvatarUploadBlock
+                current={form.logo || null}
+                fallback="🏢"
+                shape="square"
+                label="Логотип"
+                ownerWorkspaceId={id}
+                onSaved={async (url) => {
+                  await api.patch(`/workspaces/${id}`, { logo: url });
+                  setForm((f) => ({ ...f, logo: url ?? '' }));
+                  setSuccess(url ? 'Логотип обновлён' : 'Логотип удалён');
+                  await fetchWs();
+                }}
+              />
+              <Textarea
+                label="О компании"
+                value={form.description}
+                maxLength={1000}
+                rows={3}
+                style={{ resize: 'vertical' }}
+                onChange={(e) => setForm({ ...form, description: e.target.value })}
+              />
+              <Input label="Отрасль" value={form.industry} maxLength={100} onChange={(e) => setForm({ ...form, industry: e.target.value })} />
+              <Input label="Город" value={form.city} maxLength={100} onChange={(e) => setForm({ ...form, city: e.target.value })} />
+              <Input label="Сайт" value={form.website} maxLength={200} placeholder="https://…" icon="globe" onChange={(e) => setForm({ ...form, website: e.target.value })} />
+              <Input label="Email" value={form.contactEmail} maxLength={200} icon="mail" onChange={(e) => setForm({ ...form, contactEmail: e.target.value })} />
+              <Input label="Телефон" value={form.contactPhone} maxLength={20} icon="call" onChange={(e) => setForm({ ...form, contactPhone: e.target.value })} />
+              <div>
+                <Button variant="primary" tone="success" icon="save" loading={saving} onClick={saveAnketa}>
+                  Сохранить анкету
+                </Button>
+              </div>
+            </div>
+          </Card>
 
-          <h2 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-3)' }}>Видимость для сотрудников</h2>
-          <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)', opacity: 0.7 }}>
-            Что сотрудники видят в карточке компании. Название и логотип видны всегда.
-          </p>
-          <div className="card" style={{ display: 'grid', gap: 'var(--spacing-1)', maxWidth: '560px' }}>
-            {VIS_FIELDS.map((f) => (
-              <VisRow key={f.key} label={f.label} on={!!vis[f.key]} onToggle={(v) => toggleVis(f.key, v)} />
-            ))}
-          </div>
-        </div>
+          <Card span={5}>
+            <CardHeader
+              title="Видимость для сотрудников"
+              subtitle="Что сотрудники видят в карточке компании. Название и логотип видны всегда"
+            />
+            <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
+              {VIS_FIELDS.map((f) => (
+                <Toggle key={f.key} checked={!!vis[f.key]} label={f.label} onChange={(v) => toggleVis(f.key, v)} />
+              ))}
+            </div>
+          </Card>
+        </BentoGrid>
       )}
 
       {/* ---------- Статистика ---------- */}
       {section === 'stats' && (
-        <div>
-          <h1 className="title-lg" style={{ marginBottom: 'var(--spacing-6)' }}>Статистика</h1>
-          <div className="grid grid-cols-2 md:grid-cols-3" style={{ gap: 'var(--spacing-6)' }}>
-            <StatTile label="Сотрудников" value={ws.membersCount} />
-            <StatTile label="Задач" value={ws.tasksCount ?? 0} />
-            <StatTile
-              label="Создана"
-              value={new Date(ws.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
-            />
-          </div>
-        </div>
+        <BentoGrid>
+          <StatTile span={4} label="Сотрудников" value={ws.membersCount} icon="staff" tone="accent" href={`/workspaces/${id}/members`} />
+          <StatTile span={4} label="Задач" value={ws.tasksCount ?? 0} icon="tasks" tone={ws.tasksCount ? 'success' : 'neutral'} />
+          <StatTile
+            span={4}
+            label="Создана"
+            value={new Date(ws.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
+            icon="calendar"
+            tone="neutral"
+          />
+        </BentoGrid>
       )}
 
       {/* ---------- Подписка ---------- */}
       {section === 'subscription' && (
-        <div>
-          <h1 className="title-lg" style={{ marginBottom: 'var(--spacing-6)' }}>Подписка</h1>
-          <div className="wash-secondary" style={{ padding: 'var(--spacing-6)', maxWidth: '560px' }}>
-            <div className="label-sm" style={{ marginBottom: 'var(--spacing-1)' }}>Текущий план организации</div>
-            <span className="title-md">Бесплатный</span>
-            <p className="label-md" style={{ marginTop: 'var(--spacing-3)', fontSize: '0.85rem' }}>
-              Платные планы для организаций появятся позже.
-            </p>
-            <button className="btn-primary" disabled style={{ marginTop: 'var(--spacing-4)', opacity: 0.5, cursor: 'not-allowed' }}>
-              Улучшить (скоро)
-            </button>
-          </div>
-        </div>
+        <BentoGrid>
+          <Card span={7}>
+            <CardHeader title="Текущий план организации" subtitle="Платные планы для организаций появятся позже" />
+            <div className="title-lg" style={{ marginBottom: 'var(--spacing-4)' }}>Бесплатный</div>
+            <Button variant="primary" icon="crown" disabled>Улучшить (скоро)</Button>
+          </Card>
+        </BentoGrid>
       )}
 
       {/* ---------- Настройки ---------- */}
       {section === 'settings' && canManage && (
-        <div>
-          <h1 className="title-lg" style={{ marginBottom: 'var(--spacing-6)' }}>Настройки</h1>
-          <div className="card" style={{ display: 'grid', gap: 'var(--spacing-3)', maxWidth: '560px' }}>
-            <div>
-              <label className="label-sm">Часовой пояс</label>
-              <input className="input" value="Asia/Almaty" disabled style={{ marginTop: 'var(--spacing-1)', width: '100%', opacity: 0.6 }} />
-            </div>
-            <p className="label-sm" style={{ opacity: 0.6 }}>Дополнительные настройки организации появятся позже.</p>
-          </div>
-        </div>
+        <BentoGrid>
+          <Card span={7}>
+            <CardHeader title="Общие настройки" subtitle="Дополнительные настройки организации появятся позже" />
+            <Input label="Часовой пояс" value="Asia/Almaty" disabled />
+          </Card>
+        </BentoGrid>
       )}
 
       {/* ---------- Безопасность ---------- */}
       {section === 'security' && isOwner && (
-        <div>
-          <h1 className="title-lg" style={{ marginBottom: 'var(--spacing-6)' }}>Безопасность</h1>
-
-          <div className="card" style={{ maxWidth: '560px', marginBottom: 'var(--spacing-6)' }}>
-            <h2 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>Передать владение</h2>
-            <p className="label-sm" style={{ marginBottom: 'var(--spacing-3)', opacity: 0.7 }}>
-              Новый владелец получит полные права, вы станете администратором.
-            </p>
-            <div style={{ display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
-              <div style={{ flex: 1, minWidth: '220px' }}>
-                <EntitySelector
-                  types={['user']}
-                  options={members.filter((m) => m.role !== 'owner').map((m) => ({ type: 'user', id: m.userId, title: m.userName, firstName: m.userName }))}
-                  value={transferTo ? [{ type: 'user', id: transferTo }] : []}
-                  onChange={(next) => setTransferTo(next[next.length - 1]?.id ?? '')}
-                  placeholder="Выберите сотрудника…"
-                />
-              </div>
-              <button onClick={() => setConfirm('transfer')} disabled={!transferTo || busy} className="btn-secondary" style={{ padding: '0.5rem 1.25rem' }}>
-                Передать
-              </button>
-            </div>
-          </div>
-
-          <div className="card" style={{ maxWidth: '560px' }}>
-            <h2 className="title-md" style={{ marginBottom: 'var(--spacing-3)', color: 'var(--danger)' }}>Опасная зона</h2>
-            <p className="label-sm" style={{ marginBottom: 'var(--spacing-3)', opacity: 0.7 }}>
-              Деактивация скроет организацию. Данные сохраняются.
-            </p>
-            <button onClick={() => setConfirm('deactivate')} disabled={busy} className="btn-secondary" style={{ padding: '0.5rem 1.25rem', color: 'var(--danger)' }}>
-              Деактивировать организацию
-            </button>
-          </div>
-
-          {confirm && (
-            <div
-              style={{ position: 'fixed', inset: 0, background: 'rgba(56,57,45,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 'var(--spacing-4)' }}
-              onClick={() => !busy && setConfirm(null)}
-            >
-              <div className="card-elevated" style={{ maxWidth: '420px', padding: 'var(--spacing-6)' }} onClick={(e) => e.stopPropagation()}>
-                <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>
-                  {confirm === 'transfer' ? 'Передать владение?' : 'Деактивировать организацию?'}
-                </h3>
-                <p className="label-md" style={{ marginBottom: 'var(--spacing-5)', fontSize: '0.88rem' }}>
-                  {confirm === 'transfer'
-                    ? 'Вы передадите права владельца другому сотруднику. Это действие нельзя отменить самостоятельно.'
-                    : 'Организация будет скрыта. Вернуть её можно будет только обращением в поддержку.'}
-                </p>
-                <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end' }}>
-                  <button onClick={() => setConfirm(null)} disabled={busy} className="btn-secondary" style={{ padding: '0.45rem 1.1rem' }}>Отмена</button>
-                  <button
-                    onClick={confirm === 'transfer' ? doTransfer : doDeactivate}
-                    disabled={busy}
-                    className="btn-primary"
-                    style={{ padding: '0.45rem 1.1rem' }}
-                  >
-                    {busy ? '…' : 'Подтвердить'}
-                  </button>
+        <>
+          <BentoGrid>
+            <Card span={7}>
+              <CardHeader
+                title="Передать владение"
+                subtitle="Новый владелец получит полные права, вы станете администратором"
+              />
+              <div style={{ display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ flex: 1, minWidth: 220 }}>
+                  <EntitySelector
+                    types={['user']}
+                    options={members.filter((m) => m.role !== 'owner').map((m) => ({ type: 'user', id: m.userId, title: m.userName, firstName: m.userName }))}
+                    value={transferTo ? [{ type: 'user', id: transferTo }] : []}
+                    onChange={(next) => setTransferTo(next[next.length - 1]?.id ?? '')}
+                    placeholder="Выберите сотрудника…"
+                  />
                 </div>
+                <Button variant="outline" icon="crown" disabled={!transferTo || busy} onClick={() => setConfirm('transfer')}>
+                  Передать
+                </Button>
               </div>
-            </div>
-          )}
-        </div>
+            </Card>
+
+            <Card span={5}>
+              <CardHeader title="Опасная зона" subtitle="Деактивация скроет организацию. Данные сохраняются" />
+              <Divider style={{ margin: '0 0 var(--spacing-4)' }} />
+              <Button variant="primary" tone="danger" icon="archive" disabled={busy} onClick={() => setConfirm('deactivate')}>
+                Деактивировать организацию
+              </Button>
+            </Card>
+          </BentoGrid>
+
+          <ConfirmDialog
+            open={!!confirm}
+            onClose={() => !busy && setConfirm(null)}
+            onConfirm={confirm === 'transfer' ? doTransfer : doDeactivate}
+            title={confirm === 'transfer' ? 'Передать владение?' : 'Деактивировать организацию?'}
+            message={
+              confirm === 'transfer'
+                ? 'Вы передадите права владельца другому сотруднику. Вернуть их сможет только он.'
+                : 'Организация уйдёт в архив на 90 дней — вернуть её можно из блока «Архив» на главной. После этого она удаляется навсегда.'
+            }
+            confirmLabel={confirm === 'transfer' ? 'Передать' : 'Деактивировать'}
+            danger
+            loading={busy}
+          />
+        </>
       )}
-    </div>
-  );
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  max,
-  placeholder,
-  textarea,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  max?: number;
-  placeholder?: string;
-  textarea?: boolean;
-}) {
-  return (
-    <div>
-      <label className="label-sm">{label}</label>
-      {textarea ? (
-        <textarea
-          className="input"
-          value={value}
-          maxLength={max}
-          placeholder={placeholder}
-          onChange={(e) => onChange(e.target.value)}
-          rows={3}
-          style={{ marginTop: 'var(--spacing-1)', width: '100%', resize: 'vertical' }}
-        />
-      ) : (
-        <input
-          className="input"
-          value={value}
-          maxLength={max}
-          placeholder={placeholder}
-          onChange={(e) => onChange(e.target.value)}
-          style={{ marginTop: 'var(--spacing-1)', width: '100%' }}
-        />
-      )}
-    </div>
-  );
-}
-
-function VisRow({ label, on, onToggle }: { label: string; on: boolean; onToggle: (v: boolean) => void }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--spacing-2) 0' }}>
-      <span className="label-md" style={{ fontSize: '0.88rem' }}>{label}</span>
-      <button
-        onClick={() => onToggle(!on)}
-        style={{
-          padding: '0.25rem 0.8rem',
-          borderRadius: 'var(--radius-sm)',
-          border: 'none',
-          cursor: 'pointer',
-          fontSize: '0.75rem',
-          fontWeight: 600,
-          background: on ? 'var(--secondary-container)' : 'var(--surface-container)',
-          color: on ? 'var(--secondary)' : 'var(--on-surface-variant)',
-        }}
-      >
-        {on ? 'Видно' : 'Скрыто'}
-      </button>
-    </div>
-  );
-}
-
-function StatTile({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="card" style={{ textAlign: 'center' }}>
-      <div className="display-md" style={{ color: 'var(--primary)', fontSize: '2rem' }}>{value}</div>
-      <div className="label-md" style={{ marginTop: 'var(--spacing-1)' }}>{label}</div>
-    </div>
+    </>
   );
 }

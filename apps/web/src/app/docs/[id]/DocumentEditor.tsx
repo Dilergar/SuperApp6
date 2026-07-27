@@ -295,7 +295,7 @@ export default function DocumentEditor() {
             }}
             title="Зафиксировать текущее содержимое отдельной версией"
           >
-            {saveVersion.isSuccess && !saveVersion.isPending ? '✓ Версия сохранена' : 'Сохранить версию'}
+            {saveVersion.isSuccess && !saveVersion.isPending ? 'Версия сохранена' : 'Сохранить версию'}
           </button>
         )}
       </header>

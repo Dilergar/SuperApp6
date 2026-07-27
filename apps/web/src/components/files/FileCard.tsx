@@ -29,7 +29,7 @@ export function FileCard({ file, onOpen, actions }: FileCardProps) {
         background: 'var(--surface-container-lowest)',
         borderRadius: 'var(--radius-sketch)',
         overflow: 'hidden',
-        boxShadow: '0 2px 6px rgba(56, 57, 45, 0.12)',
+        boxShadow: '0 2px 6px rgba(0, 0, 0, 0.12)',
       }}
     >
       <div

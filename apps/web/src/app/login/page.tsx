@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/lib/stores/auth';
+import { Alert, Button, Input } from '@/components/ui';
+import { AuthLayout } from '../auth-ui';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -22,7 +24,6 @@ export default function LoginPage() {
     e.preventDefault();
     setError('');
     setLoading(true);
-
     try {
       await login(phone, password);
       router.push('/dashboard');
@@ -35,96 +36,54 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-6">
-      <div className="w-full max-w-sm">
-        {/* Back link */}
-        <Link
-          href="/"
-          className="label-md inline-block"
-          style={{ marginBottom: 'var(--spacing-8)', color: 'var(--on-surface-variant)' }}
-        >
-          ← на главную
-        </Link>
-
-        <h1 className="display-md" style={{ marginBottom: 'var(--spacing-2)' }}>
-          Войти
-        </h1>
-        <p className="label-md" style={{ marginBottom: 'var(--spacing-10)', fontSize: '1rem' }}>
-          Рады видеть вас снова
-        </p>
-
+    <AuthLayout
+      title="Войти"
+      subtitle="Рады видеть вас снова"
+      footer={
+        <>
+          Нет аккаунта? <Link href="/register" style={{ fontWeight: 700 }}>Создать</Link>
+        </>
+      }
+    >
+      <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
         {deletedNote && (
-          <div style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-6)', background: 'rgba(50,106,139,0.1)', color: 'var(--secondary)', fontSize: '0.875rem', lineHeight: 1.5, borderRadius: '10px' }}>
-            Аккаунт помечен на удаление. У вас есть <b>30 дней</b> — войдите, чтобы восстановить его.
-          </div>
+          <Alert tone="warning" title="Аккаунт помечен на удаление">
+            У вас есть 30 дней — войдите, чтобы восстановить его.
+          </Alert>
         )}
+        {error && <Alert tone="danger">{error}</Alert>}
 
-        <form onSubmit={handleSubmit}>
-          {error && (
-            <div className="wash-primary" style={{
-              padding: 'var(--spacing-3) var(--spacing-4)',
-              marginBottom: 'var(--spacing-6)',
-              color: 'var(--primary)',
-              fontSize: '0.875rem',
-            }}>
-              {error}
-            </div>
-          )}
+        <Input
+          label="Телефон"
+          type="tel"
+          icon="device"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          placeholder="+77001234567"
+          autoComplete="tel"
+          required
+        />
 
-          <div style={{ marginBottom: 'var(--spacing-8)' }}>
-            <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>
-              Телефон
-            </label>
-            <input
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="+77001234567"
-              className="input-sketch"
-            />
+        <div>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+            <span className="ui-field-label">Пароль</span>
+            <Link href="/reset-password" className="label-sm" style={{ fontWeight: 700 }}>Забыли пароль?</Link>
           </div>
+          <Input
+            type="password"
+            icon="lock"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Минимум 8 символов"
+            autoComplete="current-password"
+            required
+          />
+        </div>
 
-          <div style={{ marginBottom: 'var(--spacing-10)' }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 'var(--spacing-2)' }}>
-              <label className="label-md">Пароль</label>
-              <Link
-                href="/reset-password"
-                className="label-sm"
-                style={{ color: 'var(--secondary)', fontWeight: 600 }}
-              >
-                Забыли пароль?
-              </Link>
-            </div>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Минимум 8 символов"
-              className="input-sketch"
-            />
-          </div>
-
-          <button type="submit" disabled={loading} className="btn-primary w-full" style={{
-            fontSize: '1.05rem',
-            padding: 'var(--spacing-4)',
-            opacity: loading ? 0.6 : 1,
-          }}>
-            {loading ? 'Вход...' : 'Войти'}
-          </button>
-        </form>
-
-        <p style={{
-          textAlign: 'center',
-          marginTop: 'var(--spacing-8)',
-          color: 'var(--on-surface-variant)',
-          fontSize: '0.9rem',
-        }}>
-          Нет аккаунта?{' '}
-          <Link href="/register" style={{ color: 'var(--primary)', fontWeight: 600 }}>
-            Создать
-          </Link>
-        </p>
-      </div>
-    </div>
+        <Button type="submit" variant="primary" size="lg" block loading={loading}>
+          {loading ? 'Входим…' : 'Войти'}
+        </Button>
+      </form>
+    </AuthLayout>
   );
 }

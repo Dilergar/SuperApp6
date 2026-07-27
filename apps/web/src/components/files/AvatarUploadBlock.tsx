@@ -124,7 +124,7 @@ export function AvatarUploadBlock({
               style={{
                 position: 'absolute',
                 inset: 0,
-                background: 'rgba(56,57,45,0.45)',
+                background: 'rgba(0, 0, 0, 0.45)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',

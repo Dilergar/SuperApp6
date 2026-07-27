@@ -45,18 +45,10 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
   }
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--surface)' }}>
-      <nav className="fixed top-0 w-full z-50 px-6 py-4" style={{ background: 'rgba(245, 245, 220, 0.7)', backdropFilter: 'blur(10px)' }}>
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <Link href="/dashboard" className="title-md" style={{ color: 'var(--primary)' }}>SuperApp6</Link>
-          <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
-            <Link href="/circles" className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>Окружение</Link>
-            <Link href="/dashboard" className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>Главная</Link>
-          </div>
-        </div>
-      </nav>
+    <div className="">
+      
 
-      <div className="max-w-5xl mx-auto px-6 pt-24" style={{ paddingBottom: 'var(--spacing-16)' }}>
+      <div className="" style={{ paddingBottom: 'var(--spacing-16)' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 'var(--spacing-8)', minHeight: '70vh' }}>
           {/* Sidebar */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-1)' }}>
@@ -71,7 +63,7 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
                     fontFamily: 'var(--font-body)', fontSize: '0.85rem', fontWeight: 500,
                     background: active ? 'var(--surface-container-lowest)' : 'transparent',
                     color: active ? 'var(--on-surface)' : 'var(--on-surface-variant)',
-                    boxShadow: active ? '0 2px 8px rgba(56, 57, 45, 0.06)' : 'none',
+                    boxShadow: active ? '0 2px 8px rgba(0, 0, 0, 0.06)' : 'none',
                   }}
                 >
                   {s.label}

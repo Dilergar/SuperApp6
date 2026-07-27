@@ -7,67 +7,108 @@
 
 import { useState } from 'react';
 import type { FinPersonDto } from '@superapp/shared';
-import { api } from '@/lib/api';
+import { api, apiErrorMessage } from '@/lib/api';
 import { EntitySelector } from '@/components/EntitySelector';
+import { Alert, BentoGrid, Button, Card, CardHeader, EmptyState, IconButton } from '@/components/ui';
 import { PersonChip } from '../circles/PersonCard';
 import { bookParams } from './finance-lib';
 
-export function PeoplePanel({ people, onChanged, bookId, canEdit }: { people: FinPersonDto[]; onChanged: () => void; bookId: string | null; canEdit: boolean }) {
+export function PeoplePanel({
+  people,
+  onChanged,
+  bookId,
+  canEdit,
+}: {
+  people: FinPersonDto[];
+  onChanged: () => void;
+  bookId: string | null;
+  canEdit: boolean;
+}) {
   const [adding, setAdding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const add = async (userId: string) => {
     try {
       await api.post('/finance/people', { userId }, bookParams(bookId));
       setAdding(false);
+      setError(null);
       onChanged();
     } catch (e) {
-      alert((e as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Не удалось добавить');
+      setError(apiErrorMessage(e));
     }
   };
   const remove = async (userId: string) => {
     try {
       await api.delete(`/finance/people/${userId}`, bookParams(bookId));
       onChanged();
-    } catch {
-      /* noop */
+    } catch (e) {
+      setError(apiErrorMessage(e));
     }
   };
 
   return (
-    <div className="card" style={{ transform: 'rotate(0.35deg)' }}>
-      <div className="flex items-center justify-between" style={{ marginBottom: 'var(--spacing-2)' }}>
-        <h2 className="title-md">Близкие</h2>
-        {canEdit && (
-          <button className="btn-secondary" style={{ padding: '0.25rem 0.8rem', fontSize: '0.75rem' }} onClick={() => setAdding((v) => !v)}>
-            {adding ? 'Скрыть' : '+ Из окружения'}
-          </button>
+    <BentoGrid>
+      <Card span={12}>
+        <CardHeader
+          title="Близкие"
+          subtitle="Быстрый выбор для поля «на кого» — человек об этом не узнаёт"
+          actions={
+            canEdit ? (
+              <Button variant="matte" tone="accent" size="sm" icon="userAdd" onClick={() => setAdding((v) => !v)}>
+                {adding ? 'Скрыть' : 'Из окружения'}
+              </Button>
+            ) : undefined
+          }
+        />
+
+        {error && (
+          <div style={{ marginBottom: 'var(--spacing-4)' }}>
+            <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>
+          </div>
         )}
-      </div>
-      <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)' }}>
-        Быстрый выбор для поля «на кого» — человек об этом не узнаёт.
-      </p>
-      {adding && (
-        <div style={{ marginBottom: 'var(--spacing-4)' }}>
-          <EntitySelector value={[]} onChange={(next) => next[0] && add(next[0].id)} types={['user']} multi={false} placeholder="Кого добавить…" />
-        </div>
-      )}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)' }}>
-        {people.map((p) => (
-          <span key={p.userId} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
-            <PersonChip size="S" userId={p.userId} firstName={p.name} avatar={p.avatar} />
-            {canEdit && (
-              <button
-                onClick={() => remove(p.userId)}
-                title="Убрать из близких"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontWeight: 700, padding: 0 }}
+
+        {adding && canEdit && (
+          <div style={{ marginBottom: 'var(--spacing-4)', maxWidth: 420 }}>
+            <EntitySelector
+              value={[]}
+              onChange={(next) => next[0] && add(next[0].id)}
+              types={['user']}
+              multi={false}
+              placeholder="Кого добавить…"
+            />
+          </div>
+        )}
+
+        {people.length > 0 ? (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+            {people.map((p) => (
+              <span
+                key={p.userId}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.25rem',
+                  padding: '0.1875rem 0.3125rem 0.1875rem 0.1875rem',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-pill)',
+                }}
               >
-                ×
-              </button>
-            )}
-          </span>
-        ))}
-        {people.length === 0 && <p className="label-md">Список пуст.</p>}
-      </div>
-    </div>
+                <PersonChip size="S" userId={p.userId} firstName={p.name} avatar={p.avatar} />
+                {canEdit && (
+                  <IconButton icon="close" label={`Убрать ${p.name} из близких`} size={22} iconSize={12} onClick={() => remove(p.userId)} />
+                )}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            icon="people"
+            title="Список пуст"
+            description="Добавьте тех, на кого чаще всего тратите — они появятся первыми в поле «на кого»."
+            action={canEdit ? <Button variant="matte" icon="userAdd" onClick={() => setAdding(true)}>Выбрать из окружения</Button> : undefined}
+          />
+        )}
+      </Card>
+    </BentoGrid>
   );
 }

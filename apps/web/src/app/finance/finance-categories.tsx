@@ -7,24 +7,166 @@
 
 import { useState } from 'react';
 import type { FinAccountDto } from '@superapp/shared';
-import { api } from '@/lib/api';
+import { api, apiErrorMessage } from '@/lib/api';
+import {
+  Alert, BentoGrid, Button, Card, CardHeader, Chip, ConfirmDialog, EmptyState,
+  IconButton, Input, Modal, SegmentedControl, Select,
+} from '@/components/ui';
 import { bookParams } from './finance-lib';
+import { FinGlyph } from './finance-ui';
 
-export function CategoriesPanel({ categories, onChanged, bookId, canEdit }: { categories: FinAccountDto[]; onChanged: () => void; bookId: string | null; canEdit: boolean }) {
+export function CategoriesPanel({
+  categories,
+  onChanged,
+  bookId,
+  canEdit,
+}: {
+  categories: FinAccountDto[];
+  onChanged: () => void;
+  bookId: string | null;
+  canEdit: boolean;
+}) {
   const [kind, setKind] = useState<'expense' | 'income'>('expense');
   const [adding, setAdding] = useState(false);
-  const [name, setName] = useState('');
-  const [icon, setIcon] = useState('');
-  const [parentId, setParentId] = useState('');
+  const [removing, setRemoving] = useState<FinAccountDto | null>(null);
   const [busy, setBusy] = useState(false);
 
   const visible = categories.filter((c) => c.kind === kind && !c.archived);
   const roots = visible.filter((c) => !c.parentId);
   const childrenOf = (id: string) => visible.filter((c) => c.parentId === id);
 
-  const submit = async () => {
-    if (!name.trim() || busy) return;
+  const remove = async () => {
+    if (!removing || busy) return;
     setBusy(true);
+    try {
+      await api.delete(`/finance/categories/${removing.id}`, bookParams(bookId));
+      setRemoving(null);
+      onChanged();
+    } catch (e) {
+      window.alert(apiErrorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <BentoGrid>
+        <Card span={12}>
+          <CardHeader
+            title="Категории"
+            subtitle="На что уходит и откуда приходит. Второй уровень — подкатегории"
+            actions={
+              <>
+                <SegmentedControl
+                  aria-label="Вид категорий"
+                  value={kind}
+                  onChange={(k) => setKind(k)}
+                  items={[
+                    { key: 'expense', label: 'Расходы', icon: 'trendDown' },
+                    { key: 'income', label: 'Доходы', icon: 'trendUp' },
+                  ]}
+                />
+                {canEdit && (
+                  <Button variant="primary" tone="success" size="sm" icon="add" onClick={() => setAdding(true)}>
+                    Категория
+                  </Button>
+                )}
+              </>
+            }
+          />
+
+          {roots.length > 0 ? (
+            <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+              {roots.map((root) => {
+                const kids = childrenOf(root.id);
+                return (
+                  <div key={root.id}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                      {/* Эмодзи категории — данные человека; иначе интерфейсный фолбэк */}
+                      <FinGlyph glyph={root.icon} size={30} fallback={kind === 'expense' ? 'receipt' : 'coins'} tone={kind === 'expense' ? 'neutral' : 'success'} />
+                      <span className="title-sm" style={{ flex: 1, minWidth: 0 }}>{root.name}</span>
+                      {canEdit && (
+                        <IconButton icon="delete" label={`Удалить «${root.name}»`} size={30} onClick={() => setRemoving(root)} />
+                      )}
+                    </div>
+                    {kids.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem', margin: '0.5rem 0 0 2.375rem' }}>
+                        {kids.map((child) => (
+                          <Chip
+                            key={child.id}
+                            size="sm"
+                            emoji={child.icon}
+                            onRemove={canEdit ? () => setRemoving(child) : undefined}
+                            removeLabel={`Удалить «${child.name}»`}
+                          >
+                            {child.name}
+                          </Chip>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyState
+              icon={kind === 'expense' ? 'receipt' : 'coins'}
+              title={kind === 'expense' ? 'Категорий расходов нет' : 'Категорий доходов нет'}
+              description="Базовое дерево создаётся вместе с книгой — добавьте свои по ходу."
+              action={canEdit ? <Button variant="primary" tone="success" icon="add" onClick={() => setAdding(true)}>Добавить категорию</Button> : undefined}
+            />
+          )}
+        </Card>
+      </BentoGrid>
+
+      {adding && canEdit && (
+        <NewCategoryModal
+          kind={kind}
+          roots={roots}
+          bookId={bookId}
+          onClose={() => setAdding(false)}
+          onDone={() => { setAdding(false); onChanged(); }}
+        />
+      )}
+
+      <ConfirmDialog
+        open={!!removing}
+        onClose={() => setRemoving(null)}
+        onConfirm={remove}
+        title={removing ? `Удалить «${removing.name}»?` : 'Удалить категорию?'}
+        message="Если по категории есть операции — она уйдёт в архив, история сохранится."
+        confirmLabel="Удалить"
+        danger
+        loading={busy}
+      />
+    </>
+  );
+}
+
+function NewCategoryModal({
+  kind,
+  roots,
+  bookId,
+  onClose,
+  onDone,
+}: {
+  kind: 'expense' | 'income';
+  roots: FinAccountDto[];
+  bookId: string | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [icon, setIcon] = useState('');
+  const [parentId, setParentId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!name.trim() || busy) { setError('Укажите название'); return; }
+    setBusy(true);
+    setError(null);
     try {
       await api.post('/finance/categories', {
         kind,
@@ -32,117 +174,43 @@ export function CategoriesPanel({ categories, onChanged, bookId, canEdit }: { ca
         ...(icon.trim() ? { icon: icon.trim() } : {}),
         ...(parentId ? { parentId } : {}),
       }, bookParams(bookId));
-      setName(''); setIcon(''); setParentId(''); setAdding(false);
-      onChanged();
+      onDone();
     } catch (e) {
-      alert((e as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Не удалось создать категорию');
+      setError(apiErrorMessage(e));
     } finally {
       setBusy(false);
     }
   };
 
-  const remove = async (cat: FinAccountDto) => {
-    if (!window.confirm(`Удалить категорию «${cat.name}»? Если по ней есть операции — она уйдёт в архив.`)) return;
-    try {
-      await api.delete(`/finance/categories/${cat.id}`, bookParams(bookId));
-      onChanged();
-    } catch (e) {
-      alert((e as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Не удалось удалить');
-    }
-  };
-
   return (
-    <div className="card" style={{ transform: 'rotate(0.3deg)' }}>
-      <div className="flex items-center justify-between" style={{ marginBottom: 'var(--spacing-4)' }}>
-        <h2 className="title-md">Категории</h2>
-        {canEdit && (
-          <button className="btn-secondary" style={{ padding: '0.25rem 0.8rem', fontSize: '0.75rem' }} onClick={() => setAdding((v) => !v)}>
-            {adding ? 'Скрыть' : '+ Категория'}
-          </button>
-        )}
-      </div>
-
-      <div className="flex" style={{ gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-4)' }}>
-        {(['expense', 'income'] as const).map((k) => (
-          <button
-            key={k}
-            onClick={() => { setKind(k); setParentId(''); }}
-            style={{
-              border: 'none',
-              cursor: 'pointer',
-              padding: '0.3rem 1rem',
-              borderRadius: 'var(--radius-sketch)',
-              fontFamily: 'var(--font-display)',
-              fontWeight: 600,
-              fontSize: '0.8rem',
-              background: kind === k ? 'var(--primary-container)' : 'transparent',
-              color: 'var(--on-surface)',
-            }}
-          >
-            {k === 'expense' ? 'Расходы' : 'Доходы'}
-          </button>
-        ))}
-      </div>
-
-      {adding && (
-        <div className="wash-primary" style={{ padding: 'var(--spacing-4)', marginBottom: 'var(--spacing-4)' }}>
-          <div className="grid grid-cols-[1fr_60px]" style={{ gap: 'var(--spacing-3)' }}>
-            <input className="input-sketch" placeholder="Название" value={name} onChange={(e) => setName(e.target.value)} />
-            <input className="input-sketch" placeholder="🙂" value={icon} onChange={(e) => setIcon(e.target.value)} />
-          </div>
-          <select className="input-sketch" value={parentId} onChange={(e) => setParentId(e.target.value)} style={{ marginTop: 'var(--spacing-3)' }}>
-            <option value="">Без родителя (корневая)</option>
-            {roots.map((r) => <option key={r.id} value={r.id}>Внутри «{r.name}»</option>)}
-          </select>
-          <button className="btn-primary" style={{ marginTop: 'var(--spacing-4)', padding: '0.45rem 1.4rem', fontSize: '0.85rem' }} onClick={submit} disabled={busy}>
-            Создать
-          </button>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
-        {roots.map((root) => (
-          <div key={root.id}>
-            <CategoryChip cat={root} onRemove={canEdit ? () => remove(root) : undefined} />
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)', margin: '0.3rem 0 0 var(--spacing-6)' }}>
-              {childrenOf(root.id).map((child) => (
-                <CategoryChip key={child.id} cat={child} small onRemove={canEdit ? () => remove(child) : undefined} />
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function CategoryChip({ cat, small, onRemove }: { cat: FinAccountDto; small?: boolean; onRemove?: () => void }) {
-  const [hover, setHover] = useState(false);
-  return (
-    <span
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      className="ghost-border"
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: '0.35rem',
-        padding: small ? '0.15rem 0.6rem' : '0.25rem 0.8rem',
-        fontSize: small ? '0.75rem' : '0.85rem',
-        background: 'var(--surface-container-lowest)',
-      }}
+    <Modal
+      open
+      onClose={onClose}
+      title={kind === 'expense' ? 'Новая категория расходов' : 'Новая категория доходов'}
+      size="sm"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>Отмена</Button>
+          <Button variant="primary" tone="success" icon="add" onClick={submit} loading={busy}>Создать</Button>
+        </>
+      }
     >
-      <span>{cat.icon ?? '•'}</span>
-      <span>{cat.name}</span>
-      {hover && onRemove && (
-        <button
-          onClick={onRemove}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontWeight: 700, padding: 0, lineHeight: 1 }}
-          title="Удалить"
-        >
-          ×
-        </button>
-      )}
-    </span>
+      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+        {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 5rem', gap: 'var(--spacing-3)' }}>
+          <Input label="Название" placeholder="Продукты" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          <Input label="Значок" placeholder="🙂" value={icon} onChange={(e) => setIcon(e.target.value)} maxLength={4} />
+        </div>
+        <Select
+          label="Родитель"
+          value={parentId}
+          onChange={setParentId}
+          options={[
+            { value: '', label: 'Без родителя (корневая)' },
+            ...roots.map((r) => ({ value: r.id, label: `Внутри «${r.name}»`, emoji: r.icon })),
+          ]}
+        />
+      </div>
+    </Modal>
   );
 }

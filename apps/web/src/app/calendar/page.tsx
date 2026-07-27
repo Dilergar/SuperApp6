@@ -1,10 +1,13 @@
 'use client';
 
+import {
+  Alert, Button, Card, Chip, EmptyState, Icon, IconButton, LoadingBlock, Modal, PageHeader,
+  SegmentedControl,
+} from '@/components/ui';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import Link from 'next/link';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { api } from '@/lib/api';
+import { api, apiErrorMessage } from '@/lib/api';
 import { contactsKey, circlesKey, fetchAllContacts, fetchCircles } from '@/lib/queries';
 import { PersonChip } from '../circles/PersonCard';
 import {
@@ -225,80 +228,79 @@ export default function CalendarPage() {
     else resizeNow(item, newEnd, 'all');
   };
 
-  if (!isReady) {
-    return <div className="min-h-screen flex items-center justify-center"><p className="label-md">Загрузка…</p></div>;
-  }
+  if (!isReady) return <LoadingBlock />;
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--surface)' }}>
-      <nav className="fixed top-0 w-full z-50 px-6 py-4" style={{ background: 'rgba(245, 245, 220, 0.7)', backdropFilter: 'blur(10px)' }}>
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <Link href="/dashboard" className="title-md" style={{ color: 'var(--primary)' }}>SuperApp6</Link>
-          <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
-            <Link href="/tasks" className="btn-secondary" style={navBtn}>Задачи</Link>
-            <Link href="/circles" className="btn-secondary" style={navBtn}>Окружение</Link>
-            <Link href="/dashboard" className="btn-secondary" style={navBtn}>Главная</Link>
-          </div>
-        </div>
-      </nav>
+    <>
+      <PageHeader
+        breadcrumb="Календарь"
+        title={viewLabel(view, anchor)}
+        actions={
+          <>
+            <IconButton icon="caretLeft" label="Предыдущий период" size={34} variant="outline" round={false} onClick={() => step(-1)} />
+            <Button size="sm" variant="outline" onClick={() => setAnchor(new Date())}>Сегодня</Button>
+            <IconButton icon="caretRight" label="Следующий период" size={34} variant="outline" round={false} onClick={() => step(1)} />
+            <Button variant="primary" tone="success" icon="add" onClick={() => createAt(nextHalfHour(), false)}>Событие</Button>
+          </>
+        }
+      />
 
-      <div className="max-w-6xl mx-auto px-6 pt-24" style={{ paddingBottom: 'var(--spacing-16)' }}>
-        {/* Toolbar */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-4)', flexWrap: 'wrap', marginBottom: 'var(--spacing-5)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
-            <h1 className="display-md" style={{ fontSize: '2rem', minWidth: 220 }}>{viewLabel(view, anchor)}</h1>
-            <div style={{ display: 'flex', gap: 'var(--spacing-1)' }}>
-              <button onClick={() => step(-1)} style={navArrow}>‹</button>
-              <button onClick={() => setAnchor(new Date())} style={{ ...navArrow, width: 'auto', padding: '0 0.7rem', fontSize: '0.8rem', fontWeight: 600 }}>Сегодня</button>
-              <button onClick={() => step(1)} style={navArrow}>›</button>
-            </div>
+      <div style={{ display: 'grid', gap: 'var(--spacing-3)', marginBottom: 'var(--gap-grid)' }}>
+        {/* Вид + слои + инструменты — одна полоса управления над сеткой */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
+          <SegmentedControl items={VIEWS.map((v) => ({ key: v.key, label: v.label }))} value={view} onChange={(k) => setView(k as typeof view)} aria-label="Вид календаря" />
+          <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
+            <Chip tone="accent" icon="calendar" selected={layers.events} onClick={() => setLayers((l) => ({ ...l, events: !l.events }))}>События</Chip>
+            <Chip tone="danger" icon="tasks" selected={layers.tasks} onClick={() => setLayers((l) => ({ ...l, tasks: !l.tasks }))}>Задачи</Chip>
+            <Chip tone="warning" icon="finance" selected={layers.finance} onClick={() => setLayers((l) => ({ ...l, finance: !l.finance }))}>Платежи</Chip>
           </div>
-          <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
-            <button onClick={() => setShowSmart(true)} className="btn-secondary" style={{ fontSize: '0.85rem', padding: '0.45rem 1rem' }}>🔎 Подобрать</button>
-            <button onClick={() => setShowResources(true)} className="btn-secondary" style={{ fontSize: '0.85rem', padding: '0.45rem 1rem' }}>📦 Ресурсы</button>
-            <button onClick={() => setShowGoogle(true)} className="btn-secondary" style={{ fontSize: '0.85rem', padding: '0.45rem 1rem' }}>🔗 Google</button>
-            <button onClick={() => setShowShare(true)} className="btn-secondary" style={{ fontSize: '0.85rem', padding: '0.45rem 1rem' }}>↗ Поделиться</button>
-            <button onClick={() => createAt(nextHalfHour(), false)} className="btn-primary" style={{ fontSize: '0.9rem', padding: '0.5rem 1.2rem' }}>+ Событие</button>
-          </div>
-        </div>
-
-        {/* View switch + layer toggles */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-3)', flexWrap: 'wrap', marginBottom: 'var(--spacing-5)' }}>
-          <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
-            {VIEWS.map((v) => (
-              <button key={v.key} onClick={() => setView(v.key)} style={pill(view === v.key)}>{v.label}</button>
-            ))}
-          </div>
-          <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
-            <button onClick={() => setLayers((l) => ({ ...l, events: !l.events }))} style={layerChip(layers.events, '#326a8b')}>📅 События</button>
-            <button onClick={() => setLayers((l) => ({ ...l, tasks: !l.tasks }))} style={layerChip(layers.tasks, '#c61a1e')}>✓ Задачи</button>
-            <button onClick={() => setLayers((l) => ({ ...l, finance: !l.finance }))} style={layerChip(layers.finance, '#7c5800')}>₸ Платежи</button>
+          <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
+            <Button size="sm" variant="ghost" icon="target" onClick={() => setShowSmart(true)}>Подобрать</Button>
+            <Button size="sm" variant="ghost" icon="folder" onClick={() => setShowResources(true)}>Ресурсы</Button>
+            <Button size="sm" variant="ghost" icon="link" onClick={() => setShowGoogle(true)}>Google</Button>
+            <Button size="sm" variant="ghost" icon="share" onClick={() => setShowShare(true)}>Поделиться</Button>
           </div>
         </div>
 
         {sources.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', flexWrap: 'wrap', marginBottom: 'var(--spacing-4)' }}>
-            <span className="label-sm" style={{ fontWeight: 700 }}>Чужие календари:</span>
-            {sources.map((s) => (
-              <button key={s.userId} onClick={() => toggleOverlay(s.userId)} style={{ ...layerChip(overlays.has(s.userId), '#7c3aed'), display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
-                <PersonChip size="S" userId={s.userId} firstName={s.firstName} lastName={s.lastName ?? null} />
-                <span style={{ opacity: 0.6, fontSize: '0.66rem' }}>{s.accessLevel === 'detailed' ? 'детально' : 'занят'}</span>
-              </button>
-            ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', flexWrap: 'wrap' }}>
+            <span className="label-caps">Чужие календари</span>
+            {sources.map((s) => {
+              const on = overlays.has(s.userId);
+              return (
+                <button
+                  key={s.userId}
+                  type="button"
+                  onClick={() => toggleOverlay(s.userId)}
+                  aria-pressed={on}
+                  title={on ? 'Скрыть слой' : 'Показать слой'}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer',
+                    padding: '0.1875rem 0.5rem 0.1875rem 0.25rem', borderRadius: 'var(--radius-pill)',
+                    background: on ? 'var(--secondary-container)' : 'transparent',
+                    border: `1px solid ${on ? 'var(--primary)' : 'var(--border)'}`,
+                  }}
+                >
+                  <PersonChip size="S" userId={s.userId} firstName={s.firstName} lastName={s.lastName ?? null} />
+                  <span className="label-sm">{s.accessLevel === 'detailed' ? 'детально' : 'занят'}</span>
+                </button>
+              );
+            })}
           </div>
         )}
 
-        {error && <div className="wash-primary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-4)', color: 'var(--primary)', fontSize: '0.85rem' }}>{error}</div>}
+        {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
+      </div>
 
-        <div style={{ display: 'flex', gap: 'var(--spacing-4)', alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', gap: 'var(--gap-grid)', alignItems: 'flex-start' }}>
           {showPanel ? (
             <TriagePanel items={visible} undated={undated} onEvent={openEvent} onTask={openTask} onClose={() => setShowPanel(false)} />
           ) : (
-            <button onClick={() => setShowPanel(true)} title="Показать планнер" style={{ ...navArrow }}>⟩</button>
+            <IconButton icon="caretRight" label="Показать планнер" size={34} variant="outline" round={false} onClick={() => setShowPanel(true)} />
           )}
           <div style={{ flex: 1, minWidth: 0 }}>
             {loading ? (
-              <div className="card" style={{ textAlign: 'center', padding: 'var(--spacing-10)', color: 'var(--on-surface-variant)' }}><p className="label-md">Загрузка…</p></div>
+              <Card><LoadingBlock /></Card>
             ) : view === 'month' ? (
               <MonthView anchor={anchor} items={visible} onDayClick={(d) => createAt(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12), false)} onEvent={openEvent} onTask={openTask} onDropDay={onDropDay} />
             ) : view === 'agenda' ? (
@@ -316,7 +318,6 @@ export default function CalendarPage() {
               />
             )}
           </div>
-        </div>
       </div>
 
       {modal && <EventModal target={modal} meId={meId} contacts={contacts} circles={circles} resources={resources} onClose={closeModal} />}
@@ -342,7 +343,7 @@ export default function CalendarPage() {
           onCancel={() => setPendingMove(null)}
         />
       )}
-    </div>
+    </>
   );
 }
 
@@ -365,13 +366,14 @@ function MonthView({
   const byDay = groupByDay(items);
 
   return (
-    <div className="card" style={{ padding: 'var(--spacing-3)' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 'var(--spacing-1)' }}>
+    <Card className="density-compact" style={{ padding: 'var(--spacing-3)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '0.25rem' }}>
         {WEEKDAYS_SHORT.map((w) => (
-          <div key={w} className="label-sm" style={{ textAlign: 'center', fontWeight: 700, padding: 'var(--spacing-1)' }}>{w}</div>
+          <div key={w} className="label-caps" style={{ textAlign: 'center', padding: '0.25rem 0 0.375rem' }}>{w}</div>
         ))}
         {days.map((d) => {
           const inMonth = d.getMonth() === anchor.getMonth();
+          const today = isToday(d);
           const list = byDay.get(dayKey(d)) ?? [];
           return (
             <div
@@ -380,23 +382,32 @@ function MonthView({
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => { e.preventDefault(); onDropDay(d); }}
               style={{
-                minHeight: 104, padding: 'var(--spacing-1) var(--spacing-2)', cursor: 'pointer',
-                borderRadius: 'var(--radius-sm)',
-                background: isToday(d) ? 'var(--secondary-container)' : 'var(--surface-container-low)',
-                opacity: inMonth ? 1 : 0.4,
+                minHeight: 104, padding: '0.25rem 0.375rem', cursor: 'pointer',
+                borderRadius: 'var(--radius-md)',
+                border: `1px solid ${today ? 'var(--primary)' : 'var(--divider)'}`,
+                background: today ? 'var(--secondary-container)' : 'transparent',
+                opacity: inMonth ? 1 : 0.45,
                 display: 'flex', flexDirection: 'column', gap: 2,
               }}
             >
-              <div style={{ textAlign: 'right', fontSize: '0.78rem', fontWeight: isToday(d) ? 800 : 600, color: isToday(d) ? 'var(--secondary)' : 'var(--on-surface)' }}>{d.getDate()}</div>
+              <div
+                style={{
+                  textAlign: 'right', fontSize: '0.8125rem',
+                  fontWeight: today ? 800 : 600,
+                  color: today ? 'var(--primary-dim)' : 'var(--on-surface)',
+                }}
+              >
+                {d.getDate()}
+              </div>
               {list.slice(0, 3).map((it, idx) => (
                 <ItemChip key={chipKey(it, idx)} item={it} onEvent={onEvent} onTask={onTask} />
               ))}
-              {list.length > 3 && <div className="label-sm" style={{ fontSize: '0.68rem' }}>+{list.length - 3} ещё</div>}
+              {list.length > 3 && <div className="label-sm">+{list.length - 3} ещё</div>}
             </div>
           );
         })}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -413,15 +424,22 @@ function ItemChip({ item, onEvent, onTask }: { item: CalendarItem; onEvent: (o: 
       title={item.title}
       style={{
         display: 'flex', alignItems: 'center', gap: 4, width: '100%', textAlign: 'left',
-        padding: '1px 5px', borderRadius: 4, border: 'none', cursor: drag ? 'grab' : 'pointer',
+        padding: '1px 5px', borderRadius: 'var(--radius-sm)', border: 'none', cursor: drag ? 'grab' : 'pointer',
         background: isTask(item) ? 'transparent' : color + '22',
         fontSize: '0.7rem', fontWeight: 600, color: 'var(--on-surface)',
         overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
         opacity: done ? 0.55 : 1,
       }}
     >
-      <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />
-      {isTask(item) ? <span style={{ flexShrink: 0 }}>{done ? '✓' : item.overdue ? '⏰' : '○'}</span> : (!item.allDay && <span style={{ opacity: 0.7, flexShrink: 0 }}>{fmtTime(item.start)}</span>)}
+      <span aria-hidden style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />
+      {/* Значок рисует клиент по виду записи: в тексте с сервера эмодзи нет */}
+      {isTask(item) ? (
+        <Icon name={done ? 'check' : item.overdue ? 'overdue' : 'tasks'} size={13} />
+      ) : isFinance(item) ? (
+        <Icon name="finance" size={13} />
+      ) : (
+        !item.allDay && <span style={{ opacity: 0.7, flexShrink: 0 }}>{fmtTime(item.start)}</span>
+      )}
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: done ? 'line-through' : 'none' }}>{item.title}</span>
     </button>
   );
@@ -481,7 +499,7 @@ function TimeGridView({
   const now = new Date();
 
   return (
-    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+    <Card className="density-compact" style={{ padding: 0, overflow: 'hidden' }}>
       {/* Day headers */}
       <div style={{ display: 'grid', gridTemplateColumns: `52px repeat(${days.length}, 1fr)` }}>
         <div />
@@ -489,16 +507,16 @@ function TimeGridView({
           const h = fmtDayHeader(d);
           return (
             <div key={d.toISOString()} style={{ textAlign: 'center', padding: 'var(--spacing-2)' }}>
-              <div className="label-sm" style={{ fontSize: '0.7rem' }}>{h.weekday}</div>
-              <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.1rem', color: isToday(d) ? 'var(--secondary)' : 'var(--on-surface)' }}>{h.day}</div>
+              <div className="label-caps">{h.weekday}</div>
+              <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.125rem', color: isToday(d) ? 'var(--primary-dim)' : 'var(--on-surface)' }}>{h.day}</div>
             </div>
           );
         })}
       </div>
 
       {/* All-day band */}
-      <div style={{ display: 'grid', gridTemplateColumns: `52px repeat(${days.length}, 1fr)`, background: 'var(--surface-container-low)', minHeight: 30 }}>
-        <div className="label-sm" style={{ fontSize: '0.62rem', padding: '4px', alignSelf: 'center' }}>весь день</div>
+      <div style={{ display: 'grid', gridTemplateColumns: `52px repeat(${days.length}, 1fr)`, borderTop: '1px solid var(--divider)', borderBottom: '1px solid var(--divider)', minHeight: 30 }}>
+        <div className="label-caps" style={{ padding: '4px 6px', alignSelf: 'center' }}>весь день</div>
         {days.map((d) => {
           const all = (byDay.get(dayKey(d)) ?? []).filter(isAllDayItem);
           return (
@@ -515,7 +533,7 @@ function TimeGridView({
           {/* hour gutter */}
           <div>
             {Array.from({ length: 24 }, (_, h) => (
-              <div key={h} style={{ height: HOUR_PX, textAlign: 'right', paddingRight: 6, fontSize: '0.62rem', color: 'var(--on-surface-variant)', transform: 'translateY(-6px)' }}>
+              <div key={h} className="meta" style={{ height: HOUR_PX, textAlign: 'right', paddingRight: 6, color: 'var(--muted)', transform: 'translateY(-6px)' }}>
                 {h > 0 ? `${String(h).padStart(2, '0')}:00` : ''}
               </div>
             ))}
@@ -527,18 +545,18 @@ function TimeGridView({
             const timedTasks = dayItems.filter((i) => isTask(i) && !i.allDay && !i.overdue) as CalendarTaskItem[];
             const laid = layoutColumns(timedEvents);
             return (
-              <div key={d.toISOString()} style={{ position: 'relative', borderLeft: '1px solid rgba(187,186,171,0.25)' }}>
+              <div key={d.toISOString()} style={{ position: 'relative', borderLeft: '1px solid var(--divider)' }}>
                 {Array.from({ length: 24 }, (_, h) => (
                   <div key={h}
                     onClick={() => onSlot(d, h)}
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={(e) => { e.preventDefault(); onDropSlot(d, h); }}
-                    style={{ height: HOUR_PX, borderTop: '1px solid rgba(187,186,171,0.18)', cursor: 'pointer' }} />
+                    style={{ height: HOUR_PX, borderTop: '1px solid var(--divider)', cursor: 'pointer' }} />
                 ))}
                 {/* now line */}
                 {isToday(d) && (
-                  <div style={{ position: 'absolute', left: 0, right: 0, top: (minutesFromMidnight(now.toISOString()) / 60) * HOUR_PX, height: 2, background: 'var(--primary)', zIndex: 5 }}>
-                    <span style={{ position: 'absolute', left: -4, top: -3, width: 8, height: 8, borderRadius: '50%', background: 'var(--primary)' }} />
+                  <div aria-hidden style={{ position: 'absolute', left: 0, right: 0, top: (minutesFromMidnight(now.toISOString()) / 60) * HOUR_PX, height: 2, background: 'var(--danger-base)', zIndex: 5 }}>
+                    <span style={{ position: 'absolute', left: -4, top: -3, width: 8, height: 8, borderRadius: '50%', background: 'var(--danger-base)' }} />
                   </div>
                 )}
                 {laid.map(({ item, col, cols }, idx) => {
@@ -560,7 +578,7 @@ function TimeGridView({
                       style={{
                         position: 'absolute', top, height,
                         left: `calc(${(col / cols) * 100}% + 2px)`, width: `calc(${100 / cols}% - 4px)`,
-                        background: color + '26', borderLeft: `3px solid ${color}`, borderRadius: 4,
+                        background: color + '26', borderLeft: `3px solid ${color}`, borderRadius: 'var(--radius-sm)',
                         padding: '2px 4px', textAlign: 'left', cursor: drag ? 'grab' : 'pointer', overflow: 'hidden',
                         fontSize: '0.7rem', color: 'var(--on-surface)', zIndex: pv ? 6 : 2,
                       }}
@@ -588,9 +606,10 @@ function TimeGridView({
                       onDragEnd={clearDrag}
                       onClick={() => onTask(t)}
                       title={t.title}
-                      style={{ position: 'absolute', top: top - 8, left: 2, right: 2, height: 16, display: 'flex', alignItems: 'center', gap: 4, cursor: 'grab', zIndex: 3, fontSize: '0.66rem', fontWeight: 600, color: 'var(--primary)' }}
+                      style={{ position: 'absolute', top: top - 8, left: 2, right: 2, height: 16, display: 'flex', alignItems: 'center', gap: 4, cursor: 'grab', zIndex: 3, fontSize: '0.6875rem', fontWeight: 600, color: 'var(--danger)' }}
                     >
-                      <span>✓</span><span style={{ overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{t.title}</span>
+                      <Icon name="tasks" size={13} />
+                      <span style={{ overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{t.title}</span>
                     </div>
                   );
                 })}
@@ -599,7 +618,7 @@ function TimeGridView({
           })}
         </div>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -619,23 +638,28 @@ function AgendaView({
   const days = Array.from({ length: 31 }, (_, i) => addDays(startOfDay(anchor), i)).filter((d) => (byDay.get(dayKey(d)) ?? []).length > 0);
 
   if (days.length === 0) {
-    return <div className="card" style={{ textAlign: 'center', padding: 'var(--spacing-10)', color: 'var(--on-surface-variant)' }}><p className="label-md">На ближайшие 30 дней ничего нет</p></div>;
+    return (
+      <Card>
+        <EmptyState icon="calendar" title="На ближайшие 30 дней ничего нет" description="Свободный месяц — или пора что-нибудь запланировать." />
+      </Card>
+    );
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
+    <div className="density-compact" style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
       {days.map((d) => {
         const list = [...(byDay.get(dayKey(d)) ?? [])].sort((a, b) => a.start.localeCompare(b.start));
         return (
-          <div key={d.toISOString()} className="card" style={{ padding: 'var(--spacing-4)' }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-2)' }}>
-              <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.1rem', color: isToday(d) ? 'var(--secondary)' : 'var(--on-surface)' }}>{d.getDate()}</span>
+          <Card key={d.toISOString()} small>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginBottom: 'var(--spacing-2)' }}>
+              <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.125rem', color: isToday(d) ? 'var(--primary-dim)' : 'var(--on-surface)' }}>{d.getDate()}</span>
               <span className="label-sm">{d.toLocaleDateString('ru-RU', { weekday: 'long', month: 'long' })}</span>
+              {isToday(d) && <Chip size="sm" tone="accent">сегодня</Chip>}
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-1)' }}>
+            <div style={{ display: 'grid', gap: '0.25rem' }}>
               {list.map((it, idx) => <AgendaRow key={chipKey(it, idx)} item={it} onEvent={onEvent} onTask={onTask} />)}
             </div>
-          </div>
+          </Card>
         );
       })}
     </div>
@@ -649,13 +673,21 @@ function AgendaRow({ item, onEvent, onTask }: { item: CalendarItem; onEvent: (o:
   return (
     <button
       onClick={() => { if (isEvent(item)) onEvent(item); else if (isTask(item)) onTask(item); else window.location.href = '/finance'; }}
-      style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', padding: '0.4rem 0.5rem', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--surface-container-low)', cursor: 'pointer', textAlign: 'left', width: '100%' }}
+      style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', padding: '0.4375rem 0.5rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--divider)', background: 'transparent', cursor: 'pointer', textAlign: 'left', width: '100%' }}
     >
       <span className="label-sm" style={{ width: 78, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{timeLabel}</span>
-      <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
-      <span style={{ flex: 1, fontWeight: 600, fontSize: '0.88rem', textDecoration: done ? 'line-through' : 'none', opacity: done ? 0.6 : 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</span>
-      {isTask(item) && <span className="label-sm" style={{ color: item.overdue ? 'var(--primary)' : 'var(--on-surface-variant)', fontSize: '0.68rem', fontWeight: 700 }}>{item.overdue ? 'просрочено' : 'задача'}</span>}
-      {isEvent(item) && item.location && <span className="label-sm" style={{ fontSize: '0.68rem' }}>📍 {item.location}</span>}
+      <span aria-hidden style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
+      {isFinance(item) && <Icon name="finance" size={14} style={{ color: 'var(--muted)' }} />}
+      <span className="title-sm" style={{ flex: 1, textDecoration: done ? 'line-through' : 'none', opacity: done ? 0.6 : 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</span>
+      {isTask(item) && (
+        <Chip size="sm" tone={item.overdue ? 'danger' : 'neutral'}>{item.overdue ? 'просрочено' : 'задача'}</Chip>
+      )}
+      {isEvent(item) && item.location && (
+        <span className="label-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+          <Icon name="location" size={13} />
+          {item.location}
+        </span>
+      )}
     </button>
   );
 }
@@ -668,6 +700,9 @@ function TaskPopover({ task, onClose }: { task: CalendarTaskItem; onClose: (chan
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const st = TASK_STATUS_META[task.status];
+  const statusTone: Record<string, 'accent' | 'success' | 'warning' | 'danger' | 'neutral'> = {
+    todo: 'neutral', in_progress: 'accent', on_review: 'warning', done: 'success', cancelled: 'neutral',
+  };
   const canComplete = task.status !== 'done' && task.status !== 'cancelled';
 
   const complete = async () => {
@@ -675,49 +710,67 @@ function TaskPopover({ task, onClose }: { task: CalendarTaskItem; onClose: (chan
     try {
       await api.post(`/tasks/${task.taskId}/submit`);
       onClose(true);
-    } catch (e: unknown) {
-      const a = e as { response?: { data?: { message?: string } } };
-      setError(a.response?.data?.message || 'Не получилось отметить выполнение');
+    } catch (e) {
+      setError(apiErrorMessage(e));
       setBusy(false);
     }
   };
 
   return (
-    <div onClick={() => onClose(false)} style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', background: 'rgba(56,57,45,0.28)', backdropFilter: 'blur(3px)' }}>
-      <div onClick={(e) => e.stopPropagation()} className="card-elevated" style={{ width: '100%', maxWidth: 420, padding: 'var(--spacing-6)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--spacing-3)' }}>
-          <h3 className="title-md" style={{ flex: 1 }}>{task.title}</h3>
-          <button onClick={() => onClose(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', color: 'var(--on-surface-variant)' }}>✕</button>
-        </div>
-        <div style={{ display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap', marginBottom: 'var(--spacing-4)' }}>
-          <span className="label-sm" style={{ color: st.color, fontWeight: 700 }}>{st.icon} {st.label}</span>
-          <span className="label-sm" style={{ color: task.overdue ? 'var(--primary)' : 'var(--on-surface-variant)' }}>⏰ {new Date(task.dueDate).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: task.allDay ? undefined : '2-digit', minute: task.allDay ? undefined : '2-digit' })}{task.overdue ? ' · просрочено' : ''}</span>
-          {task.coinReward ? <span className="label-sm" style={{ color: 'var(--tertiary)' }}>🪙 {task.coinReward}</span> : null}
-        </div>
-        {error && <p className="label-sm" style={{ color: 'var(--primary)', marginBottom: 'var(--spacing-3)' }}>{error}</p>}
-        <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end' }}>
-          <Link href={`/tasks/${task.taskId}`} className="btn-secondary" style={{ padding: '0.5rem 1.2rem', fontSize: '0.85rem' }}>Открыть задачу</Link>
-          {canComplete && <button onClick={complete} disabled={busy} className="btn-primary" style={{ padding: '0.5rem 1.4rem', fontSize: '0.85rem', opacity: busy ? 0.6 : 1 }}>{busy ? '…' : '✓ Выполнено'}</button>}
+    <Modal
+      open
+      onClose={() => onClose(false)}
+      title={task.title}
+      size="sm"
+      footer={
+        <>
+          <Button variant="outline" icon="tasks" href={`/tasks/${task.taskId}`}>Открыть задачу</Button>
+          {canComplete && (
+            <Button variant="primary" tone="success" icon="check" loading={busy} onClick={complete}>Выполнено</Button>
+          )}
+        </>
+      }
+    >
+      <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
+        {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
+        <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
+          <Chip size="sm" tone={statusTone[task.status] ?? 'neutral'}>{st.label}</Chip>
+          <Chip size="sm" tone={task.overdue ? 'danger' : 'neutral'} icon="clock">
+            {new Date(task.dueDate).toLocaleString('ru-RU', {
+              day: 'numeric',
+              month: 'short',
+              hour: task.allDay ? undefined : '2-digit',
+              minute: task.allDay ? undefined : '2-digit',
+            })}
+            {task.overdue ? ' · просрочено' : ''}
+          </Chip>
+          {task.coinReward ? <Chip size="sm" tone="warning" icon="coins">{task.coinReward}</Chip> : null}
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
-
 function RecurrenceScopeDialog({ onPick, onCancel }: { onPick: (scope: 'this' | 'all') => void; onCancel: () => void }) {
   return (
-    <div onClick={onCancel} style={{ position: 'fixed', inset: 0, zIndex: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', background: 'rgba(56,57,45,0.28)', backdropFilter: 'blur(3px)' }}>
-      <div onClick={(e) => e.stopPropagation()} className="card-elevated" style={{ width: '100%', maxWidth: 380, padding: 'var(--spacing-6)', textAlign: 'center' }}>
-        <h3 className="title-md" style={{ marginBottom: 'var(--spacing-2)' }}>Повторяющееся событие</h3>
-        <p className="label-md" style={{ marginBottom: 'var(--spacing-5)' }}>Изменить только это вхождение или всю серию?</p>
-        <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'center', flexWrap: 'wrap' }}>
-          <button onClick={() => onPick('this')} className="btn-secondary" style={{ padding: '0.5rem 1.2rem', fontSize: '0.85rem' }}>Только это</button>
-          <button onClick={() => onPick('all')} className="btn-primary" style={{ padding: '0.5rem 1.2rem', fontSize: '0.85rem' }}>Вся серия</button>
-        </div>
-        <button onClick={onCancel} style={{ marginTop: 'var(--spacing-4)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)', fontSize: '0.8rem' }}>Отмена</button>
-      </div>
-    </div>
+    <Modal
+      open
+      onClose={onCancel}
+      title="Повторяющееся событие"
+      subtitle="Изменить только это вхождение или всю серию?"
+      size="sm"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onCancel}>Отмена</Button>
+          <Button variant="outline" onClick={() => onPick('this')}>Только это</Button>
+          <Button variant="primary" onClick={() => onPick('all')}>Вся серия</Button>
+        </>
+      }
+    >
+      <p className="body-md" style={{ margin: 0 }}>
+        «Только это» создаст исключение в серии — остальные вхождения останутся на своих местах.
+      </p>
+    </Modal>
   );
 }
 
@@ -789,13 +842,3 @@ function chipKey(item: CalendarItem, idx: number): string {
   return `${id}-${idx}`;
 }
 
-const navBtn: React.CSSProperties = { padding: '0.4rem 1rem', fontSize: '0.8rem' };
-const navArrow: React.CSSProperties = { width: 34, height: 34, borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--surface-container)', cursor: 'pointer', fontSize: '1.1rem', color: 'var(--on-surface)' };
-
-function pill(active: boolean): React.CSSProperties {
-  return { padding: '0.35rem 0.9rem', fontSize: '0.82rem', borderRadius: 'var(--radius-sketch)', border: 'none', cursor: 'pointer', fontWeight: 600, background: active ? 'var(--surface-container-lowest)' : 'var(--surface-container)', color: active ? 'var(--on-surface)' : 'var(--on-surface-variant)', boxShadow: active ? '0 2px 12px rgba(56,57,45,0.08)' : 'none' };
-}
-
-function layerChip(active: boolean, color: string): React.CSSProperties {
-  return { padding: '0.35rem 0.8rem', fontSize: '0.78rem', borderRadius: 'var(--radius-sketch)', border: 'none', cursor: 'pointer', fontWeight: 600, background: active ? color + '22' : 'var(--surface-container)', color: active ? color : 'var(--on-surface-variant)', opacity: active ? 1 : 0.6 };
-}

@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon, ICONS, type IconName } from '@/components/ui';
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
@@ -360,7 +361,7 @@ export function Conversation({
   // Start a reply from a bubble's corner menu: stash the quoted target so the
   // composer shows the quoted bar and the next send carries replyToId.
   const startReply = useCallback((m: ChatMessage) => {
-    const fallback = m.type === 'attachment' ? '📎 Вложения' : '';
+    const fallback = m.type === 'attachment' ? 'Вложения' : '';
     setReplyingTo({
       id: m.id,
       authorName: m.authorName,
@@ -414,7 +415,7 @@ export function Conversation({
           alignItems: 'center',
           gap: 'var(--spacing-3)',
           padding: 'var(--spacing-3) var(--spacing-5)',
-          background: 'rgba(245, 245, 220, 0.7)',
+          background: 'rgba(234, 230, 222, 0.7)',
           backdropFilter: 'blur(10px)',
         }}
       >
@@ -468,9 +469,7 @@ export function Conversation({
               alignItems: 'center',
               justifyContent: 'center',
             }}
-          >
-            📞
-          </button>
+          ><Icon name="call" size={15} /></button>
         )}
         <button
           onClick={() => setShowScheduled(true)}
@@ -515,9 +514,7 @@ export function Conversation({
             alignItems: 'center',
             justifyContent: 'center',
           }}
-        >
-          🔍
-        </button>
+        ><Icon name="search" size={15} /></button>
         {detail.type === 'group' && onManage && (detail.myRole === 'owner' || detail.myRole === 'admin') && (
           <button
             onClick={onManage}
@@ -537,9 +534,7 @@ export function Conversation({
               alignItems: 'center',
               justifyContent: 'center',
             }}
-          >
-            ⚙
-          </button>
+          ><Icon name="settings" size={15} /></button>
         )}
       </div>
 
@@ -556,12 +551,12 @@ export function Conversation({
           }}
         >
           <span className="label-md" style={{ color: 'var(--secondary)', fontWeight: 700 }}>
-            📞 Идёт звонок · {activeCall.participantUserIds.length}
+            <Icon name="call" size={15} /> Идёт звонок · {activeCall.participantUserIds.length}
             {activeCall.recording ? ' · ● Запись' : ''}
           </span>
           {onStartCall && (
             <button
-              className="btn-secondary"
+              className="btn-ghost-inline"
               style={{ padding: '0.3rem 0.9rem', fontSize: '0.8rem' }}
               onClick={onStartCall}
             >
@@ -610,7 +605,7 @@ export function Conversation({
               border: 'none',
               borderRadius: 'var(--radius-md)',
               outline: 'none',
-              boxShadow: '0 2px 8px rgba(56, 57, 45, 0.05)',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
             }}
           />
           <span
@@ -827,9 +822,7 @@ export function Conversation({
               alignItems: 'center',
               justifyContent: 'center',
             }}
-          >
-            📎
-          </button>
+          ><Icon name="attach" size={15} /></button>
         )}
         <button
           onClick={() => setShowAttach(true)}
@@ -850,7 +843,7 @@ export function Conversation({
             justifyContent: 'center',
           }}
         >
-          🏷️
+          <Icon name="flag" size={16} />
         </button>
         {onSendAttachments && <VoiceRecordButton onSent={handleVoiceSent} />}
         <Composer chatId={detail.id} onSend={handleComposerSend} onTypingChange={stableTyping} />
@@ -939,7 +932,7 @@ const Composer = memo(function Composer({
       <button
         onClick={submit}
         disabled={!draft.trim()}
-        className="btn-primary"
+        className="btn-success"
         style={{
           fontSize: '0.85rem',
           padding: '0.6rem 1.3rem',
@@ -1111,7 +1104,6 @@ const MessageBubble = memo(function MessageBubble({
                   flexDirection: 'column',
                   gap: '0.1rem',
                   zIndex: 70,
-                  transform: 'rotate(-0.4deg)',
                 }}
               >
                 <CornerMenuItem
@@ -1141,7 +1133,7 @@ const MessageBubble = memo(function MessageBubble({
                 {mine && (
                   <>
                     <CornerMenuItem
-                      icon="✎"
+                      icon="edit"
                       label={message.type === 'attachment' ? 'Изменить подпись' : 'Редактировать'}
                       onClick={() => {
                         setMenuOpen(false);
@@ -1150,7 +1142,7 @@ const MessageBubble = memo(function MessageBubble({
                       }}
                     />
                     <CornerMenuItem
-                      icon="🗑"
+                      icon="delete"
                       label="Удалить"
                       danger
                       onClick={() => {
@@ -1176,7 +1168,7 @@ const MessageBubble = memo(function MessageBubble({
                 ? 'linear-gradient(135deg, var(--primary), var(--primary-dim))'
                 : 'var(--surface-container-high)',
             color: deleted ? 'var(--on-surface-variant)' : mine ? 'var(--on-primary)' : 'var(--on-surface)',
-            boxShadow: '0 2px 10px rgba(56, 57, 45, 0.06)',
+            boxShadow: '0 2px 10px rgba(0, 0, 0, 0.06)',
             minWidth: 0,
           }}
         >
@@ -1387,11 +1379,30 @@ function CornerMenuItem({
       onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface-container)')}
       onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
     >
-      <span style={{ fontSize: '0.95rem', flexShrink: 0, lineHeight: 1 }}>{icon}</span>
+      <MenuGlyph icon={icon} />
       <span style={{ minWidth: 0 }}>{label}</span>
     </button>
   );
 }
+
+/**
+ * Значок пункта меню. Реестр быстрых действий (core/quick-actions) отдаёт
+ * иконку строкой-эмодзи, а кит — семантическим именем. Понимаем оба:
+ * известное имя рисуем иконкой, эмодзи оставляем эмодзи.
+ */
+function MenuGlyph({ icon }: { icon: string }) {
+  if (icon in ICONS) return <Icon name={icon as IconName} size={15} />;
+  const mapped = QUICK_ACTION_GLYPH[icon];
+  if (mapped) return <Icon name={mapped} size={15} />;
+  return <span aria-hidden style={{ fontSize: '0.95rem', flexShrink: 0, lineHeight: 1 }}>{icon}</span>;
+}
+
+/** Эмодзи из реестра быстрых действий → иконка системы. */
+const QUICK_ACTION_GLYPH: Record<string, IconName> = {
+  '✅': 'checkCircle', '✓': 'check', '⏰': 'clock', '🔔': 'bell',
+  '📅': 'calendar', '🗓': 'calendar', '💸': 'finance', '💰': 'coins',
+  '📝': 'edit', '↩': 'arrowLeft',
+};
 
 /** ↑/↓ stepper button in the in-chat search bar (dimmed when no matches). */
 function searchStepBtn(disabled: boolean): React.CSSProperties {

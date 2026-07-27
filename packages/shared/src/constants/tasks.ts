@@ -22,31 +22,31 @@ export const TASK_STATUS_META: Record<
   TaskStatus,
   { label: string; icon: string; color: string }
 > = {
-  todo: { label: 'К выполнению', icon: '○', color: '#6b7280' },
-  in_progress: { label: 'В работе', icon: '◐', color: '#326a8b' },
-  on_review: { label: 'На проверке', icon: '⏳', color: '#d97706' },
-  done: { label: 'Готово', icon: '✓', color: '#16a34a' },
-  cancelled: { label: 'Отменена', icon: '✕', color: '#9ca3af' },
+  todo: { label: 'К выполнению', icon: '○', color: '#8a8478' },
+  in_progress: { label: 'В работе', icon: '◐', color: '#588cd3' },
+  on_review: { label: 'На проверке', icon: '⏳', color: '#d6966c' },
+  done: { label: 'Готово', icon: '✓', color: '#74a277' },
+  cancelled: { label: 'Отменена', icon: '✕', color: '#a39d92' },
 };
 
 export const TASK_PRIORITY_META: Record<
   TaskPriority,
   { label: string; color: string }
 > = {
-  low: { label: 'Низкий', color: '#9ca3af' },
-  medium: { label: 'Средний', color: '#326a8b' },
-  high: { label: 'Высокий', color: '#d97706' },
-  urgent: { label: 'Срочно', color: '#c61a1e' },
+  low: { label: 'Низкий', color: '#a39d92' },
+  medium: { label: 'Средний', color: '#588cd3' },
+  high: { label: 'Высокий', color: '#d6966c' },
+  urgent: { label: 'Срочно', color: '#de6d68' },
 };
 
 export const PARTICIPANT_STATUS_META: Record<
   ParticipantStatus,
   { label: string; color: string }
 > = {
-  pending: { label: 'Не начато', color: '#9ca3af' },
-  submitted: { label: 'На проверке', color: '#d97706' },
-  accepted: { label: 'Принято', color: '#16a34a' },
-  returned: { label: 'Возвращено', color: '#c61a1e' },
+  pending: { label: 'Не начато', color: '#a39d92' },
+  submitted: { label: 'На проверке', color: '#d6966c' },
+  accepted: { label: 'Принято', color: '#74a277' },
+  returned: { label: 'Возвращено', color: '#de6d68' },
 };
 
 // Recurrence presets (RRULE-light). `rule` is what gets stored on Task.recurrenceRule.

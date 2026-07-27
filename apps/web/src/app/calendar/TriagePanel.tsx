@@ -1,12 +1,13 @@
 'use client';
 
+import { Badge, Card, CardHeader, Icon, IconButton, StatusDot, type Tone } from '@/components/ui';
 import {
   TASK_STATUS_META,
   type CalendarItem,
   type CalendarEventOccurrence,
   type CalendarTaskItem,
 } from '@superapp/shared';
-import { isEvent, isTask, isFinance, isToday, startOfDay, fmtTime, itemColor } from './calendar-lib';
+import { isEvent, isTask, isToday, startOfDay, fmtTime, itemColor } from './calendar-lib';
 import { setDrag, clearDrag } from './calendar-dnd';
 
 export interface UndatedTask {
@@ -17,8 +18,8 @@ export interface UndatedTask {
 }
 
 /**
- * Left triage panel: everything from the calendar grouped by meaning. Tasks are
- * draggable onto the grid to (re)schedule them; events open on click.
+ * Левая панель-планнер: всё из календаря, сгруппированное по смыслу. Задачи
+ * тащатся на сетку, чтобы назначить срок; события открываются по клику.
  */
 export function TriagePanel({
   items,
@@ -40,36 +41,45 @@ export function TriagePanel({
   );
 
   return (
-    <div className="card" style={{ width: 280, flexShrink: 0, padding: 'var(--spacing-3)', maxHeight: '78vh', overflowY: 'auto', alignSelf: 'flex-start' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--spacing-2)' }}>
-        <span className="title-md" style={{ fontSize: '1rem' }}>Планнер</span>
-        <button onClick={onClose} title="Скрыть панель" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)', fontSize: '0.9rem' }}>⟨</button>
-      </div>
-      <p className="label-sm" style={{ marginBottom: 'var(--spacing-3)', fontSize: '0.68rem' }}>Тащи задачи на сетку, чтобы назначить день/время.</p>
+    <Card
+      className="density-compact"
+      style={{ width: 280, flexShrink: 0, maxHeight: '78vh', overflowY: 'auto', alignSelf: 'flex-start' }}
+    >
+      <CardHeader
+        title="Планнер"
+        subtitle="Тащи задачи на сетку, чтобы назначить день и время"
+        actions={<IconButton icon="caretLeft" label="Скрыть планнер" size={28} onClick={onClose} />}
+      />
 
-      <Group title="Просрочено" color="#c61a1e" count={overdue.length}>
+      <Group title="Просрочено" tone="danger" count={overdue.length}>
         {overdue.map((t) => <TaskCard key={t.taskId} t={t} onTask={onTask} />)}
       </Group>
-      <Group title="Без даты" color="#7c5800" count={undated.length}>
+      <Group title="Без даты" tone="warning" count={undated.length}>
         {undated.map((t) => <UndatedCard key={t.id} t={t} />)}
       </Group>
-      <Group title="Сегодня" color="#326a8b" count={today.length}>
+      <Group title="Сегодня" tone="accent" count={today.length}>
         {today.map((i, idx) => <Row key={rk(i, idx)} i={i} onEvent={onEvent} onTask={onTask} />)}
       </Group>
-      <Group title="Предстоящие" color="#16a34a" count={upcoming.length}>
+      <Group title="Предстоящие" tone="success" count={upcoming.length}>
         {upcoming.slice(0, 40).map((i, idx) => <Row key={rk(i, idx)} i={i} onEvent={onEvent} onTask={onTask} withDay />)}
       </Group>
-    </div>
+    </Card>
   );
 }
 
-function Group({ title, color, count, children }: { title: string; color: string; count: number; children: React.ReactNode }) {
+function Group({ title, tone, count, children }: { title: string; tone: Tone; count: number; children: React.ReactNode }) {
   return (
-    <div style={{ marginBottom: 'var(--spacing-3)' }}>
-      <div className="label-sm" style={{ fontWeight: 700, color, marginBottom: 'var(--spacing-1)', textTransform: 'uppercase', fontSize: '0.66rem', letterSpacing: '0.04em' }}>
-        {title} {count > 0 && <span style={{ opacity: 0.6 }}>· {count}</span>}
+    <div style={{ marginBottom: 'var(--spacing-4)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginBottom: '0.375rem' }}>
+        <StatusDot tone={tone} size={7} />
+        <span className="label-caps">{title}</span>
+        {count > 0 && <Badge tone={tone}>{count}</Badge>}
       </div>
-      {count === 0 ? <p className="label-sm" style={{ fontSize: '0.7rem', opacity: 0.5 }}>—</p> : <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{children}</div>}
+      {count === 0 ? (
+        <p className="label-sm" style={{ margin: 0, color: 'var(--muted)' }}>—</p>
+      ) : (
+        <div style={{ display: 'grid', gap: '0.25rem' }}>{children}</div>
+      )}
     </div>
   );
 }
@@ -81,10 +91,10 @@ function TaskCard({ t, onTask }: { t: CalendarTaskItem; onTask: (t: CalendarTask
       onDragStart={(e) => setDrag({ kind: 'task', id: t.taskId, title: t.title }, e)}
       onDragEnd={clearDrag}
       onClick={() => onTask(t)}
-      title="Перетащи на день/время"
+      title="Перетащи на день или время"
       style={cardStyle(itemColor(t))}
     >
-      <span style={{ fontSize: '0.7rem' }}>✓</span>
+      <Icon name="tasks" size={13} style={{ color: 'var(--muted)' }} />
       <span style={ellipsis}>{t.title}</span>
     </div>
   );
@@ -97,10 +107,10 @@ function UndatedCard({ t }: { t: UndatedTask }) {
       draggable
       onDragStart={(e) => setDrag({ kind: 'task', id: t.id, title: t.title }, e)}
       onDragEnd={clearDrag}
-      title="Перетащи на день/время, чтобы назначить срок"
-      style={cardStyle(st?.color ?? '#326a8b')}
+      title="Перетащи на день или время, чтобы назначить срок"
+      style={cardStyle(st?.color ?? 'var(--primary)')}
     >
-      <span style={{ fontSize: '0.7rem' }}>✓</span>
+      <Icon name="tasks" size={13} style={{ color: 'var(--muted)' }} />
       <span style={ellipsis}>{t.title}</span>
     </div>
   );
@@ -120,8 +130,8 @@ function Row({ i, onEvent, onTask, withDay }: { i: CalendarItem; onEvent: (o: Ca
       onClick={() => { if (isEvent(i)) onEvent(i); else if (isTask(i)) onTask(i); else window.location.href = '/finance'; }}
       style={cardStyle(color)}
     >
-      <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />
-      <span className="label-sm" style={{ fontSize: '0.66rem', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{time}</span>
+      <span aria-hidden style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />
+      <span className="label-sm" style={{ flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{time}</span>
       <span style={ellipsis}>{i.title}</span>
     </div>
   );
@@ -132,12 +142,14 @@ function rk(i: CalendarItem, idx: number): string {
   return `${id}-${idx}`;
 }
 
-const ellipsis: React.CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600, fontSize: '0.78rem' };
+const ellipsis: React.CSSProperties = {
+  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600, fontSize: '0.8125rem',
+};
 
 function cardStyle(color: string): React.CSSProperties {
   return {
-    display: 'flex', alignItems: 'center', gap: 6, padding: '0.3rem 0.5rem',
-    background: 'var(--surface-container-low)', borderLeft: `3px solid ${color}`,
-    borderRadius: 4, cursor: 'grab', userSelect: 'none',
+    display: 'flex', alignItems: 'center', gap: 6, padding: '0.3125rem 0.5rem',
+    border: '1px solid var(--divider)', borderLeft: `3px solid ${color}`,
+    borderRadius: 'var(--radius-sm)', cursor: 'grab', userSelect: 'none',
   };
 }

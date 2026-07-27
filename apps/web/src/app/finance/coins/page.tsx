@@ -4,7 +4,7 @@
 // Только своя книга: экосистемные коины не шерятся (пункт скрыт в чужой
 // книге, а прямой URL получает мягкую заглушку).
 
-import Link from 'next/link';
+import { BentoGrid, Button, Card, EmptyState, PageHeader } from '@/components/ui';
 import { CoinsView } from '../finance-coins';
 import { useFinanceBook } from '../finance-shell';
 
@@ -13,22 +13,35 @@ export default function FinanceCoinsPage() {
 
   if (!isOwnBook) {
     return (
-      <div className="card" style={{ maxWidth: 560 }}>
-        <h2 className="title-md" style={{ marginBottom: 'var(--spacing-2)' }}>Коины — только в своей книге</h2>
-        <p className="label-md">
-          Коин-лента показывает вашу личную экономику SuperApp6 и не входит в доступ к чужой книге.{' '}
-          <Link href="/finance/coins" style={{ color: 'var(--secondary)' }}>Перейти в свою книгу →</Link>
-        </p>
-        <p className="label-sm" style={{ marginTop: 'var(--spacing-2)' }}>
-          <Link href={withBook('/finance')} style={{ color: 'var(--secondary)' }}>← Назад к обзору книги</Link>
-        </p>
-      </div>
+      <>
+        <PageHeader breadcrumb="Финансы" title="Коины" />
+        <BentoGrid>
+          <Card span={12}>
+            <EmptyState
+              icon="coins"
+              title="Коины — только в своей книге"
+              description="Коин-лента показывает вашу личную экономику SuperApp6 и не входит в доступ к чужой книге."
+              action={
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+                  <Button variant="primary" href="/finance/coins">Перейти в свою книгу</Button>
+                  <Button variant="ghost" icon="arrowLeft" href={withBook('/finance')}>К обзору книги</Button>
+                </div>
+              }
+            />
+          </Card>
+        </BentoGrid>
+      </>
     );
   }
 
   return (
-    <div style={{ maxWidth: 920 }}>
+    <>
+      <PageHeader
+        breadcrumb="Финансы"
+        title="Коины"
+        description="Внутренняя экономика SuperApp6 — отдельно от реальных денег, чтобы не искажать финансовую картину"
+      />
       <CoinsView />
-    </div>
+    </>
   );
 }

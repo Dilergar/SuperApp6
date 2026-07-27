@@ -1,5 +1,6 @@
 'use client';
 
+import { ModalShell } from '@/components/ui';
 import { useState } from 'react';
 import type { ChatSummary, RichCardRefType } from '@superapp/shared';
 import { listChats, shareRichCard } from '@/lib/messenger-api';
@@ -56,19 +57,7 @@ export function ShareCardModal({
   };
 
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(56,57,45,0.35)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 100,
-        padding: '1rem',
-      }}
-    >
+    <ModalShell onClose={onClose} zIndex={100}>
       <div
         onClick={(e) => e.stopPropagation()}
         className="card-elevated"
@@ -80,7 +69,6 @@ export function ShareCardModal({
           maxHeight: '80vh',
           overflowY: 'auto',
           borderRadius: 'var(--radius-md)',
-          transform: 'rotate(-0.3deg)',
         }}
       >
         <h3 className="title-md" style={{ marginBottom: 'var(--spacing-1)' }}>
@@ -129,7 +117,7 @@ export function ShareCardModal({
                 <span style={{ flex: 1, fontSize: '0.88rem', fontWeight: 500 }}>{c.title}</span>
                 {done ? (
                   <span className="label-sm" style={{ fontSize: '0.72rem', color: 'var(--secondary)' }}>
-                    Отправлено ✓
+                    Отправлено
                   </span>
                 ) : sendingTo === c.id ? (
                   <span className="label-sm" style={{ fontSize: '0.72rem', opacity: 0.6 }}>…</span>
@@ -140,12 +128,12 @@ export function ShareCardModal({
         </div>
 
         <div style={{ marginTop: 'var(--spacing-4)', textAlign: 'right' }}>
-          <button onClick={onClose} className="btn-secondary" style={{ fontSize: '0.85rem' }}>
+          <button onClick={onClose} className="btn-ghost-inline">
             Закрыть
           </button>
         </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }
 

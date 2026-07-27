@@ -14,7 +14,7 @@ for (const line of fs.readFileSync(path.join(__dirname, '..', '.env'), 'utf8').s
 const crypto = require('crypto');
 const { PrismaClient } = require('@prisma/client');
 const BASE = 'http://localhost:3001/api';
-const P1 = '+77001234567', PW = 'Test1234!';
+const P1 = '+77009990001', PW = 'Test1234!';
 const JOB_TYPE = 'calendar.reminder.fire';
 
 let fails = 0;

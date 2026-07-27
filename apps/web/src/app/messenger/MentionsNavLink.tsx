@@ -35,7 +35,7 @@ export function MentionsNavLink({ unread }: { unread: number }) {
             minWidth: '1.2rem',
             height: '1.2rem',
             padding: '0 0.35rem',
-            borderRadius: '0.6rem 0.7rem 0.62rem 0.66rem',
+            borderRadius: 'var(--radius-sm)',
             background: 'var(--primary)',
             color: 'var(--on-primary)',
             fontSize: '0.68rem',
@@ -43,7 +43,7 @@ export function MentionsNavLink({ unread }: { unread: number }) {
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: '0 2px 8px rgba(198, 26, 30, 0.3)',
+            boxShadow: '0 2px 8px rgba(88, 140, 211, 0.3)',
           }}
         >
           {unread > 99 ? '99+' : unread}

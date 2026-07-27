@@ -37,6 +37,14 @@ export function parseSignedMoneyInput(raw: string): number | null {
 /** Короткие дни недели (1=пн … 7=вс) — повторы, «Обзор». */
 export const WEEKDAYS_SHORT = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
 
+/** YYYY-MM-DD → Date по ЛОКАЛЬНОЙ полуночи (для DatePicker кита). */
+export const ymdToDate = (ymd: string | null | undefined): Date | null =>
+  ymd ? new Date(`${ymd}T00:00:00`) : null;
+
+/** Date → YYYY-MM-DD по локальной дате (не UTC-срез: он уводит вечер в другой день). */
+export const dateToYmd = (d: Date | null): string | null =>
+  d ? new Intl.DateTimeFormat('en-CA').format(d) : null;
+
 /** axios-config с bookId для запросов в чужую книгу. */
 export const bookParams = (bookId: string | null | undefined) => (bookId ? { params: { bookId } } : undefined);
 

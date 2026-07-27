@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/ui';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { SearchResultItem, SearchSourceType } from '@superapp/shared';
@@ -101,9 +102,7 @@ export function GlobalSearch({
               opacity: 0.55,
               pointerEvents: 'none',
             }}
-          >
-            🔍
-          </span>
+          ><Icon name="search" size={15} /></span>
           <input
             ref={inputRef}
             type="text"
@@ -129,7 +128,7 @@ export function GlobalSearch({
               border: 'none',
               borderRadius: 'var(--radius-md)',
               outline: 'none',
-              boxShadow: '0 2px 10px rgba(56, 57, 45, 0.06)',
+              boxShadow: '0 2px 10px rgba(0, 0, 0, 0.06)',
             }}
           />
           {raw && (

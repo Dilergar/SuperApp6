@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================
-// FinanceShell — сайдбар-каркас сервиса «Финансы» поверх ServiceShell.
+// FinanceShell — контекст книги Финансов (выбор книги + доступ).
 //
 // Держит контекст книги (?book= в URL — ссылка на чужую книгу шарится и
 // переживает F5), общие запросы (обзор/близкие/доступные книги) и раздаёт
@@ -9,7 +9,8 @@
 // (паттерн «переключатель воркспейса» Notion/Slack) + «Доступ» (владелец).
 // ============================================================
 
-import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { FinAccountDto, FinBookOverviewDto, FinPersonDto, FinSharedBookDto } from '@superapp/shared';
@@ -22,8 +23,7 @@ import {
   fetchFinancePeople,
   fetchFinanceSharedBooks,
 } from '@/lib/queries';
-import { getServiceNav } from '@/lib/service-nav';
-import { ServiceShell } from '@/components/shell/ServiceShell';
+import { Chip, Icon, IconButton, LoadingBlock, usePopover } from '@/components/ui';
 import { PersonChip } from '../circles/PersonCard';
 import { AccessModal } from './finance-access';
 
@@ -119,44 +119,35 @@ export function FinanceShell({ defaultCollapsed, children }: { defaultCollapsed?
     [bookId, isOwnBook, canEdit, me?.id, me?.firstName, overview, people, qc, withBook],
   );
 
-  const nav = useMemo(() => getServiceNav('finance', { isOwnBook }), [isOwnBook]);
 
-  if (!isReady) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="label-md" style={{ fontSize: '1rem' }}>Загрузка...</p>
-      </div>
-    );
-  }
+  if (!isReady) return <LoadingBlock />;
 
+  // Разделы Финансов переехали в ГЛОБАЛЬНЫЙ сайдбар (AppShell). Здесь
+  // остаётся контекст книги и её переключатель — он привязан к сервису,
+  // а не к приложению, поэтому живёт над содержимым раздела.
   return (
     <>
-      <ServiceShell
-        nav={nav}
-        defaultCollapsed={defaultCollapsed}
-        headerSlot={
-          <FinanceBookCard
-            activeBookId={bookId}
-            sharedBooks={sharedBooks}
-            isOwnBook={isOwnBook}
-            canEdit={canEdit}
-            onSwitch={switchBook}
-            onAccess={() => setShowAccess(true)}
-          />
-        }
-      >
-        {/* key = книга: смена книги ПЕРЕМОНТИРУЕТ раздел — все локальные
-            состояния страниц (фильтр по счёту, режим правки, формы) не
-            переживают смену контекста (паритет со сбросами старого onSwitch) */}
-        <Ctx.Provider key={bookId ?? 'own'} value={ctx}>{children}</Ctx.Provider>
-      </ServiceShell>
+      <div style={{ marginBottom: 'var(--spacing-4)' }}>
+        <FinanceBookCard
+          activeBookId={bookId}
+          sharedBooks={sharedBooks}
+          isOwnBook={isOwnBook}
+          canEdit={canEdit}
+          onSwitch={switchBook}
+          onAccess={() => setShowAccess(true)}
+        />
+      </div>
+      {/* key = книга: смена книги ПЕРЕМОНТИРУЕТ раздел — все локальные
+          состояния страниц (фильтр по счёту, режим правки, формы) не
+          переживают смену контекста (паритет со сбросами старого onSwitch) */}
+      <Ctx.Provider key={bookId ?? 'own'} value={ctx}>{children}</Ctx.Provider>
       {showAccess && <AccessModal onClose={() => setShowAccess(false)} />}
     </>
   );
 }
 
 // ------------------------------------------------------------
-// Карточка книги в шапке сайдбара: текущий контекст + дропдаун книг + Доступ
+// Пилюля книги над содержимым раздела: текущий контекст + выбор книги + Доступ
 // ------------------------------------------------------------
 
 function FinanceBookCard({
@@ -174,155 +165,101 @@ function FinanceBookCard({
   onSwitch: (bookId: string | null) => void;
   onAccess: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  // Механизм всплывания — из кита (закрытие по Esc и клику вне, переворот,
+  // портал). Готовый Menu тут не годится: его пункты — текстовые, а книгу
+  // называет ЧЕЛОВЕК, и по принципу 2 он рисуется карточкой PersonChip.
+  const { anchorRef, layerRef, open, setOpen, layerStyle } = usePopover<HTMLButtonElement>({ matchWidth: true, maxHeight: 320 });
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   const active = sharedBooks.find((b) => b.bookId === activeBookId);
   const hasChoice = sharedBooks.length > 0;
 
+  const pick = (bookId: string | null) => {
+    onSwitch(bookId);
+    setOpen(false);
+  };
+
   return (
-    <div style={{ position: 'relative' }}>
-      <div
+    <div
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '0.375rem',
+        background: 'var(--block)',
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--radius-pill)',
+        padding: '0.25rem 0.375rem 0.25rem 0.625rem',
+        boxShadow: 'var(--shadow-card)',
+      }}
+    >
+      <Icon name="finance" size={17} style={{ color: 'var(--primary-dim)', flex: 'none' }} />
+      <button
+        ref={anchorRef}
+        type="button"
+        onClick={() => hasChoice && setOpen(!open)}
+        aria-expanded={hasChoice ? open : undefined}
+        aria-haspopup={hasChoice ? 'listbox' : undefined}
+        disabled={!hasChoice}
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '0.4rem',
-          background: 'var(--surface-container)',
-          borderRadius: 'var(--radius-sketch)',
-          padding: '0.45rem 0.55rem',
-          boxShadow: '0 2px 10px rgba(56,57,45,0.05)',
+          gap: '0.375rem',
+          minWidth: 0,
+          background: 'none',
+          border: 'none',
+          padding: '0.125rem 0',
+          cursor: hasChoice ? 'pointer' : 'default',
+          textAlign: 'left',
+          color: 'var(--on-surface)',
         }}
       >
-        <button
-          onClick={() => hasChoice && setOpen((v) => !v)}
-          aria-expanded={open}
-          aria-haspopup={hasChoice ? 'menu' : undefined}
-          style={{
-            flex: 1,
-            minWidth: 0,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.4rem',
-            background: 'none',
-            border: 'none',
-            cursor: hasChoice ? 'pointer' : 'default',
-            padding: 0,
-            textAlign: 'left',
-          }}
-        >
-          <span style={{ fontSize: '1.05rem' }} aria-hidden>📒</span>
-          {active ? (
-            /* Принцип 2: человек — только карточкой (скины видны и здесь) */
-            <PersonChip size="S" userId={active.ownerUserId} firstName={active.ownerName} avatar={active.ownerAvatar} />
-          ) : (
-            <span
-              style={{
-                fontFamily: 'var(--font-display)',
-                fontWeight: 600,
-                fontSize: '0.85rem',
-                color: 'var(--on-surface)',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              Моя книга
-            </span>
-          )}
-          {hasChoice && (
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 12 12"
-              fill="none"
-              aria-hidden
-              style={{
-                flexShrink: 0,
-                marginLeft: 'auto',
-                color: 'var(--on-surface-variant)',
-                transition: 'transform 0.15s ease',
-                transform: open ? 'rotate(180deg)' : undefined,
-              }}
-            >
-              <path d="M2.4 4.3 6 7.9l3.6-3.6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          )}
-        </button>
-        {isOwnBook && (
-          <button
-            onClick={onAccess}
-            title="Доступ к моим финансам"
-            aria-label="Доступ к моим финансам"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.95rem', padding: '0 0.15rem' }}
-          >
-            🔑
-          </button>
+        {active ? (
+          /* Принцип 2: человек — только карточкой (скины видны и здесь) */
+          <PersonChip size="S" userId={active.ownerUserId} firstName={active.ownerName} avatar={active.ownerAvatar} />
+        ) : (
+          <span className="title-sm" style={{ whiteSpace: 'nowrap' }}>Моя книга</span>
         )}
-      </div>
+        {hasChoice && <Icon name="caretDown" size={13} style={{ color: 'var(--label)', flex: 'none' }} />}
+      </button>
 
-      {!isOwnBook && !canEdit && (
-        <div className="wash-secondary label-sm" style={{ marginTop: '0.35rem', padding: '0.2rem 0.6rem', display: 'inline-block' }}>
-          только просмотр
-        </div>
+      {!isOwnBook && !canEdit && <Chip size="sm" tone="warning" icon="eye">только просмотр</Chip>}
+
+      {isOwnBook && (
+        <IconButton icon="key" label="Доступ к моим финансам" size={30} onClick={onAccess} />
       )}
 
-      {open && (
-        <>
-          {/* прозрачная подложка — клик мимо закрывает дропдаун */}
-          <div style={{ position: 'fixed', inset: 0, zIndex: 68 }} onClick={() => setOpen(false)} />
-          <div
-            className="card-elevated"
-            style={{
-              position: 'absolute',
-              top: 'calc(100% + 0.4rem)',
-              left: 0,
-              right: 0,
-              zIndex: 69,
-              background: 'var(--surface-container-lowest)',
-              padding: '0.4rem',
-              borderRadius: 'var(--radius-md)',
-              maxHeight: '50vh',
-              overflowY: 'auto',
-            }}
+      {open && mounted && createPortal(
+        <div ref={layerRef} className="ui-popover" style={layerStyle} role="listbox" aria-label="Книга финансов">
+          <button
+            type="button"
+            className="ui-option"
+            role="option"
+            aria-selected={isOwnBook}
+            data-selected={isOwnBook ? 'true' : 'false'}
+            onClick={() => pick(null)}
           >
+            <Icon name="finance" size={16} />
+            <span>Моя книга</span>
+          </button>
+          {sharedBooks.map((b) => (
             <button
-              onClick={() => { onSwitch(null); setOpen(false); }}
-              style={{
-                display: 'block',
-                width: '100%',
-                textAlign: 'left',
-                background: isOwnBook ? 'var(--secondary-container)' : 'none',
-                border: 'none',
-                cursor: 'pointer',
-                padding: '0.5rem 0.6rem',
-                borderRadius: 'var(--radius-sm)',
-                fontWeight: 600,
-                fontSize: '0.85rem',
-              }}
+              key={b.bookId}
+              type="button"
+              className="ui-option"
+              role="option"
+              aria-selected={activeBookId === b.bookId}
+              data-selected={activeBookId === b.bookId ? 'true' : 'false'}
+              onClick={() => pick(b.bookId)}
             >
-              📒 Моя книга
+              <PersonChip size="S" userId={b.ownerUserId} firstName={b.ownerName} avatar={b.ownerAvatar} />
+              <span className="label-sm" style={{ marginLeft: 'auto' }}>
+                {b.myRole === 'editor' ? 'ведёте вместе' : 'смотрите'}
+              </span>
             </button>
-            {sharedBooks.map((b) => (
-              <button
-                key={b.bookId}
-                onClick={() => { onSwitch(b.bookId); setOpen(false); }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  width: '100%',
-                  textAlign: 'left',
-                  background: activeBookId === b.bookId ? 'var(--secondary-container)' : 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '0.4rem 0.6rem',
-                  borderRadius: 'var(--radius-sm)',
-                }}
-              >
-                <PersonChip size="S" userId={b.ownerUserId} firstName={b.ownerName} avatar={b.ownerAvatar} />
-                <span className="label-sm">{b.myRole === 'editor' ? 'ведёте вместе' : 'смотрите'}</span>
-              </button>
-            ))}
-          </div>
-        </>
+          ))}
+        </div>,
+        document.body,
       )}
     </div>
   );

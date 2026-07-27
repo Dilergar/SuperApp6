@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/ui';
 import { useEffect, useState } from 'react';
 import type { AttachmentFileRef, AttachmentFileView, AttachmentsPayload, FileDto } from '@superapp/shared';
 import { isVoiceNoteProfile } from '@superapp/shared';
@@ -158,7 +159,7 @@ function MediaTile({
           style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
         />
       ) : (
-        <span style={{ fontSize: '1.4rem', opacity: 0.5 }}>{fileRef.kind === 'video' ? '🎬' : '🖼️'}</span>
+        <Icon name={fileRef.kind === 'video' ? 'video' : 'image'} size={22} style={{ opacity: 0.5 }} />
       )}
       {fileRef.kind === 'video' && (
         <span
@@ -205,7 +206,7 @@ function AudioTile({ fileRef }: { fileRef: AttachmentFileRef }) {
   if (!meta) {
     return (
       <div style={{ fontSize: '0.78rem', color: 'var(--on-surface-variant)' }}>
-        {isVoiceNoteProfile(fileRef.profile) ? '🎤' : '🎵'} {fileRef.name}…
+        <Icon name={isVoiceNoteProfile(fileRef.profile) ? 'mic' : 'speaker'} size={14} /> {fileRef.name}…
       </div>
     );
   }

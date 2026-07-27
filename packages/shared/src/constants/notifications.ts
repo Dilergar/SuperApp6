@@ -203,6 +203,16 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
     pushByDefault: true,
     category: 'workspaces',
   },
+  // Архив организаций: предупреждения за 7 / 3 / 1 день до полного удаления.
+  // Текст в единственном числе «{{daysWord}}» готовит отправитель — шаблонизатор
+  // реестра склонять не умеет, а «осталось 1 дней» читается как баг.
+  'workspace.archive.expiring': {
+    title: 'Организация «{{workspaceName}}» будет удалена через {{daysWord}}',
+    body: 'Она в архиве. Восстановите её, если удалять не нужно — после {{purgeDate}} вернуть будет нельзя.',
+    icon: '🗑️',
+    pushByDefault: true,
+    category: 'workspaces',
+  },
   // My Wish & Shop (orders)
   'shop.order.placed': {
     title: 'Новый заказ: {{title}}',

@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================
-// TasksShell — клиентский каркас сервиса «Задачи» на ServiceShell.
+// TasksShell — контекст сервиса «Задачи» (счётчики + форма создания).
 //
 // Держит: запрос счётчиков (GET /tasks/stats → бейджи сайдбара, живут на
 // корневом ключе ['tasks'] — любая мутация задач обновляет их вместе со
@@ -13,8 +13,6 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { getServiceNav } from '@/lib/service-nav';
-import { ServiceShell } from '@/components/shell/ServiceShell';
 import { fetchTaskStats, taskStatsKey } from '@/lib/queries';
 import { TaskCreateModal } from './TaskCreateModal';
 import type { TaskStats } from '@superapp/shared';
@@ -57,7 +55,6 @@ export function TasksShell({ defaultCollapsed, children }: { defaultCollapsed?: 
     [queryClient],
   );
 
-  const nav = useMemo(() => getServiceNav('tasks', { stats: statsQ.data ?? null }), [statsQ.data]);
 
   const ctx = useMemo<TasksServiceCtx>(
     () => ({
@@ -77,22 +74,13 @@ export function TasksShell({ defaultCollapsed, children }: { defaultCollapsed?: 
     );
   }
 
+  // Разделы Задач переехали в ГЛОБАЛЬНЫЙ сайдбар (AppShell), поэтому свой
+  // каркас здесь больше не рисуется — остаётся только контекст сервиса
+  // (счётчики, открытие формы) и сама форма создания.
   return (
-    <ServiceShell
-      nav={nav}
-      defaultCollapsed={defaultCollapsed}
-      headerSlot={
-        <button
-          className="btn-primary"
-          style={{ width: '100%', fontSize: '0.85rem', padding: '0.5rem 0.9rem' }}
-          onClick={() => setCreateOpen(true)}
-        >
-          + Новая задача
-        </button>
-      }
-    >
+    <>
       <Ctx.Provider value={ctx}>{children}</Ctx.Provider>
       {createOpen && <TaskCreateModal onClose={() => setCreateOpen(false)} />}
-    </ServiceShell>
+    </>
   );
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/ui';
 import type { ChatSummary, PresenceInfo } from '@superapp/shared';
 import { PersonAvatar, formatListTime } from './messenger-ui';
 import { OnlineDot } from './presence-ui';
@@ -56,7 +57,7 @@ export function ChatList({
         <h2 className="title-md" style={{ fontSize: '1.1rem' }}>Чаты</h2>
         <button
           onClick={onNewChat}
-          className="btn-primary"
+          className="btn-success"
           style={{ fontSize: '0.78rem', padding: '0.35rem 0.9rem' }}
         >
           + Новый чат
@@ -134,7 +135,7 @@ function ChatRow({
         borderRadius: 'var(--radius-md)',
         cursor: 'pointer',
         textAlign: 'left',
-        boxShadow: active ? '0 2px 14px rgba(56, 57, 45, 0.08)' : 'none',
+        boxShadow: active ? '0 2px 14px rgba(0, 0, 0, 0.08)' : 'none',
         transition: 'background 0.15s ease',
       }}
       onMouseEnter={(e) => {
@@ -161,16 +162,14 @@ function ChatRow({
               padding: '0.05rem 0.1rem',
             }}
           >
-            {chat.type === 'group' ? '👥' : '📋'}
+            <Icon name={chat.type === 'group' ? 'people' : 'list'} size={15} />
           </span>
         )}
         {chat.pinned && (
           <span
             title="Закреплён"
-            style={{ position: 'absolute', top: -4, left: -4, fontSize: '0.6rem', transform: 'rotate(-20deg)' }}
-          >
-            📌
-          </span>
+            style={{ position: 'absolute', top: -4, left: -4, fontSize: '0.6rem', transform: 'none' }}
+          ><Icon name="flag" size={15} /></span>
         )}
       </div>
 

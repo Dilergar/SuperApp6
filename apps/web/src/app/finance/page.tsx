@@ -6,7 +6,6 @@
 // операции. Собирается из уже существующих запросов — без новых API.
 // ============================================================
 
-import Link from 'next/link';
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { FinAccountDto } from '@superapp/shared';
@@ -20,9 +19,12 @@ import {
   financeRecentTxKey,
   fetchFinanceTransactions,
 } from '@/lib/queries';
+import {
+  BentoGrid, Button, Card, CardHeader, EmptyState, PageHeader, StatTile,
+} from '@/components/ui';
 import { WEEKDAYS_SHORT, formatDayLabel, formatMoney, localToday } from './finance-lib';
 import { txPresentation } from './finance-feed';
-import { BudgetBar, budgetProgress } from './finance-ui';
+import { BudgetBar, FinList, FinRow, Money, MoneyStack, budgetProgress } from './finance-ui';
 import { useFinanceBook } from './finance-shell';
 
 export default function FinanceOverviewPage() {
@@ -61,7 +63,7 @@ export default function FinanceOverviewPage() {
     for (const a of accounts.filter((x) => x.kind === 'asset')) {
       byCur.set(a.currencyCode, (byCur.get(a.currencyCode) ?? 0) + a.balance);
     }
-    return [...byCur.entries()];
+    return [...byCur.entries()].map(([currencyCode, amount]) => ({ currencyCode, amount }));
   }, [accounts]);
 
   // Ближайшие платежи: открытые долги (день платежа) + активные повторы
@@ -76,7 +78,7 @@ export default function FinanceOverviewPage() {
     for (const d of debts.filter((x) => !x.closedAt && !x.archived)) {
       items.push({
         key: `debt-${d.accountId}`,
-        icon: d.icon ?? '💳',
+        icon: d.icon ?? 'card',
         title: d.name,
         when: `до ${d.dueDay}-го`,
         days: untilMonthday(d.dueDay),
@@ -89,13 +91,13 @@ export default function FinanceOverviewPage() {
       if (r.interval === 'monthly') {
         const day = r.dayOfMonth ?? 1;
         items.push({
-          key: `rec-${r.id}`, icon: '🔁', title: r.title, when: `каждое ${day}-е`,
+          key: `rec-${r.id}`, icon: 'refresh', title: r.title, when: `каждое ${day}-е`,
           days: untilMonthday(day), amount: r.amount, code: r.currencyCode, href: '/finance/recurring',
         });
       } else {
         const wd = r.weekday ?? 1;
         items.push({
-          key: `rec-${r.id}`, icon: '🔁', title: r.title, when: `по ${WEEKDAYS_SHORT[wd - 1]}`,
+          key: `rec-${r.id}`, icon: 'refresh', title: r.title, when: `по ${WEEKDAYS_SHORT[wd - 1]}`,
           days: (wd - jsWeekday + 7) % 7, amount: r.amount, code: r.currencyCode, href: '/finance/recurring',
         });
       }
@@ -117,180 +119,162 @@ export default function FinanceOverviewPage() {
   }, [report, accountById]);
 
   const recentTx = (recent?.items ?? []).slice(0, 6);
+  const expense = report?.totalExpense ?? [];
+  const income = report?.totalIncome ?? [];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-6)' }}>
-      {/* Итоги: на счетах / расходы / доходы */}
-      <div className="grid sm:grid-cols-3" style={{ gap: 'var(--spacing-4)' }}>
-        <SummaryCard label="На счетах" rotate="-0.35deg">
-          {totals.length === 0 ? (
-            <span className="label-md">Счетов пока нет</span>
-          ) : (
-            totals.map(([code, sum]) => (
-              <div key={code} style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.45rem', color: sum < 0 ? 'var(--danger)' : 'var(--on-surface)' }}>
-                {formatMoney(sum, code)}
-              </div>
-            ))
-          )}
-        </SummaryCard>
-        <SummaryCard label={`Расходы · ${monthName}`} rotate="0.3deg">
-          {(report?.totalExpense?.length ?? 0) === 0 ? (
-            <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.45rem' }}>—</span>
-          ) : (
-            (report?.totalExpense ?? []).map((s) => (
-              <div key={s.currencyCode} style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.45rem', color: 'var(--danger)' }}>
-                −{formatMoney(s.amount, s.currencyCode)}
-              </div>
-            ))
-          )}
-        </SummaryCard>
-        <SummaryCard label={`Доходы · ${monthName}`} rotate="-0.2deg">
-          {(report?.totalIncome?.length ?? 0) === 0 ? (
-            <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.45rem' }}>—</span>
-          ) : (
-            (report?.totalIncome ?? []).map((s) => (
-              <div key={s.currencyCode} style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.45rem', color: 'var(--success)' }}>
-                +{formatMoney(s.amount, s.currencyCode)}
-              </div>
-            ))
-          )}
-        </SummaryCard>
-      </div>
+    <>
+      <PageHeader
+        breadcrumb="Финансы"
+        title="Обзор"
+        description="Картина месяца одним экраном: остатки, лимиты и ближайшие платежи"
+        actions={
+          canEdit ? (
+            <Button variant="primary" tone="success" icon="add" href={withBook('/finance/feed')}>
+              Записать
+            </Button>
+          ) : undefined
+        }
+      />
 
-      <div className="grid lg:grid-cols-2" style={{ gap: 'var(--spacing-6)', alignItems: 'start' }}>
-        {/* Ближайшие платежи */}
-        <div className="card" style={{ transform: 'rotate(-0.25deg)' }}>
-          <div className="flex items-center justify-between" style={{ marginBottom: 'var(--spacing-4)' }}>
-            <h2 className="title-md">Ближайшие платежи</h2>
-            <Link href={withBook('/finance/debts')} className="label-sm" style={{ color: 'var(--secondary)', textDecoration: 'none' }}>
-              Долги →
-            </Link>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
-            {upcoming.map((u) => (
-              <Link
-                key={u.key}
-                href={withBook(u.href)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 'var(--spacing-3)',
-                  background: 'var(--surface-container-lowest)',
-                  borderRadius: 'var(--radius-sketch)',
-                  padding: '0.5rem var(--spacing-4)',
-                  textDecoration: 'none',
-                  color: 'var(--on-surface)',
-                }}
-              >
-                <span style={{ fontSize: '1.05rem' }}>{u.icon}</span>
-                <span style={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {u.title}
-                </span>
-                <span className="label-sm">{u.when}</span>
-                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '0.9rem' }}>
-                  {formatMoney(u.amount, u.code)}
-                </span>
-              </Link>
-            ))}
-            {upcoming.length === 0 && (
-              <p className="label-md">
-                Платежей не намечается. Рассрочки и подписки появятся здесь — из{' '}
-                <Link href={withBook('/finance/debts')} style={{ color: 'var(--secondary)' }}>Долгов</Link> и{' '}
-                <Link href={withBook('/finance/recurring')} style={{ color: 'var(--secondary)' }}>Повторов</Link>.
-              </p>
-            )}
-          </div>
-        </div>
+      <BentoGrid>
+        {/* ---------- Ряд показателей ---------- */}
+        <StatTile
+          span={4}
+          label="На счетах"
+          value={<MoneyStack sums={totals} />}
+          icon="savings"
+          tone="accent"
+          href={withBook('/finance/accounts')}
+        />
+        <StatTile
+          span={4}
+          label={`Расходы · ${monthName}`}
+          value={<MoneyStack sums={expense} sign="−" tone="danger" />}
+          icon="trendDown"
+          tone={expense.length ? 'danger' : 'neutral'}
+          href={withBook('/finance/reports')}
+        />
+        <StatTile
+          span={4}
+          label={`Доходы · ${monthName}`}
+          value={<MoneyStack sums={income} sign="+" tone="success" />}
+          icon="trendUp"
+          tone={income.length ? 'success' : 'neutral'}
+          href={withBook('/finance/reports')}
+        />
 
-        {/* Лимиты месяца */}
-        <div className="card" style={{ transform: 'rotate(0.25deg)' }}>
-          <div className="flex items-center justify-between" style={{ marginBottom: 'var(--spacing-4)' }}>
-            <h2 className="title-md">Лимиты месяца</h2>
-            <Link href={withBook('/finance/reports')} className="label-sm" style={{ color: 'var(--secondary)', textDecoration: 'none' }}>
-              Отчёты →
-            </Link>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
-            {budgets.map((b) => {
-              const { over } = budgetProgress(b.spent, b.amount);
-              return (
-                <div key={b.categoryAccountId}>
-                  <div className="flex items-center justify-between" style={{ marginBottom: '0.2rem' }}>
-                    <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{b.icon ? `${b.icon} ` : ''}{b.name}</span>
-                    <span className="label-sm" style={{ color: over ? 'var(--danger)' : undefined, fontWeight: over ? 700 : undefined }}>
-                      {formatMoney(b.spent, b.currencyCode)} из {formatMoney(b.amount, b.currencyCode)}
-                    </span>
+        {/* ---------- Ближайшие платежи ---------- */}
+        <Card span={6}>
+          <CardHeader
+            title="Ближайшие платежи"
+            actions={<Button variant="ghost" size="sm" href={withBook('/finance/debts')} iconRight="caretRight">Долги</Button>}
+          />
+          {upcoming.length > 0 ? (
+            <FinList>
+              {upcoming.map((u) => (
+                <FinRow
+                  key={u.key}
+                  glyph={u.icon}
+                  glyphFallback="card"
+                  title={u.title}
+                  subtitle={u.when}
+                  right={<Money minor={u.amount} code={u.code} />}
+                  href={withBook(u.href)}
+                />
+              ))}
+            </FinList>
+          ) : (
+            <EmptyState
+              icon="calendarCheck"
+              title="Платежей не намечается"
+              description="Рассрочки и подписки появятся здесь — из «Долгов» и «Повторов»."
+              action={
+                canEdit ? (
+                  <Button variant="matte" size="sm" icon="debt" href={withBook('/finance/debts')}>Добавить долг</Button>
+                ) : undefined
+              }
+            />
+          )}
+        </Card>
+
+        {/* ---------- Лимиты месяца ---------- */}
+        <Card span={6}>
+          <CardHeader
+            title="Лимиты месяца"
+            actions={<Button variant="ghost" size="sm" href={withBook('/finance/reports')} iconRight="caretRight">Отчёты</Button>}
+          />
+          {budgets.length > 0 ? (
+            <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+              {budgets.map((b) => {
+                const { over } = budgetProgress(b.spent, b.amount);
+                return (
+                  <div key={b.categoryAccountId}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.375rem' }}>
+                      <span className="title-sm">{b.name}</span>
+                      <span className="label-sm" style={{ color: over ? 'var(--danger)' : undefined, fontWeight: over ? 700 : undefined }}>
+                        {formatMoney(b.spent, b.currencyCode)} из {formatMoney(b.amount, b.currencyCode)}
+                      </span>
+                    </div>
+                    <BudgetBar spent={b.spent} amount={b.amount} />
                   </div>
-                  <BudgetBar spent={b.spent} amount={b.amount} />
-                </div>
-              );
-            })}
-            {budgets.length === 0 && (
-              <p className="label-md">
-                Лимитов пока нет.{' '}
-                {canEdit && (
-                  <>Задайте их категориям в{' '}
-                    <Link href={withBook('/finance/reports')} style={{ color: 'var(--secondary)' }}>Отчётах</Link>
-                    {' '}— предупредим при 80% и 100%.
-                  </>
-                )}
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Последние операции */}
-      <div className="card" style={{ transform: 'rotate(-0.15deg)' }}>
-        <div className="flex items-center justify-between" style={{ marginBottom: 'var(--spacing-4)' }}>
-          <h2 className="title-md">Последние операции</h2>
-          <Link href={withBook('/finance/feed')} className="label-sm" style={{ color: 'var(--secondary)', textDecoration: 'none' }}>
-            Вся лента →
-          </Link>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
-          {recentTx.map((tx) => {
-            const p = txPresentation(tx, accountById);
-            return (
-              <div
-                key={tx.id}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 'var(--spacing-3)',
-                  background: 'var(--surface-container-lowest)',
-                  borderRadius: 'var(--radius-sketch)',
-                  padding: '0.5rem var(--spacing-4)',
-                }}
-              >
-                <span style={{ fontSize: '1.05rem' }}>{p.icon}</span>
-                <span style={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {p.title}
-                </span>
-                <span className="label-sm">{formatDayLabel(tx.occurredOn)}</span>
-                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '0.9rem', color: p.color }}>
-                  {p.sign}{formatMoney(tx.amount, tx.currencyCode)}
-                </span>
-              </div>
-            );
-          })}
-          {recentTx.length === 0 && (
-            <p className="label-md">
-              Пока пусто — запишите первую трату в{' '}
-              <Link href={withBook('/finance/feed')} style={{ color: 'var(--secondary)' }}>Ленте</Link>.
-            </p>
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyState
+              icon="target"
+              title="Лимитов пока нет"
+              description={canEdit ? 'Задайте лимит категории в «Отчётах» — предупредим при 80% и 100%.' : 'Владелец книги ещё не задал лимиты.'}
+              action={
+                canEdit ? (
+                  <Button variant="matte" size="sm" icon="chart" href={withBook('/finance/reports')}>Открыть отчёты</Button>
+                ) : undefined
+              }
+            />
           )}
-        </div>
-      </div>
-    </div>
-  );
-}
+        </Card>
 
-function SummaryCard({ label, rotate, children }: { label: string; rotate: string; children: React.ReactNode }) {
-  return (
-    <div className="card-elevated" style={{ transform: `rotate(${rotate})`, padding: 'var(--spacing-4) var(--spacing-6)' }}>
-      <div className="label-sm" style={{ marginBottom: '0.3rem' }}>{label}</div>
-      {children}
-    </div>
+        {/* ---------- Последние операции ---------- */}
+        <Card span={12}>
+          <CardHeader
+            title="Последние операции"
+            actions={<Button variant="ghost" size="sm" href={withBook('/finance/feed')} iconRight="caretRight">Вся лента</Button>}
+          />
+          {recentTx.length > 0 ? (
+            <div className="density-compact">
+              <FinList>
+                {recentTx.map((tx) => {
+                  const p = txPresentation(tx, accountById);
+                  return (
+                    <FinRow
+                      key={tx.id}
+                      glyph={p.icon}
+                      glyphTone={p.tone}
+                      glyphFallback="receipt"
+                      title={p.title}
+                      subtitle={formatDayLabel(tx.occurredOn)}
+                      right={<Money minor={tx.amount} code={tx.currencyCode} sign={p.sign} tone={p.tone === 'danger' ? 'danger' : p.tone === 'success' ? 'success' : undefined} />}
+                      href={withBook('/finance/feed')}
+                    />
+                  );
+                })}
+              </FinList>
+            </div>
+          ) : (
+            <EmptyState
+              icon="receipt"
+              title="Пока пусто"
+              description="Запишите первую трату — и лента месяца оживёт."
+              action={
+                canEdit ? (
+                  <Button variant="primary" tone="success" icon="add" href={withBook('/finance/feed')}>Записать</Button>
+                ) : undefined
+              }
+            />
+          )}
+        </Card>
+      </BentoGrid>
+    </>
   );
 }

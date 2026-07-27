@@ -100,7 +100,7 @@ export function ContactPicker({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
       {error && (
-        <div className="wash-primary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', color: 'var(--primary)', fontSize: '0.85rem', marginBottom: 'var(--spacing-2)' }}>
+        <div className="alert-neutral-inline" style={{ padding: 'var(--spacing-3) var(--spacing-4)', color: 'var(--primary)', fontSize: '0.85rem', marginBottom: 'var(--spacing-2)' }}>
           {error}
         </div>
       )}

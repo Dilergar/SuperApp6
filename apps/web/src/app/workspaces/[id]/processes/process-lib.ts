@@ -67,6 +67,25 @@ export const INSTANCE_STATUS_BADGE: Record<string, { bg: string; fg: string }> =
   error: { bg: 'var(--primary-container)', fg: '#8c1416' },
 };
 
+/**
+ * Тон статуса для чипов кита — вне канваса статусы рисует `<Chip tone>`,
+ * а не своя подложка (пары bg/fg выше остаются только внутри нод канваса,
+ * где чип не помещается).
+ */
+export const INSTANCE_STATUS_TONE: Record<string, 'accent' | 'success' | 'warning' | 'danger' | 'neutral'> = {
+  running: 'warning',
+  done: 'success',
+  cancelled: 'neutral',
+  error: 'danger',
+};
+
+export const STEP_STATUS_TONE: Record<ProcessStepStatus, 'accent' | 'success' | 'warning' | 'danger' | 'neutral'> = {
+  active: 'warning',
+  done: 'success',
+  error: 'danger',
+  cancelled: 'neutral',
+};
+
 export interface PNodeData extends Record<string, unknown> {
   label: string;
   note?: string;
@@ -85,7 +104,7 @@ export function fallbackType(type: string): ProcessNodeTypeDto {
     title: type,
     description: '',
     category: 'flow',
-    icon: '❓',
+    icon: 'info',
     tier: 'standard',
     outputs: [{ key: 'main', label: '' }],
     fields: [],

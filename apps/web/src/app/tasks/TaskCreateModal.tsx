@@ -15,6 +15,7 @@ import { EntitySelector } from '@/components/EntitySelector';
 import { Chip } from './tasks-ui';
 import { useFileUpload } from '@/lib/hooks/useFileUpload';
 import { deleteFile } from '@/lib/files-api';
+import { Alert, Button, Input, Modal, Select, Textarea } from '@/components/ui';
 import { FileDropzone } from '@/components/files/FileDropzone';
 import { UploadProgressList } from '@/components/files/UploadProgressList';
 import { FileChip } from '@/components/files/FileChip';
@@ -22,11 +23,14 @@ import {
   TASK_PRIORITY_META,
   TASK_RECURRENCE_PRESETS,
   TASK_REMINDER_PRESETS,
+  FILE_PROFILES,
   type Task,
   type Contact,
   type Circle,
   type FileDto,
 } from '@superapp/shared';
+
+const PRIORITY_CHIP_TONE = { low: 'neutral', medium: 'accent', high: 'warning', urgent: 'danger' } as const;
 
 export function TaskCreateModal({ onClose, onCreated }: { onClose: () => void; onCreated?: (task: Task) => void }) {
   const queryClient = useQueryClient();
@@ -50,29 +54,18 @@ export function TaskCreateModal({ onClose, onCreated }: { onClose: () => void; o
     }
   };
 
+  // Модалка кита: role="dialog", Esc, ловушка фокуса, блокировка прокрутки —
+  // раньше это было самодельное окно без всего перечисленного.
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed', inset: 0, background: 'rgba(56,57,45,0.35)',
-        display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-        zIndex: 100, padding: '1rem', overflowY: 'auto',
-      }}
-    >
-      <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 620, margin: '3vh 0' }}>
-        {error && (
-          <div className="wash-primary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-3)', color: 'var(--primary)', fontSize: '0.875rem' }}>
-            {error}
-          </div>
-        )}
-        <TaskCreateForm
-          contacts={contactsQ.data ?? []}
-          circles={circlesQ.data ?? []}
-          onCreate={handleCreate}
-          onCancel={onClose}
-        />
-      </div>
-    </div>
+    <Modal open onClose={onClose} title="Новая задача" size="lg">
+      {error && <div style={{ marginBottom: 'var(--spacing-4)' }}><Alert tone="danger">{error}</Alert></div>}
+      <TaskCreateForm
+        contacts={contactsQ.data ?? []}
+        circles={circlesQ.data ?? []}
+        onCreate={handleCreate}
+        onCancel={onClose}
+      />
+    </Modal>
   );
 }
 
@@ -174,25 +167,24 @@ function TaskCreateForm({
     (mode === 'self' || (mode === 'person' && !!executorId) || (mode === 'group' && !!circleId));
 
   return (
-    <form onSubmit={submit} className="card-elevated" style={{ padding: 'var(--spacing-6)', background: 'var(--surface-container-low)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--spacing-4)' }}>
-        <h3 className="title-md">Новая задача</h3>
-        <button type="button" onClick={onCancel} aria-label="Закрыть" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem', color: 'var(--on-surface-variant)' }}>×</button>
-      </div>
-
-      <input
-        type="text" value={title} onChange={(e) => setTitle(e.target.value)}
-        placeholder="Что нужно сделать?" className="input-sketch" autoFocus
-        style={{ marginBottom: 'var(--spacing-3)', fontSize: '1rem', fontWeight: 600 }}
+    <form onSubmit={submit}>
+      <Input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="Что нужно сделать?"
+        autoFocus
+        wrapClassName="tcm-field"
       />
-      <textarea
-        value={description} onChange={(e) => setDescription(e.target.value)}
-        placeholder="Описание (необязательно)" className="input-sketch" rows={2}
-        style={{ marginBottom: 'var(--spacing-4)', resize: 'vertical' }}
+      <Textarea
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        placeholder="Описание (необязательно)"
+        rows={2}
+        wrapClassName="tcm-field"
       />
 
       {/* Assignment mode */}
-      <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Кому</label>
+      <label className="ui-field-label">Кому</label>
       <div style={{ display: 'flex', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-3)', flexWrap: 'wrap' }}>
         {([['self', 'Себе'], ['person', 'Человеку'], ['group', 'Группе']] as [AssignMode, string][]).map(([m, lbl]) => (
           <Chip key={m} active={mode === m} onClick={() => setMode(m)}>{lbl}</Chip>
@@ -201,7 +193,7 @@ function TaskCreateForm({
 
       {mode === 'person' && (
         <div style={{ marginBottom: 'var(--spacing-4)' }}>
-          <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Исполнитель (1 ответственный)</label>
+          <label className="ui-field-label">Исполнитель (1 ответственный)</label>
           <EntitySelector
             types={['user']}
             multi={false}
@@ -211,7 +203,7 @@ function TaskCreateForm({
             placeholder="Выберите исполнителя…"
           />
           <div style={{ marginTop: 'var(--spacing-3)' }}>
-            <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Соисполнители (помогают)</label>
+            <label className="ui-field-label">Соисполнители (помогают)</label>
             <EntitySelector
               types={['user']}
               multi
@@ -226,7 +218,7 @@ function TaskCreateForm({
 
       {mode === 'group' && (
         <div style={{ marginBottom: 'var(--spacing-4)' }}>
-          <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Группа из окружения</label>
+          <label className="ui-field-label">Группа из окружения</label>
           {circles.length === 0 ? (
             <p className="label-sm">Сначала создайте группу на странице «Моё окружение»</p>
           ) : (
@@ -248,7 +240,7 @@ function TaskCreateForm({
 
       {mode !== 'self' && (
         <div style={{ marginBottom: 'var(--spacing-4)' }}>
-          <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Наблюдатели (видят прогресс и чат)</label>
+          <label className="ui-field-label">Наблюдатели (видят прогресс и чат)</label>
           <EntitySelector
             types={['user']}
             multi
@@ -263,24 +255,23 @@ function TaskCreateForm({
       {/* Deadline + reminder + recurrence */}
       <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)', marginBottom: 'var(--spacing-4)' }}>
         <div>
-          <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>
-            Дедлайн
-            <button type="button" onClick={() => { setAllDay(!allDay); setDueDate(''); }} style={{ marginLeft: '0.5rem', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.75rem', color: 'var(--secondary)', fontWeight: 600 }}>
-              {allDay ? '🕒 со временем' : '📅 весь день'}
-            </button>
-          </label>
-          <input
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+            <span className="ui-field-label">Дедлайн</span>
+            <Button type="button" size="sm" variant="ghost" icon={allDay ? 'clock' : 'calendar'} onClick={() => { setAllDay(!allDay); setDueDate(''); }}>
+              {allDay ? 'со временем' : 'весь день'}
+            </Button>
+          </div>
+          <Input
             type={allDay ? 'date' : 'datetime-local'}
             value={dueDate}
             onChange={(e) => setDueDate(e.target.value)}
-            className="input-sketch"
           />
         </div>
         <div>
-          <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Приоритет</label>
+          <label className="ui-field-label">Приоритет</label>
           <div style={{ display: 'flex', gap: 'var(--spacing-1)', flexWrap: 'wrap' }}>
             {(Object.keys(TASK_PRIORITY_META) as Task['priority'][]).map((p) => (
-              <Chip key={p} active={priority === p} color={TASK_PRIORITY_META[p].color} onClick={() => setPriority(p)}>
+              <Chip key={p} active={priority === p} tone={PRIORITY_CHIP_TONE[p]} onClick={() => setPriority(p)}>
                 {TASK_PRIORITY_META[p].label}
               </Chip>
             ))}
@@ -290,37 +281,43 @@ function TaskCreateForm({
 
       <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)', marginBottom: 'var(--spacing-4)' }}>
         <div>
-          <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Напоминание</label>
-          <select className="input-sketch" value={reminderMin ?? ''} onChange={(e) => setReminderMin(e.target.value === '' ? null : Number(e.target.value))} disabled={!dueDate}>
-            {TASK_REMINDER_PRESETS.map((r) => (
-              <option key={r.label} value={r.minutesBefore ?? ''}>{r.label}</option>
-            ))}
-          </select>
+          <label className="ui-field-label">Напоминание</label>
+          <Select
+            value={reminderMin === null ? '' : String(reminderMin)}
+            onChange={(v) => setReminderMin(v === '' ? null : Number(v))}
+            disabled={!dueDate}
+            aria-label="Напоминание"
+            options={TASK_REMINDER_PRESETS.map((r) => ({ value: r.minutesBefore === null || r.minutesBefore === undefined ? '' : String(r.minutesBefore), label: r.label }))}
+          />
         </div>
         <div>
-          <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Повтор</label>
-          <select className="input-sketch" value={recurrence ?? ''} onChange={(e) => setRecurrence(e.target.value === '' ? null : e.target.value)}>
-            {TASK_RECURRENCE_PRESETS.map((r) => (
-              <option key={r.label} value={r.rule ?? ''}>{r.label}</option>
-            ))}
-          </select>
+          <label className="ui-field-label">Повтор</label>
+          <Select
+            value={recurrence ?? ''}
+            onChange={(v) => setRecurrence(v === '' ? null : v)}
+            aria-label="Повтор"
+            options={TASK_RECURRENCE_PRESETS.map((r) => ({ value: r.rule ?? '', label: r.label }))}
+          />
         </div>
       </div>
 
       {/* Reward */}
       <div style={{ marginBottom: 'var(--spacing-5)' }}>
-        <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>
+        <label className="ui-field-label">
           Награда коинами {mode === 'group' && selectedCircle ? '(каждому)' : ''}
         </label>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
-          <input
-            type="number" min={0} value={coinReward}
+          <Input
+            type="number"
+            min={0}
+            value={coinReward}
             onChange={(e) => setCoinReward(Math.max(0, Number(e.target.value) || 0))}
-            className="input-sketch" style={{ maxWidth: '140px' }}
+            icon="coins"
+            wrapClassName="tcm-coins"
           />
           {mode === 'group' && selectedCircle && coinReward > 0 && (
             <span className="label-sm" style={{ color: 'var(--tertiary)' }}>
-              Каждому по {coinReward} 🪙 · итого {coinReward * selectedCircle.membersCount}
+              Каждому по {coinReward} · итого {coinReward * selectedCircle.membersCount}
             </span>
           )}
         </div>
@@ -331,7 +328,7 @@ function TaskCreateForm({
 
       {/* Вложения (движок файлов) */}
       <div style={{ marginBottom: 'var(--spacing-5)' }}>
-        <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>Вложения</label>
+        <label className="ui-field-label">Вложения</label>
         {attachments.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-2)' }}>
             {attachments.map((f) => (
@@ -339,17 +336,24 @@ function TaskCreateForm({
             ))}
           </div>
         )}
-        <FileDropzone onFiles={(fs) => attachUploader.add(fs)} paste multiple compact label="Прикрепить файл" />
+        <FileDropzone
+          onFiles={(fs) => attachUploader.add(fs)}
+          paste
+          multiple
+          compact
+          label="Прикрепить файл"
+          maxSizeMb={Math.round(FILE_PROFILES.chat_attachment.maxSize / (1024 * 1024))}
+        />
         <UploadProgressList items={attachUploader.items.filter((i) => i.status !== 'done')} onCancel={attachUploader.cancel} onRemove={attachUploader.remove} />
       </div>
 
       <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
-        <button type="submit" disabled={!canSubmit} className="btn-primary" style={{ fontSize: '0.9rem', opacity: canSubmit ? 1 : 0.6 }}>
+        <Button type="submit" variant="primary" tone="success" icon="add" disabled={!canSubmit}>
           {submitting ? 'Создание...' : 'Создать задачу'}
-        </button>
-        <button type="button" onClick={onCancel} className="btn-secondary" style={{ fontSize: '0.9rem' }}>
+        </Button>
+        <Button type="button" variant="ghost" onClick={onCancel}>
           Отмена
-        </button>
+        </Button>
       </div>
     </form>
   );

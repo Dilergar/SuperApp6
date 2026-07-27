@@ -351,11 +351,11 @@ export default function TaskDetailPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-5)', flexWrap: 'wrap' }}>
         <Link href="/tasks" className="label-md" style={{ color: 'var(--secondary)', fontWeight: 600, textDecoration: 'none' }}>← Задачи</Link>
         <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button onClick={() => setShowForward(true)} className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>↗ Переслать в чат</button>
+          <button onClick={() => setShowForward(true)} className="btn-ghost-inline" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>↗ Переслать в чат</button>
           {isCreator && (
             <>
               {task.status !== 'cancelled' && task.status !== 'done' && (
-                <button onClick={cancel} disabled={busy} className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>Отменить</button>
+                <button onClick={cancel} disabled={busy} className="btn-ghost-inline" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>Отменить</button>
               )}
               <button onClick={() => { if (confirm('Удалить задачу?')) remove(); }} disabled={busy} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: '0.8rem', fontWeight: 600 }}>Удалить</button>
             </>
@@ -364,7 +364,7 @@ export default function TaskDetailPage() {
       </div>
 
       <div style={{ paddingBottom: 'var(--spacing-16)' }}>
-        {error && <div className="wash-primary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-4)', color: 'var(--primary)', fontSize: '0.875rem' }}>{error}</div>}
+        {error && <div className="alert-neutral-inline" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-4)', color: 'var(--primary)', fontSize: '0.875rem' }}>{error}</div>}
 
         {/* Header */}
         <div style={{ marginBottom: 'var(--spacing-5)' }}>
@@ -372,7 +372,7 @@ export default function TaskDetailPage() {
             <span style={{ color: st.color, fontWeight: 600, fontSize: '0.8rem', background: 'var(--surface-container)', padding: '0.15rem 0.6rem', borderRadius: 'var(--radius-sketch)' }}>{st.icon} {st.label}</span>
             <span style={{ color: pr.color, fontWeight: 700, fontSize: '0.75rem' }}>{pr.label} приоритет</span>
           </div>
-          <h1 className="display-md" style={{ marginBottom: 'var(--spacing-2)', textDecoration: task.status === 'done' ? 'line-through' : 'none' }}>{task.title}</h1>
+          <h1 className="title-lg" style={{ marginBottom: 'var(--spacing-2)', textDecoration: task.status === 'done' ? 'line-through' : 'none' }}>{task.title}</h1>
           {task.description && <p className="label-md" style={{ fontSize: '0.95rem', whiteSpace: 'pre-wrap' }}>{task.description}</p>}
         </div>
 
@@ -384,19 +384,19 @@ export default function TaskDetailPage() {
           </div>
           {task.dueDate && <Meta label="Дедлайн" value={formatDue(task.dueDate, task.allDay)} />}
           {task.recurrenceRule && <Meta label="Повтор" value="включён" />}
-          {task.coinReward > 0 && <Meta label={task.assignedCircleName ? 'Награда (каждому)' : 'Награда'} value={`${task.coinReward} 🪙`} />}
+          {task.coinReward > 0 && <Meta label={task.assignedCircleName ? 'Награда (каждому)' : 'Награда'} value={`${task.coinReward}`} />}
           {task.progress && <Meta label="Прогресс" value={`${task.progress.accepted} из ${task.progress.total} принято`} />}
         </div>
 
         {/* My actions */}
         {(canStart || canSubmit) && (
           <div style={{ display: 'flex', gap: 'var(--spacing-3)', marginBottom: 'var(--spacing-5)' }}>
-            {canStart && <button onClick={start} disabled={busy} className="btn-secondary" style={{ fontSize: '0.9rem' }}>Взять в работу</button>}
+            {canStart && <button onClick={start} disabled={busy} className="btn-ghost-inline" style={{ fontSize: '0.9rem' }}>Взять в работу</button>}
             {canSubmit && <button onClick={submit} disabled={busy} className="btn-primary" style={{ fontSize: '0.9rem' }}>{isSelfTask ? 'Готово' : 'Сдать на проверку'}</button>}
           </div>
         )}
         {isWorker && task.myParticipantStatus === 'submitted' && (
-          <p className="wash-secondary" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-5)', fontSize: '0.85rem', color: 'var(--secondary)' }}>Сдано — ждёт приёмки Постановщика</p>
+          <p className="alert-accent-inline" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-5)', fontSize: '0.85rem', color: 'var(--secondary)' }}>Сдано — ждёт приёмки Постановщика</p>
         )}
 
         {/* Roles / participants */}
@@ -488,8 +488,8 @@ function ParticipantRow({ p, showAccept, busy, onAccept, onReturn }: {
       <span className="label-sm" style={{ color: stat.color, fontWeight: 600, fontSize: '0.78rem' }}>{stat.label}</span>
       {showAccept && p.status === 'submitted' && (
         <div style={{ display: 'flex', gap: 'var(--spacing-1)' }}>
-          <button onClick={onAccept} disabled={busy} className="btn-primary" style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem' }}>Принять</button>
-          <button onClick={onReturn} disabled={busy} className="btn-secondary" style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem' }}>Вернуть</button>
+          <button onClick={onAccept} disabled={busy} className="btn-success" style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem' }}>Принять</button>
+          <button onClick={onReturn} disabled={busy} className="btn-ghost-inline" style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem' }}>Вернуть</button>
         </div>
       )}
     </div>

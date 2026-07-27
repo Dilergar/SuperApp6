@@ -1,5 +1,6 @@
 'use client';
 
+import { ModalShell } from '@/components/ui';
 import { useEffect } from 'react';
 import type { FileDto } from '@superapp/shared';
 import { useFileDisplayUrl } from '../../lib/hooks/useFileUrl';
@@ -24,21 +25,7 @@ export function ImageLightbox({ file, onClose }: ImageLightboxProps) {
   }, [onClose]);
 
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 90,
-        background: 'rgba(30, 28, 20, 0.82)',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '2rem',
-        cursor: 'zoom-out',
-      }}
-    >
+    <ModalShell onClose={onClose}>
       {isLoading || !url ? (
         <div style={{ color: '#fff', fontFamily: 'var(--font-body)' }}>Загружаю…</div>
       ) : (
@@ -52,7 +39,7 @@ export function ImageLightbox({ file, onClose }: ImageLightboxProps) {
             maxHeight: '82vh',
             objectFit: 'contain',
             borderRadius: 'var(--radius-md)',
-            boxShadow: '0 8px 40px rgba(56, 57, 45, 0.5)',
+            boxShadow: '0 8px 40px rgba(0, 0, 0, 0.5)',
             cursor: 'default',
           }}
         />
@@ -89,6 +76,6 @@ export function ImageLightbox({ file, onClose }: ImageLightboxProps) {
       >
         ✕
       </button>
-    </div>
+    </ModalShell>
   );
 }

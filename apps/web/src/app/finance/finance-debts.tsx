@@ -3,13 +3,48 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { FinAccountDto, FinDebtDto, FinPersonDto, FinRecurringRuleDto } from '@superapp/shared';
-import { api } from '@/lib/api';
+import { api, apiErrorMessage } from '@/lib/api';
 import { financeDebtsKey, financeRecurringKey, fetchFinanceDebts, fetchFinanceRecurring } from '@/lib/queries';
+import {
+  Alert, BentoGrid, Button, Card, CardHeader, Chip, ConfirmDialog, Divider, EmptyState, Field,
+  IconButton, Input, Modal, SegmentedControl, Select, StatTile, TickBar, Toggle, type SelectOption,
+} from '@/components/ui';
 import { WEEKDAYS_SHORT, currencySymbol, formatMoney, parseMoneyInput } from './finance-lib';
+import { FinList, FinRow, Money, MoneyStack } from './finance-ui';
 import { PersonChip } from '../circles/PersonCard';
 
-const errText = (e: unknown): string =>
-  (e as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Что-то пошло не так';
+/** Обёртка выбора вокруг карточки человека (сама карточка — PersonChip, принцип 2). */
+function PersonPick({
+  selected,
+  onClick,
+  title,
+  children,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-pressed={selected}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        padding: '0.1875rem 0.3125rem',
+        borderRadius: 'var(--radius-pill)',
+        cursor: 'pointer',
+        background: selected ? 'var(--secondary-container)' : 'transparent',
+        border: `1px solid ${selected ? 'var(--primary)' : 'var(--border)'}`,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
 
 // ============================================================
 // Долги «я должен»: рассрочки и кредиты (Ф5)
@@ -36,7 +71,7 @@ export function DebtsPanel({
 }) {
   const { data: debts = [], refetch } = useQuery({ queryKey: financeDebtsKey(bookId), queryFn: () => fetchFinanceDebts(bookId) });
   const [adding, setAdding] = useState(false);
-  const [payFor, setPayFor] = useState<string | null>(null);
+  const [payFor, setPayFor] = useState<FinDebtDto | null>(null);
 
   const open = debts.filter((d) => !d.closedAt && !d.archived);
   const closed = debts.filter((d) => d.closedAt || d.archived);
@@ -45,77 +80,121 @@ export function DebtsPanel({
     onChanged();
   };
 
+  // Остаток к выплате и платёж этого месяца — по валютам
+  const remainingTotals = useMemo(() => {
+    const byCur = new Map<string, number>();
+    for (const d of open) byCur.set(d.currencyCode, (byCur.get(d.currencyCode) ?? 0) + d.remaining);
+    return [...byCur.entries()].map(([currencyCode, amount]) => ({ currencyCode, amount }));
+  }, [open]);
+  const monthlyTotals = useMemo(() => {
+    const byCur = new Map<string, number>();
+    for (const d of open) byCur.set(d.currencyCode, (byCur.get(d.currencyCode) ?? 0) + Math.min(d.monthly, d.remaining));
+    return [...byCur.entries()].map(([currencyCode, amount]) => ({ currencyCode, amount }));
+  }, [open]);
+
   return (
-    <div className="card" style={{ transform: 'rotate(-0.3deg)' }}>
-      <div className="flex items-center justify-between" style={{ marginBottom: 'var(--spacing-4)' }}>
-        <h2 className="title-md">Долги</h2>
-        {canEdit && (
-          <button className="btn-secondary" style={{ padding: '0.25rem 0.8rem', fontSize: '0.75rem' }} onClick={() => setAdding((v) => !v)}>
-            {adding ? 'Скрыть' : '+ Долг'}
-          </button>
-        )}
-      </div>
+    <>
+      <BentoGrid>
+        <StatTile span={4} label="Осталось выплатить" value={<MoneyStack sums={remainingTotals} tone={remainingTotals.length ? 'danger' : undefined} />} icon="debt" tone={remainingTotals.length ? 'danger' : 'neutral'} />
+        <StatTile span={4} label="Платёж в месяц" value={<MoneyStack sums={monthlyTotals} />} icon="calendarCheck" tone="warning" />
+        <StatTile span={4} label="Открытых долгов" value={open.length} icon="list" tone={open.length ? 'accent' : 'success'} />
 
-      {adding && canEdit && <NewDebtForm accounts={accounts} categories={categories} people={people} bookId={bookId} meId={meId} meName={meName} onDone={() => { setAdding(false); changed(); }} />}
+        <Card span={12}>
+          <CardHeader
+            title="Долги"
+            subtitle="Рассрочки и кредиты: «Оплатить» списывает платёж со счёта"
+            actions={
+              canEdit ? (
+                <Button variant="primary" tone="success" size="sm" icon="add" onClick={() => setAdding(true)}>Долг</Button>
+              ) : undefined
+            }
+          />
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
-        {open.map((d) => {
-          const paidPct = d.total > 0 ? Math.min(100, Math.round(((d.total - d.remaining) / d.total) * 100)) : 0;
-          return (
-            <div key={d.accountId} style={{ background: 'var(--surface-container-lowest)', borderRadius: 'var(--radius-sketch)', padding: '0.6rem var(--spacing-4)' }}>
-              <div className="flex items-center justify-between">
-                <span style={{ fontWeight: 600 }}>{d.icon ? `${d.icon} ` : ''}{d.name}</span>
-                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--danger)' }}>
-                  {formatMoney(d.remaining, d.currencyCode)}
-                </span>
-              </div>
-              <div style={{ height: 6, background: 'var(--surface-container-high)', borderRadius: 999, overflow: 'hidden', margin: '0.35rem 0' }}>
-                <div style={{ height: '100%', width: `${paidPct}%`, background: 'var(--success)', borderRadius: 999 }} />
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="label-sm">
-                  {d.paidMonths} из {d.months} · по {formatMoney(d.monthly, d.currencyCode)} · до {d.dueDay}-го
-                </span>
-                {canEdit && (
-                  <button
-                    className="btn-secondary"
-                    style={{ padding: '0.15rem 0.7rem', fontSize: '0.72rem' }}
-                    onClick={() => setPayFor(payFor === d.accountId ? null : d.accountId)}
-                  >
-                    Оплатить
-                  </button>
-                )}
-              </div>
-              {payFor === d.accountId && canEdit && (
-                <PayDebtForm debt={d} accounts={accounts} bookId={bookId} onDone={() => { setPayFor(null); changed(); }} />
-              )}
+          {open.length > 0 ? (
+            <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+              {open.map((d) => {
+                const paidPct = d.total > 0 ? Math.min(100, Math.round(((d.total - d.remaining) / d.total) * 100)) : 0;
+                return (
+                  <div key={d.accountId}>
+                    <FinRow
+                      glyph={d.icon ?? 'debt'}
+                      glyphTone="danger"
+                      title={d.name}
+                      subtitle={`${d.paidMonths} из ${d.months} · по ${formatMoney(d.monthly, d.currencyCode)} · до ${d.dueDay}-го`}
+                      actions={
+                        canEdit ? (
+                          <Button variant="primary" tone="success" size="sm" icon="check" onClick={() => setPayFor(d)}>
+                            Оплатить
+                          </Button>
+                        ) : undefined
+                      }
+                      right={<Money minor={d.remaining} code={d.currencyCode} tone="danger" size="1rem" />}
+                    />
+                    <div style={{ padding: '0.5rem 0.75rem 0' }}>
+                      <TickBar value={paidPct} tone="success" height={8} label="Выплачено" showValue />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
-        {open.length === 0 && !adding && <p className="label-md">Долгов нет — так держать!</p>}
-        {closed.length > 0 && (
-          <details>
-            <summary className="label-sm" style={{ cursor: 'pointer' }}>Закрытые ({closed.length})</summary>
-            {closed.map((d) => (
-              <div key={d.accountId} className="flex items-center justify-between" style={{ padding: '0.3rem 0' }}>
-                <span className="label-md">{d.icon ? `${d.icon} ` : ''}{d.name}</span>
-                <span className="label-sm" style={{ color: 'var(--success)' }}>выплачен ✓</span>
+          ) : (
+            <EmptyState
+              icon="checkCircle"
+              title="Долгов нет"
+              description="Так держать. Рассрочку или кредит можно записать в любой момент."
+              action={canEdit ? <Button variant="matte" icon="add" onClick={() => setAdding(true)}>Записать долг</Button> : undefined}
+            />
+          )}
+
+          {closed.length > 0 && (
+            <>
+              <Divider />
+              <div className="label-caps" style={{ marginBottom: 'var(--spacing-2)' }}>Закрытые · {closed.length}</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem' }}>
+                {closed.map((d) => (
+                  <Chip key={d.accountId} size="sm" tone="success" emoji={d.icon} icon={d.icon ? undefined : 'checkCircle'}>
+                    {d.name}
+                  </Chip>
+                ))}
               </div>
-            ))}
-          </details>
-        )}
-      </div>
-    </div>
+            </>
+          )}
+        </Card>
+      </BentoGrid>
+
+      {adding && canEdit && (
+        <NewDebtModal
+          accounts={accounts}
+          categories={categories}
+          people={people}
+          bookId={bookId}
+          meId={meId}
+          meName={meName}
+          onClose={() => setAdding(false)}
+          onDone={() => { setAdding(false); changed(); }}
+        />
+      )}
+      {payFor && canEdit && (
+        <PayDebtModal
+          debt={payFor}
+          accounts={accounts}
+          bookId={bookId}
+          onClose={() => setPayFor(null)}
+          onDone={() => { setPayFor(null); changed(); }}
+        />
+      )}
+    </>
   );
 }
 
-function NewDebtForm({
+function NewDebtModal({
   accounts,
   categories,
   people,
   bookId,
   meId,
   meName,
+  onClose,
   onDone,
 }: {
   accounts: FinAccountDto[];
@@ -124,6 +203,7 @@ function NewDebtForm({
   bookId: string | null;
   meId: string | null;
   meName: string;
+  onClose: () => void;
   onDone: () => void;
 }) {
   const [type, setType] = useState<'installment' | 'loan'>('installment');
@@ -136,17 +216,25 @@ function NewDebtForm({
   const [received, setReceived] = useState('');
   const [personUserId, setPersonUserId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const assets = accounts.filter((a) => a.kind === 'asset');
   const expenseCats = categories.filter((c) => c.kind === 'expense' && !c.archived);
   const monthlyMinor = parseMoneyInput(monthly);
   const monthsNum = Number(months) || 0;
   const total = monthlyMinor && monthsNum ? monthlyMinor * monthsNum : null;
+  const totalCurrency = type === 'loan'
+    ? assets.find((a) => a.id === (creditAccountId || assets[0]?.id))?.currencyCode ?? 'KZT'
+    : assets[0]?.currencyCode ?? 'KZT';
 
   const submit = async () => {
-    if (!name.trim() || !monthlyMinor || !monthsNum || busy) return;
+    if (!name.trim() || !monthlyMinor || !monthsNum || busy) {
+      setError(!name.trim() ? 'Укажите название' : 'Укажите платёж и число месяцев');
+      return;
+    }
     const receivedMinor = received.trim() ? parseMoneyInput(received) : null;
     setBusy(true);
+    setError(null);
     try {
       await api.post('/finance/debts', {
         name: name.trim(),
@@ -163,133 +251,181 @@ function NewDebtForm({
       }, bookId ? { params: { bookId } } : undefined);
       onDone();
     } catch (e) {
-      alert(errText(e));
+      setError(apiErrorMessage(e));
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <div className="wash-primary" style={{ padding: 'var(--spacing-4)', marginBottom: 'var(--spacing-4)' }}>
-      <div className="flex" style={{ gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-3)' }}>
-        {([['installment', 'Рассрочка (покупка)'], ['loan', 'Кредит деньгами']] as Array<['installment' | 'loan', string]>).map(([k, label]) => (
-          <button
-            key={k}
-            onClick={() => setType(k)}
-            style={{
-              border: 'none', cursor: 'pointer', padding: '0.25rem 0.8rem', borderRadius: 'var(--radius-sketch)',
-              fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: '0.75rem',
-              background: type === k ? 'var(--surface-container-lowest)' : 'transparent',
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <input className="input-sketch" placeholder={type === 'installment' ? 'Посуда в рассрочку' : 'Кредит наличными'} value={name} onChange={(e) => setName(e.target.value)} />
-      <div className="grid grid-cols-3" style={{ gap: 'var(--spacing-3)', marginTop: 'var(--spacing-3)' }}>
-        <div>
-          <div className="label-sm">Платёж/мес</div>
-          <input className="input-sketch" inputMode="decimal" placeholder="10 000" value={monthly} onChange={(e) => setMonthly(e.target.value)} />
-        </div>
-        <div>
-          <div className="label-sm">Месяцев</div>
-          <input className="input-sketch" inputMode="numeric" value={months} onChange={(e) => setMonths(e.target.value)} />
-        </div>
-        <div>
-          <div className="label-sm">День платежа</div>
-          <input className="input-sketch" inputMode="numeric" value={dueDay} onChange={(e) => setDueDay(e.target.value)} />
-        </div>
-      </div>
-      {total != null && (
-        <p className="label-sm" style={{ marginTop: 'var(--spacing-2)' }}>
-          Итого долг: <b>{formatMoney(total, 'KZT')}</b>
-        </p>
-      )}
-      {type === 'installment' ? (
+    <Modal
+      open
+      onClose={onClose}
+      title="Новый долг"
+      subtitle="Рассрочка — покупка: расход запишется сразу полной суммой"
+      size="md"
+      footer={
         <>
-          <div className="label-sm" style={{ marginTop: 'var(--spacing-3)' }}>Категория покупки (расход сразу полной суммой)</div>
-          <select className="input-sketch" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-            {expenseCats.filter((c) => !c.parentId).map((c) => <option key={c.id} value={c.id}>{c.icon ? `${c.icon} ` : ''}{c.name}</option>)}
-          </select>
-          {(meId || people.length > 0) && (
-            <div style={{ marginTop: 'var(--spacing-2)', display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)', alignItems: 'center' }}>
-              <span className="label-sm">На кого:</span>
-              {meId && (
-                <button
-                  onClick={() => setPersonUserId((cur) => (cur === meId ? null : meId))}
-                  style={{
-                    background: personUserId === meId ? 'var(--secondary-container)' : 'transparent',
-                    border: 'none', cursor: 'pointer', borderRadius: 'var(--radius-sketch)', padding: '0.1rem 0.25rem',
-                  }}
-                  title="На себя"
-                >
-                  <PersonChip size="S" userId={meId} firstName={meName} role="Я" />
-                </button>
-              )}
-              {people.filter((p) => p.userId !== meId).map((p) => (
-                <button
-                  key={p.userId}
-                  onClick={() => setPersonUserId((cur) => (cur === p.userId ? null : p.userId))}
-                  style={{
-                    background: personUserId === p.userId ? 'var(--secondary-container)' : 'transparent',
-                    border: 'none', cursor: 'pointer', borderRadius: 'var(--radius-sketch)', padding: '0.1rem 0.25rem',
-                  }}
-                >
-                  <PersonChip size="S" userId={p.userId} firstName={p.name} avatar={p.avatar} />
-                </button>
-              ))}
-            </div>
-          )}
+          <Button variant="ghost" onClick={onClose}>Отмена</Button>
+          <Button variant="primary" tone="success" icon="add" onClick={submit} loading={busy}>Создать долг</Button>
         </>
-      ) : (
-        <>
-          <div className="label-sm" style={{ marginTop: 'var(--spacing-3)' }}>Куда зачислить деньги</div>
-          <select className="input-sketch" value={creditAccountId} onChange={(e) => setCreditAccountId(e.target.value)}>
-            {assets.map((a) => <option key={a.id} value={a.id}>{a.icon ? `${a.icon} ` : ''}{a.name} · {currencySymbol(a.currencyCode)}</option>)}
-          </select>
-          <div className="label-sm" style={{ marginTop: 'var(--spacing-3)' }}>Получено на руки (если меньше итога — разница уйдёт в «Проценты по кредитам»)</div>
-          <input className="input-sketch" inputMode="decimal" placeholder="по умолчанию — весь итог" value={received} onChange={(e) => setReceived(e.target.value)} />
-        </>
-      )}
-      <button className="btn-primary" style={{ marginTop: 'var(--spacing-4)', padding: '0.45rem 1.4rem', fontSize: '0.85rem' }} onClick={submit} disabled={busy}>
-        Создать долг
-      </button>
-    </div>
+      }
+    >
+      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+        {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
+
+        <SegmentedControl
+          aria-label="Вид долга"
+          value={type}
+          onChange={setType}
+          items={[
+            { key: 'installment', label: 'Рассрочка (покупка)', icon: 'shop' },
+            { key: 'loan', label: 'Кредит деньгами', icon: 'savings' },
+          ]}
+        />
+
+        <Input
+          label="Название"
+          placeholder={type === 'installment' ? 'Посуда в рассрочку' : 'Кредит наличными'}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          autoFocus
+        />
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--spacing-3)' }}>
+          <Input label="Платёж/мес" inputMode="decimal" placeholder="10 000" value={monthly} onChange={(e) => setMonthly(e.target.value)} />
+          <Input label="Месяцев" inputMode="numeric" value={months} onChange={(e) => setMonths(e.target.value)} />
+          <Input label="День платежа" inputMode="numeric" value={dueDay} onChange={(e) => setDueDay(e.target.value)} />
+        </div>
+
+        {total != null && (
+          <Alert tone="accent" icon="info">
+            Итого долг: <b>{formatMoney(total, totalCurrency)}</b>
+          </Alert>
+        )}
+
+        {type === 'installment' ? (
+          <>
+            <Select
+              label="Категория покупки"
+              hint="Расход запишется сразу полной суммой — месяц покупки увидит его целиком"
+              value={categoryId || expenseCats.filter((c) => !c.parentId)[0]?.id || null}
+              onChange={setCategoryId}
+              options={expenseCats.filter((c) => !c.parentId).map((c) => ({ value: c.id, label: c.name, emoji: c.icon }))}
+            />
+            {(meId || people.length > 0) && (
+              <Field label="На кого">
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+                  {meId && (
+                    <PersonPick
+                      selected={personUserId === meId}
+                      onClick={() => setPersonUserId((cur) => (cur === meId ? null : meId))}
+                      title="На себя"
+                    >
+                      <PersonChip size="S" userId={meId} firstName={meName} role="Я" />
+                    </PersonPick>
+                  )}
+                  {people.filter((p) => p.userId !== meId).map((p) => (
+                    <PersonPick
+                      key={p.userId}
+                      selected={personUserId === p.userId}
+                      onClick={() => setPersonUserId((cur) => (cur === p.userId ? null : p.userId))}
+                      title={`На ${p.name}`}
+                    >
+                      <PersonChip size="S" userId={p.userId} firstName={p.name} avatar={p.avatar} />
+                    </PersonPick>
+                  ))}
+                </div>
+              </Field>
+            )}
+          </>
+        ) : (
+          <>
+            <Select
+              label="Куда зачислить деньги"
+              value={creditAccountId || assets[0]?.id || null}
+              onChange={setCreditAccountId}
+              options={assets.map((a) => ({ value: a.id, label: a.name, emoji: a.icon, hint: currencySymbol(a.currencyCode) }))}
+            />
+            <Input
+              label="Получено на руки"
+              hint="Если меньше итога — разница уйдёт в «Проценты по кредитам»"
+              inputMode="decimal"
+              placeholder="по умолчанию — весь итог"
+              value={received}
+              onChange={(e) => setReceived(e.target.value)}
+            />
+          </>
+        )}
+      </div>
+    </Modal>
   );
 }
 
-function PayDebtForm({ debt, accounts, bookId, onDone }: { debt: FinDebtDto; accounts: FinAccountDto[]; bookId: string | null; onDone: () => void }) {
+function PayDebtModal({
+  debt,
+  accounts,
+  bookId,
+  onClose,
+  onDone,
+}: {
+  debt: FinDebtDto;
+  accounts: FinAccountDto[];
+  bookId: string | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
   const sameCurrency = accounts.filter((a) => a.kind === 'asset' && a.currencyCode === debt.currencyCode);
   const [fromId, setFromId] = useState(sameCurrency[0]?.id ?? '');
   const defaultPay = Math.min(debt.monthly, debt.remaining);
   const [amount, setAmount] = useState(String(defaultPay / 100));
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const submit = async () => {
     const minor = parseMoneyInput(amount);
-    if (!minor || !fromId || busy) return;
+    if (!minor || !fromId || busy) {
+      setError(!fromId ? `Нет счёта в ${currencySymbol(debt.currencyCode)}` : 'Укажите сумму');
+      return;
+    }
     setBusy(true);
+    setError(null);
     try {
       await api.post(`/finance/debts/${debt.accountId}/pay`, { fromAccountId: fromId, amount: minor }, bookId ? { params: { bookId } } : undefined);
       onDone();
     } catch (e) {
-      alert(errText(e));
+      setError(apiErrorMessage(e));
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <div style={{ marginTop: 'var(--spacing-2)', display: 'flex', gap: 'var(--spacing-2)', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-      <select className="input-sketch" value={fromId} onChange={(e) => setFromId(e.target.value)} style={{ flex: 1, minWidth: 120 }}>
-        {sameCurrency.map((a) => <option key={a.id} value={a.id}>{a.icon ? `${a.icon} ` : ''}{a.name}</option>)}
-      </select>
-      <input className="input-sketch" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} style={{ width: 90 }} />
-      <button className="btn-primary" style={{ padding: '0.3rem 1rem', fontSize: '0.78rem' }} onClick={submit} disabled={busy}>
-        Оплачено
-      </button>
-    </div>
+    <Modal
+      open
+      onClose={onClose}
+      title={`Платёж: ${debt.name}`}
+      subtitle={`Осталось ${formatMoney(debt.remaining, debt.currencyCode)}`}
+      size="sm"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>Отмена</Button>
+          <Button variant="primary" tone="success" icon="check" onClick={submit} loading={busy}>Оплачено</Button>
+        </>
+      }
+    >
+      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+        {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
+        <Select
+          label="Со счёта"
+          value={fromId || null}
+          onChange={setFromId}
+          options={sameCurrency.map((a) => ({ value: a.id, label: a.name, emoji: a.icon, hint: formatMoney(a.balance, a.currencyCode) }))}
+          placeholder="Счёт…"
+        />
+        <Input label={`Сумма · ${currencySymbol(debt.currencyCode)}`} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
+      </div>
+    </Modal>
   );
 }
 
@@ -312,6 +448,8 @@ export function RecurringPanel({
 }) {
   const { data: rules = [], refetch } = useQuery({ queryKey: financeRecurringKey(bookId), queryFn: () => fetchFinanceRecurring(bookId) });
   const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState<FinRecurringRuleDto | null>(null);
+  const [busy, setBusy] = useState(false);
   const changed = () => {
     refetch();
     onChanged();
@@ -329,7 +467,7 @@ export function RecurringPanel({
       await api.patch(`/finance/recurring/${r.id}`, { active: !r.active }, cfg);
       changed();
     } catch (e) {
-      alert(errText(e));
+      window.alert(apiErrorMessage(e));
     }
   };
   const recordNow = async (r: FinRecurringRuleDto) => {
@@ -337,67 +475,127 @@ export function RecurringPanel({
       await api.post(`/finance/recurring/${r.id}/record-now`, {}, cfg);
       changed();
     } catch (e) {
-      alert(errText(e));
+      window.alert(apiErrorMessage(e));
     }
   };
-  const remove = async (r: FinRecurringRuleDto) => {
-    if (!window.confirm(`Удалить повтор «${r.title}»?`)) return;
+  const remove = async () => {
+    if (!removing || busy) return;
+    setBusy(true);
     try {
-      await api.delete(`/finance/recurring/${r.id}`, cfg);
+      await api.delete(`/finance/recurring/${removing.id}`, cfg);
+      setRemoving(null);
       changed();
     } catch (e) {
-      alert(errText(e));
+      window.alert(apiErrorMessage(e));
+    } finally {
+      setBusy(false);
     }
   };
 
+  const active = rules.filter((r) => r.active);
+
   return (
-    <div className="card" style={{ transform: 'rotate(0.25deg)' }}>
-      <div className="flex items-center justify-between" style={{ marginBottom: 'var(--spacing-4)' }}>
-        <h2 className="title-md">Повторы</h2>
-        {canEdit && (
-          <button className="btn-secondary" style={{ padding: '0.25rem 0.8rem', fontSize: '0.75rem' }} onClick={() => setAdding((v) => !v)}>
-            {adding ? 'Скрыть' : '+ Повтор'}
-          </button>
-        )}
-      </div>
+    <>
+      <BentoGrid>
+        <StatTile span={6} label="Активных повторов" value={active.length} icon="refresh" tone={active.length ? 'accent' : 'neutral'} />
+        <StatTile span={6} label="Записываются сами" value={active.filter((r) => r.autoRecord).length} icon="bolt" tone="success" />
 
-      {adding && canEdit && <NewRecurringForm accounts={accounts} categories={categories} bookId={bookId} onDone={() => { setAdding(false); changed(); }} />}
+        <Card span={12}>
+          <CardHeader
+            title="Повторы"
+            subtitle="Аренда, подписки, зарплата — запишутся сами или напомнят"
+            actions={
+              canEdit ? (
+                <Button variant="primary" tone="success" size="sm" icon="add" onClick={() => setAdding(true)}>Повтор</Button>
+              ) : undefined
+            }
+          />
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
-        {rules.map((r) => (
-          <div key={r.id} style={{ background: 'var(--surface-container-lowest)', borderRadius: 'var(--radius-sketch)', padding: '0.5rem var(--spacing-3)', opacity: r.active ? 1 : 0.55 }}>
-            <div className="flex items-center justify-between">
-              <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{r.title}</span>
-              <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '0.9rem' }}>
-                {formatMoney(r.amount, r.currencyCode)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between" style={{ marginTop: '0.15rem' }}>
-              <span className="label-sm">
-                {r.interval === 'monthly' ? `каждое ${r.dayOfMonth}-е` : `по ${WEEKDAYS_SHORT[(r.weekday ?? 1) - 1]}`} ·{' '}
-                {r.autoRecord ? 'авто' : 'напоминание'} · {accountName.get(r.toAccountId) ?? ''}
-              </span>
-              {canEdit && (
-                <span className="flex" style={{ gap: '0.5rem' }}>
-                  {!r.autoRecord && r.active && (
-                    <button className="label-sm" title="Записать сейчас" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--secondary)' }} onClick={() => recordNow(r)}>▶</button>
-                  )}
-                  <button className="label-sm" title={r.active ? 'Пауза' : 'Включить'} style={{ background: 'none', border: 'none', cursor: 'pointer' }} onClick={() => toggleActive(r)}>
-                    {r.active ? '⏸' : '▶️'}
-                  </button>
-                  <button className="label-sm" title="Удалить" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontWeight: 700 }} onClick={() => remove(r)}>×</button>
-                </span>
-              )}
-            </div>
-          </div>
-        ))}
-        {rules.length === 0 && !adding && <p className="label-md">Подписки и аренда запишутся сами — добавьте первый повтор.</p>}
-      </div>
-    </div>
+          {rules.length > 0 ? (
+            <FinList>
+              {rules.map((r) => (
+                <FinRow
+                  key={r.id}
+                  glyph="refresh"
+                  glyphTone={r.active ? 'accent' : 'neutral'}
+                  title={
+                    <>
+                      <span style={{ opacity: r.active ? 1 : 0.6 }}>{r.title}</span>
+                      {!r.active && <Chip size="sm" tone="neutral">пауза</Chip>}
+                      <Chip size="sm" tone={r.autoRecord ? 'success' : 'warning'}>
+                        {r.autoRecord ? 'авто' : 'напоминание'}
+                      </Chip>
+                    </>
+                  }
+                  subtitle={`${r.interval === 'monthly' ? `каждое ${r.dayOfMonth}-е` : `по ${WEEKDAYS_SHORT[(r.weekday ?? 1) - 1]}`} · ${accountName.get(r.toAccountId) ?? ''}`}
+                  actions={
+                    canEdit ? (
+                      <>
+                        {!r.autoRecord && r.active && (
+                          <IconButton icon="play" label="Записать сейчас" size={28} onClick={() => recordNow(r)} />
+                        )}
+                        <IconButton
+                          icon={r.active ? 'stop' : 'play'}
+                          label={r.active ? 'Поставить на паузу' : 'Включить'}
+                          size={28}
+                          onClick={() => toggleActive(r)}
+                        />
+                        <IconButton icon="delete" label="Удалить" size={28} onClick={() => setRemoving(r)} />
+                      </>
+                    ) : undefined
+                  }
+                  right={<Money minor={r.amount} code={r.currencyCode} />}
+                />
+              ))}
+            </FinList>
+          ) : (
+            <EmptyState
+              icon="refresh"
+              title="Повторов нет"
+              description="Подписки и аренда запишутся сами — добавьте первый повтор."
+              action={canEdit ? <Button variant="primary" tone="success" icon="add" onClick={() => setAdding(true)}>Добавить повтор</Button> : undefined}
+            />
+          )}
+        </Card>
+      </BentoGrid>
+
+      {adding && canEdit && (
+        <NewRecurringModal
+          accounts={accounts}
+          categories={categories}
+          bookId={bookId}
+          onClose={() => setAdding(false)}
+          onDone={() => { setAdding(false); changed(); }}
+        />
+      )}
+
+      <ConfirmDialog
+        open={!!removing}
+        onClose={() => setRemoving(null)}
+        onConfirm={remove}
+        title={removing ? `Удалить «${removing.title}»?` : 'Удалить повтор?'}
+        message="Записанные ранее операции останутся — исчезнет только правило."
+        confirmLabel="Удалить"
+        danger
+        loading={busy}
+      />
+    </>
   );
 }
 
-function NewRecurringForm({ accounts, categories, bookId, onDone }: { accounts: FinAccountDto[]; categories: FinAccountDto[]; bookId: string | null; onDone: () => void }) {
+function NewRecurringModal({
+  accounts,
+  categories,
+  bookId,
+  onClose,
+  onDone,
+}: {
+  accounts: FinAccountDto[];
+  categories: FinAccountDto[];
+  bookId: string | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
   const [kind, setKind] = useState<'expense' | 'income'>('expense');
   const [title, setTitle] = useState('');
   const [amount, setAmount] = useState('');
@@ -407,16 +605,28 @@ function NewRecurringForm({ accounts, categories, bookId, onDone }: { accounts: 
   const [day, setDay] = useState('1');
   const [autoRecord, setAutoRecord] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const money = accounts.filter((a) => a.kind === 'asset');
   const cats = categories.filter((c) => c.kind === kind && !c.archived);
+
+  const catOptions: SelectOption[] = cats.map((c) => ({
+    value: c.id,
+    label: c.name,
+    emoji: c.icon,
+    hint: c.parentId ? categories.find((p) => p.id === c.parentId)?.name : undefined,
+  }));
 
   const submit = async () => {
     const minor = parseMoneyInput(amount);
     const from = kind === 'expense' ? moneyId || money[0]?.id : catId || cats[0]?.id;
     const to = kind === 'expense' ? catId || cats[0]?.id : moneyId || money[0]?.id;
-    if (!title.trim() || !minor || !from || !to || busy) return;
+    if (!title.trim() || !minor || !from || !to || busy) {
+      setError(!title.trim() ? 'Укажите название' : !minor ? 'Укажите сумму' : 'Выберите счёт и категорию');
+      return;
+    }
     setBusy(true);
+    setError(null);
     try {
       await api.post('/finance/recurring', {
         title: title.trim(),
@@ -429,43 +639,78 @@ function NewRecurringForm({ accounts, categories, bookId, onDone }: { accounts: 
       }, bookId ? { params: { bookId } } : undefined);
       onDone();
     } catch (e) {
-      alert(errText(e));
+      setError(apiErrorMessage(e));
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <div className="wash-secondary" style={{ padding: 'var(--spacing-4)', marginBottom: 'var(--spacing-4)' }}>
-      <div className="flex" style={{ gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-3)' }}>
-        {([['expense', 'Расход'], ['income', 'Доход']] as Array<['expense' | 'income', string]>).map(([k, label]) => (
-          <button key={k} onClick={() => setKind(k)} style={{ border: 'none', cursor: 'pointer', padding: '0.2rem 0.8rem', borderRadius: 'var(--radius-sketch)', fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: '0.75rem', background: kind === k ? 'var(--surface-container-lowest)' : 'transparent' }}>
-            {label}
-          </button>
-        ))}
+    <Modal
+      open
+      onClose={onClose}
+      title="Новый повтор"
+      size="md"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>Отмена</Button>
+          <Button variant="primary" tone="success" icon="add" onClick={submit} loading={busy}>Создать повтор</Button>
+        </>
+      }
+    >
+      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+        {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
+
+        <SegmentedControl
+          aria-label="Вид повтора"
+          value={kind}
+          onChange={(k) => { setKind(k); setCatId(''); }}
+          items={[
+            { key: 'expense', label: 'Расход', icon: 'trendDown' },
+            { key: 'income', label: 'Доход', icon: 'trendUp' },
+          ]}
+        />
+
+        <Input label="Название" placeholder="Аренда, Netflix, зарплата…" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--spacing-3)' }}>
+          <Input label="Сумма" inputMode="decimal" placeholder="2 500" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <Select
+            label="Счёт"
+            value={moneyId || money[0]?.id || null}
+            onChange={setMoneyId}
+            options={money.map((a) => ({ value: a.id, label: a.name, emoji: a.icon, hint: currencySymbol(a.currencyCode) }))}
+          />
+          <Select
+            label={kind === 'expense' ? 'Категория' : 'Источник'}
+            value={catId || cats[0]?.id || null}
+            onChange={setCatId}
+            options={catOptions}
+          />
+          <Select
+            label="Как часто"
+            value={interval}
+            onChange={(v) => setIntervalV(v as 'monthly' | 'weekly')}
+            options={[
+              { value: 'monthly', label: 'Каждый месяц', icon: 'calendar' },
+              { value: 'weekly', label: 'Каждую неделю', icon: 'refresh' },
+            ]}
+          />
+          <Input
+            label={interval === 'monthly' ? 'День месяца' : 'День недели (1–7)'}
+            inputMode="numeric"
+            value={day}
+            onChange={(e) => setDay(e.target.value)}
+          />
+        </div>
+
+        <Toggle
+          checked={autoRecord}
+          onChange={setAutoRecord}
+          label="Записывать автоматически"
+          description="Выключено — придёт напоминание с кнопкой «Записать сейчас»"
+        />
       </div>
-      <input className="input-sketch" placeholder="Аренда, Netflix, зарплата…" value={title} onChange={(e) => setTitle(e.target.value)} />
-      <div className="grid grid-cols-2" style={{ gap: 'var(--spacing-3)', marginTop: 'var(--spacing-3)' }}>
-        <input className="input-sketch" inputMode="decimal" placeholder="Сумма" value={amount} onChange={(e) => setAmount(e.target.value)} />
-        <select className="input-sketch" value={moneyId} onChange={(e) => setMoneyId(e.target.value)}>
-          {money.map((a) => <option key={a.id} value={a.id}>{a.icon ? `${a.icon} ` : ''}{a.name}</option>)}
-        </select>
-        <select className="input-sketch" value={catId} onChange={(e) => setCatId(e.target.value)} style={{ gridColumn: '1 / -1' }}>
-          {cats.map((c) => <option key={c.id} value={c.id}>{c.parentId ? '  ' : ''}{c.icon ? `${c.icon} ` : ''}{c.name}</option>)}
-        </select>
-        <select className="input-sketch" value={interval} onChange={(e) => setIntervalV(e.target.value as 'monthly' | 'weekly')}>
-          <option value="monthly">Каждый месяц</option>
-          <option value="weekly">Каждую неделю</option>
-        </select>
-        <input className="input-sketch" inputMode="numeric" placeholder={interval === 'monthly' ? 'День месяца' : 'День недели 1–7'} value={day} onChange={(e) => setDay(e.target.value)} />
-      </div>
-      <label className="label-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: 'var(--spacing-3)', cursor: 'pointer' }}>
-        <input type="checkbox" checked={autoRecord} onChange={(e) => setAutoRecord(e.target.checked)} />
-        записывать автоматически (иначе — напоминание с кнопкой)
-      </label>
-      <button className="btn-primary" style={{ marginTop: 'var(--spacing-4)', padding: '0.45rem 1.4rem', fontSize: '0.85rem' }} onClick={submit} disabled={busy}>
-        Создать повтор
-      </button>
-    </div>
+    </Modal>
   );
 }
