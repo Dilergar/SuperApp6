@@ -102,12 +102,14 @@ export const DEFAULT_EVENT_DURATION_MIN = 60;
 
 export const RSVP_META: Record<
   RsvpStatus,
-  { label: string; group: string; color: string; icon: string }
+  { label: string; group: string; icon: string }
 > = {
-  pending: { label: 'Не ответил', group: 'Не ответили', color: '#a39d92', icon: '○' },
-  accepted: { label: 'Приду', group: 'Придут', color: '#74a277', icon: '✓' },
-  declined: { label: 'Не приду', group: 'Не придут', color: '#de6d68', icon: '✕' },
-  tentative: { label: 'Может быть', group: 'Думают', color: '#d6966c', icon: '?' },
+  // Поле color удалено (2026-08-01): его не читал НИКТО (веб красит RSVP
+  // тонами — RSVP_TONE в EventModal), а хекс не пересекает границу shared
+  pending: { label: 'Не ответил', group: 'Не ответили', icon: '○' },
+  accepted: { label: 'Приду', group: 'Придут', icon: '✓' },
+  declined: { label: 'Не приду', group: 'Не придут', icon: '✕' },
+  tentative: { label: 'Может быть', group: 'Думают', icon: '?' },
 };
 
 /** Smart Match defaults: working window + slot granularity. */
@@ -136,11 +138,12 @@ export const RESOURCE_TYPE_META: Record<ResourceType, { label: string; icon: str
 
 export const RESOURCE_BOOKING_STATUS_META: Record<
   ResourceBookingStatus,
-  { label: string; color: string }
+  { label: string }
 > = {
-  pending: { label: 'Ожидает подтверждения', color: '#d6966c' },
-  confirmed: { label: 'Подтверждена', color: '#74a277' },
-  rejected: { label: 'Отклонена', color: '#de6d68' },
+  // color удалён (2026-08-01) — мёртвое поле, см. комментарий у RSVP_META
+  pending: { label: 'Ожидает подтверждения' },
+  confirmed: { label: 'Подтверждена' },
+  rejected: { label: 'Отклонена' },
 };
 
 // ---- Слои календаря (реестр платформы) ----

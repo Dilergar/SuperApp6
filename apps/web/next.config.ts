@@ -66,6 +66,12 @@ const nextConfig: NextConfig = {
         headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
       },
       {
+        // Спрайт интерфейсных иконок (scripts/gen-icon-sprite.cjs): в имени
+        // контент-хэш, поэтому вечный кэш безопасен — новая версия = новый URL
+        source: '/icons/:path*',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
+      },
+      {
         source: '/:path*',
         headers: [
           // Кликджекинг: приложение — кликабельный SPA за долгой сессией, и у него есть

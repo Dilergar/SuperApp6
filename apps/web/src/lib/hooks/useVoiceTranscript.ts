@@ -53,8 +53,21 @@ export function useVoiceTranscript(
   useEffect(() => {
     if (status !== 'queued' && status !== 'processing') return;
     if (!transcript) return;
-    const timer = setTimeout(() => void refetch(), pollInterval(transcript));
-    return () => clearTimeout(timer);
+    // Скрытая вкладка не поллит; возврат на вкладку — догоняющий refetch
+    // (он двигает dataUpdatedAt, и эффект перевзводится сам)
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    if (document.visibilityState === 'visible') {
+      timer = setTimeout(() => void refetch(), pollInterval(transcript));
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void refetch();
+      else if (timer) { clearTimeout(timer); timer = null; }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, dataUpdatedAt]);
 

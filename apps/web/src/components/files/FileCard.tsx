@@ -29,7 +29,7 @@ export function FileCard({ file, onOpen, actions }: FileCardProps) {
         background: 'var(--surface-container-lowest)',
         borderRadius: 'var(--radius-sketch)',
         overflow: 'hidden',
-        boxShadow: '0 2px 6px rgba(0, 0, 0, 0.12)',
+        boxShadow: 'var(--shadow-card)',
       }}
     >
       <div
@@ -50,6 +50,8 @@ export function FileCard({ file, onOpen, actions }: FileCardProps) {
           <img
             src={previewUrl}
             alt={file.name}
+            loading="lazy"
+            decoding="async"
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
           />
         ) : (
@@ -78,7 +80,7 @@ export function FileCard({ file, onOpen, actions }: FileCardProps) {
               bottom: '0.35rem',
               fontSize: '0.65rem',
               fontWeight: 700,
-              color: '#fff',
+              color: 'var(--on-primary)',
               background: 'rgba(0,0,0,0.55)',
               padding: '0.05rem 0.35rem',
               borderRadius: '999px',

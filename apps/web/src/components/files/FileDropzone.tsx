@@ -81,7 +81,7 @@ export function FileDropzone({
         cursor: disabled ? 'not-allowed' : 'pointer',
         padding: compact ? '0.75rem 1rem' : '1.75rem 1.25rem',
         textAlign: 'center',
-        background: over ? 'rgba(88, 140, 211, 0.06)' : 'transparent',
+        background: over ? 'color-mix(in srgb, var(--primary) 6%, transparent)' : 'transparent',
         border: `2px dashed ${over ? 'var(--primary)' : 'var(--line)'}`,
         borderRadius: 'var(--radius-lg)',
         transition: 'background 0.15s ease, border-color 0.15s ease',

@@ -112,6 +112,8 @@ export function ListingCard({
         <img
           src={l.coverUrl}
           alt={l.title}
+          loading="lazy"
+          decoding="async"
           style={{ width: '100%', height: '8.5rem', objectFit: 'cover', borderRadius: 'var(--radius-md)', marginBottom: 'var(--spacing-3)', display: 'block' }}
         />
       ) : (
@@ -206,7 +208,7 @@ export function ListingPhotosSection({ listingId, onError }: { listingId: string
               }}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={thumbOf(f)} alt={f.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <img src={thumbOf(f)} alt={f.name} loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               <IconButton
                 icon="close"
                 label={`Убрать фото ${f.name}`}

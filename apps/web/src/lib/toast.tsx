@@ -61,8 +61,10 @@ export function Toaster() {
     };
   }, []);
 
-  if (list.length === 0) return null;
-
+  // Контейнер живёт в DOM ПОСТОЯННО (и пустым): aria-live-регион, вставленный
+  // вместе с первым сообщением, скринридеры часто не озвучивают — регион должен
+  // существовать до события. Пустой он ничего не перекрывает: pointer-events
+  // отключены на стеке и возвращены самим тостам (globals.css).
   return (
     <div className="toast-stack" role="region" aria-label="Уведомления">
       {list.map((t) => (

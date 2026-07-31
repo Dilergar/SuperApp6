@@ -359,7 +359,7 @@ export default function ProfileSectionPage() {
                       style={{
                         padding: '0.3rem 0.7rem', fontSize: '0.78rem', borderRadius: 'var(--radius-sketch)',
                         border: 'none', cursor: 'pointer', fontWeight: 600,
-                        color: on ? '#fff' : 'var(--on-surface-variant)',
+                        color: on ? 'var(--on-primary)' : 'var(--on-surface-variant)',
                         background: on ? 'var(--secondary)' : 'var(--surface-container)',
                         opacity: on ? 1 : 0.6, transition: 'all 0.15s ease',
                       }}
@@ -391,7 +391,7 @@ export default function ProfileSectionPage() {
                       style={{
                         padding: '0.3rem 0.7rem', fontSize: '0.78rem', borderRadius: 'var(--radius-sketch)',
                         border: 'none', cursor: 'pointer', fontWeight: 600,
-                        color: on ? '#fff' : 'var(--on-surface-variant)',
+                        color: on ? 'var(--on-primary)' : 'var(--on-surface-variant)',
                         background: on ? 'var(--secondary)' : 'var(--surface-container)',
                         opacity: on ? 1 : 0.6, transition: 'all 0.15s ease',
                       }}
@@ -620,7 +620,7 @@ export default function ProfileSectionPage() {
             {deleteError && <p style={{ color: 'var(--danger)', fontSize: '0.8rem', marginBottom: 'var(--spacing-3)' }}>{deleteError}</p>}
             <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end' }}>
               <button className="btn-ghost-inline" disabled={deleting} style={{ fontSize: '0.85rem' }} onClick={() => { setShowDeleteModal(false); setDeletePassword(''); setDeleteError(''); }}>Отмена</button>
-              <button disabled={deleting} onClick={handleDeleteAccount} style={{ fontSize: '0.85rem', fontWeight: 600, color: '#fff', background: 'var(--danger)', border: 'none', borderRadius: '10px', padding: 'var(--spacing-2) var(--spacing-5)', cursor: deleting ? 'default' : 'pointer', opacity: deleting ? 0.6 : 1 }}>{deleting ? 'Удаление…' : 'Удалить'}</button>
+              <button disabled={deleting} onClick={handleDeleteAccount} style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--on-primary)', background: 'var(--danger)', border: 'none', borderRadius: '10px', padding: 'var(--spacing-2) var(--spacing-5)', cursor: deleting ? 'default' : 'pointer', opacity: deleting ? 0.6 : 1 }}>{deleting ? 'Удаление…' : 'Удалить'}</button>
             </div>
           </div>
         </ModalShell>

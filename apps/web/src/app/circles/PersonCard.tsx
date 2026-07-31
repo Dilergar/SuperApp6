@@ -228,6 +228,8 @@ function CardShell({
           src={skin.frameUrl}
           alt=""
           aria-hidden
+          loading="lazy"
+          decoding="async"
           style={{
             position: 'absolute', inset: 0, width: '100%', height: '100%',
             borderRadius: 'inherit', pointerEvents: 'none', zIndex: 2, objectFit: 'fill',
@@ -242,6 +244,26 @@ function CardShell({
 // prefers-reduced-motion, and is gated by an IntersectionObserver: the JSON is fetched
 // and the animation mounted ONLY while the card is (near) the viewport — a 100+ person
 // grid no longer runs 100+ animations off-screen (the deferred F2 perf issue).
+// ОДИН IntersectionObserver на все Lottie-карточки: грид «Окружения» на 100+
+// человек создавал 100+ обзерверов — колбэки раскладываются по элементу.
+let lottieIO: IntersectionObserver | null = null;
+const lottieIOCallbacks = new WeakMap<Element, (visible: boolean) => void>();
+function observeLottieInView(el: Element, cb: (visible: boolean) => void): () => void {
+  if (typeof IntersectionObserver === 'undefined') {
+    cb(true); // нет поддержки → ведём себя как раньше
+    return () => {};
+  }
+  if (!lottieIO) {
+    lottieIO = new IntersectionObserver(
+      (entries) => { for (const e of entries) lottieIOCallbacks.get(e.target)?.(e.isIntersecting); },
+      { rootMargin: '120px' },
+    );
+  }
+  lottieIOCallbacks.set(el, cb);
+  lottieIO.observe(el);
+  return () => { lottieIOCallbacks.delete(el); lottieIO?.unobserve(el); };
+}
+
 function LottieEffect({ url, preset, level, accent }: {
   url: string; preset: string | null; level: 'full' | 'subtle' | 'none'; accent: string;
 }) {
@@ -257,16 +279,11 @@ function LottieEffect({ url, preset, level, accent }: {
   useEffect(() => {
     if (reduced) return;
     const el = hostRef.current;
-    if (!el || typeof IntersectionObserver === 'undefined') {
-      setInView(true); // no IO support → behave as before
+    if (!el) {
+      setInView(true);
       return;
     }
-    const io = new IntersectionObserver(
-      ([entry]) => setInView(entry.isIntersecting),
-      { rootMargin: '120px' },
-    );
-    io.observe(el);
-    return () => io.disconnect();
+    return observeLottieInView(el, setInView);
   }, [reduced]);
 
   useEffect(() => { setData(null); }, [url]);
@@ -488,6 +505,8 @@ function Avatar({ initial, avatar, size, skin, showDot }: {
     <img
       src={avatar}
       alt=""
+      loading="lazy"
+      decoding="async"
       style={{
         width: size, height: size, borderRadius: t.avatarRadius, border: t.avatarInnerBorder,
         objectFit: 'cover', display: 'block',
@@ -540,7 +559,9 @@ function RarityChip({ rarity }: { rarity: CardSkinRender['rarity'] }) {
       display: 'inline-block', padding: '0.1rem 0.6rem', fontSize: '0.62rem', fontWeight: 700,
       fontFamily: 'var(--font-display)', letterSpacing: '0.08em', textTransform: 'uppercase',
       color: m.color, borderRadius: 'var(--radius-sm)',
-      boxShadow: `0 0 0 1.5px ${m.color}55, 0 0 0 4px ${m.color}1f`,
+      // color-mix, а не дописывание хекс-цифр: `${color}55` молча ломается,
+      // если цвет редкости станет var(...) (DESIGN.md §1)
+      boxShadow: `0 0 0 1.5px color-mix(in srgb, ${m.color} 33%, transparent), 0 0 0 4px color-mix(in srgb, ${m.color} 12%, transparent)`,
     }}>
       {m.label}
     </div>

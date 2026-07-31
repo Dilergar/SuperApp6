@@ -94,20 +94,27 @@ function ImageTile({
   const { url } = useFileDisplayUrl(file, 'thumb');
   return (
     <div style={{ position: 'relative', width: 72, height: 72, borderRadius: 'var(--radius-md)', overflow: 'hidden', background: 'var(--surface-container-high)' }}>
-      <div onClick={onOpen} style={{ width: '100%', height: '100%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {/* Настоящая кнопка, не div: просмотр вложения доступен с клавиатуры */}
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`Открыть: ${file.name}`}
+        style={{ width: '100%', height: '100%', border: 'none', padding: 0, background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      >
         {url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={url} alt={file.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         ) : (
           <span style={{ fontSize: '1.4rem' }}>{fileIcon(file.kind)}</span>
         )}
-      </div>
+      </button>
       {canEdit && (
         <button
           type="button"
           onClick={onRemove}
           title="Убрать"
-          style={{ position: 'absolute', top: 2, right: 2, width: 18, height: 18, border: 'none', borderRadius: '50%', background: 'rgba(0, 0, 0, 0.65)', color: '#fff', fontSize: '0.6rem', cursor: 'pointer', lineHeight: 1 }}
+          aria-label={`Убрать вложение: ${file.name}`}
+          style={{ position: 'absolute', top: 2, right: 2, width: 18, height: 18, border: 'none', borderRadius: '50%', background: 'rgba(0, 0, 0, 0.65)', color: 'var(--on-primary)', fontSize: '0.6rem', cursor: 'pointer', lineHeight: 1 }}
         >
           ✕
         </button>

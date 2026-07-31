@@ -5,7 +5,7 @@ export default function HomePage() {
     <div className="min-h-screen flex flex-col">
       {/* Nav — glassmorphism */}
       <nav className="fixed top-0 w-full z-50 px-6 py-4" style={{
-        background: 'rgba(234, 230, 222, 0.7)',
+        background: 'color-mix(in srgb, var(--page) 70%, transparent)',
         backdropFilter: 'blur(10px)',
       }}>
         <div className="max-w-5xl mx-auto flex items-center justify-between">

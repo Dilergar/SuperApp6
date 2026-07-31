@@ -1,6 +1,6 @@
 'use client';
 
-import { Glyph, GlyphPickerButton, Icon, parseGlyph, useConfirm, type IconName } from '@/components/ui';
+import { Glyph, GlyphPickerButton, Icon, IconButton, parseGlyph, useConfirm, type IconName } from '@/components/ui';
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
@@ -71,6 +71,7 @@ export function Conversation({
   activeCall,
   inCall,
   onStartCall,
+  onBack,
 }: {
   detail: ChatDetail;
   messages: ChatMessage[];
@@ -111,6 +112,8 @@ export function Conversation({
   inCall?: boolean;
   /** Начать звонок / присоединиться (страница открывает CallOverlay). */
   onStartCall?: () => void;
+  /** Телефон, одноколоночный режим: «← к списку чатов» в шапке диалога. */
+  onBack?: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -415,10 +418,13 @@ export function Conversation({
           alignItems: 'center',
           gap: 'var(--spacing-3)',
           padding: 'var(--spacing-3) var(--spacing-5)',
-          background: 'rgba(234, 230, 222, 0.7)',
+          background: 'color-mix(in srgb, var(--page) 70%, transparent)',
           backdropFilter: 'blur(10px)',
         }}
       >
+        {onBack && (
+          <IconButton icon="arrowLeft" label="К списку чатов" size={34} onClick={onBack} style={{ flexShrink: 0 }} />
+        )}
         <PersonAvatar userId={detail.peerUserId} name={detail.title} avatar={detail.avatar} />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div
@@ -605,7 +611,7 @@ export function Conversation({
               border: 'none',
               borderRadius: 'var(--radius-md)',
               outline: 'none',
-              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
+              boxShadow: 'var(--shadow-card)',
             }}
           />
           <span
@@ -999,7 +1005,9 @@ const MessageBubble = memo(function MessageBubble({
 }) {
   const [editing, setEditing] = useState(false);
   const [editDraft, setEditDraft] = useState(message.content ?? '');
-  const [hover, setHover] = useState(false);
+  // Кнопка «⋯» больше не завязана на mouse-state: она ВСЕГДА в DOM (Tab до неё
+  // доходит), а видимость решает CSS .msg-row (:hover/:focus-within/тач).
+  // Бонус: движение мыши по ленте перестало ре-рендерить баблы.
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [confirmDelete, confirmDeleteUI] = useConfirm();
@@ -1041,8 +1049,7 @@ const MessageBubble = memo(function MessageBubble({
   return (
     <div
       id={`msg-${message.id}`}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
+      className="msg-row"
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -1053,7 +1060,9 @@ const MessageBubble = memo(function MessageBubble({
         borderRadius: 'var(--radius-md)',
         padding: highlighted ? 'var(--spacing-2)' : 0,
         margin: highlighted ? 'calc(var(--spacing-2) * -1)' : 0,
-        boxShadow: highlighted ? '0 2px 16px rgba(50, 106, 139, 0.18)' : 'none',
+        // Оттенок тени — от акцента системы (прежний rgba(50,106,139) был
+        // выжившим цветом отменённого «Скетчбука»)
+        boxShadow: highlighted ? '0 2px 16px color-mix(in srgb, var(--primary) 18%, transparent)' : 'none',
         transition: 'background 0.6s ease, box-shadow 0.6s ease',
       }}
     >
@@ -1090,8 +1099,8 @@ const MessageBubble = memo(function MessageBubble({
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', maxWidth: '78%' }}>
         {/* Corner menu — Ответить (any message) + message quick actions + Edit/Delete (mine).
             Sits LEFT of mine bubbles, RIGHT of others. */}
-        {!deleted && persisted && !editing && (hover || menuOpen) && (
-          <div ref={menuRef} style={{ position: 'relative', flexShrink: 0, order: mine ? 0 : 2 }}>
+        {!deleted && persisted && !editing && (
+          <div ref={menuRef} className={`msg-actions${menuOpen ? ' msg-actions--open' : ''}`} style={{ position: 'relative', flexShrink: 0, order: mine ? 0 : 2 }}>
             <button
               onClick={() => setMenuOpen((v) => !v)}
               title="Действия с сообщением"
@@ -1178,13 +1187,16 @@ const MessageBubble = memo(function MessageBubble({
             order: 1,
             padding: 'var(--spacing-2) var(--spacing-4)',
             borderRadius: mine ? '1rem 1rem 0.3rem 1rem' : '1rem 1rem 1rem 0.3rem',
+            // «Мой» бабл — фирменный градиент от светлой базы (возвращён по
+            // решению пользователя 2026-08-01: тёмный вариант «чересчур строгий»;
+            // осознанное отступление от AA на светлом краю градиента)
             background: deleted
               ? 'var(--surface-container)'
               : mine
                 ? 'linear-gradient(135deg, var(--primary), var(--primary-dim))'
                 : 'var(--surface-container-high)',
             color: deleted ? 'var(--on-surface-variant)' : mine ? 'var(--on-primary)' : 'var(--on-surface)',
-            boxShadow: '0 2px 10px rgba(0, 0, 0, 0.06)',
+            boxShadow: 'var(--shadow-card)',
             minWidth: 0,
           }}
         >

@@ -121,7 +121,10 @@ function MediaTile({
   }
 
   return (
-    <div
+    // Настоящая кнопка, не div: открытие фото/видео обязано работать с клавиатуры
+    <button
+      type="button"
+      aria-label={fileRef.kind === 'video' ? `Воспроизвести видео: ${fileRef.name}` : `Открыть фото: ${fileRef.name}`}
       onClick={() => {
         if (meta) {
           if (fileRef.kind === 'image') onOpenImage(meta);
@@ -141,6 +144,8 @@ function MediaTile({
         aspectRatio: single ? undefined : '1 / 1',
         minHeight: single ? '8rem' : undefined,
         maxHeight: single ? '16rem' : undefined,
+        border: 'none',
+        padding: 0,
         borderRadius: 'var(--radius-md)',
         overflow: 'hidden',
         background: 'var(--surface-container-high)',
@@ -155,6 +160,8 @@ function MediaTile({
         <img
           src={url}
           alt={fileRef.name}
+          loading="lazy"
+          decoding="async"
           onError={view ? () => setViewBroken(true) : undefined}
           style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
         />
@@ -176,7 +183,7 @@ function MediaTile({
           ▶️
         </span>
       )}
-    </div>
+    </button>
   );
 }
 

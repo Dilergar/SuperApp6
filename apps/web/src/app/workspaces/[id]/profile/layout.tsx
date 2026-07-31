@@ -67,7 +67,7 @@ export default function WorkspaceProfileLayout({ children }: { children: React.R
                 ...linkBase,
                 background: active ? 'var(--surface-container-lowest)' : 'transparent',
                 color: active ? 'var(--on-surface)' : 'var(--on-surface-variant)',
-                boxShadow: active ? '0 2px 8px rgba(0, 0, 0, 0.06)' : 'none',
+                boxShadow: active ? 'var(--shadow-card)' : 'none',
               }}
             >
               {s.label}

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
+import { useIsMobile } from '@/lib/hooks/useIsMobile';
 import { apiErrorMessage } from '@/lib/api';
 import { fetchOfficeRoom, messengerMessagesKey, officeRoomKey, officeRoomsKey } from '@/lib/queries';
 import { endCallSession, getCallToken } from '@/lib/calls-api';
@@ -64,7 +65,13 @@ export default function MeetingRoom() {
   const [joinError, setJoinError] = useState<string | null>(null);
   const [call, setCall] = useState<CallTokenDto | null>(null);
   const [choice, setChoice] = useState<PreJoinChoice | null>(null);
-  const [rightTab, setRightTab] = useState<'people' | 'chat'>('people');
+  // null = панель скрыта (сцена во весь блок); повторный тап по активной вкладке прячет её.
+  // На телефоне стартуем без панели — колонка 330px оставляла видео ~15px ширины
+  const [rightTab, setRightTab] = useState<'people' | 'chat' | null>('people');
+  const isMobile = useIsMobile();
+  useEffect(() => {
+    if (window.matchMedia('(max-width: 767px)').matches) setRightTab(null);
+  }, []);
 
   const handleJoin = async (c: PreJoinChoice) => {
     setChoice(c);
@@ -371,7 +378,7 @@ export default function MeetingRoom() {
         ) : chatDetail ? (
           <div
             className="card"
-            style={{ padding: 'var(--spacing-3)', height: 'calc(100vh - 250px)', minHeight: 380, display: 'flex', flexDirection: 'column' }}
+            style={{ padding: 'var(--spacing-3)', height: 'calc(100dvh - 250px)', minHeight: 380, display: 'flex', flexDirection: 'column' }}
           >
             <Conversation
               detail={chatDetail}
@@ -443,14 +450,23 @@ export default function MeetingRoom() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-3)', flexWrap: 'wrap' }}>
         <div className="title-lg" style={{ fontSize: '1.1rem' }}>🎥 {room.name}</div>
         <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
-          <TabButton active={rightTab === 'people'} onClick={() => setRightTab('people')}>Участники</TabButton>
-          <TabButton active={rightTab === 'chat'} onClick={() => setRightTab('chat')}>Чат</TabButton>
+          <TabButton active={rightTab === 'people'} onClick={() => setRightTab((t) => (t === 'people' ? null : 'people'))}>Участники</TabButton>
+          <TabButton active={rightTab === 'chat'} onClick={() => setRightTab((t) => (t === 'chat' ? null : 'chat'))}>Чат</TabButton>
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 'var(--spacing-4)', alignItems: 'stretch', height: 'calc(100vh - 220px)', minHeight: 420 }}>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: isMobile ? 'column' : 'row',
+          gap: 'var(--spacing-4)',
+          alignItems: 'stretch',
+          height: 'calc(100dvh - 220px)',
+          minHeight: isMobile ? 0 : 420,
+        }}
+      >
         {/* Сцена + контролы */}
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
+        <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
           <CallStage />
           <ControlsBar
             moderator={call.moderator}
@@ -461,11 +477,13 @@ export default function MeetingRoom() {
           />
         </div>
 
-        {/* Правая панель: Участники | Чат */}
+        {/* Правая панель: Участники | Чат (телефон — полоса под сценой, не колонка сбоку) */}
+        {rightTab !== null && (
         <aside
           style={{
-            width: 330,
-            flexShrink: 0,
+            width: isMobile ? '100%' : 330,
+            flex: isMobile ? '0 0 46%' : undefined,
+            flexShrink: isMobile ? undefined : 0,
             display: 'flex',
             flexDirection: 'column',
             borderRadius: 'var(--radius-lg)',
@@ -499,6 +517,7 @@ export default function MeetingRoom() {
             <p className="label-md">Загрузка чата…</p>
           )}
         </aside>
+        )}
       </div>
       {confirmUI}
     </CallRoomShell>
@@ -509,6 +528,7 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
   return (
     <button
       onClick={onClick}
+      aria-pressed={active}
       style={{
         padding: '0.35rem 1rem',
         fontSize: '0.82rem',

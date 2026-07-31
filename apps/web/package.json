@@ -2,12 +2,14 @@
   "name": "@superapp/web",
   "version": "0.1.0",
   "private": true,
+  "sideEffects": ["*.css"],
   "scripts": {
     "dev": "next dev --turbopack --port 3000",
     "dev:webpack": "next dev --port 3000",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "gen:icons": "node scripts/gen-icon-sprite.cjs"
   },
   "dependencies": {
     "@livekit/components-react": "^2.9",

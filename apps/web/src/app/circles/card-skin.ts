@@ -7,17 +7,35 @@
 // ============================================================
 
 import type { SkinRarity, CardSkinTokens, CardSkinRender } from '@superapp/shared';
-import { SKIN_RARITY_META } from '@superapp/shared';
+import { SKIN_RARITY_META, SKIN_RARITIES } from '@superapp/shared';
 export type { SkinRarity, CardSkinTokens, CardSkinRender };
 
 export type CardSize = 'XL' | 'L' | 'M' | 'S' | 'XS';
 
 /**
- * Лестница редкости — ре-экспорт единственной таблицы из shared.
- * Раньше здесь лежала ВТОРАЯ копия с другими цветами, и один и тот же скин
- * показывал одну редкость в магазине и другую на карточке.
+ * Цвет кольца редкости — КЛИЕНТСКАЯ карта: shared называет смысл (label,
+ * priceHint), а хекс его границу не пересекает (DESIGN.md §1 — «цвет не
+ * пересекает границу общего пакета»). Это цвет-данные косметики скинов.
  */
-export const RARITY_META = SKIN_RARITY_META;
+export const RARITY_COLORS: Record<SkinRarity, string> = {
+  common: '#8a8478',
+  uncommon: '#74a277',
+  rare: '#588cd3',
+  epic: '#8a6fae',
+  legendary: '#d6a04c',
+  mythic: '#de6d68',
+};
+
+/**
+ * Лестница редкости — ЕДИНСТВЕННАЯ таблица фронта: смысл из shared + цвет
+ * отсюда. Раньше здесь лежала ВТОРАЯ копия с другими цветами, и один и тот же
+ * скин показывал одну редкость в магазине и другую на карточке — обе стороны
+ * (магазин и карточка) обязаны читать именно RARITY_META.
+ */
+export const RARITY_META: Record<SkinRarity, { label: string; priceHint: number; color: string }> =
+  Object.fromEntries(
+    SKIN_RARITIES.map((r) => [r, { ...SKIN_RARITY_META[r], color: RARITY_COLORS[r] }]),
+  ) as Record<SkinRarity, { label: string; priceHint: number; color: string }>;
 
 /**
  * Встроенный бесплатный скин — базовая карточка системы.

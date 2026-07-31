@@ -218,7 +218,7 @@ export function WalletSection() {
                 ) : (
                   <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
                     <span className="label-sm" style={{ color: 'var(--danger)' }}>Сгорит у всех. Точно?</span>
-                    <button onClick={del} disabled={busy} style={{ fontSize: '0.8rem', fontWeight: 600, color: '#fff', background: 'var(--danger)', border: 'none', borderRadius: '8px', padding: '0.25rem 0.7rem', cursor: 'pointer' }}>Да</button>
+                    <button onClick={del} disabled={busy} style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--on-primary)', background: 'var(--danger)', border: 'none', borderRadius: '8px', padding: '0.25rem 0.7rem', cursor: 'pointer' }}>Да</button>
                     <button onClick={() => setConfirmDel(false)} disabled={busy} className="btn-ghost-inline" style={{ fontSize: '0.8rem', padding: '0.25rem 0.7rem' }}>Нет</button>
                   </span>
                 )}
@@ -283,7 +283,7 @@ export function WalletSection() {
                     wrapClassName="wallet-name-field"
                     style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem' }}
                   />
-                  <button onClick={() => burnCoins(w.currencyId)} disabled={busy} style={{ fontSize: '0.78rem', fontWeight: 600, color: '#fff', background: 'var(--danger)', border: 'none', borderRadius: '8px', padding: '0.3rem 0.7rem', cursor: 'pointer' }}>Сжечь</button>
+                  <button onClick={() => burnCoins(w.currencyId)} disabled={busy} style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--on-primary)', background: 'var(--danger)', border: 'none', borderRadius: '8px', padding: '0.3rem 0.7rem', cursor: 'pointer' }}>Сжечь</button>
                   <button onClick={() => setBurnId(null)} className="btn-ghost-inline" style={{ fontSize: '0.78rem', padding: '0.3rem 0.7rem' }}>Отмена</button>
                 </div>
               )}

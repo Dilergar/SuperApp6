@@ -20,9 +20,9 @@ import { useAuthStore } from '@/lib/stores/auth';
 import { useOtpFlow } from '@/components/verify/otp-flow';
 import { OtpStep } from '@/components/verify/OtpStep';
 
-function DialogFrame({ children, onClose, busy }: { children: React.ReactNode; onClose: () => void; busy: boolean }) {
+function DialogFrame({ children, onClose, busy, label }: { children: React.ReactNode; onClose: () => void; busy: boolean; label: string }) {
   return (
-    <ModalShell onClose={() => !busy && onClose()} zIndex={200}>
+    <ModalShell onClose={() => !busy && onClose()} zIndex={200} label={label}>
       <div onClick={(e) => e.stopPropagation()} className="card" style={{ maxWidth: '460px', width: '100%', padding: 'var(--spacing-6)' }}>
         {children}
       </div>
@@ -81,7 +81,7 @@ export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <DialogFrame onClose={onClose} busy={busy}>
+    <DialogFrame onClose={onClose} busy={busy} label="Смена пароля">
       {step === 'form' && (
         <form onSubmit={requestCode}>
           <h3 className="title-md" style={{ marginBottom: 'var(--spacing-4)' }}>Смена пароля</h3>
@@ -224,7 +224,7 @@ export function ChangePhoneDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <DialogFrame onClose={onClose} busy={busy}>
+    <DialogFrame onClose={onClose} busy={busy} label="Смена номера телефона">
       {step === 'form' && (
         <form onSubmit={submitForm}>
           <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>Смена номера</h3>

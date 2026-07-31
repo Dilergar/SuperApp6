@@ -73,7 +73,7 @@ export function OrdersView({ onError }: { onError: (m: string) => void }) {
       {o.listingCoverUrl && (
         // Живая обложка лота (движок файлов, публичный класс)
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={o.listingCoverUrl} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 'var(--radius-md)', flex: 'none' }} />
+        <img src={o.listingCoverUrl} alt="" loading="lazy" decoding="async" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 'var(--radius-md)', flex: 'none' }} />
       )}
       {kind === 'incoming' && o.buyerName && <PersonChip size="S" userId={o.buyerId} firstName={o.buyerName} />}
 

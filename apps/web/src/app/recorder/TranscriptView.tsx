@@ -16,13 +16,16 @@ interface SpeakerGroup {
   parts: VoiceSegment[];
 }
 
+// Палитра спикеров = ТЁМНЫЕ тона системы (решение пользователя 2026-08-01,
+// самодельные оттенки отменены): светлый текст чипа держит ≥5:1 на каждом.
+// Фиолет и бирюза канваса «Процессов» официально расширены на эту роль.
 const SPEAKER_COLORS = [
   'var(--secondary)',
-  'var(--primary)',
-  '#7a6a2f',
-  '#4a7a4f',
-  '#7a4a6f',
-  '#4f5a7a',
+  'var(--success)',
+  'var(--warning)',
+  'var(--violet)',
+  'var(--teal)',
+  'var(--waiting)',
 ];
 
 function speakerColor(index: number): string {

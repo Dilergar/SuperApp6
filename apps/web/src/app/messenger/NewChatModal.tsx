@@ -132,7 +132,7 @@ export function NewChatModal({
                 borderRadius: 'var(--radius-sm)',
                 background: mode === m ? 'var(--surface)' : 'none',
                 color: mode === m ? 'var(--on-surface)' : 'var(--on-surface-variant)',
-                boxShadow: mode === m ? '0 2px 10px rgba(0, 0, 0, 0.08)' : 'none',
+                boxShadow: mode === m ? 'var(--shadow-card)' : 'none',
                 transition: 'background 0.15s ease',
               }}
             >

@@ -50,6 +50,7 @@ import {
   getPresence,
 } from '@/lib/messenger-api';
 import { useMentionsUnread } from '@/lib/hooks/useMentionsUnread';
+import { useIsMobile } from '@/lib/hooks/useIsMobile';
 import { ChatList } from './ChatList';
 import { Conversation } from './Conversation';
 import { NewChatModal } from './NewChatModal';
@@ -81,6 +82,7 @@ function MessengerInner() {
   // Unread "mentions of me" — drives the nav badge (shares the hub's cache key).
   const mentionsUnread = useMentionsUnread(isReady);
 
+  const isMobile = useIsMobile();
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   // A deep-linked message (from the Mentions Hub) to scroll-to + flash once loaded.
   const [highlightMsgId, setHighlightMsgId] = useState<string | null>(null);
@@ -624,6 +626,12 @@ function MessengerInner() {
     [router],
   );
 
+  // Телефон: панели по очереди — список ИЛИ диалог; «← назад» возвращает список
+  const backToList = useCallback(() => {
+    setActiveChatId(null);
+    router.replace('/messenger');
+  }, [router]);
+
   const handlePickPerson = useCallback(
     async (userId: string) => {
       setShowNewChat(false);
@@ -894,20 +902,27 @@ function MessengerInner() {
       
 
       <div className="" style={{ paddingBottom: 'var(--spacing-8)' }}>
-        <h1 className="title-lg" style={{ marginBottom: 'var(--spacing-6)', paddingLeft: 'var(--spacing-2)' }}>
-          Мессенджер
-        </h1>
+        {!(isMobile && activeChatId) && (
+          <h1 className="title-lg" style={{ marginBottom: 'var(--spacing-6)', paddingLeft: 'var(--spacing-2)' }}>
+            Мессенджер
+          </h1>
+        )}
 
-        {/* Two-pane layout */}
+        {/* Two-pane layout; телефон — одна панель за раз (список ↔ диалог с «← назад») */}
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'minmax(260px, 340px) minmax(0, 1fr)',
+            gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'minmax(260px, 340px) minmax(0, 1fr)',
             gap: 'var(--spacing-6)',
-            height: 'calc(100vh - 220px)',
-            minHeight: '480px',
+            height: isMobile
+              ? activeChatId
+                ? 'calc(100dvh - 120px)'
+                : 'calc(100dvh - 185px)'
+              : 'calc(100dvh - 220px)',
+            minHeight: isMobile ? 0 : '480px',
           }}
         >
+          {(!isMobile || !activeChatId) && (
           <GlobalSearch
             onSelectChat={selectChat}
             onSelectPerson={handlePickPerson}
@@ -924,8 +939,9 @@ function MessengerInner() {
               embedded
             />
           </GlobalSearch>
+          )}
 
-          {activeChatId && detailQuery.data ? (
+          {(!isMobile || activeChatId) && (activeChatId && detailQuery.data ? (
             <Conversation
               detail={detailQuery.data}
               messages={messages}
@@ -955,10 +971,11 @@ function MessengerInner() {
               activeCall={effectiveActiveCall(activeChatId)}
               inCall={callChatId === activeChatId}
               onStartCall={() => setCallChatId(activeChatId)}
+              onBack={isMobile ? backToList : undefined}
             />
           ) : (
             <EmptyConversation loading={!!activeChatId && detailQuery.isLoading} />
-          )}
+          ))}
         </div>
       </div>
 

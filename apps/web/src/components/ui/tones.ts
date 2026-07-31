@@ -25,58 +25,64 @@ interface ToneVars extends CSSProperties {
 
 // Только var(...): хардкод цвета в компоненте запрещён (DESIGN.md §1) — иначе
 // перекраска через globals.css оставит ховеры кнопок старыми.
+// Сплошная заливка кнопки (--tone-solid) = ТЁМНАЯ пара тона, не база:
+// белому тексту нужно 4.5:1 (AA, утверждено 2026-08-01), базы давали 2.5–3.4.
+// ИСКЛЮЧЕНИЕ — синяя (accent): остаётся фирменной светлой базой #588cd3 с белым
+// (решение пользователя 2026-08-01: тёмная пара «чересчур строгая», бренд важнее
+// формальной нормы; осознанное отступление от AA, 3.4:1).
 const TONES: Record<Tone, ToneVars> = {
   accent: Object.freeze({
-    '--tone-bg': 'rgba(88, 140, 211, 0.12)',
-    '--tone-border': 'rgba(88, 140, 211, 0.3)',
+    '--tone-bg': 'var(--primary-container)',
+    '--tone-border': 'var(--primary-border)',
     '--tone-fg': 'var(--primary-dim)',
-    '--tone-bg-strong': 'rgba(88, 140, 211, 0.2)',
+    '--tone-bg-strong': 'color-mix(in srgb, var(--primary) 20%, transparent)',
     '--tone-base': 'var(--primary)',
     '--tone-solid': 'var(--primary)',
     '--tone-solid-hover': 'var(--primary-dim)',
   }),
   success: Object.freeze({
-    '--tone-bg': 'rgba(116, 162, 119, 0.14)',
-    '--tone-border': 'rgba(116, 162, 119, 0.32)',
+    '--tone-bg': 'var(--success-container)',
+    '--tone-border': 'var(--success-border)',
     '--tone-fg': 'var(--success)',
-    '--tone-bg-strong': 'rgba(116, 162, 119, 0.22)',
+    '--tone-bg-strong': 'color-mix(in srgb, var(--success-base) 22%, transparent)',
     '--tone-base': 'var(--success-base)',
-    '--tone-solid': 'var(--success-base)',
+    '--tone-solid': 'var(--success)',
     '--tone-solid-hover': 'var(--success-hover)',
   }),
   warning: Object.freeze({
-    '--tone-bg': 'rgba(214, 150, 108, 0.16)',
-    '--tone-border': 'rgba(214, 150, 108, 0.35)',
+    '--tone-bg': 'var(--warning-container)',
+    '--tone-border': 'var(--warning-border)',
     '--tone-fg': 'var(--warning)',
-    '--tone-bg-strong': 'rgba(214, 150, 108, 0.24)',
+    '--tone-bg-strong': 'color-mix(in srgb, var(--warning-base) 24%, transparent)',
     '--tone-base': 'var(--warning-base)',
-    '--tone-solid': 'var(--warning-base)',
+    '--tone-solid': 'var(--warning)',
     '--tone-solid-hover': 'var(--warning-hover)',
   }),
   danger: Object.freeze({
-    '--tone-bg': 'rgba(222, 109, 104, 0.14)',
-    '--tone-border': 'rgba(222, 109, 104, 0.32)',
+    '--tone-bg': 'var(--danger-container)',
+    '--tone-border': 'var(--danger-border)',
     '--tone-fg': 'var(--danger)',
-    '--tone-bg-strong': 'rgba(222, 109, 104, 0.22)',
+    '--tone-bg-strong': 'color-mix(in srgb, var(--danger-base) 22%, transparent)',
     '--tone-base': 'var(--danger-base)',
-    '--tone-solid': 'var(--danger-base)',
+    '--tone-solid': 'var(--danger)',
     '--tone-solid-hover': 'var(--danger-hover)',
   }),
   // Ожидание — «ждёт человека или срока». Матовая пара ЛЕГЧЕ общей формулы
   // (8.4%/18% против 12–16/30–35) — утверждено пользователем на глаз, не
-  // «чинить» к формуле: чистый #ffd400 ярче остальных баз. Текст = тёмный
-  // вариант своей базы (тёмное золото). Собственный --tone-on-solid нужен
-  // потому, что сплошная заливка этого тона светлая: белый текст кнопки на
-  // ней был бы нечитаем.
+  // «чинить» к формуле: чистый #ffd400 ярче остальных баз. Сплошная заливка,
+  // как у всех тонов, — тёмная пара (тёмное золото, белый текст 5.5:1);
+  // ховер поднимается к жёлтой базе на четверть. --waiting-hover трогать
+  // нельзя — это матовая подложка (bg-strong), а не ховер кнопки.
   waiting: Object.freeze({
     '--tone-bg': 'var(--waiting-container)',
     '--tone-border': 'var(--waiting-border)',
     '--tone-fg': 'var(--waiting)',
     '--tone-bg-strong': 'var(--waiting-hover)',
     '--tone-base': 'var(--waiting-base)',
-    '--tone-solid': 'var(--waiting-base)',
-    '--tone-solid-hover': 'var(--waiting-hover)',
-    '--tone-on-solid': 'var(--waiting)',
+    '--tone-solid': 'var(--waiting)',
+    // 88%, не 75: жёлтая база настолько светлее, что на четверти подъёма
+    // белый текст падал до 3.7
+    '--tone-solid-hover': 'color-mix(in srgb, var(--waiting) 88%, var(--waiting-base))',
   }),
   neutral: Object.freeze({
     '--tone-bg': 'var(--surface-container)',

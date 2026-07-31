@@ -27,7 +27,7 @@ export function ImageLightbox({ file, onClose }: ImageLightboxProps) {
   return (
     <ModalShell onClose={onClose}>
       {isLoading || !url ? (
-        <div style={{ color: '#fff', fontFamily: 'var(--font-body)' }}>Загружаю…</div>
+        <div style={{ color: 'var(--on-primary)', fontFamily: 'var(--font-body)' }}>Загружаю…</div>
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -66,7 +66,7 @@ export function ImageLightbox({ file, onClose }: ImageLightboxProps) {
           right: '1.25rem',
           border: 'none',
           background: 'rgba(255,255,255,0.12)',
-          color: '#fff',
+          color: 'var(--on-primary)',
           fontSize: '1.1rem',
           width: '2.2rem',
           height: '2.2rem',

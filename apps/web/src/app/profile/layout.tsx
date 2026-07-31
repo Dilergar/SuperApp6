@@ -63,7 +63,7 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
                     fontFamily: 'var(--font-body)', fontSize: '0.85rem', fontWeight: 500,
                     background: active ? 'var(--surface-container-lowest)' : 'transparent',
                     color: active ? 'var(--on-surface)' : 'var(--on-surface-variant)',
-                    boxShadow: active ? '0 2px 8px rgba(0, 0, 0, 0.06)' : 'none',
+                    boxShadow: active ? 'var(--shadow-card)' : 'none',
                   }}
                 >
                   {s.label}

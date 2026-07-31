@@ -71,7 +71,7 @@ function StepDots({ current, total, labels }: { current: number; total: number; 
               display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
               fontSize: '0.6875rem', fontWeight: 700,
               background: i <= current ? 'var(--primary)' : 'transparent',
-              color: i <= current ? '#fff' : 'var(--on-surface-variant)',
+              color: i <= current ? 'var(--on-primary)' : 'var(--on-surface-variant)',
               border: i <= current ? 'none' : '1px solid var(--border)',
             }}
             title={labels[i]}

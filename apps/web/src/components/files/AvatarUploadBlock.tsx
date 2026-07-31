@@ -128,7 +128,7 @@ export function AvatarUploadBlock({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: '#fff',
+                color: 'var(--on-primary)',
                 fontSize: '0.75rem',
                 fontWeight: 700,
               }}

@@ -10,18 +10,20 @@ export const PLATFORM_CURRENCY = {
   scale: 0,
 } as const;
 
-// Canonical rarity ladder — label, ring color, and a suggested price (guidance only;
+// Canonical rarity ladder — label and a suggested price (guidance only;
 // each skin sets its own price, higher tiers cost more — Overwatch-style ladder).
+// ЦВЕТ кольца редкости здесь НЕ живёт: хекс не пересекает границу shared
+// (DESIGN.md §1) — карта цветов у клиента (web: app/circles/card-skin.ts).
 export const SKIN_RARITY_META: Record<
   SkinRarity,
-  { label: string; color: string; priceHint: number }
+  { label: string; priceHint: number }
 > = {
-  common: { label: 'Обычный', color: '#8a8478', priceHint: 0 },
-  uncommon: { label: 'Необычный', color: '#74a277', priceHint: 150 },
-  rare: { label: 'Редкий', color: '#588cd3', priceHint: 400 },
-  epic: { label: 'Эпический', color: '#8a6fae', priceHint: 900 },
-  legendary: { label: 'Легендарный', color: '#d6a04c', priceHint: 1900 },
-  mythic: { label: 'Мифический', color: '#de6d68', priceHint: 4000 },
+  common: { label: 'Обычный', priceHint: 0 },
+  uncommon: { label: 'Необычный', priceHint: 150 },
+  rare: { label: 'Редкий', priceHint: 400 },
+  epic: { label: 'Эпический', priceHint: 900 },
+  legendary: { label: 'Легендарный', priceHint: 1900 },
+  mythic: { label: 'Мифический', priceHint: 4000 },
 };
 
 export const SKIN_RARITIES: SkinRarity[] = [

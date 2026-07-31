@@ -128,7 +128,7 @@ export function GlobalSearch({
               border: 'none',
               borderRadius: 'var(--radius-md)',
               outline: 'none',
-              boxShadow: '0 2px 10px rgba(0, 0, 0, 0.06)',
+              boxShadow: 'var(--shadow-card)',
             }}
           />
           {raw && (

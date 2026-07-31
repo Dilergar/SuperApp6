@@ -327,10 +327,10 @@ export function MentionInput({
             right: 0,
             maxHeight: '14rem',
             overflowY: 'auto',
-            background: 'rgba(250, 251, 248, 0.97)',
+            background: 'color-mix(in srgb, var(--block) 97%, transparent)',
             backdropFilter: 'blur(10px)',
             borderRadius: 'var(--radius-md)',
-            boxShadow: '0 8px 28px rgba(0, 0, 0, 0.12)',
+            boxShadow: 'var(--shadow-pop)',
             padding: 'var(--spacing-2)',
             zIndex: 30,
           }}
@@ -376,11 +376,11 @@ export function MentionInput({
       {isEmpty && placeholder && (
         <div
           aria-hidden
+          className="chat-composer-input"
           style={{
             position: 'absolute',
             left: 'var(--spacing-4)',
             top: 'var(--spacing-3)',
-            fontSize: '0.9rem',
             color: 'var(--on-surface-variant)',
             opacity: 0.6,
             pointerEvents: 'none',
@@ -393,9 +393,11 @@ export function MentionInput({
 
       <div
         ref={editorRef}
+        className="chat-composer-input"
         contentEditable
         role="textbox"
         aria-multiline
+        aria-label={placeholder ?? 'Сообщение'}
         suppressContentEditableWarning
         onInput={handleInput}
         onKeyDown={handleKeyDown}
@@ -417,7 +419,6 @@ export function MentionInput({
           border: 'none',
           borderRadius: 'var(--radius-md)',
           fontFamily: 'var(--font-body)',
-          fontSize: '0.9rem',
           lineHeight: 1.45,
           color: 'var(--on-surface)',
           outline: 'none',

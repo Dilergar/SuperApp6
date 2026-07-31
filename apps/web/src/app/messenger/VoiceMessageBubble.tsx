@@ -221,6 +221,15 @@ function Waveform({
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(progress * 100)}
+      // role="slider" обязывает управляться с клавиатуры — иначе роль лжёт
+      tabIndex={0}
+      onKeyDown={(e) => {
+        const to = (f: number) => { e.preventDefault(); onSeek(Math.max(0, Math.min(1, f))); };
+        if (e.key === 'ArrowRight' || e.key === 'ArrowUp') to(progress + 0.05);
+        else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') to(progress - 0.05);
+        else if (e.key === 'Home') to(0);
+        else if (e.key === 'End') to(1);
+      }}
       style={{
         flex: 1,
         display: 'flex',

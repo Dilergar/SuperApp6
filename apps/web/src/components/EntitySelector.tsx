@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   loadEntities,
   ENTITY_TYPE_LABELS,
@@ -59,6 +59,10 @@ export function EntitySelector({
   }, [typesKey, options, ctxKey]);
 
   const opts = options ?? loaded;
+  // ARIA-combobox: список и активный кандидат должны быть НАЗВАНЫ скринридеру
+  // (клавиатура тут работала и раньше, но незрячий не слышал, по чему ходит)
+  const listId = useId();
+  const optId = (idx: number) => `${listId}-opt-${idx}`;
 
   // Close on outside click.
   useEffect(() => {
@@ -122,6 +126,7 @@ export function EntitySelector({
                 type="button"
                 onClick={(e) => { e.stopPropagation(); remove(p); }}
                 title="Убрать"
+                aria-label={`Убрать: ${o.title}`}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)', fontSize: '0.9rem', lineHeight: 1, padding: '0 0.15rem' }}
               >×</button>
             </span>
@@ -133,6 +138,12 @@ export function EntitySelector({
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
           placeholder={value.length ? '' : placeholder}
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={open && flat[hi] ? optId(hi) : undefined}
+          aria-label={placeholder}
           style={{ flex: 1, minWidth: '8rem', border: 'none', outline: 'none', background: 'transparent', fontSize: '0.9rem', color: 'var(--on-surface)', padding: '0.2rem' }}
         />
       </div>
@@ -140,19 +151,21 @@ export function EntitySelector({
       {/* Dropdown */}
       {open && (
         <div
+          id={listId}
+          role="listbox"
           style={{
             marginTop: 4, maxHeight: 340, overflowY: 'auto', padding: 'var(--spacing-2)',
             background: 'var(--surface-container-lowest)', borderRadius: 'var(--radius-md)',
-            boxShadow: '0 12px 36px rgba(0, 0, 0, 0.16)',
+            boxShadow: 'var(--shadow-pop)',
           }}
         >
           {flat.length === 0 ? (
             <div className="label-sm" style={{ padding: 'var(--spacing-2)', opacity: 0.6 }}>Ничего не найдено</div>
           ) : (
             groups.map((g) => (
-              <div key={g.type} style={{ marginBottom: '0.3rem' }}>
+              <div key={g.type} role="group" aria-label={ENTITY_TYPE_LABELS[g.type] ?? g.type} style={{ marginBottom: '0.3rem' }}>
                 {types.length > 1 && (
-                  <div className="label-sm" style={{ fontSize: '0.66rem', opacity: 0.55, padding: '0.2rem 0.3rem' }}>
+                  <div className="label-sm" aria-hidden style={{ fontSize: '0.66rem', opacity: 0.55, padding: '0.2rem 0.3rem' }}>
                     {ENTITY_TYPE_LABELS[g.type] ?? g.type}
                   </div>
                 )}
@@ -163,6 +176,9 @@ export function EntitySelector({
                       <button
                         key={key(o)}
                         type="button"
+                        id={optId(idx)}
+                        role="option"
+                        aria-selected={idx === hi}
                         onMouseDown={(e) => { e.preventDefault(); add(o); }}
                         onMouseEnter={() => setHi(idx)}
                         style={{

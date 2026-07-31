@@ -119,6 +119,8 @@ export function RichCardWidget({
           <img
             src={payload.imageUrl}
             alt={payload.title}
+            loading="lazy"
+            decoding="async"
             style={{
               width: '100%',
               maxHeight: '11rem',

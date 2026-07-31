@@ -10,7 +10,6 @@ import {
 } from '@/lib/queries';
 import {
   resolveCardVisibility,
-  SKIN_RARITY_META,
   type CardSkinCatalogItem,
   type CardSkinInstanceDto,
   type CardSkinWallet,
@@ -20,7 +19,7 @@ import {
 } from '@superapp/shared';
 import { PersonCard } from '../circles/PersonCard';
 import { GroupChip } from '../circles/EntityChip';
-import { DEFAULT_SKIN } from '../circles/card-skin';
+import { DEFAULT_SKIN, RARITY_META } from '../circles/card-skin';
 import { invalidatePersonSkins } from '@/lib/person-skins';
 
 function errMsg(e: unknown, fallback = 'Ошибка'): string {
@@ -183,7 +182,7 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
       <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>Магазин</h3>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 'var(--spacing-4)', marginBottom: 'var(--spacing-8)' }}>
         {catalog.map((s) => {
-          const r = SKIN_RARITY_META[s.rarity];
+          const r = RARITY_META[s.rarity];
           return (
             <div key={s.id} className="card" style={{ padding: 'var(--spacing-3)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--spacing-2)' }}>
               <SkinSwatch skin={s} />
@@ -228,8 +227,8 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
                     {i.skin.name}
                     {i.serial !== null && <span className="label-sm" style={{ marginLeft: 6, fontSize: '0.7rem' }}>#{i.serial}</span>}
                   </div>
-                  <div style={{ fontSize: '0.66rem', fontWeight: 700, textTransform: 'uppercase', color: SKIN_RARITY_META[i.skin.rarity].color }}>
-                    {SKIN_RARITY_META[i.skin.rarity].label}
+                  <div style={{ fontSize: '0.66rem', fontWeight: 700, textTransform: 'uppercase', color: RARITY_META[i.skin.rarity].color }}>
+                    {RARITY_META[i.skin.rarity].label}
                   </div>
                 </div>
                 {isDefault ? (

@@ -8,6 +8,7 @@ import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'rea
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
+import { useIsMobile } from '@/lib/hooks/useIsMobile';
 import { api, apiErrorMessage } from '@/lib/api';
 import { contactsKey, circlesKey, fetchAllContacts, fetchCircles } from '@/lib/queries';
 import { PersonChip } from '../circles/PersonCard';
@@ -81,6 +82,7 @@ const VIEWS: { key: CalendarView; label: string }[] = [
 
 const LAYERS_LS = 'sa6_cal_layers';
 const WEEKNUMS_LS = 'sa6_cal_weeknums';
+const PANEL_LS = 'sa6_cal_panel';
 
 /** Русская форма «платёж/платежа/платежей» для агрегата ячейки месяца. */
 function pluralPayments(n: number): string {
@@ -120,6 +122,7 @@ export default function CalendarPage() {
   const [undated, setUndated] = useState<UndatedTask[]>([]);
   const [showGoogle, setShowGoogle] = useState(false);
   const [showPanel, setShowPanel] = useState(true);
+  const isMobile = useIsMobile();
   const [pendingMove, setPendingMove] = useState<{ item: EventDrag; mode: 'move' | 'resize'; newStart?: Date; newEnd?: Date } | null>(null);
 
   const fetchMeta = useCallback(async () => {
@@ -189,6 +192,11 @@ export default function CalendarPage() {
       const raw = window.localStorage.getItem(LAYERS_LS);
       if (raw) setLayers((cur) => ({ ...cur, ...(JSON.parse(raw) as Record<string, boolean>) }));
       setWeekNums(window.localStorage.getItem(WEEKNUMS_LS) === '1');
+      // Планнер: помним выбор; без него на телефоне стартуем закрытым —
+      // открытая панель 280px оставляла сетке месяца ~30px ширины
+      const panel = window.localStorage.getItem(PANEL_LS);
+      if (panel != null) setShowPanel(panel === '1');
+      else if (window.matchMedia('(max-width: 767px)').matches) setShowPanel(false);
     } catch { /* повреждённое значение — остаёмся на дефолтах */ }
   }, []);
   const toggleLayer = (key: string) =>
@@ -202,6 +210,10 @@ export default function CalendarPage() {
       try { window.localStorage.setItem(WEEKNUMS_LS, v ? '0' : '1'); } catch { /* приватный режим */ }
       return !v;
     });
+  const setPanel = (v: boolean) => {
+    setShowPanel(v);
+    try { window.localStorage.setItem(PANEL_LS, v ? '1' : '0'); } catch { /* приватный режим */ }
+  };
 
   const visible = useMemo(
     () => items.filter((i) => layers[layerOfKind(i.kind)] !== false),
@@ -396,14 +408,15 @@ export default function CalendarPage() {
         {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
       </div>
 
-      <div style={{ display: 'flex', gap: 'var(--gap-grid)', alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', flexWrap: isMobile ? 'wrap' : undefined, gap: 'var(--gap-grid)', alignItems: 'flex-start' }}>
           {showPanel ? (
-            <div className="ui-stack" style={{ width: 280, flexShrink: 0, gap: 'var(--gap-grid)' }}>
+            // Телефон: панель во всю ширину НАД сеткой (flexWrap), не колонкой сбоку
+            <div className="ui-stack" style={{ width: isMobile ? '100%' : 280, flexShrink: 0, gap: 'var(--gap-grid)' }}>
               <MiniMonth anchor={anchor} items={visible} onPick={(d) => setAnchor(d)} onShift={(dir) => setAnchor((a) => addMonths(a, dir))} />
-              <TriagePanel items={visible} undated={undated} onEvent={openEvent} onTask={openTask} onClose={() => setShowPanel(false)} />
+              <TriagePanel items={visible} undated={undated} onEvent={openEvent} onTask={openTask} onClose={() => setPanel(false)} />
             </div>
           ) : (
-            <IconButton icon="caretRight" label="Показать планнер" size={34} variant="outline" round={false} onClick={() => setShowPanel(true)} />
+            <IconButton icon="caretRight" label="Показать планнер" size={34} variant="outline" round={false} onClick={() => setPanel(true)} />
           )}
           <div style={{ flex: 1, minWidth: 0 }}>
             {loading ? (
@@ -602,11 +615,11 @@ function FinAggChip({ items, onOpen }: { items: CalendarFinanceItem[]; onOpen: (
       style={{
         display: 'flex', alignItems: 'center', gap: 4, width: '100%', minWidth: 0, textAlign: 'left',
         padding: '1px 5px', borderRadius: 'var(--radius-sm)', border: 'none', cursor: 'pointer',
-        background: '#d6966c22', fontSize: '0.7rem', fontWeight: 600, color: 'var(--on-surface)',
+        background: 'color-mix(in srgb, var(--warning-base) 13%, transparent)', fontSize: '0.7rem', fontWeight: 600, color: 'var(--on-surface)',
         overflow: 'hidden', whiteSpace: 'nowrap',
       }}
     >
-      <span aria-hidden style={{ width: 7, height: 7, borderRadius: '50%', background: '#d6966c', flexShrink: 0 }} />
+      <span aria-hidden style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--warning-base)', flexShrink: 0 }} />
       <Icon name="finance" size={13} />
       <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
     </button>

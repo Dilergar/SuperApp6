@@ -154,7 +154,7 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
           <Icon name="list" size={20} />
         </button>
 
-        <ContextSwitcher contexts={contexts} activeId={activeWsId} onSwitch={switchContext} />
+        <ContextSwitcher contexts={contexts} activeId={activeWsId} onSwitch={switchContext} forceMenu={isMobile} />
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <form
@@ -170,10 +170,15 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
           {/* Обёртка — неинтерактивный span: якорь кита сам ссылка (href→next/link),
               вложить его в <Link> значило бы «управление внутри управления». */}
           <span style={{ position: 'relative', display: 'inline-flex' }}>
-            <IconButton href="/mentions" icon="bell" label="Упоминания" />
+            <IconButton
+              href="/mentions"
+              icon="bell"
+              label={mentionsUnread ? 'Упоминания — есть непрочитанные' : 'Упоминания'}
+            />
             {!!mentionsUnread && mentionsUnread > 0 && (
-              // Синяя точка: красный в системе означает только опасность
-              <span style={{ position: 'absolute', top: 7, right: 8, width: 8, height: 8, borderRadius: '50%', background: 'var(--primary)', border: '2px solid var(--surface)' }} />
+              // Синяя точка: красный в системе означает только опасность.
+              // aria-hidden — смысл несёт label кнопки, точка чисто визуальная
+              <span aria-hidden style={{ position: 'absolute', top: 7, right: 8, width: 8, height: 8, borderRadius: '50%', background: 'var(--primary)', border: '2px solid var(--surface)' }} />
             )}
           </span>
           <Menu
@@ -338,15 +343,20 @@ function NavItem({
  * уезжает за край у того, кто состоит в десятке организаций.
  */
 function ContextSwitcher({
-  contexts, activeId, onSwitch,
+  contexts, activeId, onSwitch, forceMenu,
 }: {
   contexts: { id: string | null; label: string }[];
   activeId: string | null;
   onSwitch: (id: string | null) => void;
+  /** Телефон: сегменты не сжимаются (nowrap) и выталкивают правый блок топбара
+      за экран уже при одной организации — всегда показываем выпадающее меню. */
+  forceMenu?: boolean;
 }) {
   const current = contexts.find((c) => c.id === activeId) ?? contexts[0];
 
-  if (contexts.length <= 3) {
+  // Единственный контекст («Личное» без организаций) ничего не выталкивает —
+  // сегмент остаётся и на телефоне
+  if (contexts.length === 1 || (contexts.length <= 3 && !forceMenu)) {
     return (
       // role="group"+aria-pressed: это переключатель контекста, а не вкладки —
       // role="tab" без tabpanel был бы ложью для скринридера

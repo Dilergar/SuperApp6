@@ -116,7 +116,7 @@ export function AttachCardModal({
                 borderRadius: 'var(--radius-sm)',
                 background: tab === t.key ? 'var(--surface)' : 'none',
                 color: tab === t.key ? 'var(--on-surface)' : 'var(--on-surface-variant)',
-                boxShadow: tab === t.key ? '0 2px 10px rgba(0, 0, 0, 0.08)' : 'none',
+                boxShadow: tab === t.key ? 'var(--shadow-card)' : 'none',
                 transition: 'background 0.15s ease',
               }}
             >

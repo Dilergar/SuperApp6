@@ -135,7 +135,7 @@ function ChatRow({
         borderRadius: 'var(--radius-md)',
         cursor: 'pointer',
         textAlign: 'left',
-        boxShadow: active ? '0 2px 14px rgba(0, 0, 0, 0.08)' : 'none',
+        boxShadow: active ? 'var(--shadow-card)' : 'none',
         transition: 'background 0.15s ease',
       }}
       onMouseEnter={(e) => {
