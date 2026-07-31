@@ -5,10 +5,12 @@ import {
   BadRequestException,
   ForbiddenException,
   ConflictException,
+  type OnModuleInit,
 } from '@nestjs/common';
 import { Prisma, FinAccount, FinBook, FinTransaction } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { ContactsService } from '../contacts/contacts.service';
+import { PersonalGraphRegistry } from '../contacts/personal-graph.registry';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AccessService } from '../../core/access/access.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
@@ -63,7 +65,7 @@ const jsonSafe = (o: unknown): Prisma.InputJsonValue | undefined =>
  * here as a read-only projection (Phase 7). Every create/update/delete is audited.
  */
 @Injectable()
-export class FinancesService {
+export class FinancesService implements OnModuleInit {
   private readonly logger = new Logger(FinancesService.name);
 
   constructor(
@@ -72,7 +74,19 @@ export class FinancesService {
     private readonly notifications: NotificationsService,
     private readonly access: AccessService,
     private readonly events: EventBusService,
+    private readonly graphHooks: PersonalGraphRegistry,
   ) {}
+
+  onModuleInit(): void {
+    // Отзыв грантов книги при разрыве связи теперь идёт через ОБЩИЙ реестр, а не
+    // ленивым DI-токеном из ContactsService: раньше финансы были единственным
+    // сервисом, за которым граф знал лично, — остальные (календарь, витрины,
+    // вишлист) отзывать было некому. Шина FinancesEvents и ночной свип остаются
+    // вторым и третьим ремнём.
+    this.graphHooks.register('finances', {
+      onUnlinked: (a, b) => this.revokeSharesBetween(a, b),
+    });
+  }
 
   // ============================================================
   // Book resolution (Phase 6 will extend this to shared books)
@@ -1177,7 +1191,16 @@ export class FinancesService {
     const book = await this.requireOwnBook(userId, bookId);
     if (dto.principalType === 'user') {
       if (dto.principalId === userId) throw new BadRequestException('Себе доступ не нужен — это ваша книга');
-      await this.contacts.assertReachable(userId, [dto.principalId], 'Делиться финансами можно только с людьми из окружения');
+      // personalOnly: книга — ЛИЧНЫЙ ресурс. Через «рабочий пропуск» доступ
+      // выдавался бы коллеге вне окружения (сообщение об ошибке при этом врало),
+      // а ночной свип, который ищет гранты без живого ContactLink, потом молча
+      // его отзывал — «выдал днём, потерял ночью».
+      await this.contacts.assertReachable(
+        userId,
+        [dto.principalId],
+        'Делиться финансами можно только с людьми из окружения',
+        { personalOnly: true },
+      );
     } else {
       const circle = await this.db.circle.findFirst({ where: { id: dto.principalId, ownerId: userId } });
       if (!circle) throw new NotFoundException('Группа не найдена');
@@ -2006,36 +2029,47 @@ export class FinancesService {
    * Виртуальный слой «Платежи» для календаря (как слой задач — НЕ копируется): раскрывает
    * дни платежей по открытым долгам и повторяющимся операциям в диапазоне. Личная книга.
    */
-  async getPaymentsForCalendar(userId: string, from: Date, to: Date): Promise<Array<{
-    kind: 'finance';
-    id: string;
-    title: string;
-    start: string;
-    allDay: true;
-    amount: number;
-    currencyCode: string;
-    href: string;
-  }>> {
+  async getPaymentsForCalendar(userId: string, from: Date, to: Date): Promise<{
+    items: Array<{
+      kind: 'finance';
+      id: string;
+      title: string;
+      start: string;
+      allDay: true;
+      amount: number;
+      currencyCode: string;
+      icon: string | null;
+      href: string;
+    }>;
+    summary: string | null;
+  }> {
     const book = await this.db.finBook.findUnique({ where: { ownerType_ownerId: { ownerType: 'user', ownerId: userId } } });
-    if (!book) return [];
+    if (!book) return { items: [], summary: null };
     const [debts, rules] = await Promise.all([
       this.db.finAccount.findMany({
         where: { bookId: book.id, kind: 'liability', archived: false, debtClosedAt: null, debtDueDay: { not: null } },
-        select: { id: true, name: true, currencyCode: true, debtMonthly: true, debtDueDay: true },
+        select: { id: true, name: true, currencyCode: true, debtMonthly: true, debtDueDay: true, icon: true },
       }),
       this.db.finRecurringRule.findMany({ where: { bookId: book.id, active: true } }),
     ]);
-    if (!debts.length && !rules.length) return [];
+    if (!debts.length && !rules.length) return { items: [], summary: null };
+    // Валюта повтора — от счёта списания; значок — от категории/счёта назначения.
     const ruleCurrency = new Map<string, string>();
+    const ruleIcon = new Map<string, string | null>();
     if (rules.length) {
+      const accIds = [...new Set(rules.flatMap((r) => [r.fromAccountId, r.toAccountId]))];
       const accs = await this.db.finAccount.findMany({
-        where: { id: { in: rules.map((r) => r.fromAccountId) } },
-        select: { id: true, currencyCode: true },
+        where: { id: { in: accIds } },
+        select: { id: true, currencyCode: true, icon: true },
       });
-      for (const r of rules) ruleCurrency.set(r.id, accs.find((a) => a.id === r.fromAccountId)?.currencyCode ?? 'KZT');
+      const byId = new Map(accs.map((a) => [a.id, a]));
+      for (const r of rules) {
+        ruleCurrency.set(r.id, byId.get(r.fromAccountId)?.currencyCode ?? 'KZT');
+        ruleIcon.set(r.id, byId.get(r.toAccountId)?.icon ?? null);
+      }
     }
 
-    const items: Array<{ kind: 'finance'; id: string; title: string; start: string; allDay: true; amount: number; currencyCode: string; href: string }> = [];
+    const items: Array<{ kind: 'finance'; id: string; title: string; start: string; allDay: true; amount: number; currencyCode: string; icon: string | null; href: string }> = [];
     const start = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()));
     for (let d = start; d <= to; d = new Date(d.getTime() + 86400000)) {
       const day = d.getUTCDate();
@@ -2049,12 +2083,13 @@ export class FinancesService {
           items.push({
             kind: 'finance',
             id: `debt:${debt.id}:${dateStr}`,
-            // значок рисует клиент по kind: эмодзи в тексте — не дело сервера
             title: `Платёж: ${debt.name}`,
             start: iso,
             allDay: true,
             amount: Number(debt.debtMonthly ?? 0n),
             currencyCode: debt.currencyCode,
+            // Мини-значок в ячейке: свой у счёта долга; нет — клиент подставит запасной слоя.
+            icon: debt.icon ?? null,
             href: '/finance',
           });
         }
@@ -2068,17 +2103,58 @@ export class FinancesService {
           items.push({
             kind: 'finance',
             id: `recurring:${rule.id}:${dateStr}`,
-            title: rule.title,  // значок рисует клиент по kind: эмодзи в тексте — не дело сервера
+            title: rule.title,
             start: iso,
             allDay: true,
             amount: Number(rule.amount),
             currencyCode: ruleCurrency.get(rule.id) ?? 'KZT',
+            icon: ruleIcon.get(rule.id) ?? null,
             href: '/finance',
           });
         }
       }
     }
-    return items;
+    return { items, summary: await this.paymentsSummary(book.id, items) };
+  }
+
+  /**
+   * Сводка платежей периода для шапки календаря: «Платежи: 45 000 ₸ · после них
+   * ≈ 120 000 ₸» (модель Payday View Rocket Money). «После них» — остаток
+   * asset-счетов главной валюты минус ЕЩЁ НЕ наступившие платежи периода.
+   */
+  private async paymentsSummary(
+    bookId: string,
+    items: Array<{ start: string; amount: number; currencyCode: string }>,
+  ): Promise<string | null> {
+    if (!items.length) return null;
+    const totals = new Map<string, bigint>();
+    const upcoming = new Map<string, bigint>();
+    const now = new Date();
+    const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    for (const it of items) {
+      const v = BigInt(Math.round(it.amount));
+      totals.set(it.currencyCode, (totals.get(it.currencyCode) ?? 0n) + v);
+      if (new Date(it.start).getTime() >= todayUtc) {
+        upcoming.set(it.currencyCode, (upcoming.get(it.currencyCode) ?? 0n) + v);
+      }
+    }
+    let summary = `Платежи: ${[...totals.entries()]
+      .map(([c, v]) => this.formatMoneyHuman(v, c))
+      .join(' · ')}`;
+    if (upcoming.size) {
+      // Одна «главная» валюта предстоящих — чтобы чип в шапке оставался коротким.
+      const [mainCur, upSum] = [...upcoming.entries()].sort((a, b) => Number(b[1] - a[1]))[0];
+      const assets = await this.db.finAccount.findMany({
+        where: { bookId, kind: 'asset', archived: false, currencyCode: mainCur },
+        select: { id: true },
+      });
+      if (assets.length) {
+        const balances = await this.computeBalances(bookId);
+        const bal = assets.reduce((s, a) => s + (balances.get(a.id) ?? 0n), 0n);
+        summary += ` · после них ≈ ${this.formatMoneyHuman(bal - upSum, mainCur)}`;
+      }
+    }
+    return summary;
   }
 
   /**

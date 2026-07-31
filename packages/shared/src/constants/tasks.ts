@@ -19,40 +19,47 @@ export const TASK_ROLE_LABELS: Record<TaskRole, string> = {
 };
 
 /**
- * Подпись и цвет статуса — общие для API, веба и мобильного.
- * Значка здесь НЕТ намеренно: рисунок — дело клиента, и веб берёт иконку с тоном
- * из `TASK_STATUS_VIEW` (`app/tasks/tasks-ui.tsx`). Прежнее текстовое поле `icon`
- * («○ ◐ ⏳ ✓ ✕») читало ровно одно место и тащило эмодзи в интерфейс — убрано.
+ * Семантический тон статуса — ИМЯ СМЫСЛА, а не цвет.
+ *
+ * Здесь раньше лежал `color: '#d6966c'` — то есть копия палитры дизайн-системы
+ * внутри общего пакета. Она молча расходилась с `globals.css`: перекраска темы
+ * правила CSS меняла, а эти хексы оставляла старыми. Хекс в общем пакете
+ * ЗАПРЕЩЁН — общий пакет называет смысл («ждёт проверки»), а как этот смысл
+ * выглядит, решает клиент: веб — матовыми тонами кита, мобильный — своими
+ * токенами. Ровно тот же приём, что у значков нод «Процессов» (`icon: 'robot'`).
  */
+export type StatusTone = 'accent' | 'success' | 'warning' | 'danger' | 'waiting' | 'neutral';
+
+/** Подпись и тон статуса — общие для API, веба и мобильного. */
 export const TASK_STATUS_META: Record<
   TaskStatus,
-  { label: string; color: string }
+  { label: string; tone: StatusTone }
 > = {
-  todo: { label: 'К выполнению', color: '#8a8478' },
-  in_progress: { label: 'В работе', color: '#588cd3' },
-  on_review: { label: 'На проверке', color: '#d6966c' },
-  done: { label: 'Готово', color: '#74a277' },
-  cancelled: { label: 'Отменена', color: '#a39d92' },
+  todo: { label: 'К выполнению', tone: 'neutral' },
+  in_progress: { label: 'В работе', tone: 'accent' },
+  on_review: { label: 'На проверке', tone: 'waiting' },
+  done: { label: 'Готово', tone: 'success' },
+  cancelled: { label: 'Отменена', tone: 'neutral' },
 };
 
 export const TASK_PRIORITY_META: Record<
   TaskPriority,
-  { label: string; color: string }
+  { label: string; tone: StatusTone }
 > = {
-  low: { label: 'Низкий', color: '#a39d92' },
-  medium: { label: 'Средний', color: '#588cd3' },
-  high: { label: 'Высокий', color: '#d6966c' },
-  urgent: { label: 'Срочно', color: '#de6d68' },
+  low: { label: 'Низкий', tone: 'neutral' },
+  medium: { label: 'Средний', tone: 'accent' },
+  high: { label: 'Высокий', tone: 'warning' },
+  urgent: { label: 'Срочно', tone: 'danger' },
 };
 
 export const PARTICIPANT_STATUS_META: Record<
   ParticipantStatus,
-  { label: string; color: string }
+  { label: string; tone: StatusTone }
 > = {
-  pending: { label: 'Не начато', color: '#a39d92' },
-  submitted: { label: 'На проверке', color: '#d6966c' },
-  accepted: { label: 'Принято', color: '#74a277' },
-  returned: { label: 'Возвращено', color: '#de6d68' },
+  pending: { label: 'Не начато', tone: 'neutral' },
+  submitted: { label: 'На проверке', tone: 'waiting' },
+  accepted: { label: 'Принято', tone: 'success' },
+  returned: { label: 'Возвращено', tone: 'danger' },
 };
 
 // Recurrence presets (RRULE-light). `rule` is what gets stored on Task.recurrenceRule.

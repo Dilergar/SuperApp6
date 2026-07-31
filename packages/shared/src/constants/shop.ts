@@ -6,7 +6,9 @@ export const SHOP_LIMITS = {
   maxNameLength: 80,
   maxTitleLength: 120,
   maxDescriptionLength: 2000,
-  maxIconLength: 16,
+  /** Значок: имя иконки каталога или кодпоинты эмодзи с пометкой набора
+   *  ('ph:car', 'fl:1f469-200d-1f4bb') — самые длинные связки не влезали в 16. */
+  maxIconLength: 64,
   maxTaskDays: 365,
   maxPriceLines: 5, // cross-currency price: max distinct currencies in one listing's price (P5)
   maxWishItems: 200, // max items in a user's wishlist (P8)

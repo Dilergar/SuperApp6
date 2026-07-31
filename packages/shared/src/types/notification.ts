@@ -12,6 +12,7 @@ export type NotificationType =
   | 'contact.invitation.accepted'
   | 'contact.invitation.rejected'
   | 'contact.invitation.cancelled'
+  | 'contact.invitation.expired' // TTL ran out — told to the SENDER, who else would never know
   | 'contact.linked' // generic: a new ContactLink appeared (either direction)
   | 'contact.removed'
   // Tasks

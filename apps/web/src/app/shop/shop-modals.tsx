@@ -10,7 +10,7 @@ import { api, apiErrorMessage } from '@/lib/api';
 import { EntitySelector } from '@/components/EntitySelector';
 import { PersonChip } from '../circles/PersonCard';
 import {
-  Alert, Button, Checkbox, Chip, Divider, EmptyState, Field, IconButton, Input, Modal,
+  Alert, Button, Checkbox, Chip, Divider, EmptyState, Field, GlyphField, IconButton, Input, Modal,
   Select, Textarea, type SelectOption,
 } from '@/components/ui';
 import {
@@ -20,6 +20,8 @@ import {
   type Listing,
   type ShopStaffDto,
   type Showcase,
+  glyphPrefix,
+  glyphToText,
 } from '@superapp/shared';
 import { CampaignBars, ListingPhotosSection } from './shop-ui';
 import { daysFromNow, fmtAmount, personName, progressLines } from './shop-lib';
@@ -161,7 +163,7 @@ export function ContributeModal({
   const mineText = mine
     .map((m) => {
       const p = listing.prices.find((x) => x.currencyId === m.currencyId);
-      return `${fmtAmount(m.amount, p?.scale ?? 0)} ${p?.currencyIcon ?? ''}`;
+      return `${fmtAmount(m.amount, p?.scale ?? 0)} ${glyphToText(p?.currencyIcon)}`;
     })
     .join(' + ');
 
@@ -201,7 +203,7 @@ export function ContributeModal({
               return (
                 <Input
                   key={l.currencyId}
-                  label={`${l.currencyIcon} ${l.currencyName}`}
+                  label={`${glyphPrefix(l.currencyIcon)}${l.currencyName}`}
                   hint={`осталось ${fmtAmount(remaining, l.scale)}`}
                   type="number"
                   min={0}
@@ -341,14 +343,8 @@ export function ListingForm({
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '5rem minmax(0, 1fr)', gap: 'var(--spacing-3)' }}>
-          <Input
-            label="Значок"
-            value={icon}
-            onChange={(e) => setIcon(e.target.value)}
-            maxLength={8}
-            style={{ textAlign: 'center', fontSize: '1.15rem' }}
-          />
+        <div style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', gap: 'var(--spacing-3)', alignItems: 'start' }}>
+          <GlyphField value={icon} onChange={(v) => setIcon(v ?? '')} suggest={title} />
           <Input label="Название" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Что продаёте?" autoFocus />
         </div>
 

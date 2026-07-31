@@ -166,14 +166,16 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
           {/* «＋» ведёт в быстрый ввод Входящих: он ловит мысль одной строкой,
               а разбор (срок, исполнитель) делается там же. Полная форма живёт
               на «Обзоре» — открыть её отсюда нельзя, контекст сервиса ниже. */}
-          <IconButton icon="add" label="Быстро записать задачу" onClick={() => router.push('/tasks/inbox')} />
-          <Link href="/mentions" aria-label="Упоминания" style={{ position: 'relative', display: 'inline-flex' }}>
-            <IconButton icon="bell" label="Упоминания" />
+          <IconButton href="/tasks/inbox" icon="add" label="Быстро записать задачу" />
+          {/* Обёртка — неинтерактивный span: якорь кита сам ссылка (href→next/link),
+              вложить его в <Link> значило бы «управление внутри управления». */}
+          <span style={{ position: 'relative', display: 'inline-flex' }}>
+            <IconButton href="/mentions" icon="bell" label="Упоминания" />
             {!!mentionsUnread && mentionsUnread > 0 && (
               // Синяя точка: красный в системе означает только опасность
               <span style={{ position: 'absolute', top: 7, right: 8, width: 8, height: 8, borderRadius: '50%', background: 'var(--primary)', border: '2px solid var(--surface)' }} />
             )}
-          </Link>
+          </span>
           <Menu
             align="end"
             label="Профиль"

@@ -231,6 +231,11 @@ model ContactInvitation {
   proposedRoleForRecipient String? @map("proposed_label_for_recipient") // role sender gives recipient
   message                  String? // optional greeting text
 
+  // Группы ОТПРАВИТЕЛЯ, в которые он просит положить контакт при принятии.
+  // Отложенное намерение: применяется в acceptInvitation (получатель кладёт в
+  // свои группы тем же шагом, но своим списком из тела запроса).
+  autoAddToCircleIds String[] @map("auto_add_circle_ids")
+
   // pending, accepted, rejected, cancelled, expired
   status      String    @default("pending")
   expiresAt   DateTime  @map("expires_at") // TTL — background job marks expired
@@ -244,11 +249,21 @@ model ContactInvitation {
 
   @@index([toPhone])
   @@index([fromUserId, status]) // leading column also serves plain fromUserId lookups
-  @@index([toUserId, status])
+  // Курсорные списки приглашений: (…, status, createdAt, id) обслуживают и фильтр,
+  // и ORDER BY createdAt DESC, id DESC.
+  @@index([toUserId, status, createdAt, id])
+  @@index([fromUserId, status, createdAt, id])
   // Send-path: cooldown / existing-pending checks filter (fromUserId, toPhone, status).
   @@index([fromUserId, toPhone, status])
   // Cleanup cron: WHERE status='pending' AND expiresAt < now.
   @@index([status, expiresAt])
+  // ⚠️ ПАРТИАЛЬНЫЙ UNIQUE дописан РУКАМИ в миграции circle_review_fixes:
+  //   CREATE UNIQUE INDEX contact_invitations_one_pending_per_phone
+  //     ON contact_invitations (from_user_id, to_phone) WHERE status = 'pending';
+  // Prisma партиальные индексы не умеет, а без него все лимиты отправки
+  // (кулдаун, 30/24ч, потолок pending) обходились параллельными запросами:
+  // проверки — обычные count вне транзакции, и 10 одновременных POST проходили
+  // их все. Сервис ловит нарушение как P2002 → 409.
   @@map("contact_invitations")
 }
 
@@ -478,6 +493,8 @@ model CalendarEvent {
   endTime     DateTime @map("end_time")
   allDay      Boolean  @default(false) @map("all_day")
   color       String?
+  // Значок события (значение Glyph: 'ph:car' | 'fl:…' | 'nt:…' | имя иконки кита | символ)
+  icon        String?
 
   // Per-event privacy override (sharing semantics wired in Phase 2): inherit | busy | hidden
   visibility String @default("inherit")

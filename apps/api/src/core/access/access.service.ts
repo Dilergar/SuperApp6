@@ -153,6 +153,35 @@ export class AccessService {
     if (tx) this.bumpLater(refs);
   }
 
+  /**
+   * Снять все рёбра, где сущность выступает СУБЪЕКТОМ (её удалили).
+   *
+   * `revokeResource` чистит только сторону «ресурс», и для Группы этого было
+   * мало: гранты вида `finbook:<id>#viewer@circle:<id>#member`,
+   * `showcase:…@circle#member`, `wishlist:…`, `document:…` оставались в таблице
+   * НАВСЕГДА — реконсайлеров на них нет, FK у RelationTuple тоже нет. Прав они
+   * не давали (userset пуст), но копились вечно и рисовали в списках доступа
+   * призрачную «Группу».
+   */
+  async revokeSubject(
+    subjectType: string,
+    subjectId: string,
+    tx?: Tx,
+  ): Promise<void> {
+    const client = tx ?? this.db;
+    // Затронутые ресурсы читаем ДО удаления — иначе бампать эпохи будет нечему.
+    const rows = await client.relationTuple.findMany({
+      where: { subjectType, subjectId },
+      select: { resourceType: true, resourceId: true },
+      distinct: ['resourceType', 'resourceId'],
+    });
+    if (rows.length === 0) return;
+    await client.relationTuple.deleteMany({ where: { subjectType, subjectId } });
+    const refs = rows.map((r) => ({ type: r.resourceType, id: r.resourceId }));
+    await this.bumpEpochs(refs);
+    if (tx) this.bumpLater(refs);
+  }
+
   /** Delete specific tuples by id (used by the projection reconciler). */
   async revokeByIds(ids: string[]): Promise<void> {
     if (ids.length === 0) return;

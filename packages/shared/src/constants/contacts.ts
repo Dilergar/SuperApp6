@@ -66,4 +66,10 @@ export const CONTACT_LIMITS = {
   nonPendingRetentionDays: 30,
   // Page size for the cursor-paginated "Моё окружение" list.
   contactsPageSize: 100,
+  // Page size for the cursor-paginated invitation lists (incoming / outgoing /
+  // history). Incoming used to be a hard 200-row cap with no way to read further.
+  invitationsPageSize: 50,
+  // Защитный потолок обхода окружения там, где нужен ПОЛНЫЙ проход без курсора
+  // (живой поиск по именам). Задаётся владельцем графа, а не потребителем.
+  maxContactsScan: 2000,
 } as const;

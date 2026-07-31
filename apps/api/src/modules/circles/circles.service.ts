@@ -75,7 +75,10 @@ export class CirclesService {
     const members = await this.contacts.listContactsByLinkIds(ownerId, linkIds);
 
     return {
-      ...this.serialize(circle, circle._count.memberships),
+      // Счётчик берём из фактически отданного состава, а не из `_count`: тот
+      // считает ВСЕ строки членства, а резолв дополнительно отсекает связи, где
+      // владелец не является стороной, — и числа расходились молча.
+      ...this.serialize(circle, members.length),
       members,
     };
   }
@@ -84,24 +87,31 @@ export class CirclesService {
     ownerId: string,
     data: { name: string; icon?: string; color?: string; sortOrder?: number },
   ) {
-    const existingCount = await this.db.circle.count({ where: { ownerId } });
-    if (existingCount >= CONTACT_LIMITS.maxCirclesPerUser) {
-      throw new BadRequestException(
-        `Лимит групп: ${CONTACT_LIMITS.maxCirclesPerUser}`,
+    // Потолок групп проверяется и применяется под блокировкой строки владельца —
+    // иначе параллельные создания оба видят «лимит не достигнут» и переступают его.
+    const circle = await this.db.$transaction(async (tx) => {
+      await tx.$queryRaw(
+        Prisma.sql`SELECT id FROM users WHERE id = ${ownerId} FOR UPDATE`,
       );
-    }
+      const existingCount = await tx.circle.count({ where: { ownerId } });
+      if (existingCount >= CONTACT_LIMITS.maxCirclesPerUser) {
+        throw new BadRequestException(
+          `Лимит групп: ${CONTACT_LIMITS.maxCirclesPerUser}`,
+        );
+      }
 
-    const sortOrder =
-      data.sortOrder !== undefined ? data.sortOrder : existingCount;
+      const sortOrder =
+        data.sortOrder !== undefined ? data.sortOrder : existingCount;
 
-    const circle = await this.db.circle.create({
-      data: {
-        ownerId,
-        name: data.name,
-        icon: data.icon ?? null,
-        color: data.color ?? null,
-        sortOrder,
-      },
+      return tx.circle.create({
+        data: {
+          ownerId,
+          name: data.name,
+          icon: data.icon ?? null,
+          color: data.color ?? null,
+          sortOrder,
+        },
+      });
     });
 
     await this.redis.invalidateUserProfile(ownerId);
@@ -120,36 +130,73 @@ export class CirclesService {
       calendarVisibility?: 'none' | 'busy' | 'detailed';
     },
   ) {
-    const circle = await this.assertOwned(ownerId, circleId);
+    await this.assertOwned(ownerId, circleId);
 
     const { cardVisibility, ...rest } = data;
-    const updateData: Prisma.CircleUpdateInput = { ...rest };
 
-    if (cardVisibility !== undefined) {
-      if (cardVisibility === null) {
-        // Reset to "use owner default".
-        updateData.cardVisibility = Prisma.JsonNull;
-      } else {
-        // Store the FULL resolved map (merged over current) so union and
-        // reads are predictable.
-        const current = resolveCardVisibility(
-          circle.cardVisibility as Partial<CardVisibility> | null,
+    const { updated, prevCalendarVisibility } = await this.db.$transaction(
+      async (tx) => {
+        // Строка блокируется на время «прочитал → слил → записал»: карта видимости
+        // мержится НАД текущей, и два параллельных частичных PATCH без блокировки
+        // теряли одно из переключений (классический read-modify-write).
+        const locked = await tx.$queryRaw<
+          Array<{ card_visibility: unknown; calendar_visibility: string }>
+        >(
+          Prisma.sql`SELECT card_visibility, calendar_visibility FROM circles WHERE id = ${circleId} FOR UPDATE`,
         );
-        updateData.cardVisibility = resolveCardVisibility({
-          ...current,
-          ...cardVisibility,
-          extras: { ...(current.extras ?? {}), ...(cardVisibility.extras ?? {}) },
-        }) as unknown as Prisma.InputJsonValue;
-      }
-    }
+        if (locked.length === 0) throw new NotFoundException('Группа не найдена');
+        const current = locked[0];
 
-    const updated = await this.db.circle.update({
-      where: { id: circleId },
-      data: updateData,
-      include: { _count: { select: { memberships: true } } },
-    });
+        const updateData: Prisma.CircleUpdateInput = { ...rest };
+        if (cardVisibility !== undefined) {
+          if (cardVisibility === null) {
+            // Сброс в «наследовать дефолт владельца» (ContactsService резолвит
+            // null именно так — это НЕ платформенные дефолты).
+            updateData.cardVisibility = Prisma.JsonNull;
+          } else {
+            // Store the FULL resolved map (merged over current) so union and
+            // reads are predictable.
+            //
+            // База для ПЕРВОЙ настройки группы — дефолт ВЛАДЕЛЬЦА, а не
+            // платформенный: группа рождается с null, и мерж поверх платформенных
+            // дефолтов (где био/возраст/соцсети открыты) означал, что первый же
+            // тумблер в редакторе открывал заодно всё, что человек прятал в анкете.
+            // Это та же ошибка, что была на чтении, только со стороны записи.
+            let baseSource = current.card_visibility;
+            if (baseSource === null) {
+              const owner = await tx.user.findUnique({
+                where: { id: ownerId },
+                select: { cardVisibility: true },
+              });
+              baseSource = owner?.cardVisibility ?? null;
+            }
+            const base = resolveCardVisibility(
+              baseSource as Partial<CardVisibility> | null,
+            );
+            updateData.cardVisibility = resolveCardVisibility({
+              ...base,
+              ...cardVisibility,
+              extras: { ...(base.extras ?? {}), ...(cardVisibility.extras ?? {}) },
+            }) as unknown as Prisma.InputJsonValue;
+          }
+        }
+
+        const row = await tx.circle.update({
+          where: { id: circleId },
+          data: updateData,
+          include: { _count: { select: { memberships: true } } },
+        });
+        return { updated: row, prevCalendarVisibility: current.calendar_visibility };
+      },
+    );
+
     // Phase 2 (Calendar): mirror this Group's calendar visibility into the access engine.
-    if (data.calendarVisibility !== undefined) {
+    // Только при РЕАЛЬНОЙ смене уровня: повторный PATCH тем же значением стоил
+    // двух удалений, upsert'а и трёх бампов эпохи календаря на пустом месте.
+    if (
+      data.calendarVisibility !== undefined &&
+      data.calendarVisibility !== prevCalendarVisibility
+    ) {
       await this.accessProjection.circleCalendarVisibilityChanged(circleId, ownerId, data.calendarVisibility);
     }
     return this.serialize(updated, updated._count.memberships);
@@ -157,12 +204,18 @@ export class CirclesService {
 
   async deleteCircle(ownerId: string, circleId: string) {
     await this.assertOwned(ownerId, circleId);
-    // Deleting the Group cascades memberships but NOT the underlying
-    // ContactLinks — contacts themselves are preserved.
-    await this.db.circle.delete({ where: { id: circleId } });
+    // Удаление группы и снятие её рёбер — в ОДНОЙ транзакции. Раньше строка
+    // коммитилась первой, а отзыв шёл отдельным «best-effort» вызовом после:
+    // падение процесса между ними оставляло и членство `circle#member@user`,
+    // и гранты «участникам группы» живыми — до ночной сверки в 4:00 бывшие
+    // участники удалённой группы сохраняли календарь, витрины и книги.
+    await this.db.$transaction(async (tx) => {
+      // Deleting the Group cascades memberships but NOT the underlying
+      // ContactLinks — contacts themselves are preserved.
+      await tx.circle.delete({ where: { id: circleId } });
+      await this.accessProjection.circleDeleted(circleId, tx);
+    });
     await this.redis.invalidateUserProfile(ownerId);
-    // Phase 1: drop all mirrored membership edges for this group (best-effort).
-    await this.accessProjection.circleDeleted(circleId);
   }
 
   async reorderCircles(
@@ -205,18 +258,23 @@ export class CirclesService {
       throw new ForbiddenException('Это не ваш контакт');
     }
 
-    const currentCount = await this.db.circleMembership.count({
-      where: { circleId },
-    });
-    if (currentCount >= CONTACT_LIMITS.maxMembersPerCircle) {
-      throw new BadRequestException(
-        `Лимит участников в группе: ${CONTACT_LIMITS.maxMembersPerCircle}`,
-      );
-    }
-
     try {
-      await this.db.circleMembership.create({
-        data: { circleId, contactLinkId },
+      // Подсчёт и вставка — в одной транзакции под блокировкой строки группы:
+      // раздельные count + create позволяли параллельным запросам переступить
+      // потолок (оба видели «мест хватает»).
+      await this.db.$transaction(async (tx) => {
+        await tx.$queryRaw(
+          Prisma.sql`SELECT id FROM circles WHERE id = ${circleId} FOR UPDATE`,
+        );
+        const currentCount = await tx.circleMembership.count({ where: { circleId } });
+        if (currentCount >= CONTACT_LIMITS.maxMembersPerCircle) {
+          throw new BadRequestException(
+            `Лимит участников в группе: ${CONTACT_LIMITS.maxMembersPerCircle}`,
+          );
+        }
+        await tx.circleMembership.create({
+          data: { circleId, contactLinkId },
+        });
       });
     } catch (err) {
       if (

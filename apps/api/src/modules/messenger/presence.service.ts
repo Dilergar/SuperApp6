@@ -19,8 +19,10 @@ type CtxSnapshot = { title: string; endTime: string } | null;
  * uses @socket.io/redis-adapter). Key `presence:<userId>` holds a connection COUNT with a
  * short TTL refreshed by the client heartbeat; `presence:<userId>:lastSeen` records the last
  * disconnect. Privacy honors User.onlineStatusMode + CardVisibility.onlineStatus and requires
- * the viewer to be in the target's Окружение (no public presence); a viewer whose OWN mode is
- * 'nobody' sees no one online (reciprocity). Contextual status inherits the viewer's calendar
+ * the viewer to reach the target — личное окружение ИЛИ со-членство в организации (no public
+ * presence); a viewer whose OWN mode is 'nobody' sees no one online (reciprocity). Фан-аут
+ * изменений (fanOutPresenceChange) остаётся ЛИЧНЫМ графом: рассылка на всю организацию —
+ * другой порядок величины трафика. Contextual status inherits the viewer's calendar
  * access level (busy<detailed) via CalendarService (resolved lazily via ModuleRef to avoid the
  * MessengerModule↔CalendarModule↔TasksModule cycle).
  */
@@ -126,7 +128,8 @@ export class PresenceService {
    * Per-viewer presence for a set of targets, honoring privacy:
    *   - viewer's OWN mode 'nobody' → sees no one online/contextual (reciprocity).
    *   - target mode 'nobody' OR CardVisibility.onlineStatus=false → always offline/no contextual.
-   *   - else target must be in the viewer's Окружение (a ContactLink).
+   *   - else target must be reachable by the viewer: личное окружение (ContactLink) ИЛИ
+   *     коллега по организации (командные роли, «рабочий пропуск»).
    * Contextual status (only when online) inherits the viewer's calendar access level.
    */
   async statusFor(viewerId: string, targetIds: string[]): Promise<PresenceInfo[]> {
@@ -140,8 +143,17 @@ export class PresenceService {
     });
     const viewerHidden = viewer?.onlineStatusMode === 'nobody';
 
-    // The viewer's environment (presence is contacts-only; no public presence).
-    const contactIds = new Set(await this.contacts.getContactUserIds(viewerId));
+    // Кому вообще МОЖНО показывать присутствие (публичного присутствия нет):
+    // личное окружение + коллеги по организации. Без второго слагаемого сотрудник,
+    // достижимый «рабочим пропуском» (переписка по работе разрешена), в чате всегда
+    // висел «оффлайн» — присутствие отставало от собственного гейта мессенджера.
+    // Считаем ТОЛЬКО по запрошенным целям: фан-аут по сокету остаётся на личном графе,
+    // иначе каждый чих рассылался бы всей организации.
+    const [contactIds, coworkerIds] = await Promise.all([
+      this.contacts.getContactUserIds(viewerId),
+      this.contacts.filterCoworkers(viewerId, targets),
+    ]);
+    const visibleIds = new Set([...contactIds, ...coworkerIds]);
 
     // Batch-load target privacy fields.
     const rows = await this.db.user.findMany({
@@ -194,8 +206,8 @@ export class PresenceService {
         out.push(hiddenInfo);
         continue;
       }
-      // Reciprocity + contacts-only visibility.
-      if (viewerHidden || !contactIds.has(targetId)) {
+      // Reciprocity + «зритель вообще вправе видеть эту цель» (окружение ∥ коллеги).
+      if (viewerHidden || !visibleIds.has(targetId)) {
         out.push(hiddenInfo);
         continue;
       }

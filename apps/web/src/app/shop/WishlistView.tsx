@@ -10,7 +10,7 @@ import { api, apiErrorMessage } from '@/lib/api';
 import { EntitySelector } from '@/components/EntitySelector';
 import {
   Alert, BentoGrid, Button, Card, CardHeader, Checkbox, Chip, ConfirmDialog, Divider, EmojiIcon,
-  EmptyState, Field, Icon, Input, Modal, Select, Textarea,
+  EmptyState, Field, GlyphField, Icon, Input, Modal, Select, Textarea,
 } from '@/components/ui';
 import {
   LISTING_ITEM_TYPE_LABELS,
@@ -253,14 +253,8 @@ function WishForm({ init, onClose, onSaved }: { init?: WishItem; onClose: () => 
     >
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
-        <div style={{ display: 'grid', gridTemplateColumns: '5rem minmax(0, 1fr)', gap: 'var(--spacing-3)' }}>
-          <Input
-            label="Значок"
-            value={icon}
-            onChange={(e) => setIcon(e.target.value)}
-            maxLength={8}
-            style={{ textAlign: 'center', fontSize: '1.15rem' }}
-          />
+        <div style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', gap: 'var(--spacing-3)', alignItems: 'start' }}>
+          <GlyphField value={icon} onChange={(v) => setIcon(v ?? '')} suggest={title} />
           <Input label="Название" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Что хочешь?" autoFocus />
         </div>
         <Textarea

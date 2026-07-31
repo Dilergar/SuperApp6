@@ -14,10 +14,10 @@ import type { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
-import { ContactsService } from '../../modules/contacts/contacts.service';
-import { WorkspacesService } from '../../modules/workspaces/workspaces.service';
 import { NotificationsService } from '../../modules/notifications/notifications.service';
 import { VerifyService } from '../verify/verify.service';
+import { JobsService } from '../jobs/jobs.service';
+import { USER_PHONE_INVITATIONS_JOB } from '../users/user-jobs';
 import type { JwtPayload } from '../../shared/decorators/current-user.decorator';
 import { authAliveKey } from '../../shared/auth/session-validator.service';
 
@@ -29,11 +29,10 @@ export class AuthService {
     private db: DatabaseService,
     private jwt: JwtService,
     private redis: RedisService,
-    private contacts: ContactsService,
-    private workspaces: WorkspacesService,
     private events: EventBusService,
     private notifications: NotificationsService,
     private verify: VerifyService,
+    private jobs: JobsService,
   ) {}
 
   async register(data: {
@@ -114,17 +113,21 @@ export class AuthService {
         },
       });
 
+      // Приглашения, висевшие на этом номере, активирует ДЖОБ, поставленный в
+      // ЭТОЙ ЖЕ транзакции (transactional outbox core/jobs) — тот же путь, что
+      // при смене номера. Раньше активация делалась двумя await'ами ПОСЛЕ
+      // коммита и без подстраховки: любой блип БД/Redis на этом шаге отдавал
+      // клиенту 500, хотя пользователь уже создан, — номер занят, повторная
+      // регистрация невозможна, а приглашения (включая приглашения в
+      // организации) терялись насовсем.
+      await this.jobs.enqueue(tx, {
+        type: USER_PHONE_INVITATIONS_JOB,
+        payload: { userId: newUser.id, phone: newUser.phone },
+        uniqueKey: `phone-invites:${newUser.id}:${newUser.phone}`,
+      });
+
       return newUser;
     });
-
-    // Activate any pending invitations that targeted this phone while it
-    // was unregistered. Runs AFTER the transaction so we emit events only
-    // for rows that are fully committed.
-    await this.contacts.activatePendingInvitationsForNewUser(user.id, user.phone);
-    await this.workspaces.activatePendingWorkspaceInvitationsForNewUser(
-      user.id,
-      user.phone,
-    );
 
     // Generate tokens — system role goes into JWT
     return this.generateTokens(user.id, user.phone, 'user', user.tokenEpoch);

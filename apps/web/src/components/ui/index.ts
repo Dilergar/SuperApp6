@@ -7,7 +7,13 @@
 //
 // Импорт: import { Button, Modal, Chip } from '@/components/ui';
 // ============================================================
-export { Icon, EmojiIcon, ICONS, type IconName, type IconProps } from './Icon';
+export { Icon, ICONS, type IconName, type IconProps } from './Icon';
+export { Glyph, EmojiIcon, type GlyphProps, type EmojiIconProps } from './Glyph';
+export { GlyphPicker, GlyphField, GlyphPickerButton, type GlyphPickerProps, type GlyphFieldProps } from './GlyphPicker';
+export {
+  parseGlyph, hexToChar, charToHex, fluentUrl, GLYPH_PREFIX,
+  type ParsedGlyph,
+} from './glyph-data';
 export { Button, IconButton, type ButtonProps, type ButtonVariant, type ButtonSize } from './Button';
 export { Field, Input, Textarea, SearchField, type InputProps, type TextareaProps } from './Input';
 export { Select, type SelectOption, type SelectProps } from './Select';

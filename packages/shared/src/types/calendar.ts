@@ -7,6 +7,7 @@
 // `visibility` is stored now; its sharing semantics are wired in Phase 2.
 
 import type { TaskStatus, TaskPriority, TaskRole } from './task';
+import type { CalendarLayerKey } from '../constants/calendar';
 
 /** Per-event privacy override relative to the owner's group/person sharing (Phase 2). */
 export type CalendarEventVisibility = 'inherit' | 'busy' | 'hidden';
@@ -14,8 +15,8 @@ export type CalendarEventVisibility = 'inherit' | 'busy' | 'hidden';
 /** Which instances a create/update/delete on a recurring event affects. */
 export type RecurrenceEditScope = 'this' | 'this_and_following' | 'all';
 
-/** Toggleable layers shown on the grid. */
-export type CalendarLayer = 'events' | 'tasks' | 'finance';
+/** Toggleable layers shown on the grid. Ключи — реестр CALENDAR_LAYER_REGISTRY (constants). */
+export type CalendarLayer = CalendarLayerKey;
 
 /** Participant role on a shared event. The creator is the organizer (implicit). */
 export type ParticipantRole = 'organizer' | 'attendee';
@@ -41,6 +42,8 @@ export interface CalendarEvent {
   endTime: string;
   allDay: boolean;
   color: string | null;
+  /** Значок события (значение Glyph: 'ph:car' | 'fl:…' | 'nt:…' | имя иконки кита | символ). */
+  icon: string | null;
 
   visibility: CalendarEventVisibility;
   reminderOffsets: number[]; // minutes before start
@@ -77,6 +80,8 @@ export interface CalendarEventOccurrence {
   end: string;
   allDay: boolean;
   color: string | null;
+  /** Значок события; у «Занят»-оверлея срезан. */
+  icon: string | null;
   visibility: CalendarEventVisibility;
   reminderOffsets: number[];
   /** master's RRULE when part of a series (null for standalone / single-occurrence overrides). */
@@ -130,13 +135,44 @@ export interface CalendarFinanceItem {
   allDay: true;
   amount: number;
   currencyCode: string;
+  /** Значок: у долга — значок его счёта, у повтора — значок категории (значение Glyph). */
+  icon: string | null;
   href: string; // '/finance'
+}
+
+/**
+ * Контракт элемента «чужого» слоя — фундамент расширяемости календаря-платформы.
+ * Новый сервис добавляет свой kind в union CalendarItem (эти поля обязаны быть
+ * подмножеством); веб рисует незнакомый kind запасным чипом ровно по этим полям
+ * (значок → Glyph, клик → href) — сетка не ломается и не требует правок.
+ */
+export interface CalendarLayerItemBase {
+  kind: string;
+  id: string;
+  title: string;
+  /** ISO; общее поле сортировки всех слоёв. */
+  start: string;
+  end?: string;
+  /** Нет поля — считается «весь день». */
+  allDay?: boolean;
+  /** Значок записи (значение Glyph). */
+  icon?: string | null;
+  color?: string | null;
+  /** Куда ведёт клик, если у kind нет своей модалки на вебе. */
+  href?: string;
 }
 
 export type CalendarItem = CalendarEventOccurrence | CalendarTaskItem | CalendarFinanceItem;
 
+/** Сводка слоя за период (чип в шапке веба), напр. «Платежи: 45 000 ₸ · после них ≈ 120 000 ₸». */
+export interface CalendarLayerRangeMeta {
+  summary: string | null;
+}
+
 export interface CalendarRangeResponse {
   items: CalendarItem[];
+  /** Метаданные отработавших слоёв (ключ = слой); аддитивно, старые клиенты не замечают. */
+  layers?: Partial<Record<CalendarLayer, CalendarLayerRangeMeta>>;
 }
 
 // ---- Requests ----
@@ -149,6 +185,7 @@ export interface CreateCalendarEventRequest {
   endTime: string;
   allDay?: boolean;
   color?: string;
+  icon?: string;
   visibility?: CalendarEventVisibility;
   reminderOffsets?: number[];
   recurrenceRule?: string;
@@ -167,6 +204,7 @@ export interface UpdateCalendarEventRequest {
   endTime?: string;
   allDay?: boolean;
   color?: string | null;
+  icon?: string | null;
   visibility?: CalendarEventVisibility;
   reminderOffsets?: number[];
   recurrenceRule?: string | null;

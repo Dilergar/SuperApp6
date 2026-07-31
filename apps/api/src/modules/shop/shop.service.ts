@@ -44,6 +44,7 @@ import { EscrowService } from '../wallet/escrow.service';
 import { TasksService } from '../tasks/tasks.service';
 import { CalendarService } from '../calendar/calendar.service';
 import { ContactsService } from '../contacts/contacts.service';
+import { PersonalGraphRegistry } from '../contacts/personal-graph.registry';
 
 type ShopRow = Prisma.ShopGetPayload<object>;
 type ShowcaseRow = Prisma.ShowcaseGetPayload<object>;
@@ -79,6 +80,7 @@ export class ShopService implements OnModuleInit {
     private readonly contacts: ContactsService,
     private readonly files: FilesService,
     private readonly filesRegistry: FilesRefRegistry,
+    private readonly graphHooks: PersonalGraphRegistry,
   ) {}
 
   onModuleInit(): void {
@@ -105,6 +107,59 @@ export class ShopService implements OnModuleInit {
         return this.access.can(this.user(userId), 'showcase.manage', listing.showcaseId);
       },
     }, { allowedProfiles: ['listing_image'] });
+
+    // Разрыв личной связи (удаление контакта или блок) обязан снимать всё, что
+    // выдавалось «человеку из окружения»: доступ к витринам, к вишлисту и роль
+    // соуправляющего магазином. Раньше эти гранты переживали разрыв — их не
+    // отзывал никто, хотя выдавались они строго под гейтом окружения.
+    this.graphHooks.register('shop', {
+      onUnlinked: async (a, b) => {
+        await Promise.all([
+          this.revokePersonalGrantsFor(a, b),
+          this.revokePersonalGrantsFor(b, a),
+        ]);
+      },
+    });
+  }
+
+  /** Снять личные гранты `viewerId` на ресурсы ЛИЧНОГО магазина/вишлиста `ownerId`. */
+  private async revokePersonalGrantsFor(ownerId: string, viewerId: string): Promise<void> {
+    // Вишлист адресуется владельцем напрямую.
+    await this.access.revoke({
+      resourceType: 'wishlist',
+      resourceId: ownerId,
+      relation: 'viewer',
+      subjectType: 'user',
+      subjectId: viewerId,
+    });
+
+    const shop = await this.db.shop.findUnique({
+      where: { ownerType_ownerId: { ownerType: 'user', ownerId } },
+      select: { id: true, showcases: { select: { id: true } } },
+    });
+    if (!shop) return;
+
+    // Соуправляющий магазином целиком.
+    await this.access.revoke({
+      resourceType: 'shop',
+      resourceId: shop.id,
+      relation: 'manager',
+      subjectType: 'user',
+      subjectId: viewerId,
+    });
+
+    // Витрины: и «смотрит», и «управляет».
+    for (const showcase of shop.showcases) {
+      for (const relation of ['viewer', 'manager'] as const) {
+        await this.access.revoke({
+          resourceType: 'showcase',
+          resourceId: showcase.id,
+          relation,
+          subjectType: 'user',
+          subjectId: viewerId,
+        });
+      }
+    }
   }
 
   private user(id: string): Principal {
@@ -1270,13 +1325,17 @@ export class ShopService implements OnModuleInit {
       include: LISTING_INCLUDE,
     });
 
-    // Show the offer to the wish owner — auto-share this showcase to them (best-effort).
+    // Show the offer to the wish owner — auto-share this showcase to them.
+    // Best-effort ИМЕННО по инфраструктуре: доступ к чужой хотелке возможен
+    // только по живой связи (её вишлист расшарен мне лично или через её Группу),
+    // поэтому «нет окружения» здесь недостижимо — прежний комментарий описывал
+    // проверку, которой в этой ветке нет вовсе. Падение = сбой записи гранта:
+    // копию лота из-за него не отменяем, владелец увидит предложение после
+    // ручной раздачи доступа.
     if (wish.ownerId !== copierId) {
-      try {
-        await this.access.grant({ resourceType: 'showcase', resourceId: showcaseId, relation: 'viewer', subjectType: 'user', subjectId: wish.ownerId });
-      } catch {
-        /* owner not in копier's окружение — they can be granted manually */
-      }
+      await this.access
+        .grant({ resourceType: 'showcase', resourceId: showcaseId, relation: 'viewer', subjectType: 'user', subjectId: wish.ownerId })
+        .catch(() => undefined);
     }
     return this.serializeListing(row, await this.currencyMap(lines.map((l) => l.currencyId)));
   }
@@ -1465,9 +1524,18 @@ export class ShopService implements OnModuleInit {
   // Domain validation helpers
   // ============================================================
 
-  /** Confirmed contact AND not blocked — shared gate in ContactsService. */
+  /**
+   * Confirmed contact AND not blocked — shared gate in ContactsService.
+   *
+   * `personalOnly`: витрины, вишлист и «сотрудники» ЛИЧНОГО магазина — личные
+   * ресурсы, и доступ к ним обязан держаться на личной связи. Через «рабочий
+   * пропуск» грант выдавался бы коллеге вне окружения, а хук разрыва связи
+   * (см. onModuleInit) его бы уже не отозвал — связи-то не было.
+   */
   private async assertInEnvironment(ownerId: string, otherId: string): Promise<void> {
-    await this.contacts.assertReachable(ownerId, [otherId], 'Этот человек не в вашем окружении');
+    await this.contacts.assertReachable(ownerId, [otherId], 'Этот человек не в вашем окружении', {
+      personalOnly: true,
+    });
   }
 
   /** Validate a share target: a person must be in the environment; a circle must be the owner's. */

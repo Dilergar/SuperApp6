@@ -142,3 +142,35 @@ export const RESOURCE_BOOKING_STATUS_META: Record<
   confirmed: { label: 'Подтверждена', color: '#74a277' },
   rejected: { label: 'Отклонена', color: '#de6d68' },
 };
+
+// ---- Слои календаря (реестр платформы) ----
+
+/**
+ * Календарь — «розетка» экосистемы: любой сервис может показывать свои записи
+ * на общей сетке отдельным слоем. Слой объявляется здесь (ярлык/иконка/тон
+ * тумблера для веба — модель NOTIFICATION_REGISTRY), а данные отдаёт провайдер,
+ * зарегистрированный на API в CalendarLayersRegistry (модуль-владелец данных
+ * регистрирует его в onModuleInit — календарь потребителей поимённо не знает).
+ * Новый слой = +1 запись здесь + +1 провайдер (+ свой kind в CalendarItem).
+ * Контракт: kind элементов слоя = ключ слоя ('event'/'task' у 'events'/'tasks' —
+ * легаси-исключения, новые слои называют kind ровно как ключ).
+ */
+export interface CalendarLayerMeta {
+  /** Подпись тумблера слоя. */
+  label: string;
+  /** Имя иконки кита для тумблера. */
+  icon: string;
+  /** Матовый тон чипа-тумблера. */
+  tone: 'accent' | 'success' | 'warning' | 'danger' | 'neutral';
+  /** Отдаётся ли слой, когда клиент не прислал layers (старые клиенты). */
+  serverDefault: boolean;
+}
+
+export const CALENDAR_LAYER_REGISTRY = {
+  events: { label: 'События', icon: 'calendar', tone: 'accent', serverDefault: true },
+  tasks: { label: 'Задачи', icon: 'tasks', tone: 'danger', serverDefault: true },
+  finance: { label: 'Платежи', icon: 'finance', tone: 'warning', serverDefault: false },
+} as const satisfies Record<string, CalendarLayerMeta>;
+
+export type CalendarLayerKey = keyof typeof CALENDAR_LAYER_REGISTRY;
+export const CALENDAR_LAYER_KEYS = Object.keys(CALENDAR_LAYER_REGISTRY) as CalendarLayerKey[];

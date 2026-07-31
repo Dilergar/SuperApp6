@@ -18,12 +18,14 @@ import { FilesService } from '../files/files.service';
 import { VerifyService } from '../verify/verify.service';
 import { JobsService } from '../jobs/jobs.service';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
+import { USER_PHONE_INVITATIONS_JOB } from './user-jobs';
 import { ContactsService } from '../../modules/contacts/contacts.service';
 import { WorkspacesService } from '../../modules/workspaces/workspaces.service';
 import { NotificationsService } from '../../modules/notifications/notifications.service';
 import {
   maskPhone,
   resolveCardVisibility,
+  type CardVisibility,
   type ChangePasswordInput,
   type ChangePhoneInput,
   type UpdateProfileInput,
@@ -32,8 +34,9 @@ import {
 /** Days a deleted account stays recoverable before permanent anonymization. */
 export const ACCOUNT_GRACE_DAYS = 30;
 
-/** Джоб core/jobs: активация приглашений, висевших на НОВОМ номере после его смены. */
-export const USER_PHONE_INVITATIONS_JOB = 'users.phone.invitations';
+// Джоб активации приглашений: константа общая с регистрацией (см. user-jobs.ts),
+// реэкспорт — чтобы прежние импорты из этого файла продолжали работать.
+export { USER_PHONE_INVITATIONS_JOB } from './user-jobs';
 
 @Injectable()
 export class UsersService implements OnModuleInit {
@@ -154,6 +157,38 @@ export class UsersService implements OnModuleInit {
       rest.avatar !== undefined
         ? (await this.db.user.findUnique({ where: { id: userId }, select: { avatar: true } }))?.avatar
         : undefined;
+
+    // Карты видимости пишутся МЕРЖЕМ над текущей, а не заменой. Схема допускает
+    // частичный объект (все поля optional), и `PATCH {cardVisibility:{city:false}}`
+    // затирал всю карту: недостающие поля на чтении добирались из ПЛАТФОРМЕННЫХ
+    // дефолтов, где био/возраст/соцсети открыты, — то есть частичное сужение
+    // молча ОТКРЫВАЛО ранее скрытые поля. Видимость групп (CirclesService) уже
+    // мержится; теперь контракт один и тот же.
+    const mergeVisibility = (
+      current: unknown,
+      patch: Partial<CardVisibility> | null | undefined,
+    ): Prisma.InputJsonValue | typeof Prisma.JsonNull | undefined => {
+      if (patch === undefined) return undefined;
+      // Явный null — осознанный сброс «как у всех» (платформенные дефолты),
+      // в отличие от частичного объекта, который мержится над текущим.
+      if (patch === null) return Prisma.JsonNull;
+      const base = resolveCardVisibility(current as Partial<CardVisibility> | null);
+      return resolveCardVisibility({
+        ...base,
+        ...patch,
+        extras: { ...(base.extras ?? {}), ...(patch.extras ?? {}) },
+      }) as unknown as Prisma.InputJsonValue;
+    };
+
+    const needsVisibilityMerge =
+      cardVisibility !== undefined || companyCardVisibility !== undefined;
+    const currentVisibility = needsVisibilityMerge
+      ? await this.db.user.findUnique({
+          where: { id: userId },
+          select: { cardVisibility: true, companyCardVisibility: true },
+        })
+      : null;
+
     const user = await this.db.user.update({
       where: { id: userId },
       data: {
@@ -162,10 +197,16 @@ export class UsersService implements OnModuleInit {
           dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
         }),
         ...(cardVisibility !== undefined && {
-          cardVisibility: cardVisibility as any,
+          cardVisibility: mergeVisibility(
+            currentVisibility?.cardVisibility,
+            cardVisibility,
+          ),
         }),
         ...(companyCardVisibility !== undefined && {
-          companyCardVisibility: companyCardVisibility as any,
+          companyCardVisibility: mergeVisibility(
+            currentVisibility?.companyCardVisibility,
+            companyCardVisibility,
+          ),
         }),
         ...(socialLinks !== undefined && {
           socialLinks: socialLinks as any,

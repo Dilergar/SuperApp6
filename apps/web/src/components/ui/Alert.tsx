@@ -25,6 +25,7 @@ const TONE_ICON: Record<Tone, IconName> = {
   success: 'checkCircle',
   warning: 'warning',
   danger: 'warningCircle',
+  waiting: 'pending',
   neutral: 'info',
 };
 

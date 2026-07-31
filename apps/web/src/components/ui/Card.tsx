@@ -6,6 +6,7 @@
 // ============================================================
 import type { CSSProperties, ReactNode } from 'react';
 import Link from 'next/link';
+import { Glyph } from './Glyph';
 import { Icon, type IconName } from './Icon';
 import { cx, toneVars, type Tone } from './tones';
 
@@ -112,6 +113,7 @@ export function StatTile({
   label: string;
   value: ReactNode;
   icon?: IconName;
+  /** Значок из БД — любое значение значка (рисует `Glyph`, не текст). */
   emoji?: string | null;
   tone?: Tone;
   trend?: { text: string; direction: 'up' | 'down' };
@@ -131,7 +133,7 @@ export function StatTile({
               background: 'var(--tone-bg)', border: '1px solid var(--tone-border)', color: 'var(--tone-fg)',
             }}
           >
-            {emoji ? <span aria-hidden style={{ fontSize: '1rem', lineHeight: 1 }}>{emoji}</span> : icon ? <Icon name={icon} size={18} /> : null}
+            {emoji ? <Glyph value={emoji} size={18} /> : icon ? <Icon name={icon} size={18} /> : null}
           </span>
         )}
       </div>

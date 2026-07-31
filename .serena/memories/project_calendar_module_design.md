@@ -1,6 +1,70 @@
-# Calendar module — design + state (Phases 1–4 BUILT)
+# Calendar module — design + state (Phases 1–5 BUILT)
 
-Status: **Phases 1–4 BUILT** (May 2026). Web-only. Grilled before each phase. P1–3 verified e2e; **P4 (Google sync) code-complete + typechecks + API boots, but NOT live-tested** (needs Google OAuth creds + real account).
+Status: **Phases 1–5 BUILT** (P5 «календарь-платформа» — 2026-07-30). Web-only. Grilled before each phase. P1–3 + P5 verified e2e; **P4 (Google sync) code-complete + typechecks + API boots, but NOT live-tested** (needs Google OAuth creds + real account).
+
+## P5 — «Календарь-платформа»: реестр слоёв + значки (BUILT 2026-07-30)
+
+Задача пользователя: «указываю кредит-оплату 30-го — появляется в календаре с мини-иконкой»,
+и календарь должен держать растущую экосистему (скоро привычки). Ресёрч: 17 OSS-календарей
+(FullCalendar/Toast UI/Schedule-X/Nextcloud/Analog/Zero Calendar…) + ~20 коммерческих
+(Notion Calendar/Fantastical/TickTick/Rocket Money). Вывод: наша модель «виртуальные слои»
+совпадает с лучшими; проблема была в ХАРДКОДЕ — новый слой требовал правки 21 места.
+
+### Реестр (две половины, как у NOTIFICATION_REGISTRY + FilesRefRegistry)
+- **shared** `CALENDAR_LAYER_REGISTRY` (constants/calendar.ts): ключ → {label, icon, tone, serverDefault}.
+  Из него строятся: enum валидации (`CALENDAR_LAYER_KEYS`), дефолтные слои сервера,
+  панель тумблеров веба (`LAYER_TOGGLES` в web calendar-layers.ts). `CalendarLayer = keyof`.
+- **API** `CalendarLayersRegistry` (modules/calendar/calendar-layers.registry.ts):
+  `register(layer, {provide(userId, from, to) → {items, summary?}})`.
+  Регистрирует МОДУЛЬ-ВЛАДЕЛЕЦ данных в onModuleInit: `TasksCalendarProvider`,
+  `FinancesCalendarProvider`. **Направление импорта перевёрнуто**: раньше CalendarModule
+  импортировал TasksModule+FinancesModule и звал их сервисы; теперь Tasks/Finances
+  импортируют CalendarModule. Календарь потребителей не знает — слой без провайдера
+  (модуль выключен) тихо пропускается. `taskItemDto` уехал из CalendarService в провайдер.
+- **Контракт чужой записи** `CalendarLayerItemBase` (kind/id/title/start/end?/allDay?/icon?/color?/href?):
+  веб рисует незнакомый kind запасным чипом ровно по этим полям → сетка не ломается.
+  Гварды в calendar-lib переписаны с «если finance → … иначе задача» на явные ветки
+  isTask/isEvent + общий хвост для чужих слоёв (иначе новый kind вёл бы себя как задача).
+
+### Значки — ДАННЫЕ, а не ветка по виду записи
+- `CalendarEvent.icon` (миграция `calendar_event_icon`, значение Glyph, max 64) —
+  `GlyphField` в EventModal, наследуется в override и хвост серии (`editSingleOccurrence`/`splitSeries`).
+- Платёж: значок счёта долга / КАТЕГОРИИ повтора (`toAccountId.icon`), не выдуманный.
+- Запасной значок записи = иконка её слоя (`kindFallbackIcon`), а не хардкод `<Icon name="finance">`.
+
+### Сводка периода
+`getRange` → `{items, layers: {<key>: {summary}}}` (аддитивно). Финансы:
+«Платежи: 45 000 ₸ · после них ≈ 120 000 ₸» — модель Payday View Rocket Money;
+«после них» = остаток asset-счетов ГЛАВНОЙ валюты минус ЕЩЁ НЕ наступившие платежи периода.
+
+### Веб (page.tsx + calendar-layers.ts)
+- «+N ещё» БЫЛ МЁРТВЫМ ТЕКСТОМ → кнопка → `DayModal` со всеми записями дня (канон Google).
+- 2+ платежа в дне схлопываются в агрегат «2 платежа · 30 000 ₸» (склонение `pluralPayments`).
+- Мини-месяц в левой колонке (точки занятости + номера ISO-недель), тумблер «№» в сетке месяца.
+- Вид **Год**: 12 мини-месяцев теплокартой занятости (`yearHeat` через color-mix), клик → день/месяц.
+- Клавиши t/m/w/d/a/y/c/←/→. **Сверять И `e.code`, И `e.key`**: русская раскладка даёт
+  key='ь' при code='KeyM', а экранные клавиатуры/IME/автоматизация НЕ заполняют code
+  (поймано в браузере: harness слал `code:''` и шорткаты молчали).
+- Память слоёв и «№» — localStorage, восстанавливается в useEffect (не в инициализаторе
+  state — иначе рассинхрон SSR-разметки).
+
+### Проверено
+`verify-calendar-layers.cjs` **23/0** (значок в CRUD/серии/override, слой задач через
+провайдер, кредит 30-го со значком, повтор со значком категории, сводка, serverDefault,
+незнакомый слой → 400) + регрессии calendar-access/finance/tasks-access/tasks-inbox/
+quickactions/jobs/processes/order-fulfilment/chatter/messenger-task зелёные + браузер
+(значок выбран через GlyphPicker и отрисован в сетке, модалка дня, год-вид, клавиши,
+персистентность тумблеров; 0 ошибок консоли).
+
+**Попутно найден и починен баг ТЕСТА** `verify-finance.cjs`: отчёт по людям запрашивался
+окном `-01..-28`, а операции пишутся «сегодня» → 3 фейла каждое 29–31 число (CI бы падал).
+Теперь конец окна = реальный последний день месяца.
+
+### Дальше по календарю (не сделано осознанно)
+Трекер привычек как ПЕРВЫЙ новый слой (ниша пуста во всех 17 OSS-календарях; модель Loop —
+стрик не обнуляется пропуском); NL-ввод «пробежка каждый день в 7» (на AI-этап);
+resource timeline (ресурсы строками × время колонками, модель FullCalendar Premium);
+запись-на-приём (Nextcloud/Cal.com); month-agenda гибрид для мобилы.
 
 ## Phasing
 - **P1 core (DONE):** own calendar; events CRUD; RRULE recurrence (this/this_and_following/all via exDates+override rows); per-user multi-reminders (default 24h+30min, materialized queue + cron); all-day, location, color; virtual task layer; overdue pin; 4 views (Month/Week/Day/Agenda); timezone UTC→viewer.

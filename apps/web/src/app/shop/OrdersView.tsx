@@ -13,7 +13,7 @@ import { PersonChip } from '../circles/PersonCard';
 import {
   BentoGrid, Button, Card, CardHeader, Chip, EmptyState, Icon, LoadingBlock,
 } from '@/components/ui';
-import type { Order } from '@superapp/shared';
+import { glyphToText, type Order } from '@superapp/shared';
 import { ORDER_STATUS_LABELS, ORDER_STATUS_TONE, fmtAmount, fmtPrices, progressLines } from './shop-lib';
 
 type OrderAction = 'confirm' | 'reject' | 'cancel' | 'refund' | 'withdraw';
@@ -58,7 +58,8 @@ export function OrdersView({ onError }: { onError: (m: string) => void }) {
 
   const raisedText = (o: Order) =>
     progressLines(o.prices, o.raised)
-      .map((l) => `${fmtAmount(l.raised, l.scale)}/${fmtAmount(l.amount, l.scale)} ${l.currencyIcon}`)
+      // Значок в строке: пометку набора печатать нельзя — glyphToText даёт символ
+      .map((l) => `${fmtAmount(l.raised, l.scale)}/${fmtAmount(l.amount, l.scale)} ${glyphToText(l.currencyIcon)}`)
       .join(' · ');
 
   const row = (o: Order, kind: 'incoming' | 'mine') => (

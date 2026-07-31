@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Input } from '@/components/ui';
+import { Glyph, GlyphField, Input } from '@/components/ui';
 import { api } from '@/lib/api';
 import {
   currencyBadgeKey, walletCurrencyKey, walletHistoryKey, walletHoldersKey, walletOverviewKey,
@@ -158,14 +158,7 @@ export function WalletSection() {
             У вас ещё нет своей валюты. Придумайте название и иконку — ею вы будете награждать людей из окружения за задачи.
           </p>
           <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-            <Input
-              label="Иконка"
-              value={cIcon}
-              onChange={(e) => setCIcon(e.target.value)}
-              maxLength={WALLET_LIMITS.maxIconLength}
-              wrapClassName="wallet-icon-field"
-              style={{ textAlign: 'center', fontSize: '1.3rem' }}
-            />
+            <GlyphField label="Иконка" value={cIcon} onChange={(v) => setCIcon(v ?? '')} suggest={cName} />
             <Input
               label="Название"
               value={cName}
@@ -182,7 +175,7 @@ export function WalletSection() {
           {!editing ? (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', marginBottom: 'var(--spacing-4)' }}>
-                <span style={{ fontSize: '2.2rem', lineHeight: 1 }}>{currency.icon}</span>
+                <Glyph value={currency.icon} size={35} />
                 <div style={{ flex: 1 }}>
                   <div className="title-md">{currency.name}</div>
                   <div className="label-sm" style={{ opacity: 0.7 }}>
@@ -238,14 +231,7 @@ export function WalletSection() {
             </>
           ) : (
             <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-              <Input
-                label="Иконка"
-                value={eIcon}
-                onChange={(e) => setEIcon(e.target.value)}
-                maxLength={WALLET_LIMITS.maxIconLength}
-                wrapClassName="wallet-icon-field"
-                style={{ textAlign: 'center', fontSize: '1.3rem' }}
-              />
+              <GlyphField label="Иконка" value={eIcon} onChange={(v) => setEIcon(v ?? '')} suggest={eName} />
               <Input
                 label="Название"
                 value={eName}
@@ -269,7 +255,7 @@ export function WalletSection() {
           {foreign.map((w) => (
             <div key={w.currencyId} className="card" style={{ padding: 'var(--spacing-3) var(--spacing-4)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
-                <span style={{ fontSize: '1.5rem', lineHeight: 1 }}>{w.icon}</span>
+                <Glyph value={w.icon} size={24} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 500, fontSize: '0.9rem' }}>{w.name}</div>
                   <div className="label-sm" style={{ opacity: 0.6, fontSize: '0.72rem' }}>от {w.issuerName}</div>
@@ -317,7 +303,7 @@ export function WalletSection() {
               {holders.map((h) => (
                 <div key={h.userId} className="card" style={{ padding: 'var(--spacing-2) var(--spacing-4)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
                   <span style={{ flex: 1, fontSize: '0.88rem' }}>{h.name}</span>
-                  <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600 }}>{fmt(h.balance)} {currency.icon}</span>
+                  <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>{fmt(h.balance)} <Glyph value={currency.icon} size={14} /></span>
                 </div>
               ))}
             </div>

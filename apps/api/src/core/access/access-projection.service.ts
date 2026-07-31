@@ -18,6 +18,8 @@ const WS_ROLE_RELATION: Record<string, string> = {
 const WS_PROJECTED_ROLES = Object.keys(WS_ROLE_RELATION);
 const WS_RELATIONS = [...new Set(Object.values(WS_ROLE_RELATION))];
 
+type Tx = Prisma.TransactionClient;
+
 interface DiffResult {
   added: number;
   removed: number;
@@ -72,8 +74,14 @@ export class AccessProjectionService {
     );
   }
 
-  async circleDeleted(circleId: string): Promise<void> {
-    await this.safe(() => this.access.revokeResource('circle', circleId));
+  async circleDeleted(circleId: string, tx?: Tx): Promise<void> {
+    await this.safe(async () => {
+      // Обе стороны: рёбра НА группу (её членство) и рёбра, где группа —
+      // ПОЛУЧАТЕЛЬ гранта (календарь/витрины/вишлисты/книги/документы,
+      // расшаренные «участникам группы»). Вторую сторону не чистил никто.
+      await this.access.revokeResource('circle', circleId, tx);
+      await this.access.revokeSubject('circle', circleId, tx);
+    });
   }
 
   // ------------------------------------------------------------
@@ -195,11 +203,20 @@ export class AccessProjectionService {
   async circleCalendarVisibilityChanged(circleId: string, ownerId: string, level: string): Promise<void> {
     await this.safe(async () => {
       const subject = { subjectType: 'circle', subjectId: circleId, subjectRelation: 'member' } as const;
-      // Clear any prior level, then set the new one ('none' = cleared).
-      await this.access.revoke({ resourceType: 'calendar', resourceId: ownerId, relation: 'busy_viewer', ...subject });
-      await this.access.revoke({ resourceType: 'calendar', resourceId: ownerId, relation: 'detailed_viewer', ...subject });
-      if (level === 'busy' || level === 'detailed') {
-        await this.access.grant({ resourceType: 'calendar', resourceId: ownerId, relation: level === 'detailed' ? 'detailed_viewer' : 'busy_viewer', ...subject });
+      const wanted =
+        level === 'detailed' ? 'detailed_viewer' : level === 'busy' ? 'busy_viewer' : null;
+      const stale = (['busy_viewer', 'detailed_viewer'] as const).filter((r) => r !== wanted);
+
+      // Diff-based, НЕ revoke-then-grant (то же правило, что у resyncTaskRoles /
+      // resyncOrderRoles / resyncEventRoles): раньше апгрейд busy → detailed
+      // сначала снимал ОБА уровня и только потом выдавал новый, и параллельный
+      // resolveLevel в этом окне возвращал `none` — календарь мигал пустотой.
+      // Сначала выдаём нужное, потом убираем лишнее: доступ не пропадает ни на миг.
+      if (wanted) {
+        await this.access.grant({ resourceType: 'calendar', resourceId: ownerId, relation: wanted, ...subject });
+      }
+      for (const relation of stale) {
+        await this.access.revoke({ resourceType: 'calendar', resourceId: ownerId, relation, ...subject });
       }
     });
   }

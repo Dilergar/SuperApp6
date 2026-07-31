@@ -7,7 +7,7 @@
 // ============================================================
 import type { CSSProperties } from 'react';
 
-export type Tone = 'accent' | 'success' | 'warning' | 'danger' | 'neutral';
+export type Tone = 'accent' | 'success' | 'warning' | 'danger' | 'waiting' | 'neutral';
 
 interface ToneVars extends CSSProperties {
   '--tone-bg': string;
@@ -19,6 +19,8 @@ interface ToneVars extends CSSProperties {
   /** Сплошная заливка кнопки этого тона + её ховер. */
   '--tone-solid': string;
   '--tone-solid-hover': string;
+  /** Текст на сплошной заливке. Обычно белый; у светлых тонов — тёмный. */
+  '--tone-on-solid'?: string;
 }
 
 // Только var(...): хардкод цвета в компоненте запрещён (DESIGN.md §1) — иначе
@@ -60,6 +62,22 @@ const TONES: Record<Tone, ToneVars> = {
     '--tone-solid': 'var(--danger-base)',
     '--tone-solid-hover': 'var(--danger-hover)',
   }),
+  // Ожидание — «ждёт человека или срока». Матовая пара ЛЕГЧЕ общей формулы
+  // (8.4%/18% против 12–16/30–35) — утверждено пользователем на глаз, не
+  // «чинить» к формуле: чистый #ffd400 ярче остальных баз. Текст = тёмный
+  // вариант своей базы (тёмное золото). Собственный --tone-on-solid нужен
+  // потому, что сплошная заливка этого тона светлая: белый текст кнопки на
+  // ней был бы нечитаем.
+  waiting: Object.freeze({
+    '--tone-bg': 'var(--waiting-container)',
+    '--tone-border': 'var(--waiting-border)',
+    '--tone-fg': 'var(--waiting)',
+    '--tone-bg-strong': 'var(--waiting-hover)',
+    '--tone-base': 'var(--waiting-base)',
+    '--tone-solid': 'var(--waiting-base)',
+    '--tone-solid-hover': 'var(--waiting-hover)',
+    '--tone-on-solid': 'var(--waiting)',
+  }),
   neutral: Object.freeze({
     '--tone-bg': 'var(--surface-container)',
     '--tone-border': 'var(--border)',
@@ -83,6 +101,7 @@ export const TONE_BASE: Record<Tone, string> = {
   success: 'var(--success-base)',
   warning: 'var(--warning-base)',
   danger: 'var(--danger-base)',
+  waiting: 'var(--waiting-base)',
   neutral: 'var(--muted)',
 };
 

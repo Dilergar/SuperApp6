@@ -22,6 +22,7 @@ import {
   acceptInvitationSchema,
   updateContactSchema,
   blockUserSchema,
+  listInvitationsQuerySchema,
 } from '@superapp/shared';
 
 @ApiTags('Contacts')
@@ -50,16 +51,29 @@ export class ContactsController {
 
   @Get('invitations/incoming')
   @ApiOperation({ summary: 'Входящие приглашения' })
-  async listIncoming(@CurrentUser() user: JwtPayload) {
-    const data = await this.contacts.listIncomingInvitations(user.sub);
-    return { success: true, data };
+  async listIncoming(
+    @CurrentUser() user: JwtPayload,
+    @Query('cursor') cursor?: string,
+  ) {
+    const { items, nextCursor } = await this.contacts.listIncomingInvitations(
+      user.sub,
+      cursor,
+    );
+    // `data` остаётся массивом (совместимо), nextCursor — соседним полем.
+    return { success: true, data: items, nextCursor };
   }
 
   @Get('invitations/outgoing')
-  @ApiOperation({ summary: 'Исходящие приглашения' })
-  async listOutgoing(@CurrentUser() user: JwtPayload) {
-    const data = await this.contacts.listOutgoingInvitations(user.sub);
-    return { success: true, data };
+  @ApiOperation({
+    summary: 'Исходящие приглашения (scope=pending | history)',
+  })
+  async listOutgoing(@CurrentUser() user: JwtPayload, @Query() query: unknown) {
+    const { scope, cursor } = listInvitationsQuerySchema.parse(query ?? {});
+    const { items, nextCursor } = await this.contacts.listOutgoingInvitations(
+      user.sub,
+      { scope, cursor },
+    );
+    return { success: true, data: items, nextCursor };
   }
 
   @Post('invitations')

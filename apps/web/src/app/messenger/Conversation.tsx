@@ -1,6 +1,6 @@
 'use client';
 
-import { Icon, ICONS, useConfirm, type IconName } from '@/components/ui';
+import { Glyph, GlyphPickerButton, Icon, parseGlyph, useConfirm, type IconName } from '@/components/ui';
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
@@ -920,6 +920,18 @@ const Composer = memo(function Composer({
   };
   return (
     <>
+      {/* В текст едет САМ символ (не пометка набора) — сообщение остаётся
+          обычной строкой, и её одинаково прочитает мобильное приложение. */}
+      <GlyphPickerButton
+        label="Эмодзи"
+        only="noto"
+        keepOpen
+        size={42}
+        onSelect={(v) => {
+          const g = parseGlyph(v);
+          if (g.kind === 'text') setDraft((d) => d + g.char);
+        }}
+      />
       <MentionInput
         chatId={chatId}
         value={draft}
@@ -1392,14 +1404,11 @@ function CornerMenuItem({
 
 /**
  * Значок пункта меню. Реестр быстрых действий (core/quick-actions) отдаёт
- * иконку строкой-эмодзи, а кит — семантическим именем. Понимаем оба:
- * известное имя рисуем иконкой, эмодзи оставляем эмодзи.
+ * иконку строкой-эмодзи, а кит — семантическим именем: известные эмодзи
+ * переводим в имя, остальное разбирает `Glyph`.
  */
 function MenuGlyph({ icon }: { icon: string }) {
-  if (icon in ICONS) return <Icon name={icon as IconName} size={15} />;
-  const mapped = QUICK_ACTION_GLYPH[icon];
-  if (mapped) return <Icon name={mapped} size={15} />;
-  return <span aria-hidden style={{ fontSize: '0.95rem', flexShrink: 0, lineHeight: 1 }}>{icon}</span>;
+  return <Glyph value={QUICK_ACTION_GLYPH[icon] ?? icon} size={15} />;
 }
 
 /** Эмодзи из реестра быстрых действий → иконка системы. */

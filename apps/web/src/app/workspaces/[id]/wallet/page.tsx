@@ -8,7 +8,7 @@ import { api, apiErrorMessage } from '@/lib/api';
 import { companyHoldersKey, companyWalletKey, workspaceMembersKey } from '@/lib/queries';
 import { EntitySelector } from '@/components/EntitySelector';
 import {
-  Alert, BentoGrid, Button, Card, CardHeader, EmptyState, Input, LoadingBlock, PageHeader, StatTile,
+  Alert, BentoGrid, Button, Card, CardHeader, EmptyState, Glyph, GlyphField, Input, LoadingBlock, PageHeader, StatTile,
 } from '@/components/ui';
 import { PersonChip } from '../../../circles/PersonCard';
 import type { Currency, WalletEntry, CurrencyHolder } from '@superapp/shared';
@@ -144,14 +144,8 @@ export default function CompanyWalletPage() {
               title="Создайте валюту компании"
               subtitle="Ею платят награды за задачи и покупают в магазине организации"
             />
-            <div style={{ display: 'grid', gridTemplateColumns: '5rem minmax(0, 1fr)', gap: 'var(--spacing-3)', maxWidth: 460 }}>
-              <Input
-                label="Значок"
-                value={icon}
-                onChange={(e) => setIcon(e.target.value)}
-                maxLength={8}
-                style={{ textAlign: 'center', fontSize: '1.15rem' }}
-              />
+            <div style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', gap: 'var(--spacing-3)', maxWidth: 460, alignItems: 'start' }}>
+              <GlyphField value={icon} onChange={(v) => setIcon(v ?? '')} suggest={name} />
               <Input label="Название" value={name} onChange={(e) => setName(e.target.value)} placeholder="Например, БонусКоин" />
             </div>
             <div style={{ marginTop: 'var(--spacing-4)' }}>
@@ -186,7 +180,7 @@ export default function CompanyWalletPage() {
 
           {/* ---------- Выпуск в казну ---------- */}
           <Card span={6}>
-            <CardHeader title="Выпустить в казну" subtitle={`${currency.icon} ${currency.name} — эмитент организация`} />
+            <CardHeader title="Выпустить в казну" subtitle={<span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}><Glyph value={currency.icon} size={14} />{currency.name} — эмитент организация</span>} />
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
               <div style={{ width: 160 }}>
                 <Input
@@ -256,7 +250,7 @@ export default function CompanyWalletPage() {
                   >
                     <PersonChip size="S" userId={h.userId} firstName={h.name} />
                     <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700 }}>
-                      {fmt(h.balance, currency.scale)} <span aria-hidden>{currency.icon}</span>
+                      {fmt(h.balance, currency.scale)} <Glyph value={currency.icon} size={14} />
                     </span>
                   </div>
                 ))}

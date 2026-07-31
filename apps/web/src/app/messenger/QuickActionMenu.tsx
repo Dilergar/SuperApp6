@@ -1,6 +1,6 @@
 'use client';
 
-import { Icon, ICONS, type IconName } from '@/components/ui';
+import { Glyph, Icon, type IconName } from '@/components/ui';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { QuickActionDescriptor } from '@superapp/shared';
@@ -26,12 +26,13 @@ const KNOWN_KEYS = new Set(['task.create', 'event.create', 'message.schedule', '
 
 type ModalKey = 'task.create' | 'event.create' | 'message.schedule' | 'finance.add-expense';
 
-/** Значок быстрого действия: имя иконки кита ИЛИ эмодзи из реестра. */
+/**
+ * Значок быстрого действия. Реестр (core/quick-actions) отдаёт его эмодзи, а
+ * кит рисует иконками — известные эмодзи переводим в имя, остальное разбирает
+ * `Glyph` (он же умеет имена реестра и любые значки).
+ */
 function QuickGlyph({ icon }: { icon: string }) {
-  if (icon in ICONS) return <Icon name={icon as IconName} size={18} />;
-  const mapped = QUICK_GLYPH[icon];
-  if (mapped) return <Icon name={mapped} size={18} />;
-  return <span aria-hidden style={{ fontSize: '1.1rem', flexShrink: 0, lineHeight: 1 }}>{icon}</span>;
+  return <Glyph value={QUICK_GLYPH[icon] ?? icon} size={18} />;
 }
 
 const QUICK_GLYPH: Record<string, IconName> = {

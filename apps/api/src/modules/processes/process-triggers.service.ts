@@ -1,5 +1,10 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { PROCESS_EVENT_TYPES, WORKSPACE_ROLE_RANK, type WorkspaceRole } from '@superapp/shared';
+import {
+  PROCESS_EVENT_TYPES,
+  TEAM_WORKSPACE_ROLES,
+  WORKSPACE_ROLE_RANK,
+  type WorkspaceRole,
+} from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { ProcessesService } from './processes.service';
@@ -81,7 +86,10 @@ export class ProcessTriggerRouter implements OnModuleInit {
         tenantId: t.workspaceId,
         userId: t.runAsUserId,
         isActive: true,
-        role: { not: 'contractor' },
+        // Белый список командных ролей: «от имени» одалживает права живому сотруднику,
+        // и по чёрному списку любая будущая не-командная роль молча получила бы этот
+        // мостик. Сравнение с publisherRank ниже — отдельная проверка, она остаётся ранговой.
+        role: { in: [...TEAM_WORKSPACE_ROLES] },
       },
       select: { role: true },
     });

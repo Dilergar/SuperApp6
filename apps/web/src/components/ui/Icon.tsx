@@ -123,6 +123,7 @@ import {
   ShoppingCart,
   SignIn,
   SignOut,
+  Smiley,
   Sparkle,
   SpeakerHigh,
   SpeakerSlash,
@@ -324,6 +325,7 @@ export const ICONS = {
   device: DeviceMobile,
   ai: MagicWand,
   spark: Sparkle,
+  smiley: Smiley, // кнопка выбора значка/эмодзи (композер чата)
   bolt: Lightning,
   heart: Heart,
   sun: Sun,
@@ -369,63 +371,6 @@ export const Icon = memo(function Icon({ name, size = 20, color, weight = 'light
   );
 });
 
-/**
- * Эмодзи, выбранный пользователем (иконка Группы, валюты, категории, лота).
- * Такие иконки — ДАННЫЕ, их нельзя заменить на Phosphor. Чтобы они не
- * выглядели случайными рядом с тонким штрихом, система подаёт их в матовом
- * круге/квадрате — приём из дизайн-пакета (иконки сервисов).
- */
-export interface EmojiIconProps {
-  emoji: string | null | undefined;
-  /** Размер подложки в px. */
-  size?: number;
-  /** Матовый тон подложки. */
-  tone?: 'accent' | 'success' | 'warning' | 'danger' | 'neutral';
-  /** Квадрат со скруглением вместо круга. */
-  square?: boolean;
-  /** Чем заполнить, если эмодзи нет. */
-  fallback?: IconName;
-  className?: string;
-  style?: CSSProperties;
-}
-
-const EMOJI_TONES: Record<NonNullable<EmojiIconProps['tone']>, { bg: string; border: string }> = {
-  accent: { bg: 'var(--primary-container)', border: 'var(--primary-border)' },
-  success: { bg: 'var(--success-container)', border: 'var(--success-border)' },
-  warning: { bg: 'var(--warning-container)', border: 'var(--warning-border)' },
-  danger: { bg: 'var(--danger-container)', border: 'var(--danger-border)' },
-  neutral: { bg: 'var(--surface-container)', border: 'var(--border)' },
-};
-
-export function EmojiIcon({
-  emoji,
-  size = 34,
-  tone = 'neutral',
-  square = false,
-  fallback,
-  className,
-  style,
-}: EmojiIconProps) {
-  const t = EMOJI_TONES[tone];
-  return (
-    <span
-      className={className}
-      style={{
-        width: size,
-        height: size,
-        minWidth: size,
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderRadius: square ? 'var(--radius-md)' : 'var(--radius-pill)',
-        background: t.bg,
-        border: `1px solid ${t.border}`,
-        fontSize: Math.round(size * 0.5),
-        lineHeight: 1,
-        ...style,
-      }}
-    >
-      {emoji || (fallback ? <Icon name={fallback} size={Math.round(size * 0.52)} /> : null)}
-    </span>
-  );
-}
+// EmojiIcon (значок в матовом круге) переехал в Glyph.tsx — туда же, где живёт
+// разбор значения значка. Иначе получалось кольцо импортов: Glyph берёт отсюда
+// Icon, а Icon брал бы оттуда разбор.

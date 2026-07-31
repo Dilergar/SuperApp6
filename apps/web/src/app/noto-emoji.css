@@ -1,0 +1,15 @@
+/* СГЕНЕРИРОВАНО infra/glyph-pack/build.cjs — руками не править.
+   Noto Color Emoji (Google, OFL-1.1), официальная векторная сборка COLRv1.
+   Подключается из globals.css; в шрифтовом стеке стоит ПОСЛЕ Manrope, иначе
+   цифры и решётку (они есть в эмодзи-шрифте) рисовал бы он.
+   Файл один и без unicode-range: нарезка от fontsource в Chromium рисовала
+   ПУСТОТУ — глиф в сабсете есть, поэтому браузер даже не откатывался на
+   системный шрифт, и вкладка эмодзи выглядела пустой. */
+
+@font-face {
+  font-family: 'Noto Color Emoji';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/glyphs/font/noto-color-emoji-colrv1.woff2') format('woff2');
+}

@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import { PROCESS_LIMITS } from '@superapp/shared';
+import { PROCESS_LIMITS, TEAM_WORKSPACE_ROLES } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
@@ -608,8 +608,17 @@ export class ProcessEngineService {
     if (!step) throw new BadRequestException('Шаг недоступен для переназначения (нужна активная задача)');
     const instance = await this.db.processInstance.findUnique({ where: { id: instanceId } });
     if (!instance || instance.status !== 'running') throw new BadRequestException('Процесс не активен');
+    // «Работает в организации» = БЕЛЫЙ список командных ролей (fail-closed): по чёрному
+    // списку на шаг процесса можно было бы переназначить человека с любой будущей
+    // не-командной ролью. Право САМОГО переназначающего (manager+) проверено выше по стеку.
     const isMember = await this.db.userRole.count({
-      where: { userId: newUserId, context: 'workspace', tenantId: instance.workspaceId, isActive: true, role: { not: 'contractor' } },
+      where: {
+        userId: newUserId,
+        context: 'workspace',
+        tenantId: instance.workspaceId,
+        isActive: true,
+        role: { in: [...TEAM_WORKSPACE_ROLES] },
+      },
     });
     if (isMember === 0) throw new BadRequestException('Новый исполнитель не работает в организации');
     await this.tasks.reassignExecutorTrusted(step.taskId!, newUserId);

@@ -32,13 +32,12 @@ export function BudgetBar({ spent, amount, small }: { spent: number; amount: num
 }
 
 /**
- * Значок строки Финансов.
+ * Значок строки Финансов — матовый круг с тем, что выбрал человек (или с
+ * интерфейсным фолбэком, если не выбрал ничего).
  *
- * ЛОВУШКА: одно и то же поле `icon` несёт либо ИМЯ иконки кита (наш
- * интерфейсный фолбэк: 'card', 'receipt', 'refresh'), либо ЭМОДЗИ, выбранное
- * человеком в БД (иконка счёта/категории/долга). Печатать значение как текст
- * нельзя — «card» напечаталось бы словом. Поэтому решает эта функция, а места
- * показа вызывают только её.
+ * Разбор значения («это имя иконки кита, картинка Fluent, символ Noto или
+ * голое эмодзи?») живёт в ките, в `Glyph`. Раньше эта развилка была скопирована
+ * здесь и ещё в трёх местах, и каждая копия знала не про все случаи.
  */
 export function FinGlyph({
   glyph,
@@ -54,11 +53,6 @@ export function FinGlyph({
   style?: CSSProperties;
 }) {
   const emojiTone = tone === 'accent' || tone === 'success' || tone === 'warning' || tone === 'danger' ? tone : 'neutral';
-  // Имя из реестра кита → интерфейсная иконка в матовом круге того же размера,
-  // что и подложка эмодзи: строки списков не «прыгают» между двумя видами.
-  if (glyph && glyph in ICONS) {
-    return <EmojiIcon emoji={null} size={size} tone={emojiTone} fallback={glyph as IconName} style={style} />;
-  }
   return <EmojiIcon emoji={glyph ?? null} size={size} tone={emojiTone} fallback={fallback} style={style} />;
 }
 

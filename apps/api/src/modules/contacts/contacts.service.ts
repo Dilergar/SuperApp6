@@ -6,20 +6,20 @@ import {
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
-import { ModuleRef } from '@nestjs/core';
-import { DI_TOKENS } from '../../shared/di-tokens';
 import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { WorkspaceContextService } from '../../shared/context/workspace-context.service';
 import { AccessProjectionService } from '../../core/access/access-projection.service';
+import { PersonalGraphRegistry } from './personal-graph.registry';
 import {
   CONTACT_LIMITS,
   TEAM_WORKSPACE_ROLES,
   resolveCardVisibility,
   mergeVisibilities,
   maskLastName,
+  maskPhone,
   type CardVisibility,
   type Contact,
   type ContactUserCard,
@@ -53,30 +53,8 @@ export class ContactsService {
     private redis: RedisService,
     private accessProjection: AccessProjectionService,
     private workspaceContext: WorkspaceContextService,
-    private moduleRef: ModuleRef,
+    private graphHooks: PersonalGraphRegistry,
   ) {}
-
-  /**
-   * Синхронный отзыв прямых finbook-грантов между парой при разрыве связи (удаление /
-   * блок). Security-обязательный эффект: раньше он ехал ТОЛЬКО по at-most-once шине —
-   * потерянное событие навсегда оставляло заблокированному editor-доступ к книге.
-   * Шина (FinancesEvents) и ночной свип FinancesCron остаются вторым/третьим ремнём.
-   * Ленивый токен: прямой импорт создал бы цикл (FinancesService → ContactsService).
-   */
-  private async revokeFinbookSharesBetween(a: string, b: string): Promise<void> {
-    try {
-      const finances = this.moduleRef.get<{
-        revokeSharesBetween: (a: string, b: string) => Promise<void>;
-      }>(DI_TOKENS.FinancesService, { strict: false });
-      await finances.revokeSharesBetween(a, b);
-    } catch (err) {
-      // Связь уже разорвана — не роняем запрос; error (не warn), чтобы это было видно,
-      // а свип FinancesCron гарантированно доберёт отзыв.
-      this.logger.error(
-        `finbook share revoke failed (sweep will repair): ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
 
   // ============================================================
   // Contacts — list / read / update / delete
@@ -151,6 +129,9 @@ export class ContactsService {
         memberships: { select: this.membershipSelect() },
       },
       orderBy: [{ confirmedAt: 'desc' }, { id: 'desc' }],
+      // Потолок = размер группы: единственный вызывающий (CirclesService) ограничен им,
+      // но сам метод без take принимал бы список любой длины.
+      take: CONTACT_LIMITS.maxMembersPerCircle,
     });
     return links.map((link) => this.mapLinkToContact(link, userId));
   }
@@ -242,18 +223,28 @@ export class ContactsService {
    *     not gate work artifacts (tasks/events/work chats); direct messages still respect
    *     them — the messenger passes `alwaysCheckBlocks` for DM.
    *
+   * `personalOnly` отключает рабочий пропуск для ЛИЧНЫХ ресурсов (шеринг финкниги,
+   * витрины, вишлиста, календаря): доступ к ним обязан держаться на личной связи,
+   * иначе он «легально» выдаётся коллеге вне окружения, а ночной свип, который
+   * ищет гранты без живого ContactLink, потом молча его отзывает.
+   *
    * Batch: 2 queries total for any number of ids.
    */
   async assertReachable(
     ownerId: string,
     ids: string[],
     notLinkedMessage = 'Это действие доступно только для людей из вашего окружения',
-    opts: { alwaysCheckBlocks?: boolean } = {},
+    opts: { alwaysCheckBlocks?: boolean; personalOnly?: boolean } = {},
   ): Promise<void> {
+    // Fail-closed: пустая строка / не-строка среди id раньше просто отфильтровывалась,
+    // и вызывающий с невалидированным вводом получал НОЛЬ проверок вместо отказа.
+    if (ids.some((id) => typeof id !== 'string' || id.trim() === '')) {
+      throw new BadRequestException('Некорректный идентификатор пользователя');
+    }
     const others = [...new Set(ids)].filter((id) => id && id !== ownerId);
     if (others.length === 0) return;
 
-    const workspaceId = this.workspaceContext.activeWorkspaceId;
+    const workspaceId = opts.personalOnly ? null : this.workspaceContext.activeWorkspaceId;
     if (workspaceId) {
       // Со-членство по РОЛЯМ (единый источник UserRole) и только КОМАНДНЫМ
       // (trainee и выше): «Подрядчик» (contractor, Коллаб-модель) изолирован —
@@ -316,6 +307,198 @@ export class ContactsService {
     }
   }
 
+  /**
+   * Не бросающая версия гейта: подмножество `ids`, до которых `ownerId` ДЕЙСТВИТЕЛЬНО
+   * дотягивается по личному графу прямо сейчас (связь жива и никто никого не блокировал).
+   *
+   * Нужна там, где отказ целиком неуместен, а тихо продолжать со старым списком нельзя:
+   * повторяющаяся задача клонирует снимок участников — удалённый из окружения человек
+   * иначе получал бы новые экземпляры бессрочно.
+   */
+  async filterReachable(ownerId: string, ids: string[]): Promise<string[]> {
+    const others = [...new Set(ids)].filter(
+      (id) => typeof id === 'string' && id.trim() !== '' && id !== ownerId,
+    );
+    if (others.length === 0) return [];
+
+    const [links, blocks] = await Promise.all([
+      this.db.contactLink.findMany({
+        where: {
+          OR: others.map((id) => {
+            const [a, b] = canonical(ownerId, id);
+            return { userAId: a, userBId: b };
+          }),
+        },
+        select: { userAId: true, userBId: true },
+      }),
+      this.db.contactBlock.findMany({
+        where: {
+          OR: [
+            { blockerId: ownerId, blockedId: { in: others } },
+            { blockerId: { in: others }, blockedId: ownerId },
+          ],
+        },
+        select: { blockerId: true, blockedId: true },
+      }),
+    ]);
+
+    const linked = new Set(
+      links.map((l) => (l.userAId === ownerId ? l.userBId : l.userAId)),
+    );
+    const blockedIds = new Set(
+      blocks.map((b) => (b.blockerId === ownerId ? b.blockedId : b.blockerId)),
+    );
+    return others.filter((id) => linked.has(id) && !blockedIds.has(id));
+  }
+
+  /**
+   * Подмножество `ids`, с которыми зритель делит организацию по КОМАНДНЫМ ролям
+   * (тот же «рабочий пропуск», что в assertReachable, но без активного контекста и
+   * без исключений). Ограничено переданным списком, поэтому стоимость запроса
+   * задаёт вызывающий, а не размер организации.
+   *
+   * Потребитель — presence: коллега, достижимый рабочим пропуском, всё равно
+   * показывался «оффлайн», потому что видимость держалась только на личной связи.
+   */
+  async filterCoworkers(viewerId: string, ids: string[]): Promise<string[]> {
+    const others = [...new Set(ids)].filter(
+      (id) => typeof id === 'string' && id.trim() !== '' && id !== viewerId,
+    );
+    if (others.length === 0) return [];
+
+    const mine = await this.db.userRole.findMany({
+      where: {
+        userId: viewerId,
+        context: 'workspace',
+        isActive: true,
+        tenantId: { not: null },
+        role: { in: [...TEAM_WORKSPACE_ROLES] },
+      },
+      select: { tenantId: true },
+    });
+    const tenantIds = [...new Set(mine.map((r) => r.tenantId!).filter(Boolean))];
+    if (tenantIds.length === 0) return [];
+
+    const theirs = await this.db.userRole.findMany({
+      where: {
+        userId: { in: others },
+        context: 'workspace',
+        isActive: true,
+        tenantId: { in: tenantIds },
+        role: { in: [...TEAM_WORKSPACE_ROLES] },
+      },
+      select: { userId: true },
+    });
+    return [...new Set(theirs.map((r) => r.userId))];
+  }
+
+  /**
+   * Группы ЧУЖИХ людей, в которых состоит `userId` (обратный взгляд на членство).
+   * Нужен потребителям, дающим права «участникам моей Группы» (бронь ресурсов):
+   * до этого каждый считал это сам, вытягивая все свои связи с включёнными
+   * членствами и фильтруя в памяти.
+   */
+  async listCircleIdsWhereMember(userId: string): Promise<string[]> {
+    const rows = await this.db.circleMembership.findMany({
+      where: {
+        circle: { ownerId: { not: userId } },
+        contactLink: { OR: [{ userAId: userId }, { userBId: userId }] },
+      },
+      select: { circleId: true, circle: { select: { ownerId: true } } },
+      take: CONTACT_LIMITS.maxCirclesPerUser * CONTACT_LIMITS.contactsPageSize,
+    });
+    // Владелец группы обязан быть ВТОРОЙ стороной связи — иначе это не «меня
+    // положили в свою группу», а посторонняя строка.
+    return [...new Set(rows.filter((r) => r.circle.ownerId !== userId).map((r) => r.circleId))];
+  }
+
+  /**
+   * Поиск людей ПО ОКРУЖЕНИЮ (провайдер `person` движка поиска). Живёт здесь, а
+   * не в мессенджере: это запрос к социальному графу, и потолок обхода задаёт
+   * владелец графа, а не потребитель.
+   */
+  async searchContactUsers(
+    viewerId: string,
+    query: string,
+    limit: number,
+  ): Promise<
+    Array<{ id: string; firstName: string; lastName: string | null; avatar: string | null }>
+  > {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return [];
+    const links = await this.db.contactLink.findMany({
+      where: { OR: [{ userAId: viewerId }, { userBId: viewerId }] },
+      select: {
+        userAId: true,
+        userBId: true,
+        userA: { select: { id: true, firstName: true, lastName: true, avatar: true } },
+        userB: { select: { id: true, firstName: true, lastName: true, avatar: true } },
+      },
+      take: CONTACT_LIMITS.maxContactsScan,
+    });
+    const seen = new Set<string>();
+    const out: Array<{
+      id: string;
+      firstName: string;
+      lastName: string | null;
+      avatar: string | null;
+    }> = [];
+    for (const l of links) {
+      const other = l.userAId === viewerId ? l.userB : l.userA;
+      if (!other || seen.has(other.id)) continue;
+      const name = formatName(other.firstName, other.lastName).toLowerCase();
+      if (!name.includes(needle)) continue;
+      seen.add(other.id);
+      out.push(other);
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
+  /**
+   * ЕДИНСТВЕННЫЙ законный разворот Группы в людей.
+   *
+   * Раньше этот код был скопирован в Задачник и Календарь и успел разъехаться:
+   * копия календаря гейтила получившийся список через assertReachable, копия
+   * задач — нет, из-за чего задача на Группу в контексте организации уходила
+   * людям вне её, а изоляция Подрядчика не срабатывала. Здесь разворот и гейт
+   * стоят рядом, поэтому «забыть проверку» больше негде.
+   *
+   * `gate: false` — только для системных путей, где состав уже авторизован
+   * иначе (движок Процессов, выдача заказа): вызывающий обязан это обосновать.
+   */
+  async resolveCircleMemberIds(
+    ownerId: string,
+    circleId: string,
+    opts: { gate?: boolean; notLinkedMessage?: string } = {},
+  ): Promise<string[]> {
+    const circle = await this.db.circle.findUnique({
+      where: { id: circleId },
+      select: {
+        ownerId: true,
+        memberships: {
+          select: { contactLink: { select: { userAId: true, userBId: true } } },
+        },
+      },
+    });
+    if (!circle || circle.ownerId !== ownerId) {
+      throw new ForbiddenException('Группа не найдена');
+    }
+    const ids = [
+      ...new Set(
+        circle.memberships.map((m) =>
+          m.contactLink.userAId === ownerId
+            ? m.contactLink.userBId
+            : m.contactLink.userAId,
+        ),
+      ),
+    ];
+    if (ids.length > 0 && opts.gate !== false) {
+      await this.assertReachable(ownerId, ids, opts.notLinkedMessage);
+    }
+    return ids;
+  }
+
   async updateContact(
     userId: string,
     linkId: string,
@@ -359,7 +542,10 @@ export class ContactsService {
 
     await this.db.contactLink.delete({ where: { id: linkId } });
     await this.revokeMembershipTuples(link);
-    await this.revokeFinbookSharesBetween(link.userAId, link.userBId);
+    // Разрыв связи = потеря ВСЕГО, что выдавалось «по окружению»: финкниги,
+    // персональный шеринг календаря, витрины, вишлисты, персонал магазина.
+    // Каждый такой сервис зарегистрирован в реестре — здесь их поимённо не знают.
+    await this.graphHooks.fireUnlinked(link.userAId, link.userBId);
 
     await this.notifications.emitEvent(
       'contact.removed',
@@ -401,11 +587,38 @@ export class ContactsService {
       throw new BadRequestException('Нельзя пригласить самого себя');
     }
 
+    // Группы, в которые отправитель просит положить контакт при принятии.
+    // Проверяем ВЛАДЕНИЕ здесь: приняв приглашение, получатель не должен уметь
+    // попасть в чужую группу, а отправитель — узнать о существовании чужой.
+    const autoAddToCircleIds = await this.validateOwnedCircleIds(
+      fromUserId,
+      data.autoAddToCircleIds,
+    );
+
     // Does the recipient already exist?
     const recipient = await this.db.user.findUnique({
       where: { phone: data.toPhone },
-      select: { id: true, firstName: true },
+      select: {
+        id: true,
+        firstName: true,
+        deletedAt: true,
+        deletionScheduledAt: true,
+      },
     });
+
+    // Аккаунт удалён или ждёт удаления — приглашать некого: строка сожгла бы
+    // слот из 30/24ч и 24-часовой кулдаун на того, кто физически не ответит.
+    if (recipient?.deletedAt) {
+      throw new NotFoundException('Пользователь не найден');
+    }
+    if (recipient?.deletionScheduledAt) {
+      throw new ConflictException('Этот аккаунт удаляется — приглашение недоступно');
+    }
+    // Страховка на случай, если нормализация номеров когда-нибудь разойдётся со
+    // сравнением строк выше: связь с самим собой сломала бы канон userA < userB.
+    if (recipient && recipient.id === fromUserId) {
+      throw new BadRequestException('Нельзя пригласить самого себя');
+    }
 
     // If recipient exists, check blocks and existing link/invitation.
     if (recipient) {
@@ -498,18 +711,31 @@ export class ContactsService {
       Date.now() + CONTACT_LIMITS.invitationTtlDays * 24 * 60 * 60 * 1000,
     );
 
-    const invitation = await this.db.contactInvitation.create({
-      data: {
-        fromUserId,
-        toUserId: recipient?.id ?? null,
-        toPhone: data.toPhone,
-        proposedRoleForRecipient: data.proposedRoleForRecipient ?? null,
-        proposedRoleForSender: data.proposedRoleForSender ?? null,
-        message: data.message ?? null,
-        status: 'pending',
-        expiresAt,
-      },
-    });
+    let invitation;
+    try {
+      invitation = await this.db.contactInvitation.create({
+        data: {
+          fromUserId,
+          toUserId: recipient?.id ?? null,
+          toPhone: data.toPhone,
+          proposedRoleForRecipient: data.proposedRoleForRecipient ?? null,
+          proposedRoleForSender: data.proposedRoleForSender ?? null,
+          message: data.message ?? null,
+          autoAddToCircleIds,
+          status: 'pending',
+          expiresAt,
+        },
+      });
+    } catch (err) {
+      // Партиальный unique (from_user_id, to_phone) WHERE status='pending'.
+      // Все проверки выше — обычные count/findFirst вне транзакции, поэтому
+      // 10 одновременных POST (глобальный троттлер разрешает 10/сек) проходили
+      // их все и создавали 10 приглашений на один номер. Теперь гонку ловит БД.
+      if (isUniqueViolation(err)) {
+        throw new ConflictException('Вы уже приглашали этого пользователя');
+      }
+      throw err;
+    }
 
     await this.notifications.emitEvent(
       'contact.invitation.sent',
@@ -554,7 +780,9 @@ export class ContactsService {
     if (invitation.expiresAt < new Date()) {
       await this.db.contactInvitation.update({
         where: { id: invitation.id },
-        data: { status: 'expired' },
+        // respondedAt — как во всех остальных терминальных переходах (крон,
+        // reject, cancel); без него строка выбивалась из общей формы.
+        data: { status: 'expired', respondedAt: new Date() },
       });
       throw new ConflictException('Приглашение истекло');
     }
@@ -585,11 +813,36 @@ export class ContactsService {
     const roleAForB = senderIsA ? senderRoleForRecipient : recipientRoleForSender;
     const roleBForA = senderIsA ? recipientRoleForSender : senderRoleForRecipient;
 
-    // Transaction: create link, mark invitation accepted, add to groups (recipient side only).
+    // Обе стороны могли попросить «сразу в мои группы»: получатель — телом
+    // запроса, отправитель — полем приглашения (оно принималось API с самого
+    // начала и МОЛЧА выбрасывалось: тело sendInvitation его не читало).
+    const [recipientCircleIds, senderCircleIds] = await Promise.all([
+      this.validateOwnedCircleIds(userId, data.autoAddToCircleIds),
+      this.filterOwnedCircleIds(invitation.fromUserId, invitation.autoAddToCircleIds),
+    ]);
+
+    // Transaction: create link, mark invitation accepted, add to groups (both sides).
     // @@unique([userAId, userBId]) prevents duplicates from concurrent accepts.
     let link;
+    let projected: Array<{ circleId: string; memberUserId: string }> = [];
     try {
-      link = await this.db.$transaction(async (tx) => {
+      const result = await this.db.$transaction(async (tx) => {
+        // Блок перепроверяется ВНУТРИ транзакции: проверка снаружи и создание
+        // связи в отдельной транзакции давали окно, в котором блокировка успевала
+        // пройти между ними — и пара оставалась с живой связью при живом блоке.
+        const blockedNow = await tx.contactBlock.findFirst({
+          where: {
+            OR: [
+              { blockerId: userId, blockedId: invitation.fromUserId },
+              { blockerId: invitation.fromUserId, blockedId: userId },
+            ],
+          },
+          select: { id: true },
+        });
+        if (blockedNow) {
+          throw new ForbiddenException('Принятие приглашения заблокировано');
+        }
+
         const created = await tx.contactLink.create({
           data: {
             userAId: aId,
@@ -600,35 +853,63 @@ export class ContactsService {
           },
         });
 
-        await tx.contactInvitation.update({
-          where: { id: invitation.id },
+        // Это приглашение И встречное (если оба написали друг другу первыми).
+        // Без второй строки встречное оставалось pending навсегда: связь уже
+        // есть, поэтому его принятие вечно падало «Связь уже существует», а
+        // TTL списывал его только через 30 дней.
+        await tx.contactInvitation.updateMany({
+          where: {
+            status: 'pending',
+            OR: [
+              { id: invitation.id },
+              { fromUserId: invitation.fromUserId, toUserId: userId },
+              { fromUserId: userId, toUserId: invitation.fromUserId },
+            ],
+          },
           data: { status: 'accepted', respondedAt: new Date() },
         });
 
-        // Recipient can auto-add new link to their own groups.
-        if (data.autoAddToCircleIds && data.autoAddToCircleIds.length > 0) {
-          const myCircles = await tx.circle.findMany({
-            where: { id: { in: data.autoAddToCircleIds }, ownerId: userId },
-            select: { id: true },
+        const memberships = [
+          ...recipientCircleIds.map((circleId) => ({
+            circleId,
+            memberUserId: invitation.fromUserId,
+          })),
+          ...senderCircleIds.map((circleId) => ({
+            circleId,
+            memberUserId: userId,
+          })),
+        ];
+        if (memberships.length > 0) {
+          await tx.circleMembership.createMany({
+            data: memberships.map((m) => ({
+              circleId: m.circleId,
+              contactLinkId: created.id,
+            })),
+            skipDuplicates: true,
           });
-          if (myCircles.length > 0) {
-            await tx.circleMembership.createMany({
-              data: myCircles.map((c) => ({
-                circleId: c.id,
-                contactLinkId: created.id,
-              })),
-              skipDuplicates: true,
-            });
-          }
         }
 
-        return created;
+        return { created, memberships };
       });
+      link = result.created;
+      projected = result.memberships;
     } catch (err) {
-      if (err && typeof err === 'object' && 'code' in err && (err as { code?: string }).code === 'P2002') {
-        throw new ConflictException('Связь уже существует');
+      if (isUniqueViolation(err)) {
+        // Связь уже создана встречным принятием — accept идемпотентен: гасим
+        // это приглашение (иначе оно висело бы pending до самого TTL) и
+        // доводим до конца просьбу «положить в мои группы». Событий не шлём:
+        // победившее принятие их уже отправило, дубли не нужны.
+        return this.settleAlreadyLinked(userId, invitation.id, aId, bId, recipientCircleIds);
       }
       throw err;
+    }
+
+    // Проекция членства в движок доступа — ПОСЛЕ коммита. Раньше её здесь не было
+    // вовсе: строка членства появлялась, а ребро `circle:<id>#member@user` — нет,
+    // и всё, что расшарено на эту группу (календарь, витрины, книги, документы),
+    // не работало у нового контакта до ночной сверки в 4:00.
+    for (const m of projected) {
+      await this.accessProjection.circleMemberAdded(m.circleId, m.memberUserId);
     }
 
     const recipient = await this.db.user.findUnique({
@@ -749,8 +1030,11 @@ export class ContactsService {
     if (invitation.fromUserId !== userId) {
       throw new ForbiddenException('Повторить может только отправитель');
     }
-    if (!['cancelled', 'rejected', 'expired'].includes(invitation.status)) {
+    if (invitation.status === 'pending') {
       throw new ConflictException('Это приглашение ещё активно');
+    }
+    if (invitation.status === 'accepted') {
+      throw new ConflictException('Приглашение уже принято');
     }
 
     const cooldownSince = new Date(
@@ -767,40 +1051,112 @@ export class ContactsService {
       proposedRoleForRecipient: invitation.proposedRoleForRecipient ?? undefined,
       proposedRoleForSender: invitation.proposedRoleForSender ?? undefined,
       message: invitation.message ?? undefined,
+      autoAddToCircleIds: invitation.autoAddToCircleIds ?? undefined,
     });
   }
 
-  async listIncomingInvitations(userId: string) {
+  /**
+   * Входящие приглашения. Курсор (createdAt, id) — как у списка контактов:
+   * жёсткий потолок в 200 строк без «дочитать» просто ПРЯТАЛ остальные, а
+   * входящих, в отличие от исходящих, ничто не ограничивает (отправителей много).
+   */
+  async listIncomingInvitations(userId: string, cursor?: string) {
+    const limit = CONTACT_LIMITS.invitationsPageSize;
+    const decoded = decodeInvitationCursor(cursor);
     const invitations = await this.db.contactInvitation.findMany({
-      // expiresAt guard: an invitation past its TTL is dead even before the
-      // hourly cron flips its status — it must not look actionable in the UI.
-      where: { toUserId: userId, status: 'pending', expiresAt: { gt: new Date() } },
-      orderBy: { createdAt: 'desc' },
-      take: 200, // safety cap; pending invitations are bounded in practice
+      where: {
+        toUserId: userId,
+        status: 'pending',
+        // expiresAt guard: an invitation past its TTL is dead even before the
+        // hourly cron flips its status — it must not look actionable in the UI.
+        expiresAt: { gt: new Date() },
+        ...(decoded
+          ? {
+              OR: [
+                { createdAt: { lt: decoded.createdAt } },
+                { createdAt: decoded.createdAt, id: { lt: decoded.id } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
       include: {
         fromUser: { select: this.userCardSelect() },
       },
     });
-    return invitations.map((inv) => ({
-      ...this.serializeInvitation(inv),
-      // Связи ещё НЕТ — отдаём пре-линк карточку (см. toPreLinkUserCard).
-      from: this.toPreLinkUserCard(inv.fromUser),
-    }));
+
+    const hasMore = invitations.length > limit;
+    const page = hasMore ? invitations.slice(0, limit) : invitations;
+    const last = page[page.length - 1];
+    return {
+      items: page.map((inv) => ({
+        ...this.serializeInvitation(inv),
+        // Связи ещё НЕТ — отдаём пре-линк карточку (см. toPreLinkUserCard).
+        // Телефон маскируем: его я НЕ вводил, он пришёл вместе с чужим
+        // приглашением, и до подтверждения связи это чужая персональная деталь.
+        from: this.toPreLinkUserCard(inv.fromUser, { maskPhoneNumber: true }),
+      })),
+      nextCursor:
+        hasMore && last ? encodeInvitationCursor(last.createdAt, last.id) : null,
+    };
   }
 
-  async listOutgoingInvitations(userId: string) {
+  /**
+   * Исходящие приглашения. `scope='history'` отдаёт НЕ-pending строки (отклонённые,
+   * отменённые, истёкшие, принятые) — до этого их не отдавал никто, поэтому
+   * «Отправить повторно» было недостижимо: resend требует ровно такой статус,
+   * а id брать было неоткуда.
+   */
+  async listOutgoingInvitations(
+    userId: string,
+    opts: { scope?: 'pending' | 'history'; cursor?: string } = {},
+  ) {
+    const scope = opts.scope ?? 'pending';
+    const limit = CONTACT_LIMITS.invitationsPageSize;
+    const decoded = decodeInvitationCursor(opts.cursor);
     const invitations = await this.db.contactInvitation.findMany({
-      where: { fromUserId: userId, status: 'pending', expiresAt: { gt: new Date() } },
-      orderBy: { createdAt: 'desc' },
-      take: CONTACT_LIMITS.maxPendingOutgoingInvitations,
+      where: {
+        fromUserId: userId,
+        ...(scope === 'pending'
+          ? { status: 'pending', expiresAt: { gt: new Date() } }
+          : { status: { not: 'pending' } }),
+        ...(decoded
+          ? {
+              OR: [
+                { createdAt: { lt: decoded.createdAt } },
+                { createdAt: decoded.createdAt, id: { lt: decoded.id } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
       include: {
         toUser: { select: this.userCardSelect() },
       },
     });
-    return invitations.map((inv) => ({
-      ...this.serializeInvitation(inv),
-      to: inv.toUser ? this.toPreLinkUserCard(inv.toUser) : null,
-    }));
+
+    const hasMore = invitations.length > limit;
+    const page = hasMore ? invitations.slice(0, limit) : invitations;
+    const last = page[page.length - 1];
+    return {
+      items: page.map((inv) => ({
+        ...this.serializeInvitation(inv),
+        autoAddToCircleIds: inv.autoAddToCircleIds ?? [],
+        // Номер получателя НЕ маскируем: его ввёл сам отправитель.
+        to: inv.toUser ? this.toPreLinkUserCard(inv.toUser) : null,
+        // Повтор возможен только по остывшему не-pending приглашению — считаем
+        // это на сервере, чтобы кнопка в UI не гадала по статусу и дате.
+        canResend:
+          inv.status !== 'pending' &&
+          inv.status !== 'accepted' &&
+          inv.updatedAt.getTime() <=
+            Date.now() - CONTACT_LIMITS.resendCooldownHours * 60 * 60 * 1000,
+      })),
+      nextCursor:
+        hasMore && last ? encodeInvitationCursor(last.createdAt, last.id) : null,
+    };
   }
 
   /**
@@ -878,46 +1234,59 @@ export class ContactsService {
     if (userId === targetUserId) {
       throw new BadRequestException('Нельзя заблокировать самого себя');
     }
-    const target = await this.db.user.findUnique({
-      where: { id: targetUserId },
-      select: { id: true },
-    });
+    const [blocker, target] = await Promise.all([
+      this.db.user.findUnique({ where: { id: userId }, select: { phone: true } }),
+      this.db.user.findUnique({
+        where: { id: targetUserId },
+        select: { id: true, phone: true },
+      }),
+    ]);
     if (!target) throw new NotFoundException('Пользователь не найден');
 
-    const existing = await this.db.contactBlock.findUnique({
-      where: { blockerId_blockedId: { blockerId: userId, blockedId: targetUserId } },
-    });
-    if (existing) return existing;
-
-    // Block implies removing any existing link between the two. Its group
-    // memberships are loaded first (they cascade away with the link) so the
-    // mirrored access tuples can be revoked immediately.
+    // Блокировка ИДЕМПОТЕНТНА, но не «пуста»: раньше при уже существующей записи
+    // метод выходил первой строкой и не делал НИЧЕГО — ни удаления связи, ни
+    // отзыва грантов, ни отмены приглашений. Ровно этот путь был единственным
+    // доступным человеку способом починить состояние «блок есть, а связь жива»
+    // (его оставляла гонка блокировки с принятием приглашения) — и он был no-op.
     const [a, b] = canonical(userId, targetUserId);
     const link = await this.db.contactLink.findUnique({
       where: { userAId_userBId: { userAId: a, userBId: b } },
       include: { memberships: { select: this.membershipSelect() } },
     });
-    await this.db.contactLink.deleteMany({
-      where: { userAId: a, userBId: b },
-    });
-    if (link) await this.revokeMembershipTuples(link);
-    // Даже без живой связи: блок обязан отозвать прямые гранты книг (могли задрейфовать).
-    await this.revokeFinbookSharesBetween(userId, targetUserId);
-    // And cancel any pending invitations between them.
-    await this.db.contactInvitation.updateMany({
-      where: {
-        status: 'pending',
-        OR: [
-          { fromUserId: userId, toUserId: targetUserId },
-          { fromUserId: targetUserId, toUserId: userId },
-        ],
-      },
-      data: { status: 'cancelled', respondedAt: new Date() },
+
+    // Связь, приглашения и сама запись блока — в ОДНОЙ транзакции: иначе падение
+    // между шагами оставляло полу-заблокированную пару.
+    const block = await this.db.$transaction(async (tx) => {
+      await tx.contactLink.deleteMany({ where: { userAId: a, userBId: b } });
+      await tx.contactInvitation.updateMany({
+        where: {
+          status: 'pending',
+          OR: [
+            { fromUserId: userId, toUserId: targetUserId },
+            { fromUserId: targetUserId, toUserId: userId },
+            // ВНЕШНИЕ приглашения (toUserId ещё null) матчатся по НОМЕРУ:
+            // условие по toUserId их не видело, строка переживала блок и
+            // активировалась позже — заблокированный получал приглашение.
+            { fromUserId: userId, toPhone: target.phone, toUserId: null },
+            ...(blocker
+              ? [{ fromUserId: targetUserId, toPhone: blocker.phone, toUserId: null }]
+              : []),
+          ],
+        },
+        data: { status: 'cancelled', respondedAt: new Date() },
+      });
+      return tx.contactBlock.upsert({
+        where: {
+          blockerId_blockedId: { blockerId: userId, blockedId: targetUserId },
+        },
+        create: { blockerId: userId, blockedId: targetUserId },
+        update: {},
+      });
     });
 
-    const block = await this.db.contactBlock.create({
-      data: { blockerId: userId, blockedId: targetUserId },
-    });
+    if (link) await this.revokeMembershipTuples(link);
+    // Даже без живой связи: блок обязан отозвать прямые гранты (могли задрейфовать).
+    await this.graphHooks.fireUnlinked(userId, targetUserId);
 
     this.events.emit(
       'contact.blocked',
@@ -937,10 +1306,34 @@ export class ContactsService {
    * Called by a cron job or manually.
    */
   async cleanupInvitations() {
-    await this.db.contactInvitation.updateMany({
+    // Истечение больше не беззвучное: отправитель узнавал о нём, только сам
+    // заглянув в список (а истёкшие из списка ещё и отфильтрованы) — то есть
+    // не узнавал никогда. Собираем строки ДО перевода статуса, чтобы адресаты
+    // не потерялись, и переводим только их (updateMany без id-фильтра мог бы
+    // захватить строки, истёкшие между двумя запросами, — им письма не будет).
+    const expiring = await this.db.contactInvitation.findMany({
       where: { status: 'pending', expiresAt: { lt: new Date() } },
-      data: { status: 'expired', respondedAt: new Date() },
+      select: { id: true, fromUserId: true, toPhone: true, toUserId: true },
+      take: 1000,
     });
+    if (expiring.length > 0) {
+      await this.db.contactInvitation.updateMany({
+        where: { id: { in: expiring.map((e) => e.id) }, status: 'pending' },
+        data: { status: 'expired', respondedAt: new Date() },
+      });
+      for (const inv of expiring) {
+        await this.notifications.emitEvent(
+          'contact.invitation.expired',
+          {
+            invitationId: inv.id,
+            fromUserId: inv.fromUserId,
+            toUserId: inv.toUserId,
+            toPhone: maskPhone(inv.toPhone),
+          },
+          'contacts',
+        );
+      }
+    }
 
     // Non-pending rows are RETAINED for a window, not deleted on sight: the
     // resend cooldown (24h), the 30-per-24h send limit and resendInvitation
@@ -989,6 +1382,84 @@ export class ContactsService {
     }
   }
 
+  /**
+   * Группы, которые вызывающий просит применить СЕЙЧАС: каждая обязана быть его
+   * собственной, иначе — отказ (чужая группа не должна ни наполняться, ни
+   * подтверждать своё существование через ответ).
+   */
+  private async validateOwnedCircleIds(
+    ownerId: string,
+    ids: string[] | undefined,
+  ): Promise<string[]> {
+    const wanted = [...new Set(ids ?? [])];
+    if (wanted.length === 0) return [];
+    const owned = await this.db.circle.findMany({
+      where: { id: { in: wanted }, ownerId },
+      select: { id: true },
+    });
+    if (owned.length !== wanted.length) {
+      throw new ForbiddenException('Одна из групп не принадлежит вам');
+    }
+    return owned.map((c) => c.id);
+  }
+
+  /**
+   * То же, но МОЛЧА отбрасывает исчезнувшее: это отложенное намерение отправителя,
+   * записанное при отправке приглашения. За 30 дней TTL группа могла быть удалена —
+   * ронять чужое принятие из-за этого нельзя.
+   */
+  private async filterOwnedCircleIds(
+    ownerId: string,
+    ids: string[] | undefined,
+  ): Promise<string[]> {
+    const wanted = [...new Set(ids ?? [])];
+    if (wanted.length === 0) return [];
+    const owned = await this.db.circle.findMany({
+      where: { id: { in: wanted }, ownerId },
+      select: { id: true },
+    });
+    return owned.map((c) => c.id);
+  }
+
+  /**
+   * Принятие приглашения, когда связь уже создана встречным принятием.
+   * Идемпотентный хвост: гасим приглашение и доводим до конца «положить в мои
+   * группы», не эмитя событий заново.
+   */
+  private async settleAlreadyLinked(
+    userId: string,
+    invitationId: string,
+    aId: string,
+    bId: string,
+    circleIds: string[],
+  ) {
+    const existing = await this.db.contactLink.findUnique({
+      where: { userAId_userBId: { userAId: aId, userBId: bId } },
+    });
+    if (!existing) {
+      // Связь исчезла между падением и этим запросом (удалили/заблокировали).
+      throw new ConflictException('Связь уже существует');
+    }
+    await this.db.contactInvitation.updateMany({
+      where: { id: invitationId, status: 'pending' },
+      data: { status: 'accepted', respondedAt: new Date() },
+    });
+    if (circleIds.length > 0) {
+      await this.db.circleMembership.createMany({
+        data: circleIds.map((circleId) => ({
+          circleId,
+          contactLinkId: existing.id,
+        })),
+        skipDuplicates: true,
+      });
+      const memberId = existing.userAId === userId ? existing.userBId : existing.userAId;
+      for (const circleId of circleIds) {
+        await this.accessProjection.circleMemberAdded(circleId, memberId);
+      }
+    }
+    return existing;
+  }
+
   private userCardSelect() {
     return {
       id: true,
@@ -1034,16 +1505,24 @@ export class ContactsService {
       circle: { ownerId: string; cardVisibility: Prisma.JsonValue | null };
     }[],
   ): CardVisibility {
+    const ownerDefaultResolved = resolveCardVisibility(
+      ownerDefault as Partial<CardVisibility> | null,
+    );
     const groupVis = memberships
       .filter((m) => m.circle.ownerId === ownerId)
       .map((m) =>
-        resolveCardVisibility(
-          m.circle.cardVisibility as Partial<CardVisibility> | null,
-        ),
+        // Группа БЕЗ своей настройки (cardVisibility = null — состояние, в котором
+        // рождается КАЖДАЯ новая группа) наследует дефолт владельца. Раньше здесь
+        // резолвились ПЛАТФОРМЕННЫЕ дефолты, где город/био/возраст/соцсети открыты:
+        // человек, спрятавший эти поля в анкете, открывал их обратно самим фактом
+        // добавления контакта в свежую группу — union умеет только расширять.
+        m.circle.cardVisibility === null
+          ? ownerDefaultResolved
+          : resolveCardVisibility(
+              m.circle.cardVisibility as Partial<CardVisibility> | null,
+            ),
       );
-    return groupVis.length > 0
-      ? mergeVisibilities(groupVis)
-      : resolveCardVisibility(ownerDefault as Partial<CardVisibility> | null);
+    return groupVis.length > 0 ? mergeVisibilities(groupVis) : ownerDefaultResolved;
   }
 
   private mapLinkToContact(
@@ -1110,10 +1589,13 @@ export class ContactsService {
    * Форма ответа не меняется (ContactUserCard) — веб читает отсюда только имя и факт
    * регистрации, поэтому UI не затронут.
    */
-  private toPreLinkUserCard(row: UserCardRow): ContactUserCard {
+  private toPreLinkUserCard(
+    row: UserCardRow,
+    opts: { maskPhoneNumber?: boolean } = {},
+  ): ContactUserCard {
     return {
       id: row.id,
-      phone: row.phone,
+      phone: opts.maskPhoneNumber ? maskPhone(row.phone) : row.phone,
       firstName: row.firstName,
       lastName: maskLastName(row.lastName),
       avatar: row.avatar,
@@ -1167,6 +1649,7 @@ export class ContactsService {
     proposedRoleForSender: string | null;
     proposedRoleForRecipient: string | null;
     message: string | null;
+    autoAddToCircleIds?: string[];
     status: string;
     expiresAt: Date;
     respondedAt: Date | null;
@@ -1181,6 +1664,9 @@ export class ContactsService {
       proposedRoleForSender: inv.proposedRoleForSender,
       proposedRoleForRecipient: inv.proposedRoleForRecipient,
       message: inv.message,
+      // autoAddToCircleIds здесь НЕТ намеренно: это группы ОТПРАВИТЕЛЯ, и в
+      // входящем списке они были бы утечкой его структуры получателю.
+      // Исходящий список добавляет поле сам.
       status: inv.status as
         | 'pending'
         | 'accepted'
@@ -1219,6 +1705,16 @@ function canonical(a: string, b: string): [string, string] {
   return a < b ? [a, b] : [b, a];
 }
 
+/** Нарушение уникального индекса Prisma (P2002) — гонка, а не ошибка вызывающего. */
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    !!err &&
+    typeof err === 'object' &&
+    'code' in err &&
+    (err as { code?: string }).code === 'P2002'
+  );
+}
+
 /** Opaque keyset cursor for the contacts list: "<ISO confirmedAt>_<id>". */
 function encodeLinkCursor(confirmedAt: Date, id: string): string {
   return `${confirmedAt.toISOString()}_${id}`;
@@ -1234,6 +1730,23 @@ function decodeLinkCursor(
   const id = cursor.slice(idx + 1);
   if (Number.isNaN(confirmedAt.getTime()) || !id) return null;
   return { confirmedAt, id };
+}
+
+/** Тот же keyset для списков приглашений: "<ISO createdAt>_<id>". */
+function encodeInvitationCursor(createdAt: Date, id: string): string {
+  return `${createdAt.toISOString()}_${id}`;
+}
+
+function decodeInvitationCursor(
+  cursor?: string,
+): { createdAt: Date; id: string } | null {
+  if (!cursor) return null;
+  const idx = cursor.indexOf('_');
+  if (idx === -1) return null;
+  const createdAt = new Date(cursor.slice(0, idx));
+  const id = cursor.slice(idx + 1);
+  if (Number.isNaN(createdAt.getTime()) || !id) return null;
+  return { createdAt, id };
 }
 
 function formatName(first: string, last: string | null): string {

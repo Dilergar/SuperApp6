@@ -9,8 +9,9 @@ import {
   type CalendarTaskItem,
   type CalendarFinanceItem,
 } from '@superapp/shared';
+import { TONE_BASE } from '@/components/ui';
 
-export type CalendarView = 'month' | 'week' | 'day' | 'agenda';
+export type CalendarView = 'month' | 'week' | 'day' | 'agenda' | 'year';
 
 export const HOUR_PX = 46; // height of one hour row in week/day grid
 
@@ -66,6 +67,10 @@ export function rangeForView(view: CalendarView, anchor: Date): { from: Date; to
   if (view === 'day') {
     return { from: startOfDay(anchor), to: endOfDay(anchor) };
   }
+  if (view === 'year') {
+    // Календарный год якоря (365–366 дней — в пределах rangeMaxDays API).
+    return { from: new Date(anchor.getFullYear(), 0, 1), to: endOfDay(new Date(anchor.getFullYear(), 11, 31)) };
+  }
   // agenda — next 30 days
   const from = startOfDay(anchor);
   return { from, to: endOfDay(addDays(from, 30)) };
@@ -85,10 +90,13 @@ export function viewLabel(view: CalendarView, anchor: Date): string {
   if (view === 'day') {
     return cap(anchor.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' }));
   }
+  if (view === 'year') {
+    return String(anchor.getFullYear());
+  }
   return 'Ближайшие 30 дней';
 }
 
-const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+export const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export const fmtTime = (iso: string) =>
   new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
@@ -100,6 +108,15 @@ export const fmtDayHeader = (d: Date) => ({
 
 export const WEEKDAYS_SHORT = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
+/** Номер ISO-недели (колонка «№» месяца и мини-месяц). */
+export function isoWeek(d: Date): number {
+  const x = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = x.getUTCDay() || 7;
+  x.setUTCDate(x.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(x.getUTCFullYear(), 0, 1));
+  return Math.ceil(((+x - +yearStart) / DAY_MS + 1) / 7);
+}
+
 // ---- item helpers ----
 
 export const isEvent = (i: CalendarItem): i is CalendarEventOccurrence => i.kind === 'event';
@@ -109,8 +126,9 @@ export const isFinance = (i: CalendarItem): i is CalendarFinanceItem => i.kind =
 /** Is this item rendered in the all-day band (vs the hourly grid)? */
 export function isAllDayItem(i: CalendarItem): boolean {
   if (isEvent(i)) return i.allDay;
-  if (isFinance(i)) return true; // платежи — всегда all-day
-  return i.allDay || i.overdue; // overdue tasks pin to today's all-day bar
+  if (isTask(i)) return i.allDay || i.overdue; // overdue tasks pin to today's all-day bar
+  // Платежи и любые будущие слои: нет поля allDay → «весь день» (контракт CalendarLayerItemBase).
+  return (i as { allDay?: boolean }).allDay !== false;
 }
 
 /** Day(s) the item should appear on. Overdue tasks pin to today. */
@@ -118,20 +136,31 @@ export function itemDays(i: CalendarItem): Date[] {
   if (isTask(i)) {
     return [i.overdue ? startOfDay(new Date()) : startOfDay(new Date(i.dueDate))];
   }
-  if (isFinance(i)) return [startOfDay(new Date(i.start))];
-  const start = startOfDay(new Date(i.start));
-  const end = startOfDay(new Date(i.end));
-  if (!i.allDay || sameDay(start, end)) return [start];
-  const days: Date[] = [];
-  for (let d = start; d <= end; d = addDays(d, 1)) days.push(d);
-  return days;
+  if (isEvent(i)) {
+    const start = startOfDay(new Date(i.start));
+    const end = startOfDay(new Date(i.end));
+    if (!i.allDay || sameDay(start, end)) return [start];
+    const days: Date[] = [];
+    for (let d = start; d <= end; d = addDays(d, 1)) days.push(d);
+    return days;
+  }
+  // Платежи и чужие слои — один день по start.
+  return [startOfDay(new Date(i.start))];
 }
 
+/**
+ * Цвет записи на сетке. Цвет СОБЫТИЯ — данные (человек выбрал его сам), поэтому
+ * приходит хексом; цвета СИСТЕМЫ отдаются переменными, а не копиями хексов —
+ * иначе перекраска темы обошла бы календарь стороной.
+ * Значение подставляется в inline-style, в том числе внутрь `color-mix` —
+ * дописывать к нему хекс-альфу (`color + '22'`) больше нельзя.
+ */
 export function itemColor(i: CalendarItem): string {
   if (isEvent(i)) return i.color || DEFAULT_EVENT_COLOR;
-  if (isFinance(i)) return '#d6966c'; // tertiary — «highlighter» для платежей
-  if (i.overdue) return '#de6d68';
-  return TASK_PRIORITY_META[i.priority]?.color || '#588cd3';
+  if (isTask(i)) return i.overdue ? 'var(--danger-base)' : TONE_BASE[TASK_PRIORITY_META[i.priority]?.tone ?? 'accent'];
+  if (isFinance(i)) return 'var(--warning-base)'; // «highlighter» для платежей
+  // Чужой слой: свой цвет записи (данные) или графитовый запасной.
+  return (i as { color?: string | null }).color || 'var(--on-surface-variant)';
 }
 
 export function itemTitle(i: CalendarItem): string {

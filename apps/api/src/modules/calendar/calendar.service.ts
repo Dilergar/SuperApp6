@@ -13,10 +13,10 @@ import { DatabaseService } from '../../shared/database/database.service';
 import { fullName } from '../../shared/utils/user-name';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { TasksService } from '../tasks/tasks.service';
 import { ContactsService } from '../contacts/contacts.service';
-import { FinancesService } from '../finances/finances.service';
+import { PersonalGraphRegistry } from '../contacts/personal-graph.registry';
 import { ResourcesService } from './resources.service';
+import { CalendarLayersRegistry } from './calendar-layers.registry';
 import { AccessService } from '../../core/access/access.service';
 import { Principal } from '../../core/access/access.types';
 import { QuickActionRegistry } from '../../core/quick-actions/quick-actions.registry';
@@ -26,13 +26,15 @@ import {
   DEFAULT_REMINDER_OFFSETS,
   CALENDAR_LIMITS,
   CALENDAR_ACCESS_LEVEL_META,
+  CALENDAR_LAYER_KEYS,
+  CALENDAR_LAYER_REGISTRY,
   SMART_MATCH_DEFAULTS,
   RSVP_META,
 } from '@superapp/shared';
 import type {
   CalendarItem,
   CalendarEventOccurrence,
-  CalendarTaskItem,
+  CalendarRangeResponse,
   CalendarEvent as CalendarEventDto,
   CalendarEventDetail,
   CalendarEventVisibility,
@@ -78,14 +80,15 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     private db: DatabaseService,
     private events: EventBusService,
     private notifications: NotificationsService,
-    private tasks: TasksService,
     private resources: ResourcesService,
     private access: AccessService,
     private quickActions: QuickActionRegistry,
     private contacts: ContactsService,
-    private finances: FinancesService,
     private jobs: JobsService,
     private jobsRegistry: JobsRegistry,
+    // Слои чужих сервисов (задачи/платежи/…) — через реестр, не прямые инъекции.
+    private layersRegistry: CalendarLayersRegistry,
+    private graphHooks: PersonalGraphRegistry,
   ) {}
 
   onModuleInit(): void {
@@ -106,6 +109,15 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
       (payload) => this.handleReminderFireJob(String(payload.reminderId)),
       { maxAttempts: 8 },
     );
+
+    // Разрыв личной связи снимает персональный доступ к календарю в ОБЕ стороны.
+    // Раньше эти tuple'ы переживали и удаление контакта, и блокировку: выдавались
+    // они под гейтом окружения, а отзывал их только владелец руками.
+    this.graphHooks.register('calendar', {
+      onUnlinked: async (a, b) => {
+        await Promise.all([this.removeShare(a, b), this.removeShare(b, a)]);
+      },
+    });
   }
 
   onApplicationBootstrap(): void {
@@ -223,7 +235,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     toISO: string,
     layers?: CalendarLayer[],
     include?: string[],
-  ): Promise<{ items: CalendarItem[] }> {
+  ): Promise<CalendarRangeResponse> {
     const from = new Date(fromISO);
     const to = new Date(toISO);
     if (isNaN(+from) || isNaN(+to) || to < from) {
@@ -233,7 +245,10 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
       throw new BadRequestException('Слишком большой диапазон');
     }
 
-    const active: CalendarLayer[] = layers?.length ? layers : ['events', 'tasks'];
+    // Слои по умолчанию (клиент не прислал layers) — из реестра платформы.
+    const active: CalendarLayer[] = layers?.length
+      ? layers
+      : CALENDAR_LAYER_KEYS.filter((k) => CALENDAR_LAYER_REGISTRY[k].serverDefault);
     const items: CalendarItem[] = [];
 
     if (active.includes('events')) {
@@ -372,20 +387,27 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
       }
     }
 
-    if (active.includes('tasks')) {
-      const tasks = await this.tasks.listForCalendar(userId, from, to);
-      for (const t of tasks) items.push(this.taskItemDto(t));
-    }
-
-    if (active.includes('finance')) {
-      // Финансы — такой же ВИРТУАЛЬНЫЙ слой, как задачи (ничего не копируется):
-      // дни платежей по долгам + повторяющиеся операции.
-      const payments = await this.finances.getPaymentsForCalendar(userId, from, to);
-      items.push(...payments);
+    // Чужие слои (задачи, платежи, будущие привычки…) — через реестр платформы:
+    // модуль-владелец данных сам зарегистрировал провайдер (CalendarLayersRegistry),
+    // календарь потребителей поимённо не знает. Всё виртуально, ничего не копируется.
+    const layerMeta: NonNullable<CalendarRangeResponse['layers']> = {};
+    const foreign = active.filter((l) => l !== 'events');
+    const results = await Promise.all(
+      foreign.map(async (layer) => {
+        const provider = this.layersRegistry.get(layer);
+        // Слой объявлен в shared, но модуль-владелец выключен/не загружен — тихо пропускаем.
+        if (!provider) return null;
+        return { layer, result: await provider.provide(userId, from, to) };
+      }),
+    );
+    for (const r of results) {
+      if (!r) continue;
+      items.push(...r.result.items);
+      if (r.result.summary !== undefined) layerMeta[r.layer] = { summary: r.result.summary };
     }
 
     items.sort((a, b) => a.start.localeCompare(b.start));
-    return { items };
+    return { items, layers: layerMeta };
   }
 
   // ============================================================
@@ -419,6 +441,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
           endTime: end,
           allDay: data.allDay ?? false,
           color: data.color ?? null,
+          icon: data.icon ?? null,
           visibility: data.visibility ?? 'inherit',
           reminderOffsets: data.reminderOffsets ?? [...DEFAULT_REMINDER_OFFSETS],
           recurrenceRule: data.recurrenceRule ?? null,
@@ -638,7 +661,15 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     }
 
     let ids: string[] = [];
-    if (input.circleId) ids.push(...(await this.resolveCircleMemberIds(organizerId, input.circleId)));
+    if (input.circleId) {
+      // gate:false — состав всё равно прогоняется через assertInEnvironment ниже
+      // ВМЕСТЕ с явно переданными userIds (один вызов вместо двух).
+      ids.push(
+        ...(await this.contacts.resolveCircleMemberIds(organizerId, input.circleId, {
+          gate: false,
+        })),
+      );
+    }
     if (input.userIds) ids.push(...input.userIds);
     ids = [...new Set(ids)].filter((id) => id && id !== organizerId);
     if (!ids.length) return [];
@@ -756,12 +787,23 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     accessLevel: 'busy' | 'detailed',
   ): Promise<void> {
     if (sharedWithUserId === ownerId) throw new BadRequestException('Нельзя поделиться с самим собой');
-    await this.assertInEnvironment(ownerId, [sharedWithUserId]);
-    // Tuple-native: clear any prior level, then set the chosen one.
+    // personalOnly: личный календарь — личный ресурс. Через «рабочий пропуск»
+    // доступ выдавался бы коллеге вне окружения, и снять его при разрыве связи
+    // было бы нечем (связи не существовало).
+    await this.contacts.assertReachable(
+      ownerId,
+      [sharedWithUserId],
+      'Делиться календарём можно только с людьми из вашего окружения',
+      { personalOnly: true },
+    );
+    // Tuple-native. Сначала выдаём нужный уровень, потом снимаем лишний — иначе в
+    // окне между двумя revoke параллельный resolveLevel видел `none` (то же
+    // правило, что в проекции групповой видимости).
     const subject = { resourceType: 'calendar', resourceId: ownerId, subjectType: 'user', subjectId: sharedWithUserId } as const;
-    await this.access.revoke({ ...subject, relation: 'busy_viewer' });
-    await this.access.revoke({ ...subject, relation: 'detailed_viewer' });
-    await this.access.grant({ ...subject, relation: accessLevel === 'detailed' ? 'detailed_viewer' : 'busy_viewer' });
+    const wanted = accessLevel === 'detailed' ? 'detailed_viewer' : 'busy_viewer';
+    const stale = wanted === 'detailed_viewer' ? 'busy_viewer' : 'detailed_viewer';
+    await this.access.grant({ ...subject, relation: wanted });
+    await this.access.revoke({ ...subject, relation: stale });
   }
 
   async removeShare(ownerId: string, sharedWithUserId: string): Promise<void> {
@@ -1004,6 +1046,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
           endTime: baseEnd,
           allDay: data.allDay ?? master.allDay,
           color: data.color !== undefined ? data.color : master.color,
+          icon: data.icon !== undefined ? data.icon : master.icon,
           visibility: (data.visibility ?? master.visibility) as string,
           reminderOffsets: data.reminderOffsets ?? master.reminderOffsets,
           recurrenceRule: null,
@@ -1046,6 +1089,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
         endTime: newEnd,
         allDay: data.allDay ?? master.allDay,
         color: data.color !== undefined ? data.color : master.color,
+        icon: data.icon !== undefined ? data.icon : master.icon,
         visibility: (data.visibility ?? master.visibility) as string,
         reminderOffsets: data.reminderOffsets ?? master.reminderOffsets,
         recurrenceRule: tailRule,
@@ -1248,20 +1292,10 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     await this.contacts.assertReachable(ownerId, ids, 'Приглашать можно только людей из вашего окружения');
   }
 
-  private async resolveCircleMemberIds(ownerId: string, circleId: string): Promise<string[]> {
-    const circle = await this.db.circle.findUnique({
-      where: { id: circleId },
-      include: { memberships: { include: { contactLink: { select: { userAId: true, userBId: true } } } } },
-    });
-    if (!circle || circle.ownerId !== ownerId) throw new ForbiddenException('Группа не найдена');
-    return [
-      ...new Set(
-        circle.memberships.map((m) =>
-          m.contactLink.userAId === ownerId ? m.contactLink.userBId : m.contactLink.userAId,
-        ),
-      ),
-    ];
-  }
+  // Свой разворот Группы удалён: он был побайтовой копией того, что живёт в
+  // Задачнике, и копии успели разъехаться по гейту. Единственный законный
+  // разворот — ContactsService.resolveCircleMemberIds (там же и проверка
+  // достижимости), см. вызов в inviteParticipants.
 
   private async userMini(id: string): Promise<UserMini> {
     const u = await this.db.user.findUnique({
@@ -1296,6 +1330,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     if (data.endTime !== undefined) d.endTime = new Date(data.endTime);
     if (data.allDay !== undefined) d.allDay = data.allDay;
     if (data.color !== undefined) d.color = data.color;
+    if (data.icon !== undefined) d.icon = data.icon;
     if (data.visibility !== undefined) d.visibility = data.visibility;
     if (data.reminderOffsets !== undefined) d.reminderOffsets = data.reminderOffsets;
     if (data.recurrenceRule !== undefined) d.recurrenceRule = data.recurrenceRule;
@@ -1378,6 +1413,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
       end: end.toISOString(),
       allDay: event.allDay,
       color: ctx.busy ? '#9ca3af' : event.color,
+      icon: ctx.busy ? null : event.icon,
       visibility: event.visibility as CalendarEventVisibility,
       reminderOffsets: ctx.reminderOffsets,
       recurrenceRule: event.recurrenceRule,
@@ -1392,34 +1428,6 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     };
   }
 
-  private taskItemDto(t: {
-    id: string;
-    title: string;
-    status: string;
-    priority: string;
-    dueDate: Date;
-    allDay: boolean;
-    overdue: boolean;
-    role: string | null;
-    coinReward: number | null;
-  }): CalendarTaskItem {
-    const iso = t.dueDate.toISOString();
-    return {
-      kind: 'task',
-      taskId: t.id,
-      title: t.title,
-      status: t.status as CalendarTaskItem['status'],
-      priority: t.priority as CalendarTaskItem['priority'],
-      start: iso,
-      end: iso,
-      allDay: t.allDay,
-      dueDate: iso,
-      overdue: t.overdue,
-      myRole: t.role as CalendarTaskItem['myRole'],
-      coinReward: t.coinReward,
-    };
-  }
-
   private toEventDto(e: CalEventRow): CalendarEventDto {
     return {
       id: e.id,
@@ -1431,6 +1439,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
       endTime: e.endTime.toISOString(),
       allDay: e.allDay,
       color: e.color,
+      icon: e.icon,
       visibility: e.visibility as CalendarEventVisibility,
       reminderOffsets: e.reminderOffsets,
       recurrenceRule: e.recurrenceRule,

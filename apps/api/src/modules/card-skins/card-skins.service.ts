@@ -275,6 +275,13 @@ export class CardSkinsService {
 
   // ============================================================
   // Resolve — which skin a viewer sees on each owner's card
+  //
+  // Осознанный carve-out: этот блок читает таблицы социального графа (contactLink,
+  // circle.memberships) НАПРЯМУЮ, мимо ContactsService. Это не проверка доступа и не
+  // действие «между людьми» — надетый скин виден всем, кто видит карточку (косметика =
+  // публичный статус, решение продукта 2026-06-11). Здесь нужен не гейт, а РЕЗОЛВ
+  // «через какую группу владельца зритель на него смотрит», причём батчем на N владельцев:
+  // гейт-методы графа такой формы не отдают. Права карточки решаются выше по стеку.
   // ============================================================
 
   async resolveSkinsForViewer(
@@ -323,7 +330,11 @@ export class CardSkinsService {
           equippedSkinInstanceId: true,
           memberships: { where: { contactLinkId: { in: linkIds } }, select: { contactLinkId: true } },
         },
-        orderBy: { sortOrder: 'asc' },
+        // Вторичный ключ createdAt обязателен: sortOrder НЕ уникален, и при равных
+        // значениях (две группы подряд, ручной reorder не трогали) Postgres возвращал
+        // строки в произвольном порядке — человек в обеих группах видел то один скин,
+        // то другой на одной и той же карточке. Тот же порядок, что в CirclesService.
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
       });
       for (const c of circles) {
         if (groupEquipByOwner.has(c.ownerId)) continue; // smallest sortOrder already taken

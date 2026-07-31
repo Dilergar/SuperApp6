@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { Badge, Card, CardHeader, Icon, IconButton, StatusDot, type Tone } from '@/components/ui';
+import { Badge, Card, CardHeader, Glyph, Icon, IconButton, StatusDot, TONE_BASE, type Tone } from '@/components/ui';
 import {
   TASK_STATUS_META,
   type CalendarItem,
@@ -9,6 +9,7 @@ import {
   type CalendarTaskItem,
 } from '@superapp/shared';
 import { isEvent, isTask, isToday, startOfDay, fmtTime, itemColor } from './calendar-lib';
+import { itemHref, itemGlyph, kindFallbackIcon } from './calendar-layers';
 import { setDrag, clearDrag } from './calendar-dnd';
 
 export interface UndatedTask {
@@ -109,7 +110,7 @@ function UndatedCard({ t }: { t: UndatedTask }) {
       onDragStart={(e) => setDrag({ kind: 'task', id: t.id, title: t.title }, e)}
       onDragEnd={clearDrag}
       title="Перетащи на день или время, чтобы назначить срок"
-      style={cardStyle(st?.color ?? 'var(--primary)')}
+      style={cardStyle(TONE_BASE[st?.tone ?? 'accent'])}
     >
       <Icon name="tasks" size={13} style={{ color: 'var(--muted)' }} />
       <span style={ellipsis}>{t.title}</span>
@@ -129,11 +130,14 @@ function Row({ i, onEvent, onTask, withDay }: { i: CalendarItem; onEvent: (o: Ca
       draggable={draggableTask}
       onDragStart={draggableTask ? (e) => setDrag({ kind: 'task', id: (i as CalendarTaskItem).taskId, title: i.title }, e) : undefined}
       onDragEnd={draggableTask ? clearDrag : undefined}
-      onClick={() => { if (isEvent(i)) onEvent(i); else if (isTask(i)) onTask(i); else router.push('/finance'); }}
+      onClick={() => { if (isEvent(i)) onEvent(i); else if (isTask(i)) onTask(i); else router.push(itemHref(i)); }}
       style={cardStyle(color)}
     >
       <span aria-hidden style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />
       <span className="label-sm" style={{ flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{time}</span>
+      {!isEvent(i) && !isTask(i) && (
+        <Glyph value={itemGlyph(i)} size={12} fallback={kindFallbackIcon(i.kind)} />
+      )}
       <span style={ellipsis}>{i.title}</span>
     </div>
   );

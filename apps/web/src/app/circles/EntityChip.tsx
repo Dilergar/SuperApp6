@@ -1,6 +1,6 @@
 'use client';
 
-import { Icon, ICONS, type IconName } from '@/components/ui';
+import { Glyph } from '@/components/ui';
 import { SIZE_CONFIG, type CardSize } from './card-skin';
 import { PersonChip } from './PersonCard';
 import type { EntityOption } from '@/lib/entities';
@@ -13,12 +13,10 @@ import type { EntityOption } from '@/lib/entities';
 // ============================================================
 
 /** A group/department/branch chip (no skin) — mirrors PersonChip sizing. */
-/** Значок сущности: имя иконки кита ИЛИ эмодзи, выбранный человеком для Группы. */
-function EntityGlyph({ icon, size }: { icon: string | null | undefined; size: number }) {
-  if (icon && icon in ICONS) return <Icon name={icon as IconName} size={size} />;
-  if (icon) return <span aria-hidden style={{ fontSize: size, lineHeight: 1 }}>{icon}</span>;
-  return <Icon name="folder" size={size} />;
-}
+/** Значок сущности — разбор значения делает кит (`Glyph`), здесь только размер. */
+const EntityGlyph = ({ icon, size }: { icon: string | null | undefined; size: number }) => (
+  <Glyph value={icon} size={size} fallback="folder" />
+);
 
 export function GroupChip({ size, icon, name, color, count }: {
   size: CardSize;

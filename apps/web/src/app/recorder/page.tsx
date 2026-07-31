@@ -460,9 +460,22 @@ function RecordingRow({
             }}
           />
         ) : (
-          <span style={{ flex: 1, minWidth: 0, fontSize: '0.85rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          // Строку целиком кнопкой не сделать — внутри уже есть «переименовать»
+          // и «удалить». Поэтому выбор записи несёт НАЗВАНИЕ: настоящая кнопка
+          // для клавиатуры и скринридера, а вся строка остаётся мышиной целью.
+          <button
+            type="button"
+            onClick={onSelect}
+            aria-current={active ? 'true' : undefined}
+            style={{
+              flex: 1, minWidth: 0, fontSize: '0.85rem', fontWeight: 700,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              background: 'none', border: 0, padding: 0, margin: 0,
+              fontFamily: 'inherit', color: 'inherit', textAlign: 'left', cursor: 'pointer',
+            }}
+          >
             {rec.title}
-          </span>
+          </button>
         )}
         <button
           onClick={(e) => {

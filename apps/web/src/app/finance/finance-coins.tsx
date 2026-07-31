@@ -6,7 +6,7 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import type { FinCoinFeedItemDto } from '@superapp/shared';
 import { api } from '@/lib/api';
 import {
-  BentoGrid, Button, Card, CardHeader, EmptyState, StatTile, type IconName, type Tone,
+  BentoGrid, Button, Card, CardHeader, EmptyState, Glyph, StatTile, type IconName, type Tone,
 } from '@/components/ui';
 import { PersonChip } from '../circles/PersonCard';
 import { FinList, FinRow } from './finance-ui';
@@ -89,7 +89,7 @@ export function CoinsView() {
             <span className="label-caps">Ещё валюты</span>
             {rest.map((w) => (
               <span key={w.currencyId} className="title-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
-                <span aria-hidden>{w.icon}</span>
+                <Glyph value={w.icon} size={15} />
                 {w.balance.toLocaleString('ru-RU')}
                 <span className="label-sm">{w.name}</span>
               </span>
@@ -141,7 +141,7 @@ export function CoinsView() {
                           color: it.direction === 'in' ? 'var(--success)' : 'var(--danger)',
                         }}
                       >
-                        {it.direction === 'in' ? '+' : '−'}{it.amount.toLocaleString('ru-RU')} <span aria-hidden>{it.currencyIcon}</span>
+                        {it.direction === 'in' ? '+' : '−'}{it.amount.toLocaleString('ru-RU')} <Glyph value={it.currencyIcon} size={13} />
                       </span>
                     }
                   />

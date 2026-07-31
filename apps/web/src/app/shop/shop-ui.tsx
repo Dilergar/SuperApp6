@@ -11,7 +11,7 @@ import { useFileUpload } from '@/lib/hooks/useFileUpload';
 import { FileDropzone } from '@/components/files/FileDropzone';
 import { UploadProgressList } from '@/components/files/UploadProgressList';
 import {
-  Button, Card, Chip, EmojiIcon, Field, IconButton, TickBar,
+  Button, Card, Chip, EmojiIcon, Field, Glyph, IconButton, TickBar,
 } from '@/components/ui';
 import {
   LISTING_ITEM_TYPE_LABELS,
@@ -33,7 +33,7 @@ export function CampaignBars({ prices, raised }: { prices: ListingPriceDto[]; ra
           <div key={l.currencyId}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }} className="label-sm">
               <span>
-                <span aria-hidden>{l.currencyIcon}</span> {fmtAmount(l.raised, l.scale)} / {fmtAmount(l.amount, l.scale)}
+                <Glyph value={l.currencyIcon} size={13} /> {fmtAmount(l.raised, l.scale)} / {fmtAmount(l.amount, l.scale)}
               </span>
               <span style={{ fontWeight: 700 }}>{pct}%</span>
             </div>

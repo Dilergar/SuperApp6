@@ -12,13 +12,13 @@ import { notFound } from 'next/navigation';
 import { useState } from 'react';
 import {
   Alert, AvatarStack, Badge, BentoGrid, Button, Calendar, Card, CardHeader, Checkbox, Chip,
-  ConfirmDialog, DatePicker, Divider, Dropzone, EmojiIcon, EmptyState, GradientTickBar, Icon,
+  ConfirmDialog, DatePicker, Divider, Dropzone, EmojiIcon, EmptyState, GlyphField, GradientTickBar, Icon,
   IconButton, ICONS, Input, Menu, Modal, PageHeader, Pagination, SearchField, SegmentedControl,
   Select, Skeleton, Spinner, StatTile, StatusDot, Tabs, Textarea, TickBar, Toggle, Tooltip,
   type IconName, type Tone,
 } from '@/components/ui';
 
-const TONES: Tone[] = ['accent', 'success', 'warning', 'danger', 'neutral'];
+const TONES: Tone[] = ['accent', 'success', 'warning', 'danger', 'waiting', 'neutral'];
 
 export default function DevUiPage() {
   if (process.env.NODE_ENV !== 'development') notFound();
@@ -38,6 +38,7 @@ export default function DevUiPage() {
   const [files, setFiles] = useState<string[]>([]);
   const [progress, setProgress] = useState(68);
   const [filters, setFilters] = useState<Set<string>>(new Set(['todo']));
+  const [glyph, setGlyph] = useState<string | null>('fl:2615');
 
   function toggleFilter(k: string) {
     setFilters((s) => {
@@ -135,7 +136,8 @@ export default function DevUiPage() {
           <CardHeader title="Чипы и метки" />
           <Row>
             <Chip tone="success" icon="checkCircle">Активен</Chip>
-            <Chip tone="warning" icon="pending">На паузе</Chip>
+            <Chip tone="waiting" icon="pending">На проверке</Chip>
+            <Chip tone="warning" icon="warning">Лимит 80%</Chip>
             <Chip tone="danger" icon="warningCircle">Просрочен</Chip>
             <Chip tone="accent" icon="inProgress">В работе</Chip>
             <Chip tone="neutral">Черновик</Chip>
@@ -144,6 +146,10 @@ export default function DevUiPage() {
             <Chip size="sm" tone="accent">Мелкий</Chip>
             <Chip tone="neutral" emoji="🎯">С эмодзи</Chip>
             <Chip tone="accent" onRemove={() => {}}>Убираемый</Chip>
+            {/* Клик + крестик: обёртка становится span с двумя кнопками внутри */}
+            <Chip tone="neutral" emoji="🍽️" onClick={() => {}} onRemove={() => {}} title="Изменить" removeLabel="Удалить">
+              Открыть или убрать
+            </Chip>
           </Row>
           <Divider />
           <div className="label-caps" style={{ marginBottom: '0.5rem' }}>Чипы-фильтры</div>
@@ -151,7 +157,7 @@ export default function DevUiPage() {
             {[
               { k: 'todo', l: 'К выполнению', t: 'neutral' as Tone },
               { k: 'progress', l: 'В работе', t: 'accent' as Tone },
-              { k: 'review', l: 'На проверке', t: 'warning' as Tone },
+              { k: 'review', l: 'На проверке', t: 'waiting' as Tone },
               { k: 'done', l: 'Готово', t: 'success' as Tone },
             ].map((f) => (
               <Chip key={f.k} tone={f.t} selected={filters.has(f.k)} onClick={() => toggleFilter(f.k)}>{f.l}</Chip>
@@ -342,6 +348,25 @@ export default function DevUiPage() {
             <EmojiIcon emoji="💳" tone="warning" square />
             <EmojiIcon emoji="🔥" tone="danger" />
             <EmojiIcon emoji={null} fallback="folder" tone="neutral" />
+          </Row>
+          <Divider />
+          {/* Три набора рядом: один и тот же смысл, разные каталоги */}
+          <div className="label-caps" style={{ marginBottom: '0.5rem' }}>Glyph — иконка каталога · Fluent · Noto · легаси-эмодзи</div>
+          <Row>
+            <EmojiIcon emoji="ph:car" tone="neutral" />
+            <EmojiIcon emoji="fl:1f697" tone="neutral" />
+            <EmojiIcon emoji="nt:1f697" tone="neutral" />
+            <EmojiIcon emoji="🚗" tone="neutral" />
+            <Chip size="sm" emoji="ph:coffee">иконка в чипе</Chip>
+            <Chip size="sm" emoji="fl:2615">Fluent в чипе</Chip>
+          </Row>
+          <Divider />
+          <div className="label-caps" style={{ marginBottom: '0.5rem' }}>GlyphField — выбор значка</div>
+          <Row>
+            <GlyphField value={glyph} onChange={setGlyph} suggest="кофе" />
+            <div className="body-sm" style={{ alignSelf: 'center' }}>
+              значение: <code>{glyph ?? '—'}</code>
+            </div>
           </Row>
         </Card>
 

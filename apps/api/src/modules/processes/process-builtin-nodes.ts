@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { PROCESS_CONDITION_OPS, PROCESS_EVENT_TYPES, PROCESS_SCHEDULE_UNITS } from '@superapp/shared';
+import {
+  PROCESS_CONDITION_OPS,
+  PROCESS_EVENT_TYPES,
+  PROCESS_SCHEDULE_UNITS,
+  TEAM_WORKSPACE_ROLES,
+} from '@superapp/shared';
 import type { ProcessNodeProvider } from './process-node.types';
 
 const noHtml = (s: string) => !/[<>]/.test(s);
@@ -21,7 +26,10 @@ async function assertActiveMember(
       context: 'workspace',
       tenantId: ctx.workspaceId,
       isActive: true,
-      role: { not: 'contractor' },
+      // БЕЛЫЙ список командных ролей (как в ContactsService.assertReachable), а не
+      // «все, кроме contractor»: fail-closed — новая роль в лестнице по чёрному списку
+      // молча начала бы получать задачи и уведомления опубликованных процессов.
+      role: { in: [...TEAM_WORKSPACE_ROLES] },
     },
   });
   if (count === 0) throw new Error(`${who} больше не работает в организации`);

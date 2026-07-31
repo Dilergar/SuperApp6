@@ -9,6 +9,7 @@ import { Prisma, Resource as ResourceRow } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { fullName } from '../../shared/utils/user-name';
 import { EventBusService } from '../../shared/events/event-bus.service';
+import { ContactsService } from '../contacts/contacts.service';
 import type {
   Resource as ResourceDto,
   ResourceBooking,
@@ -25,6 +26,7 @@ export class ResourcesService {
   constructor(
     private db: DatabaseService,
     private events: EventBusService,
+    private contacts: ContactsService,
   ) {}
 
   // ============================================================
@@ -32,6 +34,7 @@ export class ResourcesService {
   // ============================================================
 
   async create(ownerId: string, data: CreateResourceRequest): Promise<ResourceDto> {
+    await this.assertBookersAllowed(ownerId, data.bookerUserIds, data.bookerCircleIds);
     const r = await this.db.resource.create({
       data: {
         ownerId,
@@ -47,6 +50,7 @@ export class ResourcesService {
 
   async update(ownerId: string, id: string, data: UpdateResourceRequest): Promise<ResourceDto> {
     await this.assertOwned(ownerId, id);
+    await this.assertBookersAllowed(ownerId, data.bookerUserIds, data.bookerCircleIds);
     const r = await this.db.resource.update({
       where: { id },
       data: {
@@ -67,7 +71,10 @@ export class ResourcesService {
 
   /** Resources I own + resources I'm allowed to book. */
   async list(userId: string): Promise<ResourceDto[]> {
-    const myCircleIds = await this.myMemberCircleIds(userId);
+    // Разбор «в каких ЧУЖИХ Группах я состою» — единственной копией в ContactsService:
+    // локальный обход contactLink+memberships мимо сервиса графа расходился бы с ним
+    // при любой правке модели членства.
+    const myCircleIds = await this.contacts.listCircleIdsWhereMember(userId);
     const resources = await this.db.resource.findMany({
       where: {
         OR: [
@@ -212,6 +219,34 @@ export class ResourcesService {
   // Helpers
   // ============================================================
 
+  /**
+   * Гейт «между людьми» для списка тех, кому владелец раздаёт право бронировать.
+   * Раньше `bookerUserIds`/`bookerCircleIds` писались в строку КАК ЕСТЬ: можно было вписать
+   * постороннего человека вне окружения и — хуже — ЧУЖОЙ circleId, после чего участники
+   * группы незнакомца получали доступ к брони (Группа резолвится по членству, а не по
+   * владельцу). Ресурс — ЛИЧНАЯ вещь, поэтому `personalOnly`: рабочий пропуск здесь не
+   * годится (со-членство в организации не должно само по себе выдавать ключ от моей машины).
+   */
+  private async assertBookersAllowed(
+    ownerId: string,
+    bookerUserIds?: string[] | null,
+    bookerCircleIds?: string[] | null,
+  ): Promise<void> {
+    if (bookerUserIds?.length) {
+      await this.contacts.assertReachable(
+        ownerId,
+        bookerUserIds,
+        'Давать доступ к брони можно только людям из вашего окружения',
+        { personalOnly: true },
+      );
+    }
+    for (const circleId of bookerCircleIds ?? []) {
+      // gate:false — состав своей Группы по определению из окружения владельца, здесь важна
+      // ТОЛЬКО проверка владения (бросит Forbidden на чужую группу).
+      await this.contacts.resolveCircleMemberIds(ownerId, circleId, { gate: false });
+    }
+  }
+
   private async loadBookingForOwner(ownerId: string, eventId: string) {
     const ev = await this.db.calendarEvent.findUnique({
       where: { id: eventId },
@@ -244,22 +279,8 @@ export class ResourcesService {
     if (resource.ownerId === userId) return true;
     if (resource.bookerUserIds.includes(userId)) return true;
     if (resource.bookerCircleIds.length === 0) return false;
-    const myCircleIds = await this.myMemberCircleIds(userId);
+    const myCircleIds = await this.contacts.listCircleIdsWhereMember(userId);
     return resource.bookerCircleIds.some((c) => myCircleIds.includes(c));
-  }
-
-  /** Circle ids (owned by other people) that currently contain `userId` via a ContactLink. */
-  private async myMemberCircleIds(userId: string): Promise<string[]> {
-    const links = await this.db.contactLink.findMany({
-      where: { OR: [{ userAId: userId }, { userBId: userId }] },
-      include: { memberships: { select: { circleId: true, circle: { select: { ownerId: true } } } } },
-    });
-    const ids: string[] = [];
-    for (const l of links) {
-      const other = l.userAId === userId ? l.userBId : l.userAId;
-      for (const m of l.memberships) if (m.circle.ownerId === other) ids.push(m.circleId);
-    }
-    return [...new Set(ids)];
   }
 
   private async assertOwned(ownerId: string, id: string): Promise<ResourceRow> {

@@ -2,8 +2,10 @@ import { Module } from '@nestjs/common';
 import { FinancesService } from './finances.service';
 import { FinancesController } from './finances.controller';
 import { FinancesCardsProvider } from './finances-cards.provider';
+import { FinancesCalendarProvider } from './finances-calendar.provider';
 import { FinancesCron } from './finances.cron';
 import { FinancesEvents } from './finances.events';
+import { CalendarModule } from '../calendar/calendar.module';
 
 /**
  * «Финансы» (B2C): personal + family managerial accounting — an editable bookkeeping
@@ -12,12 +14,16 @@ import { FinancesEvents } from './finances.events';
  * for the Processes "record operation" node (Phase 8 — org books).
  */
 @Module({
+  // CalendarModule — регистрация слоя «Платежи» в календаре-платформе
+  // (FinancesCalendarProvider); обратного импорта нет.
+  imports: [CalendarModule],
   controllers: [FinancesController],
   providers: [
     FinancesService,
     // Строковый токен для нод «Процессов» (ctx.deps.getService), как 'MessengerService'.
     { provide: 'FinancesService', useExisting: FinancesService },
     FinancesCardsProvider,
+    FinancesCalendarProvider,
     FinancesCron,
     FinancesEvents,
   ],

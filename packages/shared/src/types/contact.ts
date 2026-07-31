@@ -67,6 +67,8 @@ export interface ContactInvitation {
   proposedRoleForRecipient: string | null; // role the sender gives the recipient
   message: string | null;
   status: InvitationStatus;
+  /** Группы отправителя, куда контакт ляжет при принятии (его отложенное намерение). */
+  autoAddToCircleIds?: string[];
   expiresAt: string;
   respondedAt: string | null;
   createdAt: string;
@@ -82,6 +84,12 @@ export interface IncomingInvitation extends ContactInvitation {
 export interface OutgoingInvitation extends ContactInvitation {
   // Null when recipient hasn't registered yet — then we only show `toPhone`.
   to: ContactUserCard | null;
+  /**
+   * Можно ли прямо сейчас отправить это приглашение повторно (не-pending,
+   * не принятое и кулдаун истёк). Считает сервер — клиент не должен
+   * восстанавливать это правило по статусу и датам.
+   */
+  canResend: boolean;
 }
 
 // ============================================================

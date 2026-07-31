@@ -121,6 +121,9 @@ async function main() {
     // ===== Ф2: План-факт (лимиты + отчёт месяца + пороги) =====
     const startedAt = new Date();
     const period = new Date().toISOString().slice(0, 7);
+    // Конец окна — РЕАЛЬНЫЙ последний день месяца, а не 28-е: операции пишутся «сегодня»,
+    // и жёсткое `-28` роняло отчёт по людям каждое 29–31 число.
+    const monthEnd = (p) => `${p}-${String(new Date(Date.UTC(+p.slice(0, 4), +p.slice(5, 7), 0)).getUTCDate())}`;
     const bud = await call('PUT', '/finance/budgets', t1, { period, categoryAccountId: food.id, amount: 1000000 });
     check('Ф2: лимит на родителя «Еда» 10 000 ₸', bud.ok && bud.json?.data?.spent === 250000, `status ${bud.status} spent=${bud.json?.data?.spent}`);
 
@@ -178,13 +181,13 @@ async function main() {
       check('Ф3: повторное добавление идемпотентно', addDup.ok);
       const peopleList = await call('GET', '/finance/people', t1);
       check('Ф3: список «Близких» содержит человека', peopleList.ok && peopleList.json?.data?.some((p) => p.userId === u2), `n=${peopleList.json?.data?.length}`);
-      const pRep = await call('GET', `/finance/reports/people?from=${period}-01&to=${period}-28`, t1);
+      const pRep = await call('GET', `/finance/reports/people?from=${period}-01&to=${monthEnd(period)}`, t1);
       const pRow = pRep.json?.data?.find?.((r) => r.userId === u2);
       check('Ф3: отчёт по людям — потрачено 1 200 ₸', pRep.ok && pRow?.spent?.some((s) => s.currencyCode === 'KZT' && s.amount === 120000), JSON.stringify(pRow?.spent));
       const delP = await call('DELETE', `/finance/people/${u2}`, t1);
       const peopleList2 = await call('GET', '/finance/people', t1);
       check('Ф3: близкий убран, история жива', delP.ok && !peopleList2.json?.data?.some((p) => p.userId === u2));
-      const pRep2 = await call('GET', `/finance/reports/people?from=${period}-01&to=${period}-28`, t1);
+      const pRep2 = await call('GET', `/finance/reports/people?from=${period}-01&to=${monthEnd(period)}`, t1);
       check('Ф3: отчёт по людям не зависит от списка «Близких»', pRep2.json?.data?.some?.((r) => r.userId === u2));
 
       // ===== Ф4: rich cards (снимок) + quick action =====
@@ -532,7 +535,7 @@ async function main() {
     // «на себя»: personUserId = сам записывающий (без окружения) → 200 + виден в отчёте по людям
     const selfExp = await call('POST', '/finance/transactions', t1, { fromAccountId: cashA.id, toAccountId: eda.id, amount: 77000, personUserId: u1 });
     check('review2: расход «на себя» (personUserId=я) проходит', selfExp.ok && selfExp.json?.data?.personUserId === u1, `status ${selfExp.status}`);
-    const selfRep = await call('GET', `/finance/reports/people?from=${r2period}-01&to=${r2period}-28`, t1);
+    const selfRep = await call('GET', `/finance/reports/people?from=${r2period}-01&to=${monthEnd(r2period)}`, t1);
     check('review2: «я» виден в отчёте по людям', selfRep.ok && selfRep.json?.data?.some((r) => r.userId === u1), JSON.stringify(selfRep.json?.data?.map?.((r) => r.userId)));
     await call('DELETE', `/finance/transactions/${selfExp.json?.data?.id}`, t1);
 

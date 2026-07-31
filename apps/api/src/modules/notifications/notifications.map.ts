@@ -31,6 +31,7 @@ export const MAPPED_EVENT_TYPES: ReadonlySet<string> = new Set([
   'contact.invitation.accepted',
   'contact.invitation.rejected',
   'contact.invitation.cancelled',
+  'contact.invitation.expired',
   'contact.linked',
   'contact.removed',
   // Задачи (task.created/updated/deleted — НЕ уведомления)
@@ -93,6 +94,20 @@ export function mapEventToNotifications(
       if (!toUserId) return [];
       return [{ userId: toUserId, type: 'contact.invitation.cancelled', payload, actionUrl: null }];
     }
+    case 'contact.invitation.expired': {
+      // Адресат — ОТПРАВИТЕЛЬ: получатель ничего не терял, а отправитель иначе
+      // узнаёт об истечении, только заглянув в список (раньше не узнавал вовсе).
+      const fromUserId = str(payload['fromUserId']);
+      if (!fromUserId) return [];
+      return [
+        {
+          userId: fromUserId,
+          type: 'contact.invitation.expired',
+          payload,
+          actionUrl: '/circles',
+        },
+      ];
+    }
     case 'contact.linked': {
       const userIds = (payload['userIds'] as string[] | undefined) ?? [];
       return userIds.map((uid) => ({
@@ -110,12 +125,17 @@ export function mapEventToNotifications(
     }
     case 'contact.removed': {
       const userIds = (payload['userIds'] as string[] | undefined) ?? [];
-      return userIds.map((uid) => ({
-        userId: uid,
-        type: 'contact.removed' as NotificationType,
-        payload,
-        actionUrl: null,
-      }));
+      // Актора вычитаем — он сам только что нажал «Удалить» и получал
+      // собственное «Контакт удалён» (ветка task.* ниже делает это же).
+      const actorId = str(payload['removedBy']);
+      return userIds
+        .filter((uid) => uid !== actorId)
+        .map((uid) => ({
+          userId: uid,
+          type: 'contact.removed' as NotificationType,
+          payload,
+          actionUrl: null,
+        }));
     }
     default:
       break;

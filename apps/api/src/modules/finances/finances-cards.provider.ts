@@ -1,5 +1,5 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import type { RichCardField, RichCardPayload } from '@superapp/shared';
+import { glyphPrefix, type RichCardField, type RichCardPayload } from '@superapp/shared';
 import { RichCardRegistry } from '../../core/rich-cards/rich-cards.registry';
 import { QuickActionRegistry } from '../../core/quick-actions/quick-actions.registry';
 import type { RichCardDeps } from '../../core/rich-cards/rich-card.types';
@@ -139,7 +139,9 @@ export class FinancesCardsProvider implements OnModuleInit {
         const cat = catNames.get(t.categoryId);
         return {
           label: i === 0 ? 'Топ трат' : ' ',
-          value: `${cat?.icon ? `${cat.icon} ` : ''}${cat?.name ?? 'Категория'} — ${money(t.amount, t.currencyCode)}`,
+          // Значок в СТРОКЕ: печатать значение как есть нельзя — у него бывает
+          // пометка набора ('fl:1f697'). glyphPrefix отдаёт символ или пустоту.
+          value: `${glyphPrefix(cat?.icon)}${cat?.name ?? 'Категория'} — ${money(t.amount, t.currencyCode)}`,
         };
       }),
     ];

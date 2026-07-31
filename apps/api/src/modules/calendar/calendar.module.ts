@@ -5,25 +5,24 @@ import { CalendarCron } from './calendar.cron';
 import { ResourcesService } from './resources.service';
 import { ResourcesController } from './resources.controller';
 import { CalendarRichCardsProvider } from './calendar-rich-cards.provider';
-import { TasksModule } from '../tasks/tasks.module';
-import { FinancesModule } from '../finances/finances.module';
+import { CalendarLayersRegistry } from './calendar-layers.registry';
 
 @Module({
-  // FinancesModule — виртуальный слой «Платежи» (getPaymentsForCalendar), цикла нет:
-  // Финансы от календаря не зависят.
-  imports: [TasksModule, FinancesModule],
+  // Чужих модулей календарь НЕ импортирует: слои «Задачи»/«Платежи» (и любые будущие —
+  // привычки, брони…) приходят через CalendarLayersRegistry. Модуль-владелец данных сам
+  // импортирует CalendarModule и регистрирует провайдер в onModuleInit (розетка платформы).
   controllers: [CalendarController, ResourcesController],
   providers: [
     CalendarService,
     // String-token alias so the messenger PresenceService can resolve CalendarService
     // lazily (ModuleRef.get('CalendarService', { strict: false })) for contextual
-    // presence WITHOUT importing CalendarModule — that import would create the cycle
-    // MessengerModule→CalendarModule→TasksModule→MessengerModule.
+    // presence WITHOUT importing CalendarModule.
     { provide: 'CalendarService', useExisting: CalendarService },
     CalendarCron,
     ResourcesService,
     CalendarRichCardsProvider,
+    CalendarLayersRegistry,
   ],
-  exports: [CalendarService],
+  exports: [CalendarService, CalendarLayersRegistry],
 })
 export class CalendarModule {}

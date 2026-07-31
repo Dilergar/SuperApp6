@@ -28,8 +28,9 @@ export const WALLET_LIMITS = {
   /** Per-transaction sanity bound (mint / burn / reward) — never above the emission cap. */
   maxTxnAmount: 10_000_000,
   maxCurrencyNameLength: 40,
-  /** Max length of the icon string (emoji can be a multi-codepoint ZWJ sequence). */
-  maxIconLength: 16,
+  /** Значок: имя иконки каталога или кодпоинты эмодзи с пометкой набора
+   *  ('ph:car', 'fl:1f469-200d-1f4bb') — самые длинные связки не влезали в 16. */
+  maxIconLength: 64,
   /** A currency may be renamed at most once per this many days (retroactive change). */
   renameCooldownDays: 90,
   historyPageSize: 30,

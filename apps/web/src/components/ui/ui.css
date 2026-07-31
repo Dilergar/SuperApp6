@@ -38,7 +38,9 @@
    это не стиль, а ловушка для человека. */
 .ui-btn--primary {
   background: var(--tone-solid, var(--primary));
-  color: var(--on-primary);
+  /* Обычно белый. Светлому тону (ожидание) он не подходит — тон подменяет
+     его через --tone-on-solid, иначе текст пропадает на своей же заливке. */
+  color: var(--tone-on-solid, var(--on-primary));
   /* Без цветного свечения: тень в системе одна — DESIGN.md §4 */
 }
 .ui-btn--primary:hover:not(:disabled) { background: var(--tone-solid-hover, var(--primary-dim)); }
@@ -243,6 +245,23 @@ textarea.ui-input { resize: vertical; min-height: 5rem; line-height: 1.55; }
 .ui-chip--button { cursor: pointer; font-family: var(--font-body); transition: background 0.2s ease, border-color 0.2s ease; }
 .ui-chip--button:hover { background: var(--tone-bg-strong, var(--hover)); }
 .ui-chip--button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+/* Чип «открыть + убрать»: обёртка не кнопка (кнопка в кнопке невалидна),
+   поэтому ховер и указатель живут на ней, а нажимаются две кнопки внутри. */
+.ui-chip--split { cursor: pointer; transition: background 0.2s ease, border-color 0.2s ease; }
+.ui-chip--split:hover { background: var(--tone-bg-strong, var(--hover)); }
+.ui-chip-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.ui-chip-main:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .ui-chip-x {
   display: inline-flex;
   border: none;
@@ -255,6 +274,53 @@ textarea.ui-input { resize: vertical; min-height: 5rem; line-height: 1.55; }
 }
 .ui-chip-x:hover { opacity: 1; }
 .ui-chip-x:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; opacity: 1; }
+
+/* ---------- Значок и его выбор ---------- */
+/* Символ эмодзи рисуется нашим шрифтом, а не системным: иначе один и тот же
+   значок выглядит по-разному на Windows, Android и Linux. Стек — сам Noto,
+   дальше системные (Safari до 18 не умеет COLRv1 и покажет свои Apple). */
+.ui-emoji {
+  font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+  font-weight: 400;
+  font-style: normal;
+}
+.ui-glyphpicker { display: flex; flex-direction: column; }
+.ui-glyph-cats {
+  display: flex;
+  gap: 0.25rem;
+  overflow-x: auto;
+  padding: 0.5rem 0 0.375rem;
+  scrollbar-width: thin;
+}
+.ui-glyph-body { overflow-y: auto; max-height: 264px; }
+.ui-glyph-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); gap: 2px; }
+.ui-glyph-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+}
+.ui-glyph-cell:hover { background: var(--hover); }
+.ui-glyph-cell:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.ui-glyph-cell[data-selected='true'] { background: var(--primary-container); border-color: var(--primary-border); }
+.ui-glyph-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--block);
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+.ui-glyph-trigger:hover { background: var(--hover); }
+.ui-glyph-trigger:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
 /* ---------- Модалка ---------- */
 .ui-backdrop {

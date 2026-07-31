@@ -13,7 +13,7 @@ import {
   fetchFinancePeopleReport,
 } from '@/lib/queries';
 import {
-  Alert, BentoGrid, Button, Card, CardHeader, Divider, EmptyState, IconButton, Input,
+  Alert, BentoGrid, Button, Card, CardHeader, Divider, EmptyState, Glyph, IconButton, Input,
   Modal, StatTile, TickBar,
 } from '@/components/ui';
 import { formatMoney, localToday, parseMoneyInput } from './finance-lib';
@@ -363,7 +363,7 @@ function CategoryReportRow({
             <div key={cat.id}>
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.5rem' }}>
                 <span className="body-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
-                  {cat.icon && <span aria-hidden>{cat.icon}</span>}
+                  {cat.icon && <Glyph value={cat.icon} size={14} />}
                   {cat.name}
                 </span>
                 <span>

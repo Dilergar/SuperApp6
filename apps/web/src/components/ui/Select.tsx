@@ -12,6 +12,7 @@
 // ============================================================
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Glyph } from './Glyph';
 import { Icon, type IconName } from './Icon';
 import { Field } from './Input';
 import { cx } from './tones';
@@ -22,7 +23,10 @@ export interface SelectOption<V extends string = string> {
   label: string;
   /** Иконка кита слева. */
   icon?: IconName;
-  /** Эмодзи (пользовательские иконки из БД) — вместо icon. */
+  /**
+   * Значок из БД — ЛЮБОЕ значение значка ('ph:car', 'fl:1f697', 'nt:…', голое
+   * эмодзи). Имя пропа историческое: рисует его `Glyph`, а не печатает текстом.
+   */
   emoji?: string | null;
   /** Цветная точка (статусы, цвета событий). */
   color?: string;
@@ -202,7 +206,7 @@ function OptionFace<V extends string>({ opt, placeholder }: { opt: SelectOption<
       {opt.color && (
         <span style={{ width: 8, height: 8, minWidth: 8, borderRadius: '50%', background: opt.color }} aria-hidden />
       )}
-      {opt.emoji && <span aria-hidden style={{ fontSize: '0.9rem', lineHeight: 1 }}>{opt.emoji}</span>}
+      {opt.emoji && <Glyph value={opt.emoji} size={16} />}
       {opt.icon && <Icon name={opt.icon} size={16} />}
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{opt.label}</span>
       {opt.hint && <span style={{ fontSize: '0.6875rem', color: 'var(--muted)', fontWeight: 500 }}>{opt.hint}</span>}

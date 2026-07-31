@@ -1,8 +1,12 @@
 import { z } from 'zod';
+import { CALENDAR_LAYER_KEYS, type CalendarLayerKey } from '../constants/calendar';
 
 const hexColor = z
   .string()
   .regex(/^#[0-9a-fA-F]{6}$/, 'Цвет должен быть в формате #RRGGBB');
+
+// Значок события — формат Glyph, как у Групп/Финансов (см. iconSchema в circle.ts).
+const iconSchema = z.string().max(64);
 
 const visibilityEnum = z.enum(['inherit', 'busy', 'hidden']);
 
@@ -31,6 +35,7 @@ export const createCalendarEventSchema = z
     endTime: z.string().datetime(),
     allDay: z.boolean().optional().default(false),
     color: hexColor.optional(),
+    icon: iconSchema.optional(),
     visibility: visibilityEnum.optional().default('inherit'),
     reminderOffsets: reminderOffsets.optional(),
     recurrenceRule: rruleSchema.optional(),
@@ -52,6 +57,7 @@ export const updateCalendarEventSchema = z
     endTime: z.string().datetime().optional(),
     allDay: z.boolean().optional(),
     color: hexColor.nullable().optional(),
+    icon: iconSchema.nullable().optional(),
     visibility: visibilityEnum.optional(),
     reminderOffsets: reminderOffsets.optional(),
     recurrenceRule: rruleSchema.nullable().optional(),
@@ -75,7 +81,8 @@ export const deleteCalendarEventSchema = z.object({
 export const calendarRangeSchema = z.object({
   from: z.string().datetime(),
   to: z.string().datetime(),
-  layers: z.array(z.enum(['events', 'tasks', 'finance'])).optional(),
+  // Ключи слоёв — из реестра платформы: новый слой попадает в валидацию сам.
+  layers: z.array(z.enum(CALENDAR_LAYER_KEYS as [CalendarLayerKey, ...CalendarLayerKey[]])).optional(),
   /** people whose calendars to overlay as layers (must have shared with the viewer). */
   include: z.array(z.string().uuid()).max(50).optional(),
 });

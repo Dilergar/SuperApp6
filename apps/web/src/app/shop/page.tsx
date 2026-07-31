@@ -16,7 +16,7 @@ import { ShareCardModal } from '../messenger/ShareCardModal';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import {
   Alert, BentoGrid, Button, Card, CardHeader, Chip, ConfirmDialog, EmojiIcon, EmptyState,
-  Icon, IconButton, Input, LoadingBlock, Modal, PageHeader, Select, SegmentedControl, type TabItem,
+  GlyphField, Icon, IconButton, Input, LoadingBlock, Modal, PageHeader, Select, SegmentedControl, type TabItem,
 } from '@/components/ui';
 import {
   pluralRu,
@@ -432,15 +432,8 @@ function ShowcaseModal({
     >
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
-        <div style={{ display: 'grid', gridTemplateColumns: '5rem minmax(0, 1fr)', gap: 'var(--spacing-3)' }}>
-          <Input
-            label="Значок"
-            value={icon}
-            onChange={(e) => setIcon(e.target.value)}
-            maxLength={8}
-            placeholder="🎁"
-            style={{ textAlign: 'center', fontSize: '1.15rem' }}
-          />
+        <div style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', gap: 'var(--spacing-3)', alignItems: 'start' }}>
+          <GlyphField value={icon} onChange={(v) => setIcon(v ?? '')} suggest={name} />
           <Input
             label="Название"
             value={name}

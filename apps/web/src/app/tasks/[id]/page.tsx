@@ -36,7 +36,7 @@ import {
   type SocketMessageDeleted,
   type SocketReceipt,
 } from '@/lib/hooks/useMessengerSocket';
-import { TASK_PRIORITY_TONE, TASK_STATUS_VIEW } from '../tasks-ui';
+import { TASK_STATUS_ICON } from '../tasks-ui';
 import { Conversation } from '../../messenger/Conversation';
 import { ShareCardModal } from '../../messenger/ShareCardModal';
 import { AttachmentsSection } from '@/components/files/AttachmentsSection';
@@ -381,8 +381,8 @@ export default function TaskDetailPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-2)' }}>
             {/* Те же чипы, что в строке списка (`tasks-ui.tsx`) — статус в одном
                 месте не имеет права выглядеть иначе, чем в другом. */}
-            <Chip tone={TASK_STATUS_VIEW[task.status].tone} icon={TASK_STATUS_VIEW[task.status].icon}>{st.label}</Chip>
-            <Chip size="sm" tone={TASK_PRIORITY_TONE[task.priority]}>{pr.label} приоритет</Chip>
+            <Chip tone={st.tone} icon={TASK_STATUS_ICON[task.status]}>{st.label}</Chip>
+            <Chip size="sm" tone={pr.tone}>{pr.label} приоритет</Chip>
           </div>
           <h1 className="title-lg" style={{ marginBottom: 'var(--spacing-2)', textDecoration: task.status === 'done' ? 'line-through' : 'none' }}>{task.title}</h1>
           {task.description && <p className="label-md" style={{ fontSize: '0.95rem', whiteSpace: 'pre-wrap' }}>{task.description}</p>}
@@ -498,7 +498,9 @@ function ParticipantRow({ p, showAccept, busy, onAccept, onReturn }: {
         <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{p.name}</div>
         <span className="label-sm" style={{ fontSize: '0.7rem' }}>{roleLabel(p.role)}</span>
       </div>
-      <span className="label-sm" style={{ color: stat.color, fontWeight: 600, fontSize: '0.78rem' }}>{stat.label}</span>
+      {/* Статус — матовый чип, а не покрашенный текст: цветное слово без своей
+          подложки читается как ссылка-действие (DESIGN.md §1 «Статус — чип»). */}
+      <Chip size="sm" tone={stat.tone}>{stat.label}</Chip>
       {showAccept && p.status === 'submitted' && (
         <div style={{ display: 'flex', gap: 'var(--spacing-1)' }}>
           <button onClick={onAccept} disabled={busy} className="btn-success" style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem' }}>Принять</button>

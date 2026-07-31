@@ -17,23 +17,17 @@ import {
 } from '@/components/ui';
 
 /**
- * Статус задачи → иконка и тон системы. Живёт здесь, а не в shared: shared общий
- * с API и мобильным, а имена иконок — из веб-реестра `ICONS`. Экспортируется,
- * чтобы деталька задачи рисовала тот же чип, что и строка списка.
+ * Статус задачи → ИКОНКА. Только иконка: имена берутся из веб-реестра `ICONS`,
+ * которого нет в общем пакете. Тон сюда больше не дублируется — он приходит из
+ * `TASK_STATUS_META[...].tone` вместе с подписью, одним источником на API, веб
+ * и мобильный (раньше та же карта тонов лежала ещё и здесь, и в календаре).
  */
-export const TASK_STATUS_VIEW: Record<TaskStatus, { icon: IconName; tone: Tone }> = {
-  todo: { icon: 'tasks', tone: 'neutral' },
-  in_progress: { icon: 'inProgress', tone: 'accent' },
-  on_review: { icon: 'eye', tone: 'warning' },
-  done: { icon: 'checkCircle', tone: 'success' },
-  cancelled: { icon: 'blocked', tone: 'neutral' },
-};
-
-export const TASK_PRIORITY_TONE: Record<TaskPriority, Tone> = {
-  low: 'neutral',
-  medium: 'accent',
-  high: 'warning',
-  urgent: 'danger',
+export const TASK_STATUS_ICON: Record<TaskStatus, IconName> = {
+  todo: 'tasks',
+  in_progress: 'inProgress',
+  on_review: 'eye',
+  done: 'checkCircle',
+  cancelled: 'blocked',
 };
 
 // ------------------------------------------------------------
@@ -42,7 +36,6 @@ export const TASK_PRIORITY_TONE: Record<TaskPriority, Tone> = {
 
 export function TaskRow({ task, extra }: { task: Task; extra?: React.ReactNode }) {
   const st = TASK_STATUS_META[task.status];
-  const view = TASK_STATUS_VIEW[task.status];
   const pr = TASK_PRIORITY_META[task.priority];
   const done = task.status === 'done';
   const assigneeLabel = task.assignedCircleName
@@ -56,7 +49,7 @@ export function TaskRow({ task, extra }: { task: Task; extra?: React.ReactNode }
       style={{ display: 'block', color: 'inherit', border: '1px solid var(--border)' }}
     >
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--spacing-3)' }}>
-        <Icon name={view.icon} size={18} style={{ marginTop: 2, color: 'var(--muted)' }} label={st.label} />
+        <Icon name={TASK_STATUS_ICON[task.status]} size={18} style={{ marginTop: 2, color: 'var(--muted)' }} label={st.label} />
 
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -67,7 +60,7 @@ export function TaskRow({ task, extra }: { task: Task; extra?: React.ReactNode }
               {task.title}
             </span>
             {task.priority !== 'medium' && (
-              <KitChip size="sm" tone={TASK_PRIORITY_TONE[task.priority]}>{pr.label}</KitChip>
+              <KitChip size="sm" tone={pr.tone}>{pr.label}</KitChip>
             )}
           </div>
 
@@ -101,7 +94,7 @@ export function TaskRow({ task, extra }: { task: Task; extra?: React.ReactNode }
           {extra}
         </div>
 
-        <KitChip size="sm" tone={view.tone}>{st.label}</KitChip>
+        <KitChip size="sm" tone={st.tone}>{st.label}</KitChip>
       </div>
     </Link>
   );

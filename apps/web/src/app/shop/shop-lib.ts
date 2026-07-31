@@ -3,15 +3,20 @@
 // прогресс краудфандинга, состояние доступности лота.
 // ============================================================
 
-import type { ContributionLine, Contact, Listing, ListingPriceDto } from '@superapp/shared';
+import { glyphToText, type ContributionLine, type Contact, type Listing, type ListingPriceDto } from '@superapp/shared';
+import type { Tone } from '@/components/ui';
 
 /** Минимальные единицы → «12 500» по масштабу валюты. */
 export const fmtAmount = (amount: number, scale: number) =>
   (scale > 0 ? amount / 10 ** scale : amount).toLocaleString('ru-RU');
 
-/** Кросс-валютная цена как «100 🍎 + 50 🪙» (иконки валют — данные эмитента). */
+/**
+ * Кросс-валютная цена как «100 🍎 + 50 🪙» (значок валюты — данные эмитента).
+ * Здесь получается СТРОКА, поэтому значок прогоняется через `glyphToText`:
+ * печатать значение как есть нельзя — у него бывает пометка набора ('fl:1f34e').
+ */
 export const fmtPrices = (prices: Pick<ListingPriceDto, 'amount' | 'scale' | 'currencyIcon'>[]) =>
-  prices.length ? prices.map((p) => `${fmtAmount(p.amount, p.scale)} ${p.currencyIcon}`).join(' + ') : '—';
+  prices.length ? prices.map((p) => `${fmtAmount(p.amount, p.scale)} ${glyphToText(p.currencyIcon)}`.trim()).join(' + ') : '—';
 
 export const personName = (c: Contact) => `${c.them.firstName} ${c.them.lastName ?? ''}`.trim();
 
@@ -64,9 +69,10 @@ export const ORDER_STATUS_LABELS: Record<string, string> = {
   refunded: 'Возвращён',
 };
 
-export const ORDER_STATUS_TONE: Record<string, 'accent' | 'success' | 'warning' | 'danger' | 'neutral'> = {
-  funding: 'warning',
-  pending: 'warning',
+export const ORDER_STATUS_TONE: Record<string, Tone> = {
+  // «Идёт сбор» и «Ждёт подтверждения» — ожидание, а не предупреждение.
+  funding: 'waiting',
+  pending: 'waiting',
   confirmed: 'accent',
   settled: 'success',
   rejected: 'danger',

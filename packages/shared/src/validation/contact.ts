@@ -38,6 +38,14 @@ export const updateContactSchema = z.object({
   myRole: roleSchema.nullable().optional(),
 });
 
+// Списки приглашений. `scope=history` отдаёт НЕ-pending строки (отклонённые,
+// отменённые, истёкшие) — без них «Отправить повторно» физически недостижимо:
+// resend требует именно такой статус, а pending-список их не содержит.
+export const listInvitationsQuerySchema = z.object({
+  scope: z.enum(['pending', 'history']).default('pending'),
+  cursor: z.string().max(200).optional(),
+});
+
 export const blockUserSchema = z.object({
   userId: z.string().uuid(),
 });

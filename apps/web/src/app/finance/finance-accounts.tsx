@@ -9,7 +9,7 @@ import { useMemo, useState } from 'react';
 import type { FinAccountDto } from '@superapp/shared';
 import { api, apiErrorMessage } from '@/lib/api';
 import {
-  Alert, BentoGrid, Button, Card, CardHeader, EmptyState, IconButton, Input, Modal, Select, StatTile,
+  Alert, BentoGrid, Button, Card, CardHeader, EmptyState, GlyphField, IconButton, Input, Modal, Select, StatTile,
 } from '@/components/ui';
 import { bookParams, currencySymbol, parseMoneyInput, parseSignedMoneyInput } from './finance-lib';
 import { FinList, FinRow, Money, MoneyStack } from './finance-ui';
@@ -158,6 +158,7 @@ export function AccountsPanel({
 
 function NewAccountModal({ bookId, onClose, onDone }: { bookId: string | null; onClose: () => void; onDone: () => void }) {
   const [name, setName] = useState('');
+  const [icon, setIcon] = useState<string | null>(null);
   const [subtype, setSubtype] = useState('card');
   const [currency, setCurrency] = useState('KZT');
   const [opening, setOpening] = useState('');
@@ -174,6 +175,7 @@ function NewAccountModal({ bookId, onClose, onDone }: { bookId: string | null; o
         name: name.trim(),
         subtype,
         currencyCode: currency,
+        ...(icon ? { icon } : {}),
         ...(openingMinor ? { openingBalance: openingMinor } : {}),
       }, bookParams(bookId));
       onDone();
@@ -200,7 +202,10 @@ function NewAccountModal({ bookId, onClose, onDone }: { bookId: string | null; o
     >
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
-        <Input label="Название" placeholder="Kaspi Gold…" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 'var(--spacing-3)', alignItems: 'start' }}>
+          <Input label="Название" placeholder="Kaspi Gold…" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          <GlyphField value={icon} onChange={setIcon} suggest={name} />
+        </div>
         <Select
           label="Тип"
           value={subtype}

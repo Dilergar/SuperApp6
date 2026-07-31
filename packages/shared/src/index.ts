@@ -64,6 +64,7 @@ export * from './utils/date';
 export * from './utils/name';
 export * from './utils/attachments';
 export * from './utils/interpolate';
+export * from './utils/glyph';
 
 // Constants
 export * from './constants/roles';

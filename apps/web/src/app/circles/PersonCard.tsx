@@ -1,18 +1,29 @@
 'use client';
 
-import { ModalShell } from '@/components/ui';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { Icon } from '@/components/ui';
 import dynamic from 'next/dynamic';
-import { useRouter } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
-
-// lottie-web (~70KB gz) is loaded ON DEMAND, only when a card with a Lottie effect
-// actually renders — a static import shipped it in EVERY route's bundle because
-// PersonCard/PersonChip are imported by calendar/messenger/tasks/shop.
-const Lottie = dynamic(() => import('lottie-react'), { ssr: false });
-import type { PresenceInfo } from '@superapp/shared';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  Button,
+  Chip,
+  Glyph,
+  IconButton,
+  Input,
+  Menu,
+  ModalShell,
+  SegmentedControl,
+  Toggle,
+  type MenuAction,
+} from '@/components/ui';
+import { ROLE_PRESETS } from '@superapp/shared';
+// Типы социального графа берём ИЗ ОБЩЕГО ПАКЕТА, а не объявляем свои: локальные
+// копии уже разъехались с сервером (в местной `Contact` не было `initiatedBy`),
+// и такое расхождение не ловится компилятором — оно просто тихо теряет поля.
+import type { CardVisibility, Circle, Contact, PresenceInfo } from '@superapp/shared';
 import { presenceStatusLine } from '../messenger/presence-ui';
+import { getPresence } from '@/lib/messenger-api';
+import { api, apiErrorMessage } from '@/lib/api';
+import { toastError } from '@/lib/toast';
 import type { CardSize, CardSkinRender } from './card-skin';
 import {
   DEFAULT_SKIN,
@@ -22,57 +33,17 @@ import {
   displayName,
 } from './card-skin';
 import { usePersonSkin } from '@/lib/person-skins';
-import { callsStatusKey } from '@/lib/queries';
+import { callsStatusKey, contactsKey } from '@/lib/queries';
 import { getCallsStatus } from '@/lib/calls-api';
+
+// lottie-web (~70KB gz) is loaded ON DEMAND, only when a card with a Lottie effect
+// actually renders — a static import shipped it in EVERY route's bundle because
+// PersonCard/PersonChip are imported by calendar/messenger/tasks/shop.
+const Lottie = dynamic(() => import('lottie-react'), { ssr: false });
 
 // ============================================================
 // Types
 // ============================================================
-
-interface ContactUserCard {
-  id: string;
-  phone: string;
-  firstName: string;
-  lastName: string | null;
-  avatar: string | null;
-  dateOfBirth: string | null;
-  bio: string | null;
-  city: string | null;
-  email: string | null;
-  maritalStatus: string | null;
-  socialLinks: { telegram?: string; instagram?: string } | null;
-  age: number | null;
-  showOnlineStatus: boolean;
-}
-
-interface Contact {
-  linkId: string;
-  them: ContactUserCard;
-  myRole: string | null;
-  theirRole: string | null;
-  confirmedAt: string;
-  myCircleIds: string[];
-}
-
-interface Folder {
-  id: string;
-  name: string;
-  icon: string | null;
-  color: string | null;
-  sortOrder: number;
-  membersCount: number;
-}
-
-interface CardVisibility {
-  dateOfBirth: boolean;
-  age: boolean;
-  onlineStatus: boolean;
-  maritalStatus: boolean;
-  city: boolean;
-  bio: boolean;
-  email: boolean;
-  socialLinks: boolean;
-}
 
 interface ProfileData {
   firstName: string;
@@ -114,7 +85,8 @@ interface CardPerson {
 interface CompactProps {
   mode?: 'compact';
   contact: Contact;
-  folders: Folder[];
+  /** Группы владельца («папка» — историческое имя пропа). */
+  folders: Circle[];
   activeFolder: string | null;
   onDelete: () => void;
   /** Block this person (confirm + API live in the page handler). */
@@ -123,9 +95,18 @@ interface CompactProps {
   onAddToFolder: (folderId: string) => void;
   /** Balance of MY currency this person holds (visible to me as the issuer). */
   myCoins?: { icon: string; balance: number } | null;
-  /** Live presence (online / lastSeen / contextual), already tailored to me. */
+  /**
+   * Присутствие, если оно у вызывающего УЖЕ есть — просто чтобы XL не мигал
+   * пустой строкой. Тянуть его для всего грида не нужно: размер L присутствие
+   * не показывает, и батч на сотню человек уходил впустую — XL запрашивает
+   * присутствие сам, на ОДНОГО человека, в момент открытия.
+   */
   presence?: PresenceInfo | null;
-  /** Skin worn for me by this person (Phase 2). Defaults to the free skin. */
+  /**
+   * Скин, который этот человек надел ДЛЯ МЕНЯ — СИД для первой отрисовки.
+   * Живое значение карточка берёт у движка скинов сама (см. CompactCard):
+   * иначе снимок страницы переживал бы смену скина.
+   */
   skin?: CardSkinRender;
 }
 
@@ -197,12 +178,14 @@ export const PersonChip = memo(function PersonChip({
 // ============================================================
 
 function CardShell({
-  size, skin, rotation, onClick, interactive, children, style,
+  size, skin, rotation, onClick, onMouseDownCapture, interactive, children, style,
 }: {
   size: CardSize;
   skin: CardSkinRender;
   rotation: number;
   onClick?: () => void;
+  /** Нужен гварду «клик, закрывший меню, не открывает XL» — см. CompactCard. */
+  onMouseDownCapture?: React.MouseEventHandler<HTMLDivElement>;
   interactive?: boolean;
   children: React.ReactNode;
   style?: React.CSSProperties;
@@ -213,6 +196,7 @@ function CardShell({
     <div
       className={`person-card-base${interactive ? ' interactive' : ''}`}
       onClick={onClick}
+      onMouseDownCapture={onMouseDownCapture}
       style={{
         '--card-rotation': `${rotation}deg`,
         background: skin.backgroundUrl
@@ -375,22 +359,53 @@ function SkinEffect({ preset, level, accent }: {
 // Card body — avatar + name + fields, sized + skinned
 // ============================================================
 
-function CardBody({ person, size, skin }: { person: CardPerson; size: CardSize; skin: CardSkinRender }) {
+function CardBody({ person, size, skin, onOpen }: {
+  person: CardPerson; size: CardSize; skin: CardSkinRender;
+  /** Задаётся только для кликабельной карточки грида — см. комментарий ниже. */
+  onOpen?: () => void;
+}) {
   const cfg = SIZE_CONFIG[size];
   const t = skin.tokens;
   const showDot = cfg.showPresence && person.showOnlineStatus;
 
-  const nameEl = cfg.showName ? (
-    <div style={{
-      fontFamily: t.nameFont, fontSize: cfg.nameSize, fontWeight: 700,
-      letterSpacing: '0.04em', color: t.nameColor,
-      textTransform: size === 'XS' ? 'none' : 'uppercase',
-      textAlign: cfg.layout === 'row' ? 'left' : 'center', lineHeight: 1.1,
-      ...(cfg.layout === 'row' ? { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '12rem' } : {}),
-    }}>
-      {displayName(person.firstName, person.lastName, cfg.fullLastName)}
-    </div>
-  ) : null;
+  const nameText = displayName(person.firstName, person.lastName, cfg.fullLastName);
+  const nameStyle: React.CSSProperties = {
+    fontFamily: t.nameFont, fontSize: cfg.nameSize, fontWeight: 700,
+    letterSpacing: '0.04em', color: t.nameColor,
+    textTransform: size === 'XS' ? 'none' : 'uppercase',
+    textAlign: cfg.layout === 'row' ? 'left' : 'center', lineHeight: 1.1,
+    ...(cfg.layout === 'row' ? { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '12rem' } : {}),
+  };
+
+  // Карточку грида нельзя целиком объявить кнопкой — внутри уже есть свои
+  // кнопки и ссылки, вышло бы «управление внутри управления». Поэтому носителем
+  // действия становится ИМЯ: настоящая кнопка, которую видят клавиатура и
+  // скринридер, а сам блок остаётся мышиной целью (его onClick делает то же).
+  const nameEl = !cfg.showName ? null : onOpen ? (
+    // Кнопка кита, а не своя: состояние :focus-visible инлайн-стилем не
+    // выражается вообще, поэтому при табуляции по карточке имя не подсвечивалось.
+    // Инлайновые правила перекрывают шрифтовые правила .ui-btn (инлайн > класс),
+    // так что вид имени не меняется — приезжают только фокус и клавиатура.
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={onOpen}
+      aria-label={`${nameText} — подробнее`}
+      style={{
+        ...nameStyle,
+        background: 'none',
+        padding: 0,
+        minHeight: 0,
+        display: 'block',
+        width: '100%',
+        whiteSpace: cfg.layout === 'row' ? 'nowrap' : 'normal',
+      }}
+    >
+      {nameText}
+    </Button>
+  ) : (
+    <div style={nameStyle}>{nameText}</div>
+  );
 
   // Row layout — XS (avatar only) / S (avatar+name) / M (avatar+name+role)
   if (cfg.layout === 'row') {
@@ -504,15 +519,17 @@ function Avatar({ initial, avatar, size, skin, showDot }: {
 function RoleBadge({ role, skin, size }: { role: string; skin: CardSkinRender; size: CardSize }) {
   const t = skin.tokens;
   const small = size === 'M' || size === 'S' || size === 'XS';
+  // span, а не div: в XL бейдж лежит ВНУТРИ кнопки «изменить роль», а содержимое
+  // кнопки по спецификации — строчный поток. Вид не меняется (inline-block).
   return (
-    <div style={{
+    <span style={{
       display: 'inline-block', padding: small ? '0.12rem 0.55rem' : '0.3rem 1.2rem',
       background: t.badgeBg, color: t.badgeColor, borderRadius: 'var(--radius-md)',
       fontFamily: 'var(--font-display)', fontSize: small ? '0.62rem' : '0.85rem', fontWeight: 600,
       letterSpacing: '0.03em', boxShadow: t.badgeShadow,
     }}>
       {role}
-    </div>
+    </span>
   );
 }
 
@@ -537,116 +554,144 @@ function RarityChip({ rarity }: { rarity: CardSkinRender['rarity'] }) {
 function CompactCard({
   contact, folders, activeFolder, onDelete, onBlock, onRemoveFromFolder, onAddToFolder, myCoins, presence, skin,
 }: CompactProps) {
-  const [showFolderMenu, setShowFolderMenu] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const router = useRouter();
   // Кнопку «Позвонить» показываем только когда движок звонков включён (не рисуем UI
   // несуществующей фичи). Ключ общий → один сетевой запрос на весь грид.
   const callsEnabled = useQuery({ queryKey: callsStatusKey, queryFn: getCallsStatus, staleTime: 5 * 60 * 1000 }).data?.enabled ?? false;
 
-  const activeSkin = skin || DEFAULT_SKIN;
-  const presenceLine = presenceStatusLine(presence);
-  const foldersNotIn = folders.filter((f) => !contact.myCircleIds.includes(f.id));
+  // Скин: живое значение движка ВАЖНЕЕ пришедшего пропом. Проп — это снимок,
+  // который страница сделала при загрузке; после покупки или смены скина
+  // `invalidatePersonSkins()` чистит кэш движка, но чужой снимок достать не может
+  // — грид оставался бы на старом скине до перезагрузки. Сети это не стоит
+  // ничего: id уже в кэше движка (страница резолвила их через ту же точку).
+  const liveSkin = usePersonSkin(contact.them.id);
+  const activeSkin = liveSkin || skin || DEFAULT_SKIN;
   const foldersIn = folders.filter((f) => contact.myCircleIds.includes(f.id));
 
   const seed = contact.linkId.charCodeAt(0) + contact.linkId.charCodeAt(contact.linkId.length - 1);
   const rotation = -0.5 - (seed % 4) * 0.7;
 
-  const person = contactToPerson(contact, presenceLine);
+  const person = contactToPerson(contact);
   const stop = (e: React.MouseEvent) => e.stopPropagation();
+
+  // «Добавить в группу» — меню КИТА: закрытие по клику вне и по Esc, стрелки,
+  // портал (не режется overflow карточки). Прежняя самодельная выпадашка не
+  // закрывалась ни тем, ни другим, а фокус в неё вообще не заходил.
+  const groupItems: MenuAction[] = useMemo(
+    () => folders
+      .filter((f) => !contact.myCircleIds.includes(f.id))
+      .map((f) => ({ key: f.id, label: f.name, onClick: () => onAddToFolder(f.id) })),
+    [folders, contact.myCircleIds, onAddToFolder],
+  );
+
+  // Клик мимо открытого меню закрывал меню И открывал XL-оверлей поверх него.
+  // Чиним снимком на НАЖАТИИ: к моменту click меню уже закрыто своим обработчиком
+  // (он слушает mousedown на document), а capture-фаза React проходит раньше —
+  // значит в момент mousedown мы ещё видим правду и глушим этот один клик.
+  const menuOpenRef = useRef(false);
+  const swallowClickRef = useRef(false);
 
   return (
     <>
-      <CardShell size="L" skin={activeSkin} rotation={rotation} interactive onClick={() => setExpanded(true)}>
-        {/* Action buttons */}
-        <div onClick={stop} style={{ position: 'absolute', top: 12, right: 14, display: 'flex', gap: '0.4rem', alignItems: 'center', zIndex: 3 }}>
+      <CardShell
+        size="L"
+        skin={activeSkin}
+        rotation={rotation}
+        interactive
+        onMouseDownCapture={() => { swallowClickRef.current = menuOpenRef.current; }}
+        onClick={() => {
+          if (swallowClickRef.current) { swallowClickRef.current = false; return; }
+          setExpanded(true);
+        }}
+      >
+        {/* Действия карточки — кнопки кита: у них есть видимый :focus-visible и
+            общий ховер. Прежние подделывали ховер мутацией style в onMouseEnter,
+            а фокуса не показывали вовсе (инлайн-стилем состояние не выражается). */}
+        <div onClick={stop} style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: '0.1rem', alignItems: 'center', zIndex: 3 }}>
           {activeFolder ? (
-            <button onClick={onRemoveFromFolder} title="Убрать из папки"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.65rem', color: 'var(--on-surface-variant)', opacity: 0.4 }}
-              onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.4'; }}
-            >убрать</button>
-          ) : (
-            <div style={{ position: 'relative' }}>
-              {folders.length > 0 && (
-                <button onClick={() => setShowFolderMenu(!showFolderMenu)} title="Добавить в папку"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.9rem', color: 'var(--outline)', opacity: 0.3, padding: '0.1rem' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.7'; }}
-                  onMouseLeave={(e) => { if (!showFolderMenu) e.currentTarget.style.opacity = '0.3'; }}
-                >+</button>
-              )}
-              {showFolderMenu && foldersNotIn.length > 0 && (
-                <div style={{ position: 'absolute', right: 0, top: '100%', zIndex: 10, background: 'var(--surface-container-lowest)', borderRadius: 'var(--radius-md)', boxShadow: '0 8px 32px rgba(0, 0, 0, 0.15)', padding: 'var(--spacing-2)', minWidth: '120px' }}>
-                  {foldersNotIn.map((f) => (
-                    <button key={f.id} onClick={() => { onAddToFolder(f.id); setShowFolderMenu(false); }}
-                      style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', padding: '0.3rem 0.5rem', width: '100%', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', borderRadius: 'var(--radius-sm)', color: 'var(--on-surface)' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--surface-container-low)'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}
-                    >
-                      <span style={{ width: '0.6rem', height: '0.6rem', borderRadius: '0.2rem', background: f.color || 'var(--surface-container-high)' }} />
-                      {f.name}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+            <IconButton icon="remove" label="Убрать из группы" size={26} iconSize={14} round={false} onClick={onRemoveFromFolder} />
+          ) : groupItems.length > 0 ? (
+            <Menu
+              items={groupItems}
+              label="Добавить в группу"
+              trigger={({ ref, onClick, ...aria }) => {
+                // Снимок состояния меню для гварда выше. Запись рефа в рендере
+                // идемпотентна (то же значение при повторном рендере), а иного
+                // способа узнать состояние у кита нет — он держит его в себе.
+                menuOpenRef.current = aria['aria-expanded'];
+                return (
+                  <IconButton
+                    ref={ref}
+                    icon="add"
+                    label="Добавить в группу"
+                    size={26}
+                    iconSize={14}
+                    round={false}
+                    onClick={onClick}
+                    {...aria}
+                  />
+                );
+              }}
+            />
+          ) : null}
           {onBlock && (
-            <button onClick={onBlock} style={{ background: 'none', border: 'none', color: 'var(--outline)', cursor: 'pointer', fontSize: '0.62rem', fontWeight: 600, padding: '0.1rem', opacity: 0.25 }}
-              onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.7'; e.currentTarget.style.color = 'var(--primary)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.25'; e.currentTarget.style.color = 'var(--outline)'; }}
-              title="Заблокировать"
-            >блок</button>
+            <IconButton icon="blocked" label="Заблокировать" size={26} iconSize={14} round={false} onClick={onBlock} />
           )}
-          <button onClick={onDelete} style={{ background: 'none', border: 'none', color: 'var(--outline)', cursor: 'pointer', fontSize: '1rem', padding: '0.1rem', opacity: 0.25 }}
-            onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.7'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.25'; }}
-            title="Удалить"
-          >×</button>
+          <IconButton
+            icon="delete"
+            label="Удалить из окружения"
+            variant="danger"
+            size={26}
+            iconSize={14}
+            round={false}
+            onClick={onDelete}
+          />
         </div>
 
-        <CardBody person={person} size="L" skin={activeSkin} />
+        <CardBody person={person} size="L" skin={activeSkin} onOpen={() => setExpanded(true)} />
 
         {/* Grid extras — write / call / coins / folders */}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--spacing-2)', marginTop: 'var(--spacing-3)' }}>
-          <div style={{ display: 'flex', gap: 'var(--spacing-2)', justifyContent: 'center' }}>
-            <button
-              onClick={(e) => { stop(e); router.push(`/messenger?dm=${contact.them.id}`); }}
-              style={{
-                padding: '0.3rem 1.1rem', fontSize: '0.78rem', fontFamily: 'var(--font-display)', fontWeight: 600,
-                color: 'var(--secondary)', background: 'transparent', border: '2px solid var(--secondary)',
-                borderRadius: 'var(--radius-sketch)', cursor: 'pointer', transition: 'background 0.15s ease',
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--secondary-container)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-            >
+          <div style={{ display: 'flex', gap: 'var(--spacing-2)', justifyContent: 'center', flexWrap: 'wrap' }}>
+            {/* Это ПЕРЕХОДЫ, поэтому href: Button с href рисует next/link, то есть
+                остаётся настоящей ссылкой (правый клик, «в новой вкладке», видно
+                куда ведёт), но получает фокус-кольцо и ховер кита.
+                stop(e) оставлен — карточка под ними кликабельна, иначе поверх
+                открылся бы ещё и XL-оверлей. */}
+            <Button href={`/messenger?dm=${contact.them.id}`} onClick={stop} variant="outline" size="sm" icon="messenger">
               Написать
-            </button>
+            </Button>
             {callsEnabled && (
-            <button
-              onClick={(e) => { stop(e); router.push(`/messenger?dm=${contact.them.id}&call=1`); }}
-              title="Позвонить (аудио; видео включается в звонке)"
-              style={{
-                padding: '0.3rem 0.9rem', fontSize: '0.78rem', fontFamily: 'var(--font-display)', fontWeight: 600,
-                color: 'var(--secondary)', background: 'transparent', border: '2px solid var(--secondary)',
-                borderRadius: 'var(--radius-sketch)', cursor: 'pointer', transition: 'background 0.15s ease',
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--secondary-container)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-            >
-              <Icon name="call" size={14} /> Позвонить
-            </button>
+              <Button
+                href={`/messenger?dm=${contact.them.id}&call=1`}
+                onClick={stop}
+                variant="outline"
+                size="sm"
+                icon="call"
+                title="Позвонить (аудио; видео включается в звонке)"
+              >
+                Позвонить
+              </Button>
             )}
           </div>
           {myCoins && myCoins.balance !== 0 && (
             <div className="label-sm" style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 600, color: 'var(--primary)' }}>
-              держит {myCoins.balance.toLocaleString('ru-RU')} {myCoins.icon}
+              держит {myCoins.balance.toLocaleString('ru-RU')} <Glyph value={myCoins.icon} size={13} />
             </div>
           )}
           {foldersIn.length > 0 && (
-            <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', justifyContent: 'center' }}>
+            <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+              {/* Метка — чип кита. Цвет группы это ДАННЫЕ (человек выбрал его сам),
+                  поэтому приходит подменой переменных тона, а не своей вёрсткой. */}
               {foldersIn.map((f) => (
-                <span key={f.id} style={{ fontSize: '0.65rem', padding: '0.1rem 0.5rem', borderRadius: '0.3rem', background: f.color || 'var(--surface-container-high)', opacity: 0.7, fontWeight: 500 }}>{f.name}</span>
+                <Chip
+                  key={f.id}
+                  size="sm"
+                  emoji={f.icon}
+                  style={f.color ? ({ '--tone-bg': f.color, '--tone-border': f.color } as React.CSSProperties) : undefined}
+                >
+                  {f.name}
+                </Chip>
               ))}
             </div>
           )}
@@ -658,65 +703,258 @@ function CompactCard({
           person={person}
           skin={activeSkin}
           onClose={() => setExpanded(false)}
-          onWrite={() => router.push(`/messenger?dm=${contact.them.id}`)}
-          onCall={callsEnabled ? () => router.push(`/messenger?dm=${contact.them.id}&call=1`) : undefined}
+          writeHref={`/messenger?dm=${contact.them.id}`}
+          callHref={callsEnabled ? `/messenger?dm=${contact.them.id}&call=1` : undefined}
+          presenceUserId={contact.them.id}
+          initialPresence={presence ?? null}
+          // Обе половины модели «взаимные роли»: свою я правлю, чужую — вижу.
+          roleEdit={{ linkId: contact.linkId, initialRole: contact.myRole, personName: contact.them.firstName }}
+          theirRole={contact.theirRole}
+          confirmedAt={contact.confirmedAt}
         />
       )}
     </>
   );
 }
 
+/** Контекст правки МОЕЙ роли для человека (только «Моё окружение»). */
+interface RoleEditContext {
+  /** ContactLink, чью «мою сторону» правим. */
+  linkId: string;
+  /** Роль, которую я дал человеку сейчас. */
+  initialRole: string | null;
+  /** Имя человека — для подписи поля. */
+  personName: string;
+}
+
 // Expanded XL overlay shown when a grid card is clicked.
-function ExpandedCard({ person, skin, onClose, onWrite, onCall }: {
-  person: CardPerson; skin: CardSkinRender; onClose: () => void; onWrite?: () => void; onCall?: () => void;
+function ExpandedCard({
+  person, skin, onClose, writeHref, callHref, onWrite,
+  presenceUserId, initialPresence = null, roleEdit, theirRole, confirmedAt,
+}: {
+  // Тип элемента выбирается по смыслу, а не по виду:
+  //  · известен адрес (Окружение) → writeHref/callHref = настоящая ССЫЛКА
+  //    (правый клик, «в новой вкладке», видно куда ведёт);
+  //  · сначала нужен запрос (ростер: DM ещё не создан) → onWrite = КНОПКА.
+  person: CardPerson; skin: CardSkinRender; onClose: () => void;
+  writeHref?: string; callHref?: string; onWrite?: () => void;
+  /** XL — единственный размер, который показывает присутствие, и тянет его сам. */
+  presenceUserId?: string;
+  initialPresence?: PresenceInfo | null;
+  /** Правка моей роли; без неё бейдж роли остаётся просто меткой. */
+  roleEdit?: RoleEditContext;
+  /** Как этот человек называет МЕНЯ — вторая половина «взаимных ролей». */
+  theirRole?: string | null;
+  /** Когда связь подтвердилась (обе стороны приняли). */
+  confirmedAt?: string;
 }) {
+  const t = skin.tokens;
+  const presence = useSinglePresence(presenceUserId, initialPresence);
+  const presenceLine = presenceStatusLine(presence);
+  const shown: CardPerson = {
+    ...person,
+    // Роль в XL рисует редактор — иначе бейдж был бы на карточке дважды.
+    role: roleEdit ? null : person.role,
+    // Пока присутствие не загрузилось, строки нет вовсе: показать «оффлайн»
+    // раньше ответа — соврать (человек может быть в сети).
+    presenceLine: presenceLine ?? person.presenceLine ?? null,
+  };
   return (
-    <ModalShell onClose={onClose} zIndex={1000}>
+    <ModalShell onClose={onClose} zIndex={1000} label={`Карточка: ${person.firstName}`}>
       <div onClick={(e) => e.stopPropagation()} style={{ position: 'relative', maxWidth: 420, width: '100%' }}>
-        <button
+        <IconButton
+          icon="close"
+          label="Закрыть"
           onClick={onClose}
-          title="Закрыть"
+          size={32}
           style={{
-            position: 'absolute', top: -10, right: -10, zIndex: 5, width: '2rem', height: '2rem',
-            borderRadius: '50%', border: 'none', cursor: 'pointer', fontSize: '1.1rem',
-            background: 'var(--surface-container-lowest)', color: 'var(--on-surface)',
-            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.2)',
+            position: 'absolute', top: -10, right: -10, zIndex: 5,
+            background: 'var(--block)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-pop)',
           }}
-        >×</button>
+        />
         <CardShell size="XL" skin={skin} rotation={-1}>
-          <CardBody person={person} size="XL" skin={skin} />
-          {(onWrite || onCall) && (
-            <div style={{ display: 'flex', justifyContent: 'center', gap: 'var(--spacing-2)', marginTop: 'var(--spacing-4)' }}>
-              {onWrite && (
-                <button
-                  onClick={onWrite}
-                  style={{
-                    padding: '0.4rem 1.4rem', fontSize: '0.85rem', fontFamily: 'var(--font-display)', fontWeight: 600,
-                    color: 'var(--secondary)', background: 'transparent', border: '2px solid var(--secondary)',
-                    borderRadius: 'var(--radius-sketch)', cursor: 'pointer',
-                  }}
-                >
-                  Написать
-                </button>
+          <CardBody person={shown} size="XL" skin={skin} />
+
+          {roleEdit && <RoleEditor ctx={roleEdit} skin={skin} />}
+
+          {/* Взаимные роли и дата связи — ядро продукта «Окружение»: сервер отдаёт
+              оба поля с самого начала, но карточка показывала только мою сторону. */}
+          {(theirRole || confirmedAt) && (
+            <div style={{
+              marginTop: 'var(--spacing-3)', display: 'flex', flexDirection: 'column',
+              gap: '0.15rem', textAlign: 'center', color: t.metaColor, fontSize: '0.78rem',
+            }}>
+              {theirRole && (
+                <div>Он(а) называет вас: <strong style={{ fontWeight: 700 }}>{theirRole}</strong></div>
               )}
-              {onCall && (
-                <button
-                  onClick={onCall}
-                  title="Позвонить (аудио; видео включается в звонке)"
-                  style={{
-                    padding: '0.4rem 1.2rem', fontSize: '0.85rem', fontFamily: 'var(--font-display)', fontWeight: 600,
-                    color: 'var(--secondary)', background: 'transparent', border: '2px solid var(--secondary)',
-                    borderRadius: 'var(--radius-sketch)', cursor: 'pointer',
-                  }}
-                >
-                  <Icon name="call" size={14} /> Позвонить
-                </button>
+              {confirmedAt && <div>В окружении с {formatDate(confirmedAt)}</div>}
+            </div>
+          )}
+
+          {(writeHref || callHref || onWrite) && (
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 'var(--spacing-2)', marginTop: 'var(--spacing-4)', flexWrap: 'wrap' }}>
+              {writeHref
+                ? <Button href={writeHref} variant="outline" icon="messenger">Написать</Button>
+                : onWrite && <Button variant="outline" icon="messenger" onClick={onWrite}>Написать</Button>}
+              {callHref && (
+                <Button href={callHref} variant="outline" icon="call" title="Позвонить (аудио; видео включается в звонке)">
+                  Позвонить
+                </Button>
               )}
             </div>
           )}
         </CardShell>
       </div>
     </ModalShell>
+  );
+}
+
+/**
+ * Присутствие ОДНОГО человека — запрашивается при открытии XL.
+ *
+ * Почему не React Query: общего ключа в `lib/queries.ts` для присутствия нет, а
+ * ключ-литерал в компоненте — это ровно тот молчаливый рассинхрон кэша, от
+ * которого ключи и вынесены в один файл. Присутствие живёт секунды и нужно
+ * только пока открыт оверлей, поэтому эффект здесь честнее кэша.
+ */
+function useSinglePresence(userId: string | undefined, initial: PresenceInfo | null): PresenceInfo | null {
+  const [presence, setPresence] = useState<PresenceInfo | null>(initial);
+  useEffect(() => {
+    if (!userId) return;
+    let alive = true;
+    getPresence([userId])
+      .then((items) => { if (alive && items.length > 0) setPresence(items[0]); })
+      // Сбой — просто нет строки статуса: присутствие украшает карточку, а не
+      // несёт её смысл, ронять из-за него оверлей нельзя.
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [userId]);
+  return presence;
+}
+
+/** Роль по правилам сервера (`roleSchema` в @superapp/shared). */
+const ROLE_MAX_LENGTH = 50;
+
+/**
+ * Правка МОЕЙ роли для человека. До неё роль задавалась ровно один раз — в
+ * приглашении, — и принявший «без предложенных ролей» оставался с пустой
+ * подписью навсегда: ручка `PATCH /contacts/:linkId` была, но её никто не звал.
+ */
+function RoleEditor({ ctx, skin }: { ctx: RoleEditContext; skin: CardSkinRender }) {
+  const queryClient = useQueryClient();
+  const [role, setRole] = useState<string | null>(ctx.initialRole);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(ctx.initialRole ?? '');
+  const [saving, setSaving] = useState(false);
+
+  // Роль могла измениться СНАРУЖИ (перезагрузка окружения) — подхватываем ровно
+  // в момент смены пропа. Синхронизировать «всегда, пока поле закрыто» нельзя:
+  // сразу после сохранения проп ещё старый (запрос списка только ушёл), и бейдж
+  // на секунду откатывался бы к прежней роли.
+  const propRoleRef = useRef(ctx.initialRole);
+  useEffect(() => {
+    if (propRoleRef.current !== ctx.initialRole) {
+      propRoleRef.current = ctx.initialRole;
+      setRole(ctx.initialRole);
+    }
+  }, [ctx.initialRole]);
+
+  const save = async (value: string | null) => {
+    const next = value === null ? '' : value.trim();
+    if (next.length > ROLE_MAX_LENGTH) {
+      toastError(`Роль слишком длинная — не больше ${ROLE_MAX_LENGTH} символов`);
+      return;
+    }
+    if (/[<>]/.test(next)) {
+      toastError('В роли нельзя использовать символы < и >');
+      return;
+    }
+    setSaving(true);
+    try {
+      // Правится ТОЛЬКО моя сторона связи: `myRole` — подпись на МОЕЙ карточке,
+      // человек её не видит и об изменении не узнаёт.
+      await api.patch(`/contacts/${ctx.linkId}`, { myRole: next || null });
+      setRole(next || null);
+      propRoleRef.current = next || null; // проп догонит позже — не откатывать показ
+      setEditing(false);
+      // Карточка живёт в ОБЩЕМ кэше окружения: без инвалидации новая роль не
+      // доедет ни до грида, ни до пикеров других сервисов. Без await: сбой
+      // ПЕРЕЗАПРОСА не должен показывать ошибку сохранения, которое прошло.
+      void queryClient.invalidateQueries({ queryKey: contactsKey });
+    } catch (err) {
+      toastError(apiErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!editing) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', marginTop: 'var(--spacing-2)' }}>
+        {role ? (
+          // Носитель действия — кнопка кита, а внутри неё бейдж роли: так у
+          // «нажми, чтобы изменить» есть форма и фокус, а вид бейджа остаётся
+          // скиновым (его рисуют токены скина, а не кит).
+          <Button
+            variant="ghost"
+            size="sm"
+            iconRight="edit"
+            onClick={() => { setDraft(role); setEditing(true); }}
+            aria-label={`Изменить роль (сейчас: ${role})`}
+            title="Изменить роль"
+            style={{ padding: '0.15rem 0.4rem', minHeight: 0 }}
+          >
+            <RoleBadge role={role} skin={skin} size="XL" />
+          </Button>
+        ) : (
+          <Button variant="outline" size="sm" icon="edit" onClick={() => { setDraft(''); setEditing(true); }}>
+            Указать роль
+          </Button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 'var(--spacing-3)', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
+      <Input
+        label={`Как я называю: ${ctx.personName}`}
+        hint="Подпись видна только вам"
+        value={draft}
+        maxLength={ROLE_MAX_LENGTH}
+        placeholder="Жена, Коллега, Друг…"
+        autoFocus
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); void save(draft); }
+          if (e.key === 'Escape') {
+            // Esc отменяет ПРАВКУ, а не закрывает карточку: ModalShell слушает
+            // Esc на подложке, и одно нажатие уносило бы вместе с полем всё окно.
+            e.preventDefault();
+            e.stopPropagation();
+            setEditing(false);
+          }
+        }}
+      />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', maxHeight: 116, overflowY: 'auto' }}>
+        {ROLE_PRESETS.map((preset) => (
+          <Chip key={preset} size="sm" tone="accent" selected={draft === preset} onClick={() => setDraft(preset)}>
+            {preset}
+          </Chip>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
+        <Button size="sm" variant="primary" tone="success" loading={saving} onClick={() => void save(draft)}>
+          Сохранить
+        </Button>
+        <Button size="sm" variant="ghost" disabled={saving} onClick={() => setEditing(false)}>Отмена</Button>
+        {role && (
+          <Button size="sm" variant="matte" tone="danger" disabled={saving} onClick={() => void save(null)}>
+            Убрать роль
+          </Button>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -784,57 +1022,33 @@ export const StaffPersonCard = memo(function StaffPersonCard({
   return (
     <>
       <CardShell size="L" skin={skin} rotation={rotation} interactive onClick={() => setExpanded(true)}>
-        <CardBody person={person} size="L" skin={skin} />
+        <CardBody person={person} size="L" skin={skin} onOpen={() => setExpanded(true)} />
 
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--spacing-2)', marginTop: 'var(--spacing-3)' }}>
-          {/* Филиалы — отдельные чипы (📍), визуально отделены от должности-бейджа */}
+          {/* Филиалы — отдельные метки, визуально отделены от должности-бейджа.
+              Метка в системе это Chip: своя вёрстка тут повторяла его руками. */}
           {branches.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', justifyContent: 'center' }}>
               {branches.map((b) => (
-                <span
-                  key={b}
-                  style={{
-                    fontSize: '0.68rem', fontWeight: 600, padding: '0.12rem 0.5rem',
-                    borderRadius: 'var(--radius-sketch)', background: 'var(--tertiary-container, var(--surface-container-high))',
-                    color: 'var(--on-surface-variant)',
-                  }}
-                >
-                  <Icon name="office" size={12} /> {b}
-                </span>
+                <Chip key={b} size="sm" icon="branch">{b}</Chip>
               ))}
             </div>
           )}
 
-          {/* Кнопки — «Написать» + «Управлять», обе явные */}
+          {/* Кнопки — «Написать» + «Управлять», обе явные и обе из кита:
+              у прежних не было ни фокус-кольца, ни общего ховера (он подделывался
+              мутацией style на каждой кнопке). */}
           {(onWrite || onManage) && (
             <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', justifyContent: 'center' }}>
               {onWrite && (
-                <button
-                  onClick={(e) => { stop(e); onWrite(); }}
-                  style={{
-                    padding: '0.3rem 1rem', fontSize: '0.76rem', fontFamily: 'var(--font-display)', fontWeight: 600,
-                    color: 'var(--secondary)', background: 'transparent', border: '2px solid var(--secondary)',
-                    borderRadius: 'var(--radius-sketch)', cursor: 'pointer', transition: 'background 0.15s ease',
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--secondary-container)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                >
+                <Button variant="outline" size="sm" icon="messenger" onClick={(e) => { stop(e); onWrite(); }}>
                   Написать
-                </button>
+                </Button>
               )}
               {onManage && (
-                <button
-                  onClick={(e) => { stop(e); onManage(); }}
-                  style={{
-                    padding: '0.3rem 1rem', fontSize: '0.76rem', fontFamily: 'var(--font-display)', fontWeight: 600,
-                    color: 'var(--on-primary, #fff)', background: 'var(--primary)', border: '2px solid var(--primary)',
-                    borderRadius: 'var(--radius-sketch)', cursor: 'pointer', transition: 'opacity 0.15s ease',
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.85'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
-                >
+                <Button variant="primary" size="sm" icon="settings" onClick={(e) => { stop(e); onManage(); }}>
                   Управлять
-                </button>
+                </Button>
               )}
             </div>
           )}
@@ -875,15 +1089,18 @@ function FullCard({ profile, onToggleVisibility, skin, initialSize }: FullProps)
         </CardShell>
       </div>
 
-      {editable && size === 'XL' && (
+      {/* Условие проверяет САМ обработчик (а не производный флаг): так TypeScript
+          сужает тип внутри блока, и семь `!` рядом с вызовами не нужны — раньше
+          «здесь точно не null» держалось на честном слове. */}
+      {onToggleVisibility && size === 'XL' && (
         <div style={{ width: '100%', maxWidth: 420, display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
-          {profile.city && <VisibilityRow label="Город" value={profile.city} visible={vis.city} onToggle={(v) => onToggleVisibility!('city', v)} />}
-          {profile.bio && <VisibilityRow label="О себе" value={profile.bio} visible={vis.bio} onToggle={(v) => onToggleVisibility!('bio', v)} />}
-          {profile.dateOfBirth && <VisibilityRow label="Дата рождения" value={formatDate(profile.dateOfBirth)} visible={vis.dateOfBirth} onToggle={(v) => onToggleVisibility!('dateOfBirth', v)} />}
-          {profile.dateOfBirth && <VisibilityRow label="Возраст" value={`${calcAge(profile.dateOfBirth)} лет`} visible={vis.age} onToggle={(v) => onToggleVisibility!('age', v)} />}
-          <VisibilityRow label="Онлайн-статус" value="Виден другим" visible={vis.onlineStatus} onToggle={(v) => onToggleVisibility!('onlineStatus', v)} />
-          {profile.maritalStatus && <VisibilityRow label="Семейное положение" value={MARITAL_LABELS[profile.maritalStatus] || profile.maritalStatus} visible={vis.maritalStatus} onToggle={(v) => onToggleVisibility!('maritalStatus', v)} />}
-          {profile.email && <VisibilityRow label="Email" value={profile.email} visible={vis.email} onToggle={(v) => onToggleVisibility!('email', v)} />}
+          {profile.city && <VisibilityRow label="Город" value={profile.city} visible={vis.city} onToggle={(v) => onToggleVisibility('city', v)} />}
+          {profile.bio && <VisibilityRow label="О себе" value={profile.bio} visible={vis.bio} onToggle={(v) => onToggleVisibility('bio', v)} />}
+          {profile.dateOfBirth && <VisibilityRow label="Дата рождения" value={formatDate(profile.dateOfBirth)} visible={vis.dateOfBirth} onToggle={(v) => onToggleVisibility('dateOfBirth', v)} />}
+          {profile.dateOfBirth && <VisibilityRow label="Возраст" value={`${calcAge(profile.dateOfBirth)} лет`} visible={vis.age} onToggle={(v) => onToggleVisibility('age', v)} />}
+          <VisibilityRow label="Онлайн-статус" value="Виден другим" visible={vis.onlineStatus} onToggle={(v) => onToggleVisibility('onlineStatus', v)} />
+          {profile.maritalStatus && <VisibilityRow label="Семейное положение" value={MARITAL_LABELS[profile.maritalStatus] || profile.maritalStatus} visible={vis.maritalStatus} onToggle={(v) => onToggleVisibility('maritalStatus', v)} />}
+          {profile.email && <VisibilityRow label="Email" value={profile.email} visible={vis.email} onToggle={(v) => onToggleVisibility('email', v)} />}
         </div>
       )}
 
@@ -895,24 +1112,16 @@ function FullCard({ profile, onToggleVisibility, skin, initialSize }: FullProps)
 }
 
 function SizeSwitcher({ size, onChange }: { size: CardSize; onChange: (s: CardSize) => void }) {
+  // Взаимоисключающий выбор одного из пяти — это пилюля-переключатель кита:
+  // стрелки, aria-pressed и фокус-кольцо из коробки. Пять самодельных кнопок
+  // не давали ни того, ни другого, ни третьего.
   return (
-    <div style={{ display: 'inline-flex', gap: '0.3rem', padding: '0.25rem', background: 'var(--surface-container-low)', borderRadius: 'var(--radius-md)' }}>
-      {CARD_SIZES.map(({ key, label }) => (
-        <button
-          key={key}
-          onClick={() => onChange(key)}
-          style={{
-            padding: '0.25rem 0.7rem', fontSize: '0.75rem', fontWeight: 700, fontFamily: 'var(--font-display)',
-            cursor: 'pointer', border: 'none', borderRadius: 'var(--radius-sm)',
-            background: size === key ? 'var(--secondary)' : 'transparent',
-            color: size === key ? 'var(--on-secondary)' : 'var(--on-surface-variant)',
-            transition: 'background 0.15s ease',
-          }}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
+    <SegmentedControl<CardSize>
+      aria-label="Размер карточки"
+      value={size}
+      onChange={onChange}
+      items={CARD_SIZES.map(({ key, label }) => ({ key, label }))}
+    />
   );
 }
 
@@ -933,20 +1142,15 @@ function VisibilityRow({ label, value, visible, onToggle }: {
         <div className="label-sm" style={{ fontSize: '0.7rem', marginBottom: '0.1rem' }}>{label}</div>
         <div style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--on-surface)' }}>{value}</div>
       </div>
-      <button
-        onClick={() => onToggle(!visible)}
-        style={{
-          width: '2.5rem', height: '1.3rem', borderRadius: '0.65rem', border: 'none', cursor: 'pointer',
-          position: 'relative', background: visible ? 'var(--secondary)' : 'var(--outline-variant)',
-          transition: 'background 0.2s ease', flexShrink: 0,
-        }}
-      >
-        <span style={{
-          position: 'absolute', top: '2px', left: visible ? '1.3rem' : '2px', width: '1rem', height: '1rem',
-          borderRadius: '50%', background: 'var(--surface-container-lowest)', transition: 'left 0.2s ease',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-        }} />
-      </button>
+      {/* Тумблер кита: role="switch", aria-checked, фокус-кольцо и зелёный ON по
+          правилу системы. Своя копия была просто крашеным прямоугольником —
+          скринридер видел безымянную кнопку без состояния. */}
+      <Toggle
+        checked={visible}
+        onChange={onToggle}
+        aria-label={`${label}: видно другим`}
+        className="shrink-0"
+      />
     </div>
   );
 }
@@ -955,7 +1159,10 @@ function VisibilityRow({ label, value, visible, onToggle }: {
 // Normalizers + helpers
 // ============================================================
 
-function contactToPerson(contact: Contact, presenceLine: string | null): CardPerson {
+// Присутствие сюда не приходит: размер L его не показывает, а XL запрашивает
+// сам (см. useSinglePresence) — грид больше не тянет батч на сотню человек ради
+// строки, которую видно только в развёрнутой карточке.
+function contactToPerson(contact: Contact): CardPerson {
   const t = contact.them;
   return {
     firstName: t.firstName,
@@ -972,7 +1179,7 @@ function contactToPerson(contact: Contact, presenceLine: string | null): CardPer
     socialLinks: t.socialLinks,
     showOnlineStatus: t.showOnlineStatus,
     role: contact.myRole,
-    presenceLine,
+    presenceLine: null,
   };
 }
 

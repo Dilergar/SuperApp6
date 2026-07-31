@@ -50,8 +50,18 @@ export const contactsKey = ['contacts'] as const;
 export const circlesKey = ['circles'] as const;
 export const circleDetailKey = (id: string) => ['circles', 'detail', id] as const;
 export const incomingInvitationsKey = ['contacts', 'invitations', 'incoming'] as const;
-export const outgoingInvitationsKey = ['contacts', 'invitations', 'outgoing'] as const;
+// Исходящие приглашения живут в ДВУХ областях (активные / история) — у каждой свой
+// курсор и свой кэш. Корневой ключ нужен для инвалидации обеих разом: отправка,
+// отмена и повтор меняют состав и там, и там.
+export const outgoingInvitationsRootKey = ['contacts', 'invitations', 'outgoing'] as const;
+export const outgoingInvitationsKey = (scope: InvitationScope = 'pending') =>
+  ['contacts', 'invitations', 'outgoing', scope] as const;
 export const blocksKey = ['contacts', 'blocks'] as const;
+// Окружение ПОСТРАНИЧНО (курсор) — ключ ОТДЕЛЬНЫЙ от contactsKey намеренно:
+// contactsKey держит плоский Contact[], и его читают пикеры задач, календаря и
+// магазина. Положить туда InfiniteData значило бы молча сломать их всех.
+// Ключ вложен под ['contacts'], поэтому инвалидация contactsKey накрывает и его.
+export const contactsPagesKey = ['contacts', 'pages'] as const;
 export const currencyBadgeKey = ['wallet', 'currency-badge'] as const;
 // Мессенджер: кэш чатов/сообщений ОБЩИЙ между /messenger и контекстными чатами
 // (деталька задачи, комната офиса) — рассинхрон литералов молча разорвал бы кэш,
@@ -133,7 +143,11 @@ export const officeHistoryKey = (wsId: string) =>
 
 // ---- Fetchers ----
 
-/** The whole environment (cursor-paginated server-side; the UI shows everyone). */
+/**
+ * Всё окружение одним массивом. Нужен ПИКЕРАМ (задачи, календарь, магазин): им
+ * нечего листать — они ищут по полному списку. Экрану «Моё окружение» вместо
+ * этого нужен `fetchContactsPage` (первый экран не должен ждать N round-trip).
+ */
 export async function fetchAllContacts(): Promise<Contact[]> {
   const acc: Contact[] = [];
   let cursor: string | undefined;
@@ -143,6 +157,17 @@ export async function fetchAllContacts(): Promise<Contact[]> {
     cursor = res.data.nextCursor ?? undefined;
   } while (cursor);
   return acc;
+}
+
+export interface ContactsPage {
+  items: Contact[];
+  nextCursor: string | null;
+}
+
+/** Одна страница окружения — для useInfiniteQuery на «Моё окружение». */
+export async function fetchContactsPage(cursor?: string): Promise<ContactsPage> {
+  const res = await api.get('/contacts', { params: cursor ? { cursor } : undefined });
+  return { items: res.data.data as Contact[], nextCursor: res.data.nextCursor ?? null };
 }
 
 export async function fetchCircles(): Promise<Circle[]> {
@@ -160,9 +185,26 @@ export async function fetchIncomingInvitations(): Promise<IncomingInvitation[]> 
   return res.data.data;
 }
 
-export async function fetchOutgoingInvitations(): Promise<OutgoingInvitation[]> {
-  const res = await api.get('/contacts/invitations/outgoing');
-  return res.data.data;
+/**
+ * Область исходящих приглашений. `history` отдаёт НЕ-pending строки (отклонённые,
+ * отменённые, истёкшие) — без них «Отправить повторно» физически недостижимо:
+ * повтор требует ровно такого статуса, а id брать было неоткуда.
+ */
+export type InvitationScope = 'pending' | 'history';
+
+export interface OutgoingInvitationsPage {
+  items: OutgoingInvitation[];
+  nextCursor: string | null;
+}
+
+export async function fetchOutgoingInvitations(
+  scope: InvitationScope = 'pending',
+  cursor?: string,
+): Promise<OutgoingInvitationsPage> {
+  const res = await api.get('/contacts/invitations/outgoing', {
+    params: { scope, ...(cursor ? { cursor } : {}) },
+  });
+  return { items: res.data.data as OutgoingInvitation[], nextCursor: res.data.nextCursor ?? null };
 }
 
 export async function fetchBlocks(): Promise<ContactBlockRecord[]> {

@@ -17,7 +17,9 @@ export const FIN_LIMITS = {
   /** Category tree depth: parent → child, no grandchildren. */
   maxCategoryDepth: 2,
   maxNameLength: 60,
-  maxIconLength: 16,
+  /** Значок: имя иконки каталога или кодпоинты эмодзи с пометкой набора
+   *  ('ph:car', 'fl:1f469-200d-1f4bb') — самые длинные связки не влезали в 16. */
+  maxIconLength: 64,
   maxNoteLength: 500,
   /** Per-transaction bound in minor units (= 10 млрд ₸ in tiyn) — sanity cap, not a business rule. */
   maxAmount: 1_000_000_000_000,

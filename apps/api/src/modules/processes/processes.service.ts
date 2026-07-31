@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import {
   PROCESS_LIMITS,
+  TEAM_WORKSPACE_ROLES,
   WORKSPACE_ROLE_RANK,
   type ProcessDefinitionDetailDto,
   type ProcessDefinitionDto,
@@ -140,8 +141,17 @@ export class ProcessesService implements OnModuleInit {
   private async assertTeamMember(userId: string, workspaceId: string): Promise<WorkspaceRole> {
     const role = await this.getRoleOf(userId, workspaceId);
     if (!role) throw new ForbiddenException('Нет доступа к этой организации');
-    if (role === 'contractor') {
-      throw new ForbiddenException('Подрядчику доступны только его задачи');
+    // БЕЛЫЙ список командных ролей (Стажёр+), а не «всё, кроме Подрядчика»: fail-closed —
+    // новая роль лестницы по чёрному списку молча получила бы чтение и ЗАПУСК процессов.
+    // Ранговые гейты выше (assertManage — Менеджер+) считаются рангами и не затронуты.
+    if (!(TEAM_WORKSPACE_ROLES as readonly string[]).includes(role)) {
+      // Персональная формулировка — только Подрядчику (единственная существующая
+      // не-командная роль); любая будущая получает нейтральный отказ, а не проход.
+      throw new ForbiddenException(
+        role === 'contractor'
+          ? 'Подрядчику доступны только его задачи'
+          : 'Нет доступа к этой организации',
+      );
     }
     return role;
   }
@@ -1157,7 +1167,10 @@ export class ProcessesService implements OnModuleInit {
         tenantId: workspaceId,
         userId: { in: [...wanted.keys()] },
         isActive: true,
-        role: { not: 'contractor' },
+        // «Сотрудник организации» = БЕЛЫЙ список командных ролей: по чёрному списку
+        // человек с будущей не-командной ролью прошёл бы валидацию публикации и стал
+        // исполнителем шага / получателем уведомлений опубликованного процесса.
+        role: { in: [...TEAM_WORKSPACE_ROLES] },
       },
       select: { userId: true, role: true },
     });

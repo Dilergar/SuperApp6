@@ -14,6 +14,7 @@ import {
   OfficeRoomDto,
   OfficeRoomPersonDto,
   OfficeRoomRole,
+  TEAM_WORKSPACE_ROLES,
   WORKSPACE_ROLE_RANK,
   WorkspaceRole,
 } from '@superapp/shared';
@@ -30,6 +31,21 @@ import { MessengerService } from '../messenger/messenger.service';
 const WS_CONTEXT = 'workspace';
 /** refType встречи в движке звонков (CallsRefRegistry) и контекстном чате мессенджера */
 export const OFFICE_CALL_REF_TYPE = 'office_room';
+
+/**
+ * «Человек в команде организации» — БЕЛЫЙ список ролей (Стажёр и выше), а не «всё, кроме
+ * Подрядчика». Fail-closed: любая будущая роль лестницы (гость, аудитор, кандидат) по
+ * чёрному списку молча получила бы вход во встречи, модерацию и карточку — белый список
+ * заставляет расширить его осознанно. Предикат ОДИН на модуль: канджойн, модерация,
+ * гейт эндпоинтов и уборщик участников обязаны решать одинаково, иначе крон вычищает
+ * тех, кто по canJoin имеет право войти (и наоборот).
+ */
+export function isOfficeTeamRole(role: string | null | undefined): boolean {
+  // Возвращаем boolean, а НЕ type-guard `role is WorkspaceRole`: у вызывающих переменная
+  // уже типизирована как WorkspaceRole, и в отрицательной ветке guard сузил бы её до
+  // never — сравнение `role === 'contractor'` там перестало бы компилироваться.
+  return !!role && (TEAM_WORKSPACE_ROLES as readonly string[]).includes(role);
+}
 
 type RoomRow = OfficeRoom & { participants: Array<{ userId: string; role: string }> };
 
@@ -67,8 +83,7 @@ export class OfficeService implements OnModuleInit {
           select: { workspaceId: true, status: true },
         });
         if (!room || room.status !== 'active') return false;
-        const role = await this.getRoleOf(userId, room.workspaceId);
-        return !!role && role !== 'contractor';
+        return isOfficeTeamRole(await this.getRoleOf(userId, room.workspaceId));
       },
       canModerate: async (userId, roomId) => {
         const room = await this.db.officeRoom.findUnique({
@@ -193,7 +208,10 @@ export class OfficeService implements OnModuleInit {
         context: WS_CONTEXT,
         tenantId: workspaceId,
         isActive: true,
-        role: { notIn: ['contractor'] },
+        // БЕЛЫЙ список командных ролей (как в ContactsService.assertReachable), а не
+        // «все, кроме contractor»: fail-closed — новая роль в лестнице (гость, аудитор,
+        // кандидат) по чёрному списку молча получила бы приглашение на встречу.
+        role: { in: [...TEAM_WORKSPACE_ROLES] },
       },
       select: { userId: true },
     });
@@ -352,7 +370,15 @@ export class OfficeService implements OnModuleInit {
     // Собрать активные роли по (workspaceId,userId) одним запросом на воркспейс-множество
     const wsIds = [...new Set(rows.map((r) => r.room.workspaceId))];
     const activeRoles = await this.db.userRole.findMany({
-      where: { context: WS_CONTEXT, tenantId: { in: wsIds }, isActive: true, role: { not: 'contractor' } },
+      // Тот же белый список, что в canJoin (см. isOfficeTeamRole): уборщик обязан
+      // считать «в команде» ровно так же, как гейт входа, иначе он вычищал бы из
+      // встреч людей, которые по правам могут в них войти.
+      where: {
+        context: WS_CONTEXT,
+        tenantId: { in: wsIds },
+        isActive: true,
+        role: { in: [...TEAM_WORKSPACE_ROLES] },
+      },
       select: { userId: true, tenantId: true },
     });
     const member = new Set(activeRoles.map((r) => `${r.tenantId}:${r.userId}`));
@@ -479,11 +505,12 @@ export class OfficeService implements OnModuleInit {
   }
 
   private async canManageRoom(userId: string, workspaceId: string, createdById: string): Promise<boolean> {
-    // Роль проверяем ПЕРВОЙ: уволенный/разжалованный в contractor организатор теряет
-    // модерацию (иначе createdById давал бы ему kick/mute/«Завершить» над живой встречей
-    // организации, из которой он уже ушёл).
+    // Роль проверяем ПЕРВОЙ: уволенный/разжалованный организатор теряет модерацию
+    // (иначе createdById давал бы ему kick/mute/«Завершить» над живой встречей
+    // организации, из которой он уже ушёл). Пол — командная роль; выше по рангу
+    // (manager+) считается отдельно и остаётся сравнением РАНГОВ, а не списком.
     const role = await this.getRoleOf(userId, workspaceId);
-    if (!role || role === 'contractor') return false;
+    if (!role || !isOfficeTeamRole(role)) return false;
     if (createdById === userId) return true;
     return (WORKSPACE_ROLE_RANK[role] ?? 0) >= WORKSPACE_ROLE_RANK.manager;
   }
@@ -500,8 +527,14 @@ export class OfficeService implements OnModuleInit {
   private async assertTeamMember(userId: string, workspaceId: string): Promise<WorkspaceRole> {
     const role = await this.getRoleOf(userId, workspaceId);
     if (!role) throw new ForbiddenException('Нет доступа к этой организации');
-    if (role === 'contractor') {
-      throw new ForbiddenException('Подрядчику доступны только его задачи');
+    if (!isOfficeTeamRole(role)) {
+      // Персональная формулировка — только Подрядчику (единственная существующая
+      // не-командная роль); любая будущая получает нейтральный отказ, а не проход.
+      throw new ForbiddenException(
+        role === 'contractor'
+          ? 'Подрядчику доступны только его задачи'
+          : 'Нет доступа к этой организации',
+      );
     }
     return role;
   }

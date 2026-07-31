@@ -16,7 +16,7 @@ import type {
   ProcessPortType,
   ProcessStepStatus,
 } from '@superapp/shared';
-import { ICONS, type IconName } from '@/components/ui';
+import { ICONS, type IconName, type Tone } from '@/components/ui';
 
 /**
  * Матовый тон — базовый приём системы (DESIGN.md §1): заливка rgba(база,0.12–0.16)
@@ -114,14 +114,14 @@ export const STEP_STATUS_BADGE: Record<ProcessStepStatus, NodeTone> = {
  * а не своя подложка (пары выше остаются только внутри нод канваса,
  * где чип не помещается).
  */
-export const INSTANCE_STATUS_TONE: Record<string, 'accent' | 'success' | 'warning' | 'danger' | 'neutral'> = {
+export const INSTANCE_STATUS_TONE: Record<string, Tone> = {
   running: 'warning',
   done: 'success',
   cancelled: 'neutral',
   error: 'danger',
 };
 
-export const STEP_STATUS_TONE: Record<ProcessStepStatus, 'accent' | 'success' | 'warning' | 'danger' | 'neutral'> = {
+export const STEP_STATUS_TONE: Record<ProcessStepStatus, Tone> = {
   active: 'warning',
   done: 'success',
   error: 'danger',

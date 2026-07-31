@@ -6,7 +6,7 @@ import { EntitySelector } from '@/components/EntitySelector';
 import type { Principal } from '@/lib/entities';
 import { PersonChip } from '../circles/PersonCard';
 import {
-  Alert, Button, Card, Chip, Field, Icon, IconButton, Input, LoadingBlock, Modal,
+  Alert, Button, Card, Chip, Field, Glyph, GlyphField, Icon, IconButton, Input, LoadingBlock, Modal,
   SegmentedControl, Select, Textarea, type Tone,
 } from '@/components/ui';
 import {
@@ -37,13 +37,13 @@ export type ModalTarget =
 
 /** Тон статуса RSVP/брони — цвет берём из системы, а не из хардкода констант. */
 const RSVP_TONE: Record<RsvpStatus, Tone> = {
-  pending: 'neutral',
+  pending: 'waiting',   // ещё не ответил — ждём человека
   accepted: 'success',
   declined: 'danger',
   tentative: 'warning',
 };
 const BOOKING_TONE: Record<ResourceBookingStatus, Tone> = {
-  pending: 'warning',
+  pending: 'waiting',   // заявка ушла владельцу ресурса — ждём решения
   confirmed: 'success',
   rejected: 'danger',
 };
@@ -85,6 +85,7 @@ export function EventModal({
   const [startInput, setStartInput] = useState(toInputValue(initStart, initAllDay));
   const [endInput, setEndInput] = useState(toInputValue(initEnd, initAllDay));
   const [color, setColor] = useState(occ?.color ?? DEFAULT_EVENT_COLOR);
+  const [icon, setIcon] = useState<string | null>(occ?.icon ?? null);
   const [recurrence, setRecurrence] = useState<string | null>(occ?.recurrenceRule ?? null);
   const [reminders, setReminders] = useState<number[]>(
     occ?.reminderOffsets ?? [...DEFAULT_REMINDER_OFFSETS],
@@ -120,6 +121,7 @@ export function EventModal({
       setStartInput(toInputValue(new Date(d.startTime), d.allDay));
       setEndInput(toInputValue(new Date(d.endTime), d.allDay));
       setColor(d.color ?? DEFAULT_EVENT_COLOR);
+      setIcon(d.icon ?? null);
       setRecurrence(d.recurrenceRule);
       setReminders(d.reminderOffsets);
       setVisibility(d.visibility);
@@ -177,6 +179,7 @@ export function EventModal({
           title: title.trim(), startTime: s.toISOString(), endTime: en.toISOString(),
           allDay, color, visibility, reminderOffsets: reminders,
         };
+        if (icon) payload.icon = icon;
         if (description.trim()) payload.description = description.trim();
         if (location.trim()) payload.location = location.trim();
         if (recurrence) payload.recurrenceRule = recurrence;
@@ -187,7 +190,7 @@ export function EventModal({
       } else {
         const payload: Record<string, unknown> = {
           title: title.trim(), description: description.trim() || null, location: location.trim() || null,
-          startTime: s.toISOString(), endTime: en.toISOString(), allDay, color, visibility, reminderOffsets: reminders,
+          startTime: s.toISOString(), endTime: en.toISOString(), allDay, color, icon, visibility, reminderOffsets: reminders,
         };
         if (isSeries) { payload.editScope = scope; payload.occurrenceStart = occ!.occurrenceStart; }
         else { payload.recurrenceRule = recurrence; payload.editScope = 'all'; }
@@ -335,14 +338,20 @@ export function EventModal({
           <LoadingBlock />
         ) : canEdit ? (
           <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
-            <Input
-              autoFocus
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Название события"
-              aria-label="Название события"
-              style={{ fontSize: '1.05rem', fontWeight: 600 }}
-            />
+            <div style={{ display: 'flex', gap: 'var(--spacing-3)', alignItems: 'flex-end' }}>
+              {/* Значок — данные события: выбирает GlyphField, рисует Glyph (глиф-пак) */}
+              <GlyphField label="Значок" value={icon} onChange={setIcon} suggest={title} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <Input
+                  autoFocus
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Название события"
+                  aria-label="Название события"
+                  style={{ fontSize: '1.05rem', fontWeight: 600 }}
+                />
+              </div>
+            </div>
 
             <Field label="Когда">
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -506,7 +515,11 @@ export function EventModal({
           /* Режим ответа/просмотра (не организатор) */
           <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span aria-hidden style={{ width: 12, height: 12, borderRadius: '50%', background: detail?.color ?? DEFAULT_EVENT_COLOR }} />
+              {detail?.icon ? (
+                <Glyph value={detail.icon} size={18} />
+              ) : (
+                <span aria-hidden style={{ width: 12, height: 12, borderRadius: '50%', background: detail?.color ?? DEFAULT_EVENT_COLOR }} />
+              )}
               <span className="title-md">{detail?.title}</span>
             </div>
             <div className="body-md">{whenLabel(detail)}</div>

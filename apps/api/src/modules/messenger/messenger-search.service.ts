@@ -6,6 +6,7 @@ import { fullName } from '../../shared/utils/user-name';
 import { SearchRegistry } from '../../core/search/search.registry';
 import { SearchProjectionService } from '../../core/search/search-projection.service';
 import type { SearchProviderOpts, SearchProviderResult } from '../../core/search/search.types';
+import { ContactsService } from '../contacts/contacts.service';
 
 const USER_LITE = { id: true, firstName: true, lastName: true, avatar: true } as const;
 
@@ -43,6 +44,7 @@ export class MessengerSearchService implements OnModuleInit {
     private readonly db: DatabaseService,
     private readonly registry: SearchRegistry,
     private readonly projection: SearchProjectionService,
+    private readonly contacts: ContactsService,
   ) {}
 
   onModuleInit(): void {
@@ -225,35 +227,22 @@ export class MessengerSearchService implements OnModuleInit {
     opts: SearchProviderOpts,
   ): Promise<SearchProviderResult> {
     const limit = Math.min(opts.limit, 50);
-    // Окружение is bounded per user → live name match (cap the scan defensively).
-    const links = await this.db.contactLink.findMany({
-      where: { OR: [{ userAId: viewerId }, { userBId: viewerId }] },
-      include: { userA: { select: USER_LITE }, userB: { select: USER_LITE } },
-      take: 500,
-    });
-    const needle = query.trim().toLowerCase();
-    const seen = new Set<string>();
-    const items: SearchResultItem[] = [];
-    for (const l of links) {
-      const other = l.userAId === viewerId ? l.userB : l.userA;
-      if (!other || seen.has(other.id)) continue;
-      const name = fullName(other);
-      if (!name.toLowerCase().includes(needle)) continue;
-      seen.add(other.id);
-      items.push({
-        type: 'person',
-        id: other.id,
-        title: name,
-        snippet: null,
-        url: `/messenger?dm=${other.id}`,
-        chatId: null,
-        messageId: null,
-        avatar: other.avatar ?? null,
-        createdAt: null,
-        score: 1,
-      });
-      if (items.length >= limit) break;
-    }
+    // Окружение читает ContactsService, а не этот файл: свой обход contactLink нёс
+    // необъявленный потолок take:500 (у кого больше связей — «люди» просто не находились)
+    // и повторял дедуп/матч имени третьей копией. Форма результата не меняется.
+    const people = await this.contacts.searchContactUsers(viewerId, query, limit);
+    const items: SearchResultItem[] = people.map((p) => ({
+      type: 'person',
+      id: p.id,
+      title: fullName(p),
+      snippet: null,
+      url: `/messenger?dm=${p.id}`,
+      chatId: null,
+      messageId: null,
+      avatar: p.avatar ?? null,
+      createdAt: null,
+      score: 1,
+    }));
     return { items };
   }
 

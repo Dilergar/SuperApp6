@@ -1,6 +1,6 @@
 'use client';
 
-import { Icon, ICONS, ModalShell, type IconName } from '@/components/ui';
+import { Glyph, ModalShell } from '@/components/ui';
 import { useEffect, useState } from 'react';
 import type { RichCardRefType } from '@superapp/shared';
 import { api } from '@/lib/api';
@@ -32,11 +32,8 @@ interface PickItem {
   refId: string;
 }
 
-/** Значок карточки: имя иконки кита ИЛИ пользовательский эмодзи лота. */
-function CardGlyph({ icon }: { icon: string }) {
-  if (icon in ICONS) return <Icon name={icon as IconName} size={20} />;
-  return <span aria-hidden style={{ fontSize: '1.2rem', flexShrink: 0, lineHeight: 1 }}>{icon}</span>;
-}
+/** Значок карточки — разбор значения делает кит (`Glyph`). */
+const CardGlyph = ({ icon }: { icon: string }) => <Glyph value={icon} size={20} />;
 
 export function AttachCardModal({
   chatId,

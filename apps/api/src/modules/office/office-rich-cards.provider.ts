@@ -2,7 +2,7 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import type { RichCardPayload } from '@superapp/shared';
 import { RichCardRegistry } from '../../core/rich-cards/rich-cards.registry';
 import type { RichCardDeps } from '../../core/rich-cards/rich-card.types';
-import { OFFICE_CALL_REF_TYPE } from './office.service';
+import { OFFICE_CALL_REF_TYPE, isOfficeTeamRole } from './office.service';
 
 /**
  * Rich card «Встреча» (Принцип 3): title + статус («Идёт сейчас · N» / «Встреча» /
@@ -42,7 +42,9 @@ export class OfficeRichCardsProvider implements OnModuleInit {
         where: { userId: viewerId, context: 'workspace', tenantId: room.workspaceId, isActive: true },
         select: { role: true },
       });
-      const isTeam = roleRows.some((r) => r.role !== 'contractor');
+      // Тот же предикат «в команде», что у canJoin офиса: карточка встречи показывает
+      // название и живой счётчик участников — видеть её должен ровно тот, кто может войти.
+      const isTeam = roleRows.some((r) => isOfficeTeamRole(r.role));
       if (!isTeam) return null;
     }
 

@@ -47,6 +47,13 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
     pushByDefault: false,
     category: 'contacts',
   },
+  'contact.invitation.expired': {
+    title: 'Приглашение для {{toPhone}} истекло',
+    body: 'Его можно отправить повторно',
+    icon: '⌛',
+    pushByDefault: false,
+    category: 'contacts',
+  },
   'contact.linked': {
     title: '{{otherName}} теперь в ваших контактах',
     icon: '🔗',

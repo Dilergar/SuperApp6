@@ -265,24 +265,10 @@ export class TasksService implements OnModuleInit {
     await this.contacts.assertReachable(ownerId, ids, 'Назначать можно только людей из вашего окружения');
   }
 
-  /** Resolve a Группа (Circle) owned by `ownerId` into the member user ids. */
-  private async resolveCircleMemberIds(ownerId: string, circleId: string): Promise<string[]> {
-    const circle = await this.db.circle.findUnique({
-      where: { id: circleId },
-      include: {
-        memberships: {
-          include: { contactLink: { select: { userAId: true, userBId: true } } },
-        },
-      },
-    });
-    if (!circle || circle.ownerId !== ownerId) {
-      throw new ForbiddenException('Группа не найдена');
-    }
-    const ids = circle.memberships.map((m) =>
-      m.contactLink.userAId === ownerId ? m.contactLink.userBId : m.contactLink.userAId,
-    );
-    return [...new Set(ids)];
-  }
+  // Разворота Группы своей копией здесь БОЛЬШЕ НЕТ: он проверял только владение группой
+  // и раздавал задачу всему снимку БЕЗ гейта достижимости — в контексте организации
+  // задача через личную Группу уходила людям вне организации, а изоляция Подрядчика
+  // не срабатывала вовсе. Единственный законный разворот — ContactsService.
 
   // ============================================================
   // Create
@@ -319,7 +305,14 @@ export class TasksService implements OnModuleInit {
     let assignedCircleId: string | null = null;
 
     if (data.assignedCircleId) {
-      const memberIds = await this.resolveCircleMemberIds(userId, data.assignedCircleId);
+      // Разворот Группы + гейт «между людьми» одним вызовом: раньше эта ветка была
+      // единственным назначением вообще без проверки достижимости.
+      // skipEnvironmentChecks (движок Процессов, выдача заказа) → gate:false: состав там
+      // авторизован иначе, но владение Группой проверяется в любом случае.
+      const memberIds = await this.contacts.resolveCircleMemberIds(userId, data.assignedCircleId, {
+        gate: !opts.skipEnvironmentChecks,
+        notLinkedMessage: 'Назначать можно только людей из вашего окружения',
+      });
       if (memberIds.length === 0) {
         throw new BadRequestException('В выбранной группе нет участников');
       }
@@ -1407,10 +1400,14 @@ export class TasksService implements OnModuleInit {
     const next = this.nextOccurrence(task.dueDate, task.recurrenceRule);
     if (!next) return;
 
-    const participants = await this.db.taskParticipant.findMany({
+    const snapshot = await this.db.taskParticipant.findMany({
       where: { taskId: task.id },
       select: { userId: true, role: true },
     });
+    // Состав следующего экземпляра — по ЖИВОМУ графу, а не слепым клоном снимка
+    // (иначе удалённый из окружения или заблокировавший человек получал новые
+    // экземпляры бессрочно — связь порвана, а задачи всё идут).
+    const participants = await this.liveRecurrenceParticipants(task, snapshot);
 
     // Shift the reminder by the same delta as the due date.
     const reminder =
@@ -1456,6 +1453,71 @@ export class TasksService implements OnModuleInit {
         await this.freezeReward(tx, spawned.id, task.creatorId, workerIds, nextReward);
       }
     });
+  }
+
+  /**
+   * Состав следующего экземпляра повтора, пересчитанный по ЖИВОМУ социальному графу.
+   *
+   * Повтор — ФОНОВОЕ действие (спавнится при завершении предыдущего экземпляра), поэтому
+   * недостижимые тихо отбрасываются, а не роняют спавн: разорванная связь не должна
+   * останавливать повторяющуюся задачу целиком. Два случая:
+   *  • Группа — состав берётся ЗАНОВО (за месяц из неё могли выйти и в неё могли войти;
+   *    старый снимок к тому же переживал разрыв связи);
+   *  • отвалился ИСПОЛНИТЕЛЬ — он просто выпадает из состава, и экземпляр создаётся как
+   *    само-задача постановщика (это штатное состояние задачи, а не ошибка).
+   */
+  private async liveRecurrenceParticipants(
+    task: { id: string; creatorId: string; assignedCircleId: string | null; workspaceId: string | null },
+    snapshot: Array<{ userId: string; role: string }>,
+  ): Promise<Array<{ userId: string; role: string }>> {
+    let candidates = snapshot;
+
+    if (task.assignedCircleId) {
+      let memberIds: string[] = [];
+      try {
+        // gate:false — достижимость проверяем ниже одним не-бросающим фильтром;
+        // здесь нужен только актуальный состав своей Группы.
+        memberIds = await this.contacts.resolveCircleMemberIds(
+          task.creatorId,
+          task.assignedCircleId,
+          { gate: false },
+        );
+      } catch {
+        // Группу удалили — состав пуст, экземпляр станет само-задачей постановщика.
+        memberIds = [];
+      }
+      const inCircle = new Set(memberIds);
+      candidates = [
+        ...memberIds.map((userId) => ({ userId, role: 'co_executor' })),
+        // Наблюдатели назначались отдельно от Группы — их снимок сохраняем.
+        ...snapshot.filter((p) => p.role === 'observer' && !inCircle.has(p.userId)),
+      ];
+    }
+
+    // Достижимость КОНТЕКСТНАЯ, как в assertReachable: у задачи ОРГАНИЗАЦИИ её даёт ещё и
+    // «рабочий пропуск» (со-членство по командным ролям) — иначе повтор рабочей задачи,
+    // назначенной коллеге вне личного окружения, на первом же круге стал бы само-задачей.
+    // Контекст берём от САМОЙ задачи (workspaceId), а не из ALS: спавн идёт хвостом чужого
+    // запроса или крона, где активной организации может не быть вовсе. Уволенного пропуск
+    // уже не покрывает — ради этого проверка и добавлена.
+    const candidateIds = candidates.map((p) => p.userId);
+    const [personal, coworkers] = await Promise.all([
+      this.contacts.filterReachable(task.creatorId, candidateIds),
+      task.workspaceId
+        ? this.contacts.filterCoworkers(task.creatorId, candidateIds)
+        : Promise.resolve<string[]>([]),
+    ]);
+    const reachable = new Set([...personal, ...coworkers]);
+    // Сам постановщик ни в один фильтр не попадает (он себе не «контакт») — оставляем явно.
+    const kept = candidates.filter((p) => p.userId === task.creatorId || reachable.has(p.userId));
+
+    const dropped = candidates.length - kept.length;
+    if (dropped > 0) {
+      this.logger.warn(
+        `Повтор задачи ${task.id}: ${dropped} участник(ов) больше не в окружении постановщика — следующий экземпляр создан без них`,
+      );
+    }
+    return kept;
   }
 
   /**
