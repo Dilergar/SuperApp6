@@ -1126,3 +1126,40 @@ a:hover {
 @media (prefers-reduced-motion: reduce) {
   .msg-row .msg-actions { transition: none; }
 }
+
+/* Переход к сообщению (цитата, упоминание, поиск): пульсирующее кольцо вокруг
+   САМОГО пузыря — не вокруг строки: строка тянется во всю ширину ленты вместе с
+   временем и кнопкой «⋯», и заливка по ней читалась как «выделен кусок экрана»,
+   а не «вот это сообщение».
+   Только тень: размер пузыря обязан остаться прежним, иначе виртуализатор
+   перемеряет строку и лента дёргается в момент вспышки. Тонкий зазор цветом
+   полотна отделяет кольцо от пузыря — поэтому оно одинаково читается и на синем
+   «своём», и на светлом чужом. Тень карточки повторена в каждом кадре: анимация
+   перебивает inline-стиль целиком, и без неё пузырь на время терял бы тень. */
+@keyframes msg-flash-pulse {
+  0%, 50%, 100% {
+    box-shadow:
+      0 0 0 3px var(--surface-container-low),
+      0 0 0 3px color-mix(in srgb, var(--primary) 0%, transparent),
+      var(--shadow-card);
+  }
+  25%, 75% {
+    box-shadow:
+      0 0 0 3px var(--surface-container-low),
+      0 0 0 9px color-mix(in srgb, var(--primary) 55%, transparent),
+      var(--shadow-card);
+  }
+}
+.msg-bubble--flash {
+  animation: msg-flash-pulse 0.75s ease-in-out 3;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Пульсация выключена, но «вот оно» показать всё равно надо — статичное кольцо. */
+  .msg-bubble--flash {
+    animation: none;
+    box-shadow:
+      0 0 0 3px var(--surface-container-low),
+      0 0 0 9px color-mix(in srgb, var(--primary) 55%, transparent),
+      var(--shadow-card);
+  }
+}

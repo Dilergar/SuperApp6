@@ -121,6 +121,15 @@ function MessengerInner() {
   });
   const messages = useMemo(() => messagesQuery.data ?? [], [messagesQuery.data]);
 
+  // Пагинация скролл-бэка — своя у каждого чата. Сбрасывать её обязан КАЖДЫЙ путь
+  // открытия диалога, а не только клик по списку: раньше дип-линк (?chat=, ?dm=,
+  // упоминание) оставлял hasMore=false от предыдущего чата, и в новом история
+  // вверх просто не догружалась.
+  useEffect(() => {
+    setHasMore(true);
+    setLoadingMore(false);
+  }, [activeChatId]);
+
   // ============================================================
   // Presence (Phase 4) — a Map<userId, PresenceInfo>. Filled by an initial
   // fetch for inbox DM peers + the open chat's participants, then kept fresh
