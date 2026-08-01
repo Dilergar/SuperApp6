@@ -20,13 +20,35 @@ import { STORAGE_DRIVER, StorageDriver } from './storage/storage-driver';
  */
 interface SharpInstance {
   rotate(): SharpInstance;
-  resize(opts: { width: number; height: number; fit: 'inside'; withoutEnlargement: boolean }): SharpInstance;
+  resize(opts: {
+    width: number;
+    height: number;
+    fit: 'inside' | 'fill';
+    withoutEnlargement?: boolean;
+  }): SharpInstance;
   webp(opts: { quality: number }): SharpInstance;
+  ensureAlpha(): SharpInstance;
+  raw(): SharpInstance;
+  toBuffer(opts: { resolveWithObject: true }): Promise<{ data: Buffer; info: { width: number; height: number } }>;
   toFile(path: string): Promise<{ width: number; height: number; size: number }>;
-  metadata(): Promise<{ width?: number; height?: number; orientation?: number }>;
+  metadata(): Promise<{ width?: number; height?: number; orientation?: number; exif?: Buffer }>;
 }
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const sharp = require('sharp') as (input?: string) => SharpInstance;
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const exifReader = require('exif-reader') as (buf: Buffer) => ExifTags;
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { rgbaToThumbHash } = require('thumbhash') as {
+  rgbaToThumbHash: (w: number, h: number, rgba: Uint8Array) => Uint8Array;
+};
+
+interface ExifTags {
+  Photo?: { DateTimeOriginal?: Date; OffsetTimeOriginal?: string; DateTimeDigitized?: Date };
+  Image?: { DateTime?: Date };
+}
+
+/** thumbhash кодируется с картинки не крупнее 100×100 — таково требование алгоритма */
+const THUMBHASH_MAX = 100;
 
 /** Тип джоба медиа-конвейера в реестре core/jobs. */
 const FILES_PIPELINE_JOB = 'files.pipeline';
@@ -267,7 +289,57 @@ export class FilesPipelineService implements OnModuleInit, OnApplicationBootstra
         await fs.promises.unlink(out).catch(() => undefined);
       }
     }
-    return { width, height };
+
+    // Дата съёмки и компактный предпросмотр считаются ЗДЕСЬ, вместе с вариантами:
+    // задним числом это означало бы перемолоть всё хранилище заново. Обе величины
+    // необязательные — сбой любой из них не должен ронять миниатюры.
+    return {
+      width,
+      height,
+      ...(await this.extractShotDate(md.exif)),
+      ...(await this.extractThumbhash(source)),
+    };
+  }
+
+  /**
+   * Время съёмки как СТЕННОЕ (без пояса): ночной снимок не должен уезжать на соседние
+   * сутки при смене пояса зрителя, а группировка по месяцам обязана совпадать с тем,
+   * что человек помнит. EXIF хранит ровно стенное время камеры — берём его как есть.
+   */
+  private async extractShotDate(exif?: Buffer): Promise<Record<string, unknown>> {
+    if (!exif?.length) return {};
+    try {
+      const tags = exifReader(exif);
+      const shot = tags.Photo?.DateTimeOriginal ?? tags.Photo?.DateTimeDigitized ?? tags.Image?.DateTime;
+      if (!(shot instanceof Date) || Number.isNaN(shot.getTime())) return {};
+      // exif-reader отдаёт Date, собранный из частей КАК ЕСЛИ БЫ они были UTC —
+      // то есть уже «стенное время в оболочке UTC». Ровно этого и хочет колонка
+      // takenAtLocal (timestamp без пояса), поэтому ISO-строка идёт без правок.
+      return { takenAtLocal: shot.toISOString() };
+    } catch {
+      // Битый или нестандартный EXIF — не повод портить конвейер
+      return {};
+    }
+  }
+
+  /**
+   * thumbhash — 20–30 байт, из которых клиент рисует размытый предпросмотр ДО загрузки
+   * миниатюры. В ленте фотографий это разница между «серые прямоугольники, потом
+   * скачок» и плавным проявлением.
+   */
+  private async extractThumbhash(source: string): Promise<Record<string, unknown>> {
+    try {
+      const { data, info } = await sharp(source)
+        .rotate()
+        .resize({ width: THUMBHASH_MAX, height: THUMBHASH_MAX, fit: 'inside', withoutEnlargement: true })
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+      const hash = rgbaToThumbHash(info.width, info.height, new Uint8Array(data));
+      return { thumbhash: Buffer.from(hash).toString('base64') };
+    } catch {
+      return {};
+    }
   }
 
   // ---------- video / audio ----------

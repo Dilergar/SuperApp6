@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 
 /**
  * Резолвер доступа к файлу через привязанную сущность (модель Salesforce
@@ -49,6 +50,35 @@ export interface FileRefOptions {
   anchorOnly?: boolean;
 }
 
+/** Событие «файл привязали к сущности» — ровно то, что движок знает сам */
+export interface FileLinkedEvent {
+  fileId: string;
+  refType: string;
+  refId: string;
+  role: string;
+  /** Кто привязал (в linkManyInTx это всегда и загрузивший файл) */
+  actorId: string;
+}
+
+/**
+ * Наблюдатель ПРИВЯЗОК — глобальный, а не пер-refType.
+ *
+ * Резолвер принадлежит владельцу refType (мессенджеру, задачам), поэтому сервис,
+ * которому интересны ЧУЖИЕ привязки, зарегистрироваться в нём не может. Отсюда
+ * отдельный список наблюдателей: Диск подписывается один раз и сам решает, что
+ * делать с файлом, только что появившимся в чате или задаче.
+ *
+ * Вызывается ВНУТРИ транзакции привязки, когда она есть (`tx`), — чтобы наблюдатель
+ * мог поставить свой джоб тем же коммитом (transactional outbox): сообщение
+ * отправилось ⇒ джоб есть, откатилось ⇒ джоба нет.
+ *
+ * Движок при этом ничего не знает о потребителях — тот же приём, что у
+ * CallsRecordingRegistry и CalendarLayersRegistry.
+ */
+export interface FileLinkObserver {
+  onLinked(tx: Prisma.TransactionClient | null, event: FileLinkedEvent): Promise<void>;
+}
+
 interface RegistryEntry {
   resolver: FileRefResolver;
   options: FileRefOptions;
@@ -58,6 +88,7 @@ interface RegistryEntry {
 export class FilesRefRegistry {
   private readonly logger = new Logger(FilesRefRegistry.name);
   private readonly entries = new Map<string, RegistryEntry>();
+  private readonly observers = new Map<string, FileLinkObserver>();
 
   register(refType: string, resolver: FileRefResolver, options: FileRefOptions = {}): void {
     if (this.entries.has(refType)) {
@@ -72,5 +103,29 @@ export class FilesRefRegistry {
 
   options(refType: string): FileRefOptions | undefined {
     return this.entries.get(refType)?.options;
+  }
+
+  /** Подписаться на ЛЮБУЮ привязку файла (ключ — имя потребителя, повтор перезаписывает) */
+  registerLinkObserver(key: string, observer: FileLinkObserver): void {
+    this.observers.set(key, observer);
+  }
+
+  /**
+   * Разослать событие наблюдателям. Ошибка одного не роняет ни остальных, ни
+   * привязку: вложение в чате важнее, чем его копия на Диске. Оговорка — сбой
+   * ЗАПРОСА внутри чужой транзакции всё равно отравит её, и коммит вызывающего
+   * упадёт; это честно и лучше, чем наполовину применённая транзакция.
+   */
+  async notifyLinked(tx: Prisma.TransactionClient | null, event: FileLinkedEvent): Promise<void> {
+    for (const [key, observer] of this.observers) {
+      try {
+        await observer.onLinked(tx, event);
+      } catch (err) {
+        this.logger.warn(
+          `наблюдатель привязок "${key}" упал на ${event.refType}:${event.refId}: ` +
+            `${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
   }
 }

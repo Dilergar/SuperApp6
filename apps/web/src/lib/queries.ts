@@ -123,6 +123,34 @@ export const fileUrlKey = (id: string, variant?: string) =>
   ['files', 'url', id, variant ?? 'original'] as const;
 export const fileMetaKey = (id: string) => ['files', 'meta', id] as const;
 export const taskAttachmentsKey = (taskId: string) => ['tasks', 'attachments', taskId] as const;
+// OmniDrive («Диск»). Всё под корнем ['drive'] — одна инвалидация префикса после
+// мутации обновляет и листинг, и обзор, и корзину, и ленту «Фото».
+const driveScope = (ref: DriveRef) => ref.workspaceId ?? ref.spaceId ?? 'own';
+export interface DriveRef {
+  spaceId?: string;
+  workspaceId?: string;
+}
+export const driveRootKey = ['drive'] as const;
+export const driveOverviewKey = (ref: DriveRef) => ['drive', 'overview', driveScope(ref)] as const;
+export const driveListKey = (ref: DriveRef, parentId: string | null, sort: string, dir: string) =>
+  ['drive', 'list', driveScope(ref), parentId ?? 'root', sort, dir] as const;
+export const driveNodeKey = (id: string) => ['drive', 'node', id] as const;
+export const driveSharesKey = (id: string) => ['drive', 'shares', id] as const;
+export const driveVersionsKey = (id: string) => ['drive', 'versions', id] as const;
+export const driveTrashKey = (ref: DriveRef) => ['drive', 'trash', driveScope(ref)] as const;
+export const driveStarredKey = ['drive', 'starred'] as const;
+
+// ---- Гостевые ссылки (core/share-links) ----
+// Ключ общий для ЛЮБОГО потребителя движка: блок управления ссылками один и тот же
+// и на Диске, и на документе, и на будущих счетах.
+export const shareLinksKey = (refType: string, refId: string) => ['share-links', refType, refId] as const;
+// Отдельный корень, а не ['share-links','visits',…]: refType — свободная строка движка,
+// и сервис с типом «visits» однажды схлопнул бы два разных запроса в один префикс.
+export const shareLinkVisitsKey = (linkId: string) => ['share-link-visits', linkId] as const;
+export const driveRecentKey = ['drive', 'recent'] as const;
+export const drivePhotoBucketsKey = (ref: DriveRef) => ['drive', 'photos', 'buckets', driveScope(ref)] as const;
+export const drivePhotosKey = (ref: DriveRef, month?: string) =>
+  ['drive', 'photos', 'page', driveScope(ref), month ?? 'all'] as const;
 // Голосовой движок (core/voice) + Диктофон
 export const voiceStatusKey = ['voice', 'status'] as const;
 export const voiceTranscriptKey = (fileId: string) => ['voice', 'transcript', fileId] as const;

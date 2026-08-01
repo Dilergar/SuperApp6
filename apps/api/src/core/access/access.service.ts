@@ -7,10 +7,12 @@ import {
   ACCESS_SCHEMA,
   CHAT_PARENT_SUBJECT_TYPES,
   EPOCH_FANOUT,
+  GENERIC_PRINCIPALS,
   OBJECT_EPOCH_TYPES,
+  ROLE_LADDERS,
 } from './access-schema';
 import { CAPABILITIES, CapabilityKey } from './access-capabilities';
-import { Principal, ResourceRef, RelationTupleInput } from './access.types';
+import { GrantSet, Principal, ResourceRef, RelationTupleInput, SubjectRef } from './access.types';
 
 type Tx = Prisma.TransactionClient;
 type EpochRef = { type: string; id: string };
@@ -102,6 +104,87 @@ export class AccessService {
   /** Reverse query: resource ids of `resourceType` the subject holds `relation` on. */
   async listObjects(subject: Principal, relation: string, resourceType: string): Promise<string[]> {
     return this.resolver.listObjects(subject, relation, resourceType);
+  }
+
+  /**
+   * МАССОВОЕ чтение грантов одного типа ресурса — второй читающий путь движка.
+   *
+   * Отдаёт «кто я такой» (принципалы) и «что мне выдано» (id ресурсов по отношениям).
+   * Потребитель подставляет это ОДНИМ условием в свой SQL и получает страницу уже
+   * обрезанной по правам — вместо N вызовов check() на страницу или listObjects,
+   * который обходит граф с потолком MAX_VISITED и молча теряет хвост выдачи.
+   *
+   * Ровно два индексных запроса:
+   *   1) членства зрителя (реверс-индекс [subjectType, subjectId]);
+   *   2) гранты типа на эти принципалы (индекс [subjectType, subjectId, resourceType, relation]).
+   *
+   * ЛЕСТНИЦА РОЛЕЙ РАЗВОРАЧИВАЕТСЯ ЗДЕСЬ. Это несущее: грант «всей команде» пишется
+   * как `@workspace:<ws>#member`, а у владельца организации спроецирована роль `owner` —
+   * без разворота вниз (owner ⇒ admin ⇒ manager ⇒ member) он бы просто не совпал с
+   * грантом и не увидел бы папку, открытую рядовым сотрудникам. В поштучном check()
+   * это делает `computedUserset` схемы; массовый путь мимо резолвера, поэтому правило
+   * живёт внутри метода — и ошибка «забыли лестницу» становится невозможной у всех
+   * будущих потребителей.
+   *
+   * БЕЗ КЭША сознательно: два быстрых индексных запроса дешевле правильной
+   * инвалидации, а главное — так исключён класс «нового врага» (SQL всегда читает
+   * живые tuples, отзыв доступа виден сразу). Если кэш когда-нибудь понадобится, он
+   * должен жить ЗДЕСЬ, внутри движка: только сюда приходят и записи грантов, и хуки
+   * проекции составов Групп и ролей — доменный кэш просто не узнал бы, что человека
+   * убрали из Группы.
+   */
+  async grantSetFor(userId: string, resourceType: string): Promise<GrantSet> {
+    const principals: SubjectRef[] = [{ subjectType: 'user', subjectId: userId, subjectRelation: '' }];
+
+    // 1) Членства: Группы, роли организаций, оси оргструктуры (отдел/должность/филиал).
+    const memberships = await this.db.relationTuple.findMany({
+      where: {
+        subjectType: 'user',
+        subjectId: userId,
+        subjectRelation: '',
+        resourceType: { in: [...GENERIC_PRINCIPALS.filter((t) => t !== 'user')] },
+      },
+      select: { resourceType: true, resourceId: true, relation: true },
+    });
+
+    const seen = new Set<string>();
+    for (const m of memberships) {
+      const ladder = ROLE_LADDERS[m.resourceType];
+      // Роль ниже по лестнице подразумевается сильнейшей: owner совпадает и с грантом
+      // на manager, и с грантом на member. Тип без лестницы (circle/department/…)
+      // добавляет ровно своё отношение.
+      const relations = ladder ? ladder.slice(ladder.indexOf(m.relation)) : [m.relation];
+      for (const relation of relations) {
+        if (!relation) continue;
+        const key = `${m.resourceType}:${m.resourceId}:${relation}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        principals.push({ subjectType: m.resourceType, subjectId: m.resourceId, subjectRelation: relation });
+      }
+    }
+
+    // 2) Гранты запрошенного типа на любой из принципалов.
+    const rows = await this.db.relationTuple.findMany({
+      where: {
+        resourceType,
+        OR: principals.map((p) => ({
+          subjectType: p.subjectType,
+          subjectId: p.subjectId,
+          subjectRelation: p.subjectRelation,
+        })),
+      },
+      select: { relation: true, resourceId: true },
+    });
+
+    const granted = new Map<string, string[]>();
+    for (const row of rows) {
+      const list = granted.get(row.relation);
+      if (list) list.push(row.resourceId);
+      else granted.set(row.relation, [row.resourceId]);
+    }
+    for (const [relation, ids] of granted) granted.set(relation, [...new Set(ids)]);
+
+    return { principals, granted };
   }
 
   // ------------------------------------------------------------

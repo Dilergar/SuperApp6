@@ -119,7 +119,7 @@ export class FilesController {
         },
         filename: (_req, _file, cb) => cb(null, `up-${Date.now()}-${randomUUID()}`),
       }),
-      limits: { fileSize: FILE_LIMITS.hardMaxSize, files: 1 },
+      limits: { fileSize: FILE_LIMITS.apiSingleRequestMax, files: 1 },
     }),
   )
   @ApiConsumes('multipart/form-data')

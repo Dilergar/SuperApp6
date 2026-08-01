@@ -19,6 +19,7 @@ import { FilesService } from '../../core/files/files.service';
 import { FilesRefRegistry } from '../../core/files/files-ref.registry';
 import { CallsService } from '../../core/calls/calls.service';
 import { CallsRefRegistry } from '../../core/calls/calls-ref.registry';
+import { DriveRoutingRegistry } from '../drive/drive-routing.registry';
 import { MESSENGER_LIMITS, OFFICE_ROOM_ROLE_LABELS, attachmentPreviewText } from '@superapp/shared';
 import type {
   CallActiveDto,
@@ -102,6 +103,7 @@ export class MessengerService implements OnModuleInit {
     private filesRegistry: FilesRefRegistry,
     private calls: CallsService,
     private callsRegistry: CallsRefRegistry,
+    private driveRouting: DriveRoutingRegistry,
     private redis: RedisService,
   ) {}
 
@@ -137,7 +139,27 @@ export class MessengerService implements OnModuleInit {
         if (!m || m.deletedAt) return false;
         return this.access.can(this.user(uid), 'chat.post', m.chatId);
       },
-    }, { allowedProfiles: ['chat_attachment', 'voice_message'] });
+      // 'drive_file' — чтобы работала кнопка «Прикрепить с Диска»: файл, загруженный
+      // профилем Диска, обязан приниматься вложением, иначе привязка молча отвергается.
+    }, { allowedProfiles: ['chat_attachment', 'voice_message', 'drive_file'] });
+
+    // Свои загрузки из переписки складываются на Диск сами (модель Teams). Куда
+    // именно — решает МЕССЕНДЖЕР, потому что только он знает природу чата:
+    // ЛИЧНАЯ переписка двух коллег не должна всплывать на общем диске организации,
+    // поэтому из DM файл всегда уходит на личный диск, даже в рабочем контексте.
+    this.driveRouting.register('chat_message', {
+      resolvePlacement: async (messageId, actorId) => {
+        const m = await this.db.message.findUnique({
+          where: { id: messageId },
+          select: { chat: { select: { type: true, workspaceId: true } } },
+        });
+        if (!m?.chat) return null;
+        if (m.chat.type === 'dm' || !m.chat.workspaceId) {
+          return { ownerType: 'user', ownerId: actorId };
+        }
+        return { ownerType: 'workspace', ownerId: m.chat.workspaceId };
+      },
+    });
 
     // Звонки в чатах (refType='chat', движок core/calls): DM с дозвоном, группы и
     // контекстные чаты — по модели «присоединиться». Доступ = chat.view; DM

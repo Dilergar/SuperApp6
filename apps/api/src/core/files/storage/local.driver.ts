@@ -50,6 +50,12 @@ export class LocalStorageDriver implements StorageDriver {
     }
   }
 
+  async copy(sourceKey: string, destKey: string, _mime: string): Promise<void> {
+    const dest = this.fullPath(destKey);
+    await fs.promises.mkdir(path.dirname(dest), { recursive: true });
+    await fs.promises.copyFile(this.fullPath(sourceKey), dest);
+  }
+
   async getStream(key: string, range?: { start: number; end?: number }): Promise<StorageStreamResult> {
     const file = this.fullPath(key);
     const stat = await fs.promises.stat(file);

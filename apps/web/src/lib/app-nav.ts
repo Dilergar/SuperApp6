@@ -108,6 +108,20 @@ export function buildPersonalNav(c: AppNavCounters = {}): AppNavConfig {
               { key: 'fin-recurring', label: 'Повторы', icon: 'refresh', href: '/finance/recurring' },
             ],
           },
+          {
+            key: 'drive',
+            label: 'Диск',
+            icon: 'drive',
+            href: '/drive',
+            children: [
+              { key: 'drive-my', label: 'Мой диск', icon: 'folder', href: '/drive', exact: true },
+              { key: 'drive-photos', label: 'Фото', icon: 'image', href: '/drive/photos' },
+              { key: 'drive-shared', label: 'Доступно мне', icon: 'share', href: '/drive/shared' },
+              { key: 'drive-starred', label: 'Избранное', icon: 'star', href: '/drive/starred' },
+              { key: 'drive-recent', label: 'Недавние', icon: 'clock', href: '/drive/recent' },
+              { key: 'drive-trash', label: 'Корзина', icon: 'delete', href: '/drive/trash' },
+            ],
+          },
           { key: 'shop', label: 'Магазин', icon: 'shop', href: '/shop' },
           { key: 'recorder', label: 'Диктофон', icon: 'recorder', href: '/recorder' },
         ],
@@ -135,6 +149,9 @@ export function buildWorkspaceNav(
     { key: 'ws-members', label: 'Сотрудники', icon: 'staff', href: `${base}/members` },
     { key: 'ws-processes', label: 'Процессы', icon: 'processes', href: `${base}/processes` },
     { key: 'ws-office', label: 'Виртуальный офис', icon: 'office', href: `${base}/office` },
+    // Диск организации — ОДИН маршрут с вкладками внутри, как у остальных сервисов
+    // организации (Сотрудники, Процессы, Офис): второй уровень сайдбара тут не заведён.
+    { key: 'ws-drive', label: 'Диск', icon: 'drive', href: `${base}/drive` },
   ];
   if (isManager) items.push({ key: 'ws-journal', label: 'Журнал', icon: 'journal', href: `${base}/journal` });
   if (isOwner) items.push({ key: 'ws-wallet', label: 'Кошелёк компании', icon: 'coins', href: `${base}/wallet` });

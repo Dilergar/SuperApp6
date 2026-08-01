@@ -63,6 +63,8 @@ const envSchema = z
     JWT_SECRET: blank(z.string({ required_error: 'обязателен' }).min(8, 'минимум 8 символов')),
     REDIS_URL: blank(z.string().min(1).optional()),
     PORT: blank(z.coerce.number().int().positive().optional()),
+    // Базовый адрес веба: редирект после OAuth, PostMessageOrigin редактора документов
+    // и адрес гостевой ссылки `${WEB_URL}/s/<токен>` (core/share-links).
     WEB_URL: blank(z.string().url('должен быть URL').optional()),
     // --- Files engine (core/files) ---
     FILES_DRIVER: blank(
@@ -109,6 +111,12 @@ const envSchema = z
     // Ключ подписи WOPI-токенов. Пусто → выводится из JWT_SECRET (JWT_SECRET и так мастер-ключ
     // нескольких подсистем); отдельная переменная даёт возможность ротировать её независимо.
     DOCS_TOKEN_SECRET: blank(z.string().min(32, 'минимум 32 символа').optional()),
+    // --- Движок гостевых ссылок (core/share-links) ---
+    // Ключ подписи ГОСТЕВЫХ пропусков (пропуск человека, уже открывшего ссылку).
+    // Пусто → выводится из JWT_SECRET отдельной строкой контекста; отдельная переменная
+    // позволяет ротировать её независимо. Адрес самой ссылки строится из WEB_URL.
+    // Других переменных у движка нет — внешних зависимостей у него тоже нет.
+    SHARE_LINK_SECRET: blank(z.string().min(32, 'минимум 32 символа').optional()),
     // --- Движок подтверждений (core/verify) — SMS-OTP ---
     SMS_DRIVER: blank(
       z.enum(['kazinfoteh', 'mock'], { errorMap: () => ({ message: 'должен быть kazinfoteh | mock' }) }).optional(),

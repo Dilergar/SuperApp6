@@ -17,7 +17,16 @@ export interface NotificationMeta {
   // Whether this notification type produces a push notification by default.
   pushByDefault: boolean;
   // Category bucket for notification preferences UI.
-  category: 'contacts' | 'tasks' | 'calendar' | 'workspaces' | 'shop' | 'processes' | 'finance' | 'system';
+  category:
+    | 'contacts'
+    | 'tasks'
+    | 'calendar'
+    | 'workspaces'
+    | 'shop'
+    | 'processes'
+    | 'finance'
+    | 'drive'
+    | 'system';
 }
 
 export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> = {
@@ -411,6 +420,14 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
     icon: '📒',
     pushByDefault: true,
     category: 'finance',
+  },
+  // Drive
+  'drive.shared': {
+    title: '{{ownerName}} открыл(а) вам доступ',
+    body: '«{{nodeName}}» — {{roleLabel}}',
+    icon: '🗂️',
+    pushByDefault: true,
+    category: 'drive',
   },
   // Messenger — scheduled ("Напомнить")
   'messenger.scheduled.sent': {

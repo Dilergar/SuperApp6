@@ -30,6 +30,15 @@ export { Tabs, SegmentedControl, type TabItem } from './Tabs';
 export { Pagination } from './Pagination';
 export { Calendar, DatePicker, type DatePickerProps } from './DatePicker';
 export { Dropzone, type DropzoneProps } from './Dropzone';
+export {
+  TableHeader,
+  TableRow,
+  TableCell,
+  type TableColumn,
+  type TableHeaderProps,
+  type TableRowProps,
+  type TableCellProps,
+} from './Table';
 export { Alert, type AlertProps } from './Alert';
 export { Spinner, LoadingBlock, Skeleton, AvatarStack } from './Feedback';
 export { toneVars, TONE_BASE, cx, type Tone } from './tones';

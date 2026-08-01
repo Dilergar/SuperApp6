@@ -14,6 +14,7 @@ for (const line of fs.readFileSync(path.join(__dirname, '..', '.env'), 'utf8').s
   if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
 }
 const { PrismaClient } = require('@prisma/client');
+const { dropFromDrive } = require('./drive-test-helpers.cjs');
 const crypto = require('crypto');
 const zlib = require('zlib');
 const BASE = 'http://localhost:3001/api';
@@ -554,6 +555,10 @@ async function main() {
     check('отзыв точечный: владелец продолжает работать', openOwner.ok && (await wopi.info(doc2Id, openOwner.json.data.accessToken)).status === 200);
 
     // ===== Место удалили → документ закрыт, байты и квота возвращены =====
+    // Диск — тоже МЕСТО: свои загрузки складываются туда сами, и пока дом есть, файл
+    // сиротой не считается (это задумано). Убираем дом, чтобы посылка «мест не
+    // осталось» стала правдой и проверялась именно уборка движка.
+    await dropFromDrive(prisma, file2Id);
     const detach = await call('DELETE', `/tasks/${taskId}/attachments/${file2Id}`, t1);
     check('вложение снято с задачи', detach.ok, `status ${detach.status}`);
     let doc2row = null, file2row = null;

@@ -10,7 +10,11 @@
 // the message body; live re-render is only for viewers with finbook access). fin_month's
 // refId is composite: `<bookId>:<YYYY-MM>`.
 // office_room — встреча «Виртуального офиса»: кнопка «Присоединиться» = href, без action-ключей.
-export const RICH_CARD_REF_TYPES = ['order', 'listing', 'crowdfunding', 'task', 'event', 'fin_transaction', 'fin_month', 'office_room'] as const;
+// drive_node — папка или файл Диска: карточка со ссылкой «Открыть», БЕЗ action-ключей.
+// Действий у неё нет намеренно: у типов Диска пустой фанаут эпох кэша (права считает
+// собственный предикат по живым tuples), и перепроверка способности через can() на
+// execute показывала бы устаревший ответ до десяти минут.
+export const RICH_CARD_REF_TYPES = ['order', 'listing', 'crowdfunding', 'task', 'event', 'fin_transaction', 'fin_month', 'office_room', 'drive_node'] as const;
 
 // Button visual styles.
 export const RICH_CARD_ACTION_STYLES = ['primary', 'danger', 'default'] as const;

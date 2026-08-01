@@ -28,6 +28,7 @@ const CATEGORY_CHIPS: { key: ChatterCategory | null; label: string }[] = [
   { key: null, label: 'Все' },
   { key: 'staff', label: 'Сотрудники' },
   { key: 'tasks', label: 'Задачи' },
+  { key: 'share', label: 'Ссылки наружу' },
 ];
 
 export default function WorkspaceJournalPage() {

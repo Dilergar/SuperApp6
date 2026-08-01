@@ -33,3 +33,22 @@ export interface RelationTupleInput {
 /** The wildcard subject that grants to everyone. */
 export const PUBLIC_SUBJECT_TYPE = 'public';
 export const PUBLIC_SUBJECT_ID = '*';
+
+/**
+ * Результат массового чтения грантов (`AccessService.grantSetFor`) — второй читающий
+ * путь движка, рядом с поштучным `check()`.
+ *
+ * Нужен сервисам, которые фильтруют СПИСКИ под правами: спрашивать движок по строке
+ * означало бы N проверок на страницу, а `listObjects` обходит граф с потолком в 10 000
+ * посещённых узлов и молча обрезает выдачу. Здесь домен получает сырой материал —
+ * «кто я такой» и «что мне выдано» — и подставляет его одним условием в свой SQL.
+ *
+ * Канонично для семейства Zanzibar: рядом с поштучным Check у всех есть массовый путь
+ * (ListObjects у OpenFGA, LookupResources у SpiceDB, Leopard у Google).
+ */
+export interface GrantSet {
+  /** Все принципалы зрителя: он сам + Группы + роли организаций + оси оргструктуры */
+  principals: SubjectRef[];
+  /** relation → id ресурсов, на которые этот relation выдан хотя бы одному принципалу */
+  granted: Map<string, string[]>;
+}

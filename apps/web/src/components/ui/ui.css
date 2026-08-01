@@ -829,3 +829,81 @@ textarea.ui-input { resize: vertical; min-height: 5rem; line-height: 1.55; }
     min-height: 40px;
   }
 }
+
+/* ============================================================
+   Таблица кита (TableHeader / TableRow / TableCell).
+   CSS-grid, а не <table>: список на десять тысяч строк обязан
+   виртуализироваться, а внутрь <tbody> строки-«окошки» не вставить.
+   Роли доступности при этом настоящие — см. Table.tsx.
+   ============================================================ */
+.ui-tbl-row {
+  display: grid;
+  align-items: center;
+  gap: var(--gap-grid, 16px);
+  padding: var(--row-py, 12px) 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  min-width: 0;
+}
+.ui-tbl-head {
+  padding-top: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--divider);
+  border-radius: 0;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--block);
+}
+.ui-tbl-head .ui-tbl-cell {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--label);
+}
+.ui-tbl-cell {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--on-surface);
+}
+.ui-tbl-end {
+  text-align: right;
+  justify-self: end;
+}
+.ui-tbl-clickable {
+  cursor: pointer;
+}
+.ui-tbl-clickable:hover {
+  background: var(--hover);
+}
+.ui-tbl-clickable:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+.ui-tbl-selected {
+  background: var(--active);
+  border-color: var(--border);
+}
+.ui-tbl-sortbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.ui-tbl-sortbtn:hover { color: var(--on-surface); }
+.ui-tbl-sort { color: var(--primary-dim); }
+
+@media (max-width: 700px) {
+  .ui-tbl-hide-sm { display: none; }
+}

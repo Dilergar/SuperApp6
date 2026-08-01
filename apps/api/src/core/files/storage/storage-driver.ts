@@ -37,6 +37,14 @@ export interface StorageDriver {
   /** Положить объект из локального временного файла */
   putFromFile(key: string, sourcePath: string, mime: string): Promise<void>;
 
+  /**
+   * Скопировать объект ВНУТРИ хранилища, не прогоняя байты через приложение.
+   * У s3 это CopyObject (копирование происходит на стороне хранилища), у local —
+   * copyFile. Без этого метода копия 2-ГБ файла означала бы «скачать и залить
+   * обратно» — трафик, время и место во временном каталоге на ровном месте.
+   */
+  copy(sourceKey: string, destKey: string, mime: string): Promise<void>;
+
   /** Поток чтения; range.end не задан → до конца объекта */
   getStream(key: string, range?: { start: number; end?: number }): Promise<StorageStreamResult>;
 

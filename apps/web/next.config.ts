@@ -35,7 +35,10 @@ const cspReportOnly = [
   `connect-src 'self' ${apiOrigin} ${apiWsOrigin} ${LIVEKIT_WS}`,
   "font-src 'self' data:",
   "worker-src 'self' blob:", // LiveKit
-  `frame-src 'self' ${DOCS_FRAME_SRC}`, // iframe редактора документов
+  // iframe редактора документов + PDF-отпечаток на гостевой странице /s/<токен>:
+  // его байты отдаёт API, поэтому его origin обязан быть здесь — иначе просмотр
+  // документа по ссылке наружу погаснет в тот день, когда CSP станет боевым.
+  `frame-src 'self' ${apiOrigin} ${DOCS_FRAME_SRC}`,
   // Форма запуска редактора POST'ит токен прямо в его iframe — origin редактора
   // обязан быть в form-action, иначе браузер отменит отправку.
   `form-action 'self' ${DOCS_FRAME_SRC}`,

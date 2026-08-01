@@ -26,6 +26,7 @@ import { ChatterModule } from './core/chatter/chatter.module';
 import { JobsModule } from './core/jobs/jobs.module';
 import { VerifyModule } from './core/verify/verify.module';
 import { DocsModule } from './core/docs/docs.module';
+import { ShareLinksModule } from './core/share-links/share-links.module';
 
 // Feature modules (MVP)
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -44,6 +45,7 @@ import { ProcessesModule } from './modules/processes/processes.module';
 import { FinancesModule } from './modules/finances/finances.module';
 import { RecorderModule } from './modules/recorder/recorder.module';
 import { OfficeModule } from './modules/office/office.module';
+import { DriveModule } from './modules/drive/drive.module';
 
 import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
 import { WorkspaceContextInterceptor } from './shared/interceptors/workspace-context.interceptor';
@@ -129,6 +131,12 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // блокировки + права; редактор — внешний WOPI-клиент (Collabora), сменная деталь.
     // Инертен без DOCS_EDITOR_URL.
     DocsModule,
+    // Share-links engine — 13-й платформенный движок: гостевые ссылки «наружу»,
+    // людям БЕЗ аккаунта (токен → гостевая страница, срок, отзыв, счётчик открытий,
+    // журнал визитов). Полиморфный refType; право управлять решает резолвер
+    // потребителя (ShareLinksRegistry), core/access не участвует — гость не принципал.
+    // Инертного режима нет: внешних зависимостей у движка тоже нет.
+    ShareLinksModule,
 
     // Feature modules — each is self-contained.
     // Load order: Notifications → Contacts (@Global, consumed by AuthService)
@@ -162,6 +170,10 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // (v1 — аналог Google Meet; Discord-комнаты — фаза 2). Чат встречи — контекстный
     // чат мессенджера (parentType='office_room').
     OfficeModule,
+    // OmniDrive («Диск») — слой имён и дерева поверх core/files: пространства человека
+    // и организации, папки, шеринг, корзина, версии, лента «Фото». Байты, квоты и
+    // антивирус остаются за движком файлов.
+    DriveModule,
   ],
   providers: [
     // ONE error envelope app-wide ({success:false, statusCode, message, errors?}):

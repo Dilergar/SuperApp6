@@ -29,6 +29,8 @@ export * from './types/chatter';
 export * from './types/jobs';
 export * from './types/verify';
 export * from './types/document';
+export * from './types/drive';
+export * from './types/share-links';
 export * from './types/common';
 
 // Validation schemas
@@ -57,6 +59,8 @@ export * from './validation/office';
 export * from './validation/chatter';
 export * from './validation/verify';
 export * from './validation/document';
+export * from './validation/drive';
+export * from './validation/share-links';
 
 // Utils
 export * from './utils/phone';
@@ -95,3 +99,5 @@ export * from './constants/chatter';
 export * from './constants/jobs';
 export * from './constants/verify';
 export * from './constants/documents';
+export * from './constants/drive';
+export * from './constants/share-links';

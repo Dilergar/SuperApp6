@@ -2039,13 +2039,18 @@ model FileObject {
   readyAt       DateTime? @map("ready_at")
   deletedAt     DateTime? @map("deleted_at")
 
-  links      FileLink[]
-  variants   FileVariant[]
-  transcript VoiceTranscript?
+  links        FileLink[]
+  variants     FileVariant[]
+  transcript   VoiceTranscript?
+  driveNodes   DriveNode[]
+  driveVersion DriveNodeVersion[]
 
   @@index([ownerType, ownerId, status])
   @@index([status, createdAt]) // крон-свипы: зависшие uploading / просроченные deleted
   @@index([uploaderId])
+  // Дедуп «у вас уже есть такой файл» — ТОЛЬКО в пределах владельца: глобальный поиск
+  // по хэшу превратил бы sha256 в оракул «есть ли на платформе вот этот файл».
+  @@index([ownerType, ownerId, sha256])
   @@map("file_objects")
 }
 
@@ -2425,4 +2430,257 @@ model DocumentSession {
   @@index([documentId]) // «сессии этого документа» + каскад удаления (FK-колонки Postgres не индексирует сам)
   @@index([status, expiresAt]) // крон-жнец протухших блокировок
   @@map("document_sessions")
+}
+
+// ============================================
+// OMNIDRIVE («Диск») — слой ИМЁН И ДЕРЕВА поверх core/files
+//
+// Байтами, квотой, вариантами и антивирусом по-прежнему владеет движок файлов. Один
+// FileObject может лежать и вложением в чате, и узлом на Диске — это две строки
+// FileLink на одни байты: копирования нет, квота не удваивается, правка через
+// core/docs видна во всех местах сразу.
+//
+// Права: core/access хранит только ПРЯМЫЕ гранты (drive_node:<id>#viewer|editor|manager@…),
+// а наследование по дереву Диск считает сам — материализованным массивом предков и
+// одним условием в SQL. Рекурсия в движке отвергнута гриллом: обход предков стоил бы
+// десятки запросов на промах кэша, а тип-эпоха сбрасывала бы ACL-кэш всей платформы
+// на каждый шеринг.
+// ============================================
+
+// Пространство: «Мой диск» человека или «Диск организации». Сущность с первого дня —
+// project-пространства (общий диск проектной команды) добавляются сюда же, без миграции
+// смысла. Создаётся лениво при первом обращении (паттерн getOrCreateBook финансов).
+model DriveSpace {
+  id        String   @id @default(uuid())
+  kind      String // personal | workspace
+  ownerType String   @map("owner_type") // user | workspace
+  ownerId   String   @map("owner_id")
+  // Корневой узел. Без FK осознанно: узел ссылается на пространство, и обратная связь
+  // замкнула бы цикл создания — корень пишется вторым шагом той же транзакции.
+  rootId    String?  @map("root_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  nodes   DriveNode[]
+  buckets DrivePhotoBucket[]
+
+  @@unique([ownerType, ownerId, kind])
+  @@map("drive_spaces")
+}
+
+// Узел дерева: папка, файл или (задел) ярлык.
+model DriveNode {
+  id          String  @id @default(uuid())
+  spaceId     String  @map("space_id")
+  kind        String // folder | file | shortcut
+  parentId    String? @map("parent_id") // null только у корня
+  // ВНИМАНИЕ: колонке руками навешена коллация natural_ru (ICU ru-RU-u-kn) — «файл2»
+  // сортируется перед «файл10». Коллация висит на КОЛОНКЕ, а не пишется в ORDER BY:
+  // несовпадение коллации индекса и запроса даёт вечный Sort в плане.
+  name        String
+  // NFC + нижний регистр: по нему живёт частичный unique «одно имя в папке».
+  // Считается в одном месте (driveNameKey в shared) — иначе «Договор.pdf» и
+  // «договор.pdf» лежали бы рядом, а составное «й» дало бы визуальный дубль.
+  nameKey     String  @map("name_key")
+  fileId      String? @map("file_id") // kind='file'
+  targetId    String? @map("target_id") // kind='shortcut' — колонка-задел, UI в v1 нет
+  createdById String  @map("created_by_id")
+
+  // Материализованные предки от корня, БЕЗ себя. На них держится и наследование прав
+  // (ancestor_ids && granted), и перенос поддерева одним UPDATE.
+  ancestorIds String[] @default([]) @map("ancestor_ids")
+  depth       Int      @default(0)
+  // 0 = папка, 1 = всё остальное: «папки вперёд» это ведущий ключ сортировки, а не
+  // отдельная ветка запроса. Обычная колонка, не GENERATED — вычисляемые колонки
+  // Prisma не моделирует, и migrate dev ловил бы вечный дрейф.
+  sortRank    Int      @default(1) @map("sort_rank")
+
+  trashedAt     DateTime? @map("trashed_at")
+  // Что человек удалил ЯВНО: восстановление возвращает именно этот узел со всем
+  // поддеревом, а не каждый вложенный файл по отдельности.
+  trashedRootId String?   @map("trashed_root_id")
+
+  // Роллап поддерева у папки. null = «пересчитать» (сентинел Nextcloud): мутация
+  // помечает предков null, джоб добивает. Считать на лету у папки с 50 000 файлов
+  // означало бы полное сканирование на каждый листинг.
+  subtreeBytes BigInt? @map("subtree_bytes")
+  subtreeFiles Int?    @map("subtree_files")
+
+  // Системная папка пространства («Файлы из переписки») — не удаляется, не переносится.
+  systemKey String? @map("system_key")
+
+  // Время СЪЁМКИ, стенное. Колонка Prisma — timestamp БЕЗ пояса, и это здесь несущее:
+  // ночной снимок не должен уезжать на соседние сутки при смене пояса зрителя, а
+  // date_trunc по timestamptz не IMMUTABLE — индекс по месяцу не построить.
+  takenAtLocal DateTime? @map("taken_at_local")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  space    DriveSpace  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  parent   DriveNode?  @relation("DriveTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children DriveNode[] @relation("DriveTree")
+  // Узел без файла смысла не имеет: физическая уборка файла движком забирает и узел.
+  file     FileObject? @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  versions DriveNodeVersion[]
+  stars    DriveStar[]
+  recents  DriveRecent[]
+
+  // ПАРТИАЛЬНЫЕ ИНДЕКСЫ И КОЛЛАЦИЯ ДОПИСАНЫ РУКАМИ в миграции drive_engine (Prisma не
+  // выражает ни WHERE, ни COLLATE, ни GIN — тот же приём, что у jobs и search):
+  //   CREATE COLLATION natural_ru (provider = icu, locale = 'ru-RU-u-kn');
+  //   ALTER TABLE drive_nodes ALTER COLUMN name TYPE TEXT COLLATE natural_ru;
+  //   CREATE INDEX drive_ls_name ON drive_nodes (parent_id, sort_rank, name, id)                    WHERE trashed_at IS NULL;
+  //   CREATE INDEX drive_ls_date ON drive_nodes (parent_id, sort_rank, updated_at DESC, id DESC)    WHERE trashed_at IS NULL;
+  //   CREATE INDEX drive_ls_size ON drive_nodes (parent_id, sort_rank, subtree_bytes DESC, id DESC) WHERE trashed_at IS NULL;
+  //   CREATE UNIQUE INDEX drive_name_uniq ON drive_nodes (parent_id, name_key) WHERE trashed_at IS NULL;
+  //   CREATE INDEX drive_anc   ON drive_nodes USING GIN (ancestor_ids);
+  //   CREATE INDEX drive_trash ON drive_nodes (space_id, trashed_at) WHERE trashed_at IS NOT NULL;
+  //   CREATE INDEX drive_dirty ON drive_nodes (space_id, id) WHERE kind = 'folder' AND subtree_bytes IS NULL;
+  //   CREATE INDEX drive_photo ON drive_nodes (space_id, taken_at_local DESC, id)
+  //                                WHERE kind = 'file' AND taken_at_local IS NOT NULL AND trashed_at IS NULL;
+  @@index([spaceId])
+  @@index([parentId]) // каскад дерева + выборки корзины (FK-колонки Postgres не индексирует сам)
+  @@index([fileId]) // «этот файл уже на Диске?» и каскад от движка файлов
+  @@index([spaceId, systemKey]) // поиск системной папки пространства
+  // GIN по предкам создаётся сырым SQL выше, но ОБЪЯВЛЯЕТСЯ здесь: партиальные индексы
+  // (с WHERE) schema-engine не видит и не трогает, а GIN он выразить умеет — и поэтому
+  // считает «лишним» и на следующем migrate dev пишет DROP INDEX. Ровно тот же приём,
+  // что у GIN-индексов search_documents.
+  @@index([ancestorIds(ops: ArrayOps)], map: "drive_anc", type: Gin)
+  @@map("drive_nodes")
+}
+
+// Версия обычного файла. У офисных документов версии свои — их режет core/docs по
+// вехам правки, и дублировать их здесь нельзя (join идёт через Document.fileId).
+model DriveNodeVersion {
+  id          String   @id @default(uuid())
+  nodeId      String   @map("node_id")
+  versionNo   Int      @map("version_no")
+  fileId      String   @map("file_id") // отдельный FileObject-снимок
+  size        BigInt
+  sha256      String?
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  node DriveNode  @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  file FileObject @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([nodeId, versionNo]) // ремень от гонки двух одновременных снимков
+  @@index([nodeId, createdAt])
+  @@index([fileId])
+  @@map("drive_node_versions")
+}
+
+// «Избранное» — персональная отметка зрителя, не свойство узла.
+model DriveStar {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  nodeId    String   @map("node_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  node DriveNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, nodeId])
+  @@index([userId, createdAt])
+  @@index([nodeId])
+  @@map("drive_stars")
+}
+
+// «Недавние» — что зритель открывал. Строка на пару (человек, узел): лента коротких
+// повторных открытий не должна расти неограниченно.
+model DriveRecent {
+  id       String   @id @default(uuid())
+  userId   String   @map("user_id")
+  nodeId   String   @map("node_id")
+  openedAt DateTime @default(now()) @map("opened_at")
+
+  node DriveNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, nodeId])
+  @@index([userId, openedAt])
+  @@index([nodeId])
+  @@map("drive_recents")
+}
+
+// Счётчики ленты «Фото» по месяцам: скрубберу нужен ВЕСЬ год сразу, а COUNT(*) с
+// группировкой по 20 000 снимков на каждое открытие ленты — это полное сканирование.
+// Ведётся инкрементально, ночная сверка лечит расхождения.
+model DrivePhotoBucket {
+  id      String @id @default(uuid())
+  spaceId String @map("space_id")
+  month   String // YYYY-MM (по takenAtLocal, то есть по СТЕННОЙ дате съёмки)
+  count   Int    @default(0)
+
+  space DriveSpace @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@unique([spaceId, month])
+  @@map("drive_photo_buckets")
+}
+
+// ============================================
+// SHARE-LINKS ENGINE (core/share-links) — 13-й платформенный движок:
+// гостевые ссылки «наружу», людям БЕЗ аккаунта. Токен → гостевая СТРАНИЦА
+// просмотра и скачивания (не сырые байты), срок действия, отзыв, счётчик
+// открытий и журнал визитов.
+//
+// refType/refId полиморфны и БЕЗ внешнего ключа (паттерн FileLink/CallSession):
+// движок не знает таблиц потребителей, а потребитель сам отзывает свои ссылки,
+// когда объект умирает (Диск — в purge, документы — в archive). Права на
+// управление решает резолвер потребителя (ShareLinksRegistry); core/access здесь
+// не участвует вовсе — гость не принципал, строка ссылки И ЕСТЬ грант.
+// ============================================
+model ShareLink {
+  id           String    @id @default(uuid())
+  // randomBytes(24) base64url, плейнтекстом: токен — ключ поиска, а не пароль
+  // (та же модель, что у вечной публичной ссылки файла и у токена веб-хука).
+  token        String    @unique
+  refType      String    @map("ref_type") // drive_node | document | (дальше — счета, витрины, ЭДО)
+  refId        String    @map("ref_id")
+  ownerType    String    @map("owner_type") // user | workspace — владелец объекта, из резолвера
+  ownerId      String    @map("owner_id")
+  workspaceId  String?   @map("workspace_id") // денормализация под «Журнал организации»
+  createdById  String    @map("created_by_id")
+  label        String? // подпись «для кого» — видна только управляющим
+  expiresAt    DateTime? @map("expires_at") // null = бессрочная (модель Google Drive)
+  revokedAt    DateTime? @map("revoked_at")
+  revokedById  String?   @map("revoked_by_id") // null при СИСТЕМНОМ отзыве (объект удалён)
+  passwordHash String?   @map("password_hash") // bcrypt; null = без пароля
+  // Перебор пароля считается на САМОЙ ссылке, а не по IP: троттлер платформы бьёт по
+  // адресу, а адресов у распределённого перебора сколько угодно. Модель — core/verify
+  // (5 попыток), но вместо гашения цепочки временная блокировка: убивать ссылку насмерть
+  // значит дать любому, кто знает токен, отрезать от неё получателя.
+  pwdFailedAttempts Int      @default(0) @map("pwd_failed_attempts")
+  pwdLockedUntil    DateTime? @map("pwd_locked_until")
+  maxOpens     Int?      @map("max_opens") // null = без потолка открытий
+  openCount    Int       @default(0) @map("open_count")
+  lastOpenedAt DateTime? @map("last_opened_at")
+  settings     Json      @default("{}") // слот пер-refType опций (v1 пусто; ЭДО положит своё)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  visits ShareLinkVisit[]
+
+  @@index([refType, refId])
+  @@index([createdById])
+  @@index([ownerType, ownerId])
+  @@map("share_links")
+}
+
+// Журнал визитов (модель DocSend): владелец видит, когда ссылку открывали.
+// Append-log с BigInt-идентификатором — он же курсор (паттерн ChatterEntry);
+// наружу id ВСЕГДА строкой. Ретеншн — крон движка.
+model ShareLinkVisit {
+  id        BigInt   @id @default(autoincrement())
+  linkId    String   @map("link_id")
+  openedAt  DateTime @default(now()) @map("opened_at")
+  ip        String? // req.ip (с учётом TRUST_PROXY)
+  userAgent String?  @map("user_agent")
+
+  link ShareLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+
+  @@index([linkId, id])
+  @@index([openedAt])
+  @@map("share_link_visits")
 }

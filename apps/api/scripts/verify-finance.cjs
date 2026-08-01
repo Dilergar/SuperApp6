@@ -97,7 +97,11 @@ async function main() {
     check('валюта расхода = валюта счёта', exp.json?.data?.currencyCode === 'KZT');
     const expId = exp.json?.data?.id;
 
-    const inc = await call('POST', '/finance/transactions', t1, { fromAccountId: salary.id, toAccountId: card.id, amount: 30000000, occurredOn: '2026-07-01' }); // 300 000 ₸
+    // Дата — ПЕРВОЕ ЧИСЛО ТЕКУЩЕГО месяца, а не фиксированное «1 июля»: отчёт ниже
+    // читает текущий период, и захардкоженная дата роняла сьют в первый же день
+    // следующего месяца.
+    const firstOfMonth = `${new Date().toISOString().slice(0, 7)}-01`;
+    const inc = await call('POST', '/finance/transactions', t1, { fromAccountId: salary.id, toAccountId: card.id, amount: 30000000, occurredOn: firstOfMonth }); // 300 000 ₸
     check('доход Зарплата → Карта', inc.ok && inc.json?.data?.type === 'income');
 
     const tr = await call('POST', '/finance/transactions', t1, { fromAccountId: card.id, toAccountId: cash.id, amount: 2000000 }); // 20 000 ₸
@@ -130,7 +134,7 @@ async function main() {
     const report1 = await call('GET', `/finance/reports/month?period=${period}`, t1);
     check('Ф2: отчёт месяца — расход Продуктов виден', report1.ok && report1.json?.data?.expenseByCategory?.some((e) => e.categoryId === grocery.id && e.amount === 250000), `status ${report1.status}`);
     check('Ф2: итог расходов KZT = 2 500 ₸', report1.json?.data?.totalExpense?.find((x) => x.currencyCode === 'KZT')?.amount === 250000);
-    check('Ф2: доход июля в отчёте', report1.json?.data?.totalIncome?.find((x) => x.currencyCode === 'KZT')?.amount === 30000000);
+    check('Ф2: доход месяца в отчёте', report1.json?.data?.totalIncome?.find((x) => x.currencyCode === 'KZT')?.amount === 30000000);
     check('Ф2: лимит в отчёте с фактом (родитель считает ребёнка)', report1.json?.data?.budgets?.[0]?.spent === 250000, `spent=${report1.json?.data?.budgets?.[0]?.spent}`);
 
     // Пороги: лимит на Продукты 4 000 ₸; расход №1 пересекает 80%, №2 — 100%
@@ -230,8 +234,8 @@ async function main() {
     // ===== Фильтры списка =====
     const byParentCat = await call('GET', `/finance/transactions?categoryId=${food.id}`, t1);
     check('фильтр по родителю (Еда) видит траты Продуктов', byParentCat.ok && byParentCat.json.data.some((x) => x.id === expId), `n=${byParentCat.json?.data?.length}`);
-    const byDates = await call('GET', '/finance/transactions?from=2026-07-01&to=2026-07-01', t1);
-    check('фильтр по датам ловит доход 1 июля', byDates.ok && byDates.json.data.some((x) => x.type === 'income'));
+    const byDates = await call('GET', `/finance/transactions?from=${firstOfMonth}&to=${firstOfMonth}`, t1);
+    check('фильтр по датам ловит доход первого числа', byDates.ok && byDates.json.data.some((x) => x.type === 'income'));
     const byAcc = await call('GET', `/finance/transactions?accountId=${usdId}`, t1);
     check('фильтр по счёту (депозит) видит обмен', byAcc.ok && byAcc.json.data.length === 2, `n=${byAcc.json?.data?.length}`); // opening + fx
 

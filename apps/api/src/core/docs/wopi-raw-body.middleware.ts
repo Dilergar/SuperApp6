@@ -33,16 +33,18 @@ function tmpDir(): string {
  * в main.ts — ПОСЛЕ алиаса /api/v1→/api (один use покрывает оба префикса) и ДО listen,
  * ровно как express.raw для вебхука LiveKit.
  */
-export function wopiRawBodyMiddleware(maxBytes = FILE_LIMITS.hardMaxSize) {
+export function wopiRawBodyMiddleware(maxBytes = FILE_LIMITS.apiSingleRequestMax) {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (req.method !== 'POST' || !/\/contents(\?|$)/.test(req.originalUrl)) {
       next();
       return;
     }
     // Ранний отказ по объявленной длине — не тянем мегабайты, чтобы отвергнуть в конце.
-    // Потолок здесь — АБСОЛЮТНЫЙ (hardMaxSize), а не лимит профиля «document»: документом
-    // становится файл, приехавший вложением чата (профиль на 200 МБ), и потолок в 50 МБ
-    // означал бы 413 на каждое автосохранение — человек час правит и теряет работу.
+    // Потолок здесь — потолок ОДНОГО запроса с байтами (apiSingleRequestMax), а не лимит
+    // профиля «document»: документом становится файл, приехавший вложением чата (профиль
+    // на 200 МБ), и потолок в 50 МБ означал бы 413 на каждое автосохранение — человек час
+    // правит и теряет работу. Абсолютный hardMaxSize (2 ГБ, профиль Диска) сюда тоже не
+    // годится: такой объём в одном запросе — это временный файл и проксь на два гигабайта.
     // Точный лимит по профилю КОНКРЕТНОГО файла проверит replaceContent движка файлов.
     const declared = Number(req.headers['content-length'] ?? 0);
     if (Number.isFinite(declared) && declared > maxBytes) {

@@ -4,7 +4,7 @@
  * Source kinds the search engine can return. Phase 6 wires the messenger ones
  * (message/chat/person); task/event/wish/etc. are added later as providers register.
  */
-export const SEARCH_SOURCE_TYPES = ['message', 'chat', 'person'] as const;
+export const SEARCH_SOURCE_TYPES = ['message', 'chat', 'person', 'drive_node'] as const;
 
 export const SEARCH_LIMITS = {
   /** Minimum query length before a search runs (shorter = too noisy). */

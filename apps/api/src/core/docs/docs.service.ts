@@ -34,6 +34,7 @@ import { DocsRouterService } from './docs-router.service';
 import { DocsTokenService } from './docs-token.service';
 import { DocsVersionsService } from './docs-versions.service';
 import { DocsRenditionService } from './docs-rendition.service';
+import { ShareLinksService } from '../share-links/share-links.service';
 
 type DocumentRow = NonNullable<Awaited<ReturnType<DatabaseService['document']['findUnique']>>>;
 type SessionRow = NonNullable<Awaited<ReturnType<DatabaseService['documentSession']['findUnique']>>>;
@@ -90,6 +91,7 @@ export class DocsService implements OnModuleInit {
     private readonly chatter: ChatterService,
     private readonly chatterRegistry: ChatterRefRegistry,
     private readonly events: EventBusService,
+    private readonly shareLinks: ShareLinksService,
   ) {}
 
   onModuleInit(): void {
@@ -471,6 +473,11 @@ export class DocsService implements OnModuleInit {
       await this.files.unlinkAllForRef('document_version', v.id).catch(() => undefined);
     }
     await this.files.unlinkSystem(doc.fileId, 'document', doc.id);
+
+    // Гостевые ссылки наружу гаснут вместе с документом — это второй рубильник рядом с
+    // бампом tokenEpoch: тот гасит пропуска редактора, этот — доступ посторонних.
+    // Строка share_links внешним ключом не связана и пережила бы документ.
+    await this.shareLinks.revokeAllForRefs(null, 'document', [doc.id]).catch(() => undefined);
   }
 
   /**

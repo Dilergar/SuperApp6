@@ -11,6 +11,7 @@ for (const line of fs.readFileSync(path.join(__dirname, '..', '.env'), 'utf8').s
   if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
 }
 const { PrismaClient } = require('@prisma/client');
+const { dropFromDrive } = require('./drive-test-helpers.cjs');
 const BASE = 'http://localhost:3001/api';
 const P1 = '+77009990001', P2 = '+77009990002', P3 = '+77009990003', PW = 'Test1234!';
 
@@ -158,6 +159,7 @@ async function main() {
     const shared = await uploadWhole(t1, { profile: 'chat_attachment', name: 'общий.png', mime: 'image/png', bytes: PNG_1PX });
     const msgX = (await call('POST', `/messenger/chats/${chatId}/messages/attachments`, t1, { fileIds: [shared.id] })).json?.data;
     const msgY = (await call('POST', `/messenger/chats/${chatId}/messages/attachments`, t1, { fileIds: [shared.id] })).json?.data;
+    await dropFromDrive(prisma, shared.id);
     await call('DELETE', `/messenger/messages/${msgX.id}`, t1);
     let sharedRow = await prisma.fileObject.findUnique({ where: { id: shared.id } });
     check('Ф2: файл с оставшейся связью жив после удаления 1-го сообщения', sharedRow?.status === 'ready', sharedRow?.status);
@@ -264,6 +266,7 @@ async function main() {
     check('Ф4: посторонний attach → 403', t3Attach.status === 403, `status ${t3Attach.status}`);
 
     // удаление вложения → осиротевший файл soft-deleted
+    await dropFromDrive(prisma, taskFile.id);
     const rem = await call('DELETE', `/tasks/${taskId}/attachments/${taskFile.id}`, t1);
     check('Ф4: удаление вложения ок', rem.ok, `status ${rem.status}`);
     const taskFileRow = await prisma.fileObject.findUnique({ where: { id: taskFile.id } });

@@ -8,6 +8,8 @@ import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { apiErrorMessage } from '@/lib/api';
 import { chronicleKey, documentKey, documentVersionsKey } from '@/lib/queries';
 import { getDocument, openDocument, saveDocumentVersion } from '@/lib/docs-api';
+import { Modal } from '@/components/ui/Modal';
+import { ShareLinkSection } from '@/components/ShareLinkSection';
 import { DocumentHistory } from './DocumentHistory';
 
 const FRAME_NAME = 'sa6-docs-frame';
@@ -22,7 +24,7 @@ const FRAME_NAME = 'sa6-docs-frame';
  *     «пользователь закрыл». Сюда же встанет будущая кнопка «Подписать ЭЦП».
  */
 export default function DocumentEditor() {
-  const { isReady } = useRequireAuth();
+  const { isReady, user } = useRequireAuth();
   const authLoading = !isReady;
   const params = useParams<{ id: string }>();
   const search = useSearchParams();
@@ -47,6 +49,7 @@ export default function DocumentEditor() {
   const [modified, setModified] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const { data: doc } = useQuery({
     queryKey: documentKey(documentId),
@@ -262,6 +265,28 @@ export default function DocumentEditor() {
             ✏️ Редактировать
           </button>
         )}
+        {/* Наружу документ раздаёт ТОЛЬКО владелец: право правки часто приходит «от
+            места» (например, у всех участников задачи), и его не должно хватать,
+            чтобы вынести чужой файл во внешний мир. */}
+        {doc && user?.id === doc.createdById && (
+          <button
+            type="button"
+            onClick={() => setShareOpen(true)}
+            title="Поделиться ссылкой с тем, у кого нет аккаунта"
+            style={{
+              padding: '0.35rem 0.8rem',
+              borderRadius: 'var(--radius-sketch)',
+              border: 'none',
+              background: 'transparent',
+              cursor: 'pointer',
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            🔗 Поделиться
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setHistoryOpen((v) => !v)}
@@ -361,6 +386,16 @@ export default function DocumentEditor() {
           />
         )}
       </div>
+
+      {shareOpen && (
+        <Modal open onClose={() => setShareOpen(false)} title="Поделиться документом" size="md">
+          <p className="body-sm" style={{ margin: '0 0 var(--spacing-4)', color: 'var(--on-surface-variant)' }}>
+            Гость увидит документ в виде PDF — читаемую копию текущего содержимого. Править и
+            открывать исходник по ссылке нельзя.
+          </p>
+          <ShareLinkSection refType="document" refId={documentId} />
+        </Modal>
+      )}
     </div>
   );
 }

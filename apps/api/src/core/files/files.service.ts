@@ -23,6 +23,7 @@ import {
   fileExtension,
   fileKindFromMime,
   isInlineMime,
+  DRIVE_NODE_REF_TYPE,
   type FileDownloadUrl,
   type FileDto,
   type FileInitResult,
@@ -107,6 +108,16 @@ export class FilesService implements OnModuleInit {
     if (dto.size > spec.maxSize) {
       throw new BadRequestException(
         `Файл слишком большой: лимит профиля ${Math.floor(spec.maxSize / (1024 * 1024))} МБ`,
+      );
+    }
+    // Драйвер без multipart (local) физически умеет принять байты только одним запросом,
+    // поэтому щедрый профиль (Диск — 2 ГБ) на нём упирается в потолок такого запроса.
+    // Без этой проверки init выдал бы transport:'api', а multer оборвал бы загрузку
+    // молча на 200 МБ — «загрузилось и пропало».
+    if (!this.driver.supportsMultipart && dto.size > FILE_LIMITS.apiSingleRequestMax) {
+      throw new BadRequestException(
+        `Файл больше ${Math.floor(FILE_LIMITS.apiSingleRequestMax / (1024 * 1024))} МБ: ` +
+          'это хранилище принимает такие файлы только частями (нужен S3-совместимый драйвер)',
       );
     }
 
@@ -442,6 +453,106 @@ export class FilesService implements OnModuleInit {
   }
 
   /**
+   * КОПИЯ файла внутри хранилища — новый FileObject с теми же байтами и, при желании,
+   * другим владельцем.
+   *
+   * Нужна там, где «переложить» нельзя: у движка нет смены владельца, а квота считается
+   * владельцу. Диск копирует так чужой файл («Сохранить к себе») и переносит файл между
+   * личным пространством и пространством организации.
+   *
+   * Байты копирует ДРАЙВЕР (у s3 — на стороне хранилища), через приложение они не идут:
+   * 2-ГБ файл иначе означал бы «скачать и залить обратно». Права НЕ проверяются — это
+   * контракт вызывающего (как у ingestLocalFile): он уже решил, что человек вправе
+   * видеть исходник и класть копию туда, куда кладёт.
+   */
+  async copyFile(opts: {
+    fileId: string;
+    /** Кто станет uploaderId копии */
+    actorId: string;
+    ownerType?: FileOwnerType;
+    ownerId?: string;
+    /** Новое имя (по умолчанию — имя исходника) */
+    name?: string;
+    /** Профиль копии (по умолчанию — профиль исходника) */
+    profile?: string;
+  }): Promise<FileDto> {
+    const src = await this.db.fileObject.findUnique({ where: { id: opts.fileId } });
+    if (!src || src.status !== 'ready') throw new NotFoundException('Файл не найден');
+    if (src.scanStatus === 'infected') throw new ForbiddenException('Файл заражён');
+
+    const ownerType: FileOwnerType = opts.ownerType ?? 'user';
+    const ownerId = ownerType === 'user' ? (opts.ownerId ?? opts.actorId) : (opts.ownerId ?? '');
+    if (!ownerId) throw new BadRequestException('Не указан владелец копии');
+
+    const profile = opts.profile ?? src.profile;
+    const spec = this.profileSpec(profile);
+    const size = Number(src.size);
+    if (size > spec.maxSize) {
+      throw new PayloadTooLargeException(
+        `Файл слишком большой: лимит профиля ${Math.floor(spec.maxSize / (1024 * 1024))} МБ`,
+      );
+    }
+    await this.assertQuota(ownerType, ownerId, size);
+
+    const id = randomUUID();
+    const storageKey = `${id.slice(0, 2)}/${id.slice(2, 4)}/${id}`;
+    await this.driver.copy(src.storageKey, storageKey, src.mime);
+
+    const needsPipeline = spec.makeVariants && ['image', 'video', 'audio'].includes(src.kind);
+    try {
+      const row = await this.db.$transaction(async (tx) => {
+        const created = await tx.fileObject.create({
+          data: {
+            id,
+            ownerType,
+            ownerId,
+            uploaderId: opts.actorId,
+            profile,
+            kind: src.kind,
+            name: opts.name ?? src.name,
+            mime: src.mime,
+            size: src.size,
+            sha256: src.sha256,
+            status: 'ready',
+            readyAt: new Date(),
+            visibility: spec.visibility,
+            publicToken: spec.visibility === 'public' ? randomBytes(24).toString('base64url') : null,
+            storageDriver: this.driver.name,
+            storageKey,
+            // Вердикт антивируса у копии свой: байты те же, но статус исходника мог быть
+            // получен под другой политикой (профиль сменился) — пусть решит скан.
+            //
+            // Разбор исходника (размеры, миниатюрный хэш, дата съёмки, волна) переносим:
+            // байты те же, а считать заново либо дорого, либо уже нечем — у копии без
+            // вариантов (`makeVariants: false`) конвейер вообще не запустится, и лента
+            // «Фото» получила бы снимок без даты и без соотношения сторон.
+            meta: {
+              ...((src.meta ?? {}) as Record<string, unknown>),
+              pipeline: needsPipeline ? 'pending' : 'done',
+            },
+          },
+        });
+        await tx.fileQuotaUsage.upsert({
+          where: { ownerType_ownerId: { ownerType, ownerId } },
+          create: { ownerType, ownerId, bytesUsed: src.size, filesCount: 1 },
+          update: { bytesUsed: { increment: src.size }, filesCount: { increment: 1 } },
+        });
+        if (needsPipeline) await this.pipeline.enqueue(tx, id);
+        await this.scanHook.enqueue(tx, id);
+        return created;
+      });
+
+      const payload = this.eventPayload(row);
+      this.events.emit('file.uploaded', payload, 'files');
+      this.events.emit('file.ready', payload, 'files');
+      return this.serializeFile(row, []);
+    } catch (err) {
+      await this.driver.delete(storageKey).catch(() => undefined);
+      throw err;
+    }
+  }
+
+  /**
    * ЗАМЕНА СОДЕРЖИМОГО живого файла (движок документов core/docs: редактор сохраняет
    * правки в тот же FileObject). Id файла НЕ меняется — на нём держатся снимок вложения
    * внутри Message.payload, listLinked, ссылки скачивания и все привязки; перевешивание
@@ -655,6 +766,33 @@ export class FilesService implements OnModuleInit {
     return this.urls.rawUrl(fileId, variantKind ?? null);
   }
 
+  /**
+   * Ссылка на скачивание БЕЗ проверки доступа — системный контракт движка: право
+   * человека проверил ВЫЗЫВАЮЩИЙ (тот же договор, что у linkSystemInTx, ingestLocalFile
+   * и systemDeleteFile). Проверки самого файла — готовность и вердикт антивируса —
+   * остаются: их не может «проверить вызывающий», это свойства файла.
+   *
+   * Появилось ради гостевых ссылок (core/share-links): там доступ подтверждён токеном
+   * ссылки, а пользователя нет вовсе — getDownloadUrl с его viewerId неприменим.
+   * Отличие от buildAttachmentViews: тот отдаёт батч «оригинал + превью» для ленты, а
+   * здесь нужен ПРОИЗВОЛЬНЫЙ вариант (PDF-отпечаток документа) поштучно.
+   */
+  async buildSystemDownloadUrl(fileId: string, variantKind?: string): Promise<FileDownloadUrl> {
+    const { row, variants } = await this.getRowWithVariants(fileId);
+    if (row.status !== 'ready') throw new NotFoundException('Файл не найден или ещё не готов');
+    if (row.scanStatus === 'infected') throw new ForbiddenException('Файл помечен как заражённый');
+
+    const { key, mime, name } = this.targetForVariant(row, this.pickVariant(variants, variantKind));
+    const presigned = await this.driver.presignedGet(key, FILE_LIMITS.urlTtlSec, {
+      disposition: this.contentDisposition(mime, name),
+      mime,
+    });
+    if (presigned) {
+      return { url: presigned, expiresAt: new Date(Date.now() + FILE_LIMITS.urlTtlSec * 1000).toISOString() };
+    }
+    return this.urls.rawUrl(fileId, variantKind ?? null);
+  }
+
   /** Байты для HMAC-роута /files/raw/:id (подпись проверяет контроллер) */
   async openRawStream(
     fileId: string,
@@ -760,11 +898,16 @@ export class FilesService implements OnModuleInit {
     if (!(await resolver.canAttach(actorId, refId))) {
       throw new ForbiddenException('Нет прав прикреплять файлы к этой сущности');
     }
+    let created = true;
     await this.db.fileLink
       .create({ data: { fileId, refType, refId, role, createdById: actorId } })
       .catch((err: { code?: string }) => {
         if (err?.code !== 'P2002') throw err; // дубль связи — не ошибка
+        created = false;
       });
+    // Только на НОВОЙ связи: повторная привязка того же файла не должна повторно
+    // будить наблюдателей (иначе Диск клал бы одно вложение дважды).
+    if (created) await this.registry.notifyLinked(null, { fileId, refType, refId, role, actorId });
   }
 
   /** Профиль каждого привязываемого файла должен быть разрешён для refType */
@@ -802,6 +945,11 @@ export class FilesService implements OnModuleInit {
       data: fileIds.map((fileId) => ({ fileId, refType, refId, role, createdById: actorId })),
       skipDuplicates: true,
     });
+    // Наблюдателей будим ВНУТРИ транзакции вызывающего: джоб, поставленный ими, уедет
+    // тем же коммитом (сообщение отправилось ⇒ джоб есть, откатилось ⇒ джоба нет).
+    for (const fileId of new Set(fileIds)) {
+      await this.registry.notifyLinked(tx, { fileId, refType, refId, role, actorId });
+    }
   }
 
   /**
@@ -1159,16 +1307,38 @@ export class FilesService implements OnModuleInit {
     return reaped;
   }
 
+  /**
+   * Удалить файл БЕЗ проверки прав — вызывает сервис, которому файл принадлежит «домом».
+   *
+   * Единственный такой потребитель сегодня — Диск: у него узел это дом файла, и
+   * окончательное удаление узла обязано погасить байты везде, где на них ссылались
+   * (вложение в чате покажет «файл удалён»). Ровно так же ведут себя Google Drive и
+   * OneDrive/Teams. Право человека проверил вызывающий по своему контракту — тот же
+   * договор, что у ingestLocalFile и replaceContent.
+   */
+  async systemDeleteFile(fileId: string): Promise<void> {
+    await this.systemSoftDelete(fileId);
+  }
+
   async getUsage(userId: string): Promise<FileUsageDto> {
+    return this.getUsageFor('user', userId);
+  }
+
+  /**
+   * Занятое место ЛЮБОГО владельца, включая организацию («занято 12 из 100 ГБ» на
+   * Диске организации). Права проверяет вызывающий: движок не знает, кому позволено
+   * видеть расход места организации, — это решает её сервис по роли.
+   */
+  async getUsageFor(ownerType: FileOwnerType, ownerId: string): Promise<FileUsageDto> {
     const usage = await this.db.fileQuotaUsage.findUnique({
-      where: { ownerType_ownerId: { ownerType: 'user', ownerId: userId } },
+      where: { ownerType_ownerId: { ownerType, ownerId } },
     });
     return {
-      ownerType: 'user',
-      ownerId: userId,
+      ownerType,
+      ownerId,
       bytesUsed: usage ? Number(usage.bytesUsed) : 0,
       filesCount: usage?.filesCount ?? 0,
-      limitBytes: FILE_QUOTAS.user,
+      limitBytes: FILE_QUOTAS[ownerType],
     };
   }
 
@@ -1227,10 +1397,26 @@ export class FilesService implements OnModuleInit {
     if (row.visibility === 'public') return true;
     if (row.uploaderId === viewerId) return true;
     if (row.ownerType === 'user' && row.ownerId === viewerId) return true;
-    if (row.ownerType === 'workspace' && (await this.isWorkspaceMember(viewerId, row.ownerId))) return true;
 
     // Наследование от привязанных сущностей (Salesforce ContentDocumentLink)
     const links = await this.db.fileLink.findMany({ where: { fileId: row.id }, take: 50 });
+
+    // «Файл организации виден всей команде» — верно ровно до тех пор, пока у файла нет
+    // МЕСТА с собственными правами. Появился узел на Диске организации — решает папка:
+    // иначе папка «Зарплаты», открытая только руководителям, оставалась бы доступной
+    // любому стажёру по прямой ссылке, и весь смысл закрытой папки пропадал бы.
+    // Файлы действующих сервисов (лоты, вложения задач) узлов Диска не имеют, поэтому
+    // для них правило работает как раньше.
+    //
+    // Спрашиваем ОТДЕЛЬНЫМ точечным запросом, а не ищем в `links`: та выборка обрезана
+    // потолком в 50 строк, и у файла с длинным хвостом привязок связь Диска могла в неё
+    // не попасть — закрытая папка снова открылась бы всей команде.
+    const onDrive =
+      (await this.db.fileLink.count({ where: { fileId: row.id, refType: DRIVE_NODE_REF_TYPE } })) > 0;
+    if (!onDrive && row.ownerType === 'workspace' && (await this.isWorkspaceMember(viewerId, row.ownerId))) {
+      return true;
+    }
+
     for (const link of links) {
       const resolver = this.registry.get(link.refType);
       if (!resolver) continue;

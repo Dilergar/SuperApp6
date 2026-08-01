@@ -9,6 +9,7 @@ import {
   HeadObjectCommand,
   HeadBucketCommand,
   CreateBucketCommand,
+  CopyObjectCommand,
   CreateMultipartUploadCommand,
   UploadPartCommand,
   CompleteMultipartUploadCommand,
@@ -89,6 +90,21 @@ export class S3StorageDriver implements StorageDriver {
       }),
     );
     await fs.promises.unlink(sourcePath).catch(() => undefined);
+  }
+
+  async copy(sourceKey: string, destKey: string, mime: string): Promise<void> {
+    await this.ensureBucket();
+    // CopySource — это «бакет/ключ», и ключ обязан быть URL-кодирован: без этого объект
+    // с пробелом или «+» в ключе копируется не туда (или не находится вовсе).
+    await this.client.send(
+      new CopyObjectCommand({
+        Bucket: this.bucket,
+        Key: destKey,
+        CopySource: `${this.bucket}/${sourceKey.split('/').map(encodeURIComponent).join('/')}`,
+        ContentType: mime,
+        MetadataDirective: 'REPLACE',
+      }),
+    );
   }
 
   async getStream(key: string, range?: { start: number; end?: number }): Promise<StorageStreamResult> {

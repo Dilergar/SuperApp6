@@ -11,6 +11,14 @@ import { wopiRawBodyMiddleware } from './core/docs/wopi-raw-body.middleware';
 // Защитная сеть: одна «забытая» асинхронная ошибка (unhandled rejection) в новых
 // версиях Node роняет ВЕСЬ процесс. Логируем и продолжаем работать — сервер не падает
 // из-за фонового сбоя (фоновой задачи, веб-хука, листенера); причина видна в логе.
+// Адреса веб-приложения в разработке. Один список на два потребителя — CORS и
+// frame-ancestors на выдаче байтов: разъехавшись, они дают разные симптомы («не грузится
+// список» против «пустая рамка вместо документа»), которые ищут в разных местах.
+const WEB_DEV_ORIGINS = [
+  'http://localhost:3000', // Next.js web
+  'http://127.0.0.1:3000', // тот же веб вторым origin (две изолированные dev-сессии: звонки/чаты)
+];
+
 const fatalLogger = new Logger('Process');
 process.on('unhandledRejection', (reason) => {
   fatalLogger.error(`Unhandled promise rejection: ${reason instanceof Error ? reason.stack : String(reason)}`);
@@ -89,16 +97,35 @@ async function bootstrap() {
     }),
   );
 
+  // Байты файлов иногда ОБЯЗАНЫ грузиться во фрейме: PDF-отпечаток документа на гостевой
+  // странице /s/<токен> рисует встроенный просмотрщик браузера, а он живёт только в iframe.
+  // helmet ставит на КАЖДЫЙ ответ X-Frame-Options: SAMEORIGIN, и раз веб с API стоят на
+  // разных портах (в проде — на разных доменах), браузер такой iframe молча блокировал:
+  // в сети 200 OK с пометкой net::ERR_BLOCKED_BY_RESPONSE, на экране — пустая рамка.
+  // Снимать frameguard глобально нельзя — он закрывает от кликджекинга остальной API,
+  // у которого есть одно-кликовые действия с деньгами. Поэтому ТОЧЕЧНО на маршрутах
+  // выдачи байтов грубый XFO меняется на адресный frame-ancestors: тот же приём и та же
+  // причина, что у CORP выше. Список origin'ов — из WEB_URL (в dev к нему добавляется
+  // второй адрес того же веба, как в CORS).
+  const frameAncestors = [
+    "'self'",
+    ...new Set([process.env.WEB_URL || 'http://localhost:3000', ...WEB_DEV_ORIGINS]),
+  ].join(' ');
+  const FRAMEABLE_BYTE_PATHS = ['/api/files/raw/', '/api/public-files/'];
+  app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (FRAMEABLE_BYTE_PATHS.some((p) => req.path.startsWith(p))) {
+      res.removeHeader('X-Frame-Options');
+      res.setHeader('Content-Security-Policy', `frame-ancestors ${frameAncestors}`);
+    }
+    next();
+  });
+
   // Global prefix
   app.setGlobalPrefix('api');
 
   // CORS — allow mobile and web apps
   app.enableCors({
-    origin: [
-      'http://localhost:3000', // Next.js web
-      'http://127.0.0.1:3000', // тот же веб вторым origin (две изолированные dev-сессии: звонки/чаты)
-      'http://localhost:8081', // Expo dev
-    ],
+    origin: [...WEB_DEV_ORIGINS, 'http://localhost:8081' /* Expo dev */],
     credentials: true,
   });
 

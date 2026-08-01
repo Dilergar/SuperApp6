@@ -5,6 +5,7 @@ import { DocsRouterService } from './docs-router.service';
 import { DocsEditorClient } from './docs-editor.client';
 import { DocsVersionsService } from './docs-versions.service';
 import { DocsRenditionService } from './docs-rendition.service';
+import { DocsShareLinksProvider } from './docs-share-links.provider';
 import { DocsCron } from './docs.cron';
 import { DocsController } from './docs.controller';
 import { WopiController } from './wopi.controller';
@@ -29,6 +30,7 @@ import { WopiController } from './wopi.controller';
     DocsEditorClient,
     DocsVersionsService,
     DocsRenditionService,
+    DocsShareLinksProvider,
     DocsCron,
   ],
   exports: [DocsService, DocsRouterService],

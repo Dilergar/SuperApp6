@@ -82,6 +82,8 @@ export type NotificationType =
   | 'finance.recurring.due' // повторяющаяся операция ждёт подтверждения (autoRecord=false)
   | 'finance.recurring.recorded' // повторяющаяся операция записана автоматически
   | 'finance.book.shared' // вам открыли доступ к финансовой книге
+  // Drive (OmniDrive)
+  | 'drive.shared' // вам открыли доступ к папке или файлу на Диске
   // System
   | 'system.welcome'
   | 'system.announcement';

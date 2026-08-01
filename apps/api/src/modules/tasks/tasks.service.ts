@@ -19,6 +19,7 @@ import { MessengerService } from '../messenger/messenger.service';
 import { QuickActionRegistry } from '../../core/quick-actions/quick-actions.registry';
 import { FilesService } from '../../core/files/files.service';
 import { FilesRefRegistry } from '../../core/files/files-ref.registry';
+import { DriveRoutingRegistry } from '../drive/drive-routing.registry';
 import { ChatterService, ChatterLogInput, ChatterTrackSpec } from '../../core/chatter/chatter.service';
 import { ChatterRefRegistry } from '../../core/chatter/chatter-ref.registry';
 import { WorkspaceContextService } from '../../shared/context/workspace-context.service';
@@ -112,6 +113,7 @@ export class TasksService implements OnModuleInit {
     private contacts: ContactsService,
     private files: FilesService,
     private filesRegistry: FilesRefRegistry,
+    private driveRouting: DriveRoutingRegistry,
     private chatter: ChatterService,
     private chatterRegistry: ChatterRefRegistry,
     private workspaceContext: WorkspaceContextService,
@@ -160,7 +162,24 @@ export class TasksService implements OnModuleInit {
         if (!task) return false;
         return this.isCreatorOrParticipant(task, userId);
       },
-    }, { allowedProfiles: ['chat_attachment', 'document', 'voice_message', 'generic'] });
+      // 'drive_file' — кнопка «Прикрепить с Диска»: иначе привязка файла, загруженного
+      // профилем Диска, молча отвергается движком.
+    }, { allowedProfiles: ['chat_attachment', 'document', 'voice_message', 'generic', 'drive_file'] });
+
+    // Куда складывать свои вложения на Диске: задача организации — на её диск,
+    // личная задача — на личный. Знание о природе задачи живёт здесь, а не в Диске.
+    this.driveRouting.register('task', {
+      resolvePlacement: async (taskId, actorId) => {
+        const task = await this.db.task.findUnique({
+          where: { id: taskId },
+          select: { workspaceId: true },
+        });
+        if (!task) return null;
+        return task.workspaceId
+          ? { ownerType: 'workspace', ownerId: task.workspaceId }
+          : { ownerType: 'user', ownerId: actorId };
+      },
+    });
 
     // Хроника задачи (core/chatter): «видишь задачу → видишь её хронику»
     // (тот же предикат, что у вложений).

@@ -9,7 +9,7 @@ import {
   NotFoundException,
   PayloadTooLargeException,
 } from '@nestjs/common';
-import { FILE_PROFILES } from '@superapp/shared';
+import { FILE_LIMITS, FILE_PROFILES } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 
 /**
@@ -39,15 +39,19 @@ export class FilesContentLengthGuard implements CanActivate {
     }
 
     const spec = FILE_PROFILES[row.profile] ?? FILE_PROFILES.generic;
+    // Это путь ОДНОГО запроса, поэтому потолок здесь — минимум из лимита профиля и
+    // потолка одиночного запроса: у профиля Диска maxSize 2 ГБ, но такой файл обязан
+    // ехать частями, и принимать его сюда нельзя даже до отсечки multer'а.
+    const ceiling = Math.min(spec.maxSize, FILE_LIMITS.apiSingleRequestMax);
     const contentLength = Number(req.headers['content-length'] ?? 0);
     // Требуем Content-Length: без него (chunked) ранний 413 не сработает и multer
-    // напишет на диск до глобального hardMaxSize (200 МБ) даже для 5-МБ профиля.
+    // напишет на диск до apiSingleRequestMax (200 МБ) даже для 5-МБ профиля.
     // Легитимные клиенты (браузер/axios с multipart/form-data) его всегда шлют.
     if (!Number.isFinite(contentLength) || contentLength <= 0) {
       throw new HttpException('Требуется заголовок Content-Length', HttpStatus.LENGTH_REQUIRED);
     }
     // +1 МБ на служебные части multipart/form-data
-    if (contentLength > spec.maxSize + 1024 * 1024) {
+    if (contentLength > ceiling + 1024 * 1024) {
       throw new PayloadTooLargeException('Файл больше лимита профиля');
     }
     return true;

@@ -143,5 +143,13 @@
   "sun": "Sun",
   "empty": "Tray",
   "calendarAdd": "CalendarPlus",
-  "calendarCheck": "CalendarCheck"
+  "calendarCheck": "CalendarCheck",
+  "drive": "HardDrives",
+  "folderPlus": "FolderPlus",
+  "star": "Star",
+  "starFill": "StarHalf",
+  "grid": "SquaresFour",
+  "arrowUp": "ArrowUp",
+  "arrowDown": "ArrowDown",
+  "restore": "ArrowCounterClockwise"
 }

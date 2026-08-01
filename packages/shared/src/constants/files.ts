@@ -104,10 +104,19 @@ export const FILE_PROFILES: Record<string, FileProfileSpec> = {
   chat_attachment: { kind: 'any', maxSize: 200 * MB, allowedMime: null, visibility: 'private', makeVariants: true },
   /** Голосовое сообщение (MediaRecorder: ogg/webm/mp4) */
   voice_message: { kind: 'audio', maxSize: 20 * MB, allowedMime: AUDIO_MIME, visibility: 'private', makeVariants: true, waveform: true },
-  /** Запись Диктофона (собрание/лекция) — ровно hardMaxSize (~3.5ч mp3 / 6ч+ m4a) */
+  /** Запись Диктофона (собрание/лекция) — ровно apiSingleRequestMax (~3.5ч mp3 / 6ч+ m4a) */
   dictaphone: { kind: 'audio', maxSize: 200 * MB, allowedMime: AUDIO_MIME, visibility: 'private', makeVariants: true, waveform: true },
   /** Документ (Word/Excel/PDF/…) — приватный, без вариантов (текст-извлечение придёт с RAG) */
   document: { kind: 'document', maxSize: 50 * MB, allowedMime: DOCUMENT_MIME, visibility: 'private', makeVariants: false },
+  /**
+   * Файл на Диске (OmniDrive) — любой безопасный тип до 2 ГБ.
+   *
+   * Потолок больше, чем у одиночного запроса к API (`apiSingleRequestMax`): всё, что
+   * крупнее, обязано ехать S3-multipart'ом. На local-драйвере multipart нет вовсе,
+   * поэтому там движок режет загрузку по `apiSingleRequestMax` — в разработке файл
+   * больше 200 МБ на Диск не положить, и это осознанно.
+   */
+  drive_file: { kind: 'any', maxSize: 2 * GB, allowedMime: null, visibility: 'private', makeVariants: true },
   /** Фолбэк без специфики */
   generic: { kind: 'any', maxSize: 100 * MB, allowedMime: null, visibility: 'private', makeVariants: true },
 };
@@ -116,8 +125,8 @@ export type FileProfileKey = keyof typeof FILE_PROFILES;
 
 /** Квоты хранилища на владельца (байты); тарифы/UI — позже, вместе с подпиской */
 export const FILE_QUOTAS: Record<FileOwnerType, number> = {
-  user: 2 * GB,
-  workspace: 10 * GB,
+  user: 15 * GB,
+  workspace: 100 * GB,
 };
 
 /** Исполняемые/опасные расширения — не принимаем ни под каким профилем */
@@ -182,8 +191,19 @@ export function shouldScanFile(file: { name?: string | null; mime?: string | nul
 export const FILE_LIMITS = {
   /** До этого размера байты идут через API одним запросом; выше — S3 multipart */
   apiTransportMax: 25 * MB,
-  /** Абсолютный потолок размера файла в v1 */
-  hardMaxSize: 200 * MB,
+  /**
+   * Абсолютный потолок размера файла (самый щедрый профиль — `drive_file`).
+   * Ограничивает ТОЛЬКО схему загрузки и multipart-путь.
+   */
+  hardMaxSize: 2 * GB,
+  /**
+   * Потолок ОДНОГО HTTP-запроса с байтами: сюда смотрят multer и приёмник правок WOPI.
+   * Отдельная величина, а не `hardMaxSize`, потому что 2-ГБ файл обязан ехать частями:
+   * приняв такой объём одним запросом на диск, мы бы держали его целиком в проксях и
+   * во временном файле. Всё, что крупнее, идёт через S3 multipart; на local-драйвере
+   * multipart отсутствует, поэтому там это и есть настоящий потолок файла.
+   */
+  apiSingleRequestMax: 200 * MB,
   /** Размер части multipart-загрузки */
   partSize: 25 * MB,
   /** Максимум presigned-частей за один запрос */

@@ -14,11 +14,18 @@ import { CalendarSystemListener } from './calendar-system.listener';
 import { OfficeSystemListener } from './office-system.listener';
 import { DocsSystemListener } from './docs-system.listener';
 import { ChatCallsListener } from './chat-calls.listener';
+import { DriveModule } from '../drive/drive.module';
 
 @Module({
   // Токен рукопожатия сокета проверяет SessionValidatorService (@Global,
   // shared/auth) — он же держит проверку отзыва сессии, общую с HTTP-путём.
   // ContactsService (used for role tags) is available globally (ContactsModule @Global).
+  //
+  // DriveModule импортируется РАДИ РЕЕСТРА маршрутизации: мессенджер сам объявляет,
+  // куда складывать свои файлы (из DM — на личный диск, из чатов организации — на её).
+  // Направление такое же, как у слоёв календаря: знание о природе сущности живёт у
+  // её владельца, а движок-получатель про потребителей не знает.
+  imports: [DriveModule],
   controllers: [MessengerController, MentionsController],
   providers: [
     MessengerService,

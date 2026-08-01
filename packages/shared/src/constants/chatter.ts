@@ -8,7 +8,7 @@
 import { interpolateTemplate } from '../utils/interpolate';
 
 /** Категории для фильтра «Журнала организации» */
-export const CHATTER_CATEGORIES = ['tasks', 'staff'] as const;
+export const CHATTER_CATEGORIES = ['tasks', 'staff', 'drive', 'share'] as const;
 export type ChatterCategory = (typeof CHATTER_CATEGORIES)[number];
 
 export interface ChatterTypeMeta {
@@ -219,6 +219,82 @@ export const CHATTER_REGISTRY = {
     template: '{{actorName}} снял(а) {{targetName}} с должности «{{positionName}}»',
     icon: '📤',
     category: 'staff',
+    chatPost: false,
+  },
+
+  // ---- Диск (refType='drive_node') ----
+  // Контекстного чата у узла Диска нет, поэтому chatPost везде false: хроника
+  // читается на самом объекте и в «Журнале организации».
+  'drive.created': {
+    template: '{{actorName}} добавил(а) «{{targetName}}»',
+    icon: '📄',
+    category: 'drive',
+    chatPost: false,
+  },
+  'drive.renamed': {
+    template: '{{actorName}} переименовал(а): «{{from}}» → «{{to}}»',
+    icon: '✏️',
+    category: 'drive',
+    chatPost: false,
+  },
+  'drive.moved': {
+    template: '{{actorName}} переместил(а) «{{targetName}}» в «{{to}}»',
+    icon: '📁',
+    category: 'drive',
+    chatPost: false,
+  },
+  'drive.shared': {
+    template: '{{actorName}} открыл(а) доступ к «{{targetName}}»: {{principalLabel}} — {{roleLabel}}',
+    icon: '🔓',
+    category: 'drive',
+    chatPost: false,
+  },
+  'drive.unshared': {
+    template: '{{actorName}} закрыл(а) доступ к «{{targetName}}»: {{principalLabel}}',
+    icon: '🔒',
+    category: 'drive',
+    chatPost: false,
+  },
+  'drive.trashed': {
+    template: '{{actorName}} удалил(а) «{{targetName}}» в корзину',
+    icon: '🗑️',
+    category: 'drive',
+    chatPost: false,
+  },
+  'drive.restored': {
+    template: '{{actorName}} восстановил(а) «{{targetName}}»',
+    icon: '♻️',
+    category: 'drive',
+    chatPost: false,
+  },
+  'drive.version_saved': {
+    template: '{{actorName}} сохранил(а) версию {{versionNo}}',
+    icon: '🗂️',
+    category: 'drive',
+    chatPost: false,
+  },
+  'drive.version_restored': {
+    template: '{{actorName}} вернул(а) версию {{versionNo}}',
+    icon: '↩️',
+    category: 'drive',
+    chatPost: false,
+  },
+
+  // ---- Гостевые ссылки (core/share-links; refType = объект, на который выдана ссылка) ----
+  // Своя категория, а не 'drive': ссылки наружу выдаются и на документы, а завтра
+  // на счета и витрины — в журнале организации это отдельная строка фильтра.
+  // Раздача доступа ВНЕ платформы не должна происходить тихо, поэтому запись есть
+  // всегда, даже когда у объекта нет контекстного чата (chatPost: false).
+  'share.link_created': {
+    template: '{{actorName}} создал(а) гостевую ссылку на «{{targetName}}»{{labelSuffix}}',
+    icon: '🔗',
+    category: 'share',
+    chatPost: false,
+  },
+  'share.link_revoked': {
+    template: '{{actorName}} отозвал(а) гостевую ссылку на «{{targetName}}»{{labelSuffix}}',
+    icon: '⛔',
+    category: 'share',
     chatPost: false,
   },
 } as const satisfies Record<string, ChatterTypeMeta>;
