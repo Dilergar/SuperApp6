@@ -27,6 +27,13 @@ export interface RichCardAction {
   key: RichCardActionKey;
   label: string;
   style?: RichCardActionStyle;
+  /**
+   * Действию нужна ПРИЧИНА: карточка обязана спросить её и положить в `payload.comment`,
+   * а не отправлять кнопку одним нажатием. Без этого признака «Отклонить» в чате
+   * всегда упиралось в серверное «Укажите причину», а ввести её было негде.
+   */
+  commentRequired?: boolean;
+  commentPlaceholder?: string;
   /** Optional structured input the action needs (e.g. contribution lines). */
   payload?: Record<string, unknown>;
 }

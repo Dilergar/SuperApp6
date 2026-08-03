@@ -31,6 +31,12 @@ export interface WorkspaceCardVisibility {
   contactEmail: boolean;
   contactPhone: boolean;
   membersCount: boolean;
+  /**
+   * Реквизиты организации (БИН, банк, юрадрес) сотрудникам. По умолчанию ВИДНЫ:
+   * они печатаются на каждом счёте и нужны сотрудникам для работы с клиентами.
+   * Owner/admin видят и правят всегда.
+   */
+  requisites: boolean;
   extras?: Record<string, boolean>;
 }
 
@@ -80,7 +86,62 @@ export interface WorkspaceMember {
    * Всегда видны: имя, фамилия, телефон (+ должности в assignments).
    */
   card: import('./contact').ContactUserCard;
+  /**
+   * Реквизиты для договоров и трудоустройства. Управляющим (manager+) приходят
+   * ВСЕГДА — это нередактируемый уровень «Видимости в Компаниях»; коллегам —
+   * только поля, включённые владельцем карточки (extras), остальное null.
+   * У зрителя без прав объекта нет вовсе.
+   */
+  requisites?: MemberRequisites;
   joinedAt: string;
+}
+
+/** Реквизитный блок сотрудника в ростере (что видит работодатель) */
+export interface MemberRequisites {
+  iin: string | null;
+  dateOfBirth: string | null; // ISO date
+  residentialAddress: string | null;
+  idDocNumber: string | null;
+  idDocIssuedBy: string | null;
+  idDocIssuedAt: string | null; // ISO date
+  /** Основная карта для выплат (номер полностью — ради этого блок и существует) */
+  paymentCard: {
+    pan: string;
+    iban: string | null;
+    holderName: string;
+    expMonth: number;
+    expYear: number;
+  } | null;
+}
+
+// ============================================================
+// Реквизиты организации (юрлицо для договоров/счетов) — блок «Анкеты компании»
+// ============================================================
+
+export interface WorkspaceBankAccountDto {
+  id: string;
+  iban: string;
+  bankName: string;
+  bik: string;
+  isPrimary: boolean;
+}
+
+export interface WorkspaceRequisitesDto {
+  orgForm: string | null;
+  taxRegime: string | null;
+  legalName: string | null;
+  bin: string | null;
+  legalAddress: string | null;
+  kbe: string | null;
+  vatPayer: boolean;
+  vatSeries: string | null;
+  vatNumber: string | null;
+  vatDate: string | null; // ISO date
+  /** Директор — сотрудник организации (для PersonChip) */
+  directorUserId: string | null;
+  directorName: string | null;
+  signBasis: string | null;
+  bankAccounts: WorkspaceBankAccountDto[];
 }
 
 export interface WorkspaceInvitation {

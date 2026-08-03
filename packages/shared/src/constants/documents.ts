@@ -13,8 +13,20 @@ export const DOCUMENT_EDITOR_KINDS = ['writer', 'calc', 'impress'] as const;
 /** Жизненный цикл документа (сам файл живёт своей жизнью в core/files) */
 export const DOCUMENT_STATUSES = ['active', 'archived'] as const;
 
-/** Document.mode — владелец может «заморозить» правку (п.7 грилла) */
-export const DOCUMENT_MODES = ['edit', 'readonly'] as const;
+/**
+ * Document.mode.
+ *
+ * `readonly` — владелец сам заморозил правку (п.7 грилла) и сам же её вернёт.
+ * `locked` — документ заморозила ВНЕШНЯЯ система (документ ушёл на согласование):
+ * владелец разморозить его не может, иначе предмет решения меняется под руками
+ * согласующего — а владелец файла здесь как раз тот, кто отправил его на маршрут.
+ *
+ * `locked` ставится только системным путём (`systemSetMode`) и в схему правки
+ * документа НЕ входит: `updateDocumentSchema` по-прежнему принимает edit|readonly.
+ */
+export const DOCUMENT_MODES = ['edit', 'readonly', 'locked'] as const;
+/** Режимы, которые владелец вправе выставить сам */
+export const DOCUMENT_USER_MODES = ['edit', 'readonly'] as const;
 
 /** Что зритель МОЖЕТ с документом — результат resolveMode() (место + гранты + mode) */
 export const DOCUMENT_ACCESS = ['none', 'view', 'edit'] as const;

@@ -76,6 +76,23 @@ export const SHARE_LINK_LIMITS = {
    * без потолка ответ рос бы без предела. Отдаём новейшие и говорим, сколько всего.
    */
   listPageSize: 100,
+  /** Страница раздела «Мои ссылки» */
+  minePageSize: 30,
+  /** Глубина сводки открытий на той же странице */
+  statsDays: 30,
+  /**
+   * Предохранитель уведомлений: сколько раз за сутки одна ссылка имеет право сказать
+   * «меня открыли». Дальше молчит до следующего дня, отправив одно прощальное.
+   * Смысл: ссылка, разосланная в массы, не должна превращаться в ленту уведомлений,
+   * даже если про тумблер забыли.
+   */
+  notifyPerDay: 5,
+  /**
+   * ZIP папки для гостя. Потолки нужны, потому что архив собирается ПОТОКОМ в ответ:
+   * без них один гость может занять соединение на часы и вычитать терабайт.
+   */
+  zipMaxBytes: 2 * 1024 * 1024 * 1024,
+  zipMaxFiles: 1000,
   /** Страница журнала визитов */
   visitsPageSize: 50,
   maxVisitsPageSize: 200,
@@ -84,6 +101,8 @@ export const SHARE_LINK_LIMITS = {
   visitRetentionBatch: 5000,
   /** Обрезка User-Agent: заголовок задаёт клиент, и он бывает километровым */
   visitUserAgentMaxLength: 256,
+  /** Имя, которым гость называет себя при подтверждении номера */
+  guestNameMaxLength: 80,
 } as const;
 
 /**
@@ -113,6 +132,12 @@ export const SHARE_LINK_ERROR_CODES = {
   passwordLocked: 'share_password_locked',
   /** Гостевая сессия просрочена/подделана (403) */
   sessionInvalid: 'share_session_invalid',
+  /** Ссылка требует подтверждение номера — откройте через шаг идентификации (403) */
+  identityRequired: 'share_identity_required',
+  /** Владелец выключил скачивание по этой ссылке (403) */
+  downloadDisabled: 'share_download_disabled',
+  /** Папка не помещается в потолок архива — качать по частям (403 + details.limit) */
+  zipTooLarge: 'share_zip_too_large',
 } as const;
 
 export type ShareLinkErrorCode = (typeof SHARE_LINK_ERROR_CODES)[keyof typeof SHARE_LINK_ERROR_CODES];

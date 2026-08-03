@@ -19,6 +19,7 @@ import {
   type TabItem,
 } from '@/components/ui';
 import { PersonChip, StaffPersonCard, type StaffCardData } from '../../../circles/PersonCard';
+import { SubmitDocumentModal } from '../documents/SubmitDocumentModal';
 import { PersonAvatar } from '../../../messenger/messenger-ui';
 import {
   WORKSPACE_ROLES,
@@ -266,6 +267,7 @@ function PeopleTab({
   }, [members]);
 
   const managed = managedId ? members.find((m) => m.userId === managedId) ?? null : null;
+  const [documentFor, setDocumentFor] = useState<WorkspaceMember | null>(null);
 
   // «Написать» — DM через «рабочий пропуск» (заголовок организации), затем в чат.
   const writeTo = async (m: WorkspaceMember) => {
@@ -405,6 +407,22 @@ function PeopleTab({
           isOwnerRow={managed.userId === ownerId}
           onClose={() => setManagedId(null)}
           refreshStaff={refreshStaff}
+          onSendDocument={() => {
+            setManagedId(null);
+            setDocumentFor(managed);
+          }}
+        />
+      )}
+
+      {/* Документ НА сотрудника — из его же карточки: кадровик оформляет приказ
+          там, где смотрит человека, а не ищет его заново в реестре документов. */}
+      {documentFor && (
+        <SubmitDocumentModal
+          workspaceId={workspaceId}
+          open
+          subjectUserId={documentFor.userId}
+          subjectName={documentFor.userName}
+          onClose={() => setDocumentFor(null)}
         />
       )}
     </>
@@ -414,6 +432,7 @@ function PeopleTab({
 /** Окно управления сотрудником: роль + должности + увольнение. */
 function MemberModal({
   workspaceId, member, dir, meId, myRole, canManage, canStaff, isOwnerRow, onClose, refreshStaff,
+  onSendDocument,
 }: {
   workspaceId: string;
   member: WorkspaceMember;
@@ -425,6 +444,8 @@ function MemberModal({
   isOwnerRow: boolean;
   onClose: () => void;
   refreshStaff: () => void;
+  /** «Оформить документ» — открывает подачу с этим сотрудником как стороной */
+  onSendDocument: () => void;
 }) {
   const qc = useQueryClient();
   const [newRole, setNewRole] = useState<WorkspaceRole>(member.role);
@@ -603,6 +624,27 @@ function MemberModal({
                 </div>
               )}
             </div>
+
+            {/* Реквизиты для договоров и выплат: приезжают с ростером ТОЛЬКО
+                управляющим (второй, нередактируемый уровень «Видимости в
+                Компаниях») либо когда сотрудник сам открыл поле коллегам. */}
+            {member.requisites && <MemberRequisitesBlock req={member.requisites} />}
+
+            {/* Документы сотрудника: оформить приказ и посмотреть, что уже есть.
+                Кадровик работает с человеком там, где на него смотрит. */}
+            <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
+              <Button variant="matte" size="sm" icon="file" onClick={onSendDocument}>
+                Оформить документ
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                icon="list"
+                href={`/workspaces/${workspaceId}/documents?subject=${member.userId}`}
+              >
+                Его документы
+              </Button>
+            </div>
           </>
         )}
       </div>
@@ -618,6 +660,47 @@ function MemberModal({
         loading={busy}
       />
     </Modal>
+  );
+}
+
+/** Реквизитный блок сотрудника (договоры, трудоустройство, выплаты) */
+function MemberRequisitesBlock({ req }: { req: NonNullable<WorkspaceMember['requisites']> }) {
+  const rows: Array<{ label: string; value: string | null }> = [
+    { label: 'ИИН', value: req.iin },
+    {
+      label: 'Дата рождения',
+      value: req.dateOfBirth ? new Date(req.dateOfBirth).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : null,
+    },
+    { label: 'Адрес проживания', value: req.residentialAddress },
+    {
+      label: 'Удостоверение',
+      value: req.idDocNumber
+        ? `№ ${req.idDocNumber}${req.idDocIssuedBy ? `, ${req.idDocIssuedBy}` : ''}${req.idDocIssuedAt ? `, от ${new Date(req.idDocIssuedAt).toLocaleDateString('ru-RU')}` : ''}`
+        : null,
+    },
+    {
+      label: 'Карта для выплат',
+      value: req.paymentCard
+        ? `${req.paymentCard.pan.replace(/(\d{4})(?=\d)/g, '$1 ')} · ${req.paymentCard.holderName}${req.paymentCard.iban ? ` · ${req.paymentCard.iban}` : ''}`
+        : null,
+    },
+  ].filter((r) => !!r.value);
+  if (!rows.length) return null;
+  return (
+    <div>
+      <div className="label-caps" style={{ marginBottom: 'var(--spacing-2)' }}>Реквизиты</div>
+      <div className="ui-stack" style={{ gap: '0.25rem' }}>
+        {rows.map((r) => (
+          <div key={r.label} style={{ display: 'flex', gap: 'var(--spacing-3)', fontSize: '0.85rem', lineHeight: 1.6 }}>
+            <span style={{ color: 'var(--on-surface-variant)', minWidth: 140 }}>{r.label}</span>
+            <span style={{ fontWeight: 500 }}>{r.value}</span>
+          </div>
+        ))}
+      </div>
+      <p className="label-sm" style={{ margin: 'var(--spacing-2) 0 0', opacity: 0.6 }}>
+        Данные для договоров и выплат. Сотрудник видит их в своей анкете; коллегам они не показываются.
+      </p>
+    </div>
   );
 }
 

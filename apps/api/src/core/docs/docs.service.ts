@@ -421,6 +421,31 @@ export class DocsService implements OnModuleInit {
     return this.serialize(updated, 'edit');
   }
 
+  /** Движок подключён (задан адрес редактора) — потребители прячут свои кнопки сами */
+  get enabled(): boolean {
+    return this.router.enabled;
+  }
+
+  /**
+   * Системная смена режима: заморозить документ на время маршрута и разморозить,
+   * когда его вернули на доработку. Контракт `system*` — ПРАВО ПРОВЕРИЛ ВЫЗЫВАЮЩИЙ.
+   *
+   * Почему не через `update()`: там владелец, а владелец документа — податель. Он не
+   * должен уметь разморозить собственное заявление посреди согласования, зато сервис
+   * документооборота обязан это делать по ходу маршрута.
+   */
+  async systemSetMode(documentId: string, mode: 'edit' | 'readonly' | 'locked'): Promise<void> {
+    const doc = await this.db.document.findUnique({ where: { id: documentId } });
+    if (!doc || doc.status !== 'active') return;
+    if (doc.mode === mode) return;
+    await this.db.document.update({
+      where: { id: doc.id },
+      // Бамп поколения обязателен: без него уже выданный пропуск редактора живёт часами
+      // и человек продолжит править документ, который система считает замороженным.
+      data: { mode, tokenEpoch: { increment: 1 } },
+    });
+  }
+
   /**
    * Закрыть документ навсегда (владелец). Файл при этом НЕ пропадает сам по себе: он
    * остаётся обычным вложением своего места и живёт по правилам движка файлов — пропадает
@@ -601,6 +626,14 @@ export class DocsService implements OnModuleInit {
   async resolveMode(userId: string, doc: DocumentRow, ctx?: DocsPlaceCtx | null): Promise<DocumentAccess> {
     if (doc.status !== 'active' || doc.deletedAt) return 'none';
     const subject = { type: 'user' as const, id: userId };
+
+    // `locked` — заморозка ВНЕШНЕЙ системы (документ ушёл на согласование): её не
+    // снимает даже владелец. Иначе заморозка не значит ничего там, где она и нужна:
+    // владелец файла — это как раз тот, кто отправил документ на маршрут, и он мог
+    // править .docx, пока его согласовывают, и после того, как его подписали.
+    if (doc.mode === 'locked') {
+      return (await this.canViewDocument(userId, doc)) ? 'view' : 'none';
+    }
 
     // Владелец («управляет») — единственный, кого не ограничивает «только чтение»:
     // он же его и включил и должен иметь возможность починить документ и разморозить.

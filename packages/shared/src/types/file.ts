@@ -82,3 +82,39 @@ export interface FileUsageDto {
   filesCount: number;
   limitBytes: number;
 }
+
+/**
+ * Файл глазами ГОСТЯ по внешней ссылке (core/share-links). Живёт здесь, а не в
+ * типах движка ссылок: это проекция ФАЙЛА, общая для всех гостевых потребителей —
+ * сегодня Диск, завтра счета с приложениями и витрина.
+ *
+ * Ссылки подписаны сервером и живут ~10 минут — страница добирает свежие через
+ * `/view`, когда `urlExpiresAt` прошёл.
+ *
+ * `available: false` — файл ещё не готов или помечен антивирусом как заражённый:
+ * ссылок нет вовсе, страница честно говорит «файл недоступен».
+ */
+export interface ShareGuestFile {
+  fileId: string;
+  name: string;
+  mime: string;
+  kind: FileKind;
+  size: number;
+  available: boolean;
+  /**
+   * Оригинал. `null`, если владелец выключил скачивание — тогда у картинки остаётся
+   * `previewUrl` (уменьшенная копия), а у файла без предпросмотра честно не остаётся
+   * ничего, и страница так и говорит.
+   */
+  url: string | null;
+  /** Уменьшенная копия для просмотра без скачивания оригинала */
+  previewUrl: string | null;
+  thumbUrl: string | null;
+  posterUrl: string | null;
+  urlExpiresAt: string | null;
+  width: number | null;
+  height: number | null;
+  durationMs: number | null;
+  waveform: number[] | null;
+  thumbhash: string | null;
+}

@@ -33,6 +33,8 @@ import { WopiController } from './wopi.controller';
     DocsShareLinksProvider,
     DocsCron,
   ],
-  exports: [DocsService, DocsRouterService],
+  // DocsRenditionService экспортирован для сервиса «Документы»: PDF-отпечаток на
+  // маршруте снимается его же контентно-адресуемым путём, а не второй конвертацией.
+  exports: [DocsService, DocsRouterService, DocsRenditionService],
 })
 export class DocsModule {}

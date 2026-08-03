@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { DOCS_LIMITS, DOCUMENT_MODES } from '../constants/documents';
+import { DOCS_LIMITS, DOCUMENT_USER_MODES } from '../constants/documents';
 
 // ============================================
 // Docs Engine — Zod-схемы
@@ -51,7 +51,9 @@ export const documentOpenSchema = z
 export const documentUpdateSchema = z
   .object({
     title: title.optional(),
-    mode: z.enum(DOCUMENT_MODES).optional(),
+    // Только edit|readonly: `locked` ставит внешняя система, и владелец не должен
+    // уметь снять её со своего документа, пока тот на согласовании.
+    mode: z.enum(DOCUMENT_USER_MODES).optional(),
   })
   .strict()
   .refine((v) => v.title !== undefined || v.mode !== undefined, { message: 'Нечего обновлять' });

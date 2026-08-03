@@ -8,6 +8,7 @@ import { ProcessWebhookController } from './process-webhook.controller';
 import { ProcessesEventsListener } from './processes.events';
 import { ProcessTriggerRouter } from './process-triggers.service';
 import { ProcessesCron } from './processes.cron';
+import { ProcessApprovalsProvider } from './process-approvals.provider';
 
 /**
  * «Процессы» (B2B) — нодовый движок бизнес-процессов (Фазы 1–3).
@@ -25,6 +26,9 @@ import { ProcessesCron } from './processes.cron';
     ProcessTriggerRouter,
     ProcessesEventsListener,
     ProcessesCron,
+    // Регистрация в движке согласований: Процессы и предмет («запуск процесса»),
+    // и ведущий (хук возврата токена). Движок Процессы не импортирует.
+    ProcessApprovalsProvider,
     // Строковый токен для синхронного хука Задачника (ModuleRef, без циклического импорта) —
     // тот же паттерн, что 'ShopService' для settlement заказов.
     { provide: 'ProcessesService', useExisting: ProcessesService },

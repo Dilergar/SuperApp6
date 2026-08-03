@@ -1,20 +1,26 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Glyph, GlyphField, Input } from '@/components/ui';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Button, Chip, Glyph, GlyphField, Input, Toggle, useConfirm } from '@/components/ui';
 import { api } from '@/lib/api';
 import {
-  currencyBadgeKey, walletCurrencyKey, walletHistoryKey, walletHoldersKey, walletOverviewKey,
+  currencyBadgeKey, walletCardsKey, walletCurrencyKey, walletHistoryKey, walletHoldersKey, walletOverviewKey,
 } from '@/lib/queries';
 import {
   WALLET_LIMITS,
   LEDGER_ENTRY_LABELS,
+  isValidCardPan,
+  isValidKzIban,
+  normalizeCardPan,
+  normalizeIban,
   type Currency,
   type WalletEntry,
   type LedgerEntryDto,
   type CurrencyHolder,
+  type UserPaymentCardDto,
 } from '@superapp/shared';
+import { toastError } from '@/lib/toast';
 
 function errMsg(e: unknown, fallback = 'Ошибка'): string {
   const ax = e as { response?: { data?: { message?: string; error?: string } } };
@@ -149,6 +155,9 @@ export function WalletSection() {
 
       {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: 'var(--spacing-4)' }}>{error}</p>}
       {ok && <p style={{ color: 'var(--secondary)', fontSize: '0.85rem', marginBottom: 'var(--spacing-4)' }}>{ok}</p>}
+
+      {/* ===== Мои карты (реквизит для выплат) ===== */}
+      <PaymentCardsBlock />
 
       {/* ===== Моя валюта ===== */}
       <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>Моя валюта</h3>
@@ -330,6 +339,180 @@ export function WalletSection() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ============================================================
+// «Мои карты» — реквизит для выплат (зарплата, возвраты). БЕЗ CVV:
+// платежи через карту платформа не проводит, это данные «куда переводить».
+// Основную карту видят управляющие ваших организаций (для выплат).
+// ============================================================
+
+function PaymentCardsBlock() {
+  const qc = useQueryClient();
+  const [confirm, confirmUI] = useConfirm();
+  const [adding, setAdding] = useState(false);
+  const [pan, setPan] = useState('');
+  const [iban, setIban] = useState('');
+  const [holder, setHolder] = useState('');
+  const [exp, setExp] = useState(''); // ММ/ГГ одной строкой — как на самой карте
+  const [makePrimary, setMakePrimary] = useState(false);
+  const [revealed, setRevealed] = useState<string | null>(null);
+
+  const cardsQ = useQuery({
+    queryKey: walletCardsKey,
+    queryFn: async () => (await api.get('/wallet/cards')).data.data as UserPaymentCardDto[],
+    staleTime: 60_000,
+  });
+  const cards = cardsQ.data ?? [];
+  const invalidate = () => qc.invalidateQueries({ queryKey: walletCardsKey });
+
+  const panNorm = normalizeCardPan(pan);
+  const ibanNorm = normalizeIban(iban);
+  const expMatch = /^(\d{2})\s*\/\s*(\d{2})$/.exec(exp.trim());
+  const formOk =
+    isValidCardPan(panNorm) &&
+    (!ibanNorm || isValidKzIban(ibanNorm)) &&
+    holder.trim().length > 0 &&
+    !!expMatch;
+
+  const create = useMutation({
+    mutationFn: async () => {
+      await api.post('/wallet/cards', {
+        pan: panNorm,
+        ...(ibanNorm ? { iban: ibanNorm } : {}),
+        holderName: holder.trim(),
+        expMonth: Number(expMatch![1]),
+        expYear: 2000 + Number(expMatch![2]),
+        ...(makePrimary ? { isPrimary: true } : {}),
+      });
+    },
+    onSuccess: () => {
+      setAdding(false);
+      setPan(''); setIban(''); setHolder(''); setExp(''); setMakePrimary(false);
+      void invalidate();
+    },
+    onError: (e) => toastError(errMsg(e, 'Не удалось добавить карту')),
+  });
+
+  const setPrimary = useMutation({
+    mutationFn: (id: string) => api.patch(`/wallet/cards/${id}`, { isPrimary: true }),
+    onSuccess: () => void invalidate(),
+    onError: (e) => toastError(errMsg(e)),
+  });
+
+  const remove = useMutation({
+    mutationFn: (id: string) => api.delete(`/wallet/cards/${id}`),
+    onSuccess: () => void invalidate(),
+    onError: (e) => toastError(errMsg(e)),
+  });
+
+  return (
+    <div style={{ marginBottom: 'var(--spacing-8)' }}>
+      <h3 className="title-md" style={{ marginBottom: 'var(--spacing-1)' }}>Мои карты</h3>
+      <p className="label-sm" style={{ marginBottom: 'var(--spacing-3)', opacity: 0.7, maxWidth: '460px', lineHeight: 1.5 }}>
+        Реквизиты для выплат — зарплаты и возвратов. CVV не запрашивается и не хранится:
+        платежи через карту не проводятся. Основную карту видят управляющие организаций,
+        где вы работаете.
+      </p>
+
+      {cards.map((c) => (
+        <div key={c.id} className="card" style={{ padding: 'var(--spacing-4)', maxWidth: '460px', marginBottom: 'var(--spacing-3)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
+            <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, letterSpacing: '0.05em' }}>
+              {revealed === c.id ? c.pan.replace(/(\d{4})(?=\d)/g, '$1 ') : c.panMasked}
+            </span>
+            {c.isPrimary && <Chip tone="success">Основная</Chip>}
+            <span style={{ flex: 1 }} />
+            <Button size="sm" variant="ghost" onClick={() => setRevealed((r) => (r === c.id ? null : c.id))}>
+              {revealed === c.id ? 'Скрыть' : 'Показать'}
+            </Button>
+          </div>
+          <div className="label-sm" style={{ marginTop: 'var(--spacing-2)', opacity: 0.75 }}>
+            {c.holderName} · до {String(c.expMonth).padStart(2, '0')}/{String(c.expYear % 100).padStart(2, '0')}
+            {c.iban && revealed === c.id && <> · {c.iban}</>}
+          </div>
+          <div style={{ display: 'flex', gap: 'var(--spacing-2)', marginTop: 'var(--spacing-2)' }}>
+            {!c.isPrimary && (
+              <Button size="sm" variant="ghost" loading={setPrimary.isPending} onClick={() => setPrimary.mutate(c.id)}>
+                Сделать основной
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              tone="danger"
+              onClick={() =>
+                confirm(
+                  {
+                    title: 'Удалить карту?',
+                    message: `Карта ${c.panMasked} будет удалена из реквизитов.`,
+                    confirmLabel: 'Удалить',
+                    danger: true,
+                  },
+                  () => remove.mutateAsync(c.id).then(() => undefined),
+                )
+              }
+            >
+              Удалить
+            </Button>
+          </div>
+        </div>
+      ))}
+
+      {!adding ? (
+        <Button variant="outline" size="sm" icon="add" onClick={() => setAdding(true)}>
+          Добавить карту
+        </Button>
+      ) : (
+        <div className="card-elevated" style={{ padding: 'var(--spacing-5)', maxWidth: '460px', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
+          <Input
+            label="Номер карты"
+            inputMode="numeric"
+            placeholder="0000 0000 0000 0000"
+            value={pan}
+            onChange={(e) => setPan(e.target.value.replace(/[^\d\s]/g, '').slice(0, 23))}
+            error={panNorm && !isValidCardPan(panNorm) ? 'Проверьте номер — не сходится контрольная сумма' : undefined}
+          />
+          <Input
+            label="IBAN карт-счёта (необязательно)"
+            placeholder="KZ00 0000 0000 0000 0000"
+            value={iban}
+            onChange={(e) => setIban(e.target.value)}
+            error={ibanNorm && !isValidKzIban(ibanNorm) ? 'Проверьте номер счёта (KZ + 18 знаков)' : undefined}
+            hint="Kaspi показывает его в реквизитах карты — на счёт идут переводы из банков"
+          />
+          <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-3)' }}>
+            <Input
+              label="Имя как на карте"
+              value={holder}
+              onChange={(e) => setHolder(e.target.value.toUpperCase())}
+              placeholder="ASSEL NUROVA"
+            />
+            <Input
+              label="Срок (ММ/ГГ)"
+              inputMode="numeric"
+              placeholder="08/29"
+              value={exp}
+              onChange={(e) => {
+                const digits = e.target.value.replace(/\D/g, '').slice(0, 4);
+                setExp(digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits);
+              }}
+            />
+          </div>
+          <Toggle checked={makePrimary} onChange={setMakePrimary} label="Сделать основной" />
+          <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
+            <Button variant="primary" size="sm" loading={create.isPending} disabled={!formOk} onClick={() => create.mutate()}>
+              Сохранить карту
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setAdding(false)}>
+              Отмена
+            </Button>
+          </div>
+        </div>
+      )}
+      {confirmUI}
     </div>
   );
 }

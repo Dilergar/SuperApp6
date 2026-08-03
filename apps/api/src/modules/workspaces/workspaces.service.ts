@@ -14,6 +14,7 @@ import { RolesService } from '../../core/roles/roles.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { StaffService } from '../staff/staff.service';
+import { PaymentCardsService } from '../wallet/payment-cards.service';
 import { FilesService } from '../../core/files/files.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { ChatterRefRegistry } from '../../core/chatter/chatter-ref.registry';
@@ -29,6 +30,13 @@ import {
   WORKSPACE_ROLES,
   WORKSPACE_ROLE_RANK,
   WORKSPACE_HIRE_ROLE,
+  REQUISITE_LIMITS,
+  REQUISITE_VISIBILITY_EXTRAS,
+  type MemberRequisites,
+  type WorkspaceRequisitesDto,
+  type WorkspaceRequisitesInput,
+  type CreateBankAccountInput,
+  type UpdateBankAccountInput,
   type WorkspaceRole,
 } from '@superapp/shared';
 import {
@@ -76,6 +84,7 @@ export class WorkspacesService implements OnModuleInit {
     private events: EventBusService,
     private notifications: NotificationsService,
     private staff: StaffService,
+    private paymentCards: PaymentCardsService,
     private files: FilesService,
     private chatter: ChatterService,
     private chatterRegistry: ChatterRefRegistry,
@@ -251,6 +260,198 @@ export class WorkspacesService implements OnModuleInit {
         .catch(() => undefined);
     }
     return this.serializeWorkspace(ws, ws._count.members, role, ws._count.tasks);
+  }
+
+  // ============================================================
+  // Реквизиты организации (блок «Анкеты компании»): юрформа, БИН, банк, директор
+  // ============================================================
+
+  /**
+   * Реквизиты + банковские счета. Owner/admin видят всегда (они и правят);
+   * сотрудникам блок открыт флагом `cardVisibility.requisites` (по умолчанию да —
+   * реквизиты печатаются на каждом счёте). Скрыт → data: null, веб просто не рисует
+   * блок. Подрядчик отрезан гейтом команды.
+   */
+  async getRequisites(userId: string, workspaceId: string): Promise<WorkspaceRequisitesDto | null> {
+    const role = await this.assertTeamMember(userId, workspaceId);
+    const ws = await this.getWorkspaceOrThrow(workspaceId);
+    const canSeeAll = role === 'owner' || role === 'admin';
+    const vis = resolveWorkspaceCardVisibility(
+      ws.cardVisibility as Partial<WorkspaceCardVisibility> | null,
+    );
+    if (!canSeeAll && !vis.requisites) return null;
+    return this.serializeRequisites(workspaceId);
+  }
+
+  /**
+   * Upsert реквизитов (admin+, как остальная анкета). Контракт полей — PATCH:
+   * null очищает, отсутствие ключа сохраняет. Директор валидируется ЧЛЕНСТВОМ
+   * (выбор из сотрудников, Подрядчик не подписант).
+   */
+  async updateRequisites(
+    userId: string,
+    workspaceId: string,
+    dto: WorkspaceRequisitesInput,
+  ): Promise<WorkspaceRequisitesDto> {
+    await this.assertCanManage(userId, workspaceId);
+    if (dto.directorUserId) {
+      const role = await this.getMyRoleOf(dto.directorUserId, workspaceId);
+      if (!role || role === 'contractor') {
+        throw new BadRequestException('Директор выбирается из сотрудников организации');
+      }
+    }
+
+    const data: Prisma.WorkspaceRequisitesUncheckedUpdateInput = {};
+    for (const key of [
+      'orgForm',
+      'taxRegime',
+      'legalName',
+      'bin',
+      'legalAddress',
+      'kbe',
+      'vatSeries',
+      'vatNumber',
+      'directorUserId',
+      'signBasis',
+    ] as const) {
+      if (dto[key] !== undefined) data[key] = dto[key];
+    }
+    if (dto.vatPayer !== undefined) data.vatPayer = dto.vatPayer;
+    if (dto.vatDate !== undefined) data.vatDate = dto.vatDate;
+
+    await this.db.workspaceRequisites.upsert({
+      where: { workspaceId },
+      create: { ...(data as Omit<Prisma.WorkspaceRequisitesUncheckedCreateInput, 'workspaceId'>), workspaceId },
+      update: data,
+    });
+    return (await this.serializeRequisites(workspaceId)) as WorkspaceRequisitesDto;
+  }
+
+  async addBankAccount(
+    userId: string,
+    workspaceId: string,
+    dto: CreateBankAccountInput,
+  ): Promise<WorkspaceRequisitesDto> {
+    await this.assertCanManage(userId, workspaceId);
+    await this.db.$transaction(async (tx) => {
+      const count = await tx.workspaceBankAccount.count({ where: { workspaceId } });
+      if (count >= REQUISITE_LIMITS.maxBankAccountsPerWorkspace) {
+        throw new BadRequestException('Слишком много счетов — удалите ненужный');
+      }
+      // Первый счёт — основной сам; явный isPrimary снимает флаг с прочих.
+      const makePrimary = dto.isPrimary || count === 0;
+      if (makePrimary) {
+        await tx.workspaceBankAccount.updateMany({
+          where: { workspaceId, isPrimary: true },
+          data: { isPrimary: false },
+        });
+      }
+      await tx.workspaceBankAccount.create({
+        data: { workspaceId, iban: dto.iban, bankName: dto.bankName, bik: dto.bik, isPrimary: makePrimary },
+      });
+    });
+    return (await this.serializeRequisites(workspaceId)) as WorkspaceRequisitesDto;
+  }
+
+  async updateBankAccount(
+    userId: string,
+    workspaceId: string,
+    accountId: string,
+    dto: UpdateBankAccountInput,
+  ): Promise<WorkspaceRequisitesDto> {
+    await this.assertCanManage(userId, workspaceId);
+    await this.db.$transaction(async (tx) => {
+      const acc = await tx.workspaceBankAccount.findFirst({ where: { id: accountId, workspaceId } });
+      if (!acc) throw new NotFoundException('Счёт не найден');
+      if (dto.isPrimary) {
+        await tx.workspaceBankAccount.updateMany({
+          where: { workspaceId, isPrimary: true },
+          data: { isPrimary: false },
+        });
+      }
+      await tx.workspaceBankAccount.update({
+        where: { id: acc.id },
+        data: {
+          ...(dto.iban !== undefined ? { iban: dto.iban } : {}),
+          ...(dto.bankName !== undefined ? { bankName: dto.bankName } : {}),
+          ...(dto.bik !== undefined ? { bik: dto.bik } : {}),
+          ...(dto.isPrimary !== undefined ? { isPrimary: dto.isPrimary } : {}),
+        },
+      });
+    });
+    return (await this.serializeRequisites(workspaceId)) as WorkspaceRequisitesDto;
+  }
+
+  async removeBankAccount(
+    userId: string,
+    workspaceId: string,
+    accountId: string,
+  ): Promise<WorkspaceRequisitesDto> {
+    await this.assertCanManage(userId, workspaceId);
+    await this.db.$transaction(async (tx) => {
+      const acc = await tx.workspaceBankAccount.findFirst({ where: { id: accountId, workspaceId } });
+      if (!acc) throw new NotFoundException('Счёт не найден');
+      await tx.workspaceBankAccount.delete({ where: { id: acc.id } });
+      // Основной удалили — роль переходит старейшему из оставшихся: «основной» не
+      // должен пропадать, пока есть хоть один счёт (на него смотрят документы).
+      if (acc.isPrimary) {
+        const next = await tx.workspaceBankAccount.findFirst({
+          where: { workspaceId },
+          orderBy: { createdAt: 'asc' },
+        });
+        if (next) await tx.workspaceBankAccount.update({ where: { id: next.id }, data: { isPrimary: true } });
+      }
+    });
+    return (await this.serializeRequisites(workspaceId)) as WorkspaceRequisitesDto;
+  }
+
+  /** Роль произвольного пользователя в организации (для валидации директора) */
+  private async getMyRoleOf(userId: string, workspaceId: string): Promise<WorkspaceRole | null> {
+    const rows = await this.roles.getRolesInContext(userId, WS_CONTEXT, workspaceId);
+    if (!rows.length) return null;
+    return rows
+      .map((r) => r.role as WorkspaceRole)
+      .sort((a, b) => ROLE_RANK[b] - ROLE_RANK[a])[0];
+  }
+
+  private async serializeRequisites(workspaceId: string): Promise<WorkspaceRequisitesDto> {
+    const [req, accounts] = await Promise.all([
+      this.db.workspaceRequisites.findUnique({ where: { workspaceId } }),
+      this.db.workspaceBankAccount.findMany({
+        where: { workspaceId },
+        orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+      }),
+    ]);
+    // Директор мог быть уволен после записи — имя всё равно показываем (реквизиты
+    // не рвутся увольнением; актуальность подписанта сверяется на выдаче документа).
+    const director = req?.directorUserId
+      ? await this.db.user.findUnique({
+          where: { id: req.directorUserId },
+          select: { firstName: true, lastName: true },
+        })
+      : null;
+    return {
+      orgForm: req?.orgForm ?? null,
+      taxRegime: req?.taxRegime ?? null,
+      legalName: req?.legalName ?? null,
+      bin: req?.bin ?? null,
+      legalAddress: req?.legalAddress ?? null,
+      kbe: req?.kbe ?? null,
+      vatPayer: req?.vatPayer ?? false,
+      vatSeries: req?.vatSeries ?? null,
+      vatNumber: req?.vatNumber ?? null,
+      vatDate: req?.vatDate ? req.vatDate.toISOString().slice(0, 10) : null,
+      directorUserId: req?.directorUserId ?? null,
+      directorName: director ? fullName(director) : null,
+      signBasis: req?.signBasis ?? null,
+      bankAccounts: accounts.map((a) => ({
+        id: a.id,
+        iban: a.iban,
+        bankName: a.bankName,
+        bik: a.bik,
+        isPrimary: a.isPrimary,
+      })),
+    };
   }
 
   /**
@@ -513,7 +714,11 @@ export class WorkspacesService implements OnModuleInit {
 
   async listMembers(userId: string, workspaceId: string) {
     // Ростер закрыт от Подрядчика (Коллаб-модель: он не видит команду).
-    await this.assertTeamMember(userId, workspaceId);
+    const viewerRole = await this.assertTeamMember(userId, workspaceId);
+    // Управляющим (manager+) реквизитный блок сотрудника виден ВСЕГДА — это второй,
+    // нередактируемый уровень «Видимости в Компаниях»: данные для договоров,
+    // трудоустройства и выплат. Тумблеры сотрудника действуют только на коллег.
+    const managerView = ROLE_RANK[viewerRole] >= ROLE_RANK.manager;
 
     const [members, roleRows, assignmentsByUser] = await Promise.all([
       this.db.workspaceMember.findMany({
@@ -534,6 +739,11 @@ export class WorkspacesService implements OnModuleInit {
               socialLinks: true,
               onlineStatusMode: true,
               companyCardVisibility: true,
+              iin: true,
+              residentialAddress: true,
+              idDocNumber: true,
+              idDocIssuedBy: true,
+              idDocIssuedAt: true,
             },
           },
         },
@@ -554,6 +764,20 @@ export class WorkspacesService implements OnModuleInit {
       if (!cur || ROLE_RANK[role] > ROLE_RANK[cur]) roleByUser.set(r.userId, role);
     }
 
+    // Основные карты — одним запросом на всю страницу (расшифровка в сервисе карт).
+    // Нужны управляющему (всегда) и коллегам тех, кто сам включил тумблер paymentCard.
+    const cardsNeeded = managerView
+      ? members.map((m) => m.userId)
+      : members
+          .filter((m) => {
+            const vis = resolveCardVisibility(
+              m.user.companyCardVisibility as Parameters<typeof resolveCardVisibility>[0],
+            );
+            return !!vis.extras?.[REQUISITE_VISIBILITY_EXTRAS.paymentCard];
+          })
+          .map((m) => m.userId);
+    const primaryCards = await this.paymentCards.primaryCardsFor(cardsNeeded);
+
     return members.map((m) => ({
       id: m.id,
       workspaceId,
@@ -563,8 +787,52 @@ export class WorkspacesService implements OnModuleInit {
       role: roleByUser.get(m.userId) ?? 'staff',
       assignments: assignmentsByUser.get(m.userId) ?? [],
       card: this.companyCard(m.user),
+      ...this.memberRequisites(m.user, managerView, primaryCards.get(m.userId) ?? null),
       joinedAt: m.joinedAt.toISOString(),
     }));
+  }
+
+  /**
+   * Реквизитный блок сотрудника в ростере. Управляющему — полный и всегда;
+   * коллеге — только поля, включённые владельцем карточки в extras «Видимости в
+   * Компаниях» (по умолчанию все выключены). Ничего не включено → блока нет.
+   */
+  private memberRequisites(
+    u: {
+      dateOfBirth: Date | null;
+      iin: string | null;
+      residentialAddress: string | null;
+      idDocNumber: string | null;
+      idDocIssuedBy: string | null;
+      idDocIssuedAt: Date | null;
+      companyCardVisibility: Prisma.JsonValue | null;
+    },
+    managerView: boolean,
+    primaryCard: { pan: string; iban: string | null; holderName: string; expMonth: number; expYear: number } | null,
+  ): { requisites?: MemberRequisites } {
+    const vis = resolveCardVisibility(
+      u.companyCardVisibility as Parameters<typeof resolveCardVisibility>[0],
+    );
+    const extra = (key: string) => managerView || !!vis.extras?.[key];
+    const showIin = extra(REQUISITE_VISIBILITY_EXTRAS.iin);
+    const showAddress = extra(REQUISITE_VISIBILITY_EXTRAS.residentialAddress);
+    const showIdDoc = extra(REQUISITE_VISIBILITY_EXTRAS.idDocument);
+    const showCard = extra(REQUISITE_VISIBILITY_EXTRAS.paymentCard);
+    if (!showIin && !showAddress && !showIdDoc && !showCard && !managerView) return {};
+
+    return {
+      requisites: {
+        iin: showIin ? u.iin : null,
+        // Управляющему ДР видна всегда (комплект трудоустройства); коллегам ею
+        // управляет обычный тумблер dateOfBirth карточки — здесь не дублируем.
+        dateOfBirth: managerView && u.dateOfBirth ? u.dateOfBirth.toISOString().slice(0, 10) : null,
+        residentialAddress: showAddress ? u.residentialAddress : null,
+        idDocNumber: showIdDoc ? u.idDocNumber : null,
+        idDocIssuedBy: showIdDoc ? u.idDocIssuedBy : null,
+        idDocIssuedAt: showIdDoc && u.idDocIssuedAt ? u.idDocIssuedAt.toISOString().slice(0, 10) : null,
+        paymentCard: showCard && primaryCard ? primaryCard : null,
+      },
+    };
   }
 
   /**
@@ -1120,6 +1388,16 @@ export class WorkspacesService implements OnModuleInit {
       throw new ForbiddenException('Подрядчику доступны только его задачи');
     }
     return role;
+  }
+
+  /**
+   * Публичный гейт «роль ≥ Менеджер» для СОСЕДНИХ контроллеров этого модуля,
+   * которые обслуживают движки (сейчас — «Ссылки организации» на core/share-links).
+   * Понятие «роль в организации» принадлежит этому модулю, поэтому движки за ним
+   * приходят сюда, а не тянут к себе RolesService.
+   */
+  async assertManagerPlus(userId: string, workspaceId: string): Promise<WorkspaceRole> {
+    return this.assertStaffManage(userId, workspaceId);
   }
 
   /** Наём и приглашения: Менеджер и выше (управляющий нанимает сам, iiko-модель). */

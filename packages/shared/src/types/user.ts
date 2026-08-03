@@ -18,6 +18,15 @@ export interface User {
   isVerified: boolean;
   locale: string;
   timezone: string;
+  // ---- Реквизиты («Моя Анкета» → блок «Для договоров и трудоустройства») ----
+  // В личном окружении (Группы) НЕ показываются; коллегам — по тумблерам
+  // companyCardVisibility.extras (по умолчанию скрыты); управляющим организаций —
+  // всегда (нередактируемый уровень «Видимости в Компаниях»).
+  iin: string | null;
+  residentialAddress: string | null;
+  idDocNumber: string | null;
+  idDocIssuedBy: string | null;
+  idDocIssuedAt: string | null; // ISO date (YYYY-MM-DD)
   createdAt: string;
   updatedAt: string;
 }

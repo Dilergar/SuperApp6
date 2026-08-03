@@ -30,6 +30,8 @@ export const DI_TOKENS = {
   WorkspacesService: 'WorkspacesService',
   /** Rich-cards ← ноды Процессов (карточка в чат из процесса). */
   RichCardsService: 'RichCardsService',
+  /** Документы ← ноды маршрута Процессов (номер, подшивка, приказ из заявления). */
+  DocumentsService: 'DocumentsService',
 } as const;
 
 export type DiTokenName = keyof typeof DI_TOKENS;

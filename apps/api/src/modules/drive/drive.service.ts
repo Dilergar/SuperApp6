@@ -98,9 +98,15 @@ export class DriveService implements OnModuleInit {
         canAttach: (userId, nodeId) => this.hasNodeAccess(userId, nodeId, 'editor'),
         canEditContent: (userId, nodeId) => this.hasNodeAccess(userId, nodeId, 'editor'),
       },
-      // Профили не ограничиваем: Диск принимает всё, что движок вообще разрешил
-      // загрузить (иначе «Сохранить на Диск» отваливалось бы на голосовых и фото лотов).
-      {},
+      {
+        // Профили не ограничиваем: Диск принимает всё, что движок вообще разрешил
+        // загрузить (иначе «Сохранить на Диск» отваливалось бы на голосовых и фото лотов).
+        //
+        // А вот видимость у узла СВОЯ и сильнее владения файлом: закрытая папка обязана
+        // отрезать и прямую ссылку на байты. Раньше это правило было зашито в движок
+        // файлов именем типа — теперь Диск объявляет его сам.
+        scopedPlace: true,
+      },
     );
   }
 
@@ -861,6 +867,10 @@ export class DriveService implements OnModuleInit {
           depth: 1,
           sortRank: 0,
           systemKey: key,
+          // Часть системных папок закрыта по своей природе (личные дела): флаг живёт
+          // в описании папки, а не в коде потребителя — иначе второй создающий путь
+          // однажды заведёт её открытой.
+          restricted: (DRIVE_SYSTEM_FOLDERS[key] as { restricted?: boolean }).restricted ?? false,
           subtreeBytes: BigInt(0),
           subtreeFiles: 0,
         },
@@ -872,6 +882,68 @@ export class DriveService implements OnModuleInit {
     } catch (e: unknown) {
       if ((e as { code?: string })?.code === 'P2002') {
         return client.driveNode.findFirstOrThrow({ where: { spaceId, systemKey: key, trashedAt: null } });
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * Системная под-папка с ИЗВЕСТНЫМ именем: есть — вернуть, нет — создать.
+   *
+   * Отличие от `createFolder`: тот проверяет права зрителя и уводит конфликт имён в
+   * «Папка (2)», а здесь имя — адрес («Приказы», «Ахметов Аскар»), и второй папки с
+   * тем же именем быть НЕ должно. Контракт `system*`: право проверил вызывающий
+   * (сервис «Документы» — по маршруту документа).
+   */
+  /**
+   * Догнать флаг закрытости на УЖЕ созданной системной папке.
+   *
+   * Папка создаётся один раз, а «закрытой» её объявили позже: без этого шага диски,
+   * заведённые до правила, навсегда остались бы с открытым реестром документов.
+   * Идемпотентно и дёшево (частичный апдейт по первичному ключу).
+   */
+  async systemEnsureRestricted(nodeId: string): Promise<void> {
+    await this.db.driveNode.updateMany({ where: { id: nodeId, restricted: false }, data: { restricted: true } });
+  }
+
+  async systemEnsureFolder(spaceId: string, parentId: string, name: string, tx?: Tx): Promise<NodeRow> {
+    const client = tx ?? this.db;
+    const nameKey = driveNameKey(name);
+    const existing = await client.driveNode.findFirst({
+      where: { spaceId, parentId, nameKey, kind: 'folder', trashedAt: null },
+    });
+    if (existing) return existing;
+
+    const parent = await client.driveNode.findUniqueOrThrow({ where: { id: parentId } });
+    if (parent.depth + 1 > DRIVE_LIMITS.maxDepth) {
+      throw new BadRequestException(`Слишком глубокая вложенность (максимум ${DRIVE_LIMITS.maxDepth})`);
+    }
+    const create = (c: Tx): Promise<NodeRow> =>
+      c.driveNode.create({
+        data: {
+          spaceId,
+          kind: 'folder',
+          parentId,
+          name,
+          nameKey,
+          createdById: 'system',
+          ancestorIds: [...parent.ancestorIds, parent.id],
+          depth: parent.depth + 1,
+          sortRank: 0,
+          subtreeBytes: BigInt(0),
+          subtreeFiles: 0,
+        },
+      });
+
+    try {
+      return tx ? await create(tx) : await this.db.$transaction(create);
+    } catch (e: unknown) {
+      // Гонку двух одновременных подшивок гасит уникальный индекс имени в папке,
+      // а не проверка выше: перечитываем и работаем с чужой строкой.
+      if ((e as { code?: string })?.code === 'P2002') {
+        return client.driveNode.findFirstOrThrow({
+          where: { spaceId, parentId, nameKey, kind: 'folder', trashedAt: null },
+        });
       }
       throw e;
     }

@@ -24,11 +24,17 @@ import {
   BentoGrid, Button, Card, Chip, EmptyState, LoadingBlock, PageHeader,
 } from '@/components/ui';
 
+// Фильтр обязан покрывать ВСЕ категории реестра: записи категории без чипа
+// («Документы» до 2026-08-03) видны только в общей ленте — то есть найти их
+// в журнале за полгода практически нельзя.
 const CATEGORY_CHIPS: { key: ChatterCategory | null; label: string }[] = [
   { key: null, label: 'Все' },
   { key: 'staff', label: 'Сотрудники' },
   { key: 'tasks', label: 'Задачи' },
+  { key: 'documents', label: 'Документы' },
+  { key: 'drive', label: 'Диск' },
   { key: 'share', label: 'Ссылки наружу' },
+  { key: 'processes', label: 'Процессы' },
 ];
 
 export default function WorkspaceJournalPage() {

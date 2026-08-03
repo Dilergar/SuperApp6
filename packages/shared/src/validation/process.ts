@@ -52,6 +52,17 @@ export const processDocumentSchema = z.object({
 export const createProcessDefinitionSchema = z.object({
   name: z.string().min(1, 'Название обязательно').max(100).refine(noHtml, 'Недопустимые символы'),
   description: z.string().max(500).refine(noHtml, 'Недопустимые символы').nullable().optional(),
+  /**
+   * Профиль редактора: режет палитру нод и включает правила предметной области.
+   * Приходит от сервиса-заказчика («Документы» заводят кадровый маршрут), а не от
+   * человека — в общем списке процессов выбора профиля нет.
+   */
+  surface: z.string().max(40).refine(noHtml, 'Недопустимые символы').optional(),
+  /**
+   * Готовая заготовка канваса. Пустой холст на 32 ноды кадровика отпугивает, поэтому
+   * маршрут документа заводится уже собранным — остаётся указать, кто подписывает.
+   */
+  document: processDocumentSchema.optional(),
 });
 
 export const updateProcessDefinitionSchema = z
@@ -73,8 +84,27 @@ export const startProcessSchema = z.object({
 
 /** Ф2: решение по одобрению. */
 export const decideApprovalSchema = z.object({
-  decision: z.enum(['approved', 'rejected']),
+  // 'returned' — «на доработку»: не «нет», а «поправь и пришли снова». Появилось
+  // вместе с движком согласований; у ноды это НЕОБЯЗАТЕЛЬНЫЙ выход, поэтому в
+  // маршрутах без такой ветки токен уходит по «Отклонено».
+  decision: z.enum(['approved', 'rejected', 'returned']),
+  // Причина. Обязательность проверяет ДВИЖОК согласований (отказ и возврат без
+  // объяснения делают маршрут бесполезным), а не эта схема: правило одно на все
+  // поверхности — и на карточку запуска, и на общую стопку, и на чат.
+  comment: z.string().trim().max(2000).optional(),
 });
+
+/**
+ * Публикация. `acceptWarnings` — ключи правил предметной области, которые человек
+ * ЯВНО принял к сведению («Понимаю, публикую»). Поимённо, а не одним флагом: согласие
+ * с одним правилом не должно молча накрывать остальные, включая те, что появятся
+ * в следующем релизе закона.
+ */
+export const publishProcessSchema = z
+  .object({
+    acceptWarnings: z.array(z.string().max(64)).max(50).optional().default([]),
+  })
+  .strict();
 
 /** Ф2.5: переназначить исполнителя шага. */
 export const reassignStepSchema = z.object({

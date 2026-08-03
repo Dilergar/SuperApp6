@@ -83,6 +83,11 @@ export class UsersService implements OnModuleInit {
         phoneVerifiedAt: true,
         locale: true,
         timezone: true,
+        iin: true,
+        residentialAddress: true,
+        idDocNumber: true,
+        idDocIssuedBy: true,
+        idDocIssuedAt: true,
         cardVisibility: true,
         companyCardVisibility: true,
         createdAt: true,
@@ -121,13 +126,14 @@ export class UsersService implements OnModuleInit {
       throw new NotFoundException('Пользователь не найден');
     }
 
-    const { _count, subscription, cardVisibility, companyCardVisibility, dateOfBirth, phoneVerifiedAt, ...rest } = user;
+    const { _count, subscription, cardVisibility, companyCardVisibility, dateOfBirth, phoneVerifiedAt, idDocIssuedAt, ...rest } = user;
 
     const profile = {
       ...rest,
       // Наружу — прежний boolean (веб/mobile не меняются); истина в БД — timestamp.
       isVerified: !!phoneVerifiedAt,
       dateOfBirth: dateOfBirth ? dateOfBirth.toISOString().slice(0, 10) : null,
+      idDocIssuedAt: idDocIssuedAt ? idDocIssuedAt.toISOString().slice(0, 10) : null,
       // Owner's DEFAULT visibility — applied to contacts in none of the
       // owner's groups. Per-group visibility lives on Circle.
       cardVisibility: resolveCardVisibility(
@@ -227,6 +233,11 @@ export class UsersService implements OnModuleInit {
         onlineStatusMode: true,
         locale: true,
         timezone: true,
+        iin: true,
+        residentialAddress: true,
+        idDocNumber: true,
+        idDocIssuedBy: true,
+        idDocIssuedAt: true,
       },
     });
 
@@ -242,6 +253,7 @@ export class UsersService implements OnModuleInit {
     return {
       ...user,
       dateOfBirth: user.dateOfBirth ? user.dateOfBirth.toISOString().slice(0, 10) : null,
+      idDocIssuedAt: user.idDocIssuedAt ? user.idDocIssuedAt.toISOString().slice(0, 10) : null,
     };
   }
 

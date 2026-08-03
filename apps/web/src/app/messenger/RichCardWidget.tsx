@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import {
-  Alert, Button, Card, Chip, EmojiIcon, IconButton, TickBar,
+  Alert, Button, Card, Chip, EmojiIcon, IconButton, Input, TickBar,
   type IconName, type Tone,
 } from '@/components/ui';
 import type { RichCardPayload, RichCardAction } from '@superapp/shared';
@@ -35,14 +35,30 @@ export function RichCardWidget({
   const [note, setNote] = useState<string | null>(null);
   const [noteIsError, setNoteIsError] = useState(false);
   const [showShare, setShowShare] = useState(false);
+  // Действие, которому нужна ПРИЧИНА: первый клик раскрывает поле, второй отправляет.
+  // Без этого «Отклонить» на карточке согласования всегда упиралось в серверное
+  // «Укажите причину», а ввести её было негде — кнопка выглядела рабочей и не была.
+  const [armed, setArmed] = useState<string | null>(null);
+  const [comment, setComment] = useState('');
 
   const runAction = async (action: RichCardAction) => {
     if (busyKey) return;
+    if (action.commentRequired && armed !== action.key) {
+      setArmed(action.key);
+      setNote(null);
+      return;
+    }
+    if (action.commentRequired && !comment.trim()) return;
     setBusyKey(action.key);
     setNote(null);
     setNoteIsError(false);
     try {
-      const result = await executeRichCardAction(action.key, payload.ref, action.payload);
+      const result = await executeRichCardAction(action.key, payload.ref, {
+        ...(action.payload ?? {}),
+        ...(action.commentRequired ? { comment: comment.trim() } : {}),
+      });
+      setArmed(null);
+      setComment('');
       onActionDone?.(result.card);
       if (result.message) {
         setNote(result.message);
@@ -183,28 +199,46 @@ export function RichCardWidget({
 
         {/* Кнопки действий: цвет по смыслу (DESIGN.md §1) */}
         {payload.actions.length > 0 && (
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: 'var(--spacing-2)',
-              marginTop: 'var(--spacing-3)',
-            }}
-          >
-            {payload.actions.map((action) => (
-              <Button
-                key={action.key}
-                size="sm"
-                variant={action.style === 'primary' ? 'primary' : 'matte'}
-                tone={ACTION_TONE[action.style ?? 'default']}
-                loading={busyKey === action.key}
-                disabled={busyKey != null && busyKey !== action.key}
-                onClick={() => runAction(action)}
-              >
-                {action.label}
-              </Button>
-            ))}
-          </div>
+          <>
+            {armed && (
+              <div style={{ marginTop: 'var(--spacing-3)' }}>
+                <Input
+                  label="Причина"
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  placeholder={
+                    payload.actions.find((a) => a.key === armed)?.commentPlaceholder ?? 'Коротко объясните'
+                  }
+                  autoFocus
+                />
+              </div>
+            )}
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 'var(--spacing-2)',
+                marginTop: 'var(--spacing-3)',
+              }}
+            >
+              {payload.actions.map((action) => (
+                <Button
+                  key={action.key}
+                  size="sm"
+                  variant={action.style === 'primary' ? 'primary' : 'matte'}
+                  tone={ACTION_TONE[action.style ?? 'default']}
+                  loading={busyKey === action.key}
+                  disabled={
+                    (busyKey != null && busyKey !== action.key) ||
+                    (armed === action.key && !!action.commentRequired && !comment.trim())
+                  }
+                  onClick={() => runAction(action)}
+                >
+                  {action.label}
+                </Button>
+              ))}
+            </div>
+          </>
         )}
       </Card>
 

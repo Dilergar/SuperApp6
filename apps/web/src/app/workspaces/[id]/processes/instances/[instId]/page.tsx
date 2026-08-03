@@ -28,7 +28,7 @@ import { EntitySelector } from '@/components/EntitySelector';
 import type { EntityOption, Principal } from '@/lib/entities';
 import { PersonChip } from '@/app/circles/PersonCard';
 import {
-  Alert, BentoGrid, Button, Card, CardHeader, Chip, ConfirmDialog, EmptyState, LoadingBlock,
+  Alert, BentoGrid, Button, Card, CardHeader, Chip, ConfirmDialog, EmptyState, Input, LoadingBlock,
   Modal, PageHeader, StatusDot,
 } from '@/components/ui';
 import { ProcessCanvas } from '../../ProcessCanvas';
@@ -61,6 +61,8 @@ export default function ProcessInstancePage() {
     refetchInterval: (q) => (q.state.data?.status === 'running' ? 4000 : false),
   });
   const typesQ = useQuery({
+    // Карточке запуска нужны ПОДПИСИ и иконки нод, а не палитра для рисования:
+    // профиль здесь не режем, иначе нода чужой области осталась бы без имени.
     queryKey: processNodeTypesKey(wsId),
     queryFn: () => fetchProcessNodeTypes(wsId),
     enabled: isReady,
@@ -101,10 +103,18 @@ export default function ProcessInstancePage() {
     onSuccess: () => { setConfirmCancel(false); refresh(); },
     onError: (e) => { setConfirmCancel(false); onMutError(e); },
   });
+  // Отказ и возврат требуют причины (правило движка согласований — одно на все
+  // поверхности). Первый клик раскрывает поле, второй отправляет: иначе кнопка
+  // молча упиралась бы в отказ сервера.
+  const [rejectFor, setRejectFor] = useState<{ stepId: string; decision: 'rejected' | 'returned' } | null>(null);
+  const [rejectWhy, setRejectWhy] = useState('');
   const decideMut = useMutation({
-    mutationFn: async (v: { stepId: string; decision: 'approved' | 'rejected' }) =>
-      api.post(`/workspaces/${wsId}/processes/instances/${instId}/steps/${v.stepId}/decide`, { decision: v.decision }),
-    onSuccess: refresh,
+    mutationFn: async (v: { stepId: string; decision: 'approved' | 'rejected' | 'returned'; comment?: string }) =>
+      api.post(`/workspaces/${wsId}/processes/instances/${instId}/steps/${v.stepId}/decide`, {
+        decision: v.decision,
+        ...(v.comment ? { comment: v.comment } : {}),
+      }),
+    onSuccess: () => { setRejectFor(null); setRejectWhy(''); refresh(); },
     onError: onMutError,
   });
   const claimMut = useMutation({
@@ -260,12 +270,52 @@ export default function ProcessInstancePage() {
                     </div>
                   </div>
                   {s.canDecide && (
-                    <span style={{ display: 'flex', gap: '0.375rem' }}>
+                    <span style={{ display: 'flex', gap: '0.375rem', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      {rejectFor?.stepId === s.id && (
+                        <Input
+                          label="Причина"
+                          value={rejectWhy}
+                          onChange={(e) => setRejectWhy(e.target.value)}
+                          placeholder="Что именно поправить"
+                          autoFocus
+                          style={{ minWidth: 220 }}
+                        />
+                      )}
                       <Button variant="primary" tone="success" size="sm" icon="check" disabled={decideMut.isPending} onClick={() => decideMut.mutate({ stepId: s.id, decision: 'approved' })}>
-                        Одобрить
+                        Согласовать
                       </Button>
-                      <Button variant="matte" tone="danger" size="sm" icon="close" disabled={decideMut.isPending} onClick={() => decideMut.mutate({ stepId: s.id, decision: 'rejected' })}>
+                      <Button
+                        variant="matte"
+                        tone="danger"
+                        size="sm"
+                        icon="close"
+                        disabled={decideMut.isPending || (rejectFor?.stepId === s.id && rejectFor.decision === 'rejected' && !rejectWhy.trim())}
+                        onClick={() => {
+                          if (rejectFor?.stepId === s.id && rejectFor.decision === 'rejected') {
+                            decideMut.mutate({ stepId: s.id, decision: 'rejected', comment: rejectWhy.trim() });
+                          } else {
+                            setRejectFor({ stepId: s.id, decision: 'rejected' });
+                            setRejectWhy('');
+                          }
+                        }}
+                      >
                         Отклонить
+                      </Button>
+                      <Button
+                        variant="matte"
+                        size="sm"
+                        icon="arrowLeft"
+                        disabled={decideMut.isPending || (rejectFor?.stepId === s.id && rejectFor.decision === 'returned' && !rejectWhy.trim())}
+                        onClick={() => {
+                          if (rejectFor?.stepId === s.id && rejectFor.decision === 'returned') {
+                            decideMut.mutate({ stepId: s.id, decision: 'returned', comment: rejectWhy.trim() });
+                          } else {
+                            setRejectFor({ stepId: s.id, decision: 'returned' });
+                            setRejectWhy('');
+                          }
+                        }}
+                      >
+                        На доработку
                       </Button>
                     </span>
                   )}

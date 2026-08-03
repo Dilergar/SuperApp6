@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { api, apiErrorMessage } from '@/lib/api';
 import { CompanyCard } from '../../CompanyCard';
+import { RequisitesSection } from '../RequisitesSection';
 import { EntitySelector } from '@/components/EntitySelector';
 import { AvatarUploadBlock } from '@/components/files/AvatarUploadBlock';
 import {
@@ -37,6 +38,9 @@ const VIS_FIELDS: { key: keyof WorkspaceCardVisibility; label: string }[] = [
   { key: 'website', label: 'Сайт' },
   { key: 'contactEmail', label: 'Email' },
   { key: 'contactPhone', label: 'Телефон' },
+  // Реквизиты по умолчанию видны: они печатаются на каждом счёте, сотрудникам
+  // они нужны для работы с клиентами. Owner/admin видят и правят всегда.
+  { key: 'requisites', label: 'Реквизиты' },
 ];
 
 const emptyForm = {
@@ -232,7 +236,18 @@ export default function WorkspaceSectionPage() {
       )}
 
       {/* ---------- Карточка ---------- */}
-      {section === 'card' && <CompanyCard ws={previewWs} />}
+      {section === 'card' && (
+        <>
+          <CompanyCard ws={previewWs} />
+          {/* Реквизиты глазами сотрудника: сервер сам отвечает null, если блок скрыт
+              настройкой видимости, — тогда карточка ничем не отличается от прежней. */}
+          <div style={{ marginTop: 'var(--gap-grid)' }}>
+            <BentoGrid>
+              <RequisitesSection workspaceId={id} mode="view" span={7} />
+            </BentoGrid>
+          </div>
+        </>
+      )}
 
       {/* ---------- Анкета ---------- */}
       {section === 'anketa' && canManage && (
@@ -288,6 +303,9 @@ export default function WorkspaceSectionPage() {
               ))}
             </div>
           </Card>
+
+          {/* Реквизиты для документов: юрформа, БИН, банк, директор (admin+) */}
+          <RequisitesSection workspaceId={id} mode="edit" span={12} />
         </BentoGrid>
       )}
 

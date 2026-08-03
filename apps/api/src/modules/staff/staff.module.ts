@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { StaffService } from './staff.service';
 import { StaffController } from './staff.controller';
+import { StaffTemplateFieldsProvider } from './staff-template-fields.provider';
 
 /**
  * StaffModule — сервис «Сотрудники» (B2B): справочники Должность/Отдел/Филиал +
@@ -11,7 +12,7 @@ import { StaffController } from './staff.controller';
 @Module({
   controllers: [StaffController],
   // Строковый токен для нод «Процессов» (ctx.deps.getService), как 'MessengerService'.
-  providers: [StaffService, { provide: 'StaffService', useExisting: StaffService }],
+  providers: [StaffService, StaffTemplateFieldsProvider, { provide: 'StaffService', useExisting: StaffService }],
   exports: [StaffService, 'StaffService'],
 })
 export class StaffModule {}

@@ -88,9 +88,13 @@ export function compileProcessDocument(
           message: `${n.label || d.title}: ${e.message}`,
         });
       }
-      continue;
     }
-    const config = parsed.data as Record<string, unknown>;
+    // Нода с НЕДОЗАПОЛНЕННЫМ конфигом остаётся на схеме. Раньше она выпадала из
+    // плана, и человек получал каскад: «нет входа», «недостижима» — по одной строке
+    // на каждый шаг за ней, вместо единственной настоящей причины «выберите
+    // должность». Публикацию по-прежнему блокирует само замечание, а план с
+    // ошибками наружу не отдаётся вовсе.
+    const config = (parsed.success ? parsed.data : (n.config ?? {})) as Record<string, unknown>;
     if (provider.validateConfig) {
       for (const issue of provider.validateConfig(config, doc)) {
         issues.push({ ...issue, nodeId: n.id, message: `${n.label || d.title}: ${issue.message}` });
@@ -162,7 +166,14 @@ export function compileProcessDocument(
 
     if (iType === 'main') {
       // Поток токенов (как раньше): один токен — одно ребро на порт (кроме Развилки).
-      const adj = plan.adjacency[e.from]!;
+      //
+      // Ноды с НЕВАЛИДНЫМ конфигом в план не попадают (их ошибки уже собраны выше),
+      // и связь из такой ноды раньше разыменовывала undefined — то есть ЧТЕНИЕ
+      // страницы процесса падало 500 вместо мягкого замечания. Мягкая валидация
+      // существует ровно для того, чтобы недособранный черновик открывался и
+      // показывал, что чинить.
+      const adj = plan.adjacency[e.from];
+      if (!adj) continue;
       if (!adj[port]) adj[port] = [];
       if (adj[port].length >= 1 && !provider.descriptor.multiOut) {
         issues.push({ edgeId: e.id, nodeId: e.from, message: `Из выхода «${port}» ноды «${fromNode.label || fromNode.id}» уже идёт связь — несколько веток только у «Развилки»` });
@@ -204,6 +215,11 @@ export function compileProcessDocument(
     if (!reachable.has(n.id)) continue; // под-ноды/под-агенты проверяем ниже
     for (const out of provider.descriptor.outputs) {
       if ((out.type ?? 'main') !== 'main') continue; // ai_*-выходы необязательны
+      // Необязательный выход можно оставить пустым: так к УЖЕ опубликованным нодам
+      // добавляются новые исходы, не превращая все нарисованные маршруты в невалидные
+      // (третий исход согласования «На доработку» появился именно так). В рантайме
+      // такой токен уходит по запасному выходу — см. `fallback` в паспорте.
+      if (out.optional) continue;
       const targets = plan.adjacency[n.id]?.[out.key] ?? [];
       if (targets.length === 0) {
         issues.push({ nodeId: n.id, message: `Нода «${compiled.label}»: выход ${out.label ? `«${out.label}»` : ''} никуда не ведёт`.replace('  ', ' ') });

@@ -6,7 +6,7 @@ import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { useAuthStore } from '@/lib/stores/auth';
 
 type Section =
-  | 'card' | 'form' | 'skins' | 'wallet' | 'stats' | 'roles' | 'subscription' | 'settings' | 'security';
+  | 'card' | 'form' | 'skins' | 'wallet' | 'stats' | 'roles' | 'subscription' | 'settings' | 'links' | 'security';
 
 const SECTIONS: { key: Section; label: string }[] = [
   { key: 'card', label: 'Моя карточка' },
@@ -17,6 +17,10 @@ const SECTIONS: { key: Section; label: string }[] = [
   { key: 'roles', label: 'Мои роли' },
   { key: 'subscription', label: 'Подписка' },
   { key: 'settings', label: 'Настройки' },
+  // Ссылки наружу — рядом с «Безопасностью» намеренно: это тоже «что я раздал и кому»,
+  // сосед активных сессий. Внутри Диска им не место — ссылки выдают и документы, а
+  // завтра счета и витрины.
+  { key: 'links', label: 'Ссылки наружу' },
   { key: 'security', label: 'Безопасность' },
 ];
 

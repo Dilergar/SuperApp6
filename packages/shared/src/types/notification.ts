@@ -84,6 +84,15 @@ export type NotificationType =
   | 'finance.book.shared' // вам открыли доступ к финансовой книге
   // Drive (OmniDrive)
   | 'drive.shared' // вам открыли доступ к папке или файлу на Диске
+  | 'document.resolved' // маршрут вашего документа завершён (подписан/отклонён/на доработку)
+  | 'share.link.opened' // вашу гостевую ссылку наружу открыли
+  | 'share.link.opened.muted' // открывают часто — уведомления по ней замолкают до завтра
+  // Согласования (core/approvals) — «Ждут решения»
+  | 'approval.requested' // от вас ждут решения: согласовать, подписать или ознакомиться
+  | 'approval.due_soon' // срок подходит — напоминание тем, кто ещё не ответил
+  | 'approval.overdue' // срок решения вышел, а решения нет
+  | 'approval.resolved' // по вашей заявке принято решение
+  | 'approval.unassigned' // решать некому: в отделе или на должности нет ни одного человека
   // System
   | 'system.welcome'
   | 'system.announcement';

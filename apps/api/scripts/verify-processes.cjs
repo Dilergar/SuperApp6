@@ -11,7 +11,9 @@ for (const line of fs.readFileSync(path.join(__dirname, '..', '.env'), 'utf8').s
   if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
 }
 const { PrismaClient } = require('@prisma/client');
-const BASE = 'http://localhost:3001/api';
+// Адрес API переопределяется переменной окружения: два экземпляра на одной машине
+// (например, когда :3001 занят чужим дев-сервером) — обычная ситуация при проверке правок.
+const BASE = process.env.SA6_API_BASE || 'http://localhost:3001/api';
 const P1 = '+77009990001', P2 = '+77009990002', PW = 'Test1234!';
 
 let fails = 0;
@@ -304,11 +306,26 @@ async function main() {
     const instA = rA.json?.data;
     const apprA = instA?.steps?.find((s) => s.nodeId === 'approve');
     check('одобрение ждёт решения инициатора', apprA?.status === 'active' && apprA?.canDecide === true, JSON.stringify({ st: apprA?.status, d: apprA?.canDecide }));
-    const notifAppr = await prisma.notification.findFirst({ where: { userId: u1, type: 'process.approval.requested' }, orderBy: { createdAt: 'desc' } });
-    check('уведомление согласующему', !!notifAppr, notifAppr?.title);
+    // Уведомление шлёт теперь ДВИЖОК СОГЛАСОВАНИЙ (тип approval.requested), а не нода:
+    // человек решает в общей стопке, и звать его должен тот, кто эту стопку ведёт.
+    await sleep(400);
+    const notifAppr = await prisma.notification.findFirst({ where: { userId: u1, type: 'approval.requested' }, orderBy: { createdAt: 'desc' } });
+    check('уведомление согласующему (от движка согласований)', !!notifAppr, notifAppr?.title);
+    // И сама заявка должна существовать — это и есть «нода больше не держит человека в канвасе»
+    const apprReq = await prisma.approvalRequest.findFirst({
+      where: { originType: 'process', originRef: `${instA.id}:${apprA.id}` },
+      include: { steps: true },
+    });
+    check('нода завела настоящую заявку в движке решений', !!apprReq && apprReq.steps.length === 1, apprReq?.refTitle);
+    check('предмет заявки — запуск процесса', apprReq?.refType === 'process_instance' && apprReq?.refId === instA.id);
     const wrongDecider = await call('POST', PR(`/instances/${instA.id}/steps/${apprA.id}/decide`), t2, { decision: 'approved' });
     check('чужой не может решить → 403', wrongDecider.status === 403, `status ${wrongDecider.status}`);
-    const rejectA = await call('POST', PR(`/instances/${instA.id}/steps/${apprA.id}/decide`), t1, { decision: 'rejected' });
+    // Отказ без причины отвергается САМИМ движком согласований — правило одно на все
+    // поверхности (карточка запуска, общая стопка, чат), а не переписано в каждой.
+    const rejectNoWhy = await call('POST', PR(`/instances/${instA.id}/steps/${apprA.id}/decide`), t1, { decision: 'rejected' });
+    check('отказ без причины отвергнут', rejectNoWhy.status === 400 && rejectNoWhy.json?.details?.code === 'approval_comment_required',
+      `${rejectNoWhy.status}/${rejectNoWhy.json?.details?.code}`);
+    const rejectA = await call('POST', PR(`/instances/${instA.id}/steps/${apprA.id}/decide`), t1, { decision: 'rejected', comment: 'Дорого' });
     check('отклонение принято', rejectA.ok, `status ${rejectA.status}`);
     await sleep(500);
     const instAb = (await call('GET', PR(`/instances/${instA.id}`), t1)).json?.data;
@@ -1390,6 +1407,96 @@ async function main() {
     check('Ф6 A6: цикл агентов-инструментов → проблема компиляции', (saveCyc.json?.data?.issues ?? []).some((i) => /цикл агентов/i.test(i.message)), JSON.stringify(saveCyc.json?.data?.issues));
     await call('DELETE', PR('/credentials/' + credF6), t1).catch(() => {});
     await call('DELETE', PR(`/${defCyc}`), t1).catch(() => {});
+
+    // --- Профиль редактора и правила предметной области (Этап 2 «Документов») ---
+    console.log('\n--- Профиль редактора + правила ТК РК ---');
+    {
+      const full = await call('GET', PR('/node-types'), t1);
+      const hr = await call('GET', PR('/node-types?surface=documents.hr'), t1);
+      const fullTypes = (full.json?.data ?? []).map((t) => t.type);
+      const hrTypes = (hr.json?.data ?? []).map((t) => t.type);
+      check('палитра урезана профилем «Кадры»', hrTypes.length > 0 && hrTypes.length < fullTypes.length,
+        `${hrTypes.length} из ${fullTypes.length}`);
+      check('в кадровой палитре есть решение человека', hrTypes.includes('human.approval'));
+      check('в кадровой палитре НЕТ нод про HTTP/AI/коннекторы',
+        !hrTypes.some((t) => /^(http|ai\.|kz\.)/.test(t)), hrTypes.filter((t) => /^(http|ai\.|kz\.)/.test(t)).join(','));
+
+      // Кадровый маршрут: структурно валиден, но нарушает правила ТК РК
+      const defHr = await call('POST', PR(''), t1, { name: 'Отпуск (кадры)' });
+      const defHrId = defHr.json?.data?.id;
+      await prisma.processDefinition.update({ where: { id: defHrId }, data: { surface: 'documents.hr' } });
+      const docHr = {
+        nodes: [
+          { id: 'start', type: 'start', label: 'Запуск вручную', config: {} },
+          { id: 'ok', type: 'human.approval', label: 'Согласовать', config: { title: 'Отпуск', assigneeMode: 'initiator' } },
+          { id: 'end', type: 'end', label: 'Конец', config: {} },
+        ],
+        edges: [
+          { id: 'e1', from: 'start', fromPort: 'main', to: 'ok' },
+          { id: 'e2', from: 'ok', fromPort: 'approved', to: 'end' },
+          { id: 'e3', from: 'ok', fromPort: 'rejected', to: 'end' },
+        ],
+        form: [],
+      };
+      const saveHr = await call('PUT', PR(`/${defHrId}/document`), t1, { document: docHr });
+      const hrIssues = saveHr.json?.data?.issues ?? [];
+      check('порт «На доработку» можно не подключать (старые маршруты не ломаются)',
+        !hrIssues.some((i) => /На доработку/.test(i.message)), JSON.stringify(hrIssues.map((i) => i.message)));
+      check('правила ТК РК приходят ПРЕДУПРЕЖДЕНИЯМИ, а не ошибками',
+        hrIssues.length > 0 && hrIssues.every((i) => i.severity === 'warning'),
+        JSON.stringify(hrIssues.map((i) => `${i.severity}:${i.ruleKey}`)));
+      check('среди них — ознакомление сотрудника с приказом',
+        hrIssues.some((i) => i.ruleKey === 'hr.acknowledge_required'));
+
+      const pubNo = await call('POST', PR(`/${defHrId}/publish`), t1, {});
+      check('публикация без подтверждения предупреждений отклонена',
+        pubNo.status === 400 && pubNo.json?.details?.code === 'process_warnings_unaccepted',
+        `${pubNo.status}/${pubNo.json?.details?.code}`);
+
+      const partial = await call('POST', PR(`/${defHrId}/publish`), t1, { acceptWarnings: ['hr.acknowledge_required'] });
+      check('согласие с ОДНИМ правилом не накрывает остальные', partial.status === 400, `status ${partial.status}`);
+
+      const allKeys = hrIssues.map((i) => i.ruleKey).filter(Boolean);
+      const pubYes = await call('POST', PR(`/${defHrId}/publish`), t1, { acceptWarnings: allKeys });
+      check('с явным «Понимаю, публикую» маршрут публикуется', pubYes.ok, `status ${pubYes.status}`);
+
+      // Предупреждения не блокируют публикацию, поэтому единственный след принятого
+      // риска — запись в «Журнале организации». Без неё через полгода нечем ответить,
+      // кто и когда решил выпустить маршрут без ознакомления сотрудника.
+      const risk = await prisma.chatterEntry.findFirst({
+        where: { refType: 'workspace', refId: cleanup.wsId, typeKey: 'process.published_with_warnings' },
+        orderBy: { id: 'desc' },
+      });
+      check('принятый риск записан в журнал организации', !!risk);
+      check('в записи есть автор, маршрут и текст правил',
+        !!risk?.actorId && !!risk?.actorName &&
+        typeof risk?.payload?.processName === 'string' &&
+        typeof risk?.payload?.ruleList === 'string' && risk.payload.ruleList.length > 0,
+        JSON.stringify(risk?.payload ?? null));
+      check('перечислены ИМЕННО те правила, которые приняли',
+        Array.isArray(risk?.payload?.ruleKeys) &&
+        allKeys.every((k) => risk.payload.ruleKeys.includes(k)),
+        JSON.stringify(risk?.payload?.ruleKeys ?? null));
+
+      // Обратный случай: публикация без замечаний журнал не засоряет — иначе
+      // «принятый риск» перестал бы что-либо значить, утонув в рутинных строках.
+      const cleanBefore = await prisma.chatterEntry.count({
+        where: { refType: 'workspace', refId: cleanup.wsId, typeKey: 'process.published_with_warnings' },
+      });
+      await prisma.processDefinition.update({ where: { id: defHrId }, data: { surface: 'general' } });
+      // Правка published-версии сама открывает черновик v+1 — иначе публиковать нечего.
+      const saveGeneral = await call('PUT', PR(`/${defHrId}/document`), t1, { document: docHr });
+      check('вне кадрового профиля замечаний нет', (saveGeneral.json?.data?.issues ?? []).length === 0,
+        JSON.stringify((saveGeneral.json?.data?.issues ?? []).map((i) => i.ruleKey)));
+      const pubClean = await call('POST', PR(`/${defHrId}/publish`), t1, {});
+      const cleanAfter = await prisma.chatterEntry.count({
+        where: { refType: 'workspace', refId: cleanup.wsId, typeKey: 'process.published_with_warnings' },
+      });
+      check('публикация без замечаний журнал не засоряет',
+        pubClean.ok && cleanAfter === cleanBefore, `${cleanBefore} → ${cleanAfter}, publish=${pubClean.status}`);
+
+      await call('DELETE', PR(`/${defHrId}`), t1).catch(() => {});
+    }
   } finally {
     if (cleanup.wsId) {
       await prisma.task.deleteMany({ where: { workspaceId: cleanup.wsId } }).catch(() => {});

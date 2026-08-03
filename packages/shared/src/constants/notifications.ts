@@ -20,6 +20,7 @@ export interface NotificationMeta {
   category:
     | 'contacts'
     | 'tasks'
+    | 'documents'
     | 'calendar'
     | 'workspaces'
     | 'shop'
@@ -428,6 +429,76 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
     icon: '🗂️',
     pushByDefault: true,
     category: 'drive',
+  },
+  // Гостевые ссылки наружу (core/share-links)
+  'share.link.opened': {
+    title: 'Ссылку открыли',
+    // guestSuffix — « — Асель», когда ссылка требовала подтверждение номера; иначе пусто.
+    body: '«{{targetName}}»{{labelSuffix}}{{guestSuffix}}',
+    icon: '🔗',
+    pushByDefault: false,
+    category: 'drive',
+  },
+  // Предохранитель: ссылку открывают часто — дальше сегодня молчим, иначе массовая
+  // рассылка превратила бы ленту уведомлений в счётчик.
+  'share.link.opened.muted': {
+    title: 'Ссылку открывают часто',
+    body: '«{{targetName}}»{{labelSuffix}} — сегодня больше не уведомляем, счётчик в «Моих ссылках»',
+    icon: '🔕',
+    pushByDefault: false,
+    category: 'drive',
+  },
+  // Согласования (core/approvals). Текст НЕ говорит «согласуйте»: то же уведомление
+  // приходит на подпись и на ознакомление — глагол приносит сам шаг в {{actionLabel}}.
+  // Документы: итог маршрута автору. Пер-шаговые решения оповещает сам движок
+  // согласований — здесь только конец пути, ради которого документ и заводили.
+  'document.resolved': {
+    title: '{{outcomeLabel}}: «{{title}}»',
+    body: '{{numberLabel}}',
+    icon: '📄',
+    pushByDefault: true,
+    category: 'documents',
+  },
+  'approval.requested': {
+    title: '{{actionLabel}}: «{{refTitle}}»',
+    body: '{{stepTitle}}',
+    icon: '🖋️',
+    pushByDefault: true,
+    category: 'workspaces',
+  },
+  // Напоминание ДО срока — только адресатам. Автор в этот момент ещё ничего не
+  // ждёт: у людей есть время, и дёргать его нечем. Когда срок выйдет, придёт
+  // 'approval.overdue' — и уже обоим.
+  'approval.due_soon': {
+    title: 'Скоро срок: «{{refTitle}}»',
+    body: '{{stepTitle}} — до {{deadlineLabel}}',
+    icon: '⏰',
+    pushByDefault: true,
+    category: 'workspaces',
+  },
+  'approval.overdue': {
+    title: 'Просрочено решение по «{{refTitle}}»',
+    body: '{{stepTitle}}',
+    icon: '⏳',
+    pushByDefault: true,
+    category: 'workspaces',
+  },
+  'approval.resolved': {
+    title: '{{outcomeLabel}}: «{{refTitle}}»',
+    body: '{{comment}}',
+    icon: '📋',
+    pushByDefault: true,
+    category: 'workspaces',
+  },
+  // Тупик маршрута: шаг адресован отделу или должности, в которых нет ни одного
+  // человека. Молча пропустить такой шаг нельзя (это согласование), поэтому он
+  // остаётся ждать, а автор узнаёт об этом сразу, а не через неделю.
+  'approval.unassigned': {
+    title: 'Некому решать: «{{refTitle}}»',
+    body: '{{stepTitle}} — в «{{assigneeLabel}}» нет ни одного сотрудника',
+    icon: '⚠️',
+    pushByDefault: true,
+    category: 'workspaces',
   },
   // Messenger — scheduled ("Напомнить")
   'messenger.scheduled.sent': {

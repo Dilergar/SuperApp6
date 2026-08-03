@@ -26,6 +26,7 @@ import {
   fetchShareLinkVisits,
   fetchShareLinks,
   revokeShareLink,
+  rotateShareLink,
   updateShareLink,
 } from '@/lib/share-links-api';
 
@@ -55,6 +56,11 @@ export function ShareLinkSection({ refType, refId }: { refType: string; refId: s
   const [withPassword, setWithPassword] = useState(false);
   const [password, setPassword] = useState('');
   const [maxOpens, setMaxOpens] = useState('');
+  // Умолчания повторяют серверные: скачивать можно, об открытиях уведомляем,
+  // подтверждение номера выключено.
+  const [allowDownload, setAllowDownload] = useState(true);
+  const [notifyOnOpen, setNotifyOnOpen] = useState(true);
+  const [requireIdentity, setRequireIdentity] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [openVisits, setOpenVisits] = useState<string | null>(null);
 
@@ -79,6 +85,9 @@ export function ShareLinkSection({ refType, refId }: { refType: string; refId: s
         // Именно > 0, а не «строка непустая»: «0» — истинная строка, и сервер отвечал
         // на неё 400 вместо очевидного человеку «без лимита».
         ...(Number(maxOpens) > 0 ? { maxOpens: Number(maxOpens) } : {}),
+        allowDownload,
+        notifyOnOpen,
+        requireIdentity,
       }),
     onSuccess: () => {
       setLabel('');
@@ -86,6 +95,9 @@ export function ShareLinkSection({ refType, refId }: { refType: string; refId: s
       setWithPassword(false);
       setPassword('');
       setMaxOpens('');
+      setAllowDownload(true);
+      setNotifyOnOpen(true);
+      setRequireIdentity(false);
       void invalidate();
     },
     onError: (e) => toastError(apiErrorMessage(e)),
@@ -183,6 +195,29 @@ export function ShareLinkSection({ refType, refId }: { refType: string; refId: s
           </div>
         </div>
 
+        <Toggle
+          checked={allowDownload}
+          onChange={setAllowDownload}
+          label="Разрешить скачивание"
+          // Обещать больше нельзя честно: если гость видит файл, байты уже у него в
+          // браузере. Настройка убирает кнопки и отдаёт уменьшенную копию вместо
+          // оригинала — так же осторожно её описывают Google Drive и Dropbox.
+          description={
+            allowDownload ? undefined : 'Гость увидит уменьшенную копию, но не скачает оригинал'
+          }
+        />
+        <Toggle checked={notifyOnOpen} onChange={setNotifyOnOpen} label="Уведомлять об открытиях" />
+        <Toggle
+          checked={requireIdentity}
+          onChange={setRequireIdentity}
+          label="Запрашивать подтверждение номера"
+          // Обещание точное: имя вводится гостем и не проверяется, подтверждается НОМЕР.
+          description={
+            requireIdentity
+              ? 'Гость назовёт имя и подтвердит номер SMS-кодом — в журнале будет видно, кто открывал'
+              : undefined
+          }
+        />
         <Toggle checked={withPassword} onChange={setWithPassword} label="Защитить паролем" />
         {withPassword && (
           <Input
@@ -280,6 +315,11 @@ function LinkRow({
             <Icon name="lock" size={13} /> с паролем
           </span>
         )}
+        {link.requireIdentity && (
+          <span className="meta" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Icon name="user" size={13} /> по номеру
+          </span>
+        )}
         <span style={{ flex: 1 }} />
         {onCopy && (
           <Button size="sm" variant="ghost" icon={copied ? 'check' : 'copy'} onClick={onCopy}>
@@ -345,6 +385,10 @@ function EditLinkForm({ link, onDone }: { link: ShareLinkDto; onDone: () => void
   const [maxOpens, setMaxOpens] = useState(link.maxOpens ? String(link.maxOpens) : '');
   const [pwdAction, setPwdAction] = useState<'keep' | 'clear' | 'set'>('keep');
   const [password, setPassword] = useState('');
+  const [allowDownload, setAllowDownload] = useState(link.allowDownload);
+  const [notifyOnOpen, setNotifyOnOpen] = useState(link.notifyOnOpen);
+  const [requireIdentity, setRequireIdentity] = useState(link.requireIdentity);
+  const [confirm, confirmUI] = useConfirm();
 
   const expiryOptions = link.expiresAt
     ? [
@@ -360,7 +404,21 @@ function EditLinkForm({ link, onDone }: { link: ShareLinkDto; onDone: () => void
         ...(expiry === 'keep' ? {} : { expiresAt: expiry ? inDays(Number(expiry)) : null }),
         maxOpens: Number(maxOpens) > 0 ? Number(maxOpens) : null,
         ...(pwdAction === 'keep' ? {} : { password: pwdAction === 'clear' ? null : password }),
+        allowDownload,
+        notifyOnOpen,
+        requireIdentity,
       }),
+    onSuccess: onDone,
+    onError: (e) => toastError(apiErrorMessage(e)),
+  });
+
+  /**
+   * Смена адреса. Ссылка остаётся той же — с журналом визитов, настройками и подписью,
+   * меняется только адрес. Прежний умирает мгновенно вместе с уже открытыми сессиями:
+   * ради этого смена и нужна.
+   */
+  const rotate = useMutation({
+    mutationFn: () => rotateShareLink(link.id),
     onSuccess: onDone,
     onError: (e) => toastError(apiErrorMessage(e)),
   });
@@ -392,6 +450,26 @@ function EditLinkForm({ link, onDone }: { link: ShareLinkDto; onDone: () => void
         </div>
       </div>
 
+      <Toggle
+        checked={allowDownload}
+        onChange={setAllowDownload}
+        label="Разрешить скачивание"
+        description={allowDownload ? undefined : 'Гость увидит уменьшенную копию, но не скачает оригинал'}
+      />
+      <Toggle checked={notifyOnOpen} onChange={setNotifyOnOpen} label="Уведомлять об открытиях" />
+      <Toggle
+        checked={requireIdentity}
+        onChange={setRequireIdentity}
+        label="Запрашивать подтверждение номера"
+        description={
+          requireIdentity && !link.requireIdentity
+            ? 'Уже открытые анонимные сессии закроются — дальше только с подтверждением номера'
+            : requireIdentity
+              ? 'Гость называет имя и подтверждает номер SMS-кодом'
+              : undefined
+        }
+      />
+
       <Select
         label="Пароль"
         value={pwdAction}
@@ -413,7 +491,7 @@ function EditLinkForm({ link, onDone }: { link: ShareLinkDto; onDone: () => void
         />
       )}
 
-      <div>
+      <div style={{ display: 'flex', gap: 'var(--spacing-3)', alignItems: 'center', flexWrap: 'wrap' }}>
         <Button
           variant="primary"
           size="sm"
@@ -423,7 +501,30 @@ function EditLinkForm({ link, onDone }: { link: ShareLinkDto; onDone: () => void
         >
           Сохранить
         </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          icon="refresh"
+          loading={rotate.isPending}
+          onClick={() =>
+            confirm(
+              {
+                title: 'Сменить адрес ссылки?',
+                message:
+                  'Прежний адрес перестанет работать сразу — у всех, кому вы его отправляли. Настройки, пароль и журнал открытий сохранятся; новый адрес нужно будет разослать заново.',
+                confirmLabel: 'Сменить адрес',
+              },
+              () => rotate.mutateAsync().then(() => undefined),
+            )
+          }
+        >
+          Сменить адрес
+        </Button>
+        {link.tokenRotatedAt && (
+          <span className="meta">адрес менялся {new Date(link.tokenRotatedAt).toLocaleDateString('ru-RU')}</span>
+        )}
       </div>
+      {confirmUI}
     </div>
   );
 }
@@ -446,8 +547,15 @@ function VisitsList({ linkId }: { linkId: string }) {
   return (
     <ul style={{ margin: '0.5rem 0 0', padding: 0, listStyle: 'none' }}>
       {data.map((v) => (
-        <li key={v.id} className="meta" style={{ display: 'flex', gap: 'var(--spacing-3)', padding: '2px 0' }}>
+        <li key={v.id} className="meta" style={{ display: 'flex', gap: 'var(--spacing-3)', padding: '2px 0', flexWrap: 'wrap' }}>
           <span>{new Date(v.openedAt).toLocaleString('ru-RU')}</span>
+          {/* Кто открывал — у ссылок с подтверждением номера; имя вводит сам гость */}
+          {v.guestName && (
+            <span>
+              {v.guestName}
+              {v.guestPhone ? ` · ${v.guestPhone}` : ''}
+            </span>
+          )}
           {v.ip && <span style={{ color: 'var(--on-surface-variant)' }}>{v.ip}</span>}
         </li>
       ))}

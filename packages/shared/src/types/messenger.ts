@@ -25,6 +25,12 @@ export type MessageDeliveryStatus = 'sent' | 'delivered' | 'read';
 export interface AttachmentFileView {
   url: string;
   thumbUrl: string | null;
+  /**
+   * Средняя копия (1024px) — есть только у изображений с готовым вариантом.
+   * Нужна там, где оригинал отдавать НЕ надо: гостевая ссылка с выключенным
+   * скачиванием показывает картинку именно так.
+   */
+  mediumUrl: string | null;
   posterUrl: string | null;
   /** ISO-время истечения подписи; null — вечная ссылка (публичный класс). */
   urlExpiresAt: string | null;

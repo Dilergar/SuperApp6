@@ -1,8 +1,12 @@
 // ============================================
 // core/share-links — типы DTO
 // ============================================
+// ЗДЕСЬ ТОЛЬКО КОНВЕРТ ДВИЖКА. Содержимое, которое видит гость, описывает
+// ПОТРЕБИТЕЛЬ у себя: `ShareDriveGuestView` — в types/drive.ts, `ShareDocGuestView` —
+// в types/document.ts, общая проекция файла `ShareGuestFile` — в types/file.ts.
+// Движок по определению не знает своих потребителей (см. ShareLinksRegistry), и его
+// «паспорт» не должен наполняться чужими анкетами по мере роста списка сервисов.
 
-import type { FileKind } from './file';
 import type { ShareLinkStatus } from '../constants/share-links';
 
 /** Ссылка глазами того, кто ею управляет. Токен отдельным полем НЕ отдаётся — только готовый `url`. */
@@ -20,10 +24,66 @@ export interface ShareLinkDto {
   maxOpens: number | null;
   openCount: number;
   lastOpenedAt: string | null;
+  /** Можно ли гостю скачивать оригиналы. Выключено — только просмотр (не защита от копирования) */
+  allowDownload: boolean;
+  /** Уведомлять владельца об открытиях (с суточным предохранителем) */
+  notifyOnOpen: boolean;
+  /** Гость обязан назвать имя и подтвердить номер SMS-кодом до показа содержимого */
+  requireIdentity: boolean;
+  /** Когда у ссылки в последний раз меняли адрес; null — адрес исходный */
+  tokenRotatedAt: string | null;
   createdById: string;
   createdAt: string;
   revokedAt: string | null;
   revokedById: string | null;
+}
+
+/**
+ * Строка раздела «Мои ссылки»: та же ссылка плюс подпись объекта, на который она выдана.
+ * Подпись приходит из `describeRef` резолвера потребителя — движок сам не знает ни Диска,
+ * ни документов. Объект мог исчезнуть (`ref: null`) — строку всё равно показываем: это
+ * история раздачи, и отозвать такую ссылку человек тоже должен уметь.
+ */
+export interface ShareLinkMineDto extends ShareLinkDto {
+  ref: { title: string; icon?: string } | null;
+}
+
+export interface ShareLinkMinePage {
+  items: ShareLinkMineDto[];
+  nextCursor: string | null;
+}
+
+/** Автор ссылки для PersonChip в организационном списке (человек в UI = карточка) */
+export interface ShareLinkActorLite {
+  id: string;
+  firstName: string;
+  lastName: string | null;
+  avatar: string | null;
+}
+
+/**
+ * «Ссылки организации» (manager+): всё, что раздала наружу вся команда.
+ *
+ * Отличие от «Моих ссылок» — не только скоуп, но и `actors`: в личном списке автор
+ * всегда один и известен, а здесь главный вопрос «кто это раздал», и на него надо
+ * ответить карточкой человека, а не идентификатором.
+ */
+export interface ShareLinkOrgPage {
+  items: ShareLinkMineDto[];
+  nextCursor: string | null;
+  /** createdById → лайт-профиль. Удалённые отсутствуют — клиент рисует «Бывший сотрудник». */
+  actors: Record<string, ShareLinkActorLite>;
+}
+
+/** Сводка раздела «Мои ссылки» */
+export interface ShareLinkStatsDto {
+  activeLinks: number;
+  /** Сколько объектов роздано наружу прямо сейчас */
+  sharedObjects: number;
+  opensInPeriod: number;
+  periodDays: number;
+  /** Открытий по дням за период, старые первыми — полоска над списком */
+  daily: { date: string; opens: number }[];
 }
 
 /**
@@ -42,6 +102,9 @@ export interface ShareLinkVisitDto {
   openedAt: string;
   ip: string | null;
   userAgent: string | null;
+  /** Кто открывал — если ссылка требовала подтверждение номера; у анонимных null */
+  guestName: string | null;
+  guestPhone: string | null;
 }
 
 export interface ShareLinkVisitsPage {
@@ -56,6 +119,16 @@ export interface ShareLinkVisitsPage {
  */
 export interface ShareGuestPeekDto {
   state: 'ready' | 'password_required';
+  /** Гостю предстоит назвать имя и подтвердить номер SMS-кодом (после пароля, если он есть) */
+  identityRequired: boolean;
+}
+
+/** Ответ на запрос SMS-кода гостем (зеркало VerifyStartResponse — таймер ресенда и маска) */
+export interface ShareGuestIdentityStartDto {
+  challengeId: string;
+  resendInSec: number;
+  ttlSec: number;
+  phoneMasked: string;
 }
 
 /** Второй шаг: открытие засчитано, выдан пропуск и содержимое. */
@@ -65,73 +138,9 @@ export interface ShareGuestSessionDto {
   /** Срок самой ссылки (null — бессрочная): страница показывает «доступно до …» */
   linkExpiresAt: string | null;
   refType: string;
+  /** Кем гость представился (ссылка требовала подтверждение номера); null у анонимных */
+  guest: { name: string; phoneMasked: string } | null;
   /** Содержимое, специфичное для refType: веб выбирает отрисовщик по refType */
   view: unknown;
 }
 
-// ============================================
-// Гостевые вьюхи потребителей v1
-// ============================================
-
-/**
- * Файл глазами гостя. Ссылки подписаны сервером и живут ~10 минут — страница
- * добирает свежие через `/view`, когда `urlExpiresAt` прошёл.
- *
- * `available: false` — файл ещё не готов или помечен антивирусом как заражённый:
- * ссылок нет вовсе, страница честно говорит «файл недоступен».
- */
-export interface ShareGuestFile {
-  fileId: string;
-  name: string;
-  mime: string;
-  kind: FileKind;
-  size: number;
-  available: boolean;
-  url: string | null;
-  thumbUrl: string | null;
-  posterUrl: string | null;
-  urlExpiresAt: string | null;
-  width: number | null;
-  height: number | null;
-  durationMs: number | null;
-  waveform: number[] | null;
-  thumbhash: string | null;
-}
-
-/** Строка списка в гостевой папке. Внутренние поля узла (владелец, звёзды, системный ключ) сюда не попадают. */
-export interface ShareDriveNodeDto {
-  id: string;
-  kind: 'folder' | 'file';
-  name: string;
-  /** Размер файла или объём папки; null у папки — «ещё не посчитан» */
-  size: number | null;
-  updatedAt: string;
-  file: ShareGuestFile | null;
-}
-
-/** Что открылось по ссылке Диска: папка (дальше — листинг) или одиночный файл */
-export type ShareDriveGuestView =
-  | { kind: 'folder'; rootId: string; name: string }
-  | { kind: 'file'; rootId: string; name: string; file: ShareGuestFile };
-
-export interface ShareDriveNodesPage {
-  items: ShareDriveNodeDto[];
-  nextCursor: string | null;
-}
-
-/**
- * Документ глазами гостя — ТОЛЬКО PDF-отпечаток текущего содержимого (решение
- * продукта): гость читает и печатает, но не получает исходник и не входит в
- * редактор. Тот же отпечаток позже подписывает ЭДО.
- *
- * `preparing` — отпечаток заказан и считается (страница поллит), `unavailable` —
- * редактор документов не подключён в этом окружении.
- */
-export interface ShareDocGuestView {
-  kind: 'document';
-  title: string;
-  ext: string;
-  state: 'ready' | 'preparing' | 'unavailable';
-  pdf: { url: string; expiresAt: string } | null;
-  updatedAt: string;
-}

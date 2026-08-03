@@ -54,6 +54,7 @@ export const DEFAULT_WORKSPACE_CARD_VISIBILITY: WorkspaceCardVisibility = {
   contactEmail: true,
   contactPhone: false, // private by default
   membersCount: false, // private by default
+  requisites: true, // реквизиты печатаются на каждом счёте — сотрудникам видны
   extras: {},
 };
 

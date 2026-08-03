@@ -3,16 +3,23 @@ import { Prisma, type ShareLink } from '@prisma/client';
 import { randomBytes } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import {
+  APP_TIMEZONE,
   SHARE_LINK_LIMITS,
   buildShareLinkUrl,
   shareLinkStatus,
   type CreateShareLinkInput,
+  type MineShareLinksQuery,
+  type ShareLinkActorLite,
   type ShareLinkDto,
+  type ShareLinkMinePage,
+  type ShareLinkOrgPage,
+  type ShareLinkStatsDto,
   type ShareLinksPage,
   type ShareLinkVisitsPage,
   type UpdateShareLinkInput,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { utcTs } from '../../shared/database/sql-time';
 import { ChatterService } from '../chatter/chatter.service';
 import { ShareLinksRegistry, type ShareRefContext } from './share-links.registry';
 
@@ -81,14 +88,21 @@ export class ShareLinksService {
           workspaceId: ctx.workspaceId,
           createdById: userId,
           label: dto.label ?? null,
+          // Снимок объекта на момент выдачи — на нём стоит раздел «Ссылки наружу»
+          // (без него список звал бы резолвер на каждую строку и врал бы про удалённые).
+          refTitle: ctx.title,
+          refIcon: ctx.icon ?? null,
           expiresAt: dto.expiresAt ?? null,
           maxOpens: dto.maxOpens ?? null,
+          ...(dto.allowDownload !== undefined ? { allowDownload: dto.allowDownload } : {}),
+          ...(dto.notifyOnOpen !== undefined ? { notifyOnOpen: dto.notifyOnOpen } : {}),
+          ...(dto.requireIdentity !== undefined ? { requireIdentity: dto.requireIdentity } : {}),
           passwordHash,
         },
       });
     });
 
-    await this.logChatter(userId, link, ctx, 'share.link_created');
+    await this.logChatter(userId, link, 'share.link_created');
     return this.serialize(link);
   }
 
@@ -130,6 +144,18 @@ export class ShareLinksService {
     if (dto.label !== undefined) data.label = dto.label;
     if (dto.expiresAt !== undefined) data.expiresAt = dto.expiresAt;
     if (dto.maxOpens !== undefined) data.maxOpens = dto.maxOpens;
+    if (dto.allowDownload !== undefined) data.allowDownload = dto.allowDownload;
+    if (dto.notifyOnOpen !== undefined) data.notifyOnOpen = dto.notifyOnOpen;
+    if (dto.requireIdentity !== undefined) {
+      data.requireIdentity = dto.requireIdentity;
+      // ВКЛЮЧЕНИЕ подтверждения номера гасит уже открытые АНОНИМНЫЕ сессии бампом
+      // поколения пропусков — иначе тот, кто открыл ссылку минуту назад, досматривал
+      // бы содержимое ещё час, и настройка не делала бы того, что обещает.
+      // Выключение поколение не трогает: подтверждённая сессия строго сильнее.
+      if (dto.requireIdentity && !link.requireIdentity) {
+        data.sessionEpoch = { increment: 1 };
+      }
+    }
     if (dto.password !== undefined) {
       data.passwordHash = dto.password === null ? null : await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
       // Новый пароль обнуляет счёт неудач и снимает блокировку подбора: попытки
@@ -141,6 +167,205 @@ export class ShareLinksService {
 
     const updated = await this.db.shareLink.update({ where: { id: link.id }, data });
     return this.serialize(updated);
+  }
+
+  // ============================================================
+  // «Мои ссылки»: всё, что человек раздал наружу, из всех сервисов сразу
+  // ============================================================
+
+  /**
+   * Свои ссылки одним списком. Право — АВТОРСТВО: раздавал человек, отвечать ему.
+   * Резолвер потребителя здесь не спрашивается на каждую строку (это N проверок прав на
+   * страницу), но подпись объекта берётся у него же — батчем через `describeRef`.
+   *
+   * Объект мог исчезнуть — строку всё равно показываем: это история раздачи, и отозвать
+   * такую ссылку человек тоже должен уметь.
+   */
+  async listMine(userId: string, q: MineShareLinksQuery): Promise<ShareLinkMinePage> {
+    return this.pageLinks({ createdById: userId }, q);
+  }
+
+  /**
+   * Страница ссылок по произвольному скоупу — общая для «Моих ссылок» и «Ссылок
+   * организации». Скоуп задаёт вызывающий, права он же и проверил.
+   */
+  private async pageLinks(
+    scope: Prisma.ShareLinkWhereInput,
+    q: MineShareLinksQuery,
+  ): Promise<ShareLinkMinePage> {
+    const take = Math.min(q.limit ?? SHARE_LINK_LIMITS.minePageSize, SHARE_LINK_LIMITS.minePageSize);
+    // Курсор СОСТАВНОЙ — время плюс id. По одному времени страница теряла бы строки:
+    // ссылки, созданные в одну миллисекунду (а пачку выдают именно так), отсекались бы
+    // условием «строго раньше» целиком.
+    const cursor = this.parseMineCursor(q.cursor);
+
+    // «Действующая» — состояние ВЫЧИСЛЯЕМОЕ (не отозвана, не истекла), колонки статуса
+    // нет, поэтому в SQL оно выражается условиями. Исчерпанный лимит сюда не входит:
+    // сравнение open_count с max_opens Prisma не выражает, а держать ради фильтра
+    // сырой запрос дороже, чем показать такую ссылку среди действующих со своим чипом.
+    const now = new Date();
+    const liveWhere: Prisma.ShareLinkWhereInput = {
+      revokedAt: null,
+      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+    };
+    const where: Prisma.ShareLinkWhereInput = {
+      ...scope,
+      ...(q.status === 'active' ? liveWhere : {}),
+      ...(q.status === 'inactive' ? { NOT: liveWhere } : {}),
+      ...(cursor
+        ? {
+            OR: [
+              { createdAt: { lt: cursor.createdAt } },
+              { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+            ],
+          }
+        : {}),
+    };
+
+    const rows = await this.db.shareLink.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: take + 1,
+    });
+    const hasMore = rows.length > take;
+    const page = hasMore ? rows.slice(0, take) : rows;
+
+    // Резолвер зовём ТОЛЬКО для строк без снимка (созданных до его появления).
+    const refs = await this.describeRefs(page.filter((r) => !r.refTitle));
+    const last = page[page.length - 1];
+    return {
+      items: page.map((r) => ({
+        ...this.serialize(r),
+        ref: r.refTitle
+          ? { title: r.refTitle, ...(r.refIcon ? { icon: r.refIcon } : {}) }
+          : (refs.get(`${r.refType}:${r.refId}`) ?? null),
+      })),
+      nextCursor: hasMore && last ? `${last.createdAt.toISOString()}|${last.id}` : null,
+    };
+  }
+
+  /** Составной курсор «время|id» — по одному времени страница теряла бы строки-близнецы */
+  private parseMineCursor(cursor?: string): { createdAt: Date; id: string } | null {
+    if (!cursor) return null;
+    const [iso, id] = cursor.split('|');
+    const createdAt = new Date(iso);
+    if (!id || Number.isNaN(createdAt.getTime())) throw new BadRequestException('Неверный курсор');
+    return { createdAt, id };
+  }
+
+  /**
+   * Сводка над списком. Открытия считаются по ЖУРНАЛУ ВИЗИТОВ, а не по `openCount`:
+   * тот показывает «всего за жизнь ссылки», а человеку нужно «что происходит сейчас».
+   */
+  async statsMine(userId: string): Promise<ShareLinkStatsDto> {
+    return this.statsFor({ createdById: userId }, Prisma.sql`l.created_by_id = ${userId}`);
+  }
+
+  /**
+   * Сводка по скоупу. Скоуп приходит ДВАЖДЫ — условием Prisma для «действующих» и
+   * фрагментом SQL для гистограммы визитов: гистограмма считается на стороне БД
+   * (тянуть визиты в приложение у активного скоупа значит читать таблицу целиком),
+   * а сырой SQL и Prisma-фильтры не выражаются друг через друга.
+   */
+  private async statsFor(
+    scope: Prisma.ShareLinkWhereInput,
+    visitScope: Prisma.Sql,
+  ): Promise<ShareLinkStatsDto> {
+    const days = SHARE_LINK_LIMITS.statsDays;
+    const now = new Date();
+    // Сутки — МЕСТНЫЕ (APP_TIMEZONE), а не UTC. Иначе у человека в Алматы открытия с
+    // полуночи до пяти утра падали бы во «вчера», и сегодняшний столбик выглядел бы
+    // пустым до рассвета. Ту же дату считает и SQL ниже, поэтому ключи сходятся.
+    const dayKey = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: APP_TIMEZONE });
+    const from = new Date(Date.now() - (days - 1) * 86_400_000);
+
+    const [live, opens] = await Promise.all([
+      this.db.shareLink.findMany({
+        where: {
+          ...scope,
+          revokedAt: null,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+        },
+        select: { refType: true, refId: true },
+      }),
+      // Группировка по дню — на стороне БД: тянуть все визиты в приложение ради
+      // гистограммы значило бы читать таблицу целиком у активного пользователя.
+      // Группировка по МЕСТНОМУ дню на стороне БД: `opened_at` — наивный UTC, поэтому
+      // сначала объявляем его поясом, потом переводим в APP_TIMEZONE и только затем
+      // режем по суткам. Тянуть визиты в приложение ради гистограммы нельзя — у
+      // активного человека это чтение всей таблицы.
+      this.db.$queryRaw<{ day: string; opens: bigint }[]>`
+        SELECT to_char(
+                 date_trunc('day', (v.opened_at AT TIME ZONE 'UTC') AT TIME ZONE ${APP_TIMEZONE}),
+                 'YYYY-MM-DD'
+               ) AS day,
+               COUNT(*)::bigint AS opens
+          FROM share_link_visits v
+          JOIN share_links l ON l.id = v.link_id
+         WHERE ${visitScope}
+           AND v.opened_at >= ${utcTs(from)}
+         GROUP BY 1
+         ORDER BY 1
+      `,
+    ]);
+
+    const byDay = new Map(opens.map((r) => [r.day, Number(r.opens)]));
+    const daily: { date: string; opens: number }[] = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const date = dayKey(new Date(Date.now() - i * 86_400_000));
+      daily.push({ date, opens: byDay.get(date) ?? 0 });
+    }
+
+    return {
+      activeLinks: live.length,
+      sharedObjects: new Set(live.map((a) => `${a.refType}:${a.refId}`)).size,
+      opensInPeriod: daily.reduce((s, d) => s + d.opens, 0),
+      periodDays: days,
+      daily,
+    };
+  }
+
+  /**
+   * Массовый отзыв СВОИХ ссылок. Право — авторство, а не текущие права на объект:
+   * человек, потерявший доступ к папке (сняли грант, уволился), обязан уметь закрыть
+   * то, что раздал сам. Отзыв только сужает доступ и потому безопасен по определению.
+   */
+  async revokeMine(userId: string, ids: string[]): Promise<number> {
+    // Сначала забираем то, что реально отзовём: после updateMany эти строки уже не
+    // отличить от отозванных раньше, а они нужны для хроники.
+    const targets = await this.db.shareLink.findMany({
+      where: { id: { in: ids }, createdById: userId, revokedAt: null },
+    });
+    if (!targets.length) return 0;
+
+    const { count } = await this.db.shareLink.updateMany({
+      where: { id: { in: targets.map((t) => t.id) }, revokedAt: null },
+      data: { revokedAt: new Date(), revokedById: userId },
+    });
+
+    // Массовый отзыв пишется в хронику ровно как одиночный: закрытие доступа наружу
+    // не должно происходить тише, чем его открытие.
+    for (const link of targets) await this.logChatter(userId, link, 'share.link_revoked');
+    return count;
+  }
+
+  /** Подписи объектов батчем — по одному `describeRef` на УНИКАЛЬНЫЙ объект страницы */
+  private async describeRefs(rows: ShareLink[]): Promise<Map<string, { title: string; icon?: string }>> {
+    const out = new Map<string, { title: string; icon?: string }>();
+    const unique = new Map<string, { refType: string; refId: string }>();
+    for (const r of rows) unique.set(`${r.refType}:${r.refId}`, { refType: r.refType, refId: r.refId });
+
+    await Promise.all(
+      [...unique].map(async ([key, ref]) => {
+        const provider = this.registry.get(ref.refType);
+        if (!provider?.describeRef) return;
+        // Резолвер ходит в свою базу и может упасть на удалённом объекте — это не повод
+        // ронять весь список: строка просто останется без подписи.
+        const described = await provider.describeRef(ref.refId).catch(() => null);
+        if (described) out.set(key, described);
+      }),
+    );
+    return out;
   }
 
   /**
@@ -164,7 +389,41 @@ export class ShareLinksService {
       where: { id: link.id },
       data: { revokedAt: new Date(), revokedById: userId },
     });
-    await this.logChatter(userId, updated, ctx, 'share.link_revoked');
+    await this.logChatter(userId, updated, 'share.link_revoked');
+    return this.serialize(updated);
+  }
+
+  /**
+   * Сменить АДРЕС ссылки, не создавая новую.
+   *
+   * Зачем отдельная операция, если есть «отозвать и создать»: та теряет журнал визитов
+   * и настройки, а они и есть ценность долгоживущей ссылки — по ним потом разбираются,
+   * кому и когда объект уходил. Здесь остаётся всё, кроме адреса.
+   *
+   * Бамп `sessionEpoch` обязателен: гостевой пропуск подписан по linkId, и без него тот,
+   * у кого утёк СТАРЫЙ адрес, продолжил бы смотреть содержимое ещё час — то есть смена
+   * адреса не сделала бы ровно того, ради чего её делают.
+   */
+  async rotateToken(userId: string, id: string): Promise<ShareLinkDto> {
+    const link = await this.loadOrThrow(id);
+    await this.authorize(userId, link.refType, link.refId);
+    if (link.revokedAt) throw new BadRequestException('Ссылка отозвана — создайте новую');
+
+    const updated = await this.db.shareLink.update({
+      where: { id: link.id },
+      data: {
+        token: randomBytes(SHARE_LINK_LIMITS.tokenBytes).toString('base64url'),
+        sessionEpoch: { increment: 1 },
+        tokenRotatedAt: new Date(),
+        // Блокировку подбора снимаем: она относилась к старому адресу, а новый получат
+        // другие люди — незачем встречать их чужой блокировкой.
+        pwdFailedAttempts: 0,
+        pwdLockedUntil: null,
+      },
+    });
+    // Смена адреса пишется в хронику наравне с выдачей и отзывом: у части получателей
+    // доступ в этот момент пропадает, и молча такое происходить не должно.
+    await this.logChatter(userId, updated, 'share.link_rotated');
     return this.serialize(updated);
   }
 
@@ -182,6 +441,9 @@ export class ShareLinksService {
       where: { linkId: link.id, ...(cursor !== null ? { id: { lt: cursor } } : {}) },
       orderBy: { id: 'desc' },
       take: take + 1,
+      // Кто открывал (ссылка требовала подтверждение номера). Владелец видит номер
+      // ПОЛНОСТЬЮ: он сам отправлял ссылку этому человеку, маскировать не от кого.
+      include: { guest: { select: { name: true, phone: true } } },
     });
     const hasMore = rows.length > take;
     const page = hasMore ? rows.slice(0, take) : rows;
@@ -191,9 +453,70 @@ export class ShareLinksService {
         openedAt: v.openedAt.toISOString(),
         ip: v.ip,
         userAgent: v.userAgent,
+        guestName: v.guest?.name ?? null,
+        guestPhone: v.guest?.phone ?? null,
       })),
       nextCursor: hasMore && page.length ? page[page.length - 1].id.toString() : null,
     };
+  }
+
+  // ============================================================
+  // «Ссылки организации» — системный API: право проверил ВЫЗЫВАЮЩИЙ
+  // ============================================================
+  // Гейт (роль ≥ Менеджер) живёт в модуле workspaces: понятие «роль в организации»
+  // принадлежит ему, а движок ссылок ролей не знает — иначе core начал бы зависеть
+  // от функционального модуля. Прецедент — «Журнал организации» на core/chatter.
+
+  /**
+   * Всё, что раздала наружу ВСЯ команда организации. Скоуп — денормализованный
+   * `workspaceId` на строке ссылки (его кладёт резолвер потребителя из своего
+   * контекста), а не «владелец объекта»: организация — это ещё и контекст, в котором
+   * личный объект бывает роздан по работе, и такие ссылки обязаны быть видны команде.
+   */
+  async listForWorkspace(workspaceId: string, q: MineShareLinksQuery): Promise<ShareLinkOrgPage> {
+    const page = await this.pageLinks({ workspaceId }, q);
+    // «Кто это раздал» — главный вопрос организационного списка, и ответ на него
+    // обязан быть карточкой человека (принцип 2), а не идентификатором.
+    const ids = [...new Set(page.items.map((i) => i.createdById))];
+    const users = ids.length
+      ? await this.db.user.findMany({
+          where: { id: { in: ids } },
+          select: { id: true, firstName: true, lastName: true, avatar: true },
+        })
+      : [];
+    const actors: Record<string, ShareLinkActorLite> = {};
+    for (const u of users) actors[u.id] = u;
+    return { ...page, actors };
+  }
+
+  /**
+   * Массовый отзыв ссылок ОРГАНИЗАЦИИ — в том числе чужих.
+   *
+   * Ради этого раздел и заводится: менеджер раздал наружу три десятка ссылок и
+   * уволился, а закрыть их было некому — «Мои ссылки» показывают только свои, а
+   * пообъектный обход требует помнить все объекты. Отзыв лишь СУЖАЕТ доступ, поэтому
+   * право на него совпадает с правом видеть список; каждая строка пишется в хронику
+   * своего объекта — массовое закрытие не должно происходить тише открытия.
+   */
+  async revokeForWorkspace(actorId: string, workspaceId: string, ids: string[]): Promise<number> {
+    // Скоуп в WHERE, а не проверка после выборки: чужой id из тела запроса не должен
+    // отзывать ссылку соседней организации даже теоретически.
+    const targets = await this.db.shareLink.findMany({
+      where: { id: { in: ids }, workspaceId, revokedAt: null },
+    });
+    if (!targets.length) return 0;
+
+    const { count } = await this.db.shareLink.updateMany({
+      where: { id: { in: targets.map((t) => t.id) }, revokedAt: null },
+      data: { revokedAt: new Date(), revokedById: actorId },
+    });
+    for (const link of targets) await this.logChatter(actorId, link, 'share.link_revoked');
+    return count;
+  }
+
+  /** Сводка организации — та же форма, что личная (`statsMine`), другой скоуп */
+  async statsForWorkspace(workspaceId: string): Promise<ShareLinkStatsDto> {
+    return this.statsFor({ workspaceId }, Prisma.sql`l.workspace_id = ${workspaceId}`);
   }
 
   // ============================================================
@@ -278,8 +601,7 @@ export class ShareLinksService {
   private async logChatter(
     userId: string,
     link: ShareLink,
-    ctx: ShareRefContext,
-    typeKey: 'share.link_created' | 'share.link_revoked',
+    typeKey: 'share.link_created' | 'share.link_revoked' | 'share.link_rotated',
   ): Promise<void> {
     const user = await this.db.user
       .findUnique({ where: { id: userId }, select: { firstName: true, lastName: true } })
@@ -288,12 +610,15 @@ export class ShareLinksService {
       .log(null, {
         refType: link.refType,
         refId: link.refId,
-        workspaceId: ctx.workspaceId,
+        // Всё берётся из САМОЙ строки ссылки: она несёт и организацию, и снимок имени,
+        // поэтому запись в хронику не требует похода к резолверу потребителя — а значит
+        // работает и там, где резолвер звать не за что (массовый отзыв, смена адреса).
+        workspaceId: link.workspaceId,
         actorId: userId,
         actorName: user ? `${user.firstName}${user.lastName ? ` ${user.lastName}` : ''}` : null,
         typeKey,
         payload: {
-          targetName: ctx.title,
+          targetName: link.refTitle ?? 'объект',
           // Суффикс собирается здесь, а не в шаблоне: шаблонизатор реестра не умеет
           // условий, и «ссылка ()» с пустыми скобками была бы видна человеку.
           labelSuffix: link.label ? ` («${link.label}»)` : '',
@@ -317,6 +642,10 @@ export class ShareLinksService {
       maxOpens: row.maxOpens,
       openCount: row.openCount,
       lastOpenedAt: row.lastOpenedAt ? row.lastOpenedAt.toISOString() : null,
+      allowDownload: row.allowDownload,
+      notifyOnOpen: row.notifyOnOpen,
+      requireIdentity: row.requireIdentity,
+      tokenRotatedAt: row.tokenRotatedAt ? row.tokenRotatedAt.toISOString() : null,
       createdById: row.createdById,
       createdAt: row.createdAt.toISOString(),
       revokedAt: row.revokedAt ? row.revokedAt.toISOString() : null,

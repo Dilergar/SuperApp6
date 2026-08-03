@@ -13,11 +13,20 @@
 // ============================================================
 
 import Link from 'next/link';
-import { useMemo } from 'react';
+import dynamic from 'next/dynamic';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { Task } from '@superapp/shared';
+import { APPROVAL_INBOX_TITLE } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { useMentionsUnread } from '@/lib/hooks/useMentionsUnread';
+import { useApprovalsCount } from '@/lib/hooks/useApprovalsCount';
+
+// Стопка решений — лениво: она нужна только по клику по плитке.
+const DecisionStack = dynamic(
+  () => import('@/components/approvals/DecisionStack').then((m) => m.DecisionStack),
+  { ssr: false },
+);
 import {
   fetchTaskStats, taskStatsKey,
   fetchTasks, tasksListKey,
@@ -33,6 +42,9 @@ import {
   BentoGrid, Button, Card, CardHeader, Chip, Divider, EmptyState,
   Icon, LoadingBlock, StatTile, TickBar,
 } from '@/components/ui';
+
+/** Личная Главная спрашивает движок решений только про личное (см. ApprovalScope) */
+const PERSONAL_SCOPE = { personal: true } as const;
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -54,6 +66,11 @@ export default function DashboardPage() {
 
   const { data: stats } = useQuery({ queryKey: taskStatsKey, queryFn: fetchTaskStats, enabled: isReady });
   const mentionsUnread = useMentionsUnread(isReady);
+  // Главная — витрина ЛИЧНОГО контекста, поэтому и решения здесь только личные:
+  // у человека с несколькими компаниями иначе на личной странице копятся чужие
+  // заявления и приказы. Сквозной вид живёт в топбаре — галочка видна отсюда же.
+  const approvalsCount = useApprovalsCount(isReady, PERSONAL_SCOPE);
+  const [stackOpen, setStackOpen] = useState(false);
 
   const { data: todayTasks } = useQuery({
     queryKey: tasksListKey({ smartList: 'today', limit: 5 }),
@@ -124,7 +141,22 @@ export default function DashboardPage() {
             а прочерк оставляем только на время загрузки. */}
         <StatTile span={3} label="Задачи сегодня" value={stats?.today ?? '—'} icon="sun" tone="accent" href="/tasks/today" />
         <StatTile span={3} label="Просрочено" value={stats?.overdue ?? '—'} icon="overdue" tone={stats?.overdue ? 'danger' : 'neutral'} href="/tasks/overdue" />
-        <StatTile span={3} label="Непрочитанных" value={unreadTotal} icon="messenger" tone={unreadTotal ? 'success' : 'neutral'} href="/messenger" />
+        {/* Плитка решений занимает место «Непрочитанных», только когда что-то
+            действительно ждёт: пустая строка «0» на Главной — это шум, а Главная
+            отвечает ровно на один вопрос — «что требует меня прямо сейчас». */}
+        {approvalsCount > 0 ? (
+          <StatTile
+            span={3}
+            label={APPROVAL_INBOX_TITLE}
+            value={approvalsCount}
+            icon="checkCircle"
+            tone="accent"
+            // Не ссылка: стопка разбирается модалкой, не уходя с Главной.
+            onClick={() => setStackOpen(true)}
+          />
+        ) : (
+          <StatTile span={3} label="Непрочитанных" value={unreadTotal} icon="messenger" tone={unreadTotal ? 'success' : 'neutral'} href="/messenger" />
+        )}
         <StatTile span={3} label="Упоминания" value={mentionsUnread} icon="mentions" tone={mentionsUnread ? 'warning' : 'neutral'} href="/mentions" />
 
         {/* ---------- Сегодня ---------- */}
@@ -271,6 +303,8 @@ export default function DashboardPage() {
           </div>
         </Card>
       </BentoGrid>
+
+      {stackOpen && <DecisionStack open onClose={() => setStackOpen(false)} scope={PERSONAL_SCOPE} />}
     </>
   );
 }

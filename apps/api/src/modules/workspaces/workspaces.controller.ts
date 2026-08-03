@@ -22,6 +22,9 @@ import {
   transferOwnershipSchema,
   inviteWorkspaceMemberSchema,
   updateWorkspaceMemberSchema,
+  workspaceRequisitesSchema,
+  createBankAccountSchema,
+  updateBankAccountSchema,
 } from '@superapp/shared';
 
 @ApiTags('Workspaces')
@@ -107,6 +110,64 @@ export class WorkspacesController {
   @ApiOperation({ summary: 'Организация (с моей ролью)' })
   async get(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const data = await this.workspaces.getWorkspace(user.sub, id);
+    return { success: true, data };
+  }
+
+  // ----- Реквизиты (блок «Анкеты компании»: юрформа, БИН, банк, директор) -----
+
+  @Get(':id/requisites')
+  @ApiOperation({ summary: 'Реквизиты организации + банковские счета (сотрудникам — по флагу видимости)' })
+  async getRequisites(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    const data = await this.workspaces.getRequisites(user.sub, id);
+    return { success: true, data };
+  }
+
+  @Patch(':id/requisites')
+  @ApiOperation({ summary: 'Обновить реквизиты (admin+; null очищает поле)' })
+  async updateRequisites(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    const dto = workspaceRequisitesSchema.parse(body);
+    const data = await this.workspaces.updateRequisites(user.sub, id, dto);
+    return { success: true, data };
+  }
+
+  @Post(':id/requisites/accounts')
+  @ApiOperation({ summary: 'Добавить банковский счёт (admin+; первый становится основным)' })
+  async addBankAccount(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    const dto = createBankAccountSchema.parse(body);
+    const data = await this.workspaces.addBankAccount(user.sub, id, dto);
+    return { success: true, data };
+  }
+
+  @Patch(':id/requisites/accounts/:accId')
+  @ApiOperation({ summary: 'Изменить банковский счёт / назначить основным (admin+)' })
+  async updateBankAccount(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Param('accId') accId: string,
+    @Body() body: unknown,
+  ) {
+    const dto = updateBankAccountSchema.parse(body);
+    const data = await this.workspaces.updateBankAccount(user.sub, id, accId, dto);
+    return { success: true, data };
+  }
+
+  @Delete(':id/requisites/accounts/:accId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Удалить банковский счёт (admin+)' })
+  async removeBankAccount(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Param('accId') accId: string,
+  ) {
+    const data = await this.workspaces.removeBankAccount(user.sub, id, accId);
     return { success: true, data };
   }
 

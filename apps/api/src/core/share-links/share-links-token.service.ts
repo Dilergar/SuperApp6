@@ -8,6 +8,19 @@ export interface ShareSessionPayload {
   l: string;
   /** срок, мс с 1970 */
   x: number;
+  /**
+   * Поколение (`ShareLink.sessionEpoch`). Пропуск подписан по linkId, а НЕ по токену,
+   * поэтому без поколения смена адреса ссылки не отрезала бы того, кто её уже открыл, —
+   * то есть ровно того, ради кого адрес и меняют. Старые пропуска без поля считаются
+   * нулевым поколением.
+   */
+  e?: number;
+  /**
+   * Личность гостя (`ShareLinkGuest.id`) — если ссылка требовала подтверждение номера.
+   * По нему authorizeGuest отдаёт потребителям «кто по ту сторону»; будущие действия
+   * (подпись, оплата, ответ на опрос) пишут его в свои доказательные записи.
+   */
+  g?: string;
 }
 
 export interface ShareSessionVerdict {
@@ -49,9 +62,10 @@ export class ShareLinksTokenService {
     return createHmac('sha256', this.signingKey).update(body).digest('base64url');
   }
 
-  issue(linkId: string): { token: string; expiresAt: Date } {
+  issue(linkId: string, sessionEpoch: number, guestId?: string | null): { token: string; expiresAt: Date } {
     const expiresAtMs = Date.now() + SHARE_LINK_LIMITS.guestSessionTtlMin * 60 * 1000;
-    const payload: ShareSessionPayload = { l: linkId, x: expiresAtMs };
+    const payload: ShareSessionPayload = { l: linkId, x: expiresAtMs, e: sessionEpoch };
+    if (guestId) payload.g = guestId;
     const body = `v1.${Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')}`;
     return { token: `${body}.${this.sign(body)}`, expiresAt: new Date(expiresAtMs) };
   }

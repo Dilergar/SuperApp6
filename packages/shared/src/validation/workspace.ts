@@ -79,6 +79,7 @@ export const workspaceCardVisibilitySchema = z
     contactEmail: z.boolean(),
     contactPhone: z.boolean(),
     membersCount: z.boolean(),
+    requisites: z.boolean(),
     extras: z.record(z.boolean()).optional(),
   })
   .partial();

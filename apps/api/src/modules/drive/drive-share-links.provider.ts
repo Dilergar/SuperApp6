@@ -67,6 +67,7 @@ export class DriveShareLinksProvider implements ShareLinkProvider, OnModuleInit 
       ownerId: space.ownerId,
       workspaceId: space.ownerType === 'workspace' ? space.ownerId : null,
       title: node.name,
+      icon: node.kind === 'folder' ? 'folder' : 'file',
     };
   }
 
@@ -75,12 +76,18 @@ export class DriveShareLinksProvider implements ShareLinkProvider, OnModuleInit 
     if (!node || node.trashedAt) return null;
 
     if (node.kind === 'folder') {
-      return { kind: 'folder', rootId: node.id, name: node.name };
+      return { kind: 'folder', rootId: node.id, name: node.name, allowDownload: link.allowDownload };
     }
     if (!node.fileId) return null;
-    const file = (await this.guestFiles([node.fileId])).get(node.fileId);
+    const file = (await this.guestFiles([node.fileId], link.allowDownload)).get(node.fileId);
     if (!file) return null;
-    return { kind: 'file', rootId: node.id, name: node.name, file };
+    return {
+      kind: 'file',
+      rootId: node.id,
+      name: node.name,
+      allowDownload: link.allowDownload,
+      file,
+    };
   }
 
   async describeRef(nodeId: string): Promise<{ title: string; icon?: string } | null> {
@@ -100,8 +107,11 @@ export class DriveShareLinksProvider implements ShareLinkProvider, OnModuleInit 
    * (звёзды «избранное»), отдаёт внутренние поля узла (владелец, системный ключ,
    * пространство) и вообще рассчитан на своего человека, а не на постороннего.
    */
-  async guestNodes(rows: NodeRow[]): Promise<ShareDriveNodeDto[]> {
-    const files = await this.guestFiles(rows.map((r) => r.fileId).filter((id): id is string => !!id));
+  async guestNodes(rows: NodeRow[], allowDownload: boolean): Promise<ShareDriveNodeDto[]> {
+    const files = await this.guestFiles(
+      rows.map((r) => r.fileId).filter((id): id is string => !!id),
+      allowDownload,
+    );
     return rows.map((row) => {
       const file = row.fileId ? (files.get(row.fileId) ?? null) : null;
       return {
@@ -120,8 +130,16 @@ export class DriveShareLinksProvider implements ShareLinkProvider, OnModuleInit 
    * Ссылки на байты для гостя. buildAttachmentViews — системный контракт движка
    * («доступ проверил вызывающий»), и здесь его проверил токен ссылки. Заражённые и
    * недогруженные файлы движок в выдачу не кладёт вовсе — гость увидит «недоступен».
+   *
+   * При выключенном скачивании ОРИГИНАЛ не отдаётся вообще: остаётся уменьшенная копия
+   * (у картинки) или постер (у видео). Это не защита от копирования — байты превью всё
+   * равно у гостя в браузере, — но оригинал 4000px за собой он уже не унесёт, и это
+   * ровно то, что в этой настройке обещают Google Drive и Dropbox.
    */
-  private async guestFiles(fileIds: string[]): Promise<Map<string, ShareGuestFile>> {
+  private async guestFiles(
+    fileIds: string[],
+    allowDownload: boolean,
+  ): Promise<Map<string, ShareGuestFile>> {
     const out = new Map<string, ShareGuestFile>();
     if (!fileIds.length) return out;
 
@@ -135,6 +153,9 @@ export class DriveShareLinksProvider implements ShareLinkProvider, OnModuleInit 
     for (const raw of meta) {
       const view = views.get(raw.id);
       const m = (raw.meta as Record<string, unknown> | null) ?? {};
+      // Превью — то, что можно показать, НЕ отдавая оригинал: средняя копия картинки,
+      // постер видео, на худой конец миниатюра.
+      const preview = view ? (view.mediumUrl ?? view.posterUrl ?? view.thumbUrl) : null;
       out.set(raw.id, {
         fileId: raw.id,
         name: raw.name,
@@ -144,7 +165,8 @@ export class DriveShareLinksProvider implements ShareLinkProvider, OnModuleInit 
         // Ссылки нет — файл ещё не готов или помечен антивирусом: страница честно
         // скажет «файл недоступен» вместо битой кнопки «Скачать».
         available: !!view,
-        url: view?.url ?? null,
+        url: allowDownload ? (view?.url ?? null) : null,
+        previewUrl: preview,
         thumbUrl: view?.thumbUrl ?? null,
         posterUrl: view?.posterUrl ?? null,
         urlExpiresAt: view?.urlExpiresAt ?? null,

@@ -8,7 +8,7 @@
 import { interpolateTemplate } from '../utils/interpolate';
 
 /** Категории для фильтра «Журнала организации» */
-export const CHATTER_CATEGORIES = ['tasks', 'staff', 'drive', 'share'] as const;
+export const CHATTER_CATEGORIES = ['tasks', 'staff', 'drive', 'share', 'documents', 'processes'] as const;
 export type ChatterCategory = (typeof CHATTER_CATEGORIES)[number];
 
 export interface ChatterTypeMeta {
@@ -249,6 +249,70 @@ export const CHATTER_REGISTRY = {
     category: 'drive',
     chatPost: false,
   },
+  // ---- Сервис «Документы»: хроника КАРТОЧКИ документа ----
+  // Она же — доказательство при проверке: кто создал, кто отправил, кто подписал,
+  // когда присвоен номер. Поэтому пишется в транзакции самого действия, а не «потом».
+  'org_document.created': {
+    template: '{{actorName}} создал(а) документ «{{title}}»',
+    icon: '📄',
+    category: 'documents',
+    chatPost: false,
+  },
+  'org_document.submitted': {
+    template: '{{actorName}} отправил(а) документ на маршрут',
+    icon: '📤',
+    category: 'documents',
+    chatPost: false,
+  },
+  'org_document.approved': {
+    template: 'Документ согласован',
+    icon: '✅',
+    category: 'documents',
+    chatPost: false,
+  },
+  'org_document.signed': {
+    template: 'Документ подписан',
+    icon: '🖊️',
+    category: 'documents',
+    chatPost: false,
+  },
+  'org_document.rejected': {
+    template: 'Документ отклонён{{reasonSuffix}}',
+    icon: '⛔',
+    category: 'documents',
+    chatPost: false,
+  },
+  'org_document.returned': {
+    template: 'Документ отправлен на доработку{{reasonSuffix}}',
+    icon: '↩️',
+    category: 'documents',
+    chatPost: false,
+  },
+  'org_document.registered': {
+    template: 'Документу присвоен номер {{number}}',
+    icon: '🔢',
+    category: 'documents',
+    chatPost: false,
+  },
+  'org_document.filed': {
+    template: 'Документ подшит: {{placeLabel}}',
+    icon: '🗂️',
+    category: 'documents',
+    chatPost: false,
+  },
+  'org_document.cancelled': {
+    template: '{{actorName}} отменил(а) документ',
+    icon: '🚫',
+    category: 'documents',
+    chatPost: false,
+  },
+  // Возврат С МАРШРУТА в черновик — не отмена: документ жив, его просто дорабатывают.
+  'org_document.withdrawn': {
+    template: '{{actorName}} вернул(а) документ в черновик',
+    icon: '↩️',
+    category: 'documents',
+    chatPost: false,
+  },
   'drive.unshared': {
     template: '{{actorName}} закрыл(а) доступ к «{{targetName}}»: {{principalLabel}}',
     icon: '🔒',
@@ -295,6 +359,27 @@ export const CHATTER_REGISTRY = {
     template: '{{actorName}} отозвал(а) гостевую ссылку на «{{targetName}}»{{labelSuffix}}',
     icon: '⛔',
     category: 'share',
+    chatPost: false,
+  },
+  // Смена адреса — тоже изменение доступа наружу: у части получателей он в этот момент
+  // пропадает, поэтому событие стоит рядом с выдачей и отзывом, а не прячется в правку.
+  'share.link_rotated': {
+    template: '{{actorName}} сменил(а) адрес гостевой ссылки на «{{targetName}}»{{labelSuffix}}',
+    icon: '🔄',
+    category: 'share',
+    chatPost: false,
+  },
+
+  // ---- Процессы (refType='workspace' — запись журнала организации) ----
+  // Маршрут опубликован ВОПРЕКИ предупреждениям правил кадрового учёта. Проверка
+  // их не блокирует (закон меняется чаще кода, и запрет остановил бы работу), но
+  // «Понимаю, публикую» — это принятый риск, и у него должен быть автор и дата.
+  // Правила перечисляются поимённо: через год важно не «были предупреждения», а
+  // КАКИЕ именно проигнорировали.
+  'process.published_with_warnings': {
+    template: '{{actorName}} опубликовал(а) маршрут «{{processName}}» вопреки предупреждениям: {{ruleList}}',
+    icon: '⚠️',
+    category: 'processes',
     chatPost: false,
   },
 } as const satisfies Record<string, ChatterTypeMeta>;

@@ -18,19 +18,38 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import {
   SHARE_LINK_ERROR_CODES,
+  SHARE_LINK_LIMITS,
+  normalizePhone,
   type ShareDocGuestView,
   type ShareDriveGuestView,
+  type ShareGuestIdentityStartDto,
   type ShareGuestSessionDto,
 } from '@superapp/shared';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Feedback';
-import { apiErrorCode, apiErrorDetails, sharePeek, shareOpenSession, shareRefreshView } from '@/lib/public-api';
+import { CodeInput } from '@/components/verify/CodeInput';
+import {
+  apiErrorCode,
+  apiErrorDetails,
+  sharePeek,
+  shareIdentityStart,
+  shareOpenSession,
+  shareRefreshView,
+  shareVerifyCheck,
+  shareVerifyDevCode,
+} from '@/lib/public-api';
 import { ShareGuestError, ShareGuestShell } from '../_components/ShareGuestShell';
 import { ShareDriveView } from '../_components/ShareDriveView';
 import { ShareDocView } from '../_components/ShareDocView';
 
-type Stage = 'loading' | 'password' | 'ready' | 'error';
+type Stage = 'loading' | 'password' | 'identity' | 'ready' | 'error';
+
+/** Текст ошибки из конверта API — локальный, чтобы не тащить клиент с перехватчиками */
+function guestErrText(err: unknown): string {
+  const msg = (err as { response?: { data?: { message?: unknown } } })?.response?.data?.message;
+  return typeof msg === 'string' && msg ? msg : 'Что-то пошло не так — попробуйте ещё раз';
+}
 
 const DEAD_LINK_TEXT: Record<string, { title: string; description: string }> = {
   [SHARE_LINK_ERROR_CODES.notFound]: {
@@ -75,6 +94,8 @@ export default function SharePage() {
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  // Ссылка требует назвать имя и подтвердить номер SMS-кодом (после пароля, если есть).
+  const [identityRequired, setIdentityRequired] = useState(false);
   const [busy, setBusy] = useState(false);
   // StrictMode в разработке монтирует эффект дважды: без засова открытие
   // засчиталось бы двумя и счётчик врал бы вдвое.
@@ -87,11 +108,11 @@ export default function SharePage() {
 
   /** Открыть ссылку (считается открытием) и запомнить пропуск на время вкладки */
   const open = useCallback(
-    async (pwd?: string) => {
+    async (opts: { password?: string; verifyToken?: string; guestName?: string } = {}) => {
       setBusy(true);
       setPasswordError(null);
       try {
-        const data = await shareOpenSession(token, pwd);
+        const data = await shareOpenSession(token, opts);
         sessionStorage.setItem(storageKey(token), data.sessionToken);
         setSession(data);
         setStage('ready');
@@ -141,8 +162,13 @@ export default function SharePage() {
 
       try {
         const peek = await sharePeek(token);
+        setIdentityRequired(peek.identityRequired);
         if (peek.state === 'password_required') {
           setStage('password');
+          return;
+        }
+        if (peek.identityRequired) {
+          setStage('identity');
           return;
         }
         await open();
@@ -184,7 +210,14 @@ export default function SharePage() {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            void open(password);
+            // Пароль проверит сервер: у обычной ссылки — при открытии, у ссылки с
+            // подтверждением номера — при запросе SMS-кода (шаг «кто вы»).
+            if (identityRequired) {
+              setPasswordError(null);
+              setStage('identity');
+            } else {
+              void open({ password });
+            }
           }}
         >
           <Input
@@ -198,7 +231,7 @@ export default function SharePage() {
           />
           <div style={{ marginTop: 'var(--spacing-5)' }}>
             <Button type="submit" variant="primary" block loading={busy} disabled={!password}>
-              Открыть
+              {identityRequired ? 'Далее' : 'Открыть'}
             </Button>
           </div>
         </form>
@@ -206,9 +239,199 @@ export default function SharePage() {
     );
   }
 
+  if (stage === 'identity') {
+    return (
+      <IdentityStep
+        token={token}
+        password={password || undefined}
+        busy={busy}
+        onDone={(identity) => open({ ...(password ? { password } : {}), ...identity })}
+        onPasswordRejected={(message) => {
+          setPasswordError(message);
+          setStage('password');
+        }}
+      />
+    );
+  }
+
   // refresh передаём КАК ЕСТЬ, без обёртки-стрелки: новая функция на каждый рендер
   // меняла бы зависимость эффекта опроса у ShareDocView и сбрасывала его таймер.
   return <ShareContent session={session!} onRefresh={refresh} />;
+}
+
+/**
+ * Шаг «кто вы»: имя + номер → SMS-код (движок core/verify, цель share_link_guest).
+ * Проверка кода идёт публичным /verify/check; полученный одноразовый пропуск гасится
+ * сервером в транзакции открытия — несостоявшееся открытие кода не сжигает.
+ */
+function IdentityStep({
+  token,
+  password,
+  busy,
+  onDone,
+  onPasswordRejected,
+}: {
+  token: string;
+  password?: string;
+  /** Родитель открывает ссылку — его занятость показываем на автосабмите кода */
+  busy: boolean;
+  onDone: (identity: { verifyToken: string; guestName: string }) => Promise<void> | void;
+  onPasswordRejected: (message: string) => void;
+}) {
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [challenge, setChallenge] = useState<ShareGuestIdentityStartDto | null>(null);
+  const [code, setCode] = useState('');
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const [devCode, setDevCode] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [resendIn, setResendIn] = useState(0);
+
+  // Тикающий таймер ресенда — серверное значение, по секунде вниз.
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const t = setTimeout(() => setResendIn((v) => v - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendIn]);
+
+  const normalized = normalizePhone(phone);
+  const phoneOk = /^\+77\d{9}$/.test(normalized);
+
+  const requestCode = async () => {
+    setSending(true);
+    setError(null);
+    try {
+      const started = await shareIdentityStart(token, normalized, password);
+      setChallenge(started);
+      setResendIn(started.resendInSec);
+      setCode('');
+      setCodeError(null);
+      // Дев-подсказка кода (в production ручка отвечает 404 и подсказки просто нет).
+      setDevCode(await shareVerifyDevCode(started.challengeId));
+    } catch (err) {
+      const code = apiErrorCode(err);
+      if (
+        code === SHARE_LINK_ERROR_CODES.passwordWrong ||
+        code === SHARE_LINK_ERROR_CODES.passwordRequired ||
+        code === SHARE_LINK_ERROR_CODES.passwordLocked
+      ) {
+        // Пароль ссылки не подошёл — возвращаем человека на шаг пароля с причиной.
+        onPasswordRejected(guestErrText(err));
+        return;
+      }
+      const details = apiErrorDetails(err);
+      if (typeof details?.resendInSec === 'number' && details.resendInSec > 0) {
+        setResendIn(details.resendInSec);
+      }
+      setError(guestErrText(err));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const submitCode = async (value: string) => {
+    if (!challenge || checking) return;
+    setChecking(true);
+    setCodeError(null);
+    try {
+      const { verifyToken } = await shareVerifyCheck(challenge.challengeId, value);
+      await onDone({ verifyToken, guestName: name.trim() });
+    } catch (err) {
+      const details = apiErrorDetails(err);
+      setCodeError(
+        typeof details?.attemptsLeft === 'number'
+          ? `Неверный код — осталось попыток: ${details.attemptsLeft}`
+          : guestErrText(err),
+      );
+      setCode('');
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  if (challenge) {
+    return (
+      <ShareGuestShell
+        title="Введите код из SMS"
+        subtitle={`Код отправлен на ${challenge.phoneMasked}`}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)', alignItems: 'center' }}>
+          <CodeInput
+            value={code}
+            onChange={setCode}
+            onComplete={(v) => void submitCode(v)}
+            error={!!codeError}
+            disabled={checking || busy}
+          />
+          {codeError && (
+            <p className="body-sm" style={{ margin: 0, color: 'var(--danger)' }}>
+              {codeError}
+            </p>
+          )}
+          {devCode && (
+            <p className="meta" style={{ margin: 0 }}>
+              [dev] код: {devCode}
+            </p>
+          )}
+          {(checking || busy) && <Spinner />}
+          <div style={{ display: 'flex', gap: 'var(--spacing-4)', alignItems: 'center' }}>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={resendIn > 0 || sending}
+              loading={sending}
+              onClick={() => void requestCode()}
+            >
+              {resendIn > 0 ? `Отправить ещё раз через ${resendIn} с` : 'Отправить ещё раз'}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setChallenge(null)}>
+              ← Изменить номер
+            </Button>
+          </div>
+        </div>
+      </ShareGuestShell>
+    );
+  }
+
+  return (
+    <ShareGuestShell
+      title="Представьтесь, пожалуйста"
+      subtitle="Тот, кто поделился ссылкой, попросил подтверждать, кто её открывает"
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void requestCode();
+        }}
+        style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}
+      >
+        <Input
+          label="Как вас зовут"
+          value={name}
+          autoFocus
+          maxLength={SHARE_LINK_LIMITS.guestNameMaxLength}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <Input
+          label="Номер телефона"
+          type="tel"
+          inputMode="tel"
+          placeholder="+7 7__ ___ __ __"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          hint="Пока поддерживаются казахстанские мобильные номера"
+          error={error ?? undefined}
+        />
+        <div style={{ marginTop: 'var(--spacing-2)' }}>
+          <Button type="submit" variant="primary" block loading={sending} disabled={!name.trim() || !phoneOk}>
+            Получить код
+          </Button>
+        </div>
+      </form>
+    </ShareGuestShell>
+  );
 }
 
 /** Отрисовка по типу объекта — здесь же место будущих потребителей (счета, витрины) */

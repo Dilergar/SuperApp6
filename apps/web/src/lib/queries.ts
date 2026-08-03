@@ -86,8 +86,10 @@ export const workspaceInvitationsKey = (id: string) => ['workspaces', id, 'invit
 export const processesKey = (wsId: string) => ['workspaces', wsId, 'processes'] as const;
 export const processKey = (wsId: string, defId: string) =>
   ['workspaces', wsId, 'processes', defId] as const;
-export const processNodeTypesKey = (wsId: string) =>
-  ['workspaces', wsId, 'processes', 'node-types'] as const;
+// Профиль в ключе: у кадрового маршрута палитра урезана до 7 нод, у общего —
+// полная, и это РАЗНЫЕ ответы; общий ключ отдавал бы кадровику чужой список.
+export const processNodeTypesKey = (wsId: string, surface?: string | null) =>
+  ['workspaces', wsId, 'processes', 'node-types', surface ?? 'general'] as const;
 export const processInstancesKey = (wsId: string) =>
   ['workspaces', wsId, 'processes', 'instances'] as const;
 export const processInstanceKey = (wsId: string, instId: string) =>
@@ -110,7 +112,11 @@ export const walletOverviewKey = ['wallet', 'overview'] as const;
 export const walletHistoryKey = ['wallet', 'history'] as const;
 export const walletCurrencyKey = ['wallet', 'currency'] as const;
 export const walletHoldersKey = ['wallet', 'holders'] as const;
+// Карты-реквизиты для выплат (без CVV)
+export const walletCardsKey = ['wallet', 'cards'] as const;
 export const companyWalletKey = (wsId: string) => ['workspaces', wsId, 'wallet'] as const;
+// Реквизиты организации (анкета + карточка компании)
+export const workspaceRequisitesKey = (wsId: string) => ['workspaces', wsId, 'requisites'] as const;
 export const companyHoldersKey = (wsId: string) => ['workspaces', wsId, 'wallet', 'holders'] as const;
 // Магазин (My Wish & Shop)
 export const shopMineKey = ['shop', 'mine'] as const;
@@ -147,6 +153,13 @@ export const shareLinksKey = (refType: string, refId: string) => ['share-links',
 // Отдельный корень, а не ['share-links','visits',…]: refType — свободная строка движка,
 // и сервис с типом «visits» однажды схлопнул бы два разных запроса в один префикс.
 export const shareLinkVisitsKey = (linkId: string) => ['share-link-visits', linkId] as const;
+/** Раздел «Мои ссылки»: свой корень — инвалидация списка объекта его не трогает */
+export const myShareLinksKey = (status: string) => ['my-share-links', status] as const;
+/** Префикс скоупа «Мои ссылки» / «Ссылки организации» — по нему инвалидируется всё после отзыва */
+export const myShareLinksScopeKey = ['share-links', 'mine'] as const;
+export const workspaceShareLinksScopeKey = (wsId: string) => ['share-links', 'workspace', wsId] as const;
+/** Своим корнем, а не веткой ['my-share-links','stats']: фильтр — тоже строка в том же месте */
+export const myShareStatsKey = () => ['my-share-stats'] as const;
 export const driveRecentKey = ['drive', 'recent'] as const;
 export const drivePhotoBucketsKey = (ref: DriveRef) => ['drive', 'photos', 'buckets', driveScope(ref)] as const;
 export const drivePhotosKey = (ref: DriveRef, month?: string) =>
@@ -168,6 +181,43 @@ export const officeRoomKey = (wsId: string, roomId: string) =>
 // Вложен под officeRoomsKey — invalidate списка префиксно обновляет и историю
 export const officeHistoryKey = (wsId: string) =>
   ['workspaces', wsId, 'office', 'history'] as const;
+
+// ---- Согласования (core/approvals), для человека — «Ждут решения» ----
+// Всё под корнем ['approvals']: одна инвалидация префикса после решения обновляет
+// и стопку, и счётчик бейджа, и «мои заявки», и открытую карточку заявки.
+export const approvalsRootKey = ['approvals'] as const;
+
+/**
+ * Чей вопрос задаём движку решений.
+ *
+ * `{}` (или не передан) — СКВОЗНОЙ вид: всё, что ждёт человека, из всех его
+ * организаций и личного. Так работают верхние иконки топбара: они висят над любой
+ * страницей, и приказ на подпись не должен «исчезать» из-за того, что человек
+ * сейчас смотрит другой контекст.
+ *
+ * `{personal:true}` — только личные заявки: витрины ВНУТРИ личного контекста
+ * (плитка Главной). У человека с пятью компаниями иначе копится каша.
+ *
+ * `{workspaceId}` — только эта организация. Сильнее `personal`.
+ */
+export type ApprovalScope = { workspaceId?: string; personal?: boolean };
+
+/** Скоуп → часть ключа кэша. Три состояния должны давать ТРИ разных ключа */
+export const approvalScopeKey = (scope?: ApprovalScope): string =>
+  scope?.workspaceId ?? (scope?.personal ? 'personal' : 'all');
+
+/** Скоуп → query-параметры ручек движка (разбор скоупа живёт на сервере) */
+export const approvalScopeParams = (scope?: ApprovalScope): { workspaceId?: string; scope?: 'personal' } =>
+  scope?.workspaceId ? { workspaceId: scope.workspaceId } : scope?.personal ? { scope: 'personal' } : {};
+
+export const approvalInboxKey = (scope?: ApprovalScope, sourceKey?: string) =>
+  ['approvals', 'inbox', approvalScopeKey(scope), sourceKey ?? 'all'] as const;
+/** Счётчик бейджа — свой ключ: он поллится, а список нет */
+export const approvalCountKey = (scope?: ApprovalScope) =>
+  ['approvals', 'count', approvalScopeKey(scope)] as const;
+export const approvalKey = (id: string) => ['approvals', 'detail', id] as const;
+export const myApprovalsKey = (scope?: ApprovalScope, archived?: boolean) =>
+  ['approvals', 'mine', approvalScopeKey(scope), archived ? 'archived' : 'active'] as const;
 
 // ---- Fetchers ----
 
@@ -269,8 +319,15 @@ export async function fetchProcess(wsId: string, defId: string): Promise<Process
   return res.data.data;
 }
 
-export async function fetchProcessNodeTypes(wsId: string): Promise<ProcessNodeTypeDto[]> {
-  const res = await api.get(`/workspaces/${wsId}/processes/node-types`);
+export async function fetchProcessNodeTypes(
+  wsId: string,
+  surface?: string | null,
+): Promise<ProcessNodeTypeDto[]> {
+  const res = await api.get(`/workspaces/${wsId}/processes/node-types`, {
+    // Профиль режет палитру под предметную область: кадровик не видит ноды про
+    // счета и AI-агентов — он и не должен решать, нужны ли они его приказу.
+    params: surface && surface !== 'general' ? { surface } : undefined,
+  });
   return res.data.data;
 }
 
@@ -391,6 +448,28 @@ export async function fetchFinanceTransactions(
   const res = await api.get('/finance/transactions', { params });
   return { items: res.data.data, nextCursor: res.data.nextCursor ?? null };
 }
+
+// Сервис «Документы» (B2B). Ключи с фильтрами: реестр перезапрашивается при смене
+// фильтра, а список видов и шаблонов общий — его инвалидируют настройки сервиса.
+export const docTypesKey = (wsId: string) => ['workspaces', wsId, 'documents', 'types'] as const;
+export const docTemplatesKey = (wsId: string) => ['workspaces', wsId, 'documents', 'templates'] as const;
+export const docTemplateGrantsKey = (wsId: string, tplId: string) =>
+  ['workspaces', wsId, 'documents', 'templates', tplId, 'grants'] as const;
+export const availableTemplatesKey = (wsId: string) =>
+  ['workspaces', wsId, 'documents', 'available'] as const;
+export const orgDocumentsKey = (wsId: string, filters?: Record<string, string | undefined>) =>
+  ['workspaces', wsId, 'documents', 'list', JSON.stringify(filters ?? {})] as const;
+/**
+ * ПРЕФИКС всех списков реестра — им и надо инвалидировать после мутации.
+ * `orgDocumentsKey(id)` для этого не годится: он несёт ещё и сериализованные фильтры
+ * (`'{}'`), поэтому совпадает ровно с одним списком — без фильтров, — а вкладки
+ * «Мои документы» и «Заявления» держат в ключе userId и молча оставались старыми.
+ */
+export const orgDocumentsPrefix = (wsId: string) => ['workspaces', wsId, 'documents', 'list'] as const;
+export const orgDocumentKey = (wsId: string, docId: string) =>
+  ['workspaces', wsId, 'documents', 'card', docId] as const;
+/** Группы полей шаблона — статичны на процесс API, поэтому ключ без организации */
+export const templateFieldGroupsKey = ['templates', 'field-groups'] as const;
 
 // Хроника (core/chatter): журнал организации + хроника одной записи
 export const workspaceJournalKey = (wsId: string, category?: string | null) =>

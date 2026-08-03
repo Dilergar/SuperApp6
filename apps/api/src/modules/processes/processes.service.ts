@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import {
   PROCESS_LIMITS,
+  SURFACE_NODE_TYPES,
   TEAM_WORKSPACE_ROLES,
   WORKSPACE_ROLE_RANK,
   type ProcessDefinitionDetailDto,
@@ -27,15 +28,19 @@ import { randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RolesService } from '../../core/roles/roles.service';
+import { ChatterService } from '../../core/chatter/chatter.service';
 import { encryptSecret, decryptSecret } from './process-crypto';
 import { ProcessNodeRegistry } from './process-node.registry';
 import { ProcessEngineService } from './process-engine.service';
 import { compileProcessDocument } from './process-compiler';
-import { BUILTIN_PROCESS_NODES } from './process-builtin-nodes';
+import { BUILTIN_PROCESS_NODES, PROCESS_ORIGIN_TYPE } from './process-builtin-nodes';
+import { checkSurfaceRules } from './process-document-rules';
+import { ApprovalsService } from '../../core/approvals/approvals.service';
 import { SERVICE_PROCESS_NODES, fetchJson } from './process-service-nodes';
 import { AI_PROCESS_NODES } from './process-ai-nodes';
 import { KZ_PROCESS_NODES } from './process-kz-nodes';
 import { ACTION_PROCESS_NODES } from './process-action-nodes';
+import { DOCUMENT_PROCESS_NODES } from './process-document-nodes';
 import type { CompiledPlan } from './process-node.types';
 
 const WS_CONTEXT = 'workspace';
@@ -46,6 +51,9 @@ const WS_CONTEXT = 'workspace';
  */
 const INSTANCE_STEP_SELECT = {
   id: true,
+  // Нужен, чтобы собрать ключ `инстанс:шаг`, по которому движок согласований
+  // находит заявку этого шага (адресность живёт там, а не в assigneeId).
+  instanceId: true,
   nodeId: true,
   nodeType: true,
   label: true,
@@ -79,11 +87,14 @@ function apiBaseUrl(): string {
 }
 
 /** Тип триггер-ноды документа → тип строки ProcessTrigger. */
-const TRIGGER_NODE_TYPE: Record<string, 'schedule' | 'webhook' | 'event' | 'telegram'> = {
+const TRIGGER_NODE_TYPE: Record<string, 'schedule' | 'webhook' | 'event' | 'telegram' | 'document'> = {
   'trigger.schedule': 'schedule',
   'trigger.webhook': 'webhook',
   'trigger.event': 'event',
   'trigger.telegram': 'telegram',
+  // Отправка документа на маршрут. Стартует не шина и не расписание, а сервис
+  // «Документы» — он же ищет строку триггера по своему templateId.
+  'trigger.document': 'document',
 };
 
 // --- Санитайзер переменных ВНЕШНЕГО старта (публичный вебхук / приёмник Telegram) ---
@@ -118,10 +129,19 @@ export class ProcessesService implements OnModuleInit {
     private roles: RolesService,
     private registry: ProcessNodeRegistry,
     private engine: ProcessEngineService,
+    private approvals: ApprovalsService,
+    private chatter: ChatterService,
   ) {}
 
   onModuleInit(): void {
-    for (const provider of [...BUILTIN_PROCESS_NODES, ...SERVICE_PROCESS_NODES, ...AI_PROCESS_NODES, ...KZ_PROCESS_NODES, ...ACTION_PROCESS_NODES]) {
+    for (const provider of [
+      ...BUILTIN_PROCESS_NODES,
+      ...SERVICE_PROCESS_NODES,
+      ...AI_PROCESS_NODES,
+      ...KZ_PROCESS_NODES,
+      ...ACTION_PROCESS_NODES,
+      ...DOCUMENT_PROCESS_NODES,
+    ]) {
       this.registry.register(provider);
     }
   }
@@ -185,10 +205,24 @@ export class ProcessesService implements OnModuleInit {
   // Палитра нод
   // ---------------------------------------------------------------
 
-  async listNodeTypes(userId: string, workspaceId: string): Promise<ProcessNodeTypeDto[]> {
+  /**
+   * Палитра нод. `surface` режет её под предметную область: кадровик, рисующий
+   * маршрут документа, не должен видеть ноды про счета, HTTP и AI-агентов — иначе
+   * «урезанный редактор» перестаёт быть урезанным уже на третьем релизе.
+   * Нода без `surfaces` видна везде (общий канвас Процессов).
+   */
+  async listNodeTypes(userId: string, workspaceId: string, surface?: string): Promise<ProcessNodeTypeDto[]> {
     await this.assertTeamMember(userId, workspaceId);
     const includeSystem = await this.isPlatformAdmin(userId);
-    return this.registry.listTypes(includeSystem);
+    const all = this.registry.listTypes(includeSystem);
+    // Нода могла объявить себя специальной («видна только в документных профилях») —
+    // такие не засоряют общий канвас.
+    const visible = all.filter((t) => !t.surfaces || t.surfaces.includes(surface ?? 'general'));
+    if (!surface || surface === 'general') return visible;
+    // Урезанный профиль — БЕЛЫЙ список: новая нода платформы не появляется у кадровика
+    // сама собой, её туда добавляют осознанно.
+    const allowed = SURFACE_NODE_TYPES[surface];
+    return allowed ? visible.filter((t) => allowed.includes(t.type)) : visible;
   }
 
   // ---------------------------------------------------------------
@@ -214,10 +248,21 @@ export class ProcessesService implements OnModuleInit {
     return visible.map((d) => this.toDefinitionDto(d, runningByDef.get(d.id) ?? 0));
   }
 
+  /**
+   * Создать процесс. `surface` — профиль редактора: он режет палитру нод и включает
+   * правила предметной области. `document` — готовая заготовка канваса: сервис
+   * «Документы» заводит маршрут не пустым, а сразу собранным под шаблон (человеку
+   * остаётся указать, кто подписывает) — пустой холст на 32 ноды кадровика отпугивает.
+   */
   async createDefinition(
     userId: string,
     workspaceId: string,
-    data: { name: string; description?: string | null },
+    data: {
+      name: string;
+      description?: string | null;
+      surface?: string;
+      document?: ProcessDocument;
+    },
   ): Promise<ProcessDefinitionDetailDto> {
     await this.assertManage(userId, workspaceId);
     const def = await this.db.$transaction(async (tx) => {
@@ -226,6 +271,7 @@ export class ProcessesService implements OnModuleInit {
           workspaceId,
           name: data.name,
           description: data.description ?? null,
+          ...(data.surface ? { surface: data.surface } : {}),
           createdById: userId,
         },
       });
@@ -234,7 +280,7 @@ export class ProcessesService implements OnModuleInit {
           definitionId: created.id,
           version: 1,
           status: 'draft',
-          document: DEFAULT_DOCUMENT as unknown as object,
+          document: (data.document ?? DEFAULT_DOCUMENT) as unknown as object,
           createdById: userId,
         },
       });
@@ -265,6 +311,9 @@ export class ProcessesService implements OnModuleInit {
     });
     const document = (latest?.document ?? { nodes: [], edges: [], form: [] }) as unknown as ProcessDocument;
     const { issues } = compileProcessDocument(document, this.registry);
+    // Правила профиля показываем прямо в карточке процесса — кадровик видит, чего
+    // не хватает по ТК РК, ещё до попытки публикации.
+    issues.push(...checkSurfaceRules(def.surface, document));
     const runningCount = await this.db.processInstance.count({
       where: { definitionId, status: 'running' },
     });
@@ -322,6 +371,7 @@ export class ProcessesService implements OnModuleInit {
         publishedAt: v.publishedAt?.toISOString() ?? null,
       })),
       issues,
+      surface: def.surface,
       canEdit,
       canStart: !!def.currentVersionId,
     };
@@ -385,6 +435,8 @@ export class ProcessesService implements OnModuleInit {
     });
 
     const { issues } = compileProcessDocument(document, this.registry);
+    const def = await this.loadDefinition(workspaceId, definitionId);
+    issues.push(...checkSurfaceRules(def.surface, document));
     return { version: saved, issues };
   }
 
@@ -394,12 +446,16 @@ export class ProcessesService implements OnModuleInit {
     definitionId: string,
   ): Promise<{ issues: ProcessValidationIssue[] }> {
     const role = await this.assertTeamMember(userId, workspaceId);
-    this.assertDefVisible(role, await this.loadDefinition(workspaceId, definitionId));
+    const def = await this.loadDefinition(workspaceId, definitionId);
+    this.assertDefVisible(role, def);
     const latest = await this.latestVersion(definitionId);
     const { issues } = compileProcessDocument(
       latest.document as unknown as ProcessDocument,
       this.registry,
     );
+    // Правила предметной области (ТК РК у кадровых маршрутов) — предупреждения:
+    // публикацию не блокируют, но требуют явного «Понимаю, публикую».
+    issues.push(...checkSurfaceRules(def.surface, latest.document as unknown as ProcessDocument));
     // Правило «от имени» показываем только тем, кто МОЖЕТ публиковать. Стажёру,
     // открывшему чужой процесс, ошибка про чужой ранг бесполезна, а её наличие/отсутствие
     // работало бы оракулом ролей коллег на read-only эндпоинте.
@@ -417,9 +473,11 @@ export class ProcessesService implements OnModuleInit {
     userId: string,
     workspaceId: string,
     definitionId: string,
+    acceptWarnings: string[] = [],
   ): Promise<ProcessDefinitionDetailDto> {
     const role = await this.assertManage(userId, workspaceId);
-    this.assertDefVisible(role, await this.loadDefinition(workspaceId, definitionId));
+    const def = await this.loadDefinition(workspaceId, definitionId);
+    this.assertDefVisible(role, def);
     const latest = await this.latestVersion(definitionId);
     if (latest.status !== 'draft') {
       throw new BadRequestException('Нет черновика для публикации — внесите изменения');
@@ -428,13 +486,36 @@ export class ProcessesService implements OnModuleInit {
     const { plan, issues } = compileProcessDocument(document, this.registry);
     const actorRank = WORKSPACE_ROLE_RANK[role] ?? 0;
     const memberIssues = await this.validateMembers(workspaceId, document, actorRank);
-    const all = [...issues, ...memberIssues];
-    if (!plan || all.length > 0) {
+    const ruleIssues = checkSurfaceRules(def.surface, document);
+    const routeIssues = await this.validateDocumentTriggers(workspaceId, definitionId, document);
+    const all = [...issues, ...memberIssues, ...ruleIssues, ...routeIssues];
+
+    // Отсутствие severity читается как 'error' (fail-closed): забытый вызов и старые
+    // сохранённые issues остаются блокирующими, а не проскакивают предупреждением.
+    const errors = all.filter((i) => (i.severity ?? 'error') === 'error');
+    if (!plan || errors.length > 0) {
       throw new BadRequestException({
         message: 'Процесс не готов к публикации',
-        errors: all.map((i) => ({ field: i.nodeId ?? i.edgeId ?? 'document', message: i.message })),
+        errors: errors.map((i) => ({ field: i.nodeId ?? i.edgeId ?? 'document', message: i.message })),
       });
     }
+
+    // Предупреждения предметной области принимаются ПОИМЁННО: «Понимаю, публикую»
+    // на одно правило не должно молча накрывать все остальные, в том числе те,
+    // которые появятся в следующем релизе закона.
+    const warnings = all.filter((i) => i.severity === 'warning');
+    const unaccepted = warnings.filter((w) => !w.ruleKey || !acceptWarnings.includes(w.ruleKey));
+    if (unaccepted.length > 0) {
+      throw new BadRequestException({
+        message: 'Маршрут нарушает правила кадрового учёта — подтвердите публикацию',
+        details: { code: 'process_warnings_unaccepted', warnings: unaccepted.map((w) => ({ ruleKey: w.ruleKey, message: w.message })) },
+        errors: unaccepted.map((w) => ({ field: w.ruleKey ?? 'document', message: w.message })),
+      });
+    }
+
+    // Кто взял риск — знаем ДО транзакции: имя снимком, как везде в хронике
+    // (запись обязана пережить удаление аккаунта автора).
+    const actorName = warnings.length > 0 ? await this.displayName(userId) : null;
 
     await this.db.$transaction(async (tx) => {
       await tx.processVersion.updateMany({
@@ -452,6 +533,29 @@ export class ProcessesService implements OnModuleInit {
       // Триггер-ноды холста → строки ProcessTrigger (роутер/крон/вебхук читают их).
       // actorRank запоминается в строке: роли меняются, а триггер живёт дальше.
       await this.syncTriggersOnPublish(tx, definitionId, workspaceId, document, userId, actorRank);
+
+      // «Понимаю, публикую» — в «Журнал организации», СИНХРОННО в той же
+      // транзакции (правило движка хроники). Предупреждения не блокируют
+      // публикацию, поэтому единственный след принятого риска — эта запись:
+      // без неё через полгода нечем ответить на вопрос, кто и когда решил
+      // выпустить маршрут без ознакомления сотрудника.
+      if (warnings.length > 0) {
+        await this.chatter.log(tx, {
+          // Хроника ОРГАНИЗАЦИИ (её резолвер видимости — Менеджер+), а не процесса:
+          // строка попадает в «Журнал организации», где её и будут искать.
+          refType: 'workspace',
+          refId: workspaceId,
+          workspaceId,
+          actorId: userId,
+          actorName,
+          typeKey: 'process.published_with_warnings',
+          payload: {
+            processName: def.name,
+            ruleList: warnings.map((w) => w.message).join('; '),
+            ruleKeys: warnings.map((w) => w.ruleKey).filter(Boolean),
+          },
+        });
+      }
     });
     // Авто-регистрация вебхуков Telegram-ботов (вне транзакции — внешний вызов; best-effort).
     await this.registerTelegramWebhooks(definitionId).catch(() => undefined);
@@ -468,9 +572,13 @@ export class ProcessesService implements OnModuleInit {
     if (running > 0) {
       throw new ConflictException(`Есть запущенные процессы (${running}) — сначала дождитесь или отмените их`);
     }
-    await this.db.processDefinition.update({
-      where: { id: definitionId },
-      data: { status: 'archived' },
+    await this.db.$transaction(async (tx) => {
+      await tx.processDefinition.update({ where: { id: definitionId }, data: { status: 'archived' } });
+      // Триггеры архивного процесса гасим. Иначе строка остаётся включённой: шаблон
+      // документа продолжает считаться «с маршрутом», запуск по нему молча не
+      // происходит, а НОВЫЙ маршрут на тот же шаблон не опубликовать — валидация
+      // ссылается на процесс, которого в списке уже нет и снять с публикации нечем.
+      await tx.processTrigger.updateMany({ where: { definitionId }, data: { enabled: false } });
     });
   }
 
@@ -661,13 +769,34 @@ export class ProcessesService implements OnModuleInit {
       });
       for (const m of mine) viewerDepts.add(m.resourceId);
     }
-    return { users, deptNames, viewerDepts };
+
+    // Кому шаг-решение адресован СЕЙЧАС, спрашиваем у движка согласований — там снимок,
+    // и он единственная правда об адресности. Одним запросом на весь инстанс, а не по
+    // шагу: адресатом бывает должность или отдел, и `assigneeId` шага их не выражает.
+    const decidableStepIds = new Set<string>();
+    const pendingApproval = steps.filter((s) => s.status === 'active' && s.nodeType === 'human.approval');
+    if (pendingApproval.length) {
+      const rows = await this.db.approvalRequest.findMany({
+        where: {
+          originType: PROCESS_ORIGIN_TYPE,
+          originRef: { in: pendingApproval.map((s) => `${s.instanceId}:${s.id}`) },
+          status: 'pending',
+        },
+        select: { originRef: true, steps: { where: { status: 'active' }, select: { awaitingUserIds: true, decisions: { where: { userId }, select: { id: true } } } } },
+      });
+      for (const r of rows) {
+        const decidable = r.steps.some((st) => st.awaitingUserIds.includes(userId) && st.decisions.length === 0);
+        if (decidable && r.originRef) decidableStepIds.add(r.originRef.slice(r.originRef.indexOf(':') + 1));
+      }
+    }
+
+    return { users, deptNames, viewerDepts, decidableStepIds };
   }
 
   /** Снимок шагов инстанса → DTO (подпись из label-снимка; overdue/canClaim/canDecide/canReassign). */
   private mapSteps(
     steps: InstanceStepRow[],
-    ctx: { users: Map<string, ProcessUserMini>; deptNames: Map<string, string>; viewerDepts: Set<string>; managerAllowed: boolean; userId: string; now: number },
+    ctx: { users: Map<string, ProcessUserMini>; deptNames: Map<string, string>; viewerDepts: Set<string>; decidableStepIds: Set<string>; managerAllowed: boolean; userId: string; now: number },
   ): ProcessStepDto[] {
     return steps.map((s) => {
       const overdue = s.status === 'active' && !!s.deadlineAt && s.deadlineAt.getTime() <= ctx.now && s.nodeType !== 'delay';
@@ -691,7 +820,7 @@ export class ProcessesService implements OnModuleInit {
         overdue,
         decision: (s.decision as 'approved' | 'rejected' | null) ?? null,
         canClaim: isQueued && ctx.viewerDepts.has(s.departmentId!),
-        canDecide: s.status === 'active' && s.nodeType === 'human.approval' && s.assigneeId === ctx.userId && !s.decision,
+        canDecide: ctx.decidableStepIds.has(s.id),
         canReassign: ctx.managerAllowed && s.status === 'active' && !!s.taskId,
       };
     });
@@ -715,6 +844,16 @@ export class ProcessesService implements OnModuleInit {
     }
     const ok = await this.engine.cancelInstance(instanceId, userId);
     if (!ok) throw new BadRequestException('Процесс уже завершён');
+  }
+
+  /**
+   * Остановить маршрут ПРОГРАММНО — зовёт сервис-владелец предмета (Документы, когда
+   * автор отменил документ). Гейты сервиса Процессов здесь не применяются намеренно:
+   * право на отмену уже проверил владелец предмета по своим правилам, а маршрут без
+   * предмета продолжать бессмысленно.
+   */
+  async cancelInstanceProgrammatic(instanceId: string, byUserId: string): Promise<boolean> {
+    return this.engine.cancelInstance(instanceId, byUserId);
   }
 
   /** Хук Задачника (ModuleRef-токен 'ProcessesService', как ShopService.onFulfillmentDone). */
@@ -867,6 +1006,18 @@ export class ProcessesService implements OnModuleInit {
         } else {
           await tx.processTrigger.create({ data: { definitionId, workspaceId, type, config, eventType, runAsUserId, enabled: true, createdById: publishedById } });
         }
+      } else if (type === 'document') {
+        // Связь «шаблон → маршрут» живёт здесь: сервис «Документы» при отправке ищет
+        // строку по (workspaceId, type='document', templateId). Стабильного токена и
+        // расписания у неё нет — старт всегда изнутри платформы.
+        const config = { nodeId: n.id, templateId: String(cfg.templateId ?? ''), publisherRank };
+        if (prev) {
+          await tx.processTrigger.update({ where: { id: prev.id }, data: { type, config, runAsUserId, enabled: true } });
+        } else {
+          await tx.processTrigger.create({
+            data: { definitionId, workspaceId, type, config, runAsUserId, enabled: true, createdById: publishedById },
+          });
+        }
       } else if (type === 'webhook') {
         // webhook — токен стабилен между публикациями (внешний URL не должен «протухать»).
         const config = { nodeId: n.id, publisherRank };
@@ -893,6 +1044,56 @@ export class ProcessesService implements OnModuleInit {
     // Триггер-ноды, удалённые с холста → убираем их строки.
     const stale = existing.filter((t) => !keep.has(((t.config ?? {}) as { nodeId?: string }).nodeId ?? ''));
     if (stale.length) await tx.processTrigger.deleteMany({ where: { id: { in: stale.map((t) => t.id) } } });
+  }
+
+  /**
+   * «Один шаблон — один маршрут» (решение грилла). Проверяем при ПУБЛИКАЦИИ, а не при
+   * рисовании: черновиков может быть сколько угодно, а вот два живых маршрута на один
+   * шаблон сделали бы запуск недетерминированным — сервис «Документы» ищет строку
+   * триггера по templateId и не может выбирать между двумя.
+   */
+  private async validateDocumentTriggers(
+    workspaceId: string,
+    definitionId: string,
+    document: ProcessDocument,
+  ): Promise<ProcessValidationIssue[]> {
+    const wanted = document.nodes
+      .filter((n) => n.type === 'trigger.document')
+      .map((n) => String(((n.config ?? {}) as { templateId?: string }).templateId ?? ''))
+      .filter(Boolean);
+    if (!wanted.length) return [];
+
+    const issues: ProcessValidationIssue[] = [];
+    const dup = wanted.filter((id, i) => wanted.indexOf(id) !== i);
+    for (const id of new Set(dup)) {
+      issues.push({
+        severity: 'error',
+        message: 'Два триггера на один и тот же шаблон в одном маршруте — оставьте один',
+        nodeId: undefined,
+      });
+    }
+
+    const others = await this.db.processTrigger.findMany({
+      where: {
+        workspaceId,
+        type: 'document',
+        enabled: true,
+        definitionId: { not: definitionId },
+        // Архивный процесс маршрутом не считается и публикацию нового не блокирует.
+        definition: { status: 'active' },
+      },
+      select: { config: true, definition: { select: { name: true } } },
+    });
+    for (const t of others) {
+      const templateId = String(((t.config ?? {}) as { templateId?: string }).templateId ?? '');
+      if (templateId && wanted.includes(templateId)) {
+        issues.push({
+          severity: 'error',
+          message: `У этого шаблона уже есть опубликованный маршрут — «${t.definition.name}». Снимите его с публикации или выберите другой шаблон`,
+        });
+      }
+    }
+    return issues;
   }
 
   /**
@@ -976,12 +1177,34 @@ export class ProcessesService implements OnModuleInit {
     return { taskId };
   }
 
-  /** Вынести решение по одобрению (назначенный согласующий). */
-  async decideStep(userId: string, workspaceId: string, instanceId: string, stepId: string, decision: 'approved' | 'rejected'): Promise<void> {
+  /**
+   * Вынести решение с карточки запуска.
+   *
+   * Сама ручка осталась (кнопки на странице инстанса), но решение теперь принимает
+   * ДВИЖОК СОГЛАСОВАНИЙ — здесь только перевод «шаг процесса → шаг заявки». Иначе
+   * появился бы второй путь принятия решения со своими правилами адресности, и
+   * права на странице запуска разошлись бы с правами в общей стопке.
+   */
+  async decideStep(
+    userId: string,
+    workspaceId: string,
+    instanceId: string,
+    stepId: string,
+    decision: 'approved' | 'rejected' | 'returned',
+    comment?: string,
+  ): Promise<void> {
     await this.assertTeamMember(userId, workspaceId);
     const instance = await this.db.processInstance.findUnique({ where: { id: instanceId }, select: { workspaceId: true } });
     if (!instance || instance.workspaceId !== workspaceId) throw new NotFoundException('Процесс не найден');
-    await this.engine.decideApproval(userId, instanceId, stepId, decision);
+
+    const request = await this.db.approvalRequest.findFirst({
+      where: { originType: PROCESS_ORIGIN_TYPE, originRef: `${instanceId}:${stepId}`, status: 'pending' },
+      select: { steps: { where: { status: 'active' }, select: { id: true }, take: 1 } },
+    });
+    const approvalStepId = request?.steps[0]?.id;
+    if (!approvalStepId) throw new BadRequestException('Решение по этому шагу уже не требуется');
+
+    await this.approvals.decide(userId, approvalStepId, { decision, comment });
   }
 
   /** Ф2.5: переназначить исполнителя шага (manager+). */
@@ -1005,12 +1228,11 @@ export class ProcessesService implements OnModuleInit {
       where: {
         status: 'active',
         instance: { workspaceId, status: 'running' },
-        OR: [
-          // claimable задачи моих отделов
-          myDeptIds.length ? { departmentId: { in: myDeptIds }, taskId: null } : { id: '__none__' },
-          // одобрения на мне
-          { nodeType: 'human.approval', assigneeId: userId, decision: null },
-        ],
+        // ТОЛЬКО claimable задачи отделов. Решения (согласование/подпись/ознакомление)
+        // отсюда УБРАНЫ: они живут в общей стопке «Ждут решения» движка согласований,
+        // где адресатом может быть должность или отдел — `assigneeId` шага такого
+        // адресата не выражает, и здесь они просто не находились бы.
+        ...(myDeptIds.length ? { departmentId: { in: myDeptIds }, taskId: null } : { id: '__none__' }),
       },
       orderBy: { startedAt: 'asc' },
       take: 100,
@@ -1392,6 +1614,15 @@ export class ProcessesService implements OnModuleInit {
       throw new BadRequestException({ message: 'Проверьте анкету процесса', errors });
     }
     return values;
+  }
+
+  /** Имя актёра снимком для хроники (то же, что userName в Организациях) */
+  private async displayName(userId: string): Promise<string> {
+    const u = await this.db.user.findUnique({
+      where: { id: userId },
+      select: { firstName: true, lastName: true },
+    });
+    return u ? [u.firstName, u.lastName].filter(Boolean).join(' ') : 'Пользователь';
   }
 
   private async userMinis(ids: string[]): Promise<Map<string, ProcessUserMini>> {

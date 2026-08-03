@@ -16,6 +16,8 @@ export * from './types/presence';
 export * from './types/rich-card';
 export * from './types/mention';
 export * from './types/search';
+export * from './types/template';
+export * from './types/org-documents';
 export * from './types/quick-action';
 export * from './types/scheduled-message';
 export * from './types/card-skin';
@@ -31,9 +33,11 @@ export * from './types/verify';
 export * from './types/document';
 export * from './types/drive';
 export * from './types/share-links';
+export * from './types/approval';
 export * from './types/common';
 
 // Validation schemas
+export * from './validation/query';
 export * from './validation/auth';
 export * from './validation/task';
 export * from './validation/card-visibility';
@@ -61,6 +65,9 @@ export * from './validation/verify';
 export * from './validation/document';
 export * from './validation/drive';
 export * from './validation/share-links';
+export * from './validation/approval';
+export * from './validation/requisites';
+export * from './validation/org-documents';
 
 // Utils
 export * from './utils/phone';
@@ -69,6 +76,7 @@ export * from './utils/name';
 export * from './utils/attachments';
 export * from './utils/interpolate';
 export * from './utils/glyph';
+export * from './utils/requisites';
 
 // Constants
 export * from './constants/roles';
@@ -101,3 +109,7 @@ export * from './constants/verify';
 export * from './constants/documents';
 export * from './constants/drive';
 export * from './constants/share-links';
+export * from './constants/approvals';
+export * from './constants/requisites';
+export * from './constants/templates';
+export * from './constants/org-documents';

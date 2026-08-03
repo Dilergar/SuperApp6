@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/Button';
 import { Icon } from '@/components/ui/Icon';
 import { EmptyState } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Feedback';
-import { shareDriveList, shareDriveNode } from '@/lib/public-api';
+import { shareDriveList, shareDriveNode, shareDriveZipUrl } from '@/lib/public-api';
 import { driveIcon, humanSize, shortDate } from '@/app/drive/_components/drive-ui';
 
 interface Crumb {
@@ -22,15 +22,33 @@ interface Crumb {
 }
 
 export function ShareDriveView({ view, session }: { view: ShareDriveGuestView; session: string }) {
-  if (view.kind === 'file') return <ShareFileCard node={null} file={view.file} name={view.name} session={session} />;
-  return <ShareFolderView rootName={view.name} session={session} />;
+  if (view.kind === 'file') {
+    return (
+      <ShareFileCard
+        node={null}
+        file={view.file}
+        name={view.name}
+        session={session}
+        allowDownload={view.allowDownload}
+      />
+    );
+  }
+  return <ShareFolderView rootName={view.name} session={session} allowDownload={view.allowDownload} />;
 }
 
 // ============================================================
 // Папка
 // ============================================================
 
-function ShareFolderView({ rootName, session }: { rootName: string; session: string }) {
+function ShareFolderView({
+  rootName,
+  session,
+  allowDownload,
+}: {
+  rootName: string;
+  session: string;
+  allowDownload: boolean;
+}) {
   const [crumbs, setCrumbs] = useState<Crumb[]>([{ id: null, name: rootName }]);
   const [rows, setRows] = useState<ShareDriveNodeDto[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -85,6 +103,22 @@ function ShareFolderView({ rootName, session }: { rootName: string; session: str
             </span>
           ))}
         </nav>
+      )}
+
+      {/* «Скачать всё» — на той папке, которую человек СЕЙЧАС видит, а не только на
+          корне ссылки: спускаться в подпапку и не иметь возможности забрать её целиком
+          было бы странно. Архив собирается потоком, поэтому это обычная ссылка. */}
+      {allowDownload && rows.length > 0 && (
+        <div style={{ marginBottom: 'var(--spacing-4)' }}>
+          <Button
+            variant="matte"
+            size="sm"
+            icon="download"
+            href={shareDriveZipUrl(session, current.id ?? undefined)}
+          >
+            Скачать всё
+          </Button>
+        </div>
       )}
 
       {loading && rows.length === 0 && <Spinner />}
@@ -142,7 +176,14 @@ function ShareFolderView({ rootName, session }: { rootName: string; session: str
 
       {preview && (
         <div style={{ marginTop: 'var(--spacing-5)', paddingTop: 'var(--spacing-5)', borderTop: '1px solid var(--divider)' }}>
-          <ShareFileCard node={preview} file={preview.file} name={preview.name} session={session} onClose={() => setPreview(null)} />
+          <ShareFileCard
+            node={preview}
+            file={preview.file}
+            name={preview.name}
+            session={session}
+            allowDownload={allowDownload}
+            onClose={() => setPreview(null)}
+          />
         </div>
       )}
 
@@ -160,12 +201,14 @@ function ShareFileCard({
   file,
   name,
   session,
+  allowDownload,
   onClose,
 }: {
   node: ShareDriveNodeDto | null;
   file: ShareDriveNodeDto['file'];
   name: string;
   session: string;
+  allowDownload: boolean;
   onClose?: () => void;
 }) {
   const [current, setCurrent] = useState(file);
@@ -196,6 +239,18 @@ function ShareFileCard({
     if (url) window.open(url, '_blank', 'noopener');
   };
 
+  // Нечего показать и нечего дать: скачивание выключено, а превью у этого типа нет.
+  if (current && current.available && !allowDownload && !current.previewUrl) {
+    return (
+      <div style={{ textAlign: 'center', padding: 'var(--spacing-5) 0' }}>
+        <Icon name="lock" size={28} style={{ color: 'var(--on-surface-variant)' }} />
+        <p className="body-sm" style={{ margin: '0.5rem 0 0' }}>
+          «{name}» — владелец разрешил только просмотр, а предпросмотра у этого типа файлов нет.
+        </p>
+      </div>
+    );
+  }
+
   if (!current || !current.available) {
     return (
       <div style={{ textAlign: 'center', padding: 'var(--spacing-5) 0' }}>
@@ -220,10 +275,13 @@ function ShareFileCard({
         )}
       </div>
 
-      {current.kind === 'image' && current.url && (
+      {/* При выключенном скачивании оригинала нет вовсе — показываем уменьшенную копию.
+          Для картинки этого хватает, для видео и звука играть нечего: воспроизведение
+          и есть отдача байтов, и обещать «просмотр без скачивания» тут было бы враньём. */}
+      {current.kind === 'image' && (current.url ?? current.previewUrl) && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={current.url}
+          src={(current.url ?? current.previewUrl) as string}
           alt={name}
           style={{ maxWidth: '100%', borderRadius: 'var(--radius-md)', display: 'block', margin: '0 auto' }}
         />
@@ -233,11 +291,19 @@ function ShareFileCard({
       )}
       {current.kind === 'audio' && current.url && <audio src={current.url} controls style={{ width: '100%' }} />}
 
-      <div style={{ marginTop: 'var(--spacing-4)' }}>
-        <Button icon="download" onClick={() => void download()} loading={busy}>
-          Скачать
-        </Button>
-      </div>
+      {allowDownload ? (
+        <div style={{ marginTop: 'var(--spacing-4)' }}>
+          <Button icon="download" onClick={() => void download()} loading={busy}>
+            Скачать
+          </Button>
+        </div>
+      ) : (
+        <p className="meta" style={{ margin: 'var(--spacing-4) 0 0' }}>
+          {current.previewUrl
+            ? 'Владелец разрешил только просмотр — скачивание отключено.'
+            : 'Владелец разрешил только просмотр, а предпросмотра у этого типа файлов нет.'}
+        </p>
+      )}
     </div>
   );
 }

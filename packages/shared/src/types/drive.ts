@@ -1,5 +1,5 @@
 import type { DRIVE_NODE_KINDS, DRIVE_ROLES, DRIVE_SORTS, DRIVE_SORT_DIRS, DRIVE_SPACE_KINDS } from '../constants/drive';
-import type { FileKind, FileOwnerType, FileScanStatus, FileStatus } from './file';
+import type { FileKind, FileOwnerType, FileScanStatus, FileStatus, ShareGuestFile } from './file';
 
 // ============================================
 // OmniDrive («Диск») — типы
@@ -159,4 +159,36 @@ export interface DriveOverviewDto {
   limitBytes: number;
   filesCount: number;
   trashedCount: number;
+}
+
+// ============================================
+// Диск глазами ГОСТЯ по внешней ссылке (core/share-links)
+// ============================================
+// Живёт здесь, а не в типах движка ссылок: движок не знает своих потребителей, и
+// его «паспорт» не должен наполняться чужими анкетами. Наружу эти типы уходят
+// значением поля `ShareGuestSessionDto.view` (у движка оно `unknown`).
+
+/** Строка списка в гостевой папке. Внутренние поля узла (владелец, звёзды, системный ключ) сюда не попадают. */
+export interface ShareDriveNodeDto {
+  id: string;
+  kind: 'folder' | 'file';
+  name: string;
+  /** Размер файла или объём папки; null у папки — «ещё не посчитан» */
+  size: number | null;
+  updatedAt: string;
+  file: ShareGuestFile | null;
+}
+
+/**
+ * Что открылось по ссылке Диска: папка (дальше — листинг) или одиночный файл.
+ * `allowDownload` едет вместе с содержимым: по нему страница решает, показывать ли
+ * «Скачать» и «Скачать всё», — а не гадает по наличию ссылок.
+ */
+export type ShareDriveGuestView =
+  | { kind: 'folder'; rootId: string; name: string; allowDownload: boolean }
+  | { kind: 'file'; rootId: string; name: string; allowDownload: boolean; file: ShareGuestFile };
+
+export interface ShareDriveNodesPage {
+  items: ShareDriveNodeDto[];
+  nextCursor: string | null;
 }

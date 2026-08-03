@@ -16,6 +16,7 @@ import {
   createProcessCredentialSchema,
   createProcessDefinitionSchema,
   decideApprovalSchema,
+  publishProcessSchema,
   reassignStepSchema,
   saveProcessDocumentSchema,
   startProcessSchema,
@@ -43,14 +44,18 @@ export class ProcessesController {
   }
 
   @Get('node-types')
-  @ApiOperation({ summary: 'Палитра нод (паспорта типов; system-ноды — платформенной роли)' })
-  async nodeTypes(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
-    const data = await this.processes.listNodeTypes(user.sub, id);
+  @ApiOperation({ summary: 'Палитра нод (паспорта типов; ?surface= режет её под предметную область)' })
+  async nodeTypes(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Query('surface') surface?: string,
+  ) {
+    const data = await this.processes.listNodeTypes(user.sub, id, surface);
     return { success: true, data };
   }
 
   @Get('inbox')
-  @ApiOperation({ summary: 'Входящие: задачи моих отделов в очереди (забрать) + одобрения на мне' })
+  @ApiOperation({ summary: 'Входящие: задачи моих отделов в очереди (решения — в общей стопке «Ждут решения»)' })
   async inbox(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const data = await this.processes.listInbox(user.sub, id);
     return { success: true, data };
@@ -141,7 +146,7 @@ export class ProcessesController {
 
   @Post('instances/:instId/steps/:stepId/decide')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Решение по одобрению: approved | rejected (назначенный согласующий)' })
+  @ApiOperation({ summary: 'Решение по шагу: approved | rejected | returned (причина обязательна на двух последних)' })
   async decideStep(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -149,8 +154,8 @@ export class ProcessesController {
     @Param('stepId') stepId: string,
     @Body() body: unknown,
   ) {
-    const { decision } = decideApprovalSchema.parse(body);
-    await this.processes.decideStep(user.sub, id, instId, stepId, decision);
+    const { decision, comment } = decideApprovalSchema.parse(body);
+    await this.processes.decideStep(user.sub, id, instId, stepId, decision, comment);
     return { success: true };
   }
 
@@ -248,8 +253,13 @@ export class ProcessesController {
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
     @Param('defId') defId: string,
+    @Body() body?: unknown,
   ) {
-    const data = await this.processes.publish(user.sub, id, defId);
+    // acceptWarnings — поимённое «Понимаю, публикую» по правилам предметной области.
+    // Пустой список = публикация только чистого маршрута; так ведёт себя и старый
+    // клиент, не знающий про предупреждения (fail-closed).
+    const { acceptWarnings } = publishProcessSchema.parse(body ?? {});
+    const data = await this.processes.publish(user.sub, id, defId, acceptWarnings);
     return { success: true, data };
   }
 

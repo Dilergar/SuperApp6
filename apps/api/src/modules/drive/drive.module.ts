@@ -11,6 +11,7 @@ import { DriveRoutingRegistry } from './drive-routing.registry';
 import { DriveSearchService } from './drive-search.service';
 import { DriveShareLinksProvider } from './drive-share-links.provider';
 import { DriveGuestController } from './drive-guest.controller';
+import { DriveGuestZipService } from './drive-guest-zip.service';
 import { DriveService } from './drive.service';
 import { DriveShareService } from './drive-share.service';
 import { DriveTreeService } from './drive-tree.service';
@@ -32,6 +33,7 @@ import { DriveVersionsService } from './drive-versions.service';
   controllers: [DriveController, DriveGuestController],
   providers: [
     DriveShareLinksProvider,
+    DriveGuestZipService,
     DriveService,
     DriveAccessService,
     DriveTreeService,

@@ -1,15 +1,20 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { type ShareLink } from '@prisma/client';
+import { Prisma, type ShareLink, type ShareLinkGuest } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import {
+  APP_TIMEZONE,
   SHARE_LINK_ERROR_CODES,
   SHARE_LINK_LIMITS,
+  maskPhone,
+  type ShareGuestIdentityStartDto,
   type ShareGuestPeekDto,
   type ShareGuestSessionDto,
   type ShareLinkErrorCode,
 } from '@superapp/shared';
+import { NotificationsService } from '../../modules/notifications/notifications.service';
 import { DatabaseService } from '../../shared/database/database.service';
 import { utcTs } from '../../shared/database/sql-time';
+import { VerifyService } from '../verify/verify.service';
 import { ShareLinksRegistry } from './share-links.registry';
 import { ShareLinksTokenService } from './share-links-token.service';
 
@@ -17,6 +22,17 @@ import { ShareLinksTokenService } from './share-links-token.service';
 export interface GuestRequestInfo {
   ip?: string | null;
   userAgent?: string | null;
+}
+
+/**
+ * Результат проверки пропуска: ссылка + личность гостя (если ссылка её требовала).
+ * Именно этим объектом живут гостевые контроллеры потребителей — будущие действия
+ * (подпись, оплата, ответ на опрос) берут «кто по ту сторону» отсюда, а не заводят
+ * собственные таблицы личностей.
+ */
+export interface GuestAccess {
+  link: ShareLink;
+  guest: ShareLinkGuest | null;
 }
 
 /**
@@ -53,19 +69,59 @@ export class ShareLinksGuestService {
     private readonly db: DatabaseService,
     private readonly registry: ShareLinksRegistry,
     private readonly tokens: ShareLinksTokenService,
+    private readonly notifications: NotificationsService,
+    private readonly verify: VerifyService,
   ) {}
 
-  /** Шаг 1: жива ли ссылка и нужен ли пароль */
+  /** Шаг 1: жива ли ссылка, нужен ли пароль и предстоит ли подтверждение номера */
   async peek(token: string): Promise<ShareGuestPeekDto> {
     const link = await this.loadByToken(token);
     this.assertUsable(link);
-    return { state: link.passwordHash ? 'password_required' : 'ready' };
+    return {
+      state: link.passwordHash ? 'password_required' : 'ready',
+      identityRequired: link.requireIdentity,
+    };
+  }
+
+  /**
+   * Запрос SMS-кода гостем (ссылка с «подтвердите номер»).
+   *
+   * Гейт по ССЫЛКЕ — то, что отличает этот путь от публичного /verify/start (тот эту
+   * цель отвергает): SMS уходит только по живой ссылке с включённым тумблером, и пароль
+   * (если есть) проверяется ДО отправки — со всеми счётчиками подбора. Иначе адрес
+   * запароленной ссылки работал бы кнопкой SMS-расходов, а неверный пароль выяснялся
+   * бы после сожжённого кода (правило step-up движка verify).
+   *
+   * Дальше гость проверяет код обычным публичным /verify/check — challengeId знает
+   * только тот, кто цепочку начинал.
+   */
+  async startIdentity(
+    token: string,
+    dto: { phone: string; password?: string },
+    ip?: string | null,
+  ): Promise<ShareGuestIdentityStartDto> {
+    const link = await this.loadByToken(token);
+    this.assertUsable(link);
+    if (!link.requireIdentity) {
+      // Ссылка кода не просит — эта ручка для неё не существует (не даём превращать
+      // произвольную ссылку в источник SMS-трафика).
+      deny(SHARE_LINK_ERROR_CODES.sessionInvalid, 'Ссылка не требует подтверждения номера', HttpStatus.FORBIDDEN);
+    }
+    if (link.passwordHash) await this.verifyPassword(link, dto.password);
+
+    const started = await this.verify.startGuest(dto.phone, ip ?? undefined);
+    return {
+      challengeId: started.challengeId,
+      resendInSec: started.resendInSec,
+      ttlSec: started.ttlSec,
+      phoneMasked: started.phoneMasked,
+    };
   }
 
   /** Шаг 2: открыть ссылку — засчитать открытие, записать визит, выдать пропуск и содержимое */
   async openSession(
     token: string,
-    password: string | undefined,
+    dto: { password?: string; verifyToken?: string; guestName?: string },
     info: GuestRequestInfo,
   ): Promise<ShareGuestSessionDto> {
     const link = await this.loadByToken(token);
@@ -73,7 +129,15 @@ export class ShareLinksGuestService {
 
     // Пароль проверяется ДО клейма: неверная попытка не имеет права тратить открытие,
     // иначе ссылку с лимитом можно было бы «сжечь» чужому получателю чужими руками.
-    if (link.passwordHash) await this.verifyPassword(link, password);
+    if (link.passwordHash) await this.verifyPassword(link, dto.password);
+
+    if (link.requireIdentity && (!dto.verifyToken || !dto.guestName)) {
+      deny(
+        SHARE_LINK_ERROR_CODES.identityRequired,
+        'Ссылка требует подтверждение номера',
+        HttpStatus.FORBIDDEN,
+      );
+    }
 
     // Содержимое резолвим ДО клейма: резолвер только читает, а открытие — расходуемый
     // ресурс. В обратном порядке объект, уехавший в корзину, сжигал бы открытие
@@ -81,13 +145,46 @@ export class ShareLinksGuestService {
     // а ссылка уже «лимит исчерпан», хотя человеку так ничего и не показали.
     const view = await this.resolveView(link);
 
-    await this.claimOpen(link, info);
-    const session = this.tokens.issue(link.id);
+    // Личность и клейм — ОДНОЙ транзакцией: пропуск verify одноразов, и если открытие
+    // не состоялось (гонка за последний слот), он обязан остаться непотраченным —
+    // человек попробует снова и не должен идти за новым SMS-кодом.
+    const { open, guest } = await this.db.$transaction(async (tx) => {
+      let g: ShareLinkGuest | null = null;
+      if (link.requireIdentity) {
+        const consumed = await this.verify.consume(tx, {
+          verifyToken: dto.verifyToken as string,
+          purpose: 'share_link_guest',
+        });
+        g = await tx.shareLinkGuest.upsert({
+          where: {
+            ownerType_ownerId_phone: {
+              ownerType: link.ownerType,
+              ownerId: link.ownerId,
+              phone: consumed.phone,
+            },
+          },
+          create: {
+            ownerType: link.ownerType,
+            ownerId: link.ownerId,
+            phone: consumed.phone,
+            name: dto.guestName as string,
+          },
+          // Последнее имя побеждает: человек мог опечататься в прошлый раз.
+          update: { name: dto.guestName as string, lastVerifiedAt: new Date() },
+        });
+      }
+      const claimed = await this.claimOpen(tx, link, info, g?.id ?? null);
+      return { open: claimed, guest: g };
+    });
+
+    await this.notifyOwnerOfOpen(link, open, guest);
+    const session = this.tokens.issue(link.id, link.sessionEpoch, guest?.id ?? null);
     return {
       sessionToken: session.token,
       sessionExpiresAt: session.expiresAt.toISOString(),
       linkExpiresAt: link.expiresAt ? link.expiresAt.toISOString() : null,
       refType: link.refType,
+      guest: guest ? { name: guest.name, phoneMasked: maskPhone(guest.phone) } : null,
       view,
     };
   }
@@ -97,11 +194,14 @@ export class ShareLinksGuestService {
    * (гостевые контроллеры потребителей). Строка ссылки перечитывается из БД, поэтому
    * отзыв действует немедленно: пропуск сам по себе не разрешает ничего.
    *
+   * Возвращает и ЛИЧНОСТЬ гостя (если ссылка её требовала): потребителям — подписи,
+   * оплате, опросам — не нужно ни своих таблиц гостей, ни разбора пропуска.
+   *
    * maxOpens здесь намеренно НЕ проверяется: он ограничивает число ОТКРЫТИЙ, а не
    * длительность уже начатого просмотра — иначе человек, открывший последнюю копию,
    * терял бы страницу на первом же клике.
    */
-  async authorizeGuest(sessionToken: string | undefined | null, expectedRefType?: string): Promise<ShareLink> {
+  async authorizeGuest(sessionToken: string | undefined | null, expectedRefType?: string): Promise<GuestAccess> {
     const verdict = this.tokens.verify(sessionToken);
     if (!verdict.ok || !verdict.payload) {
       deny(
@@ -113,10 +213,20 @@ export class ShareLinksGuestService {
     const link = await this.db.shareLink.findUnique({ where: { id: verdict.payload.l } });
     if (!link) deny(SHARE_LINK_ERROR_CODES.notFound, 'Ссылка не найдена', HttpStatus.NOT_FOUND);
     this.assertLive(link);
+    this.assertEpoch(link, verdict.payload);
     if (expectedRefType && link.refType !== expectedRefType) {
       deny(SHARE_LINK_ERROR_CODES.sessionInvalid, 'Сессия не подходит к этому разделу', HttpStatus.FORBIDDEN);
     }
-    return link;
+    // Пропуск старше включения тумблера личности не бывает: включение бампает
+    // sessionEpoch, поэтому «ссылка требует личность, а в пропуске её нет» —
+    // это подделка, а не легальная старая сессия.
+    if (link.requireIdentity && !verdict.payload.g) {
+      deny(SHARE_LINK_ERROR_CODES.identityRequired, 'Ссылка требует подтверждение номера', HttpStatus.FORBIDDEN);
+    }
+    const guest = verdict.payload.g
+      ? await this.db.shareLinkGuest.findUnique({ where: { id: verdict.payload.g } })
+      : null;
+    return { link, guest };
   }
 
   /**
@@ -138,7 +248,11 @@ export class ShareLinksGuestService {
       deny(SHARE_LINK_ERROR_CODES.sessionInvalid, 'Сессия не подходит к этой ссылке', HttpStatus.FORBIDDEN);
     }
     this.assertLive(link);
+    this.assertEpoch(link, verdict.payload);
 
+    const guest = verdict.payload.g
+      ? await this.db.shareLinkGuest.findUnique({ where: { id: verdict.payload.g } })
+      : null;
     const view = await this.resolveView(link);
     return {
       // Пропуск не продлеваем: час — это час, иначе открытая вкладка жила бы вечно.
@@ -146,6 +260,7 @@ export class ShareLinksGuestService {
       sessionExpiresAt: new Date(verdict.payload.x).toISOString(),
       linkExpiresAt: link.expiresAt ? link.expiresAt.toISOString() : null,
       refType: link.refType,
+      guest: guest ? { name: guest.name, phoneMasked: maskPhone(guest.phone) } : null,
       view,
     };
   }
@@ -159,6 +274,7 @@ export class ShareLinksGuestService {
       linkId: link.id,
       refType: link.refType,
       refId: link.refId,
+      allowDownload: link.allowDownload,
       settings: (link.settings as Record<string, unknown>) ?? {},
     });
     if (view === null || view === undefined) {
@@ -254,6 +370,74 @@ export class ShareLinksGuestService {
     }
   }
 
+  /**
+   * «Вашу ссылку открыли» — с суточным предохранителем.
+   *
+   * Тумблер по умолчанию ВКЛЮЧЁН: самый частый случай — «отправил документ человеку», и
+   * там уведомление и есть смысл. Но ту же ссылку могут кинуть в общий чат или в пост, и
+   * тогда без потолка лента уведомлений превратилась бы в счётчик посещений. Поэтому:
+   * несколько уведомлений в сутки, дальше одно прощальное «дальше сегодня тихо», а
+   * настоящий счёт человек смотрит в «Моих ссылках».
+   *
+   * День хранится прямо в строке и сбрасывается ПЕРВЫМ открытием следующих суток —
+   * крон для этого не нужен. День считается в APP_TIMEZONE, а не в UTC: «сегодня» должно
+   * совпадать с тем, что человек видит у себя, иначе тишина снималась бы среди ночи.
+   *
+   * Ошибка здесь не имеет права уронить уже состоявшееся открытие — гость свою страницу
+   * получит в любом случае.
+   */
+  private async notifyOwnerOfOpen(
+    link: ShareLink,
+    open: { openNo: number; day: string },
+    guest: ShareLinkGuest | null,
+  ): Promise<void> {
+    if (!link.notifyOnOpen) return;
+    // Номер открытия за сутки посчитан АТОМАРНО в том же UPDATE, что и сам клейм.
+    const cap = SHARE_LINK_LIMITS.notifyPerDay;
+    const { openNo, day } = open;
+    if (openNo > cap + 1) return; // потолок пройден, прощальное уже ушло — тишина
+    try {
+      await this.notifications.notify(
+        link.createdById,
+        openNo === cap + 1 ? 'share.link.opened.muted' : 'share.link.opened',
+        {
+          // Название — из СНИМКА на строке: в момент раздачи объект назывался так, и
+          // ходить за свежим именем к потребителю на каждое открытие незачем.
+          targetName: link.refTitle ?? 'объект',
+          labelSuffix: link.label ? ` («${link.label}»)` : '',
+          // Кто открыл — когда ссылка требовала подтверждение номера. Пустая строка у
+          // анонимных: шаблонизатор реестра условий не умеет.
+          guestSuffix: guest ? ` — ${guest.name}` : '',
+          shareLinkId: link.id,
+        },
+        // Ключ дедупа — АТОМАРНЫЙ номер открытия за сутки, а не `openCount + 1` из
+        // прочитанной в начале запроса строки: у параллельных заходов та строка одна и
+        // та же, ключи совпадали, и уникальный индекс уведомлений схлопывал их все в
+        // одно. То есть предохранитель работал, а сами уведомления пропадали.
+        { actionUrl: '/profile/links', dedupKey: `sl:${link.id}:${day}:${openNo}` },
+      );
+    } catch {
+      // Уведомление — сигнал, а не обязательство: страница гостя важнее.
+    }
+  }
+
+  /**
+   * Пропуск выдан ДО смены адреса ссылки → он больше не действует.
+   *
+   * Пропуск подписан по linkId, а не по токену, поэтому сам по себе смену адреса он бы
+   * пережил — и человек, у которого утёк старый адрес, спокойно продолжил бы смотреть
+   * содержимое ещё час. Ровно от него адрес и меняют.
+   */
+  private assertEpoch(link: ShareLink, payload: { e?: number }): void {
+    if ((payload.e ?? 0) !== link.sessionEpoch) {
+      deny(
+        SHARE_LINK_ERROR_CODES.sessionInvalid,
+        'Адрес ссылки изменился — откройте её заново по новому адресу',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+  }
+
   /** Ссылка не отозвана и не истекла (проверяется на каждом запросе гостя) */
   private assertLive(link: ShareLink): void {
     if (link.revokedAt) deny(SHARE_LINK_ERROR_CODES.revoked, 'Ссылку отозвали', HttpStatus.GONE);
@@ -263,44 +447,62 @@ export class ShareLinksGuestService {
   }
 
   /**
-   * Атомарный клейм открытия + строка журнала одной транзакцией.
+   * Атомарный клейм открытия + строка журнала. Работает ВНУТРИ транзакции открытия
+   * (вместе с гашением verify-пропуска и записью гостя): несостоявшийся клейм бросает
+   * и откатывает всё — в том числе потраченный одноразовый пропуск, чтобы человек,
+   * проигравший гонку за последний слот, не шёл за новым SMS-кодом.
    *
    * Условия повторены в самом UPDATE, потому что между проверкой и записью ссылку
    * могли отозвать или исчерпать: `open_count < max_opens` — сравнение колонки с
    * колонкой, которое Prisma в updateMany выразить не умеет, отсюда сырой SQL.
    * Время — только через utcTs (правило платформы: ни now(), ни голый параметр-Date).
    */
-  private async claimOpen(link: ShareLink, info: GuestRequestInfo): Promise<void> {
+  private async claimOpen(
+    tx: Prisma.TransactionClient,
+    link: ShareLink,
+    info: GuestRequestInfo,
+    guestId: string | null,
+  ): Promise<{ openNo: number; day: string }> {
     const now = new Date();
-    const claimed = await this.db.$transaction(async (tx) => {
-      const affected = await tx.$executeRaw`
-        UPDATE share_links
-           SET open_count = open_count + 1,
-               last_opened_at = ${utcTs(now)},
-               updated_at = ${utcTs(now)}
-         WHERE id = ${link.id}
-           AND revoked_at IS NULL
-           AND (expires_at IS NULL OR expires_at > ${utcTs(now)})
-           AND (max_opens IS NULL OR open_count < max_opens)
-      `;
-      if (affected === 0) return false;
-      await tx.shareLinkVisit.create({
-        data: {
-          linkId: link.id,
-          openedAt: now,
-          ip: info.ip ? info.ip.slice(0, 64) : null,
-          userAgent: info.userAgent ? info.userAgent.slice(0, SHARE_LINK_LIMITS.visitUserAgentMaxLength) : null,
-        },
-      });
-      return true;
-    });
+    // Дата — строкой с явным ::date: ни одна сторона сравнения не зависит от пояса
+    // сессии Postgres, а «сегодня» считается в APP_TIMEZONE, чтобы тишина
+    // предохранителя снималась утром у человека, а не среди ночи.
+    const today = now.toLocaleDateString('en-CA', { timeZone: APP_TIMEZONE });
 
-    if (!claimed) {
+    // Счётчик уведомлений ведём ЗДЕСЬ же, а не отдельным «прочитали и записали»:
+    // предохранитель существует ради вирусной ссылки, а её открывают параллельно —
+    // и именно параллельные заходы читали бы одно и то же значение, не давая
+    // счётчику дойти до потолка.
+    const rows = await tx.$queryRaw<{ notify_count: number }[]>`
+      UPDATE share_links
+         SET open_count = open_count + 1,
+             last_opened_at = ${utcTs(now)},
+             updated_at = ${utcTs(now)},
+             notify_day = ${today}::date,
+             notify_count = CASE WHEN notify_day = ${today}::date THEN notify_count + 1 ELSE 1 END
+       WHERE id = ${link.id}
+         AND revoked_at IS NULL
+         AND (expires_at IS NULL OR expires_at > ${utcTs(now)})
+         AND (max_opens IS NULL OR open_count < max_opens)
+      RETURNING notify_count
+    `;
+    if (!rows.length) {
       // Проиграли гонку (последний слот забрал другой) либо ссылку отозвали
-      // миллисекунду назад — перечитываем и отвечаем точной причиной.
-      const fresh = await this.db.shareLink.findUnique({ where: { id: link.id } });
+      // миллисекунду назад — перечитываем и отвечаем точной причиной. Read-committed
+      // видит чужой коммит и внутри нашей транзакции.
+      const fresh = await tx.shareLink.findUnique({ where: { id: link.id } });
       if (fresh) this.assertUsable(fresh);
       deny(SHARE_LINK_ERROR_CODES.exhausted, 'Лимит открытий ссылки исчерпан', HttpStatus.GONE);
     }
+    await tx.shareLinkVisit.create({
+      data: {
+        linkId: link.id,
+        openedAt: now,
+        ip: info.ip ? info.ip.slice(0, 64) : null,
+        userAgent: info.userAgent ? info.userAgent.slice(0, SHARE_LINK_LIMITS.visitUserAgentMaxLength) : null,
+        guestId,
+      },
+    });
+    return { openNo: Number(rows[0].notify_count), day: today };
   }
 }

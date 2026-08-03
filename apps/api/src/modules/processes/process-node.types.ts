@@ -8,6 +8,7 @@ import type {
 import type { TasksService } from '../tasks/tasks.service';
 import type { NotificationsService } from '../notifications/notifications.service';
 import type { DatabaseService } from '../../shared/database/database.service';
+import type { ApprovalsService } from '../../core/approvals/approvals.service';
 
 /**
  * Паспорт типа ноды — «MCP-описание инструмента» (Принцип 4 / решение по AI-readiness):
@@ -64,6 +65,13 @@ export interface NodeRunDeps {
   tasks: TasksService;
   notifications: NotificationsService;
   db: DatabaseService;
+  /**
+   * Движок согласований. Человеческие ноды решения (согласование / подпись /
+   * ознакомление) НЕ держат человека внутри канваса: они заводят настоящую заявку,
+   * и та попадает в общую стопку «Ждут решения», в чат рич-карточкой и в журнал —
+   * ровно так же, как нода «Задача человеку» заводит настоящую задачу Задачника.
+   */
+  approvals: ApprovalsService;
   /**
    * Ленивый доступ к ЛЮБОМУ сервису платформы по токену/классу (ModuleRef, strict:false) —
    * энейблер «всё как ноды» (P0): новые ноды (Shop/Messenger/Calendar/Staff…) берут свой

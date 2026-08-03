@@ -27,6 +27,9 @@ import { JobsModule } from './core/jobs/jobs.module';
 import { VerifyModule } from './core/verify/verify.module';
 import { DocsModule } from './core/docs/docs.module';
 import { ShareLinksModule } from './core/share-links/share-links.module';
+import { ApprovalsModule } from './core/approvals/approvals.module';
+import { TemplatesModule } from './core/templates/templates.module';
+import { DocumentsModule } from './modules/documents/documents.module';
 
 // Feature modules (MVP)
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -137,6 +140,14 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // потребителя (ShareLinksRegistry), core/access не участвует — гость не принципал.
     // Инертного режима нет: внешних зависимостей у движка тоже нет.
     ShareLinksModule,
+    // Approvals engine — 14-й платформенный движок: «Задачник для решений».
+    // Заявка = предмет + прямой список шагов (согласование / подпись / ознакомление);
+    // ветвлений нет — это Процессы. Для человека всё называется «Ждут решения».
+    // Движок Процессов становится его заказчиком, но заявку можно завести и без
+    // маршрута — «просто согласуй этот документ».
+    ApprovalsModule,
+    TemplatesModule,
+    DocumentsModule,
 
     // Feature modules — each is self-contained.
     // Load order: Notifications → Contacts (@Global, consumed by AuthService)

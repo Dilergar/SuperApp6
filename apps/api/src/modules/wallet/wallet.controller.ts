@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Patch, Delete,
-  Body, Query, HttpCode, HttpStatus,
+  Body, Param, Query, HttpCode, HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ForbiddenException, BadRequestException } from '@nestjs/common';
@@ -12,8 +12,11 @@ import {
   burnSchema,
   payEmployeeSchema,
   walletHistoryQuerySchema,
+  createPaymentCardSchema,
+  updatePaymentCardSchema,
 } from '@superapp/shared';
 import { CurrencyService } from './currency.service';
+import { PaymentCardsService } from './payment-cards.service';
 import { DatabaseService } from '../../shared/database/database.service';
 import { WorkspaceContextService } from '../../shared/context/workspace-context.service';
 
@@ -23,9 +26,45 @@ import { WorkspaceContextService } from '../../shared/context/workspace-context.
 export class WalletController {
   constructor(
     private readonly currency: CurrencyService,
+    private readonly cards: PaymentCardsService,
     private readonly db: DatabaseService,
     private readonly wsContext: WorkspaceContextService,
   ) {}
+
+  // ============================================================
+  // Карты — реквизит для выплат (без CVV; платежи через них не проводятся)
+  // ============================================================
+
+  @Get('cards')
+  @ApiOperation({ summary: 'Мои карты (номер полностью — владельцу)' })
+  async listCards(@CurrentUser() user: JwtPayload) {
+    const data = await this.cards.list(user.sub);
+    return { success: true, data };
+  }
+
+  @Post('cards')
+  @ApiOperation({ summary: 'Добавить карту (номер + IBAN карт-счёта, срок, имя; БЕЗ CVV)' })
+  async createCard(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
+    const dto = createPaymentCardSchema.parse(body);
+    const data = await this.cards.create(user.sub, dto);
+    return { success: true, data };
+  }
+
+  @Patch('cards/:id')
+  @ApiOperation({ summary: 'Изменить карту (срок, имя, основная); номер не правится' })
+  async updateCard(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() body: unknown) {
+    const dto = updatePaymentCardSchema.parse(body);
+    const data = await this.cards.update(user.sub, id, dto);
+    return { success: true, data };
+  }
+
+  @Delete('cards/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Удалить карту' })
+  async removeCard(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    await this.cards.remove(user.sub, id);
+    return { success: true };
+  }
 
   /** The active workspace, asserting the caller is its owner (B2B wallet is owner-only). */
   private async requireWorkspaceOwner(userId: string): Promise<string> {

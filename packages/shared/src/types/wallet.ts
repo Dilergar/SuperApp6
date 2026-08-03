@@ -77,6 +77,24 @@ export interface CurrencyHolder {
   balance: number;
 }
 
+/**
+ * Платёжная карта человека — РЕКВИЗИТ для выплат (зарплата, возвраты), а не
+ * платёжный инструмент платформы: без CVV, платежи через неё не проводятся.
+ * Номер шифруется в БД; владельцу и управляющим организаций он отдаётся
+ * полностью (ради выплат блок и существует), прочим не отдаётся вовсе.
+ */
+export interface UserPaymentCardDto {
+  id: string;
+  pan: string;
+  panMasked: string; // «•••• 1234»
+  iban: string | null;
+  holderName: string;
+  expMonth: number;
+  expYear: number;
+  isPrimary: boolean;
+  createdAt: string;
+}
+
 export interface CreateCurrencyRequest {
   name: string;
   icon: string;

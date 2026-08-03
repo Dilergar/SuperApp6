@@ -1024,6 +1024,7 @@ export class FilesService implements OnModuleInit {
         out.set(row.id, {
           url: await this.buildViewUrl(row, row.variants, null),
           thumbUrl: kinds.has('thumb') ? await this.buildViewUrl(row, row.variants, 'thumb') : null,
+          mediumUrl: kinds.has('medium') ? await this.buildViewUrl(row, row.variants, 'medium') : null,
           posterUrl: kinds.has('poster') ? await this.buildViewUrl(row, row.variants, 'poster') : null,
           urlExpiresAt: expiresAt,
           durationMs: typeof meta.durationMs === 'number' ? meta.durationMs : null,
@@ -1411,9 +1412,15 @@ export class FilesService implements OnModuleInit {
     // Спрашиваем ОТДЕЛЬНЫМ точечным запросом, а не ищем в `links`: та выборка обрезана
     // потолком в 50 строк, и у файла с длинным хвостом привязок связь Диска могла в неё
     // не попасть — закрытая папка снова открылась бы всей команде.
-    const onDrive =
-      (await this.db.fileLink.count({ where: { fileId: row.id, refType: DRIVE_NODE_REF_TYPE } })) > 0;
-    if (!onDrive && row.ownerType === 'workspace' && (await this.isWorkspaceMember(viewerId, row.ownerId))) {
+    //
+    // Типы таких мест объявляют себя сами (`scopedPlace` в реестре), а не перечислены
+    // здесь именами: кроме узла Диска это карточка документа организации, у которой
+    // вид бывает «только управляющим» — а файл при этом принадлежит организации.
+    const scoped = this.registry.scopedPlaceTypes();
+    const onScopedPlace =
+      scoped.length > 0 &&
+      (await this.db.fileLink.count({ where: { fileId: row.id, refType: { in: scoped } } })) > 0;
+    if (!onScopedPlace && row.ownerType === 'workspace' && (await this.isWorkspaceMember(viewerId, row.ownerId))) {
       return true;
     }
 

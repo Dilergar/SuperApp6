@@ -15,7 +15,9 @@ for (const line of fs.readFileSync(path.join(__dirname, '..', '.env'), 'utf8').s
 }
 const crypto = require('crypto');
 const { PrismaClient } = require('@prisma/client');
-const BASE = 'http://localhost:3001/api';
+// Адрес API переопределяется переменной окружения: два экземпляра на одной машине
+// (например, когда :3001 занят чужим дев-сервером) — обычная ситуация при проверке правок.
+const BASE = process.env.SA6_API_BASE || 'http://localhost:3001/api';
 const P1 = '+77009990001', P2 = '+77009990002', P3 = '+77009990003', PW = 'Test1234!';
 
 let fails = 0;

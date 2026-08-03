@@ -49,7 +49,14 @@ import { VerifySmsService } from './verify.sms';
  */
 
 /** Цели, где номер выбирает КЛИЕНТ → нужен гео-щит (SMS-пампинг). */
-const CLIENT_CHOSEN_PURPOSES = new Set<VerifyPurpose>(['register', 'password_reset', 'phone_change_new']);
+const CLIENT_CHOSEN_PURPOSES = new Set<VerifyPurpose>([
+  'register',
+  'password_reset',
+  'phone_change_new',
+  // Гость внешней ссылки вводит свой номер сам → щит обязателен (решение продукта:
+  // v1 — только казахстанские мобильные, иностранные подписанты позже).
+  'share_link_guest',
+]);
 
 /** Как код был доставлен — метка на строке цепочки (аудит + отладка поддержки). */
 type Delivery = 'sms' | 'simulated' | 'test_map';
@@ -181,6 +188,17 @@ export class VerifyService {
       phone = newPhone;
     }
     return this.startChain(phone, purpose, userId, ip);
+  }
+
+  /**
+   * Личность гостя по внешней ссылке (core/share-links). ВЫЗЫВАЕТСЯ ТОЛЬКО гостевым
+   * сервисом движка ссылок, который уже проверил: ссылка жива, тумблер подтверждения
+   * включён, пароль (если есть) верен. Публичный /verify/start эту цель отвергает —
+   * без гейта по ссылке он был бы бесплатной SMS-пушкой на произвольный номер.
+   * Аккаунта у гостя нет → цепочка без userId; гео-щит действует (номер выбирает гость).
+   */
+  async startGuest(phone: string, ip?: string): Promise<VerifyStartResponse> {
+    return this.startChain(phone, 'share_link_guest', null, ip);
   }
 
   private async startChain(

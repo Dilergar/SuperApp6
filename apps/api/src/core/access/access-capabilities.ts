@@ -49,6 +49,9 @@ export const CAPABILITIES = {
   'document.view': { resourceType: 'document', relation: 'viewer' },
   'document.edit': { resourceType: 'document', relation: 'editor' },
   'document.manage': { resourceType: 'document', relation: 'owner' },
+  // У `doc_template` способности НЕТ намеренно — как у типов Диска: доступность шаблона
+  // читается пачкой через grantSetFor (список «что я могу подать»), а кэшируемый check()
+  // по нему не зовётся ни разу. Способность здесь означала бы обратное.
 } as const satisfies Record<string, CapabilityDef>;
 
 export type CapabilityKey = keyof typeof CAPABILITIES;

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { cardVisibilityObjectSchema } from './card-visibility';
+import { userRequisiteFieldsSchema } from './requisites';
 
 const noHtml = (s: string) => !/[<>]/.test(s);
 const noHtmlMsg = 'Недопустимые символы';
@@ -22,6 +23,9 @@ export const updateProfileSchema = z.object({
   onlineStatusMode: z.enum(['everyone', 'contacts', 'nobody']).optional(),
   locale: z.enum(['ru', 'kk', 'en']).optional(),
   timezone: z.string().max(50).optional(),
+  // Реквизиты для договоров и трудоустройства (блок «Моей Анкеты»):
+  // ИИН с контрольной суммой, адрес проживания, удостоверение личности.
+  ...userRequisiteFieldsSchema,
   // Owner's DEFAULT card visibility (single object) — applied to contacts
   // in none of the owner's groups. Per-group visibility is set via circles.
   cardVisibility: cardVisibilityObjectSchema.nullable().optional(),

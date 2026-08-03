@@ -2,6 +2,7 @@ import axios, { isAxiosError } from 'axios';
 import {
   SHARE_SESSION_HEADER,
   type ShareDriveNodeDto,
+  type ShareGuestIdentityStartDto,
   type ShareGuestPeekDto,
   type ShareGuestSessionDto,
 } from '@superapp/shared';
@@ -34,10 +35,10 @@ export function apiErrorCode(err: unknown): string | null {
  */
 export function apiErrorDetails(
   err: unknown,
-): { code?: string; attemptsLeft?: number; retryInSec?: number } | null {
+): { code?: string; attemptsLeft?: number; retryInSec?: number; resendInSec?: number } | null {
   if (isAxiosError(err)) {
     const details = (err.response?.data as { details?: Record<string, unknown> } | undefined)?.details;
-    if (details) return details as { code?: string; attemptsLeft?: number; retryInSec?: number };
+    if (details) return details as { code?: string; attemptsLeft?: number; retryInSec?: number; resendInSec?: number };
   }
   return null;
 }
@@ -51,11 +52,45 @@ export async function sharePeek(token: string): Promise<ShareGuestPeekDto> {
 }
 
 /** Шаг 2: открыть ссылку — засчитывается одно открытие */
-export async function shareOpenSession(token: string, password?: string): Promise<ShareGuestSessionDto> {
+export async function shareOpenSession(
+  token: string,
+  opts: { password?: string; verifyToken?: string; guestName?: string } = {},
+): Promise<ShareGuestSessionDto> {
   const { data } = await publicApi.post(`/share-links/guest/${encodeURIComponent(token)}/session`, {
+    ...(opts.password ? { password: opts.password } : {}),
+    ...(opts.verifyToken ? { verifyToken: opts.verifyToken } : {}),
+    ...(opts.guestName ? { guestName: opts.guestName } : {}),
+  });
+  return data.data;
+}
+
+/** Ссылка требует подтверждение номера: запросить SMS-код (пароль — если ссылка запаролена) */
+export async function shareIdentityStart(
+  token: string,
+  phone: string,
+  password?: string,
+): Promise<ShareGuestIdentityStartDto> {
+  const { data } = await publicApi.post(`/share-links/guest/${encodeURIComponent(token)}/identity/start`, {
+    phone,
     ...(password ? { password } : {}),
   });
   return data.data;
+}
+
+/** Проверка SMS-кода гостя — публичный /verify/check движка подтверждений */
+export async function shareVerifyCheck(challengeId: string, code: string): Promise<{ verifyToken: string }> {
+  const { data } = await publicApi.post('/verify/check', { challengeId, code });
+  return data.data;
+}
+
+/** [dev] Код цепочки — работает только при NODE_ENV development/test, иначе 404 */
+export async function shareVerifyDevCode(challengeId: string): Promise<string | null> {
+  try {
+    const { data } = await publicApi.get('/verify/dev/last-code', { params: { challengeId } });
+    return data.data?.code ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /** Свежее содержимое по действующему пропуску (обновление страницы, протухшие ссылки) */
@@ -79,4 +114,21 @@ export async function shareDriveList(
 export async function shareDriveNode(session: string, nodeId: string): Promise<ShareDriveNodeDto> {
   const { data } = await publicApi.get(`/drive/guest/nodes/${nodeId}`, { headers: sessionHeaders(session) });
   return data.data;
+}
+
+/**
+ * Адрес архива папки. Скачивание идёт обычной навигацией браузера, а не через axios:
+ * архив собирается потоком и весит гигабайты — принимать его в память вкладки, чтобы
+ * потом отдать как blob, нельзя.
+ *
+ * Отсюда единственное место, где пропуск едет НЕ заголовком, а в адресе: своих
+ * заголовков у навигации браузера нет. Размен осознанный и небольшой — пропуск живёт
+ * час, привязан к одной ссылке и по правам строго слабее самого адреса `/s/<токен>`,
+ * который у гостя и так в адресной строке. Тем же приёмом раздаёт байты движок файлов
+ * (подпись в query у `/files/raw`).
+ */
+export function shareDriveZipUrl(session: string, nodeId?: string): string {
+  const params = new URLSearchParams({ session });
+  if (nodeId) params.set('nodeId', nodeId);
+  return `${API_URL}/drive/guest/download-zip?${params.toString()}`;
 }

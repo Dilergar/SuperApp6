@@ -6,6 +6,9 @@ import { RedisService } from '../../shared/redis/redis.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { TasksService } from '../tasks/tasks.service';
+import { ApprovalsService } from '../../core/approvals/approvals.service';
+import { DI_TOKENS } from '../../shared/di-tokens';
+import { PROCESS_ORIGIN_TYPE } from './process-builtin-nodes';
 import { ProcessNodeRegistry } from './process-node.registry';
 import { parserInstruction, resolveLlmConfig, runAgentWithCluster } from './process-ai-nodes';
 import { evalExpression } from './process-expression';
@@ -52,6 +55,7 @@ export class ProcessEngineService {
     private events: EventBusService,
     private notifications: NotificationsService,
     private tasks: TasksService,
+    private approvals: ApprovalsService,
     private moduleRef: ModuleRef,
   ) {}
 
@@ -448,7 +452,18 @@ export class ProcessEngineService {
         return 'consumed';
       }
 
-      const nextIds = plan.adjacency[nodeId]?.[outputKey] ?? [];
+      // Запасной выход: у необязательного порта связи может не быть вовсе — так к уже
+      // опубликованным нодам добавляются новые исходы. Пустой «На доработку» ведёт
+      // себя как «Отклонено», а не роняет маршрут в ошибку на первом же возврате.
+      let effectiveKey = outputKey;
+      let nextIds = plan.adjacency[nodeId]?.[effectiveKey] ?? [];
+      if (nextIds.length === 0) {
+        const spec = this.registry.get(node?.type ?? '')?.descriptor.outputs.find((o) => o.key === outputKey);
+        if (spec?.fallback) {
+          effectiveKey = spec.fallback;
+          nextIds = plan.adjacency[nodeId]?.[effectiveKey] ?? [];
+        }
+      }
       if (nextIds.length === 0 || nextIds.some((id) => !plan.nodes[id])) {
         await this.markErrorTx(tx, instanceId, null, `Выход «${outputKey}» ноды «${node?.label ?? nodeId}» никуда не ведёт`);
         return 'failed';
@@ -578,26 +593,69 @@ export class ProcessEngineService {
     return task.id;
   }
 
-  /** Решение по одобрению: токен идёт по ветке approved/rejected (отклонение можно вернуть назад). */
-  async decideApproval(userId: string, instanceId: string, stepId: string, decision: 'approved' | 'rejected'): Promise<void> {
-    const step = await this.db.processStepRun.findFirst({
-      where: { id: stepId, instanceId, status: 'active', nodeType: 'human.approval', decision: null },
-    });
-    if (!step) throw new BadRequestException('Решение уже вынесено или шаг недоступен');
-    if (step.assigneeId !== userId) throw new ForbiddenException('Решение выносит назначенный согласующий');
+  // `decideApproval` УДАЛЁН (2026-08-03): решение принимает движок согласований, а
+  // сюда управление возвращается хуком (`resumeApproval`). Держать рядом второй путь
+  // с собственной проверкой «кто вправе решать» значило бы иметь две расходящиеся
+  // правды об адресности — в стопке одну, на карточке запуска другую.
+
+  /**
+   * Вернуть управление после решения человека. Зовётся ХУКОМ движка согласований
+   * (`ApprovalOriginRegistry`), а не напрямую: решение принимается в общей стопке,
+   * и Процессы про её устройство ничего не знают.
+   *
+   * Идемпотентно — доставка джоба at-least-once: перечитываем шаг под инстанс-локом
+   * и продвигаем только по-настоящему активный.
+   */
+  async resumeApproval(instanceId: string, stepId: string, outcome: 'approved' | 'rejected' | 'returned'): Promise<void> {
     const instance = await this.db.processInstance.findUnique({ where: { id: instanceId } });
-    if (!instance || instance.status !== 'running') throw new BadRequestException('Процесс не активен');
+    if (!instance || instance.status !== 'running') return;
     const plan = await this.getPlan(instance.versionId);
-    if (!plan) throw new BadRequestException('План версии не найден');
-    // Advance-фаза под инстанс-локом (A7). Перепроверяем шаг под локом (могли решить/отменить).
+    if (!plan) return;
+
     const advanced = await this.withInstanceLock(instanceId, async () => {
       const fresh = await this.db.processStepRun.findFirst({
-        where: { id: stepId, status: 'active', nodeType: 'human.approval', decision: null },
+        where: { id: stepId, instanceId, status: 'active', nodeType: 'human.approval', decision: null },
       });
-      if (!fresh) return;
-      await this.completeStepAndAdvance(instance.id, plan, fresh.id, fresh.nodeId, decision, { decision }, { decision });
+      if (!fresh) return; // уже продвинут соседним заходом джоба
+      await this.completeStepAndAdvance(instance.id, plan, fresh.id, fresh.nodeId, outcome, { decision: outcome }, { decision: outcome });
     });
+    // Лок занят дольше терпения (~1.4 с) — БРОСАЕМ, чтобы движок джобов повторил.
+    // Тихий выход помечал бы джоб выполненным, а шаг у approval-нод не подбирает ни
+    // крон-сверка (она про задачи), ни kick (шаг не авто и уже активирован): решение
+    // было принято, а маршрут стоял бы на нём вечно.
+    if (advanced === false) {
+      throw new Error(`resumeApproval: инстанс ${instanceId} занят — повторим`);
+    }
     if (advanced) await this.kick(instanceId);
+
+    // Итог, который НЕ «согласовано», обязан доехать до предмета: отказ и возврат
+    // размораживают документ его автору. Ноды маршрута этого не делают — они стоят
+    // дальше по ветке «согласовано», и без этого хука документ навсегда оставался
+    // «На маршруте» с закрытой правкой.
+    if (outcome !== 'approved') {
+      await this.resolveSubject(instance.variables as Record<string, unknown>, outcome);
+    }
+  }
+
+  /**
+   * Сообщить ПРЕДМЕТУ маршрута, чем закончилось решение человека. Ленивый токен, как
+   * у остальных обратных рёбер Процессов: движок про сервис «Документы» не знает.
+   */
+  private async resolveSubject(
+    variables: Record<string, unknown>,
+    outcome: 'rejected' | 'returned',
+  ): Promise<void> {
+    const refType = variables?._subjectRefType;
+    const refId = variables?._subjectRefId;
+    if (refType !== 'org_document' || typeof refId !== 'string' || !refId) return;
+    try {
+      const documents = this.moduleRef.get<{
+        systemResolve(documentId: string, outcome: 'approved' | 'rejected' | 'returned'): Promise<void>;
+      }>(DI_TOKENS.DocumentsService, { strict: false });
+      await documents?.systemResolve(refId, outcome);
+    } catch (err) {
+      this.logger.error(`итог маршрута документу ${refId}: ${(err as Error).message}`);
+    }
   }
 
   /** Ф2.5: переназначить исполнителя активного шага-задачи на другого сотрудника. */
@@ -793,7 +851,7 @@ export class ProcessEngineService {
 
     // Шаги к отмене выбираем ВНУТРИ транзакции после захвата инстанса — снимок «до»
     // мог бы отменить уже принятую задачу (шаг успел завершиться между снимком и claim).
-    const taskIds = await this.db.$transaction(async (tx) => {
+    const claimedWork = await this.db.$transaction(async (tx) => {
       const claimed = await tx.processInstance.updateMany({
         where: { id: instanceId, status: 'running' },
         data: { status: 'cancelled', finishedAt: new Date() },
@@ -803,21 +861,40 @@ export class ProcessEngineService {
         where: { instanceId, status: 'active', taskId: { not: null } },
         select: { taskId: true },
       });
+      // Шаги-решения: их заявки живут в общей стопке и об отмене процесса не знают.
+      const approvalSteps = await tx.processStepRun.findMany({
+        where: { instanceId, status: 'active', nodeType: 'human.approval' },
+        select: { id: true },
+      });
       await tx.processStepRun.updateMany({
         where: { instanceId, status: 'active' },
         data: { status: 'cancelled', completedAt: new Date() },
       });
-      return taskSteps.map((s) => s.taskId).filter((x): x is string => !!x);
+      return {
+        taskIds: taskSteps.map((s) => s.taskId).filter((x): x is string => !!x),
+        approvalStepIds: approvalSteps.map((s) => s.id),
+      };
     });
-    if (taskIds === null) return false;
+    if (claimedWork === null) return false;
 
     // Открытые задачи процесса отменяем от имени их Постановщика (инициатора).
-    for (const taskId of taskIds) {
+    for (const taskId of claimedWork.taskIds) {
       if (!taskId) continue;
       try {
         await this.tasks.updateTask(instance.startedById, taskId, { status: 'cancelled' });
       } catch {
         // задача уже закрыта/удалена — не мешаем отмене процесса
+      }
+    }
+
+    // Заявки отменённого процесса гасим: иначе человек до конца дней видит «Ждут
+    // решения» по маршруту, которого больше нет, получает напоминания и эскалации, а
+    // его подпись уходит в никуда (`resumeApproval` выходит на первой же строке).
+    for (const stepId of claimedWork.approvalStepIds) {
+      try {
+        await this.approvals.cancelByOrigin(PROCESS_ORIGIN_TYPE, `${instanceId}:${stepId}`);
+      } catch (err) {
+        this.logger.error(`отмена заявки шага ${stepId}: ${(err as Error).message}`);
       }
     }
     this.events.emit(
@@ -892,6 +969,18 @@ export class ProcessEngineService {
       include: { definition: { select: { name: true, createdById: true } } },
     });
     if (!instance) return;
+
+    // Процесс упал — его заявки тоже больше никого не ждут (та же причина, что при
+    // отмене: решение по мёртвому маршруту уходит в никуда, а стопка копит мусор).
+    const approvalSteps = await this.db.processStepRun.findMany({
+      where: { instanceId, nodeType: 'human.approval', status: { in: ['cancelled', 'error'] } },
+      select: { id: true },
+    });
+    for (const step of approvalSteps) {
+      await this.approvals
+        .cancelByOrigin(PROCESS_ORIGIN_TYPE, `${instanceId}:${step.id}`)
+        .catch((err) => this.logger.error(`отмена заявки шага ${step.id}: ${(err as Error).message}`));
+    }
     // sfflow#4: сбой видит и ОТВЕТСТВЕННЫЙ за процесс (создатель определения), а не только
     // инициатор — для авто-запусков (runAs=служебный сотрудник) инициатор мог бы не заметить.
     const recipients = new Set<string>([instance.startedById, instance.definition.createdById]);
@@ -1090,6 +1179,7 @@ export class ProcessEngineService {
         tasks: this.tasks,
         notifications: this.notifications,
         db: this.db,
+        approvals: this.approvals,
         // Ленивый резолвер (ModuleRef, strict:false) — ищет провайдер во всём графе
         // приложения; вызывается ТОЛЬКО нодой, которой сервис нужен (без eager-инъекции).
         getService: <T = unknown>(token: string | symbol | (new (...args: unknown[]) => unknown)): T =>

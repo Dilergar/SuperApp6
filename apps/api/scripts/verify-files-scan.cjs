@@ -11,7 +11,9 @@ for (const line of fs.readFileSync(path.join(__dirname, '..', '.env'), 'utf8').s
   if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
 }
 const { PrismaClient } = require('@prisma/client');
-const BASE = 'http://localhost:3001/api';
+// Адрес API переопределяется переменной окружения: два экземпляра на одной машине
+// (например, когда :3001 занят чужим дев-сервером) — обычная ситуация при проверке правок.
+const BASE = process.env.SA6_API_BASE || 'http://localhost:3001/api';
 const P1 = '+77009990001', PW = 'Test1234!';
 // Стандартная тест-строка EICAR (не настоящий вирус; детектится всеми антивирусами).
 const EICAR = 'X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*';

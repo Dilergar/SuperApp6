@@ -230,12 +230,9 @@ function InboxList({ wsId, items }: { wsId: string; items: ProcessInboxItem[] })
     onSuccess: (d) => { refresh(); router.push(`/tasks/${d.taskId}`); },
     onError: onErr,
   });
-  const decideMut = useMutation({
-    mutationFn: async (v: { it: ProcessInboxItem; decision: 'approved' | 'rejected' }) =>
-      api.post(`/workspaces/${wsId}/processes/instances/${v.it.instanceId}/steps/${v.it.stepId}/decide`, { decision: v.decision }),
-    onSuccess: refresh,
-    onError: onErr,
-  });
+  // Решения ушли отсюда в общую стопку «Ждут решения» (бейдж топбара и плитка
+  // Главной): адресатом шага может быть должность или отдел, и «Входящие» Процессов
+  // такого адресата не находили. Здесь остались только очереди задач отдела.
 
   return (
     <BentoGrid>
@@ -272,19 +269,13 @@ function InboxList({ wsId, items }: { wsId: string; items: ProcessInboxItem[] })
                 </div>
                 {it.overdue && <Chip size="sm" tone="danger" icon="overdue">просрочено</Chip>}
                 <PersonChip size="S" userId={it.startedBy.id} firstName={it.startedBy.firstName} lastName={it.startedBy.lastName} />
-                {it.kind === 'claim' ? (
+                {/* Только «Забрать»: решения переехали в общую стопку «Ждут решения»,
+                    и рисовать здесь вторые кнопки решения значило бы держать две
+                    расходящиеся правды о том, кто вправе решать. */}
+                {it.kind === 'claim' && (
                   <Button variant="primary" tone="success" size="sm" icon="download" loading={claimMut.isPending} onClick={() => claimMut.mutate(it)}>
                     Забрать
                   </Button>
-                ) : (
-                  <span style={{ display: 'flex', gap: '0.375rem' }}>
-                    <Button variant="primary" tone="success" size="sm" icon="check" disabled={decideMut.isPending} onClick={() => decideMut.mutate({ it, decision: 'approved' })}>
-                      Одобрить
-                    </Button>
-                    <Button variant="matte" tone="danger" size="sm" icon="close" disabled={decideMut.isPending} onClick={() => decideMut.mutate({ it, decision: 'rejected' })}>
-                      Отклонить
-                    </Button>
-                  </span>
                 )}
                 <Button variant="ghost" size="sm" iconRight="caretRight" href={`/workspaces/${wsId}/processes/instances/${it.instanceId}`}>
                   процесс

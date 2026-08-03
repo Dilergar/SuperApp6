@@ -6,7 +6,15 @@ import { useRouter, useParams } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { useAuthStore } from '@/lib/stores/auth';
 import { api } from '@/lib/api';
-import { resolveCardVisibility, type CardVisibility, type Circle } from '@superapp/shared';
+import {
+  MONTH_NAMES_RU,
+  REQUISITE_VISIBILITY_EXTRAS,
+  REQUISITE_VISIBILITY_LABELS,
+  isValidIinOrBin,
+  resolveCardVisibility,
+  type CardVisibility,
+  type Circle,
+} from '@superapp/shared';
 import { PersonCard } from '../../circles/PersonCard';
 import { WalletSection } from '../WalletSection';
 import { SkinsSection } from '../SkinsSection';
@@ -83,7 +91,10 @@ export default function ProfileSectionPage() {
   const [editData, setEditData] = useState({
     firstName: '', lastName: '', bio: '', city: '', email: '',
     maritalStatus: '', telegram: '', instagram: '', linkedin: '', whatsapp: '',
-    dateOfBirth: '',
+    // Дата рождения — ТРИ поля (день / месяц названием / год), решение продукта.
+    dobDay: '', dobMonth: '', dobYear: '',
+    // Реквизиты «Для договоров и трудоустройства».
+    iin: '', residentialAddress: '', idDocNumber: '', idDocIssuedBy: '', idDocIssuedAt: '',
   });
 
   // Owner DEFAULT visibility (for contacts in no group). Seeded once.
@@ -103,6 +114,14 @@ export default function ProfileSectionPage() {
 
   useEffect(() => {
     if (profile) {
+      const dob = profile.dateOfBirth ? profile.dateOfBirth.split('-') : null; // YYYY-MM-DD
+      const req = profile as unknown as {
+        iin?: string | null;
+        residentialAddress?: string | null;
+        idDocNumber?: string | null;
+        idDocIssuedBy?: string | null;
+        idDocIssuedAt?: string | null;
+      };
       setEditData({
         firstName: profile.firstName || '',
         lastName: profile.lastName || '',
@@ -114,7 +133,14 @@ export default function ProfileSectionPage() {
         instagram: profile.socialLinks?.instagram || '',
         linkedin: profile.socialLinks?.linkedin || '',
         whatsapp: profile.socialLinks?.whatsapp || '',
-        dateOfBirth: profile.dateOfBirth || '',
+        dobDay: dob ? String(Number(dob[2])) : '',
+        dobMonth: dob ? String(Number(dob[1]) - 1) : '',
+        dobYear: dob ? dob[0] : '',
+        iin: req.iin || '',
+        residentialAddress: req.residentialAddress || '',
+        idDocNumber: req.idDocNumber || '',
+        idDocIssuedBy: req.idDocIssuedBy || '',
+        idDocIssuedAt: req.idDocIssuedAt || '',
       });
     }
   }, [profile]);
@@ -177,6 +203,36 @@ export default function ProfileSectionPage() {
       setError('Имя обязательно');
       return;
     }
+    // Дата рождения собирается из трёх полей; заполнена частично — честная ошибка,
+    // а не молча сохранённая пустота.
+    const dobParts = [editData.dobDay, editData.dobMonth, editData.dobYear];
+    const dobFilled = dobParts.filter((p) => p !== '').length;
+    if (dobFilled > 0 && dobFilled < 3) {
+      setError('Дата рождения: заполните день, месяц и год (или очистите все три поля)');
+      return;
+    }
+    let dateOfBirth: string | null = null;
+    if (dobFilled === 3) {
+      const day = Number(editData.dobDay);
+      const monthIdx = Number(editData.dobMonth);
+      const year = Number(editData.dobYear);
+      const composed = new Date(Date.UTC(year, monthIdx, day));
+      if (
+        composed.getUTCFullYear() !== year ||
+        composed.getUTCMonth() !== monthIdx ||
+        composed.getUTCDate() !== day ||
+        year < 1900 ||
+        composed.getTime() > Date.now()
+      ) {
+        setError('Дата рождения: такой даты не существует');
+        return;
+      }
+      dateOfBirth = `${year}-${String(monthIdx + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+    if (editData.iin.trim() && !isValidIinOrBin(editData.iin.trim())) {
+      setError('ИИН: 12 цифр, проверьте номер — не сходится контрольная сумма');
+      return;
+    }
     try {
       const payload: Record<string, unknown> = {};
       payload.firstName = editData.firstName.trim();
@@ -185,7 +241,12 @@ export default function ProfileSectionPage() {
       payload.city = editData.city.trim() || null;
       payload.email = editData.email.trim() || null;
       payload.maritalStatus = editData.maritalStatus || null;
-      payload.dateOfBirth = editData.dateOfBirth || null;
+      payload.dateOfBirth = dateOfBirth;
+      payload.iin = editData.iin.trim() || null;
+      payload.residentialAddress = editData.residentialAddress.trim() || null;
+      payload.idDocNumber = editData.idDocNumber.trim() || null;
+      payload.idDocIssuedBy = editData.idDocIssuedBy.trim() || null;
+      payload.idDocIssuedAt = editData.idDocIssuedAt || null;
       const socialLinks: Record<string, string> = {};
       if (editData.telegram.trim()) socialLinks.telegram = editData.telegram.trim();
       if (editData.instagram.trim()) socialLinks.instagram = editData.instagram.trim();
@@ -224,6 +285,27 @@ export default function ProfileSectionPage() {
     if (!visCompany) return;
     clear();
     const next: CardVisibility = { ...visCompany, [field]: value };
+    setVisCompany(next);
+    if (visCompanyTimer.current) clearTimeout(visCompanyTimer.current);
+    visCompanyTimer.current = setTimeout(async () => {
+      try {
+        await api.patch('/users/me', { companyCardVisibility: next });
+        setSuccessMsg('Видимость в Компаниях сохранена');
+      } catch {
+        setError('Ошибка сохранения видимости');
+      }
+    }, 600);
+  };
+
+  // Реквизитные тумблеры коллегам живут в мешке extras той же карты (по умолчанию
+  // выключены). На управляющих (manager+) они не действуют — тем блок виден всегда.
+  const toggleVisCompanyExtra = (key: string, value: boolean) => {
+    if (!visCompany) return;
+    clear();
+    const next: CardVisibility = {
+      ...visCompany,
+      extras: { ...(visCompany.extras ?? {}), [key]: value },
+    };
     setVisCompany(next);
     if (visCompanyTimer.current) clearTimeout(visCompanyTimer.current);
     visCompanyTimer.current = setTimeout(async () => {
@@ -317,9 +399,35 @@ export default function ProfileSectionPage() {
                 onChange={(e) => setEditData({ ...editData, bio: e.target.value.slice(0, 160) })}
                 placeholder="Расскажите о себе..."
               />
-              <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)' }}>
-                <Input label="Город" value={editData.city} onChange={(e) => setEditData({ ...editData, city: e.target.value })} placeholder="Алматы" />
-                <Input label="Дата рождения" type="date" value={editData.dateOfBirth} onChange={(e) => setEditData({ ...editData, dateOfBirth: e.target.value })} />
+              <Input label="Город" value={editData.city} onChange={(e) => setEditData({ ...editData, city: e.target.value })} placeholder="Алматы" />
+              {/* Дата рождения — три поля (день / месяц названием / год), решение продукта */}
+              <div>
+                <span className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-2)', fontWeight: 600 }}>Дата рождения</span>
+                <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 100px', gap: 'var(--spacing-3)' }}>
+                  <Input
+                    aria-label="День рождения"
+                    inputMode="numeric"
+                    placeholder="День"
+                    value={editData.dobDay}
+                    onChange={(e) => setEditData({ ...editData, dobDay: e.target.value.replace(/\D/g, '').slice(0, 2) })}
+                  />
+                  <Select
+                    aria-label="Месяц рождения"
+                    value={editData.dobMonth}
+                    onChange={(v) => setEditData({ ...editData, dobMonth: v })}
+                    options={[
+                      { value: '', label: 'Месяц' },
+                      ...MONTH_NAMES_RU.map((m, i) => ({ value: String(i), label: m })),
+                    ]}
+                  />
+                  <Input
+                    aria-label="Год рождения"
+                    inputMode="numeric"
+                    placeholder="Год"
+                    value={editData.dobYear}
+                    onChange={(e) => setEditData({ ...editData, dobYear: e.target.value.replace(/\D/g, '').slice(0, 4) })}
+                  />
+                </div>
               </div>
               <Input label="Email" type="email" value={editData.email} onChange={(e) => setEditData({ ...editData, email: e.target.value })} placeholder="user@example.com" />
               <Select
@@ -334,6 +442,52 @@ export default function ProfileSectionPage() {
                 <Input label="LinkedIn" value={editData.linkedin} onChange={(e) => setEditData({ ...editData, linkedin: e.target.value })} placeholder="linkedin.com/in/..." />
                 <Input label="WhatsApp" value={editData.whatsapp} onChange={(e) => setEditData({ ...editData, whatsapp: e.target.value })} placeholder="+77001234567" />
               </div>
+              {/* ---- Реквизиты: комплект для трудового договора и выплат ---- */}
+              <h3 className="title-md" style={{ margin: 'var(--spacing-4) 0 0' }}>Для договоров и трудоустройства</h3>
+              <p className="label-sm" style={{ margin: 0, opacity: 0.7, lineHeight: 1.5 }}>
+                Эти данные видят только управляющие организаций, где вы работаете, — для договоров,
+                трудоустройства и выплат. Друзьям и коллегам они не показываются (коллегам — только
+                если включите ниже в «Видимости в Компаниях»).
+              </p>
+              <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)' }}>
+                <Input
+                  label="ИИН"
+                  inputMode="numeric"
+                  placeholder="12 цифр"
+                  value={editData.iin}
+                  onChange={(e) => setEditData({ ...editData, iin: e.target.value.replace(/\D/g, '').slice(0, 12) })}
+                  error={editData.iin && !isValidIinOrBin(editData.iin) ? 'Не сходится контрольная сумма' : undefined}
+                />
+                <Input
+                  label="Адрес проживания"
+                  value={editData.residentialAddress}
+                  onChange={(e) => setEditData({ ...editData, residentialAddress: e.target.value })}
+                  placeholder="г. Алматы, ул. …, д. …, кв. …"
+                />
+              </div>
+              <div className="grid md:grid-cols-3" style={{ gap: 'var(--spacing-4)' }}>
+                <Input
+                  label="Удостоверение №"
+                  value={editData.idDocNumber}
+                  onChange={(e) => setEditData({ ...editData, idDocNumber: e.target.value })}
+                  placeholder="0XXXXXXXX"
+                />
+                <Input
+                  label="Кем выдано"
+                  value={editData.idDocIssuedBy}
+                  onChange={(e) => setEditData({ ...editData, idDocIssuedBy: e.target.value })}
+                  placeholder="МВД РК"
+                />
+                <Input
+                  label="Дата выдачи"
+                  type="date"
+                  value={editData.idDocIssuedAt}
+                  onChange={(e) => setEditData({ ...editData, idDocIssuedAt: e.target.value })}
+                />
+              </div>
+              <p className="label-sm" style={{ margin: 0, opacity: 0.7 }}>
+                Карта для выплат добавляется в разделе «Кошелёк».
+              </p>
               <Button variant="primary" tone="success" onClick={handleSaveProfile} style={{ marginTop: 'var(--spacing-2)', alignSelf: 'flex-start' }}>
                 Сохранить анкету
               </Button>
@@ -401,8 +555,44 @@ export default function ProfileSectionPage() {
                   );
                 })}
               </div>
+              {/* Конфиденциальные реквизиты коллегам — по умолчанию ВЫКЛЮЧЕНЫ */}
+              <p className="label-sm" style={{ margin: 'var(--spacing-4) 0 var(--spacing-2)', opacity: 0.7 }}>
+                Конфиденциальное (коллегам по умолчанию скрыто):
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)' }}>
+                {(Object.values(REQUISITE_VISIBILITY_EXTRAS) as string[]).map((key) => {
+                  const on = !!visCompany.extras?.[key];
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => toggleVisCompanyExtra(key, !on)}
+                      style={{
+                        padding: '0.3rem 0.7rem', fontSize: '0.78rem', borderRadius: 'var(--radius-sketch)',
+                        border: 'none', cursor: 'pointer', fontWeight: 600,
+                        color: on ? 'var(--on-primary)' : 'var(--on-surface-variant)',
+                        background: on ? 'var(--secondary)' : 'var(--surface-container)',
+                        opacity: on ? 1 : 0.6, transition: 'all 0.15s ease',
+                      }}
+                    >
+                      {REQUISITE_VISIBILITY_LABELS[key as keyof typeof REQUISITE_VISIBILITY_LABELS]}: {on ? 'вид.' : 'скр.'}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
+
+          {/* Второй уровень — управляющим; нередактируемый по решению продукта */}
+          <h3 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-1)' }}>Для управляющих организаций</h3>
+          <div className="alert-neutral-inline" style={{ padding: 'var(--spacing-4)', maxWidth: '560px' }}>
+            <p className="label-sm" style={{ margin: 0, lineHeight: 1.55 }}>
+              Управляющим (Менеджер и выше) организаций, где вы работаете, всегда видны:
+              <b> ИИН, дата рождения, адрес проживания, удостоверение личности и основная карта</b> —
+              это данные для договоров, трудоустройства и выплат. Отключить их нельзя;
+              рядовые коллеги их не видят, пока вы не включите тумблеры выше.
+            </p>
+          </div>
         </div>
       )}
 

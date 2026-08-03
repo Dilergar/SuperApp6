@@ -16,7 +16,9 @@ try {
   console.error('socket.io-client not found in apps/web/node_modules', e.message);
   process.exit(1);
 }
-const BASE = 'http://localhost:3001/api';
+// Адрес API переопределяется переменной окружения: два экземпляра на одной машине
+// (например, когда :3001 занят чужим дев-сервером) — обычная ситуация при проверке правок.
+const BASE = process.env.SA6_API_BASE || 'http://localhost:3001/api';
 const P1 = '+77009990001', PW = 'Test1234!';
 
 let fails = 0;

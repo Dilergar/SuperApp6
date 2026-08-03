@@ -16,6 +16,7 @@
 // ============================================================
 
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -33,6 +34,14 @@ import { SearchField } from '@/components/ui/Input';
 import { Menu } from '@/components/ui/Menu';
 import { PersonAvatar } from '@/app/messenger/messenger-ui';
 import { useMentionsUnread } from '@/lib/hooks/useMentionsUnread';
+import { useApprovalsCount } from '@/lib/hooks/useApprovalsCount';
+import { APPROVAL_INBOX_TITLE } from '@superapp/shared';
+// Стопка — динамическим импортом по той же причине, что и барабан кита: она
+// тянет Modal и клиент движка, а шелл сидит в корневом графе каждой страницы.
+const DecisionStack = dynamic(
+  () => import('@/components/approvals/DecisionStack').then((m) => m.DecisionStack),
+  { ssr: false },
+);
 import { fetchTaskStats, fetchWorkspaces, taskStatsKey, workspacesKey } from '@/lib/queries';
 import type { Workspace } from '@superapp/shared';
 
@@ -84,6 +93,17 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
   // queryFn на том же ключе конфликтует с первым (ровно это и случилось).
   // Кормит ТОЛЬКО точку на колокольчике — пункта «Упоминания» в сайдбаре нет.
   const mentionsUnread = useMentionsUnread(!!profile);
+  // Стопка «Ждут решения». Счётчик лёгкий и общий по всем источникам; сама
+  // модалка грузится лениво — она тянет кит и клиент движка, а шелл сидит в
+  // корневом графе КАЖДОЙ страницы.
+  //
+  // Скоуп СКВОЗНОЙ (без activeWsId) — как у колокольчика: верхние иконки висят над
+  // любой страницей и отвечают на вопрос «что ждёт МЕНЯ», а не «что ждёт меня
+  // здесь». Пока счётчик скоупился активным контекстом, приказ на подпись
+  // переставал существовать, стоило переключиться в другую компанию или в личное.
+  // Витрины ВНУТРИ контекста (плитки Главных) считают по-своему — там скоуп нужен.
+  const approvalsCount = useApprovalsCount(!!profile);
+  const [stackOpen, setStackOpen] = useState(false);
 
   const nav: AppNavConfig = useMemo(() => {
     if (activeWsId) {
@@ -127,8 +147,11 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
     return () => window.removeEventListener('keydown', onKey);
   }, [toggleCollapsed]);
 
-  // ---- переход закрывает шторку; активная ветка раскрывается сама
-  useEffect(() => { setDrawerOpen(false); }, [pathname]);
+  // ---- переход закрывает шторку И стопку; активная ветка раскрывается сама
+  // Каркас при клиентской навигации не размонтируется, поэтому «Открыть целиком»
+  // внутри стопки меняло адрес, а модалка оставалась висеть поверх новой страницы
+  // (с затемнением и заблокированной прокруткой) — выглядело как «кнопка не работает».
+  useEffect(() => { setDrawerOpen(false); setStackOpen(false); }, [pathname]);
   useEffect(() => {
     const branch = nav.groups.flatMap((g) => g.items).find((i) => i.children?.length && isBranchActive(i, pathname));
     if (branch) setOpenBranch(branch.key);
@@ -179,6 +202,34 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
               // Синяя точка: красный в системе означает только опасность.
               // aria-hidden — смысл несёт label кнопки, точка чисто визуальная
               <span aria-hidden style={{ position: 'absolute', top: 7, right: 8, width: 8, height: 8, borderRadius: '50%', background: 'var(--primary)', border: '2px solid var(--surface)' }} />
+            )}
+          </span>
+          {/* «Ждут решения» — не ссылка, а КНОПКА: стопка открывается модалкой
+              поверх текущей страницы, чтобы разобрать её не уходя с работы.
+              Счётчик приходит сложенным по всем источникам реестра.
+
+              Кнопка видна ВСЕГДА, а не только при непустой стопке: внутри неё живёт
+              вкладка «Мои заявки», адресованная как раз тому, у кого на руках ничего
+              нет — автору отправленного документа. Пока кнопка появлялась по
+              счётчику, посмотреть «где моё заявление» с личных страниц было негде. */}
+          <span style={{ position: 'relative', display: 'inline-flex' }}>
+            <IconButton
+              icon="checkCircle"
+              label={approvalsCount > 0 ? `${APPROVAL_INBOX_TITLE}: ${approvalsCount}` : APPROVAL_INBOX_TITLE}
+              onClick={() => setStackOpen(true)}
+            />
+            {approvalsCount > 0 && (
+              <span
+                aria-hidden
+                style={{
+                  position: 'absolute', top: 2, right: 0, minWidth: 16, height: 16, padding: '0 4px',
+                  borderRadius: 999, background: 'var(--primary)', color: 'var(--on-primary)',
+                  fontSize: 10, lineHeight: '16px', textAlign: 'center', fontWeight: 600,
+                  border: '2px solid var(--surface)',
+                }}
+              >
+                {approvalsCount > 99 ? '99+' : approvalsCount}
+              </span>
             )}
           </span>
           <Menu
@@ -263,6 +314,11 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
       <main className="svc-main">
         <div className="svc-main-inner">{children}</div>
       </main>
+
+      {/* Стопка решений монтируется, только когда её открыли: она тянет кит и
+          клиент движка, а шелл живёт в графе каждой страницы. */}
+      {/* Скоуп не передаём — стопка топбара сквозная, как и его счётчик */}
+      {stackOpen && <DecisionStack open onClose={() => setStackOpen(false)} />}
     </div>
   );
 }

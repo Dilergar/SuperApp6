@@ -134,9 +134,49 @@ export class AccessService {
    * убрали из Группы.
    */
   async grantSetFor(userId: string, resourceType: string): Promise<GrantSet> {
+    const principals = await this.principalsOf(userId);
+
+    // 2) Гранты запрошенного типа на любой из принципалов.
+    const rows = await this.db.relationTuple.findMany({
+      where: {
+        resourceType,
+        OR: principals.map((p) => ({
+          subjectType: p.subjectType,
+          subjectId: p.subjectId,
+          subjectRelation: p.subjectRelation,
+        })),
+      },
+      select: { relation: true, resourceId: true },
+    });
+
+    const granted = new Map<string, string[]>();
+    for (const row of rows) {
+      const list = granted.get(row.relation);
+      if (list) list.push(row.resourceId);
+      else granted.set(row.relation, [row.resourceId]);
+    }
+    for (const [relation, ids] of granted) granted.set(relation, [...new Set(ids)]);
+
+    return { principals, granted };
+  }
+
+  /**
+   * «Кто этот человек» — он сам плюс все его Группы, роли организаций и оси
+   * оргструктуры (отдел / должность / филиал), с развёрнутой лестницей ролей.
+   *
+   * Первая половина `grantSetFor`, вынесенная отдельно: есть потребители, которым
+   * нужны не гранты НА РЕСУРС, а адресация САМА ПО СЕБЕ. Шаг согласования выдаётся
+   * «должности Главный бухгалтер» или «отделу Кадры» и никакого ресурса в движке прав
+   * не заводит (заявка — не объект доступа, доступ к ней решает её предмет), поэтому
+   * `grantSetFor` там не подходит вовсе.
+   *
+   * Один индексный запрос по реверс-индексу. Раньше каждый такой потребитель ходил в
+   * `relationTuple` сам и знал наизусть имена отношений проекции — так сделано в
+   * «Входящих» Процессов; теперь это знание живёт в одном месте.
+   */
+  async principalsOf(userId: string): Promise<SubjectRef[]> {
     const principals: SubjectRef[] = [{ subjectType: 'user', subjectId: userId, subjectRelation: '' }];
 
-    // 1) Членства: Группы, роли организаций, оси оргструктуры (отдел/должность/филиал).
     const memberships = await this.db.relationTuple.findMany({
       where: {
         subjectType: 'user',
@@ -163,28 +203,17 @@ export class AccessService {
       }
     }
 
-    // 2) Гранты запрошенного типа на любой из принципалов.
-    const rows = await this.db.relationTuple.findMany({
-      where: {
-        resourceType,
-        OR: principals.map((p) => ({
-          subjectType: p.subjectType,
-          subjectId: p.subjectId,
-          subjectRelation: p.subjectRelation,
-        })),
-      },
-      select: { relation: true, resourceId: true },
-    });
+    return principals;
+  }
 
-    const granted = new Map<string, string[]>();
-    for (const row of rows) {
-      const list = granted.get(row.relation);
-      if (list) list.push(row.resourceId);
-      else granted.set(row.relation, [row.resourceId]);
-    }
-    for (const [relation, ids] of granted) granted.set(relation, [...new Set(ids)]);
-
-    return { principals, granted };
+  /**
+   * Идентификаторы принципалов одного типа («в каких отделах я состою»). Отношение
+   * НЕ различается намеренно: для адресации важен сам факт принадлежности, а не то,
+   * каким отношением она спроецирована (`member` у отдела, `holder` у должности) —
+   * иначе каждый потребитель обязан был бы помнить детали проекции StaffModule.
+   */
+  principalIdsOfType(principals: SubjectRef[], resourceType: string): string[] {
+    return [...new Set(principals.filter((p) => p.subjectType === resourceType).map((p) => p.subjectId))];
   }
 
   // ------------------------------------------------------------
@@ -317,14 +346,14 @@ export class AccessService {
    */
   private async bumpEpochs(refs: EpochRef[]): Promise<void> {
     const typeBumps = new Set<string>();
-    const objectBumps = new Set<string>(); // `${type} ${id}`
+    const objectBumps = new Set<string>(); // `${type}\u0000${id}`
     const parentIdsByType = new Map<string, Set<string>>();
     let global = false;
 
     const seenTypes = new Set<string>();
     for (const r of refs) {
       seenTypes.add(r.type);
-      if (OBJECT_EPOCH_TYPES.has(r.type)) objectBumps.add(`${r.type} ${r.id}`);
+      if (OBJECT_EPOCH_TYPES.has(r.type)) objectBumps.add(`${r.type}\u0000${r.id}`);
       if (CHAT_PARENT_SUBJECT_TYPES.has(r.type)) {
         let ids = parentIdsByType.get(r.type);
         if (!ids) parentIdsByType.set(r.type, (ids = new Set()));
@@ -356,7 +385,7 @@ export class AccessService {
           select: { resourceId: true },
           distinct: ['resourceId'],
         });
-        for (const d of dependents) objectBumps.add(`chat ${d.resourceId}`);
+        for (const d of dependents) objectBumps.add(`chat\u0000${d.resourceId}`);
       } catch {
         typeBumps.add('chat'); // fail-safe: зависимые не найдены → сброс всего типа
       }
@@ -367,7 +396,7 @@ export class AccessService {
     if (global) m.incr(EPOCH_KEY);
     for (const t of typeBumps) m.incr(typeEpochKey(t));
     for (const packed of objectBumps) {
-      const sep = packed.indexOf(' ');
+      const sep = packed.indexOf('\u0000');
       const key = objectEpochKey(packed.slice(0, sep), packed.slice(sep + 1));
       m.incr(key);
       m.expire(key, OBJECT_EPOCH_TTL_SECONDS);

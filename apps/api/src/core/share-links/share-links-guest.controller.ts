@@ -2,7 +2,7 @@ import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Param, Post, Req 
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
-import { SHARE_SESSION_HEADER, shareGuestSessionSchema } from '@superapp/shared';
+import { SHARE_SESSION_HEADER, shareGuestIdentityStartSchema, shareGuestSessionSchema } from '@superapp/shared';
 import { Public } from '../../shared/decorators/public.decorator';
 import { ShareLinksGuestService } from './share-links-guest.service';
 
@@ -28,6 +28,22 @@ export class ShareLinksGuestController {
   }
 
   /**
+   * SMS-код для гостя (ссылка с «подтвердите номер»). Троттлинг жёстче остальных
+   * гостевых ручек: SMS = деньги; внутри работают ещё и точные лимиты core/verify
+   * (кулдаун, потолки на номер, IP-эшелоны, глобальный бюджет).
+   */
+  @Public()
+  @Throttle({ long: { limit: 10, ttl: 60_000 } })
+  @Post(':token/identity/start')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Запросить SMS-код подтверждения номера гостя (код проверяется в /verify/check)' })
+  async identityStart(@Param('token') token: string, @Body() body: unknown, @Req() req: Request) {
+    const dto = shareGuestIdentityStartSchema.parse(body ?? {});
+    const data = await this.guest.startIdentity(token, dto, req.ip ?? null);
+    return { success: true, data };
+  }
+
+  /**
    * Открытие. Троттлинг жёстче платформенного намеренно: здесь и перебор пароля
    * (bcrypt — дорогая проверка, то есть ещё и вектор нагрузки), и накрутка счётчика
    * открытий чужой ссылки.
@@ -39,7 +55,7 @@ export class ShareLinksGuestController {
   @ApiOperation({ summary: 'Открыть ссылку: засчитать открытие и получить пропуск с содержимым' })
   async openSession(@Param('token') token: string, @Body() body: unknown, @Req() req: Request) {
     const dto = shareGuestSessionSchema.parse(body ?? {});
-    const data = await this.guest.openSession(token, dto.password, {
+    const data = await this.guest.openSession(token, dto, {
       // req.ip — единственный честный источник: доверие к X-Forwarded-For настраивается
       // через TRUST_PROXY, иначе адрес в журнале писал бы сам посетитель.
       ip: req.ip ?? null,

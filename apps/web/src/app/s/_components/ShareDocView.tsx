@@ -102,11 +102,16 @@ export function ShareDocView({
         {/* PDF отдаётся с Content-Disposition: inline, поэтому браузер рисует его сам */}
         <iframe src={view.pdf.url} title={view.title} style={{ width: '100%', height: '100%', border: 0 }} />
       </div>
-      <div style={{ marginTop: 'var(--spacing-4)', display: 'flex', gap: 'var(--spacing-3)' }}>
-        <Button icon="download" href={view.pdf.url}>
-          Скачать PDF
-        </Button>
-      </div>
+      {/* Настройка прячет НАШУ кнопку — и только: у встроенного просмотрщика PDF есть
+          своя кнопка сохранения, убрать её нельзя. Обещать больше значило бы обмануть
+          владельца ссылки. */}
+      {view.allowDownload && (
+        <div style={{ marginTop: 'var(--spacing-4)', display: 'flex', gap: 'var(--spacing-3)' }}>
+          <Button icon="download" href={view.pdf.url}>
+            Скачать PDF
+          </Button>
+        </div>
+      )}
     </>
   );
 }

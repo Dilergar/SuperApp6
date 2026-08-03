@@ -69,6 +69,22 @@ function errText(e: unknown): string {
   return data?.message ?? 'Что-то пошло не так';
 }
 
+/**
+ * Предупреждения предметной области из отказа публикации. Отличать их от обычной
+ * ошибки надо по МАШИННОМУ коду, а не по тексту: правил станет больше, а тексты
+ * пишутся для человека и меняются.
+ */
+function publishWarnings(e: unknown): { ruleKey: string; message: string }[] {
+  const data = (e as {
+    response?: {
+      data?: { details?: { code?: string; warnings?: { ruleKey?: string; message?: string }[] } };
+    };
+  }).response?.data;
+  if (data?.details?.code !== 'process_warnings_unaccepted') return [];
+  return (data.details.warnings ?? [])
+    .filter((w): w is { ruleKey: string; message: string } => !!w.ruleKey && !!w.message);
+}
+
 const CATEGORY_ORDER = ['trigger', 'flow', 'people', 'service', 'ai', 'integration'] as const;
 
 /** Виджеты паспорта, которые рисуют подпись сами (кит связывает label с контролом). */
@@ -87,10 +103,13 @@ export default function ProcessEditorPage() {
     queryFn: () => fetchProcess(wsId, defId),
     enabled: isReady,
   });
+  // Палитра — по ПРОФИЛЮ процесса: у кадрового маршрута она урезана до нужных нод,
+  // и ждать её приходится до загрузки самого процесса (профиль лежит в нём).
+  const surface = detailQ.data?.surface ?? null;
   const typesQ = useQuery({
-    queryKey: processNodeTypesKey(wsId),
-    queryFn: () => fetchProcessNodeTypes(wsId),
-    enabled: isReady,
+    queryKey: processNodeTypesKey(wsId, surface),
+    queryFn: () => fetchProcessNodeTypes(wsId, surface),
+    enabled: isReady && !!detailQ.data,
     staleTime: 5 * 60_000,
   });
   const membersQ = useQuery({
@@ -126,6 +145,9 @@ export default function ProcessEditorPage() {
   const [edges, setEdges] = useState<Edge[]>([]);
   const [form, setForm] = useState<ProcessFormField[]>([]);
   const [dirty, setDirty] = useState(false);
+  // Предупреждения предметной области, с которыми сервер не пустил публикацию: их
+  // показываем поимённо и даём взять риск («Понимаю, публикую» пишется в журнал).
+  const [pendingWarnings, setPendingWarnings] = useState<{ ruleKey: string; message: string }[] | null>(null);
   const [confirm, confirmUI] = useConfirm();
   const editSeq = useRef(0); // против гонки «сохранил→onSuccess стёр dirty, а правки уже новые»
   const hydratedKey = useRef<string | null>(null);
@@ -303,21 +325,33 @@ export default function ProcessEditorPage() {
   });
 
   const publishMut = useMutation({
-    mutationFn: async () => {
+    // acceptWarnings — ПОИМЁННОЕ согласие с предупреждениями предметной области
+    // (правила кадрового учёта). Пока веб публиковал без него, любой кадровый маршрут
+    // упирался в 400 «подтвердите публикацию», а подтвердить было нечем — заготовка
+    // из кнопки «Маршрут» не публиковалась вообще никогда.
+    mutationFn: async (acceptWarnings?: string[]) => {
       const seq = editSeq.current;
       if (dirty) {
         await api.put(`/workspaces/${wsId}/processes/${defId}/document`, { document: currentDocument() });
         if (seq === editSeq.current) setDirty(false);
       }
-      return (await api.post(`/workspaces/${wsId}/processes/${defId}/publish`)).data.data;
+      const body = acceptWarnings?.length ? { acceptWarnings } : {};
+      return (await api.post(`/workspaces/${wsId}/processes/${defId}/publish`, body)).data.data;
     },
     onSuccess: () => {
+      setPendingWarnings(null);
       void qc.invalidateQueries({ queryKey: processKey(wsId, defId) });
       void qc.invalidateQueries({ queryKey: processesKey(wsId) });
       flash('ok', 'Опубликовано — процесс можно запускать');
     },
     onError: (e) => {
       void qc.invalidateQueries({ queryKey: processKey(wsId, defId) });
+      const warnings = publishWarnings(e);
+      if (warnings.length) {
+        // Не ошибка, а вопрос: показываем ЧТО именно нарушено и даём взять риск.
+        setPendingWarnings(warnings);
+        return;
+      }
       flash('err', errText(e));
     },
   });
@@ -439,7 +473,7 @@ export default function ProcessEditorPage() {
               >
                 {dirty ? 'Сохранить (Ctrl+S)' : 'Сохранено'}
               </Button>
-              <Button variant="primary" tone="success" size="sm" icon="uploadCloud" loading={publishMut.isPending} onClick={() => publishMut.mutate()}>
+              <Button variant="primary" tone="success" size="sm" icon="uploadCloud" loading={publishMut.isPending} onClick={() => publishMut.mutate(undefined)}>
                 Опубликовать
               </Button>
             </>
@@ -632,6 +666,39 @@ export default function ProcessEditorPage() {
           onClose={() => setStartOpen(false)}
           onStarted={(instId) => { void qc.invalidateQueries({ queryKey: processInstancesKey(wsId) }); router.push(`/workspaces/${wsId}/processes/instances/${instId}`); }}
         />
+      )}
+      {pendingWarnings && (
+        <Modal
+          open
+          onClose={() => setPendingWarnings(null)}
+          title="Маршрут расходится с правилами кадрового учёта"
+          subtitle="Публикацию это не запрещает — но принятое решение записывается в журнал организации"
+          size="md"
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setPendingWarnings(null)}>
+                Вернуться и поправить
+              </Button>
+              <Button
+                variant="primary"
+                tone="success"
+                icon="uploadCloud"
+                loading={publishMut.isPending}
+                onClick={() => publishMut.mutate(pendingWarnings.map((w) => w.ruleKey))}
+              >
+                Понимаю, публикую
+              </Button>
+            </>
+          }
+        >
+          <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
+            {pendingWarnings.map((w) => (
+              <Alert key={w.ruleKey} tone="warning">
+                {w.message}
+              </Alert>
+            ))}
+          </div>
+        </Modal>
       )}
       {confirmUI}
     </div>

@@ -9,6 +9,7 @@ import {
   type WorkspaceRole,
 } from '@superapp/shared';
 import { AccessService } from '../../core/access/access.service';
+import { principalSubjectRelation } from '../../core/access/access-schema';
 import { RolesService } from '../../core/roles/roles.service';
 import { DatabaseService } from '../../shared/database/database.service';
 
@@ -28,9 +29,11 @@ export interface DriveGrants {
   viewer: string[];
   editor: string[];
   manager: string[];
+  /** Закрытые папки: на них обрывается наследование прав сверху (см. nodeAccess) */
+  restricted: string[];
 }
 
-const EMPTY_GRANTS: DriveGrants = { viewer: [], editor: [], manager: [] };
+const EMPTY_GRANTS: DriveGrants = { viewer: [], editor: [], manager: [], restricted: [] };
 
 /**
  * Права Диска.
@@ -68,7 +71,15 @@ export class DriveAccessService {
     const manager = granted.get('manager') ?? [];
     const editor = [...new Set([...manager, ...(granted.get('editor') ?? [])])];
     const viewer = [...new Set([...editor, ...(granted.get('viewer') ?? [])])];
-    return { viewer, editor, manager };
+    // Закрытые папки грузим ОДНИМ списком, а не по цепочке на каждую проверку: их
+    // единицы (личные дела организации), список ходит под партиальным индексом и
+    // раздаётся всем путям проверки прав разом — иначе каждый забывший его путь
+    // молча открывал бы закрытое. Вырастет число — список скоупится пространством.
+    const restrictedRows = await this.db.driveNode.findMany({
+      where: { restricted: true, trashedAt: null },
+      select: { id: true },
+    });
+    return { viewer, editor, manager, restricted: restrictedRows.map((r) => r.id) };
   }
 
   /** Набор узлов, дающих зрителю право не ниже требуемого */
@@ -119,8 +130,25 @@ export class DriveAccessService {
     grants: DriveGrants,
   ): DriveAccess | null {
     if (spaceAccess === 'owner') return 'owner';
-    const chain = new Set([node.id, ...node.ancestorIds]);
-    let best: DriveAccess | null = spaceAccess;
+
+    // ЗАКРЫТАЯ ПАПКА обрывает наследование сверху: считаем права только от самой
+    // глубокой закрытой папки на пути и ниже. Без этого «Личные дела» на диске
+    // организации были бы открыты всей команде — корень раздаёт editor каждому
+    // сотруднику, и грант с корня доставал бы внутрь любой папки.
+    const path = [...node.ancestorIds, node.id]; // корень → сам узел
+    let from = 0;
+    if (grants.restricted.length) {
+      const closed = new Set(grants.restricted);
+      for (let i = path.length - 1; i >= 0; i--) {
+        if (closed.has(path[i])) {
+          from = i;
+          break;
+        }
+      }
+    }
+    const chain = new Set(path.slice(from));
+    // Пространственный доступ (не-owner) внутрь закрытой папки не проходит.
+    let best: DriveAccess | null = from === 0 ? spaceAccess : null;
     for (const role of ['manager', 'editor', 'viewer'] as const) {
       if (grants[role].some((id) => chain.has(id))) {
         best = this.strongest(best, role);
@@ -232,18 +260,8 @@ export class DriveAccessService {
 }
 
 /**
- * Как принципал записывается в субъект tuple'а. Человек — прямой субъект (`''`),
- * группирующие сущности — userset по своему отношению-членству. Ошибка здесь означает
- * «грант выдан, но никого не находит», поэтому карта одна на весь сервис.
+ * Как принципал записывается в субъект tuple'а. Карта живёт в движке прав
+ * (`principalSubjectRelation`) — она общая для всех, кто выдаёт гранты: ошибка здесь
+ * означает «грант выдан, но никого не находит», и второй копии у неё быть не должно.
  */
-export function principalRelation(type: string): string {
-  switch (type) {
-    case 'user':
-      return '';
-    case 'position':
-      return 'holder';
-    default:
-      // circle / workspace / department / branch — членство
-      return 'member';
-  }
-}
+export const principalRelation = principalSubjectRelation;

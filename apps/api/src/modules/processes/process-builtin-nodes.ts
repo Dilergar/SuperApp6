@@ -335,61 +335,179 @@ export const humanTaskNode: ProcessNodeProvider = {
   },
 };
 
-/** Одобрение: согласующий выносит решение «Одобрить»/«Отклонить» → ветки approved/rejected. */
+/**
+ * Решение человека: согласование · подпись · ознакомление.
+ *
+ * ПЕРЕВЕДЕНА НА `core/approvals` (2026-08-03). До этого нода держала человека
+ * ВНУТРИ канваса: чтобы решить, надо было дойти до Организация → Процессы →
+ * Входящие → найти запуск, и там висела одна строка текста — ни файла, ни суммы,
+ * ни карточки. Теперь она заводит НАСТОЯЩУЮ заявку, и та попадает в общую стопку
+ * «Ждут решения», в чат рич-карточкой и в журнал — ровно как соседняя нода
+ * «Задача человеку» заводит настоящую задачу Задачника.
+ *
+ * Тип-ключ 'human.approval' сохранён: нарисованные маршруты продолжают работать.
+ */
 export const approvalNode: ProcessNodeProvider = {
   descriptor: {
     type: 'human.approval',
-    title: 'Одобрение',
+    title: 'Решение человека',
     description:
-      'Ждёт решения согласующего: «Одобрить» или «Отклонить» — токен идёт по соответствующей ветке (отклонение можно вернуть назад связью). Подстановки {{form.поле}}.',
+      'Отправляет предмет человеку на согласование, подпись или ознакомление. Решение принимается в общей стопке «Ждут решения» — из уведомления, с Главной или прямо из чата. Подстановки {{form.поле}}.',
     category: 'people',
     icon: 'checkCircle',
     tier: 'standard',
     outputs: [
-      { key: 'approved', label: 'Одобрено' },
+      { key: 'approved', label: 'Согласовано' },
       { key: 'rejected', label: 'Отклонено' },
+      // Третий исход добавлен к УЖЕ опубликованным нодам, поэтому необязательный:
+      // без этого каждый нарисованный маршрут стал бы невалидным на первой же
+      // проверке. Не подключён — токен уходит по «Отклонено» (см. fallback).
+      { key: 'returned', label: 'На доработку', optional: true, fallback: 'rejected' },
     ],
     fields: [
-      { key: 'title', label: 'Что одобрить', kind: 'text', required: true, placeholder: 'Покупка стиральной машины за {{form.budget}} ₸' },
+      {
+        key: 'kind',
+        label: 'Что требуется',
+        kind: 'select',
+        options: [
+          { value: 'approval', label: 'Согласовать' },
+          { value: 'signature', label: 'Подписать' },
+          { value: 'acknowledgement', label: 'Ознакомиться' },
+        ],
+        help: 'У ознакомления исход один: отказаться от ознакомления нельзя.',
+      },
+      { key: 'title', label: 'Что решаем', kind: 'text', required: true, placeholder: 'Покупка стиральной машины за {{form.budget}} ₸' },
       {
         key: 'assigneeMode',
-        label: 'Согласующий',
+        label: 'Кто решает',
         kind: 'select',
         required: true,
         options: [
           { value: 'member', label: 'Сотрудник' },
+          { value: 'position', label: 'Должность (кто на ней сейчас)' },
+          { value: 'department', label: 'Отдел' },
           { value: 'initiator', label: 'Инициатор процесса' },
         ],
       },
       { key: 'assigneeUserId', label: 'Кто', kind: 'member', showIf: { field: 'assigneeMode', in: ['member'] } },
+      { key: 'positionId', label: 'Должность', kind: 'position', showIf: { field: 'assigneeMode', in: ['position'] } },
+      { key: 'departmentId', label: 'Отдел', kind: 'department', showIf: { field: 'assigneeMode', in: ['department'] } },
+      {
+        key: 'rule',
+        label: 'Сколько ответов нужно',
+        kind: 'select',
+        options: [
+          { value: 'any', label: 'Любой из них' },
+          { value: 'all', label: 'Каждый' },
+        ],
+        showIf: { field: 'assigneeMode', in: ['position', 'department'] },
+        help: 'Состав фиксируется снимком в момент, когда шаг дошёл до людей.',
+      },
       { key: 'dueInHours', label: 'Срок решения (часов)', kind: 'number', placeholder: '24' },
     ],
     configSchema: z
       .object({
+        kind: z.enum(['approval', 'signature', 'acknowledgement']).optional(),
         title: textField(200, 1),
-        assigneeMode: z.enum(['member', 'initiator']),
+        assigneeMode: z.enum(['member', 'position', 'department', 'initiator']),
         assigneeUserId: z.string().uuid().optional(),
+        positionId: z.string().uuid().optional(),
+        departmentId: z.string().uuid().optional(),
+        rule: z.enum(['any', 'all']).optional(),
         dueInHours: z.coerce.number().int().min(1).max(24 * 365).optional(),
       })
       .refine((c) => c.assigneeMode !== 'member' || !!c.assigneeUserId, {
         message: 'Выберите согласующего',
         path: ['assigneeUserId'],
+      })
+      .refine((c) => c.assigneeMode !== 'position' || !!c.positionId, {
+        message: 'Выберите должность',
+        path: ['positionId'],
+      })
+      .refine((c) => c.assigneeMode !== 'department' || !!c.departmentId, {
+        message: 'Выберите отдел',
+        path: ['departmentId'],
       }),
-    auto: false,
+    auto: false, // токен спит, пока человек не решит — будит хук движка согласований
   },
   async run(ctx) {
-    const cfg = ctx.config as { title: string; assigneeMode: 'member' | 'initiator'; assigneeUserId?: string; dueInHours?: number };
-    const approverId = cfg.assigneeMode === 'initiator' ? ctx.startedById : cfg.assigneeUserId!;
-    await assertActiveMember(ctx, approverId, 'Согласующий');
+    const cfg = ctx.config as {
+      kind?: 'approval' | 'signature' | 'acknowledgement';
+      title: string;
+      assigneeMode: 'member' | 'position' | 'department' | 'initiator';
+      assigneeUserId?: string;
+      positionId?: string;
+      departmentId?: string;
+      rule?: 'any' | 'all';
+      dueInHours?: number;
+    };
     const title = ctx.render(cfg.title);
-    await ctx.deps.notifications
-      .notify(approverId, 'process.approval.requested', { title, processName: ctx.definitionName }, {
-        actionUrl: `/workspaces/${ctx.workspaceId}/processes/instances/${ctx.instanceId}`,
-      })
-      .catch(() => undefined);
-    return { kind: 'wait', patch: { assigneeId: approverId, deadlineAt: deadlineFrom(cfg.dueInHours) }, output: { kind: 'approval', title } };
+
+    const assignee: { type: 'user' | 'position' | 'department'; id: string } =
+      cfg.assigneeMode === 'initiator'
+        ? { type: 'user', id: ctx.startedById }
+        : cfg.assigneeMode === 'member'
+          ? { type: 'user', id: cfg.assigneeUserId! }
+          : cfg.assigneeMode === 'position'
+            ? { type: 'position', id: cfg.positionId! }
+            : { type: 'department', id: cfg.departmentId! };
+
+    // Уволенный после публикации не должен получать решения (та же runtime-проверка,
+    // что у задач и уведомлений). Для должности и отдела состав проверит сам движок
+    // согласований, развернув снимок: пустой снимок — это честный тупик с уведомлением.
+    if (assignee.type === 'user') await assertActiveMember(ctx, assignee.id, 'Согласующий');
+
+    // Предмет решения. По умолчанию — САМ ЗАПУСК процесса: у него есть анкета, история
+    // шагов и адрес. Но если маршрут ведёт предмет (документ отправлен на согласование),
+    // решающий обязан видеть ЕГО — с файлом, номером и сторонами, а не строку «запуск
+    // процесса». Служебные ключи ставит тот, кто запустил маршрут; санитайзер внешних
+    // стартов их отбрасывает, поэтому подделать предмет чужим вебхуком нельзя.
+    const subjectRefType = ctx.variables._subjectRefType;
+    const subjectRefId = ctx.variables._subjectRefId;
+    const subject =
+      typeof subjectRefType === 'string' && typeof subjectRefId === 'string' && subjectRefId
+        ? { refType: subjectRefType, refId: subjectRefId }
+        : { refType: PROCESS_INSTANCE_REF_TYPE, refId: ctx.instanceId };
+
+    const request = await ctx.deps.approvals.create(
+      ctx.startedById,
+      {
+        refType: subject.refType,
+        refId: subject.refId,
+        steps: [
+          {
+            order: 0,
+            kind: cfg.kind ?? 'approval',
+            title,
+            assigneeType: assignee.type,
+            assigneeId: assignee.id,
+            rule: assignee.type === 'user' ? 'any' : (cfg.rule ?? 'any'),
+            dueInHours: cfg.dueInHours,
+          },
+        ],
+      },
+      // Непрозрачная для движка ссылка «кто ведёт»: по ней он вернёт нам управление.
+      { type: PROCESS_ORIGIN_TYPE, ref: `${ctx.instanceId}:${ctx.step.id}` },
+    );
+
+    return {
+      kind: 'wait',
+      patch: {
+        // Для одного человека сохраняем в шаге и его id: карточка запуска показывает
+        // «кому назначено» карточкой человека. У должности и отдела адресатов много —
+        // там это поле остаётся пустым, и лента шага говорит «решает <должность>».
+        ...(assignee.type === 'user' ? { assigneeId: assignee.id } : {}),
+        deadlineAt: deadlineFrom(cfg.dueInHours),
+      },
+      output: { kind: 'approval', title, approvalRequestId: request.id, assigneeKind: assignee.type },
+    };
   },
 };
+
+/** Предмет заявки, когда маршрут ведёт не документ, а сам процесс */
+export const PROCESS_INSTANCE_REF_TYPE = 'process_instance';
+/** Ключ, по которому движок согласований находит хук возврата в Процессы */
+export const PROCESS_ORIGIN_TYPE = 'process';
 
 /** Пауза: токен ждёт заданное время, затем идёт дальше (таймер добивается кроном). */
 export const delayNode: ProcessNodeProvider = {

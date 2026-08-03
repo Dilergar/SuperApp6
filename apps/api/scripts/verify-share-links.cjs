@@ -11,10 +11,13 @@
 //
 // Run (API up): node scripts/verify-share-links.cjs
 const { PrismaClient } = require('@prisma/client');
-const BASE = 'http://localhost:3001/api';
+// Адрес API переопределяется переменной окружения: два экземпляра на одной машине
+// (например, когда :3001 занят чужим дев-сервером) — обычная ситуация при проверке правок.
+const BASE = process.env.SA6_API_BASE || 'http://localhost:3001/api';
 const P1 = '+77009990001', P2 = '+77009990002', P3 = '+77009990003', PW = 'Test1234!';
-/** Зеркало SHARE_LINK_LIMITS.passwordMaxAttempts — скрипт не тянет собранный shared */
+/** Зеркала SHARE_LINK_LIMITS — скрипт не тянет собранный shared */
 const SHARE_PASSWORD_MAX_ATTEMPTS = 5;
+const SHARE_NOTIFY_PER_DAY = 5;
 
 /**
  * Минимальный НАСТОЯЩИЙ .docx (одна строка текста). Раньше документная часть грузила
@@ -103,6 +106,11 @@ async function ensureContact(prisma, a, b) {
 }
 
 const TXT = (s) => Buffer.from(s, 'utf8');
+/** 1×1 png — нужен настоящий образ, чтобы конвейер файлов сделал уменьшенную копию */
+const PNG_1PX = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64',
+);
 const tokenOf = (url) => url.split('/s/')[1];
 const SESSION_HEADER = 'x-share-session';
 
@@ -111,8 +119,9 @@ async function main() {
   const t1 = await login(P1), t2 = await login(P2), t3 = await login(P3);
   const u1 = (await prisma.user.findUnique({ where: { phone: P1 }, select: { id: true } })).id;
   const u2 = (await prisma.user.findUnique({ where: { phone: P2 }, select: { id: true } })).id;
+  const u3 = (await prisma.user.findUnique({ where: { phone: P3 }, select: { id: true } })).id;
   const stamp = Date.now();
-  const created = { nodes: [], links: [] };
+  const created = { nodes: [], links: [], guestPhones: [], workspaces: [] };
 
   try {
     await ensureContact(prisma, u1, u2);
@@ -458,6 +467,85 @@ async function main() {
     created.links.push(...madeIds);
 
     // ============================================================
+    // 13б. Смена адреса: настройки и журнал остаются, старый адрес умирает СРАЗУ
+    //
+    // Гостевой пропуск подписан по linkId, а не по токену, — значит без поколения
+    // сессий тот, у кого утёк старый адрес, спокойно досматривал бы содержимое ещё час.
+    // ============================================================
+    const folderRot = await mk(`sl-rotate-${stamp}`);
+    const cRot = await call('POST', '/share-links', t1, {
+      refType: 'drive_node', refId: folderRot, label: 'до смены',
+    });
+    created.links.push(cRot.json.data.id);
+    const oldTok = tokenOf(cRot.json.data.url);
+    const openedBefore = await call('POST', `/share-links/guest/${oldTok}/session`, null, {});
+    check('до смены адреса ссылка работает', openedBefore.ok, `status ${openedBefore.status}`);
+    const oldSess = { 'x-share-session': openedBefore.json?.data?.sessionToken };
+
+    const rotated = await call('POST', `/share-links/${cRot.json.data.id}/rotate`, t1);
+    check('адрес сменился', rotated.ok && tokenOf(rotated.json.data.url) !== oldTok, `status ${rotated.status}`);
+    check('подпись «для кого» пережила смену', rotated.json?.data?.label === 'до смены', rotated.json?.data?.label);
+    check('отмечено, что адрес меняли', !!rotated.json?.data?.tokenRotatedAt);
+
+    const byOldTok = await call('GET', `/share-links/guest/${oldTok}`, null);
+    check('старый адрес мёртв', byOldTok.status === 404, `status ${byOldTok.status}`);
+    const oldSession = await call('GET', `/share-links/guest/${tokenOf(rotated.json.data.url)}/view`, null, null, oldSess);
+    check('пропуск, выданный ДО смены, больше не работает', oldSession.status === 403, `status ${oldSession.status}`);
+    const newTokOk = await call('POST', `/share-links/guest/${tokenOf(rotated.json.data.url)}/session`, null, {});
+    check('новый адрес работает', newTokOk.ok, `status ${newTokOk.status}`);
+    const rotRow = await prisma.shareLink.findUnique({ where: { id: cRot.json.data.id } });
+    check('журнал открытий не обнулился сменой адреса', rotRow.openCount === 2, String(rotRow.openCount));
+
+    // ============================================================
+    // 13в. Скачивание можно запретить: оригинала гостю не отдают
+    // ============================================================
+    const folderNoDl = await mk(`sl-nodl-${stamp}`);
+    const imgFile = await upload(t1, { name: `sl-img-${stamp}.png`, mime: 'image/png', bytes: PNG_1PX });
+    const imgNode = await call('POST', '/drive/nodes', t1, { parentId: folderNoDl, fileId: imgFile.id });
+    if (imgNode.ok) created.nodes.push(imgNode.json.data.id);
+    const cNoDl = await call('POST', '/share-links', t1, {
+      refType: 'drive_node', refId: folderNoDl, allowDownload: false,
+    });
+    created.links.push(cNoDl.json.data.id);
+    const sNoDl = await call('POST', `/share-links/guest/${tokenOf(cNoDl.json.data.url)}/session`, null, {});
+    check('вид папки несёт запрет скачивания', sNoDl.json?.data?.view?.allowDownload === false, String(sNoDl.json?.data?.view?.allowDownload));
+    const nodlSess = { 'x-share-session': sNoDl.json?.data?.sessionToken };
+    const nodlList = await call('GET', '/drive/guest/nodes', null, null, nodlSess);
+    const nodlFile = (nodlList.json?.data ?? []).find((n) => n.kind === 'file');
+    check('оригинал гостю НЕ отдан', nodlFile && nodlFile.file.url === null, String(nodlFile?.file?.url));
+    check('файл при этом помечен доступным', nodlFile?.file?.available === true, String(nodlFile?.file?.available));
+    const zipDenied = await call('GET', `/drive/guest/download-zip?session=${encodeURIComponent(sNoDl.json.data.sessionToken)}`, null);
+    check('ZIP тоже закрыт — иначе он обходил бы настройку', zipDenied.status === 403 && zipDenied.code === 'share_download_disabled', `${zipDenied.status}/${zipDenied.code}`);
+
+    // ============================================================
+    // 13г. ZIP папки: архив собирается и отдаётся потоком
+    // ============================================================
+    // Своя папка: folderA к этому моменту уже удалён навсегда проверкой выше.
+    const folderZip = await mk(`sl-zip-${stamp}`);
+    const zipSub = await mk(`вложенная-${stamp}`, folderZip);
+    const zipFile = await upload(t1, { name: `внутри-${stamp}.txt`, mime: 'text/plain', bytes: TXT('содержимое архива') });
+    const zipNode = await call('POST', '/drive/nodes', t1, { parentId: zipSub, fileId: zipFile.id });
+    if (zipNode.ok) created.nodes.push(zipNode.json.data.id);
+
+    const cZip = await call('POST', '/share-links', t1, { refType: 'drive_node', refId: folderZip });
+    created.links.push(cZip.json.data.id);
+    const sZip = await call('POST', `/share-links/guest/${tokenOf(cZip.json.data.url)}/session`, null, {});
+    const zipRes = await fetch(
+      `${BASE}/drive/guest/download-zip?session=${encodeURIComponent(sZip.json.data.sessionToken)}`,
+    );
+    const zipBody = Buffer.from(await zipRes.arrayBuffer());
+    check('архив отдался', zipRes.status === 200, `status ${zipRes.status}`);
+    check('это настоящий zip (сигнатура PK)', zipBody[0] === 0x50 && zipBody[1] === 0x4b, zipBody.slice(0, 2).toString('hex'));
+    check('в архиве есть содержимое', zipBody.length > 100, `${zipBody.length} байт`);
+    // Имена внутри zip лежат открытым текстом — по ним и проверяем, что путь собран
+    // относительно корня ссылки, а не потерян.
+    check(
+      'файл лежит по своему пути внутри архива',
+      zipBody.includes(`вложенная-${stamp}/внутри-${stamp}.txt`),
+      'ищем путь вложенная/файл',
+    );
+
+    // ============================================================
     // 14б. Редактор объекта: честный отказ вместо «Объект не найден»
     //
     // На диске организации корень раздаёт роль «правит» КАЖДОМУ сотруднику, поэтому
@@ -490,6 +578,154 @@ async function main() {
     );
     const jsonHead = await fetch(`${BASE}/verify/status`);
     check('на обычных ручках фрейминг по-прежнему запрещён', jsonHead.headers.get('x-frame-options') === 'SAMEORIGIN', jsonHead.headers.get('x-frame-options'));
+
+    // ============================================================
+    // 14г. Уведомления об открытии и суточный предохранитель
+    // ============================================================
+    const folderNotify = await mk(`sl-notify-${stamp}`);
+    const cQuiet = await call('POST', '/share-links', t1, {
+      refType: 'drive_node', refId: folderNotify, notifyOnOpen: false,
+    });
+    created.links.push(cQuiet.json.data.id);
+    await call('POST', `/share-links/guest/${tokenOf(cQuiet.json.data.url)}/session`, null, {});
+    const quietNotes = await prisma.notification.count({
+      where: { userId: u1, type: 'share.link.opened', payload: { path: ['shareLinkId'], equals: cQuiet.json.data.id } },
+    });
+    check('с выключенным тумблером не уведомляем', quietNotes === 0, String(quietNotes));
+
+    const cLoud = await call('POST', '/share-links', t1, { refType: 'drive_node', refId: folderNotify, label: 'шумная' });
+    created.links.push(cLoud.json.data.id);
+    const loudTok = tokenOf(cLoud.json.data.url);
+    // Открываем на один раз больше потолка: последнее уведомление должно быть прощальным.
+    for (let i = 0; i <= SHARE_NOTIFY_PER_DAY; i++) {
+      await call('POST', `/share-links/guest/${loudTok}/session`, null, {});
+    }
+    const loudWhere = { path: ['shareLinkId'], equals: cLoud.json.data.id };
+    const [loudNotes, mutedNotes] = await Promise.all([
+      prisma.notification.count({ where: { userId: u1, type: 'share.link.opened', payload: loudWhere } }),
+      prisma.notification.count({ where: { userId: u1, type: 'share.link.opened.muted', payload: loudWhere } }),
+    ]);
+    check('уведомления об открытии приходят', loudNotes === SHARE_NOTIFY_PER_DAY, `${loudNotes} из ${SHARE_NOTIFY_PER_DAY}`);
+    check('после потолка — одно прощальное «дальше тихо»', mutedNotes === 1, String(mutedNotes));
+    // Ещё открытия за те же сутки не должны добавлять ни одного уведомления.
+    await call('POST', `/share-links/guest/${loudTok}/session`, null, {});
+    const afterMute = await prisma.notification.count({
+      where: { userId: u1, type: { in: ['share.link.opened', 'share.link.opened.muted'] }, payload: loudWhere },
+    });
+    check('после «тихо» уведомлений больше нет', afterMute === SHARE_NOTIFY_PER_DAY + 1, String(afterMute));
+
+    // ============================================================
+    // 14д. «Мои ссылки»: обзор всего, что человек раздал наружу
+    // ============================================================
+    const mine = await call('GET', '/share-links/mine?status=active', t1);
+    check('свои ссылки отдаются одним списком', mine.ok && mine.json.data.length > 0, `ссылок ${mine.json?.data?.length}`);
+    const described = (mine.json?.data ?? []).find((l) => l.id === cLoud.json.data.id);
+    check('у строки есть подпись объекта из describeRef', !!described?.ref?.title, described?.ref?.title);
+    check('и его вид (папка/файл)', described?.ref?.icon === 'folder', described?.ref?.icon);
+
+    const foreignMine = await call('GET', '/share-links/mine?status=active', t3);
+    const leaked = (foreignMine.json?.data ?? []).some((l) => l.createdById !== u3);
+    check('в чужом списке нет моих ссылок', !leaked);
+
+    const statsRes = await call('GET', '/share-links/mine/stats', t1);
+    check('сводка считается', statsRes.ok && typeof statsRes.json.data.activeLinks === 'number', `активных ${statsRes.json?.data?.activeLinks}`);
+    check('открытия за период посчитаны', statsRes.json?.data?.opensInPeriod > 0, String(statsRes.json?.data?.opensInPeriod));
+    check('полоска по дням заполнена', (statsRes.json?.data?.daily ?? []).length === statsRes.json?.data?.periodDays, `${statsRes.json?.data?.daily?.length}`);
+
+    // Массовый отзыв — только свои: чужие id в списке молча игнорируются.
+    const bulkForeign = await call('POST', '/share-links/mine/revoke', t3, { ids: [cLoud.json.data.id] });
+    check('чужую ссылку массовым отзывом не тронуть', bulkForeign.ok && bulkForeign.json.data.revoked === 0, String(bulkForeign.json?.data?.revoked));
+    const stillAlive = await prisma.shareLink.findUnique({ where: { id: cLoud.json.data.id } });
+    check('она осталась действующей', stillAlive.revokedAt === null);
+
+    const bulkMine = await call('POST', '/share-links/mine/revoke', t1, {
+      ids: [cLoud.json.data.id, cQuiet.json.data.id],
+    });
+    check('свои отзываются пачкой', bulkMine.ok && bulkMine.json.data.revoked === 2, String(bulkMine.json?.data?.revoked));
+    // Массовый отзыв обязан писать в хронику ровно как одиночный: закрытие доступа
+    // наружу не должно происходить тише, чем его открытие.
+    const bulkChatter = await prisma.chatterEntry.count({
+      where: { refType: 'drive_node', refId: folderNotify, typeKey: 'share.link_revoked' },
+    });
+    check('массовый отзыв попал в хронику', bulkChatter === 2, String(bulkChatter));
+
+    // ============================================================
+    // 14е. Снимок имени объекта: список переживает удаление объекта
+    //
+    // Без снимка список звал бы резолвер на каждую строку, показывал «Объект удалён»
+    // вместо имени и светил ТЕКУЩЕЕ имя тому, у кого доступ давно отобрали.
+    // ============================================================
+    const folderSnap = await mk(`sl-snapshot-${stamp}`);
+    const cSnap = await call('POST', '/share-links', t1, { refType: 'drive_node', refId: folderSnap });
+    created.links.push(cSnap.json.data.id);
+    await call('POST', '/drive/nodes/trash', t1, { ids: [folderSnap] });
+    await call('DELETE', '/drive/nodes', t1, { ids: [folderSnap] });
+    created.nodes = created.nodes.filter((id) => id !== folderSnap);
+
+    const afterPurge = await call('GET', '/share-links/mine?status=all', t1);
+    const snapRow = (afterPurge.json?.data ?? []).find((l) => l.id === cSnap.json.data.id);
+    check(
+      'имя объекта пережило его удаление',
+      snapRow?.ref?.title === `sl-snapshot-${stamp}`,
+      snapRow?.ref?.title,
+    );
+
+    // ============================================================
+    // 14ж. Предохранитель уведомлений держится и при ПАРАЛЛЕЛЬНЫХ открытиях
+    //
+    // Ровно тот случай, ради которого он и заведён: вирусную ссылку открывают
+    // одновременно, и «прочитали счётчик — записали счётчик» дал бы всем одно и то же
+    // значение, из-за чего потолок не наступал бы никогда.
+    // ============================================================
+    const folderRace = await mk(`sl-notify-race-${stamp}`);
+    const cRace2 = await call('POST', '/share-links', t1, { refType: 'drive_node', refId: folderRace });
+    created.links.push(cRace2.json.data.id);
+    const raceTok = tokenOf(cRace2.json.data.url);
+    await Promise.all(
+      Array.from({ length: SHARE_NOTIFY_PER_DAY + 4 }, () =>
+        call('POST', `/share-links/guest/${raceTok}/session`, null, {}),
+      ),
+    );
+    const raceWhere = { path: ['shareLinkId'], equals: cRace2.json.data.id };
+    const raceNotes = await prisma.notification.count({
+      where: { userId: u1, type: { in: ['share.link.opened', 'share.link.opened.muted'] }, payload: raceWhere },
+    });
+    check(
+      'потолок уведомлений держится и в гонке',
+      raceNotes === SHARE_NOTIFY_PER_DAY + 1,
+      `${raceNotes}, ожидалось ${SHARE_NOTIFY_PER_DAY + 1}`,
+    );
+
+    // ============================================================
+    // 14з. Курсор «Моих ссылок» не теряет ссылки-близнецы
+    //
+    // Пачку ссылок выдают за одну миллисекунду, и курсор по одному только времени
+    // отсекал бы их условием «строго раньше» целиком.
+    // ============================================================
+    const folderPage = await mk(`sl-paging-${stamp}`);
+    const twins = [];
+    for (let i = 0; i < 3; i++) {
+      const r = await call('POST', '/share-links', t1, { refType: 'drive_node', refId: folderPage, label: `близнец ${i}` });
+      twins.push(r.json.data.id);
+      created.links.push(r.json.data.id);
+    }
+    const seen = new Set();
+    let cursor = null;
+    for (let page = 0; page < 12; page++) {
+      const url = `/share-links/mine?status=active&limit=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+      const r = await call('GET', url, t1);
+      (r.json?.data ?? []).forEach((l) => seen.add(l.id));
+      cursor = r.json?.nextCursor;
+      if (!cursor) break;
+    }
+    check('постраничный обход не теряет близнецов', twins.every((id) => seen.has(id)), `нашлось ${twins.filter((id) => seen.has(id)).length} из 3`);
+
+    // Смена адреса тоже пишется в хронику: у части получателей доступ в этот момент
+    // пропадает, и молча такое происходить не должно.
+    const rotChatter = await prisma.chatterEntry.count({
+      where: { refType: 'drive_node', refId: folderRot, typeKey: 'share.link_rotated' },
+    });
+    check('смена адреса попала в хронику', rotChatter === 1, String(rotChatter));
 
     // ============================================================
     // 15. Документ: ссылку создаёт только владелец
@@ -574,6 +810,193 @@ async function main() {
     check('заражённый файл помечен недоступным', infRow?.file?.available === false, String(infRow?.file?.available));
     check('ссылки на байты заражённого нет', infRow?.file?.url === null, String(infRow?.file?.url));
 
+    // ============================================================
+    // 17. Личность гостя: тумблер, SMS-код, «кто открывал», отсечение анонимов
+    // ============================================================
+    // Номер уникален на прогон: цепочка verify живёт 10 минут, и повторный запуск
+    // на том же номере упирался бы в кулдаун ресенда.
+    const GUEST_PHONE = '+7705' + String(stamp).slice(-7);
+    created.guestPhones.push(GUEST_PHONE);
+    const devCode = async (challengeId) =>
+      (await call('GET', `/verify/dev/last-code?challengeId=${challengeId}`, null)).json?.data?.code ?? null;
+
+    const idFolder = await mk(`sl-id-${stamp}`);
+    const idFile = await upload(t1, { name: `sl-id-${stamp}.txt`, mime: 'text/plain', bytes: TXT('для гостя с именем') });
+    const idNode = await call('POST', '/drive/nodes', t1, { parentId: idFolder, fileId: idFile.id });
+    if (idNode.ok) created.nodes.push(idNode.json.data.id);
+
+    const cIdent = await call('POST', '/share-links', t1, {
+      refType: 'drive_node', refId: idFolder, requireIdentity: true,
+    });
+    check('ссылка с подтверждением номера создана', cIdent.ok && cIdent.json?.data?.requireIdentity === true, `status ${cIdent.status}`);
+    if (cIdent.ok) created.links.push(cIdent.json.data.id);
+    const idTok = tokenOf(cIdent.json.data.url);
+
+    const peekId = await call('GET', `/share-links/guest/${idTok}`, null);
+    check('peek предупреждает о подтверждении номера', peekId.ok && peekId.json.data.identityRequired === true, JSON.stringify(peekId.json?.data));
+
+    const noIdent = await call('POST', `/share-links/guest/${idTok}/session`, null, { guestName: 'Аноним' });
+    check('открытие без пропуска личности → 403 + код', noIdent.status === 403 && noIdent.code === 'share_identity_required', `${noIdent.status}/${noIdent.code}`);
+
+    const stId = await call('POST', `/share-links/guest/${idTok}/identity/start`, null, { phone: GUEST_PHONE });
+    check('SMS-код гостю запрошен', stId.ok && !!stId.json?.data?.challengeId, `status ${stId.status} ${JSON.stringify(stId.json?.details ?? stId.json?.message ?? '')}`);
+    let guestPass = null;
+    if (stId.ok) {
+      const code = await devCode(stId.json.data.challengeId);
+      check('код цепочки достижим dev-ручкой', !!code, String(code));
+      const chk = await call('POST', '/verify/check', null, { challengeId: stId.json.data.challengeId, code });
+      check('код принят → одноразовый пропуск', chk.ok && !!chk.json?.data?.verifyToken, `status ${chk.status}`);
+      const vt = chk.json?.data?.verifyToken;
+
+      const sId = await call('POST', `/share-links/guest/${idTok}/session`, null, {
+        verifyToken: vt, guestName: 'Асель Гостевая',
+      }, { 'user-agent': 'verify-suite/1.0' });
+      check('открытие с личностью прошло', sId.ok, `status ${sId.status} ${JSON.stringify(sId.json?.message ?? '')}`);
+      check('сессия знает, кем гость представился', sId.json?.data?.guest?.name === 'Асель Гостевая', JSON.stringify(sId.json?.data?.guest));
+      guestPass = sId.json?.data?.sessionToken ?? null;
+
+      // Пропуск verify одноразов: второе открытие с тем же токеном — отказ.
+      const reuse = await call('POST', `/share-links/guest/${idTok}/session`, null, {
+        verifyToken: vt, guestName: 'Асель Гостевая',
+      });
+      check('повторное использование SMS-пропуска отвергнуто', !reuse.ok, `status ${reuse.status}`);
+
+      // Гостевые ручки Диска работают по пропуску с личностью.
+      const lsId = await call('GET', '/drive/guest/nodes', null, null, { [SESSION_HEADER]: guestPass });
+      check('листинг папки по пропуску с личностью', lsId.ok && (lsId.json?.data ?? []).length >= 1, `status ${lsId.status}`);
+
+      // Журнал визитов показывает КТО открывал.
+      const visitsId = await call('GET', `/share-links/${cIdent.json.data.id}/visits`, t1);
+      const visitRow = (visitsId.json?.data ?? [])[0];
+      check('в журнале имя гостя', visitRow?.guestName === 'Асель Гостевая', JSON.stringify(visitRow));
+      check('в журнале номер гостя (полностью, владельцу)', visitRow?.guestPhone === GUEST_PHONE, visitRow?.guestPhone);
+
+      // Запись гостя скоупится на владельца объектов.
+      const guestRow = await prisma.shareLinkGuest.findFirst({ where: { phone: GUEST_PHONE } });
+      check('гость записан на владельца ссылки', guestRow?.ownerType === 'user' && guestRow?.ownerId === u1, JSON.stringify({ t: guestRow?.ownerType, o: guestRow?.ownerId }));
+
+      // Уведомление владельцу называет гостя по имени.
+      const notif = await prisma.notification.findFirst({
+        where: { userId: u1, type: 'share.link.opened', body: { contains: 'Асель Гостевая' } },
+        orderBy: { createdAt: 'desc' },
+      });
+      check('уведомление «ссылку открыли» несёт имя гостя', !!notif, notif?.body);
+    }
+
+    // identity/start на ссылке БЕЗ тумблера — не источник SMS-трафика.
+    // Ссылка — свежая: ранние секции прогона уже погасили tokA, и до проверки тумблера
+    // дело не доходило бы (assertUsable отвечает 410 раньше).
+    const cPlain = await call('POST', '/share-links', t1, { refType: 'drive_node', refId: idFolder });
+    created.links.push(cPlain.json.data.id);
+    const stPlain = await call('POST', `/share-links/guest/${tokenOf(cPlain.json.data.url)}/identity/start`, null, { phone: GUEST_PHONE });
+    check('SMS-старт на ссылке без тумблера → 403', stPlain.status === 403, `status ${stPlain.status}`);
+
+    // Включение тумблера на ЖИВОЙ ссылке отрезает уже открытые анонимные сессии.
+    const cAnon = await call('POST', '/share-links', t1, { refType: 'drive_node', refId: idFolder });
+    created.links.push(cAnon.json.data.id);
+    const anonTok = tokenOf(cAnon.json.data.url);
+    const sAnon = await call('POST', `/share-links/guest/${anonTok}/session`, null, {});
+    check('анонимная сессия открыта', sAnon.ok, `status ${sAnon.status}`);
+    const anonPass = sAnon.json?.data?.sessionToken;
+    const upIdent = await call('PATCH', `/share-links/${cAnon.json.data.id}`, t1, { requireIdentity: true });
+    check('тумблер включён правкой', upIdent.ok && upIdent.json?.data?.requireIdentity === true, `status ${upIdent.status}`);
+    const afterCut = await call('GET', `/share-links/guest/${anonTok}/view`, null, null, { [SESSION_HEADER]: anonPass });
+    check('анонимная сессия отрезана включением тумблера', afterCut.status === 403, `status ${afterCut.status}`);
+
+    // Пароль + личность: пароль проверяется ДО отправки SMS.
+    const cBoth = await call('POST', '/share-links', t1, {
+      refType: 'drive_node', refId: idFolder, requireIdentity: true, password: 'секрет-42',
+    });
+    created.links.push(cBoth.json.data.id);
+    const bothTok = tokenOf(cBoth.json.data.url);
+    const stNoPwd = await call('POST', `/share-links/guest/${bothTok}/identity/start`, null, { phone: GUEST_PHONE });
+    check('SMS-старт без пароля запароленной ссылки → 403', stNoPwd.status === 403 && stNoPwd.code === 'share_password_required', `${stNoPwd.status}/${stNoPwd.code}`);
+    const stBadPwd = await call('POST', `/share-links/guest/${bothTok}/identity/start`, null, { phone: GUEST_PHONE, password: 'не тот' });
+    check('SMS-старт с неверным паролем → 403 + счётчик', stBadPwd.status === 403 && stBadPwd.code === 'share_password_wrong', `${stBadPwd.status}/${stBadPwd.code}`);
+
+    // ============================================================
+    // 18. «Ссылки организации»: видит команда (manager+), отзывает ЧУЖИЕ
+    // ============================================================
+    // Ради этого раздел и заводится: автор ссылки уволился/недоступен, а закрыть
+    // раздачу должен кто-то из управляющих.
+    const cws = await call('POST', '/workspaces', t1, { name: `sl-org-${stamp}` });
+    check('организация для ссылок создана', cws.ok, `status ${cws.status}`);
+    const wsId = cws.json?.data?.id;
+    created.workspaces.push(wsId);
+
+    // u2 нанимается и становится Менеджером (он и будет закрывать чужое)
+    await call('POST', `/workspaces/${wsId}/invitations`, t1, { phone: P2 });
+    const incOrg = await call('GET', '/workspaces/invitations/incoming', t2);
+    const invOrg = (incOrg.json?.data ?? []).find((i) => i.workspaceId === wsId);
+    if (invOrg) await call('POST', `/workspaces/invitations/${invOrg.id}/accept`, t2);
+    // u3 остаётся посторонним — на нём проверяется, что раздел закрыт снаружи
+
+    // Ссылка на объект ДИСКА ОРГАНИЗАЦИИ — только она попадает в организационный вид
+    const orgFolder = await call('POST', '/drive/folders', t1, { workspaceId: wsId, name: `sl-orgdir-${stamp}` });
+    check('папка на диске организации создана', orgFolder.ok, `status ${orgFolder.status}`);
+    created.nodes.push(orgFolder.json?.data?.id);
+    const cOrgLink = await call('POST', '/share-links', t1, {
+      refType: 'drive_node', refId: orgFolder.json.data.id, label: 'Аудитору',
+    });
+    check('ссылка на объект организации создана', cOrgLink.ok, `status ${cOrgLink.status}`);
+    created.links.push(cOrgLink.json?.data?.id);
+
+    const orgList = await call('GET', `/workspaces/${wsId}/share-links`, t1);
+    check('организационный список отдаётся управляющему', orgList.ok, `status ${orgList.status}`);
+    check(
+      'в нём есть ссылка команды',
+      (orgList.json?.data ?? []).some((l) => l.id === cOrgLink.json.data.id),
+      `строк ${(orgList.json?.data ?? []).length}`,
+    );
+    check(
+      'личные ссылки владельца в организационный вид НЕ попали',
+      !(orgList.json?.data ?? []).some((l) => l.id === linkA.id),
+    );
+    check(
+      'автор приехал карточкой (actors)',
+      !!orgList.json?.actors && !!orgList.json.actors[u1],
+      JSON.stringify(Object.keys(orgList.json?.actors ?? {})),
+    );
+
+    const orgStats = await call('GET', `/workspaces/${wsId}/share-links/stats`, t1);
+    check('сводка организации считается', orgStats.ok && orgStats.json.data.activeLinks >= 1, `активных ${orgStats.json?.data?.activeLinks}`);
+
+    const byOutsider = await call('GET', `/workspaces/${wsId}/share-links`, t3);
+    check('постороннему раздел закрыт', byOutsider.status === 403, `status ${byOutsider.status}`);
+
+    // Стажёр (только что принятый u2) в раздел не ходит — гейт Менеджер+
+    const byTrainee = await call('GET', `/workspaces/${wsId}/share-links`, t2);
+    check('стажёру раздел закрыт (гейт Менеджер+)', byTrainee.status === 403, `status ${byTrainee.status}`);
+
+    // Повышаем u2 до Менеджера — и он закрывает ЧУЖУЮ ссылку (автор — u1)
+    const promote = await call('PATCH', `/workspaces/${wsId}/members/${u2}`, t1, { role: 'manager' });
+    check('u2 повышен до Менеджера', promote.ok, `status ${promote.status}`);
+    const seenByManager = await call('GET', `/workspaces/${wsId}/share-links`, t2);
+    check('Менеджер видит раздел', seenByManager.ok, `status ${seenByManager.status}`);
+
+    const revokeAlien = await call('POST', `/workspaces/${wsId}/share-links/revoke`, t2, {
+      ids: [cOrgLink.json.data.id],
+    });
+    check('Менеджер отозвал ЧУЖУЮ ссылку организации', revokeAlien.ok && revokeAlien.json.data.revoked === 1, JSON.stringify(revokeAlien.json?.data));
+    const afterOrgRevoke = await prisma.shareLink.findUnique({ where: { id: cOrgLink.json.data.id } });
+    check('отзыв записан с автором действия', !!afterOrgRevoke?.revokedAt && afterOrgRevoke.revokedById === u2, afterOrgRevoke?.revokedById);
+    const orgChatter = await prisma.chatterEntry.findFirst({
+      where: { refType: 'drive_node', refId: orgFolder.json.data.id, typeKey: 'share.link_revoked' },
+    });
+    check('отзыв чужой ссылки попал в хронику объекта', !!orgChatter);
+
+    // Чужой скоуп не отзывается: id ЛИЧНОЙ ссылки владельца через организацию не
+    // проходит. Ссылка нужна ЗАВЕДОМО ЖИВАЯ — берём свежую, а не одну из отозванных
+    // прогоном выше (иначе проверка «осталась нетронутой» ничего не доказывает).
+    const cPersonalAlive = await call('POST', '/share-links', t1, { refType: 'drive_node', refId: idFolder });
+    created.links.push(cPersonalAlive.json?.data?.id);
+    const crossScope = await call('POST', `/workspaces/${wsId}/share-links/revoke`, t2, {
+      ids: [cPersonalAlive.json.data.id],
+    });
+    check('ссылку вне организации массовым отзывом не тронуть', crossScope.ok && crossScope.json.data.revoked === 0, JSON.stringify(crossScope.json?.data));
+    const personalStill = await prisma.shareLink.findUnique({ where: { id: cPersonalAlive.json.data.id } });
+    check('она осталась действующей', !personalStill?.revokedAt);
+
     console.log(`\nгостевых вызовов за прогон: ${guestCalls} (ни одного 401 — инвариант держится)`);
   } finally {
     // Уборка: только свои объекты и штатным путём
@@ -581,7 +1004,14 @@ async function main() {
       await call('POST', '/drive/nodes/trash', t1, { ids: [id] }).catch(() => {});
       await call('DELETE', '/drive/nodes', t1, { ids: [id] }).catch(() => {});
     }
+    // Организации прогона — в архив (мусор приберёт gc-test-workspaces.cjs)
+    for (const id of created.workspaces) {
+      if (id) await call('DELETE', `/workspaces/${id}`, t1).catch(() => {});
+    }
     await prisma.shareLink.deleteMany({ where: { id: { in: created.links } } }).catch(() => {});
+    // Гости и цепочки verify этого прогона (номера уникальны на прогон)
+    await prisma.shareLinkGuest.deleteMany({ where: { phone: { in: created.guestPhones } } }).catch(() => {});
+    await prisma.verifyChallenge.deleteMany({ where: { phone: { in: created.guestPhones } } }).catch(() => {});
     await prisma.$disconnect();
   }
 

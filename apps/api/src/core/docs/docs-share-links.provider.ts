@@ -53,6 +53,7 @@ export class DocsShareLinksProvider implements ShareLinkProvider, OnModuleInit {
       ownerId: doc.ownerId,
       workspaceId: doc.ownerType === 'workspace' ? doc.ownerId : null,
       title: doc.title,
+      icon: 'file-text',
     };
   }
 
@@ -65,6 +66,7 @@ export class DocsShareLinksProvider implements ShareLinkProvider, OnModuleInit {
       title: doc.title,
       ext: doc.ext,
       updatedAt: (doc.lastSavedAt ?? doc.updatedAt).toISOString(),
+      allowDownload: link.allowDownload,
     };
 
     // Под одним try обе половины намеренно. Раньше ловилась только конвертация, и

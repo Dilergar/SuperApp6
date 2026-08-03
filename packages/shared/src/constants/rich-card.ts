@@ -14,7 +14,7 @@
 // Действий у неё нет намеренно: у типов Диска пустой фанаут эпох кэша (права считает
 // собственный предикат по живым tuples), и перепроверка способности через can() на
 // execute показывала бы устаревший ответ до десяти минут.
-export const RICH_CARD_REF_TYPES = ['order', 'listing', 'crowdfunding', 'task', 'event', 'fin_transaction', 'fin_month', 'office_room', 'drive_node'] as const;
+export const RICH_CARD_REF_TYPES = ['order', 'listing', 'crowdfunding', 'task', 'event', 'fin_transaction', 'fin_month', 'office_room', 'drive_node', 'approval_request'] as const;
 
 // Button visual styles.
 export const RICH_CARD_ACTION_STYLES = ['primary', 'danger', 'default'] as const;
@@ -41,6 +41,11 @@ export const RICH_CARD_ACTION_KEYS = [
   'event.rsvp_accept',
   'event.rsvp_decline',
   'event.rsvp_tentative',
+  // core/approvals — решение прямо из чата. Отклонение и возврат требуют причины,
+  // поэтому их кнопки открывают поле ввода, а не срабатывают одним нажатием.
+  'approval.approve',
+  'approval.reject',
+  'approval.return',
 ] as const;
 
 export const RICH_CARD_LIMITS = {

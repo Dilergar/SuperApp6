@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { DRIVE_LIMITS, DRIVE_ROLES, DRIVE_SORTS, DRIVE_SORT_DIRS } from '../constants/drive';
+import { queryBoolean } from './query';
 
 // ============================================
 // OmniDrive — Zod-схемы
@@ -51,7 +52,7 @@ export const driveListQuerySchema = z
     cursor: z.string().max(200).optional(),
     limit: z.coerce.number().int().min(1).max(DRIVE_LIMITS.maxPageSize).optional(),
     /** Только папки — для окна «куда переместить» */
-    foldersOnly: z.coerce.boolean().optional(),
+    foldersOnly: queryBoolean.optional(),
   })
   .strict()
   .refine(oneSpace, oneSpaceMsg);
@@ -69,6 +70,23 @@ export const driveGuestListSchema = z
     dir: z.enum(DRIVE_SORT_DIRS).default('asc'),
     cursor: z.string().max(200).optional(),
     limit: z.coerce.number().int().min(1).max(DRIVE_LIMITS.maxPageSize).optional(),
+  })
+  .strict();
+
+/**
+ * GET /drive/guest/download-zip — «Скачать всё» с гостевой страницы.
+ * `nodeId` необязателен: без него архивируется корень ссылки, с ним — её подпапка
+ * (и она обязана лежать в поддереве, это проверяет контроллер).
+ */
+export const driveGuestZipSchema = z
+  .object({
+    nodeId: nodeId.optional(),
+    /**
+     * Пропуск гостя. ЕДИНСТВЕННОЕ место, где он приходит не заголовком: скачивание —
+     * это навигация браузера, а своих заголовков у неё нет. Размен небольшой: пропуск
+     * живёт час, привязан к одной ссылке и по правам слабее самого адреса `/s/<токен>`.
+     */
+    session: z.string().min(1).max(512),
   })
   .strict();
 
@@ -152,6 +170,7 @@ export const drivePhotoQuerySchema = z
 export type DriveOverviewQuery = z.infer<typeof driveOverviewQuerySchema>;
 export type DriveListQuery = z.infer<typeof driveListQuerySchema>;
 export type DriveGuestListQuery = z.infer<typeof driveGuestListSchema>;
+export type DriveGuestZipQuery = z.infer<typeof driveGuestZipSchema>;
 export type DriveFolderCreateInput = z.infer<typeof driveFolderCreateSchema>;
 export type DriveNodeCreateInput = z.infer<typeof driveNodeCreateSchema>;
 export type DriveNodeUpdateInput = z.infer<typeof driveNodeUpdateSchema>;

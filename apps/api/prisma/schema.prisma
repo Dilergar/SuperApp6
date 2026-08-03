@@ -38,6 +38,16 @@ model User {
   locale           String    @default("ru")
   timezone         String    @default("Asia/Almaty")
 
+  // ---- Реквизиты («Моя Анкета» → «Для договоров и трудоустройства») ----
+  // В личном окружении (Группы) НЕ показываются вовсе; коллегам — по тумблерам
+  // companyCardVisibility.extras (по умолчанию скрыты); управляющим организаций
+  // (manager+) — всегда, выключить нельзя (второй уровень «Видимости в Компаниях»).
+  iin                String?   // 12 цифр, контрольная сумма проверяется схемой
+  residentialAddress String?   @map("residential_address")
+  idDocNumber        String?   @map("id_doc_number") // удостоверение личности
+  idDocIssuedBy      String?   @map("id_doc_issued_by")
+  idDocIssuedAt      DateTime? @map("id_doc_issued_at") @db.Date
+
   // Contact card visibility — per-field flags controlling what others see on your card
   // Shape: { lastName: bool, dateOfBirth: bool, age: bool, onlineStatus: bool, maritalStatus: bool, extras: {...} }
   // null means use defaults defined in shared/constants. Always-visible (regardless of this): firstName, lastName, phone, role.
@@ -76,6 +86,7 @@ model User {
   workspaceMembers   WorkspaceMember[]
   ownedWorkspaces    Workspace[]
   staffAssignments   StaffAssignment[]
+  paymentCards       UserPaymentCard[]
 
   // Workspace hiring invitations (separate from ContactInvitation — different semantics)
   workspaceInvitationsSent     WorkspaceInvitation[] @relation("WsInvitationInviter")
@@ -669,11 +680,91 @@ model Workspace {
   staffBranches    StaffBranch[]
   staffAssignments StaffAssignment[]
   officeRooms      OfficeRoom[]
+  requisites       WorkspaceRequisites?
+  bankAccounts     WorkspaceBankAccount[]
+  docTypes         DocType[]
+  docTemplates     DocTemplate[]
+  orgDocuments     OrgDocument[]
 
   @@index([ownerId])
   // Ретеншн-крон архива: выборка «что пора удалять» идёт по этой колонке.
   @@index([archivedAt])
   @@map("workspaces")
+}
+
+// Реквизиты организации (юрлицо для договоров и счетов) — блок «Анкеты компании»,
+// 1:1 при Workspace. Отдельная таблица, а не колонки на Workspace: сама организация
+// участвует в десятках списочных запросов, а реквизиты нужны одной странице анкеты
+// и будущим документам (счёт, договор, ЭДО). Редактирует admin+, сотрудникам блок
+// виден по флагу cardVisibility.requisites (по умолчанию да — реквизиты печатаются
+// на каждом счёте).
+model WorkspaceRequisites {
+  id             String    @id @default(uuid())
+  workspaceId    String    @unique @map("workspace_id")
+  orgForm        String?   @map("org_form") // ip | too | ao | kh | pk | institution | branch | other
+  taxRegime      String?   @map("tax_regime") // general | simplified | retail | patent | snr_kh | astana_hub | other
+  legalName      String?   @map("legal_name") // «ТОО „Ромашка"» — Workspace.name это бренд, в договор идёт юрформа
+  bin            String? // 12 цифр, контрольная сумма проверяется схемой
+  legalAddress   String?   @map("legal_address")
+  kbe            String? // код бенефициара, 2 цифры — без него не заполнить платёжку
+  vatPayer       Boolean   @default(false) @map("vat_payer")
+  vatSeries      String?   @map("vat_series")
+  vatNumber      String?   @map("vat_number")
+  vatDate        DateTime? @map("vat_date") @db.Date
+  // Директор — выбор из СОТРУДНИКОВ (валидируется членством при записи; FK на users
+  // нет намеренно — увольнение не должно рвать реквизиты, подпись сверяется на выдаче).
+  directorUserId String?   @map("director_user_id")
+  signBasis      String?   @map("sign_basis") // «Устава» / «доверенности № 7 от …»
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("workspace_requisites")
+}
+
+// Банковские счета организации — СПИСОК с основным (модель 1С/Odoo: счетов несколько,
+// в документы подставляется основной). «Ровно один основной» держит сервис в
+// транзакции (снять со всех → поставить одному); отдельного partial-unique нет —
+// короткое окно двух основных не ломает ничего, а честный инвариант чинится следующей
+// записью.
+model WorkspaceBankAccount {
+  id          String   @id @default(uuid())
+  workspaceId String   @map("workspace_id")
+  iban        String // KZ + 18 знаков, контроль ISO 13616
+  bankName    String   @map("bank_name")
+  bik         String // 8 знаков SWIFT-формата
+  isPrimary   Boolean  @default(false) @map("is_primary")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("workspace_bank_accounts")
+}
+
+// Платёжная карта человека — РЕКВИЗИТ для выплат (зарплата, возвраты), не платёжный
+// инструмент: без CVV, платежи платформа через неё не проводит. Номер и IBAN
+// карт-счёта шифруются (AES-256-GCM, ключ выводится из JWT_SECRET отдельным
+// контекстом — паттерн сейфа кредов Процессов); last4 хранится открыто для масок.
+// Управляющим организаций основная карта отдаётся полностью — ради выплат блок и
+// существует (второй уровень «Видимости в Компаниях»).
+model UserPaymentCard {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  panEncrypted  String   @map("pan_encrypted")
+  panLast4      String   @map("pan_last4")
+  ibanEncrypted String?  @map("iban_encrypted")
+  holderName    String   @map("holder_name") // как на карте
+  expMonth      Int      @map("exp_month")
+  expYear       Int      @map("exp_year")
+  isPrimary     Boolean  @default(false) @map("is_primary")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_payment_cards")
 }
 
 // Membership row. Role & permissions are NOT stored here — the single source
@@ -1573,6 +1664,11 @@ model ProcessDefinition {
   // 'team' — по командным правилам (manager+ редактирует, команда видит/запускает);
   // 'admins' — виден и запускается только admin+ («процессы для разработчиков»).
   visibility  String  @default("team")
+  // Профиль редактора: какой НАБОР НОД показывать и какие правила предметной области
+  // проверять. 'general' — полный канвас Процессов; 'documents.hr' — урезанный для
+  // кадровых маршрутов (кадровик не видит ноды про счета и AI-агентов).
+  // Ключ = категория вида документа, поэтому новая область — строка, а не правка палитры.
+  surface     String  @default("general")
   status      String  @default("active") // active | archived
   currentVersionId String? @map("current_version_id") // активная (опубликованная) версия
   createdById String  @map("created_by_id")
@@ -2509,6 +2605,12 @@ model DriveNode {
   // Системная папка пространства («Файлы из переписки») — не удаляется, не переносится.
   systemKey String? @map("system_key")
 
+  // ЗАКРЫТАЯ ПАПКА: наследование прав СВЕРХУ обрывается на ней. Нужна там, где общий
+  // корень раздаёт доступ всей команде, а содержимое обязано быть закрытым — личные
+  // дела сотрудников (сервис «Документы»). Доступ внутрь дают только гранты на самой
+  // папке и ниже; владелец пространства (admin+) видит всё, как и раньше.
+  restricted Boolean @default(false)
+
   // Время СЪЁМКИ, стенное. Колонка Prisma — timestamp БЕЗ пояса, и это здесь несущее:
   // ночной снимок не должен уезжать на соседние сутки при смене пояса зрителя, а
   // date_trunc по timestamptz не IMMUTABLE — индекс по месяцу не построить.
@@ -2643,6 +2745,13 @@ model ShareLink {
   workspaceId  String?   @map("workspace_id") // денормализация под «Журнал организации»
   createdById  String    @map("created_by_id")
   label        String? // подпись «для кого» — видна только управляющим
+  // СНИМОК названия объекта на момент выдачи. Нужен разделу «Ссылки наружу»: без него
+  // список звал бы резолвер потребителя на каждую строку (N запросов на страницу),
+  // показывал бы «Объект удалён» вместо имени там, где объекта уже нет, и светил бы
+  // ТЕКУЩЕЕ имя тому, у кого доступ к объекту давно отобрали. Снимок честнее и дешевле:
+  // в списке «что я раздал» важно, чем это было в момент раздачи.
+  refTitle     String?   @map("ref_title")
+  refIcon      String?   @map("ref_icon")
   expiresAt    DateTime? @map("expires_at") // null = бессрочная (модель Google Drive)
   revokedAt    DateTime? @map("revoked_at")
   revokedById  String?   @map("revoked_by_id") // null при СИСТЕМНОМ отзыве (объект удалён)
@@ -2656,6 +2765,31 @@ model ShareLink {
   maxOpens     Int?      @map("max_opens") // null = без потолка открытий
   openCount    Int       @default(0) @map("open_count")
   lastOpenedAt DateTime? @map("last_opened_at")
+  // Скачивание. ВАЖНО: это не защита от копирования — если гость видит файл, байты уже
+  // у него в браузере (так же честно называют это Google Drive и Dropbox). Выключенное
+  // скачивание убирает кнопки и отдаёт превью вместо оригинала.
+  allowDownload Boolean  @default(true) @map("allow_download")
+  // Личность гостя: перед показом содержимого гость называет имя и подтверждает номер
+  // SMS-кодом (core/verify, purpose share_link_guest). Журнал визитов показывает КТО
+  // открывал, а не только IP; будущие действия гостя (подпись, оплата, ответ на опрос)
+  // берут личность из этой же записи. Включение тумблера на живой ссылке бампает
+  // sessionEpoch — уже открытые АНОНИМНЫЕ сессии умирают (иначе настройка не делала бы
+  // того, что обещает).
+  requireIdentity Boolean @default(false) @map("require_identity")
+  // Уведомлять владельца об открытиях. По умолчанию ДА: самый частый случай — «отправил
+  // документ человеку», и там уведомление и есть смысл. От массовых ссылок спасает
+  // предохранитель ниже, а не выключенный по умолчанию тумблер.
+  notifyOnOpen  Boolean  @default(true) @map("notify_on_open")
+  // Предохранитель: сутки считаем открытия, после потолка уведомления по этой ссылке
+  // замолкают до следующего дня (одно прощальное «дальше сегодня тихо»). Без крона:
+  // день хранится прямо здесь и сбрасывается первым открытием следующих суток.
+  notifyDay     DateTime? @map("notify_day") @db.Date
+  notifyCount   Int      @default(0) @map("notify_count")
+  // Поколение гостевых пропусков. Пропуск подписан по linkId, а не по токену, поэтому
+  // без этого счётчика смена адреса НЕ отрезала бы того, кто уже открыл ссылку, — то
+  // есть ровно того, ради кого адрес и меняют.
+  sessionEpoch  Int      @default(0) @map("session_epoch")
+  tokenRotatedAt DateTime? @map("token_rotated_at")
   settings     Json      @default("{}") // слот пер-refType опций (v1 пусто; ЭДО положит своё)
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
@@ -2663,8 +2797,14 @@ model ShareLink {
   visits ShareLinkVisit[]
 
   @@index([refType, refId])
-  @@index([createdById])
+  // Страница «Мои ссылки»: свои ссылки, новые сверху.
+  @@index([createdById, createdAt])
   @@index([ownerType, ownerId])
+  // «Ссылки организации» (manager+): всё, что раздала наружу вся команда, новые
+  // сверху. Отдельный индекс, а не (ownerType, ownerId): организация — это ещё и
+  // КОНТЕКСТ, в котором личный объект может быть роздан по работе, и такие строки
+  // обязаны попадать в организационный вид.
+  @@index([workspaceId, createdAt])
   @@map("share_links")
 }
 
@@ -2677,10 +2817,304 @@ model ShareLinkVisit {
   openedAt  DateTime @default(now()) @map("opened_at")
   ip        String? // req.ip (с учётом TRUST_PROXY)
   userAgent String?  @map("user_agent")
+  // Кто открывал (ссылка требовала подтверждение номера). null у анонимных визитов.
+  guestId   String?  @map("guest_id")
 
-  link ShareLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  link  ShareLink       @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  guest ShareLinkGuest? @relation(fields: [guestId], references: [id], onDelete: SetNull)
 
   @@index([linkId, id])
   @@index([openedAt])
+  @@index([guestId])
   @@map("share_link_visits")
+}
+
+// Личность гостя — человек БЕЗ аккаунта, подтвердивший номер SMS-кодом (core/verify).
+// Подсистема движка ссылок, а не отдельный движок: гость существует только через
+// ссылку, и все гостевые потребители (ЭДО, счета, опросы, booking) получают его через
+// authorizeGuest — одной регистрацией в ShareLinksRegistry, как и всё остальное.
+//
+// Запись скоупится на ВЛАДЕЛЬЦА объекта (организацию/человека), а не глобально:
+// постоянный контрагент организации узнаваем в её журналах («этот номер уже подписывал
+// наши документы»), но организация А не может выяснить, что номер знаком организации Б.
+//
+// Это же — будущий мостик к Universal Identity: гость, зарегистрировавшийся на тот же
+// номер, сможет получить свою историю (прецедент активации pending-приглашений).
+model ShareLinkGuest {
+  id              String   @id @default(uuid())
+  ownerType       String   @map("owner_type") // user | workspace — владелец объектов ссылок
+  ownerId         String   @map("owner_id")
+  phone           String // нормализованный, подтверждён SMS-кодом
+  // Имя вводит сам гость (не подтверждается). Последнее введённое побеждает —
+  // человек мог опечататься в первый раз.
+  name            String
+  firstVerifiedAt DateTime @default(now()) @map("first_verified_at")
+  lastVerifiedAt  DateTime @default(now()) @map("last_verified_at")
+
+  visits ShareLinkVisit[]
+
+  @@unique([ownerType, ownerId, phone])
+  @@map("share_link_guests")
+}
+
+// ============================================================
+// core/approvals — движок согласований (14-й платформенный)
+// ============================================================
+// «Задачник для решений». Асимметрия, которую он чинит: нода «Задача человеку» в
+// Процессах создаёт НАСТОЯЩУЮ задачу в Задачнике, а нода «Одобрение» держала
+// человека внутри канваса и показывала ему одну строку текста — без файла, без
+// суммы, без карточки. Теперь решение живёт своей сущностью, знает свой предмет и
+// умеет попадать в стопку «Ждут решения», в чат рич-карточкой и в журнал.
+//
+// Ветвлений, условий и циклов здесь НЕТ — это работа движка Процессов. Заявка
+// умеет ровно одно: прямой список шагов, где одинаковый `order` идёт параллельно.
+
+/// Заявка: предмет + маршрут. Предмет полиморфен и БЕЗ FK (паттерн FileLink /
+/// ShareLink): движок не знает своих потребителей, а история решений обязана
+/// пережить удаление самого предмета.
+model ApprovalRequest {
+  id          String  @id @default(uuid())
+  refType     String  @map("ref_type") // org_document | (дальше — счета, задачи, сообщения)
+  refId       String  @map("ref_id")
+  // СНИМОК названия предмета на момент создания. Тот же довод, что у ShareLink.refTitle:
+  // список не должен звать резолвер потребителя на каждую строку, обязан пережить
+  // удаление объекта и не должен светить ТЕКУЩЕЕ имя тому, у кого доступ уже отобрали.
+  refTitle    String  @map("ref_title")
+  refIcon     String? @map("ref_icon")
+  // Организация — скоуп стопки и будущего «Журнала организации». null у личных заявок.
+  workspaceId String? @map("workspace_id")
+  status      String  @default("pending") // pending | approved | rejected | returned | cancelled
+
+  // Кто ведёт заявку снаружи. Для движка это НЕПРОЗРАЧНАЯ пара: он не знает ни
+  // процессов, ни их шагов — по originType находит хук в ApprovalOriginRegistry и
+  // отдаёт ему originRef как есть. Так направление знания остаётся «потребитель → движок».
+  originType String? @map("origin_type") // process | null (заявка сама по себе)
+  originRef  String? @map("origin_ref")
+
+  createdById String    @map("created_by_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  finishedAt  DateTime? @map("finished_at")
+
+  steps ApprovalStep[]
+
+  // Стопка «Ждут решения» и списки «мои заявки» — обе по активным.
+  @@index([workspaceId, status, createdAt])
+  @@index([createdById, status, createdAt])
+  @@index([refType, refId])
+  // Хук возврата: процесс просыпается по своей паре (тип, ссылка).
+  @@index([originType, originRef])
+  // ВНИМАНИЕ: партиальный UNIQUE (origin_type, origin_ref) WHERE status='pending'
+  // дописан РУКАМИ в миграции `approvals_origin_unique` — Prisma такое не выражает.
+  // «Одна живая заявка на шаг ведущего»: повторный толчок ноды при at-least-once
+  // не заводит вторую. По предмету (refType+refId) уника НЕТ намеренно — на одном
+  // документе законно идут параллельные подпись и ознакомление.
+  @@map("approval_requests")
+}
+
+/// Шаг маршрута. Одинаковый `order` = группа, идущая одновременно; следующая
+/// группа активируется, когда закрылась предыдущая. Отдельного режима
+/// «последовательно/параллельно» у заявки нет намеренно: одно поле выражает оба
+/// случая, а два способа сказать одно и то же всегда разъезжаются.
+model ApprovalStep {
+  id        String @id @default(uuid())
+  requestId String @map("request_id")
+  order     Int
+  kind      String // approval | signature | acknowledgement
+  title     String
+  status    String @default("waiting") // waiting | active | approved | rejected | returned | skipped
+
+  assigneeType  String  @map("assignee_type") // user | position | department
+  assigneeId    String  @map("assignee_id")
+  // Снимок названия должности/отдела: справочник переименуют, а история решений
+  // должна остаться читаемой («Согласовал Главный бухгалтер» — тот, что был тогда).
+  assigneeLabel String? @map("assignee_label")
+  rule          String  @default("any") // any (первый ответивший) | all (нужен каждый)
+
+  // Кого ждём поимённо. Заполняется СНИМКОМ в момент активации, а не читается на
+  // лету: иначе принятый в середине согласования сотрудник молча получал бы
+  // обязанность, а уволенный навсегда подвешивал бы шаг, который некому закрыть.
+  awaitingUserIds String[] @default([]) @map("awaiting_user_ids")
+
+  // Срок хранится В ЧАСАХ до активации и превращается в дату ПРИ ней. Считать
+  // дедлайн от создания заявки нельзя: шаг может неделю ждать своей очереди, и
+  // третий согласующий получал бы документ уже просроченным.
+  dueHours    Int?      @map("due_hours")
+  activatedAt DateTime? @map("activated_at")
+  deadlineAt  DateTime? @map("deadline_at")
+  escalatedAt DateTime? @map("escalated_at") // дедуп эскалации просрочки
+  decidedAt   DateTime? @map("decided_at")
+
+  request   ApprovalRequest    @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  decisions ApprovalDecision[]
+
+  // Стопка «Ждут решения» — ОДИН индексный запрос: «активные шаги, где я в снимке».
+  // Снимок и делает это возможным: адресация развёрнута в людей на активации, поэтому
+  // читающий путь не ходит в движок прав и ничего не знает про должности и отделы.
+  @@index([awaitingUserIds(ops: ArrayOps)], map: "approval_steps_awaiting", type: Gin)
+  @@index([requestId, order])
+  @@map("approval_steps")
+}
+
+/// Одно решение одного человека. Неизменяемо: это запись в истории, а не состояние
+/// (модель LedgerTransfer — журнал не переписывают).
+model ApprovalDecision {
+  id       String @id @default(uuid())
+  stepId   String @map("step_id")
+  userId   String @map("user_id")
+  decision String // approved | rejected | returned
+  comment  String?
+
+  // Отпечаток ТОЙ версии предмета, которую человек видел, когда решал. Без него
+  // подпись не значит ничего: файл могли переписать после решения, и доказать,
+  // под чем именно стоит согласие, было бы нечем.
+  subjectSha256 String? @map("subject_sha256")
+  // Чем подтверждено решение. В v1 всегда `internal` — нажатие в SuperApp6, а не
+  // юридическая подпись; core/sign добавит `sms`/`ecp`, не трогая маршруты.
+  signatureKind String  @default("internal") @map("signature_kind")
+  ip            String?
+
+  decidedAt DateTime @default(now()) @map("decided_at")
+
+  step ApprovalStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  // Один человек — одно решение на шаг. Двойной клик и гонка «любого из» гасятся
+  // индексом, а не проверкой в приложении.
+  @@unique([stepId, userId])
+  @@index([userId, decidedAt])
+  @@map("approval_decisions")
+}
+
+// ============================================================
+// Сервис «Документы» (B2B) — Этап 4 документной вертикали.
+//
+// Вид (DocType) — справочник организации: нумерация, видимость, категория.
+// Шаблон (DocTemplate) — бланк core/docs + форма полей; кому доступен, решают
+// гранты core/access (тип `doc_template`), а не своя таблица.
+// Карточка (OrgDocument) — сам документ: файл, стороны, статус, номер, маршрут.
+//
+// Ссылки на сущности ЧУЖИХ движков (документ core/docs, файлы, заявка
+// согласования, запуск процесса) — БЕЗ FK намеренно (паттерн WorkspaceRequisites
+// .directorUserId и FileLink): их жизненный цикл свой, и архивация документа в
+// движке не должна рвать карточку, которая является юридической записью.
+// ============================================================
+
+model DocType {
+  id             String  @id @default(uuid())
+  workspaceId    String  @map("workspace_id")
+  name           String
+  category       String  @default("general") // hr | general — профиль правил и редактора
+  // «ПР-{ГГГГ}-{NNN}»: номер присваивается ПРИ РЕГИСТРАЦИИ, черновики номеров не съедают
+  numberFormat   String? @map("number_format")
+  visibility     String  @default("managers") // team | department | managers
+  toPersonalFile Boolean @default(false) @map("to_personal_file")
+  sortOrder      Int     @default(0) @map("sort_order")
+  archivedAt     DateTime? @map("archived_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  templates DocTemplate[]
+  counters  DocTypeCounter[]
+  documents OrgDocument[]
+
+  @@index([workspaceId])
+  @@map("doc_types")
+}
+
+// Счётчик номеров: свой на каждый год (1 января нумерация начинается заново).
+// Инкремент атомарный — два одновременных «Зарегистрировать» не выдадут один номер.
+model DocTypeCounter {
+  id        String   @id @default(uuid())
+  docTypeId String   @map("doc_type_id")
+  year      Int
+  value     Int      @default(0)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  docType DocType @relation(fields: [docTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([docTypeId, year])
+  @@map("doc_type_counters")
+}
+
+model DocTemplate {
+  id          String @id @default(uuid())
+  workspaceId String @map("workspace_id") // денормализован: выборки идут по организации
+  docTypeId   String @map("doc_type_id")
+  name        String // человеческое: «Отпуск», а не «Заявление о предоставлении…»
+  description String?
+
+  // Бланк — ОБЫЧНЫЙ документ core/docs (правится тем же редактором, что и всё остальное).
+  documentId String? @map("document_id")
+  fileId     String? @map("file_id") // .docx бланка; живёт и без включённого редактора
+
+  fields      Json    @default("[]") // форма подачи: [{key,label,kind,required,options?}]
+  selfService Boolean @default(false) @map("self_service") // «сотрудник подаёт сам»
+  status      String  @default("draft") // draft | published
+  version     Int     @default(1)
+
+  createdById String    @map("created_by_id")
+  archivedAt  DateTime? @map("archived_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  docType   DocType     @relation(fields: [docTypeId], references: [id], onDelete: Cascade)
+  workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  documents OrgDocument[]
+
+  @@index([workspaceId, status])
+  @@index([docTypeId])
+  @@map("doc_templates")
+}
+
+model OrgDocument {
+  id          String @id @default(uuid())
+  workspaceId String @map("workspace_id")
+  docTypeId   String @map("doc_type_id")
+  templateId  String? @map("template_id")
+
+  title  String
+  // draft | in_review | signed | registered | active | rejected | cancelled | archived
+  status String @default("draft")
+
+  number     String?   // присваивается при регистрации
+  numberedAt DateTime? @map("numbered_at")
+
+  // Сторона документа — сотрудник (заявитель / субъект приказа). Контрагенты ждут
+  // своего справочника: в v1 стороной может быть только человек организации.
+  subjectUserId String? @map("subject_user_id")
+  createdById   String  @map("created_by_id")
+
+  documentId String? @map("document_id") // живой документ core/docs (правка в редакторе)
+  fileId     String? @map("file_id")     // .docx карточки
+  pdfFileId  String? @map("pdf_file_id") // отпечаток на момент отправки/подписи
+
+  fields Json @default("{}") // значения формы подачи
+
+  approvalRequestId String? @map("approval_request_id")
+  processInstanceId String? @map("process_instance_id")
+  parentDocumentId  String? @map("parent_document_id") // приказ ← заявление
+
+  // Узлы Диска: реестр вида и личное дело — ОДИН файл, два места (байты не дублируются).
+  registryNodeId String? @map("registry_node_id")
+  personalNodeId String? @map("personal_node_id")
+
+  signedAt   DateTime? @map("signed_at")
+  archivedAt DateTime? @map("archived_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  docType   DocType       @relation(fields: [docTypeId], references: [id])
+  template  DocTemplate?  @relation(fields: [templateId], references: [id])
+  parent    OrgDocument?  @relation("OrgDocumentChain", fields: [parentDocumentId], references: [id])
+  children  OrgDocument[] @relation("OrgDocumentChain")
+
+  @@index([workspaceId, status, createdAt])
+  @@index([workspaceId, docTypeId])
+  @@index([subjectUserId])
+  @@index([templateId])
+  @@index([parentDocumentId])
+  @@index([processInstanceId])
+  @@map("org_documents")
 }
