@@ -1,8 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { DOCUMENT_SESSION_STATUSES } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { DocsService } from './docs.service';
+
+const [SESSION_OPEN] = DOCUMENT_SESSION_STATUSES;
 
 /**
  * Жнец брошенных блокировок — ТРЕТИЙ ремень закрытия сессии правки.
@@ -29,7 +32,7 @@ export class DocsCron {
     // потягались бы за нарезку вехи (status-guard их разведёт, но работа лишняя).
     await this.redis.withLock('docs:reaper', 4 * 60 * 1000, async () => {
       const stale = await this.db.documentSession.findMany({
-        where: { status: 'open', expiresAt: { lte: new Date() } },
+        where: { status: SESSION_OPEN, expiresAt: { lte: new Date() } },
         orderBy: { expiresAt: 'asc' },
         take: 100,
       });

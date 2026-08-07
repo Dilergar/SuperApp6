@@ -11,7 +11,7 @@ import {
 } from '@/components/ui';
 import { EntitySelector } from '@/components/EntitySelector';
 import type { EntityOption, Principal } from '@/lib/entities';
-import { api } from '@/lib/api';
+import { apiPatch } from '@/lib/api';
 import { ROLE_PRESETS, pluralDays } from '@superapp/shared';
 import type {
   CalendarAccessLevel,
@@ -351,9 +351,9 @@ export function GroupVisibilityEditor({
     const prev = savedCal.current;
     setCal(lvl);
     const ok = await runAction(async () => {
-      const { data } = await api.patch(`/circles/${group.id}`, { calendarVisibility: lvl });
+      const updated = await apiPatch<Circle>(`/circles/${group.id}`, { calendarVisibility: lvl });
       savedCal.current = lvl;
-      onSaved(data.data as Circle);
+      onSaved(updated);
     }, 'Доступ к календарю сохранён');
     if (!ok) setCal(prev);
   };
@@ -365,9 +365,9 @@ export function GroupVisibilityEditor({
     timer.current = setTimeout(() => {
       void (async () => {
         const ok = await runAction(async () => {
-          const { data } = await api.patch(`/circles/${group.id}`, { cardVisibility: next });
+          const updated = await apiPatch<Circle>(`/circles/${group.id}`, { cardVisibility: next });
           savedVis.current = next;
-          onSaved(data.data as Circle);
+          onSaved(updated);
         }, 'Видимость группы сохранена');
         if (!ok) setVis(savedVis.current);
       })();

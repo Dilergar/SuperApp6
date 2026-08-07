@@ -14,8 +14,13 @@
 import { useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ORG_DOCUMENT_REF_TYPE, approvalHref, type ChatterActorLite } from '@superapp/shared';
-import { api, apiErrorMessage } from '@/lib/api';
+import {
+  ORG_DOCUMENT_REF_TYPE,
+  approvalHref,
+  type ChatterActorLite,
+  type ChatterPageDto,
+} from '@superapp/shared';
+import { apiErrorMessage, apiGet } from '@/lib/api';
 import { toastError } from '@/lib/toast';
 import { documentHref } from '@/lib/docs-api';
 import { approvalsRootKey, orgDocumentKey, orgDocumentsPrefix } from '@/lib/queries';
@@ -52,10 +57,11 @@ export default function OrgDocumentPage() {
   const chronicleQuery = useInfiniteQuery({
     queryKey: ['chatter', ORG_DOCUMENT_REF_TYPE, documentId],
     queryFn: async ({ pageParam }) => {
-      const res = await api.get(`/chatter/${ORG_DOCUMENT_REF_TYPE}/${documentId}`, {
+      // Был `items: unknown[]` при готовом shared-типе рядом: записи хроники уезжали
+      // в ChronicleFeed вообще непроверенными.
+      return apiGet<ChatterPageDto>(`/chatter/${ORG_DOCUMENT_REF_TYPE}/${documentId}`, {
         params: { cursor: (pageParam as string | undefined) || undefined },
       });
-      return res.data.data as { items: unknown[]; nextCursor: string | null; actors: Record<string, ChatterActorLite> };
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
@@ -356,8 +362,10 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
  */
 async function downloadFile(fileId: string, variant?: string) {
   try {
-    const res = await api.get(`/files/${fileId}/download`, { params: variant ? { variant } : undefined });
-    window.open(res.data.data.url as string, '_blank', 'noopener');
+    const res = await apiGet<{ url: string }>(`/files/${fileId}/download`, {
+      params: variant ? { variant } : undefined,
+    });
+    window.open(res.url, '_blank', 'noopener');
   } catch (e) {
     toastError(apiErrorMessage(e));
   }

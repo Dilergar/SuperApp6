@@ -33,30 +33,3 @@ export interface CircleWithMembers extends Circle {
 // ============================================================
 // Requests (DTOs)
 // ============================================================
-
-export interface CreateCircleRequest {
-  name: string;
-  icon?: string;
-  color?: string;
-  sortOrder?: number;
-}
-
-export interface UpdateCircleRequest {
-  name?: string;
-  icon?: string | null;
-  color?: string | null;
-  sortOrder?: number;
-  // Per-group card visibility (partial — merged over defaults on write).
-  cardVisibility?: Partial<CardVisibility> | null;
-  // Per-group calendar access (Phase 2).
-  calendarVisibility?: CalendarAccessLevel;
-}
-
-export interface AddToCircleRequest {
-  // The ContactLink to place into this group.
-  contactLinkId: string;
-}
-
-export interface ReorderCirclesRequest {
-  circles: Array<{ id: string; sortOrder: number }>;
-}

@@ -19,17 +19,18 @@ import type {
   ContributionLine,
   WishItem as WishItemDto,
   AccessibleWishlistRef,
-  CreateWishRequest,
-  UpdateWishRequest,
-  CopyWishRequest,
-  CreateShowcaseRequest,
-  UpdateShowcaseRequest,
-  CreateListingRequest,
-  UpdateListingRequest,
-  ShareShowcaseRequest,
-  AssignShopStaffRequest,
+  CreateWishInput,
+  UpdateWishInput,
+  CopyWishInput,
+  CreateShowcaseInput,
+  UpdateShowcaseInput,
+  CreateListingInput,
+  UpdateListingInput,
+  ShareShowcaseInput,
+  AssignShopStaffInput,
+  ShopOverviewDto,
 } from '@superapp/shared';
-import { SHOP_LIMITS, publicVariantUrl } from '@superapp/shared';
+import { SHOP_LIMITS, publicVariantUrl, createTaskSchema, createCalendarEventSchema } from '@superapp/shared';
 import type { FileDto } from '@superapp/shared';
 import { FilesService } from '../../core/files/files.service';
 import { FilesRefRegistry } from '../../core/files/files-ref.registry';
@@ -234,7 +235,7 @@ export class ShopService implements OnModuleInit {
   }
 
   /** My shop + my showcases (full, with audiences). */
-  async getMyShop(viewerId: string): Promise<{ shop: ShopDto; showcases: ShowcaseDto[] }> {
+  async getMyShop(viewerId: string): Promise<ShopOverviewDto> {
     const { ownerType, ownerId } = this.resolveOwner(viewerId);
     const shop = await this.getOrCreateShop(ownerType, ownerId);
     const canManage = await this.canManageShop(viewerId, shop);
@@ -243,7 +244,7 @@ export class ShopService implements OnModuleInit {
   }
 
   /** View another owner's shop (only the showcases shared with the viewer). */
-  async getShopOfUser(viewerId: string, ownerUserId: string): Promise<{ shop: ShopDto; showcases: ShowcaseDto[] }> {
+  async getShopOfUser(viewerId: string, ownerUserId: string): Promise<ShopOverviewDto> {
     const shop = await this.db.shop.findUnique({ where: { ownerType_ownerId: { ownerType: 'user', ownerId: ownerUserId } } });
     if (!shop) throw new NotFoundException('Магазин не найден');
     const canManage = await this.canManageShop(viewerId, shop);
@@ -287,7 +288,7 @@ export class ShopService implements OnModuleInit {
   // Showcases
   // ============================================================
 
-  async createShowcase(viewerId: string, data: CreateShowcaseRequest): Promise<ShowcaseDto> {
+  async createShowcase(viewerId: string, data: CreateShowcaseInput): Promise<ShowcaseDto> {
     const { ownerType, ownerId } = this.resolveOwner(viewerId);
     const shop = await this.getOrCreateShop(ownerType, ownerId);
     if (!(await this.canManageShop(viewerId, shop))) throw new ForbiddenException('Нет прав на этот магазин');
@@ -308,7 +309,7 @@ export class ShopService implements OnModuleInit {
     return this.serializeShowcase(row, 0, []);
   }
 
-  async updateShowcase(viewerId: string, id: string, data: UpdateShowcaseRequest): Promise<ShowcaseDto> {
+  async updateShowcase(viewerId: string, id: string, data: UpdateShowcaseInput): Promise<ShowcaseDto> {
     await this.loadShowcaseManageable(viewerId, id);
     const updated = await this.db.showcase.update({
       where: { id },
@@ -332,7 +333,7 @@ export class ShopService implements OnModuleInit {
   }
 
   // ---- Sharing (tuples are the source of truth) ----
-  async shareShowcase(viewerId: string, id: string, data: ShareShowcaseRequest): Promise<ShowcaseShareDto[]> {
+  async shareShowcase(viewerId: string, id: string, data: ShareShowcaseInput): Promise<ShowcaseShareDto[]> {
     const showcase = await this.loadShowcaseManageable(viewerId, id);
     const shop = await this.db.shop.findUnique({ where: { id: showcase.shopId } });
     await this.assertSharePrincipal(shop!, data);
@@ -474,7 +475,7 @@ export class ShopService implements OnModuleInit {
     return out;
   }
 
-  async createListing(viewerId: string, data: CreateListingRequest): Promise<ListingDto> {
+  async createListing(viewerId: string, data: CreateListingInput): Promise<ListingDto> {
     const showcase = await this.loadShowcaseManageable(viewerId, data.showcaseId);
     const shop = await this.db.shop.findUnique({ where: { id: showcase.shopId } });
     const lines = await this.resolvePrices(shop!, data);
@@ -505,7 +506,7 @@ export class ShopService implements OnModuleInit {
     return this.serializeListing(row, await this.currencyMap(lines.map((l) => l.currencyId)));
   }
 
-  async updateListing(viewerId: string, id: string, data: UpdateListingRequest): Promise<ListingDto> {
+  async updateListing(viewerId: string, id: string, data: UpdateListingInput): Promise<ListingDto> {
     const existing = await this.db.listing.findUnique({ where: { id }, include: { showcase: true } });
     if (!existing) throw new NotFoundException('Товар не найден');
     await this.loadShowcaseManageable(viewerId, existing.showcaseId);
@@ -868,13 +869,16 @@ export class ShopService implements OnModuleInit {
         const due = new Date(Date.now() + (order.taskDays ?? 7) * 86_400_000);
         const task = await this.tasks.createTask(
           parties.recipientId,
-          {
+          // Через ТУ ЖЕ схему, что и HTTP-путь: системная задача получает те же
+          // умолчания (приоритет, allDay, coinPenalty…), а не свой набор, который
+          // разъедется с ними при первой правке схемы.
+          createTaskSchema.parse({
             title: `Выдать: ${order.titleSnapshot}`,
             executorId: order.sellerId,
             observerIds: parties.observerIds.length ? parties.observerIds : undefined,
             dueDate: due.toISOString(),
             coinReward: 0,
-          },
+          }),
           // Contributors aren't necessarily in the recipient's окружение — this is a system task whose
           // participants were already authorised by their contributions.
           { skipEnvironmentChecks: true },
@@ -907,12 +911,15 @@ export class ShopService implements OnModuleInit {
       const start = new Date(Date.now() + (order.taskDays ?? 7) * 86_400_000);
       const end = new Date(start.getTime() + 3_600_000);
       try {
-        const ev = await this.calendar.createEvent(order.sellerId, {
-          title: order.titleSnapshot,
-          startTime: start.toISOString(),
-          endTime: end.toISOString(),
-          participantUserIds: parties.participantIds,
-        });
+        const ev = await this.calendar.createEvent(
+          order.sellerId,
+          createCalendarEventSchema.parse({
+            title: order.titleSnapshot,
+            startTime: start.toISOString(),
+            endTime: end.toISOString(),
+            participantUserIds: parties.participantIds,
+          }),
+        );
         await this.db.order.update({ where: { id: orderId }, data: { eventId: ev.id } });
       } catch {
         /* the event is a non-critical reminder; settlement already succeeded */
@@ -1175,7 +1182,7 @@ export class ShopService implements OnModuleInit {
     return { items: rows.map((w) => this.serializeWish(w)), shares: await this.loadWishlistShares(viewerId) };
   }
 
-  async createWish(ownerId: string, data: CreateWishRequest): Promise<WishItemDto> {
+  async createWish(ownerId: string, data: CreateWishInput): Promise<WishItemDto> {
     const count = await this.db.wishItem.count({ where: { ownerId } });
     if (count >= SHOP_LIMITS.maxWishItems) throw new BadRequestException('Достигнут лимит хотелок');
     const row = await this.db.wishItem.create({
@@ -1192,7 +1199,7 @@ export class ShopService implements OnModuleInit {
     return this.serializeWish(row);
   }
 
-  async updateWish(ownerId: string, id: string, data: UpdateWishRequest): Promise<WishItemDto> {
+  async updateWish(ownerId: string, id: string, data: UpdateWishInput): Promise<WishItemDto> {
     const wish = await this.db.wishItem.findUnique({ where: { id } });
     if (!wish || wish.ownerId !== ownerId) throw new NotFoundException('Хотелка не найдена');
     const row = await this.db.wishItem.update({
@@ -1226,7 +1233,7 @@ export class ShopService implements OnModuleInit {
   }
 
   // ---- Wishlist sharing (engine tuples: wishlist:<owner>#viewer@user | @circle#member) ----
-  async shareWishlist(ownerId: string, data: ShareShowcaseRequest): Promise<ShowcaseShareDto[]> {
+  async shareWishlist(ownerId: string, data: ShareShowcaseInput): Promise<ShowcaseShareDto[]> {
     if (data.principalType === 'user') {
       await this.assertInEnvironment(ownerId, data.principalId);
       await this.access.grant({ resourceType: 'wishlist', resourceId: ownerId, relation: 'viewer', subjectType: 'user', subjectId: data.principalId });
@@ -1279,7 +1286,7 @@ export class ShopService implements OnModuleInit {
    * inherited from the wish; price/crowdfunding/limits are the copier's. The target showcase is
    * auto-shared back to the wish owner so they can see the offer.
    */
-  async copyWishToShowcase(copierId: string, wishId: string, data: CopyWishRequest): Promise<ListingDto> {
+  async copyWishToShowcase(copierId: string, wishId: string, data: CopyWishInput): Promise<ListingDto> {
     const wish = await this.db.wishItem.findUnique({ where: { id: wishId } });
     if (!wish) throw new NotFoundException('Хотелка не найдена');
     if (wish.status !== 'active') throw new BadRequestException('Хотелка уже исполнена или в архиве');
@@ -1433,7 +1440,7 @@ export class ShopService implements OnModuleInit {
     return out;
   }
 
-  async assignStaff(viewerId: string, data: AssignShopStaffRequest): Promise<void> {
+  async assignStaff(viewerId: string, data: AssignShopStaffInput): Promise<void> {
     const { ownerType, ownerId } = this.resolveOwner(viewerId);
     const shop = await this.getOrCreateShop(ownerType, ownerId);
     if (!(await this.canManageShop(viewerId, shop))) throw new ForbiddenException('Нет прав на этот магазин');
@@ -1539,7 +1546,7 @@ export class ShopService implements OnModuleInit {
   }
 
   /** Validate a share target: a person must be in the environment; a circle must be the owner's. */
-  private async assertSharePrincipal(shop: ShopRow, data: ShareShowcaseRequest): Promise<void> {
+  private async assertSharePrincipal(shop: ShopRow, data: ShareShowcaseInput): Promise<void> {
     if (data.principalType === 'user') {
       if (shop.ownerType === 'workspace') {
         const member = await this.db.workspaceMember.findFirst({

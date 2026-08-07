@@ -11,8 +11,11 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { normalizePhone } from '@superapp/shared';
-import { api, apiErrorMessage } from '@/lib/api';
+import {
+  normalizePhone,
+  type AuthTokens,
+} from '@superapp/shared';
+import { apiErrorMessage, apiPost } from '@/lib/api';
 import { useAuthStore } from '@/lib/stores/auth';
 import { isTokenStale, useOtpFlow } from '@/components/verify/otp-flow';
 import { OtpStep } from '@/components/verify/OtpStep';
@@ -62,8 +65,8 @@ export default function ResetPasswordPage() {
     setTokenStale(false);
     setBusy(true);
     try {
-      const { data } = await api.post('/auth/password-reset', { verifyToken, newPassword });
-      await applySession(data.data);
+      const tokens = await apiPost<AuthTokens>('/auth/password-reset', { verifyToken, newPassword });
+      await applySession(tokens);
       router.push('/dashboard');
     } catch (err) {
       setError(apiErrorMessage(err));

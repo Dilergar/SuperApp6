@@ -8,6 +8,7 @@ import {
   DOCS_JOB_TYPES,
   DOCS_LIMITS,
   DOCS_QUEUE,
+  DOCUMENT_SESSION_STATUSES,
   documentFormatByExt,
   type DocumentVersionDto,
   type DocumentVersionReason,
@@ -17,6 +18,8 @@ import { DatabaseService } from '../../shared/database/database.service';
 import { FilesService } from '../files/files.service';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { JobsService } from '../jobs/jobs.service';
+
+const [SESSION_OPEN] = DOCUMENT_SESSION_STATUSES;
 
 type Tx = Prisma.TransactionClient;
 
@@ -129,7 +132,7 @@ export class DocsVersionsService implements OnModuleInit {
   ): Promise<void> {
     await this.db.$transaction(async (tx) => {
       const session = await tx.documentSession.findFirst({
-        where: { documentId, status: 'open' },
+        where: { documentId, status: SESSION_OPEN },
         select: { participantIds: true },
       });
       await this.requestMilestone(tx, {

@@ -19,10 +19,18 @@ import { ROLE_PRESETS } from '@superapp/shared';
 // Типы социального графа берём ИЗ ОБЩЕГО ПАКЕТА, а не объявляем свои: локальные
 // копии уже разъехались с сервером (в местной `Contact` не было `initiatedBy`),
 // и такое расхождение не ловится компилятором — оно просто тихо теряет поля.
-import type { CardVisibility, Circle, Contact, PresenceInfo } from '@superapp/shared';
+import type {
+  CardVisibility,
+  Circle,
+  Contact,
+  ContactUserCard,
+  PresenceInfo,
+  SocialLinks,
+  UserProfile,
+} from '@superapp/shared';
 import { presenceStatusLine } from '../messenger/presence-ui';
 import { getPresence } from '@/lib/messenger-api';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiErrorMessage, apiPatch } from '@/lib/api';
 import { toastError } from '@/lib/toast';
 import type { CardSize, CardSkinRender } from './card-skin';
 import {
@@ -45,19 +53,15 @@ const Lottie = dynamic(() => import('lottie-react'), { ssr: false });
 // Types
 // ============================================================
 
-interface ProfileData {
-  firstName: string;
-  lastName: string | null;
-  phone: string;
-  avatar: string | null;
-  dateOfBirth: string | null;
-  bio: string | null;
-  city: string | null;
-  email: string | null;
-  maritalStatus: string | null;
-  socialLinks: { telegram?: string; instagram?: string } | null;
-  cardVisibility: CardVisibility;
-}
+/**
+ * Вход «моей карточки» — СРЕЗ серверного профиля, а не ручная копия его полей:
+ * переименование любого из них теперь ошибка компиляции, а не молчаливый undefined.
+ */
+type ProfileData = Pick<
+  UserProfile,
+  | 'firstName' | 'lastName' | 'phone' | 'avatar' | 'dateOfBirth' | 'bio'
+  | 'city' | 'email' | 'maritalStatus' | 'socialLinks' | 'cardVisibility'
+>;
 
 // Normalized person passed to the renderer (after visibility masking).
 interface CardPerson {
@@ -72,7 +76,7 @@ interface CardPerson {
   bio: string | null;
   maritalStatus: string | null;
   email: string | null;
-  socialLinks: { telegram?: string; instagram?: string } | null;
+  socialLinks: SocialLinks | null;
   showOnlineStatus: boolean;
   role: string | null;
   presenceLine?: string | null;
@@ -476,7 +480,15 @@ function CardFields({ person, metaSize, color, all }: {
   const meta = (children: React.ReactNode, extra?: React.CSSProperties) => (
     <div style={{ color, fontSize: metaSize, textAlign: 'center', ...extra }}>{children}</div>
   );
-  const social = person.socialLinks;
+  // Все ЧЕТЫРЕ сети, а не две: сервер принимает и хранит LinkedIn и WhatsApp
+  // (форма анкеты их спрашивает), но карточка их не рисовала — данные были write-only.
+  const s = person.socialLinks;
+  const socialParts = [
+    s?.telegram && `TG: ${s.telegram}`,
+    s?.instagram && `IG: ${s.instagram}`,
+    s?.linkedin && `in: ${s.linkedin}`,
+    s?.whatsapp && `WA: ${s.whatsapp}`,
+  ].filter(Boolean) as string[];
   return (
     <>
       {person.dateOfBirth && meta(formatDate(person.dateOfBirth))}
@@ -485,13 +497,7 @@ function CardFields({ person, metaSize, color, all }: {
       {person.bio && meta(person.bio, { fontStyle: 'italic', maxWidth: '200px' })}
       {person.maritalStatus && meta(MARITAL_LABELS[person.maritalStatus] || person.maritalStatus)}
       {all && person.email && meta(person.email)}
-      {all && social && (social.telegram || social.instagram) && meta(
-        <>
-          {social.telegram && `TG: ${social.telegram}`}
-          {social.telegram && social.instagram && ' · '}
-          {social.instagram && `IG: ${social.instagram}`}
-        </>,
-      )}
+      {all && socialParts.length > 0 && meta(socialParts.join(' · '))}
     </>
   );
 }
@@ -894,7 +900,7 @@ function RoleEditor({ ctx, skin }: { ctx: RoleEditContext; skin: CardSkinRender 
     try {
       // Правится ТОЛЬКО моя сторона связи: `myRole` — подпись на МОЕЙ карточке,
       // человек её не видит и об изменении не узнаёт.
-      await api.patch(`/contacts/${ctx.linkId}`, { myRole: next || null });
+      await apiPatch(`/contacts/${ctx.linkId}`, { myRole: next || null });
       setRole(next || null);
       propRoleRef.current = next || null; // проп догонит позже — не откатывать показ
       setEditing(false);
@@ -987,26 +993,11 @@ function RoleEditor({ ctx, skin }: { ctx: RoleEditContext; skin: CardSkinRender 
 // «Видимостью в Компаниях» (бэкенд уже отдаёт скрытые поля как null).
 // ============================================================
 
-export interface StaffCardData {
-  phone: string;
-  firstName: string;
-  lastName: string | null;
-  avatar: string | null;
-  dateOfBirth: string | null;
-  bio: string | null;
-  city: string | null;
-  email: string | null;
-  maritalStatus: string | null;
-  socialLinks: { telegram?: string; instagram?: string } | null;
-  age: number | null;
-  showOnlineStatus: boolean;
-}
-
 export const StaffPersonCard = memo(function StaffPersonCard({
   userId, card, positions, branches, onWrite, onManage,
 }: {
   userId: string;
-  card: StaffCardData;
+  card: ContactUserCard;
   /** Должности — бейдж карты (одна или несколько; роль организации тут НЕ показывается). */
   positions: string[];
   /** Филиалы — отдельные чипы под должностью (визуально отделены от должности). */

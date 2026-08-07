@@ -7,7 +7,8 @@
 // selectable type later = register a loader + a chip renderer; no UI rewrite.
 // ============================================================
 
-import { api } from './api';
+import { apiGet } from './api';
+import type { Circle, Contact, CursorPage, StaffDirectory } from '@superapp/shared';
 
 export interface Principal {
   type: string;
@@ -45,25 +46,18 @@ export interface EntityLoadContext {
 const cache = new Map<string, EntityOption[]>();
 
 // Один HTTP-вызов справочников на организацию (3 staff-типа делят ответ /staff).
-const staffDirCache = new Map<string, Promise<StaffDirectoryPayload>>();
+// Форма ответа — shared `StaffDirectory`: локальное сужение до 3-4 полей было
+// ВТОРЫМ описанием одной ручки (соседний потребитель уже читал её как StaffDirectory).
+const staffDirCache = new Map<string, Promise<StaffDirectory>>();
 
-interface StaffDirectoryPayload {
-  departments: Array<{ id: string; name: string; membersCount?: number }>;
-  positions: Array<{ id: string; name: string; departmentName?: string | null; holdersCount?: number }>;
-  branches: Array<{ id: string; name: string; membersCount?: number }>;
-}
-
-function fetchStaffDirectory(workspaceId: string): Promise<StaffDirectoryPayload> {
+function fetchStaffDirectory(workspaceId: string): Promise<StaffDirectory> {
   if (!staffDirCache.has(workspaceId)) {
     staffDirCache.set(
       workspaceId,
-      api
-        .get(`/workspaces/${workspaceId}/staff`)
-        .then((r) => r.data.data as StaffDirectoryPayload)
-        .catch((e) => {
-          staffDirCache.delete(workspaceId); // не кэшируем ошибку
-          throw e;
-        }),
+      apiGet<StaffDirectory>(`/workspaces/${workspaceId}/staff`).catch((e) => {
+        staffDirCache.delete(workspaceId); // не кэшируем ошибку
+        throw e;
+      }),
     );
   }
   return staffDirCache.get(workspaceId)!;
@@ -73,12 +67,10 @@ async function loadUsers(): Promise<EntityOption[]> {
   const acc: EntityOption[] = [];
   let cursor: string | undefined;
   do {
-    const res = await api.get('/contacts', { params: cursor ? { cursor } : undefined });
-    const rows = res.data.data as Array<{
-      them: { id: string; firstName: string; lastName: string | null };
-      myRole: string | null;
-    }>;
-    for (const c of rows) {
+    const page = await apiGet<CursorPage<Contact>>('/contacts', {
+      params: cursor ? { cursor } : undefined,
+    });
+    for (const c of page.items) {
       acc.push({
         type: 'user',
         id: c.them.id,
@@ -88,14 +80,13 @@ async function loadUsers(): Promise<EntityOption[]> {
         role: c.myRole,
       });
     }
-    cursor = res.data.nextCursor ?? undefined;
+    cursor = page.nextCursor ?? undefined;
   } while (cursor);
   return acc;
 }
 
 async function loadCircles(): Promise<EntityOption[]> {
-  const res = await api.get('/circles');
-  const rows = res.data.data as Array<{ id: string; name: string; icon: string | null; color: string | null; membersCount?: number }>;
+  const rows = await apiGet<Circle[]>('/circles');
   return rows.map((g) => ({
     type: 'circle',
     id: g.id,

@@ -7,17 +7,18 @@ import {
   type CalendarItem,
   type CalendarEventOccurrence,
   type CalendarTaskItem,
+  type Task,
 } from '@superapp/shared';
 import { isEvent, isTask, isToday, startOfDay, fmtTime, itemColor } from './calendar-lib';
 import { itemHref, itemGlyph, kindFallbackIcon } from './calendar-layers';
 import { setDrag, clearDrag } from './calendar-dnd';
 
-export interface UndatedTask {
-  id: string;
-  title: string;
-  status: string;
-  priority: string;
-}
+/**
+ * Задача без срока в панели-планнере. `status` — НЕ `string`: с ним рендер был
+ * вынужден кастовать (`TASK_STATUS_META[t.status as keyof …]`), а опечатка в статусе
+ * компилятором не ловилась. `priority` объявлялся и нигде не использовался.
+ */
+export type UndatedTask = Pick<Task, 'id' | 'title' | 'status'>;
 
 /**
  * Левая панель-планнер: всё из календаря, сгруппированное по смыслу. Задачи
@@ -103,14 +104,14 @@ function TaskCard({ t, onTask }: { t: CalendarTaskItem; onTask: (t: CalendarTask
 }
 
 function UndatedCard({ t }: { t: UndatedTask }) {
-  const st = TASK_STATUS_META[t.status as keyof typeof TASK_STATUS_META];
+  const st = TASK_STATUS_META[t.status];
   return (
     <div
       draggable
       onDragStart={(e) => setDrag({ kind: 'task', id: t.id, title: t.title }, e)}
       onDragEnd={clearDrag}
       title="Перетащи на день или время, чтобы назначить срок"
-      style={cardStyle(TONE_BASE[st?.tone ?? 'accent'])}
+      style={cardStyle(TONE_BASE[st.tone])}
     >
       <Icon name="tasks" size={13} style={{ color: 'var(--muted)' }} />
       <span style={ellipsis}>{t.title}</span>

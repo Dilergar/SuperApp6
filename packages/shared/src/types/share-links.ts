@@ -8,6 +8,7 @@
 // «паспорт» не должен наполняться чужими анкетами по мере роста списка сервисов.
 
 import type { ShareLinkStatus } from '../constants/share-links';
+import type { CursorPage } from './common';
 
 /** Ссылка глазами того, кто ею управляет. Токен отдельным полем НЕ отдаётся — только готовый `url`. */
 export interface ShareLinkDto {
@@ -48,10 +49,7 @@ export interface ShareLinkMineDto extends ShareLinkDto {
   ref: { title: string; icon?: string } | null;
 }
 
-export interface ShareLinkMinePage {
-  items: ShareLinkMineDto[];
-  nextCursor: string | null;
-}
+export type ShareLinkMinePage = CursorPage<ShareLinkMineDto>;
 
 /** Автор ссылки для PersonChip в организационном списке (человек в UI = карточка) */
 export interface ShareLinkActorLite {
@@ -68,9 +66,7 @@ export interface ShareLinkActorLite {
  * всегда один и известен, а здесь главный вопрос «кто это раздал», и на него надо
  * ответить карточкой человека, а не идентификатором.
  */
-export interface ShareLinkOrgPage {
-  items: ShareLinkMineDto[];
-  nextCursor: string | null;
+export interface ShareLinkOrgPage extends CursorPage<ShareLinkMineDto> {
   /** createdById → лайт-профиль. Удалённые отсутствуют — клиент рисует «Бывший сотрудник». */
   actors: Record<string, ShareLinkActorLite>;
 }

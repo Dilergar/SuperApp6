@@ -165,12 +165,12 @@ async function main() {
     check('один и тот же счёт → 400', selfPair.status === 400, `status ${selfPair.status}`);
 
     // ===== «На кого» (связь t1↔t2 из окружения) =====
-    let linked = (await call('GET', '/contacts', t1)).json?.data?.some?.((c) => c.them?.id === u2);
+    let linked = (await call('GET', '/contacts', t1)).json?.data?.items?.some?.((c) => c.them?.id === u2);
     if (!linked) {
       const inv = await call('POST', '/contacts/invitations', t1, { toPhone: P2, proposedRoleForRecipient: 'Друг', proposedRoleForSender: 'Друг' });
       if (inv.ok) {
         const incoming = await call('GET', '/contacts/invitations/incoming', t2);
-        const invId = incoming.json?.data?.find?.((i) => i.fromUser?.phone === P1 || i.fromUserId === u1)?.id ?? incoming.json?.data?.[0]?.id;
+        const invId = incoming.json?.data?.items?.find?.((i) => i.fromUser?.phone === P1 || i.fromUserId === u1)?.id ?? incoming.json?.data?.items?.[0]?.id;
         if (invId) { const acc = await call('POST', `/contacts/invitations/${invId}/accept`, t2, {}); linked = acc.ok; }
       } else { linked = false; }
     }
@@ -178,7 +178,7 @@ async function main() {
       const pExp = await call('POST', '/finance/transactions', t1, { fromAccountId: cash.id, toAccountId: grocery.id, amount: 120000, personUserId: u2 });
       check('расход «на кого» из окружения', pExp.ok && !!pExp.json?.data?.personName, `status ${pExp.status} name=${pExp.json?.data?.personName}`);
       const byPerson = await call('GET', `/finance/transactions?personUserId=${u2}`, t1);
-      check('фильтр по человеку', byPerson.ok && byPerson.json?.data?.length === 1, `n=${byPerson.json?.data?.length}`);
+      check('фильтр по человеку', byPerson.ok && byPerson.json?.data?.items?.length === 1, `n=${byPerson.json?.data?.items?.length}`);
 
       // ===== Ф3: «Близкие» + отчёт по людям =====
       const addP = await call('POST', '/finance/people', t1, { userId: u2 });
@@ -235,11 +235,11 @@ async function main() {
 
     // ===== Фильтры списка =====
     const byParentCat = await call('GET', `/finance/transactions?categoryId=${food.id}`, t1);
-    check('фильтр по родителю (Еда) видит траты Продуктов', byParentCat.ok && byParentCat.json.data.some((x) => x.id === expId), `n=${byParentCat.json?.data?.length}`);
+    check('фильтр по родителю (Еда) видит траты Продуктов', byParentCat.ok && byParentCat.json.data.items.some((x) => x.id === expId), `n=${byParentCat.json?.data?.items?.length}`);
     const byDates = await call('GET', `/finance/transactions?from=${firstOfMonth}&to=${firstOfMonth}`, t1);
-    check('фильтр по датам ловит доход первого числа', byDates.ok && byDates.json.data.some((x) => x.type === 'income'));
+    check('фильтр по датам ловит доход первого числа', byDates.ok && byDates.json.data.items.some((x) => x.type === 'income'));
     const byAcc = await call('GET', `/finance/transactions?accountId=${usdId}`, t1);
-    check('фильтр по счёту (депозит) видит обмен', byAcc.ok && byAcc.json.data.length === 2, `n=${byAcc.json?.data?.length}`); // opening + fx
+    check('фильтр по счёту (депозит) видит обмен', byAcc.ok && byAcc.json.data.items.length === 2, `n=${byAcc.json?.data?.items?.length}`); // opening + fx
 
     // ===== Soft-delete восстанавливает баланс =====
     const del = await call('DELETE', `/finance/transactions/${expId}`, t1);
@@ -249,7 +249,7 @@ async function main() {
     const expected = 5000000 + 2000000 - (linked ? 120000 : 0); // корректировка + перевод, расход удалён (минус «на кого», если был)
     check('баланс наличных восстановился после удаления', cashAfter === expected, `=${cashAfter}, ждали ${expected}`);
     const list = await call('GET', '/finance/transactions', t1);
-    check('удалённая операция скрыта из списка', !list.json.data.some((x) => x.id === expId));
+    check('удалённая операция скрыта из списка', !list.json.data.items.some((x) => x.id === expId));
 
     // ===== Категории: CRUD и правила дерева =====
     const pets = await call('POST', '/finance/categories', t1, { kind: 'expense', name: 'Питомцы', icon: '🐾' });
@@ -382,7 +382,7 @@ async function main() {
     const editorWrite = await call('POST', `/finance/transactions?bookId=${bookId}`, t2, { fromAccountId: card.id, toAccountId: transport.id, amount: 77000, note: 'внесла жена' });
     check('Ф6: «ведёт» пишет в чужую книгу', editorWrite.ok, `status ${editorWrite.status}`);
     const authored = await call('GET', `/finance/transactions?bookId=${bookId}`, t1);
-    const foreignTx2 = authored.json?.data?.find((x) => x.note === 'внесла жена');
+    const foreignTx2 = authored.json?.data?.items?.find((x) => x.note === 'внесла жена');
     check('Ф6: автор операции сохранён и виден владельцу', !!foreignTx2 && foreignTx2.createdById === u2 && !!foreignTx2.createdByName, `author=${foreignTx2?.createdByName}`);
     const editorEdit = await call('PATCH', `/finance/transactions/${foreignTx2?.id}?bookId=${bookId}`, t2, { amount: 88000 });
     check('Ф6: «ведёт» правит ЛЮБЫЕ операции (Дзен-мани модель)', editorEdit.ok, `status ${editorEdit.status}`);
@@ -417,7 +417,7 @@ async function main() {
     check('Ф7: валюта эмитента есть', !!cur, JSON.stringify(cur));
     await call('POST', '/wallet/currency/mint', t1, { amount: 500 });
     const feedAfterMint = await call('GET', '/finance/coins', t1);
-    check('Ф7: mint виден в ленте как «Выпуск монет»', feedAfterMint.ok && feedAfterMint.json?.data?.some((i) => i.kind === 'mint' && i.direction === 'in'), `n=${feedAfterMint.json?.data?.length}`);
+    check('Ф7: mint виден в ленте как «Выпуск монет»', feedAfterMint.ok && feedAfterMint.json?.data?.items?.some((i) => i.kind === 'mint' && i.direction === 'in'), `n=${feedAfterMint.json?.data?.items?.length}`);
 
     // Полный эскроу-цикл задачи: награда → приход у исполнителя с контекстом
     const rewardTask = await call('POST', '/tasks', t1, { title: 'Купить хлеб по дороге', executorId: u2, coinReward: 50 });
@@ -429,12 +429,12 @@ async function main() {
     check('Ф7: постановщик принял (эскроу выплачен)', acc2.ok, `status ${acc2.status}`);
 
     const feedPayer = await call('GET', '/finance/coins', t1);
-    const payerItem = feedPayer.json?.data?.find((i) => i.kind === 'task' && i.direction === 'out' && i.title.includes('Купить хлеб'));
-    check('Ф7: у плательщика — расход «Награда за задачу …» с названием', !!payerItem, JSON.stringify(feedPayer.json?.data?.[0]));
+    const payerItem = feedPayer.json?.data?.items?.find((i) => i.kind === 'task' && i.direction === 'out' && i.title.includes('Купить хлеб'));
+    check('Ф7: у плательщика — расход «Награда за задачу …» с названием', !!payerItem, JSON.stringify(feedPayer.json?.data?.items?.[0]));
     check('Ф7: контрагент плательщика — исполнитель (PersonChip)', payerItem?.counterpartyUserId === u2 && !!payerItem?.counterpartyName, `${payerItem?.counterpartyName}`);
     check('Ф7: дип-линк на задачу', payerItem?.href === `/tasks/${rtId}`, payerItem?.href);
     const feedReceiver = await call('GET', '/finance/coins', t2);
-    const recvItem = feedReceiver.json?.data?.find((i) => i.kind === 'task' && i.direction === 'in' && i.title.includes('Купить хлеб'));
+    const recvItem = feedReceiver.json?.data?.items?.find((i) => i.kind === 'task' && i.direction === 'in' && i.title.includes('Купить хлеб'));
     check('Ф7: у исполнителя — приход за задачу с комментарием', !!recvItem && recvItem.amount === 50, JSON.stringify(recvItem));
 
     // ===== Ф8: календарный слой «Платежи» + нода Процессов + книга организации =====

@@ -37,8 +37,7 @@ export class WorkspaceShareLinksController {
   ) {
     await this.workspaces.assertManagerPlus(user.sub, id);
     const q = mineShareLinksQuerySchema.parse(query ?? {});
-    const { items, nextCursor, actors } = await this.links.listForWorkspace(id, q);
-    return { success: true, data: items, nextCursor, actors };
+    return { success: true, data: await this.links.listForWorkspace(id, q) };
   }
 
   @Get('stats')

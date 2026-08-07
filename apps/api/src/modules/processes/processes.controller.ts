@@ -12,7 +12,9 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { z } from 'zod';
 import {
+  PROCESS_SURFACES,
   createProcessCredentialSchema,
   createProcessDefinitionSchema,
   decideApprovalSchema,
@@ -50,7 +52,10 @@ export class ProcessesController {
     @Param('id') id: string,
     @Query('surface') surface?: string,
   ) {
-    const data = await this.processes.listNodeTypes(user.sub, id, surface);
+    // Профиль сужен до реестра: опечатка в `?surface=` раньше молча отдавала полную
+    // палитру (32 ноды вместо 11 кадровых).
+    const parsed = surface ? z.enum(PROCESS_SURFACES).parse(surface) : undefined;
+    const data = await this.processes.listNodeTypes(user.sub, id, parsed);
     return { success: true, data };
   }
 

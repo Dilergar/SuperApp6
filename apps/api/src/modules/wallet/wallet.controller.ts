@@ -14,6 +14,7 @@ import {
   walletHistoryQuerySchema,
   createPaymentCardSchema,
   updatePaymentCardSchema,
+  type CompanyWalletDto,
 } from '@superapp/shared';
 import { CurrencyService } from './currency.service';
 import { PaymentCardsService } from './payment-cards.service';
@@ -91,8 +92,7 @@ export class WalletController {
     @Query('limit') limit?: string,
   ) {
     const q = walletHistoryQuerySchema.parse({ currencyId, cursor, limit });
-    const { items, nextCursor } = await this.currency.getHistory(user.sub, q);
-    return { success: true, data: items, nextCursor };
+    return { success: true, data: await this.currency.getHistory(user.sub, q) };
   }
 
   @Get('currency')
@@ -161,7 +161,8 @@ export class WalletController {
       this.currency.getCompanyCurrency(workspaceId),
       this.currency.getCompanyWallet(workspaceId),
     ]);
-    return { success: true, data: { currency, treasury } };
+    const data: CompanyWalletDto = { currency, treasury };
+    return { success: true, data };
   }
 
   @Post('company/currency')

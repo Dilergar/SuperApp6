@@ -15,7 +15,7 @@ import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { WORKSPACE_ROLE_RANK, type Workspace, type WorkspaceRole } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { api } from '@/lib/api';
+import { apiGet } from '@/lib/api';
 import { workspaceKey, workspaceShareLinksScopeKey } from '@/lib/queries';
 import {
   fetchWorkspaceShareLinks,
@@ -31,7 +31,7 @@ export default function WorkspaceLinksPage() {
 
   const wsQuery = useQuery({
     queryKey: workspaceKey(id),
-    queryFn: async () => (await api.get(`/workspaces/${id}`)).data.data as Workspace,
+    queryFn: async () => await apiGet<Workspace>(`/workspaces/${id}`),
     enabled: isReady,
   });
 

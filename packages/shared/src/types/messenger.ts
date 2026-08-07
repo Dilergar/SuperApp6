@@ -6,6 +6,7 @@ import {
   SYSTEM_MESSAGE_EVENTS,
 } from '../constants/messenger';
 import type { CallActiveDto } from './calls';
+import type { WsPresenceChanged, WsTyping } from './presence';
 
 export type ChatType = (typeof CHAT_TYPES)[number];
 export type MessageType = (typeof MESSAGE_TYPES)[number];
@@ -186,43 +187,80 @@ export interface ChatCallStatePayload {
 }
 
 // ---- request payloads ----
-export interface OpenDmRequest {
-  userId: string;
-}
-export interface CreateGroupRequest {
-  /** Group name (required). */
-  name: string;
-  /** Initial members — user ids from the creator's Окружение. */
-  memberIds: string[];
-}
-export interface AddMembersRequest {
-  userIds: string[];
-}
-export interface RenameChatRequest {
-  title: string;
-}
-export interface SendMessageRequest {
-  content: string;
-  /** Optional id of a message in the same chat to quote (reply). */
-  replyToId?: string;
-}
-export interface EditMessageRequest {
-  content: string;
-}
+// Входные формы описаны Zod-схемами в `validation/messenger.ts` и берутся оттуда
+// через `z.infer` (`OpenDmInput`, `CreateGroupInput`, `AddMembersInput`,
+// `RenameChatInput`, `SendMessageInput`, `EditMessageInput`). Рукописных копий здесь
+// больше нет — два описания одного входа всегда расходятся молча.
 
-// ---- realtime socket events (server → client) ----
+// ============================================================
+// realtime: сервер → клиент (namespace /messenger)
+// ============================================================
+// ВНИМАНИЕ: `message.mine` в этих payload НЕ зрителе-корректен — фанаут считает его
+// для псевдо-зрителя `__broadcast__`, и клиент обязан пересчитать
+// `mine = message.authorId === currentUserId`.
+// `memberUserIds`/`recipientIds` — роутинг-метаданные фанаута: для рендера они не
+// предназначены, но провод их несёт, значит тип обязан их описывать.
+
 export interface WsMessageNew {
   chatId: string;
   message: ChatMessage;
+  memberUserIds: string[];
+  recipientIds?: string[];
+  authorName?: string | null;
+  chatType?: ChatType;
+  preview?: string | null;
+  /** Системная плашка (authorId=null): приходит без recipientIds/authorName/chatType/preview. */
+  isSystem?: boolean;
 }
+
 export interface WsMessageUpdated {
   chatId: string;
   message: ChatMessage;
+  memberUserIds: string[];
 }
-/** Read/delivery cursor advanced for a member — lets senders update ticks live. */
+
+/** Удаление доезжает тем же телом: у сообщения выставлен `deletedAt`, `content` пуст. */
+export type WsMessageDeleted = WsMessageUpdated;
+
+/** Курсор доставки/прочтения сдвинут — отправитель обновляет галочки живьём. */
 export interface WsReceipt {
   chatId: string;
   userId: string;
   deliveredSeq: number;
   lastReadSeq: number;
+  memberUserIds: string[];
+}
+
+export interface WsCallState extends ChatCallStatePayload {
+  memberUserIds: string[];
+}
+
+// ---- realtime: клиент → сервер ----
+export interface WsCursorInput {
+  chatId: string;
+  seq: number;
+}
+export interface WsTypingInput {
+  chatId: string;
+}
+
+// ---- карты событий (стиль socket.io; сам socket.io в shared НЕ импортируется) ----
+// Ими типизированы И gateway на API, И хук веба: имя события с опечаткой или payload
+// не той формы становятся ошибкой компиляции с обеих сторон провода.
+export interface MessengerServerToClientEvents {
+  'message:new': (p: WsMessageNew) => void;
+  'message:updated': (p: WsMessageUpdated) => void;
+  'message:deleted': (p: WsMessageDeleted) => void;
+  receipt: (p: WsReceipt) => void;
+  'presence:changed': (p: WsPresenceChanged) => void;
+  typing: (p: WsTyping) => void;
+  'call:state': (p: WsCallState) => void;
+}
+
+export interface MessengerClientToServerEvents {
+  'message:delivered': (p: WsCursorInput) => void;
+  'message:read': (p: WsCursorInput) => void;
+  heartbeat: () => void;
+  'typing:start': (p: WsTypingInput) => void;
+  'typing:stop': (p: WsTypingInput) => void;
 }

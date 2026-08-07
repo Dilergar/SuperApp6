@@ -41,11 +41,12 @@ const login = async (phone) => { const r = await call('POST', '/auth/login', nul
 /** Связь в Окружении через реальный invite-flow (идемпотентно) */
 async function ensureContact(tokenA, tokenB, phoneB) {
   const contacts = await call('GET', '/contacts', tokenA);
-  if ((contacts.json?.data || []).find((c) => c.phone === phoneB)) return;
+  if ((contacts.json?.data?.items || []).find((c) => c.phone === phoneB)) return;
   const inv = await call('POST', '/contacts/invitations', tokenA, { toPhone: phoneB, proposedRoleForSender: 'Друг', proposedRoleForRecipient: 'Друг' });
   const invId = inv.json?.data?.id;
   const incoming = await call('GET', '/contacts/invitations/incoming', tokenB);
-  const toAccept = (incoming.json?.data || []).find((i) => i.id === invId) || (incoming.json?.data || [])[0];
+  const inc = incoming.json?.data?.items || [];
+  const toAccept = inc.find((i) => i.id === invId) || inc[0];
   if (toAccept) await call('POST', `/contacts/invitations/${toAccept.id}/accept`, tokenB, { myRole: 'Друг', theirRole: 'Друг' });
 }
 

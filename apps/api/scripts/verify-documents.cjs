@@ -408,7 +408,7 @@ async function main() {
 
     const driveNodes = await waitFor('подшивка на Диск', async () => {
       const r = await call('GET', `/drive/nodes?workspaceId=${wsId}`, t1);
-      const items = r.json?.data ?? [];
+      const items = r.json?.data?.items ?? [];
       const registry = items.find((n) => n.name === 'Документы организации');
       const personal = items.find((n) => n.name === 'Личные дела');
       return registry && personal ? { registry, personal } : null;
@@ -417,24 +417,24 @@ async function main() {
 
     if (driveNodes) {
       const inRegistry = await call('GET', `/drive/nodes?workspaceId=${wsId}&parentId=${driveNodes.registry.id}`, t1);
-      const typeFolder = (inRegistry.json?.data ?? []).find((n) => n.name.startsWith('Заявления'));
-      check('в реестре есть папка вида', !!typeFolder, JSON.stringify((inRegistry.json?.data ?? []).map((n) => n.name)));
+      const typeFolder = (inRegistry.json?.data?.items ?? []).find((n) => n.name.startsWith('Заявления'));
+      check('в реестре есть папка вида', !!typeFolder, JSON.stringify((inRegistry.json?.data?.items ?? []).map((n) => n.name)));
 
       let registryFileNode = null;
       if (typeFolder) {
         const files = await call('GET', `/drive/nodes?workspaceId=${wsId}&parentId=${typeFolder.id}`, t1);
-        registryFileNode = (files.json?.data ?? []).find((n) => n.kind === 'file');
-        check('документ подшит в реестр вида', !!registryFileNode, JSON.stringify((files.json?.data ?? []).map((n) => n.name)));
+        registryFileNode = (files.json?.data?.items ?? []).find((n) => n.kind === 'file');
+        check('документ подшит в реестр вида', !!registryFileNode, JSON.stringify((files.json?.data?.items ?? []).map((n) => n.name)));
         check('имя файла несёт номер', (registryFileNode?.name ?? '').includes(number ?? '###'), registryFileNode?.name);
       }
 
       const inPersonal = await call('GET', `/drive/nodes?workspaceId=${wsId}&parentId=${driveNodes.personal.id}`, t1);
-      const personFolder = (inPersonal.json?.data ?? [])[0];
+      const personFolder = (inPersonal.json?.data?.items ?? [])[0];
       check('заведена папка личного дела сотрудника', !!personFolder, personFolder?.name);
       let personalFileNode = null;
       if (personFolder) {
         const pf = await call('GET', `/drive/nodes?workspaceId=${wsId}&parentId=${personFolder.id}`, t1);
-        personalFileNode = (pf.json?.data ?? []).find((n) => n.kind === 'file');
+        personalFileNode = (pf.json?.data?.items ?? []).find((n) => n.kind === 'file');
         check('документ подшит и в личное дело', !!personalFileNode);
       }
 
@@ -450,7 +450,7 @@ async function main() {
       const outsider = await call('GET', `/drive/nodes?workspaceId=${wsId}&parentId=${driveNodes.personal.id}`, t3);
       check(
         'личные дела закрыты от постороннего сотрудника',
-        !outsider.ok || (outsider.json?.data ?? []).length === 0,
+        !outsider.ok || (outsider.json?.data?.items ?? []).length === 0,
         `status ${outsider.status}`,
       );
     }

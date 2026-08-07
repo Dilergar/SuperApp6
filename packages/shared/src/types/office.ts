@@ -3,6 +3,7 @@ import type {
   OFFICE_ROOM_ROLES,
   OFFICE_ROOM_STATUSES,
 } from '../constants/office';
+import type { CursorPage } from './common';
 
 // ============================================
 // Виртуальный офис (B2B) — типы
@@ -46,7 +47,4 @@ export interface OfficeRoomDto {
 }
 
 /** GET /workspaces/:id/office/history — страница истории завершённых встреч */
-export interface OfficeHistoryPageDto {
-  items: OfficeRoomDto[];
-  nextCursor: string | null;
-}
+export type OfficeHistoryPageDto = CursorPage<OfficeRoomDto>;

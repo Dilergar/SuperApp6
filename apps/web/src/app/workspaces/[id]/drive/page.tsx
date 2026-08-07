@@ -21,8 +21,8 @@ import {
   driveOverviewKey,
   driveRootKey,
   driveTrashKey,
-  type DriveRef,
 } from '@/lib/queries';
+import type { DriveSpaceRef } from '@superapp/shared';
 import {
   fetchDriveNode,
   fetchDriveOverview,
@@ -45,7 +45,7 @@ export default function WorkspaceDrivePage() {
   const [tab, setTab] = useState<Tab>('files');
   const [folderId, setFolderId] = useState<string | null>(null);
 
-  const driveRef: DriveRef = { workspaceId };
+  const driveRef: DriveSpaceRef = { workspaceId };
 
   const { data: overview } = useQuery({
     queryKey: driveOverviewKey(driveRef),

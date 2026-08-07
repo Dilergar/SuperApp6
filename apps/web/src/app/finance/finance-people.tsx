@@ -7,7 +7,7 @@
 
 import { useState } from 'react';
 import type { FinPersonDto } from '@superapp/shared';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiDelete, apiErrorMessage, apiPost } from '@/lib/api';
 import { EntitySelector } from '@/components/EntitySelector';
 import { Alert, BentoGrid, Button, Card, CardHeader, EmptyState, IconButton } from '@/components/ui';
 import { PersonChip } from '../circles/PersonCard';
@@ -29,7 +29,7 @@ export function PeoplePanel({
 
   const add = async (userId: string) => {
     try {
-      await api.post('/finance/people', { userId }, bookParams(bookId));
+      await apiPost('/finance/people', { userId }, bookParams(bookId));
       setAdding(false);
       setError(null);
       onChanged();
@@ -39,7 +39,7 @@ export function PeoplePanel({
   };
   const remove = async (userId: string) => {
     try {
-      await api.delete(`/finance/people/${userId}`, bookParams(bookId));
+      await apiDelete(`/finance/people/${userId}`, bookParams(bookId));
       onChanged();
     } catch (e) {
       setError(apiErrorMessage(e));

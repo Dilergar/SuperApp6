@@ -1,11 +1,12 @@
 'use client';
 
-import { Button, Input, ModalShell, Select } from '@/components/ui';
+import { Button, Chip, Input, ModalShell, Select } from '@/components/ui';
 import { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { useAuthStore } from '@/lib/stores/auth';
-import { api } from '@/lib/api';
+import { apiDelete, apiErrorMessage, apiGet, apiPatch } from '@/lib/api';
+import { useConfirm } from '@/components/ui/useConfirm';
 import {
   MONTH_NAMES_RU,
   REQUISITE_VISIBILITY_EXTRAS,
@@ -14,6 +15,7 @@ import {
   resolveCardVisibility,
   type CardVisibility,
   type Circle,
+  type SessionInfo,
 } from '@superapp/shared';
 import { PersonCard } from '../../circles/PersonCard';
 import { WalletSection } from '../WalletSection';
@@ -25,13 +27,6 @@ import type { CardSkinRender } from '../../circles/card-skin';
 // ============================================================
 // Types & constants
 // ============================================================
-
-interface Session {
-  id: string;
-  deviceInfo: string | null;
-  lastActive: string;
-  createdAt: string;
-}
 
 type Section = 'form' | 'card' | 'skins' | 'wallet' | 'stats' | 'roles' | 'subscription' | 'settings' | 'security';
 
@@ -77,7 +72,8 @@ export default function ProfileSectionPage() {
   const logout = useAuthStore((s) => s.logout);
   const fetchProfile = useAuthStore((s) => s.fetchProfile);
 
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [confirm, confirmUI] = useConfirm();
   const [groups, setGroups] = useState<Circle[]>([]);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -115,13 +111,6 @@ export default function ProfileSectionPage() {
   useEffect(() => {
     if (profile) {
       const dob = profile.dateOfBirth ? profile.dateOfBirth.split('-') : null; // YYYY-MM-DD
-      const req = profile as unknown as {
-        iin?: string | null;
-        residentialAddress?: string | null;
-        idDocNumber?: string | null;
-        idDocIssuedBy?: string | null;
-        idDocIssuedAt?: string | null;
-      };
       setEditData({
         firstName: profile.firstName || '',
         lastName: profile.lastName || '',
@@ -136,11 +125,11 @@ export default function ProfileSectionPage() {
         dobDay: dob ? String(Number(dob[2])) : '',
         dobMonth: dob ? String(Number(dob[1]) - 1) : '',
         dobYear: dob ? dob[0] : '',
-        iin: req.iin || '',
-        residentialAddress: req.residentialAddress || '',
-        idDocNumber: req.idDocNumber || '',
-        idDocIssuedBy: req.idDocIssuedBy || '',
-        idDocIssuedAt: req.idDocIssuedAt || '',
+        iin: profile.iin || '',
+        residentialAddress: profile.residentialAddress || '',
+        idDocNumber: profile.idDocNumber || '',
+        idDocIssuedBy: profile.idDocIssuedBy || '',
+        idDocIssuedAt: profile.idDocIssuedAt || '',
       });
     }
   }, [profile]);
@@ -149,11 +138,7 @@ export default function ProfileSectionPage() {
   useEffect(() => {
     if (profile && !visSeeded.current) {
       setVis(resolveCardVisibility(profile.cardVisibility ?? null));
-      setVisCompany(
-        resolveCardVisibility(
-          (profile as { companyCardVisibility?: CardVisibility | null }).companyCardVisibility ?? null,
-        ),
-      );
+      setVisCompany(resolveCardVisibility(profile.companyCardVisibility ?? null));
       visSeeded.current = true;
     }
   }, [profile]);
@@ -161,15 +146,15 @@ export default function ProfileSectionPage() {
   // Groups — for the per-group preview selector.
   useEffect(() => {
     if (!isReady) return;
-    api.get('/circles').then((r) => setGroups(r.data.data)).catch(() => {});
+    apiGet<Circle[]>('/circles').then(setGroups).catch(() => {});
   }, [isReady]);
 
   // My equipped default skin — resolve(self) returns my default (no self-group overrides).
   useEffect(() => {
-    const id = (profile as { id?: string } | null)?.id;
+    const id = profile?.id;
     if (!isReady || !id) return;
-    api.get('/card-skins/resolve', { params: { userIds: id } })
-      .then((r) => setMySkin(r.data.data[id] ?? null))
+    apiGet<Record<string, CardSkinRender | null>>('/card-skins/resolve', { params: { userIds: id } })
+      .then((map) => setMySkin(map[id] ?? null))
       .catch(() => {});
   }, [isReady, profile]);
 
@@ -187,7 +172,7 @@ export default function ProfileSectionPage() {
     setDeleting(true);
     try {
       // Schedules deletion (30-day grace) and revokes sessions server-side.
-      await api.delete('/users/me', { data: { password: deletePassword } });
+      await apiDelete('/users/me', { data: { password: deletePassword } });
       await logout(); // clear local state + redirect with a recovery hint
       router.push('/login?deleted=1');
     } catch (err: unknown) {
@@ -254,7 +239,7 @@ export default function ProfileSectionPage() {
       if (editData.whatsapp.trim()) socialLinks.whatsapp = editData.whatsapp.trim();
       payload.socialLinks = Object.keys(socialLinks).length > 0 ? socialLinks : null;
 
-      await api.patch('/users/me', payload);
+      await apiPatch('/users/me', payload);
       await fetchProfile();
       setSuccessMsg('Анкета сохранена');
     } catch (err: unknown) {
@@ -272,7 +257,7 @@ export default function ProfileSectionPage() {
     if (visTimer.current) clearTimeout(visTimer.current);
     visTimer.current = setTimeout(async () => {
       try {
-        await api.patch('/users/me', { cardVisibility: next });
+        await apiPatch('/users/me', { cardVisibility: next });
         setSuccessMsg('Видимость по умолчанию сохранена');
       } catch {
         setError('Ошибка сохранения видимости');
@@ -289,7 +274,7 @@ export default function ProfileSectionPage() {
     if (visCompanyTimer.current) clearTimeout(visCompanyTimer.current);
     visCompanyTimer.current = setTimeout(async () => {
       try {
-        await api.patch('/users/me', { companyCardVisibility: next });
+        await apiPatch('/users/me', { companyCardVisibility: next });
         setSuccessMsg('Видимость в Компаниях сохранена');
       } catch {
         setError('Ошибка сохранения видимости');
@@ -310,7 +295,7 @@ export default function ProfileSectionPage() {
     if (visCompanyTimer.current) clearTimeout(visCompanyTimer.current);
     visCompanyTimer.current = setTimeout(async () => {
       try {
-        await api.patch('/users/me', { companyCardVisibility: next });
+        await apiPatch('/users/me', { companyCardVisibility: next });
         setSuccessMsg('Видимость в Компаниях сохранена');
       } catch {
         setError('Ошибка сохранения видимости');
@@ -320,23 +305,40 @@ export default function ProfileSectionPage() {
 
   const fetchSessions = async () => {
     try {
-      const { data } = await api.get('/users/me/sessions');
-      setSessions(data.data);
+      setSessions(await apiGet<SessionInfo[]>('/users/me/sessions'));
     } catch {
       setError('Не удалось загрузить сессии');
     }
   };
 
-  const handleDeleteSession = async (sessionId: string) => {
-    clear();
+  const dropSession = async (sessionId: string) => {
     try {
-      await api.delete(`/users/me/sessions/${sessionId}`);
+      await apiDelete(`/users/me/sessions/${sessionId}`);
       setSessions((prev) => prev.filter((s) => s.id !== sessionId));
       setSuccessMsg('Сессия завершена');
     } catch (err: unknown) {
-      const a = err as { response?: { data?: { message?: string } } };
-      setError(a.response?.data?.message || 'Ошибка');
+      setError(apiErrorMessage(err));
     }
+  };
+
+  const handleDeleteSession = (session: SessionInfo) => {
+    clear();
+    // Завершить СВОЮ сессию можно, но молча это делать нельзя: человек выйдет прямо
+    // здесь. Раньше кнопка ничем не отличалась от «закрыть чужое устройство», а
+    // маркера «Текущая» не было вовсе — сервер его не считал.
+    if (session.isCurrent) {
+      confirm(
+        {
+          title: 'Это ваша текущая сессия',
+          message: 'Завершив её, вы выйдете из аккаунта на этом устройстве.',
+          confirmLabel: 'Завершить и выйти',
+          danger: true,
+        },
+        () => dropSession(session.id),
+      );
+      return;
+    }
+    void dropSession(session.id);
   };
 
   useEffect(() => {
@@ -378,7 +380,7 @@ export default function ProfileSectionPage() {
                 fallback={(profile?.firstName?.[0] ?? '?').toUpperCase()}
                 label="Аватарка"
                 onSaved={async (url) => {
-                  await api.patch('/users/me', { avatar: url });
+                  await apiPatch('/users/me', { avatar: url });
                   await fetchProfile();
                   setSuccessMsg(url ? 'Фото обновлено' : 'Фото удалено');
                   setTimeout(() => setSuccessMsg(''), 2500);
@@ -640,7 +642,7 @@ export default function ProfileSectionPage() {
       )}
 
       {/* === Скины карточки === */}
-      {section === 'skins' && <SkinsSection profile={profile as never} />}
+      {section === 'skins' && <SkinsSection profile={profile} />}
 
       {/* === Кошелёк === */}
       {section === 'wallet' && <WalletSection />}
@@ -720,7 +722,7 @@ export default function ProfileSectionPage() {
               label="Онлайн-статус видят"
               value={p.onlineStatusMode || 'everyone'}
               onChange={async (v) => {
-                try { await api.patch('/users/me', { onlineStatusMode: v }); await fetchProfile(); setSuccessMsg('Сохранено'); } catch { setError('Ошибка'); }
+                try { await apiPatch('/users/me', { onlineStatusMode: v }); await fetchProfile(); setSuccessMsg('Сохранено'); } catch { setError('Ошибка'); }
               }}
               options={[
                 { value: 'everyone', label: 'Все' },
@@ -738,6 +740,7 @@ export default function ProfileSectionPage() {
           <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-6)' }}>Безопасность</h2>
 
           <h3 className="title-md" style={{ marginBottom: 'var(--spacing-4)' }}>Активные сессии</h3>
+          {confirmUI}
           {sessions.length === 0 ? (
             <p className="label-md">Нет активных сессий</p>
           ) : (
@@ -745,10 +748,13 @@ export default function ProfileSectionPage() {
               {sessions.map((s) => (
                 <div key={s.id} className="card" style={{ padding: 'var(--spacing-4)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 500, fontSize: '0.85rem' }}>{s.deviceInfo || 'Неизвестное устройство'}</div>
+                    <div style={{ fontWeight: 500, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
+                      {s.deviceInfo || 'Неизвестное устройство'}
+                      {s.isCurrent && <Chip tone="accent" size="sm">Текущая</Chip>}
+                    </div>
                     <div className="label-sm">Последняя активность: {new Date(s.lastActive).toLocaleString('ru-RU')}</div>
                   </div>
-                  <button onClick={() => handleDeleteSession(s.id)}
+                  <button onClick={() => handleDeleteSession(s)}
                     style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 500 }}
                   >
                     Завершить

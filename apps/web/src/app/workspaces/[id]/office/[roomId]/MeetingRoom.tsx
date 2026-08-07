@@ -24,13 +24,8 @@ import {
   deleteMessage,
   markRead,
 } from '@/lib/messenger-api';
-import {
-  useMessengerSocket,
-  type SocketMessageDeleted,
-  type SocketMessageNew,
-  type SocketMessageUpdated,
-  type SocketReceipt,
-} from '@/lib/hooks/useMessengerSocket';
+import { useMessengerSocket } from '@/lib/hooks/useMessengerSocket';
+import type { WsMessageDeleted, WsMessageNew, WsMessageUpdated, WsReceipt } from '@superapp/shared';
 import { Button, Card, EmptyState, LoadingBlock, useConfirm, type IconName } from '@/components/ui';
 import type { CallTokenDto, ChatMessage } from '@superapp/shared';
 import { toastError } from '@/lib/toast';
@@ -161,7 +156,7 @@ export default function MeetingRoom() {
   );
 
   const applyReceiptToCache = useCallback(
-    (r: SocketReceipt) => {
+    (r: WsReceipt) => {
       queryClient.setQueryData<ChatMessage[]>(messengerMessagesKey(r.chatId), (old) => {
         if (!old) return old;
         return old.map((m) => {
@@ -181,7 +176,7 @@ export default function MeetingRoom() {
   chatIdRef.current = chatId;
 
   const socket = useMessengerSocket({
-    onMessageNew: (p: SocketMessageNew) => {
+    onMessageNew: (p: WsMessageNew) => {
       if (p.chatId !== chatIdRef.current) return;
       const mine = p.message.authorId === currentUserId;
       upsertMessageInCache(p.chatId, { ...p.message, mine });
@@ -191,15 +186,15 @@ export default function MeetingRoom() {
         socketRef.current?.emitRead(p.chatId, p.message.seq);
       }
     },
-    onMessageUpdated: (p: SocketMessageUpdated) => {
+    onMessageUpdated: (p: WsMessageUpdated) => {
       if (p.chatId !== chatIdRef.current) return;
       patchMessageInCache(p.chatId, { ...p.message, mine: p.message.authorId === currentUserId });
     },
-    onMessageDeleted: (p: SocketMessageDeleted) => {
+    onMessageDeleted: (p: WsMessageDeleted) => {
       if (p.chatId !== chatIdRef.current) return;
       patchMessageInCache(p.chatId, { ...p.message, mine: p.message.authorId === currentUserId });
     },
-    onReceipt: (p: SocketReceipt) => {
+    onReceipt: (p: WsReceipt) => {
       if (p.chatId !== chatIdRef.current) return;
       applyReceiptToCache(p);
     },

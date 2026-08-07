@@ -1,5 +1,6 @@
 # CI: build everything + run the full verify-*.cjs e2e suite against real Postgres/Redis.
-# The verify scripts are the project's test suite (30 scripts, all-green policy) — this job is
+# The verify scripts are the project's test suite (all scripts/verify-*.cjs via glob — do not
+# hardcode a count here, it drifts; all-green policy) — this job is
 # the safety net the architecture review found missing (0 unit tests, lint = OOM'ing tsc).
 name: CI
 
@@ -60,6 +61,11 @@ jobs:
       - name: Build shared package
         run: pnpm --filter @superapp/shared build
 
+      # Транспорт границы (axios + single-flight refresh + хелперы apiGet/apiPost).
+      # Собирается ПОСЛЕ shared: конверт ответа (ApiOk) он берёт оттуда.
+      - name: Build api-client package
+        run: pnpm --filter @superapp/api-client build
+
       - name: Prisma generate + migrate
         working-directory: apps/api
         run: |
@@ -73,6 +79,12 @@ jobs:
       - name: Typecheck web
         working-directory: apps/web
         run: npx tsc --noEmit
+
+      # Механический страж границы API ↔ клиент: голые api.get/post/…, `res.data.data`
+      # и нативные confirm/alert. Компилятор их не ловит — они его как раз и глушат.
+      - name: Lint web (страж границы)
+        working-directory: apps/web
+        run: npx eslint src
 
       # The verify scripts read apps/api/.env directly — give them the CI connection strings.
       # VOICE_STT_MOCK=true — голосовой движок на mock-драйвере: verify-voice.cjs

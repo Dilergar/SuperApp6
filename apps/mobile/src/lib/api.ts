@@ -1,68 +1,44 @@
-import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
+import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY, createApiClient, type TokenStorage } from '@superapp/api-client';
+
+// Mobile-АДАПТЕР транспорта. Сам транспорт — общий пакет `@superapp/api-client`:
+// вторая рукописная копия уже успела разъехаться с вебом (не перечитывала хранилище
+// после чужой ротации, а провал refresh никуда не вёл — комментарий обещал «сделает
+// стор», а стор этого не делал).
 
 // /api/v1 — канонический префикс: установленные нативные сборки пинятся на версию.
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
 
-export const api = axios.create({
+const secureStorage: TokenStorage = {
+  get: (key) => SecureStore.getItemAsync(key),
+  set: (key, value) => SecureStore.setItemAsync(key, value),
+  remove: (key) => SecureStore.deleteItemAsync(key),
+};
+
+const client = createApiClient({
   baseURL: API_URL,
-  timeout: 10000,
-  headers: { 'Content-Type': 'application/json' },
+  storage: secureStorage,
+  // Навигацию на экран входа делает стор авторизации, подписанный на этот колбэк.
+  onAuthFailure: () => {
+    onAuthFailureHandler?.();
+  },
 });
 
-// Attach access token to every request
-api.interceptors.request.use(async (config) => {
-  const token = await SecureStore.getItemAsync('accessToken');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
+let onAuthFailureHandler: (() => void) | null = null;
 
-// ---- Single-flight token refresh ----
-// The backend ROTATES the refresh token on every /auth/refresh. On a cold app start the
-// access token is always expired and several screens fire requests at once — without
-// single-flight each parallel 401 called refresh with the SAME token (first wins, the
-// rest replay a revoked token → daily forced logout). One refresh at a time.
-let refreshInFlight: Promise<string> | null = null;
-
-function refreshAccessToken(): Promise<string> {
-  if (!refreshInFlight) {
-    refreshInFlight = (async () => {
-      const refreshToken = await SecureStore.getItemAsync('refreshToken');
-      if (!refreshToken) throw new Error('No refresh token');
-      const { data } = await axios.post(`${API_URL}/auth/refresh`, { refreshToken });
-      await SecureStore.setItemAsync('accessToken', data.data.accessToken);
-      await SecureStore.setItemAsync('refreshToken', data.data.refreshToken);
-      return data.data.accessToken as string;
-    })().finally(() => {
-      refreshInFlight = null;
-    });
-  }
-  return refreshInFlight;
+/** Стор авторизации регистрирует сюда свой выход — транспорт про навигацию не знает. */
+export function setOnAuthFailure(handler: (() => void) | null): void {
+  onAuthFailureHandler = handler;
 }
 
-// Auto-refresh token on 401
-api.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const originalRequest = error.config;
+export const api = client.api;
+export const apiGet = client.apiGet;
+export const apiPost = client.apiPost;
+export const apiPatch = client.apiPatch;
+export const apiPut = client.apiPut;
+export const apiDelete = client.apiDelete;
+export const apiGetRaw = client.apiGetRaw;
+export const apiPostRaw = client.apiPostRaw;
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true;
-
-      try {
-        const accessToken = await refreshAccessToken();
-        originalRequest.headers.Authorization = `Bearer ${accessToken}`;
-        return api(originalRequest);
-      } catch {
-        // Refresh failed — logout
-        await SecureStore.deleteItemAsync('accessToken');
-        await SecureStore.deleteItemAsync('refreshToken');
-        // Navigation to login will be handled by auth store
-      }
-    }
-
-    return Promise.reject(error);
-  },
-);
+export { apiErrorMessage, apiErrorDetails } from '@superapp/api-client';
+export { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY };

@@ -6,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Chip, useConfirm } from '@/components/ui';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { api } from '@/lib/api';
+import { apiDelete, apiGet, apiPatch, apiPost } from '@/lib/api';
 import { PersonAvatar } from '../../messenger/messenger-ui';
 import { PersonChip } from '../../circles/PersonCard';
 import {
@@ -29,13 +29,8 @@ import {
   deleteMessage,
   markRead,
 } from '@/lib/messenger-api';
-import {
-  useMessengerSocket,
-  type SocketMessageNew,
-  type SocketMessageUpdated,
-  type SocketMessageDeleted,
-  type SocketReceipt,
-} from '@/lib/hooks/useMessengerSocket';
+import { useMessengerSocket } from '@/lib/hooks/useMessengerSocket';
+import type { WsMessageNew, WsMessageUpdated, WsMessageDeleted, WsReceipt } from '@superapp/shared';
 import { TASK_STATUS_ICON } from '../tasks-ui';
 import { Conversation } from '../../messenger/Conversation';
 import { ShareCardModal } from '../../messenger/ShareCardModal';
@@ -62,8 +57,7 @@ export default function TaskDetailPage() {
 
   const load = useCallback(async () => {
     try {
-      const t = await api.get(`/tasks/${id}`);
-      setTask(t.data.data);
+      setTask(await apiGet<Task>(`/tasks/${id}`));
     } catch (err: unknown) {
       const a = err as { response?: { status?: number } };
       setError(a.response?.status === 403 ? 'Нет доступа к этой задаче' : 'Задача не найдена');
@@ -83,12 +77,12 @@ export default function TaskDetailPage() {
     } finally { setBusy(false); }
   };
 
-  const start = () => act(() => api.patch(`/tasks/${id}`, { status: 'in_progress' }));
-  const submit = () => act(() => api.post(`/tasks/${id}/submit`, {}));
-  const accept = (participantUserId?: string) => act(() => api.post(`/tasks/${id}/accept`, { participantUserId }));
-  const returnWork = (participantUserId?: string) => act(() => api.post(`/tasks/${id}/return`, { participantUserId }));
-  const cancel = () => act(() => api.patch(`/tasks/${id}`, { status: 'cancelled' }));
-  const remove = () => act(async () => { await api.delete(`/tasks/${id}`); router.push('/tasks'); });
+  const start = () => act(() => apiPatch(`/tasks/${id}`, { status: 'in_progress' }));
+  const submit = () => act(() => apiPost(`/tasks/${id}/submit`, {}));
+  const accept = (participantUserId?: string) => act(() => apiPost(`/tasks/${id}/accept`, { participantUserId }));
+  const returnWork = (participantUserId?: string) => act(() => apiPost(`/tasks/${id}/return`, { participantUserId }));
+  const cancel = () => act(() => apiPatch(`/tasks/${id}`, { status: 'cancelled' }));
+  const remove = () => act(async () => { await apiDelete(`/tasks/${id}`); router.push('/tasks'); });
 
   // ============================================================
   // Task chat (context chat) — mirrors the /messenger page wiring:
@@ -150,7 +144,7 @@ export default function TaskDetailPage() {
   );
 
   const applyReceiptToCache = useCallback(
-    (r: SocketReceipt) => {
+    (r: WsReceipt) => {
       queryClient.setQueryData<ChatMessage[]>(messengerMessagesKey(r.chatId), (old) => {
         if (!old) return old;
         return old.map((m) => {
@@ -170,7 +164,7 @@ export default function TaskDetailPage() {
   chatIdRef.current = chatId;
 
   const socket = useMessengerSocket({
-    onMessageNew: (p: SocketMessageNew) => {
+    onMessageNew: (p: WsMessageNew) => {
       if (p.chatId !== chatIdRef.current) return;
       const mine = p.message.authorId === currentUserId;
       const msg: ChatMessage = { ...p.message, mine };
@@ -181,15 +175,15 @@ export default function TaskDetailPage() {
         socketRef.current?.emitRead(p.chatId, p.message.seq);
       }
     },
-    onMessageUpdated: (p: SocketMessageUpdated) => {
+    onMessageUpdated: (p: WsMessageUpdated) => {
       if (p.chatId !== chatIdRef.current) return;
       patchMessageInCache(p.chatId, { ...p.message, mine: p.message.authorId === currentUserId });
     },
-    onMessageDeleted: (p: SocketMessageDeleted) => {
+    onMessageDeleted: (p: WsMessageDeleted) => {
       if (p.chatId !== chatIdRef.current) return;
       patchMessageInCache(p.chatId, { ...p.message, mine: p.message.authorId === currentUserId });
     },
-    onReceipt: (p: SocketReceipt) => {
+    onReceipt: (p: WsReceipt) => {
       if (p.chatId !== chatIdRef.current) return;
       applyReceiptToCache(p);
     },
@@ -525,14 +519,14 @@ function TaskAttachments({ taskId, canEdit }: { taskId: string; canEdit: boolean
   const queryClient = useQueryClient();
   const { data: files = [] } = useQuery<FileDto[]>({
     queryKey: taskAttachmentsKey(taskId),
-    queryFn: async () => (await api.get(`/tasks/${taskId}/attachments`)).data.data,
+    queryFn: async () => await apiGet(`/tasks/${taskId}/attachments`),
   });
   const attach = async (file: FileDto) => {
-    await api.post(`/tasks/${taskId}/attachments`, { fileId: file.id });
+    await apiPost(`/tasks/${taskId}/attachments`, { fileId: file.id });
     queryClient.invalidateQueries({ queryKey: taskAttachmentsKey(taskId) });
   };
   const remove = async (fileId: string) => {
-    await api.delete(`/tasks/${taskId}/attachments/${fileId}`);
+    await apiDelete(`/tasks/${taskId}/attachments/${fileId}`);
     queryClient.invalidateQueries({ queryKey: taskAttachmentsKey(taskId) });
   };
   return (

@@ -61,7 +61,7 @@ export function SubmitDocumentModal({
         fields: values,
         ...(subjectUserId ? { subjectUserId } : {}),
       });
-      return res.data.data.id as string;
+      return res.id;
     },
     onSuccess: (id) => {
       qc.invalidateQueries({ queryKey: ['workspaces', workspaceId, 'documents'] });

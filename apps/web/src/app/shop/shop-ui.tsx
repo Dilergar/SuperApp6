@@ -6,7 +6,7 @@
 // ============================================================
 
 import { useCallback, useEffect, useState } from 'react';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiDelete, apiErrorMessage, apiGet, apiPost } from '@/lib/api';
 import { useFileUpload } from '@/lib/hooks/useFileUpload';
 import { FileDropzone } from '@/components/files/FileDropzone';
 import { UploadProgressList } from '@/components/files/UploadProgressList';
@@ -178,19 +178,19 @@ export function ListingCard({
 export function ListingPhotosSection({ listingId, onError }: { listingId: string; onError: (m: string) => void }) {
   const [images, setImages] = useState<FileDto[]>([]);
   const reload = useCallback(() => {
-    api.get(`/shop/listings/${listingId}/images`).then((r) => setImages(r.data.data)).catch(() => {});
+    apiGet<FileDto[]>(`/shop/listings/${listingId}/images`).then(setImages).catch(() => {});
   }, [listingId]);
   useEffect(() => { reload(); }, [reload]);
 
   const uploader = useFileUpload('listing_image', {
     onUploaded: (f) => {
-      api.post(`/shop/listings/${listingId}/images`, { fileId: f.id })
-        .then((r) => setImages(r.data.data))
+      apiPost<FileDto[]>(`/shop/listings/${listingId}/images`, { fileId: f.id })
+        .then(setImages)
         .catch((e) => onError(apiErrorMessage(e)));
     },
   });
   const remove = (fileId: string) => {
-    api.delete(`/shop/listings/${listingId}/images/${fileId}`).then(reload).catch((e) => onError(apiErrorMessage(e)));
+    apiDelete(`/shop/listings/${listingId}/images/${fileId}`).then(reload).catch((e) => onError(apiErrorMessage(e)));
   };
   const thumbOf = (f: FileDto) =>
     f.publicUrl ? `${f.publicUrl}${f.variants?.some((v) => v.kind === 'thumb') ? '?variant=thumb' : ''}` : '';

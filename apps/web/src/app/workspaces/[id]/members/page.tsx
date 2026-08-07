@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
 import {
   workspaceKey,
   workspaceMembersKey,
@@ -18,7 +18,7 @@ import {
   Icon, IconButton, Input, LoadingBlock, Modal, PageHeader, SearchField, Select, StatTile, SegmentedControl,
   type TabItem,
 } from '@/components/ui';
-import { PersonChip, StaffPersonCard, type StaffCardData } from '../../../circles/PersonCard';
+import { PersonChip, StaffPersonCard } from '../../../circles/PersonCard';
 import { SubmitDocumentModal } from '../documents/SubmitDocumentModal';
 import { PersonAvatar } from '../../../messenger/messenger-ui';
 import {
@@ -31,6 +31,9 @@ import {
   type WorkspaceRole,
   type StaffDirectory,
   type StaffAssignment,
+  type UserLookupDto,
+  type ContactUserCard,
+  type ChatDetail,
 } from '@superapp/shared';
 
 const roleLabel = (r: string): string => WORKSPACE_ROLES[r as WorkspaceRole]?.name ?? r;
@@ -61,7 +64,7 @@ export default function WorkspaceStaffPage() {
 
   const wsQ = useQuery({
     queryKey: workspaceKey(workspaceId),
-    queryFn: async () => (await api.get(`/workspaces/${workspaceId}`)).data.data as Workspace,
+    queryFn: async () => await apiGet<Workspace>(`/workspaces/${workspaceId}`),
     enabled: isReady,
   });
   const ws = wsQ.data;
@@ -72,19 +75,19 @@ export default function WorkspaceStaffPage() {
   const membersQ = useQuery({
     queryKey: workspaceMembersKey(workspaceId),
     queryFn: async () =>
-      (await api.get(`/workspaces/${workspaceId}/members`)).data.data as WorkspaceMember[],
+      await apiGet<WorkspaceMember[]>(`/workspaces/${workspaceId}/members`),
     enabled: isReady,
   });
   const staffQ = useQuery({
     queryKey: workspaceStaffKey(workspaceId),
     queryFn: async () =>
-      (await api.get(`/workspaces/${workspaceId}/staff`)).data.data as StaffDirectory,
+      await apiGet<StaffDirectory>(`/workspaces/${workspaceId}/staff`),
     enabled: isReady,
   });
   const invitesQ = useQuery({
     queryKey: workspaceInvitationsKey(workspaceId),
     queryFn: async () =>
-      (await api.get(`/workspaces/${workspaceId}/invitations`)).data.data as WorkspaceInvitation[],
+      await apiGet<WorkspaceInvitation[]>(`/workspaces/${workspaceId}/invitations`),
     enabled: isReady && canStaff,
   });
 
@@ -99,7 +102,7 @@ export default function WorkspaceStaffPage() {
 
   const leave = async () => {
     try {
-      await api.post(`/workspaces/${workspaceId}/leave`);
+      await apiPost(`/workspaces/${workspaceId}/leave`);
       router.push('/dashboard');
     } catch (e) {
       setLeaving(false);
@@ -242,15 +245,18 @@ function PeopleTab({
   // ему НЕ перерисовываться на каждый ввод в фильтрах (раньше сотня карточек со
   // скинами пересобиралась на каждую букву).
   const cardProps = useMemo(() => {
-    const map = new Map<string, { card: StaffCardData; positions: string[]; branches: string[] }>();
+    const map = new Map<string, { card: ContactUserCard; positions: string[]; branches: string[] }>();
     for (const m of members) {
       // Страховка от устаревшего кэша (member без card после обновления контракта).
-      let card: StaffCardData;
+      let card: ContactUserCard;
       if (m.card) {
         card = m.card;
       } else {
         const [fn, ln] = splitName(m.userName);
         card = {
+          // `id` есть у ContactUserCard (это ОДИН тип с карточкой окружения) —
+          // локальная копия его теряла, хотя userId у строки ростера тот же самый.
+          id: m.userId,
           phone: '', firstName: fn, lastName: ln, avatar: m.userAvatar,
           dateOfBirth: null, bio: null, city: null, email: null, maritalStatus: null,
           socialLinks: null, age: null, showOnlineStatus: false,
@@ -272,12 +278,12 @@ function PeopleTab({
   // «Написать» — DM через «рабочий пропуск» (заголовок организации), затем в чат.
   const writeTo = async (m: WorkspaceMember) => {
     try {
-      const r = await api.post(
+      const chat = await apiPost<ChatDetail>(
         '/messenger/chats/dm',
         { userId: m.userId },
         { headers: { 'X-Workspace-Id': workspaceId } },
       );
-      router.push(`/messenger?chat=${r.data.data.id}`);
+      router.push(`/messenger?chat=${chat.id}`);
     } catch (e) {
       onError(apiErrorMessage(e));
     }
@@ -480,13 +486,13 @@ function MemberModal({
 
   const changeRole = () =>
     run(async () => {
-      await api.patch(`/workspaces/${workspaceId}/members/${member.userId}`, { role: newRole });
+      await apiPatch(`/workspaces/${workspaceId}/members/${member.userId}`, { role: newRole });
     });
 
   const assign = () =>
     run(async () => {
       if (!pickPos[0]) return;
-      await api.post(`/workspaces/${workspaceId}/staff/members/${member.userId}/assignments`, {
+      await apiPost(`/workspaces/${workspaceId}/staff/members/${member.userId}/assignments`, {
         positionId: pickPos[0].id,
         branchId: pickBranch || null,
       });
@@ -496,14 +502,14 @@ function MemberModal({
 
   const unassign = (a: StaffAssignment) =>
     run(async () => {
-      await api.delete(`/workspaces/${workspaceId}/staff/assignments/${a.id}`);
+      await apiDelete(`/workspaces/${workspaceId}/staff/assignments/${a.id}`);
     });
 
   const fire = async () => {
     setBusy(true);
     setLocalError('');
     try {
-      await api.delete(`/workspaces/${workspaceId}/members/${member.userId}`);
+      await apiDelete(`/workspaces/${workspaceId}/members/${member.userId}`);
       qc.invalidateQueries({ queryKey: workspaceKey(workspaceId) });
       refreshStaff();
       onClose();
@@ -721,7 +727,7 @@ function PositionsTab({
 
   const create = useMutation({
     mutationFn: async () =>
-      api.post(`/workspaces/${workspaceId}/staff/positions`, {
+      apiPost(`/workspaces/${workspaceId}/staff/positions`, {
         name: name.trim(),
         departmentId: depId || null,
         description: desc.trim() || null,
@@ -730,7 +736,7 @@ function PositionsTab({
     onError: (e) => onError(apiErrorMessage(e)),
   });
   const del = useMutation({
-    mutationFn: async (id: string) => api.delete(`/workspaces/${workspaceId}/staff/positions/${id}`),
+    mutationFn: async (id: string) => apiDelete(`/workspaces/${workspaceId}/staff/positions/${id}`),
     onSuccess: () => { setRemoving(null); onError(''); refresh(); },
     onError: (e) => { setRemoving(null); onError(apiErrorMessage(e)); },
   });
@@ -843,7 +849,7 @@ function DepartmentsTab({
 
   const create = useMutation({
     mutationFn: async () =>
-      api.post(`/workspaces/${workspaceId}/staff/departments`, {
+      apiPost(`/workspaces/${workspaceId}/staff/departments`, {
         name: name.trim(),
         parentId: parentId || null,
       }),
@@ -851,7 +857,7 @@ function DepartmentsTab({
     onError: (e) => onError(apiErrorMessage(e)),
   });
   const del = useMutation({
-    mutationFn: async (id: string) => api.delete(`/workspaces/${workspaceId}/staff/departments/${id}`),
+    mutationFn: async (id: string) => apiDelete(`/workspaces/${workspaceId}/staff/departments/${id}`),
     onSuccess: () => { setRemoving(null); onError(''); refresh(); },
     onError: (e) => { setRemoving(null); onError(apiErrorMessage(e)); },
   });
@@ -952,7 +958,7 @@ function BranchesTab({
 
   const create = useMutation({
     mutationFn: async () =>
-      api.post(`/workspaces/${workspaceId}/staff/branches`, {
+      apiPost(`/workspaces/${workspaceId}/staff/branches`, {
         name: name.trim(),
         address: address.trim() || null,
       }),
@@ -960,7 +966,7 @@ function BranchesTab({
     onError: (e) => onError(apiErrorMessage(e)),
   });
   const del = useMutation({
-    mutationFn: async (id: string) => api.delete(`/workspaces/${workspaceId}/staff/branches/${id}`),
+    mutationFn: async (id: string) => apiDelete(`/workspaces/${workspaceId}/staff/branches/${id}`),
     onSuccess: () => { setRemoving(null); onError(''); refresh(); },
     onError: (e) => { setRemoving(null); onError(apiErrorMessage(e)); },
   });
@@ -1028,13 +1034,6 @@ function BranchesTab({
 // Наём всегда в Стажёра (роль не выбирается). Филиалов можно несколько.
 // ============================================================
 
-interface LookupResult {
-  id: string;
-  firstName: string;
-  lastName: string | null;
-  phone: string;
-}
-
 /**
  * Блок выбора чипами — та же форма, что RolePicker в «Моё окружение»:
  * подпись сверху, матовые чипы кита в flex-wrap. single = одно значение,
@@ -1090,7 +1089,7 @@ function InvitesTab({
   const [cancelling, setCancelling] = useState<WorkspaceInvitation | null>(null);
 
   // Поиск по номеру — тот же механизм, что в «Моё окружение» (debounce + /users/lookup).
-  const [lookup, setLookup] = useState<LookupResult | null>(null);
+  const [lookup, setLookup] = useState<UserLookupDto | null>(null);
   const [lookupDone, setLookupDone] = useState(false);
   const [lookupLoading, setLookupLoading] = useState(false);
   const lookupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1104,8 +1103,7 @@ function InvitesTab({
       setLookupLoading(true);
       lookupTimer.current = setTimeout(async () => {
         try {
-          const { data } = await api.get(`/users/lookup?phone=${encodeURIComponent(value)}`);
-          setLookup(data.data);
+          setLookup(await apiGet<UserLookupDto | null>('/users/lookup', { params: { phone: value } }));
           setLookupDone(true);
         } catch {
           setLookupDone(true);
@@ -1125,7 +1123,7 @@ function InvitesTab({
   const invite = useMutation({
     mutationFn: async () => {
       if (!/^\+7\d{10}$/.test(phone)) throw new Error('bad-phone');
-      return api.post(`/workspaces/${workspaceId}/invitations`, {
+      return apiPost(`/workspaces/${workspaceId}/invitations`, {
         phone,
         positionId: posId || undefined,
         branchIds: branchIds.length ? branchIds : undefined,
@@ -1146,7 +1144,7 @@ function InvitesTab({
       ),
   });
   const cancel = useMutation({
-    mutationFn: async (invId: string) => api.post(`/workspaces/${workspaceId}/invitations/${invId}/cancel`),
+    mutationFn: async (invId: string) => apiPost(`/workspaces/${workspaceId}/invitations/${invId}/cancel`),
     onSuccess: () => { setCancelling(null); onError(''); refresh(); },
     onError: (e) => { setCancelling(null); onError(apiErrorMessage(e)); },
   });
@@ -1179,7 +1177,7 @@ function InvitesTab({
                   borderRadius: 'var(--radius-md)', padding: '0.5rem 0.75rem',
                 }}
               >
-                <PersonAvatar userId={lookup.id} name={lookup.firstName} size="sm" />
+                <PersonAvatar userId={lookup.id} name={lookup.firstName} avatar={lookup.avatar} size="sm" />
                 <span>
                   <span className="title-sm">{lookup.firstName} {lookup.lastName || ''}</span>
                   <span className="label-sm" style={{ display: 'block' }}>{lookup.phone}</span>

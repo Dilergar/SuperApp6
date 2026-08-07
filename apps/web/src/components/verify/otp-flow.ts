@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { isAxiosError } from 'axios';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiErrorDetails, apiErrorMessage, apiGet, apiPost } from '@/lib/api';
 import {
   VERIFY_ERROR_CODES,
   maskPhone,
@@ -22,6 +22,7 @@ import {
   type VerifyErrorDetails,
   type VerifyPurpose,
   type VerifyStartResponse,
+  type VerifyCheckResponse,
 } from '@superapp/shared';
 
 interface OtpState {
@@ -83,8 +84,10 @@ function recallChain(purpose: string, phone?: string): ResumeEntry | null {
   }
 }
 
+// Конверт разбирает общий apiErrorDetails транспорта — здесь только сужение до
+// формы деталей core/verify (второй разбор конверта был копией и мог разъехаться).
 function errorDetails(err: unknown): VerifyErrorDetails | undefined {
-  return isAxiosError(err) ? (err.response?.data as { details?: VerifyErrorDetails })?.details : undefined;
+  return apiErrorDetails(err) as VerifyErrorDetails | undefined;
 }
 
 export function useOtpFlow() {
@@ -100,8 +103,9 @@ export function useOtpFlow() {
 
   const fetchDevCode = useCallback(async (challengeId: string) => {
     try {
-      const { data } = await api.get(`/verify/dev/last-code`, { params: { challengeId } });
-      const code = data?.data?.code as string | null;
+      const { code } = await apiGet<{ code: string | null }>('/verify/dev/last-code', {
+        params: { challengeId },
+      });
       if (code) setS((p) => (p.challengeId === challengeId ? { ...p, devCode: code } : p));
     } catch {
       /* production — ручки нет, подсказки нет */
@@ -115,8 +119,7 @@ export function useOtpFlow() {
       const phone = (body.newPhone ?? body.phone) as string | undefined;
       setS((p) => ({ ...p, busy: true, error: '', errorCode: null, code: '', attemptsLeft: null, devCode: null }));
       try {
-        const { data } = await api.post(path, body);
-        const r = data.data as VerifyStartResponse;
+        const r = await apiPost<VerifyStartResponse>(path, body);
         rememberChain(purpose, phone, { challengeId: r.challengeId, phoneMasked: r.phoneMasked });
         setS({ ...initial, challengeId: r.challengeId, phoneMasked: r.phoneMasked, resendLeft: r.resendInSec });
         void fetchDevCode(r.challengeId);
@@ -183,9 +186,12 @@ export function useOtpFlow() {
       if (!s.challengeId) return null;
       setS((p) => ({ ...p, busy: true, error: '', errorCode: null }));
       try {
-        const { data } = await api.post('/verify/check', { challengeId: s.challengeId, code });
+        const r = await apiPost<VerifyCheckResponse>('/verify/check', {
+          challengeId: s.challengeId,
+          code,
+        });
         setS((p) => ({ ...p, busy: false }));
-        return (data.data as { verifyToken: string }).verifyToken;
+        return r.verifyToken;
       } catch (err) {
         const details = errorDetails(err);
         setS((p) => ({

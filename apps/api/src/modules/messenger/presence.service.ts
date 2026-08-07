@@ -26,6 +26,12 @@ type CtxSnapshot = { title: string; endTime: string } | null;
  * access level (busy<detailed) via CalendarService (resolved lazily via ModuleRef to avoid the
  * MessengerModule↔CalendarModule↔TasksModule cycle).
  */
+/** Событие шины `messenger.presence.changed` — внутренняя форма (см. fanOutPresenceChange). */
+interface PresenceChangedBusPayload {
+  userId: string;
+  audienceIds: string[];
+}
+
 @Injectable()
 export class PresenceService {
   private readonly logger = new Logger('PresenceService');
@@ -282,7 +288,11 @@ export class PresenceService {
     try {
       const contactIds = await this.contacts.getContactUserIds(userId);
       const audienceIds = [...new Set([...contactIds, userId])];
-      this.events.emit('messenger.presence.changed', { userId, audienceIds }, 'messenger');
+      // ВНУТРИшинный payload, а не форма провода: наружу gateway отдаёт только
+      // `{ userId }` (`WsPresenceChanged`), `audienceIds` — маршрут фанаута и до
+      // клиента не доезжает. Поэтому тип api-локальный и в shared не тащится.
+      const busPayload: PresenceChangedBusPayload = { userId, audienceIds };
+      this.events.emit('messenger.presence.changed', busPayload, 'messenger');
     } catch (e) {
       this.logger.error(`fanOutPresenceChange ${userId} failed`, e as Error);
     }

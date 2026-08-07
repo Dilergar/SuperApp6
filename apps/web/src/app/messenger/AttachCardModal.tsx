@@ -2,8 +2,15 @@
 
 import { Glyph, ModalShell } from '@/components/ui';
 import { useEffect, useState } from 'react';
-import type { RichCardRefType } from '@superapp/shared';
-import { api } from '@/lib/api';
+import type {
+  CalendarRangeResponse,
+  Listing,
+  OffsetPage,
+  RichCardRefType,
+  ShopOverviewDto,
+  Task,
+} from '@superapp/shared';
+import { apiGet } from '@/lib/api';
 import { shareRichCard } from '@/lib/messenger-api';
 import { errMsg } from './ShareCardModal';
 
@@ -257,16 +264,14 @@ async function loadEntities(tab: TabKey): Promise<PickItem[]> {
   return loadListings();
 }
 
-interface TaskRow {
-  id: string;
-  title: string;
-  status?: string;
-}
+/** Сколько задач показывать в пикере скрепки: у страницы задач свой список с поиском. */
+const TASK_PICK_LIMIT = 100;
+
 async function loadTasks(): Promise<PickItem[]> {
-  // GET /tasks → { success, data: TaskRow[] } (same shape used by /tasks page).
-  const res = await api.get('/tasks');
-  const rows: TaskRow[] = res.data.data ?? [];
-  return rows.map((t) => ({
+  // Раньше limit не передавался вовсе: приезжала дефолтная первая страница из 20 задач,
+  // а `meta` игнорировалась — у человека с 60 задачами скрепка молча показывала треть.
+  const page = await apiGet<OffsetPage<Task>>('/tasks', { params: { limit: String(TASK_PICK_LIMIT) } });
+  return page.items.map((t) => ({
     key: t.id,
     icon: 'checkCircle',
     title: t.title,
@@ -275,74 +280,51 @@ async function loadTasks(): Promise<PickItem[]> {
   }));
 }
 
-interface CalendarItemRow {
-  kind: 'event' | 'task';
-  id: string;
-  eventId?: string;
-  title: string;
-  start?: string;
-  startTime?: string;
-  ownerName?: string | null;
-}
 async function loadEvents(): Promise<PickItem[]> {
   // GET /calendar/events?from&to&layers=events → { items: CalendarItem[] }.
   // Window: now → +60 days. Keep only events I own/organize (no overlay ownerName),
   // dedupe recurring occurrences by their event id.
   const from = new Date();
   const to = new Date(Date.now() + 60 * 86_400_000);
-  const res = await api.get('/calendar/events', {
+  const range = await apiGet<CalendarRangeResponse>('/calendar/events', {
     params: { from: from.toISOString(), to: to.toISOString(), layers: 'events' },
   });
-  const items: CalendarItemRow[] = res.data.data?.items ?? [];
   const seen = new Set<string>();
   const out: PickItem[] = [];
-  for (const it of items) {
+  // Сужение по kind — вместо локального типа, который гадал `eventId ?? id` и
+  // `start ?? startTime`: поля `id`/`startTime` у события НЕ СУЩЕСТВУЕТ, обе ветки
+  // были мёртвыми и держались на совпадении.
+  for (const it of range.items) {
     if (it.kind !== 'event') continue;
     if (it.ownerName) continue; // overlay (someone else's calendar) — not mine to share
-    const id = it.eventId ?? it.id;
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    const when = it.start ?? it.startTime;
+    if (seen.has(it.eventId)) continue;
+    seen.add(it.eventId);
     out.push({
-      key: id,
+      key: it.eventId,
       icon: 'calendar',
       title: it.title,
-      subtitle: when ? fmtWhen(when) : undefined,
+      subtitle: fmtWhen(it.start),
       refType: 'event' as const,
-      refId: id,
+      refId: it.eventId,
     });
   }
   return out;
 }
 
-interface ShowcaseRow {
-  listings?: ListingRow[];
-}
-interface ListingRow {
-  id: string;
-  title: string;
-  icon?: string | null;
-  crowdfunding?: boolean;
-}
 async function loadListings(): Promise<PickItem[]> {
-  // GET /shop → { shop, showcases: Showcase[] }. Showcase listings may be omitted in
-  // the summary; fetch per-showcase listings to be safe.
-  const res = await api.get('/shop');
-  const showcases: (ShowcaseRow & { id?: string })[] = res.data.data?.showcases ?? [];
+  // У shared `Showcase` поля `listings` нет и не было никогда — прежняя ветка
+  // «Prefer inlined listings» не срабатывала ни разу, а тип обещал её как рабочую.
+  const shop = await apiGet<ShopOverviewDto>('/shop');
   const out: PickItem[] = [];
   const seen = new Set<string>();
-  // Prefer inlined listings; otherwise fetch each showcase's listings.
-  for (const sc of showcases) {
-    let listings = sc.listings;
-    if (!listings && sc.id) {
-      try {
-        const r = await api.get(`/shop/showcases/${sc.id}/listings`);
-        listings = r.data.data ?? [];
-      } catch {
-        listings = [];
-      }
+  for (const sc of shop.showcases) {
+    let listings: Listing[];
+    try {
+      listings = await apiGet<Listing[]>(`/shop/showcases/${sc.id}/listings`);
+    } catch {
+      listings = [];
     }
-    for (const l of listings ?? []) {
+    for (const l of listings) {
       if (seen.has(l.id)) continue;
       seen.add(l.id);
       out.push({

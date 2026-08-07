@@ -14,7 +14,7 @@ import { uploadFile } from '@/lib/files-api';
 import { apiErrorMessage } from '@/lib/api';
 import { toastError } from '@/lib/toast';
 import { attachDriveFile, createDriveFolder } from '@/lib/drive-api';
-import type { DriveRef } from '@/lib/queries';
+import type { DriveSpaceRef } from '@superapp/shared';
 import type { UploadItem } from '@/lib/hooks/useFileUpload';
 
 /** Файл вместе с путём внутри перетащенной папки (пустой путь = корень выделения) */
@@ -61,7 +61,7 @@ async function planEntry(entry: FileSystemEntry, path: string[], out: PlannedFil
 }
 
 export interface DriveUploadOptions {
-  ref: DriveRef;
+  ref: DriveSpaceRef;
   /** В какую папку класть (null — корень пространства) */
   parentId: string | null;
   onDone?: () => void;

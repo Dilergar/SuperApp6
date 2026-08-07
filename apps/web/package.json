@@ -8,12 +8,14 @@
     "dev:webpack": "next dev --port 3000",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "gen:icons": "node scripts/gen-icon-sprite.cjs"
+    "lint": "eslint src",
+    "gen:icons": "node scripts/gen-icon-sprite.cjs",
+    "lint:eslint": "eslint src"
   },
   "dependencies": {
     "@livekit/components-react": "^2.9",
     "@phosphor-icons/react": "^2.1.10",
+    "@superapp/api-client": "workspace:*",
     "@superapp/shared": "workspace:*",
     "@tanstack/react-query": "^5.62.0",
     "@xyflow/react": "^12.11.0",
@@ -28,10 +30,14 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@next/eslint-plugin-next": "^15.5.21",
     "@tailwindcss/postcss": "^4.0.0",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@typescript-eslint/parser": "^8.20.0",
+    "eslint": "^9.18.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
     "postcss": "^8.4.0",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.0"

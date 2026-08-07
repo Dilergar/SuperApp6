@@ -2,7 +2,15 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-nati
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../src/stores/auth.store';
-import { MODULES } from '@superapp/shared';
+
+// Реестр сервисов приложения пишется заново вместе с mobile (этап 2 дорожной карты);
+// прежний общий MODULES из @superapp/shared удалён как мёртвый — на вебе реестр
+// давно живёт в lib/app-nav.ts, и вторая копия только расходилась с ним.
+const MODULES: { id: string; name: string }[] = [
+  { id: 'circles', name: 'Моё окружение' },
+  { id: 'tasks', name: 'Задачи' },
+  { id: 'calendar', name: 'Календарь' },
+];
 
 const ICON_MAP: Record<string, keyof typeof Ionicons.glyphMap> = {
   circles: 'people-outline',
@@ -43,7 +51,7 @@ export default function DashboardScreen() {
       {/* Services grid */}
       <Text style={styles.sectionTitle}>Сервисы</Text>
       <View style={styles.grid}>
-        {Object.values(MODULES).map((mod) => (
+        {MODULES.map((mod) => (
           <TouchableOpacity
             key={mod.id}
             style={styles.serviceCard}

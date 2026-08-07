@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { api } from '@/lib/api';
+import { useQuery } from '@tanstack/react-query';
+import type { Contact } from '@superapp/shared';
+import { contactsKey, fetchAllContacts } from '@/lib/queries';
 import { EntitySelector } from '@/components/EntitySelector';
 import type { Principal } from '@/lib/entities';
 
@@ -9,44 +10,21 @@ import type { Principal } from '@/lib/entities';
 // Thin adapter over the shared EntitySelector, kept for the existing
 // call sites (NewChat / group add / quick-actions). The old hand-rolled
 // list was removed — selection now goes through the one engine.
-// `useContacts` still loads the environment and feeds it as options.
 // ============================================================
 
-export interface ContactRow {
-  linkId: string;
-  them: { id: string; firstName: string; lastName: string | null; avatar: string | null };
-  myRole: string | null;
-  theirRole: string | null;
-  myCircleIds: string[];
-}
-
-export function useContacts(): { contacts: ContactRow[]; loading: boolean; error: string } {
-  const [contacts, setContacts] = useState<ContactRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const acc: ContactRow[] = [];
-        let cursor: string | undefined;
-        do {
-          const res = await api.get('/contacts', { params: cursor ? { cursor } : undefined });
-          acc.push(...res.data.data);
-          cursor = res.data.nextCursor ?? undefined;
-        } while (cursor);
-        if (!cancelled) setContacts(acc);
-      } catch {
-        if (!cancelled) setError('Не удалось загрузить окружение');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
-  return { contacts, loading, error };
+/**
+ * Окружение для пикера — из ОБЩЕГО кэша React Query, а не третьей копией курсорного
+ * цикла (были ещё две: `queries.fetchAllContacts` и `entities.loadUsers`, каждая со
+ * своим состоянием загрузки и своим `catch`). Форма строки — shared `Contact`:
+ * локальное сужение `Contact` теряло половину полей человека.
+ */
+export function useContacts(): { contacts: Contact[]; loading: boolean; error: string } {
+  const { data, isPending, isError } = useQuery({ queryKey: contactsKey, queryFn: fetchAllContacts });
+  return {
+    contacts: data ?? [],
+    loading: isPending,
+    error: isError ? 'Не удалось загрузить окружение' : '',
+  };
 }
 
 export function ContactPicker({
@@ -60,7 +38,7 @@ export function ContactPicker({
   onToggle,
   emptyHint = 'Поиск по имени…',
 }: {
-  contacts: ContactRow[];
+  contacts: Contact[];
   loading: boolean;
   error: string;
   mode: 'single' | 'multi';

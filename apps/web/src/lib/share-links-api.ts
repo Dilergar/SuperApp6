@@ -1,12 +1,12 @@
 import type {
-  ShareLinkActorLite,
   ShareLinkDto,
-  ShareLinkMineDto,
+  ShareLinkMinePage,
+  ShareLinkOrgPage,
   ShareLinkStatsDto,
   ShareLinksPage,
-  ShareLinkVisitDto,
+  ShareLinkVisitsPage,
 } from '@superapp/shared';
-import { api } from './api';
+import { apiGet, apiPatch, apiPost } from './api';
 
 // ============================================================
 // Управление гостевыми ссылками (для того, кто внутри платформы).
@@ -14,8 +14,7 @@ import { api } from './api';
 // ============================================================
 
 export async function fetchShareLinks(refType: string, refId: string): Promise<ShareLinksPage> {
-  const { data } = await api.get('/share-links', { params: { refType, refId } });
-  return { items: data.data, total: data.total ?? data.data.length };
+  return apiGet<ShareLinksPage>('/share-links', { params: { refType, refId } });
 }
 
 export interface CreateShareLinkBody {
@@ -31,8 +30,7 @@ export interface CreateShareLinkBody {
 }
 
 export async function createShareLink(body: CreateShareLinkBody): Promise<ShareLinkDto> {
-  const { data } = await api.post('/share-links', body);
-  return data.data;
+  return apiPost<ShareLinkDto>('/share-links', body);
 }
 
 /** null очищает поле, отсутствие ключа — сохраняет как было (тумблеры не очищаются, только меняются) */
@@ -47,24 +45,20 @@ export interface UpdateShareLinkBody {
 }
 
 export async function updateShareLink(id: string, body: UpdateShareLinkBody): Promise<ShareLinkDto> {
-  const { data } = await api.patch(`/share-links/${id}`, body);
-  return data.data;
+  return apiPatch<ShareLinkDto>(`/share-links/${id}`, body);
 }
 
 export async function revokeShareLink(id: string): Promise<ShareLinkDto> {
-  const { data } = await api.post(`/share-links/${id}/revoke`);
-  return data.data;
+  return apiPost<ShareLinkDto>(`/share-links/${id}/revoke`);
 }
 
-export async function fetchShareLinkVisits(id: string): Promise<ShareLinkVisitDto[]> {
-  const { data } = await api.get(`/share-links/${id}/visits`);
-  return data.data;
+export async function fetchShareLinkVisits(id: string): Promise<ShareLinkVisitsPage> {
+  return apiGet<ShareLinkVisitsPage>(`/share-links/${id}/visits`);
 }
 
 /** Сменить адрес, сохранив настройки и журнал: старый адрес умирает сразу */
 export async function rotateShareLink(id: string): Promise<ShareLinkDto> {
-  const { data } = await api.post(`/share-links/${id}/rotate`);
-  return data.data;
+  return apiPost<ShareLinkDto>(`/share-links/${id}/rotate`);
 }
 
 // ============================================================
@@ -74,19 +68,16 @@ export async function rotateShareLink(id: string): Promise<ShareLinkDto> {
 export async function fetchMyShareLinks(params: {
   status?: 'active' | 'inactive' | 'all';
   cursor?: string;
-}): Promise<{ items: ShareLinkMineDto[]; nextCursor: string | null }> {
-  const { data } = await api.get('/share-links/mine', { params });
-  return { items: data.data, nextCursor: data.nextCursor ?? null };
+}): Promise<ShareLinkMinePage> {
+  return apiGet<ShareLinkMinePage>('/share-links/mine', { params });
 }
 
 export async function fetchMyShareStats(): Promise<ShareLinkStatsDto> {
-  const { data } = await api.get('/share-links/mine/stats');
-  return data.data;
+  return apiGet<ShareLinkStatsDto>('/share-links/mine/stats');
 }
 
 export async function revokeMyShareLinks(ids: string[]): Promise<number> {
-  const { data } = await api.post('/share-links/mine/revoke', { ids });
-  return data.data.revoked;
+  return (await apiPost<{ revoked: number }>('/share-links/mine/revoke', { ids })).revoked;
 }
 
 // ============================================================
@@ -96,18 +87,15 @@ export async function revokeMyShareLinks(ids: string[]): Promise<number> {
 export async function fetchWorkspaceShareLinks(
   workspaceId: string,
   params: { status?: 'active' | 'inactive' | 'all'; cursor?: string },
-): Promise<{ items: ShareLinkMineDto[]; nextCursor: string | null; actors: Record<string, ShareLinkActorLite> }> {
-  const { data } = await api.get(`/workspaces/${workspaceId}/share-links`, { params });
-  return { items: data.data, nextCursor: data.nextCursor ?? null, actors: data.actors ?? {} };
+): Promise<ShareLinkOrgPage> {
+  return apiGet<ShareLinkOrgPage>(`/workspaces/${workspaceId}/share-links`, { params });
 }
 
 export async function fetchWorkspaceShareStats(workspaceId: string): Promise<ShareLinkStatsDto> {
-  const { data } = await api.get(`/workspaces/${workspaceId}/share-links/stats`);
-  return data.data;
+  return apiGet<ShareLinkStatsDto>(`/workspaces/${workspaceId}/share-links/stats`);
 }
 
 /** Отзыв ЧУЖИХ ссылок организации — то, ради чего раздел и заводится (уволенный автор) */
 export async function revokeWorkspaceShareLinks(workspaceId: string, ids: string[]): Promise<number> {
-  const { data } = await api.post(`/workspaces/${workspaceId}/share-links/revoke`, { ids });
-  return data.data.revoked;
+  return (await apiPost<{ revoked: number }>(`/workspaces/${workspaceId}/share-links/revoke`, { ids })).revoked;
 }

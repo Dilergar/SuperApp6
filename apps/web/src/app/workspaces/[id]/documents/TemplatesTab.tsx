@@ -181,7 +181,7 @@ function CreateTemplateModal({
         name: name.trim(),
         ...(fileId ? { fileId } : {}),
       });
-      return res.data.data as DocTemplateDto;
+      return res;
     },
     onSuccess: (tpl) => {
       qc.invalidateQueries({ queryKey: ['workspaces', workspaceId, 'documents'] });

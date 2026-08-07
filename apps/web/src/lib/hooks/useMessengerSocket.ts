@@ -2,47 +2,33 @@
 
 import { useEffect, useRef } from 'react';
 import { io, type Socket } from 'socket.io-client';
+import { ACCESS_TOKEN_KEY } from '@/lib/api';
 import { useAuthStore } from '@/lib/stores/auth';
-import type { ChatCallStatePayload, ChatMessage, WsPresenceChanged, WsTyping } from '@superapp/shared';
+import type {
+  MessengerClientToServerEvents,
+  MessengerServerToClientEvents,
+  WsCallState,
+  WsMessageDeleted,
+  WsMessageNew,
+  WsMessageUpdated,
+  WsPresenceChanged,
+  WsReceipt,
+  WsTyping,
+} from '@superapp/shared';
 import { PRESENCE } from '@superapp/shared';
 
-// ============================================================
-// Server → client payload shapes (richer than the shared Ws* types;
-// they carry routing/echo metadata the UI uses to reconcile caches).
-// IMPORTANT: message.mine on these payloads is NOT viewer-correct —
-// callers must recompute mine = message.authorId === currentUserId.
-// ============================================================
-
-export interface SocketMessageNew {
-  chatId: string;
-  message: ChatMessage;
-  memberUserIds: string[];
-  recipientIds: string[];
-  authorName: string | null;
-  chatType: string;
-  preview: unknown;
-}
-export interface SocketMessageUpdated {
-  chatId: string;
-  message: ChatMessage;
-}
-export interface SocketMessageDeleted {
-  chatId: string;
-  message: ChatMessage;
-}
-export interface SocketReceipt {
-  chatId: string;
-  userId: string;
-  deliveredSeq: number;
-  lastReadSeq: number;
-  memberUserIds: string[];
-}
+// Формы событий берутся из @superapp/shared, и ИМИ ЖЕ типизирован gateway на API:
+// имя события с опечаткой или payload не той формы — теперь ошибка компиляции с
+// ОБЕИХ сторон провода. Раньше веб держал свой набор Socket*-типов («richer than
+// the shared Ws*»), а shared-версии были мертвы и врали.
+// ВАЖНО: message.mine в этих payload НЕ зрителе-корректен (фанаут считает его для
+// псевдо-зрителя) — потребитель обязан пересчитать mine = message.authorId === meId.
 
 export interface MessengerSocketHandlers {
-  onMessageNew?: (p: SocketMessageNew) => void;
-  onMessageUpdated?: (p: SocketMessageUpdated) => void;
-  onMessageDeleted?: (p: SocketMessageDeleted) => void;
-  onReceipt?: (p: SocketReceipt) => void;
+  onMessageNew?: (p: WsMessageNew) => void;
+  onMessageUpdated?: (p: WsMessageUpdated) => void;
+  onMessageDeleted?: (p: WsMessageDeleted) => void;
+  onReceipt?: (p: WsReceipt) => void;
   /** Lightweight ping: a user's presence/contextual status may have changed → refetch it. */
   onPresenceChanged?: (p: WsPresenceChanged) => void;
   /** Someone started/stopped typing in a chat. */
@@ -51,7 +37,7 @@ export interface MessengerSocketHandlers {
    * Идемпотентный снимок звонка чата (started/joined/left/ended/recording — один
    * формат): дозвон DM, баннер «Идёт звонок», индикатор записи. active=null — звонка нет.
    */
-  onCallState?: (p: ChatCallStatePayload) => void;
+  onCallState?: (p: WsCallState) => void;
   /**
    * Fired after the socket RE-connects (not the first connect): socket events that
    * happened during the gap were lost — the consumer should invalidate/refetch chats
@@ -86,7 +72,7 @@ function serverOrigin(): string {
 type HandlersRef = { current: MessengerSocketHandlers };
 
 interface SingletonState {
-  socket: Socket;
+  socket: Socket<MessengerServerToClientEvents, MessengerClientToServerEvents>;
   subscribers: Set<HandlersRef>;
   /** Был ли уже connect на ЭТОМ соединении — отличает первый коннект от реконнекта. */
   wasConnected: boolean;
@@ -103,21 +89,24 @@ function dispatch(fn: (h: MessengerSocketHandlers) => void) {
 }
 
 function createSingleton(): SingletonState {
-  const socket = io(`${serverOrigin()}/messenger`, {
+  const socket: Socket<MessengerServerToClientEvents, MessengerClientToServerEvents> = io(
+    `${serverOrigin()}/messenger`,
+    {
     // auth как ФУНКЦИЯ: перевычисляется на КАЖДОЙ попытке (ре)коннекта. Access-токен
     // ротируется каждые ~15 мин; захваченный объект переигрывал бы протухший токен,
     // и каждый reconnect отбивался бы навсегда.
-    auth: (cb) => cb({ token: localStorageToken() ?? '' }),
-    transports: ['websocket', 'polling'],
-  });
+      auth: (cb) => cb({ token: localStorageToken() ?? '' }),
+      transports: ['websocket', 'polling'],
+    },
+  );
 
-  socket.on('message:new', (p: SocketMessageNew) => dispatch((h) => h.onMessageNew?.(p)));
-  socket.on('message:updated', (p: SocketMessageUpdated) => dispatch((h) => h.onMessageUpdated?.(p)));
-  socket.on('message:deleted', (p: SocketMessageDeleted) => dispatch((h) => h.onMessageDeleted?.(p)));
-  socket.on('receipt', (p: SocketReceipt) => dispatch((h) => h.onReceipt?.(p)));
-  socket.on('presence:changed', (p: WsPresenceChanged) => dispatch((h) => h.onPresenceChanged?.(p)));
-  socket.on('typing', (p: WsTyping) => dispatch((h) => h.onTyping?.(p)));
-  socket.on('call:state', (p: ChatCallStatePayload) => dispatch((h) => h.onCallState?.(p)));
+  socket.on('message:new', (p) => dispatch((h) => h.onMessageNew?.(p)));
+  socket.on('message:updated', (p) => dispatch((h) => h.onMessageUpdated?.(p)));
+  socket.on('message:deleted', (p) => dispatch((h) => h.onMessageDeleted?.(p)));
+  socket.on('receipt', (p) => dispatch((h) => h.onReceipt?.(p)));
+  socket.on('presence:changed', (p) => dispatch((h) => h.onPresenceChanged?.(p)));
+  socket.on('typing', (p) => dispatch((h) => h.onTyping?.(p)));
+  socket.on('call:state', (p) => dispatch((h) => h.onCallState?.(p)));
 
   // Heartbeat с visibility-гейтом: ОДИН интервал на соединение (не на подписчика).
   // Скрытая вкладка биения НЕ шлёт — away-модель Slack: серверный TTL presence-ключа
@@ -226,5 +215,5 @@ export function useMessengerSocket(handlers: MessengerSocketHandlers): Messenger
 
 function localStorageToken(): string | null {
   if (typeof window === 'undefined') return null;
-  return localStorage.getItem('accessToken');
+  return localStorage.getItem(ACCESS_TOKEN_KEY);
 }

@@ -20,7 +20,7 @@ import {
   type WorkspaceRole,
 } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { api } from '@/lib/api';
+import { apiGet } from '@/lib/api';
 import { useAuthStore } from '@/lib/stores/auth';
 import { docTypesKey, orgDocumentsKey, workspaceKey } from '@/lib/queries';
 import {
@@ -66,7 +66,7 @@ export default function WorkspaceDocumentsPage() {
 
   const wsQuery = useQuery({
     queryKey: workspaceKey(id),
-    queryFn: async () => (await api.get(`/workspaces/${id}`)).data.data as Workspace,
+    queryFn: async () => await apiGet<Workspace>(`/workspaces/${id}`),
     enabled: isReady,
   });
   const myRole = wsQuery.data?.myRole as WorkspaceRole | undefined;

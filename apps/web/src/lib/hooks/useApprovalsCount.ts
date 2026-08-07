@@ -1,8 +1,11 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { APPROVAL_LIMITS } from '@superapp/shared';
-import { api } from '@/lib/api';
+import {
+  APPROVAL_LIMITS,
+  type InboxCountDto,
+} from '@superapp/shared';
+import { apiGet } from '@/lib/api';
 import { approvalCountKey, approvalScopeParams, type ApprovalScope } from '@/lib/queries';
 
 // ============================================================
@@ -30,7 +33,7 @@ export function useApprovalsCount(enabled = true, scope?: ApprovalScope): number
     // корневом графе КАЖДОЙ страницы, и один импорт утащил бы туда весь клиент
     // вместе с типами движка (та же причина, что у счётчика упоминаний).
     queryFn: async () =>
-      (await api.get('/approvals/inbox/count', { params: approvalScopeParams(scope) })).data.data.total as number,
+      (await apiGet<InboxCountDto>('/approvals/inbox/count', { params: approvalScopeParams(scope) })).total,
     enabled,
     refetchInterval: APPROVAL_LIMITS.countPollMs,
     refetchOnWindowFocus: true,

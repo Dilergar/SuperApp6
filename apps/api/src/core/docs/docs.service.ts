@@ -13,6 +13,7 @@ import {
   documentFormatForFile,
   fileExtension,
   formatTimeRange,
+  DOCUMENT_SESSION_STATUSES,
   type DocsStatusDto,
   type DocumentAccess,
   type DocumentDto,
@@ -20,7 +21,9 @@ import {
   type DocumentOpenDto,
   type DocumentOpenInput,
   type DocumentUpdateInput,
+  type DocumentVersionDto,
   type FileOwnerType,
+  type DocumentSessionStatus,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
@@ -38,6 +41,9 @@ import { ShareLinksService } from '../share-links/share-links.service';
 
 type DocumentRow = NonNullable<Awaited<ReturnType<DatabaseService['document']['findUnique']>>>;
 type SessionRow = NonNullable<Awaited<ReturnType<DatabaseService['documentSession']['findUnique']>>>;
+
+// Статусы сессии — из реестра shared, не строковыми литералами (паттерн calls.service).
+const [SESSION_OPEN] = DOCUMENT_SESSION_STATUSES;
 
 /** Место, через которое человек пришёл к документу (кнопка на вложении задачи/чата) */
 export interface DocsPlaceCtx {
@@ -297,7 +303,7 @@ export class DocsService implements OnModuleInit {
   // Версии
   // ============================================================
 
-  async listVersions(userId: string, id: string, ctx?: DocsPlaceCtx | null) {
+  async listVersions(userId: string, id: string, ctx?: DocsPlaceCtx | null): Promise<DocumentVersionDto[]> {
     const doc = await this.loadOrThrow(id);
     if ((await this.resolveMode(userId, doc, ctx)) === 'none') {
       throw new ForbiddenException('Нет доступа к документу');
@@ -477,7 +483,7 @@ export class DocsService implements OnModuleInit {
         // момент, когда файл уезжает в уборку, — значит создать копию, которую тут же
         // придётся прибирать.
         await tx.documentSession.updateMany({
-          where: { documentId: doc.id, status: 'open' },
+          where: { documentId: doc.id, status: SESSION_OPEN },
           data: { status: 'expired', closedAt: new Date() },
         });
         await tx.documentVersion.updateMany({
@@ -588,7 +594,7 @@ export class DocsService implements OnModuleInit {
 
   private async serialize(doc: DocumentRow, access: DocumentAccess): Promise<DocumentDto> {
     const live = !!(await this.db.documentSession.findFirst({
-      where: { documentId: doc.id, status: 'open', expiresAt: { gt: new Date() } },
+      where: { documentId: doc.id, status: SESSION_OPEN, expiresAt: { gt: new Date() } },
       select: { id: true },
     }));
     return {
@@ -781,7 +787,7 @@ export class DocsService implements OnModuleInit {
   /** Живая сессия или null; протухшую закрываем лениво прямо здесь */
   async getActiveSession(documentId: string): Promise<SessionRow | null> {
     const session = await this.db.documentSession.findFirst({
-      where: { documentId, status: 'open' },
+      where: { documentId, status: SESSION_OPEN },
     });
     if (!session) return null;
     if (session.expiresAt.getTime() <= Date.now()) {
@@ -835,7 +841,7 @@ export class DocsService implements OnModuleInit {
     }
     if (active.lockValue !== oldLock) throw new WopiLockConflict(active.lockValue);
     await this.db.documentSession.updateMany({
-      where: { id: active.id, status: 'open', lockValue: oldLock },
+      where: { id: active.id, status: SESSION_OPEN, lockValue: oldLock },
       data: { lockValue: newLock, expiresAt: this.lockDeadline() },
     });
   }
@@ -874,7 +880,7 @@ export class DocsService implements OnModuleInit {
       ? session.participantIds
       : [...session.participantIds, userId];
     await this.db.documentSession.updateMany({
-      where: { id: session.id, status: 'open' },
+      where: { id: session.id, status: SESSION_OPEN },
       data: { expiresAt: this.lockDeadline(), participantIds: participants },
     });
   }
@@ -885,12 +891,15 @@ export class DocsService implements OnModuleInit {
    * заказывает веху, в ТОЙ ЖЕ транзакции (иначе два одновременных Unlock'а нарезали бы
    * две версии одного и того же содержимого).
    */
-  async closeSession(session: SessionRow, status: 'closed' | 'expired'): Promise<boolean> {
+  async closeSession(
+    session: SessionRow,
+    status: Exclude<DocumentSessionStatus, 'open'>,
+  ): Promise<boolean> {
     // Всё, что требует запросов, готовим ДО транзакции: внутри остаются только записи.
     const entries = await this.buildEditEntries(session);
     return this.db.$transaction(async (tx) => {
       const res = await tx.documentSession.updateMany({
-        where: { id: session.id, status: 'open' },
+        where: { id: session.id, status: SESSION_OPEN },
         data: { status, closedAt: new Date() },
       });
       if (res.count !== 1) return false;
@@ -1024,7 +1033,7 @@ export class DocsService implements OnModuleInit {
         ? session.participantIds
         : [...session.participantIds, ctx.userId];
       await this.db.documentSession.updateMany({
-        where: { id: session.id, status: 'open' },
+        where: { id: session.id, status: SESSION_OPEN },
         data: {
           lastPutAt: savedAt,
           participantIds: participants,

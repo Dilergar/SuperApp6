@@ -13,6 +13,8 @@ import {
   drivePhotoQuerySchema,
   driveShareSchema,
   driveTrashQuerySchema,
+  type DriveListPageDto,
+  type DriveNodeDetailDto,
 } from '@superapp/shared';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
 import { DrivePhotosService } from './drive-photos.service';
@@ -49,8 +51,9 @@ export class DriveController {
   @ApiOperation({ summary: 'Содержимое папки (keyset; папки вперёд)' })
   async list(@CurrentUser() user: JwtPayload, @Query() query: Record<string, unknown>) {
     const q = driveListQuerySchema.parse(query);
-    const { items, nextCursor } = await this.drive.listNodes(user.sub, q);
-    return { success: true, data: items, nextCursor };
+    // DriveListPageDto наконец стоит на ОБЕИХ сторонах провода: он и был web-only
+    // ровно потому, что контроллер разбирал страницу сервиса здесь.
+    return { success: true, data: await this.drive.listNodes(user.sub, q) };
   }
 
   @Get('trash')
@@ -58,7 +61,11 @@ export class DriveController {
   async trashList(@CurrentUser() user: JwtPayload, @Query() query: Record<string, unknown>) {
     const q = driveTrashQuerySchema.parse(query);
     const { items, nextCursor } = await this.tree.listTrash(user.sub, q, q);
-    return { success: true, data: await this.drive.serializeNodes(user.sub, items), nextCursor };
+    const page: DriveListPageDto = {
+      items: await this.drive.serializeNodes(user.sub, items),
+      nextCursor,
+    };
+    return { success: true, data: page };
   }
 
   @Get('nodes/:id')
@@ -71,16 +78,14 @@ export class DriveController {
     // Отметка не должна мешать выдаче, поэтому она best-effort внутри самого метода.
     await this.drive.touchRecent(user.sub, node.id);
     const [dto] = await this.drive.serializeNodes(user.sub, [node]);
-    return {
-      success: true,
-      data: {
-        node: dto,
-        breadcrumbs: await this.drive.breadcrumbs(node),
-        space: await this.drive.serializeSpace(space, await this.drive.spaceAccessOf(user.sub, space)),
-        access,
-        usedElsewhere: await this.drive.usedElsewhere(node.fileId),
-      },
+    const data: DriveNodeDetailDto = {
+      node: dto,
+      breadcrumbs: await this.drive.breadcrumbs(node),
+      space: await this.drive.serializeSpace(space, await this.drive.spaceAccessOf(user.sub, space)),
+      access,
+      usedElsewhere: await this.drive.usedElsewhere(node.fileId),
     };
+    return { success: true, data };
   }
 
   @Post('folders')

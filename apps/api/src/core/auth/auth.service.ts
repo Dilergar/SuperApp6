@@ -18,6 +18,7 @@ import { NotificationsService } from '../../modules/notifications/notifications.
 import { VerifyService } from '../verify/verify.service';
 import { JobsService } from '../jobs/jobs.service';
 import { USER_PHONE_INVITATIONS_JOB } from '../users/user-jobs';
+import type { AuthTokens } from '@superapp/shared';
 import type { JwtPayload } from '../../shared/decorators/current-user.decorator';
 import { authAliveKey } from '../../shared/auth/session-validator.service';
 
@@ -42,7 +43,7 @@ export class AuthService {
     lastName?: string;
     dateOfBirth?: string; // ISO YYYY-MM-DD
     verifyToken?: string; // одноразовый пропуск движка подтверждений (purpose=register)
-  }) {
+  }, deviceInfo?: string | null): Promise<AuthTokens> {
     // Secure-by-default (движок core/verify): в production аккаунт без подтверждённого
     // SMS-кодом номера создать нельзя — иначе возвращается дыра «занял чужой номер —
     // получил его приглашения». В development/test токен опционален (seed/verify-скрипты).
@@ -130,10 +131,10 @@ export class AuthService {
     });
 
     // Generate tokens — system role goes into JWT
-    return this.generateTokens(user.id, user.phone, 'user', user.tokenEpoch);
+    return this.generateTokens(user.id, user.phone, 'user', user.tokenEpoch, deviceInfo);
   }
 
-  async login(phone: string, password: string) {
+  async login(phone: string, password: string, deviceInfo?: string | null): Promise<AuthTokens & { restored: boolean }> {
     const user = await this.db.user.findUnique({
       where: { phone },
       include: {
@@ -177,7 +178,7 @@ export class AuthService {
     // Get highest system role
     const systemRole = this.getHighestSystemRole(user.roles.map((r) => r.role));
 
-    const tokens = await this.generateTokens(user.id, user.phone, systemRole, user.tokenEpoch);
+    const tokens = await this.generateTokens(user.id, user.phone, systemRole, user.tokenEpoch, deviceInfo);
     return { ...tokens, restored };
   }
 
@@ -188,7 +189,11 @@ export class AuthService {
    * и задал пароль — заставлять вводить его снова через 3 секунды бессмысленно).
    * Аккаунт в грейс-периоде удаления восстанавливается (симметрия с login).
    */
-  async resetPassword(verifyToken: string, newPassword: string) {
+  async resetPassword(
+    verifyToken: string,
+    newPassword: string,
+    deviceInfo?: string | null,
+  ): Promise<AuthTokens & { restored: boolean }> {
     const hashedPassword = await bcrypt.hash(newPassword, 12); // CPU — до транзакции
 
     const { userId, phone, restored, epoch } = await this.db.$transaction(async (tx) => {
@@ -247,11 +252,12 @@ export class AuthService {
       phone,
       this.getHighestSystemRole(roles.map((r) => r.role)),
       epoch,
+      deviceInfo,
     );
     return { ...tokens, restored };
   }
 
-  async refreshToken(refreshToken: string) {
+  async refreshToken(refreshToken: string): Promise<AuthTokens> {
     // Find session by refresh token hash
     const tokenHash = this.hashToken(refreshToken);
     const session = await this.db.session.findUnique({
@@ -279,7 +285,15 @@ export class AuthService {
       session.user.roles.map((r) => r.role),
     );
 
-    return this.generateTokens(session.user.id, session.user.phone, systemRole, session.user.tokenEpoch);
+    // deviceInfo наследуется от ротируемой строки — иначе после первого же refresh
+    // (≤15 мин) устройство в списке сессий снова становится «Неизвестным».
+    return this.generateTokens(
+      session.user.id,
+      session.user.phone,
+      systemRole,
+      session.user.tokenEpoch,
+      session.deviceInfo,
+    );
   }
 
   async logout(userId: string, refreshToken: string) {
@@ -326,8 +340,24 @@ export class AuthService {
     return user.tokenEpoch;
   }
 
-  private async generateTokens(userId: string, phone: string, role: string, epoch: number) {
-    const payload: JwtPayload = { sub: userId, phone, role, epoch };
+  /**
+   * Чеканит тройку «access + refresh + строка session» разом. Идентификатор строки
+   * генерируется ЗДЕСЬ и уезжает в payload access-токена (`sid`) — только так список
+   * устройств может честно сказать «эта сессия — текущая», не пересылая refresh-токен
+   * (главный секрет) на ручку листинга.
+   * `deviceInfo` — User-Agent: при входе приходит из контроллера, при ротации
+   * наследуется от прошлой строки, иначе список устройств навсегда остаётся
+   * «Неизвестное устройство» (поле в схеме было, но не писалось НИГДЕ).
+   */
+  private async generateTokens(
+    userId: string,
+    phone: string,
+    role: string,
+    epoch: number,
+    deviceInfo?: string | null,
+  ): Promise<AuthTokens> {
+    const sessionId = randomUUID();
+    const payload: JwtPayload = { sub: userId, phone, role, epoch, sid: sessionId };
 
     const accessToken = this.jwt.sign(payload);
 
@@ -346,8 +376,10 @@ export class AuthService {
 
     await this.db.session.create({
       data: {
+        id: sessionId,
         userId,
         token: tokenHash,
+        deviceInfo: deviceInfo ?? null,
         expiresAt,
       },
     });

@@ -21,6 +21,8 @@ import {
   maskPhone,
   type VerifyPurpose,
   type VerifyStartResponse,
+  type VerifyCheckResponse,
+  type VerifyStatusResponse,
 } from '@superapp/shared';
 import { VerifySmsService } from './verify.sms';
 
@@ -120,7 +122,7 @@ export class VerifyService {
     return isProdEnv();
   }
 
-  status() {
+  status(): VerifyStatusResponse {
     return { required: this.required, smsEnabled: this.sms.live };
   }
 
@@ -381,7 +383,7 @@ export class VerifyService {
   // Проверка кода → одноразовый пропуск
   // ------------------------------------------------------------------
 
-  async check(challengeId: string, code: string, ip?: string): Promise<{ verifyToken: string }> {
+  async check(challengeId: string, code: string, ip?: string): Promise<VerifyCheckResponse> {
     await this.enforceCheckLimit(ip);
 
     const ch = await this.db.verifyChallenge.findUnique({ where: { id: challengeId } });

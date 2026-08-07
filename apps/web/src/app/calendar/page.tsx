@@ -9,7 +9,7 @@ import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { useIsMobile } from '@/lib/hooks/useIsMobile';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
 import { contactsKey, circlesKey, fetchAllContacts, fetchCircles } from '@/lib/queries';
 import { PersonChip } from '../circles/PersonCard';
 import {
@@ -22,6 +22,9 @@ import {
   type Circle,
   type SharedCalendarSource,
   type Resource,
+  type CalendarRangeResponse,
+  type OffsetPage,
+  type Task,
 } from '@superapp/shared';
 import { EventModal, type ModalTarget } from './EventModal';
 import { SharePanel, SmartMatchDialog } from './social';
@@ -132,13 +135,13 @@ export default function CalendarPage() {
     const [c, g, src, res] = await Promise.allSettled([
       queryClient.fetchQuery({ queryKey: contactsKey, queryFn: fetchAllContacts, staleTime: 60_000 }),
       queryClient.fetchQuery({ queryKey: circlesKey, queryFn: fetchCircles, staleTime: 60_000 }),
-      api.get('/calendar/shared-with-me'),
-      api.get('/resources'),
+      apiGet<SharedCalendarSource[]>('/calendar/shared-with-me'),
+      apiGet<Resource[]>('/resources'),
     ]);
     if (c.status === 'fulfilled') setContacts(c.value);
     if (g.status === 'fulfilled') setCircles(g.value);
-    if (src.status === 'fulfilled') setSources(src.value.data.data);
-    if (res.status === 'fulfilled') setResources(res.value.data.data);
+    if (src.status === 'fulfilled') setSources(src.value);
+    if (res.status === 'fulfilled') setResources(res.value);
   }, [queryClient]);
 
   const fetchRange = useCallback(async () => {
@@ -146,7 +149,7 @@ export default function CalendarPage() {
     try {
       const { from, to } = rangeForView(view, anchor);
       const include = [...overlays];
-      const { data } = await api.get('/calendar/events', {
+      const range = await apiGet<CalendarRangeResponse>('/calendar/events', {
         params: {
           from: from.toISOString(),
           to: to.toISOString(),
@@ -154,8 +157,8 @@ export default function CalendarPage() {
           ...(include.length ? { include: include.join(',') } : {}),
         },
       });
-      setItems(data.data.items);
-      setLayerMeta(data.data.layers ?? {});
+      setItems(range.items);
+      setLayerMeta(range.layers ?? {});
       setError('');
     } catch {
       setError('Не удалось загрузить календарь');
@@ -166,11 +169,12 @@ export default function CalendarPage() {
 
   const fetchUndated = useCallback(async () => {
     try {
-      const { data } = await api.get('/tasks', { params: { limit: 100 } });
-      const list: UndatedTask[] = (data.data as Array<{ id: string; title: string; status: string; priority: string; dueDate: string | null }>)
-        .filter((t) => !t.dueDate)
-        .map((t) => ({ id: t.id, title: t.title, status: t.status, priority: t.priority }));
-      setUndated(list);
+      const page = await apiGet<OffsetPage<Task>>('/tasks', { params: { limit: 100 } });
+      setUndated(
+        page.items
+          .filter((t) => !t.dueDate)
+          .map((t) => ({ id: t.id, title: t.title, status: t.status })),
+      );
     } catch { /* ignore */ }
   }, []);
 
@@ -285,7 +289,7 @@ export default function CalendarPage() {
 
   // ---- drag & drop ----
   const reschedule = async (taskId: string, due: Date, allDay: boolean) => {
-    try { await api.patch(`/tasks/${taskId}`, { dueDate: due.toISOString(), allDay }); await fetchRange(); await fetchUndated(); } catch { /* ignore */ }
+    try { await apiPatch(`/tasks/${taskId}`, { dueDate: due.toISOString(), allDay }); await fetchRange(); await fetchUndated(); } catch { /* ignore */ }
   };
   const moveEventNow = async (item: EventDrag, newStart: Date, scope: 'this' | 'all') => {
     const body: Record<string, unknown> = {
@@ -294,12 +298,12 @@ export default function CalendarPage() {
       editScope: scope,
     };
     if (scope !== 'all') body.occurrenceStart = item.occurrenceStart;
-    try { await api.patch(`/calendar/events/${item.id}`, body); await fetchRange(); } catch { /* ignore */ }
+    try { await apiPatch(`/calendar/events/${item.id}`, body); await fetchRange(); } catch { /* ignore */ }
   };
   const resizeNow = async (item: EventDrag, newEnd: Date, scope: 'this' | 'all') => {
     const body: Record<string, unknown> = { endTime: newEnd.toISOString(), editScope: scope };
     if (scope !== 'all') body.occurrenceStart = item.occurrenceStart;
-    try { await api.patch(`/calendar/events/${item.id}`, body); await fetchRange(); } catch { /* ignore */ }
+    try { await apiPatch(`/calendar/events/${item.id}`, body); await fetchRange(); } catch { /* ignore */ }
   };
   const applyDrop = (d: DragItem, newStart: Date) => {
     if (d.kind === 'task') { reschedule(d.id, newStart, false); return; }
@@ -943,7 +947,7 @@ function TaskPopover({ task, onClose }: { task: CalendarTaskItem; onClose: (chan
   const complete = async () => {
     setBusy(true);
     try {
-      await api.post(`/tasks/${task.taskId}/submit`);
+      await apiPost(`/tasks/${task.taskId}/submit`);
       onClose(true);
     } catch (e) {
       setError(apiErrorMessage(e));

@@ -262,7 +262,7 @@ async function main() {
   let gotInvite = false;
   for (let i = 0; i < 20 && !gotInvite; i++) {
     const incoming = await http('GET', '/contacts/invitations/incoming', { token: loginNew.json.data.accessToken });
-    gotInvite = (incoming.json?.data ?? []).some((inv) => inv.fromUser?.phone === T1.phone || inv.proposedRoleForRecipient === 'Друг');
+    gotInvite = (incoming.json?.data?.items ?? []).some((inv) => inv.fromUser?.phone === T1.phone || inv.proposedRoleForRecipient === 'Друг');
     if (!gotInvite) await new Promise((r) => setTimeout(r, 400));
   }
   check('приглашение на новый номер АКТИВИРОВАЛОСЬ джобом после смены', gotInvite);
@@ -274,7 +274,9 @@ async function main() {
 
   // уведомления безопасности
   const notifs = await http('GET', '/notifications', { token: loginNew.json.data.accessToken });
-  const types = (notifs.json?.data?.items ?? notifs.json?.data ?? []).map((n) => n.type);
+  // /notifications отдаёт {items, unreadCount, nextCursor} — читаем строго items:
+  // фолбэк `?? json.data` пропустил бы расплющивание страницы молча.
+  const types = (notifs.json?.data?.items ?? []).map((n) => n.type);
   check('уведомление «Номер изменён» в ленте', types.includes('auth.phone.changed'), JSON.stringify(types.slice(0, 10)));
   check('уведомление «Пароль изменён» в ленте', types.includes('auth.password.changed'));
 

@@ -19,6 +19,7 @@ import {
   SHARE_SESSION_HEADER,
   driveGuestListSchema,
   driveGuestZipSchema,
+  type ShareDriveNodesPage,
 } from '@superapp/shared';
 import { ShareLinksGuestService } from '../../core/share-links/share-links-guest.service';
 import { Public } from '../../shared/decorators/public.decorator';
@@ -65,11 +66,11 @@ export class DriveGuestController {
     if (parent.kind !== 'folder') throw new NotFoundException('Папка не найдена');
 
     const { rows, nextCursor } = await this.drive.listChildrenOf(parent.id, q);
-    return {
-      success: true,
-      data: await this.provider.guestNodes(rows, link.allowDownload),
+    const page: ShareDriveNodesPage = {
+      items: await this.provider.guestNodes(rows, link.allowDownload),
       nextCursor,
     };
+    return { success: true, data: page };
   }
 
   /**

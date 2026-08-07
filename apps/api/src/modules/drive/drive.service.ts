@@ -17,6 +17,7 @@ import {
   driveNameWithSuffix,
   type DriveAccess,
   type DriveBreadcrumbDto,
+  type DriveListPageDto,
   type DriveListQuery,
   type DriveNodeDto,
   type DriveNodeFileDto,
@@ -345,7 +346,7 @@ export class DriveService implements OnModuleInit {
    * смешанные направления в одном ORDER BY (папки по возрастанию, дата по убыванию)
    * заставили бы планировщик сортировать всю папку целиком.
    */
-  async listNodes(userId: string, q: DriveListQuery): Promise<{ items: DriveNodeDto[]; nextCursor: string | null }> {
+  async listNodes(userId: string, q: DriveListQuery): Promise<DriveListPageDto> {
     const { space, access, grants } = await this.resolveSpace(userId, q);
     const parentId = q.parentId ?? space.rootId;
     if (!parentId) throw new NotFoundException('Диск не найден');

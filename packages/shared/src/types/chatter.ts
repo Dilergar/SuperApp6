@@ -1,4 +1,5 @@
 import type { ChatterCategory, ChatterTypeKey } from '../constants/chatter';
+import type { CursorPage } from './common';
 
 // ============================================
 // core/chatter («Хроника записи») — типы
@@ -42,9 +43,7 @@ export interface ChatterEntryDto {
   createdAt: string;
 }
 
-export interface ChatterPageDto {
-  items: ChatterEntryDto[];
-  nextCursor: string | null;
+export interface ChatterPageDto extends CursorPage<ChatterEntryDto> {
   /**
    * actorId → лайт-профиль для PersonChip. Удалённые/анонимизированные
    * пользователи отсутствуют — клиент падает на снапшот actorName.

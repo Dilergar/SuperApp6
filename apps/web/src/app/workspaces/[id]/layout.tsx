@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { api } from '@/lib/api';
+import { apiGet } from '@/lib/api';
+import type { Workspace } from '@superapp/shared';
 
 /**
  * Top-level chrome for the organization area (Главная организации, Сотрудники, Профиль).
@@ -18,9 +19,8 @@ export default function WorkspaceAreaLayout({ children }: { children: React.Reac
 
   useEffect(() => {
     if (!isReady || !id) return;
-    api
-      .get(`/workspaces/${id}`)
-      .then((r) => setName(r.data.data.name))
+    apiGet<Workspace>(`/workspaces/${id}`)
+      .then((w) => setName(w.name))
       .catch(() => {});
   }, [isReady, id]);
 

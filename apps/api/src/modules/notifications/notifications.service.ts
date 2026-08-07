@@ -9,6 +9,7 @@ import {
   NOTIFICATION_LIMITS,
   interpolateTemplate,
   type NotificationType,
+  type NotificationListResponse,
 } from '@superapp/shared';
 import type { Prisma } from '@prisma/client';
 import { MAPPED_EVENT_TYPES, NOTIFY_DISPATCH_JOB } from './notifications.map';
@@ -126,7 +127,7 @@ export class NotificationsService {
   }
 
   /** Feed: cursor pagination by createdAt (newest first). */
-  async list(userId: string, cursor?: string) {
+  async list(userId: string, cursor?: string): Promise<NotificationListResponse> {
     const limit = NOTIFICATION_LIMITS.pageSize;
 
     const where: Prisma.NotificationWhereInput = { userId };
@@ -162,7 +163,9 @@ export class NotificationsService {
       items: page.map((n) => ({
         id: n.id,
         userId: n.userId,
-        type: n.type,
+        // Колонка String в БД; перечисление живёт в NOTIFICATION_REGISTRY (тот же
+        // класс каста, что `status as WorkspaceInvitationStatus`).
+        type: n.type as NotificationType,
         title: n.title,
         body: n.body,
         payload: n.payload,

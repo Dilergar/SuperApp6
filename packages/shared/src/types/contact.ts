@@ -1,3 +1,5 @@
+import type { SocialLinks } from './user';
+
 // ============================================================
 // Bilateral confirmed social graph (Окружение)
 // ============================================================
@@ -22,7 +24,10 @@ export interface ContactUserCard {
   city: string | null;
   email: string | null;
   maritalStatus: string | null;
-  socialLinks: { telegram?: string; instagram?: string } | null;
+  /** Та же форма, что в анкете (`User.socialLinks`): сервер принимает и хранит 4 сети,
+   *  и все 4 доезжают до карточки. Узкая копия `{telegram?, instagram?}` делала
+   *  LinkedIn и WhatsApp write-only данными — их писали и никогда не показывали. */
+  socialLinks: SocialLinks | null;
   age: number | null; // calculated on backend, null if owner hides it
   showOnlineStatus: boolean; // true if card owner allows online status visible
   // Visibility is resolved per-request from the viewer's group(s) on the
@@ -96,26 +101,8 @@ export interface OutgoingInvitation extends ContactInvitation {
 // Requests (DTOs coming from clients)
 // ============================================================
 
-export interface SendInvitationRequest {
-  toPhone: string;
-  proposedRoleForRecipient?: string; // role I give them (shown on my card)
-  proposedRoleForSender?: string; // role I suggest they give me
-  message?: string;
-  // Groups of mine to auto-add the new contact into upon acceptance.
-  autoAddToCircleIds?: string[];
-}
-
-export interface AcceptInvitationRequest {
-  // Recipient can override what the sender proposed, or keep it.
-  myRole?: string; // role I (recipient) give the sender
-  theirRole?: string; // role the sender gives me
-  // Groups of mine (recipient's) to place the new contact into.
-  autoAddToCircleIds?: string[];
-}
-
-export interface UpdateContactRequest {
-  myRole?: string | null;
-}
+// Вход принятия приглашения описан Zod-схемой `acceptInvitationSchema`
+// (→ `AcceptInvitationInput`): роли получателя + Группы, куда положить контакт.
 
 // ============================================================
 // Blocks
@@ -130,8 +117,4 @@ export interface ContactBlockRecord {
   blockedLastName: string | null;
   blockedAvatar: string | null;
   createdAt: string;
-}
-
-export interface BlockUserRequest {
-  userId: string;
 }

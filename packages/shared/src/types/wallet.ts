@@ -63,6 +63,11 @@ export interface LedgerEntryDto {
   entryType: LedgerEntryType;
   /** Signed amount from the viewer's perspective (+ received / − sent). */
   amount: number;
+  /**
+   * Minor-unit exponent валюты строки — без него клиент печатал суммы «как есть»
+   * (у личных валют scale=0, и мина ждала первой валюты со scale=2).
+   */
+  scale: number;
   /** Origin escrow agreement (task / order), when applicable. */
   agreementId: string | null;
   memo: string | null;
@@ -95,21 +100,8 @@ export interface UserPaymentCardDto {
   createdAt: string;
 }
 
-export interface CreateCurrencyRequest {
-  name: string;
-  icon: string;
-}
-
-export interface UpdateCurrencyRequest {
-  name?: string;
-  icon?: string;
-}
-
-export interface MintRequest {
-  amount: number;
-}
-
-export interface BurnRequest {
-  currencyId: string;
-  amount: number;
+/** Ответ `GET /wallet/company` — валюта организации и её казна (owner, контекст организации). */
+export interface CompanyWalletDto {
+  currency: Currency | null;
+  treasury: WalletEntry | null;
 }

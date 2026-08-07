@@ -127,3 +127,9 @@ export const taskParticipantActionSchema = z
     participantUserId: z.string().uuid().optional(),
   })
   .strict();
+
+// ---- Входные типы: ЕДИНСТВЕННОЕ описание формы входа ----
+// Рукописные интерфейсы в types/*.ts удалены: два независимых описания одного
+// входа расходятся молча (Zod уходил вперёд, интерфейс врал).
+export type CreateTaskInput = z.infer<typeof createTaskSchema>;
+export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;

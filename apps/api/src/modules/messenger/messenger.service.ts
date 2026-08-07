@@ -24,6 +24,7 @@ import { MESSENGER_LIMITS, OFFICE_ROOM_ROLE_LABELS, attachmentPreviewText } from
 import type {
   CallActiveDto,
   ChatCallStatePayload,
+  ChatType,
   ChatSummary,
   ChatMessage,
   ChatDetail,
@@ -35,6 +36,10 @@ import type {
   RichCardPayload,
   MessageReplyPreview,
   AttachmentsPayload,
+  WsCallState,
+  WsMessageNew,
+  WsMessageUpdated,
+  WsReceipt,
 } from '@superapp/shared';
 
 type Principal = { type: string; id: string };
@@ -316,11 +321,8 @@ export class MessengerService implements OnModuleInit {
     // Вебхук-путь строит СВЕЖИЙ снимок (участник только что вошёл/вышел) и обновляет кэш.
     const built = await this.buildCallStatePayload(chatId, preloaded, { skipCache: true });
     if (!built) return;
-    this.events.emit(
-      'messenger.call.state',
-      { ...built.payload, memberUserIds: built.memberUserIds },
-      'messenger',
-    );
+    const wsPayload: WsCallState = { ...built.payload, memberUserIds: built.memberUserIds };
+    this.events.emit('messenger.call.state', wsPayload, 'messenger');
   }
 
   /** Живые звонки моих чатов — watcher входящих при загрузке/reconnect любой страницы */
@@ -1362,19 +1364,19 @@ export class MessengerService implements OnModuleInit {
 
     const memberUserIds = await this.memberIds(chatId);
     const recipientIds = memberUserIds.filter((id) => id !== authorId);
-    this.events.emit(
-      'messenger.message.created',
-      {
-        chatId,
-        message: this.toMessage(msg, '__broadcast__'),
-        memberUserIds,
-        recipientIds,
-        authorName: fullName(msg.author),
-        chatType,
-        preview: this.toPreview(msg).text,
-      },
-      'messenger',
-    );
+    // Тип на ЛИТЕРАЛЕ, а не на приёме: gateway ретранслирует payload как есть, и
+    // единственная точка, где компилятор способен поймать дрейф формы, — здесь.
+    const wsPayload: WsMessageNew = {
+      chatId,
+      message: this.toMessage(msg, '__broadcast__'),
+      memberUserIds,
+      recipientIds,
+      authorName: fullName(msg.author),
+      // chat.type в БД — колонка String; перечисление живёт в коде (CHAT_TYPES).
+      chatType: chatType as ChatType,
+      preview: this.toPreview(msg).text,
+    };
+    this.events.emit('messenger.message.created', wsPayload, 'messenger');
 
     return this.toMessage(msg, authorId, 0, 0, undefined, chatType === 'dm');
   }
@@ -1428,17 +1430,14 @@ export class MessengerService implements OnModuleInit {
       });
     });
 
-    this.events.emit(
-      'messenger.message.created',
-      {
-        chatId,
-        message: this.toMessage(msg, '__system__'),
-        memberUserIds,
-        // No recipientIds / notification fan-out: system plaques are silent.
-        isSystem: true,
-      },
-      'messenger',
-    );
+    const wsPayload: WsMessageNew = {
+      chatId,
+      message: this.toMessage(msg, '__system__'),
+      memberUserIds,
+      // No recipientIds / notification fan-out: system plaques are silent.
+      isSystem: true,
+    };
+    this.events.emit('messenger.message.created', wsPayload, 'messenger');
   }
 
   // ============================================================
@@ -1779,19 +1778,17 @@ export class MessengerService implements OnModuleInit {
 
     const recipientIds = memberUserIds.filter((id) => id !== userId);
 
-    this.events.emit(
-      'messenger.message.created',
-      {
-        chatId,
-        message: this.toMessage(msg, '__broadcast__'),
-        memberUserIds,
-        recipientIds,
-        authorName: fullName(msg.author),
-        chatType,
-        preview: this.toPreview(msg).text,
-      },
-      'messenger',
-    );
+    const wsPayload: WsMessageNew = {
+      chatId,
+      message: this.toMessage(msg, '__broadcast__'),
+      memberUserIds,
+      recipientIds,
+      authorName: fullName(msg.author),
+      // chat.type в БД — колонка String; перечисление живёт в коде (CHAT_TYPES).
+      chatType: chatType as ChatType,
+      preview: this.toPreview(msg).text,
+    };
+    this.events.emit('messenger.message.created', wsPayload, 'messenger');
     return { msg, chatType };
   }
 
@@ -2138,13 +2135,17 @@ export class MessengerService implements OnModuleInit {
     return map;
   }
 
-  private async broadcastUpdate(msg: any, type: string): Promise<void> {
+  private async broadcastUpdate(
+    msg: any,
+    type: 'messenger.message.updated' | 'messenger.message.deleted',
+  ): Promise<void> {
     const memberUserIds = await this.memberIds(msg.chatId);
-    this.events.emit(
-      type,
-      { chatId: msg.chatId, message: this.toMessage(msg, '__broadcast__'), memberUserIds },
-      'messenger',
-    );
+    const wsPayload: WsMessageUpdated = {
+      chatId: msg.chatId,
+      message: this.toMessage(msg, '__broadcast__'),
+      memberUserIds,
+    };
+    this.events.emit(type, wsPayload, 'messenger');
   }
 
   private async emitReceipt(
@@ -2154,11 +2155,8 @@ export class MessengerService implements OnModuleInit {
     lastReadSeq: number,
   ): Promise<void> {
     const memberUserIds = await this.memberIds(chatId);
-    this.events.emit(
-      'messenger.receipt',
-      { chatId, userId, deliveredSeq, lastReadSeq, memberUserIds },
-      'messenger',
-    );
+    const wsPayload: WsReceipt = { chatId, userId, deliveredSeq, lastReadSeq, memberUserIds };
+    this.events.emit('messenger.receipt', wsPayload, 'messenger');
   }
 
   private toMessage(

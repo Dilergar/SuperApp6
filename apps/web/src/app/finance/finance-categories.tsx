@@ -11,7 +11,7 @@
 
 import { useMemo, useState } from 'react';
 import type { FinAccountDto } from '@superapp/shared';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiDelete, apiErrorMessage, apiPatch, apiPost } from '@/lib/api';
 import {
   Alert, BentoGrid, Button, Card, Chip, ConfirmDialog, EmptyState, GlyphField,
   IconButton, Input, Modal, SegmentedControl, Select, type IconName, type Tone,
@@ -63,7 +63,7 @@ export function CategoriesPanel({
     if (!removing || busy) return;
     setBusy(true);
     try {
-      await api.delete(`/finance/categories/${removing.id}`, bookParams(bookId));
+      await apiDelete(`/finance/categories/${removing.id}`, bookParams(bookId));
       setRemoving(null);
       onChanged();
     } catch (e) {
@@ -271,9 +271,9 @@ function CategoryModal({
         }
         // Пустой patch схема отклоняет («Нечего обновлять») — просто закрываем
         if (Object.keys(patch).length === 0) { onClose(); return; }
-        await api.patch(`/finance/categories/${editing.id}`, patch, bookParams(bookId));
+        await apiPatch(`/finance/categories/${editing.id}`, patch, bookParams(bookId));
       } else {
-        await api.post('/finance/categories', {
+        await apiPost('/finance/categories', {
           kind,
           name: trimmed,
           ...(icon.trim() ? { icon: icon.trim() } : {}),

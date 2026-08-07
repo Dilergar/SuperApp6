@@ -23,6 +23,10 @@ import {
   type CardVisibility,
   type Contact,
   type ContactUserCard,
+  type ContactBlockRecord,
+  type CursorPage,
+  type IncomingInvitation,
+  type OutgoingInvitation,
 } from '@superapp/shared';
 import type { Prisma } from '@prisma/client';
 
@@ -65,10 +69,7 @@ export class ContactsService {
    * Cursor-paginated on (confirmedAt, id) so the hottest list query in the
    * app stays bounded regardless of how large an environment grows.
    */
-  async listContacts(
-    userId: string,
-    cursor?: string,
-  ): Promise<{ items: Contact[]; nextCursor: string | null }> {
+  async listContacts(userId: string, cursor?: string): Promise<CursorPage<Contact>> {
     const limit = CONTACT_LIMITS.contactsPageSize;
     const decoded = decodeLinkCursor(cursor);
 
@@ -1060,7 +1061,7 @@ export class ContactsService {
    * жёсткий потолок в 200 строк без «дочитать» просто ПРЯТАЛ остальные, а
    * входящих, в отличие от исходящих, ничто не ограничивает (отправителей много).
    */
-  async listIncomingInvitations(userId: string, cursor?: string) {
+  async listIncomingInvitations(userId: string, cursor?: string): Promise<CursorPage<IncomingInvitation>> {
     const limit = CONTACT_LIMITS.invitationsPageSize;
     const decoded = decodeInvitationCursor(cursor);
     const invitations = await this.db.contactInvitation.findMany({
@@ -1111,7 +1112,7 @@ export class ContactsService {
   async listOutgoingInvitations(
     userId: string,
     opts: { scope?: 'pending' | 'history'; cursor?: string } = {},
-  ) {
+  ): Promise<CursorPage<OutgoingInvitation>> {
     const scope = opts.scope ?? 'pending';
     const limit = CONTACT_LIMITS.invitationsPageSize;
     const decoded = decodeInvitationCursor(opts.cursor);
@@ -1207,7 +1208,7 @@ export class ContactsService {
   // Blocks
   // ============================================================
 
-  async listBlocks(userId: string) {
+  async listBlocks(userId: string): Promise<ContactBlockRecord[]> {
     const blocks = await this.db.contactBlock.findMany({
       where: { blockerId: userId },
       include: {

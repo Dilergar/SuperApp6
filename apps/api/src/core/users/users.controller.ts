@@ -32,7 +32,7 @@ export class UsersController {
   @Get('me/sessions')
   @ApiOperation({ summary: 'Получить активные сессии' })
   async getSessions(@CurrentUser() user: JwtPayload) {
-    const sessions = await this.usersService.getSessions(user.sub);
+    const sessions = await this.usersService.getSessions(user.sub, user.sid);
     return { success: true, data: sessions };
   }
 

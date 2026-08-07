@@ -34,9 +34,3 @@ export interface MentionCandidate {
   name: string;
   avatar: string | null;
 }
-
-// ---- request payloads ----
-export interface MarkMentionsReadRequest {
-  /** Explicit ids, or empty/omitted = mark all read. */
-  ids?: string[];
-}

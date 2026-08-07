@@ -9,7 +9,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
 import { contactsKey, fetchAllContacts, shopAccessibleKey, shopListingsKey, shopMineKey, shopOfKey } from '@/lib/queries';
 import { executeRichCardAction } from '@/lib/messenger-api';
 import { ShareCardModal } from '../messenger/ShareCardModal';
@@ -21,6 +21,7 @@ import {
 import {
   pluralRu,
   type Shop, type Showcase, type Listing, type AccessibleShopRef, type Contact,
+  type ShopOverviewDto,
 } from '@superapp/shared';
 import { ListingCard } from './shop-ui';
 import { ContributeModal, ListingForm, SharePanel, StaffPanel } from './shop-modals';
@@ -56,10 +57,7 @@ export default function ShopPage() {
   const shopKey = viewOwnerId ? shopOfKey(viewOwnerId) : shopMineKey;
   const shopQ = useQuery({
     queryKey: shopKey,
-    queryFn: async () => {
-      const r = await api.get(viewOwnerId ? `/shop/of/${viewOwnerId}` : '/shop');
-      return r.data.data as { shop: Shop; showcases: Showcase[] };
-    },
+    queryFn: () => apiGet<ShopOverviewDto>(viewOwnerId ? `/shop/of/${viewOwnerId}` : '/shop'),
     enabled: isReady,
     staleTime: 30_000,
   });
@@ -76,7 +74,7 @@ export default function ShopPage() {
 
   const accessibleQ = useQuery({
     queryKey: shopAccessibleKey,
-    queryFn: async () => (await api.get('/shop/accessible')).data.data as AccessibleShopRef[],
+    queryFn: async () => await apiGet<AccessibleShopRef[]>('/shop/accessible'),
     enabled: isReady,
     staleTime: 60_000,
   });
@@ -84,7 +82,7 @@ export default function ShopPage() {
 
   const listingsQ = useQuery({
     queryKey: shopListingsKey(selectedId ?? 'none'),
-    queryFn: async () => (await api.get(`/shop/showcases/${selectedId}/listings`)).data.data as Listing[],
+    queryFn: async () => await apiGet<Listing[]>(`/shop/showcases/${selectedId}/listings`),
     enabled: isReady && !!selectedId,
     staleTime: 30_000,
   });
@@ -112,7 +110,7 @@ export default function ShopPage() {
   const deleteShowcase = async () => {
     if (!removingShowcase) return;
     try {
-      await api.delete(`/shop/showcases/${removingShowcase.id}`);
+      await apiDelete(`/shop/showcases/${removingShowcase.id}`);
       if (selectedId === removingShowcase.id) setSelectedId(null);
       setRemovingShowcase(null);
       await loadShop();
@@ -124,7 +122,7 @@ export default function ShopPage() {
   const deleteListing = async () => {
     if (!removingListing) return;
     try {
-      await api.delete(`/shop/listings/${removingListing.id}`);
+      await apiDelete(`/shop/listings/${removingListing.id}`);
       setRemovingListing(null);
       await reload();
     } catch (e) {
@@ -135,7 +133,7 @@ export default function ShopPage() {
   const buy = async (l: Listing) => {
     setError(''); setOk('');
     try {
-      await api.post(`/shop/listings/${l.id}/buy`);
+      await apiPost(`/shop/listings/${l.id}/buy`);
       setOk(`Заказ оформлен: «${l.title}». Коины заморожены до подтверждения продавцом (вкладка «Заказы»).`);
       setTimeout(() => setOk(''), 5000);
     } catch (e) {
@@ -404,8 +402,8 @@ function ShowcaseModal({
     setError(null);
     try {
       const body = { name: name.trim(), ...(icon.trim() ? { icon: icon.trim() } : init ? { icon: null } : {}) };
-      if (init) await api.patch(`/shop/showcases/${init.id}`, body);
-      else await api.post('/shop/showcases', body);
+      if (init) await apiPatch(`/shop/showcases/${init.id}`, body);
+      else await apiPost('/shop/showcases', body);
       onSaved();
     } catch (e) {
       setError(apiErrorMessage(e));

@@ -1,5 +1,7 @@
-import axios, { isAxiosError } from 'axios';
+import axios, { isAxiosError, type AxiosRequestConfig } from 'axios';
 import {
+  type ApiOk,
+  type ShareDriveNodesPage,
   SHARE_SESSION_HEADER,
   type ShareDriveNodeDto,
   type ShareGuestIdentityStartDto,
@@ -24,6 +26,18 @@ export const publicApi = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+// Типизированная распаковка конверта — тот же контракт `ApiOk<T>` из shared, что у
+// хелперов транспорта, только на гостевом инстансе. ЕДИНСТВЕННОЕ место файла, где
+// трогается `.data.data` (для него точечный override в eslint.config.mjs): раньше
+// каждый фетчер распаковывал конверт сам из `any`, и типы возвратов были
+// утверждениями, а не проверками.
+async function guestGet<T>(path: string, config?: AxiosRequestConfig): Promise<T> {
+  return (await publicApi.get<ApiOk<T>>(path, config)).data.data;
+}
+async function guestPost<T>(path: string, body?: unknown, config?: AxiosRequestConfig): Promise<T> {
+  return (await publicApi.post<ApiOk<T>>(path, body, config)).data.data;
+}
+
 /** Машиночитаемый код ошибки движка (`details.code`) — по нему ветвится страница */
 export function apiErrorCode(err: unknown): string | null {
   return apiErrorDetails(err)?.code ?? null;
@@ -47,8 +61,7 @@ const sessionHeaders = (session: string) => ({ [SHARE_SESSION_HEADER]: session }
 
 /** Шаг 1: жива ли ссылка и нужен ли пароль (открытие не засчитывается) */
 export async function sharePeek(token: string): Promise<ShareGuestPeekDto> {
-  const { data } = await publicApi.get(`/share-links/guest/${encodeURIComponent(token)}`);
-  return data.data;
+  return guestGet<ShareGuestPeekDto>(`/share-links/guest/${encodeURIComponent(token)}`);
 }
 
 /** Шаг 2: открыть ссылку — засчитывается одно открытие */
@@ -56,12 +69,11 @@ export async function shareOpenSession(
   token: string,
   opts: { password?: string; verifyToken?: string; guestName?: string } = {},
 ): Promise<ShareGuestSessionDto> {
-  const { data } = await publicApi.post(`/share-links/guest/${encodeURIComponent(token)}/session`, {
+  return guestPost<ShareGuestSessionDto>(`/share-links/guest/${encodeURIComponent(token)}/session`, {
     ...(opts.password ? { password: opts.password } : {}),
     ...(opts.verifyToken ? { verifyToken: opts.verifyToken } : {}),
     ...(opts.guestName ? { guestName: opts.guestName } : {}),
   });
-  return data.data;
 }
 
 /** Ссылка требует подтверждение номера: запросить SMS-код (пароль — если ссылка запаролена) */
@@ -70,24 +82,24 @@ export async function shareIdentityStart(
   phone: string,
   password?: string,
 ): Promise<ShareGuestIdentityStartDto> {
-  const { data } = await publicApi.post(`/share-links/guest/${encodeURIComponent(token)}/identity/start`, {
+  return guestPost<ShareGuestIdentityStartDto>(`/share-links/guest/${encodeURIComponent(token)}/identity/start`, {
     phone,
     ...(password ? { password } : {}),
   });
-  return data.data;
 }
 
 /** Проверка SMS-кода гостя — публичный /verify/check движка подтверждений */
 export async function shareVerifyCheck(challengeId: string, code: string): Promise<{ verifyToken: string }> {
-  const { data } = await publicApi.post('/verify/check', { challengeId, code });
-  return data.data;
+  return guestPost<{ verifyToken: string }>('/verify/check', { challengeId, code });
 }
 
 /** [dev] Код цепочки — работает только при NODE_ENV development/test, иначе 404 */
 export async function shareVerifyDevCode(challengeId: string): Promise<string | null> {
   try {
-    const { data } = await publicApi.get('/verify/dev/last-code', { params: { challengeId } });
-    return data.data?.code ?? null;
+    const data = await guestGet<{ code?: string | null } | null>('/verify/dev/last-code', {
+      params: { challengeId },
+    });
+    return data?.code ?? null;
   } catch {
     return null;
   }
@@ -95,25 +107,22 @@ export async function shareVerifyDevCode(challengeId: string): Promise<string | 
 
 /** Свежее содержимое по действующему пропуску (обновление страницы, протухшие ссылки) */
 export async function shareRefreshView(token: string, session: string): Promise<ShareGuestSessionDto> {
-  const { data } = await publicApi.get(`/share-links/guest/${encodeURIComponent(token)}/view`, {
+  return guestGet<ShareGuestSessionDto>(`/share-links/guest/${encodeURIComponent(token)}/view`, {
     headers: sessionHeaders(session),
   });
-  return data.data;
 }
 
 /** Содержимое папки внутри гостевой ссылки Диска */
 export async function shareDriveList(
   session: string,
   params: { parentId?: string; cursor?: string; sort?: string; dir?: string },
-): Promise<{ items: ShareDriveNodeDto[]; nextCursor: string | null }> {
-  const { data } = await publicApi.get('/drive/guest/nodes', { headers: sessionHeaders(session), params });
-  return { items: data.data, nextCursor: data.nextCursor ?? null };
+): Promise<ShareDriveNodesPage> {
+  return guestGet<ShareDriveNodesPage>('/drive/guest/nodes', { headers: sessionHeaders(session), params });
 }
 
 /** Один объект внутри ссылки — свежие ссылки на байты для клика «Скачать» */
 export async function shareDriveNode(session: string, nodeId: string): Promise<ShareDriveNodeDto> {
-  const { data } = await publicApi.get(`/drive/guest/nodes/${nodeId}`, { headers: sessionHeaders(session) });
-  return data.data;
+  return guestGet<ShareDriveNodeDto>(`/drive/guest/nodes/${nodeId}`, { headers: sessionHeaders(session) });
 }
 
 /**

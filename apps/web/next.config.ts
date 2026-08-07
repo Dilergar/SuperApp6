@@ -48,7 +48,9 @@ const cspReportOnly = [
 ].join('; ');
 
 const nextConfig: NextConfig = {
-  transpilePackages: ['@superapp/shared'],
+  // Оба воркспейс-пакета — иначе dev-сервер не следит за их dist, и правка
+  // пакета не доезжает до веба без перезапуска (у shared это уже стояло).
+  transpilePackages: ['@superapp/shared', '@superapp/api-client'],
   experimental: {
     // Реестр иконок (components/ui/Icon.tsx) импортирует ~150 имён из одного
     // пакета. Без этого Next тянет в бандл весь набор Phosphor (несколько тысяч

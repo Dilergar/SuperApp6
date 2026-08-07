@@ -390,23 +390,6 @@ export interface ProcessReportDto {
   rows: ProcessReportRow[];
 }
 
-// ---------- Ф3: триггеры запуска ----------
-
-export type ProcessTriggerType = 'event' | 'schedule' | 'webhook';
-
-export interface ProcessTriggerDto {
-  id: string;
-  type: ProcessTriggerType;
-  enabled: boolean;
-  config: Record<string, unknown>;
-  /** Полный URL вебхука (только для type='webhook'). */
-  webhookUrl: string | null;
-  runAs: ProcessUserMini | null;
-  nextRunAt: string | null;
-  lastRunAt: string | null;
-  createdAt: string;
-}
-
 // ---------- Ф3: сейф кредов ----------
 
 export type ProcessCredentialType = 'header' | 'basic' | 'bearer';

@@ -7,7 +7,7 @@
 // ============================================================
 
 import axios from 'axios';
-import { api } from './api';
+import { apiDelete, apiGet, apiPost, apiPut } from './api';
 import { FILE_LIMITS } from '@superapp/shared';
 import type {
   FileDownloadUrl,
@@ -32,8 +32,7 @@ export async function initFile(input: {
   mime: string;
   ownerWorkspaceId?: string;
 }): Promise<FileInitResult> {
-  const res = await api.post('/files', input);
-  return res.data.data;
+  return apiPost<FileInitResult>('/files', input);
 }
 
 export async function uploadFileContent(
@@ -43,7 +42,7 @@ export async function uploadFileContent(
 ): Promise<FileDto> {
   const fd = new FormData();
   fd.append('file', file, (file as File).name || 'file');
-  const res = await api.put(`/files/${fileId}/content`, fd, {
+  return apiPut<FileDto>(`/files/${fileId}/content`, fd, {
     timeout: 0, // у инстанса глобальные 10с — загрузку они убьют
     signal: opts.signal,
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -51,12 +50,10 @@ export async function uploadFileContent(
       if (opts.onProgress && e.total) opts.onProgress(e.loaded / e.total);
     },
   });
-  return res.data.data;
 }
 
 export async function createParts(fileId: string, partNumbers: number[]): Promise<FilePartUrl[]> {
-  const res = await api.post(`/files/${fileId}/parts`, { partNumbers });
-  return res.data.data;
+  return apiPost<FilePartUrl[]>(`/files/${fileId}/parts`, { partNumbers });
 }
 
 /** Часть multipart — голым клиентом (без интерцепторов/Authorization) */
@@ -80,33 +77,29 @@ export async function completeFile(
   fileId: string,
   body?: { sha256?: string; parts?: Array<{ partNumber: number; etag: string }> },
 ): Promise<FileDto> {
-  const res = await api.post(`/files/${fileId}/complete`, body ?? {});
-  return res.data.data;
+  return apiPost<FileDto>(`/files/${fileId}/complete`, body ?? {});
 }
 
 export async function abortFile(fileId: string): Promise<void> {
-  await api.post(`/files/${fileId}/abort`, {});
+  await apiPost(`/files/${fileId}/abort`, {});
 }
 
 export async function getFileMeta(fileId: string): Promise<FileDto> {
-  const res = await api.get(`/files/${fileId}`);
-  return res.data.data;
+  return apiGet<FileDto>(`/files/${fileId}`);
 }
 
 export async function getDownloadUrl(fileId: string, variant?: string): Promise<FileDownloadUrl> {
-  const res = await api.get(`/files/${fileId}/download`, {
+  return apiGet<FileDownloadUrl>(`/files/${fileId}/download`, {
     params: variant ? { variant } : undefined,
   });
-  return res.data.data;
 }
 
 export async function deleteFile(fileId: string): Promise<void> {
-  await api.delete(`/files/${fileId}`);
+  await apiDelete(`/files/${fileId}`);
 }
 
 export async function getFilesUsage(): Promise<FileUsageDto> {
-  const res = await api.get('/files/usage');
-  return res.data.data;
+  return apiGet<FileUsageDto>('/files/usage');
 }
 
 /**

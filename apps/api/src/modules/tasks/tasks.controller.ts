@@ -50,8 +50,9 @@ export class TasksController {
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
     };
-    const result = await this.tasksService.getTasks(user.sub, filters);
-    return { success: true, ...result };
+    // OffsetPage<Task> целиком в `data` (было `{ success, ...result }` — spread
+    // расплющивал страницу на `data` + `meta`).
+    return { success: true, data: await this.tasksService.getTasks(user.sub, filters) };
   }
 
   @Post()

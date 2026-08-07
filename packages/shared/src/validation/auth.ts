@@ -72,3 +72,10 @@ export const registerSchema = z.object({
 export const refreshTokenSchema = z.object({
   refreshToken: z.string().min(1),
 });
+
+// ---- Входные типы: ЕДИНСТВЕННОЕ описание формы входа ----
+// Рукописные интерфейсы в types/*.ts удалены: два независимых описания одного
+// входа расходятся молча (Zod уходил вперёд, интерфейс врал).
+export type LoginInput = z.infer<typeof loginSchema>;
+export type RegisterInput = z.infer<typeof registerSchema>;
+export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;

@@ -4,7 +4,7 @@ import { Button, Input } from '@/components/ui';
 import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiErrorMessage, apiPost } from '@/lib/api';
 import { useAuthStore } from '@/lib/stores/auth';
 import { CompanyCard } from '../workspaces/[id]/CompanyCard';
 import { PersonChip } from '../circles/PersonCard';
@@ -82,7 +82,7 @@ export function WorkspacesPanel() {
     setBusyId(id);
     setError('');
     try {
-      await api.post(`/workspaces/invitations/${id}/${action}`);
+      await apiPost(`/workspaces/invitations/${id}/${action}`);
       await refreshAll();
     } catch {
       setError('Не удалось обработать приглашение');
@@ -95,7 +95,7 @@ export function WorkspacesPanel() {
     setBusyId(id);
     setError('');
     try {
-      await api.post(`/workspaces/${id}/restore`);
+      await apiPost(`/workspaces/${id}/restore`);
       await refreshAll();
     } catch (err) {
       setError(apiErrorMessage(err)); // сервер объясняет отказ сам (например, упёрлись в лимит)
@@ -109,7 +109,7 @@ export function WorkspacesPanel() {
     setCreating(true);
     setError('');
     try {
-      await api.post('/workspaces', { name: name.trim() });
+      await apiPost('/workspaces', { name: name.trim() });
       setName('');
       setShowCreate(false);
       await refreshAll();

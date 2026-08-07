@@ -86,7 +86,9 @@ async function waitFor(fn, ms = 6000, step = 300) {
 }
 async function lastSystemEvent(token, chatId) {
   const { json } = await http('GET', `/messenger/chats/${chatId}/messages`, { token });
-  const items = json?.data?.items ?? json?.data ?? [];
+  // Ручка отдаёт МАССИВ сообщений (не страницу) — без терпимых фолбэков:
+  // `?? json.data` маскировал бы смену формы провода, ради ловли которой сьют и живёт.
+  const items = json?.data ?? [];
   const sys = items.filter((m) => m.type === 'system');
   return sys.length ? sys[sys.length - 1]?.payload?.eventType : null;
 }

@@ -145,8 +145,8 @@ async function main() {
 
     await call('POST', '/contacts/invitations', t1, { toPhone: freshPhone, proposedRoleForRecipient: 'Коллега', proposedRoleForSender: 'Коллега' });
     const outgoing = await call('GET', '/contacts/invitations/outgoing', t1);
-    const card = (outgoing.json?.data ?? []).find((i) => i.toPhone === freshPhone)?.to;
-    check('#7 карточка приглашённого отдаётся', !!card, JSON.stringify(outgoing.json?.data?.length));
+    const card = (outgoing.json?.data?.items ?? []).find((i) => i.toPhone === freshPhone)?.to;
+    check('#7 карточка приглашённого отдаётся', !!card, JSON.stringify(outgoing.json?.data?.items?.length));
     check('#7 фамилия маскирована до инициала', card?.lastName === 'Н.', JSON.stringify(card?.lastName));
     check('#7 имя видно (по нему узнают человека)', card?.firstName === 'Диана', JSON.stringify(card?.firstName));
     check('#7 био скрыто до согласия', card?.bio === null, JSON.stringify(card?.bio));
@@ -155,7 +155,7 @@ async function main() {
 
     // Входящее — та же пре-линк карточка у получателя
     const incoming = await call('GET', '/contacts/invitations/incoming', freshTok);
-    const fromCard = (incoming.json?.data ?? [])[0]?.from;
+    const fromCard = (incoming.json?.data?.items ?? [])[0]?.from;
     check('#7 входящее приглашение тоже пре-линк (фамилия маскирована)', !!fromCard && /^.\.$/.test(fromCard.lastName ?? ''), JSON.stringify(fromCard?.lastName));
   } finally {
     if (cleanup.showcaseId) await call('DELETE', `/shop/showcases/${cleanup.showcaseId}`, await login(P1)).catch(() => {});

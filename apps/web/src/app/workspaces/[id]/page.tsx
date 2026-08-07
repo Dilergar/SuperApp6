@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { useApprovalsCount } from '@/lib/hooks/useApprovalsCount';
-import { api } from '@/lib/api';
+import { apiGet } from '@/lib/api';
 import {
   APPROVAL_INBOX_TITLE,
   WORKSPACE_ROLES,
@@ -57,9 +57,8 @@ export default function WorkspaceHome() {
 
   useEffect(() => {
     if (!isReady) return;
-    api
-      .get(`/workspaces/${id}`)
-      .then((r) => setWs(r.data.data))
+    apiGet<Workspace>(`/workspaces/${id}`)
+      .then(setWs)
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [isReady, id]);

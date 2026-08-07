@@ -166,32 +166,3 @@ export interface WorkspaceInvitation {
   expiresAt: string;
   createdAt: string;
 }
-
-export interface CreateWorkspaceRequest {
-  name: string;
-  logo?: string;
-}
-
-export interface UpdateWorkspaceRequest {
-  name?: string;
-  logo?: string | null;
-}
-
-// Найм всегда в Стажёра — роли в запросе НЕТ. Должность + филиалы опциональны
-// (несколько филиалов: сотрудник может обслуживать сразу несколько).
-export interface InviteMemberRequest {
-  phone: string;
-  positionId?: string;
-  branchIds?: string[];
-  message?: string;
-}
-
-// Смена роли: admin → manager/staff/trainee; admin назначает только владелец.
-// contractor вручную не назначается. Должности меняются назначениями (StaffModule).
-export interface UpdateMemberRequest {
-  role: WorkspaceRoleT;
-}
-
-export interface TransferOwnershipRequest {
-  toUserId: string;
-}

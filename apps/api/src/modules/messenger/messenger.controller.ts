@@ -14,6 +14,7 @@ import {
   scheduleMessageSchema,
   updateScheduledMessageSchema,
   PRESENCE,
+  type PresenceQueryResult,
 } from '@superapp/shared';
 import { MessengerService } from './messenger.service';
 import { MentionsService } from './mentions.service';
@@ -44,7 +45,8 @@ export class MessengerController {
       .map((s) => s.trim())
       .filter(Boolean)
       .slice(0, PRESENCE.MAX_BATCH);
-    return { success: true, data: { items: await this.presence.statusFor(user.sub, ids) } };
+    const data: PresenceQueryResult = { items: await this.presence.statusFor(user.sub, ids) };
+    return { success: true, data };
   }
 
   @Get('chats')

@@ -7,7 +7,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { FinAccountDto, FinPersonDto, FinTransactionDto } from '@superapp/shared';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiDelete, apiErrorMessage, apiPatch, apiPost } from '@/lib/api';
 import { EntitySelector } from '@/components/EntitySelector';
 import {
   Alert, Button, Card, CardHeader, ConfirmDialog, DatePicker, EmptyState, Field, IconButton,
@@ -204,8 +204,8 @@ export function QuickEntry({
         ...(note.trim() ? { note: note.trim() } : editingTx ? { note: null } : {}),
         ...(personAllowed && personUserId ? { personUserId } : editingTx ? { personUserId: null } : {}),
       };
-      if (editingTx) await api.patch(`/finance/transactions/${editingTx.id}`, payload, bookParams(bookId));
-      else await api.post('/finance/transactions', payload, bookParams(bookId));
+      if (editingTx) await apiPatch(`/finance/transactions/${editingTx.id}`, payload, bookParams(bookId));
+      else await apiPost('/finance/transactions', payload, bookParams(bookId));
       reset();
       onSaved();
     } catch (e) {
@@ -443,7 +443,7 @@ export function TransactionFeed({
     if (!removing || busy) return;
     setBusy(true);
     try {
-      await api.delete(`/finance/transactions/${removing.id}`, bookParams(bookId));
+      await apiDelete(`/finance/transactions/${removing.id}`, bookParams(bookId));
       setRemoving(null);
       onDeleted();
     } catch (e) {

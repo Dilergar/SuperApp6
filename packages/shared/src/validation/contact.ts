@@ -49,3 +49,11 @@ export const listInvitationsQuerySchema = z.object({
 export const blockUserSchema = z.object({
   userId: z.string().uuid(),
 });
+
+// ---- Входные типы: ЕДИНСТВЕННОЕ описание формы входа ----
+// Рукописные интерфейсы в types/*.ts удалены: два независимых описания одного
+// входа расходятся молча (Zod уходил вперёд, интерфейс врал).
+export type SendInvitationInput = z.infer<typeof sendInvitationSchema>;
+export type AcceptInvitationInput = z.infer<typeof acceptInvitationSchema>;
+export type UpdateContactInput = z.infer<typeof updateContactSchema>;
+export type BlockUserInput = z.infer<typeof blockUserSchema>;

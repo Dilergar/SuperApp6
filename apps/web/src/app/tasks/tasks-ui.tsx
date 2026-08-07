@@ -8,7 +8,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useQueryClient } from '@tanstack/react-query';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiErrorMessage, apiPost } from '@/lib/api';
 import { PersonChip } from '../circles/PersonCard';
 import { TASK_STATUS_META, TASK_PRIORITY_META, type Task, type TaskStatus, type TaskPriority } from '@superapp/shared';
 import {
@@ -142,7 +142,7 @@ export function QuickAdd({ placeholder = 'Быстрая задачка себе
     setBusy(true);
     setError('');
     try {
-      await api.post('/tasks', { title: t, inbox: true });
+      await apiPost('/tasks', { title: t, inbox: true });
       setTitle('');
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
     } catch (err: unknown) {

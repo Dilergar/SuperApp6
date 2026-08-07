@@ -15,8 +15,8 @@ import type {
   ResourceBooking,
   ResourceBookingStatus,
   ResourceType,
-  CreateResourceRequest,
-  UpdateResourceRequest,
+  CreateResourceInput,
+  UpdateResourceInput,
 } from '@superapp/shared';
 
 const ACTIVE: ResourceBookingStatus[] = ['pending', 'confirmed'];
@@ -33,7 +33,7 @@ export class ResourcesService {
   // CRUD
   // ============================================================
 
-  async create(ownerId: string, data: CreateResourceRequest): Promise<ResourceDto> {
+  async create(ownerId: string, data: CreateResourceInput): Promise<ResourceDto> {
     await this.assertBookersAllowed(ownerId, data.bookerUserIds, data.bookerCircleIds);
     const r = await this.db.resource.create({
       data: {
@@ -48,7 +48,7 @@ export class ResourcesService {
     return this.toDto(r, ownerId, []);
   }
 
-  async update(ownerId: string, id: string, data: UpdateResourceRequest): Promise<ResourceDto> {
+  async update(ownerId: string, id: string, data: UpdateResourceInput): Promise<ResourceDto> {
     await this.assertOwned(ownerId, id);
     await this.assertBookersAllowed(ownerId, data.bookerUserIds, data.bookerCircleIds);
     const r = await this.db.resource.update({

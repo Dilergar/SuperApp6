@@ -51,3 +51,12 @@ export const walletHistoryQuerySchema = z.object({
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
+
+// ---- Входные типы: ЕДИНСТВЕННОЕ описание формы входа ----
+// Рукописные интерфейсы в types/*.ts удалены: два независимых описания одного
+// входа расходятся молча (Zod уходил вперёд, интерфейс врал).
+export type CreateCurrencyInput = z.infer<typeof createCurrencySchema>;
+export type UpdateCurrencyInput = z.infer<typeof updateCurrencySchema>;
+export type MintInput = z.infer<typeof mintSchema>;
+export type BurnInput = z.infer<typeof burnSchema>;
+export type PayEmployeeInput = z.infer<typeof payEmployeeSchema>;

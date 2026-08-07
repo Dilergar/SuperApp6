@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Chip, Glyph, GlyphField, Input, Toggle, useConfirm } from '@/components/ui';
-import { api } from '@/lib/api';
+import { apiDelete, apiGet, apiPatch, apiPost } from '@/lib/api';
+import { formatWalletAmount } from '@/lib/wallet-format';
 import {
   currencyBadgeKey, walletCardsKey, walletCurrencyKey, walletHistoryKey, walletHoldersKey, walletOverviewKey,
 } from '@/lib/queries';
@@ -16,6 +17,7 @@ import {
   normalizeIban,
   type Currency,
   type WalletEntry,
+  type CursorPage,
   type LedgerEntryDto,
   type CurrencyHolder,
   type UserPaymentCardDto,
@@ -26,7 +28,9 @@ function errMsg(e: unknown, fallback = 'Ошибка'): string {
   const ax = e as { response?: { data?: { message?: string; error?: string } } };
   return ax?.response?.data?.message || ax?.response?.data?.error || fallback;
 }
-const fmt = (n: number) => n.toLocaleString('ru-RU');
+// Масштаб валюты приходит с проводом (WalletEntry.scale) — форматирует общий хелпер.
+// Свой `fmt` про scale не знал: у личных валют он 0, поэтому мина была невидима.
+const fmt = (n: number, scale = 0) => formatWalletAmount(n, scale);
 
 /**
  * Profile → «Кошелёк». Manage your own issued currency (create / mint / rename once-per-3mo
@@ -38,22 +42,22 @@ export function WalletSection() {
   const qc = useQueryClient();
   const currencyQ = useQuery({
     queryKey: walletCurrencyKey,
-    queryFn: async () => (await api.get('/wallet/currency')).data.data as Currency | null,
+    queryFn: () => apiGet<Currency | null>('/wallet/currency'),
     staleTime: 60_000,
   });
   const walletQ = useQuery({
     queryKey: walletOverviewKey,
-    queryFn: async () => (await api.get('/wallet')).data.data as WalletEntry[],
+    queryFn: async () => await apiGet<WalletEntry[]>('/wallet'),
     staleTime: 60_000,
   });
   const historyQ = useQuery({
     queryKey: walletHistoryKey,
-    queryFn: async () => (await api.get('/wallet/history')).data.data as LedgerEntryDto[],
+    queryFn: async () => (await apiGet<CursorPage<LedgerEntryDto>>('/wallet/history')).items,
     staleTime: 60_000,
   });
   const holdersQ = useQuery({
     queryKey: walletHoldersKey,
-    queryFn: async () => (await api.get('/wallet/currency/holders')).data.data as CurrencyHolder[],
+    queryFn: async () => await apiGet<CurrencyHolder[]>('/wallet/currency/holders'),
     enabled: !!currencyQ.data,
     staleTime: 60_000,
   });
@@ -101,7 +105,7 @@ export function WalletSection() {
   const createCurrency = () => {
     if (!cName.trim()) return setError('Введите название');
     return run(async () => {
-      await api.post('/wallet/currency', { name: cName.trim(), icon: cIcon });
+      await apiPost('/wallet/currency', { name: cName.trim(), icon: cIcon });
       setCName('');
     }, [walletCurrencyKey, walletOverviewKey, currencyBadgeKey], 'Валюта создана');
   };
@@ -110,20 +114,20 @@ export function WalletSection() {
     const n = parseInt(mintAmt, 10);
     if (!Number.isInteger(n) || n <= 0) return setError('Введите целое число больше 0');
     return run(async () => {
-      await api.post('/wallet/currency/mint', { amount: n });
+      await apiPost('/wallet/currency/mint', { amount: n });
       setMintAmt('');
     }, [walletOverviewKey, walletHistoryKey, walletHoldersKey, currencyBadgeKey], `Выпущено ${fmt(n)}`);
   };
 
   const saveEdit = () =>
     run(async () => {
-      await api.patch('/wallet/currency', { name: eName.trim(), icon: eIcon });
+      await apiPatch('/wallet/currency', { name: eName.trim(), icon: eIcon });
       setEditing(false);
     }, [walletCurrencyKey, walletHistoryKey, currencyBadgeKey], 'Сохранено');
 
   const del = () =>
     run(async () => {
-      await api.delete('/wallet/currency');
+      await apiDelete('/wallet/currency');
       setConfirmDel(false);
     }, [walletCurrencyKey, walletOverviewKey, walletHistoryKey, walletHoldersKey, currencyBadgeKey], 'Валюта удалена');
 
@@ -131,7 +135,7 @@ export function WalletSection() {
     const n = parseInt(burnAmt, 10);
     if (!Number.isInteger(n) || n <= 0) return setError('Введите целое число больше 0');
     return run(async () => {
-      await api.post('/wallet/burn', { currencyId, amount: n });
+      await apiPost('/wallet/burn', { currencyId, amount: n });
       setBurnId(null);
       setBurnAmt('');
     }, [walletOverviewKey, walletHistoryKey], 'Сожжено');
@@ -188,8 +192,8 @@ export function WalletSection() {
                 <div style={{ flex: 1 }}>
                   <div className="title-md">{currency.name}</div>
                   <div className="label-sm" style={{ opacity: 0.7 }}>
-                    Баланс: <b style={{ color: 'var(--primary)' }}>{fmt(own?.balance ?? 0)}</b>
-                    {!!own && own.held > 0 && <> · заморожено {fmt(own.held)} · доступно {fmt(own.available)}</>}
+                    Баланс: <b style={{ color: 'var(--primary)' }}>{fmt(own?.balance ?? 0, own?.scale)}</b>
+                    {!!own && own.held > 0 && <> · заморожено {fmt(own.held, own.scale)} · доступно {fmt(own.available, own.scale)}</>}
                   </div>
                 </div>
               </div>
@@ -269,7 +273,7 @@ export function WalletSection() {
                   <div style={{ fontWeight: 500, fontSize: '0.9rem' }}>{w.name}</div>
                   <div className="label-sm" style={{ opacity: 0.6, fontSize: '0.72rem' }}>от {w.issuerName}</div>
                 </div>
-                <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: w.balance < 0 ? 'var(--danger)' : 'var(--on-surface)' }}>{fmt(w.balance)}</div>
+                <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: w.balance < 0 ? 'var(--danger)' : 'var(--on-surface)' }}>{fmt(w.balance, w.scale)}</div>
                 {w.balance > 0 && (
                   <button
                     onClick={() => { setBurnId(burnId === w.currencyId ? null : w.currencyId); setBurnAmt(''); }}
@@ -312,7 +316,7 @@ export function WalletSection() {
               {holders.map((h) => (
                 <div key={h.userId} className="card" style={{ padding: 'var(--spacing-2) var(--spacing-4)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
                   <span style={{ flex: 1, fontSize: '0.88rem' }}>{h.name}</span>
-                  <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>{fmt(h.balance)} <Glyph value={currency.icon} size={14} /></span>
+                  <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>{fmt(h.balance, currency.scale)} <Glyph value={currency.icon} size={14} /></span>
                 </div>
               ))}
             </div>
@@ -333,7 +337,7 @@ export function WalletSection() {
                 <div className="label-sm" style={{ fontSize: '0.7rem', opacity: 0.55 }}>{new Date(h.createdAt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
               </div>
               <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: h.amount < 0 ? 'var(--danger)' : 'var(--secondary)' }}>
-                {h.amount > 0 ? '+' : ''}{fmt(h.amount)}
+                {h.amount > 0 ? '+' : ''}{fmt(h.amount, h.scale)}
               </div>
             </div>
           ))}
@@ -362,7 +366,7 @@ function PaymentCardsBlock() {
 
   const cardsQ = useQuery({
     queryKey: walletCardsKey,
-    queryFn: async () => (await api.get('/wallet/cards')).data.data as UserPaymentCardDto[],
+    queryFn: async () => await apiGet<UserPaymentCardDto[]>('/wallet/cards'),
     staleTime: 60_000,
   });
   const cards = cardsQ.data ?? [];
@@ -379,7 +383,7 @@ function PaymentCardsBlock() {
 
   const create = useMutation({
     mutationFn: async () => {
-      await api.post('/wallet/cards', {
+      await apiPost('/wallet/cards', {
         pan: panNorm,
         ...(ibanNorm ? { iban: ibanNorm } : {}),
         holderName: holder.trim(),
@@ -397,13 +401,13 @@ function PaymentCardsBlock() {
   });
 
   const setPrimary = useMutation({
-    mutationFn: (id: string) => api.patch(`/wallet/cards/${id}`, { isPrimary: true }),
+    mutationFn: (id: string) => apiPatch(`/wallet/cards/${id}`, { isPrimary: true }),
     onSuccess: () => void invalidate(),
     onError: (e) => toastError(errMsg(e)),
   });
 
   const remove = useMutation({
-    mutationFn: (id: string) => api.delete(`/wallet/cards/${id}`),
+    mutationFn: (id: string) => apiDelete(`/wallet/cards/${id}`),
     onSuccess: () => void invalidate(),
     onError: (e) => toastError(errMsg(e)),
   });

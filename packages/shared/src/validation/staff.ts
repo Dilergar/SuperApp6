@@ -76,3 +76,15 @@ export const updateStaffAssignmentSchema = z
     status: staffAssignmentStatusSchema.optional(),
   })
   .refine((d) => Object.keys(d).length > 0, 'Нечего обновлять');
+
+// ---- Входные типы: ЕДИНСТВЕННОЕ описание формы входа ----
+// Рукописные интерфейсы в types/*.ts удалены: два независимых описания одного
+// входа расходятся молча (Zod уходил вперёд, интерфейс врал).
+export type CreateStaffDepartmentInput = z.infer<typeof createStaffDepartmentSchema>;
+export type UpdateStaffDepartmentInput = z.infer<typeof updateStaffDepartmentSchema>;
+export type CreateStaffPositionInput = z.infer<typeof createStaffPositionSchema>;
+export type UpdateStaffPositionInput = z.infer<typeof updateStaffPositionSchema>;
+export type CreateStaffBranchInput = z.infer<typeof createStaffBranchSchema>;
+export type UpdateStaffBranchInput = z.infer<typeof updateStaffBranchSchema>;
+export type AssignStaffPositionInput = z.infer<typeof assignStaffPositionSchema>;
+export type UpdateStaffAssignmentInput = z.infer<typeof updateStaffAssignmentSchema>;

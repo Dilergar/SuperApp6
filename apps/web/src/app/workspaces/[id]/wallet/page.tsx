@@ -4,17 +4,21 @@ import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiErrorMessage, apiGet, apiPost } from '@/lib/api';
+import { formatWalletAmount } from '@/lib/wallet-format';
 import { companyHoldersKey, companyWalletKey, workspaceMembersKey } from '@/lib/queries';
 import { EntitySelector } from '@/components/EntitySelector';
 import {
   Alert, BentoGrid, Button, Card, CardHeader, EmptyState, Glyph, GlyphField, Input, LoadingBlock, PageHeader, StatTile,
 } from '@/components/ui';
 import { PersonChip } from '../../../circles/PersonCard';
-import type { Currency, WalletEntry, CurrencyHolder } from '@superapp/shared';
+import type { CompanyWalletDto, CurrencyHolder, WorkspaceMember } from '@superapp/shared';
 
-const fmt = (amount: number, scale: number) => (scale > 0 ? amount / 10 ** scale : amount).toLocaleString('ru-RU');
-type Member = { userId: string; name?: string; firstName?: string; lastName?: string };
+// Локального `type Member` здесь БОЛЬШЕ НЕТ. Он объявлял поля `name/firstName/lastName`,
+// которых на ручке `/workspaces/:id/members` НЕ СУЩЕСТВОВАЛО НИКОГДА (имя приезжает в
+// `userName`), — и все три ветки `memberName` промахивались, из-за чего пикер
+// «Начислить сотруднику» с 31.05.2026 подписывал людей первыми 8 символами UUID.
+// Тот же ключ кэша читают ещё шесть файлов как `WorkspaceMember[]`.
 
 /**
  * Company wallet (B2B, Phase 9) — owner-only. Issue the company currency, mint into the treasury,
@@ -30,8 +34,7 @@ export default function CompanyWalletPage() {
   // обновляет только затронутые ключи (раньше каждый mint/pay перезапрашивал всё).
   const companyQ = useQuery({
     queryKey: companyWalletKey(id),
-    queryFn: async () =>
-      (await api.get('/wallet/company', cfg)).data.data as { currency: Currency | null; treasury: WalletEntry | null },
+    queryFn: () => apiGet<CompanyWalletDto>('/wallet/company', cfg),
     enabled: isReady,
     staleTime: 30_000,
   });
@@ -41,7 +44,7 @@ export default function CompanyWalletPage() {
 
   const holdersQ = useQuery({
     queryKey: companyHoldersKey(id),
-    queryFn: async () => (await api.get('/wallet/company/holders', cfg)).data.data as CurrencyHolder[],
+    queryFn: () => apiGet<CurrencyHolder[]>('/wallet/company/holders', cfg),
     enabled: isReady && !!currency,
     staleTime: 30_000,
   });
@@ -51,11 +54,11 @@ export default function CompanyWalletPage() {
   // список уже в кэше и пикер заполняется без запроса.
   const membersQ = useQuery({
     queryKey: workspaceMembersKey(id),
-    queryFn: async () => (await api.get(`/workspaces/${id}/members`)).data.data as Member[],
+    queryFn: () => apiGet<WorkspaceMember[]>(`/workspaces/${id}/members`),
     enabled: isReady,
     staleTime: 60_000,
   });
-  const members: Member[] = membersQ.data ?? [];
+  const members: WorkspaceMember[] = membersQ.data ?? [];
 
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
@@ -80,24 +83,24 @@ export default function CompanyWalletPage() {
 
   const createCurrency = () => run(async () => {
     if (!name.trim()) return setError('Введите название');
-    await api.post('/wallet/company/currency', { name: name.trim(), icon: icon || '🏢' }, cfg);
+    await apiPost('/wallet/company/currency', { name: name.trim(), icon: icon || '🏢' }, cfg);
     flash('Валюта компании создана');
   }, [companyWalletKey(id)]);
   const mint = () => run(async () => {
     const amount = parseInt(mintAmt, 10);
     if (!(amount > 0)) return setError('Сумма — целое число больше нуля');
-    await api.post('/wallet/company/currency/mint', { amount }, cfg);
+    await apiPost('/wallet/company/currency/mint', { amount }, cfg);
     setMintAmt(''); flash(`Выпущено ${amount} в казну`);
   }, [companyWalletKey(id)]);
   const pay = () => run(async () => {
     const amount = parseInt(payAmt, 10);
     if (!payUser) return setError('Выберите сотрудника');
     if (!(amount > 0)) return setError('Сумма — целое число больше нуля');
-    await api.post('/wallet/company/pay', { userId: payUser, amount }, cfg);
+    await apiPost('/wallet/company/pay', { userId: payUser, amount }, cfg);
     setPayAmt(''); flash('Начислено сотруднику');
   }, [companyWalletKey(id), companyHoldersKey(id)]);
 
-  const memberName = (m: Member) => m.name || `${m.firstName ?? ''} ${m.lastName ?? ''}`.trim() || m.userId.slice(0, 8);
+  const memberName = (m: WorkspaceMember) => m.userName || m.userId.slice(0, 8);
 
   const loadError = !denied && companyQ.error ? apiErrorMessage(companyQ.error) : '';
   const shownError = error || loadError;
@@ -159,14 +162,14 @@ export default function CompanyWalletPage() {
           <StatTile
             span={4}
             label="Казна"
-            value={fmt(treasury?.balance ?? 0, currency.scale)}
+            value={formatWalletAmount(treasury?.balance ?? 0, currency.scale)}
             emoji={currency.icon}
             tone="accent"
           />
           <StatTile
             span={4}
             label="Заморожено"
-            value={fmt(treasury?.held ?? 0, currency.scale)}
+            value={formatWalletAmount(treasury?.held ?? 0, currency.scale)}
             icon="lock"
             tone={(treasury?.held ?? 0) > 0 ? 'warning' : 'neutral'}
           />
@@ -203,11 +206,12 @@ export default function CompanyWalletPage() {
               <EntitySelector
                 types={['user']}
                 options={members.map((m) => ({
-                  type: 'user',
+                  type: 'user' as const,
                   id: m.userId,
                   title: memberName(m),
-                  firstName: m.firstName ?? m.name ?? memberName(m),
-                  lastName: m.lastName ?? null,
+                  // Имя/фамилия — из карточки строки ростера (она уже приехала в ответе).
+                  firstName: m.card?.firstName ?? memberName(m),
+                  lastName: m.card?.lastName ?? null,
                 }))}
                 value={payUser ? [{ type: 'user', id: payUser }] : []}
                 onChange={(next) => setPayUser(next[next.length - 1]?.id ?? '')}
@@ -250,7 +254,7 @@ export default function CompanyWalletPage() {
                   >
                     <PersonChip size="S" userId={h.userId} firstName={h.name} />
                     <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700 }}>
-                      {fmt(h.balance, currency.scale)} <Glyph value={currency.icon} size={14} />
+                      {formatWalletAmount(h.balance, currency.scale)} <Glyph value={currency.icon} size={14} />
                     </span>
                   </div>
                 ))}

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { api } from '@/lib/api';
+import { apiGet } from '@/lib/api';
 import type { Workspace } from '@superapp/shared';
 
 type Gate = 'all' | 'manage' | 'owner';
@@ -37,7 +37,7 @@ export default function WorkspaceProfileLayout({ children }: { children: React.R
 
   useEffect(() => {
     if (!isReady || !id) return;
-    api.get(`/workspaces/${id}`).then((r) => setWs(r.data.data)).catch(() => {});
+    apiGet<Workspace>(`/workspaces/${id}`).then(setWs).catch(() => {});
   }, [isReady, id]);
 
   const myRole = ws?.myRole;

@@ -3,8 +3,9 @@
 import { useMemo } from 'react';
 import Link from 'next/link';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import type { FinCoinFeedItemDto } from '@superapp/shared';
-import { api } from '@/lib/api';
+import type { CursorPage, FinCoinFeedItemDto, WalletEntry } from '@superapp/shared';
+import { apiGet } from '@/lib/api';
+import { formatWalletAmount } from '@/lib/wallet-format';
 import {
   BentoGrid, Button, Card, CardHeader, EmptyState, Glyph, StatTile, type IconName, type Tone,
 } from '@/components/ui';
@@ -14,24 +15,17 @@ import { FinList, FinRow } from './finance-ui';
 const coinFeedKey = ['finance', 'coins'] as const;
 const walletSummaryKey = ['finance', 'coins', 'wallet'] as const;
 
-async function fetchCoinFeed(cursor?: string): Promise<{ items: FinCoinFeedItemDto[]; nextCursor: string | null }> {
-  const res = await api.get('/finance/coins', { params: cursor ? { cursor } : undefined });
-  return { items: res.data.data, nextCursor: res.data.nextCursor ?? null };
+async function fetchCoinFeed(cursor?: string): Promise<CursorPage<FinCoinFeedItemDto>> {
+  return apiGet<CursorPage<FinCoinFeedItemDto>>('/finance/coins', {
+    params: cursor ? { cursor } : undefined,
+  });
 }
 
-interface WalletRow {
-  currencyId: string;
-  name: string;
-  icon: string;
-  balance: number;
-  available?: number;
-  held?: number;
-  isOwn?: boolean;
-}
-
-async function fetchWalletSummary(): Promise<WalletRow[]> {
-  const res = await api.get('/wallet');
-  return res.data.data as WalletRow[];
+// Локального `WalletRow` здесь БОЛЬШЕ НЕТ: он терял `scale` (по которому соседняя
+// страница форматирует суммы) и объявлял `available/held/isOwn` необязательными,
+// хотя на проводе они обязательны.
+async function fetchWalletSummary(): Promise<WalletEntry[]> {
+  return apiGet<WalletEntry[]>('/wallet');
 }
 
 /** Интерфейсный значок события ленты по его виду (валюта — эмодзи эмитента, это данные). */
@@ -67,7 +61,7 @@ export function CoinsView() {
           key={w.currencyId}
           span={3}
           label={w.name}
-          value={w.balance.toLocaleString('ru-RU')}
+          value={formatWalletAmount(w.balance, w.scale)}
           emoji={w.icon}
           tone={w.isOwn ? 'accent' : 'neutral'}
         />
@@ -90,7 +84,7 @@ export function CoinsView() {
             {rest.map((w) => (
               <span key={w.currencyId} className="title-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
                 <Glyph value={w.icon} size={15} />
-                {w.balance.toLocaleString('ru-RU')}
+                {formatWalletAmount(w.balance, w.scale)}
                 <span className="label-sm">{w.name}</span>
               </span>
             ))}
@@ -141,7 +135,7 @@ export function CoinsView() {
                           color: it.direction === 'in' ? 'var(--success)' : 'var(--danger)',
                         }}
                       >
-                        {it.direction === 'in' ? '+' : '−'}{it.amount.toLocaleString('ru-RU')} <Glyph value={it.currencyIcon} size={13} />
+                        {it.direction === 'in' ? '+' : '−'}{formatWalletAmount(it.amount, it.scale)} <Glyph value={it.currencyIcon} size={13} />
                       </span>
                     }
                   />

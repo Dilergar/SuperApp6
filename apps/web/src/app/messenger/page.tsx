@@ -23,13 +23,8 @@ import {
 } from '@/lib/queries';
 import { getCallsStatus } from '@/lib/calls-api';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import {
-  useMessengerSocket,
-  type SocketMessageNew,
-  type SocketMessageUpdated,
-  type SocketMessageDeleted,
-  type SocketReceipt,
-} from '@/lib/hooks/useMessengerSocket';
+import { useMessengerSocket } from '@/lib/hooks/useMessengerSocket';
+import type { WsMessageNew, WsMessageUpdated, WsMessageDeleted, WsReceipt } from '@superapp/shared';
 import {
   listChats,
   getChat,
@@ -309,7 +304,7 @@ function MessengerInner() {
 
   // Advance my own messages' tick status when a recipient's read cursor moves.
   const applyReceiptToCache = useCallback(
-    (r: SocketReceipt) => {
+    (r: WsReceipt) => {
       queryClient.setQueryData<ChatMessage[]>(messengerMessagesKey(r.chatId), (old) => {
         if (!old) return old;
         return old.map((m) => {
@@ -427,7 +422,7 @@ function MessengerInner() {
       // придёт свежим из перезапрошенных chats/detail.
       setCallStates(new Map());
     },
-    onMessageNew: (p: SocketMessageNew) => {
+    onMessageNew: (p: WsMessageNew) => {
       const mine = p.message.authorId === currentUserId;
       const msg: ChatMessage = { ...p.message, mine };
       upsertMessageInCache(p.chatId, msg);
@@ -446,17 +441,17 @@ function MessengerInner() {
         }
       }
     },
-    onMessageUpdated: (p: SocketMessageUpdated) => {
+    onMessageUpdated: (p: WsMessageUpdated) => {
       const msg: ChatMessage = { ...p.message, mine: p.message.authorId === currentUserId };
       patchMessageInCache(p.chatId, msg);
       bumpInboxPreviewIfLast(p.chatId, msg);
     },
-    onMessageDeleted: (p: SocketMessageDeleted) => {
+    onMessageDeleted: (p: WsMessageDeleted) => {
       const msg: ChatMessage = { ...p.message, mine: p.message.authorId === currentUserId };
       patchMessageInCache(p.chatId, msg);
       bumpInboxPreviewIfLast(p.chatId, msg);
     },
-    onReceipt: (p: SocketReceipt) => {
+    onReceipt: (p: WsReceipt) => {
       applyReceiptToCache(p);
     },
     onPresenceChanged: (p) => {

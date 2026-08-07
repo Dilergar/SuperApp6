@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { FinAccountDto, FinBudgetDto, FinMonthReportDto } from '@superapp/shared';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiErrorMessage, apiPut } from '@/lib/api';
 import {
   financeMonthReportKey,
   financeTrendKey,
@@ -448,7 +448,7 @@ function BudgetModal({
     setBusy(true);
     setError(null);
     try {
-      await api.put(
+      await apiPut(
         '/finance/budgets',
         { period, categoryAccountId: category.id, amount },
         queryBookId ? { params: { bookId: queryBookId } } : undefined,

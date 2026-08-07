@@ -69,16 +69,6 @@ export interface StaffAssignment {
   createdAt: string;
 }
 
-/** Строка ростера «Сотрудники» (членство + роль + назначения). */
-export interface StaffMember {
-  userId: string;
-  userName: string;
-  userAvatar: string | null;
-  role: WorkspaceRole;
-  assignments: StaffAssignment[];
-  joinedAt: string;
-}
-
 /** Справочники одним ответом — для вкладок и форм. */
 export interface StaffDirectory {
   departments: StaffDepartment[];
@@ -87,48 +77,3 @@ export interface StaffDirectory {
 }
 
 // ---------- Requests ----------
-
-export interface CreateStaffDepartmentRequest {
-  name: string;
-  parentId?: string | null;
-}
-export interface UpdateStaffDepartmentRequest {
-  name?: string;
-  parentId?: string | null;
-  sortOrder?: number;
-}
-
-export interface CreateStaffPositionRequest {
-  name: string;
-  departmentId?: string | null;
-  description?: string | null;
-}
-export interface UpdateStaffPositionRequest {
-  name?: string;
-  departmentId?: string | null;
-  description?: string | null;
-  sortOrder?: number;
-}
-
-export interface CreateStaffBranchRequest {
-  name: string;
-  address?: string | null;
-  note?: string | null;
-}
-export interface UpdateStaffBranchRequest {
-  name?: string;
-  address?: string | null;
-  note?: string | null;
-  sortOrder?: number;
-}
-
-export interface AssignStaffPositionRequest {
-  positionId: string;
-  branchId?: string | null;
-  /** По умолчанию training; manager+ может сразу аттестовать. */
-  status?: StaffAssignmentStatus;
-}
-export interface UpdateStaffAssignmentRequest {
-  branchId?: string | null;
-  status?: StaffAssignmentStatus;
-}

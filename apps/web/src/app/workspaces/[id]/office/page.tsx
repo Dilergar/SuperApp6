@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiErrorMessage, apiGet, apiPost } from '@/lib/api';
 import {
   callsStatusKey,
   fetchOfficeHistory,
@@ -49,7 +49,7 @@ export default function OfficePage() {
 
   const wsQ = useQuery({
     queryKey: workspaceKey(wsId),
-    queryFn: async () => (await api.get(`/workspaces/${wsId}`)).data.data as Workspace,
+    queryFn: async () => await apiGet<Workspace>(`/workspaces/${wsId}`),
     enabled: isReady,
   });
   const myRole = wsQ.data?.myRole as WorkspaceRole | undefined;
@@ -85,7 +85,7 @@ export default function OfficePage() {
 
   const createMut = useMutation({
     mutationFn: async () =>
-      (await api.post(`/workspaces/${wsId}/office/rooms`, {})).data.data as OfficeRoomDto,
+      await apiPost<OfficeRoomDto>(`/workspaces/${wsId}/office/rooms`, {}),
     onSuccess: (room) => {
       void queryClient.invalidateQueries({ queryKey: officeRoomsKey(wsId) });
       router.push(`/workspaces/${wsId}/office/${room.id}`);
@@ -94,7 +94,7 @@ export default function OfficePage() {
   });
 
   const endMut = useMutation({
-    mutationFn: (roomId: string) => api.post(`/workspaces/${wsId}/office/rooms/${roomId}/end`, {}),
+    mutationFn: (roomId: string) => apiPost(`/workspaces/${wsId}/office/rooms/${roomId}/end`, {}),
     onSuccess: () => {
       setEndFor(null);
       void queryClient.invalidateQueries({ queryKey: officeRoomsKey(wsId) });
@@ -352,7 +352,7 @@ function InviteModal({
   const [error, setError] = useState('');
   const membersQ = useQuery({
     queryKey: workspaceMembersKey(wsId),
-    queryFn: async () => (await api.get(`/workspaces/${wsId}/members`)).data.data as WorkspaceMember[],
+    queryFn: async () => await apiGet<WorkspaceMember[]>(`/workspaces/${wsId}/members`),
     staleTime: 60_000,
   });
   const memberOptions: EntityOption[] = useMemo(
@@ -374,7 +374,7 @@ function InviteModal({
 
   const inviteMut = useMutation({
     mutationFn: () =>
-      api.post(`/workspaces/${wsId}/office/rooms/${room.id}/invite`, {
+      apiPost(`/workspaces/${wsId}/office/rooms/${room.id}/invite`, {
         userIds: selected.map((p) => p.id),
       }),
     onSuccess: onClose,

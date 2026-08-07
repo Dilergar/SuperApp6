@@ -335,19 +335,19 @@ const created = [];
     ]);
 
     const mine = await call('GET', '/approvals/mine', u1.token);
-    const row = mine.json.data.find((i) => i.id === request.id);
+    const row = mine.json.data.items.find((i) => i.id === request.id);
     check('заявка видна в «моих»', !!row);
     check('подпись этапа человеческая', row?.stageLabel === 'Шаг 1 из 2 · На согласовании', row?.stageLabel);
-    check('ждущие отданы карточками', row?.awaitingUserIds?.includes(u2.id) && !!mine.json.data && !!mine.json.actors?.[u2.id]);
+    check('ждущие отданы карточками', row?.awaitingUserIds?.includes(u2.id) && !!mine.json.data.items && !!mine.json.data.actors?.[u2.id]);
 
     // `?archived=false` обязан значить ЛОЖЬ. z.coerce.boolean() здесь давал ИСТИНУ
     // (непустая строка), и список молча отвечал ровно наоборот — архивом.
     const explicitFalse = await call('GET', '/approvals/mine?archived=false', u1.token);
     check('archived=false отдаёт активные, а не архив',
-      explicitFalse.ok && explicitFalse.json.data.some((i) => i.id === request.id));
+      explicitFalse.ok && explicitFalse.json.data.items.some((i) => i.id === request.id));
     const archived = await call('GET', '/approvals/mine?archived=true', u1.token);
     check('archived=true не показывает живую заявку',
-      archived.ok && !archived.json.data.some((i) => i.id === request.id));
+      archived.ok && !archived.json.data.items.some((i) => i.id === request.id));
 
     const byStranger = await call('POST', `/approvals/${request.id}/cancel`, u2.token);
     check('чужой не отзывает заявку', byStranger.status === 403);
@@ -442,7 +442,7 @@ const created = [];
       // «Мои заявки» скоупятся тем же параметром — список живёт рядом со стопкой
       const mine = await call('GET', '/approvals/mine?scope=personal', u1.token);
       check('«мои заявки» в личном скоупе без рабочих',
-        !mine.json.data.some((r) => r.id === request.id) && mine.json.data.some((r) => r.id === personal.request.id));
+        !mine.json.data.items.some((r) => r.id === request.id) && mine.json.data.items.some((r) => r.id === personal.request.id));
 
       // Уволенный/посторонний в снимок не попадает: обязанность решать не должна
       // переживать выход из организации и не должна доставаться человеку со стороны.

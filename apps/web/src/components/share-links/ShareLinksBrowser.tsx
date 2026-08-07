@@ -18,6 +18,8 @@ import {
   shareLinkStatus,
   type ShareLinkActorLite,
   type ShareLinkMineDto,
+  type ShareLinkMinePage,
+  type ShareLinkOrgPage,
   type ShareLinkStatsDto,
 } from '@superapp/shared';
 import { Button, Card, Checkbox, Chip, EmptyState, Icon, LoadingBlock, useConfirm } from '@/components/ui';
@@ -28,12 +30,12 @@ import { toastError } from '@/lib/toast';
 
 export type ShareLinksFilter = 'active' | 'inactive' | 'all';
 
-/** Страница списка: у организационного скоупа приезжают ещё и авторы */
-export interface ShareLinksPageResult {
-  items: ShareLinkMineDto[];
-  nextCursor: string | null;
-  actors?: Record<string, ShareLinkActorLite>;
-}
+/**
+ * Страница списка. Компонент обслуживает ДВА скоупа, поэтому объединение здесь
+ * уместно по существу — но собирается оно из shared-типов, а не переписывается
+ * от руки (`actors` есть только у организационного вида).
+ */
+export type ShareLinksPageResult = ShareLinkMinePage | ShareLinkOrgPage;
 
 export interface ShareLinksSource {
   /** Префикс ключа кэша — по нему инвалидируется весь скоуп после отзыва */
@@ -92,7 +94,8 @@ export function ShareLinksBrowser({
   const links = useMemo(() => (data?.pages ?? []).flatMap((p) => p.items), [data]);
   const actors = useMemo(() => {
     const map: Record<string, ShareLinkActorLite> = {};
-    for (const p of data?.pages ?? []) Object.assign(map, p.actors ?? {});
+    // `actors` есть только у организационного скоупа — сужаем союз, а не гадаем.
+    for (const p of data?.pages ?? []) if ('actors' in p) Object.assign(map, p.actors);
     return map;
   }, [data]);
 

@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
+import { markNotificationsReadSchema } from '@superapp/shared';
 import {
   CurrentUser,
   type JwtPayload,
@@ -38,11 +39,10 @@ export class NotificationsController {
     summary: 'Отметить уведомления прочитанными',
     description: 'Пустой массив (или отсутствующее поле) = отметить все непрочитанные.',
   })
-  async markRead(
-    @CurrentUser() user: JwtPayload,
-    @Body() body: { notificationIds?: string[] },
-  ) {
-    const result = await this.notifications.markRead(user.sub, body?.notificationIds);
+  async markRead(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
+    // Единственная ручка платформы, тело которой не валидировалось вовсе.
+    const { notificationIds } = markNotificationsReadSchema.parse(body ?? {});
+    const result = await this.notifications.markRead(user.sub, notificationIds);
     return { success: true, data: result };
   }
 

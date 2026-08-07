@@ -7,13 +7,13 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { apiGet } from '@/lib/api';
 import type { VerifyStatusResponse } from '@superapp/shared';
 
 export function useVerifyStatus() {
   const { data } = useQuery<VerifyStatusResponse>({
     queryKey: ['verify', 'status'],
-    queryFn: async () => (await api.get('/verify/status')).data.data,
+    queryFn: async () => await apiGet('/verify/status'),
     staleTime: Infinity, // режим меняется только рестартом API
     retry: false,
   });

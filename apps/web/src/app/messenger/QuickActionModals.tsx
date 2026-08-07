@@ -3,8 +3,13 @@
 import { Input, ModalShell, Select, Textarea } from '@/components/ui';
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { SCHEDULED_MESSAGE_LIMITS } from '@superapp/shared';
-import { api } from '@/lib/api';
+import {
+  SCHEDULED_MESSAGE_LIMITS,
+  type Task,
+  type CalendarEvent,
+  type FinTransactionDto,
+} from '@superapp/shared';
+import { apiPost } from '@/lib/api';
 import { shareRichCard, scheduleMessage } from '@/lib/messenger-api';
 import { financeOverviewKey, fetchFinanceOverview } from '@/lib/queries';
 import { ContactPicker, useContacts } from './ContactPicker';
@@ -176,8 +181,7 @@ export function CreateTaskModal({
         allDay: false,
       };
       if (prefillDescription?.trim()) payload.description = prefillDescription.trim();
-      const res = await api.post('/tasks', payload);
-      const taskId: string = res.data.data.id;
+      const { id: taskId } = await apiPost<Task>('/tasks', payload);
       await shareRichCard(chatId, 'task', taskId);
       onPosted?.();
       onClose();
@@ -317,8 +321,7 @@ export function CreateEventModal({
         allDay: false,
       };
       if (participantIds.length) payload.participantUserIds = participantIds;
-      const res = await api.post('/calendar/events', payload);
-      const eventId: string = res.data.data.id;
+      const { id: eventId } = await apiPost<CalendarEvent>('/calendar/events', payload);
       await shareRichCard(chatId, 'event', eventId);
       onPosted?.();
       onClose();
@@ -527,13 +530,13 @@ export function AddExpenseModal({
     setBusy(true);
     setError(null);
     try {
-      const res = await api.post('/finance/transactions', {
+      const tx = await apiPost<FinTransactionDto>('/finance/transactions', {
         fromAccountId: fromId,
         toAccountId: toId,
         amount: minor,
         ...(note.trim() ? { note: note.trim() } : {}),
       });
-      await shareRichCard(chatId, 'fin_transaction', res.data.data.id);
+      await shareRichCard(chatId, 'fin_transaction', tx.id);
       onPosted?.();
       onClose();
     } catch (e) {

@@ -112,6 +112,12 @@ export interface Notification<TPayload = unknown> {
 // ============================================================
 // Payload shapes per notification type
 // ============================================================
+// ЗАГОТОВКА — осознанно без потребителей. Сегодня карта `notifications.map.ts`
+// объявляет `payload: Record<string, unknown>`, а центра уведомлений в вебе нет
+// вовсе. Эти формы описывают богатый рендер (иконка, обработчик клика) и
+// подключаются вместе с центром уведомлений и mobile-push (блок 8 дорожной карты).
+// Не удалять «как мёртвые»: это не рукопись мимо реализации, а согласованный
+// список того, что фактически кладут эмиттеры.
 
 export interface ContactInvitationReceivedPayload {
   invitationId: string;
@@ -184,7 +190,6 @@ export interface NotificationListResponse {
   nextCursor: string | null;
 }
 
-export interface MarkNotificationsReadRequest {
-  // Explicit list — or empty to mark ALL unread as read.
-  notificationIds?: string[];
-}
+// Тело `POST /notifications/mark-read` описано Zod-схемой
+// (`markNotificationsReadSchema` → `MarkNotificationsReadInput`) — рукописного
+// интерфейса здесь нет по общему правилу «вход = z.infer».

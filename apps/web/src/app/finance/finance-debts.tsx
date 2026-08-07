@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { FinAccountDto, FinDebtDto, FinPersonDto, FinRecurringRuleDto } from '@superapp/shared';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiDelete, apiErrorMessage, apiPatch, apiPost } from '@/lib/api';
 import { financeDebtsKey, financeRecurringKey, fetchFinanceDebts, fetchFinanceRecurring } from '@/lib/queries';
 import {
   Alert, BentoGrid, Button, Card, CardHeader, Chip, ConfirmDialog, Divider, EmptyState, Field,
@@ -237,7 +237,7 @@ function NewDebtModal({
     setBusy(true);
     setError(null);
     try {
-      await api.post('/finance/debts', {
+      await apiPost('/finance/debts', {
         name: name.trim(),
         type,
         monthlyPayment: monthlyMinor,
@@ -392,7 +392,7 @@ function PayDebtModal({
     setBusy(true);
     setError(null);
     try {
-      await api.post(`/finance/debts/${debt.accountId}/pay`, { fromAccountId: fromId, amount: minor }, bookId ? { params: { bookId } } : undefined);
+      await apiPost(`/finance/debts/${debt.accountId}/pay`, { fromAccountId: fromId, amount: minor }, bookId ? { params: { bookId } } : undefined);
       onDone();
     } catch (e) {
       setError(apiErrorMessage(e));
@@ -465,7 +465,7 @@ export function RecurringPanel({
   const cfg = bookId ? { params: { bookId } } : undefined;
   const toggleActive = async (r: FinRecurringRuleDto) => {
     try {
-      await api.patch(`/finance/recurring/${r.id}`, { active: !r.active }, cfg);
+      await apiPatch(`/finance/recurring/${r.id}`, { active: !r.active }, cfg);
       changed();
     } catch (e) {
       toastError(apiErrorMessage(e));
@@ -473,7 +473,7 @@ export function RecurringPanel({
   };
   const recordNow = async (r: FinRecurringRuleDto) => {
     try {
-      await api.post(`/finance/recurring/${r.id}/record-now`, {}, cfg);
+      await apiPost(`/finance/recurring/${r.id}/record-now`, {}, cfg);
       changed();
     } catch (e) {
       toastError(apiErrorMessage(e));
@@ -483,7 +483,7 @@ export function RecurringPanel({
     if (!removing || busy) return;
     setBusy(true);
     try {
-      await api.delete(`/finance/recurring/${removing.id}`, cfg);
+      await apiDelete(`/finance/recurring/${removing.id}`, cfg);
       setRemoving(null);
       changed();
     } catch (e) {
@@ -629,7 +629,7 @@ function NewRecurringModal({
     setBusy(true);
     setError(null);
     try {
-      await api.post('/finance/recurring', {
+      await apiPost('/finance/recurring', {
         title: title.trim(),
         fromAccountId: from,
         toAccountId: to,

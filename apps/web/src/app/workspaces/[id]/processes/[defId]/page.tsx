@@ -22,7 +22,7 @@ import {
   type ReactFlowInstance,
 } from '@xyflow/react';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { api } from '@/lib/api';
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from '@/lib/api';
 import {
   fetchProcess,
   fetchProcessCredentials,
@@ -45,6 +45,7 @@ import {
   type ProcessTriggerNodeInfo,
   type ProcessValidationIssue,
   type WorkspaceMember,
+  type ProcessInstanceDto,
 } from '@superapp/shared';
 import { EntitySelector } from '@/components/EntitySelector';
 import type { EntityOption } from '@/lib/entities';
@@ -114,7 +115,7 @@ export default function ProcessEditorPage() {
   });
   const membersQ = useQuery({
     queryKey: workspaceMembersKey(wsId),
-    queryFn: async () => (await api.get(`/workspaces/${wsId}/members`)).data.data as WorkspaceMember[],
+    queryFn: async () => await apiGet<WorkspaceMember[]>(`/workspaces/${wsId}/members`),
     enabled: isReady,
     staleTime: 60_000,
   });
@@ -307,11 +308,11 @@ export default function ProcessEditorPage() {
 
   // ---- Мутации ----
   const saveMut = useMutation({
-    mutationFn: async (doc: ProcessDocument) =>
-      (await api.put(`/workspaces/${wsId}/processes/${defId}/document`, { document: doc })).data.data as {
-        version: number;
-        issues: ProcessValidationIssue[];
-      },
+    mutationFn: (doc: ProcessDocument) =>
+      apiPut<{ version: number; issues: ProcessValidationIssue[] }>(
+        `/workspaces/${wsId}/processes/${defId}/document`,
+        { document: doc },
+      ),
     onSuccess: (res, _doc, ctx) => {
       // dirty снимаем только если с момента отправки правок не было.
       if ((ctx as { seq: number }).seq === editSeq.current) setDirty(false);
@@ -332,11 +333,11 @@ export default function ProcessEditorPage() {
     mutationFn: async (acceptWarnings?: string[]) => {
       const seq = editSeq.current;
       if (dirty) {
-        await api.put(`/workspaces/${wsId}/processes/${defId}/document`, { document: currentDocument() });
+        await apiPut(`/workspaces/${wsId}/processes/${defId}/document`, { document: currentDocument() });
         if (seq === editSeq.current) setDirty(false);
       }
       const body = acceptWarnings?.length ? { acceptWarnings } : {};
-      return (await api.post(`/workspaces/${wsId}/processes/${defId}/publish`, body)).data.data;
+      return await apiPost(`/workspaces/${wsId}/processes/${defId}/publish`, body);
     },
     onSuccess: () => {
       setPendingWarnings(null);
@@ -358,7 +359,7 @@ export default function ProcessEditorPage() {
 
   const metaMut = useMutation({
     mutationFn: async (data: { name?: string; description?: string | null; visibility?: 'team' | 'admins' }) =>
-      api.patch(`/workspaces/${wsId}/processes/${defId}`, data),
+      apiPatch(`/workspaces/${wsId}/processes/${defId}`, data),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: processKey(wsId, defId) });
       void qc.invalidateQueries({ queryKey: processesKey(wsId) });
@@ -367,7 +368,7 @@ export default function ProcessEditorPage() {
   });
 
   const archiveMut = useMutation({
-    mutationFn: async () => api.delete(`/workspaces/${wsId}/processes/${defId}`),
+    mutationFn: async () => apiDelete(`/workspaces/${wsId}/processes/${defId}`),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: processesKey(wsId) });
       router.push(`/workspaces/${wsId}/processes`);
@@ -1107,11 +1108,11 @@ function CredentialsSection({ wsId }: { wsId: string }) {
   const [err, setErr] = useState<string | null>(null);
   const inval = () => qc.invalidateQueries({ queryKey: processCredentialsKey(wsId) });
   const addMut = useMutation({
-    mutationFn: async () => api.post(`/workspaces/${wsId}/processes/credentials`, form),
+    mutationFn: async () => apiPost(`/workspaces/${wsId}/processes/credentials`, form),
     onSuccess: () => { setAdding(false); setForm({ name: '', type: 'bearer' }); setErr(null); inval(); },
     onError: (e) => setErr(errText(e)),
   });
-  const delMut = useMutation({ mutationFn: async (id: string) => api.delete(`/workspaces/${wsId}/processes/credentials/${id}`), onSuccess: inval });
+  const delMut = useMutation({ mutationFn: async (id: string) => apiDelete(`/workspaces/${wsId}/processes/credentials/${id}`), onSuccess: inval });
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   return (
@@ -1199,8 +1200,10 @@ function StartModal({ wsId, defId, name, form, onClose, onStarted }: { wsId: str
   const start = async () => {
     setBusy(true); setError(null);
     try {
-      const res = await api.post(`/workspaces/${wsId}/processes/${defId}/start`, { input: values });
-      onStarted((res.data.data as { id: string }).id);
+      const started = await apiPost<ProcessInstanceDto>(`/workspaces/${wsId}/processes/${defId}/start`, {
+        input: values,
+      });
+      onStarted(started.id);
     } catch (e) { setError(errText(e)); setBusy(false); }
   };
   return (

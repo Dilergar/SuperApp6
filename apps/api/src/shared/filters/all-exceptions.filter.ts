@@ -9,6 +9,7 @@ import {
 import { Prisma } from '@prisma/client';
 import type { Response } from 'express';
 import { ZodError } from 'zod';
+import type { ApiError } from '@superapp/shared';
 
 /**
  * The ONE error envelope for the whole API (arch-review block 7): every failure —
@@ -32,12 +33,16 @@ export class AllExceptionsFilter implements ExceptionFilter {
         path: i.path.join('.'),
         message: i.message,
       }));
-      res.status(HttpStatus.BAD_REQUEST).json({
+      // Тип на литерале: конверт отказа — такая же ФОРМА ПРОВОДА, как успешный
+      // ответ, и клиенты (`apiErrorMessage`, ветвление по `details.code`) читают
+      // именно её. Раньше её описывал только этот файл.
+      const body: ApiError = {
         success: false,
         statusCode: HttpStatus.BAD_REQUEST,
         message: issues[0]?.message ?? 'Ошибка валидации',
         errors: issues,
-      });
+      };
+      res.status(HttpStatus.BAD_REQUEST).json(body);
       return;
     }
 

@@ -33,8 +33,7 @@ export class ShareLinksController {
   @ApiOperation({ summary: 'Ссылки объекта (включая отозванные — это история раздачи)' })
   async list(@CurrentUser() user: JwtPayload, @Query() query: Record<string, unknown>) {
     const q = listShareLinksQuerySchema.parse(query);
-    const { items, total } = await this.links.list(user.sub, q.refType, q.refId);
-    return { success: true, data: items, total };
+    return { success: true, data: await this.links.list(user.sub, q.refType, q.refId) };
   }
 
   /**
@@ -45,8 +44,7 @@ export class ShareLinksController {
   @ApiOperation({ summary: 'Все мои ссылки из всех сервисов — раздел «Мои ссылки»' })
   async mine(@CurrentUser() user: JwtPayload, @Query() query: Record<string, unknown>) {
     const q = mineShareLinksQuerySchema.parse(query);
-    const { items, nextCursor } = await this.links.listMine(user.sub, q);
-    return { success: true, data: items, nextCursor };
+    return { success: true, data: await this.links.listMine(user.sub, q) };
   }
 
   @Get('mine/stats')
@@ -96,7 +94,6 @@ export class ShareLinksController {
     @Query() query: Record<string, unknown>,
   ) {
     const q = shareVisitsQuerySchema.parse(query);
-    const { items, nextCursor } = await this.links.listVisits(user.sub, id, q);
-    return { success: true, data: items, nextCursor };
+    return { success: true, data: await this.links.listVisits(user.sub, id, q) };
   }
 }

@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiErrorMessage, apiGet, apiPost } from '@/lib/api';
 import { getOrderChat } from '@/lib/messenger-api';
 import { PersonChip } from '../circles/PersonCard';
 import {
@@ -36,9 +36,12 @@ export function OrdersView({ onError }: { onError: (m: string) => void }) {
 
   const load = useCallback(async () => {
     try {
-      const [inc, my] = await Promise.all([api.get('/shop/orders/incoming'), api.get('/shop/orders')]);
-      setIncoming(inc.data.data);
-      setMine(my.data.data);
+      const [inc, my] = await Promise.all([
+        apiGet<Order[]>('/shop/orders/incoming'),
+        apiGet<Order[]>('/shop/orders'),
+      ]);
+      setIncoming(inc);
+      setMine(my);
     } catch (e) {
       onError(apiErrorMessage(e));
     } finally {
@@ -49,7 +52,7 @@ export function OrdersView({ onError }: { onError: (m: string) => void }) {
 
   const act = async (id: string, action: OrderAction) => {
     try {
-      await api.post(`/shop/orders/${id}/${action}`);
+      await apiPost(`/shop/orders/${id}/${action}`);
       await load();
     } catch (e) {
       onError(apiErrorMessage(e));

@@ -6,7 +6,7 @@
 // ============================================================
 
 import { useCallback, useEffect, useState } from 'react';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
 import { EntitySelector } from '@/components/EntitySelector';
 import {
   Alert, BentoGrid, Button, Card, CardHeader, Checkbox, Chip, ConfirmDialog, Divider, EmojiIcon,
@@ -19,6 +19,7 @@ import {
   type Showcase,
   type ShowcaseShareDto,
   type WishItem,
+  type ShopOverviewDto,
 } from '@superapp/shared';
 import { PriceLinesEditor, type PriceLine } from './shop-modals';
 import { daysFromNow } from './shop-lib';
@@ -36,9 +37,9 @@ export function WishlistView({ onError, onOk }: { onError: (m: string) => void; 
 
   const loadMine = useCallback(async () => {
     try {
-      const r = await api.get('/shop/wishes');
-      setItems(r.data.data.items);
-      setShares(r.data.data.shares);
+      const r = await apiGet<{ items: WishItem[]; shares: ShowcaseShareDto[] }>('/shop/wishes');
+      setItems(r.items);
+      setShares(r.shares);
     } catch (e) {
       onError(apiErrorMessage(e));
     }
@@ -46,18 +47,20 @@ export function WishlistView({ onError, onOk }: { onError: (m: string) => void; 
 
   useEffect(() => {
     loadMine();
-    api.get('/shop/wishlists/accessible').then((r) => setAccessible(r.data.data)).catch(() => {});
+    apiGet<AccessibleWishlistRef[]>('/shop/wishlists/accessible').then(setAccessible).catch(() => {});
   }, [loadMine]);
 
   useEffect(() => {
     if (!viewing) return;
-    api.get(`/shop/wishlists/of/${viewing}`).then((r) => setTheir(r.data.data)).catch((e) => onError(apiErrorMessage(e)));
+    apiGet<{ name: string; items: WishItem[] }>(`/shop/wishlists/of/${viewing}`)
+      .then(setTheir)
+      .catch((e) => onError(apiErrorMessage(e)));
   }, [viewing, onError]);
 
   const del = async () => {
     if (!removing) return;
     try {
-      await api.delete(`/shop/wishes/${removing.id}`);
+      await apiDelete(`/shop/wishes/${removing.id}`);
       setRemoving(null);
       loadMine();
     } catch (e) {
@@ -67,7 +70,7 @@ export function WishlistView({ onError, onOk }: { onError: (m: string) => void; 
   };
   const fulfill = async (w: WishItem) => {
     try {
-      await api.post(`/shop/wishes/${w.id}/fulfill`);
+      await apiPost(`/shop/wishes/${w.id}/fulfill`);
       loadMine();
     } catch (e) {
       onError(apiErrorMessage(e));
@@ -226,8 +229,8 @@ function WishForm({ init, onClose, onSaved }: { init?: WishItem; onClose: () => 
         link: link.trim() || null,
         itemType,
       };
-      if (init) await api.patch(`/shop/wishes/${init.id}`, body);
-      else await api.post('/shop/wishes', body);
+      if (init) await apiPatch(`/shop/wishes/${init.id}`, body);
+      else await apiPost('/shop/wishes', body);
       onSaved();
     } catch (e) {
       setError(apiErrorMessage(e));
@@ -297,10 +300,10 @@ function WishSharePanel({
 
   const toggle = async (type: 'user' | 'circle', id: string) => {
     try {
-      const r = has(type, id)
-        ? await api.delete(`/shop/wishes/shares/${type}/${id}`)
-        : await api.post('/shop/wishes/shares', { principalType: type, principalId: id });
-      onChanged(r.data.data);
+      const next = has(type, id)
+        ? await apiDelete<ShowcaseShareDto[]>(`/shop/wishes/shares/${type}/${id}`)
+        : await apiPost<ShowcaseShareDto[]>('/shop/wishes/shares', { principalType: type, principalId: id });
+      onChanged(next);
     } catch (e) {
       setError(apiErrorMessage(e));
     }
@@ -353,9 +356,8 @@ function CopyWishModal({ wish, onClose, onDone }: { wish: WishItem; onClose: () 
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.get('/shop').then((r) => setShowcases(r.data.data.showcases ?? [])).catch(() => {});
-    api.get('/shop/currencies').then((r) => {
-      const cs: AccessibleCurrencyDto[] = r.data.data;
+    apiGet<ShopOverviewDto>('/shop').then((r) => setShowcases(r.showcases)).catch(() => {});
+    apiGet<AccessibleCurrencyDto[]>('/shop/currencies').then((cs) => {
       setCurrencies(cs);
       if (cs.length) setLines([{ currencyId: cs[0].id, amount: '100' }]);
     }).catch(() => {});
@@ -380,7 +382,7 @@ function CopyWishModal({ wish, onClose, onDone }: { wish: WishItem; onClose: () 
         body.discountPercent = Math.min(99, pct);
         body.discountUntil = daysFromNow(parseInt(discountDays, 10));
       }
-      await api.post(`/shop/wishes/${wish.id}/copy`, body);
+      await apiPost(`/shop/wishes/${wish.id}/copy`, body);
       onDone();
     } catch (e) {
       setError(apiErrorMessage(e));

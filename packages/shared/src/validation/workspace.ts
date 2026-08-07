@@ -116,3 +116,12 @@ export const inviteWorkspaceMemberSchema = z.object({
 export const updateWorkspaceMemberSchema = z.object({
   role: assignableRoleSchema,
 });
+
+// ---- Входные типы: ЕДИНСТВЕННОЕ описание формы входа ----
+// Рукописные интерфейсы в types/*.ts удалены: два независимых описания одного
+// входа расходятся молча (Zod уходил вперёд, интерфейс врал).
+export type CreateWorkspaceInput = z.infer<typeof createWorkspaceSchema>;
+export type UpdateWorkspaceInput = z.infer<typeof updateWorkspaceSchema>;
+export type TransferOwnershipInput = z.infer<typeof transferOwnershipSchema>;
+export type InviteWorkspaceMemberInput = z.infer<typeof inviteWorkspaceMemberSchema>;
+export type UpdateWorkspaceMemberInput = z.infer<typeof updateWorkspaceMemberSchema>;

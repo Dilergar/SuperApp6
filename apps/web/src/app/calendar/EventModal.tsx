@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
 import { EntitySelector } from '@/components/EntitySelector';
 import type { Principal } from '@/lib/entities';
 import { PersonChip } from '../circles/PersonCard';
@@ -111,8 +111,7 @@ export function EventModal({
     if (creating || !eventId) return;
     setLoading(true);
     try {
-      const { data } = await api.get(`/calendar/events/${eventId}`);
-      const d: CalendarEventDetail = data.data;
+      const d = await apiGet<CalendarEventDetail>(`/calendar/events/${eventId}`);
       setDetail(d);
       setTitle(d.title);
       setDescription(d.description ?? '');
@@ -186,7 +185,7 @@ export function EventModal({
         if (pendingUserIds.length) payload.participantUserIds = pendingUserIds;
         if (pendingCircleId) payload.participantCircleId = pendingCircleId;
         if (resourceId) payload.resourceId = resourceId;
-        await api.post('/calendar/events', payload);
+        await apiPost('/calendar/events', payload);
       } else {
         const payload: Record<string, unknown> = {
           title: title.trim(), description: description.trim() || null, location: location.trim() || null,
@@ -195,7 +194,7 @@ export function EventModal({
         if (isSeries) { payload.editScope = scope; payload.occurrenceStart = occ!.occurrenceStart; }
         else { payload.recurrenceRule = recurrence; payload.editScope = 'all'; }
         if (resourceId !== initialResourceId) payload.resourceId = resourceId;
-        await api.patch(`/calendar/events/${eventId}`, payload);
+        await apiPatch(`/calendar/events/${eventId}`, payload);
       }
       onClose(true);
     } catch (e) {
@@ -210,7 +209,7 @@ export function EventModal({
     try {
       const params: Record<string, string> = {};
       if (isSeries) { params.editScope = scope; params.occurrenceStart = occ!.occurrenceStart; }
-      await api.delete(`/calendar/events/${eventId}`, { params });
+      await apiDelete(`/calendar/events/${eventId}`, { params });
       onClose(true);
     } catch (e) {
       setError(apiErrorMessage(e));
@@ -222,7 +221,7 @@ export function EventModal({
     if (!eventId) return;
     setBusyAction(true);
     try {
-      await api.post(`/calendar/events/${eventId}/rsvp`, { status });
+      await apiPost(`/calendar/events/${eventId}/rsvp`, { status });
       setChanged(true);
       await loadDetail();
     } catch (e) {
@@ -236,7 +235,7 @@ export function EventModal({
     if (!eventId) return;
     setBusyAction(true);
     try {
-      await api.post(`/calendar/events/${eventId}/reminders`, { offsets: reminders });
+      await apiPost(`/calendar/events/${eventId}/reminders`, { offsets: reminders });
       setChanged(true);
     } catch (e) {
       setError(apiErrorMessage(e));
@@ -249,7 +248,7 @@ export function EventModal({
     if (!eventId) return;
     setBusyAction(true);
     try {
-      await api.post(`/calendar/events/${eventId}/participants`, circleId ? { circleId } : { userIds });
+      await apiPost(`/calendar/events/${eventId}/participants`, circleId ? { circleId } : { userIds });
       setChanged(true);
       setShowInvite(false);
       await loadDetail();
@@ -264,7 +263,7 @@ export function EventModal({
     if (!eventId) return;
     setBusyAction(true);
     try {
-      await api.delete(`/calendar/events/${eventId}/participants/${uid}`);
+      await apiDelete(`/calendar/events/${eventId}/participants/${uid}`);
       setChanged(true);
       await loadDetail();
     } catch (e) {
@@ -278,7 +277,7 @@ export function EventModal({
     if (!eventId) return;
     setBusyAction(true);
     try {
-      await api.post(`/resources/bookings/${eventId}/${action}`);
+      await apiPost(`/resources/bookings/${eventId}/${action}`);
       setChanged(true);
       await loadDetail();
     } catch (e) {

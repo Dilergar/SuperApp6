@@ -9,7 +9,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiErrorMessage, apiGet, apiPost } from '@/lib/api';
 import {
   fetchProcessInbox,
   fetchProcessInstances,
@@ -51,7 +51,7 @@ export default function ProcessesPage() {
 
   const { data: ws } = useQuery({
     queryKey: workspaceKey(wsId),
-    queryFn: async () => (await api.get(`/workspaces/${wsId}`)).data.data as Workspace,
+    queryFn: async () => await apiGet<Workspace>(`/workspaces/${wsId}`),
     enabled: isReady,
   });
   const myRank = WORKSPACE_ROLE_RANK[(ws?.myRole ?? 'trainee') as WorkspaceRole] ?? 0;
@@ -82,7 +82,7 @@ export default function ProcessesPage() {
   const [createError, setCreateError] = useState<string | null>(null);
   const createMut = useMutation({
     mutationFn: async (name: string) =>
-      (await api.post(`/workspaces/${wsId}/processes`, { name })).data.data as { id: string },
+      await apiPost<{ id: string }>(`/workspaces/${wsId}/processes`, { name }),
     onSuccess: (def) => {
       void qc.invalidateQueries({ queryKey: processesKey(wsId) });
       router.push(`/workspaces/${wsId}/processes/${def.id}`);
@@ -226,7 +226,7 @@ function InboxList({ wsId, items }: { wsId: string; items: ProcessInboxItem[] })
   const onErr = (e: unknown) => setErr(apiErrorMessage(e));
   const claimMut = useMutation({
     mutationFn: async (it: ProcessInboxItem) =>
-      (await api.post(`/workspaces/${wsId}/processes/instances/${it.instanceId}/steps/${it.stepId}/claim`)).data.data as { taskId: string },
+      await apiPost<{ taskId: string }>(`/workspaces/${wsId}/processes/instances/${it.instanceId}/steps/${it.stepId}/claim`),
     onSuccess: (d) => { refresh(); router.push(`/tasks/${d.taskId}`); },
     onError: onErr,
   });

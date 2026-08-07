@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
 import { EntitySelector } from '@/components/EntitySelector';
 import { PersonChip } from '../circles/PersonCard';
 import {
@@ -44,8 +44,8 @@ export function ResourcesPanel({
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
-    try { setList((await api.get('/resources')).data.data); } catch { /* тихо: панель откроется пустой */ }
-    try { setRequests((await api.get('/resources/requests')).data.data); } catch { /* заявок может не быть */ }
+    try { setList(await apiGet('/resources')); } catch { /* тихо: панель откроется пустой */ }
+    try { setRequests(await apiGet('/resources/requests')); } catch { /* заявок может не быть */ }
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -54,7 +54,7 @@ export function ResourcesPanel({
   const act = async (eventId: string, action: 'confirm' | 'reject') => {
     setBusy(true);
     try {
-      await api.post(`/resources/bookings/${eventId}/${action}`);
+      await apiPost(`/resources/bookings/${eventId}/${action}`);
       setChanged(true);
       await load();
     } catch (e) {
@@ -64,7 +64,7 @@ export function ResourcesPanel({
   const del = async (id: string) => {
     setBusy(true);
     try {
-      await api.delete(`/resources/${id}`);
+      await apiDelete(`/resources/${id}`);
       setChanged(true);
       await load();
     } catch (e) {
@@ -201,8 +201,8 @@ function ResourceForm({
     setError('');
     const payload = { name: name.trim(), type, capacity, bookerUserIds: userIds, bookerCircleIds: circleIds };
     try {
-      if (resource) await api.patch(`/resources/${resource.id}`, payload);
-      else await api.post('/resources', payload);
+      if (resource) await apiPatch(`/resources/${resource.id}`, payload);
+      else await apiPost('/resources', payload);
       onSaved();
     } catch (e) {
       setError(apiErrorMessage(e));

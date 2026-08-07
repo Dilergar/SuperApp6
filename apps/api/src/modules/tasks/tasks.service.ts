@@ -32,11 +32,12 @@ import type {
   TaskParticipant as TaskParticipantDto,
   TaskRole,
   ViewerTaskRole,
-  CreateTaskRequest,
-  UpdateTaskRequest,
+  CreateTaskInput,
+  UpdateTaskInput,
   TaskFilter,
   TaskStats,
   FileDto,
+  OffsetPage,
 } from '@superapp/shared';
 
 // What every task query pulls so a row can be mapped to the shared Task DTO.
@@ -295,7 +296,7 @@ export class TasksService implements OnModuleInit {
 
   async createTask(
     userId: string,
-    data: CreateTaskRequest,
+    data: CreateTaskInput,
     // origin — метка источника задачи (напр. 'process'): попадает в payload события
     // task.created, чтобы триггеры процессов пропускали self-события (анти-runaway A4).
     opts: { skipEnvironmentChecks?: boolean; origin?: string } = {},
@@ -492,7 +493,7 @@ export class TasksService implements OnModuleInit {
     return { OR: [{ creatorId: userId }, { id: { in: participantTaskIds } }] };
   }
 
-  async getTasks(userId: string, filters: TaskFilter & { parentId?: string | null }) {
+  async getTasks(userId: string, filters: TaskFilter & { parentId?: string | null }): Promise<OffsetPage<TaskDto>> {
     const page = filters.page || 1;
     const limit = Math.min(filters.limit || 20, 100);
     const skip = (page - 1) * limit;
@@ -545,7 +546,9 @@ export class TasksService implements OnModuleInit {
     ]);
 
     return {
-      data: tasks.map((t) => this.toDto(t, userId)),
+      // Поле называется items, а не data: у страницы платформы ДВЕ формы
+      // (CursorPage/OffsetPage), и обе называют список одинаково.
+      items: tasks.map((t) => this.toDto(t, userId)),
       meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };
   }
@@ -766,7 +769,7 @@ export class TasksService implements OnModuleInit {
   // Update / delete
   // ============================================================
 
-  async updateTask(userId: string, taskId: string, data: UpdateTaskRequest): Promise<TaskDto> {
+  async updateTask(userId: string, taskId: string, data: UpdateTaskInput): Promise<TaskDto> {
     const existing = await this.db.task.findUnique({
       where: { id: taskId },
       include: { participants: { select: { id: true, userId: true, role: true } } },
@@ -1005,7 +1008,7 @@ export class TasksService implements OnModuleInit {
     tx: Prisma.TransactionClient,
     taskId: string,
     existing: { creatorId: string; coinReward?: number; participants: { id: string; userId: string; role: string }[] },
-    data: UpdateTaskRequest,
+    data: UpdateTaskInput,
   ) {
     // Per-person reward is locked at the task's coinReward; new workers are funded at it.
     const perPerson = existing.coinReward ?? 0;

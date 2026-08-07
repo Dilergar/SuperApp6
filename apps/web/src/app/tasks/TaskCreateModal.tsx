@@ -9,7 +9,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { apiPost } from '@/lib/api';
 import { contactsKey, circlesKey, fetchAllContacts, fetchCircles } from '@/lib/queries';
 import { EntitySelector } from '@/components/EntitySelector';
 import { Chip } from './tasks-ui';
@@ -42,9 +42,9 @@ export function TaskCreateModal({ onClose, onCreated }: { onClose: () => void; o
   const handleCreate = async (payload: Record<string, unknown>): Promise<boolean> => {
     setError('');
     try {
-      const { data } = await api.post('/tasks', payload);
+      const created = await apiPost<Task>('/tasks', payload);
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      onCreated?.(data.data as Task);
+      onCreated?.(created);
       onClose();
       return true;
     } catch (err: unknown) {

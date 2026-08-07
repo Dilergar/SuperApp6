@@ -88,11 +88,6 @@ export interface FinBookOverviewDto {
   categories: FinAccountDto[];
 }
 
-export interface FinListTransactionsResult {
-  items: FinTransactionDto[];
-  nextCursor: string | null;
-}
-
 // ---------- План-факт (Phase 2) ----------
 
 export interface FinMoneySumDto {
@@ -189,6 +184,8 @@ export interface FinCoinFeedItemDto {
   id: string;
   direction: 'in' | 'out';
   amount: number;
+  /** Minor-unit exponent валюты (0 у коинов) — лента форматирует сумму по нему. */
+  scale: number;
   currencyName: string;
   currencyIcon: string;
   /** «Награда за задачу „Купить хлеб"», «Покупка: Букет», «Выпуск монет»… */

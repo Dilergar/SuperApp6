@@ -1,40 +1,13 @@
 import { create } from 'zustand';
 import { isAxiosError } from 'axios';
-import type { CardVisibility } from '@superapp/shared';
-import { api } from '../api';
+import type { AuthTokens, RegisterInput, UserProfile } from '@superapp/shared';
+import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY, apiGet, apiPost } from '../api';
 import { resetSessionCaches } from '../session-reset';
 
-export interface UserRole {
-  role: string;
-  context: string;
-  tenantId: string | null;
-}
-
-export interface UserProfile {
-  id: string;
-  phone: string;
-  firstName: string;
-  lastName?: string | null;
-  dateOfBirth?: string | null;
-  avatar?: string | null;
-  bio?: string | null;
-  city?: string | null;
-  email?: string | null;
-  maritalStatus?: string | null;
-  socialLinks?: { telegram?: string; instagram?: string; linkedin?: string; whatsapp?: string } | null;
-  onlineStatusMode?: string;
-  locale?: string;
-  timezone?: string;
-  isVerified?: boolean;
-  createdAt?: string;
-  roles: UserRole[];
-  activeSubscription?: { plan: string; status: string; expiresAt: string } | null;
-  /** Owner DEFAULT visibility — applied to contacts in no group. */
-  cardVisibility?: CardVisibility;
-  circlesCount?: number;
-  workspacesCount?: number;
-  contactsCount?: number;
-}
+// Локального `UserProfile` здесь БОЛЬШЕ НЕТ: он был урезанной копией серверного
+// (без реквизитов, без companyCardVisibility, почти всё optional), из-за чего
+// `/profile` жил на трёх кастах, а переименование поля на сервере компилятор поймать
+// не мог. Тип берётся из @superapp/shared и стоит на обеих сторонах провода.
 
 interface AuthState {
   user: UserProfile | null;
@@ -44,24 +17,16 @@ interface AuthState {
   // Actions
   hydrate: () => Promise<void>;
   login: (phone: string, password: string) => Promise<void>;
-  register: (input: {
-    phone: string;
-    password: string;
-    firstName: string;
-    lastName?: string;
-    dateOfBirth?: string;
-    /** Одноразовый пропуск движка подтверждений (/verify/check, purpose=register). */
-    verifyToken?: string;
-  }) => Promise<void>;
+  /** Вход регистрации описан Zod-схемой на сервере — тип берётся оттуда (`z.infer`). */
+  register: (input: RegisterInput) => Promise<void>;
   /** Принять готовую пару токенов (автовход после сброса пароля) и подтянуть профиль. */
   applySession: (tokens: { accessToken: string; refreshToken: string }) => Promise<void>;
   logout: () => Promise<void>;
   fetchProfile: () => Promise<void>;
 }
 
-const ACCESS_TOKEN_KEY = 'accessToken';
-const REFRESH_TOKEN_KEY = 'refreshToken';
-
+// Ключи хранилища — ИЗ АДАПТЕРА транспорта (единая точка с интерцепторами):
+// своя копия литералов уже успела разойтись по трём файлам.
 const setTokens = (accessToken: string, refreshToken: string) => {
   localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
   localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
@@ -86,8 +51,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return;
     }
     try {
-      const { data } = await api.get('/users/me');
-      set({ user: data.data, isAuthenticated: true, isHydrated: true });
+      set({ user: await apiGet<UserProfile>('/users/me'), isAuthenticated: true, isHydrated: true });
     } catch (err) {
       // Токены сносим ТОЛЬКО когда сервер отказал в доступе. 401 сюда долетает уже
       // после неудачной попытки обновления (интерсептор в lib/api), то есть сессия
@@ -102,17 +66,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   login: async (phone, password) => {
-    const { data } = await api.post('/auth/login', { phone, password });
+    const tokens = await apiPost<AuthTokens>('/auth/login', { phone, password });
     // Второй ремень к сбросу в logout: на /login можно прийти и не выходя (ссылкой),
     // и тогда чужой кэш дожил бы до входа следующего человека.
     resetSessionCaches();
-    setTokens(data.data.accessToken, data.data.refreshToken);
+    setTokens(tokens.accessToken, tokens.refreshToken);
     await get().fetchProfile();
   },
 
   register: async (input) => {
-    const { data } = await api.post('/auth/register', input);
-    setTokens(data.data.accessToken, data.data.refreshToken);
+    const tokens = await apiPost<AuthTokens>('/auth/register', input);
+    setTokens(tokens.accessToken, tokens.refreshToken);
     await get().fetchProfile();
   },
 
@@ -126,7 +90,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
     try {
       if (refreshToken) {
-        await api.post('/auth/logout', { refreshToken });
+        await apiPost('/auth/logout', { refreshToken });
       }
     } catch {
       // Ignore — still clear local state
@@ -140,7 +104,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   fetchProfile: async () => {
-    const { data } = await api.get('/users/me');
-    set({ user: data.data, isAuthenticated: true });
+    set({ user: await apiGet<UserProfile>('/users/me'), isAuthenticated: true });
   },
 }));

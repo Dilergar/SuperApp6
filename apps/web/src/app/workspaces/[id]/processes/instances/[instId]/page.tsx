@@ -7,7 +7,7 @@ import { useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiErrorMessage, apiGet, apiPost } from '@/lib/api';
 import {
   fetchProcessInstance,
   fetchProcessInstanceStatus,
@@ -78,7 +78,7 @@ export default function ProcessInstancePage() {
   const [reassignFor, setReassignFor] = useState<string | null>(null);
   const membersQ = useQuery({
     queryKey: workspaceMembersKey(wsId),
-    queryFn: async () => (await api.get(`/workspaces/${wsId}/members`)).data.data as WorkspaceMember[],
+    queryFn: async () => await apiGet<WorkspaceMember[]>(`/workspaces/${wsId}/members`),
     enabled: isReady && !!reassignFor,
     staleTime: 60_000,
   });
@@ -99,7 +99,7 @@ export default function ProcessInstancePage() {
   const onMutError = (e: unknown) => setCancelError(apiErrorMessage(e));
 
   const cancelMut = useMutation({
-    mutationFn: async () => api.post(`/workspaces/${wsId}/processes/instances/${instId}/cancel`),
+    mutationFn: async () => apiPost(`/workspaces/${wsId}/processes/instances/${instId}/cancel`),
     onSuccess: () => { setConfirmCancel(false); refresh(); },
     onError: (e) => { setConfirmCancel(false); onMutError(e); },
   });
@@ -110,7 +110,7 @@ export default function ProcessInstancePage() {
   const [rejectWhy, setRejectWhy] = useState('');
   const decideMut = useMutation({
     mutationFn: async (v: { stepId: string; decision: 'approved' | 'rejected' | 'returned'; comment?: string }) =>
-      api.post(`/workspaces/${wsId}/processes/instances/${instId}/steps/${v.stepId}/decide`, {
+      apiPost(`/workspaces/${wsId}/processes/instances/${instId}/steps/${v.stepId}/decide`, {
         decision: v.decision,
         ...(v.comment ? { comment: v.comment } : {}),
       }),
@@ -119,13 +119,13 @@ export default function ProcessInstancePage() {
   });
   const claimMut = useMutation({
     mutationFn: async (stepId: string) =>
-      (await api.post(`/workspaces/${wsId}/processes/instances/${instId}/steps/${stepId}/claim`)).data.data as { taskId: string },
+      await apiPost<{ taskId: string }>(`/workspaces/${wsId}/processes/instances/${instId}/steps/${stepId}/claim`),
     onSuccess: (data) => { refresh(); router.push(`/tasks/${data.taskId}`); },
     onError: onMutError,
   });
   const reassignMut = useMutation({
     mutationFn: async (v: { stepId: string; userId: string }) =>
-      api.post(`/workspaces/${wsId}/processes/instances/${instId}/steps/${v.stepId}/reassign`, { userId: v.userId }),
+      apiPost(`/workspaces/${wsId}/processes/instances/${instId}/steps/${v.stepId}/reassign`, { userId: v.userId }),
     onSuccess: () => { setReassignFor(null); refresh(); },
     onError: onMutError,
   });

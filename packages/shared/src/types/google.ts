@@ -21,11 +21,6 @@ export interface GoogleCalendarListItem {
   accessRole: string;
 }
 
-/** Pick which Google calendar to two-way sync with. `__new__` = create a dedicated "SuperApp6" calendar. */
-export interface SelectGoogleCalendarRequest {
-  calendarId: string;
-}
-
 export interface GoogleSyncResult {
   pushed: number;
   pulled: number;

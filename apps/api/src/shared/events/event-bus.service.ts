@@ -95,12 +95,20 @@ export class EventBusService
   }
 
   /** Emit an event to the whole cluster. Fire-and-forget (never blocks caller). */
-  emit(
-    type: string,
-    payload: Record<string, unknown>,
-    emittedBy: string,
-  ): void {
-    const event: AppEvent = { type, payload, emittedBy, timestamp: new Date() };
+  /**
+   * `payload: object`, а не `Record<string, unknown>`: под Record не подходит НИ ОДИН
+   * именованный интерфейс (у него нет индексной сигнатуры), поэтому продюсеры были
+   * вынуждены собирать анонимные литералы — то есть ровно там, где типизация могла бы
+   * ловить дрейф формы события, её и не было. Теперь `const p: WsMessageNew = {…}`
+   * компилируется, и форма проверяется на emit-сайте.
+   */
+  emit(type: string, payload: object, emittedBy: string): void {
+    const event: AppEvent = {
+      type,
+      payload: payload as Record<string, unknown>,
+      emittedBy,
+      timestamp: new Date(),
+    };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (this.redis.getClient() as any)
       .xadd(STREAM, 'MAXLEN', '~', MAXLEN, '*', 'data', JSON.stringify(event))

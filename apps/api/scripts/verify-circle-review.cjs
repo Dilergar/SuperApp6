@@ -107,25 +107,25 @@ async function main() {
     // u2 прячет в анкете город и био.
     await call('PATCH', '/users/me', t2, { cardVisibility: { city: false, bio: false, age: false } });
     const beforeGroup = await call('GET', '/contacts', t1);
-    const seen0 = beforeGroup.json?.data?.find((c) => c.them.id === u.u2);
+    const seen0 = beforeGroup.json?.data?.items?.find((c) => c.them.id === u.u2);
     check('видимость: до групп скрытые поля закрыты', seen0 && seen0.them.city === null && seen0.them.bio === null,
       `city=${seen0?.them?.city} bio=${seen0?.them?.bio}`);
 
     // u2 создаёт СВЕЖУЮ группу (cardVisibility = null) и кладёт туда u1.
     const grpFresh = await call('POST', '/circles', t2, { name: 'Ревью: свежая' });
     created.circleIds.push(grpFresh.json?.data?.id);
-    const link12For2 = (await call('GET', '/contacts', t2)).json.data.find((c) => c.them.id === u.u1);
+    const link12For2 = (await call('GET', '/contacts', t2)).json.data.items.find((c) => c.them.id === u.u1);
     await call('POST', `/circles/${grpFresh.json.data.id}/members`, t2, { contactLinkId: link12For2.linkId });
 
     const afterGroup = await call('GET', '/contacts', t1);
-    const seen1 = afterGroup.json?.data?.find((c) => c.them.id === u.u2);
+    const seen1 = afterGroup.json?.data?.items?.find((c) => c.them.id === u.u2);
     check('КРАСНЫЙ 1: свежая группа НЕ раскрывает скрытые поля', seen1 && seen1.them.city === null && seen1.them.bio === null,
       `city=${seen1?.them?.city} bio=${seen1?.them?.bio}`);
 
     // Явная настройка группы по-прежнему ОТКРЫВАЕТ поле (union работает).
     await call('PATCH', `/circles/${grpFresh.json.data.id}`, t2, { cardVisibility: { city: true } });
     const afterOpen = await call('GET', '/contacts', t1);
-    const seen2 = afterOpen.json?.data?.find((c) => c.them.id === u.u2);
+    const seen2 = afterOpen.json?.data?.items?.find((c) => c.them.id === u.u2);
     check('видимость: явная настройка группы открывает поле', seen2 && seen2.them.city !== null, `city=${seen2?.them?.city}`);
     check('видимость: непрописанное поле остаётся закрытым', seen2 && seen2.them.bio === null, `bio=${seen2?.them?.bio}`);
 
@@ -222,23 +222,23 @@ async function main() {
     // ЖЁЛТЫЙ — курсор входящих + маска телефона отправителя
     // ============================================================
     const incoming = await call('GET', '/contacts/invitations/incoming', t3);
-    check('ЖЁЛТЫЙ: входящие отдают курсор', 'nextCursor' in (incoming.json ?? {}), `keys=${Object.keys(incoming.json ?? {})}`);
-    const fromCard = incoming.json?.data?.find((i) => i.fromUserId === u.u1)?.from;
+    check('ЖЁЛТЫЙ: входящие отдают курсор', 'nextCursor' in (incoming.json?.data ?? {}), `keys=${Object.keys(incoming.json?.data ?? {})}`);
+    const fromCard = incoming.json?.data?.items?.find((i) => i.fromUserId === u.u1)?.from;
     check('ЖЁЛТЫЙ: телефон отправителя маскируется до связи', !!fromCard && fromCard.phone.includes('*'), `phone=${fromCard?.phone}`);
 
     // ============================================================
     // ЖЁЛТЫЙ — история исходящих + canResend
     // ============================================================
     const outPending = await call('GET', '/contacts/invitations/outgoing', t1);
-    const invToP3 = outPending.json?.data?.find((i) => i.toPhone === P3);
+    const invToP3 = outPending.json?.data?.items?.find((i) => i.toPhone === P3);
     await call('POST', `/contacts/invitations/${invToP3.id}/cancel`, t1);
     const outHistory = await call('GET', '/contacts/invitations/outgoing?scope=history', t1);
-    const histRow = outHistory.json?.data?.find((i) => i.id === invToP3.id);
+    const histRow = outHistory.json?.data?.items?.find((i) => i.id === invToP3.id);
     check('ЖЁЛТЫЙ: история исходящих доступна', !!histRow, `status ${outHistory.status}`);
     check('ЖЁЛТЫЙ: canResend посчитан сервером', histRow && typeof histRow.canResend === 'boolean', `canResend=${histRow?.canResend}`);
     check('ЖЁЛТЫЙ: свежеотменённое нельзя повторить (кулдаун)', histRow?.canResend === false);
     const outAfter = await call('GET', '/contacts/invitations/outgoing', t1);
-    check('ЖЁЛТЫЙ: отменённое ушло из активных', !outAfter.json?.data?.some((i) => i.id === invToP3.id));
+    check('ЖЁЛТЫЙ: отменённое ушло из активных', !outAfter.json?.data?.items?.some((i) => i.id === invToP3.id));
 
     // ============================================================
     // ЖЁЛТЫЙ — блок гасит ВНЕШНЕЕ приглашение (матч по номеру)
@@ -268,7 +268,7 @@ async function main() {
     // ============================================================
     // КРАСНЫЙ 6 — разрыв связи снимает личные гранты (календарь + вишлист)
     // ============================================================
-    const linksFor1 = (await call('GET', '/contacts', t1)).json.data;
+    const linksFor1 = (await call('GET', '/contacts', t1)).json.data.items;
     const link12 = linksFor1.find((c) => c.them.id === u.u2);
     check('подготовка: связь u1↔u2 жива', !!link12);
 
@@ -329,7 +329,7 @@ async function main() {
 
     const grpTask = await call('POST', '/circles', t1, { name: 'Ревью: задача' });
     created.circleIds.push(grpTask.json.data.id);
-    const link12b = (await call('GET', '/contacts', t1)).json.data.find((c) => c.them.id === u.u2);
+    const link12b = (await call('GET', '/contacts', t1)).json.data.items.find((c) => c.them.id === u.u2);
     await call('POST', `/circles/${grpTask.json.data.id}/members`, t1, { contactLinkId: link12b.linkId });
 
     // u2 в организации НЕ состоит → задача на Группу в контексте организации должна быть отклонена.

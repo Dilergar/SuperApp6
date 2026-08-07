@@ -13,6 +13,8 @@ import {
   CONTACT_LIMITS,
   resolveCardVisibility,
   type CardVisibility,
+  type Circle,
+  type CircleWithMembers,
 } from '@superapp/shared';
 import { Prisma } from '@prisma/client';
 
@@ -42,7 +44,7 @@ export class CirclesService {
   // Group CRUD
   // ============================================================
 
-  async listCircles(ownerId: string) {
+  async listCircles(ownerId: string): Promise<Circle[]> {
     const circles = await this.db.circle.findMany({
       where: { ownerId },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
@@ -53,7 +55,7 @@ export class CirclesService {
     return circles.map((c) => this.serialize(c, c._count.memberships));
   }
 
-  async getCircle(ownerId: string, circleId: string) {
+  async getCircle(ownerId: string, circleId: string): Promise<CircleWithMembers> {
     const circle = await this.db.circle.findUnique({
       where: { id: circleId },
       include: {

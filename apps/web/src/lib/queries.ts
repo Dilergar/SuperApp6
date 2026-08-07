@@ -8,9 +8,14 @@
 // "refetch absolutely everything" storm.
 // ============================================================
 
-import { api } from './api';
+import { apiGet } from './api';
 import type {
   Contact,
+  CursorPage,
+  OffsetPage,
+  Currency,
+  CurrencyHolder,
+  DriveSpaceRef,
   Circle,
   CircleWithMembers,
   ContactBlockRecord,
@@ -131,19 +136,15 @@ export const fileMetaKey = (id: string) => ['files', 'meta', id] as const;
 export const taskAttachmentsKey = (taskId: string) => ['tasks', 'attachments', taskId] as const;
 // OmniDrive («Диск»). Всё под корнем ['drive'] — одна инвалидация префикса после
 // мутации обновляет и листинг, и обзор, и корзину, и ленту «Фото».
-const driveScope = (ref: DriveRef) => ref.workspaceId ?? ref.spaceId ?? 'own';
-export interface DriveRef {
-  spaceId?: string;
-  workspaceId?: string;
-}
+const driveScope = (ref: DriveSpaceRef) => ref.workspaceId ?? ref.spaceId ?? 'own';
 export const driveRootKey = ['drive'] as const;
-export const driveOverviewKey = (ref: DriveRef) => ['drive', 'overview', driveScope(ref)] as const;
-export const driveListKey = (ref: DriveRef, parentId: string | null, sort: string, dir: string) =>
+export const driveOverviewKey = (ref: DriveSpaceRef) => ['drive', 'overview', driveScope(ref)] as const;
+export const driveListKey = (ref: DriveSpaceRef, parentId: string | null, sort: string, dir: string) =>
   ['drive', 'list', driveScope(ref), parentId ?? 'root', sort, dir] as const;
 export const driveNodeKey = (id: string) => ['drive', 'node', id] as const;
 export const driveSharesKey = (id: string) => ['drive', 'shares', id] as const;
 export const driveVersionsKey = (id: string) => ['drive', 'versions', id] as const;
-export const driveTrashKey = (ref: DriveRef) => ['drive', 'trash', driveScope(ref)] as const;
+export const driveTrashKey = (ref: DriveSpaceRef) => ['drive', 'trash', driveScope(ref)] as const;
 export const driveStarredKey = ['drive', 'starred'] as const;
 
 // ---- Гостевые ссылки (core/share-links) ----
@@ -161,8 +162,8 @@ export const workspaceShareLinksScopeKey = (wsId: string) => ['share-links', 'wo
 /** Своим корнем, а не веткой ['my-share-links','stats']: фильтр — тоже строка в том же месте */
 export const myShareStatsKey = () => ['my-share-stats'] as const;
 export const driveRecentKey = ['drive', 'recent'] as const;
-export const drivePhotoBucketsKey = (ref: DriveRef) => ['drive', 'photos', 'buckets', driveScope(ref)] as const;
-export const drivePhotosKey = (ref: DriveRef, month?: string) =>
+export const drivePhotoBucketsKey = (ref: DriveSpaceRef) => ['drive', 'photos', 'buckets', driveScope(ref)] as const;
+export const drivePhotosKey = (ref: DriveSpaceRef, month?: string) =>
   ['drive', 'photos', 'page', driveScope(ref), month ?? 'all'] as const;
 // Голосовой движок (core/voice) + Диктофон
 export const voiceStatusKey = ['voice', 'status'] as const;
@@ -230,37 +231,37 @@ export async function fetchAllContacts(): Promise<Contact[]> {
   const acc: Contact[] = [];
   let cursor: string | undefined;
   do {
-    const res = await api.get('/contacts', { params: cursor ? { cursor } : undefined });
-    acc.push(...res.data.data);
-    cursor = res.data.nextCursor ?? undefined;
+    const page = await fetchContactsPage(cursor);
+    acc.push(...page.items);
+    cursor = page.nextCursor ?? undefined;
   } while (cursor);
   return acc;
 }
 
-export interface ContactsPage {
-  items: Contact[];
-  nextCursor: string | null;
-}
-
 /** Одна страница окружения — для useInfiniteQuery на «Моё окружение». */
-export async function fetchContactsPage(cursor?: string): Promise<ContactsPage> {
-  const res = await api.get('/contacts', { params: cursor ? { cursor } : undefined });
-  return { items: res.data.data as Contact[], nextCursor: res.data.nextCursor ?? null };
+export async function fetchContactsPage(cursor?: string): Promise<CursorPage<Contact>> {
+  return apiGet<CursorPage<Contact>>('/contacts', { params: cursor ? { cursor } : undefined });
 }
 
 export async function fetchCircles(): Promise<Circle[]> {
-  const res = await api.get('/circles');
-  return res.data.data;
+  return apiGet<Circle[]>('/circles');
 }
 
 export async function fetchCircleDetail(id: string): Promise<CircleWithMembers> {
-  const res = await api.get(`/circles/${id}`);
-  return res.data.data;
+  return apiGet<CircleWithMembers>(`/circles/${id}`);
 }
 
-export async function fetchIncomingInvitations(): Promise<IncomingInvitation[]> {
-  const res = await api.get('/contacts/invitations/incoming');
-  return res.data.data;
+/**
+ * Входящие приглашения. Курсор сервер отдаёт с самого начала, а клиент его ВЫБРАСЫВАЛ
+ * (тип возврата был просто массивом) — то есть у человека с длинным хвостом
+ * приглашений вторая страница не существовала в принципе.
+ */
+export async function fetchIncomingInvitations(
+  cursor?: string,
+): Promise<CursorPage<IncomingInvitation>> {
+  return apiGet<CursorPage<IncomingInvitation>>('/contacts/invitations/incoming', {
+    params: cursor ? { cursor } : undefined,
+  });
 }
 
 /**
@@ -270,81 +271,66 @@ export async function fetchIncomingInvitations(): Promise<IncomingInvitation[]> 
  */
 export type InvitationScope = 'pending' | 'history';
 
-export interface OutgoingInvitationsPage {
-  items: OutgoingInvitation[];
-  nextCursor: string | null;
-}
-
 export async function fetchOutgoingInvitations(
   scope: InvitationScope = 'pending',
   cursor?: string,
-): Promise<OutgoingInvitationsPage> {
-  const res = await api.get('/contacts/invitations/outgoing', {
+): Promise<CursorPage<OutgoingInvitation>> {
+  return apiGet<CursorPage<OutgoingInvitation>>('/contacts/invitations/outgoing', {
     params: { scope, ...(cursor ? { cursor } : {}) },
   });
-  return { items: res.data.data as OutgoingInvitation[], nextCursor: res.data.nextCursor ?? null };
 }
 
 export async function fetchBlocks(): Promise<ContactBlockRecord[]> {
-  const res = await api.get('/contacts/blocks');
-  return res.data.data;
+  return apiGet<ContactBlockRecord[]>('/contacts/blocks');
 }
 
 // ---- Организации (B2B) ----
 
 export async function fetchWorkspaces(): Promise<Workspace[]> {
-  const res = await api.get('/workspaces');
-  return res.data.data;
+  return apiGet<Workspace[]>('/workspaces');
 }
 
 export async function fetchWorkspacesArchived(): Promise<Workspace[]> {
-  const res = await api.get('/workspaces/archived');
-  return res.data.data;
+  return apiGet<Workspace[]>('/workspaces/archived');
 }
 
 export async function fetchWorkspaceIncomingInvitations(): Promise<WorkspaceInvitation[]> {
-  const res = await api.get('/workspaces/invitations/incoming');
-  return res.data.data;
+  return apiGet<WorkspaceInvitation[]>('/workspaces/invitations/incoming');
 }
 
 // ---- Процессы (B2B) ----
 
 export async function fetchProcesses(wsId: string): Promise<ProcessDefinitionDto[]> {
-  const res = await api.get(`/workspaces/${wsId}/processes`);
-  return res.data.data;
+  return apiGet<ProcessDefinitionDto[]>(`/workspaces/${wsId}/processes`);
 }
 
 export async function fetchProcess(wsId: string, defId: string): Promise<ProcessDefinitionDetailDto> {
-  const res = await api.get(`/workspaces/${wsId}/processes/${defId}`);
-  return res.data.data;
+  return apiGet<ProcessDefinitionDetailDto>(`/workspaces/${wsId}/processes/${defId}`);
 }
 
 export async function fetchProcessNodeTypes(
   wsId: string,
   surface?: string | null,
 ): Promise<ProcessNodeTypeDto[]> {
-  const res = await api.get(`/workspaces/${wsId}/processes/node-types`, {
+  return apiGet<ProcessNodeTypeDto[]>(`/workspaces/${wsId}/processes/node-types`, {
     // Профиль режет палитру под предметную область: кадровик не видит ноды про
     // счета и AI-агентов — он и не должен решать, нужны ли они его приказу.
     params: surface && surface !== 'general' ? { surface } : undefined,
   });
-  return res.data.data;
 }
 
 export async function fetchProcessInstances(
   wsId: string,
   filter?: { definitionId?: string; status?: string },
 ): Promise<ProcessInstanceDto[]> {
-  const res = await api.get(`/workspaces/${wsId}/processes/instances`, { params: filter });
-  return res.data.data;
+  return apiGet<ProcessInstanceDto[]>(`/workspaces/${wsId}/processes/instances`, { params: filter });
 }
 
 export async function fetchProcessInstance(
   wsId: string,
   instId: string,
 ): Promise<ProcessInstanceDetailDto> {
-  const res = await api.get(`/workspaces/${wsId}/processes/instances/${instId}`);
-  return res.data.data;
+  return apiGet<ProcessInstanceDetailDto>(`/workspaces/${wsId}/processes/instances/${instId}`);
 }
 
 /** Тонкий статус для поллинга (P7): без документа/анкеты — только статусы шагов. */
@@ -352,42 +338,35 @@ export async function fetchProcessInstanceStatus(
   wsId: string,
   instId: string,
 ): Promise<ProcessInstanceStatusDto> {
-  const res = await api.get(`/workspaces/${wsId}/processes/instances/${instId}/status`);
-  return res.data.data;
+  return apiGet<ProcessInstanceStatusDto>(`/workspaces/${wsId}/processes/instances/${instId}/status`);
 }
 
 export async function fetchProcessInbox(wsId: string): Promise<ProcessInboxItem[]> {
-  const res = await api.get(`/workspaces/${wsId}/processes/inbox`);
-  return res.data.data;
+  return apiGet<ProcessInboxItem[]>(`/workspaces/${wsId}/processes/inbox`);
 }
 
 export async function fetchProcessReport(wsId: string, defId: string): Promise<ProcessReportDto> {
-  const res = await api.get(`/workspaces/${wsId}/processes/${defId}/report`);
-  return res.data.data;
+  return apiGet<ProcessReportDto>(`/workspaces/${wsId}/processes/${defId}/report`);
 }
 
 export async function fetchProcessCredentials(wsId: string): Promise<ProcessCredentialDto[]> {
-  const res = await api.get(`/workspaces/${wsId}/processes/credentials`);
-  return res.data.data;
+  return apiGet<ProcessCredentialDto[]>(`/workspaces/${wsId}/processes/credentials`);
 }
 
 // ---- Виртуальный офис (B2B) ----
 
 export async function fetchOfficeRooms(wsId: string): Promise<OfficeRoomDto[]> {
-  const res = await api.get(`/workspaces/${wsId}/office`);
-  return res.data.data;
+  return apiGet<OfficeRoomDto[]>(`/workspaces/${wsId}/office`);
 }
 
 export async function fetchOfficeRoom(wsId: string, roomId: string): Promise<OfficeRoomDto> {
-  const res = await api.get(`/workspaces/${wsId}/office/rooms/${roomId}`);
-  return res.data.data;
+  return apiGet<OfficeRoomDto>(`/workspaces/${wsId}/office/rooms/${roomId}`);
 }
 
 export async function fetchOfficeHistory(wsId: string, cursor?: string): Promise<OfficeHistoryPageDto> {
-  const res = await api.get(`/workspaces/${wsId}/office/history`, {
+  return apiGet<OfficeHistoryPageDto>(`/workspaces/${wsId}/office/history`, {
     params: cursor ? { cursor } : undefined,
   });
-  return res.data.data;
 }
 
 // ---- Задачи (B2C) ----
@@ -398,13 +377,8 @@ export const taskStatsKey = ['tasks', 'stats'] as const;
 export const tasksListKey = (filters: Record<string, unknown>) => ['tasks', 'list', filters] as const;
 export const taskDetailKey = (id: string) => ['tasks', 'detail', id] as const;
 
-export interface TasksPage {
-  items: Task[];
-  meta: { total: number; page: number; limit: number; totalPages: number };
-}
-
 /** Список задач: смарт-лист/статусы/приоритеты/роль/поиск/пагинация — всё умеет API. */
-export async function fetchTasks(filters: Partial<TaskFilter>): Promise<TasksPage> {
+export async function fetchTasks(filters: Partial<TaskFilter>): Promise<OffsetPage<Task>> {
   const params: Record<string, string> = {};
   if (filters.smartList) params.smartList = filters.smartList;
   if (filters.role) params.role = filters.role;
@@ -415,19 +389,16 @@ export async function fetchTasks(filters: Partial<TaskFilter>): Promise<TasksPag
   if (filters.dueDateTo) params.dueDateTo = filters.dueDateTo;
   if (filters.page) params.page = String(filters.page);
   if (filters.limit) params.limit = String(filters.limit);
-  const res = await api.get('/tasks', { params });
-  return { items: res.data.data, meta: res.data.meta };
+  return apiGet<OffsetPage<Task>>('/tasks', { params });
 }
 
 /** Счётчики смарт-листов (бейджи сайдбара + карточки «Обзора»). */
 export async function fetchTaskStats(): Promise<TaskStats> {
-  const res = await api.get('/tasks/stats');
-  return res.data.data;
+  return apiGet<TaskStats>('/tasks/stats');
 }
 
 export async function fetchTask(id: string): Promise<Task> {
-  const res = await api.get(`/tasks/${id}`);
-  return res.data.data;
+  return apiGet<Task>(`/tasks/${id}`);
 }
 
 // ---- Финансы (B2C) ----
@@ -438,15 +409,13 @@ export const financeTransactionsKey = (filter?: Record<string, string | undefine
   ['finance', 'transactions', filter ?? {}] as const;
 
 export async function fetchFinanceOverview(bookId?: string | null): Promise<FinBookOverviewDto> {
-  const res = await api.get('/finance', { params: bookId ? { bookId } : undefined });
-  return res.data.data;
+  return apiGet<FinBookOverviewDto>('/finance', { params: bookId ? { bookId } : undefined });
 }
 
 export async function fetchFinanceTransactions(
   params: Record<string, string | undefined>,
-): Promise<{ items: FinTransactionDto[]; nextCursor: string | null }> {
-  const res = await api.get('/finance/transactions', { params });
-  return { items: res.data.data, nextCursor: res.data.nextCursor ?? null };
+): Promise<CursorPage<FinTransactionDto>> {
+  return apiGet<CursorPage<FinTransactionDto>>('/finance/transactions', { params });
 }
 
 // Сервис «Документы» (B2B). Ключи с фильтрами: реестр перезапрашивается при смене
@@ -481,8 +450,7 @@ export async function fetchWorkspaceJournal(
   wsId: string,
   params: { cursor?: string; category?: string },
 ): Promise<ChatterPageDto> {
-  const res = await api.get(`/workspaces/${wsId}/journal`, { params });
-  return res.data.data;
+  return apiGet<ChatterPageDto>(`/workspaces/${wsId}/journal`, { params });
 }
 
 export async function fetchChronicle(
@@ -490,34 +458,29 @@ export async function fetchChronicle(
   refId: string,
   params: { cursor?: string } = {},
 ): Promise<ChatterPageDto> {
-  const res = await api.get(`/chatter/${refType}/${refId}`, { params });
-  return res.data.data;
+  return apiGet<ChatterPageDto>(`/chatter/${refType}/${refId}`, { params });
 }
 
 export const financeSharedBooksKey = ['finance', 'shared-with-me'] as const;
 export const financeSharesKey = (bookId?: string | null) => ['finance', 'shares', bookId ?? 'own'] as const;
 
 export async function fetchFinanceSharedBooks(): Promise<FinSharedBookDto[]> {
-  const res = await api.get('/finance/shared-with-me');
-  return res.data.data;
+  return apiGet<FinSharedBookDto[]>('/finance/shared-with-me');
 }
 
 export async function fetchFinanceShares(bookId?: string | null): Promise<FinShareDto[]> {
-  const res = await api.get('/finance/shares', { params: bookId ? { bookId } : undefined });
-  return res.data.data;
+  return apiGet<FinShareDto[]>('/finance/shares', { params: bookId ? { bookId } : undefined });
 }
 
 export const financeDebtsKey = (bookId?: string | null) => ['finance', 'debts', bookId ?? 'own'] as const;
 export const financeRecurringKey = (bookId?: string | null) => ['finance', 'recurring', bookId ?? 'own'] as const;
 
 export async function fetchFinanceDebts(bookId?: string | null): Promise<FinDebtDto[]> {
-  const res = await api.get('/finance/debts', { params: bookId ? { bookId } : undefined });
-  return res.data.data;
+  return apiGet<FinDebtDto[]>('/finance/debts', { params: bookId ? { bookId } : undefined });
 }
 
 export async function fetchFinanceRecurring(bookId?: string | null): Promise<FinRecurringRuleDto[]> {
-  const res = await api.get('/finance/recurring', { params: bookId ? { bookId } : undefined });
-  return res.data.data;
+  return apiGet<FinRecurringRuleDto[]>('/finance/recurring', { params: bookId ? { bookId } : undefined });
 }
 
 /** Последние операции для страницы «Обзор» (отдельный ключ: useInfiniteQuery ленты хранит другую форму данных). */
@@ -529,8 +492,7 @@ export const financePeopleReportKey = (from: string, to: string, bookId?: string
   ['finance', 'report', 'people', from, to, bookId ?? 'own'] as const;
 
 export async function fetchFinancePeople(bookId?: string | null): Promise<FinPersonDto[]> {
-  const res = await api.get('/finance/people', { params: bookId ? { bookId } : undefined });
-  return res.data.data;
+  return apiGet<FinPersonDto[]>('/finance/people', { params: bookId ? { bookId } : undefined });
 }
 
 export async function fetchFinancePeopleReport(
@@ -538,8 +500,7 @@ export async function fetchFinancePeopleReport(
   to: string,
   bookId?: string | null,
 ): Promise<FinPeopleReportRowDto[]> {
-  const res = await api.get('/finance/reports/people', { params: { from, to, ...(bookId ? { bookId } : {}) } });
-  return res.data.data;
+  return apiGet<FinPeopleReportRowDto[]>('/finance/reports/people', { params: { from, to, ...(bookId ? { bookId } : {}) } });
 }
 
 export const financeMonthReportKey = (period: string, bookId?: string | null) =>
@@ -548,27 +509,23 @@ export const financeTrendKey = (months: number, bookId?: string | null) =>
   ['finance', 'report', 'trend', months, bookId ?? 'own'] as const;
 
 export async function fetchFinanceMonthReport(period: string, bookId?: string | null): Promise<FinMonthReportDto> {
-  const res = await api.get('/finance/reports/month', { params: { period, ...(bookId ? { bookId } : {}) } });
-  return res.data.data;
+  return apiGet<FinMonthReportDto>('/finance/reports/month', { params: { period, ...(bookId ? { bookId } : {}) } });
 }
 
 export async function fetchFinanceTrend(months: number, bookId?: string | null): Promise<FinTrendPointDto[]> {
-  const res = await api.get('/finance/reports/trend', { params: { months, ...(bookId ? { bookId } : {}) } });
-  return res.data.data;
+  return apiGet<FinTrendPointDto[]>('/finance/reports/trend', { params: { months, ...(bookId ? { bookId } : {}) } });
 }
 
 /** My currency icon + per-holder balances ("держит N 🪙" badges). Optional context. */
 export async function fetchCurrencyBadge(): Promise<{ icon: string | null; holders: Record<string, number> }> {
   try {
     const [cur, holders] = await Promise.all([
-      api.get('/wallet/currency'),
-      api.get('/wallet/currency/holders'),
+      apiGet<Currency | null>('/wallet/currency'),
+      apiGet<CurrencyHolder[]>('/wallet/currency/holders'),
     ]);
     const map: Record<string, number> = {};
-    for (const h of holders.data.data as Array<{ userId: string; balance: number }>) {
-      map[h.userId] = h.balance;
-    }
-    return { icon: cur.data.data?.icon ?? null, holders: map };
+    for (const h of holders) map[h.userId] = h.balance;
+    return { icon: cur?.icon ?? null, holders: map };
   } catch {
     return { icon: null, holders: {} };
   }

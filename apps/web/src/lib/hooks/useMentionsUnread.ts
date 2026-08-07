@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { apiGet } from '@/lib/api';
 
 // ============================================================
 // Mentions unread badge (Phase 5). The badge polls the LIGHT
@@ -27,7 +27,7 @@ export function useMentionsUnread(enabled = true): number {
     // Фетчер локальный, НЕ из messenger-api: хук смонтирован в AppShell (корневой
     // граф каждой страницы), и один импорт утащил бы туда весь messenger-api
     // вместе с барабаном @superapp/shared.
-    queryFn: async () => (await api.get('/mentions/unread-count')).data.data.unreadCount as number,
+    queryFn: async () => (await apiGet<{ unreadCount: number }>('/mentions/unread-count')).unreadCount,
     enabled,
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,

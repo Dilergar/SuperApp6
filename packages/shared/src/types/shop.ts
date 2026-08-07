@@ -33,12 +33,6 @@ export interface ListingPriceDto {
   amount: number;
 }
 
-/** One requested price line when creating/updating a listing (Phase 5 cross-currency). */
-export interface ListingPriceInput {
-  currencyId: string;
-  amount: number;
-}
-
 /** A currency the viewer may price a listing in: their own + currencies issued by their окружение. */
 export interface AccessibleCurrencyDto {
   id: string;
@@ -110,6 +104,12 @@ export interface Showcase {
   shares?: ShowcaseShareDto[];
 }
 
+/** Ответ `GET /shop` и `GET /shop/of/:ownerId` — магазин с его витринами. */
+export interface ShopOverviewDto {
+  shop: Shop;
+  showcases: Showcase[];
+}
+
 export interface ShopStaffDto {
   userId: string;
   name: string;
@@ -177,69 +177,6 @@ export interface Order {
   createdAt: string;
 }
 
-// ---- Requests ----
-export interface CreateShowcaseRequest {
-  name: string;
-  icon?: string | null;
-}
-export interface UpdateShowcaseRequest {
-  name?: string;
-  icon?: string | null;
-  sortOrder?: number;
-}
-export interface ShareShowcaseRequest {
-  principalType: SharePrincipalType;
-  principalId: string;
-}
-export interface CreateListingRequest {
-  showcaseId: string;
-  title: string;
-  description?: string | null;
-  icon?: string | null;
-  itemType?: ListingItemType;
-  withTask?: boolean;
-  taskDays?: number | null;
-  crowdfunding?: boolean;
-  stockLimit?: number | null;
-  availableFrom?: string | null;
-  availableUntil?: string | null;
-  discountPercent?: number | null;
-  discountUntil?: string | null;
-  /** Shorthand: a single price in the owner's own currency. Use `prices` for cross-currency. */
-  priceAmount?: number;
-  /** Cross-currency price (Phase 5): ≥1 lines, own + окружение currencies. Overrides priceAmount. */
-  prices?: ListingPriceInput[];
-}
-export interface UpdateListingRequest {
-  title?: string;
-  description?: string | null;
-  icon?: string | null;
-  itemType?: ListingItemType;
-  withTask?: boolean;
-  taskDays?: number | null;
-  crowdfunding?: boolean;
-  stockLimit?: number | null;
-  availableFrom?: string | null;
-  availableUntil?: string | null;
-  discountPercent?: number | null;
-  discountUntil?: string | null;
-  status?: ListingStatus;
-  /** Shorthand: replace the price with a single line in the owner's own currency. */
-  priceAmount?: number;
-  /** Replace the whole price with these cross-currency lines (Phase 5). Overrides priceAmount. */
-  prices?: ListingPriceInput[];
-  sortOrder?: number;
-}
-export interface AssignShopStaffRequest {
-  userId: string;
-  scope: ShopStaffScope;
-  showcaseId?: string;
-}
-/** Pledge toward a crowdfunding campaign (Phase 6): one line per currency, ≤ the remaining goal. */
-export interface ContributeRequest {
-  contributions: ContributionLine[];
-}
-
 // ---- Wishlist (Phase 8) ----
 export type WishStatus = 'active' | 'fulfilled' | 'archived';
 
@@ -264,34 +201,4 @@ export interface AccessibleWishlistRef {
   name: string;
   avatar: string | null;
   itemCount: number;
-}
-
-export interface CreateWishRequest {
-  title: string;
-  description?: string | null;
-  icon?: string | null;
-  link?: string | null;
-  itemType?: ListingItemType;
-}
-export interface UpdateWishRequest {
-  title?: string;
-  description?: string | null;
-  icon?: string | null;
-  link?: string | null;
-  itemType?: ListingItemType;
-  status?: WishStatus;
-  sortOrder?: number;
-}
-/** Copy someone's wish into one of MY showcases as a priced lot (Phase 8). */
-export interface CopyWishRequest {
-  /** Put the lot into this existing showcase of mine, OR create a new one (newShowcaseName). */
-  showcaseId?: string;
-  newShowcaseName?: string;
-  prices: ListingPriceInput[];
-  crowdfunding?: boolean;
-  stockLimit?: number | null;
-  availableUntil?: string | null;
-  discountPercent?: number | null;
-  discountUntil?: string | null;
-  taskDays?: number | null;
 }

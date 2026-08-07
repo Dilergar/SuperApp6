@@ -16,6 +16,8 @@ import {
   CallsStatusDto,
   CallTokenDto,
   CallTokenInput,
+  CALL_SESSION_STATUSES,
+  type CallSessionStatus,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
@@ -384,10 +386,13 @@ export class CallsService {
       select: { userId: true, joinedAt: true },
     });
     const endedAt = new Date();
+    // Статусы — из shared-реестра, а не литералами: опечатка в 'ended' оставила бы
+    // сессию активной навсегда (и звонок «идущим» у всех клиентов).
+    const [ACTIVE, ENDED]: readonly CallSessionStatus[] = CALL_SESSION_STATUSES;
     const done = await this.db.$transaction(async (tx) => {
       const res = await tx.callSession.updateMany({
-        where: { id: session.id, status: 'active' },
-        data: { status: 'ended', endedAt },
+        where: { id: session.id, status: ACTIVE },
+        data: { status: ENDED, endedAt },
       });
       if (res.count !== 1) return false; // уже закрыта (второй вебхук/гонка) — идемпотентность
       await tx.callSessionParticipant.updateMany({

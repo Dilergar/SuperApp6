@@ -17,7 +17,7 @@ import {
   type WorkspaceRole,
 } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { api } from '@/lib/api';
+import { apiGet } from '@/lib/api';
 import { workspaceKey, workspaceJournalKey, fetchWorkspaceJournal } from '@/lib/queries';
 import { ChronicleFeed } from '@/components/chatter/ChronicleFeed';
 import {
@@ -44,7 +44,7 @@ export default function WorkspaceJournalPage() {
 
   const wsQuery = useQuery({
     queryKey: workspaceKey(id),
-    queryFn: async () => (await api.get(`/workspaces/${id}`)).data.data as Workspace,
+    queryFn: async () => await apiGet<Workspace>(`/workspaces/${id}`),
     enabled: isReady,
   });
 

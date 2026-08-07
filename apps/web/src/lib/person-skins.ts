@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api } from './api';
+import { apiGet } from './api';
 import type { CardSkinRender } from '@superapp/shared';
 
 // ============================================================
@@ -104,11 +104,12 @@ function chunk(ids: string[], size: number): string[][] {
 
 async function fetchChunk(ids: string[], gen: number): Promise<void> {
   try {
-    const res = await api.get('/card-skins/resolve', { params: { userIds: ids.join(',') } });
+    const map = await apiGet<Record<string, CardSkinRender | null>>('/card-skins/resolve', {
+      params: { userIds: ids.join(',') },
+    });
     // Ответ прошлого поколения (успели разлогиниться или надеть другой скин) —
     // в кэш не пишем, иначе свежий кэш наполнился бы устаревшими скинами.
     if (gen !== generation) return;
-    const map = (res.data?.data ?? {}) as Record<string, CardSkinRender | null>;
     for (const id of ids) cache.set(id, map[id] ?? null);
   } catch {
     // Сеть моргнула — НЕ кэшируем null (это запинало бы человека на базовом скине

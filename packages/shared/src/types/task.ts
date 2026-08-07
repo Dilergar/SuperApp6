@@ -97,64 +97,6 @@ export interface Task {
   completedAt: string | null;
 }
 
-export interface CreateTaskRequest {
-  title: string;
-  description?: string;
-  priority?: TaskPriority;
-
-  dueDate?: string;
-  startDate?: string;
-  allDay?: boolean;
-  reminderAt?: string;
-  /** RRULE-light, e.g. "FREQ=WEEKLY;INTERVAL=1". */
-  recurrenceRule?: string;
-
-  // Assignment is EITHER individual (executorId) OR group (assignedCircleId).
-  // Omitting both makes it a self-task (creator becomes the executor, no acceptance step).
-  executorId?: string;
-  coExecutorIds?: string[];
-  observerIds?: string[];
-  assignedCircleId?: string;
-
-  parentId?: string;
-
-  /** Быстрая запись во «Входящие». Игнорируется, если задан срок/исполнитель/родитель. */
-  inbox?: boolean;
-
-  // Reward (per-person). Display-only for now.
-  coinReward?: number;
-  coinPenalty?: number;
-  giftRewardId?: string;
-
-  tags?: string[];
-  workspaceId?: string;
-  addToCalendar?: boolean;
-  /** Вложения «с порога» — файлы, загруженные движком до создания задачи. */
-  attachmentFileIds?: string[];
-}
-
-export interface UpdateTaskRequest {
-  title?: string;
-  description?: string;
-  status?: TaskStatus;
-  priority?: TaskPriority;
-  dueDate?: string | null;
-  startDate?: string | null;
-  allDay?: boolean;
-  reminderAt?: string | null;
-  recurrenceRule?: string | null;
-  coinReward?: number;
-  coinPenalty?: number;
-  tags?: string[];
-  /** Ручное «Разобрано» (false) для «Входящих»; уточнение срока/исполнителя снимает флаг само. */
-  inbox?: boolean;
-  // Role edits (creator only)
-  executorId?: string | null;
-  addCoExecutorIds?: string[];
-  addObserverIds?: string[];
-  removeParticipantUserIds?: string[];
-}
-
 // Task discussion now lives in the Messenger (a context chat attached to the task).
 // See @superapp/shared messenger types (ChatMessage). TaskComment was removed in Phase 2.
 

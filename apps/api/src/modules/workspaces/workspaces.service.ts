@@ -38,6 +38,10 @@ import {
   type CreateBankAccountInput,
   type UpdateBankAccountInput,
   type WorkspaceRole,
+  type Workspace,
+  type WorkspaceMember,
+  type WorkspaceInvitation,
+  type ContactUserCard,
 } from '@superapp/shared';
 import {
   resolveWorkspaceCardVisibility,
@@ -135,7 +139,7 @@ export class WorkspacesService implements OnModuleInit {
   // Workspace CRUD
   // ============================================================
 
-  async createWorkspace(userId: string, data: { name: string; logo?: string }) {
+  async createWorkspace(userId: string, data: { name: string; logo?: string }): Promise<Workspace> {
     const owned = await this.db.workspace.count({
       where: { ownerId: userId, isActive: true },
     });
@@ -173,7 +177,7 @@ export class WorkspacesService implements OnModuleInit {
     return this.serializeWorkspace(ws, 1, 'owner');
   }
 
-  async listMyWorkspaces(userId: string) {
+  async listMyWorkspaces(userId: string): Promise<Workspace[]> {
     const allRoles = await this.roles.getUserRoles(userId);
     const wsRoles = allRoles.filter(
       (r) => r.context === WS_CONTEXT && r.tenantId,
@@ -201,7 +205,7 @@ export class WorkspacesService implements OnModuleInit {
     );
   }
 
-  async getWorkspace(userId: string, workspaceId: string) {
+  async getWorkspace(userId: string, workspaceId: string): Promise<Workspace> {
     const myRole = await this.assertMember(userId, workspaceId);
     const ws = await this.db.workspace.findUnique({
       where: { id: workspaceId },
@@ -225,7 +229,7 @@ export class WorkspacesService implements OnModuleInit {
       contactPhone?: string | null;
       cardVisibility?: Partial<WorkspaceCardVisibility>;
     },
-  ) {
+  ): Promise<Workspace> {
     const role = await this.assertCanManage(userId, workspaceId);
     // Лого хранится ССЫЛКОЙ → при замене прибираем прежний файл (иначе копит квоту орг.)
     const prevLogo =
@@ -459,7 +463,7 @@ export class WorkspacesService implements OnModuleInit {
    * архивации, от которой ретеншн-крон отсчитывает `archiveRetentionDays` до полного
    * удаления. Всё это время возврат — в один клик (`restoreWorkspace`).
    */
-  async deactivateWorkspace(userId: string, workspaceId: string) {
+  async deactivateWorkspace(userId: string, workspaceId: string): Promise<void> {
     await this.assertOwner(userId, workspaceId);
     await this.db.workspace.update({
       where: { id: workspaceId },
@@ -475,7 +479,7 @@ export class WorkspacesService implements OnModuleInit {
    * владелец — восстановить может он один, а сотрудникам выключенная организация
    * ничего не даёт (данные её сервисов и так закрыты).
    */
-  async listArchivedWorkspaces(userId: string) {
+  async listArchivedWorkspaces(userId: string): Promise<Workspace[]> {
     const workspaces = await this.db.workspace.findMany({
       where: { ownerId: userId, isActive: false },
       include: { _count: { select: { members: true } } },
@@ -491,7 +495,7 @@ export class WorkspacesService implements OnModuleInit {
    * флага, не трогает — роли, справочники и данные сервисов остаются на месте, поэтому
    * восстановление симметрично и ничего не пересобирает.
    */
-  async restoreWorkspace(userId: string, workspaceId: string) {
+  async restoreWorkspace(userId: string, workspaceId: string): Promise<void> {
     const ws = await this.assertOwner(userId, workspaceId);
     if (ws.isActive) return; // идемпотентно: повторный клик — не ошибка
     // Потолок проверяем и здесь: иначе восстановлением можно обойти лимит createWorkspace.
@@ -669,7 +673,7 @@ export class WorkspacesService implements OnModuleInit {
     userId: string,
     workspaceId: string,
     toUserId: string,
-  ) {
+  ): Promise<void> {
     await this.assertOwner(userId, workspaceId);
     if (toUserId === userId) {
       throw new BadRequestException('Вы уже владелец');
@@ -712,7 +716,7 @@ export class WorkspacesService implements OnModuleInit {
   // Members
   // ============================================================
 
-  async listMembers(userId: string, workspaceId: string) {
+  async listMembers(userId: string, workspaceId: string): Promise<WorkspaceMember[]> {
     // Ростер закрыт от Подрядчика (Коллаб-модель: он не видит команду).
     const viewerRole = await this.assertTeamMember(userId, workspaceId);
     // Управляющим (manager+) реквизитный блок сотрудника виден ВСЕГДА — это второй,
@@ -894,7 +898,7 @@ export class WorkspacesService implements OnModuleInit {
     workspaceId: string,
     targetUserId: string,
     data: { role: WorkspaceRole },
-  ) {
+  ): Promise<void> {
     const actorRole = await this.assertCanManage(userId, workspaceId);
     const ws = await this.getWorkspaceOrThrow(workspaceId);
 
@@ -949,7 +953,7 @@ export class WorkspacesService implements OnModuleInit {
   }
 
   /** Fire a member (owner/admin). Owner cannot be removed — transfer first. */
-  async removeMember(userId: string, workspaceId: string, targetUserId: string) {
+  async removeMember(userId: string, workspaceId: string, targetUserId: string): Promise<void> {
     const actorRole = await this.assertCanManage(userId, workspaceId);
     const ws = await this.getWorkspaceOrThrow(workspaceId);
     if (targetUserId === ws.ownerId) {
@@ -987,7 +991,7 @@ export class WorkspacesService implements OnModuleInit {
   }
 
   /** Voluntary leave (non-owner). */
-  async leaveWorkspace(userId: string, workspaceId: string) {
+  async leaveWorkspace(userId: string, workspaceId: string): Promise<void> {
     const ws = await this.getWorkspaceOrThrow(workspaceId);
     const myRole = await this.getMyRole(userId, workspaceId);
     if (!myRole) throw new NotFoundException('Вы не состоите в этой организации');
@@ -1028,7 +1032,7 @@ export class WorkspacesService implements OnModuleInit {
       branchIds?: string[];
       message?: string;
     },
-  ) {
+  ): Promise<WorkspaceInvitation> {
     await this.assertStaffManage(userId, workspaceId);
     const ws = await this.getWorkspaceOrThrow(workspaceId);
 
@@ -1126,7 +1130,7 @@ export class WorkspacesService implements OnModuleInit {
     return (await this.serializeInvitations([{ ...inv, workspace: ws, inviter }]))[0];
   }
 
-  async listOutgoingInvitations(userId: string, workspaceId: string) {
+  async listOutgoingInvitations(userId: string, workspaceId: string): Promise<WorkspaceInvitation[]> {
     await this.assertStaffManage(userId, workspaceId);
     const invs = await this.db.workspaceInvitation.findMany({
       where: { workspaceId, status: 'pending' },
@@ -1140,7 +1144,7 @@ export class WorkspacesService implements OnModuleInit {
     return this.serializeInvitations(invs);
   }
 
-  async cancelInvitation(userId: string, workspaceId: string, invitationId: string) {
+  async cancelInvitation(userId: string, workspaceId: string, invitationId: string): Promise<void> {
     await this.assertStaffManage(userId, workspaceId);
     const inv = await this.db.workspaceInvitation.findUnique({
       where: { id: invitationId },
@@ -1158,7 +1162,7 @@ export class WorkspacesService implements OnModuleInit {
   }
 
   /** Incoming pending invitations for the current user (dashboard cards). */
-  async listIncomingInvitations(userId: string) {
+  async listIncomingInvitations(userId: string): Promise<WorkspaceInvitation[]> {
     const invs = await this.db.workspaceInvitation.findMany({
       where: { toUserId: userId, status: 'pending', expiresAt: { gt: new Date() } },
       include: {
@@ -1171,7 +1175,7 @@ export class WorkspacesService implements OnModuleInit {
     return this.serializeInvitations(invs);
   }
 
-  async acceptInvitation(userId: string, invitationId: string) {
+  async acceptInvitation(userId: string, invitationId: string): Promise<Workspace | null> {
     const inv = await this.db.workspaceInvitation.findUnique({
       where: { id: invitationId },
       include: { workspace: { select: { id: true, name: true, isActive: true } } },
@@ -1272,7 +1276,7 @@ export class WorkspacesService implements OnModuleInit {
       : null;
   }
 
-  async rejectInvitation(userId: string, invitationId: string) {
+  async rejectInvitation(userId: string, invitationId: string): Promise<void> {
     const inv = await this.db.workspaceInvitation.findUnique({
       where: { id: invitationId },
       include: { workspace: { select: { name: true } } },
@@ -1308,7 +1312,7 @@ export class WorkspacesService implements OnModuleInit {
    * Called from AuthService.register: external workspace invitations (toUserId=null)
    * that targeted this phone are bound to the new user and surfaced as notifications.
    */
-  async activatePendingWorkspaceInvitationsForNewUser(userId: string, phone: string) {
+  async activatePendingWorkspaceInvitationsForNewUser(userId: string, phone: string): Promise<void> {
     const pending = await this.db.workspaceInvitation.findMany({
       where: { toUserId: null, toPhone: phone, status: 'pending' },
       include: { workspace: { select: { name: true } }, position: { select: { name: true } } },

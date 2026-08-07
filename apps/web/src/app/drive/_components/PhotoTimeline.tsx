@@ -16,7 +16,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { Virtuoso } from 'react-virtuoso';
 import { Chip, EmptyState, Spinner } from '@/components/ui';
-import { drivePhotoBucketsKey, drivePhotosKey, type DriveRef } from '@/lib/queries';
+import { drivePhotoBucketsKey, drivePhotosKey } from '@/lib/queries';
+import type { DriveSpaceRef } from '@superapp/shared';
 import { fetchPhotoBuckets, fetchPhotoPage } from '@/lib/drive-api';
 import { useQuery } from '@tanstack/react-query';
 import { monthLabel } from './drive-ui';
@@ -75,7 +76,7 @@ function layout(tiles: Tile[], width: number): Row[] {
   return rows;
 }
 
-export function PhotoTimeline({ driveRef }: { driveRef: DriveRef }) {
+export function PhotoTimeline({ driveRef }: { driveRef: DriveSpaceRef }) {
   const [month, setMonth] = useState<string | undefined>(undefined);
   const [width, setWidth] = useState(0);
   const boxRef = useRef<HTMLDivElement>(null);

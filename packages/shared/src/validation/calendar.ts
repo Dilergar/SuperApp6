@@ -146,3 +146,16 @@ export const updateResourceSchema = z.object({
   bookerUserIds: z.array(z.string().uuid()).max(500).optional(),
   bookerCircleIds: z.array(z.string().uuid()).max(100).optional(),
 });
+
+// ---- Входные типы: ЕДИНСТВЕННОЕ описание формы входа ----
+// Рукописные интерфейсы в types/*.ts удалены: два независимых описания одного
+// входа расходятся молча (Zod уходил вперёд, интерфейс врал).
+export type CreateCalendarEventInput = z.infer<typeof createCalendarEventSchema>;
+export type UpdateCalendarEventInput = z.infer<typeof updateCalendarEventSchema>;
+export type CreateResourceInput = z.infer<typeof createResourceSchema>;
+export type UpdateResourceInput = z.infer<typeof updateResourceSchema>;
+export type SmartMatchInput = z.infer<typeof smartMatchSchema>;
+export type InviteParticipantsInput = z.infer<typeof inviteParticipantsSchema>;
+export type RsvpInput = z.infer<typeof rsvpSchema>;
+export type SetCalendarShareInput = z.infer<typeof setCalendarShareSchema>;
+export type CalendarRangeInput = z.infer<typeof calendarRangeSchema>;

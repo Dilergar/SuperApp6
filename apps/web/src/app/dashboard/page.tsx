@@ -82,11 +82,12 @@ export default function DashboardPage() {
   const unreadChats = chats.filter((c) => c.unreadCount > 0);
   const unreadTotal = unreadChats.reduce((s, c) => s + c.unreadCount, 0);
 
-  const { data: invites = [] } = useQuery({
+  const { data: invitesPage } = useQuery({
     queryKey: incomingInvitationsKey,
-    queryFn: fetchIncomingInvitations,
+    queryFn: () => fetchIncomingInvitations(),
     enabled: isReady,
   });
+  const invites = invitesPage?.items ?? [];
 
   // Финансы: книга создаётся лениво, поэтому у нового человека отчёта может не
   // быть вовсе — тихо показываем прочерк, а не ошибку на главной.
@@ -298,7 +299,9 @@ export default function DashboardPage() {
           </Link>
           <Divider style={{ margin: 'var(--spacing-3) 0' }} />
           <div style={{ display: 'flex', gap: 'var(--spacing-6)', flexWrap: 'wrap' }} className="meta">
-            <span>В окружении: {profile.circlesCount ?? 0}</span>
+            {/* Именно contactsCount: circlesCount — это число ГРУПП, а подпись
+                обещает людей (в «Моём окружении» их считают иначе). */}
+            <span>В окружении: {profile.contactsCount ?? 0}</span>
             <span>Организаций: {profile.workspacesCount ?? 0}</span>
           </div>
         </Card>

@@ -96,8 +96,8 @@ async function main() {
     await prisma.contactInvitation.update({ where: { id: inv2Id }, data: { expiresAt: new Date(Date.now() - 60_000) } });
     const incList = await call('GET', '/contacts/invitations/incoming', t2);
     const outList = await call('GET', '/contacts/invitations/outgoing', t1);
-    check('просроченное скрыто из входящих', incList.ok && !(incList.json.data ?? []).some((i) => i.id === inv2Id));
-    check('просроченное скрыто из исходящих', outList.ok && !(outList.json.data ?? []).some((i) => i.id === inv2Id));
+    check('просроченное скрыто из входящих', incList.ok && !(incList.json.data?.items ?? []).some((i) => i.id === inv2Id));
+    check('просроченное скрыто из исходящих', outList.ok && !(outList.json.data?.items ?? []).some((i) => i.id === inv2Id));
 
     await wipeInvitations(); // no cooldown interference with the blocks phase
 
@@ -126,7 +126,7 @@ async function main() {
     const acc = await call('POST', `/contacts/invitations/${inv3.json?.data?.id}/accept`, t2, {});
     check('и принимается — связь восстановлена', acc.ok, `status ${acc.status}`);
     const contacts = await call('GET', '/contacts', t1);
-    check('t2 снова в окружении t1', contacts.ok && (contacts.json.data ?? []).some((c) => c.them?.id === u2));
+    check('t2 снова в окружении t1', contacts.ok && (contacts.json.data?.items ?? []).some((c) => c.them?.id === u2));
   } finally {
     if (lastNameWasNull) await prisma.user.update({ where: { id: u2 }, data: { lastName: null } }).catch(() => {});
     await restoreLink().catch(() => {}); // testers stay linked for other scripts

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiDelete, apiErrorMessage, apiGet, apiPost } from '@/lib/api';
 import { EntitySelector } from '@/components/EntitySelector';
 import { PersonChip } from '../circles/PersonCard';
 import {
@@ -14,6 +14,7 @@ import {
   type CalendarShare,
   type SharedCalendarSource,
   type SmartMatchSlot,
+  type SmartMatchResponse,
 } from '@superapp/shared';
 
 // ============================================================
@@ -29,7 +30,7 @@ export function SharePanel({ contacts, onClose }: { contacts: Contact[]; onClose
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
-    try { setShares((await api.get('/calendar/shares')).data.data); } catch { /* тихо: панель откроется пустой */ }
+    try { setShares(await apiGet('/calendar/shares')); } catch { /* тихо: панель откроется пустой */ }
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -38,7 +39,7 @@ export function SharePanel({ contacts, onClose }: { contacts: Contact[]; onClose
     setBusy(true);
     setError('');
     try {
-      await api.post('/calendar/shares', { sharedWithUserId: pickId, accessLevel: level });
+      await apiPost('/calendar/shares', { sharedWithUserId: pickId, accessLevel: level });
       setChanged(true);
       setPickId('');
       await load();
@@ -51,7 +52,7 @@ export function SharePanel({ contacts, onClose }: { contacts: Contact[]; onClose
   const remove = async (uid: string) => {
     setBusy(true);
     try {
-      await api.delete(`/calendar/shares/${uid}`);
+      await apiDelete(`/calendar/shares/${uid}`);
       setChanged(true);
       await load();
     } catch (e) {
@@ -160,11 +161,11 @@ export function SmartMatchDialog({
     const dayStartMin = ref.getUTCHours() * 60 + ref.getUTCMinutes();
     const dayEndMin = ref2.getUTCHours() * 60 + ref2.getUTCMinutes();
     try {
-      const { data } = await api.post('/calendar/smart-match', {
+      const match = await apiPost<SmartMatchResponse>('/calendar/smart-match', {
         userIds: sel, durationMin: duration, from: from.toISOString(), to: to.toISOString(),
         dayStartMin, dayEndMin: dayEndMin > dayStartMin ? dayEndMin : dayStartMin + 720,
       });
-      setSlots(data.data.slots);
+      setSlots(match.slots);
     } catch (e) {
       setError(apiErrorMessage(e));
     } finally { setBusy(false); }

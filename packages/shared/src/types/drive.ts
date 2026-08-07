@@ -1,4 +1,5 @@
 import type { DRIVE_NODE_KINDS, DRIVE_ROLES, DRIVE_SORTS, DRIVE_SORT_DIRS, DRIVE_SPACE_KINDS } from '../constants/drive';
+import type { CursorPage } from './common';
 import type { FileKind, FileOwnerType, FileScanStatus, FileStatus, ShareGuestFile } from './file';
 
 // ============================================
@@ -85,9 +86,16 @@ export interface DriveBreadcrumbDto {
   systemKey: string | null;
 }
 
-export interface DriveListPageDto {
-  items: DriveNodeDto[];
-  nextCursor: string | null;
+export type DriveListPageDto = CursorPage<DriveNodeDto>;
+
+/**
+ * Адрес ПРОСТРАНСТВА в запросах Диска (query-параметры): либо личное/конкретное
+ * `spaceId`, либо диск организации `workspaceId`, либо ничего — тогда личный диск
+ * зрителя. Правило «либо одно, либо другое» стережёт `driveScopeSchema`.
+ */
+export interface DriveSpaceRef {
+  spaceId?: string;
+  workspaceId?: string;
 }
 
 /** GET /drive/nodes/:id — узел + путь + права зрителя */
@@ -188,7 +196,4 @@ export type ShareDriveGuestView =
   | { kind: 'folder'; rootId: string; name: string; allowDownload: boolean }
   | { kind: 'file'; rootId: string; name: string; allowDownload: boolean; file: ShareGuestFile };
 
-export interface ShareDriveNodesPage {
-  items: ShareDriveNodeDto[];
-  nextCursor: string | null;
-}
+export type ShareDriveNodesPage = CursorPage<ShareDriveNodeDto>;

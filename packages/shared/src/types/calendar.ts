@@ -63,7 +63,7 @@ export interface CalendarEvent {
 }
 
 /** One concrete instance of an event within a queried range (recurrence expanded). */
-export interface CalendarEventOccurrence {
+export interface CalendarEventOccurrence extends CalendarLayerItemBase {
   kind: 'event';
   /** id of the concrete row (override row id, or the master/standalone id). */
   eventId: string;
@@ -107,7 +107,7 @@ export interface CalendarEventOccurrence {
 }
 
 /** A task surfaced on the calendar as a layer item (not a stored event). */
-export interface CalendarTaskItem {
+export interface CalendarTaskItem extends CalendarLayerItemBase {
   kind: 'task';
   taskId: string;
   title: string;
@@ -125,7 +125,7 @@ export interface CalendarTaskItem {
 }
 
 /** Финансы как виртуальный слой (Ф8): платёж по долгу / повторяющаяся операция — read-only, all-day. */
-export interface CalendarFinanceItem {
+export interface CalendarFinanceItem extends CalendarLayerItemBase {
   kind: 'finance';
   /** `debt:<accountId>:<YYYY-MM-DD>` | `recurring:<ruleId>:<YYYY-MM-DD>` */
   id: string;
@@ -142,13 +142,22 @@ export interface CalendarFinanceItem {
 
 /**
  * Контракт элемента «чужого» слоя — фундамент расширяемости календаря-платформы.
- * Новый сервис добавляет свой kind в union CalendarItem (эти поля обязаны быть
- * подмножеством); веб рисует незнакомый kind запасным чипом ровно по этим полям
- * (значок → Glyph, клик → href) — сетка не ломается и не требует правок.
+ * Новый сервис добавляет свой kind в union CalendarItem; веб рисует незнакомый kind
+ * запасным чипом ровно по этим полям (значок → Glyph, клик → href) — сетка не
+ * ломается и не требует правок.
+ *
+ * Все встроенные kind ЕГО РАСШИРЯЮТ — до 2026-08-07 контракт был декларацией,
+ * которую не проверял никто, и три типа успели разойтись с ним по полям.
  */
 export interface CalendarLayerItemBase {
   kind: string;
-  id: string;
+  /**
+   * Идентичность записи. У встроенных kind она исторически лежит в своём поле
+   * (`eventId` у события, `taskId` у задачи), поэтому здесь поле опционально;
+   * НОВЫЙ слой обязан отдавать `id` — по нему веб строит ключ и не знает про
+   * пер-сервисные имена.
+   */
+  id?: string;
   title: string;
   /** ISO; общее поле сортировки всех слоёв. */
   start: string;
@@ -173,53 +182,6 @@ export interface CalendarRangeResponse {
   items: CalendarItem[];
   /** Метаданные отработавших слоёв (ключ = слой); аддитивно, старые клиенты не замечают. */
   layers?: Partial<Record<CalendarLayer, CalendarLayerRangeMeta>>;
-}
-
-// ---- Requests ----
-
-export interface CreateCalendarEventRequest {
-  title: string;
-  description?: string;
-  location?: string;
-  startTime: string;
-  endTime: string;
-  allDay?: boolean;
-  color?: string;
-  icon?: string;
-  visibility?: CalendarEventVisibility;
-  reminderOffsets?: number[];
-  recurrenceRule?: string;
-  /** invite at creation (from environment): people and/or a Group snapshot. */
-  participantUserIds?: string[];
-  participantCircleId?: string;
-  /** attach (book) a resource on creation. */
-  resourceId?: string;
-}
-
-export interface UpdateCalendarEventRequest {
-  title?: string;
-  description?: string | null;
-  location?: string | null;
-  startTime?: string;
-  endTime?: string;
-  allDay?: boolean;
-  color?: string | null;
-  icon?: string | null;
-  visibility?: CalendarEventVisibility;
-  reminderOffsets?: number[];
-  recurrenceRule?: string | null;
-  /** attach/detach a resource booking (null = detach). */
-  resourceId?: string | null;
-  /** For recurring events: which instances this edit affects (default 'all'). */
-  editScope?: RecurrenceEditScope;
-  /** Original occurrence start; required when editScope is 'this' or 'this_and_following'. */
-  occurrenceStart?: string;
-}
-
-export interface CalendarRangeQuery {
-  from: string;
-  to: string;
-  layers?: CalendarLayer[];
 }
 
 // ---- Sharing (Phase 2 — model kept for forward-compat) ----
@@ -265,30 +227,6 @@ export interface CalendarEventDetail extends CalendarEvent {
   isResourceOwner: boolean;
 }
 
-export interface InviteParticipantsRequest {
-  userIds?: string[];
-  circleId?: string;
-}
-
-export interface RsvpRequest {
-  status: 'accepted' | 'declined' | 'tentative';
-}
-
-export interface SetCalendarShareRequest {
-  sharedWithUserId: string;
-  accessLevel: Exclude<CalendarAccessLevel, 'none'>;
-}
-
-export interface SmartMatchRequest {
-  userIds: string[];
-  durationMin: number;
-  from: string;
-  to: string;
-  /** minutes from midnight bounding the day window (default 540–1260 = 09:00–21:00). */
-  dayStartMin?: number;
-  dayEndMin?: number;
-}
-
 export interface SmartMatchSlot {
   start: string;
   end: string;
@@ -314,22 +252,6 @@ export interface Resource {
   isOwner: boolean;
   canBook: boolean;
   createdAt: string;
-}
-
-export interface CreateResourceRequest {
-  name: string;
-  type?: ResourceType;
-  capacity?: number;
-  bookerUserIds?: string[];
-  bookerCircleIds?: string[];
-}
-
-export interface UpdateResourceRequest {
-  name?: string;
-  type?: ResourceType;
-  capacity?: number;
-  bookerUserIds?: string[];
-  bookerCircleIds?: string[];
 }
 
 /** A booking of a resource — the owner's incoming-requests / schedule view. */

@@ -14,12 +14,13 @@ import { useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DriveOverviewDto } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { driveOverviewKey, driveRootKey, type DriveRef } from '@/lib/queries';
+import { driveOverviewKey, driveRootKey } from '@/lib/queries';
+import type { DriveSpaceRef } from '@superapp/shared';
 import { fetchDriveOverview } from '@/lib/drive-api';
 import { LoadingBlock } from '@/components/ui';
 
 export interface DriveCtx {
-  ref: DriveRef;
+  ref: DriveSpaceRef;
   overview: DriveOverviewDto | undefined;
   meId: string | null;
   /** Можно ли писать в это пространство (хотя бы где-то) */
@@ -44,7 +45,7 @@ export function DriveShell({ children }: { defaultCollapsed?: boolean; children:
   const spaceId = params.get('space') ?? undefined;
   const workspaceId = params.get('ws') ?? undefined;
 
-  const driveRef = useMemo<DriveRef>(() => ({ spaceId, workspaceId }), [spaceId, workspaceId]);
+  const driveRef = useMemo<DriveSpaceRef>(() => ({ spaceId, workspaceId }), [spaceId, workspaceId]);
 
   const { data: overview } = useQuery({
     queryKey: driveOverviewKey(driveRef),

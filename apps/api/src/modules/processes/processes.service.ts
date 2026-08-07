@@ -23,6 +23,8 @@ import {
   type ProcessUserMini,
   type ProcessValidationIssue,
   type WorkspaceRole,
+  type ProcessCredentialDto,
+  type ProcessSurface,
 } from '@superapp/shared';
 import { randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
@@ -211,7 +213,11 @@ export class ProcessesService implements OnModuleInit {
    * «урезанный редактор» перестаёт быть урезанным уже на третьем релизе.
    * Нода без `surfaces` видна везде (общий канвас Процессов).
    */
-  async listNodeTypes(userId: string, workspaceId: string, surface?: string): Promise<ProcessNodeTypeDto[]> {
+  async listNodeTypes(
+    userId: string,
+    workspaceId: string,
+    surface?: ProcessSurface,
+  ): Promise<ProcessNodeTypeDto[]> {
     await this.assertTeamMember(userId, workspaceId);
     const includeSystem = await this.isPlatformAdmin(userId);
     const all = this.registry.listTypes(includeSystem);
@@ -1135,7 +1141,7 @@ export class ProcessesService implements OnModuleInit {
   // Ф3: сейф кредов (CRUD; секрет наружу не отдаётся)
   // ---------------------------------------------------------------
 
-  async listCredentials(userId: string, workspaceId: string) {
+  async listCredentials(userId: string, workspaceId: string): Promise<ProcessCredentialDto[]> {
     await this.assertManage(userId, workspaceId);
     const creds = await this.db.processCredential.findMany({ where: { workspaceId }, orderBy: { createdAt: 'desc' } });
     return creds.map((c) => ({ id: c.id, name: c.name, type: c.type as 'header' | 'basic' | 'bearer', createdAt: c.createdAt.toISOString() }));

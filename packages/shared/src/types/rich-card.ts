@@ -62,22 +62,9 @@ export interface RichCardPayload {
   href?: string | null;
 }
 
-// ---- request payloads ----
-export interface ExecuteRichCardActionRequest {
-  ref: { type: RichCardRefType; id: string };
-  payload?: Record<string, unknown>;
-}
-
 /** Result of executing an action: the freshly re-rendered card for the actor. */
 export interface ExecuteRichCardActionResult {
   card: RichCardPayload;
   /** Optional human note to surface (e.g. "Заказ подтверждён"). */
   message?: string | null;
-}
-
-/** Request to share an entity's card into a chat (POST /rich-cards/share). */
-export interface ShareRichCardRequest {
-  chatId: string;
-  refType: RichCardRefType;
-  refId: string;
 }

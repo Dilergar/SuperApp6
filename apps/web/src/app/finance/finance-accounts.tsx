@@ -7,7 +7,7 @@
 
 import { useMemo, useState } from 'react';
 import type { FinAccountDto } from '@superapp/shared';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiErrorMessage, apiPost } from '@/lib/api';
 import {
   Alert, BentoGrid, Button, Card, CardHeader, EmptyState, GlyphField, IconButton, Input, Modal, Select, StatTile,
 } from '@/components/ui';
@@ -171,7 +171,7 @@ function NewAccountModal({ bookId, onClose, onDone }: { bookId: string | null; o
     setBusy(true);
     setError(null);
     try {
-      await api.post('/finance/accounts', {
+      await apiPost('/finance/accounts', {
         name: name.trim(),
         subtype,
         currencyCode: currency,
@@ -252,7 +252,7 @@ function SetBalanceModal({
     setBusy(true);
     setError(null);
     try {
-      await api.post(`/finance/accounts/${account.id}/set-balance`, { balance: minor }, bookParams(bookId));
+      await apiPost(`/finance/accounts/${account.id}/set-balance`, { balance: minor }, bookParams(bookId));
       onDone();
     } catch (e) {
       setError(apiErrorMessage(e));

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiDelete, apiErrorMessage, apiGet, apiPost } from '@/lib/api';
 import { Alert, Button, Card, Chip, Field, Icon, Modal } from '@/components/ui';
 import type { GoogleConnectionStatus, GoogleCalendarListItem, GoogleSyncResult } from '@superapp/shared';
 
@@ -15,15 +15,15 @@ export function GooglePanel({ onClose }: { onClose: (changed: boolean) => void }
   const [changed, setChanged] = useState(false);
 
   const load = useCallback(async () => {
-    try { setStatus((await api.get('/integrations/google/status')).data.data); } catch { /* окно откроется как «не подключено» */ }
+    try { setStatus(await apiGet('/integrations/google/status')); } catch { /* окно откроется как «не подключено» */ }
   }, []);
   useEffect(() => { load(); }, [load]);
 
   const connect = async () => {
     setBusy(true); setError('');
     try {
-      const { data } = await api.get('/integrations/google/auth-url');
-      window.location.href = data.data.url; // redirect to Google consent
+      const { url } = await apiGet<{ url: string }>('/integrations/google/auth-url');
+      window.location.href = url; // redirect to Google consent
     } catch (e) {
       const a = e as { response?: { status?: number } };
       if (a.response?.status === 400) setNotConfigured(true);
@@ -34,7 +34,7 @@ export function GooglePanel({ onClose }: { onClose: (changed: boolean) => void }
 
   const loadCalendars = async () => {
     try {
-      setCalendars((await api.get('/integrations/google/calendars')).data.data);
+      setCalendars(await apiGet('/integrations/google/calendars'));
     } catch (e) {
       setError(apiErrorMessage(e));
     }
@@ -43,7 +43,7 @@ export function GooglePanel({ onClose }: { onClose: (changed: boolean) => void }
   const selectCalendar = async (calendarId: string) => {
     setBusy(true); setError(''); setMsg('');
     try {
-      await api.post('/integrations/google/select-calendar', { calendarId });
+      await apiPost('/integrations/google/select-calendar', { calendarId });
       setChanged(true);
       await load();
       setMsg('Календарь выбран, синхронизация запущена');
@@ -55,8 +55,7 @@ export function GooglePanel({ onClose }: { onClose: (changed: boolean) => void }
   const syncNow = async () => {
     setBusy(true); setError(''); setMsg('');
     try {
-      const { data } = await api.post('/integrations/google/sync');
-      const r: GoogleSyncResult = data.data;
+      const r = await apiPost<GoogleSyncResult>('/integrations/google/sync');
       setChanged(true);
       await load();
       setMsg(`Готово: выгружено ${r.pushed}, загружено ${r.pulled}, удалено ${r.deleted}`);
@@ -68,7 +67,7 @@ export function GooglePanel({ onClose }: { onClose: (changed: boolean) => void }
   const disconnect = async () => {
     setBusy(true); setError(''); setMsg('');
     try {
-      await api.delete('/integrations/google');
+      await apiDelete('/integrations/google');
       setChanged(true);
       await load();
       setCalendars(null);

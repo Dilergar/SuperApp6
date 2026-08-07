@@ -29,7 +29,6 @@ import type {
   FinCategorySpendDto,
   FinCoinFeedItemDto,
   FinDebtDto,
-  FinListTransactionsResult,
   FinMoneySumDto,
   FinMonthReportDto,
   FinPeopleReportRowDto,
@@ -40,6 +39,7 @@ import type {
   FinTransactionDto,
   FinTransactionType,
   FinTrendPointDto,
+  CursorPage,
 } from '@superapp/shared';
 import type { FinRecurringRule } from '@prisma/client';
 
@@ -734,7 +734,7 @@ export class FinancesService implements OnModuleInit {
       cursor?: string;
       limit?: number;
     },
-  ): Promise<FinListTransactionsResult> {
+  ): Promise<CursorPage<FinTransactionDto>> {
     const book = await this.resolveBook(userId, query.bookId, 'view');
     const limit = query.limit ?? FIN_LIMITS.transactionsPageSize;
 
@@ -1906,7 +1906,7 @@ export class FinancesService implements OnModuleInit {
    * с контекстом источника (задача / заказ / выпуск) и контрагентом. Кошелёк личный —
    * лента доступна только своему владельцу и НЕ шерится с книгой (решение грилла).
    */
-  async getCoinFeed(userId: string, cursor?: string, limit = 30): Promise<{ items: FinCoinFeedItemDto[]; nextCursor: string | null }> {
+  async getCoinFeed(userId: string, cursor?: string, limit = 30): Promise<CursorPage<FinCoinFeedItemDto>> {
     const myAccounts = await this.db.account.findMany({
       where: { ownerType: 'user', ownerId: userId, type: 'user' },
       select: { id: true },
@@ -1931,7 +1931,7 @@ export class FinancesService implements OnModuleInit {
     // --- batched enrichment ---
     const currencies = await this.db.currency.findMany({
       where: { id: { in: [...new Set(page.map((r) => r.currencyId))] } },
-      select: { id: true, name: true, icon: true },
+      select: { id: true, name: true, icon: true, scale: true },
     });
     const currencyById = new Map(currencies.map((c) => [c.id, c]));
 
@@ -2008,6 +2008,7 @@ export class FinancesService implements OnModuleInit {
         id: String(r.id),
         direction: out ? 'out' : 'in',
         amount: Number(r.amount),
+        scale: currency?.scale ?? 0,
         currencyName: currency?.name ?? 'Коины',
         currencyIcon: currency?.icon ?? '🪙',
         title,

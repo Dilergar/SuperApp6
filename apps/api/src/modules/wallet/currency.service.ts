@@ -13,8 +13,9 @@ import type {
   LedgerEntryType,
   CurrencyHolder,
   IssuerType,
-  CreateCurrencyRequest,
-  UpdateCurrencyRequest,
+  CreateCurrencyInput,
+  UpdateCurrencyInput,
+  CursorPage,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { LedgerService } from './ledger.service';
@@ -43,7 +44,7 @@ export class CurrencyService {
     return row ? this.toDto(row, userId) : null;
   }
 
-  async createCurrency(userId: string, data: CreateCurrencyRequest): Promise<CurrencyDto> {
+  async createCurrency(userId: string, data: CreateCurrencyInput): Promise<CurrencyDto> {
     const existing = await this.activeCurrencyOf('user', userId);
     if (existing) {
       throw new ConflictException('У вас уже есть валюта. Можно изменить её или удалить.');
@@ -68,7 +69,7 @@ export class CurrencyService {
   }
 
   /** Rename / re-icon — at most once per 3 months. Retroactive (everything references the id). */
-  async renameCurrency(userId: string, data: UpdateCurrencyRequest): Promise<CurrencyDto> {
+  async renameCurrency(userId: string, data: UpdateCurrencyInput): Promise<CurrencyDto> {
     const row = await this.activeCurrencyOf('user', userId);
     if (!row) throw new NotFoundException('У вас ещё нет валюты');
 
@@ -204,7 +205,7 @@ export class CurrencyService {
   async getHistory(
     userId: string,
     q: { currencyId?: string; cursor?: string; limit?: number },
-  ): Promise<{ items: LedgerEntryDto[]; nextCursor: string | null }> {
+  ): Promise<CursorPage<LedgerEntryDto>> {
     const limit = Math.min(q.limit ?? WALLET_LIMITS.historyPageSize, 100);
 
     const accounts = await this.db.account.findMany({
@@ -230,6 +231,17 @@ export class CurrencyService {
     const hasMore = rows.length > limit;
     const page = hasMore ? rows.slice(0, limit) : rows;
 
+    // Масштаб валюты — на каждую строку: без него клиент печатал сумму «как есть»
+    // (у личных валют scale=0, мина ждала первой валюты со scale=2).
+    const scaleById = new Map(
+      (
+        await this.db.currency.findMany({
+          where: { id: { in: [...new Set(page.map((r) => r.currencyId))] } },
+          select: { id: true, scale: true },
+        })
+      ).map((c) => [c.id, c.scale]),
+    );
+
     return {
       items: page.map((r) => {
         const received = mine.has(r.creditAccountId);
@@ -239,6 +251,7 @@ export class CurrencyService {
           currencyId: r.currencyId,
           entryType: this.entryType(r),
           amount: signed,
+          scale: scaleById.get(r.currencyId) ?? 0,
           agreementId: r.agreementId,
           memo: r.memo,
           createdAt: r.createdAt.toISOString(),
@@ -284,7 +297,7 @@ export class CurrencyService {
     return row ? this.toCompanyDto(row) : null;
   }
 
-  async createCompanyCurrency(workspaceId: string, data: CreateCurrencyRequest): Promise<CurrencyDto> {
+  async createCompanyCurrency(workspaceId: string, data: CreateCurrencyInput): Promise<CurrencyDto> {
     if (await this.activeCurrencyOf('workspace', workspaceId)) throw new ConflictException('У компании уже есть валюта.');
     try {
       const row = await this.db.currency.create({
@@ -297,7 +310,7 @@ export class CurrencyService {
     }
   }
 
-  async renameCompanyCurrency(workspaceId: string, data: UpdateCurrencyRequest): Promise<CurrencyDto> {
+  async renameCompanyCurrency(workspaceId: string, data: UpdateCurrencyInput): Promise<CurrencyDto> {
     const row = await this.activeCurrencyOf('workspace', workspaceId);
     if (!row) throw new NotFoundException('У компании ещё нет валюты');
     if (row.lastRenamedAt) {

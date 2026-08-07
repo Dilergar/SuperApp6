@@ -15,21 +15,23 @@ import type {
   OrgDocumentDto,
   OrgDocumentListDto,
   TemplateFieldGroupDto,
+  ProcessDefinitionDto,
+  ProcessDefinitionDetailDto,
 } from '@superapp/shared';
-import { api } from '@/lib/api';
+import { apiDelete, apiGet, apiPatch, apiPost } from '@/lib/api';
 
 const base = (wsId: string) => `/workspaces/${wsId}/documents`;
 
 export async function fetchDocTypes(wsId: string): Promise<DocTypeDto[]> {
-  return (await api.get(`${base(wsId)}/doc-types`)).data.data;
+  return await apiGet(`${base(wsId)}/doc-types`);
 }
 
 export async function fetchDocTemplates(wsId: string): Promise<DocTemplateDto[]> {
-  return (await api.get(`${base(wsId)}/templates`)).data.data;
+  return await apiGet(`${base(wsId)}/templates`);
 }
 
 export async function fetchAvailableTemplates(wsId: string): Promise<AvailableTemplateDto[]> {
-  return (await api.get(`${base(wsId)}/available-templates`)).data.data;
+  return await apiGet(`${base(wsId)}/available-templates`);
 }
 
 export async function fetchOrgDocuments(
@@ -37,15 +39,15 @@ export async function fetchOrgDocuments(
   params: Record<string, string | number | undefined>,
 ): Promise<OrgDocumentListDto> {
   const clean = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== ''));
-  return (await api.get(base(wsId), { params: clean })).data.data;
+  return await apiGet(base(wsId), { params: clean });
 }
 
 export async function fetchOrgDocument(wsId: string, docId: string): Promise<OrgDocumentDto> {
-  return (await api.get(`${base(wsId)}/${docId}`)).data.data;
+  return await apiGet(`${base(wsId)}/${docId}`);
 }
 
 export async function fetchTemplateFieldGroups(): Promise<TemplateFieldGroupDto[]> {
-  return (await api.get('/templates/field-groups')).data.data.groups;
+  return (await apiGet<{ groups: TemplateFieldGroupDto[] }>('/templates/field-groups')).groups;
 }
 
 /**
@@ -54,7 +56,7 @@ export async function fetchTemplateFieldGroups(): Promise<TemplateFieldGroupDto[
  * не отдавал, а список рисовал вид принципала вместо имени получателя.
  */
 export async function fetchTemplateGrants(wsId: string, tplId: string): Promise<DocTemplateGrantDto[]> {
-  return (await api.get(`${base(wsId)}/templates/${tplId}/grants`)).data.data;
+  return await apiGet(`${base(wsId)}/templates/${tplId}/grants`);
 }
 
 /**
@@ -63,11 +65,10 @@ export async function fetchTemplateGrants(wsId: string, tplId: string): Promise<
  * списку процессов организации, а не по своей таблице.
  */
 export async function findRouteDefinitionId(wsId: string, templateId: string): Promise<string | null> {
-  const list = (await api.get(`/workspaces/${wsId}/processes`)).data.data as { id: string }[];
+  const list = await apiGet<Pick<ProcessDefinitionDto, 'id'>[]>(`/workspaces/${wsId}/processes`);
   for (const def of list) {
-    const detail = (await api.get(`/workspaces/${wsId}/processes/${def.id}`)).data.data as {
-      document?: { nodes?: { type: string; config?: Record<string, unknown> }[] };
-    };
+    const detail = await apiGet<ProcessDefinitionDetailDto>(`/workspaces/${wsId}/processes/${def.id}`);
+    // Ноды теперь типизированы (ProcessNode), а не Record<string, unknown>.
     const hit = (detail.document?.nodes ?? []).some(
       (n) => n.type === 'trigger.document' && n.config?.templateId === templateId,
     );
@@ -78,26 +79,27 @@ export async function findRouteDefinitionId(wsId: string, templateId: string): P
 
 export const documentsApi = {
   base,
-  createType: (wsId: string, body: Record<string, unknown>) => api.post(`${base(wsId)}/doc-types`, body),
+  createType: (wsId: string, body: Record<string, unknown>) => apiPost(`${base(wsId)}/doc-types`, body),
   updateType: (wsId: string, typeId: string, body: Record<string, unknown>) =>
-    api.patch(`${base(wsId)}/doc-types/${typeId}`, body),
-  archiveType: (wsId: string, typeId: string) => api.delete(`${base(wsId)}/doc-types/${typeId}`),
+    apiPatch(`${base(wsId)}/doc-types/${typeId}`, body),
+  archiveType: (wsId: string, typeId: string) => apiDelete(`${base(wsId)}/doc-types/${typeId}`),
 
-  createTemplate: (wsId: string, body: Record<string, unknown>) => api.post(`${base(wsId)}/templates`, body),
+  createTemplate: (wsId: string, body: Record<string, unknown>) =>
+    apiPost<DocTemplateDto>(`${base(wsId)}/templates`, body),
   updateTemplate: (wsId: string, tplId: string, body: Record<string, unknown>) =>
-    api.patch(`${base(wsId)}/templates/${tplId}`, body),
-  publishTemplate: (wsId: string, tplId: string) => api.post(`${base(wsId)}/templates/${tplId}/publish`),
+    apiPatch(`${base(wsId)}/templates/${tplId}`, body),
+  publishTemplate: (wsId: string, tplId: string) => apiPost(`${base(wsId)}/templates/${tplId}/publish`),
   addGrant: (wsId: string, tplId: string, body: { principalType: string; principalId: string }) =>
-    api.post(`${base(wsId)}/templates/${tplId}/grants`, body),
+    apiPost(`${base(wsId)}/templates/${tplId}/grants`, body),
   removeGrant: (wsId: string, tplId: string, principalType: string, principalId: string) =>
-    api.delete(`${base(wsId)}/templates/${tplId}/grants/${principalType}/${principalId}`),
+    apiDelete(`${base(wsId)}/templates/${tplId}/grants/${principalType}/${principalId}`),
 
-  createDocument: (wsId: string, body: Record<string, unknown>) => api.post(base(wsId), body),
+  createDocument: (wsId: string, body: Record<string, unknown>) => apiPost<OrgDocumentDto>(base(wsId), body),
   updateDocument: (wsId: string, docId: string, body: Record<string, unknown>) =>
-    api.patch(`${base(wsId)}/${docId}`, body),
-  submit: (wsId: string, docId: string) => api.post(`${base(wsId)}/${docId}/submit`),
-  cancel: (wsId: string, docId: string) => api.post(`${base(wsId)}/${docId}/cancel`),
+    apiPatch(`${base(wsId)}/${docId}`, body),
+  submit: (wsId: string, docId: string) => apiPost(`${base(wsId)}/${docId}/submit`),
+  cancel: (wsId: string, docId: string) => apiPost(`${base(wsId)}/${docId}/cancel`),
   /** Вернуть с маршрута в черновик — пока по документу никто не начал решать */
-  withdraw: (wsId: string, docId: string) => api.post(`${base(wsId)}/${docId}/withdraw`),
-  requestPdf: (wsId: string, docId: string) => api.post(`${base(wsId)}/${docId}/pdf`),
+  withdraw: (wsId: string, docId: string) => apiPost(`${base(wsId)}/${docId}/withdraw`),
+  requestPdf: (wsId: string, docId: string) => apiPost(`${base(wsId)}/${docId}/pdf`),
 };

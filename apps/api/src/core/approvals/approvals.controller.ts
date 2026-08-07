@@ -42,8 +42,9 @@ export class ApprovalsController {
   @ApiOperation({ summary: 'Мои заявки: где сейчас то, что я отправил' })
   async mine(@CurrentUser() user: JwtPayload, @Query() query: Record<string, unknown>) {
     const q = approvalMineQuerySchema.parse(query);
-    const data = await this.approvals.listMine(user.sub, q);
-    return { success: true, data: data.items, actors: data.actors, nextCursor: data.nextCursor };
+    // ApprovalMinePage целиком: тип уже стоял на API и НЕ стоял на вебе именно
+    // потому, что страница разбиралась здесь.
+    return { success: true, data: await this.approvals.listMine(user.sub, q) };
   }
 
   // ЗАВЕДЕНИЯ ЗАЯВКИ ПО HTTP ЗДЕСЬ НЕТ И БЫТЬ НЕ ДОЛЖНО.

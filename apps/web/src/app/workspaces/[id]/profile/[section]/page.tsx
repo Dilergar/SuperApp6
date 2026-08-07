@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
 import { CompanyCard } from '../../CompanyCard';
 import { RequisitesSection } from '../RequisitesSection';
 import { EntitySelector } from '@/components/EntitySelector';
@@ -79,8 +79,7 @@ export default function WorkspaceSectionPage() {
   const fetchWs = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await api.get(`/workspaces/${id}`);
-      const w: Workspace = r.data.data;
+      const w = await apiGet<Workspace>(`/workspaces/${id}`);
       setWs(w);
       setForm({
         name: w.name,
@@ -122,7 +121,7 @@ export default function WorkspaceSectionPage() {
   // Load members for the security transfer picker.
   useEffect(() => {
     if (ws && section === 'security' && isOwner) {
-      api.get(`/workspaces/${id}/members`).then((r) => setMembers(r.data.data)).catch(() => {});
+      apiGet<WorkspaceMember[]>(`/workspaces/${id}/members`).then(setMembers).catch(() => {});
     }
   }, [ws, section, isOwner, id]);
 
@@ -141,7 +140,7 @@ export default function WorkspaceSectionPage() {
     setSaving(true);
     clear();
     try {
-      await api.patch(`/workspaces/${id}`, {
+      await apiPatch(`/workspaces/${id}`, {
         name: form.name,
         logo: form.logo.trim() || null,
         description: form.description.trim() || null,
@@ -165,7 +164,7 @@ export default function WorkspaceSectionPage() {
     setVis(next);
     if (visTimer.current) clearTimeout(visTimer.current);
     visTimer.current = setTimeout(() => {
-      api.patch(`/workspaces/${id}`, { cardVisibility: next }).catch(() => {});
+      apiPatch(`/workspaces/${id}`, { cardVisibility: next }).catch(() => {});
     }, 600);
   };
 
@@ -173,7 +172,7 @@ export default function WorkspaceSectionPage() {
     if (!transferTo) return;
     setBusy(true);
     try {
-      await api.post(`/workspaces/${id}/transfer`, { toUserId: transferTo });
+      await apiPost(`/workspaces/${id}/transfer`, { toUserId: transferTo });
       router.replace(`/workspaces/${id}/profile/card`);
     } catch (e) {
       setError(apiErrorMessage(e));
@@ -185,7 +184,7 @@ export default function WorkspaceSectionPage() {
   const doDeactivate = async () => {
     setBusy(true);
     try {
-      await api.delete(`/workspaces/${id}`);
+      await apiDelete(`/workspaces/${id}`);
       router.push('/dashboard');
     } catch (e) {
       setError(apiErrorMessage(e));
@@ -265,7 +264,7 @@ export default function WorkspaceSectionPage() {
                 label="Логотип"
                 ownerWorkspaceId={id}
                 onSaved={async (url) => {
-                  await api.patch(`/workspaces/${id}`, { logo: url });
+                  await apiPatch(`/workspaces/${id}`, { logo: url });
                   setForm((f) => ({ ...f, logo: url ?? '' }));
                   setSuccess(url ? 'Логотип обновлён' : 'Логотип удалён');
                   await fetchWs();

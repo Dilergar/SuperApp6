@@ -29,7 +29,7 @@ async function call(method, p, token, body) {
 const login = async (phone) => { const r = await call('POST', '/auth/login', null, { phone, password: PW }); if (!r.ok) throw new Error(`login ${phone}: ${r.status}`); return r.json.data.accessToken; };
 const q = (params) => '?' + new URLSearchParams(params).toString();
 const stats = async (t) => (await call('GET', '/tasks/stats', t)).json?.data;
-const listIds = async (t, params) => ((await call('GET', '/tasks' + q(params), t)).json?.data ?? []).map((x) => x.id);
+const listIds = async (t, params) => ((await call('GET', '/tasks' + q(params), t)).json?.data?.items ?? []).map((x) => x.id);
 
 async function main() {
   const prisma = new PrismaClient();
@@ -122,7 +122,7 @@ async function main() {
 
     // ---- 9. паритет stats ↔ meta.total соответствующих листов
     const sFin = await stats(t1);
-    const totalOf = async (params) => (await call('GET', '/tasks' + q({ ...params, limit: '1' }), t1)).json?.meta?.total;
+    const totalOf = async (params) => (await call('GET', '/tasks' + q({ ...params, limit: '1' }), t1)).json?.data?.meta?.total;
     const openCsv = 'todo,in_progress,on_review';
     check('паритет: inbox', sFin.inbox === await totalOf({ smartList: 'inbox' }), `${sFin.inbox}`);
     check('паритет: today', sFin.today === await totalOf({ smartList: 'today' }), `${sFin.today}`);

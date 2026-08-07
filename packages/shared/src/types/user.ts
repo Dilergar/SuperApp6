@@ -57,8 +57,21 @@ export interface UserRoleInfo {
   tenantId: string | null;
 }
 
-export interface SubscriptionInfo {
+/**
+ * Ответ `GET /users/lookup?phone=` — ПРЕ-ЛИНК карточка (форма приглашения):
+ * фамилия маскирована до инициала («Санжар Н.», Kaspi-стиль), больше о человеке
+ * до подтверждения связи не отдаётся.
+ */
+export interface UserLookupDto {
   id: string;
+  phone: string;
+  firstName: string;
+  lastName: string | null;
+  avatar: string | null;
+}
+
+export interface SubscriptionInfo {
+  // `id` здесь НЕТ намеренно: select профиля его не берёт, и провод его никогда не слал.
   plan: 'free' | 'personal' | 'family' | 'business';
   status: 'active' | 'trial' | 'expired' | 'cancelled';
   expiresAt: string;

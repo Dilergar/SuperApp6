@@ -28,7 +28,13 @@ import {
   type CardVisibility,
   type ChangePasswordInput,
   type ChangePhoneInput,
+  type SessionInfo,
+  type SocialLinks,
+  type SubscriptionInfo,
   type UpdateProfileInput,
+  type User,
+  type UserLookupDto,
+  type UserProfile,
 } from '@superapp/shared';
 
 /** Days a deleted account stays recoverable before permanent anonymization. */
@@ -60,9 +66,15 @@ export class UsersService implements OnModuleInit {
     this.jobsRegistry.register(USER_PHONE_INVITATIONS_JOB, (payload) => this.runPhoneInvitationsJob(payload));
   }
 
-  async getProfile(userId: string) {
+  /**
+   * ФОРМА ПРОВОДА `GET /users/me` — аннотация `Promise<UserProfile>` и есть договор с
+   * клиентами: она заставляет компилятор удерживать сериализацию (Date → ISO-строка
+   * В СЕРВИСЕ), computed `isVerified` и полный набор полей. До 2026-08-07 возврат
+   * выводился из Prisma-select, и веб держал свою урезанную копию типа.
+   */
+  async getProfile(userId: string): Promise<UserProfile> {
     // Try cache first
-    const cached = await this.redis.getJson<Record<string, unknown>>(`user:${userId}:profile`);
+    const cached = await this.redis.getJson<UserProfile>(`user:${userId}:profile`);
     if (cached) return cached;
 
     const user = await this.db.user.findUnique({
@@ -128,8 +140,12 @@ export class UsersService implements OnModuleInit {
 
     const { _count, subscription, cardVisibility, companyCardVisibility, dateOfBirth, phoneVerifiedAt, idDocIssuedAt, ...rest } = user;
 
-    const profile = {
+    const profile: UserProfile = {
       ...rest,
+      // JSON-колонка: единственный узаконенный каст границы (на записи её стережёт strict-Zod).
+      socialLinks: rest.socialLinks as SocialLinks | null,
+      createdAt: rest.createdAt.toISOString(),
+      updatedAt: rest.updatedAt.toISOString(),
       // Наружу — прежний boolean (веб/mobile не меняются); истина в БД — timestamp.
       isVerified: !!phoneVerifiedAt,
       dateOfBirth: dateOfBirth ? dateOfBirth.toISOString().slice(0, 10) : null,
@@ -146,7 +162,16 @@ export class UsersService implements OnModuleInit {
       circlesCount: _count.ownedCircles,
       workspacesCount: _count.workspaceMembers,
       contactsCount: _count.contactLinksA + _count.contactLinksB,
-      activeSubscription: subscription,
+      activeSubscription: subscription
+        ? {
+            // plan/status в БД — колонки String (перечисление живёт в коде):
+            // тот же класс каста, что `status as WorkspaceInvitationStatus`.
+            plan: subscription.plan as SubscriptionInfo['plan'],
+            status: subscription.status as SubscriptionInfo['status'],
+            expiresAt: subscription.expiresAt.toISOString(),
+            giftedBy: subscription.giftedBy,
+          }
+        : null,
     };
 
     // Cache for 5 minutes
@@ -155,7 +180,11 @@ export class UsersService implements OnModuleInit {
     return profile;
   }
 
-  async updateProfile(userId: string, data: UpdateProfileInput) {
+  /** Ответ `PATCH /users/me` — урезанный профиль (веб его не читает, но контракт стоит). */
+  async updateProfile(
+    userId: string,
+    data: UpdateProfileInput,
+  ): Promise<Omit<User, 'isVerified' | 'createdAt' | 'updatedAt'>> {
     const { dateOfBirth, cardVisibility, companyCardVisibility, socialLinks, ...rest } = data;
     // Аватар хранится ССЫЛКОЙ (не FileLink) → при замене прибираем прежний файл сами,
     // иначе каждая смена аватара навсегда копит квоту (публичные файлы крон не свипает).
@@ -252,6 +281,7 @@ export class UsersService implements OnModuleInit {
 
     return {
       ...user,
+      socialLinks: user.socialLinks as SocialLinks | null,
       dateOfBirth: user.dateOfBirth ? user.dateOfBirth.toISOString().slice(0, 10) : null,
       idDocIssuedAt: user.idDocIssuedAt ? user.idDocIssuedAt.toISOString().slice(0, 10) : null,
     };
@@ -592,7 +622,7 @@ export class UsersService implements OnModuleInit {
     );
   }
 
-  async findByPhone(phone: string) {
+  async findByPhone(phone: string): Promise<UserLookupDto | null> {
     return this.db.user.findUnique({
       where: { phone },
       select: {
@@ -605,8 +635,14 @@ export class UsersService implements OnModuleInit {
     });
   }
 
-  async getSessions(userId: string) {
-    return this.db.session.findMany({
+  /**
+   * Список устройств. `currentSid` — `sid` из payload access-токена запроса: только по
+   * нему сервер может честно пометить «Текущая сессия», не заставляя клиента слать на
+   * ручку листинга свой refresh-токен (главный секрет). Токены, выпущенные до появления
+   * поля, дают `isCurrent=false` до первого refresh (≤15 минут) — косметика.
+   */
+  async getSessions(userId: string, currentSid?: string): Promise<SessionInfo[]> {
+    const rows = await this.db.session.findMany({
       where: { userId },
       select: {
         id: true,
@@ -616,6 +652,13 @@ export class UsersService implements OnModuleInit {
       },
       orderBy: { lastActive: 'desc' },
     });
+    return rows.map((s) => ({
+      id: s.id,
+      deviceInfo: s.deviceInfo,
+      lastActive: s.lastActive.toISOString(),
+      createdAt: s.createdAt.toISOString(),
+      isCurrent: !!currentSid && s.id === currentSid,
+    }));
   }
 
   async deleteSession(userId: string, sessionId: string) {

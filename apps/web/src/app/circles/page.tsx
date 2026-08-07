@@ -7,7 +7,7 @@ import {
   PageHeader, SearchField, SegmentedControl, useConfirm,
 } from '@/components/ui';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { api } from '@/lib/api';
+import { apiDelete, apiGet, apiPost } from '@/lib/api';
 import {
   contactsKey,
   contactsPagesKey,
@@ -33,6 +33,7 @@ import { PersonAvatar } from '../messenger/messenger-ui';
 import { DEFAULT_CIRCLE_PRESETS } from '@superapp/shared';
 import type {
   Circle,
+  UserLookupDto,
   CircleWithMembers,
   ContactBlockRecord,
   IncomingInvitation,
@@ -61,14 +62,6 @@ import {
 } from './circles-ui';
 import { AcceptInvitationModal, GroupEditModal } from './circles-modals';
 
-/** Найденный по номеру человек (ответ `/users/lookup`, фамилия — инициалом). */
-interface LookupResult {
-  id: string;
-  firstName: string;
-  lastName: string | null;
-  phone: string;
-}
-
 type InvitationTab = 'active' | 'history';
 
 export default function CirclesPage() {
@@ -83,7 +76,7 @@ export default function CirclesPage() {
   // ---- Форма приглашения ----
   const [showInvite, setShowInvite] = useState(false);
   const [invPhone, setInvPhone] = useState('+7');
-  const [invLookup, setInvLookup] = useState<LookupResult | null>(null);
+  const [invLookup, setInvLookup] = useState<UserLookupDto | null>(null);
   const [invLookupLoading, setInvLookupLoading] = useState(false);
   const [invLookupDone, setInvLookupDone] = useState(false);
   const [invTheyForMe, setInvTheyForMe] = useState('');
@@ -166,7 +159,15 @@ export default function CirclesPage() {
   );
 
   const groupsQ = useQuery({ queryKey: circlesKey, queryFn: fetchCircles, enabled: isReady });
-  const incomingQ = useQuery({ queryKey: incomingInvitationsKey, queryFn: fetchIncomingInvitations, enabled: isReady });
+  // Входящие — той же курсорной лесенкой, что исходящие: раньше UI брал только первую
+  // страницу, и приглашение №21 не существовало для человека в принципе.
+  const incomingQ = useInfiniteQuery({
+    queryKey: incomingInvitationsKey,
+    queryFn: ({ pageParam }) => fetchIncomingInvitations((pageParam as string | undefined) || undefined),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled: isReady,
+  });
   const outgoingQ = useInfiniteQuery({
     queryKey: outgoingInvitationsKey('pending'),
     queryFn: ({ pageParam }) => fetchOutgoingInvitations('pending', (pageParam as string | undefined) || undefined),
@@ -192,7 +193,10 @@ export default function CirclesPage() {
   });
 
   const groups: Circle[] = useMemo(() => sortGroups(groupsQ.data ?? []), [groupsQ.data]);
-  const incoming: IncomingInvitation[] = incomingQ.data ?? [];
+  const incoming: IncomingInvitation[] = useMemo(
+    () => incomingQ.data?.pages.flatMap((p) => p.items) ?? [],
+    [incomingQ.data],
+  );
   const outgoing: OutgoingInvitation[] = useMemo(
     () => outgoingQ.data?.pages.flatMap((p) => p.items) ?? [],
     [outgoingQ.data],
@@ -277,9 +281,12 @@ export default function CirclesPage() {
       lookupAbort.current = ctrl;
       void (async () => {
         try {
-          const { data } = await api.get('/users/lookup', { params: { phone }, signal: ctrl.signal });
+          const found = await apiGet<UserLookupDto | null>('/users/lookup', {
+            params: { phone },
+            signal: ctrl.signal,
+          });
           if (ctrl.signal.aborted) return;
-          setInvLookup(data.data as LookupResult);
+          setInvLookup(found);
           setInvLookupDone(true);
         } catch {
           if (ctrl.signal.aborted) return; // состояние уже принадлежит новому номеру
@@ -333,7 +340,7 @@ export default function CirclesPage() {
       if (invMeForThem.trim()) payload.proposedRoleForSender = invMeForThem.trim();
       if (invMessage.trim()) payload.message = invMessage.trim();
       if (invGroupIds.length > 0) payload.autoAddToCircleIds = invGroupIds;
-      await api.post('/contacts/invitations', payload);
+      await apiPost('/contacts/invitations', payload);
     }, 'Приглашение отправлено');
     setSending(false);
     if (ok) {
@@ -345,20 +352,20 @@ export default function CirclesPage() {
 
   const handleReject = (invId: string) =>
     runAction(async () => {
-      await api.post(`/contacts/invitations/${invId}/reject`);
+      await apiPost(`/contacts/invitations/${invId}/reject`);
       queryClient.invalidateQueries({ queryKey: incomingInvitationsKey });
     }, 'Приглашение отклонено');
 
   const handleCancel = (invId: string) =>
     runAction(async () => {
-      await api.post(`/contacts/invitations/${invId}/cancel`);
+      await apiPost(`/contacts/invitations/${invId}/cancel`);
       queryClient.invalidateQueries({ queryKey: outgoingInvitationsRootKey });
     }, 'Приглашение отменено');
 
   const handleResend = async (invId: string) => {
     setResendingId(invId);
     await runAction(async () => {
-      await api.post(`/contacts/invitations/${invId}/resend`);
+      await apiPost(`/contacts/invitations/${invId}/resend`);
       queryClient.invalidateQueries({ queryKey: outgoingInvitationsRootKey });
     }, 'Приглашение отправлено повторно');
     setResendingId(null);
@@ -366,7 +373,7 @@ export default function CirclesPage() {
 
   const blockNow = (userId: string) =>
     runAction(async () => {
-      await api.post('/contacts/blocks', { userId });
+      await apiPost('/contacts/blocks', { userId });
       queryClient.invalidateQueries({ queryKey: blocksKey });
       queryClient.invalidateQueries({ queryKey: outgoingInvitationsRootKey });
       refreshContacts(); // связь удалена, приглашения гаснут
@@ -401,7 +408,7 @@ export default function CirclesPage() {
       },
       async () => {
         await runAction(async () => {
-          await api.delete(`/contacts/blocks/${userId}`);
+          await apiDelete(`/contacts/blocks/${userId}`);
           queryClient.invalidateQueries({ queryKey: blocksKey });
         }, 'Пользователь разблокирован');
       },
@@ -410,7 +417,7 @@ export default function CirclesPage() {
 
   const handleDeleteContact = (linkId: string) =>
     runAction(async () => {
-      await api.delete(`/contacts/${linkId}`);
+      await apiDelete(`/contacts/${linkId}`);
       refreshContacts();
       refreshGroups(); // membersCount
       if (activeGroup) queryClient.invalidateQueries({ queryKey: circleDetailKey(activeGroup) });
@@ -422,7 +429,7 @@ export default function CirclesPage() {
     if (!name) return;
     setCreatingGroup(true);
     const ok = await runAction(async () => {
-      await api.post('/circles', { name, color: groupColor, ...(groupIcon ? { icon: groupIcon } : {}) });
+      await apiPost('/circles', { name, color: groupColor, ...(groupIcon ? { icon: groupIcon } : {}) });
       refreshGroups();
     }, 'Группа создана');
     setCreatingGroup(false);
@@ -435,14 +442,14 @@ export default function CirclesPage() {
 
   const handleDeleteGroup = (groupId: string) =>
     runAction(async () => {
-      await api.delete(`/circles/${groupId}`);
+      await apiDelete(`/circles/${groupId}`);
       if (activeGroup === groupId) setActiveGroup(null);
       refreshGroups();
     }, 'Группа удалена');
 
   const handleAddToGroup = (contactLinkId: string, groupId: string) =>
     runAction(async () => {
-      await api.post(`/circles/${groupId}/members`, { contactLinkId });
+      await apiPost(`/circles/${groupId}/members`, { contactLinkId });
       refreshGroups(); // membersCount
       queryClient.invalidateQueries({ queryKey: contactsKey }); // myCircleIds на карточках
       queryClient.invalidateQueries({ queryKey: circleDetailKey(groupId) });
@@ -452,7 +459,7 @@ export default function CirclesPage() {
     if (!activeGroup) return Promise.resolve(false);
     const groupId = activeGroup;
     return runAction(async () => {
-      await api.delete(`/circles/${groupId}/members/${linkId}`);
+      await apiDelete(`/circles/${groupId}/members/${linkId}`);
       refreshGroups();
       queryClient.invalidateQueries({ queryKey: contactsKey });
       queryClient.invalidateQueries({ queryKey: circleDetailKey(groupId) });
@@ -570,7 +577,8 @@ export default function CirclesPage() {
             {invLookupDone && invLookup && !inviteBlocked && (
               <Alert tone="accent" className="mb-6">
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
-                  <PersonAvatar userId={invLookup.id} name={invLookup.firstName} size="sm" />
+                  {/* Аватар уже приехал в этом же ответе — минус запрос движка скинов на каждый ввод номера. */}
+                  <PersonAvatar userId={invLookup.id} name={invLookup.firstName} avatar={invLookup.avatar} size="sm" />
                   {invLookup.firstName} {invLookup.lastName || ''} · {invLookup.phone}
                 </span>
               </Alert>
@@ -683,6 +691,16 @@ export default function CirclesPage() {
                     onBlock={() => handleBlock(inv.fromUserId, inv.from?.firstName || 'этого пользователя')}
                   />
                 ))}
+                {incomingQ.hasNextPage && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    loading={incomingQ.isFetchingNextPage}
+                    onClick={() => void incomingQ.fetchNextPage()}
+                  >
+                    Показать ещё входящие
+                  </Button>
+                )}
                 {outgoing.map((inv) => (
                   <InvitationCard
                     key={inv.id}

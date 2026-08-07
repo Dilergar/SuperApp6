@@ -9,10 +9,30 @@ import {
   ConnectedSocket,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import type {
+  MessengerClientToServerEvents,
+  MessengerServerToClientEvents,
+  WsCursorInput,
+  WsTypingInput,
+} from '@superapp/shared';
+
 import { SessionValidatorService } from '../../shared/auth/session-validator.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { MessengerService } from './messenger.service';
 import { PresenceService } from './presence.service';
+
+/**
+ * Доменное событие шины → имя события сокета. `satisfies` держит правую колонку в
+ * рамках объявленной карты: опечатка в имени события становится ошибкой сборки, а
+ * не «клиент молча ничего не получает». Раньше это был вложенный тернарник.
+ */
+const RELAY_MAP = {
+  'messenger.message.created': 'message:new',
+  'messenger.message.updated': 'message:updated',
+  'messenger.message.deleted': 'message:deleted',
+  'messenger.receipt': 'receipt',
+  'messenger.call.state': 'call:state',
+} as const satisfies Record<string, keyof MessengerServerToClientEvents>;
 
 /**
  * Realtime channel for the messenger. Auth happens on the socket handshake (JWT).
@@ -35,7 +55,8 @@ export class MessengerGateway
 {
   private readonly logger = new Logger('MessengerGateway');
 
-  @WebSocketServer() server!: Server;
+  @WebSocketServer()
+  server!: Server<MessengerClientToServerEvents, MessengerServerToClientEvents>;
 
   constructor(
     private sessions: SessionValidatorService,
@@ -110,21 +131,13 @@ export class MessengerGateway
 
     const memberIds: string[] = payload?.memberUserIds ?? [];
     if (!memberIds.length) return;
-    const event =
-      type === 'messenger.message.created'
-        ? 'message:new'
-        : type === 'messenger.message.updated'
-          ? 'message:updated'
-          : type === 'messenger.message.deleted'
-            ? 'message:deleted'
-            : type === 'messenger.receipt'
-              ? 'receipt'
-              : type === 'messenger.call.state'
-                ? 'call:state'
-                : null;
+    const event = (RELAY_MAP as Record<string, keyof MessengerServerToClientEvents | undefined>)[type];
     if (!event) return;
     const rooms = memberIds.map((id) => `user:${id}`);
-    this.server.to(rooms).emit(event, payload);
+    // ЕДИНСТВЕННЫЙ узаконенный каст канала: с шины payload приходит как
+    // Record<string, any>. Формы enforced на emit-САЙТАХ сервиса (там литералы
+    // объявлены Ws*-типами), здесь остаётся только доставка.
+    (this.server.to(rooms).emit as (ev: string, p: unknown) => boolean)(event, payload);
   }
 
   /**
@@ -148,7 +161,7 @@ export class MessengerGateway
   @SubscribeMessage('message:delivered')
   async onDelivered(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { chatId: string; seq: number },
+    @MessageBody() data: WsCursorInput,
   ): Promise<void> {
     const userId = client.data?.userId as string | undefined;
     if (!userId || !data?.chatId) return;
@@ -159,7 +172,7 @@ export class MessengerGateway
   @SubscribeMessage('message:read')
   async onRead(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { chatId: string; seq: number },
+    @MessageBody() data: WsCursorInput,
   ): Promise<void> {
     const userId = client.data?.userId as string | undefined;
     if (!userId || !data?.chatId) return;
@@ -184,7 +197,7 @@ export class MessengerGateway
   @SubscribeMessage('typing:start')
   async onTypingStart(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { chatId: string },
+    @MessageBody() data: WsTypingInput,
   ): Promise<void> {
     if (!this.allow(client, 'typing', 60)) return;
     await this.relayTyping(client, data?.chatId, true);
@@ -193,7 +206,7 @@ export class MessengerGateway
   @SubscribeMessage('typing:stop')
   async onTypingStop(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { chatId: string },
+    @MessageBody() data: WsTypingInput,
   ): Promise<void> {
     if (!this.allow(client, 'typing', 60)) return;
     await this.relayTyping(client, data?.chatId, false);

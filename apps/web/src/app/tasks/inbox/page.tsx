@@ -13,7 +13,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { apiPatch, apiPost } from '@/lib/api';
 import { contactsKey, fetchAllContacts } from '@/lib/queries';
 import { EntitySelector } from '@/components/EntitySelector';
 import { useTasksService } from '../tasks-shell';
@@ -77,17 +77,17 @@ function InboxRow({ task, contacts, onChanged }: { task: Task; contacts: Contact
     }
   };
 
-  const complete = () => run(() => api.post(`/tasks/${task.id}/submit`));
-  const markSorted = () => run(() => api.patch(`/tasks/${task.id}`, { inbox: false }));
+  const complete = () => run(() => apiPost(`/tasks/${task.id}/submit`));
+  const markSorted = () => run(() => apiPatch(`/tasks/${task.id}`, { inbox: false }));
   const saveDue = () => {
     if (!due) return;
     const d = withTime ? new Date(due) : new Date(`${due}T00:00:00`);
     if (Number.isNaN(d.getTime())) return;
-    return run(() => api.patch(`/tasks/${task.id}`, { dueDate: d.toISOString(), allDay: !withTime }));
+    return run(() => apiPatch(`/tasks/${task.id}`, { dueDate: d.toISOString(), allDay: !withTime }));
   };
   const saveExecutor = () => {
     if (!executorId) return;
-    return run(() => api.patch(`/tasks/${task.id}`, { executorId }));
+    return run(() => apiPatch(`/tasks/${task.id}`, { executorId }));
   };
 
   const actionStyle: React.CSSProperties = {

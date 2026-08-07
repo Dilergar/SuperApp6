@@ -3,7 +3,7 @@
 import { useState, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Input, Select } from '@/components/ui';
-import { api } from '@/lib/api';
+import { apiGet, apiPost, apiPut } from '@/lib/api';
 import {
   cardSkinsCatalogKey, cardSkinsEquipKey, cardSkinsInventoryKey, cardSkinsWalletKey,
   circlesKey, fetchCircles,
@@ -16,6 +16,7 @@ import {
   type CardSkinEquipState,
   type CardSkinRender,
   type Circle,
+  type UserProfile,
 } from '@superapp/shared';
 import { PersonCard } from '../circles/PersonCard';
 import { GroupChip } from '../circles/EntityChip';
@@ -29,20 +30,12 @@ function errMsg(e: unknown, fallback = 'Ошибка'): string {
 const fmt = (n: number) => n.toLocaleString('ru-RU');
 
 interface SkinsSectionProps {
-  // The signed-in user's profile (for the live preview). Shape is loose on purpose.
-  profile: {
-    id?: string;
-    firstName?: string;
-    lastName?: string | null;
-    phone?: string;
-    dateOfBirth?: string | null;
-    bio?: string | null;
-    city?: string | null;
-    email?: string | null;
-    maritalStatus?: string | null;
-    socialLinks?: { telegram?: string; instagram?: string } | null;
-    cardVisibility?: unknown;
-  } | null;
+  /**
+   * Профиль вошедшего (для живого превью карточки) — ОДИН тип с сервером.
+   * Раньше здесь лежала ТРЕТЬЯ копия полей профиля («форма свободная»), и
+   * вызывающий передавал `profile as never` — каст, глушивший проверку целиком.
+   */
+  profile: UserProfile | null;
 }
 
 /**
@@ -56,22 +49,22 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
   const qc = useQueryClient();
   const walletQ = useQuery({
     queryKey: cardSkinsWalletKey,
-    queryFn: async () => (await api.get('/card-skins/wallet')).data.data as CardSkinWallet,
+    queryFn: async () => await apiGet<CardSkinWallet>('/card-skins/wallet'),
     staleTime: 60_000,
   });
   const catalogQ = useQuery({
     queryKey: cardSkinsCatalogKey,
-    queryFn: async () => (await api.get('/card-skins/catalog')).data.data as CardSkinCatalogItem[],
+    queryFn: async () => await apiGet<CardSkinCatalogItem[]>('/card-skins/catalog'),
     staleTime: 60_000,
   });
   const inventoryQ = useQuery({
     queryKey: cardSkinsInventoryKey,
-    queryFn: async () => (await api.get('/card-skins/inventory')).data.data as CardSkinInstanceDto[],
+    queryFn: async () => await apiGet<CardSkinInstanceDto[]>('/card-skins/inventory'),
     staleTime: 60_000,
   });
   const equipQ = useQuery({
     queryKey: cardSkinsEquipKey,
-    queryFn: async () => (await api.get('/card-skins/equip')).data.data as CardSkinEquipState,
+    queryFn: async () => await apiGet<CardSkinEquipState>('/card-skins/equip'),
     staleTime: 60_000,
   });
   // Группы — ОБЩИЙ ключ приложения: список уже загружен «Окружением»/пикерами
@@ -107,14 +100,14 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
   const topUp = () => {
     const n = parseInt(topAmt, 10);
     if (!Number.isInteger(n) || n <= 0) return setError('Введите целое число больше 0');
-    return run(async () => { await api.post('/card-skins/wallet/topup', { amount: n }); }, [cardSkinsWalletKey], `Пополнено на ${fmt(n)}`);
+    return run(async () => { await apiPost('/card-skins/wallet/topup', { amount: n }); }, [cardSkinsWalletKey], `Пополнено на ${fmt(n)}`);
   };
   const buy = (id: string) =>
-    run(async () => { await api.post(`/card-skins/${id}/buy`); }, [cardSkinsWalletKey, cardSkinsCatalogKey, cardSkinsInventoryKey], 'Скин куплен');
+    run(async () => { await apiPost(`/card-skins/${id}/buy`); }, [cardSkinsWalletKey, cardSkinsCatalogKey, cardSkinsInventoryKey], 'Скин куплен');
   const equipDefault = (instanceId: string | null) =>
-    run(async () => { await api.put('/card-skins/equip/default', { instanceId }); invalidatePersonSkins(); }, [cardSkinsEquipKey], instanceId ? 'Скин надет' : 'Скин снят');
+    run(async () => { await apiPut('/card-skins/equip/default', { instanceId }); invalidatePersonSkins(); }, [cardSkinsEquipKey], instanceId ? 'Скин надет' : 'Скин снят');
   const equipGroup = (circleId: string, instanceId: string | null) =>
-    run(async () => { await api.put('/card-skins/equip/group', { circleId, instanceId }); invalidatePersonSkins(); }, [cardSkinsEquipKey], 'Готово');
+    run(async () => { await apiPut('/card-skins/equip/group', { circleId, instanceId }); invalidatePersonSkins(); }, [cardSkinsEquipKey], 'Готово');
 
   if (loading) return <p className="label-md">Загрузка скинов…</p>;
   if (loadError && !wallet) return <p style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>{errMsg(loadError, 'Не удалось загрузить скины')}</p>;
@@ -172,7 +165,7 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
               email: profile.email ?? null,
               maritalStatus: profile.maritalStatus ?? null,
               socialLinks: profile.socialLinks ?? null,
-              cardVisibility: resolveCardVisibility(profile.cardVisibility as never),
+              cardVisibility: resolveCardVisibility(profile.cardVisibility),
             }}
           />
         </div>

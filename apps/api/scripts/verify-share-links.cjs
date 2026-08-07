@@ -216,12 +216,12 @@ async function main() {
     // ============================================================
     const listRoot = await call('GET', '/drive/guest/nodes', null, null, { [SESSION_HEADER]: sessA });
     check('гость видит содержимое корня ссылки', listRoot.ok, `status ${listRoot.status}`);
-    const names = (listRoot.json?.data ?? []).map((n) => n.name);
+    const names = (listRoot.json?.data?.items ?? []).map((n) => n.name);
     check('в корне видна вложенная папка', names.includes(`sl-B-${stamp}`), names.join(','));
 
     const listB = await call('GET', `/drive/guest/nodes?parentId=${folderB}`, null, null, { [SESSION_HEADER]: sessA });
     check('гость заходит во вложенную папку', listB.ok, `status ${listB.status}`);
-    const fileRow = (listB.json?.data ?? [])[0];
+    const fileRow = (listB.json?.data?.items ?? [])[0];
     check('файл виден со ссылкой на байты', !!fileRow?.file?.url && fileRow.file.available === true, fileRow?.file?.url ? 'url есть' : 'url нет');
 
     // Байты реально отдаются постороннему по подписанной ссылке
@@ -414,21 +414,21 @@ async function main() {
     // потребителя), поэтому вместе с ним закрывается и доступ к его журналу.
     // ============================================================
     const visits = await call('GET', `/share-links/${linkA.id}/visits`, t1);
-    check('журнал визитов доступен управляющему', visits.ok && visits.json.data.length >= 2, `визитов ${visits.json?.data?.length}`);
-    check('id визита отдаётся строкой', typeof visits.json?.data?.[0]?.id === 'string', typeof visits.json?.data?.[0]?.id);
+    check('журнал визитов доступен управляющему', visits.ok && visits.json.data.items.length >= 2, `визитов ${visits.json?.data?.items?.length}`);
+    check('id визита отдаётся строкой', typeof visits.json?.data?.items?.[0]?.id === 'string', typeof visits.json?.data?.items?.[0]?.id);
     const visitsForeign = await call('GET', `/share-links/${linkA.id}/visits`, t3);
     check('посторонний не видит журнал → 404', visitsForeign.status === 404, `status ${visitsForeign.status}`);
 
     const listLinks = await call('GET', `/share-links?refType=drive_node&refId=${folderA}`, t1);
-    check('список ссылок объекта отдаётся', listLinks.ok && listLinks.json.data.length >= 2, `ссылок ${listLinks.json?.data?.length}`);
-    check('в списке нет хэша пароля', !JSON.stringify(listLinks.json?.data ?? []).includes('passwordHash'));
+    check('список ссылок объекта отдаётся', listLinks.ok && listLinks.json.data.items.length >= 2, `ссылок ${listLinks.json?.data?.items?.length}`);
+    check('в списке нет хэша пароля', !JSON.stringify(listLinks.json?.data?.items ?? []).includes('passwordHash'));
     // Список обрезан потолком (отозванные не удаляются никогда), поэтому сервер обязан
     // сказать, сколько их всего: молча обрезанная история раздачи наружу читается как
     // полная — а в неё смотрят именно тогда, когда файл где-то всплыл.
-    check('список говорит, сколько ссылок всего', typeof listLinks.json?.total === 'number', String(listLinks.json?.total));
+    check('список говорит, сколько ссылок всего', typeof listLinks.json?.data?.total === 'number', String(listLinks.json?.data?.total));
     // ORDER BY revoked_at ASC в Postgres кладёт NULL в КОНЕЦ — без явного NULLS FIRST
     // действующие ссылки уезжали бы за потолок страницы, а на экране оставалась история.
-    const revokedFlags = (listLinks.json?.data ?? []).map((l) => !!l.revokedAt);
+    const revokedFlags = (listLinks.json?.data?.items ?? []).map((l) => !!l.revokedAt);
     check(
       'действующие идут первыми, отозванные следом',
       revokedFlags.every((v, i) => i === 0 || !(revokedFlags[i - 1] && !v)),
@@ -511,7 +511,7 @@ async function main() {
     check('вид папки несёт запрет скачивания', sNoDl.json?.data?.view?.allowDownload === false, String(sNoDl.json?.data?.view?.allowDownload));
     const nodlSess = { 'x-share-session': sNoDl.json?.data?.sessionToken };
     const nodlList = await call('GET', '/drive/guest/nodes', null, null, nodlSess);
-    const nodlFile = (nodlList.json?.data ?? []).find((n) => n.kind === 'file');
+    const nodlFile = (nodlList.json?.data?.items ?? []).find((n) => n.kind === 'file');
     check('оригинал гостю НЕ отдан', nodlFile && nodlFile.file.url === null, String(nodlFile?.file?.url));
     check('файл при этом помечен доступным', nodlFile?.file?.available === true, String(nodlFile?.file?.available));
     const zipDenied = await call('GET', `/drive/guest/download-zip?session=${encodeURIComponent(sNoDl.json.data.sessionToken)}`, null);
@@ -618,13 +618,13 @@ async function main() {
     // 14д. «Мои ссылки»: обзор всего, что человек раздал наружу
     // ============================================================
     const mine = await call('GET', '/share-links/mine?status=active', t1);
-    check('свои ссылки отдаются одним списком', mine.ok && mine.json.data.length > 0, `ссылок ${mine.json?.data?.length}`);
-    const described = (mine.json?.data ?? []).find((l) => l.id === cLoud.json.data.id);
+    check('свои ссылки отдаются одним списком', mine.ok && mine.json.data.items.length > 0, `ссылок ${mine.json?.data?.items?.length}`);
+    const described = (mine.json?.data?.items ?? []).find((l) => l.id === cLoud.json.data.id);
     check('у строки есть подпись объекта из describeRef', !!described?.ref?.title, described?.ref?.title);
     check('и его вид (папка/файл)', described?.ref?.icon === 'folder', described?.ref?.icon);
 
     const foreignMine = await call('GET', '/share-links/mine?status=active', t3);
-    const leaked = (foreignMine.json?.data ?? []).some((l) => l.createdById !== u3);
+    const leaked = (foreignMine.json?.data?.items ?? []).some((l) => l.createdById !== u3);
     check('в чужом списке нет моих ссылок', !leaked);
 
     const statsRes = await call('GET', '/share-links/mine/stats', t1);
@@ -663,7 +663,7 @@ async function main() {
     created.nodes = created.nodes.filter((id) => id !== folderSnap);
 
     const afterPurge = await call('GET', '/share-links/mine?status=all', t1);
-    const snapRow = (afterPurge.json?.data ?? []).find((l) => l.id === cSnap.json.data.id);
+    const snapRow = (afterPurge.json?.data?.items ?? []).find((l) => l.id === cSnap.json.data.id);
     check(
       'имя объекта пережило его удаление',
       snapRow?.ref?.title === `sl-snapshot-${stamp}`,
@@ -714,8 +714,8 @@ async function main() {
     for (let page = 0; page < 12; page++) {
       const url = `/share-links/mine?status=active&limit=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
       const r = await call('GET', url, t1);
-      (r.json?.data ?? []).forEach((l) => seen.add(l.id));
-      cursor = r.json?.nextCursor;
+      (r.json?.data?.items ?? []).forEach((l) => seen.add(l.id));
+      cursor = r.json?.data?.nextCursor;
       if (!cursor) break;
     }
     check('постраничный обход не теряет близнецов', twins.every((id) => seen.has(id)), `нашлось ${twins.filter((id) => seen.has(id)).length} из 3`);
@@ -806,7 +806,7 @@ async function main() {
     created.links.push(cInf.json.data.id);
     const sInf = await call('POST', `/share-links/guest/${tokenOf(cInf.json.data.url)}/session`, null, {});
     const infList = await call('GET', '/drive/guest/nodes', null, null, { [SESSION_HEADER]: sInf.json.data.sessionToken });
-    const infRow = (infList.json?.data ?? []).find((n) => n.file);
+    const infRow = (infList.json?.data?.items ?? []).find((n) => n.file);
     check('заражённый файл помечен недоступным', infRow?.file?.available === false, String(infRow?.file?.available));
     check('ссылки на байты заражённого нет', infRow?.file?.url === null, String(infRow?.file?.url));
 
@@ -863,11 +863,11 @@ async function main() {
 
       // Гостевые ручки Диска работают по пропуску с личностью.
       const lsId = await call('GET', '/drive/guest/nodes', null, null, { [SESSION_HEADER]: guestPass });
-      check('листинг папки по пропуску с личностью', lsId.ok && (lsId.json?.data ?? []).length >= 1, `status ${lsId.status}`);
+      check('листинг папки по пропуску с личностью', lsId.ok && (lsId.json?.data?.items ?? []).length >= 1, `status ${lsId.status}`);
 
       // Журнал визитов показывает КТО открывал.
       const visitsId = await call('GET', `/share-links/${cIdent.json.data.id}/visits`, t1);
-      const visitRow = (visitsId.json?.data ?? [])[0];
+      const visitRow = (visitsId.json?.data?.items ?? [])[0];
       check('в журнале имя гостя', visitRow?.guestName === 'Асель Гостевая', JSON.stringify(visitRow));
       check('в журнале номер гостя (полностью, владельцу)', visitRow?.guestPhone === GUEST_PHONE, visitRow?.guestPhone);
 
@@ -945,17 +945,17 @@ async function main() {
     check('организационный список отдаётся управляющему', orgList.ok, `status ${orgList.status}`);
     check(
       'в нём есть ссылка команды',
-      (orgList.json?.data ?? []).some((l) => l.id === cOrgLink.json.data.id),
-      `строк ${(orgList.json?.data ?? []).length}`,
+      (orgList.json?.data?.items ?? []).some((l) => l.id === cOrgLink.json.data.id),
+      `строк ${(orgList.json?.data?.items ?? []).length}`,
     );
     check(
       'личные ссылки владельца в организационный вид НЕ попали',
-      !(orgList.json?.data ?? []).some((l) => l.id === linkA.id),
+      !(orgList.json?.data?.items ?? []).some((l) => l.id === linkA.id),
     );
     check(
       'автор приехал карточкой (actors)',
-      !!orgList.json?.actors && !!orgList.json.actors[u1],
-      JSON.stringify(Object.keys(orgList.json?.actors ?? {})),
+      !!orgList.json?.data?.actors && !!orgList.json.data.actors[u1],
+      JSON.stringify(Object.keys(orgList.json?.data?.actors ?? {})),
     );
 
     const orgStats = await call('GET', `/workspaces/${wsId}/share-links/stats`, t1);

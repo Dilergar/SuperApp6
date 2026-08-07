@@ -1,4 +1,4 @@
-import { api } from './api';
+import { apiDelete, apiGet, apiPatch, apiPost } from './api';
 import type {
   ChatSummary,
   ChatMessage,
@@ -14,74 +14,65 @@ import type {
   QuickActionDescriptor,
   QuickActionScope,
   ScheduledMessageItem,
+  PresenceQueryResult,
 } from '@superapp/shared';
 import { PRESENCE } from '@superapp/shared';
 
-// Every API response is { success, data } — these wrappers unwrap to res.data.data.
+// Конверт `{ success, data }` распаковывают хелперы транспорта (`@/lib/api`) —
+// здесь остаются только домен и его типы из @superapp/shared.
 
 /** Inbox — already sorted pinned-first then recent by the server. */
 export async function listChats(): Promise<ChatSummary[]> {
-  const res = await api.get('/messenger/chats');
-  return res.data.data;
+  return apiGet<ChatSummary[]>('/messenger/chats');
 }
 
 /** Get-or-create a direct-message chat with another user. */
 export async function openDm(userId: string): Promise<ChatDetail> {
-  const res = await api.post('/messenger/chats/dm', { userId });
-  return res.data.data;
+  return apiPost<ChatDetail>('/messenger/chats/dm', { userId });
 }
 
 /** Create an ad-hoc group chat (name + initial members from Окружение). */
 export async function createGroup(name: string, memberIds: string[]): Promise<ChatDetail> {
-  const res = await api.post('/messenger/chats/group', { name, memberIds });
-  return res.data.data;
+  return apiPost<ChatDetail>('/messenger/chats/group', { name, memberIds });
 }
 
 /** Rename a group chat (owner/admin). */
 export async function renameChat(chatId: string, title: string): Promise<ChatDetail> {
-  const res = await api.patch(`/messenger/chats/${chatId}`, { title });
-  return res.data.data;
+  return apiPatch<ChatDetail>(`/messenger/chats/${chatId}`, { title });
 }
 
 /** Add members to a group chat (owner/admin). */
 export async function addMembers(chatId: string, userIds: string[]): Promise<ChatDetail> {
-  const res = await api.post(`/messenger/chats/${chatId}/members`, { userIds });
-  return res.data.data;
+  return apiPost<ChatDetail>(`/messenger/chats/${chatId}/members`, { userIds });
 }
 
 /** Remove a member from a group chat (owner/admin; passing my own id = leave). */
-export async function removeMember(chatId: string, userId: string): Promise<{ success: boolean }> {
-  const res = await api.delete(`/messenger/chats/${chatId}/members/${userId}`);
-  return res.data.data ?? res.data;
+export async function removeMember(chatId: string, userId: string): Promise<void> {
+  await apiDelete(`/messenger/chats/${chatId}/members/${userId}`);
 }
 
 /** Leave a group chat (everyone except the owner). */
-export async function leaveChat(chatId: string): Promise<{ success: boolean }> {
-  const res = await api.post(`/messenger/chats/${chatId}/leave`, {});
-  return res.data.data ?? res.data;
+export async function leaveChat(chatId: string): Promise<void> {
+  await apiPost(`/messenger/chats/${chatId}/leave`, {});
 }
 
 /** Grant or revoke admin on a member (owner only). */
 export async function setAdmin(chatId: string, userId: string, admin: boolean): Promise<ChatDetail> {
-  const res = await api.post(`/messenger/chats/${chatId}/admins/${userId}`, { admin });
-  return res.data.data;
+  return apiPost<ChatDetail>(`/messenger/chats/${chatId}/admins/${userId}`, { admin });
 }
 
 /** Delete a group chat entirely (owner only). */
-export async function deleteChat(chatId: string): Promise<{ success: boolean }> {
-  const res = await api.delete(`/messenger/chats/${chatId}`);
-  return res.data.data ?? res.data;
+export async function deleteChat(chatId: string): Promise<void> {
+  await apiDelete(`/messenger/chats/${chatId}`);
 }
 
 /** Get-or-create the context chat attached to a task. */
 export async function getTaskChat(taskId: string): Promise<ChatDetail> {
-  const res = await api.get(`/messenger/tasks/${taskId}/chat`);
-  return res.data.data;
+  return apiGet<ChatDetail>(`/messenger/tasks/${taskId}/chat`);
 }
 
 export async function getChat(chatId: string): Promise<ChatDetail> {
-  const res = await api.get(`/messenger/chats/${chatId}`);
-  return res.data.data;
+  return apiGet<ChatDetail>(`/messenger/chats/${chatId}`);
 }
 
 /**
@@ -92,10 +83,9 @@ export async function getMessages(
   chatId: string,
   before?: number,
 ): Promise<ChatMessage[]> {
-  const res = await api.get(`/messenger/chats/${chatId}/messages`, {
+  return apiGet<ChatMessage[]>(`/messenger/chats/${chatId}/messages`, {
     params: before != null ? { before } : undefined,
   });
-  return res.data.data;
 }
 
 /**
@@ -107,11 +97,10 @@ export async function sendMessage(
   content: string,
   replyToId?: string,
 ): Promise<ChatMessage> {
-  const res = await api.post(`/messenger/chats/${chatId}/messages`, {
+  return apiPost<ChatMessage>(`/messenger/chats/${chatId}/messages`, {
     content,
     ...(replyToId ? { replyToId } : {}),
   });
-  return res.data.data;
 }
 
 /** Ф9: альбом до 10 файлов движка + подпись (файлы уже загружены через files-api) */
@@ -121,28 +110,24 @@ export async function sendAttachmentMessage(
   caption?: string,
   replyToId?: string,
 ): Promise<ChatMessage> {
-  const res = await api.post(`/messenger/chats/${chatId}/messages/attachments`, {
+  return apiPost<ChatMessage>(`/messenger/chats/${chatId}/messages/attachments`, {
     fileIds,
     ...(caption ? { caption } : {}),
     ...(replyToId ? { replyToId } : {}),
   });
-  return res.data.data;
 }
 
 export async function editMessage(messageId: string, content: string): Promise<ChatMessage> {
-  const res = await api.patch(`/messenger/messages/${messageId}`, { content });
-  return res.data.data;
+  return apiPatch<ChatMessage>(`/messenger/messages/${messageId}`, { content });
 }
 
-export async function deleteMessage(messageId: string): Promise<{ success: boolean }> {
-  const res = await api.delete(`/messenger/messages/${messageId}`);
-  return res.data.data ?? res.data;
+export async function deleteMessage(messageId: string): Promise<void> {
+  await apiDelete(`/messenger/messages/${messageId}`);
 }
 
 /** Advance my read cursor to `seq`. */
-export async function markRead(chatId: string, seq: number): Promise<{ success: boolean }> {
-  const res = await api.post(`/messenger/chats/${chatId}/read`, { seq });
-  return res.data.data ?? res.data;
+export async function markRead(chatId: string, seq: number): Promise<void> {
+  await apiPost(`/messenger/chats/${chatId}/read`, { seq });
 }
 
 // ============================================================
@@ -161,8 +146,7 @@ export async function executeRichCardAction(
   ref: { type: RichCardRefType; id: string },
   payload?: Record<string, unknown>,
 ): Promise<ExecuteRichCardActionResult> {
-  const res = await api.post(`/rich-cards/${actionKey}/execute`, { ref, payload });
-  return res.data.data;
+  return apiPost<ExecuteRichCardActionResult>(`/rich-cards/${actionKey}/execute`, { ref, payload });
 }
 
 /** Post an entity's live card into a chat (returns the posted card). */
@@ -171,26 +155,22 @@ export async function shareRichCard(
   refType: RichCardRefType,
   refId: string,
 ): Promise<RichCardPayload> {
-  const res = await api.post('/rich-cards/share', { chatId, refType, refId });
-  return res.data.data;
+  return apiPost<RichCardPayload>('/rich-cards/share', { chatId, refType, refId });
 }
 
 /** Get-or-create the context chat attached to an order/campaign. */
 export async function getOrderChat(orderId: string): Promise<ChatDetail> {
-  const res = await api.get(`/messenger/orders/${orderId}/chat`);
-  return res.data.data;
+  return apiGet<ChatDetail>(`/messenger/orders/${orderId}/chat`);
 }
 
 /** Get-or-create the context chat attached to a calendar event. */
 export async function getEventChat(eventId: string): Promise<ChatDetail> {
-  const res = await api.get(`/messenger/events/${eventId}/chat`);
-  return res.data.data;
+  return apiGet<ChatDetail>(`/messenger/events/${eventId}/chat`);
 }
 
 /** Get-or-create the context chat attached to an office meeting (Виртуальный офис). */
 export async function getOfficeRoomChat(roomId: string): Promise<ChatDetail> {
-  const res = await api.get(`/messenger/office-rooms/${roomId}/chat`);
-  return res.data.data;
+  return apiGet<ChatDetail>(`/messenger/office-rooms/${roomId}/chat`);
 }
 
 // ============================================================
@@ -207,10 +187,10 @@ export async function getOfficeRoomChat(roomId: string): Promise<ChatDetail> {
 export async function getPresence(userIds: string[]): Promise<PresenceInfo[]> {
   if (userIds.length === 0) return [];
   const capped = userIds.slice(0, PRESENCE.MAX_BATCH);
-  const res = await api.get('/messenger/presence', {
+  const page = await apiGet<PresenceQueryResult>('/messenger/presence', {
     params: { userIds: capped.join(',') },
   });
-  return res.data.data.items;
+  return page.items;
 }
 
 // ============================================================
@@ -224,30 +204,27 @@ export async function getPresence(userIds: string[]): Promise<PresenceInfo[]> {
  * @-autocomplete popover in the composer. Empty `q` returns all members.
  */
 export async function getMentionable(chatId: string, q: string): Promise<MentionCandidate[]> {
-  const res = await api.get(`/messenger/chats/${chatId}/mentionable`, {
+  return apiGet<MentionCandidate[]>(`/messenger/chats/${chatId}/mentionable`, {
     params: q ? { q } : undefined,
   });
-  return res.data.data;
 }
 
 /** Cursor-paginated feed of "mentions of me" (+ the unread count). */
 export async function getMentions(cursor?: string): Promise<MentionFeed> {
-  const res = await api.get('/mentions', {
+  return apiGet<MentionFeed>('/mentions', {
     params: cursor ? { cursor } : undefined,
   });
-  return res.data.data;
 }
 
 /** Лёгкий счётчик непрочитанного для нав-бейджа — не тянет всю ленту упоминаний. */
 export async function getMentionsUnreadCount(): Promise<number> {
-  const res = await api.get('/mentions/unread-count');
-  return res.data.data.unreadCount;
+  const res = await apiGet<{ unreadCount: number }>('/mentions/unread-count');
+  return res.unreadCount;
 }
 
 /** Mark specific mentions read, or all of them when `ids` is omitted. */
-export async function markMentionsRead(ids?: string[]): Promise<{ success: boolean }> {
-  const res = await api.post('/mentions/mark-read', ids && ids.length ? { ids } : {});
-  return res.data.data ?? res.data;
+export async function markMentionsRead(ids?: string[]): Promise<void> {
+  await apiPost('/mentions/mark-read', ids && ids.length ? { ids } : {});
 }
 
 // ============================================================
@@ -259,8 +236,7 @@ export async function markMentionsRead(ids?: string[]): Promise<{ success: boole
 
 /** Global grouped search across chats, people and messages. */
 export async function searchGlobal(q: string): Promise<GlobalSearchResults> {
-  const res = await api.get('/search', { params: { q } });
-  return res.data.data;
+  return apiGet<GlobalSearchResults>('/search', { params: { q } });
 }
 
 /** In-chat message search — a flat, cursor-paginated page of message hits. */
@@ -269,10 +245,9 @@ export async function searchInChat(
   q: string,
   cursor?: string,
 ): Promise<SearchResultPage> {
-  const res = await api.get('/search', {
+  return apiGet<SearchResultPage>('/search', {
     params: { q, chatId, ...(cursor ? { cursor } : {}) },
   });
-  return res.data.data;
 }
 
 // ============================================================
@@ -292,14 +267,12 @@ export async function getQuickActions(
   chatId: string,
   scope: QuickActionScope,
 ): Promise<QuickActionDescriptor[]> {
-  const res = await api.get('/quick-actions', { params: { chatId, scope } });
-  return res.data.data;
+  return apiGet<QuickActionDescriptor[]>('/quick-actions', { params: { chatId, scope } });
 }
 
 /** The viewer's pending/sent scheduled messages in a chat. */
 export async function listScheduled(chatId: string): Promise<ScheduledMessageItem[]> {
-  const res = await api.get(`/messenger/chats/${chatId}/scheduled`);
-  return res.data.data;
+  return apiGet<ScheduledMessageItem[]>(`/messenger/chats/${chatId}/scheduled`);
 }
 
 /** Schedule a message to fire later (sendAt ISO; optional quoted message). */
@@ -307,8 +280,7 @@ export async function scheduleMessage(
   chatId: string,
   body: { content: string; sendAt: string; replyToId?: string },
 ): Promise<ScheduledMessageItem> {
-  const res = await api.post(`/messenger/chats/${chatId}/scheduled`, body);
-  return res.data.data;
+  return apiPost<ScheduledMessageItem>(`/messenger/chats/${chatId}/scheduled`, body);
 }
 
 /** Edit a pending scheduled message's content and/or fire time. */
@@ -316,12 +288,10 @@ export async function updateScheduled(
   schedId: string,
   patch: { content?: string; sendAt?: string },
 ): Promise<ScheduledMessageItem> {
-  const res = await api.patch(`/messenger/scheduled/${schedId}`, patch);
-  return res.data.data;
+  return apiPatch<ScheduledMessageItem>(`/messenger/scheduled/${schedId}`, patch);
 }
 
 /** Cancel a pending scheduled message. */
-export async function cancelScheduled(schedId: string): Promise<{ success: boolean }> {
-  const res = await api.delete(`/messenger/scheduled/${schedId}`);
-  return res.data.data ?? res.data;
+export async function cancelScheduled(schedId: string): Promise<void> {
+  await apiDelete(`/messenger/scheduled/${schedId}`);
 }

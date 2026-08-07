@@ -41,12 +41,10 @@ export class ContactsController {
     @CurrentUser() user: JwtPayload,
     @Query('cursor') cursor?: string,
   ) {
-    const { items, nextCursor } = await this.contacts.listContacts(
-      user.sub,
-      cursor,
-    );
-    // `data` stays an array (backward compatible); nextCursor is a sibling.
-    return { success: true, data: items, nextCursor };
+    // Страница едет в `data` ЦЕЛЬНОЙ (CursorPage<Contact>): контроллер поля не
+    // переименовывает и не расплющивает — иначе клиент вынужден собирать её обратно
+    // своим типом, которого не проверяет никто (так родились 8 рукописей на вебе).
+    return { success: true, data: await this.contacts.listContacts(user.sub, cursor) };
   }
 
   @Get('invitations/incoming')
@@ -55,12 +53,7 @@ export class ContactsController {
     @CurrentUser() user: JwtPayload,
     @Query('cursor') cursor?: string,
   ) {
-    const { items, nextCursor } = await this.contacts.listIncomingInvitations(
-      user.sub,
-      cursor,
-    );
-    // `data` остаётся массивом (совместимо), nextCursor — соседним полем.
-    return { success: true, data: items, nextCursor };
+    return { success: true, data: await this.contacts.listIncomingInvitations(user.sub, cursor) };
   }
 
   @Get('invitations/outgoing')
@@ -69,11 +62,10 @@ export class ContactsController {
   })
   async listOutgoing(@CurrentUser() user: JwtPayload, @Query() query: unknown) {
     const { scope, cursor } = listInvitationsQuerySchema.parse(query ?? {});
-    const { items, nextCursor } = await this.contacts.listOutgoingInvitations(
-      user.sub,
-      { scope, cursor },
-    );
-    return { success: true, data: items, nextCursor };
+    return {
+      success: true,
+      data: await this.contacts.listOutgoingInvitations(user.sub, { scope, cursor }),
+    };
   }
 
   @Post('invitations')

@@ -40,11 +40,11 @@ import type {
   CalendarEventVisibility,
   CalendarAccessLevel,
   CalendarLayer,
-  CreateCalendarEventRequest,
-  UpdateCalendarEventRequest,
+  CreateCalendarEventInput,
+  UpdateCalendarEventInput,
   RsvpStatus,
   EventParticipant as EventParticipantDto,
-  SmartMatchRequest,
+  SmartMatchInput,
   SmartMatchResponse,
   SmartMatchSlot,
   CalendarShare as CalendarShareDto,
@@ -414,7 +414,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
   // CRUD
   // ============================================================
 
-  async createEvent(userId: string, data: CreateCalendarEventRequest): Promise<CalendarEventDto> {
+  async createEvent(userId: string, data: CreateCalendarEventInput): Promise<CalendarEventDto> {
     if (data.recurrenceRule) this.assertValidRule(data.recurrenceRule);
     if (data.recurrenceRule && data.resourceId) {
       throw new BadRequestException('Бронь ресурса доступна только для разовых событий');
@@ -476,7 +476,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
   async updateEvent(
     userId: string,
     id: string,
-    data: UpdateCalendarEventRequest,
+    data: UpdateCalendarEventInput,
   ): Promise<CalendarEventDto> {
     const row = await this.ownedEvent(userId, id);
     if (data.recurrenceRule) this.assertValidRule(data.recurrenceRule);
@@ -862,7 +862,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
   // Smart Match — blind free-slot finder over people who shared >= busy
   // ============================================================
 
-  async smartMatch(userId: string, req: SmartMatchRequest): Promise<SmartMatchResponse> {
+  async smartMatch(userId: string, req: SmartMatchInput): Promise<SmartMatchResponse> {
     const from = new Date(req.from);
     const to = new Date(req.to);
     if (isNaN(+from) || isNaN(+to) || to <= from) {
@@ -1019,7 +1019,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
   private async editSingleOccurrence(
     master: CalEventRow,
     occ: Date,
-    data: UpdateCalendarEventRequest,
+    data: UpdateCalendarEventInput,
   ): Promise<CalEventRow> {
     await this.addExDate(master, occ);
     const existing = await this.db.calendarEvent.findFirst({
@@ -1033,7 +1033,8 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     if (existing) {
       override = await this.db.calendarEvent.update({
         where: { id: existing.id },
-        data: this.patchData({ ...data, editScope: undefined }),
+        // editScope/occurrenceStart — управляющие поля запроса, patchData их и не читает.
+        data: this.patchData(data),
       });
     } else {
       override = await this.db.calendarEvent.create({
@@ -1062,7 +1063,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
   private async splitSeries(
     master: CalEventRow,
     occ: Date,
-    data: UpdateCalendarEventRequest,
+    data: UpdateCalendarEventInput,
   ): Promise<CalEventRow> {
     const originalRule = master.recurrenceRule!;
     const headRule = this.setUntil(originalRule, new Date(+occ - 1000));
@@ -1321,7 +1322,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     }
   }
 
-  private patchData(data: UpdateCalendarEventRequest) {
+  private patchData(data: UpdateCalendarEventInput) {
     const d: Record<string, unknown> = {};
     if (data.title !== undefined) d.title = data.title;
     if (data.description !== undefined) d.description = data.description;

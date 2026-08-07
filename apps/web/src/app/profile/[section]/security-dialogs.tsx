@@ -15,7 +15,7 @@ import { Input, ModalShell } from '@/components/ui';
 
 import { useState } from 'react';
 import { normalizePhone } from '@superapp/shared';
-import { api, apiErrorMessage } from '@/lib/api';
+import { REFRESH_TOKEN_KEY, apiErrorMessage, apiPost } from '@/lib/api';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useOtpFlow } from '@/components/verify/otp-flow';
 import { OtpStep } from '@/components/verify/OtpStep';
@@ -30,7 +30,7 @@ function DialogFrame({ children, onClose, busy, label }: { children: React.React
   );
 }
 
-const refreshToken = () => (typeof window === 'undefined' ? undefined : localStorage.getItem('refreshToken') || undefined);
+const refreshToken = () => (typeof window === 'undefined' ? undefined : localStorage.getItem(REFRESH_TOKEN_KEY) || undefined);
 
 // ============================================================
 // Смена пароля
@@ -65,7 +65,7 @@ export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setError('');
     try {
-      await api.post('/users/me/change-password', {
+      await apiPost('/users/me/change-password', {
         currentPassword,
         newPassword,
         verifyToken,
@@ -206,7 +206,7 @@ export function ChangePhoneDialog({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setError('');
     try {
-      await api.post('/users/me/change-phone', {
+      await apiPost('/users/me/change-phone', {
         password,
         newPhone: normalizePhone(newPhone),
         oldVerifyToken: oldToken,

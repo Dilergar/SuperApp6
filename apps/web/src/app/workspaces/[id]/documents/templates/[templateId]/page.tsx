@@ -21,8 +21,9 @@ import {
   TEMPLATE_FORMATTERS,
   type DocFormFieldDto,
   type DocTemplateDto,
+  type ProcessDefinitionDto,
 } from '@superapp/shared';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiErrorMessage, apiPost } from '@/lib/api';
 import { toast, toastError } from '@/lib/toast';
 import { documentHref } from '@/lib/docs-api';
 import { uploadFile } from '@/lib/files-api';
@@ -104,13 +105,13 @@ export default function TemplateConstructorPage() {
       if (!template) throw new Error('Шаблон не загружен');
       const existing = await findRouteDefinitionId(id, template.id);
       if (existing) return existing;
-      const res = await api.post(`/workspaces/${id}/processes`, {
+      const res = await apiPost<ProcessDefinitionDto>(`/workspaces/${id}/processes`, {
         name: `Маршрут: ${template.name}`,
         description: `Запускается отправкой документа по шаблону «${template.name}»`,
         surface: surfaceOfCategory(template.category),
         document: buildRouteBlueprint(template.id, template.name),
       });
-      return res.data.data.id as string;
+      return res.id;
     },
     onSuccess: (defId) => {
       qc.invalidateQueries({ queryKey: ['workspaces', id, 'documents'] });

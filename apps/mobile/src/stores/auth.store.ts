@@ -1,25 +1,35 @@
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
-import { api } from '../lib/api';
+import type { AuthTokens, RegisterInput, UserProfile } from '@superapp/shared';
+import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY, apiGet, apiPost, setOnAuthFailure } from '../lib/api';
+
+// Профиль и входные типы — из @superapp/shared, теми же хелперами apiGet<T>/apiPost<T>,
+// что и веб (правило «Контракт API ↔ клиенты»). Прежняя версия держала СВОЮ урезанную
+// копию `user` на пять полей и читала конверт голым `data.data` — ровно тот класс
+// дрейфа, от которого умерло прошлое приложение.
 
 interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
-  user: {
-    id: string;
-    phone: string;
-    firstName: string;
-    lastName: string | null;
-    avatar: string | null;
-  } | null;
+  user: UserProfile | null;
 
   // Actions
   login: (phone: string, password: string) => Promise<void>;
-  register: (data: { phone: string; password: string; firstName: string; lastName?: string }) => Promise<void>;
+  /** Вход регистрации описан Zod-схемой на сервере — тип берётся оттуда (`z.infer`). */
+  register: (input: RegisterInput) => Promise<void>;
   logout: () => Promise<void>;
   loadSession: () => Promise<void>;
   fetchProfile: () => Promise<void>;
 }
+
+const setTokens = async (tokens: AuthTokens) => {
+  await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, tokens.accessToken);
+  await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, tokens.refreshToken);
+};
+const clearTokens = async () => {
+  await SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY);
+  await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+};
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   isAuthenticated: false,
@@ -27,44 +37,39 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
 
   login: async (phone, password) => {
-    const { data } = await api.post('/auth/login', { phone, password });
-    await SecureStore.setItemAsync('accessToken', data.data.accessToken);
-    await SecureStore.setItemAsync('refreshToken', data.data.refreshToken);
+    const tokens = await apiPost<AuthTokens>('/auth/login', { phone, password });
+    await setTokens(tokens);
     set({ isAuthenticated: true });
     await get().fetchProfile();
   },
 
-  register: async (regData) => {
-    const { data } = await api.post('/auth/register', regData);
-    await SecureStore.setItemAsync('accessToken', data.data.accessToken);
-    await SecureStore.setItemAsync('refreshToken', data.data.refreshToken);
+  register: async (input) => {
+    const tokens = await apiPost<AuthTokens>('/auth/register', input);
+    await setTokens(tokens);
     set({ isAuthenticated: true });
     await get().fetchProfile();
   },
 
   logout: async () => {
     try {
-      const refreshToken = await SecureStore.getItemAsync('refreshToken');
-      if (refreshToken) {
-        await api.post('/auth/logout', { refreshToken });
-      }
+      const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+      if (refreshToken) await apiPost('/auth/logout', { refreshToken });
     } catch {
-      // Ignore errors during logout
+      // Выход не должен падать из-за сети — локальное состояние стираем в любом случае.
     }
-    await SecureStore.deleteItemAsync('accessToken');
-    await SecureStore.deleteItemAsync('refreshToken');
+    await clearTokens();
     set({ isAuthenticated: false, user: null });
   },
 
   loadSession: async () => {
     try {
-      const token = await SecureStore.getItemAsync('accessToken');
+      const token = await SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
       if (token) {
         set({ isAuthenticated: true });
         await get().fetchProfile();
       }
     } catch {
-      // No valid session
+      // Живой сессии нет — остаёмся на экране входа.
     } finally {
       set({ isLoading: false });
     }
@@ -72,10 +77,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   fetchProfile: async () => {
     try {
-      const { data } = await api.get('/users/me');
-      set({ user: data.data });
+      set({ user: await apiGet<UserProfile>('/users/me') });
     } catch {
-      // Profile fetch failed
+      // Профиль подтянется при следующем заходе — сессию из-за сбоя сети не рвём.
     }
   },
 }));
+
+// Refresh окончательно провалился → транспорт уже стёр токены, здесь сбрасываем стор;
+// навигацию на экран входа делает layout по isAuthenticated. Эта регистрация закрывает
+// давний разрыв: колбэк был объявлен в адаптере, но его никто не вызывал, и «провал
+// refresh никуда не ведёт» оставался правдой.
+setOnAuthFailure(() => {
+  useAuthStore.setState({ isAuthenticated: false, user: null });
+});

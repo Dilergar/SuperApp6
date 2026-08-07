@@ -45,3 +45,11 @@ export const reorderCirclesSchema = z.object({
       'Группа указана дважды'
     ),
 });
+
+// ---- Входные типы: ЕДИНСТВЕННОЕ описание формы входа ----
+// Рукописные интерфейсы в types/*.ts удалены: два независимых описания одного
+// входа расходятся молча (Zod уходил вперёд, интерфейс врал).
+export type CreateCircleInput = z.infer<typeof createCircleSchema>;
+export type UpdateCircleInput = z.infer<typeof updateCircleSchema>;
+export type AddToCircleInput = z.infer<typeof addToCircleSchema>;
+export type ReorderCirclesInput = z.infer<typeof reorderCirclesSchema>;

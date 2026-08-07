@@ -16,6 +16,8 @@ import {
   STAFF_LIMITS,
   WORKSPACE_ROLE_RANK,
   type WorkspaceRole,
+  type StaffAssignment,
+  type StaffDirectory,
 } from '@superapp/shared';
 import { Prisma } from '@prisma/client';
 
@@ -74,7 +76,7 @@ export class StaffService {
   // Справочники (одним ответом — для вкладок и форм)
   // ============================================================
 
-  async getDirectory(userId: string, workspaceId: string) {
+  async getDirectory(userId: string, workspaceId: string): Promise<StaffDirectory> {
     await this.assertTeamMember(userId, workspaceId);
 
     const [departments, positions, branches, assignments] = await Promise.all([
@@ -659,7 +661,7 @@ export class StaffService {
    * Назначения всех членов воркспейса одним запросом (для ростера WorkspacesService).
    * Map<userId, StaffAssignment[]>.
    */
-  async getAssignmentsByUser(workspaceId: string) {
+  async getAssignmentsByUser(workspaceId: string): Promise<Map<string, StaffAssignment[]>> {
     const rows = await this.db.staffAssignment.findMany({
       where: { workspaceId },
       include: ASSIGNMENT_INCLUDE,
@@ -745,7 +747,7 @@ export class StaffService {
   // Helpers
   // ============================================================
 
-  private serializeAssignment(a: AssignmentRow) {
+  private serializeAssignment(a: AssignmentRow): StaffAssignment {
     return {
       id: a.id,
       workspaceId: a.workspaceId,

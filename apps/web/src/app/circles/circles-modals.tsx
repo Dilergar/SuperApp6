@@ -6,8 +6,8 @@
 
 import { useMemo, useState } from 'react';
 import { Button, GlyphField, Input, Modal } from '@/components/ui';
-import { api } from '@/lib/api';
-import type { AcceptInvitationRequest, Circle, IncomingInvitation } from '@superapp/shared';
+import { apiPatch, apiPost } from '@/lib/api';
+import type { AcceptInvitationInput, Circle, IncomingInvitation } from '@superapp/shared';
 import { GROUP_COLORS, runAction, sortGroups } from './circles-lib';
 import { ColorPalette, GroupSelectField, RolePicker } from './circles-ui';
 
@@ -38,14 +38,14 @@ export function GroupEditModal({
     if (!trimmed) return;
     setSaving(true);
     const ok = await runAction(async () => {
-      await api.patch(`/circles/${group.id}`, { name: trimmed, icon, color });
+      await apiPatch(`/circles/${group.id}`, { name: trimmed, icon, color });
       // Порядок применяется ОДНИМ запросом на весь список: сервер ждёт полную
       // раскладку, а не «подвинь одну» — иначе соседние sortOrder разъезжаются.
       if (index !== startIndex) {
         const next = [...ordered];
         const [moved] = next.splice(startIndex, 1);
         next.splice(index, 0, moved);
-        await api.post('/circles/reorder', {
+        await apiPost('/circles/reorder', {
           circles: next.map((g, i) => ({ id: g.id, sortOrder: i })),
         });
       }
@@ -132,7 +132,7 @@ export function GroupEditModal({
  * без предложенных ролей оставляло связь с пустой подписью навсегда — своей
  * ручки «дать роль постфактум» на странице нет.
  *
- * Смысл полей — по контракту `AcceptInvitationRequest`:
+ * Смысл полей — по контракту `AcceptInvitationInput`:
  *   myRole    — как Я называю отправителя (перекрывает proposedRoleForSender);
  *   theirRole — как ОТПРАВИТЕЛЬ называет меня (перекрывает proposedRoleForRecipient).
  */
@@ -153,13 +153,13 @@ export function AcceptInvitationModal({
   const accept = async () => {
     setBusy(true);
     const ok = await runAction(async () => {
-      const payload: AcceptInvitationRequest = {};
+      const payload: AcceptInvitationInput = {};
       // Пустые поля НЕ отправляем: у роли на сервере минимальная длина, и «»
       // вернулось бы 400 вместо «роли просто нет».
       if (myRole.trim()) payload.myRole = myRole.trim();
       if (theirRole.trim()) payload.theirRole = theirRole.trim();
       if (circleIds.length > 0) payload.autoAddToCircleIds = circleIds;
-      await api.post(`/contacts/invitations/${invitation.id}/accept`, payload);
+      await apiPost(`/contacts/invitations/${invitation.id}/accept`, payload);
     }, 'Приглашение принято');
     setBusy(false);
     if (ok) {

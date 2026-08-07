@@ -4,7 +4,7 @@ import { Icon, useConfirm } from '@/components/ui';
 import { useEffect, useRef, useState } from 'react';
 import type { CallActiveDto, CallTokenDto, ChatType } from '@superapp/shared';
 import { CALL_LIMITS } from '@superapp/shared';
-import { apiErrorMessage } from '@/lib/api';
+import { ACCESS_TOKEN_KEY, apiErrorMessage } from '@/lib/api';
 import {
   claimCallRecording,
   endCallSession,
@@ -94,7 +94,7 @@ export function CallOverlay({
     const onPageHide = () => {
       const c = callRef.current;
       if (!c) return;
-      const token = localStorage.getItem('accessToken');
+      const token = localStorage.getItem(ACCESS_TOKEN_KEY);
       if (!token) return;
       const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
       void fetch(`${base}/calls/rooms/${c.sessionId}/end`, {

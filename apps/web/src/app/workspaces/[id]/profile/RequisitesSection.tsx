@@ -28,7 +28,7 @@ import {
 } from '@superapp/shared';
 import { Button, Card, CardHeader, Chip, Divider, Input, Select, Toggle, useConfirm } from '@/components/ui';
 import { EntitySelector } from '@/components/EntitySelector';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
 import { toastError } from '@/lib/toast';
 import { workspaceRequisitesKey } from '@/lib/queries';
 
@@ -47,7 +47,7 @@ export function RequisitesSection({
   const { data, isPending } = useQuery({
     queryKey: workspaceRequisitesKey(workspaceId),
     queryFn: async () =>
-      (await api.get(`/workspaces/${workspaceId}/requisites`)).data.data as WorkspaceRequisitesDto | null,
+      await apiGet<WorkspaceRequisitesDto | null>(`/workspaces/${workspaceId}/requisites`),
   });
 
   // Скрыто настройкой видимости (сервер отвечает null) либо ещё грузится.
@@ -157,14 +157,14 @@ function RequisitesEditor({
   // Сотрудники — для выбора директора (EntitySelector, как передача владения).
   const { data: members } = useQuery({
     queryKey: ['workspaces', workspaceId, 'members', 'director-picker'],
-    queryFn: async () => (await api.get(`/workspaces/${workspaceId}/members`)).data.data as WorkspaceMember[],
+    queryFn: async () => await apiGet<WorkspaceMember[]>(`/workspaces/${workspaceId}/members`),
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: workspaceRequisitesKey(workspaceId) });
 
   const save = useMutation({
     mutationFn: async () => {
-      await api.patch(`/workspaces/${workspaceId}/requisites`, {
+      await apiPatch(`/workspaces/${workspaceId}/requisites`, {
         orgForm: form.orgForm || null,
         taxRegime: form.taxRegime || null,
         legalName: form.legalName.trim() || null,
@@ -188,7 +188,7 @@ function RequisitesEditor({
 
   const addAccount = useMutation({
     mutationFn: async () => {
-      await api.post(`/workspaces/${workspaceId}/requisites/accounts`, {
+      await apiPost(`/workspaces/${workspaceId}/requisites/accounts`, {
         iban: accIbanNorm,
         bankName: accBank.trim(),
         bik: accBik.trim().toUpperCase(),
@@ -205,13 +205,13 @@ function RequisitesEditor({
 
   const makePrimary = useMutation({
     mutationFn: (accId: string) =>
-      api.patch(`/workspaces/${workspaceId}/requisites/accounts/${accId}`, { isPrimary: true }),
+      apiPatch(`/workspaces/${workspaceId}/requisites/accounts/${accId}`, { isPrimary: true }),
     onSuccess: () => void invalidate(),
     onError: (e) => toastError(apiErrorMessage(e)),
   });
 
   const removeAccount = useMutation({
-    mutationFn: (accId: string) => api.delete(`/workspaces/${workspaceId}/requisites/accounts/${accId}`),
+    mutationFn: (accId: string) => apiDelete(`/workspaces/${workspaceId}/requisites/accounts/${accId}`),
     onSuccess: () => void invalidate(),
     onError: (e) => toastError(apiErrorMessage(e)),
   });

@@ -21,7 +21,10 @@ import {
   type DocFormFieldDto,
   type DocStatus,
   type DocTemplateDto,
+  type AvailableTemplateDto,
+  type DocTemplateGrantDto,
   type DocTemplateGrantInput,
+  type OrgDocumentListDto,
   type DocTypeDto,
   type ListOrgDocumentsInput,
   type OrgDocumentDto,
@@ -324,7 +327,7 @@ export class DocumentsService {
 
   // ---- кому доступен шаблон (гранты core/access) ----
 
-  async listGrants(userId: string, workspaceId: string, templateId: string) {
+  async listGrants(userId: string, workspaceId: string, templateId: string): Promise<DocTemplateGrantDto[]> {
     await this.requireManager(userId, workspaceId);
     const tpl = await this.templateOrThrow(workspaceId, templateId);
     const rows = await this.db.relationTuple.findMany({
@@ -337,7 +340,8 @@ export class DocumentsService {
     // Сотрудник, Отдел» не даёт снять доступ у нужного, и крестик жмут наугад.
     const labels = await this.principalLabels(unique.map((r) => ({ type: r.subjectType, id: r.subjectId })));
     return unique.map((r) => ({
-      principalType: r.subjectType,
+      // principal_type в БД — колонка String; перечисление живёт в коде.
+      principalType: r.subjectType as DocTemplateGrantDto['principalType'],
       principalId: r.subjectId,
       label: labels.get(`${r.subjectType}:${r.subjectId}`) ?? null,
     }));
@@ -430,7 +434,7 @@ export class DocumentsService {
    * (`grantSetFor`), а не `check()` в цикле по шаблонам: это тот самый массовый
    * читающий путь, ради которого второй путь движка прав и заведён.
    */
-  async availableTemplates(userId: string, workspaceId: string) {
+  async availableTemplates(userId: string, workspaceId: string): Promise<AvailableTemplateDto[]> {
     await this.requireTeam(userId, workspaceId);
     const grants = await this.access.grantSetFor(userId, 'doc_template');
     const grantedIds = grants.granted.get('requester') ?? [];
@@ -524,7 +528,7 @@ export class DocumentsService {
     return this.get(userId, created.id);
   }
 
-  async list(userId: string, workspaceId: string, q: ListOrgDocumentsInput) {
+  async list(userId: string, workspaceId: string, q: ListOrgDocumentsInput): Promise<OrgDocumentListDto> {
     const role = await this.requireTeam(userId, workspaceId);
     const where = await this.visibilityWhere(userId, workspaceId, role);
     const filters: Record<string, unknown>[] = [where];

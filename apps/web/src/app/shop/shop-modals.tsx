@@ -6,7 +6,7 @@
 // ============================================================
 
 import { useEffect, useState } from 'react';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
 import { EntitySelector } from '@/components/EntitySelector';
 import { PersonChip } from '../circles/PersonCard';
 import {
@@ -22,6 +22,7 @@ import {
   type Showcase,
   glyphPrefix,
   glyphToText,
+  type ShowcaseShareDto,
 } from '@superapp/shared';
 import { CampaignBars, ListingPhotosSection } from './shop-ui';
 import { daysFromNow, fmtAmount, personName, progressLines } from './shop-lib';
@@ -138,7 +139,7 @@ export function ContributeModal({
     setBusy(true);
     setError(null);
     try {
-      await api.post(`/shop/listings/${listing.id}/contribute`, { contributions });
+      await apiPost(`/shop/listings/${listing.id}/contribute`, { contributions });
       onDone();
     } catch (e) {
       setError(apiErrorMessage(e));
@@ -151,7 +152,7 @@ export function ContributeModal({
     setBusy(true);
     setError(null);
     try {
-      await api.post(`/shop/orders/${listing.campaign.orderId}/withdraw`);
+      await apiPost(`/shop/orders/${listing.campaign.orderId}/withdraw`);
       onDone();
     } catch (e) {
       setError(apiErrorMessage(e));
@@ -259,8 +260,7 @@ export function ListingForm({
   // подставляем одну строку; уже назначенную валюту сохраняем в списке, даже если
   // доступ к ней потерян — иначе цена «пропала бы» при правке.
   useEffect(() => {
-    api.get('/shop/currencies').then((r) => {
-      const cs: AccessibleCurrencyDto[] = r.data.data;
+    apiGet<AccessibleCurrencyDto[]>('/shop/currencies').then((cs) => {
       const extra: AccessibleCurrencyDto[] = (init?.prices ?? [])
         .filter((p) => !cs.some((c) => c.id === p.currencyId))
         .map((p) => ({ id: p.currencyId, name: p.currencyName, icon: p.currencyIcon, scale: p.scale, issuerId: '', issuerName: '—', isOwn: false }));
@@ -315,8 +315,8 @@ export function ListingForm({
       if (availableUntil !== undefined) body.availableUntil = availableUntil;
       if (discountPercent !== undefined) body.discountPercent = discountPercent;
       if (discountUntil !== undefined) body.discountUntil = discountUntil;
-      if (init) await api.patch(`/shop/listings/${init.id}`, body);
-      else await api.post('/shop/listings', { ...body, showcaseId });
+      if (init) await apiPatch(`/shop/listings/${init.id}`, body);
+      else await apiPost('/shop/listings', { ...body, showcaseId });
       onSaved();
     } catch (e) {
       setError(apiErrorMessage(e));
@@ -455,10 +455,13 @@ export function SharePanel({
 
   const toggle = async (type: 'user' | 'circle', id: string) => {
     try {
-      const r = has(type, id)
-        ? await api.delete(`/shop/showcases/${showcase.id}/shares/${type}/${id}`)
-        : await api.post(`/shop/showcases/${showcase.id}/shares`, { principalType: type, principalId: id });
-      setShares(r.data.data);
+      const next = has(type, id)
+        ? await apiDelete<ShowcaseShareDto[]>(`/shop/showcases/${showcase.id}/shares/${type}/${id}`)
+        : await apiPost<ShowcaseShareDto[]>(`/shop/showcases/${showcase.id}/shares`, {
+            principalType: type,
+            principalId: id,
+          });
+      setShares(next);
       onChanged();
     } catch (e) {
       setError(apiErrorMessage(e));
@@ -513,7 +516,7 @@ export function StaffPanel({
   const [error, setError] = useState<string | null>(null);
 
   const load = () => {
-    api.get('/shop/staff').then((r) => setStaff(r.data.data)).catch((e) => setError(apiErrorMessage(e)));
+    apiGet<ShopStaffDto[]>('/shop/staff').then(setStaff).catch((e) => setError(apiErrorMessage(e)));
   };
   useEffect(load, []);
 
@@ -522,7 +525,7 @@ export function StaffPanel({
     if (scope === 'showcase' && !showcaseId) { setError('Выберите витрину'); return; }
     setError(null);
     try {
-      await api.post('/shop/staff', { userId, scope, ...(scope === 'showcase' ? { showcaseId } : {}) });
+      await apiPost('/shop/staff', { userId, scope, ...(scope === 'showcase' ? { showcaseId } : {}) });
       setUserId('');
       load();
     } catch (e) {
@@ -531,7 +534,7 @@ export function StaffPanel({
   };
   const revoke = async (s: ShopStaffDto) => {
     try {
-      await api.delete(`/shop/staff/${s.userId}?scope=${s.scope}${s.showcaseId ? `&showcaseId=${s.showcaseId}` : ''}`);
+      await apiDelete(`/shop/staff/${s.userId}?scope=${s.scope}${s.showcaseId ? `&showcaseId=${s.showcaseId}` : ''}`);
       load();
     } catch (e) {
       setError(apiErrorMessage(e));

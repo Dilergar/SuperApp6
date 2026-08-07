@@ -28,6 +28,8 @@ import {
   type CreateApprovalInput,
   type InboxItemDto,
   type InboxScope,
+  type InboxPageDto,
+  type InboxCountDto,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { AccessService } from '../access/access.service';
@@ -770,7 +772,10 @@ export class ApprovalsService implements OnModuleInit {
   }
 
   /** Стопка целиком — по РЕЕСТРУ источников, а не по своей таблице */
-  async inbox(userId: string, q: { workspaceId?: string; scope?: ApprovalInboxScope; sourceKey?: string }) {
+  async inbox(
+    userId: string,
+    q: { workspaceId?: string; scope?: ApprovalInboxScope; sourceKey?: string },
+  ): Promise<InboxPageDto> {
     const scope = this.scopeOf(q);
     const sources = this.registry
       .sourceEntries()
@@ -797,7 +802,10 @@ export class ApprovalsService implements OnModuleInit {
     return { items, actors: await this.actorsOf(actorIds), counts, total: items.length };
   }
 
-  async inboxCount(userId: string, q: { workspaceId?: string; scope?: ApprovalInboxScope }) {
+  async inboxCount(
+    userId: string,
+    q: { workspaceId?: string; scope?: ApprovalInboxScope },
+  ): Promise<InboxCountDto> {
     const scope = this.scopeOf(q);
     const entries = await Promise.all(
       this.registry.sourceEntries().map(async ([key, source]) => {

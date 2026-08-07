@@ -3,7 +3,7 @@
 // поэтому чат и задача продолжают отдавать актуальное содержимое сами по себе.
 // ============================================================
 
-import { api } from './api';
+import { apiGet, apiPatch, apiPost } from './api';
 import { DOCS_LIMITS, documentFormatForFile } from '@superapp/shared';
 import type {
   DocsStatusDto,
@@ -19,8 +19,7 @@ export interface DocsPlace {
 }
 
 export async function getDocsStatus(): Promise<DocsStatusDto> {
-  const res = await api.get('/docs/status');
-  return res.data.data;
+  return apiGet<DocsStatusDto>('/docs/status');
 }
 
 /** Оживить файл в документ (идемпотентно: у файла один документ навсегда) */
@@ -30,34 +29,30 @@ export async function createDocumentFromFile(input: {
   refType?: string;
   refId?: string;
 }): Promise<DocumentDto> {
-  const res = await api.post('/docs/from-file', input);
-  return res.data.data;
+  return apiPost<DocumentDto>('/docs/from-file', input);
 }
 
 export async function getDocument(id: string, place?: DocsPlace | null): Promise<DocumentDto> {
-  const res = await api.get(`/docs/${id}`, { params: place ?? undefined });
-  return res.data.data;
+  return apiGet<DocumentDto>(`/docs/${id}`, { params: place ?? undefined });
 }
 
 export async function openDocument(
   id: string,
   input: { refType?: string; refId?: string; readonly?: boolean },
 ): Promise<DocumentOpenDto> {
-  const res = await api.post(`/docs/${id}/open`, input);
-  return res.data.data;
+  return apiPost<DocumentOpenDto>(`/docs/${id}/open`, input);
 }
 
 export async function listDocumentVersions(
   id: string,
   place?: DocsPlace | null,
 ): Promise<DocumentVersionDto[]> {
-  const res = await api.get(`/docs/${id}/versions`, { params: place ?? undefined });
-  return res.data.data;
+  return apiGet<DocumentVersionDto[]>(`/docs/${id}/versions`, { params: place ?? undefined });
 }
 
 /** Место передаём и сюда: право «сохранить версию» = право правки, а оно от места */
 export async function saveDocumentVersion(id: string, place?: DocsPlace | null): Promise<void> {
-  await api.post(`/docs/${id}/versions`, { reason: 'manual', ...(place ?? {}) });
+  await apiPost(`/docs/${id}/versions`, { reason: 'manual', ...(place ?? {}) });
 }
 
 /** Вернуть веху как текущее содержимое (место — как и везде, несёт право правки) */
@@ -66,12 +61,11 @@ export async function restoreDocumentVersion(
   versionId: string,
   place?: DocsPlace | null,
 ): Promise<void> {
-  await api.post(`/docs/${id}/versions/${versionId}/restore`, { ...(place ?? {}) });
+  await apiPost(`/docs/${id}/versions/${versionId}/restore`, { ...(place ?? {}) });
 }
 
 export async function setDocumentMode(id: string, mode: 'edit' | 'readonly'): Promise<DocumentDto> {
-  const res = await api.patch(`/docs/${id}`, { mode });
-  return res.data.data;
+  return apiPatch<DocumentDto>(`/docs/${id}`, { mode });
 }
 
 /**

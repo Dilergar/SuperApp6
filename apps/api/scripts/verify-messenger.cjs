@@ -41,14 +41,15 @@ function check(name, cond) {
 
 async function ensureContact(tokenA, tokenB, phoneB) {
   const { json: contacts } = await http('GET', '/contacts', { token: tokenA });
-  if ((contacts?.data || []).find((c) => c.phone === phoneB)) return;
+  if ((contacts?.data?.items || []).find((c) => c.phone === phoneB)) return;
   const inv = await http('POST', '/contacts/invitations', {
     token: tokenA,
     body: { toPhone: phoneB, proposedRoleForSender: 'Друг', proposedRoleForRecipient: 'Друг' },
   });
   const invId = inv.json?.data?.id;
   const incoming = await http('GET', '/contacts/invitations/incoming', { token: tokenB });
-  const toAccept = (incoming.json?.data || []).find((i) => i.id === invId) || (incoming.json?.data || [])[0];
+  const inc = incoming.json?.data?.items || [];
+  const toAccept = inc.find((i) => i.id === invId) || inc[0];
   if (toAccept) {
     await http('POST', `/contacts/invitations/${toAccept.id}/accept`, {
       token: tokenB, body: { myRole: 'Друг', theirRole: 'Друг' },

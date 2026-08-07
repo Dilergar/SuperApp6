@@ -149,3 +149,17 @@ export const assignShopStaffSchema = z
   .refine((d) => d.scope !== 'showcase' || !!d.showcaseId, {
     message: 'showcaseId обязателен для роли витрины',
   });
+
+// ---- Входные типы: ЕДИНСТВЕННОЕ описание формы входа ----
+// Рукописные интерфейсы в types/*.ts удалены: два независимых описания одного
+// входа расходятся молча (Zod уходил вперёд, интерфейс врал).
+export type CreateShowcaseInput = z.infer<typeof createShowcaseSchema>;
+export type UpdateShowcaseInput = z.infer<typeof updateShowcaseSchema>;
+export type ShareShowcaseInput = z.infer<typeof shareShowcaseSchema>;
+export type CreateListingInput = z.infer<typeof createListingSchema>;
+export type UpdateListingInput = z.infer<typeof updateListingSchema>;
+export type ContributeInput = z.infer<typeof contributeSchema>;
+export type CreateWishInput = z.infer<typeof createWishSchema>;
+export type UpdateWishInput = z.infer<typeof updateWishSchema>;
+export type CopyWishInput = z.infer<typeof copyWishSchema>;
+export type AssignShopStaffInput = z.infer<typeof assignShopStaffSchema>;

@@ -39,6 +39,7 @@ export * from './types/common';
 // Validation schemas
 export * from './validation/query';
 export * from './validation/auth';
+export * from './validation/notification';
 export * from './validation/task';
 export * from './validation/card-visibility';
 export * from './validation/contact';
@@ -80,7 +81,6 @@ export * from './utils/requisites';
 
 // Constants
 export * from './constants/roles';
-export * from './constants/modules';
 export * from './constants/contacts';
 export * from './constants/card-visibility';
 export * from './constants/notifications';

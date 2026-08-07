@@ -39,7 +39,8 @@ import {
   trashDriveNodes,
 } from '@/lib/drive-api';
 import { getDownloadUrl } from '@/lib/files-api';
-import { driveListKey, type DriveRef } from '@/lib/queries';
+import { driveListKey } from '@/lib/queries';
+import type { DriveSpaceRef } from '@superapp/shared';
 import { useDriveUpload } from './useDriveUpload';
 import { DriveShareModal } from './DriveShareModal';
 import { driveIcon, humanSize, shortDate } from './drive-ui';
@@ -52,7 +53,7 @@ const COLUMNS: TableColumn[] = [
 ];
 
 export interface DriveBrowserProps {
-  driveRef: DriveRef;
+  driveRef: DriveSpaceRef;
   /** null — корень пространства */
   parentId: string | null;
   canEdit: boolean;

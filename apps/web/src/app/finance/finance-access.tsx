@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { FinShareRole } from '@superapp/shared';
-import { api, apiErrorMessage } from '@/lib/api';
+import { apiDelete, apiErrorMessage, apiPost } from '@/lib/api';
 import { financeSharesKey, fetchFinanceShares } from '@/lib/queries';
 import { EntitySelector } from '@/components/EntitySelector';
 import {
@@ -33,7 +33,7 @@ export function AccessModal({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      await api.post('/finance/shares', { principalType: principal.type, principalId: principal.id, role });
+      await apiPost('/finance/shares', { principalType: principal.type, principalId: principal.id, role });
       refresh();
     } catch (e) {
       setError(apiErrorMessage(e));
@@ -43,7 +43,7 @@ export function AccessModal({ onClose }: { onClose: () => void }) {
   };
   const remove = async (principalType: string, principalId: string) => {
     try {
-      await api.delete(`/finance/shares/${principalType}/${principalId}`);
+      await apiDelete(`/finance/shares/${principalType}/${principalId}`);
       refresh();
     } catch (e) {
       setError(apiErrorMessage(e));
@@ -51,7 +51,7 @@ export function AccessModal({ onClose }: { onClose: () => void }) {
   };
   const changeRole = async (principalType: string, principalId: string, newRole: FinShareRole) => {
     try {
-      await api.post('/finance/shares', { principalType, principalId, role: newRole });
+      await apiPost('/finance/shares', { principalType, principalId, role: newRole });
       refresh();
     } catch (e) {
       setError(apiErrorMessage(e));

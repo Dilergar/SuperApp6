@@ -536,7 +536,8 @@ function VisitsList({ linkId }: { linkId: string }) {
   });
 
   if (isPending) return <LoadingBlock />;
-  if (!data?.length) {
+  const visits = data?.items ?? [];
+  if (!visits.length) {
     return (
       <p className="meta" style={{ margin: '0.5rem 0 0' }}>
         Ссылку ещё не открывали.
@@ -546,7 +547,7 @@ function VisitsList({ linkId }: { linkId: string }) {
 
   return (
     <ul style={{ margin: '0.5rem 0 0', padding: 0, listStyle: 'none' }}>
-      {data.map((v) => (
+      {visits.map((v) => (
         <li key={v.id} className="meta" style={{ display: 'flex', gap: 'var(--spacing-3)', padding: '2px 0', flexWrap: 'wrap' }}>
           <span>{new Date(v.openedAt).toLocaleString('ru-RU')}</span>
           {/* Кто открывал — у ссылок с подтверждением номера; имя вводит сам гость */}

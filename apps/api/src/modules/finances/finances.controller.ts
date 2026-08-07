@@ -214,8 +214,8 @@ export class FinancesController {
   @ApiOperation({ summary: 'Коин-лента экосистемы: награды задач, покупки, казна — из леджера, с контекстом' })
   async coinFeed(@CurrentUser() user: JwtPayload, @Query() rawQuery: Record<string, unknown>) {
     const q = finCoinFeedQuerySchema.parse(rawQuery);
-    const { items, nextCursor } = await this.finances.getCoinFeed(user.sub, q.cursor, q.limit ?? 30);
-    return { success: true, data: items, nextCursor };
+    // Страница цельной в `data` (вариант A): контроллер её не расплющивает.
+    return { success: true, data: await this.finances.getCoinFeed(user.sub, q.cursor, q.limit ?? 30) };
   }
 
   // ---------- shares (семейный доступ) ----------
@@ -374,8 +374,7 @@ export class FinancesController {
   @ApiOperation({ summary: 'Список операций: фильтры по датам/счёту/категории/человеку, курсорная пагинация' })
   async listTransactions(@CurrentUser() user: JwtPayload, @Query() rawQuery: Record<string, unknown>) {
     const query = listFinTransactionsQuerySchema.parse(rawQuery);
-    const data = await this.finances.listTransactions(user.sub, query);
-    return { success: true, data: data.items, nextCursor: data.nextCursor };
+    return { success: true, data: await this.finances.listTransactions(user.sub, query) };
   }
 
   @Post('transactions')

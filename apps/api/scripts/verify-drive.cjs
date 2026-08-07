@@ -122,13 +122,13 @@ async function main() {
     check('повторное добавление того же файла не плодит узлов', again.json?.data?.id === node1.json?.data?.id);
 
     const list = await call('GET', `/drive/nodes?parentId=${folderId}`, t1);
-    check('листинг папки отдаёт файл', list.ok && list.json.data.length === 1, `${list.json?.data?.length}`);
+    check('листинг папки отдаёт файл', list.ok && list.json.data.items.length === 1, `${list.json?.data?.items?.length}`);
 
     // Папки вперёд файлов
     const sub = await call('POST', '/drive/folders', t1, { parentId: folderId, name: 'Вложенная' });
     created.nodes.push(sub.json?.data?.id);
     const listed = await call('GET', `/drive/nodes?parentId=${folderId}`, t1);
-    check('папки идут перед файлами', listed.json?.data?.[0]?.kind === 'folder', listed.json?.data?.[0]?.kind);
+    check('папки идут перед файлами', listed.json?.data?.items?.[0]?.kind === 'folder', listed.json?.data?.items?.[0]?.kind);
 
     // ============================================================
     // 3. Один файл в двух местах = одни байты
@@ -170,10 +170,10 @@ async function main() {
     check('файл в корзине ЖИВ (вложение в чате работает)', fileAfterTrash.status === 'ready', fileAfterTrash.status);
 
     const inTrash = await call('GET', '/drive/trash', t1);
-    check('объект виден в корзине', (inTrash.json?.data ?? []).some((n) => n.id === chatNode.json.data.id));
+    check('объект виден в корзине', (inTrash.json?.data?.items ?? []).some((n) => n.id === chatNode.json.data.id));
 
     const listAfterTrash = await call('GET', `/drive/nodes?parentId=${folderId}`, t1);
-    check('из листинга пропал', !(listAfterTrash.json?.data ?? []).some((n) => n.id === chatNode.json.data.id));
+    check('из листинга пропал', !(listAfterTrash.json?.data?.items ?? []).some((n) => n.id === chatNode.json.data.id));
 
     const restored = await call('POST', '/drive/nodes/restore', t1, { ids: [chatNode.json.data.id] });
     check('восстановление работает', restored.json?.data?.restored === 1, JSON.stringify(restored.json));
@@ -570,8 +570,8 @@ async function main() {
           (sizeCursor ? `&cursor=${encodeURIComponent(sizeCursor)}` : ''),
         t1,
       );
-      for (const n of p.json?.data ?? []) sizeSeen.push(n.id);
-      sizeCursor = p.json?.nextCursor ?? null;
+      for (const n of p.json?.data?.items ?? []) sizeSeen.push(n.id);
+      sizeCursor = p.json?.data?.nextCursor ?? null;
     } while (sizeCursor && ++guard < 10);
     check('сортировка по размеру отдаёт всю папку целиком',
       kids.every((id) => sizeSeen.includes(id)), `отдано ${sizeSeen.length} из 3`);
@@ -593,8 +593,8 @@ async function main() {
         `/drive/trash?limit=1${trashCursor ? `&cursor=${encodeURIComponent(trashCursor)}` : ''}`,
         t1,
       );
-      for (const n of p.json?.data ?? []) trashSeen.push(n.id);
-      trashCursor = p.json?.nextCursor ?? null;
+      for (const n of p.json?.data?.items ?? []) trashSeen.push(n.id);
+      trashCursor = p.json?.data?.nextCursor ?? null;
     } while (trashCursor && ++tGuard < 40);
     check('корзина не теряет объекты, удалённые одной пачкой',
       batch.every((id) => trashSeen.includes(id)),
