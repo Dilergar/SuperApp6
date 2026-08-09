@@ -11,6 +11,7 @@ import { decideApproval, fetchInbox } from '@/lib/approvals-api';
 import { apiErrorMessage } from '@/lib/api';
 import { toastError } from '@/lib/toast';
 import { MyApprovalsList } from './MyApprovalsList';
+import { SignStepModal } from '@/components/sign/SignStepModal';
 
 /**
  * Стопка «Ждут решения» — одна модалка на всё приложение.
@@ -39,6 +40,9 @@ export function DecisionStack({
   // экрана, и «мои заявки» обязаны быть доступны оттуда же — иначе автор узнаёт
   // об исходе только из уведомления.
   const [tab, setTab] = useState<'inbox' | 'mine'>('inbox');
+  // Шаг, который человек пошёл ПОДПИСЫВАТЬ: подпись собирается своим окном
+  // (соглашение сторон, код или ключ ЭЦП), а не нажатием кнопки в списке.
+  const [signingStepId, setSigningStepId] = useState<string | null>(null);
 
   const inboxQ = useQuery({
     queryKey: approvalInboxKey(scope),
@@ -163,6 +167,19 @@ export function DecisionStack({
             />
           )}
 
+          {/* Шаг, который закрывается ПОДПИСЬЮ, кнопок решения не имеет: подпись
+              собирается на своём экране — соглашение сторон, код или ключ ЭЦП.
+              Сервер такой шаг обычным решением тоже не закроет. */}
+          {item.signRequirement && (
+            <Button
+              variant="primary"
+              icon="signature"
+              onClick={() => setSigningStepId(item.id)}
+            >
+              {item.signRequirement === 'ecp' ? 'Подписать ЭЦП' : 'Подписать'}
+            </Button>
+          )}
+
           <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
             {item.actions.map((action) => {
               const armed = pending === action.key;
@@ -213,6 +230,17 @@ export function DecisionStack({
           )}
         </div>
       ) : null}
+
+      {signingStepId && (
+        <SignStepModal
+          stepId={signingStepId}
+          onClose={() => setSigningStepId(null)}
+          onSigned={() => {
+            void qc.invalidateQueries({ queryKey: approvalsRootKey });
+            setSigningStepId(null);
+          }}
+        />
+      )}
     </Modal>
   );
 }

@@ -18,6 +18,7 @@ export * from './types/mention';
 export * from './types/search';
 export * from './types/template';
 export * from './types/org-documents';
+export * from './types/doc-builder';
 export * from './types/quick-action';
 export * from './types/scheduled-message';
 export * from './types/card-skin';
@@ -34,6 +35,7 @@ export * from './types/document';
 export * from './types/drive';
 export * from './types/share-links';
 export * from './types/approval';
+export * from './types/sign';
 export * from './types/common';
 
 // Validation schemas
@@ -67,8 +69,10 @@ export * from './validation/document';
 export * from './validation/drive';
 export * from './validation/share-links';
 export * from './validation/approval';
+export * from './validation/sign';
 export * from './validation/requisites';
 export * from './validation/org-documents';
+export * from './validation/doc-builder';
 
 // Utils
 export * from './utils/phone';
@@ -110,6 +114,7 @@ export * from './constants/documents';
 export * from './constants/drive';
 export * from './constants/share-links';
 export * from './constants/approvals';
+export * from './constants/sign';
 export * from './constants/requisites';
 export * from './constants/templates';
 export * from './constants/org-documents';

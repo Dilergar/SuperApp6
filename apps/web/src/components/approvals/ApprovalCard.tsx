@@ -39,6 +39,7 @@ import { cancelApproval, decideApproval, fetchApproval } from '@/lib/approvals-a
 import { apiErrorMessage } from '@/lib/api';
 import { toastError } from '@/lib/toast';
 import { PersonChip } from '@/app/circles/PersonCard';
+import { SignStepModal } from '@/components/sign/SignStepModal';
 import {
   BentoGrid, Button, Card, CardHeader, Chip, EmptyState, Icon, Input, LoadingBlock, PageHeader,
 } from '@/components/ui';
@@ -91,6 +92,9 @@ export function ApprovalCard({
   useEffect(() => {
     if (!contextWorkspaceId && workspaceId) router.replace(approvalHref(id, workspaceId));
   }, [contextWorkspaceId, workspaceId, id, router]);
+
+  // Шаг, который человек пошёл подписывать (подпись — своё окно, не кнопка списка)
+  const [signingStepId, setSigningStepId] = useState<string | null>(null);
 
   const decide = useMutation({
     mutationFn: (decision: ApprovalDecisionKind) =>
@@ -174,7 +178,24 @@ export function ApprovalCard({
                 autoFocus
               />
             )}
-            <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', marginTop: 'var(--spacing-3)' }}>
+            {/* Шаг закрывается ПОДПИСЬЮ — обычные кнопки решения на него не
+                действуют (сервер отвергает их кодом approval_needs_signature).
+                Подпись собирается своим окном: соглашение, код или ключ ЭЦП. */}
+            {myStep.requiredSignatureKind && (
+              <div style={{ marginTop: 'var(--spacing-3)' }}>
+                <Button variant="primary" icon="signature" onClick={() => setSigningStepId(myStep.id)}>
+                  {myStep.requiredSignatureKind === 'ecp' ? 'Подписать ЭЦП' : 'Подписать'}
+                </Button>
+              </div>
+            )}
+            <div
+              style={{
+                display: myStep.requiredSignatureKind ? 'none' : 'flex',
+                gap: 'var(--spacing-2)',
+                flexWrap: 'wrap',
+                marginTop: 'var(--spacing-3)',
+              }}
+            >
               {allowed.map((decision) => {
                 const isArmed = armed === decision;
                 const requiresComment = APPROVAL_DECISIONS_NEEDING_COMMENT.includes(decision);
@@ -237,6 +258,17 @@ export function ApprovalCard({
           </div>
         </Card>
       </BentoGrid>
+
+      {signingStepId && (
+        <SignStepModal
+          stepId={signingStepId}
+          onClose={() => setSigningStepId(null)}
+          onSigned={() => {
+            void qc.invalidateQueries({ queryKey: approvalsRootKey });
+            setSigningStepId(null);
+          }}
+        />
+      )}
     </>
   );
 }

@@ -13,6 +13,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   DEFAULT_DOC_NUMBER_FORMAT,
   DOC_CATEGORIES,
+  DOC_SIGNATURE_LEVELS,
   DOC_VISIBILITIES,
   formatDocNumber,
   type DocTypeDto,
@@ -41,6 +42,7 @@ interface Draft {
   category: string;
   numberFormat: string;
   visibility: string;
+  signatureLevel: string;
   toPersonalFile: boolean;
 }
 
@@ -49,6 +51,9 @@ const EMPTY: Draft = {
   category: 'hr',
   numberFormat: DEFAULT_DOC_NUMBER_FORMAT,
   visibility: 'managers',
+  // Кадровый вид по умолчанию требует ЭЦП: ст. 33 ТК РК не оставляет выбора,
+  // а «по умолчанию без подписи» означало бы, что забыть можно молча.
+  signatureLevel: 'ecp',
   toPersonalFile: false,
 };
 
@@ -149,6 +154,11 @@ export function DocTypesTab({ workspaceId }: { workspaceId: string }) {
                 <Chip size="sm">
                   {DOC_VISIBILITIES.find((v) => v.value === type.visibility)?.label ?? type.visibility}
                 </Chip>
+                {type.signatureLevel !== 'none' && (
+                  <Chip size="sm" tone="accent" icon="signature">
+                    {type.signatureLevel === 'ecp' ? 'Подпись: ЭЦП' : 'Подпись: SMS'}
+                  </Chip>
+                )}
                 {type.toPersonalFile && (
                   <Chip size="sm" icon="folder">
                     В личное дело
@@ -207,6 +217,7 @@ function TypeModal({
             category: type.category,
             numberFormat: type.numberFormat ?? DEFAULT_DOC_NUMBER_FORMAT,
             visibility: type.visibility,
+            signatureLevel: type.signatureLevel,
             toPersonalFile: type.toPersonalFile,
           }
         : EMPTY,
@@ -269,6 +280,23 @@ function TypeModal({
           onChange={(v) => setDraft({ ...draft, visibility: v })}
           options={DOC_VISIBILITIES.map((v) => ({ value: v.value, label: v.label }))}
           hint="Автор, сторона документа и управляющие видят всегда — настройка добавляет зрителей сверх них"
+        />
+        {/* Уровень подписи задаёт ВИД, а не каждый маршрут по отдельности:
+            кадровые документы по ст. 33 ТК РК требуют именно ЭЦП, и выбирать
+            это руками на каждом маршруте — способ однажды забыть. Отсюда
+            значение подставляется в шаг «Подписать» заготовки маршрута. */}
+        <Select
+          label="Чем подписывается"
+          value={draft.signatureLevel}
+          onChange={(v) => setDraft({ ...draft, signatureLevel: v })}
+          options={DOC_SIGNATURE_LEVELS.map((s) => ({ value: s.value, label: s.label }))}
+          hint={
+            draft.signatureLevel === 'ecp'
+              ? 'Кадровые документы подписываются ЭЦП (ст. 33 ТК РК). Подписант выбирает eGov Mobile или NCALayer'
+              : draft.signatureLevel === 'pep'
+                ? 'Простая подпись: согласие сторон + код из SMS. Для гражданско-правовых документов (ст. 46–47 Цифрового кодекса РК)'
+                : 'Без электронной подписи — документ закрывается обычным согласованием'
+          }
         />
         <div>
           <Toggle

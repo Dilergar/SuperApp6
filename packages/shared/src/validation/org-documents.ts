@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { DOC_CATEGORIES, DOC_FIELD_KINDS, DOC_LIMITS, DOC_VISIBILITIES } from '../constants/org-documents';
+import {
+  DOC_CATEGORIES,
+  DOC_FIELD_KINDS,
+  DOC_LIMITS,
+  DOC_SIGNATURE_LEVELS,
+  DOC_VISIBILITIES,
+} from '../constants/org-documents';
+import { builderDocSchema } from './doc-builder';
 
 // ============================================================
 // Сервис «Документы» — Zod. Тонкий контроллер: parse → сервис (AI-ready, Принцип 4).
@@ -42,6 +49,7 @@ export const createDocTypeSchema = z.object({
   category: categoryEnum.optional(),
   numberFormat: safeText(DOC_LIMITS.maxNumberFormatLength).nullable().optional(),
   visibility: visibilityEnum.optional(),
+  signatureLevel: z.enum(DOC_SIGNATURE_LEVELS.map((v) => v.value) as [string, ...string[]]).optional(),
   toPersonalFile: z.boolean().optional(),
   sortOrder: z.number().int().min(0).max(9999).optional(),
 });
@@ -52,8 +60,12 @@ export const createDocTemplateSchema = z.object({
   docTypeId: z.string().uuid(),
   name: safeText(DOC_LIMITS.maxNameLength),
   description: safeText(500).nullable().optional(),
-  /** Бланк: готовый .docx из движка файлов. Пусто — пустой бланк из библиотеки заготовок */
+  /** 'docx' (по умолчанию) — загруженный Word-бланк; 'builder' — блочный конструктор */
+  kind: z.enum(['docx', 'builder']).optional(),
+  /** Бланк: готовый .docx из движка файлов (только kind='docx') */
   fileId: z.string().uuid().optional(),
+  /** Блоки конструктора (только kind='builder'); пусто — пустой лист */
+  builderDoc: builderDocSchema.optional(),
   fields: z.array(docFormFieldSchema).max(DOC_LIMITS.maxFormFields).optional(),
   selfService: z.boolean().optional(),
 });
@@ -70,6 +82,8 @@ export const updateDocTemplateSchema = z.object({
    * Замена уже прикреплённого бланка — новый шаблон (у старого своя история подач).
    */
   fileId: z.string().uuid().optional(),
+  /** Правка блоков builder-шаблона (у docx-шаблонов отклоняется сервисом) */
+  builderDoc: builderDocSchema.optional(),
 });
 
 /**
@@ -98,6 +112,28 @@ export const updateOrgDocumentSchema = z.object({
   title: safeText(DOC_LIMITS.maxTitleLength).optional(),
   fields: z.record(z.unknown()).optional(),
   subjectUserId: z.string().uuid().nullable().optional(),
+  /** Правка тела builder-документа (у docx-документов отклоняется сервисом) */
+  builderDoc: builderDocSchema.optional(),
+  /**
+   * Поля СВОБОДНОГО документа (без шаблона): даты и суммы вводятся календарём и
+   * числом, а не строкой в тексте. У документа ПО ШАБЛОНУ форма живёт в шаблоне —
+   * сервис такую правку отклоняет (иначе два источника правды об одной форме).
+   */
+  formFields: z.array(docFormFieldSchema).max(DOC_LIMITS.maxFormFields).optional(),
+});
+
+/**
+ * Свободный документ «с нуля» — конструктор без шаблона (служебка, письмо).
+ * Вид документа обязателен: на нём держатся нумерация, видимость и подшивка.
+ */
+export const createFreeOrgDocumentSchema = z.object({
+  docTypeId: z.string().uuid(),
+  title: safeText(DOC_LIMITS.maxTitleLength),
+  /** Сторона документа. Пусто — сам автор */
+  subjectUserId: z.string().uuid().optional(),
+  builderDoc: builderDocSchema.optional(),
+  /** Свои поля документа (даты/числа удобными контролами) — можно завести сразу */
+  formFields: z.array(docFormFieldSchema).max(DOC_LIMITS.maxFormFields).optional(),
 });
 
 export const listOrgDocumentsSchema = z.object({
@@ -121,4 +157,5 @@ export type UpdateDocTemplateInput = z.infer<typeof updateDocTemplateSchema>;
 export type DocTemplateGrantInput = z.infer<typeof docTemplateGrantSchema>;
 export type CreateOrgDocumentInput = z.infer<typeof createOrgDocumentSchema>;
 export type UpdateOrgDocumentInput = z.infer<typeof updateOrgDocumentSchema>;
+export type CreateFreeOrgDocumentInput = z.infer<typeof createFreeOrgDocumentSchema>;
 export type ListOrgDocumentsInput = z.infer<typeof listOrgDocumentsSchema>;

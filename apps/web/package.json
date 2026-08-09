@@ -2,7 +2,9 @@
   "name": "@superapp/web",
   "version": "0.1.0",
   "private": true,
-  "sideEffects": ["*.css"],
+  "sideEffects": [
+    "*.css"
+  ],
   "scripts": {
     "dev": "next dev --turbopack --port 3000",
     "dev:webpack": "next dev --port 3000",
@@ -13,7 +15,12 @@
     "lint:eslint": "eslint src"
   },
   "dependencies": {
+    "@blocknote/core": "^0.53.0",
+    "@blocknote/mantine": "^0.53.0",
+    "@blocknote/react": "^0.53.0",
     "@livekit/components-react": "^2.9",
+    "@mantine/core": "^8.3.11",
+    "@mantine/hooks": "^8.3.11",
     "@phosphor-icons/react": "^2.1.10",
     "@superapp/api-client": "workspace:*",
     "@superapp/shared": "workspace:*",

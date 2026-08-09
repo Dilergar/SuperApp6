@@ -20,3 +20,6 @@ export const DOCUMENTS_FILE_PROFILE = 'document';
 
 export const DOCX_MIME_TYPE =
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+/** MIME builder-документов: их файл — сам PDF (рендер конструктора, Gotenberg) */
+export const PDF_MIME_TYPE = 'application/pdf';

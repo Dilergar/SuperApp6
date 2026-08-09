@@ -159,6 +159,7 @@ function CreateTemplateModal({
   const router = useRouter();
   const [name, setName] = useState('');
   const [docTypeId, setDocTypeId] = useState<string | null>(null);
+  const [kind, setKind] = useState<'builder' | 'docx'>('builder');
   const [file, setFile] = useState<File | null>(null);
 
   const typesQuery = useQuery({
@@ -172,13 +173,14 @@ function CreateTemplateModal({
       // Бланк грузим обычным путём движка файлов, а Документам отдаём уже готовый
       // fileId — сервис не принимает байты вовсе (правило движка файлов).
       let fileId: string | undefined;
-      if (file) {
+      if (kind === 'docx' && file) {
         const uploaded = await uploadFile(file, 'document', { ownerWorkspaceId: workspaceId });
         fileId = uploaded.id;
       }
       const res = await documentsApi.createTemplate(workspaceId, {
         docTypeId,
         name: name.trim(),
+        kind,
         ...(fileId ? { fileId } : {}),
       });
       return res;
@@ -199,7 +201,7 @@ function CreateTemplateModal({
       open={open}
       onClose={onClose}
       title="Новый шаблон"
-      subtitle="Бланк можно загрузить сейчас или дозагрузить в конструкторе"
+      subtitle="Бланк собирается в конструкторе или загружается готовым Word-файлом"
       size="md"
       footer={
         <>
@@ -233,14 +235,67 @@ function CreateTemplateModal({
           placeholder="Выберите вид"
           hint="От вида зависят нумерация, видимость и правила проверки маршрута"
         />
-        <Input
-          label="Бланк .docx"
-          type="file"
-          accept=".docx"
-          onChange={(e) => setFile((e.target as HTMLInputElement).files?.[0] ?? null)}
-          hint="Обычный документ Word с тегами вида {Организация.БИН} — их подскажет конструктор"
-        />
+
+        <div role="radiogroup" aria-label="Как сделать бланк" style={{ display: 'grid', gap: 'var(--spacing-2)' }}>
+          <KindOption
+            checked={kind === 'builder'}
+            title="Собрать в конструкторе"
+            hint="С нуля прямо здесь: блоки, данные чипами, на выходе PDF. Word не нужен."
+            onPick={() => setKind('builder')}
+          />
+          <KindOption
+            checked={kind === 'docx'}
+            title="Загрузить Word-бланк"
+            hint="Готовый .docx с тегами вида {Организация.БИН} — правится в редакторе документов."
+            onPick={() => setKind('docx')}
+          />
+        </div>
+
+        {kind === 'docx' && (
+          <Input
+            label="Бланк .docx"
+            type="file"
+            accept=".docx"
+            onChange={(e) => setFile((e.target as HTMLInputElement).files?.[0] ?? null)}
+            hint="Обычный документ Word с тегами вида {Организация.БИН} — их подскажет конструктор"
+          />
+        )}
       </div>
     </Modal>
+  );
+}
+
+/** Крупная радио-карточка выбора вида бланка */
+function KindOption({
+  checked,
+  title,
+  hint,
+  onPick,
+}: {
+  checked: boolean;
+  title: string;
+  hint: string;
+  onPick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={checked}
+      onClick={onPick}
+      style={{
+        textAlign: 'left',
+        font: 'inherit',
+        cursor: 'pointer',
+        borderRadius: 14,
+        padding: 'var(--spacing-3) var(--spacing-4)',
+        border: checked ? '1px solid rgba(88,140,211,0.55)' : '1px solid var(--line)',
+        background: checked ? 'rgba(88,140,211,0.10)' : 'transparent',
+        color: 'var(--text)',
+      }}
+    >
+      <div style={{ fontWeight: 600 }}>{title}</div>
+      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>{hint}</div>
+    </button>
   );
 }

@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { FILE_LIMITS } from '@superapp/shared';
+import { EVIDENCE_FILE_PROFILES, FILE_LIMITS } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { FilesService } from './files.service';
@@ -64,7 +64,14 @@ export class FilesCron {
   async sweepDeleted(): Promise<number> {
     const cutoff = new Date(Date.now() - FILE_LIMITS.deletedRetentionDays * 24 * 3600 * 1000);
     const rows = await this.db.fileObject.findMany({
-      where: { status: 'deleted', deletedAt: { lt: cutoff } },
+      // Доказательства подписания не стираем НИКОГДА — второй ремень к запрету в
+      // softDelete: строка, помеченная удалённой до появления того запрета (или
+      // чужим кодом в обход движка), не должна терять байты по сроку ретеншна.
+      where: {
+        status: 'deleted',
+        deletedAt: { lt: cutoff },
+        profile: { notIn: [...EVIDENCE_FILE_PROFILES] },
+      },
       include: { variants: { select: { storageKey: true } } },
       take: 500,
     });
@@ -101,7 +108,10 @@ export class FilesCron {
   async reconcileQuotas(): Promise<void> {
     const agg = await this.db.fileObject.groupBy({
       by: ['ownerType', 'ownerId'],
-      where: { status: 'ready' },
+      // Доказательства подписания (core/sign) в квоту не входят НИГДЕ — ни при
+      // загрузке, ни здесь: иначе ночная сверка вернула бы их обратно, и правило
+      // «вне квоты» продержалось бы ровно до 04:40.
+      where: { status: 'ready', profile: { notIn: [...EVIDENCE_FILE_PROFILES] } },
       _sum: { size: true },
       _count: { _all: true },
     });

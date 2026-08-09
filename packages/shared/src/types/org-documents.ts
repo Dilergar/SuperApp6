@@ -1,4 +1,12 @@
-import type { DocCategory, DocFieldKind, DocStatus, DocVisibility } from '../constants/org-documents';
+import type {
+  DocCategory,
+  DocFieldKind,
+  DocSignatureLevel,
+  DocStatus,
+  DocVisibility,
+} from '../constants/org-documents';
+import type { BuilderDoc, DocTemplateKind } from './doc-builder';
+import type { SignSummaryDto } from './sign';
 
 // ============================================================
 // Сервис «Документы» (B2B) — DTO.
@@ -12,6 +20,8 @@ export interface DocTypeDto {
   category: DocCategory;
   numberFormat: string | null;
   visibility: DocVisibility;
+  /** Чем подписывается документ этого вида (core/sign) */
+  signatureLevel: DocSignatureLevel;
   toPersonalFile: boolean;
   sortOrder: number;
   /** Сколько шаблонов у вида — подсказка в справочнике */
@@ -36,8 +46,19 @@ export interface DocTemplateDto {
   docTypeId: string;
   docTypeName: string;
   category: DocCategory;
+  /**
+   * Чем подписывается ВИД документа — денормализовано с DocType. Нужно тут же,
+   * где строится заготовка маршрута: без этого поля кнопка «Маршрут» ставила бы
+   * в кадровый маршрут шаг «Подписать» без требования подписи, и приказ
+   * закрывался бы нажатием кнопки.
+   */
+  signatureLevel: DocSignatureLevel;
   name: string;
   description: string | null;
+  /** Вид бланка: 'docx' — загруженный Word, 'builder' — собран в блочном конструкторе */
+  kind: DocTemplateKind;
+  /** Блоки конструктора (kind='builder'); у docx-шаблонов null */
+  builderDoc: BuilderDoc | null;
   /** Бланк: документ core/docs (правится общим редактором) */
   documentId: string | null;
   fileId: string | null;
@@ -78,11 +99,25 @@ export interface OrgDocumentDto {
   documentId: string | null;
   fileId: string | null;
   pdfFileId: string | null;
+  /** Снимок блоков конструктора (документ по builder-шаблону или свободный); у docx-документов null */
+  builderDoc: BuilderDoc | null;
   fields: Record<string, unknown>;
+  /**
+   * Объявление полей документа: у документа ПО ШАБЛОНУ — форма подачи шаблона,
+   * у свободного — его собственные поля. Карточка и конструктор рисуют их теми же
+   * контролами, что подача (дата — календарём, период — парой календарей).
+   */
+  formFields: DocFormFieldDto[];
   approvalRequestId: string | null;
   processInstanceId: string | null;
   parentDocumentId: string | null;
   signedAt: string | null;
+  /**
+   * Электронные подписи под документом (core/sign): кто подписал, чем и когда,
+   * плюс мой акт, если очередь дошла до меня. null — под документом не собирали
+   * ни одной подписи (или зритель их видеть не вправе).
+   */
+  sign?: SignSummaryDto | null;
   createdAt: string;
   updatedAt: string;
   /** Что зритель может сделать — считает сервер, кнопки рисуются по этому */
@@ -109,5 +144,6 @@ export interface AvailableTemplateDto {
   docTypeId: string;
   docTypeName: string;
   category: DocCategory;
+  kind: DocTemplateKind;
   fields: DocFormFieldDto[];
 }

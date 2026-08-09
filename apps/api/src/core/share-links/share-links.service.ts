@@ -49,6 +49,7 @@ export class ShareLinksService {
 
   async create(userId: string, dto: CreateShareLinkInput): Promise<ShareLinkDto> {
     const ctx = await this.authorize(userId, dto.refType, dto.refId);
+    this.assertConstraints(dto.refType, dto.maxOpens ?? null);
 
     // Хэш считаем ДО транзакции: bcrypt на 12 раундах — это сотни миллисекунд, и
     // держать на них открытую транзакцию с взятым локом незачем.
@@ -96,7 +97,14 @@ export class ShareLinksService {
           maxOpens: dto.maxOpens ?? null,
           ...(dto.allowDownload !== undefined ? { allowDownload: dto.allowDownload } : {}),
           ...(dto.notifyOnOpen !== undefined ? { notifyOnOpen: dto.notifyOnOpen } : {}),
-          ...(dto.requireIdentity !== undefined ? { requireIdentity: dto.requireIdentity } : {}),
+          // Тип объекта может ТРЕБОВАТЬ личность независимо от того, что прислал
+          // клиент (подпись), — иначе документ на подпись читал бы любой, кому
+          // переслали адрес.
+          ...(this.forcedIdentity(dto.refType)
+            ? { requireIdentity: true }
+            : dto.requireIdentity !== undefined
+              ? { requireIdentity: dto.requireIdentity }
+              : {}),
           passwordHash,
         },
       });
@@ -131,6 +139,33 @@ export class ShareLinksService {
   }
 
   /**
+   * Ограничения самой ссылки, объявленные потребителем.
+   *
+   * Единственное живое — запрет лимита открытий на подписных ссылках: он запирал
+   * бы подписанта снаружи ровно в тот момент, когда он вернулся с ключом ЭЦП.
+   */
+  private assertConstraints(refType: string, maxOpens: number | null): void {
+    if (maxOpens === null) return;
+    if (this.registry.get(refType)?.constraints?.forbidMaxOpens) {
+      throw new BadRequestException(
+        'Для такой ссылки нельзя задать лимит открытий: получатель должен иметь возможность вернуться к документу',
+      );
+    }
+  }
+
+  /**
+   * Подтверждение личности, продиктованное типом объекта, а не выбором создателя.
+   *
+   * Тип, который объявил `requireIdentity`, обязан получать его ВСЕГДА: у подписи
+   * анонимная ссылка означала бы, что документ, ушедший на подпись контрагенту,
+   * читает любой, кому переслали адрес, — а сам движок подписи считает, что личность
+   * уже подтверждена. Выключить настройку такому типу тоже нельзя.
+   */
+  private forcedIdentity(refType: string): boolean {
+    return this.registry.get(refType)?.constraints?.requireIdentity === true;
+  }
+
+  /**
    * Правка. Право берётся у объекта ЗАНОВО (а не «автор ссылки»): управляющий
    * объектом обязан уметь поправить чужую ссылку на него — иначе уволенный
    * сотрудник оставлял бы после себя вечные ссылки, которые некому закрыть.
@@ -143,10 +178,20 @@ export class ShareLinksService {
     const data: Prisma.ShareLinkUpdateInput = {};
     if (dto.label !== undefined) data.label = dto.label;
     if (dto.expiresAt !== undefined) data.expiresAt = dto.expiresAt;
-    if (dto.maxOpens !== undefined) data.maxOpens = dto.maxOpens;
+    if (dto.maxOpens !== undefined) {
+      this.assertConstraints(link.refType, dto.maxOpens);
+      data.maxOpens = dto.maxOpens;
+    }
     if (dto.allowDownload !== undefined) data.allowDownload = dto.allowDownload;
     if (dto.notifyOnOpen !== undefined) data.notifyOnOpen = dto.notifyOnOpen;
     if (dto.requireIdentity !== undefined) {
+      // Снять подтверждение личности там, где его требует сам тип объекта, нельзя:
+      // правка не должна уметь того, чего не умеет создание.
+      if (!dto.requireIdentity && this.forcedIdentity(link.refType)) {
+        throw new BadRequestException(
+          'Для такой ссылки подтверждение номера обязательно: по ней подписывают документ',
+        );
+      }
       data.requireIdentity = dto.requireIdentity;
       // ВКЛЮЧЕНИЕ подтверждения номера гасит уже открытые АНОНИМНЫЕ сессии бампом
       // поколения пропусков — иначе тот, кто открыл ссылку минуту назад, досматривал

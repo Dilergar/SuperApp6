@@ -35,6 +35,21 @@ export const DOC_VISIBILITIES = [
 export type DocVisibility = (typeof DOC_VISIBILITIES)[number]['value'];
 
 /**
+ * Чем подписывается документ ЭТОГО вида (core/sign).
+ *
+ * Уровень задаёт ВИД, а не каждый маршрут по отдельности: кадровые документы по
+ * ст. 33 ТК РК требуют именно ЭЦП, и выбирать это руками на каждом маршруте —
+ * способ однажды забыть. `none` — «подписи не требуется»: акт приёмки внутри
+ * компании законно закрывается согласованием.
+ */
+export const DOC_SIGNATURE_LEVELS = [
+  { value: 'none', label: 'Без электронной подписи' },
+  { value: 'pep', label: 'Простая подпись (код из SMS)' },
+  { value: 'ecp', label: 'ЭЦП (ключ НУЦ РК)' },
+] as const;
+export type DocSignatureLevel = (typeof DOC_SIGNATURE_LEVELS)[number]['value'];
+
+/**
  * Жизненный путь документа. Отдельные `signed` и `registered` — не бюрократия:
  * подпись даёт силу, номер даёт место в книге регистрации, и по ТК РК это разные
  * события с разными датами.
@@ -75,9 +90,55 @@ export const DOC_FIELD_KINDS = [
   { value: 'textarea', label: 'Текст' },
   { value: 'number', label: 'Число' },
   { value: 'date', label: 'Дата' },
+  { value: 'daterange', label: 'Период дат' },
   { value: 'select', label: 'Выбор из списка' },
 ] as const;
 export type DocFieldKind = (typeof DOC_FIELD_KINDS)[number]['value'];
+
+/** Значение поля «Период дат»: один день = from === to (в форме — тумблер «один день») */
+export interface DocDateRangeValue {
+  from: string; // YYYY-MM-DD
+  to: string; // YYYY-MM-DD
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function isDocDateRangeValue(v: unknown): v is DocDateRangeValue {
+  if (!v || typeof v !== 'object') return false;
+  const r = v as Record<string, unknown>;
+  return typeof r.from === 'string' && ISO_DATE.test(r.from) && typeof r.to === 'string' && ISO_DATE.test(r.to);
+}
+
+/** Календарное число дней периода включительно («с 1 по 14» = 14) */
+export function docDateRangeDays(v: DocDateRangeValue): number {
+  const [fy, fm, fd] = v.from.split('-').map(Number);
+  const [ty, tm, td] = v.to.split('-').map(Number);
+  const diff = Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86_400_000);
+  return diff + 1;
+}
+
+/**
+ * Разворот значений формы для подстановки в шаблон: период {from,to} превращается
+ * в плоские ключи «X С» / «X По» / «X Дней» + сам «X» строкой «с … по …» (один
+ * день — просто дата). Теги остаются двухчастными «Форма.Поле» — глубоких путей
+ * в синтаксисе шаблонов нет намеренно.
+ */
+export function expandDocFormValues(fields: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const dot = (s: string) => s.split('-').reverse().join('.');
+  for (const [key, value] of Object.entries(fields)) {
+    if (!isDocDateRangeValue(value)) {
+      out[key] = value;
+      continue;
+    }
+    const days = docDateRangeDays(value);
+    out[`${key} С`] = value.from;
+    out[`${key} По`] = value.to;
+    out[`${key} Дней`] = days;
+    out[key] = value.from === value.to ? dot(value.from) : `с ${dot(value.from)} по ${dot(value.to)}`;
+  }
+  return out;
+}
 
 /**
  * Формат номера. Плейсхолдеры русские, чтобы кадровик писал их как на бумаге:

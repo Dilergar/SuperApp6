@@ -17,6 +17,9 @@ model User {
   password         String // bcrypt hash
   firstName        String    @map("first_name")
   lastName         String?   @map("last_name")
+  // Отчество — реквизит документов (приказы/договоры печатают полное ФИО);
+  // в продуктовых карточках не показывается (там имя+фамилия)
+  middleName       String?   @map("middle_name")
   dateOfBirth      DateTime? @map("date_of_birth") @db.Date
   avatar           String?
   bio              String?
@@ -2930,6 +2933,14 @@ model ApprovalStep {
   assigneeLabel String? @map("assignee_label")
   rule          String  @default("any") // any (первый ответивший) | all (нужен каждый)
 
+  // ЕДИНСТВЕННОЕ, что движок решений знает про подпись (core/sign).
+  // null → обычный путь: клик закрывает шаг решением `internal`.
+  // 'sms' | 'ecp' → публичный `decide` отвергается кодом approval_needs_signature,
+  // а закрыть шаг может только `decideAttested` из транзакции финализации акта.
+  // Направление знания при этом остаётся «sign → approvals»: движок подписи здесь
+  // потребитель, как и все остальные.
+  requiredSignatureKind String? @map("required_signature_kind")
+
   // Кого ждём поимённо. Заполняется СНИМКОМ в момент активации, а не читается на
   // лету: иначе принятый в середине согласования сотрудник молча получал бы
   // обязанность, а уволенный навсегда подвешивал бы шаг, который некому закрыть.
@@ -2971,6 +2982,10 @@ model ApprovalDecision {
   // Чем подтверждено решение. В v1 всегда `internal` — нажатие в SuperApp6, а не
   // юридическая подпись; core/sign добавит `sms`/`ecp`, не трогая маршруты.
   signatureKind String  @default("internal") @map("signature_kind")
+  // Акт подписи, которым закрыто решение (core/sign). Без FK намеренно: движок
+  // решений не должен зависеть от таблиц движка подписи, а само решение обязано
+  // читаться и тогда, когда до подписи дело не дошло.
+  signActId     String? @map("sign_act_id")
   ip            String?
 
   decidedAt DateTime @default(now()) @map("decided_at")
@@ -3006,6 +3021,10 @@ model DocType {
   // «ПР-{ГГГГ}-{NNN}»: номер присваивается ПРИ РЕГИСТРАЦИИ, черновики номеров не съедают
   numberFormat   String? @map("number_format")
   visibility     String  @default("managers") // team | department | managers
+  // Чем подписывается документ этого вида: none | pep | ecp. Вид ДИКТУЕТ уровень,
+  // а не подсказывает: кадровые документы по ст. 33 ТК РК требуют именно ЭЦП, и
+  // выбирать это на каждом маршруте вручную — способ однажды забыть.
+  signatureLevel String  @default("none") @map("signature_level")
   toPersonalFile Boolean @default(false) @map("to_personal_file")
   sortOrder      Int     @default(0) @map("sort_order")
   archivedAt     DateTime? @map("archived_at")
@@ -3043,6 +3062,11 @@ model DocTemplate {
   docTypeId   String @map("doc_type_id")
   name        String // человеческое: «Отпуск», а не «Заявление о предоставлении…»
   description String?
+
+  // Вид бланка: 'docx' — загруженный Word-файл, 'builder' — блочный конструктор
+  kind       String  @default("docx")
+  // Блоки конструктора (kind='builder'; формат BuilderDoc из shared)
+  builderDoc Json?   @map("builder_doc")
 
   // Бланк — ОБЫЧНЫЙ документ core/docs (правится тем же редактором, что и всё остальное).
   documentId String? @map("document_id")
@@ -3086,10 +3110,16 @@ model OrgDocument {
   createdById   String  @map("created_by_id")
 
   documentId String? @map("document_id") // живой документ core/docs (правка в редакторе)
-  fileId     String? @map("file_id")     // .docx карточки
+  fileId     String? @map("file_id")     // .docx карточки; у builder-документа — сам PDF
   pdfFileId  String? @map("pdf_file_id") // отпечаток на момент отправки/подписи
+  // Снимок блоков конструктора (документ по builder-шаблону или свободный документ);
+  // у docx-документов null. Снимок, а не ссылка: правка шаблона не меняет поданное.
+  builderDoc Json?   @map("builder_doc")
 
   fields Json @default("{}") // значения формы подачи
+  // Объявление полей СВОБОДНОГО документа (без шаблона): у документа по шаблону
+  // форма живёт в шаблоне, здесь null — двух источников правды быть не должно.
+  formFields Json? @map("form_fields")
 
   approvalRequestId String? @map("approval_request_id")
   processInstanceId String? @map("process_instance_id")
@@ -3117,4 +3147,211 @@ model OrgDocument {
   @@index([parentDocumentId])
   @@index([processInstanceId])
   @@map("org_documents")
+}
+
+// ============================================================
+// core/sign — движок электронной подписи (15-й платформенный)
+// ============================================================
+// Шаг 3 документной вертикали. До него подпись в платформе была
+// `ApprovalDecision.signatureKind='internal'` — нажатие кнопки, юридической силы
+// ноль. Движок отвечает за акт подписи, криптографию и её проверку, ВЕЧНЫЕ
+// доказательства, экспорт и публичную проверку (ст. 61 Цифрового кодекса РК).
+//
+// Маршрута здесь НЕТ: маршрут — это core/approvals (шаг `signature`) и Процессы.
+// Направление знания одностороннее: sign → approvals, как у любого потребителя.
+//
+// ХРАНЕНИЕ ВЕЧНОЕ. Ретеншн-кроны этих таблиц НЕ КАСАЮТСЯ: срок хранения
+// доказательств равен сроку хранения самого документа (приказ № 279-НК — до 75
+// лет). Поэтому же FK на акт стоит `Restrict`, а ссылки на чужие сущности —
+// вообще без FK (паттерн ApprovalRequest / ShareLink / FileLink).
+
+/// Заявка на подпись: ЧТО подписываем, каким уровнем и кто должен подписать.
+/// Один предмет и один раунд сбора; «на доработку» закрывает заявку, повторная
+/// подача порождает новый маршрут, новый шаг и новую заявку с новым отпечатком.
+model SignRequest {
+  id      String @id @default(uuid())
+  refType String @map("ref_type") // org_document | (дальше — счета, договоры ЭДО, файлы Диска)
+  refId   String @map("ref_id")
+  // Снимок названия предмета — тот же довод, что у ApprovalRequest.refTitle и
+  // ShareLink.refTitle: список не зовёт резолвер на каждую строку, переживает
+  // удаление объекта и не светит ТЕКУЩЕЕ имя тому, у кого доступ отобрали.
+  refTitle String  @map("ref_title")
+  refIcon  String? @map("ref_icon")
+
+  workspaceId String? @map("workspace_id")
+
+  // ЗАМОРОЖЕННЫЙ предмет. Движок сам читает байты у потребителя и кладёт их
+  // ОТДЕЛЬНЫМ неизменяемым файлом (профиль sign_subject), а не ссылается на
+  // живой: у документа PDF существует лишь ВАРИАНТОМ файла и умирает при первой
+  // же правке (replaceContent сносит производные) — подписанные байты можно было
+  // бы физически потерять. Подписанту показывается эта копия, и над ней же
+  // считается CMS: «что видел = что подписал» по построению, а не по
+  // договорённости потребителя.
+  subjectFileId String @map("subject_file_id")
+  subjectSha256 String @map("subject_sha256")
+
+  level   String   // ecp | pep
+  methods String[] @default([]) // qr | ncalayer | pep_otp — что разрешено этой заявкой
+  status  String   @default("pending") // pending | completed | declined | cancelled | expired
+
+  // Шаг маршрута, который закроется подписью. Заводится ЛЕНИВО и идемпотентно
+  // (партиальный UNIQUE ниже), потому что заявка на подпись нужна только тогда,
+  // когда до шага реально дошли, а не при создании всего маршрута.
+  approvalStepId String? @map("approval_step_id")
+
+  createdById String    @map("created_by_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  expiresAt   DateTime? @map("expires_at")
+  completedAt DateTime? @map("completed_at")
+
+  acts SignAct[]
+
+  @@index([refType, refId])
+  @@index([workspaceId, status, createdAt])
+  // Публичная проверка по отпечатку файла (ст. 61 ЦК): проверяющий приносит СВОЙ
+  // файл, браузер считает sha256, на сервер уходит только хэш.
+  @@index([subjectSha256])
+  // ВНИМАНИЕ: партиальный UNIQUE (approval_step_id) WHERE status='pending'
+  // дописан РУКАМИ в миграции `sign_engine` — Prisma такое не выражает.
+  // «Одна живая заявка на шаг»: ленивое создание идемпотентно даже в гонке.
+  @@map("sign_requests")
+}
+
+/// Акт — ОДНА подпись ОДНОГО лица. Самодостаточен: несёт свою копию отпечатка,
+/// снимок имени подписанта и замороженные вердикты проверки сертификата.
+model SignAct {
+  id        String @id @default(uuid())
+  requestId String @map("request_id")
+
+  signerType    String  @map("signer_type") // user | guest
+  signerUserId  String? @map("signer_user_id")
+  // Гость внешней ссылки (ShareLinkGuest): личность = подтверждённый номер + ИИН
+  // из ключа. FK нет намеренно — доказательство переживает уборку чего угодно.
+  signerGuestId String? @map("signer_guest_id")
+  // Снимок имени: акт обязан читаться и после удаления аккаунта.
+  signerName    String  @map("signer_name")
+  signerPhone   String? @map("signer_phone") // ПЭП и гость: чем подтверждали личность
+
+  method String? // qr | ncalayer | pep_otp — null, пока подписант не выбрал
+  level  String  // ecp | pep
+  status String  @default("pending") // pending | signed | declined | failed | expired
+
+  // Копия отпечатка с заявки: акт не должен требовать join, чтобы ответить на
+  // главный вопрос «под чем стоит эта подпись».
+  subjectSha256 String @map("subject_sha256")
+
+  // ---- ЭЦП ----
+  // CMS лежит в core/files, а не в bytea: миллионы подписей × ~10 КБ раздули бы
+  // TOAST, WAL и бэкапы. Целостность держит cmsSha256 на строке + запись файла
+  // ДО финализации акта.
+  cmsFileId String? @map("cms_file_id")
+  cmsSha256 String? @map("cms_sha256")
+
+  certSubjectCn String?   @map("cert_subject_cn")
+  // ИИН/БИН разбираются из сертификата. Расхождение с users.iin — ОТКАЗ, а не
+  // предупреждение: иначе подпись доказывает не того человека.
+  certSubjectIin String?  @map("cert_subject_iin")
+  certSubjectBin String?  @map("cert_subject_bin")
+  certSerial     String?  @map("cert_serial")
+  certIssuerCn   String?  @map("cert_issuer_cn")
+  certNotBefore  DateTime? @map("cert_not_before")
+  certNotAfter   DateTime? @map("cert_not_after")
+
+  // Вердикты ЗАМОРАЖИВАЮТСЯ в момент подписи и НИКОГДА не пересчитываются:
+  // юридически значим статус сертификата ТОГДА (приказ № 1187 требует проверки
+  // цепочки, OCSP на момент подписания и метки TSP). Через год сертификат
+  // истечёт, и живая проверка не докажет ничего.
+  chainValid  Boolean?  @map("chain_valid")
+  ocspStatus  String?   @map("ocsp_status") // good | revoked | unknown
+  ocspAt      DateTime? @map("ocsp_at")
+  ocspFileId  String?   @map("ocsp_file_id") // сырая квитанция для сторонней проверки
+  tspAt       DateTime? @map("tsp_at") // метка доверенного времени = юридическое время
+  tspSerial   String?   @map("tsp_serial")
+  tspFileId   String?   @map("tsp_file_id")
+
+  // ---- ПЭП ----
+  verifyChallengeId String? @map("verify_challenge_id") // цепочка core/verify (purpose sign_pep)
+  // СНИМОК текста соглашения сторон + его версия. Ссылка на «текущую редакцию»
+  // доказательством не является: доказывать придётся тот текст, который человек
+  // видел (ст. 47 ЦК — ПЭП равнозначна подписи ПО СОГЛАШЕНИЮ СТОРОН).
+  consentText    String? @map("consent_text")
+  consentVersion String? @map("consent_version")
+
+  // Юридическое время подписи: у ЭЦП это метка TSP, у ПЭП — время системы.
+  signedAt      DateTime? @map("signed_at")
+  declineReason String?   @map("decline_reason")
+  failureCode   String?   @map("failure_code") // машинный код отказа проверки
+
+  // Токен ПУБЛИЧНОЙ страницы проверки: печатается в QR на протоколе подписания,
+  // то есть живёт на бумаге у третьих лиц.
+  checkToken String @unique @map("check_token")
+
+  ip        String?
+  userAgent String? @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  request     SignRequest     @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  events      SignActEvent[]
+  qrSessions  SignQrSession[]
+
+  @@index([requestId])
+  @@index([signerUserId, signedAt])
+  // «Найти все подписи этого ИИН» — запрос проверяющего и будущего аудита.
+  @@index([certSubjectIin])
+  @@index([status, createdAt])
+  // ВНИМАНИЕ: партиальный UNIQUE (request_id, signer_user_id)
+  // WHERE status IN ('pending','signed') дописан РУКАМИ в миграции `sign_engine`
+  // (прецедент approvals_origin_unique): один человек — одна живая подпись на
+  // заявку. Отказавшийся и не прошедший проверку могут зайти ещё раз.
+  @@map("sign_acts")
+}
+
+/// Протокол подписания — append-only лента событий акта.
+/// Отдельная таблица, а не поля строки: для суда важны независимость записи и
+/// ПОРЯДОК (прецеденты ShareLinkVisit и LedgerTransfer — журнал не переписывают).
+/// BigInt id = он же курсор; наружу ВСЕГДА строкой.
+model SignActEvent {
+  id    BigInt @id @default(autoincrement())
+  actId String @map("act_id")
+  type  String // created | viewed | consent | otp_sent | otp_verified | qr_issued | qr_claimed | cms_received | chain_checked | signed | declined | failed
+
+  at        DateTime @default(now())
+  ip        String?
+  userAgent String?  @map("user_agent")
+  data      Json?
+
+  act SignAct @relation(fields: [actId], references: [id], onDelete: Cascade)
+
+  @@index([actId, id])
+  @@map("sign_act_events")
+}
+
+/// Одноразовая сессия подписания через eGov Mobile (мост Smart Bridge, сервис
+/// NITEC-S-5096). Паспорт сервиса ТРЕБУЕТ публичных HTTPS-URL, ограниченных по
+/// времени и числу обращений, — отсюда два разных @unique-токена (за данными и
+/// за подписью ходят разными запросами) и жёсткая статус-машина: второе
+/// обращение отбивает статус-гвард `updateMany`, а не проверка в приложении.
+model SignQrSession {
+  id    String @id @default(uuid())
+  actId String @map("act_id")
+
+  dataToken String @unique @map("data_token")
+  signToken String @unique @map("sign_token")
+
+  status String @default("issued") // issued | claimed | submitted | expired
+  // Идентификатор процедуры на стороне моста (формат eGov mobile изолирован в драйвере)
+  procedureId String? @map("procedure_id")
+
+  claimedAt   DateTime? @map("claimed_at")
+  submittedAt DateTime? @map("submitted_at")
+  expiresAt   DateTime  @map("expires_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  // FK внутри движка есть (наружу — нет): сессия без своего акта бессмысленна,
+  // а Cascade избавляет от сирот при удалении тестовых данных.
+  act SignAct @relation(fields: [actId], references: [id], onDelete: Cascade)
+
+  @@index([actId])
+  @@index([status, expiresAt])
+  @@map("sign_qr_sessions")
 }

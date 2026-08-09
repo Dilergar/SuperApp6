@@ -29,6 +29,7 @@ import { DocsModule } from './core/docs/docs.module';
 import { ShareLinksModule } from './core/share-links/share-links.module';
 import { ApprovalsModule } from './core/approvals/approvals.module';
 import { TemplatesModule } from './core/templates/templates.module';
+import { SignModule } from './core/sign/sign.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 
 // Feature modules (MVP)
@@ -147,6 +148,12 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // маршрута — «просто согласуй этот документ».
     ApprovalsModule,
     TemplatesModule,
+    // Sign engine — 15-й платформенный движок: электронная подпись (шаг 3
+    // документной вертикали). Акт подписи, криптография и её проверка, ВЕЧНЫЕ
+    // доказательства, экспортный пакет (ст. 62 ЦК РК) и открытая страница
+    // проверки (ст. 61). Маршрута не содержит — им остаются approvals и Процессы.
+    // Идёт ПОСЛЕ approvals: подпись закрывает шаг маршрута, а не наоборот.
+    SignModule,
     DocumentsModule,
 
     // Feature modules — each is self-contained.

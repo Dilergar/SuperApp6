@@ -90,7 +90,10 @@ jobs:
       # VOICE_STT_MOCK=true — голосовой движок на mock-драйвере: verify-voice.cjs
       # гоняет полный пайплайн транскрипции без whisper-контейнера и сети.
       # VERIFY_TEST_PHONES — тест-карта движка подтверждений: verify-otp.cjs проверяет
-      # на ней ресенд без кулдауна (иначе блок помечается SKIP).
+      # на ней ресенд без кулдауна (иначе блок помечается SKIP). Номера аккаунтов
+      # СЬЮТА тоже в карте: подпись по ПЭП шлёт код на СВОЙ номер подписанта, и без
+      # карты verify-sign.cjs упирался бы в анти-абьюз «5 SMS в час» на повторных
+      # прогонах — падение не по делу.
       - name: Write apps/api/.env for verify scripts
         working-directory: apps/api
         run: |
@@ -101,7 +104,7 @@ jobs:
             echo "NODE_ENV=test"
             echo "PORT=3001"
             echo "VOICE_STT_MOCK=true"
-            echo "VERIFY_TEST_PHONES=+77099999999:424242"
+            echo "VERIFY_TEST_PHONES=+77099999999:424242,+77009990001:424242,+77009990002:424242,+77009990003:424242"
           } > .env
 
       - name: Start API

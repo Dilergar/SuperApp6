@@ -151,5 +151,9 @@
   "grid": "SquaresFour",
   "arrowUp": "ArrowUp",
   "arrowDown": "ArrowDown",
-  "restore": "ArrowCounterClockwise"
+  "restore": "ArrowCounterClockwise",
+  "signature": "Signature",
+  "qrCode": "QrCode",
+  "sealCheck": "SealCheck",
+  "certificate": "Certificate"
 }

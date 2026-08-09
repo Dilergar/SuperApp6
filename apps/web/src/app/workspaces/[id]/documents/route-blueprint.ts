@@ -29,8 +29,16 @@ export interface BlueprintDoc {
 /**
  * @param templateId — шаблон, отправка по которому запускает маршрут
  * @param docName — человеческое имя шаблона (идёт в подписи шагов)
+ * @param signatureLevel — чем подписывается ВИД документа (core/sign). Подставляем
+ *   в шаг «Подписать» сразу: кадровику не приходится знать, что ст. 33 ТК РК
+ *   требует ЭЦП, а забыть выбрать уровень — значит получить приказ, «подписанный»
+ *   нажатием кнопки.
  */
-export function buildRouteBlueprint(templateId: string, docName: string): BlueprintDoc {
+export function buildRouteBlueprint(
+  templateId: string,
+  docName: string,
+  signatureLevel: 'none' | 'pep' | 'ecp' = 'none',
+): BlueprintDoc {
   const nodes: BlueprintNode[] = [
     {
       id: 'trigger',
@@ -45,6 +53,7 @@ export function buildRouteBlueprint(templateId: string, docName: string): Bluepr
       label: 'Подпись руководителя',
       config: {
         kind: 'signature',
+        signatureLevel,
         title: `Подписать: ${docName}`,
         // Кто подписывает — единственное, что человек обязан указать сам: у каждой
         // компании это своя должность, и угадывать её за неё нельзя.

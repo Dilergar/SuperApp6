@@ -39,6 +39,7 @@ import {
 import { PersonChip } from '@/app/circles/PersonCard';
 import { useApprovalsCount } from '@/lib/hooks/useApprovalsCount';
 import { SubmitDocumentModal } from './SubmitDocumentModal';
+import { CreateFreeDocumentModal } from './CreateFreeDocumentModal';
 import { DecisionsTab } from './DecisionsTab';
 import { TemplatesTab } from './TemplatesTab';
 import { DocTypesTab } from './DocTypesTab';
@@ -63,6 +64,7 @@ export default function WorkspaceDocumentsPage() {
   const [status, setStatus] = useState<DocStatus | null>(null);
   const [docTypeId, setDocTypeId] = useState<string | null>(null);
   const [submitOpen, setSubmitOpen] = useState(false);
+  const [freeOpen, setFreeOpen] = useState(false);
 
   const wsQuery = useQuery({
     queryKey: workspaceKey(id),
@@ -109,9 +111,14 @@ export default function WorkspaceDocumentsPage() {
       title="Документы"
       description="Заявления, приказы и справки организации: подача, согласование, номер и место в деле"
       actions={
-        <Button icon="add" onClick={() => setSubmitOpen(true)}>
-          Подать заявление
-        </Button>
+        <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
+          <Button variant="matte" icon="edit" onClick={() => setFreeOpen(true)}>
+            Создать документ
+          </Button>
+          <Button icon="add" onClick={() => setSubmitOpen(true)}>
+            Подать заявление
+          </Button>
+        </div>
       }
     />
   );
@@ -284,6 +291,12 @@ export default function WorkspaceDocumentsPage() {
       {tab === 'types' && isManager && <DocTypesTab workspaceId={id} />}
 
       <SubmitDocumentModal workspaceId={id} open={submitOpen} onClose={() => setSubmitOpen(false)} />
+      <CreateFreeDocumentModal
+        workspaceId={id}
+        open={freeOpen}
+        isManager={isManager}
+        onClose={() => setFreeOpen(false)}
+      />
     </>
   );
 }

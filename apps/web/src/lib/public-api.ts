@@ -7,6 +7,7 @@ import {
   type ShareGuestIdentityStartDto,
   type ShareGuestPeekDto,
   type ShareGuestSessionDto,
+  type SignCheckResultDto,
 } from '@superapp/shared';
 
 // ============================================================
@@ -118,6 +119,31 @@ export async function shareDriveList(
   params: { parentId?: string; cursor?: string; sort?: string; dir?: string },
 ): Promise<ShareDriveNodesPage> {
   return guestGet<ShareDriveNodesPage>('/drive/guest/nodes', { headers: sessionHeaders(session), params });
+}
+
+/**
+ * ДЕЙСТВИЕ гостя над объектом ссылки (движок core/share-links, слот `actions`).
+ * Первый потребитель — подпись документа внешним контрагентом.
+ */
+export async function shareAction<T>(
+  token: string,
+  session: string,
+  key: string,
+  body?: unknown,
+): Promise<T> {
+  return guestPost<T>(`/share-links/guest/${encodeURIComponent(token)}/actions/${key}`, body ?? {}, {
+    headers: sessionHeaders(session),
+  });
+}
+
+/**
+ * ПУБЛИЧНАЯ проверка подписи (ст. 61 ЦК РК). Файл при этом НЕ уходит на сервер:
+ * отпечаток считает браузер, сюда едет только 64 шестнадцатеричных символа.
+ */
+export async function signCheck(
+  params: { sha256: string } | { actId: string; k: string },
+): Promise<SignCheckResultDto> {
+  return guestGet<SignCheckResultDto>('/sign/check', { params });
 }
 
 /** Один объект внутри ссылки — свежие ссылки на байты для клика «Скачать» */

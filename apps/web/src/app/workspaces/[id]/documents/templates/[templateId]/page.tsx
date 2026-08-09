@@ -19,6 +19,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   DOC_FIELD_KINDS,
   TEMPLATE_FORMATTERS,
+  emptyBuilderDoc,
+  type BuilderDoc,
   type DocFormFieldDto,
   type DocTemplateDto,
   type ProcessDefinitionDto,
@@ -45,6 +47,7 @@ import {
   useConfirm,
 } from '@/components/ui';
 import { EntitySelector } from '@/components/EntitySelector';
+import { BuilderEditorLazy } from '@/components/doc-builder/BuilderEditorLazy';
 import {
   documentsApi,
   fetchDocTemplates,
@@ -109,7 +112,9 @@ export default function TemplateConstructorPage() {
         name: `Маршрут: ${template.name}`,
         description: `Запускается отправкой документа по шаблону «${template.name}»`,
         surface: surfaceOfCategory(template.category),
-        document: buildRouteBlueprint(template.id, template.name),
+        // Уровень подписи берём из ВИДА документа: кадровый маршрут обязан
+        // требовать ЭЦП (ст. 33 ТК РК), и выбирать это руками — способ забыть.
+        document: buildRouteBlueprint(template.id, template.name, template.signatureLevel),
       });
       return res.id;
     },
@@ -196,6 +201,38 @@ export default function TemplateConstructorPage() {
         }
       />
 
+      {template.kind === 'builder' ? (
+        <BentoGrid>
+          {/* Блочный конструктор: лист + панель данных (панель «Что подставить» встроена) */}
+          <Card span={12}>
+            <BuilderEditorLazy
+              key={template.id}
+              initial={(template.builderDoc ?? emptyBuilderDoc()) as BuilderDoc}
+              fieldGroups={groupsQuery.data ?? []}
+              formFields={template.fields}
+              onSave={async (doc) => {
+                // Тихий автосейв: кэш списка не трогаем — редактор и есть источник
+                // правды на этой странице, а рефетч на каждый ввод дёргал бы лист
+                await documentsApi.updateTemplate(id, templateId, { builderDoc: doc });
+              }}
+              onPreview={(doc) => documentsApi.previewTemplatePdf(id, templateId, doc)}
+              formHint="Это заполнит сотрудник при подаче — и значение встанет в документ."
+              onAddFormField={async (f) => {
+                await documentsApi.updateTemplate(id, templateId, { fields: [...template.fields, f] });
+                refresh();
+              }}
+            />
+          </Card>
+
+          <Card span={12}>
+            <FormFieldsEditor workspaceId={id} template={template} onSaved={refresh} />
+          </Card>
+
+          <Card span={12}>
+            <TemplateGrants workspaceId={id} template={template} confirm={confirm} />
+          </Card>
+        </BentoGrid>
+      ) : (
       <BentoGrid>
         {/* Бланк */}
         <Card span={7}>
@@ -300,6 +337,7 @@ export default function TemplateConstructorPage() {
           <TemplateGrants workspaceId={id} template={template} confirm={confirm} />
         </Card>
       </BentoGrid>
+      )}
 
       {confirmUI}
     </>

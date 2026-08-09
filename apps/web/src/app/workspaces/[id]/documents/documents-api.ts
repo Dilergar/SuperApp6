@@ -9,6 +9,7 @@
 
 import type {
   AvailableTemplateDto,
+  BuilderDoc,
   DocTemplateDto,
   DocTemplateGrantDto,
   DocTypeDto,
@@ -18,7 +19,7 @@ import type {
   ProcessDefinitionDto,
   ProcessDefinitionDetailDto,
 } from '@superapp/shared';
-import { apiDelete, apiGet, apiPatch, apiPost } from '@/lib/api';
+import { apiDelete, apiGet, apiPatch, apiPost, apiPostRaw } from '@/lib/api';
 
 const base = (wsId: string) => `/workspaces/${wsId}/documents`;
 
@@ -95,8 +96,20 @@ export const documentsApi = {
     apiDelete(`${base(wsId)}/templates/${tplId}/grants/${principalType}/${principalId}`),
 
   createDocument: (wsId: string, body: Record<string, unknown>) => apiPost<OrgDocumentDto>(base(wsId), body),
+  /** Свободный документ «с нуля» — блочный конструктор без шаблона */
+  createFreeDocument: (wsId: string, body: Record<string, unknown>) =>
+    apiPost<OrgDocumentDto>(`${base(wsId)}/free`, body),
   updateDocument: (wsId: string, docId: string, body: Record<string, unknown>) =>
     apiPatch(`${base(wsId)}/${docId}`, body),
+  /** PDF-превью: ответ — сырые байты application/pdf, не наш конверт */
+  previewTemplatePdf: (wsId: string, tplId: string, builderDoc?: BuilderDoc) =>
+    apiPostRaw<Blob>(`${base(wsId)}/templates/${tplId}/preview`, builderDoc ? { builderDoc } : {}, {
+      responseType: 'blob',
+    }),
+  previewDocumentPdf: (wsId: string, docId: string, builderDoc?: BuilderDoc) =>
+    apiPostRaw<Blob>(`${base(wsId)}/${docId}/preview`, builderDoc ? { builderDoc } : {}, {
+      responseType: 'blob',
+    }),
   submit: (wsId: string, docId: string) => apiPost(`${base(wsId)}/${docId}/submit`),
   cancel: (wsId: string, docId: string) => apiPost(`${base(wsId)}/${docId}/cancel`),
   /** Вернуть с маршрута в черновик — пока по документу никто не начал решать */

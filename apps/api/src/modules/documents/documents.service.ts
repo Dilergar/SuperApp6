@@ -13,9 +13,14 @@ import {
   DOC_ROUTABLE_STATUSES,
   ORG_DOCUMENT_REF_TYPE,
   WORKSPACE_ROLE_RANK,
+  expandDocFormValues,
   formatDocNumber,
+  isDocDateRangeValue,
+  emptyBuilderDoc,
+  type BuilderDoc,
   type CreateDocTemplateInput,
   type CreateDocTypeInput,
+  type CreateFreeOrgDocumentInput,
   type CreateOrgDocumentInput,
   type DocCategory,
   type DocFormFieldDto,
@@ -38,7 +43,12 @@ import { RolesService } from '../../core/roles/roles.service';
 import { AccessService } from '../../core/access/access.service';
 import { principalSubjectRelation } from '../../core/access/access-schema';
 import { DocsService } from '../../core/docs/docs.service';
+import { TemplateRenderService } from '../../core/templates/template-render.service';
+import { TemplateFieldRegistry } from '../../core/templates/template-field.registry';
+import { PdfRenderService } from '../../core/templates/pdf-render.service';
+import { renderBuilderHtml, checkBuilderDoc } from '../../core/templates/builder-render.driver';
 import { ApprovalsService } from '../../core/approvals/approvals.service';
+import { SignService } from '../../core/sign/sign.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { JobsService } from '../../core/jobs/jobs.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -85,10 +95,14 @@ export class DocumentsService {
     private readonly roles: RolesService,
     private readonly access: AccessService,
     private readonly docs: DocsService,
+    private readonly templates: TemplateRenderService,
+    private readonly fieldRegistry: TemplateFieldRegistry,
+    private readonly pdfRender: PdfRenderService,
     private readonly chatter: ChatterService,
     private readonly jobs: JobsService,
     private readonly notifications: NotificationsService,
     private readonly approvals: ApprovalsService,
+    private readonly sign: SignService,
   ) {}
 
   /** Ставится на bootstrap модулем — см. DocumentsModule (разрыв цикла с Процессами). */
@@ -157,6 +171,10 @@ export class DocumentsService {
         category: dto.category ?? 'general',
         numberFormat: dto.numberFormat ?? DEFAULT_DOC_NUMBER_FORMAT,
         visibility: dto.visibility ?? 'managers',
+        // Кадровому виду по умолчанию ставим ЭЦП: ст. 33 ТК РК не оставляет
+        // выбора, а «по умолчанию без подписи» означало бы, что забыть можно
+        // молча. Снять требование по-прежнему можно явно.
+        signatureLevel: dto.signatureLevel ?? (dto.category === 'hr' ? 'ecp' : 'none'),
         toPersonalFile: dto.toPersonalFile ?? false,
         sortOrder: dto.sortOrder ?? 0,
       },
@@ -179,6 +197,7 @@ export class DocumentsService {
         ...(dto.category !== undefined ? { category: dto.category } : {}),
         ...(dto.numberFormat !== undefined ? { numberFormat: dto.numberFormat } : {}),
         ...(dto.visibility !== undefined ? { visibility: dto.visibility } : {}),
+        ...(dto.signatureLevel !== undefined ? { signatureLevel: dto.signatureLevel } : {}),
         ...(dto.toPersonalFile !== undefined ? { toPersonalFile: dto.toPersonalFile } : {}),
         ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
       },
@@ -243,6 +262,14 @@ export class DocumentsService {
       throw new BadRequestException('Слишком много шаблонов этого вида');
     }
 
+    const kind = dto.kind ?? 'docx';
+    if (kind === 'builder' && dto.fileId) {
+      throw new BadRequestException('У блочного шаблона не бывает Word-бланка');
+    }
+    if (kind === 'docx' && dto.builderDoc) {
+      throw new BadRequestException('Блоки конструктора — только у блочного шаблона');
+    }
+
     // Бланк: файл уже загружен обычным путём движка файлов. Оживление в документ
     // core/docs делаем сразу — бланк правится тем же редактором, что и всё остальное.
     let documentId: string | null = null;
@@ -260,6 +287,8 @@ export class DocumentsService {
         docTypeId: type.id,
         name: dto.name,
         description: dto.description ?? null,
+        kind,
+        builderDoc: kind === 'builder' ? ((dto.builderDoc ?? emptyBuilderDoc()) as object) : undefined,
         fileId: dto.fileId ?? null,
         documentId,
         fields: (dto.fields ?? []) as object,
@@ -280,6 +309,14 @@ export class DocumentsService {
     await this.requireManager(userId, workspaceId);
     const tpl = await this.templateOrThrow(workspaceId, templateId);
 
+    if (dto.fileId && tpl.kind === 'builder') {
+      throw new BadRequestException('У блочного шаблона не бывает Word-бланка');
+    }
+    // Правка блоков — только у блочного шаблона (у docx бланк живёт файлом)
+    if (dto.builderDoc && tpl.kind !== 'builder') {
+      throw new BadRequestException('Блоки конструктора — только у блочного шаблона');
+    }
+
     // Бланк прикрепляется ОДИН раз: у шаблона с историей подач подменять бланк нельзя
     // (иначе поданные документы ссылались бы на текст, которого никто не видел).
     let documentId: string | null = null;
@@ -299,6 +336,7 @@ export class DocumentsService {
         ...(dto.description !== undefined ? { description: dto.description } : {}),
         ...(dto.fields !== undefined ? { fields: dto.fields as object } : {}),
         ...(dto.selfService !== undefined ? { selfService: dto.selfService } : {}),
+        ...(dto.builderDoc !== undefined ? { builderDoc: dto.builderDoc as object } : {}),
         ...(dto.fileId ? { fileId: dto.fileId, ...(documentId ? { documentId } : {}) } : {}),
       },
       include: { docType: true },
@@ -315,7 +353,30 @@ export class DocumentsService {
   async publishTemplate(userId: string, workspaceId: string, templateId: string): Promise<DocTemplateDto> {
     await this.requireManager(userId, workspaceId);
     const tpl = await this.templateOrThrow(workspaceId, templateId);
-    if (!tpl.fileId) throw new BadRequestException('У шаблона нет бланка — загрузите файл документа');
+    if (tpl.kind === 'builder') {
+      const builderDoc = tpl.builderDoc as BuilderDoc | null;
+      // «Пустой» — это и свежий лист с одним пустым абзацем: длина blocks тут не критерий
+      const hasContent = (builderDoc?.blocks ?? []).some(
+        (b) => !('content' in b) || (Array.isArray(b.content) && b.content.length > 0),
+      );
+      if (!builderDoc || !hasContent) {
+        throw new BadRequestException('Бланк пустой — соберите документ в конструкторе');
+      }
+      // Аналог компилятора docx-пути: чипы сверяются с реестром полей и формой подачи.
+      // Период дат разворачивается в плоские ключи — они тоже законные пути чипов.
+      const formKeys = ((tpl.fields ?? []) as unknown as DocFormFieldDto[]).flatMap((f) =>
+        f.kind === 'daterange' ? [f.key, `${f.key} С`, `${f.key} По`, `${f.key} Дней`] : [f.key],
+      );
+      const issues = checkBuilderDoc(builderDoc, (p) => this.fieldRegistry.isKnownPath(p), formKeys);
+      if (issues.length) {
+        throw new BadRequestException({
+          message: `Бланк не готов к публикации: ${issues[0].message}${issues.length > 1 ? ` (и ещё ${issues.length - 1})` : ''}`,
+          errors: issues.map((i) => ({ field: i.tag ?? '', message: i.message })),
+        });
+      }
+    } else if (!tpl.fileId) {
+      throw new BadRequestException('У шаблона нет бланка — загрузите файл документа');
+    }
     const row = await this.db.docTemplate.update({
       where: { id: tpl.id },
       data: { status: 'published', version: { increment: tpl.status === 'published' ? 0 : 1 } },
@@ -457,8 +518,146 @@ export class DocumentsService {
       docTypeId: r.docTypeId,
       docTypeName: r.docType.name,
       category: r.docType.category as DocCategory,
+      kind: (r.kind ?? 'docx') as 'docx' | 'builder',
       fields: (r.fields ?? []) as unknown as DocFormFieldDto[],
     }));
+  }
+
+  // ============================================================
+  // Превью конструктора: «Пример с данными» — настоящий PDF
+  // ============================================================
+
+  /**
+   * PDF-превью блочного шаблона глазами сотрудника: живые данные организации,
+   * пример-сотрудник — сам смотрящий, поля формы — образцы. Абсолютная честность:
+   * тот же рендер и тот же Chromium, что соберут настоящий документ.
+   */
+  async previewTemplatePdf(
+    userId: string,
+    workspaceId: string,
+    templateId: string,
+    override?: BuilderDoc,
+  ): Promise<Buffer> {
+    await this.requireManager(userId, workspaceId);
+    const tpl = await this.templateOrThrow(workspaceId, templateId);
+    if (tpl.kind !== 'builder') throw new BadRequestException('Превью конструктора — только у блочного шаблона');
+    const builderDoc = override ?? (tpl.builderDoc as BuilderDoc | null);
+    if (!builderDoc) throw new BadRequestException('Бланк пустой');
+    if (!this.pdfRender.enabled) {
+      throw new BadRequestException('PDF-рендер выключен — поднимите профиль pdf (GOTENBERG_URL)');
+    }
+
+    const fields = (tpl.fields ?? []) as unknown as DocFormFieldDto[];
+    const sample: Record<string, unknown> = {};
+    for (const f of fields) sample[f.key] = this.sampleFieldValue(f);
+    const type = await this.typeOrThrow(workspaceId, tpl.docTypeId);
+    const values = {
+      ...expandDocFormValues(sample),
+      Документ: {
+        Название: tpl.name,
+        Номер: this.sampleNumber(type.numberFormat),
+        Дата: new Date(),
+      },
+      ...(await this.templates.resolveContextValues({
+        workspaceId,
+        subjectUserId: userId,
+        actorUserId: userId,
+      })),
+    };
+    const logoDataUri = await this.builderLogo(workspaceId, builderDoc);
+    const { html } = renderBuilderHtml(builderDoc, values, {
+      strict: false,
+      title: tpl.name,
+      assets: { logoDataUri },
+    });
+    return this.pdfRender.htmlToPdf(html, { footer: builderDoc.page?.footer ?? 'pageNumbers' });
+  }
+
+  /** PDF-превью блочного ДОКУМЕНТА: текущие блоки + его собственные данные */
+  async previewDocumentPdf(userId: string, documentId: string, override?: BuilderDoc): Promise<Buffer> {
+    const row = await this.documentOrThrow(documentId);
+    const role = await this.requireTeam(userId, row.workspaceId);
+    if (!(await this.canView(userId, row, role))) throw new ForbiddenException('Нет доступа к документу');
+    const builderDoc = override ?? (row.builderDoc as BuilderDoc | null);
+    if (!builderDoc) throw new BadRequestException('У этого документа нет блочного тела');
+    // Свежие блоки шлёт только тот, кто вправе их править
+    if (override && !this.canEdit(userId, row, role)) throw new ForbiddenException('Документ на маршруте — правка закрыта');
+    if (!this.pdfRender.enabled) {
+      throw new BadRequestException('PDF-рендер выключен — поднимите профиль pdf (GOTENBERG_URL)');
+    }
+    const fieldsBag = (row.fields ?? {}) as Record<string, unknown>;
+    const values = {
+      ...expandDocFormValues(fieldsBag),
+      Документ: {
+        Название: row.title,
+        Номер: row.number ?? '',
+        Дата: row.createdAt,
+      },
+      ...(await this.templates.resolveContextValues({
+        workspaceId: row.workspaceId,
+        subjectUserId: row.subjectUserId ?? undefined,
+        actorUserId: row.createdById,
+      })),
+    };
+    const logoDataUri = await this.builderLogo(row.workspaceId, builderDoc);
+    const { html } = renderBuilderHtml(builderDoc, values, {
+      strict: false,
+      title: row.title,
+      assets: { logoDataUri },
+    });
+    return this.pdfRender.htmlToPdf(html, { footer: builderDoc.page?.footer ?? 'pageNumbers' });
+  }
+
+  /** Образец значения поля формы для превью шаблона */
+  private sampleFieldValue(f: DocFormFieldDto): unknown {
+    switch (f.kind) {
+      case 'date':
+        return new Date();
+      case 'daterange': {
+        const from = new Date();
+        const to = new Date(from.getTime() + 13 * 86_400_000);
+        const iso = (d: Date) => d.toISOString().slice(0, 10);
+        return { from: iso(from), to: iso(to) };
+      }
+      case 'number':
+        return 10;
+      case 'select':
+        return f.options?.[0]?.value ?? '';
+      default:
+        return `(${f.label})`;
+    }
+  }
+
+  /** Пример номера по формату вида: «ЗАЯВ-{ГГГГ}-{NNN}» → «ЗАЯВ-2026-001» */
+  private sampleNumber(numberFormat: string | null): string {
+    return formatDocNumber(numberFormat ?? DEFAULT_DOC_NUMBER_FORMAT, 1, new Date());
+  }
+
+  /**
+   * Лого для шапки-бланка — data:URI (Chromium в контейнере наружу не ходит).
+   * Тянем ТОЛЬКО свои публичные файлы (`/public-files/` нашего API): произвольный
+   * URL из настроек организации серверу качать нельзя — SSRF. Метод без гейта —
+   * зовут превью (после своих проверок) и джоб сборки.
+   */
+  async builderLogo(workspaceId: string, builderDoc: BuilderDoc): Promise<string | null> {
+    const wantsLogo = builderDoc.blocks.some((b) => b.type === 'requisites' && b.props?.showLogo !== false);
+    if (!wantsLogo) return null;
+    const ws = await this.db.workspace.findUnique({ where: { id: workspaceId }, select: { logo: true } });
+    const logo = ws?.logo ?? '';
+    if (!logo.includes('/public-files/')) return null;
+    const apiBase = (process.env.API_PUBLIC_URL ?? `http://localhost:${process.env.PORT ?? 3001}`).replace(/\/+$/, '');
+    const url = logo.startsWith('http') ? logo : `${apiBase}${logo.startsWith('/') ? '' : '/'}${logo}`;
+    if (!url.startsWith(apiBase)) return null;
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      if (!res.ok) return null;
+      const mime = res.headers.get('content-type') ?? 'image/png';
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length > 1024 * 1024) return null;
+      return `data:${mime};base64,${buf.toString('base64')}`;
+    } catch {
+      return null;
+    }
   }
 
   // ============================================================
@@ -505,6 +704,8 @@ export class DocumentsService {
           subjectUserId,
           createdById: userId,
           fields: fields as object,
+          // СНИМОК блоков: правка шаблона после подачи не меняет поданное
+          ...(tpl.kind === 'builder' && tpl.builderDoc ? { builderDoc: tpl.builderDoc as object } : {}),
         },
       });
       await this.chatter.log(tx, {
@@ -518,6 +719,56 @@ export class DocumentsService {
       });
       // Сборка .docx — фоном, в ТОЙ ЖЕ транзакции (transactional outbox): откат
       // создания карточки не оставит джоб, который потом не найдёт документ.
+      await this.jobs.enqueue(tx, {
+        type: DOCUMENTS_GENERATE_JOB,
+        payload: { documentId: row.id },
+        uniqueKey: `doc:gen:${row.id}`,
+      });
+      return row;
+    });
+    return this.get(userId, created.id);
+  }
+
+  /**
+   * Свободный документ «с нуля» — конструктор без шаблона (служебка, письмо).
+   * Создать может любой член команды; вид обязателен (нумерация, видимость,
+   * подшивка держатся на нём), сторона проверяется как у документа по шаблону.
+   */
+  async createFreeDocument(
+    userId: string,
+    workspaceId: string,
+    dto: CreateFreeOrgDocumentInput,
+  ): Promise<OrgDocumentDto> {
+    const role = await this.requireTeam(userId, workspaceId);
+    const type = await this.typeOrThrow(workspaceId, dto.docTypeId);
+
+    const subjectUserId = dto.subjectUserId ?? userId;
+    await this.assertSubject(userId, workspaceId, role, subjectUserId);
+
+    const created = await this.db.$transaction(async (tx) => {
+      const row = await tx.orgDocument.create({
+        data: {
+          workspaceId,
+          docTypeId: type.id,
+          templateId: null,
+          title: dto.title,
+          status: 'draft',
+          subjectUserId,
+          createdById: userId,
+          fields: {},
+          ...(dto.formFields ? { formFields: dto.formFields as object } : {}),
+          builderDoc: (dto.builderDoc ?? emptyBuilderDoc()) as object,
+        },
+      });
+      await this.chatter.log(tx, {
+        refType: ORG_DOCUMENT_REF_TYPE,
+        refId: row.id,
+        workspaceId,
+        actorId: userId,
+        actorName: await this.nameOf(userId),
+        typeKey: 'org_document.created',
+        payload: { title: row.title },
+      });
       await this.jobs.enqueue(tx, {
         type: DOCUMENTS_GENERATE_JOB,
         payload: { documentId: row.id },
@@ -599,6 +850,10 @@ export class DocumentsService {
         !(await this.approvals.activeRequestIdForRef(ORG_DOCUMENT_REF_TYPE, row.id)),
       manage: this.isManager(role),
     };
+    // Подписи под документом — блок «Подписи» на карточке. Права внутри решает
+    // сам движок подписи (участник, автор либо тот, кому мы разрешили видеть
+    // предмет), поэтому здесь достаточно спросить.
+    dto.sign = await this.sign.summaryForRef(userId, ORG_DOCUMENT_REF_TYPE, row.id).catch(() => null);
     return dto;
   }
 
@@ -618,17 +873,43 @@ export class DocumentsService {
     if (dto.subjectUserId !== undefined && dto.subjectUserId !== row.subjectUserId) {
       await this.assertSubject(userId, row.workspaceId, role, dto.subjectUserId);
     }
+    // Тело правится только у блочного документа (у docx тело живёт файлом core/docs)
+    if (dto.builderDoc && !row.builderDoc) {
+      throw new BadRequestException('У этого документа тело правится в редакторе файла');
+    }
+    // Свои поля — только у СВОБОДНОГО документа: у документа по шаблону форма
+    // принадлежит шаблону, и правится она там (иначе две правды об одной форме).
+    if (dto.formFields !== undefined && row.templateId) {
+      throw new BadRequestException('Поля этого документа заданы шаблоном — измените их в шаблоне');
+    }
+    // Новое объявление применяем к значениям СРАЗУ: снятое поле не должно оставить
+    // за собой висячее значение, которое всё ещё печатается в документе.
+    const nextSpec = dto.formFields ?? (row.formFields as unknown);
     await this.db.orgDocument.update({
       where: { id: row.id },
       data: {
         ...(dto.title !== undefined ? { title: dto.title } : {}),
-        ...(dto.fields !== undefined ? { fields: (await this.sanitizeFields(dto.fields, row.templateId)) as object } : {}),
+        ...(dto.fields !== undefined
+          ? { fields: (await this.sanitizeFields(dto.fields, row.templateId, nextSpec)) as object }
+          : {}),
         ...(dto.subjectUserId !== undefined ? { subjectUserId: dto.subjectUserId } : {}),
+        ...(dto.builderDoc !== undefined ? { builderDoc: dto.builderDoc as object } : {}),
+        ...(dto.formFields !== undefined
+          ? {
+              formFields: dto.formFields as object,
+              // Прежние значения пересеиваем новым объявлением
+              fields: (await this.sanitizeFields(
+                dto.fields ?? ((row.fields ?? {}) as Record<string, unknown>),
+                null,
+                dto.formFields,
+              )) as object,
+            }
+          : {}),
       },
     });
-    // Данные формы поменялись — бланк пересобираем: иначе в документе останется
-    // старое значение, а человек будет уверен, что отправил новое.
-    if (dto.fields !== undefined) {
+    // Данные формы или тело поменялись — бланк пересобираем: иначе в документе
+    // останется старое значение, а человек будет уверен, что отправил новое.
+    if (dto.fields !== undefined || dto.builderDoc !== undefined || dto.formFields !== undefined) {
       await this.jobs.enqueue(null, {
         type: DOCUMENTS_GENERATE_JOB,
         payload: { documentId: row.id },
@@ -988,7 +1269,9 @@ export class DocumentsService {
   /** Заказать PDF-отпечаток текущего содержимого (идемпотентно, контентный ключ у движка). */
   async requestPdf(documentId: string): Promise<{ ready: boolean }> {
     const row = await this.documentOrThrow(documentId);
-    if (!row.documentId || !this.docs.enabled) return { ready: false };
+    // Блочный документ: отпечаток собирает наш PDF-рендер, живой файл core/docs не нужен
+    const canSnapshot = row.builderDoc ? this.pdfRender.enabled : !!row.documentId && this.docs.enabled;
+    if (!canSnapshot) return { ready: false };
     await this.jobs.enqueue(null, {
       type: DOCUMENTS_PDF_JOB,
       payload: { documentId: row.id },
@@ -1021,7 +1304,10 @@ export class DocumentsService {
   }
 
   /**
-   * Значения формы подачи — только ОБЪЯВЛЕННЫЕ шаблоном ключи и только примитивы.
+   * Значения формы — только ОБЪЯВЛЕННЫЕ ключи и только примитивы (плюс период дат).
+   *
+   * Объявление берётся у ШАБЛОНА, а у свободного документа — из его собственного
+   * `formFields`: иначе в документе без шаблона нельзя было ввести дату календарём.
    *
    * Эти значения уходят в рендер отдельным слоем и в анкету запуска маршрута, поэтому
    * свободный JSON здесь означал две дыры разом: ключ «Организация» подменял РЕКВИЗИТЫ
@@ -1031,22 +1317,38 @@ export class DocumentsService {
   private async sanitizeFields(
     raw: Record<string, unknown>,
     templateId: string | null,
+    ownFormFields?: unknown,
   ): Promise<Record<string, unknown>> {
-    if (!templateId) return {};
-    const tpl = await this.db.docTemplate.findUnique({
-      where: { id: templateId },
-      select: { fields: true },
-    });
-    const declared = new Set(
-      ((tpl?.fields ?? []) as unknown as DocFormFieldDto[])
-        .map((f) => f?.key)
-        .filter((k): k is string => typeof k === 'string' && !k.startsWith('_')),
+    // Объявление формы: у документа по шаблону — в шаблоне, у свободного — своё.
+    // Нет ни того ни другого → значения не принимаем вовсе (прежнее поведение).
+    let spec: DocFormFieldDto[] = [];
+    if (templateId) {
+      const tpl = await this.db.docTemplate.findUnique({
+        where: { id: templateId },
+        select: { fields: true },
+      });
+      spec = (tpl?.fields ?? []) as unknown as DocFormFieldDto[];
+    } else if (Array.isArray(ownFormFields)) {
+      spec = ownFormFields as DocFormFieldDto[];
+    }
+    if (spec.length === 0) return {};
+    const declared = new Map(
+      spec
+        .filter((f) => typeof f?.key === 'string' && !f.key.startsWith('_'))
+        .map((f) => [f.key, f.kind] as const),
     );
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(raw ?? {})) {
       if (!declared.has(key)) continue;
       if (value === null || value === undefined) continue;
-      if (typeof value === 'object') continue; // вложенные объекты подменяли группы целиком
+      if (typeof value === 'object') {
+        // Объекты подменяли группы шаблона целиком — режутся. Единственная узкая
+        // дверь: строго валидный период {from,to} на ОБЪЯВЛЕННОМ daterange-поле.
+        if (declared.get(key) === 'daterange' && isDocDateRangeValue(value)) {
+          out[key] = { from: value.from, to: value.to };
+        }
+        continue;
+      }
       out[key] = typeof value === 'string' ? value.slice(0, DOC_LIMITS.maxFieldValueLength) : value;
     }
     return out;
@@ -1371,6 +1673,7 @@ export class DocumentsService {
       category: string;
       numberFormat: string | null;
       visibility: string;
+      signatureLevel: string;
       toPersonalFile: boolean;
       sortOrder: number;
       createdAt: Date;
@@ -1384,6 +1687,7 @@ export class DocumentsService {
       category: row.category as DocTypeDto['category'],
       numberFormat: row.numberFormat,
       visibility: row.visibility as DocTypeDto['visibility'],
+      signatureLevel: row.signatureLevel as DocTypeDto['signatureLevel'],
       toPersonalFile: row.toPersonalFile,
       sortOrder: row.sortOrder,
       templatesCount,
@@ -1398,6 +1702,8 @@ export class DocumentsService {
       docTypeId: string;
       name: string;
       description: string | null;
+      kind: string;
+      builderDoc: unknown;
       documentId: string | null;
       fileId: string | null;
       fields: unknown;
@@ -1407,7 +1713,7 @@ export class DocumentsService {
       createdAt: Date;
       updatedAt: Date;
     },
-    type: { name: string; category: string },
+    type: { name: string; category: string; signatureLevel?: string },
     hasRoute: boolean,
   ): DocTemplateDto {
     return {
@@ -1416,8 +1722,11 @@ export class DocumentsService {
       docTypeId: row.docTypeId,
       docTypeName: type.name,
       category: type.category as DocCategory,
+      signatureLevel: (type.signatureLevel ?? 'none') as DocTemplateDto['signatureLevel'],
       name: row.name,
       description: row.description,
+      kind: (row.kind ?? 'docx') as 'docx' | 'builder',
+      builderDoc: (row.builderDoc ?? null) as DocTemplateDto['builderDoc'],
       documentId: row.documentId,
       fileId: row.fileId,
       fields: (row.fields ?? []) as DocFormFieldDto[],
@@ -1445,7 +1754,9 @@ export class DocumentsService {
       documentId: string | null;
       fileId: string | null;
       pdfFileId: string | null;
+      builderDoc: unknown;
       fields: unknown;
+      formFields: unknown;
       approvalRequestId: string | null;
       processInstanceId: string | null;
       parentDocumentId: string | null;
@@ -1454,7 +1765,7 @@ export class DocumentsService {
       updatedAt: Date;
     },
     type: { name: string; category: string },
-    template: { name: string } | null,
+    template: { name: string; fields?: unknown } | null,
     names: Map<string, string>,
   ): OrgDocumentDto {
     return {
@@ -1476,7 +1787,10 @@ export class DocumentsService {
       documentId: row.documentId,
       fileId: row.fileId,
       pdfFileId: row.pdfFileId,
+      builderDoc: (row.builderDoc ?? null) as OrgDocumentDto['builderDoc'],
       fields: (row.fields ?? {}) as Record<string, unknown>,
+      // Форма: у документа по шаблону — из шаблона, у свободного — своя
+      formFields: ((row.templateId ? template?.fields : row.formFields) ?? []) as unknown as DocFormFieldDto[],
       approvalRequestId: row.approvalRequestId,
       processInstanceId: row.processInstanceId,
       parentDocumentId: row.parentDocumentId,

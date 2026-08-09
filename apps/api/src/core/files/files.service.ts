@@ -18,8 +18,10 @@ import {
   FILE_LIMITS,
   FILE_PROFILES,
   FILE_QUOTAS,
+  EVIDENCE_FILE_PROFILES,
   EXEC_EXT_BLACKLIST,
   TEAM_WORKSPACE_ROLES,
+  isEvidenceProfile,
   fileExtension,
   fileKindFromMime,
   isInlineMime,
@@ -95,6 +97,13 @@ export class FilesService implements OnModuleInit {
   // ============================================================
 
   async init(userId: string, dto: InitFileInput): Promise<FileInitResult> {
+    // Профили доказательств (core/sign) — СЛУЖЕБНЫЕ: их создаёт только сам движок
+    // подписи headless-инжестом. Через HTTP они закрыты, потому что не считаются в
+    // квоту и не подлежат уборке: иначе любой клиент, подставив profile в тело
+    // запроса, получил бы бесконечное вечное хранилище.
+    if (isEvidenceProfile(dto.profile)) {
+      throw new BadRequestException('Этот профиль загрузки служебный');
+    }
     const spec = this.profileSpec(dto.profile);
 
     const ext = fileExtension(dto.name);
@@ -386,7 +395,12 @@ export class FilesService implements OnModuleInit {
         `Файл слишком большой: лимит профиля ${Math.floor(spec.maxSize / (1024 * 1024))} МБ`,
       );
     }
-    await this.assertQuota(ownerType, ownerId, stat.size);
+    // Доказательства подписания места «не занимают»: человек их не выбирал и удалить
+    // не может, а срок хранения у них — срок хранения документа. Списать это на его
+    // 15 ГБ значило бы и считать неверно, и однажды потерять доказательство из-за
+    // переполнения чужой квоты.
+    const countsToQuota = !isEvidenceProfile(opts.profile);
+    if (countsToQuota) await this.assertQuota(ownerType, ownerId, stat.size);
 
     const detected = await fileTypeFromFile(opts.path).catch(() => undefined);
     const sniffError = this.validateMagicBytes(mime, detected?.mime);
@@ -430,11 +444,13 @@ export class FilesService implements OnModuleInit {
             meta: { pipeline: needsPipeline ? 'pending' : 'done' },
           },
         });
-        await tx.fileQuotaUsage.upsert({
-          where: { ownerType_ownerId: { ownerType, ownerId } },
-          create: { ownerType, ownerId, bytesUsed: BigInt(stat.size), filesCount: 1 },
-          update: { bytesUsed: { increment: BigInt(stat.size) }, filesCount: { increment: 1 } },
-        });
+        if (countsToQuota) {
+          await tx.fileQuotaUsage.upsert({
+            where: { ownerType_ownerId: { ownerType, ownerId } },
+            create: { ownerType, ownerId, bytesUsed: BigInt(stat.size), filesCount: 1 },
+            update: { bytesUsed: { increment: BigInt(stat.size) }, filesCount: { increment: 1 } },
+          });
+        }
         // Джобы обработки/скана — в транзакции создания файла (transactional outbox).
         if (needsPipeline) await this.pipeline.enqueue(tx, id);
         await this.scanHook.enqueue(tx, id);
@@ -1221,6 +1237,14 @@ export class FilesService implements OnModuleInit {
   async softDelete(userId: string, fileId: string): Promise<void> {
     const row = await this.db.fileObject.findUnique({ where: { id: fileId } });
     if (!row || row.status === 'deleted') throw new NotFoundException('Файл не найден');
+    // Доказательства подписания (core/sign) не удаляет НИКТО — в том числе тот, кто
+    // их «загрузил». Загрузившим движок записывает самого подписанта, то есть ровно
+    // того, у кого есть мотив отказаться от своей подписи; без этой стены он сносил
+    // бы контейнер CMS и замороженную копию обычной ручкой, а крон ретеншна через
+    // неделю стирал бы и байты — доказывать подпись стало бы нечем.
+    if (isEvidenceProfile(row.profile)) {
+      throw new ForbiddenException('Доказательства подписания удалить нельзя — они хранятся вместе с документом');
+    }
     const isOwner =
       row.uploaderId === userId || (row.ownerType === 'user' && row.ownerId === userId);
     if (!isOwner) throw new ForbiddenException('Удалить файл может владелец или загрузивший');
@@ -1234,6 +1258,9 @@ export class FilesService implements OnModuleInit {
   private async systemSoftDelete(fileId: string): Promise<void> {
     const row = await this.db.fileObject.findUnique({ where: { id: fileId } });
     if (!row || row.status === 'deleted') return;
+    // Системная уборка доказательств тоже не касается: у контейнера CMS вообще нет
+    // привязок, и любой путь «файл осиротел → прибрать» вынес бы его молча.
+    if (isEvidenceProfile(row.profile)) return;
     await this.doSoftDelete(row);
   }
 
@@ -1247,7 +1274,10 @@ export class FilesService implements OnModuleInit {
         data: { status: 'deleted', deletedAt: new Date(), uploadId: null },
       });
       if (res.count !== 1) throw new ConflictException('Файл уже изменён — повторите');
-      if (prevStatus === 'ready') {
+      // Симметрия с ingestLocalFile: доказательства подписания квоту не занимали,
+      // значит и списывать при удалении нечего — иначе владелец «худеет» на байты,
+      // которые ему никогда не начисляли, и учёт врёт до ночной сверки.
+      if (prevStatus === 'ready' && !isEvidenceProfile(row.profile)) {
         await tx.fileQuotaUsage.updateMany({
           where: { ownerType: row.ownerType, ownerId: row.ownerId },
           data: { bytesUsed: { decrement: row.size }, filesCount: { decrement: 1 } },
@@ -1298,6 +1328,11 @@ export class FilesService implements OnModuleInit {
       WHERE fo."status" = 'ready'
         AND fo."visibility" = 'private'
         AND fo."created_at" < ${cutoff}
+        -- Доказательства подписания (core/sign) реап НЕ ТРОГАЕТ никогда: их срок
+        -- хранения равен сроку хранения самого документа (приказ № 279-НК — до 75
+        -- лет), а привязка у них появляется отдельным шагом. «Час без привязки» не
+        -- повод стирать то, что доказывает подпись.
+        AND fo."profile" <> ALL(${EVIDENCE_FILE_PROFILES}::text[])
         AND NOT EXISTS (SELECT 1 FROM "file_links" fl WHERE fl."file_id" = fo."id")
       LIMIT 200`;
     let reaped = 0;

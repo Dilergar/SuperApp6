@@ -82,6 +82,8 @@ const envSchema = z
     // --- Антивирус файлов (опционально; пусто → скан выключен) ---
     CLAMAV_HOST: blank(z.string().min(1).optional()),
     CLAMAV_PORT: blank(z.coerce.number().int().positive().optional()),
+    // --- PDF-рендер блочных документов (Gotenberg, профиль pdf); пусто → выключен ---
+    GOTENBERG_URL: blank(z.string().url('должен быть URL Gotenberg (http://localhost:3030)').optional()),
     // --- Голосовой движок (core/voice) — STT; пусто → расшифровка выключена ---
     VOICE_STT_URL: blank(z.string().url('должен быть URL OpenAI-совместимого STT-сервера').optional()),
     VOICE_STT_API_KEY: blank(z.string().min(1).optional()),
@@ -143,6 +145,26 @@ const envSchema = z
     // req.ip = адрес сокета. Всё, что считается «по IP» (троттлер, IP-эшелоны
     // core/verify), зависит от этой настройки — см. main.ts.
     TRUST_PROXY: blank(z.string().min(1).optional()),
+    // --- Движок подписи (core/sign) ---
+    // Верификатор ЭЦП. Пусто → `ncanode`, если задан NCANODE_URL, иначе `mock`.
+    // MOCK В PRODUCTION НЕ «чуть хуже»: движок в этом режиме ОТВЕРГАЕТ ЭЦП, потому
+    // что непроверенная подпись выдаёт за электронную цифровую подпись то, чем она
+    // не является. ПЭП по SMS при этом работает.
+    SIGN_VERIFY_DRIVER: blank(
+      z.enum(['ncanode', 'mock'], { errorMap: () => ({ message: 'должен быть ncanode | mock' }) }).optional(),
+    ),
+    // Адрес верификатора. Как и адрес редактора документов, берётся ТОЛЬКО из env:
+    // на него ходит наш сервер, значит из пользовательского ввода это был бы SSRF.
+    // Сборка образа — infra/sign-verifier/ (SDK НУЦ не коммитится).
+    NCANODE_URL: blank(z.string().url('должен быть URL верификатора (http://localhost:14579)').optional()),
+    // Мост подписания через eGov Mobile (Smart Bridge, сервис NITEC-S-5096).
+    // Пусто → mock: QR рисуется, но ведёт на наш же одноразовый адрес.
+    SIGN_QR_DRIVER: blank(
+      z.enum(['smartbridge', 'mock'], { errorMap: () => ({ message: 'должен быть smartbridge | mock' }) }).optional(),
+    ),
+    SMARTBRIDGE_URL: blank(z.string().url('должен быть URL моста Smart Bridge').optional()),
+    SMARTBRIDGE_CLIENT_ID: blank(z.string().min(1).optional()),
+    SMARTBRIDGE_CLIENT_SECRET: blank(z.string().min(1).optional()),
   })
   .superRefine((env, ctx) => {
     if (env.FILES_DRIVER === 's3') {
@@ -197,6 +219,27 @@ const envSchema = z
           'обязателен при DOCS_EDITOR_URL (адрес API, видимый ИЗ контейнера редактора, ' +
           'обычно http://host.docker.internal:3001) — либо задайте API_PUBLIC_URL',
       });
+    }
+    // Верификатор ЭЦП включается только целиком: `ncanode` без адреса — это
+    // молчаливый откат на mock, то есть «подпись принимается непроверенной».
+    if (env.SIGN_VERIFY_DRIVER === 'ncanode' && !env.NCANODE_URL) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['NCANODE_URL'],
+        message: 'обязателен при SIGN_VERIFY_DRIVER=ncanode (сборка образа — infra/sign-verifier/)',
+      });
+    }
+    // Мост eGov Mobile — тоже целиком: без кредов он не мост, а mock.
+    if (env.SIGN_QR_DRIVER === 'smartbridge') {
+      for (const key of ['SMARTBRIDGE_URL', 'SMARTBRIDGE_CLIENT_ID', 'SMARTBRIDGE_CLIENT_SECRET'] as const) {
+        if (!env[key]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [key],
+            message: 'обязателен при SIGN_QR_DRIVER=smartbridge (заявка на сервис NITEC-S-5096)',
+          });
+        }
+      }
     }
     // Kazinfoteh включается только целиком
     if (env.SMS_DRIVER === 'kazinfoteh') {
@@ -278,6 +321,18 @@ export function validateEnv(): void {
       '⚠️  SMS_DRIVER не задан в production: движок подтверждений работает на mock-драйвере,\n' +
         '    SMS реально НЕ отправляются — регистрация и сброс пароля недоступны живым людям.\n' +
         '    Задайте SMS_DRIVER=kazinfoteh вместе с KIT_USERNAME/KIT_PASSWORD/KIT_ORIGINATOR.',
+    );
+  }
+  // Верификатор ЭЦП в production без адреса = mock. Это НЕ деградация «чуть хуже»:
+  // движок в таком режиме ОТВЕРГАЕТ электронную подпись, потому что принять
+  // непроверенную значило бы выдать её за ЭЦП. Говорим об этом громко — иначе
+  // «почему у нас не работает подписание документов» выясняется от клиента.
+  if (isProdEnv() && result.data.SIGN_VERIFY_DRIVER !== 'ncanode' && !result.data.NCANODE_URL) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      '🚨 Верификатор ЭЦП не настроен в production: подписание ЭЦП ОТКЛЮЧЕНО (принять\n' +
+        '    непроверенную подпись нельзя). Простая подпись по SMS продолжает работать.\n' +
+        '    Задайте NCANODE_URL — сборка образа и рунбук в infra/sign-verifier/.',
     );
   }
   // Той же природы: каталог egress-записей звонков должен быть ОБЩИМ томом всех инстансов

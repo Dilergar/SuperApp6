@@ -123,9 +123,25 @@ export type ApprovalAssigneeType = (typeof APPROVAL_ASSIGNEE_TYPES)[number];
 export const APPROVAL_RULES = ['any', 'all'] as const;
 export type ApprovalRule = (typeof APPROVAL_RULES)[number];
 
-/** Чем подтверждено решение. В v1 только `internal`; core/sign добавит настоящие. */
+/**
+ * Чем подтверждено решение. `internal` — нажатие кнопки в SuperApp6, юридической
+ * силы ноль; `sms` и `ecp` ставит ТОЛЬКО core/sign изнутри транзакции
+ * финализации акта подписи. От клиента это поле не принимается никогда.
+ *
+ * Названия не переименовываем под терминологию core/sign (`pep`/`ecp`): решения
+ * уже записаны, а история решений неизменяема. Соответствие уровней —
+ * `approvalSignatureKindOf` в constants/sign.
+ */
 export const APPROVAL_SIGNATURE_KINDS = ['internal', 'sms', 'ecp'] as const;
 export type ApprovalSignatureKind = (typeof APPROVAL_SIGNATURE_KINDS)[number];
+
+/**
+ * Чего шаг ТРЕБУЕТ, чтобы закрыться. `internal` сюда не входит осознанно: «шагу
+ * достаточно клика» выражается отсутствием требования (null), а не третьим
+ * значением — иначе одно и то же говорилось бы двумя способами.
+ */
+export const APPROVAL_SIGNATURE_REQUIREMENTS = ['sms', 'ecp'] as const;
+export type ApprovalSignatureRequirement = (typeof APPROVAL_SIGNATURE_REQUIREMENTS)[number];
 
 export const APPROVAL_SIGNATURE_KIND_LABELS: Record<ApprovalSignatureKind, string> = {
   internal: 'Внутреннее утверждение в SuperApp6',
@@ -185,6 +201,13 @@ export const APPROVAL_ERROR_CODES = {
   decisionNotAllowed: 'approval_decision_not_allowed',
   /** Отказ и возврат требуют комментария */
   commentRequired: 'approval_comment_required',
+  /**
+   * Шаг требует НАСТОЯЩЕЙ подписи (`requiredSignatureKind`), а не нажатия кнопки.
+   * Публичный `decide` такой шаг не закрывает никогда — его закрывает движок
+   * core/sign изнутри транзакции финализации акта. Клиент по этому коду уводит
+   * человека на экран подписания.
+   */
+  needsSignature: 'approval_needs_signature',
 } as const;
 
 export type ApprovalErrorCode = (typeof APPROVAL_ERROR_CODES)[keyof typeof APPROVAL_ERROR_CODES];

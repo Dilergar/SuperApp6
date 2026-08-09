@@ -2,6 +2,8 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ORG_DOCUMENT_REF_TYPE, type SearchSourceType } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { ApprovalsRegistry } from '../../core/approvals/approvals.registry';
+import { SignRegistry, type SignActFinishedInfo } from '../../core/sign/sign.registry';
+import { ChatterService } from '../../core/chatter/chatter.service';
 import { ChatterRefRegistry } from '../../core/chatter/chatter-ref.registry';
 import { FilesRefRegistry } from '../../core/files/files-ref.registry';
 import { SearchRegistry } from '../../core/search/search.registry';
@@ -9,6 +11,13 @@ import { SearchProjectionService } from '../../core/search/search-projection.ser
 import { TemplateFieldRegistry } from '../../core/templates/template-field.registry';
 import type { SearchProviderOpts, SearchProviderResult } from '../../core/search/search.types';
 import { DocumentsService } from './documents.service';
+
+/**
+ * Окно, в котором запись хроники о подписи считается уже сделанной. Берём с
+ * большим запасом: джоб живёт до восьми попыток с растущим бэкоффом, а сверка
+ * идёт по идентификатору АКТА — он уникален, и ложного совпадения быть не может.
+ */
+const SIGN_CHATTER_DEDUP_MS = 30 * 24 * 3600 * 1000;
 
 /**
  * Регистрации сервиса «Документы» во всех движках — одним файлом.
@@ -22,6 +31,8 @@ export class DocumentsRegistriesProvider implements OnModuleInit {
     private readonly db: DatabaseService,
     private readonly documents: DocumentsService,
     private readonly approvals: ApprovalsRegistry,
+    private readonly sign: SignRegistry,
+    private readonly chatter: ChatterService,
     private readonly chatterRegistry: ChatterRefRegistry,
     private readonly filesRegistry: FilesRefRegistry,
     private readonly searchRegistry: SearchRegistry,
@@ -61,6 +72,74 @@ export class DocumentsRegistriesProvider implements OnModuleInit {
           icon: '📄',
           href: `/workspaces/${doc.workspaceId}/documents/${doc.id}`,
         };
+      },
+    });
+
+    // ---- Электронная подпись: документ как ПРЕДМЕТ подписи ----
+    // Движок подписи сам заморозит копию того, что показывает подписанту, —
+    // поэтому здесь достаточно сказать, ГДЕ лежат байты и КТО вправе отправить
+    // документ на подпись. Правило то же, что у согласования: право проверяем
+    // здесь, потому что через этот резолвер проходит любое заведение заявки.
+    this.sign.register(ORG_DOCUMENT_REF_TYPE, {
+      resolveSubject: async (refId) => {
+        const doc = await this.db.orgDocument.findUnique({ where: { id: refId } });
+        if (!doc) return null;
+        // Подписывается ОТПЕЧАТОК, а не живой .docx: у builder-документа `fileId`
+        // и есть готовый PDF, у docx-документа PDF снимается отдельным джобом и
+        // ложится в `pdfFileId`.
+        //
+        // Отсутствие отпечатка — это ОТКАЗ, а не повод подписать исходник. Прежнее
+        // `doc.pdfFileId ?? doc.fileId` при неготовом (или упавшем) джобе тихо
+        // отдавало на подпись сам .docx: человек видел и подписывал редактируемый
+        // файл вместо печатного отпечатка — ровно то, чего заморозка и должна не
+        // допускать. Лучше честное «документ не готов».
+        const fileId = doc.builderDoc ? doc.fileId : doc.pdfFileId;
+        if (!fileId) return null;
+        // У docx-документа pdfFileId указывает на ЖИВОЙ файл, а PDF существует
+        // его вариантом — движку так и говорим, какой вариант читать.
+        const variant = !doc.builderDoc && doc.pdfFileId === doc.fileId ? 'pdf' : undefined;
+        return {
+          fileId,
+          variant,
+          title: doc.number ? `${doc.title} № ${doc.number}` : doc.title,
+          icon: 'signature',
+          workspaceId: doc.workspaceId,
+          // Владелец доказательств — ОРГАНИЗАЦИЯ: подписанный приказ не может
+          // числиться за сотрудником и исчезнуть вместе с ним при увольнении.
+          ownerType: 'workspace',
+          ownerId: doc.workspaceId,
+        };
+      },
+      canRequestSign: async (userId, refId) => {
+        const doc = await this.db.orgDocument.findUnique({ where: { id: refId } });
+        if (!doc) return false;
+        return this.documents.canRequestApproval(userId, doc);
+      },
+      canView: (userId, refId) =>
+        this.documents
+          .get(userId, refId)
+          .then(() => true)
+          .catch(() => false),
+      describeForVerify: async (refId) => {
+        const doc = await this.db.orgDocument.findUnique({
+          where: { id: refId },
+          include: { docType: { select: { name: true } }, workspace: { select: { name: true } } },
+        });
+        if (!doc) return null;
+        // Публичная страница проверки — открытая (ст. 61 ЦК), поэтому отдаём
+        // МИНИМУМ: что за документ и от какой организации. Ни сторон, ни полей,
+        // ни содержимого — их приносит тот, у кого файл на руках.
+        return {
+          title: doc.number ? `${doc.title} № ${doc.number}` : doc.title,
+          kindLabel: doc.docType.name,
+          orgLabel: doc.workspace.name,
+        };
+      },
+      onActFinished: async (refId, info) => {
+        // Отметку «подписан» ставит МАРШРУТ (он знает, все ли шаги пройдены), а
+        // не отдельная подпись. Наше дело здесь — хроника: без неё подпись,
+        // поставленная вне маршрута, не оставила бы на карточке ни следа.
+        await this.chatterLog(refId, info);
       },
     });
 
@@ -115,6 +194,42 @@ export class DocumentsRegistriesProvider implements OnModuleInit {
       ],
       resolve: async () => null,
     });
+  }
+
+  /** След подписи в хронике карточки — она же превращается в плашку чата */
+  private async chatterLog(documentId: string, info: SignActFinishedInfo): Promise<void> {
+    const doc = await this.db.orgDocument.findUnique({
+      where: { id: documentId },
+      select: { title: true, workspaceId: true },
+    });
+    if (!doc) return;
+    const typeKey = info.outcome === 'signed' ? 'org_document.signed' : 'org_document.rejected';
+
+    // Хук зовёт ДЖОБ, а он исполняется at-least-once: повтор после сбоя доставки
+    // уведомления написал бы «документ подписан» второй раз — и в хронике, и
+    // плашкой в чате. Ключ идемпотентности здесь естественный: акт подписи. Он
+    // уходит в payload и по нему же проверяется, не записано ли уже.
+    const already = await this.chatter
+      .hasRecent({
+        refType: ORG_DOCUMENT_REF_TYPE,
+        refId: documentId,
+        typeKey,
+        withinMs: SIGN_CHATTER_DEDUP_MS,
+        payloadPath: { path: ['actId'], equals: info.actId },
+      })
+      .catch(() => false);
+    if (already) return;
+
+    await this.chatter
+      .log(null, {
+        refType: ORG_DOCUMENT_REF_TYPE,
+        refId: documentId,
+        workspaceId: doc.workspaceId,
+        typeKey,
+        payload: { title: doc.title, reasonSuffix: '', actId: info.actId },
+        actorId: info.signerUserId ?? undefined,
+      })
+      .catch(() => undefined);
   }
 
   /**

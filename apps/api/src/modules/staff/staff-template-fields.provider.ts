@@ -28,9 +28,11 @@ export class StaffTemplateFieldsProvider implements OnModuleInit {
       tagPrefix: 'Сотрудник',
       label: 'Сотрудник',
       fields: [
-        { key: 'ФИО', label: 'Фамилия и имя', example: 'Ахметов Аскар' },
+        // key «ФИО» не переименовывать: это тег {Сотрудник.ФИО} в уже написанных бланках
+        { key: 'ФИО', label: 'ФИО (фамилия, имя, отчество)', example: 'Ахметов Аскар Болатұлы' },
         { key: 'Имя', label: 'Имя', example: 'Аскар' },
         { key: 'Фамилия', label: 'Фамилия', example: 'Ахметов' },
+        { key: 'Отчество', label: 'Отчество', example: 'Болатұлы' },
         { key: 'Телефон', label: 'Телефон', example: '+7 700 123 45 67' },
         { key: 'ИИН', label: 'ИИН', example: '901231300123' },
         { key: 'Адрес', label: 'Адрес проживания', example: 'г. Алматы, мкр. Самал-2, д. 33' },
@@ -54,6 +56,7 @@ export class StaffTemplateFieldsProvider implements OnModuleInit {
       select: {
         firstName: true,
         lastName: true,
+        middleName: true,
         phone: true,
         dateOfBirth: true,
         iin: true,
@@ -87,9 +90,11 @@ export class StaffTemplateFieldsProvider implements OnModuleInit {
       : null;
 
     return {
-      ФИО: fullName(user),
+      // Кадровый порядок: Фамилия Имя Отчество; незаполненное отчество имя не ломает
+      ФИО: [user.lastName, user.firstName, user.middleName].filter(Boolean).join(' ') || fullName(user),
       Имя: user.firstName,
       Фамилия: user.lastName ?? null,
+      Отчество: user.middleName ?? null,
       Телефон: user.phone,
       ИИН: user.iin ?? null,
       Адрес: user.residentialAddress ?? null,

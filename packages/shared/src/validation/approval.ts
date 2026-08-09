@@ -5,6 +5,7 @@ import {
   APPROVAL_INBOX_SCOPES,
   APPROVAL_LIMITS,
   APPROVAL_RULES,
+  APPROVAL_SIGNATURE_REQUIREMENTS,
   APPROVAL_STEP_KINDS,
 } from '../constants/approvals';
 import { queryBoolean } from './query';
@@ -49,6 +50,14 @@ export const approvalStepInputSchema = z
     rule: z.enum(APPROVAL_RULES).optional(),
     /** Срок решения в часах от активации шага; без него шаг ждёт бесконечно */
     dueInHours: z.coerce.number().int().min(1).max(24 * 365).optional(),
+    /**
+     * Требование настоящей электронной подписи. Задаётся ПРИ СОЗДАНИИ шага, а не
+     * доводкой после: между созданием заявки (она сразу активирует первую группу и
+     * зовёт адресатов) и отдельным вызовом «проставить требование» существовало
+     * окно, в котором шаг под ЭЦП уже ждал человека, а закрыть его можно было
+     * обычным кликом — то есть ровно то, что это поле и запрещает.
+     */
+    requiredSignatureKind: z.enum(APPROVAL_SIGNATURE_REQUIREMENTS).optional(),
   })
   .strict()
   .refine((s) => s.assigneeType !== 'user' || (s.rule ?? 'any') === 'any', {

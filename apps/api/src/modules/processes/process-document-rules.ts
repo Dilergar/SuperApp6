@@ -22,6 +22,7 @@ export const HR_RULES = {
   acknowledgeRequired: 'hr.acknowledge_required',
   registerRequired: 'hr.register_required',
   signatureRequired: 'hr.signature_required',
+  ecpRequired: 'hr.ecp_required',
   personalFileRequired: 'hr.personal_file_required',
 } as const;
 
@@ -60,6 +61,22 @@ export function checkHrRoute(doc: ProcessDocument): ProcessValidationIssue[] {
     warn(
       HR_RULES.signatureRequired,
       'Приказ должен быть подписан руководителем: добавьте шаг «Решение человека» с видом «Подписать»',
+    );
+  }
+
+  // 2а. ЧЕМ подписан. Нажатие кнопки в SuperApp6 — это `internal`, у него нет
+  //     юридической силы; кадровые документы по ст. 33 ТК РК подписываются ЭЦП.
+  //     Правило смотрит только на состав маршрута: есть ли у шага «Подписать»
+  //     требование настоящей подписи.
+  const signatureNodes = doc.nodes.filter((n) => decisionKind(n) === 'signature');
+  const weakSignature = signatureNodes.filter((n) => {
+    const level = n.config.signatureLevel;
+    return level !== 'ecp';
+  });
+  if (signatureNodes.length > 0 && weakSignature.length === signatureNodes.length) {
+    warn(
+      HR_RULES.ecpRequired,
+      'Кадровый документ подписывается ЭЦП (ст. 33 ТК РК): в шаге «Подписать» выберите «Чем подписывать → ЭЦП», иначе подписью будет нажатие кнопки',
     );
   }
 

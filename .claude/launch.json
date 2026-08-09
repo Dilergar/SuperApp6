@@ -1,18 +1,11 @@
 {
   "version": "0.0.1",
-  "autoPort": false,
   "configurations": [
     {
       "name": "web",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "./apps/web", "exec", "next", "dev", "--turbopack", "--port", "3000"],
+      "runtimeArgs": ["--filter", "./apps/web", "dev"],
       "port": 3000
-    },
-    {
-      "name": "api",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "./apps/api", "exec", "nest", "start", "--watch"],
-      "port": 3001
     }
   ]
 }

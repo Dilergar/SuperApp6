@@ -11,6 +11,7 @@ import type {
   ApprovalRequestStatus,
   ApprovalRule,
   ApprovalSignatureKind,
+  ApprovalSignatureRequirement,
   ApprovalStepKind,
   ApprovalStepStatus,
 } from '../constants/approvals';
@@ -37,6 +38,12 @@ export interface ApprovalDecisionDto {
    * подпись ничего не значит: файл могли переписать после решения.
    */
   subjectSha256: string | null;
+  /**
+   * Акт электронной подписи (core/sign), которым закрыто решение. Есть только у
+   * `signatureKind` `sms`/`ecp`: у нажатия кнопки акта нет и быть не может.
+   * По нему карточка ведёт на доказательства — протокол и страницу проверки.
+   */
+  signActId: string | null;
 }
 
 export interface ApprovalStepDto {
@@ -62,6 +69,12 @@ export interface ApprovalStepDto {
   /** Просрочен прямо сейчас — считает сервер, чтобы часы клиента не решали */
   overdue: boolean;
   decidedAt: string | null;
+  /**
+   * Чем шаг закрывается: null — обычным кликом, `sms`/`ecp` — только настоящей
+   * подписью через core/sign. Веб по этому полю уводит на экран подписания
+   * вместо кнопок «Согласовать/Отклонить».
+   */
+  requiredSignatureKind: ApprovalSignatureRequirement | null;
 }
 
 /** Заявка целиком: предмет + маршрут + история решений */
@@ -112,6 +125,19 @@ export interface InboxItemDto {
   createdAt: string;
   dueAt: string | null;
   overdue: boolean;
+  /**
+   * Что именно требуется: согласовать, ПОДПИСАТЬ или ознакомиться. Стопка обязана
+   * их различать: «подписать приказ» и «согласовать счёт» — разные действия с
+   * разными последствиями, а до появления подписи модалка рисовала их одинаково.
+   * Источник вправе не заполнять поле (у очереди задач вида шага нет).
+   */
+  stepKind?: ApprovalStepKind;
+  /**
+   * Чем шаг закрывается. `null`/отсутствует — обычным кликом; `sms`/`ecp` — только
+   * настоящей подписью через core/sign, и кнопки решения в стопке не показываются:
+   * подпись собирается на своём экране, а не одним нажатием в списке.
+   */
+  signRequirement?: ApprovalSignatureKind | null;
 }
 
 /**

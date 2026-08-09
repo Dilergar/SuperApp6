@@ -42,6 +42,7 @@ import {
 import { ShareGuestError, ShareGuestShell } from '../_components/ShareGuestShell';
 import { ShareDriveView } from '../_components/ShareDriveView';
 import { ShareDocView } from '../_components/ShareDocView';
+import { ShareSignView, type ShareSignGuestView } from './ShareSignView';
 
 type Stage = 'loading' | 'password' | 'identity' | 'ready' | 'error';
 
@@ -256,7 +257,7 @@ export default function SharePage() {
 
   // refresh передаём КАК ЕСТЬ, без обёртки-стрелки: новая функция на каждый рендер
   // меняла бы зависимость эффекта опроса у ShareDocView и сбрасывала его таймер.
-  return <ShareContent session={session!} onRefresh={refresh} />;
+  return <ShareContent session={session!} token={token} onRefresh={refresh} />;
 }
 
 /**
@@ -435,7 +436,15 @@ function IdentityStep({
 }
 
 /** Отрисовка по типу объекта — здесь же место будущих потребителей (счета, витрины) */
-function ShareContent({ session, onRefresh }: { session: ShareGuestSessionDto; onRefresh: () => void }) {
+function ShareContent({
+  session,
+  token,
+  onRefresh,
+}: {
+  session: ShareGuestSessionDto;
+  token: string;
+  onRefresh: () => void;
+}) {
   const until = session.linkExpiresAt
     ? `Доступно до ${new Date(session.linkExpiresAt).toLocaleDateString('ru-RU', {
         day: 'numeric',
@@ -458,6 +467,15 @@ function ShareContent({ session, onRefresh }: { session: ShareGuestSessionDto; o
     return (
       <ShareGuestShell title={view.title} subtitle={until} wide>
         <ShareDocView view={view} onRefresh={onRefresh} />
+      </ShareGuestShell>
+    );
+  }
+
+  if (session.refType === 'sign_request') {
+    const view = session.view as ShareSignGuestView;
+    return (
+      <ShareGuestShell title={view.title} subtitle={until} wide>
+        <ShareSignView view={view} token={token} session={session.sessionToken} onRefresh={onRefresh} />
       </ShareGuestShell>
     );
   }

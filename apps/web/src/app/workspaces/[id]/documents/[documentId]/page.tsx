@@ -17,8 +17,11 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import {
   ORG_DOCUMENT_REF_TYPE,
   approvalHref,
+  docDateRangeDays,
+  isDocDateRangeValue,
   type ChatterActorLite,
   type ChatterPageDto,
+  type DocFormFieldDto,
 } from '@superapp/shared';
 import { apiErrorMessage, apiGet } from '@/lib/api';
 import { toastError } from '@/lib/toast';
@@ -39,8 +42,22 @@ import {
 } from '@/components/ui';
 import { PersonChip } from '@/app/circles/PersonCard';
 import { ChronicleFeed } from '@/components/chatter/ChronicleFeed';
+import { SignaturesBlock } from '@/components/sign/SignaturesBlock';
 import { documentsApi, fetchOrgDocument } from '../documents-api';
+import { FormFields } from '../SubmitDocumentModal';
 import { DocStatusChip } from '../documents-ui';
+
+/** Значение поля читабельной строкой: период — «с … по … (N дней)», не [object Object] */
+function readableFieldValue(value: unknown): string {
+  if (isDocDateRangeValue(value)) {
+    const dot = (s: string) => s.split('-').reverse().join('.');
+    const days = docDateRangeDays(value);
+    return value.from === value.to
+      ? `${dot(value.from)} (1 день)`
+      : `с ${dot(value.from)} по ${dot(value.to)} (дней: ${days})`;
+  }
+  return value === null || value === undefined ? '' : String(value);
+}
 
 export default function OrgDocumentPage() {
   const { id, documentId } = useParams<{ id: string; documentId: string }>();
@@ -96,16 +113,23 @@ export default function OrgDocumentPage() {
     onError: (e) => toastError(apiErrorMessage(e)),
   });
   const saveFields = useMutation({
-    mutationFn: (fields: Record<string, string>) => documentsApi.updateDocument(id, documentId, { fields }),
+    mutationFn: (fields: Record<string, unknown>) => documentsApi.updateDocument(id, documentId, { fields }),
     onSuccess: refresh,
     onError: (e) => toastError(apiErrorMessage(e)),
   });
 
-  const [draft, setDraft] = useState<Record<string, string> | null>(null);
-  const fieldValues = useMemo(
-    () => draft ?? (Object.fromEntries(Object.entries(doc?.fields ?? {}).map(([k, v]) => [k, String(v ?? '')])) as Record<string, string>),
-    [draft, doc?.fields],
-  );
+  const [draft, setDraft] = useState<Record<string, unknown> | null>(null);
+  const fieldValues = useMemo(() => draft ?? (doc?.fields ?? {}), [draft, doc?.fields]);
+  // Объявление формы — из шаблона; у старых документов без него поля собираются
+  // по ключам значений (период узнаётся по форме значения)
+  const formFields = useMemo<DocFormFieldDto[]>(() => {
+    if (doc?.formFields?.length) return doc.formFields;
+    return Object.keys(doc?.fields ?? {}).map((key) => ({
+      key,
+      label: key,
+      kind: isDocDateRangeValue((doc?.fields ?? {})[key]) ? 'daterange' : 'text',
+    }));
+  }, [doc?.formFields, doc?.fields]);
 
   const entries = useMemo(
     () => (chronicleQuery.data?.pages ?? []).flatMap((p) => p.items),
@@ -163,6 +187,11 @@ export default function OrgDocumentPage() {
                 {can.edit ? 'Править документ' : 'Открыть документ'}
               </Button>
             )}
+            {doc.builderDoc && can.edit && (
+              <Button variant="matte" icon="edit" href={`/workspaces/${id}/documents/${doc.id}/edit`}>
+                Править в конструкторе
+              </Button>
+            )}
             {can.submit && (
               <Button icon="check" loading={submit.isPending} onClick={() => submit.mutate()}>
                 Отправить на маршрут
@@ -204,22 +233,19 @@ export default function OrgDocumentPage() {
       <BentoGrid>
         <Card span={7}>
           <CardHeader title="Данные заявления" />
-          {Object.keys(fieldValues).length === 0 ? (
+          {/* Смотрим на ОБЪЯВЛЕНИЕ полей, а не на значения: поле, только что
+              заведённое в конструкторе, ещё пустое — и по значениям карточка
+              говорила «полей нет», то есть заполнить его было негде. */}
+          {formFields.length === 0 ? (
             <p style={{ color: 'var(--text-muted)' }}>
               Заполняемых полей нет — документ собран по данным организации и сотрудника.
             </p>
           ) : can.edit ? (
-            // Пока документ правится, значения формы — настоящие поля: исправил дату,
-            // сохранил, и .docx пересобирается тем же путём, что при подаче.
+            // Пока документ правится, значения формы — настоящие поля ТЕМИ ЖЕ
+            // контролами, что при подаче (даты — мини-календарь, период — пара):
+            // исправил, сохранил — и документ пересобирается тем же путём.
             <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
-              {Object.keys(fieldValues).map((key) => (
-                <Input
-                  key={key}
-                  label={key}
-                  value={fieldValues[key] ?? ''}
-                  onChange={(e) => setDraft({ ...fieldValues, [key]: e.target.value })}
-                />
-              ))}
+              <FormFields fields={formFields} values={fieldValues} onChange={setDraft} />
               {draft && (
                 <div>
                   <Button
@@ -234,11 +260,15 @@ export default function OrgDocumentPage() {
               )}
             </div>
           ) : (
+            /* Читаем по ОБЪЯВЛЕНИЮ: человеческая подпись поля вместо ключа-тега,
+               и незаполненное поле видно прочерком, а не пропадает из списка */
             <dl style={{ display: 'grid', gap: 'var(--spacing-2)', margin: 0 }}>
-              {Object.entries(fieldValues).map(([key, value]) => (
-                <div key={key} style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
-                  <dt style={{ color: 'var(--text-muted)', minWidth: 160 }}>{key}</dt>
-                  <dd style={{ margin: 0, fontWeight: 500 }}>{value || '—'}</dd>
+              {formFields.map((f) => (
+                <div key={f.key} style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
+                  <dt style={{ color: 'var(--text-muted)', minWidth: 160 }}>{f.label || f.key}</dt>
+                  <dd style={{ margin: 0, fontWeight: 500 }}>
+                    {readableFieldValue(fieldValues[f.key]) || '—'}
+                  </dd>
                 </div>
               ))}
             </dl>
@@ -281,12 +311,13 @@ export default function OrgDocumentPage() {
               {doc.fileId ? (
                 <span style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
                   <Button variant="ghost" size="sm" icon="download" onClick={() => downloadFile(doc.fileId!)}>
-                    Скачать .docx
+                    {/* У блочного документа файл — сам PDF; «.docx» здесь было бы ложью */}
+                    {doc.builderDoc ? 'Скачать PDF' : 'Скачать .docx'}
                   </Button>
                   {/* PDF — это ОТПЕЧАТОК на момент отправки: именно его видит решающий
                       и именно его подпишет core/sign. Снимался он и раньше, но на
                       карточке не показывался вовсе — скачать его было нечем. */}
-                  {doc.pdfFileId && (
+                  {doc.pdfFileId && doc.pdfFileId !== doc.fileId && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -327,6 +358,19 @@ export default function OrgDocumentPage() {
             )}
           </div>
         </Card>
+
+        {/* Электронные подписи под документом: кто, чем и когда, плюс кнопка
+            «Подписать» тому, кого ждут, и артефакты (протокол, экспортный пакет). */}
+        {doc.sign && (
+          <div style={{ gridColumn: 'span 12' }}>
+            <SignaturesBlock
+              sign={doc.sign}
+              onChanged={() => {
+                void qc.invalidateQueries({ queryKey: ['workspaces', id, 'documents'] });
+              }}
+            />
+          </div>
+        )}
 
         <Card span={12}>
           <CardHeader title="Хроника документа" />

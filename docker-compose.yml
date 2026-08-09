@@ -278,6 +278,60 @@ services:
       retries: 10
       start_period: 90s
 
+  # PDF-рендер блочных документов (сервис «Документы», конструктор): Chromium
+  # печатает HTML в PDF — тот же движок, что показывает превью в браузере,
+  # поэтому совпадение один в один. Опциональный профиль:
+  #   docker compose --profile pdf up -d
+  # Затем задать в apps\api\.env: GOTENBERG_URL=http://localhost:3030
+  # Шрифты: печатный лист набран PT Serif (кириллица + казахский алфавит), файлы
+  # лежат в infra/pdf-fonts/ и монтируются в системный каталог шрифтов Chromium.
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    container_name: superapp6-gotenberg
+    profiles: ['pdf']
+    restart: unless-stopped
+    ports:
+      - '3030:3000'
+    volumes:
+      - ./infra/pdf-fonts:/usr/local/share/fonts/superapp6:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fs http://localhost:3000/health > /dev/null || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  # Верификатор электронной подписи (движок core/sign): NCANode — серверная
+  # проверка ГОСТ-подписей НУЦ РК. Внутри у него SDK KalkanCrypt, чьи бинарники
+  # мы НЕ распространяем, поэтому образ собирается ПРИВАТНО — рунбук и сборка
+  # лежат в infra/sign-verifier/ (тот же приём, что у своей сборки редактора
+  # документов в infra/docs-editor/).
+  #
+  #   1) .\infra\sign-verifier\build.ps1      — собрать образ (нужен SDK НУЦ)
+  #   2) docker compose --profile sign up -d
+  #   3) в apps\api\.env: NCANODE_URL=http://localhost:14579
+  #
+  # Пока образа нет, движок работает mock-верификатором: в разработке ЭЦП
+  # принимается, в production — ОТВЕРГАЕТСЯ (непроверенная подпись юридически
+  # ничто). ПЭП по SMS при этом работает всегда.
+  sign-verifier:
+    image: superapp6/sign-verifier:local
+    container_name: superapp6-sign-verifier
+    profiles: ['sign']
+    restart: unless-stopped
+    ports:
+      - '14579:14579'
+    environment:
+      # Тестовый контур НУЦ (test.pki.gov.kz) — на нём связка проверяется ДО
+      # боевых ключей. Для прода: NCANODE_PKI_ENV=production.
+      NCANODE_PKI_ENV: ${NCANODE_PKI_ENV:-test}
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fs http://localhost:14579/ > /dev/null || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
 volumes:
   postgres_data:
   redis_data:

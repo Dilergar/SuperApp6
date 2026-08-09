@@ -12,12 +12,21 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { AvailableTemplateDto, DocFormFieldDto } from '@superapp/shared';
+import { isDocDateRangeValue, type AvailableTemplateDto, type DocFormFieldDto } from '@superapp/shared';
 import { apiErrorMessage } from '@/lib/api';
 import { toastError } from '@/lib/toast';
 import { availableTemplatesKey, orgDocumentsKey } from '@/lib/queries';
-import { Alert, Button, Card, EmptyState, Input, LoadingBlock, Modal, Select, Textarea } from '@/components/ui';
+import { Alert, Button, Card, DatePicker, EmptyState, Input, LoadingBlock, Modal, Select, Textarea, Toggle } from '@/components/ui';
 import { documentsApi, fetchAvailableTemplates } from './documents-api';
+
+/** Значения формы: строки у обычных полей, {from,to} у периода дат */
+export type DocFormValues = Record<string, unknown>;
+
+/** Заполнено ли обязательное поле — период проверяется целиком, не как строка */
+export function formFieldFilled(f: DocFormFieldDto, value: unknown): boolean {
+  if (f.kind === 'daterange') return isDocDateRangeValue(value);
+  return typeof value === 'string' ? value.trim().length > 0 : value !== null && value !== undefined;
+}
 
 export function SubmitDocumentModal({
   workspaceId,
@@ -36,7 +45,7 @@ export function SubmitDocumentModal({
   const router = useRouter();
   const qc = useQueryClient();
   const [templateId, setTemplateId] = useState<string | null>(null);
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [values, setValues] = useState<DocFormValues>({});
 
   const templatesQuery = useQuery({
     queryKey: availableTemplatesKey(workspaceId),
@@ -73,7 +82,7 @@ export function SubmitDocumentModal({
     onError: (e) => toastError(apiErrorMessage(e)),
   });
 
-  const missing = (template?.fields ?? []).filter((f) => f.required && !values[f.key]?.trim());
+  const missing = (template?.fields ?? []).filter((f) => f.required && !formFieldFilled(f, values[f.key]));
 
   return (
     <Modal
@@ -169,8 +178,8 @@ export function FormFields({
   disabled,
 }: {
   fields: DocFormFieldDto[];
-  values: Record<string, string>;
-  onChange: (next: Record<string, string>) => void;
+  values: DocFormValues;
+  onChange: (next: DocFormValues) => void;
   disabled?: boolean;
 }) {
   if (!fields.length) {
@@ -180,23 +189,19 @@ export function FormFields({
       </p>
     );
   }
-  const set = (key: string, value: string) => onChange({ ...values, [key]: value });
+  const set = (key: string, value: unknown) => onChange({ ...values, [key]: value });
+  const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
   return (
     <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
       {fields.map((f) => {
-        const common = {
-          label: f.label + (f.required ? ' *' : ''),
-          value: values[f.key] ?? '',
-          disabled,
-          placeholder: f.placeholder,
-        };
+        const label = f.label + (f.required ? ' *' : '');
         if (f.kind === 'select') {
           return (
             <Select
               key={f.key}
-              label={common.label}
-              value={values[f.key] ?? null}
+              label={label}
+              value={str(values[f.key]) || null}
               onChange={(v) => set(f.key, v)}
               options={(f.options ?? []).map((o) => ({ value: o.value, label: o.label }))}
               placeholder={f.placeholder ?? 'Выберите'}
@@ -206,18 +211,128 @@ export function FormFields({
         }
         if (f.kind === 'textarea') {
           return (
-            <Textarea key={f.key} {...common} rows={4} onChange={(e) => set(f.key, e.target.value)} />
+            <Textarea
+              key={f.key}
+              label={label}
+              value={str(values[f.key])}
+              disabled={disabled}
+              placeholder={f.placeholder}
+              rows={4}
+              onChange={(e) => set(f.key, e.target.value)}
+            />
+          );
+        }
+        if (f.kind === 'date') {
+          return (
+            <DatePicker
+              key={f.key}
+              label={label}
+              value={isoToDate(str(values[f.key]))}
+              onChange={(d) => set(f.key, d ? dateToIso(d) : '')}
+              disabled={disabled}
+            />
+          );
+        }
+        if (f.kind === 'daterange') {
+          return (
+            <DateRangeField
+              key={f.key}
+              label={label}
+              value={isDocDateRangeValue(values[f.key]) ? (values[f.key] as { from: string; to: string }) : null}
+              onChange={(v) => set(f.key, v)}
+              disabled={disabled}
+            />
           );
         }
         return (
           <Input
             key={f.key}
-            {...common}
-            type={f.kind === 'number' ? 'number' : f.kind === 'date' ? 'date' : 'text'}
+            label={label}
+            value={str(values[f.key])}
+            disabled={disabled}
+            placeholder={f.placeholder}
+            type={f.kind === 'number' ? 'number' : 'text'}
             onChange={(e) => set(f.key, e.target.value)}
           />
         );
       })}
+    </div>
+  );
+}
+
+function isoToDate(s: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function dateToIso(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * Период дат: два мини-календаря «С»/«По» + тумблер «Один день» (остаётся один
+ * календарь, to = from). «По» не даёт выбрать дату раньше «С».
+ */
+function DateRangeField({
+  label,
+  value,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  value: { from: string; to: string } | null;
+  onChange: (v: { from: string; to: string } | null) => void;
+  disabled?: boolean;
+}) {
+  const from = value ? isoToDate(value.from) : null;
+  const to = value ? isoToDate(value.to) : null;
+  const singleDay = !!value && value.from === value.to;
+  const [single, setSingle] = useState(singleDay);
+
+  const apply = (f: Date | null, t: Date | null, one: boolean) => {
+    if (!f) {
+      onChange(null);
+      return;
+    }
+    const fromIso = dateToIso(f);
+    const toIso = one || !t ? fromIso : dateToIso(t < f ? f : t);
+    onChange({ from: fromIso, to: toIso });
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 'var(--spacing-3)', marginBottom: 'var(--spacing-2)' }}>
+        <span className="label-sm" style={{ fontWeight: 600 }}>{label}</span>
+        <Toggle
+          label="Один день"
+          checked={single}
+          disabled={disabled}
+          onChange={(v) => {
+            setSingle(v);
+            apply(from, to, v);
+          }}
+        />
+      </div>
+      <div style={{ display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
+        <DatePicker
+          label={single ? 'Дата' : 'С'}
+          value={from}
+          onChange={(d) => apply(d, to, single)}
+          disabled={disabled}
+          width={170}
+        />
+        {!single && (
+          <DatePicker
+            label="По"
+            value={to}
+            onChange={(d) => apply(from, d, false)}
+            min={from ?? undefined}
+            disabled={disabled || !from}
+            width={170}
+          />
+        )}
+      </div>
     </div>
   );
 }

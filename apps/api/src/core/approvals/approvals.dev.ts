@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Injectable, OnModuleInit, Post } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Injectable, OnModuleInit, Param, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { approvalStepInputSchema } from '@superapp/shared';
@@ -104,6 +104,23 @@ export class ApprovalsDevController {
       dto.originRef ? { type: APPROVAL_DEV_REF_TYPE, ref: dto.originRef } : undefined,
     );
     return { success: true, data };
+  }
+
+  /**
+   * Поднять шагу требование подписи. В настоящей жизни это делает потребитель
+   * при сборке маршрута (вид документа диктует уровень), но проверить гвард
+   * «обычный клик не закрывает подписной шаг» надо ДО появления потребителя.
+   */
+  @Post('step/:stepId/require-signature')
+  @ApiOperation({ summary: 'Дев-полигон: потребовать от шага подпись (только development)' })
+  async requireSignature(@Param('stepId') stepId: string, @Body() body: unknown) {
+    this.assertDev();
+    const { kind } = z
+      .object({ kind: z.enum(['sms', 'ecp']).nullable() })
+      .strict()
+      .parse(body ?? {});
+    await this.approvals.setStepSignatureRequirement(null, [stepId], kind);
+    return { success: true, data: { stepId, kind } };
   }
 
   @Post('outcome')

@@ -1,8 +1,11 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import {
+  builderDocSchema,
   createDocTemplateSchema,
   createDocTypeSchema,
+  createFreeOrgDocumentSchema,
   createOrgDocumentSchema,
   docTemplateGrantSchema,
   listOrgDocumentsSchema,
@@ -10,6 +13,7 @@ import {
   updateDocTypeSchema,
   updateOrgDocumentSchema,
 } from '@superapp/shared';
+import { z } from 'zod';
 import { CurrentUser, type JwtPayload } from '../../shared/decorators/current-user.decorator';
 import { DocumentsService } from './documents.service';
 
@@ -116,6 +120,23 @@ export class DocumentsController {
     return { success: true, data };
   }
 
+  @Post('templates/:templateId/preview')
+  @ApiOperation({ summary: 'PDF-превью блочного шаблона «Пример с данными» (Менеджер+)' })
+  async previewTemplate(
+    @CurrentUser() user: JwtPayload,
+    @Param('workspaceId') workspaceId: string,
+    @Param('templateId') templateId: string,
+    @Body() body: unknown,
+    @Res() res: Response,
+  ) {
+    // В теле можно прислать НЕСОХРАНЁННЫЕ блоки — превью того, что сейчас на холсте
+    const dto = z.object({ builderDoc: builderDocSchema.optional() }).parse(body ?? {});
+    const pdf = await this.documents.previewTemplatePdf(user.sub, workspaceId, templateId, dto.builderDoc);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="preview.pdf"');
+    res.send(pdf);
+  }
+
   @Get('templates/:templateId/grants')
   @ApiOperation({ summary: 'Кому доступен шаблон (Менеджер+)' })
   async listGrants(
@@ -191,11 +212,38 @@ export class DocumentsController {
     return { success: true, data };
   }
 
+  @Post('free')
+  @ApiOperation({ summary: 'Создать свободный документ с нуля (блочный конструктор)' })
+  async createFree(
+    @CurrentUser() user: JwtPayload,
+    @Param('workspaceId') workspaceId: string,
+    @Body() body: unknown,
+  ) {
+    const dto = createFreeOrgDocumentSchema.parse(body);
+    const data = await this.documents.createFreeDocument(user.sub, workspaceId, dto);
+    return { success: true, data };
+  }
+
   @Get(':documentId')
   @ApiOperation({ summary: 'Карточка документа' })
   async get(@CurrentUser() user: JwtPayload, @Param('documentId') documentId: string) {
     const data = await this.documents.get(user.sub, documentId);
     return { success: true, data };
+  }
+
+  @Post(':documentId/preview')
+  @ApiOperation({ summary: 'PDF-превью блочного документа (текущие или присланные блоки)' })
+  async previewDocument(
+    @CurrentUser() user: JwtPayload,
+    @Param('documentId') documentId: string,
+    @Body() body: unknown,
+    @Res() res: Response,
+  ) {
+    const dto = z.object({ builderDoc: builderDocSchema.optional() }).parse(body ?? {});
+    const pdf = await this.documents.previewDocumentPdf(user.sub, documentId, dto.builderDoc);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="preview.pdf"');
+    res.send(pdf);
   }
 
   @Patch(':documentId')

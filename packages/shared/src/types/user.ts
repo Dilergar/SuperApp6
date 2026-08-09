@@ -7,6 +7,8 @@ export interface User {
   phone: string;
   firstName: string;
   lastName: string | null;
+  /** Отчество — реквизит документов (полное ФИО в приказах); в карточках не показывается */
+  middleName: string | null;
   dateOfBirth: string | null; // ISO date (YYYY-MM-DD)
   avatar: string | null;
   bio: string | null;

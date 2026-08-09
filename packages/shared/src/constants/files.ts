@@ -117,9 +117,40 @@ export const FILE_PROFILES: Record<string, FileProfileSpec> = {
    * больше 200 МБ на Диск не положить, и это осознанно.
    */
   drive_file: { kind: 'any', maxSize: 2 * GB, allowedMime: null, visibility: 'private', makeVariants: true },
+  /**
+   * ЗАМОРОЖЕННАЯ копия того, что человек видел и подписывал (core/sign).
+   *
+   * Отдельный профиль, а не `document`, по трём причинам: копия неизменяема
+   * (её никогда не правит редактор), она не считается в квоту владельца и её не
+   * трогают ретеншн-кроны — доказательства подписания хранятся столько же,
+   * сколько сам документ (по приказу № 279-НК — до 75 лет).
+   */
+  sign_subject: { kind: 'document', maxSize: 100 * MB, allowedMime: null, visibility: 'private', makeVariants: false },
+  /**
+   * Контейнер подписи CMS и квитанции OCSP/TSP (core/sign). Килобайты, но
+   * юридически это и есть доказательство — тот же вечный режим хранения.
+   * В `bytea` не кладём: миллионы подписей раздули бы TOAST, WAL и бэкапы;
+   * целостность держат `cmsSha256` на строке акта и запись файла ДО финализации.
+   */
+  sign_cms: { kind: 'other', maxSize: 4 * MB, allowedMime: null, visibility: 'private', makeVariants: false },
   /** Фолбэк без специфики */
   generic: { kind: 'any', maxSize: 100 * MB, allowedMime: null, visibility: 'private', makeVariants: true },
 };
+
+/**
+ * Профили, которые НЕ считаются в квоту владельца и НЕ подлежат уборке.
+ *
+ * Единственный класс — доказательства электронной подписи (core/sign): их срок
+ * хранения равен сроку хранения самого документа, а место, которое они занимают,
+ * человек не выбирал и удалить не может. Списать это на его 15 ГБ было бы
+ * одновременно и неверным счётом, и способом потерять доказательство при
+ * переполнении.
+ */
+export const EVIDENCE_FILE_PROFILES: readonly string[] = ['sign_subject', 'sign_cms'];
+
+export function isEvidenceProfile(profile: string | null | undefined): boolean {
+  return !!profile && EVIDENCE_FILE_PROFILES.includes(profile);
+}
 
 export type FileProfileKey = keyof typeof FILE_PROFILES;
 

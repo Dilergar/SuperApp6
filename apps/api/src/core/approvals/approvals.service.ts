@@ -15,6 +15,7 @@ import {
   APPROVAL_DECISIONS_NEEDING_COMMENT,
   APPROVAL_REQUEST_STATUS_LABELS,
   APPROVAL_STEP_KIND_LABELS,
+  SIGN_APPROVAL_NEEDS_SIGNATURE,
   INBOX_SOURCE_KEYS,
   TEAM_WORKSPACE_ROLES,
   type ApprovalActorLite,
@@ -23,6 +24,7 @@ import {
   type ApprovalMinePage,
   type ApprovalRequestDto,
   type ApprovalSignatureKind,
+  type ApprovalSignatureRequirement,
   type ApprovalStepDto,
   type ApprovalStepKind,
   type CreateApprovalInput,
@@ -36,7 +38,12 @@ import { AccessService } from '../access/access.service';
 import { JobsService } from '../jobs/jobs.service';
 import { NotificationsService } from '../../modules/notifications/notifications.service';
 import { ApprovalsRegistry, type ApprovalRefContext } from './approvals.registry';
-import { APPROVAL_ESCALATE_JOB, APPROVAL_REMIND_JOB, APPROVAL_RESOLVED_JOB } from './approvals.jobs';
+import {
+  APPROVAL_ANNOUNCE_JOB,
+  APPROVAL_ESCALATE_JOB,
+  APPROVAL_REMIND_JOB,
+  APPROVAL_RESOLVED_JOB,
+} from './approvals.job-names';
 
 type Tx = Prisma.TransactionClient;
 
@@ -184,6 +191,10 @@ export class ApprovalsService implements OnModuleInit {
             assigneeLabel: await this.labelOf(tx, step.assigneeType, step.assigneeId),
             rule: step.rule ?? 'any',
             dueHours: step.dueInHours ?? null,
+            // Требование подписи пишем ВМЕСТЕ со строкой шага, до его активации:
+            // проставленное отдельным вызовом после создания, оно оставляло окно, в
+            // котором адресаты уже позваны, а шаг ещё закрывается обычным кликом.
+            requiredSignatureKind: step.requiredSignatureKind ?? null,
           },
         });
       }
@@ -411,6 +422,16 @@ export class ApprovalsService implements OnModuleInit {
       throw coded('Укажите причину', APPROVAL_ERROR_CODES.commentRequired);
     }
 
+    // Шаг требует НАСТОЯЩЕЙ подписи — обычный клик его не закрывает никогда.
+    // Проверка стоит ЗДЕСЬ, а не в интерфейсе: кнопку можно не нажимать, а
+    // HTTP-запрос отправить, и тогда приказ оказался бы «подписан» нажатием.
+    if (step.requiredSignatureKind) {
+      throw coded(
+        'Этот шаг закрывается электронной подписью, а не нажатием кнопки',
+        SIGN_APPROVAL_NEEDS_SIGNATURE,
+      );
+    }
+
     // Отпечаток предмета берём У ПОТРЕБИТЕЛЯ и пишем в решение: без него подпись
     // ничего не доказывает — файл могли переписать сразу после согласования.
     let subjectSha256: string | null = null;
@@ -421,78 +442,290 @@ export class ApprovalsService implements OnModuleInit {
       subjectSha256 = null;
     }
 
-    await this.db.$transaction(async (tx) => {
-      try {
-        await tx.approvalDecision.create({
-          data: {
-            stepId: step.id,
-            userId,
-            decision: dto.decision,
-            comment,
-            subjectSha256,
-            ip: ip ?? null,
-          },
-        });
-      } catch (err) {
-        // Уникальный индекс (step, user) — единственная защита от двойного клика и
-        // гонки: проверка в приложении здесь принципиально ненадёжна.
-        if ((err as Prisma.PrismaClientKnownRequestError)?.code === 'P2002') {
-          throw coded('Вы уже вынесли решение по этому шагу', APPROVAL_ERROR_CODES.alreadyDecided);
-        }
-        throw err;
-      }
-
-      if (dto.decision !== 'approved') {
-        await this.closeRequest(tx, step.requestId, dto.decision, step.id);
-        return;
-      }
-
-      // «Каждый» закрывается, когда ответили все из снимка; «любой из» — сразу.
-      let stepDone = true;
-      if (step.rule === 'all') {
-        // Замок на строке шага СЕРИАЛИЗУЕТ подсчёт. Без него два последних адресата,
-        // нажавших в одну секунду, насчитывают каждый N−1 (READ COMMITTED не видит
-        // чужую незакоммиченную вставку) и оба выходят молча — шаг остаётся активным
-        // навсегда, а самолечения у движка нет. С замком второй считает уже после
-        // коммита первого и закрывает шаг.
-        await tx.$queryRaw`SELECT id FROM approval_steps WHERE id = ${step.id} FOR UPDATE`;
-        const approvals = await tx.approvalDecision.count({
-          where: { stepId: step.id, decision: 'approved', userId: { in: step.awaitingUserIds } },
-        });
-        stepDone = approvals >= step.awaitingUserIds.length;
-      }
-      if (!stepDone) return;
-
-      // Гонку «двое нажали одновременно» разрешает статус-гвард: продвигает маршрут
-      // ровно тот, чей UPDATE поменял строку.
-      const won = await tx.approvalStep.updateMany({
-        where: { id: step.id, status: 'active' },
-        data: { status: 'approved', decidedAt: new Date() },
-      });
-      if (won.count === 0) return;
-
-      const groupOpen = await tx.approvalStep.count({
-        where: { requestId: step.requestId, order: step.order, status: 'active' },
-      });
-      if (groupOpen > 0) return; // ждём соседей по группе
-
-      const next = await tx.approvalStep.findFirst({
-        where: { requestId: step.requestId, status: 'waiting' },
-        orderBy: { order: 'asc' },
-        select: { order: true },
-      });
-      if (!next) {
-        await this.closeRequest(tx, step.requestId, 'approved', null);
-        return;
-      }
-      await this.activateGroup(tx, step.requestId, next.order, step.request.workspaceId);
-    });
+    await this.db.$transaction((tx) =>
+      this.applyDecision(tx, step, userId, {
+        decision: dto.decision,
+        comment,
+        subjectSha256,
+        // Публичный путь ВСЕГДА пишет `internal`. Уровень подписи от клиента не
+        // принимается принципиально: иначе «подписано ЭЦП» становилось бы полем
+        // в теле запроса.
+        signatureKind: 'internal',
+        ip,
+      }),
+    );
 
     await this.announce(step.requestId).catch((err) =>
       this.logger.error(`оповещение по заявке ${step.requestId}: ${(err as Error).message}`),
     );
 
     return this.get(userId, step.requestId);
+  }
+
+  /**
+   * ЗАКРЫВАЮЩИЙ ВХОД для core/sign — «решение, подтверждённое подписью».
+   *
+   * Наружу не выставлен и зовётся ТОЛЬКО движком подписи изнутри транзакции
+   * финализации акта: акт подписан и шаг закрыт одним коммитом, поэтому окна
+   * «подписано, но шаг висит» не существует. Все инварианты обычного пути —
+   * уникальный индекс «одно решение на шаг», статус-гвард, `FOR UPDATE` для
+   * правила «нужен каждый», активация следующей группы — те же самые: тело
+   * транзакции у обоих входов ОДНО (`applyDecision`), и разойтись им негде.
+   *
+   * Проверки адресности и вида шага здесь не дублируются: их уже сделал движок
+   * подписи, когда заводил заявку под этот шаг, — но требование уровня
+   * сверяется (ЭЦП закрывает шаг, которому хватает ПЭП, обратное — нет).
+   */
+  async decideAttested(
+    tx: Tx,
+    stepId: string,
+    userId: string,
+    input: {
+      decision: ApprovalDecisionKind;
+      signatureKind: Exclude<ApprovalSignatureKind, 'internal'>;
+      subjectSha256: string;
+      signActId: string;
+      comment?: string | null;
+    },
+  ): Promise<void> {
+    const step = await tx.approvalStep.findUnique({ where: { id: stepId }, include: { request: true } });
+    if (!step) throw new NotFoundException('Шаг не найден');
+    if (step.request.status !== 'pending' || step.status !== 'active') {
+      throw coded('Решение по этому шагу уже не требуется', APPROVAL_ERROR_CODES.stepNotActive);
+    }
+    if (!step.awaitingUserIds.includes(userId)) {
+      throw new ForbiddenException({
+        message: 'Решение выносит адресат шага',
+        details: { code: APPROVAL_ERROR_CODES.notAssignee },
+      });
+    }
+    // Та же сверка, что и на обычном пути решения, и по той же причине: снимок
+    // адресатов про увольнение ничего не знает. Проверить членство ОДИН РАЗ при
+    // открытии экрана подписания (stepForSignature) недостаточно — заявка на
+    // подпись живёт до 30 суток, и уволенный за это время сотрудник закрывал бы
+    // шаг бывшего работодателя своей подписью, обратившись к ручкам акта напрямую.
+    if (step.request.workspaceId && !(await this.isTeamMember(tx, userId, step.request.workspaceId))) {
+      throw new ForbiddenException({
+        message: 'Вы больше не работаете в этой организации',
+        details: { code: APPROVAL_ERROR_CODES.notAssignee },
+      });
+    }
+    // Исход должен быть допустим для ВИДА шага — инвариант общий с обычным путём:
+    // от ознакомления отказа не предусмотрено, и подпись не может внести его в обход.
+    const allowed = APPROVAL_KIND_DECISIONS[step.kind as ApprovalStepKind] ?? [];
+    if (!allowed.includes(input.decision)) {
+      throw coded(
+        `На шаге «${APPROVAL_STEP_KIND_LABELS[step.kind as ApprovalStepKind].waiting}» такой исход недоступен`,
+        APPROVAL_ERROR_CODES.decisionNotAllowed,
+      );
+    }
+    // Требование шага — минимальная планка. `ecp` строго сильнее `sms` (ст. 49 ЦК),
+    // поэтому квалифицированная подпись закрывает и тот шаг, где хватало простой;
+    // наоборот — нет, и это ровно та ошибка, ради которой поле и заведено.
+    if (step.requiredSignatureKind === 'ecp' && input.signatureKind !== 'ecp') {
+      throw coded(
+        'Этот шаг закрывается только квалифицированной электронной подписью',
+        SIGN_APPROVAL_NEEDS_SIGNATURE,
+      );
+    }
+
+    await this.applyDecision(tx, step, userId, {
+      decision: input.decision,
+      comment: input.comment?.trim() || null,
+      subjectSha256: input.subjectSha256,
+      signatureKind: input.signatureKind,
+      signActId: input.signActId,
+      ip: null,
+    });
+
+    // Оповещение — джобом В ЭТОЙ ЖЕ транзакции: «после коммита» здесь наступает
+    // не у нас, а у движка подписи, и звать следующую группу напрямую значило бы
+    // разослать уведомления по транзакции, которая ещё может откатиться.
+    await this.jobs.enqueue(tx, {
+      type: APPROVAL_ANNOUNCE_JOB,
+      payload: { requestId: step.requestId },
+      uniqueKey: `apann:${input.signActId}`,
+    });
+  }
+
+  /** Оповещение о состоянии заявки — публичный вход для отложенного джоба */
+  async announcePublic(requestId: string): Promise<void> {
+    await this.announce(requestId);
+  }
+
+  /**
+   * Паспорт шага для движка подписи: что подписываем, каким уровнем и вправе ли
+   * этот человек подписывать.
+   *
+   * Читающий метод, а не прямое чтение таблиц approvals из core/sign: адресность
+   * шага (снимок `awaitingUserIds`) и понятие «активен» принадлежат этому
+   * движку, и второе их толкование в чужом модуле разъедется на первой же правке.
+   */
+  async stepForSignature(
+    userId: string,
+    stepId: string,
+  ): Promise<{
+    stepId: string;
+    requestId: string;
+    refType: string;
+    refId: string;
+    refTitle: string;
+    workspaceId: string | null;
+    requiredSignatureKind: ApprovalSignatureRequirement;
+    /** `all` — подписать должен каждый адресат, `any` — достаточно одного */
+    rule: string;
+    /** СНИМОК адресатов шага: под них движок подписи заводит акты одной заявкой */
+    awaitingUserIds: string[];
+  }> {
+    const step = await this.db.approvalStep.findUnique({ where: { id: stepId }, include: { request: true } });
+    if (!step) throw new NotFoundException('Шаг не найден');
+    if (step.request.status !== 'pending' || step.status !== 'active') {
+      throw coded('Решение по этому шагу уже не требуется', APPROVAL_ERROR_CODES.stepNotActive);
+    }
+    if (!step.awaitingUserIds.includes(userId)) {
+      throw new ForbiddenException({
+        message: 'Подписывает адресат шага',
+        details: { code: APPROVAL_ERROR_CODES.notAssignee },
+      });
+    }
+    if (step.request.workspaceId && !(await this.isTeamMember(this.db, userId, step.request.workspaceId))) {
+      throw new ForbiddenException({
+        message: 'Вы больше не работаете в этой организации',
+        details: { code: APPROVAL_ERROR_CODES.notAssignee },
+      });
+    }
+    if (!step.requiredSignatureKind) {
+      throw coded('Этот шаг закрывается обычным решением, а не подписью', APPROVAL_ERROR_CODES.decisionNotAllowed);
+    }
+    return {
+      stepId: step.id,
+      requestId: step.requestId,
+      refType: step.request.refType,
+      refId: step.request.refId,
+      refTitle: step.request.refTitle,
+      workspaceId: step.request.workspaceId,
+      requiredSignatureKind: step.requiredSignatureKind as ApprovalSignatureRequirement,
+      rule: step.rule,
+      awaitingUserIds: step.awaitingUserIds,
+    };
+  }
+
+  /**
+   * Проставить требование подписи УЖЕ СОЗДАННЫМ шагам.
+   *
+   * Обычный путь — поле `requiredSignatureKind` прямо во входе шага при создании
+   * заявки: так требование появляется в одной транзакции со строкой шага, до его
+   * активации. Этот метод остаётся для доводки существующего маршрута (и для
+   * дев-полигона): уровень диктует вид документа, а движок решений про кадровое
+   * законодательство ничего не знает и знать не должен.
+   */
+  async setStepSignatureRequirement(
+    tx: Tx | null,
+    stepIds: string[],
+    kind: ApprovalSignatureRequirement | null,
+  ): Promise<void> {
+    if (stepIds.length === 0) return;
+    const client = tx ?? this.db;
+    await client.approvalStep.updateMany({
+      where: { id: { in: stepIds }, status: { in: ['waiting', 'active'] } },
+      data: { requiredSignatureKind: kind },
+    });
+  }
+
+  /**
+   * ТЕЛО решения — одно на оба входа (клик и подпись).
+   *
+   * Всё, что здесь написано, — инварианты, каждый из которых куплен отдельной
+   * ошибкой: уникальный индекс вместо проверки на двойной клик, `FOR UPDATE`
+   * вместо подсчёта «на глаз», статус-гвард вместо «кто первый прочитал».
+   * Разделять эту логику по входам НЕЛЬЗЯ: две копии инвариантов разъезжаются.
+   */
+  private async applyDecision(
+    tx: Tx,
+    step: {
+      id: string;
+      requestId: string;
+      order: number;
+      rule: string;
+      awaitingUserIds: string[];
+      request: { workspaceId: string | null };
+    },
+    userId: string,
+    input: {
+      decision: ApprovalDecisionKind;
+      comment: string | null;
+      subjectSha256: string | null;
+      signatureKind: ApprovalSignatureKind;
+      signActId?: string;
+      ip?: string | null;
+    },
+  ): Promise<void> {
+    try {
+      await tx.approvalDecision.create({
+        data: {
+          stepId: step.id,
+          userId,
+          decision: input.decision,
+          comment: input.comment,
+          subjectSha256: input.subjectSha256,
+          signatureKind: input.signatureKind,
+          signActId: input.signActId ?? null,
+          ip: input.ip ?? null,
+        },
+      });
+    } catch (err) {
+      // Уникальный индекс (step, user) — единственная защита от двойного клика и
+      // гонки: проверка в приложении здесь принципиально ненадёжна.
+      if ((err as Prisma.PrismaClientKnownRequestError)?.code === 'P2002') {
+        throw coded('Вы уже вынесли решение по этому шагу', APPROVAL_ERROR_CODES.alreadyDecided);
+      }
+      throw err;
+    }
+
+    if (input.decision !== 'approved') {
+      await this.closeRequest(tx, step.requestId, input.decision, step.id);
+      return;
+    }
+
+    // «Каждый» закрывается, когда ответили все из снимка; «любой из» — сразу.
+    let stepDone = true;
+    if (step.rule === 'all') {
+      // Замок на строке шага СЕРИАЛИЗУЕТ подсчёт. Без него два последних адресата,
+      // нажавших в одну секунду, насчитывают каждый N−1 (READ COMMITTED не видит
+      // чужую незакоммиченную вставку) и оба выходят молча — шаг остаётся активным
+      // навсегда, а самолечения у движка нет. С замком второй считает уже после
+      // коммита первого и закрывает шаг.
+      await tx.$queryRaw`SELECT id FROM approval_steps WHERE id = ${step.id} FOR UPDATE`;
+      const approvals = await tx.approvalDecision.count({
+        where: { stepId: step.id, decision: 'approved', userId: { in: step.awaitingUserIds } },
+      });
+      stepDone = approvals >= step.awaitingUserIds.length;
+    }
+    if (!stepDone) return;
+
+    // Гонку «двое нажали одновременно» разрешает статус-гвард: продвигает маршрут
+    // ровно тот, чей UPDATE поменял строку.
+    const won = await tx.approvalStep.updateMany({
+      where: { id: step.id, status: 'active' },
+      data: { status: 'approved', decidedAt: new Date() },
+    });
+    if (won.count === 0) return;
+
+    const groupOpen = await tx.approvalStep.count({
+      where: { requestId: step.requestId, order: step.order, status: 'active' },
+    });
+    if (groupOpen > 0) return; // ждём соседей по группе
+
+    const next = await tx.approvalStep.findFirst({
+      where: { requestId: step.requestId, status: 'waiting' },
+      orderBy: { order: 'asc' },
+      select: { order: true },
+    });
+    if (!next) {
+      await this.closeRequest(tx, step.requestId, 'approved', null);
+      return;
+    }
+    await this.activateGroup(tx, step.requestId, next.order, step.request.workspaceId);
   }
 
   /**
@@ -752,7 +985,12 @@ export class ApprovalsService implements OnModuleInit {
         subtitle: step.title,
         icon: step.request.refIcon ?? labels.icon,
         href: this.hrefFor(step.request.workspaceId, step.requestId),
-        actions: allowed.map((decision) => ({
+        stepKind: step.kind as ApprovalStepKind,
+        signRequirement: (step.requiredSignatureKind as ApprovalSignatureRequirement | null) ?? null,
+        // Шаг, который закрывается ПОДПИСЬЮ, кнопок в стопке не получает: подпись
+        // собирается на своём экране (соглашение сторон, код или ключ ЭЦП), и
+        // «Согласовать» одним нажатием здесь было бы обманом.
+        actions: (step.requiredSignatureKind ? [] : allowed).map((decision) => ({
           key: decision,
           label:
             decision === 'approved'
@@ -877,10 +1115,12 @@ export class ApprovalsService implements OnModuleInit {
         decidedAt: d.decidedAt.toISOString(),
         signatureKind: d.signatureKind as ApprovalSignatureKind,
         subjectSha256: d.subjectSha256,
+        signActId: d.signActId,
       })),
       dueAt: s.deadlineAt?.toISOString() ?? null,
       overdue: s.status === 'active' && !!s.deadlineAt && s.deadlineAt.getTime() < now,
       decidedAt: s.decidedAt?.toISOString() ?? null,
+      requiredSignatureKind: (s.requiredSignatureKind as ApprovalSignatureRequirement | null) ?? null,
     }));
 
     const myStep = request.steps.find(

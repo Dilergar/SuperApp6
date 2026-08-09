@@ -1,0 +1,299 @@
+/* ============================================================
+   Блочный конструктор документов — печатный лист + панель.
+   Чужие классы BlockNote (.bn-*) переодеваются здесь, как классы React Flow
+   в process-canvas.css. Лист набран PT Serif — тем же шрифтом печатает PDF.
+   ============================================================ */
+
+@font-face {
+  font-family: 'PT Serif';
+  src: url('/fonts/pt-serif/PTSerif-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'PT Serif';
+  src: url('/fonts/pt-serif/PTSerif-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'PT Serif';
+  src: url('/fonts/pt-serif/PTSerif-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'PT Serif';
+  src: url('/fonts/pt-serif/PTSerif-BoldItalic.ttf') format('truetype');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+.db-root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+}
+
+.db-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  flex-wrap: wrap;
+}
+.db-topbar-spacer { flex: 1; }
+
+.db-layout {
+  display: flex;
+  gap: var(--spacing-4);
+  align-items: flex-start;
+}
+
+/* Полотно вокруг листа — тон страницы приложения */
+.db-canvas {
+  flex: 1;
+  min-width: 0;
+  background: var(--page);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 24px 12px;
+  max-height: 78vh;
+  overflow: auto;
+}
+
+/* Печатный лист А4: ширина честная, поля ГОСТ-подобные (20/10/20/20 мм) */
+.db-page {
+  width: min(210mm, 100%);
+  min-height: 297mm;
+  margin: 0 auto;
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+  padding: 20mm 10mm 20mm 20mm;
+  box-sizing: border-box;
+}
+
+/* Сам редактор: печатная типографика вместо интерфейсной */
+.db-page .bn-container,
+.db-page .bn-editor {
+  font-family: 'PT Serif', 'Times New Roman', serif;
+  background: transparent;
+}
+.db-page .bn-editor {
+  padding-inline: 0;
+  font-size: 12pt;
+  line-height: 1.5;
+  color: #111;
+}
+.db-page .bn-editor p.bn-inline-content { text-indent: 12.5mm; }
+.db-page .bn-block-content[data-text-alignment='center'] p.bn-inline-content,
+.db-page .bn-block-content[data-text-alignment='right'] p.bn-inline-content { text-indent: 0; }
+.db-page .bn-editor h1 { font-size: 14pt; }
+.db-page .bn-editor h2 { font-size: 13pt; }
+.db-page .bn-editor h3 { font-size: 12pt; }
+.db-page .bn-editor table { border-collapse: collapse; width: 100%; }
+.db-page .bn-editor th,
+.db-page .bn-editor td { border: 1px solid #444; padding: 4px 8px; }
+
+/* Чип данных в тексте */
+.db-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(88, 140, 211, 0.14);
+  border: 1px solid rgba(88, 140, 211, 0.32);
+  color: #3f6aa8;
+  font-family: var(--font-sans, 'Manrope', sans-serif);
+  font-size: 0.8em;
+  white-space: nowrap;
+  user-select: all;
+}
+.db-chip-fmt {
+  color: rgba(63, 106, 168, 0.7);
+  font-size: 0.85em;
+}
+
+/* Смарт-блоки на листе */
+.db-requisites {
+  width: 100%;
+  text-align: center;
+  border: 1px dashed rgba(88, 140, 211, 0.45);
+  border-radius: 12px;
+  padding: 10px 12px 8px;
+  background: rgba(88, 140, 211, 0.05);
+}
+.db-requisites-name { font-weight: 700; font-size: 13pt; }
+.db-requisites-line {
+  font-family: var(--font-sans, 'Manrope', sans-serif);
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.db-docmeta {
+  width: 100%;
+  padding: 2px 0;
+  color: #111;
+}
+.db-signature {
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 6px 0 2px;
+}
+.db-sig-role {
+  font-family: 'PT Serif', serif;
+  font-size: 12pt;
+  border: none;
+  border-bottom: 1px dashed transparent;
+  background: transparent;
+  min-width: 40px;
+  width: 34%;
+  color: #111;
+}
+.db-sig-role:hover, .db-sig-role:focus { border-bottom-color: rgba(88, 140, 211, 0.5); outline: none; }
+.db-sig-line { flex: 1; border-bottom: 1px solid #111; height: 1.1em; }
+.db-sig-name { display: inline-flex; gap: 6px; align-items: center; }
+.db-sig-name select,
+.db-addfield select {
+  font-family: var(--font-sans, 'Manrope', sans-serif);
+  font-size: 0.78rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 3px 6px;
+  background: #fafbf8;
+  color: var(--text);
+  max-width: 190px;
+}
+.db-sig-custom {
+  font-family: 'PT Serif', serif;
+  font-size: 11pt;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 2px 8px;
+  width: 150px;
+}
+.db-block-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-sans, 'Manrope', sans-serif);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.db-pagebreak {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-sans, 'Manrope', sans-serif);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 0;
+}
+.db-pagebreak::before,
+.db-pagebreak::after {
+  content: '';
+  flex: 1;
+  border-top: 2px dashed var(--line);
+}
+
+/* Панель справа */
+.db-panel {
+  width: 300px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+  max-height: 78vh;
+  overflow: auto;
+  position: sticky;
+  top: 0;
+}
+/* Вкладки панели прилипают к её верху: список данных длинный, и переключатель
+   не должен уезжать вместе с прокруткой */
+.db-panel-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--page);
+  padding-bottom: 4px;
+  /* Панель — flex-колонка с прокруткой: без запрета на сжатие содержимое длиннее
+     панели давило переключатель до пяти пикселей (проверено в браузере) */
+  flex: 0 0 auto;
+}
+
+.db-panel-section {
+  background: var(--card, #fafbf8);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: var(--spacing-4);
+  flex: 0 0 auto;
+}
+.db-panel-title { margin: 0 0 4px; font-size: 0.95rem; }
+.db-panel-hint { margin: 0 0 10px; font-size: 0.78rem; color: var(--text-muted); }
+.db-panel-group { margin-top: 10px; }
+.db-panel-group-title { font-weight: 600; font-size: 0.82rem; margin-bottom: 6px; }
+.db-panel-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.db-panel-blocks { display: flex; flex-direction: column; gap: 8px; }
+.db-panel-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 8px 10px;
+  cursor: grab;
+  font: inherit;
+  color: var(--text);
+}
+.db-panel-block:hover { border-color: rgba(88, 140, 211, 0.5); background: rgba(88, 140, 211, 0.06); }
+.db-panel-block:active { cursor: grabbing; }
+.db-panel-block > span { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.db-panel-block-label { font-size: 0.85rem; font-weight: 600; }
+.db-panel-block-hint { font-size: 0.72rem; color: var(--text-muted); }
+.db-panel-block-grip { opacity: 0.45; }
+
+.db-addfield {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 8px;
+}
+.db-addfield-input {
+  flex: 1;
+  min-width: 140px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  background: #fff;
+}
+
+.db-preview-frame {
+  width: 100%;
+  height: min(75vh, 900px);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--page);
+}
+
+/* Узкий экран: панель уезжает под лист */
+@media (max-width: 1080px) {
+  .db-layout { flex-direction: column; }
+  .db-panel { width: 100%; position: static; max-height: none; }
+}

@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { isDevEnv } from '../../shared/config/env.validation';
+import { PdfRenderService } from './pdf-render.service';
 import { TemplateFieldRegistry } from './template-field.registry';
 import { TemplateRenderService } from './template-render.service';
 import { TemplatesController } from './templates.controller';
@@ -21,7 +22,7 @@ import { TemplatesDevController } from './templates.dev';
 @Global()
 @Module({
   controllers: isDevEnv() ? [TemplatesController, TemplatesDevController] : [TemplatesController],
-  providers: [TemplateFieldRegistry, TemplateRenderService],
-  exports: [TemplateFieldRegistry, TemplateRenderService],
+  providers: [TemplateFieldRegistry, TemplateRenderService, PdfRenderService],
+  exports: [TemplateFieldRegistry, TemplateRenderService, PdfRenderService],
 })
 export class TemplatesModule {}

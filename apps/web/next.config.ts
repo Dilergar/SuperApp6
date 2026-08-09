@@ -38,7 +38,9 @@ const cspReportOnly = [
   // iframe редактора документов + PDF-отпечаток на гостевой странице /s/<токен>:
   // его байты отдаёт API, поэтому его origin обязан быть здесь — иначе просмотр
   // документа по ссылке наружу погаснет в тот день, когда CSP станет боевым.
-  `frame-src 'self' ${apiOrigin} ${DOCS_FRAME_SRC}`,
+  // blob: — превью-PDF блочного конструктора: байты приходят axios'ом (с токеном),
+  // и iframe открывает их локальным blob-URL.
+  `frame-src 'self' blob: ${apiOrigin} ${DOCS_FRAME_SRC}`,
   // Форма запуска редактора POST'ит токен прямо в его iframe — origin редактора
   // обязан быть в form-action, иначе браузер отменит отправку.
   `form-action 'self' ${DOCS_FRAME_SRC}`,

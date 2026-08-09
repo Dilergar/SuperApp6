@@ -19,6 +19,7 @@ const BARE_EXACT = new Set(['/', '/login', '/register', '/reset-password']);
 function isBare(pathname: string): boolean {
   if (BARE_EXACT.has(pathname)) return true;
   if (pathname.startsWith('/s/')) return true;                          // гостевая ссылка: человек без аккаунта
+  if (pathname.startsWith('/check')) return true;                       // открытая проверка подписи (ст. 61 ЦК РК)
   if (pathname.startsWith('/docs/')) return true;                       // редактор во весь экран
   if (/^\/workspaces\/[^/]+\/processes\/[^/]+$/.test(pathname)) return true; // канвас процесса
   if (/^\/workspaces\/[^/]+\/office\/[^/]+$/.test(pathname)) return true;    // комната звонка

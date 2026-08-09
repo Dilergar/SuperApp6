@@ -8,6 +8,8 @@ const noHtmlMsg = 'Недопустимые символы';
 export const updateProfileSchema = z.object({
   firstName: z.string().min(1).max(50).refine(noHtml, noHtmlMsg).optional(),
   lastName: z.string().max(50).refine(noHtml, noHtmlMsg).nullable().optional(),
+  /** Отчество — реквизит документов (полное ФИО в приказах); в карточках не показывается */
+  middleName: z.string().max(50).refine(noHtml, noHtmlMsg).nullable().optional(),
   dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Формат: YYYY-MM-DD').nullable().optional(),
   avatar: z.string().url().nullable().optional(),
   bio: z.string().max(160).refine(noHtml, noHtmlMsg).nullable().optional(),

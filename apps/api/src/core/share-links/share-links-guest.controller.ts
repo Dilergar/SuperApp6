@@ -71,4 +71,32 @@ export class ShareLinksGuestController {
     const data = await this.guest.refreshView(token, session);
     return { success: true, data };
   }
+
+  /**
+   * ДЕЙСТВИЕ гостя над объектом. Движок здесь — проходная: он подтверждает
+   * действующую ссылку и личность (если ссылка её требовала) и передаёт
+   * управление потребителю по ключу действия. Что именно делает действие и кому
+   * оно позволено — знает только потребитель.
+   *
+   * Троттлинг как у открытия: ручка неаутентифицированная, а за ней стоят
+   * дорогие операции (проверка контейнера подписи, отправка SMS).
+   */
+  @Public()
+  @Throttle({ long: { limit: 30, ttl: 60_000 } })
+  @Post(':token/actions/:key')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Выполнить действие потребителя от имени гостя' })
+  async action(
+    @Param('token') token: string,
+    @Param('key') key: string,
+    @Headers(SHARE_SESSION_HEADER) session: string | undefined,
+    @Body() body: unknown,
+    @Req() req: Request,
+  ) {
+    const data = await this.guest.runAction(token, key, session, body, {
+      ip: req.ip ?? null,
+      userAgent: req.headers['user-agent'] ?? null,
+    });
+    return { success: true, data };
+  }
 }

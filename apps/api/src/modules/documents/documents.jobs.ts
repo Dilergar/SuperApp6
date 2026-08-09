@@ -3,18 +3,22 @@ import { promises as fsp } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { buffer as streamToBuffer } from 'node:stream/consumers';
-import { ORG_DOCUMENT_REF_TYPE, driveNameKey } from '@superapp/shared';
+import { ORG_DOCUMENT_REF_TYPE, driveNameKey, expandDocFormValues } from '@superapp/shared';
+import type { BuilderDoc } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { JobDiscardError, JobsRegistry } from '../../core/jobs/jobs.registry';
 import { FilesService } from '../../core/files/files.service';
 import { DocsService } from '../../core/docs/docs.service';
 import { DocsRenditionService } from '../../core/docs/docs-rendition.service';
 import { TemplateRenderService } from '../../core/templates/template-render.service';
+import { PdfRenderService } from '../../core/templates/pdf-render.service';
+import { renderBuilderHtml } from '../../core/templates/builder-render.driver';
 import { TemplateCompileError, TemplateDataError } from '../../core/templates/template.types';
 import { DriveService } from '../drive/drive.service';
 import { AccessService } from '../../core/access/access.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { DocumentsService } from './documents.service';
+import { withTempFile } from '../../shared/fs/temp-file.util';
 import {
   DOCUMENTS_FILE_JOB,
   DOCUMENTS_FILE_PROFILE,
@@ -22,6 +26,7 @@ import {
   DOCUMENTS_PDF_JOB,
   DOCUMENTS_QUEUE,
   DOCX_MIME_TYPE,
+  PDF_MIME_TYPE,
 } from './documents.constants';
 
 /**
@@ -42,6 +47,7 @@ export class DocumentsJobs implements OnModuleInit {
     private readonly docs: DocsService,
     private readonly rendition: DocsRenditionService,
     private readonly templates: TemplateRenderService,
+    private readonly pdfRender: PdfRenderService,
     private readonly drive: DriveService,
     private readonly access: AccessService,
     private readonly chatter: ChatterService,
@@ -80,6 +86,8 @@ export class DocumentsJobs implements OnModuleInit {
   private async generate(documentId: string): Promise<void> {
     const doc = await this.db.orgDocument.findUnique({ where: { id: documentId } });
     if (!doc) throw new JobDiscardError('документ удалён');
+    // Блочный документ (по builder-шаблону или свободный): файл = сам PDF
+    if (doc.builderDoc) return this.generateBuilder(doc);
     if (!doc.templateId) throw new JobDiscardError('документ без шаблона — собирать нечего');
     // Ушедший на маршрут документ ПЕРЕсобирать нельзя: под руками согласующего
     // содержимое меняться не должно (ровно то, ради чего его и замораживают).
@@ -174,7 +182,11 @@ export class DocumentsJobs implements OnModuleInit {
     });
   }
 
-  /** Значения формы подачи под группой «Документ» + сами поля россыпью */
+  /**
+   * Значения формы подачи под группой «Документ» + сами поля россыпью.
+   * Периоды дат {from,to} разворачиваются в «X С»/«X По»/«X Дней» — теги
+   * шаблонов остаются плоскими двухчастными, глубоких путей в синтаксисе нет.
+   */
   private documentValues(doc: {
     title: string;
     number: string | null;
@@ -183,13 +195,112 @@ export class DocumentsJobs implements OnModuleInit {
   }): Record<string, unknown> {
     const fields = (doc.fields ?? {}) as Record<string, unknown>;
     return {
-      ...fields,
+      ...expandDocFormValues(fields),
       Документ: {
         Название: doc.title,
         Номер: doc.number ?? '',
         Дата: doc.createdAt,
       },
     };
+  }
+
+  // ============================================================
+  // Блочный документ (конструктор): файл карточки — сам PDF
+  // ============================================================
+
+  /**
+   * Собрать PDF из блоков. Симметрия с docx-путём: пересборка меняет ЖИВОЙ файл
+   * на месте (id стабилен — вложения и подшивка не ломаются), первая сборка
+   * инжестит новый; documentId (core/docs) у builder-документов не бывает —
+   * PDF внешним редактором не правится.
+   */
+  private async generateBuilder(doc: {
+    id: string;
+    workspaceId: string;
+    createdById: string;
+    subjectUserId: string | null;
+    templateId: string | null;
+    title: string;
+    number: string | null;
+    status: string;
+    createdAt: Date;
+    fileId: string | null;
+    builderDoc: unknown;
+    fields: unknown;
+  }): Promise<void> {
+    if (!this.pdfRender.enabled) {
+      // Карточка остаётся без файла, submit честно заблокирован (он требует fileId)
+      throw new JobDiscardError('PDF-рендер выключен (GOTENBERG_URL не задан)');
+    }
+    // Тот же гейт, что у docx-пути: ушедшее на маршрут не пересобирается
+    if (doc.fileId && doc.status !== 'draft' && doc.status !== 'rejected') return;
+
+    const bytes = await this.renderBuilderPdf(doc);
+    const name = `${doc.title}.pdf`.replace(/[\\/:*?"<>|]/g, '-');
+
+    if (doc.fileId) {
+      await withTempFile(name, bytes, (filePath) =>
+        this.files.replaceContent({ fileId: doc.fileId!, sourcePath: filePath, actorId: doc.createdById }),
+      );
+      return;
+    }
+
+    const file = await withTempFile(name, bytes, (filePath) =>
+      this.files.ingestLocalFile({
+        path: filePath,
+        name,
+        mime: PDF_MIME_TYPE,
+        profile: DOCUMENTS_FILE_PROFILE,
+        ownerUserId: doc.createdById,
+        ownerType: 'workspace',
+        ownerId: doc.workspaceId,
+      }),
+    );
+    await this.db.$transaction(async (tx) => {
+      const claimed = await tx.orgDocument.updateMany({
+        where: { id: doc.id, fileId: null },
+        data: { fileId: file.id },
+      });
+      if (claimed.count === 0) return;
+      await this.files.linkSystemInTx(tx, {
+        fileId: file.id,
+        refType: ORG_DOCUMENT_REF_TYPE,
+        refId: doc.id,
+        createdById: doc.createdById,
+      });
+    });
+  }
+
+  /** Рендер блоков в PDF-байты: значения реестра ПОВЕРХ значений формы (анти-подмена) */
+  private async renderBuilderPdf(doc: {
+    id: string;
+    workspaceId: string;
+    createdById: string;
+    subjectUserId: string | null;
+    title: string;
+    number: string | null;
+    createdAt: Date;
+    builderDoc: unknown;
+    fields: unknown;
+  }): Promise<Buffer> {
+    const builderDoc = doc.builderDoc as BuilderDoc;
+    const values = {
+      ...this.documentValues(doc),
+      ...(await this.templates.resolveContextValues({
+        workspaceId: doc.workspaceId,
+        subjectUserId: doc.subjectUserId ?? undefined,
+        actorUserId: doc.createdById,
+      })),
+    };
+    const logoDataUri = await this.documents.builderLogo(doc.workspaceId, builderDoc);
+    // Мягкий режим, как у docx-сборки: недостающее — ВИДИМАЯ метка в документе,
+    // а не отказ (человек дозаполняет анкету и пересобирает)
+    const { html } = renderBuilderHtml(builderDoc, values, {
+      strict: false,
+      title: doc.title,
+      assets: { logoDataUri },
+    });
+    return this.pdfRender.htmlToPdf(html, { footer: builderDoc.page?.footer ?? 'pageNumbers' });
   }
 
   // ============================================================
@@ -203,6 +314,50 @@ export class DocumentsJobs implements OnModuleInit {
   private async snapshotPdf(documentId: string): Promise<void> {
     const doc = await this.db.orgDocument.findUnique({ where: { id: documentId } });
     if (!doc) throw new JobDiscardError('документ удалён');
+
+    // Блочный документ: файл и есть PDF — пересобираем из ТЕКУЩИХ блоков (свежий
+    // отпечаток того, что уйдёт на решение) и отмечаем его отпечатком.
+    if (doc.builderDoc) {
+      if (!this.pdfRender.enabled) throw new JobDiscardError('PDF-рендер выключен (GOTENBERG_URL не задан)');
+      const bytes = await this.renderBuilderPdf(doc);
+      const name = `${doc.title}.pdf`.replace(/[\\/:*?"<>|]/g, '-');
+      let fileId = doc.fileId;
+      if (fileId) {
+        await withTempFile(name, bytes, (filePath) =>
+          this.files.replaceContent({ fileId: fileId!, sourcePath: filePath, actorId: doc.createdById }),
+        );
+      } else {
+        // generate мог не успеть (или его джоб потерялся) — отпечаток сам создаёт файл
+        const file = await withTempFile(name, bytes, (filePath) =>
+          this.files.ingestLocalFile({
+            path: filePath,
+            name,
+            mime: PDF_MIME_TYPE,
+            profile: DOCUMENTS_FILE_PROFILE,
+            ownerUserId: doc.createdById,
+            ownerType: 'workspace',
+            ownerId: doc.workspaceId,
+          }),
+        );
+        fileId = file.id;
+        await this.db.$transaction(async (tx) => {
+          const claimed = await tx.orgDocument.updateMany({
+            where: { id: doc.id, fileId: null },
+            data: { fileId: file.id },
+          });
+          if (claimed.count === 0) return;
+          await this.files.linkSystemInTx(tx, {
+            fileId: file.id,
+            refType: ORG_DOCUMENT_REF_TYPE,
+            refId: doc.id,
+            createdById: doc.createdById,
+          });
+        });
+      }
+      await this.db.orgDocument.update({ where: { id: doc.id }, data: { pdfFileId: fileId } });
+      return;
+    }
+
     if (!doc.documentId) throw new JobDiscardError('у документа нет живого файла — PDF снимать не с чего');
     if (!this.docs.enabled) throw new JobDiscardError('редактор документов выключен');
 
@@ -421,25 +576,10 @@ export class DocumentsJobs implements OnModuleInit {
     return !!type?.toPersonalFile;
   }
 
-  private fileName(doc: { number: string | null; title: string }): string {
+  private fileName(doc: { number: string | null; title: string; builderDoc?: unknown }): string {
     const base = doc.number ? `${doc.number} ${doc.title}` : doc.title;
-    return `${base}.docx`.replace(/[\\/:*?"<>|]/g, '-');
-  }
-}
-
-/** Временный файл под инжест собранных байтов (движок файлов принимает путь) */
-async function withTempFile<T>(
-  name: string,
-  bytes: Buffer,
-  fn: (filePath: string) => Promise<T>,
-): Promise<T> {
-  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'sa6-doc-'));
-  const filePath = path.join(dir, name.replace(/[\\/]/g, '-'));
-  await fsp.writeFile(filePath, bytes);
-  try {
-    return await fn(filePath);
-  } finally {
-    await fsp.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    const ext = doc.builderDoc ? 'pdf' : 'docx';
+    return `${base}.${ext}`.replace(/[\\/:*?"<>|]/g, '-');
   }
 }
 

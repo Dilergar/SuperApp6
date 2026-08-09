@@ -233,6 +233,60 @@ export class ShareLinksGuestService {
    * Свежее содержимое по действующему пропуску — без счётчика. Этим живут обновление
    * страницы и добор протухших ссылок на файлы (они подписаны на ~10 минут).
    */
+  /**
+   * Выполнить ДЕЙСТВИЕ потребителя от имени гостя.
+   *
+   * Движок здесь проходная: подтверждает живую ссылку и пропуск, достаёт личность
+   * (если ссылка её требовала) и передаёт управление обработчику из реестра. Что
+   * делает действие и кому оно позволено — знает только потребитель; движок про
+   * подписи, оплаты и опросы не знает и знать не должен.
+   */
+  async runAction(
+    token: string,
+    key: string,
+    sessionToken: string | undefined | null,
+    body: unknown,
+    info: GuestRequestInfo,
+  ): Promise<unknown> {
+    const verdict = this.tokens.verify(sessionToken);
+    if (!verdict.ok || !verdict.payload) {
+      deny(SHARE_LINK_ERROR_CODES.sessionInvalid, 'Сессия просмотра истекла — откройте ссылку заново', HttpStatus.FORBIDDEN);
+    }
+    const link = await this.loadByToken(token);
+    if (verdict.payload.l !== link.id) {
+      deny(SHARE_LINK_ERROR_CODES.sessionInvalid, 'Сессия не подходит к этой ссылке', HttpStatus.FORBIDDEN);
+    }
+    this.assertLive(link);
+    this.assertEpoch(link, verdict.payload);
+    if (link.requireIdentity && !verdict.payload.g) {
+      deny(SHARE_LINK_ERROR_CODES.identityRequired, 'Ссылка требует подтверждение номера', HttpStatus.FORBIDDEN);
+    }
+
+    const provider = this.registry.get(link.refType);
+    const handler = provider?.actions?.[key];
+    // Неизвестное действие — 404, а не 403: существование чужих возможностей
+    // постороннему не подтверждаем (тот же приём, что у скоупа гостевых папок).
+    if (!handler) deny(SHARE_LINK_ERROR_CODES.notFound, 'Действие недоступно', HttpStatus.NOT_FOUND);
+
+    const guest = verdict.payload.g
+      ? await this.db.shareLinkGuest.findUnique({ where: { id: verdict.payload.g } })
+      : null;
+
+    return handler({
+      refType: link.refType,
+      refId: link.refId,
+      link: {
+        id: link.id,
+        allowDownload: link.allowDownload,
+        settings: (link.settings as Record<string, unknown>) ?? {},
+      },
+      guest: guest ? { id: guest.id, name: guest.name, phone: guest.phone } : null,
+      body,
+      ip: info.ip ?? null,
+      userAgent: info.userAgent ?? null,
+    });
+  }
+
   async refreshView(token: string, sessionToken: string | undefined | null): Promise<ShareGuestSessionDto> {
     const verdict = this.tokens.verify(sessionToken);
     if (!verdict.ok || !verdict.payload) {

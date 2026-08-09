@@ -56,3 +56,9 @@ apps/api/prisma/*.db
 
 # Личная шпаргалка с паролями — не коммитить
 acc.txt
+
+# Верификатор подписи (core/sign): SDK KalkanCrypt и корни НУЦ РК.
+# Лицензия НУЦ разрешает использование, но НЕ перераспространение бинарников —
+# в репозитории лежит рецепт сборки (infra/sign-verifier/), а не чужие артефакты.
+infra/sign-verifier/vendor/
+infra/sign-verifier/roots/

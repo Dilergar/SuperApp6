@@ -403,11 +403,29 @@ export const approvalNode: ProcessNodeProvider = {
         showIf: { field: 'assigneeMode', in: ['position', 'department'] },
         help: 'Состав фиксируется снимком в момент, когда шаг дошёл до людей.',
       },
+      {
+        key: 'signatureLevel',
+        label: 'Чем подписывать',
+        kind: 'select',
+        options: [
+          { value: 'none', label: 'Достаточно нажать кнопку' },
+          { value: 'pep', label: 'Простой подписью (код из SMS)' },
+          { value: 'ecp', label: 'ЭЦП (ключ НУЦ РК)' },
+        ],
+        showIf: { field: 'kind', in: ['signature'] },
+        help: 'Кадровые документы по ст. 33 ТК РК подписываются ЭЦП. Уровень обычно подставляется из вида документа.',
+      },
       { key: 'dueInHours', label: 'Срок решения (часов)', kind: 'number', placeholder: '24' },
     ],
     configSchema: z
       .object({
         kind: z.enum(['approval', 'signature', 'acknowledgement']).optional(),
+        /**
+         * Чем шаг закрывается. `none`/пусто — нажатием кнопки (`internal`);
+         * `pep`/`ecp` — настоящей подписью через core/sign, и обычный клик по
+         * такому шагу отвергается кодом `approval_needs_signature`.
+         */
+        signatureLevel: z.enum(['none', 'pep', 'ecp']).optional(),
         title: textField(200, 1),
         assigneeMode: z.enum(['member', 'position', 'department', 'initiator']),
         assigneeUserId: z.string().uuid().optional(),
@@ -433,6 +451,7 @@ export const approvalNode: ProcessNodeProvider = {
   async run(ctx) {
     const cfg = ctx.config as {
       kind?: 'approval' | 'signature' | 'acknowledgement';
+      signatureLevel?: 'none' | 'pep' | 'ecp';
       title: string;
       assigneeMode: 'member' | 'position' | 'department' | 'initiator';
       assigneeUserId?: string;
@@ -483,6 +502,15 @@ export const approvalNode: ProcessNodeProvider = {
             assigneeId: assignee.id,
             rule: assignee.type === 'user' ? 'any' : (cfg.rule ?? 'any'),
             dueInHours: cfg.dueInHours,
+            // Требование настоящей подписи едет ВМЕСТЕ с шагом: проставленное после
+            // создания, оно оставляло окно, в котором адресаты уже позваны, а шаг
+            // ещё закрывался обычным кликом. Ставим только на шаг вида «Подписать»
+            // — требовать ЭЦП от ознакомления значило бы просить ключ у того, от
+            // кого ждут только прочтения.
+            ...((cfg.kind ?? 'approval') === 'signature' &&
+            (cfg.signatureLevel === 'pep' || cfg.signatureLevel === 'ecp')
+              ? { requiredSignatureKind: cfg.signatureLevel === 'ecp' ? ('ecp' as const) : ('sms' as const) }
+              : {}),
           },
         ],
       },

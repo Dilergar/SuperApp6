@@ -10,13 +10,22 @@ import { DatabaseService } from '../../shared/database/database.service';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { NotificationsService } from '../../modules/notifications/notifications.service';
 import { ApprovalsRegistry } from './approvals.registry';
+import { ApprovalsService } from './approvals.service';
+import {
+  APPROVAL_ANNOUNCE_JOB,
+  APPROVAL_ESCALATE_JOB,
+  APPROVAL_REMIND_JOB,
+  APPROVAL_RESOLVED_JOB,
+} from './approvals.job-names';
 
-/** Срок подходит — напомнить адресатам, пока ещё можно успеть */
-export const APPROVAL_REMIND_JOB = 'approvals.remind';
-/** Срок решения вышел — напомнить адресатам и сказать автору */
-export const APPROVAL_ESCALATE_JOB = 'approvals.escalate';
-/** Заявка закрыта — разбудить того, кто ведёт её снаружи (процесс) */
-export const APPROVAL_RESOLVED_JOB = 'approvals.resolved';
+// Имена джобов живут отдельным файлом без импортов: этот модуль инжектит
+// ApprovalsService, а тот ставит джобы — общий файл-константы разрывает кольцо.
+export {
+  APPROVAL_ANNOUNCE_JOB,
+  APPROVAL_ESCALATE_JOB,
+  APPROVAL_REMIND_JOB,
+  APPROVAL_RESOLVED_JOB,
+} from './approvals.job-names';
 
 /**
  * Фоновая часть движка согласований. Оба типа — обязательная работа, поэтому
@@ -32,12 +41,19 @@ export class ApprovalsJobs implements OnModuleInit {
     private readonly jobs: JobsRegistry,
     private readonly registry: ApprovalsRegistry,
     private readonly notifications: NotificationsService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   onModuleInit(): void {
     this.jobs.register(APPROVAL_REMIND_JOB, (p) => this.remind(String(p.stepId)), { queue: 'default' });
     this.jobs.register(APPROVAL_ESCALATE_JOB, (p) => this.escalate(String(p.stepId)), { queue: 'default' });
     this.jobs.register(APPROVAL_RESOLVED_JOB, (p) => this.resolved(String(p.requestId)), { queue: 'default' });
+    this.jobs.register(APPROVAL_ANNOUNCE_JOB, (p) => this.announce(String(p.requestId)), { queue: 'default' });
+  }
+
+  /** Оповещение о состоянии заявки, отложенное до коммита (см. APPROVAL_ANNOUNCE_JOB) */
+  private async announce(requestId: string): Promise<void> {
+    await this.approvals.announcePublic(requestId);
   }
 
   /**

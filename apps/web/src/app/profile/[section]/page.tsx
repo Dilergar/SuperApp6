@@ -90,7 +90,7 @@ export default function ProfileSectionPage() {
     // Дата рождения — ТРИ поля (день / месяц названием / год), решение продукта.
     dobDay: '', dobMonth: '', dobYear: '',
     // Реквизиты «Для договоров и трудоустройства».
-    iin: '', residentialAddress: '', idDocNumber: '', idDocIssuedBy: '', idDocIssuedAt: '',
+    middleName: '', iin: '', residentialAddress: '', idDocNumber: '', idDocIssuedBy: '', idDocIssuedAt: '',
   });
 
   // Owner DEFAULT visibility (for contacts in no group). Seeded once.
@@ -125,6 +125,7 @@ export default function ProfileSectionPage() {
         dobDay: dob ? String(Number(dob[2])) : '',
         dobMonth: dob ? String(Number(dob[1]) - 1) : '',
         dobYear: dob ? dob[0] : '',
+        middleName: profile.middleName || '',
         iin: profile.iin || '',
         residentialAddress: profile.residentialAddress || '',
         idDocNumber: profile.idDocNumber || '',
@@ -227,6 +228,7 @@ export default function ProfileSectionPage() {
       payload.email = editData.email.trim() || null;
       payload.maritalStatus = editData.maritalStatus || null;
       payload.dateOfBirth = dateOfBirth;
+      payload.middleName = editData.middleName.trim() || null;
       payload.iin = editData.iin.trim() || null;
       payload.residentialAddress = editData.residentialAddress.trim() || null;
       payload.idDocNumber = editData.idDocNumber.trim() || null;
@@ -452,6 +454,13 @@ export default function ProfileSectionPage() {
                 если включите ниже в «Видимости в Компаниях»).
               </p>
               <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)' }}>
+                <Input
+                  label="Отчество"
+                  placeholder="Болатұлы"
+                  hint="Печатается в полном ФИО приказов и договоров"
+                  value={editData.middleName}
+                  onChange={(e) => setEditData({ ...editData, middleName: e.target.value })}
+                />
                 <Input
                   label="ИИН"
                   inputMode="numeric"

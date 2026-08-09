@@ -208,7 +208,17 @@ async function main() {
       // Сверка пересчитывает квоту от ФАКТА по всем ready-файлам владельца, включая
       // те, что человек загрузил руками. Ожидание считаем от них, а не от нуля.
       const others = await prisma.fileObject.aggregate({
-        where: { ownerType: 'user', ownerId: u1, status: 'ready', id: { notIn: [...mine] } },
+        where: {
+          ownerType: 'user',
+          ownerId: u1,
+          status: 'ready',
+          id: { notIn: [...mine] },
+          // Доказательства электронной подписи (core/sign) в квоту НЕ входят: их
+          // срок хранения равен сроку хранения документа (до 75 лет по приказу
+          // № 279-НК), человек их не выбирал и удалить не может. Сверка обязана
+          // считать так же — иначе правило «вне квоты» жило бы ровно до 04:40.
+          profile: { notIn: ['sign_subject', 'sign_cms'] },
+        },
         _sum: { size: true },
         _count: { _all: true },
       });

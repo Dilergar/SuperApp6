@@ -500,6 +500,30 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
     pushByDefault: true,
     category: 'workspaces',
   },
+  // ---- core/sign: электронная подпись ----
+  // Отдельные типы, а не переиспользование approval.*: подпись — юридическое
+  // действие, и человек должен видеть в ленте именно «подписать», а не «решить».
+  'sign.requested': {
+    title: 'Подпишите: «{{refTitle}}»',
+    body: '{{levelLabel}}',
+    icon: '🖊️',
+    pushByDefault: true,
+    category: 'workspaces',
+  },
+  'sign.completed': {
+    title: 'Документ подписан: «{{refTitle}}»',
+    body: '{{signersLabel}}',
+    icon: '✅',
+    pushByDefault: true,
+    category: 'workspaces',
+  },
+  'sign.declined': {
+    title: 'Отказ от подписи: «{{refTitle}}»',
+    body: '{{reason}}',
+    icon: '⛔',
+    pushByDefault: true,
+    category: 'workspaces',
+  },
   // Messenger — scheduled ("Напомнить")
   'messenger.scheduled.sent': {
     title: 'Напоминание отправлено',
