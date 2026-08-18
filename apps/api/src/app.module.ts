@@ -31,6 +31,7 @@ import { ApprovalsModule } from './core/approvals/approvals.module';
 import { TemplatesModule } from './core/templates/templates.module';
 import { SignModule } from './core/sign/sign.module';
 import { DocumentsModule } from './modules/documents/documents.module';
+import { CounterpartiesModule } from './modules/counterparties/counterparties.module';
 
 // Feature modules (MVP)
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -154,6 +155,9 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // проверки (ст. 61). Маршрута не содержит — им остаются approvals и Процессы.
     // Идёт ПОСЛЕ approvals: подпись закрывает шаг маршрута, а не наоборот.
     SignModule,
+    // Контрагенты — ПЕРЕД Документооборотом: внешний контур документов читает
+    // справочник (прямая инъекция CounterpartiesService в DocumentsModule).
+    CounterpartiesModule,
     DocumentsModule,
 
     // Feature modules — each is self-contained.

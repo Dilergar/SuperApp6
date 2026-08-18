@@ -33,6 +33,14 @@ export interface ShareLinkGuestContext {
   allowDownload: boolean;
   /** Пер-refType опции ссылки (v1 пусто; сюда ЭДО положит свои настройки подписания) */
   settings: Record<string, unknown>;
+  /**
+   * ЛИЧНОСТЬ гостя, если ссылка её требовала (подтверждённый номер). Нужна
+   * потребителям с персональным состоянием: подпись показывает вернувшемуся
+   * подписанту ЕГО акт («вы подписали», «вы отказались: причина»), а не «перейти
+   * к подписанию». Диск и документы поле игнорируют. `null` — ссылка анонимная
+   * либо вид резолвится до подтверждения личности.
+   */
+  guest: { id: string; name: string; phone: string } | null;
 }
 
 /**
@@ -66,8 +74,12 @@ export interface ShareLinkProvider {
    */
   resolveGuestView(link: ShareLinkGuestContext): Promise<unknown | null>;
 
-  /** Подпись объекта для будущей страницы «Мои ссылки» (в v1 не зовётся) */
-  describeRef?(refId: string): Promise<{ title: string; icon?: string } | null>;
+  /**
+   * Подпись объекта: страница «Мои ссылки» (батч) и уведомление «ссылку открыли».
+   * `href` — куда вести владельца из уведомления (карточка заявки/объекта);
+   * без него уведомление ведёт в общий раздел «Ссылки наружу».
+   */
+  describeRef?(refId: string): Promise<{ title: string; icon?: string; href?: string } | null>;
 
   /**
    * ДЕЙСТВИЯ гостя над объектом — то, ради чего слот и ждал первого потребителя

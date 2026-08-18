@@ -274,8 +274,16 @@ async function main() {
       const pvDoc = await previewPdf(t2, `${base}/${docId}/preview`);
       check('превью документа — PDF', pvDoc.bytes.slice(0, 4).toString() === '%PDF', `status ${pvDoc.status}`);
 
-      const sub = await call('POST', `${base}/${docId}/submit`, t2);
-      check('отправка на маршрут', sub.ok, JSON.stringify(sub.json?.message ?? sub.status));
+      // Submit сразу после правки блоков упирается в страж пересборки («Документ
+      // ещё пересобирается») — ретраим, как веб (он гасит кнопку по `rebuilding`
+      // и опрашивает карточку). Пересборки схлопнуты (docGenKey: стабильный ключ
+      // + парный, бэкофф 3с) — страж держит СЕКУНДЫ; 30 попыток по 1с — это
+      // трипваер: разъедутся ключи или вернётся бэкофф 30с+ — сьют упадёт здесь.
+      const sub = await waitFor(async () => {
+        const r = await call('POST', `${base}/${docId}/submit`, t2);
+        return r.ok ? r : null;
+      }, { tries: 30 });
+      check('отправка на маршрут', !!sub?.ok, JSON.stringify(sub?.json?.message ?? sub?.status ?? 'не дождались'));
 
       const withPdf = await waitFor(async () => {
         const g = await call('GET', `${base}/${docId}`, t2);
@@ -343,8 +351,18 @@ async function main() {
         return g.json?.data?.fileId ? g.json.data : null;
       });
       check('свободный: PDF собрался', !!freeBuilt?.fileId);
-      const subFree = await call('POST', `${base}/${freeId}/submit`, t2);
-      check('свободный: отправка (маршрута нет — ждёт решения)', subFree.ok && subFree.json?.data?.status === 'in_review', subFree.json?.data?.status);
+      // Тот же страж пересборки. Два PATCH подряд больше НЕ дают два параллельных
+      // джоба (стабильный ключ схлопывает, правку во время рендера докрывает
+      // парный ключ) — 30с здесь трипваер против возврата старой гонки.
+      const subFree = await waitFor(async () => {
+        const r = await call('POST', `${base}/${freeId}/submit`, t2);
+        return r.ok ? r : null;
+      }, { tries: 30 });
+      check(
+        'свободный: отправка (маршрута нет — ждёт решения)',
+        !!subFree?.ok && subFree?.json?.data?.status === 'in_review',
+        subFree?.json?.data?.status ?? 'не дождались',
+      );
       const wd = await call('POST', `${base}/${freeId}/withdraw`, t2);
       check('свободный: возврат в черновик', wd.ok && wd.json?.data?.status === 'draft', wd.json?.data?.status);
     }

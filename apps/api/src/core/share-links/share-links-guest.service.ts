@@ -143,6 +143,8 @@ export class ShareLinksGuestService {
     // ресурс. В обратном порядке объект, уехавший в корзину, сжигал бы открытие
     // НАВСЕГДА: гость видел «объект недоступен», владелец возвращал объект из корзины —
     // а ссылка уже «лимит исчерпан», хотя человеку так ничего и не показали.
+    // Личность здесь ещё НЕ подтверждена (пропуск гасится в транзакции ниже) —
+    // персональный срез вида доресолвится после клейма вторым заходом.
     const view = await this.resolveView(link);
 
     // Личность и клейм — ОДНОЙ транзакцией: пропуск verify одноразов, и если открытие
@@ -179,13 +181,20 @@ export class ShareLinksGuestService {
 
     await this.notifyOwnerOfOpen(link, open, guest);
     const session = this.tokens.issue(link.id, link.sessionEpoch, guest?.id ?? null);
+    // Ссылка с личностью: вид перечитывается УЖЕ с гостем — потребитель кладёт в
+    // него персональный срез (моя подпись/мой отказ). Второй заход резолвера на
+    // одно открытие в час — приемлемая цена; ошибка не роняет уже засчитанное
+    // открытие: остаётся анонимный вид.
+    const personalView = guest
+      ? await this.resolveView(link, { id: guest.id, name: guest.name, phone: guest.phone }).catch(() => view)
+      : view;
     return {
       sessionToken: session.token,
       sessionExpiresAt: session.expiresAt.toISOString(),
       linkExpiresAt: link.expiresAt ? link.expiresAt.toISOString() : null,
       refType: link.refType,
       guest: guest ? { name: guest.name, phoneMasked: maskPhone(guest.phone) } : null,
-      view,
+      view: personalView,
     };
   }
 
@@ -307,7 +316,10 @@ export class ShareLinksGuestService {
     const guest = verdict.payload.g
       ? await this.db.shareLinkGuest.findUnique({ where: { id: verdict.payload.g } })
       : null;
-    const view = await this.resolveView(link);
+    const view = await this.resolveView(
+      link,
+      guest ? { id: guest.id, name: guest.name, phone: guest.phone } : null,
+    );
     return {
       // Пропуск не продлеваем: час — это час, иначе открытая вкладка жила бы вечно.
       sessionToken: sessionToken as string,
@@ -320,7 +332,10 @@ export class ShareLinksGuestService {
   }
 
   /** Содержимое ссылки по резолверу потребителя; объект умер/в корзине → 410 */
-  async resolveView(link: ShareLink): Promise<unknown> {
+  async resolveView(
+    link: ShareLink,
+    guest: { id: string; name: string; phone: string } | null = null,
+  ): Promise<unknown> {
     const provider = this.registry.get(link.refType);
     if (!provider) deny(SHARE_LINK_ERROR_CODES.refGone, 'Содержимое недоступно', HttpStatus.GONE);
 
@@ -330,6 +345,7 @@ export class ShareLinksGuestService {
       refId: link.refId,
       allowDownload: link.allowDownload,
       settings: (link.settings as Record<string, unknown>) ?? {},
+      guest,
     });
     if (view === null || view === undefined) {
       deny(SHARE_LINK_ERROR_CODES.refGone, 'Объект больше недоступен', HttpStatus.GONE);
@@ -451,6 +467,13 @@ export class ShareLinksGuestService {
     const { openNo, day } = open;
     if (openNo > cap + 1) return; // потолок пройден, прощальное уже ушло — тишина
     try {
+      // Куда вести владельца: потребитель знает карточку объекта (у подписи —
+      // карточка заявки: «контрагент открыл договор» логично открывать на нём).
+      // Ошибка/отсутствие резолвера → общий раздел «Ссылки наружу», как раньше.
+      const described = await this.registry
+        .get(link.refType)
+        ?.describeRef?.(link.refId)
+        .catch(() => null);
       await this.notifications.notify(
         link.createdById,
         openNo === cap + 1 ? 'share.link.opened.muted' : 'share.link.opened',
@@ -468,7 +491,7 @@ export class ShareLinksGuestService {
         // прочитанной в начале запроса строки: у параллельных заходов та строка одна и
         // та же, ключи совпадали, и уникальный индекс уведомлений схлопывал их все в
         // одно. То есть предохранитель работал, а сами уведомления пропадали.
-        { actionUrl: '/profile/links', dedupKey: `sl:${link.id}:${day}:${openNo}` },
+        { actionUrl: described?.href ?? '/profile/links', dedupKey: `sl:${link.id}:${day}:${openNo}` },
       );
     } catch {
       // Уведомление — сигнал, а не обязательство: страница гостя важнее.

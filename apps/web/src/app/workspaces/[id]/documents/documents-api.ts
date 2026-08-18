@@ -99,6 +99,9 @@ export const documentsApi = {
   /** Свободный документ «с нуля» — блочный конструктор без шаблона */
   createFreeDocument: (wsId: string, body: Record<string, unknown>) =>
     apiPost<OrgDocumentDto>(`${base(wsId)}/free`, body),
+  /** Готовый файл (PDF/.docx) как документ — третий путь создания */
+  createUploadedDocument: (wsId: string, body: Record<string, unknown>) =>
+    apiPost<OrgDocumentDto>(`${base(wsId)}/upload`, body),
   updateDocument: (wsId: string, docId: string, body: Record<string, unknown>) =>
     apiPatch(`${base(wsId)}/${docId}`, body),
   /** PDF-превью: ответ — сырые байты application/pdf, не наш конверт */
@@ -114,5 +117,17 @@ export const documentsApi = {
   cancel: (wsId: string, docId: string) => apiPost(`${base(wsId)}/${docId}/cancel`),
   /** Вернуть с маршрута в черновик — пока по документу никто не начал решать */
   withdraw: (wsId: string, docId: string) => apiPost(`${base(wsId)}/${docId}/withdraw`),
-  requestPdf: (wsId: string, docId: string) => apiPost(`${base(wsId)}/${docId}/pdf`),
+  requestPdf: (wsId: string, docId: string) => apiPost<{ ready: boolean }>(`${base(wsId)}/${docId}/pdf`),
+
+  // ---- Внешний этап (категория «С контрагентами») ----
+  /** Номер печатается в тексте ДО отправки — в отличие от кадровой регистрации */
+  assignNumber: (wsId: string, docId: string) =>
+    apiPost<OrgDocumentDto>(`${base(wsId)}/${docId}/assign-number`),
+  sendExternal: (wsId: string, docId: string, body: Record<string, unknown>) =>
+    apiPost<OrgDocumentDto>(`${base(wsId)}/${docId}/send-external`, body),
+  revokeExternal: (wsId: string, docId: string) =>
+    apiPost<OrgDocumentDto>(`${base(wsId)}/${docId}/revoke-external`),
+  returnToDraft: (wsId: string, docId: string) =>
+    apiPost<OrgDocumentDto>(`${base(wsId)}/${docId}/return-to-draft`),
+  resendExternalSms: (wsId: string, docId: string) => apiPost(`${base(wsId)}/${docId}/external/sms`),
 };

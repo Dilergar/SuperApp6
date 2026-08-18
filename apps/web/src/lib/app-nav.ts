@@ -152,9 +152,12 @@ export function buildWorkspaceNav(
     // Диск организации — ОДИН маршрут с вкладками внутри, как у остальных сервисов
     // организации (Сотрудники, Процессы, Офис): второй уровень сайдбара тут не заведён.
     { key: 'ws-drive', label: 'Диск', icon: 'drive', href: `${base}/drive` },
-    // Документы — вся команда: сотрудник подаёт заявления и видит свои, настройку
-    // (виды, шаблоны) внутри страницы закрывает роль.
-    { key: 'ws-documents', label: 'Документы', icon: 'file', href: `${base}/documents` },
+    // Документооборот — вся команда: внутренний контур (заявления, приказы) и
+    // внешний (договоры с контрагентами); настройку внутри страницы закрывает роль.
+    { key: 'ws-documents', label: 'Документооборот', icon: 'file', href: `${base}/documents` },
+    // Контрагенты — справочник внешних сторон, стоит РЯДОМ со своим главным
+    // потребителем (дальше его же читают Счета, Финансы B2B, ЭСФ).
+    { key: 'ws-counterparties', label: 'Контрагенты', icon: 'workspace', href: `${base}/counterparties` },
   ];
   if (isManager) items.push({ key: 'ws-journal', label: 'Журнал', icon: 'journal', href: `${base}/journal` });
   if (isOwner) items.push({ key: 'ws-wallet', label: 'Кошелёк компании', icon: 'coins', href: `${base}/wallet` });

@@ -459,6 +459,40 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
     pushByDefault: true,
     category: 'documents',
   },
+  // Внешний контур (документы с контрагентами): исход у второй стороны.
+  // Движковые sign.completed/declined для этих заявок подавлены — иначе автор
+  // получал бы дубль без контекста документа.
+  'document.counterparty_signed': {
+    title: 'Контрагент подписал: «{{title}}»',
+    body: '{{signerLabel}}',
+    icon: '🖊️',
+    pushByDefault: true,
+    category: 'documents',
+  },
+  'document.counterparty_declined': {
+    title: 'Контрагент отказал: «{{title}}»',
+    body: '{{reasonLabel}}',
+    icon: '⛔',
+    pushByDefault: true,
+    category: 'documents',
+  },
+  // Отказ СВОЕГО подписанта — отдельный тип, а не «контрагент отказал»: у него
+  // другая сторона отказа, другой виновник и другой следующий шаг (доработать и
+  // отправить заново, а не ждать вторую сторону).
+  'document.internal_declined': {
+    title: 'Подписант отказал: «{{title}}»',
+    body: '{{signerLabel}}{{reasonLabel}}',
+    icon: '⛔',
+    pushByDefault: true,
+    category: 'documents',
+  },
+  'document.external_expired': {
+    title: 'Срок подписания истёк: «{{title}}»',
+    body: 'Документ вернулся в черновик — отправьте его заново',
+    icon: '⌛',
+    pushByDefault: true,
+    category: 'documents',
+  },
   'approval.requested': {
     title: '{{actionLabel}}: «{{refTitle}}»',
     body: '{{stepTitle}}',

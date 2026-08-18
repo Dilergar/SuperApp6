@@ -97,8 +97,8 @@ export interface BuilderSignatureBlock {
   props: {
     /** Подпись слева от черты: должность/роль («Директор», «Работник») */
     role: string;
-    /** Чьё имя печатать справа: сторона документа | директор из реквизитов | свой текст */
-    nameSource: 'subject' | 'director' | 'custom' | 'none';
+    /** Чьё имя печатать: сторона | директор | подписант контрагента | свой текст */
+    nameSource: 'subject' | 'director' | 'counterparty' | 'custom' | 'none';
     customName?: string;
     /** Место печати «М.П.» рядом с подписью */
     stamp?: boolean;

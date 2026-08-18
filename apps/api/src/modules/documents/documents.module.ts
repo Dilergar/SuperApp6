@@ -5,12 +5,14 @@ import { ApprovalsRegistry } from '../../core/approvals/approvals.registry';
 import { ORG_DOCUMENT_REF_TYPE } from '@superapp/shared';
 import { DriveModule } from '../drive/drive.module';
 import { StaffModule } from '../staff/staff.module';
+import { CounterpartiesModule } from '../counterparties/counterparties.module';
 import { DocumentsService, type ProcessesStarter } from './documents.service';
 import { DocumentsController } from './documents.controller';
 import { DocumentsDevController } from './documents.dev';
 import { isDevEnv } from '../../shared/config/env.validation';
 import { DocumentsJobs } from './documents.jobs';
 import { DocumentsRegistriesProvider } from './documents-registries.provider';
+import { DocumentsRichCardsProvider } from './documents-rich-cards.provider';
 
 /**
  * Сервис «Документы» (B2B) — документооборот организации.
@@ -24,7 +26,7 @@ import { DocumentsRegistriesProvider } from './documents-registries.provider';
  * через ссылку, поставленную на bootstrap. Прямые инъекции замкнули бы модули.
  */
 @Module({
-  imports: [DriveModule, StaffModule],
+  imports: [DriveModule, StaffModule, CounterpartiesModule],
   // Дев-полигон системных путей нод маршрута: в production этих маршрутов НЕТ (404),
   // а не «есть, но отвечают 403» — то же правило, что у полигонов джобов и согласований.
   controllers: isDevEnv() ? [DocumentsController, DocumentsDevController] : [DocumentsController],
@@ -32,6 +34,8 @@ import { DocumentsRegistriesProvider } from './documents-registries.provider';
     DocumentsService,
     DocumentsJobs,
     DocumentsRegistriesProvider,
+    // Документ пересылается в чат карточкой (Принцип 3)
+    DocumentsRichCardsProvider,
     { provide: DI_TOKENS.DocumentsService, useExisting: DocumentsService },
   ],
   exports: [DocumentsService, DI_TOKENS.DocumentsService],

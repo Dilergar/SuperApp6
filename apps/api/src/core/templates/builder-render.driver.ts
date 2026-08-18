@@ -226,6 +226,11 @@ function renderSignature(
   } else if (props.nameSource === 'director') {
     const v = lookup(ctx, 'Организация.Директор');
     name = typeof v === 'string' && v ? esc(v) : missingMark(ctx, 'Организация.Директор');
+  } else if (props.nameSource === 'counterparty') {
+    // Внешний контур ЭДО: подпись второй стороны — подписант контрагента
+    // (контактное лицо; без него — руководитель из карточки справочника).
+    const v = lookup(ctx, 'Контрагент.Подписант');
+    name = typeof v === 'string' && v ? esc(v) : missingMark(ctx, 'Контрагент.Подписант');
   } else if (props.nameSource === 'custom') {
     name = esc(props.customName ?? '');
   }

@@ -121,7 +121,7 @@ const signatureSchema = z.object({
   type: z.literal('signature'),
   props: z.object({
     role: z.string().trim().min(1).max(120).refine((v) => !/[<>]/.test(v), { message: 'Символы < и > запрещены' }),
-    nameSource: z.enum(['subject', 'director', 'custom', 'none']),
+    nameSource: z.enum(['subject', 'director', 'counterparty', 'custom', 'none']),
     customName: z.string().trim().max(120).refine((v) => !/[<>]/.test(v), { message: 'Символы < и > запрещены' }).optional(),
     stamp: z.boolean().optional(),
   }),

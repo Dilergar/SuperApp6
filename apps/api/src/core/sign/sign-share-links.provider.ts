@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, OnModuleInit } fro
 import {
   SIGN_ERROR_CODES,
   SIGN_REQUEST_REF_TYPE,
+  WORKSPACE_ROLE_RANK,
   buildSignPdConsentText,
   buildSignPepConsentText,
   signCmsSchema,
@@ -9,12 +10,23 @@ import {
   signPepConfirmSchema,
   signPepStartSchema,
   signQrStartSchema,
+  signRequestHref,
   SIGN_CONSENT_VERSION,
+  type ShareSignGuestView,
+  type SignActStatus,
+  type SignLevel,
+  type SignMethod,
+  type SignRequestStatus,
+  type WorkspaceRole,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { RolesService } from '../../core/roles/roles.service';
 import { ShareLinksRegistry, type GuestActionContext } from '../share-links/share-links.registry';
 import { SignService, type SignActor } from './sign.service';
 import { SignQrService } from './sign-qr.service';
+
+/** «Открыл документ» пишется в протокол не чаще раза в час: append-only лента — не счётчик кликов */
+const VIEWED_THROTTLE_MS = 3600_000;
 
 /**
  * ВНЕШНИЙ ПОДПИСАНТ: человек без аккаунта подписывает документ по ссылке.
@@ -39,6 +51,7 @@ export class SignShareLinksProvider implements OnModuleInit {
     private readonly registry: ShareLinksRegistry,
     private readonly sign: SignService,
     private readonly qr: SignQrService,
+    private readonly roles: RolesService,
   ) {}
 
   onModuleInit(): void {
@@ -52,15 +65,24 @@ export class SignShareLinksProvider implements OnModuleInit {
       },
 
       /**
-       * Раздавать документ на подпись наружу вправе тот, кто эту подпись собирает.
-       * Планка намеренно узкая: ссылка не просто показывает файл — по ней можно
-       * подписать, и «кто угодно с доступом к документу» здесь не годится.
+       * Раздавать документ на подпись наружу вправе тот, кто эту подпись собирает,
+       * И управляющие его организации: отправитель мог уволиться, а отзыв ссылки
+       * не должен остаться без хозяина (прецедент «Ссылок организации»).
+       *
+       * Два разных отказа (правило движка ссылок): коллега по команде ВИДИТ
+       * заявку в списках — ему 403 с причиной; посторонний получает 404.
        */
       authorizeManage: async (userId, refId) => {
         const request = await this.db.signRequest.findUnique({ where: { id: refId } });
         if (!request) return null;
         if (request.createdById !== userId) {
-          throw new ForbiddenException('Отправить документ на внешнюю подпись может тот, кто её запросил');
+          const role = request.workspaceId ? await this.roleIn(userId, request.workspaceId) : null;
+          if (!role || role === 'contractor') return null; // посторонний: существование не подтверждаем
+          if ((WORKSPACE_ROLE_RANK[role] ?? 0) < WORKSPACE_ROLE_RANK.manager) {
+            throw new ForbiddenException(
+              'Ссылкой на подписание управляет отправитель или Менеджер+',
+            );
+          }
         }
         return {
           ownerType: request.workspaceId ? 'workspace' : 'user',
@@ -71,7 +93,7 @@ export class SignShareLinksProvider implements OnModuleInit {
         };
       },
 
-      /** Что видит гость: замороженный документ, кого ждут и своё состояние */
+      /** Что видит гость: замороженный документ, кого ждут и СВОЁ состояние */
       resolveGuestView: async (link) => {
         const request = await this.db.signRequest.findUnique({
           where: { id: link.refId },
@@ -90,13 +112,27 @@ export class SignShareLinksProvider implements OnModuleInit {
         // становилось другое — расхождение ровно в том месте, которым ПЭП и
         // держится (ст. 47 ЦК: подпись равнозначна по СОГЛАШЕНИЮ СТОРОН).
         const orgName = await this.sign.orgNameOfRequest(request.id).catch(() => null);
-        return {
+
+        // ВЕРНУВШИЙСЯ подписант: его акт вместо «перейти к подписанию» + след
+        // «открыл документ» в append-only протоколе (не чаще раза в час — лента
+        // доказательств, а не счётчик кликов; счётчик открытий у самой ссылки).
+        const mine = link.guest ? request.acts.filter((a) => a.signerGuestId === link.guest!.id) : [];
+        const myActRow = mine.length ? mine[mine.length - 1] : null;
+        if (myActRow && myActRow.status === 'pending') {
+          const recent = await this.db.signActEvent.findFirst({
+            where: { actId: myActRow.id, type: 'viewed', at: { gte: new Date(Date.now() - VIEWED_THROTTLE_MS) } },
+            select: { id: true },
+          });
+          if (!recent) await this.sign.logEvent(this.db, myActRow.id, 'viewed', {}).catch(() => undefined);
+        }
+
+        const guestView: ShareSignGuestView = {
           kind: 'sign',
           requestId: request.id,
           title: request.refTitle,
-          status: request.status,
-          level: request.level,
-          methods: request.methods,
+          status: request.status as SignRequestStatus,
+          level: request.level as SignLevel,
+          methods: request.methods as SignMethod[],
           subject: view,
           // Кто уже подписал — именами, без телефонов и ИИН: гостю чужие
           // персональные данные не нужны, а страницу видит всякий с токеном.
@@ -106,15 +142,34 @@ export class SignShareLinksProvider implements OnModuleInit {
           consentText: buildSignPepConsentText({ docTitle: request.refTitle, orgName }),
           consentVersion: SIGN_CONSENT_VERSION,
           pdConsentText: buildSignPdConsentText({ orgName }),
+          myAct: myActRow
+            ? {
+                status: myActRow.status as SignActStatus,
+                signedAt: myActRow.signedAt?.toISOString() ?? null,
+                declineReason: myActRow.declineReason,
+              }
+            : null,
+          // Готовность — по живой ссылке, а не по колонке: прибранный уборкой файл
+          // иначе обещал бы контрагенту кнопку, которая ничего не скачивает.
+          stamped: { ready: (await this.sign.stampedView(request.stampedFileId)).ready },
         };
+        return guestView;
       },
 
       describeRef: async (refId) => {
         const request = await this.db.signRequest.findUnique({
           where: { id: refId },
-          select: { refTitle: true },
+          select: { refTitle: true, workspaceId: true },
         });
-        return request ? { title: request.refTitle, icon: 'signature' } : null;
+        return request
+          ? {
+              title: request.refTitle,
+              icon: 'signature',
+              // «Ссылку открыли» ведёт на карточку заявки: владельцу важно, КТО
+              // и НАД ЧЕМ, а не общий список ссылок.
+              href: signRequestHref(refId, request.workspaceId),
+            }
+          : null;
       },
 
       actions: {
@@ -193,6 +248,15 @@ export class SignShareLinksProvider implements OnModuleInit {
       });
     }
     await this.sign.recordGuestPdConsent(actor, actId, { ip: ctx.ip, userAgent: ctx.userAgent });
+  }
+
+  /** Старшая роль человека в организации (лестница WORKSPACE_ROLE_RANK) */
+  private async roleIn(userId: string, workspaceId: string): Promise<WorkspaceRole | null> {
+    const roles = await this.roles.getRolesInContext(userId, 'workspace', workspaceId);
+    if (roles.length === 0) return null;
+    return roles
+      .map((r) => r.role as WorkspaceRole)
+      .sort((a, b) => (WORKSPACE_ROLE_RANK[b] ?? 0) - (WORKSPACE_ROLE_RANK[a] ?? 0))[0];
   }
 
   private async guestAct(ctx: GuestActionContext): Promise<{ actor: SignActor; actId: string }> {

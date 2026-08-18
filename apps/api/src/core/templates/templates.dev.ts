@@ -30,6 +30,9 @@ const compileSchema = z.object({
 const resolveSchema = z.object({
   workspaceId: z.string().uuid().optional(),
   subjectUserId: z.string().uuid().optional(),
+  /** Внешний контур: группа «Контрагент» из справочника */
+  counterpartyId: z.string().uuid().optional(),
+  counterpartyContactId: z.string().uuid().optional(),
 });
 
 @ApiTags('templates')
@@ -86,6 +89,8 @@ export class TemplatesDevController {
     const values = await this.render.resolveContextValues({
       workspaceId: dto.workspaceId,
       subjectUserId: dto.subjectUserId,
+      counterpartyId: dto.counterpartyId,
+      counterpartyContactId: dto.counterpartyContactId,
     });
     return { success: true, data: { values } };
   }

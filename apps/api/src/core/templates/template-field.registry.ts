@@ -19,6 +19,10 @@ export interface TemplateFieldContext {
   subjectUserId?: string;
   /** Кто формирует документ */
   actorUserId?: string;
+  /** ВТОРАЯ сторона — контрагент из справочника (внешний контур ЭДО) */
+  counterpartyId?: string;
+  /** Контактное лицо контрагента — будущий внешний подписант */
+  counterpartyContactId?: string;
 }
 
 export interface TemplateFieldGroup {

@@ -119,6 +119,49 @@ async function uploadDocx(token, name, bytes) {
   return id;
 }
 
+const PDF_MIME = 'application/pdf';
+
+/** Минимальный КОРРЕКТНЫЙ PDF — для смоука внешнего контура (upload-документ) */
+function makeMinimalPdf(text) {
+  const esc = String(text).replace(/[^\x20-\x7e]/g, '').replace(/[()\\]/g, '');
+  const header = '%PDF-1.4\n';
+  const content = `BT /F1 12 Tf 50 780 Td (${esc}) Tj ET`;
+  const o1 = '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n';
+  const o2 = '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n';
+  const o3 =
+    '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n';
+  const o4 = `4 0 obj\n<< /Length ${content.length} >>\nstream\n${content}\nendstream\nendobj\n`;
+  const o5 = '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n';
+  const parts = [header, o1, o2, o3, o4, o5];
+  const offsets = [];
+  let pos = 0;
+  for (const p of parts) {
+    offsets.push(pos);
+    pos += Buffer.byteLength(p, 'latin1');
+  }
+  let xref = 'xref\n0 6\n0000000000 65535 f \n';
+  for (let i = 1; i <= 5; i++) xref += String(offsets[i]).padStart(10, '0') + ' 00000 n \n';
+  const trailer = `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${pos}\n%%EOF\n`;
+  return Buffer.from(parts.join('') + xref + trailer, 'latin1');
+}
+
+async function uploadPdf(token, name, bytes) {
+  const init = await call('POST', '/files', token, {
+    profile: 'document', name, mime: PDF_MIME, size: bytes.length,
+  });
+  if (!init.ok) throw new Error(`pdf init: ${init.status} ${JSON.stringify(init.json)}`);
+  const id = init.json.data.file.id;
+  const fd = new FormData();
+  fd.append('file', new Blob([bytes], { type: PDF_MIME }), name);
+  const put = await fetch(`${BASE}/files/${id}/content`, {
+    method: 'PUT', headers: { Authorization: 'Bearer ' + token }, body: fd,
+  });
+  if (!put.ok) throw new Error(`pdf put: ${put.status}`);
+  const done = await call('POST', `/files/${id}/complete`, token, {});
+  if (!done.ok) throw new Error(`pdf complete: ${done.status}`);
+  return id;
+}
+
 async function main() {
   const { token: t1, userId: u1 } = await login(P1); // владелец организации
   const { token: t2, userId: u2 } = await login(P2); // сотрудник-заявитель
@@ -384,8 +427,14 @@ async function main() {
     const editAgain = await call('PATCH', `/workspaces/${wsId}/documents/${docId}`, t2, { title: `Заявление ${stamp} (испр.)` });
     check('правка после возврата РАЗРЕШЕНА', editAgain.ok, `status ${editAgain.status}`);
 
-    // Второй заход на маршрут и подпись
-    await call('POST', `/workspaces/${wsId}/documents/${docId}/submit`, t2);
+    // Второй заход на маршрут и подпись. Правка НАЗВАНИЯ строкой выше ставит
+    // пересборку бланка (название печатается в {Документ.Название}), и немедленный
+    // submit ловит страж «Документ ещё пересобирается» — ретраим, как веб (он
+    // гасит кнопку по `rebuilding` и опрашивает карточку; секунды, не 30с+).
+    await waitFor('повторная отправка после правки', async () => {
+      const r = await call('POST', `/workspaces/${wsId}/documents/${docId}/submit`, t2);
+      return r.ok ? r : null;
+    });
     const approved = await dev('resolve', t1, { outcome: 'approved' });
     check('итог «согласовано» принят', approved.ok, JSON.stringify(approved.json?.message ?? approved.status));
     const signed = await call('GET', `/workspaces/${wsId}/documents/${docId}`, t1);
@@ -652,6 +701,30 @@ async function main() {
       !(typesAfter.json?.data ?? []).some((t) => t.id === typeId),
       JSON.stringify((typesAfter.json?.data ?? []).map((t) => t.name)),
     );
+
+    // ============================================================
+    // Внешний контур — СМОУК (сквозной путь с гостем и штампом — verify-edo.cjs):
+    // регресс базовых правил external обязан ловиться и профильным сьютом.
+    // ============================================================
+    console.log('\n— Внешний контур (смоук) —');
+    const extType = await call('POST', `/workspaces/${wsId}/documents/doc-types`, t1, {
+      name: `Договоры ${stamp}`, category: 'external', numberFormat: 'ДОГ-{ГГГГ}-{NNN}',
+    });
+    check('external-вид создан (подпись по умолчанию ПЭП)', extType.ok && extType.json?.data?.signatureLevel === 'pep', JSON.stringify(extType.json?.message ?? extType.status));
+    const extPdfId = await uploadPdf(t1, `contract-${stamp}.pdf`, makeMinimalPdf('Smoke contract'));
+    const extDoc = await call('POST', `/workspaces/${wsId}/documents/upload`, t1, {
+      docTypeId: extType.json.data.id, fileId: extPdfId, title: `Договор ${stamp}`,
+    });
+    check('готовый PDF стал документом (отпечаток сразу)', extDoc.ok && extDoc.json?.data?.pdfFileId === extPdfId, JSON.stringify(extDoc.json?.message ?? extDoc.status));
+    const extDocId = extDoc.json?.data?.id;
+    check('у external маршрута нет: can.submit = false', extDoc.json?.data?.can?.submit === false);
+    const extSubmit = await call('POST', `/workspaces/${wsId}/documents/${extDocId}/submit`, t1);
+    check('submit для external → 400', extSubmit.status === 400, `status ${extSubmit.status}`);
+    const extNum = await call('POST', `/workspaces/${wsId}/documents/${extDocId}/assign-number`, t1);
+    check('номер присвоен черновику ДО отправки', /^ДОГ-\d{4}-\d{3}$/.test(extNum.json?.data?.number ?? ''), extNum.json?.data?.number);
+    const extNum2 = await call('POST', `/workspaces/${wsId}/documents/${extDocId}/assign-number`, t1);
+    check('повторное присвоение идемпотентно', extNum2.json?.data?.number === extNum.json?.data?.number, extNum2.json?.data?.number);
+    await call('POST', `/workspaces/${wsId}/documents/${extDocId}/cancel`, t1);
 
     // ============================================================
   } finally {

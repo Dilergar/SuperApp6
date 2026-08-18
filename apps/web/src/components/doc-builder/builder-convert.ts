@@ -250,8 +250,8 @@ export function bnToBuilderBlocks(blocks: unknown): BuilderBlock[] {
         break;
       }
       case 'signature': {
-        const nameSource = ['subject', 'director', 'custom', 'none'].includes(String(props.nameSource))
-          ? (String(props.nameSource) as 'subject' | 'director' | 'custom' | 'none')
+        const nameSource = ['subject', 'director', 'counterparty', 'custom', 'none'].includes(String(props.nameSource))
+          ? (String(props.nameSource) as 'subject' | 'director' | 'counterparty' | 'custom' | 'none')
           : 'none';
         out.push({
           id,

@@ -11,7 +11,7 @@
 // пересобирать правила «кому что можно» второй раз — они разъедутся.
 // ============================================================
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -45,6 +45,9 @@ import { ChronicleFeed } from '@/components/chatter/ChronicleFeed';
 import { SignaturesBlock } from '@/components/sign/SignaturesBlock';
 import { documentsApi, fetchOrgDocument } from '../documents-api';
 import { FormFields } from '../SubmitDocumentModal';
+import { SendToCounterpartyModal } from '../SendToCounterpartyModal';
+import { ExternalStageBlock } from '../ExternalStageBlock';
+import { ShareCardModal } from '@/app/messenger/ShareCardModal';
 import { DocStatusChip } from '../documents-ui';
 
 /** Значение поля читабельной строкой: период — «с … по … (N дней)», не [object Object] */
@@ -68,8 +71,23 @@ export default function OrgDocumentPage() {
   const docQuery = useQuery({
     queryKey: orgDocumentKey(id, documentId),
     queryFn: () => fetchOrgDocument(id, documentId),
+    // Пересборка содержимого (правка полей/контрагента, номер) живёт секунды —
+    // опрашиваем карточку, пока флаг не погаснет: кнопки отправки в это время
+    // погашены, и без опроса они не ожили бы до ручного F5.
+    refetchInterval: (q) => (q.state.data?.rebuilding ? 2500 : false),
   });
   const doc = docQuery.data;
+
+  // Документ живёт в ДРУГОЙ организации, чем говорит адрес: права сервер считает
+  // по строке документа, а каркас выводит контекст «Личное / Организация» РОВНО
+  // из пути — по чужому адресу договор организации Б рисовался внутри сайдбара
+  // и счётчиков организации А. Переадресуем на родной адрес (прецедент — рабочая
+  // заявка согласований, открытая по личному пути).
+  useEffect(() => {
+    if (doc && doc.workspaceId !== id) {
+      router.replace(`/workspaces/${doc.workspaceId}/documents/${doc.id}`);
+    }
+  }, [doc, id, router]);
 
   const chronicleQuery = useInfiniteQuery({
     queryKey: ['chatter', ORG_DOCUMENT_REF_TYPE, documentId],
@@ -117,6 +135,18 @@ export default function OrgDocumentPage() {
     onSuccess: refresh,
     onError: (e) => toastError(apiErrorMessage(e)),
   });
+  const assignNumber = useMutation({
+    mutationFn: () => documentsApi.assignNumber(id, documentId),
+    onSuccess: refresh,
+    onError: (e) => toastError(apiErrorMessage(e)),
+  });
+  const returnToDraft = useMutation({
+    mutationFn: () => documentsApi.returnToDraft(id, documentId),
+    onSuccess: refresh,
+    onError: (e) => toastError(apiErrorMessage(e)),
+  });
+  const [sendOpen, setSendOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const [draft, setDraft] = useState<Record<string, unknown> | null>(null);
   const fieldValues = useMemo(() => draft ?? (doc?.fields ?? {}), [draft, doc?.fields]);
@@ -146,7 +176,7 @@ export default function OrgDocumentPage() {
   if (docQuery.isError || !doc) {
     return (
       <>
-        <PageHeader breadcrumb="Документы" title="Документ не открылся" />
+        <PageHeader breadcrumb="Документооборот" title="Документ не открылся" />
         <BentoGrid>
           <Card span={12}>
             <EmptyState
@@ -178,6 +208,9 @@ export default function OrgDocumentPage() {
             <Button variant="ghost" icon="arrowLeft" href={`/workspaces/${id}/documents`}>
               К списку
             </Button>
+            <Button variant="ghost" icon="messenger" onClick={() => setShareOpen(true)}>
+              В чат
+            </Button>
             {doc.documentId && (
               <Button
                 variant="matte"
@@ -193,8 +226,31 @@ export default function OrgDocumentPage() {
               </Button>
             )}
             {can.submit && (
-              <Button icon="check" loading={submit.isPending} onClick={() => submit.mutate()}>
+              <Button
+                icon="check"
+                loading={submit.isPending}
+                // Пока фон пересобирает содержимое, сервер отправку отвергнет —
+                // не предлагаем клик в гарантированный отказ (карточка опрашивается)
+                disabled={!!doc.rebuilding}
+                title={doc.rebuilding ? 'Документ пересобирается — несколько секунд' : undefined}
+                onClick={() => submit.mutate()}
+              >
                 Отправить на маршрут
+              </Button>
+            )}
+            {can.sendExternal && (
+              <Button icon="send" onClick={() => setSendOpen(true)}>
+                Отправить контрагенту
+              </Button>
+            )}
+            {can.returnToDraft && (
+              <Button
+                variant="matte"
+                icon="arrowLeft"
+                loading={returnToDraft.isPending}
+                onClick={() => returnToDraft.mutate()}
+              >
+                Вернуть в черновик
               </Button>
             )}
             {can.withdraw && (
@@ -232,7 +288,8 @@ export default function OrgDocumentPage() {
 
       <BentoGrid>
         <Card span={7}>
-          <CardHeader title="Данные заявления" />
+          {/* Заголовок — по категории: у договора «заявление» звучало бы ложью */}
+          <CardHeader title={doc.category === 'external' ? 'Данные документа' : 'Данные заявления'} />
           {/* Смотрим на ОБЪЯВЛЕНИЕ полей, а не на значения: поле, только что
               заведённое в конструкторе, ещё пустое — и по значениям карточка
               говорила «полей нет», то есть заполнить его было негде. */}
@@ -277,9 +334,25 @@ export default function OrgDocumentPage() {
           <Divider />
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-3)', alignItems: 'center' }}>
+            {doc.counterparty && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Контрагент:</span>
+                <Chip size="sm" icon="workspace">
+                  {doc.counterparty.name}
+                </Chip>
+                {doc.counterpartyContact && (
+                  <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                    подписант: {doc.counterpartyContact.name}
+                    {doc.counterpartyContact.position ? ` (${doc.counterpartyContact.position})` : ''}
+                  </span>
+                )}
+              </span>
+            )}
             {doc.subjectUserId && (
               <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Сторона:</span>
+                <span style={{ color: 'var(--text-muted)' }}>
+                  {doc.category === 'external' ? 'Куратор:' : 'Сторона:'}
+                </span>
                 <PersonChip size="M" userId={doc.subjectUserId} firstName={doc.subjectName ?? "Сотрудник"} />
               </span>
             )}
@@ -300,6 +373,22 @@ export default function OrgDocumentPage() {
                 <Chip size="sm" icon="list">
                   {doc.number}
                 </Chip>
+              ) : doc.category === 'external' ? (
+                // Внешний контур: номер печатается в тексте ДО отправки — ghost-кнопка
+                // прямо в ряду (это не главное действие шапки)
+                doc.can?.assignNumber ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon="add"
+                    loading={assignNumber.isPending}
+                    onClick={() => assignNumber.mutate()}
+                  >
+                    Присвоить номер
+                  </Button>
+                ) : (
+                  <span style={{ color: 'var(--text-muted)' }}>Не присвоен</span>
+                )
               ) : (
                 <span style={{ color: 'var(--text-muted)' }}>Присваивается при регистрации</span>
               )}
@@ -311,8 +400,12 @@ export default function OrgDocumentPage() {
               {doc.fileId ? (
                 <span style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
                   <Button variant="ghost" size="sm" icon="download" onClick={() => downloadFile(doc.fileId!)}>
-                    {/* У блочного документа файл — сам PDF; «.docx» здесь было бы ложью */}
-                    {doc.builderDoc ? 'Скачать PDF' : 'Скачать .docx'}
+                    {/* Подпись — по НАСТОЯЩЕМУ формату: у блочного и ЗАГРУЖЕННОГО PDF
+                        файл — сам PDF (у загруженного pdfFileId === fileId без
+                        живого документа), «.docx» здесь было бы ложью */}
+                    {doc.builderDoc || (doc.pdfFileId === doc.fileId && !doc.documentId)
+                      ? 'Скачать PDF'
+                      : 'Скачать .docx'}
                   </Button>
                   {/* PDF — это ОТПЕЧАТОК на момент отправки: именно его видит решающий
                       и именно его подпишет core/sign. Снимался он и раньше, но на
@@ -359,6 +452,12 @@ export default function OrgDocumentPage() {
           </div>
         </Card>
 
+        {/* Внешний этап (категория «С контрагентами»): статус доставки, ссылка,
+            SMS и стороны. Подписи НЕ дублируются — они ниже, в блоке «Подписи». */}
+        {doc.external && (
+          <ExternalStageBlock workspaceId={id} doc={doc} external={doc.external} onChanged={refresh} />
+        )}
+
         {/* Электронные подписи под документом: кто, чем и когда, плюс кнопка
             «Подписать» тому, кого ждут, и артефакты (протокол, экспортный пакет). */}
         {doc.sign && (
@@ -386,6 +485,22 @@ export default function OrgDocumentPage() {
         </Card>
       </BentoGrid>
 
+      <SendToCounterpartyModal
+        workspaceId={id}
+        doc={doc}
+        open={sendOpen}
+        onClose={() => setSendOpen(false)}
+        onSent={refresh}
+      />
+      {/* Документ пересылается в чат живой карточкой (Принцип 3) */}
+      {shareOpen && (
+        <ShareCardModal
+          refType={ORG_DOCUMENT_REF_TYPE}
+          refId={doc.id}
+          title={doc.title}
+          onClose={() => setShareOpen(false)}
+        />
+      )}
       {confirmUI}
     </>
   );

@@ -7,6 +7,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { Prisma, type SignAct as PrismaSignAct, type SignRequest as PrismaSignRequest } from '@prisma/client';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomBytes } from 'node:crypto';
 import { buffer as streamToBuffer } from 'node:stream/consumers';
 import {
@@ -53,7 +54,7 @@ import { VerifyService } from '../verify/verify.service';
 import { SignRegistry, type SignSubjectContext } from './sign.registry';
 import { SignVerifierService } from './drivers/sign-verifier.driver';
 import { SignQrBridgeService } from './drivers/sign-qr.driver';
-import { SIGN_FINISHED_JOB, SIGN_REQUESTED_JOB } from './sign.jobs';
+import { SIGN_FINISHED_JOB, SIGN_REQUESTED_JOB, SIGN_STAMP_JOB } from './sign.jobs';
 import { ApprovalsService } from '../approvals/approvals.service';
 
 type Tx = Prisma.TransactionClient;
@@ -171,7 +172,24 @@ export class SignService {
      * что от него требуют. Полномочие подписанта даёт снимок адресатов шага,
      * который проверил движок решений.
      */
-    opts: { authorizedBy?: 'approval_step' } = {},
+    opts: {
+      authorizedBy?: 'approval_step';
+      /**
+       * Потребитель сам рассказывает людям об исходе (ЭДО шлёт свои «контрагент
+       * подписал/отказал» с контекстом документа) — движковые sign.completed и
+       * sign.declined для этой заявки подавляются. `sign.requested` внутренним
+       * подписантам НЕ подавляется никогда.
+       */
+      suppressOutcomeNotify?: boolean;
+      /**
+       * ЖДЁМ ВНЕШНЕГО подписанта (внешний контур ЭДО): акт второй стороны
+       * заводится СРАЗУ — на контактное лицо, без личности (`signerGuestId`
+       * пришьёт первый заход гостя). Без него заявка закрывалась бы внутренними
+       * подписями, не дождавшись контрагента: акт гостя ленив, и «не осталось
+       * ждущих актов» наступало раньше, чем вторая сторона вообще открыла ссылку.
+       */
+      guestSigner?: { name: string; phone?: string | null };
+    } = {},
   ): Promise<SignRequestDto> {
     const provider = this.registry.get(input.refType);
     if (!provider) throw new NotFoundException(`Тип «${input.refType}» не зарегистрирован в подписи`);
@@ -208,6 +226,7 @@ export class SignService {
           level: input.level,
           methods,
           approvalStepId: input.approvalStepId ?? null,
+          suppressOutcomeNotify: opts.suppressOutcomeNotify ?? false,
           createdById: actorId,
           expiresAt: input.expiresAt ?? this.defaultExpiry(),
         },
@@ -225,6 +244,22 @@ export class SignService {
       });
       for (const userId of signerIds) {
         await this.createActTx(tx, request.id, { type: 'user', userId }, input.level, frozen.sha256);
+      }
+      // Акт-ожидание ВТОРОЙ стороны: держит заявку открытой до подписи гостя
+      if (opts.guestSigner) {
+        await tx.signAct.create({
+          data: {
+            requestId: request.id,
+            signerType: 'guest',
+            signerUserId: null,
+            signerGuestId: null, // личность пришьёт первый заход гостя
+            signerName: opts.guestSigner.name,
+            signerPhone: opts.guestSigner.phone ?? null,
+            level: input.level,
+            subjectSha256: frozen.sha256,
+            checkToken: randomBytes(SIGN_LIMITS.checkTokenBytes).toString('base64url'),
+          },
+        });
       }
       // Позвать подписантов — работа ОБЯЗАТЕЛЬНАЯ, поэтому джоб ставим В ЭТОЙ ЖЕ
       // транзакции (transactional outbox): коммит = человека позовут, откат = звать
@@ -340,6 +375,23 @@ export class SignService {
       select: { id: true },
     });
     if (existing) return existing.id;
+
+    // Акт-ОЖИДАНИЕ (внешний контур): заведён при отправке на контактное лицо, без
+    // личности. Первый пришедший гость «пришивает» себя к нему атомарно — гвард
+    // `signerGuestId IS NULL` отдаёт акт ровно одному, проигравший идёт обычным
+    // путём. Имя и номер перезаписываются подтверждёнными: подписант может
+    // оказаться не тем контактом, которого ждали, и акт обязан говорить правду.
+    const placeholder = await this.db.signAct.findFirst({
+      where: { requestId, signerType: 'guest', signerGuestId: null, status: 'pending' },
+      select: { id: true },
+    });
+    if (placeholder) {
+      const claimed = await this.db.signAct.updateMany({
+        where: { id: placeholder.id, signerGuestId: null, status: 'pending' },
+        data: { signerGuestId: actor.guestId, signerName: actor.name, signerPhone: actor.phone },
+      });
+      if (claimed.count > 0) return placeholder.id;
+    }
 
     const created = await this.db.$transaction((tx) =>
       this.createActTx(tx, requestId, actor, request.level as SignLevel, request.subjectSha256),
@@ -494,6 +546,18 @@ export class SignService {
     return actor.type === 'user' ? act.signerUserId === actor.userId : act.signerGuestId === actor.guestId;
   }
 
+  /**
+   * Стоп-кран рекурсии «резолвер зовёт нас обратно». `canView` потребителя обычно
+   * реализован его же карточкой (`documents.get`), а карточка спрашивает у нас блок
+   * подписей (`summaryForRef`). Прямой путь разорван флагом `viewAuthorized`, но это
+   * дисциплина ОДНОГО вызова: следующий потребитель без флага собрал бы кольцо
+   * get → summaryForRef → canViewRequest → get заново — и оно ТИХОЕ (никакого stack
+   * overflow: витки асинхронные, каждый ходит в БД, запрос висит до HTTP-таймаута,
+   * молотя базу; ровно так это и жило у документов). Повторный вход с тем же
+   * предметом внутри одной async-цепочки → громкая ошибка в лог и fail-closed false.
+   */
+  private readonly canViewGuard = new AsyncLocalStorage<Set<string>>();
+
   /** Право видеть заявку у не-подписанта решает потребитель (карточка документа) */
   private async canViewRequest(
     actor: SignActor,
@@ -502,7 +566,19 @@ export class SignService {
     if (actor.type !== 'user') return false;
     if (request.createdById === actor.userId) return true;
     const provider = this.registry.get(request.refType);
-    return (await provider?.canView?.(actor.userId, request.refId)) ?? false;
+    if (!provider?.canView) return false;
+    const key = `${request.refType}:${request.refId}:${actor.userId}`;
+    const seen = this.canViewGuard.getStore();
+    if (seen?.has(key)) {
+      this.logger.error(
+        `canView('${request.refType}') замкнул кольцо на ${request.refId}: ` +
+          `резолвер потребителя зовёт sign обратно — нужен viewAuthorized у summaryForRef`,
+      );
+      return false;
+    }
+    const next = new Set(seen);
+    next.add(key);
+    return this.canViewGuard.run(next, async () => (await provider.canView!(actor.userId, request.refId)) ?? false);
   }
 
   private isExpired(expiresAt: Date | null): boolean {
@@ -766,6 +842,18 @@ export class SignService {
     }
 
     await this.assertIdentityMatches(actor, verdict.cert.iin, act.id, ctx);
+    // ВНЕШНИЙ подписант: сертификат сверяется с предметом у потребителя (карточка
+    // контрагента) — договор должен подписать тот, с кем его заключают.
+    if (actor.type === 'guest') {
+      const guestCheck = await this.registry
+        .get(request.refType)
+        ?.checkGuestCert?.(request.refId, { iin: verdict.cert.iin, bin: verdict.cert.bin });
+      if (guestCheck && !guestCheck.ok) {
+        const reason = guestCheck.reason ?? 'сертификат не совпадает с данными контрагента';
+        await this.failAttempt(act.id, SIGN_ERROR_CODES.counterpartyMismatch, reason, ctx);
+        throw coded(`Подпись не принята: ${reason}`, SIGN_ERROR_CODES.counterpartyMismatch);
+      }
+    }
 
     // Контейнер и квитанции пишем ДО финализации: строка акта ссылается на файл,
     // а не наоборот, и «подписано, но доказательства нет» невозможно.
@@ -866,6 +954,39 @@ export class SignService {
         ownerId: request.workspaceId ?? ownerUserId,
       }),
     );
+  }
+
+  // ============================================================
+  // Отзыв заявки потребителем
+  // ============================================================
+
+  /**
+   * ОТОЗВАТЬ живую заявку — сервисный вход (право дозирует ВЫЗЫВАЮЩИЙ: у ЭДО это
+   * «автор или Менеджер+ отзывает отправку контрагенту»). Ждущие акты гасятся тем
+   * же статусом, что при истечении срока; уже поставленные подписи остаются
+   * доказательствами навсегда — отзыв закрывает СБОР, а не отменяет подписанное.
+   */
+  async cancelRequest(actorId: string, requestId: string): Promise<void> {
+    await this.db.$transaction(async (tx) => {
+      // Порядок замков тот же, что у подписи, отказа и крона: сначала акты, потом
+      // заявка — иначе встречная финализация даёт взаимоблокировку.
+      await tx.signAct.updateMany({
+        where: { requestId, status: 'pending' },
+        data: { status: 'expired' },
+      });
+      const won = await tx.signRequest.updateMany({
+        where: { id: requestId, status: 'pending' },
+        data: { status: 'cancelled', completedAt: new Date() },
+      });
+      if (won.count === 0) {
+        // Гонка с подписью/отказом/кроном: заявка уже закрыта — отзыв опоздал.
+        throw coded('Заявка уже закрыта', SIGN_ERROR_CODES.requestClosed);
+      }
+      const acts = await tx.signAct.findMany({ where: { requestId }, select: { id: true } });
+      for (const act of acts) {
+        await this.logEvent(tx, act.id, 'cancelled', {}, { by: actorId }).catch(() => undefined);
+      }
+    });
   }
 
   // ============================================================
@@ -1003,6 +1124,14 @@ export class SignService {
         await tx.signRequest.updateMany({
           where: { id: act.requestId, status: 'pending' },
           data: { status: 'completed', completedAt: new Date() },
+        });
+        // ШТАМПОВАННАЯ копия — джобом В ТОЙ ЖЕ транзакции (outbox): PDF с полосами
+        // и «Листом подписей» собирается тяжёлым pdf-lib в своей очереди; обработчик
+        // идемпотентен по stampedFileId и сам пропускает не-PDF предметы.
+        await this.jobs.enqueue(tx, {
+          type: SIGN_STAMP_JOB,
+          payload: { requestId: act.requestId },
+          uniqueKey: `signstamp:${act.requestId}`,
         });
       }
       // Шаг маршрута закрывается ЗДЕСЬ ЖЕ. Решение о том, закрылся ли шаг целиком
@@ -1272,8 +1401,23 @@ export class SignService {
     };
   }
 
-  /** Блок «Подписи» на карточке потребителя */
-  async summaryForRef(userId: string, refType: string, refId: string): Promise<SignSummaryDto | null> {
+  /**
+   * Блок «Подписи» на карточке потребителя.
+   *
+   * `opts.viewAuthorized` — потребитель УЖЕ проверил право зрителя на предмет
+   * (карточка документа зовёт после своего canView). Обязателен для таких
+   * вызовов не ради экономии: без него движок переспрашивает право у резолвера
+   * `canView`, а тот у документов реализован как `documents.get(...)` — и зритель
+   * team-вида, не участвующий в заявке, замыкал кольцо `documents.get →
+   * summaryForRef → canViewRequest → documents.get`: запрос крутил БД вечно и
+   * умирал только по HTTP-таймауту клиента.
+   */
+  async summaryForRef(
+    userId: string,
+    refType: string,
+    refId: string,
+    opts: { viewAuthorized?: boolean } = {},
+  ): Promise<SignSummaryDto | null> {
     const request = await this.db.signRequest.findFirst({
       where: { refType, refId },
       orderBy: { createdAt: 'desc' },
@@ -1282,7 +1426,9 @@ export class SignService {
     if (!request) return null;
 
     const mine = request.acts.find((a) => a.signerUserId === userId && a.status === 'pending');
-    if (!mine && !(await this.canViewRequest({ type: 'user', userId }, request))) return null;
+    if (!mine && !opts.viewAuthorized && !(await this.canViewRequest({ type: 'user', userId }, request))) {
+      return null;
+    }
 
     const actorIds = [
       ...new Set([request.createdById, ...request.acts.map((a) => a.signerUserId).filter((v): v is string => !!v)]),
@@ -1298,7 +1444,25 @@ export class SignService {
       actors: await this.actorsOf(actorIds),
       myActId: mine?.id ?? null,
       canExport: request.acts.some((a) => a.status === 'signed'),
+      // Штампованная копия: право видеть = право видеть блок (проверено выше),
+      // ссылка системная — тот же контракт, что у subjectView.
+      //
+      // `ready` считаем по ССЫЛКЕ, а не по наличию колонки: файл мог не пережить
+      // уборку, и тогда «готово» без адреса — обещание кнопки, которая не работает.
+      stamped: await this.stampedView(request.stampedFileId),
     };
+  }
+
+  /**
+   * Срез штампованной копии для карточек. `ready` — это «ссылка есть и по ней
+   * что-то отдадут», а не «в колонке лежит идентификатор»: между ними помещается
+   * прибранный уборкой файл, и разница видна пользователю кнопкой, которая молча
+   * ничего не скачивает. Пересборку в этом случае сделает джоб `sign.stamp`.
+   */
+  async stampedView(stampedFileId: string | null): Promise<{ ready: boolean; url: string | null }> {
+    if (!stampedFileId) return { ready: false, url: null };
+    const url = (await this.files.buildSystemDownloadUrl(stampedFileId).catch(() => null))?.url ?? null;
+    return { ready: !!url, url };
   }
 
   // ============================================================
@@ -1320,6 +1484,7 @@ export class SignService {
     const empty: SignCheckResultDto = { found: false, subject: null, signatures: [], downloads: [] };
 
     let request: (SignRequestRow & { acts: SignActRow[] }) | null = null;
+    let matchedBy: SignCheckResultDto['matchedBy'] = 'subject';
     const viaToken = !!(query.actId && query.k);
     if (query.actId && query.k) {
       const act = await this.db.signAct.findUnique({
@@ -1331,8 +1496,9 @@ export class SignService {
       if (!act || act.checkToken !== query.k) return empty;
       request = act.request;
     } else if (query.sha256) {
+      const sha = query.sha256.toLowerCase();
       const siblings = await this.db.signRequest.findMany({
-        where: { subjectSha256: query.sha256.toLowerCase() },
+        where: { subjectSha256: sha },
         orderBy: { createdAt: 'desc' },
         include: { acts: { orderBy: { createdAt: 'asc' } } },
         take: SIGN_LIMITS.pageSize,
@@ -1349,6 +1515,19 @@ export class SignService {
             .flatMap((r) => r.acts)
             .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()),
         };
+      } else {
+        // Проверяющий держит в руках ШТАМПОВАННУЮ копию: у неё свой отпечаток,
+        // отличный от подписанного оригинала, — и без этой ветки самый частый
+        // файл в обороте («Скачать со штампами») отвечал бы «подписи не найдены».
+        const stamped = await this.db.signRequest.findFirst({
+          where: { stampedSha256: sha },
+          orderBy: { createdAt: 'desc' },
+          include: { acts: { orderBy: { createdAt: 'asc' } } },
+        });
+        if (stamped) {
+          request = stamped;
+          matchedBy = 'stamped_copy';
+        }
       }
     }
     if (!request) return empty;
@@ -1417,6 +1596,7 @@ export class SignService {
 
     return {
       found: true,
+      matchedBy,
       subject: {
         title: described?.title ?? request.refTitle,
         kindLabel: described?.kindLabel ?? null,

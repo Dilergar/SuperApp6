@@ -85,7 +85,8 @@ export default function WorkspaceHome() {
 
   const services: ServiceCard[] = [
     { title: 'Сотрудники', desc: 'Ростер, должности, отделы, филиалы', icon: 'staff', href: `/workspaces/${id}/members` },
-    { title: 'Документы', desc: 'Заявления, приказы, справки: подача и согласование', icon: 'file', href: `/workspaces/${id}/documents` },
+    { title: 'Документооборот', desc: 'Заявления, приказы, договоры с контрагентами', icon: 'file', href: `/workspaces/${id}/documents` },
+    { title: 'Контрагенты', desc: 'Справочник внешних сторон: реквизиты, контакты, документы', icon: 'workspace', href: `/workspaces/${id}/counterparties` },
     { title: 'Процессы', desc: 'Конструктор бизнес-процессов на канвасе', icon: 'processes', href: `/workspaces/${id}/processes` },
     { title: 'Виртуальный офис', desc: 'Видеовстречи и собрания организации', icon: 'office', href: `/workspaces/${id}/office` },
     ...(ws.myRole === 'owner'

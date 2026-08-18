@@ -6,8 +6,8 @@
 // пока сервер отдаёт can.edit — после отправки на маршрут дорога сюда закрыта.
 // ============================================================
 
-import { useMemo } from 'react';
-import { useParams } from 'next/navigation';
+import { useEffect, useMemo } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { emptyBuilderDoc, isDocDateRangeValue, type BuilderDoc, type DocFormFieldDto } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
@@ -19,12 +19,21 @@ import { documentsApi, fetchOrgDocument, fetchTemplateFieldGroups } from '../../
 export default function EditOrgDocumentPage() {
   const { isReady } = useRequireAuth();
   const { id, documentId } = useParams<{ id: string; documentId: string }>();
+  const router = useRouter();
 
   const docQuery = useQuery({
     queryKey: orgDocumentKey(id, documentId),
     queryFn: () => fetchOrgDocument(id, documentId),
     enabled: isReady,
   });
+
+  // Чужой workspaceId в адресе → на родной (см. карточку документа)
+  useEffect(() => {
+    const doc = docQuery.data;
+    if (doc && doc.workspaceId !== id) {
+      router.replace(`/workspaces/${doc.workspaceId}/documents/${doc.id}/edit`);
+    }
+  }, [docQuery.data, id, router]);
   const groupsQuery = useQuery({
     queryKey: templateFieldGroupsKey,
     queryFn: fetchTemplateFieldGroups,
@@ -49,7 +58,7 @@ export default function EditOrgDocumentPage() {
   if (!doc || !doc.builderDoc || !doc.can?.edit) {
     return (
       <>
-        <PageHeader breadcrumb="Документы" title="Правка недоступна" />
+        <PageHeader breadcrumb="Документооборот" title="Правка недоступна" />
         <BentoGrid>
           <Card span={12}>
             <EmptyState
@@ -75,7 +84,7 @@ export default function EditOrgDocumentPage() {
   return (
     <>
       <PageHeader
-        breadcrumb={`Документы · ${doc.docTypeName}`}
+        breadcrumb={`Документооборот · ${doc.docTypeName}`}
         title={doc.title}
         actions={
           <Button variant="ghost" icon="arrowLeft" href={`/workspaces/${id}/documents/${documentId}`}>

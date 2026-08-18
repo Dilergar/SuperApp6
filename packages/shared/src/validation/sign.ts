@@ -145,6 +145,13 @@ export const signDevRequestSchema = z
     signerUserIds: z.array(z.string().uuid()).max(10).optional(),
     /** Содержимое «документа» — текст, который движок заморозит как PDF-заглушку */
     body: z.string().max(10_000).optional(),
+    /**
+     * `body` — готовые байты PDF (ASCII): предмет получает mime application/pdf,
+     * и сьют проверяет ШТАМП (не-PDF предметы джоб штампа честно пропускает).
+     */
+    pdf: z.boolean().optional(),
+    /** Флаг «потребитель шлёт свои уведомления сам» — проверка подавления дублей */
+    suppressOutcomeNotify: z.boolean().optional(),
   })
   .strict();
 

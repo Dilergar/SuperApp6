@@ -98,3 +98,26 @@ export function buildOtpSmsText(code: string, originDomain?: string): string {
   const base = `SuperApp6: ${code}`;
   return originDomain ? `${base}\n@${originDomain} #${code}` : base;
 }
+
+// ============================================================
+// Исходящие СЛУЖЕБНЫЕ SMS (не OTP): доставка ссылок наружу
+// ============================================================
+// Зародыш будущего канального движка уведомлений. Живёт рядом с SMS-драйвером
+// (core/verify), потому что канал один и тот же; контракт узкий —
+// `SmsOutboundService.sendLink(workspaceId, phone, text)` — и переезжает в
+// отдельный движок дёшево, когда каналов станет больше (WhatsApp, e-mail).
+
+export const SMS_OUTBOUND_LIMITS = {
+  /** Потолок служебных SMS организации в сутки (скользящее окно в Redis) */
+  perWorkspaceDaily: 100,
+  /** Кулдаун повторной отправки ОДНОМУ номеру про ОДИН объект */
+  perTargetCooldownSec: 60,
+} as const;
+
+/**
+ * Текст SMS контрагенту со ссылкой на подписание. Без персональных данных
+ * (только название организации-отправителя): SMS — открытый канал.
+ */
+export function buildSignLinkSmsText(orgName: string, url: string): string {
+  return `${orgName} отправила вам документ на подпись: ${url}`;
+}

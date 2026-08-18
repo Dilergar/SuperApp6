@@ -98,8 +98,14 @@ export class JobsService {
    * Поставить джоб. С tx — в транзакции доменной мутации (outbox: ошибка валит
    * транзакцию целиком, откат транзакции не оставляет джоба-сироту); без tx —
    * обычная постановка (упала — постановщик видит ошибку).
+   *
+   * Возвращает, ЛЕГЛА ли строка: с uniqueKey конфликт об одноимённый живой джоб —
+   * тихий no-op (ON CONFLICT DO NOTHING), и `inserted: false` — единственный способ
+   * это узнать. Нужен постановщикам, для которых «уже идёт» ≠ «уже учтено»:
+   * бегущий джоб мог прочитать данные ДО их правки, и такой постановщик по этому
+   * признаку ставит парный догоняющий джоб (пересборка документов).
    */
-  async enqueue(tx: Tx | null, input: EnqueueInput): Promise<void> {
+  async enqueue(tx: Tx | null, input: EnqueueInput): Promise<{ inserted: boolean }> {
     const client = tx ?? this.db;
     const def = this.registry.get(input.type);
     // Очередь — из регистрации (источник правды); тип без обработчика на этом
@@ -116,24 +122,26 @@ export class JobsService {
       // сломает его в середине чужих доменных транзакций (постановка идёт в них).
       // Добавляешь колонку — либо дай ей DEFAULT, либо впиши её сюда.
       const stamp = new Date();
-      await client.$executeRaw`
+      const count = await client.$executeRaw`
         INSERT INTO jobs (type, queue, payload, status, priority, run_at, max_attempts, unique_key, created_at, updated_at)
         VALUES (${input.type}, ${queue}, ${JSON.stringify(input.payload ?? {})}::jsonb, 'available', ${priority}, ${ts(runAt)}, ${maxAttempts}, ${input.uniqueKey}, ${ts(stamp)}, ${ts(stamp)})
         ON CONFLICT (type, unique_key) WHERE status IN ('available', 'executing') AND unique_key IS NOT NULL DO NOTHING
       `;
-    } else {
-      await client.job.create({
-        data: {
-          type: input.type,
-          queue,
-          payload: (input.payload ?? {}) as Prisma.InputJsonValue,
-          runAt,
-          maxAttempts,
-          priority,
-        },
-      });
+      this.scheduleNudge(queue, runAt);
+      return { inserted: count > 0 };
     }
+    await client.job.create({
+      data: {
+        type: input.type,
+        queue,
+        payload: (input.payload ?? {}) as Prisma.InputJsonValue,
+        runAt,
+        maxAttempts,
+        priority,
+      },
+    });
     this.scheduleNudge(queue, runAt);
+    return { inserted: true };
   }
 
   /**

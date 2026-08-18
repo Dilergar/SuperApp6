@@ -141,6 +141,7 @@ export const SIGN_ACT_EVENT_TYPES = [
   'signed', // акт закрыт подписью
   'declined', // подписант отказался (с причиной)
   'failed', // подпись отвергнута (не прошла проверку)
+  'cancelled', // отправитель отозвал заявку — сбор подписи прекращён
 ] as const;
 export type SignActEventType = (typeof SIGN_ACT_EVENT_TYPES)[number];
 
@@ -157,6 +158,7 @@ export const SIGN_ACT_EVENT_LABELS: Record<SignActEventType, string> = {
   signed: 'Документ подписан',
   declined: 'Отказ от подписания',
   failed: 'Подпись не принята',
+  cancelled: 'Отправитель отозвал заявку',
 };
 
 /** Одноразовая QR-сессия eGov Mobile (требование паспорта сервиса Smart Bridge) */
@@ -251,6 +253,14 @@ export const SIGN_ERROR_CODES = {
   reasonRequired: 'sign_reason_required',
   /** Предмет подписи исчез или недоступен */
   subjectGone: 'sign_subject_gone',
+  /**
+   * Сертификат внешнего подписанта не совпал с карточкой КОНТРАГЕНТА: БИН
+   * (юрлицо) либо ИИН (ИП, физлицо) из ключа — не тот, что заявлен в справочнике.
+   * Жёсткий отказ, как у `iinMismatch`: договор должен подписать тот, с кем его
+   * заключают, а не «кто-то с действующим ключом». Акт при этом НЕ хоронится —
+   * человек мог выбрать не тот ключ в NCALayer.
+   */
+  counterpartyMismatch: 'sign_counterparty_mismatch',
 } as const;
 
 export type SignErrorCode = (typeof SIGN_ERROR_CODES)[keyof typeof SIGN_ERROR_CODES];
@@ -347,6 +357,12 @@ export const SIGN_FILE_PROFILES = {
   subject: 'sign_subject',
   /** Контейнер CMS и квитанции OCSP/TSP */
   cms: 'sign_cms',
+  /**
+   * ШТАМПОВАННАЯ копия: PDF с полосами-штампами и «Листом подписей». В
+   * `EVIDENCE_FILE_PROFILES` НЕ входит намеренно: это витрина для людей, а не
+   * доказательство — при потере пересобирается из subject + актов.
+   */
+  stamped: 'sign_stamped',
 } as const;
 
 /** refType, под которым движок кладёт свои файлы (резолвер доступа в FilesRefRegistry) */

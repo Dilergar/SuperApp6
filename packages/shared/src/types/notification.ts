@@ -85,6 +85,10 @@ export type NotificationType =
   // Drive (OmniDrive)
   | 'drive.shared' // вам открыли доступ к папке или файлу на Диске
   | 'document.resolved' // маршрут вашего документа завершён (подписан/отклонён/на доработку)
+  | 'document.counterparty_signed' // внешний контур: контрагент подписал документ
+  | 'document.counterparty_declined' // внешний контур: контрагент отказался подписывать
+  | 'document.internal_declined' // внешний контур: отказался НАШ подписант — документ не ушёл к контрагенту
+  | 'document.external_expired' // внешний контур: срок подписания истёк, документ вернулся в черновик
   | 'share.link.opened' // вашу гостевую ссылку наружу открыли
   | 'share.link.opened.muted' // открывают часто — уведомления по ней замолкают до завтра
   // Согласования (core/approvals) — «Ждут решения»

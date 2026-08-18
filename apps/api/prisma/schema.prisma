@@ -688,6 +688,7 @@ model Workspace {
   docTypes         DocType[]
   docTemplates     DocTemplate[]
   orgDocuments     OrgDocument[]
+  counterparties   Counterparty[]
 
   @@index([ownerId])
   // Ретеншн-крон архива: выборка «что пора удалять» идёт по этой колонке.
@@ -3000,6 +3001,111 @@ model ApprovalDecision {
 }
 
 // ============================================================
+// Сервис «Контрагенты» (B2B) — справочник ВНЕШНИХ организаций и людей.
+//
+// ОДИН справочник на организацию: его читает «Документооборот» (договоры/АВР с
+// внешней стороной), дальше встанут Счета, Финансы B2B, ЭСФ и CRM — свой список
+// контрагентов каждый сервис не заводит. Контрагент — НЕ пользователь платформы
+// (подписывает по гостевой ссылке); БИН — якорь будущего связывания
+// workspace↔workspace. Доступ гейтится РОЛЬЮ (чтение — команда trainee+, запись —
+// manager+, модель Staff), в core/access тип НЕ заводится намеренно.
+// ============================================================
+
+model Counterparty {
+  id          String @id @default(uuid())
+  workspaceId String @map("workspace_id")
+
+  // legal (ТОО/АО…) | entrepreneur (ИП) | individual (физлицо). От вида зависит,
+  // что лежит в `bin` (БИН юрлица / ИИН ИП и физлица) и с чем сверяется
+  // сертификат ЭЦП внешнего подписанта.
+  kind String @default("legal")
+
+  name      String // рабочее имя («Ромашка») — то, что видно в списках
+  legalName String? @map("legal_name") // полное юрнаименование — то, что идёт в договор
+
+  // БИН/ИИН: 12 цифр, контрольная сумма проверяется схемой (isValidIinOrBin)
+  bin          String?
+  orgForm      String? @map("org_form")
+  legalAddress String? @map("legal_address")
+  // Фактический адрес; NULL = совпадает с юридическим (обычная оговорка договора)
+  actualAddress String? @map("actual_address")
+  kbe          String?
+  // Налоговый режим (справочник TAX_REGIMES shared); NULL = не указан
+  taxRegime String? @map("tax_regime")
+  vatPayer     Boolean @default(false) @map("vat_payer")
+  vatSeries    String? @map("vat_series")
+  vatNumber    String? @map("vat_number")
+  vatDate      DateTime? @map("vat_date") @db.Date
+
+  // Руководитель — ТЕКСТ, а не user_id: человек вне платформы (паттерн
+  // WorkspaceRequisites.directorUserId здесь неприменим — некого валидировать).
+  directorName String? @map("director_name")
+  signBasis    String? @map("sign_basis") // «Устава» / «доверенности № 7 от …»
+
+  phone   String?
+  email   String?
+  comment String?
+
+  createdById String    @map("created_by_id")
+  archivedAt  DateTime? @map("archived_at") // архив вместо удаления: на карточке висят документы
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  workspace    Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contacts     CounterpartyContact[]
+  bankAccounts CounterpartyBankAccount[]
+
+  @@index([workspaceId, archivedAt])
+  @@index([workspaceId, name])
+  // ВНИМАНИЕ: партиальный UNIQUE (workspace_id, bin)
+  // WHERE bin IS NOT NULL AND archived_at IS NULL дописан РУКАМИ в миграции
+  // `counterparties_service` — Prisma такое не выражает. Дубль БИН среди живых →
+  // P2002 → 409: один контрагент — одна карточка, иначе якорь связывания не работает.
+  @@map("counterparties")
+}
+
+/// Контактное лицо контрагента: кому уходит документ на подпись (SMS-канал) и с
+/// чьим номером мягко сверяется личность ПЭП-подписанта.
+model CounterpartyContact {
+  id             String @id @default(uuid())
+  counterpartyId String @map("counterparty_id")
+  workspaceId    String @map("workspace_id") // денормализован: гейты и выборки идут по организации
+
+  name     String
+  position String?
+  phone    String? // нормализованный (+7…): канал SMS и сверка ПЭП
+  email    String?
+
+  archivedAt DateTime? @map("archived_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  counterparty Counterparty @relation(fields: [counterpartyId], references: [id], onDelete: Cascade)
+
+  @@index([counterpartyId, archivedAt])
+  @@index([workspaceId])
+  @@map("counterparty_contacts")
+}
+
+/// Банковские счета контрагента — СПИСОК с основным (клон WorkspaceBankAccount:
+/// «ровно один основной» держит сервис в транзакции, partial-unique не нужен).
+model CounterpartyBankAccount {
+  id             String @id @default(uuid())
+  counterpartyId String @map("counterparty_id")
+
+  iban      String
+  bankName  String  @map("bank_name")
+  bik       String
+  isPrimary Boolean @default(false) @map("is_primary")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  counterparty Counterparty @relation(fields: [counterpartyId], references: [id], onDelete: Cascade)
+
+  @@index([counterpartyId])
+  @@map("counterparty_bank_accounts")
+}
+
+// ============================================================
 // Сервис «Документы» (B2B) — Этап 4 документной вертикали.
 //
 // Вид (DocType) — справочник организации: нумерация, видимость, категория.
@@ -3016,6 +3122,11 @@ model ApprovalDecision {
 model DocType {
   id             String  @id @default(uuid())
   workspaceId    String  @map("workspace_id")
+  // Имя УНИКАЛЬНО среди живых видов организации — партиальный функциональный
+  // индекс doc_types_workspace_name_live (workspace_id, lower(name)) WHERE
+  // archived_at IS NULL, руками в миграции doc_type_name_unique_live: папка
+  // реестра на Диске ключуется именем, и одноимённые виды делили бы одну папку
+  // вместе с её грантами.
   name           String
   category       String  @default("general") // hr | general — профиль правил и редактора
   // «ПР-{ГГГГ}-{NNN}»: номер присваивается ПРИ РЕГИСТРАЦИИ, черновики номеров не съедают
@@ -3104,13 +3215,23 @@ model OrgDocument {
   number     String?   // присваивается при регистрации
   numberedAt DateTime? @map("numbered_at")
 
-  // Сторона документа — сотрудник (заявитель / субъект приказа). Контрагенты ждут
-  // своего справочника: в v1 стороной может быть только человек организации.
+  // Сторона документа — сотрудник (заявитель / субъект приказа). У документов
+  // «С контрагентами» опциональна (внутренний куратор договора).
   subjectUserId String? @map("subject_user_id")
+  // ВТОРАЯ сторона — контрагент из справочника (виды категории `external`).
+  // БЕЗ FK намеренно (паттерн subjectUserId): карточка документа — юридическая
+  // запись, и архивация контрагента её не рвёт.
+  counterpartyId        String? @map("counterparty_id")
+  counterpartyContactId String? @map("counterparty_contact_id")
   createdById   String  @map("created_by_id")
 
   documentId String? @map("document_id") // живой документ core/docs (правка в редакторе)
-  fileId     String? @map("file_id")     // .docx карточки; у builder-документа — сам PDF
+  // «Один файл — одна карточка» (правило загрузки готового файла). Уникум, а не
+  // проверка чтением: две карточки на один файл молча делили бы правку и
+  // подписание — заморозка одной закрывала бы редактор другой, а на подпись обе
+  // отдавали бы один и тот же PDF. NULL'ы в Postgres различны, поэтому карточки
+  // без файла (черновик, пока джоб собирает бланк) уникуму не мешают.
+  fileId     String? @unique @map("file_id") // .docx карточки; у builder-документа — сам PDF
   pdfFileId  String? @map("pdf_file_id") // отпечаток на момент отправки/подписи
   // Снимок блоков конструктора (документ по builder-шаблону или свободный документ);
   // у docx-документов null. Снимок, а не ссылка: правка шаблона не меняет поданное.
@@ -3143,6 +3264,7 @@ model OrgDocument {
   @@index([workspaceId, status, createdAt])
   @@index([workspaceId, docTypeId])
   @@index([subjectUserId])
+  @@index([workspaceId, counterpartyId])
   @@index([templateId])
   @@index([parentDocumentId])
   @@index([processInstanceId])
@@ -3199,6 +3321,20 @@ model SignRequest {
   // когда до шага реально дошли, а не при создании всего маршрута.
   approvalStepId String? @map("approval_step_id")
 
+  // ШТАМПОВАННАЯ копия (внешний этап ЭДО, Doodocs-модель): итоговый PDF с
+  // полосами-штампами на каждой странице и «Листом подписей» в конце. Собирается
+  // джобом `sign.stamp` после завершения заявки. НЕ доказательство — при потере
+  // пересобирается из subject + актов (профиль sign_stamped вне evidence-режима).
+  stampedFileId String? @map("stamped_file_id")
+  stampedSha256 String? @map("stamped_sha256")
+
+  // Потребитель САМ рассказывает людям об исходе (ЭДО шлёт свои «контрагент
+  // подписал/отказал» с контекстом документа) — движковые sign.completed и
+  // sign.declined для такой заявки подавлены, иначе автор получал бы дубль.
+  // Флаг на СТРОКЕ, а не в payload джоба: SIGN_FINISHED_JOB читает заявку из БД.
+  // sign.requested (позвать внутренних подписантов) НЕ подавляется.
+  suppressOutcomeNotify Boolean @default(false) @map("suppress_outcome_notify")
+
   createdById String    @map("created_by_id")
   createdAt   DateTime  @default(now()) @map("created_at")
   expiresAt   DateTime? @map("expires_at")
@@ -3211,9 +3347,18 @@ model SignRequest {
   // Публичная проверка по отпечатку файла (ст. 61 ЦК): проверяющий приносит СВОЙ
   // файл, браузер считает sha256, на сервер уходит только хэш.
   @@index([subjectSha256])
+  // Публичная проверка находит и ШТАМПОВАННУЮ копию: у неё свой отпечаток,
+  // отличный от подписанного оригинала (matchedBy: 'stamped_copy').
+  @@index([stampedSha256])
   // ВНИМАНИЕ: партиальный UNIQUE (approval_step_id) WHERE status='pending'
   // дописан РУКАМИ в миграции `sign_engine` — Prisma такое не выражает.
   // «Одна живая заявка на шаг»: ленивое создание идемпотентно даже в гонке.
+  //
+  // ВНИМАНИЕ-2: партиальный UNIQUE `sign_requests_one_active_freeform`
+  // (ref_type, ref_id) WHERE status='pending' AND approval_step_id IS NULL —
+  // РУКАМИ в миграции `sign_external_stage`: одна живая СВОБОДНАЯ заявка на
+  // предмет (двойная отправка контрагенту невозможна даже в гонке; кадровым
+  // шаговым заявкам не мешает — у них свой per-step уникум).
   @@map("sign_requests")
 }
 

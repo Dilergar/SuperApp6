@@ -201,6 +201,14 @@ export interface SignActStateDto {
  */
 export interface SignCheckResultDto {
   found: boolean;
+  /**
+   * Чем совпал принесённый файл: `subject` — это сам подписанный оригинал,
+   * `stamped_copy` — ШТАМПОВАННАЯ копия (PDF с полосами и «Листом подписей»):
+   * у неё свой отпечаток, а подписи стоят под оригиналом (`subject.sha256`).
+   * Страница проверки обязана это объяснить — иначе несовпадение хэшей выглядит
+   * как подделка.
+   */
+  matchedBy?: 'subject' | 'stamped_copy';
   /** Что подписано — минимум от потребителя, без содержимого */
   subject: {
     title: string;
@@ -253,6 +261,41 @@ export interface SignSummaryDto {
   myActId: string | null;
   /** Готовы ли артефакты: протокол и экспортный пакет */
   canExport: boolean;
+  /**
+   * Штампованная копия: итоговый PDF с полосами-штампами на каждой странице и
+   * «Листом подписей» (Doodocs-модель). Собирается джобом после завершения
+   * заявки; НЕ доказательство (перегенерируема) — доказательства это CMS и
+   * замороженная копия.
+   */
+  stamped?: { ready: boolean; url: string | null };
+}
+
+/**
+ * Гостевая страница подписания (`session.view` при refType='sign_request').
+ * Живёт в shared по правилу контракта: тип стоит и у резолвера (API), и у
+ * `ShareSignView` (веб) — локальная рукопись на вебе разъезжалась бы молча.
+ */
+export interface ShareSignGuestView {
+  kind: 'sign';
+  requestId: string;
+  title: string;
+  status: SignRequestStatus;
+  level: SignLevel;
+  methods: SignMethod[];
+  subject: { fileId: string; name: string; mime: string; size: number; sha256: string; url: string };
+  signed: { name: string; at: string | null }[];
+  consentText: string;
+  consentVersion: string;
+  pdConsentText: string;
+  /**
+   * СОСТОЯНИЕ ВЕРНУВШЕГОСЯ подписанта: его акт, если он уже действовал по этой
+   * ссылке. Страница открывается сразу на «Вы подписали…»/«Вы отказались:
+   * причина», а не на «Перейти к подписанию». null — гость ещё не действовал
+   * либо личность не подтверждена.
+   */
+  myAct: { status: SignActStatus; signedAt: string | null; declineReason: string | null } | null;
+  /** Штампованная копия готова — done-экран показывает кнопки скачивания */
+  stamped: { ready: boolean };
 }
 
 /** Режим движка — веб прячет способы, которых нет в этом окружении */

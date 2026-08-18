@@ -4,11 +4,16 @@ import { DatabaseService } from '../../shared/database/database.service';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { NotificationsService } from '../../modules/notifications/notifications.service';
 import { SignRegistry } from './sign.registry';
+import { SignStampService } from './sign-stamp.service';
 
 /** Позвать подписантов — ставится при создании заявки */
 export const SIGN_REQUESTED_JOB = 'sign.requested';
 /** Акт закрылся: сообщить потребителю и людям — ставится В ТРАНЗАКЦИИ закрытия */
 export const SIGN_FINISHED_JOB = 'sign.act.finished';
+/** Срок сбора истёк: разбудить потребителя — ставится В ТРАНЗАКЦИИ закрытия кроном */
+export const SIGN_EXPIRED_JOB = 'sign.request.expired';
+/** Собрать штампованную копию (тяжёлый pdf-lib) — ставится при завершении заявки */
+export const SIGN_STAMP_JOB = 'sign.stamp';
 
 /**
  * Фон движка подписи. Ровно две обязательные работы, и обе поставлены
@@ -30,6 +35,7 @@ export class SignJobs implements OnModuleInit {
     private readonly jobs: JobsRegistry,
     private readonly registry: SignRegistry,
     private readonly notifications: NotificationsService,
+    private readonly stamp: SignStampService,
   ) {}
 
   onModuleInit(): void {
@@ -44,6 +50,25 @@ export class SignJobs implements OnModuleInit {
         }),
       { queue: 'sign' },
     );
+    this.jobs.register(SIGN_EXPIRED_JOB, (p) => this.expired(String(p.requestId)), { queue: 'sign' });
+    // Штамп — В СВОЕЙ очереди (правило движка джобов о тяжёлых типах): pdf-lib
+    // держит слот секундами и не должен подпирать лёгкие announce/finished.
+    this.jobs.register(SIGN_STAMP_JOB, (p) => this.stamp.build(String(p.requestId)), {
+      queue: 'sign_stamp',
+      queueConcurrency: 2,
+      maxAttempts: 5,
+      leaseMs: 5 * 60 * 1000,
+    });
+  }
+
+  /** Срок сбора истёк: единственная работа — разбудить потребителя его хуком */
+  private async expired(requestId: string): Promise<void> {
+    const request = await this.db.signRequest.findUnique({ where: { id: requestId } });
+    if (!request) throw new JobDiscardError('заявка на подпись удалена');
+    const provider = this.registry.get(request.refType);
+    // Ошибка хука поднимается наверх — движок ретраит: «документ навсегда завис
+    // у контрагента» хуже повторного вызова идемпотентного хука.
+    await provider?.onRequestExpired?.(request.refId, { requestId: request.id });
   }
 
   /** «Подпишите документ» — каждому, кого ждут */
@@ -101,6 +126,11 @@ export class SignJobs implements OnModuleInit {
         requestCompleted: request.status === 'completed',
       });
     }
+
+    // Потребитель сам рассказывает автору об исходе (внешний контур ЭДО шлёт
+    // «контрагент подписал/отказал» с контекстом документа) — движковые дубли
+    // для такой заявки подавлены флагом на строке. Хук выше при этом отработал.
+    if (request.suppressOutcomeNotify) return;
 
     const href = signRequestHref(request.id, request.workspaceId);
     if (payload.outcome === 'declined') {

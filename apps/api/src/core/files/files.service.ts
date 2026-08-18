@@ -22,6 +22,7 @@ import {
   EXEC_EXT_BLACKLIST,
   TEAM_WORKSPACE_ROLES,
   isEvidenceProfile,
+  isSystemManagedProfile,
   fileExtension,
   fileKindFromMime,
   isInlineMime,
@@ -1245,6 +1246,14 @@ export class FilesService implements OnModuleInit {
     if (isEvidenceProfile(row.profile)) {
       throw new ForbiddenException('Доказательства подписания удалить нельзя — они хранятся вместе с документом');
     }
+    // Производные файлы под управлением сервиса (штампованная копия подписи):
+    // системная уборка их трогает, руками — нельзя. Загрузившим у штампа числится
+    // ОТПРАВИТЕЛЬ, поэтому без этой стены он сносил бы обычной ручкой файл, на
+    // который смотрят `SignRequest.stampedFileId`, узел реестра на Диске и кнопка
+    // «Скачать документ со штампами» у контрагента.
+    if (isSystemManagedProfile(row.profile)) {
+      throw new ForbiddenException('Этот файл создан системой и удаляется вместе с документом');
+    }
     const isOwner =
       row.uploaderId === userId || (row.ownerType === 'user' && row.ownerId === userId);
     if (!isOwner) throw new ForbiddenException('Удалить файл может владелец или загрузивший');
@@ -1588,10 +1597,30 @@ export class FilesService implements OnModuleInit {
     return { row: rest as FileRow, variants: variants as VariantRow[] };
   }
 
+  /**
+   * Имя варианта. Расширение — по НАСТОЯЩЕМУ MIME варианта: прежняя карта знала
+   * только картинки, и PDF-отпечаток docx-документа звался «…_pdf.bin». Это не
+   * косметика: `bin` стоит в чёрном списке исполняемых расширений, и заморозка
+   * такого варианта движком подписи (профиль sign_subject идёт через обычный
+   * инжест) падала «Исполняемые файлы запрещены» — отправить контрагенту или
+   * подписать документ, собранный из docx-шаблона, было невозможно вовсе; у
+   * загруженных PDF и builder-документов файл сам PDF, и путь варианта не
+   * задействован — поэтому дыра не была видна. Совпадение kind с расширением
+   * («pdf» + .pdf) суффикс не дублирует: «Договор.pdf», а не «Договор_pdf.pdf».
+   */
   private variantName(originalName: string, kind: string, mime: string): string {
     const base = originalName.replace(/\.[^.]+$/, '');
-    const ext = mime === 'image/webp' ? 'webp' : mime === 'image/jpeg' ? 'jpg' : 'bin';
-    return `${base}_${kind}.${ext}`;
+    const ext =
+      mime === 'image/webp'
+        ? 'webp'
+        : mime === 'image/jpeg'
+          ? 'jpg'
+          : mime === 'application/pdf'
+            ? 'pdf'
+            : mime === 'text/plain'
+              ? 'txt'
+              : 'bin';
+    return kind === ext ? `${base}.${ext}` : `${base}_${kind}.${ext}`;
   }
 
   /** Найти вариант в наборе (404, если запрошен, но отсутствует); null = оригинал */

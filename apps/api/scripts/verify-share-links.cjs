@@ -607,6 +607,14 @@ async function main() {
     ]);
     check('уведомления об открытии приходят', loudNotes === SHARE_NOTIFY_PER_DAY, `${loudNotes} из ${SHARE_NOTIFY_PER_DAY}`);
     check('после потолка — одно прощальное «дальше тихо»', mutedNotes === 1, String(mutedNotes));
+    // describeRef.href (появился ради sign_request): у потребителя БЕЗ href
+    // actionUrl обязан откатываться на общий раздел «Ссылки наружу» — иначе
+    // расширение реестра молча увело бы старые уведомления в никуда.
+    const openedNote = await prisma.notification.findFirst({
+      where: { userId: u1, type: 'share.link.opened', payload: loudWhere },
+      select: { actionUrl: true },
+    });
+    check('actionUrl без describeRef.href — «Ссылки наружу»', openedNote?.actionUrl === '/profile/links', String(openedNote?.actionUrl));
     // Ещё открытия за те же сутки не должны добавлять ни одного уведомления.
     await call('POST', `/share-links/guest/${loudTok}/session`, null, {});
     const afterMute = await prisma.notification.count({

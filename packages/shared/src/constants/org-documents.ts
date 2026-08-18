@@ -11,14 +11,23 @@
 /** Полиморфный ключ карточки документа во всех движках (approvals, chatter, search) */
 export const ORG_DOCUMENT_REF_TYPE = 'org_document';
 
-/** Категория вида — от неё зависят профиль редактора маршрутов и правила ТК РК */
+/**
+ * Категория вида — от неё зависят профиль редактора маршрутов и правила ТК РК.
+ *
+ * `external` («С контрагентами») — ВНЕШНИЙ контур документооборота: договоры и
+ * АВР, где вторая сторона подписывает по гостевой ссылке. По маршрутам Процессов
+ * такие виды в v1 не ходят вовсе (путь прямой: черновик → «Отправить контрагенту»),
+ * поэтому surface у категории нет — нарисованный маршрут было бы нечем запустить.
+ */
 export const DOC_CATEGORIES = [
   { value: 'hr', label: 'Кадры', surface: 'documents.hr' },
   { value: 'general', label: 'Общие', surface: 'documents.general' },
+  { value: 'external', label: 'С контрагентами' },
 ] as const;
 export type DocCategory = (typeof DOC_CATEGORIES)[number]['value'];
 
-export const DOC_CATEGORY_SURFACE: Record<DocCategory, string> = {
+/** Профиль редактора маршрутов; у `external` его НЕТ (маршруты для него — не в v1) */
+export const DOC_CATEGORY_SURFACE: Partial<Record<DocCategory, string>> = {
   hr: 'documents.hr',
   general: 'documents.general',
 };
@@ -57,7 +66,10 @@ export type DocSignatureLevel = (typeof DOC_SIGNATURE_LEVELS)[number]['value'];
 export const DOC_STATUSES = [
   { value: 'draft', label: 'Черновик' },
   { value: 'in_review', label: 'На маршруте' },
+  // Внешний этап (категория «С контрагентами»): документ у второй стороны
+  { value: 'sent', label: 'У контрагента' },
   { value: 'rejected', label: 'Отклонён' },
+  { value: 'declined_external', label: 'Контрагент отказал' },
   { value: 'signed', label: 'Подписан' },
   { value: 'registered', label: 'Зарегистрирован' },
   { value: 'active', label: 'Действует' },
@@ -83,6 +95,22 @@ export const DOC_EDITABLE_STATUSES: readonly DocStatus[] = ['draft', 'rejected']
  * документ получал номер из книги регистрации и уезжал в личное дело.
  */
 export const DOC_ROUTABLE_STATUSES: readonly DocStatus[] = ['in_review', 'signed', 'registered', 'active'];
+
+/**
+ * Документ «в работе» — блокирует архив ВИДА. `sent` здесь обязателен: документ
+ * у контрагента — это идущий процесс, и убрать его вид в архив значило бы
+ * оставить возвращающийся документ без справочника.
+ */
+export const DOC_IN_WORK_STATUSES: readonly DocStatus[] = ['draft', 'in_review', 'sent'];
+
+/**
+ * Срок подписания контрагентом по умолчанию (задаётся при отправке). Истёк →
+ * документ АВТОМАТИЧЕСКИ возвращается в черновик, автору уходит уведомление.
+ */
+export const DOC_EXTERNAL_DEFAULT_TTL_DAYS = 30;
+
+/** Сколько внутренних подписантов можно назначить при отправке контрагенту */
+export const DOC_EXTERNAL_MAX_INTERNAL_SIGNERS = 10;
 
 /** Виды полей формы подачи (то, что заполняет сотрудник перед отправкой) */
 export const DOC_FIELD_KINDS = [

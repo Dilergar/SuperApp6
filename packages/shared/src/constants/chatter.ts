@@ -313,6 +313,82 @@ export const CHATTER_REGISTRY = {
     category: 'documents',
     chatPost: false,
   },
+  // ---- Внешний этап (категория «С контрагентами») ----
+  'org_document.sent_external': {
+    template: '{{actorName}} отправил(а) документ контрагенту{{contactSuffix}}',
+    icon: '📨',
+    category: 'documents',
+    chatPost: false,
+  },
+  'org_document.counterparty_signed': {
+    template: 'Контрагент подписал документ{{signerSuffix}}',
+    icon: '🖊️',
+    category: 'documents',
+    chatPost: false,
+  },
+  'org_document.counterparty_declined': {
+    template: 'Контрагент отказался подписывать{{reasonSuffix}}',
+    icon: '⛔',
+    category: 'documents',
+    chatPost: false,
+  },
+  'org_document.external_revoked': {
+    template: '{{actorName}} отозвал(а) отправку контрагенту',
+    icon: '↩️',
+    category: 'documents',
+    chatPost: false,
+  },
+  'org_document.external_expired': {
+    template: 'Срок подписания контрагентом истёк — документ вернулся в черновик',
+    icon: '⌛',
+    category: 'documents',
+    chatPost: false,
+  },
+  // Возврат в работу ПОСЛЕ ОТКАЗА контрагента — не «отозвали с маршрута»:
+  // причина возврата должна читаться из самой записи, без археологии по соседним.
+  'org_document.external_returned': {
+    template: '{{actorName}} вернул(а) документ в работу после отказа контрагента',
+    icon: '↩️',
+    category: 'documents',
+    chatPost: false,
+  },
+  // ---- Сервис «Контрагенты»: хроника карточки справочника ----
+  'counterparty.restored': {
+    template: '{{actorName}} вернул(а) контрагента «{{name}}» из архива',
+    icon: '↩️',
+    category: 'documents',
+    chatPost: false,
+  },
+  'counterparty.created': {
+    template: '{{actorName}} добавил(а) контрагента «{{name}}»',
+    icon: '🏢',
+    category: 'documents',
+    chatPost: false,
+  },
+  'counterparty.updated': {
+    template: '{{actorName}} изменил(а) карточку контрагента',
+    icon: '✏️',
+    category: 'documents',
+    chatPost: false,
+  },
+  'counterparty.archived': {
+    template: '{{actorName}} убрал(а) контрагента в архив',
+    icon: '📦',
+    category: 'documents',
+    chatPost: false,
+  },
+  'counterparty.contact_added': {
+    template: '{{actorName}} добавил(а) контактное лицо {{contactName}}',
+    icon: '👤',
+    category: 'documents',
+    chatPost: false,
+  },
+  'counterparty.contact_removed': {
+    template: '{{actorName}} убрал(а) контактное лицо {{contactName}}',
+    icon: '👤',
+    category: 'documents',
+    chatPost: false,
+  },
   'drive.unshared': {
     template: '{{actorName}} закрыл(а) доступ к «{{targetName}}»: {{principalLabel}}',
     icon: '🔒',

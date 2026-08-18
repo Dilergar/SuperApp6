@@ -95,9 +95,13 @@ export class DocumentsRegistriesProvider implements OnModuleInit {
         // допускать. Лучше честное «документ не готов».
         const fileId = doc.builderDoc ? doc.fileId : doc.pdfFileId;
         if (!fileId) return null;
-        // У docx-документа pdfFileId указывает на ЖИВОЙ файл, а PDF существует
-        // его вариантом — движку так и говорим, какой вариант читать.
-        const variant = !doc.builderDoc && doc.pdfFileId === doc.fileId ? 'pdf' : undefined;
+        // У docx-документа pdfFileId указывает на ЖИВОЙ файл (documentId ведёт в
+        // core/docs), а PDF существует его ВАРИАНТОМ — движку так и говорим, какой
+        // вариант читать. `documentId` в условии несущий: у ЗАГРУЖЕННОГО PDF тоже
+        // pdfFileId === fileId, но файл и есть PDF — вариант у него не существует,
+        // и без этой сверки отправка контрагенту падала «Вариант файла не найден».
+        const variant =
+          !doc.builderDoc && doc.pdfFileId === doc.fileId && !!doc.documentId ? 'pdf' : undefined;
         return {
           fileId,
           variant,
@@ -140,7 +144,18 @@ export class DocumentsRegistriesProvider implements OnModuleInit {
         // не отдельная подпись. Наше дело здесь — хроника: без неё подпись,
         // поставленная вне маршрута, не оставила бы на карточке ни следа.
         await this.chatterLog(refId, info);
+        // ВНЕШНИЙ ЭТАП: свободная заявка (без шага) двигает статус документа
+        // сама — маршрута у категории «С контрагентами» нет. Методы статус-
+        // гвардятся `WHERE status='sent'` и для внутренних документов no-op.
+        await this.externalOutcome(refId, info);
       },
+      // Срок сбора истёк (крон закрыл заявку): документ возвращается в черновик
+      onRequestExpired: async (refId, info) => {
+        await this.documents.externalResolve(refId, 'expired', { requestId: info.requestId });
+      },
+      // Сертификат ВНЕШНЕГО подписанта сверяется с карточкой контрагента:
+      // договор должен подписать тот, с кем его заключают.
+      checkGuestCert: (refId, cert) => this.documents.checkCounterpartyCert(refId, cert),
     });
 
     // ---- Файлы карточки: доступ наследуется ОТ ДОКУМЕНТА ----
@@ -196,6 +211,46 @@ export class DocumentsRegistriesProvider implements OnModuleInit {
     });
   }
 
+  /**
+   * Исход внешнего этапа по закрытому акту. Guard-методы сервиса переводят
+   * статус документа сами; здесь только маршрутизация.
+   *
+   * Отказ различается ПО СТОРОНЕ подписанта, как и подпись ниже. Отказ одного
+   * закрывает всю заявку (правило движка), но это не делает виновником вторую
+   * сторону: пока `signerType` здесь не смотрели, отказ собственного директора
+   * ставил документу статус «Контрагент отказал» и слал автору «Контрагент
+   * отказал» с причиной, которую написал свой же сотрудник, — при том, что
+   * хроника рядом честно писала `org_document.rejected`.
+   */
+  private async externalOutcome(documentId: string, info: SignActFinishedInfo): Promise<void> {
+    const act = await this.db.signAct.findUnique({
+      where: { id: info.actId },
+      select: {
+        signerType: true,
+        signerName: true,
+        declineReason: true,
+        request: { select: { id: true, approvalStepId: true } },
+      },
+    });
+    // Шаговые заявки двигает маршрут — внешний этап только у свободных
+    if (!act || act.request.approvalStepId) return;
+    const isGuest = act.signerType === 'guest';
+    if (info.outcome === 'declined') {
+      await this.documents.externalResolve(documentId, isGuest ? 'declined' : 'declined_internal', {
+        reason: act.declineReason,
+        signerName: act.signerName,
+        requestId: act.request.id,
+      });
+      return;
+    }
+    if (info.requestCompleted) {
+      await this.documents.externalMarkSigned(documentId, {
+        signerName: isGuest ? act.signerName : null,
+        requestId: act.request.id,
+      });
+    }
+  }
+
   /** След подписи в хронике карточки — она же превращается в плашку чата */
   private async chatterLog(documentId: string, info: SignActFinishedInfo): Promise<void> {
     const doc = await this.db.orgDocument.findUnique({
@@ -203,7 +258,21 @@ export class DocumentsRegistriesProvider implements OnModuleInit {
       select: { title: true, workspaceId: true },
     });
     if (!doc) return;
-    const typeKey = info.outcome === 'signed' ? 'org_document.signed' : 'org_document.rejected';
+    // Гость (контрагент) получает свои записи хроники — с именем и причиной;
+    // внутренние акты пишутся как раньше.
+    const act = await this.db.signAct.findUnique({
+      where: { id: info.actId },
+      select: { signerType: true, signerName: true, declineReason: true },
+    });
+    const isGuest = act?.signerType === 'guest';
+    const typeKey =
+      info.outcome === 'signed'
+        ? isGuest
+          ? 'org_document.counterparty_signed'
+          : 'org_document.signed'
+        : isGuest
+          ? 'org_document.counterparty_declined'
+          : 'org_document.rejected';
 
     // Хук зовёт ДЖОБ, а он исполняется at-least-once: повтор после сбоя доставки
     // уведомления написал бы «документ подписан» второй раз — и в хронике, и
@@ -226,7 +295,12 @@ export class DocumentsRegistriesProvider implements OnModuleInit {
         refId: documentId,
         workspaceId: doc.workspaceId,
         typeKey,
-        payload: { title: doc.title, reasonSuffix: '', actId: info.actId },
+        payload: {
+          title: doc.title,
+          reasonSuffix: isGuest && act?.declineReason ? `: ${act.declineReason}` : '',
+          signerSuffix: isGuest && act?.signerName ? ` — ${act.signerName}` : '',
+          actId: info.actId,
+        },
         actorId: info.signerUserId ?? undefined,
       })
       .catch(() => undefined);

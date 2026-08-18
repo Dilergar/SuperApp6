@@ -6,9 +6,12 @@ import { TemplatesModule } from '../templates/templates.module';
 import { SignController, SignQrBridgeController } from './sign.controller';
 import { SignCron } from './sign.cron';
 import { SignDevController, SignDevProvider } from './sign.dev';
+import { SignGuestController } from './sign-guest.controller';
+import { SignInboxProvider } from './sign-inbox.provider';
 import { SignJobs } from './sign.jobs';
 import { SignProtocolService } from './sign-protocol.service';
 import { SignShareLinksProvider } from './sign-share-links.provider';
+import { SignStampService } from './sign-stamp.service';
 import { SignQrService } from './sign-qr.service';
 import { SignRegistry } from './sign.registry';
 import { SignService } from './sign.service';
@@ -40,13 +43,14 @@ import { SignVerifierService } from './drivers/sign-verifier.driver';
   // Gotenberg, что и блочные документы. Один печатающий движок на платформу.
   imports: [TemplatesModule],
   controllers: isDevEnv()
-    ? [SignController, SignQrBridgeController, SignDevController]
-    : [SignController, SignQrBridgeController],
+    ? [SignController, SignQrBridgeController, SignGuestController, SignDevController]
+    : [SignController, SignQrBridgeController, SignGuestController],
   providers: [
     SignService,
     SignRegistry,
     SignQrService,
     SignProtocolService,
+    SignStampService,
     SignVerifierService,
     SignQrBridgeService,
     SignJobs,
@@ -55,6 +59,8 @@ import { SignVerifierService } from './drivers/sign-verifier.driver';
     // Внешний подписант по гостевой ссылке — первый потребитель слота `actions`
     // движка core/share-links (он ждал именно этого случая).
     SignShareLinksProvider,
+    // Свободные подписи (внутренние подписанты ЭДО) в общей стопке «Ждут решения»
+    SignInboxProvider,
   ],
   exports: [SignService, SignRegistry],
 })

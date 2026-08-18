@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -9,19 +10,27 @@ import {
   DEFAULT_DOC_NUMBER_FORMAT,
   DOC_EDITABLE_STATUSES,
   DOC_GRANT_PRINCIPAL_TYPES,
+  DOC_EXTERNAL_DEFAULT_TTL_DAYS,
+  DOC_IN_WORK_STATUSES,
   DOC_LIMITS,
   DOC_ROUTABLE_STATUSES,
   ORG_DOCUMENT_REF_TYPE,
+  SIGN_REQUEST_REF_TYPE,
   WORKSPACE_ROLE_RANK,
+  buildShareLinkUrl,
+  buildSignLinkSmsText,
+  maskPhone,
   expandDocFormValues,
   formatDocNumber,
   isDocDateRangeValue,
   emptyBuilderDoc,
   type BuilderDoc,
+  type CounterpartyLiteDto,
   type CreateDocTemplateInput,
   type CreateDocTypeInput,
   type CreateFreeOrgDocumentInput,
   type CreateOrgDocumentInput,
+  type CreateUploadedOrgDocumentInput,
   type DocCategory,
   type DocFormFieldDto,
   type DocStatus,
@@ -29,15 +38,23 @@ import {
   type AvailableTemplateDto,
   type DocTemplateGrantDto,
   type DocTemplateGrantInput,
+  type OrgDocumentContactRef,
+  type OrgDocumentExternalDto,
   type OrgDocumentListDto,
   type DocTypeDto,
   type ListOrgDocumentsInput,
   type OrgDocumentDto,
+  type CreateShareLinkInput,
+  type SendExternalOrgDocumentInput,
+  type SignActStatus,
+  type SignLevel,
+  type SignRequestStatus,
   type UpdateDocTemplateInput,
   type UpdateDocTypeInput,
   type UpdateOrgDocumentInput,
   type WorkspaceRole,
 } from '@superapp/shared';
+import type { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { AccessService } from '../../core/access/access.service';
@@ -52,8 +69,20 @@ import { SignService } from '../../core/sign/sign.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { JobsService } from '../../core/jobs/jobs.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { CounterpartiesService } from '../counterparties/counterparties.service';
+import { FilesService } from '../../core/files/files.service';
+import { ShareLinksService } from '../../core/share-links/share-links.service';
+import { SmsOutboundService } from '../../core/verify/sms-outbound.service';
+import { isDevEnv } from '../../shared/config/env.validation';
 import { fullName } from '../../shared/utils/user-name';
-import { DOCUMENTS_FILE_JOB, DOCUMENTS_GENERATE_JOB, DOCUMENTS_PDF_JOB } from './documents.constants';
+import {
+  DOCUMENTS_FILE_JOB,
+  DOCUMENTS_GENERATE_JOB,
+  DOCUMENTS_PDF_JOB,
+  DOCX_MIME_TYPE,
+  PDF_MIME_TYPE,
+  docGenKey,
+} from './documents.constants';
 
 const WS_CONTEXT = 'workspace';
 
@@ -103,6 +132,10 @@ export class DocumentsService {
     private readonly notifications: NotificationsService,
     private readonly approvals: ApprovalsService,
     private readonly sign: SignService,
+    private readonly counterparties: CounterpartiesService,
+    private readonly files: FilesService,
+    private readonly shareLinks: ShareLinksService,
+    private readonly smsOutbound: SmsOutboundService,
   ) {}
 
   /** Ставится на bootstrap модулем — см. DocumentsModule (разрыв цикла с Процессами). */
@@ -164,22 +197,69 @@ export class DocumentsService {
     if (count >= DOC_LIMITS.maxTypesPerWorkspace) {
       throw new BadRequestException('Достигнут предел видов документов в организации');
     }
-    const row = await this.db.docType.create({
-      data: {
+    const category = (dto.category ?? 'general') as DocCategory;
+    // «В личное дело» — про сотрудника; у документа с контрагентом личного дела нет.
+    if (category === 'external' && dto.toPersonalFile) {
+      throw new BadRequestException('Документы с контрагентами не подшиваются в личное дело');
+    }
+    await this.assertTypeNameFree(workspaceId, dto.name);
+    try {
+      const row = await this.db.docType.create({
+        data: {
+          workspaceId,
+          name: dto.name,
+          category,
+          numberFormat: dto.numberFormat ?? DEFAULT_DOC_NUMBER_FORMAT,
+          visibility: dto.visibility ?? 'managers',
+          // Кадровому виду по умолчанию ставим ЭЦП: ст. 33 ТК РК не оставляет
+          // выбора, а «по умолчанию без подписи» означало бы, что забыть можно
+          // молча. Внешнему (договоры) — ПЭП: достаточна по соглашению сторон
+          // (ст. 47 ЦК) и работает у контрагента без ключа НУЦ; поднять до ЭЦП
+          // можно явно. Снять требование тоже можно явно.
+          signatureLevel:
+            dto.signatureLevel ?? (category === 'hr' ? 'ecp' : category === 'external' ? 'pep' : 'none'),
+          toPersonalFile: dto.toPersonalFile ?? false,
+          sortOrder: dto.sortOrder ?? 0,
+        },
+      });
+      return this.serializeType(row, 0);
+    } catch (err) {
+      this.rethrowTypeNameConflict(err);
+      throw err;
+    }
+  }
+
+  /**
+   * Имя вида свободно среди ЖИВЫХ видов организации. Проверка дружелюбная,
+   * НАСТОЯЩАЯ гарантия — партиальный уникум `doc_types_workspace_name_live`
+   * (lower(name), руками в миграции): папка реестра на Диске ключуется именем
+   * вида, и одноимённые виды делили бы одну папку — вместе с её грантами. Вид
+   * «команда» открывал бы команде уже подшитые документы вида «управляющие».
+   */
+  private async assertTypeNameFree(
+    workspaceId: string,
+    name: string,
+    exceptTypeId?: string,
+  ): Promise<void> {
+    const taken = await this.db.docType.findFirst({
+      where: {
         workspaceId,
-        name: dto.name,
-        category: dto.category ?? 'general',
-        numberFormat: dto.numberFormat ?? DEFAULT_DOC_NUMBER_FORMAT,
-        visibility: dto.visibility ?? 'managers',
-        // Кадровому виду по умолчанию ставим ЭЦП: ст. 33 ТК РК не оставляет
-        // выбора, а «по умолчанию без подписи» означало бы, что забыть можно
-        // молча. Снять требование по-прежнему можно явно.
-        signatureLevel: dto.signatureLevel ?? (dto.category === 'hr' ? 'ecp' : 'none'),
-        toPersonalFile: dto.toPersonalFile ?? false,
-        sortOrder: dto.sortOrder ?? 0,
+        archivedAt: null,
+        name: { equals: name, mode: 'insensitive' },
+        ...(exceptTypeId ? { id: { not: exceptTypeId } } : {}),
       },
+      select: { id: true },
     });
-    return this.serializeType(row, 0);
+    if (taken) {
+      throw new ConflictException('Вид с таким названием уже есть — выберите другое имя');
+    }
+  }
+
+  /** Гонку за имя проиграли на уникуме — тот же человеческий 409, что у проверки */
+  private rethrowTypeNameConflict(err: unknown): void {
+    if ((err as Prisma.PrismaClientKnownRequestError)?.code === 'P2002') {
+      throw new ConflictException('Вид с таким названием уже есть — выберите другое имя');
+    }
   }
 
   async updateType(
@@ -190,20 +270,47 @@ export class DocumentsService {
   ): Promise<DocTypeDto> {
     await this.requireManager(userId, workspaceId);
     const type = await this.typeOrThrow(workspaceId, typeId);
-    const row = await this.db.docType.update({
-      where: { id: type.id },
-      data: {
-        ...(dto.name !== undefined ? { name: dto.name } : {}),
-        ...(dto.category !== undefined ? { category: dto.category } : {}),
-        ...(dto.numberFormat !== undefined ? { numberFormat: dto.numberFormat } : {}),
-        ...(dto.visibility !== undefined ? { visibility: dto.visibility } : {}),
-        ...(dto.signatureLevel !== undefined ? { signatureLevel: dto.signatureLevel } : {}),
-        ...(dto.toPersonalFile !== undefined ? { toPersonalFile: dto.toPersonalFile } : {}),
-        ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
-      },
-      include: { _count: { select: { templates: true } } },
-    });
-    return this.serializeType(row, row._count.templates);
+    // Смена категории на/с «С контрагентами» при живых документах запрещена:
+    // у категорий разные пути (маршрут ↔ прямая отправка), и существующие
+    // документы оказались бы на пути, которого для них не существует.
+    if (
+      dto.category !== undefined &&
+      dto.category !== type.category &&
+      (dto.category === 'external' || type.category === 'external')
+    ) {
+      const docs = await this.db.orgDocument.count({ where: { docTypeId: type.id } });
+      if (docs > 0) {
+        throw new BadRequestException(
+          'У вида уже есть документы — категорию «С контрагентами» менять нельзя, заведите новый вид',
+        );
+      }
+    }
+    const nextCategory = (dto.category ?? type.category) as DocCategory;
+    if (nextCategory === 'external' && (dto.toPersonalFile ?? type.toPersonalFile)) {
+      throw new BadRequestException('Документы с контрагентами не подшиваются в личное дело');
+    }
+    if (dto.name !== undefined && dto.name !== type.name) {
+      await this.assertTypeNameFree(workspaceId, dto.name, type.id);
+    }
+    try {
+      const row = await this.db.docType.update({
+        where: { id: type.id },
+        data: {
+          ...(dto.name !== undefined ? { name: dto.name } : {}),
+          ...(dto.category !== undefined ? { category: dto.category } : {}),
+          ...(dto.numberFormat !== undefined ? { numberFormat: dto.numberFormat } : {}),
+          ...(dto.visibility !== undefined ? { visibility: dto.visibility } : {}),
+          ...(dto.signatureLevel !== undefined ? { signatureLevel: dto.signatureLevel } : {}),
+          ...(dto.toPersonalFile !== undefined ? { toPersonalFile: dto.toPersonalFile } : {}),
+          ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
+        },
+        include: { _count: { select: { templates: true } } },
+      });
+      return this.serializeType(row, row._count.templates);
+    } catch (err) {
+      this.rethrowTypeNameConflict(err);
+      throw err;
+    }
   }
 
   /**
@@ -222,7 +329,9 @@ export class DocumentsService {
     await this.requireManager(userId, workspaceId);
     const type = await this.typeOrThrow(workspaceId, typeId);
     const live = await this.db.orgDocument.count({
-      where: { docTypeId: type.id, status: { in: ['draft', 'in_review'] } },
+      // `sent` в списке обязателен: документ у контрагента — идущий процесс, и вид
+      // под возвращающимся документом исчезать не должен (DOC_IN_WORK_STATUSES).
+      where: { docTypeId: type.id, status: { in: [...DOC_IN_WORK_STATUSES] } },
     });
     if (live > 0) throw new BadRequestException('Есть документы этого вида в работе — сначала завершите их');
     const archivedAt = new Date();
@@ -597,6 +706,8 @@ export class DocumentsService {
         workspaceId: row.workspaceId,
         subjectUserId: row.subjectUserId ?? undefined,
         actorUserId: row.createdById,
+        counterpartyId: row.counterpartyId ?? undefined,
+        counterpartyContactId: row.counterpartyContactId ?? undefined,
       })),
     };
     const logoDataUri = await this.builderLogo(row.workspaceId, builderDoc);
@@ -689,8 +800,18 @@ export class DocumentsService {
       throw new ForbiddenException('По этому шаблону документ оформляет управляющий');
     }
 
-    const subjectUserId = dto.subjectUserId ?? userId;
+    const type = await this.typeOrThrow(workspaceId, tpl.docTypeId);
+    // У документа с контрагентом сотрудник-«сторона» — необязательный куратор,
+    // а не суть документа: по умолчанию НЕ подставляем автора.
+    const subjectUserId =
+      type.category === 'external' ? (dto.subjectUserId ?? null) : (dto.subjectUserId ?? userId);
     await this.assertSubject(userId, workspaceId, role, subjectUserId);
+    await this.assertCounterpartyBinding(
+      workspaceId,
+      type.category,
+      dto.counterpartyId ?? null,
+      dto.counterpartyContactId ?? null,
+    );
 
     const fields = await this.sanitizeFields(dto.fields ?? {}, tpl.id);
     const created = await this.db.$transaction(async (tx) => {
@@ -702,6 +823,8 @@ export class DocumentsService {
           title: dto.title ?? tpl.name,
           status: 'draft',
           subjectUserId,
+          counterpartyId: dto.counterpartyId ?? null,
+          counterpartyContactId: dto.counterpartyContactId ?? null,
           createdById: userId,
           fields: fields as object,
           // СНИМОК блоков: правка шаблона после подачи не меняет поданное
@@ -722,7 +845,7 @@ export class DocumentsService {
       await this.jobs.enqueue(tx, {
         type: DOCUMENTS_GENERATE_JOB,
         payload: { documentId: row.id },
-        uniqueKey: `doc:gen:${row.id}`,
+        uniqueKey: docGenKey(row.id),
       });
       return row;
     });
@@ -742,8 +865,15 @@ export class DocumentsService {
     const role = await this.requireTeam(userId, workspaceId);
     const type = await this.typeOrThrow(workspaceId, dto.docTypeId);
 
-    const subjectUserId = dto.subjectUserId ?? userId;
+    const subjectUserId =
+      type.category === 'external' ? (dto.subjectUserId ?? null) : (dto.subjectUserId ?? userId);
     await this.assertSubject(userId, workspaceId, role, subjectUserId);
+    await this.assertCounterpartyBinding(
+      workspaceId,
+      type.category,
+      dto.counterpartyId ?? null,
+      dto.counterpartyContactId ?? null,
+    );
 
     const created = await this.db.$transaction(async (tx) => {
       const row = await tx.orgDocument.create({
@@ -754,6 +884,8 @@ export class DocumentsService {
           title: dto.title,
           status: 'draft',
           subjectUserId,
+          counterpartyId: dto.counterpartyId ?? null,
+          counterpartyContactId: dto.counterpartyContactId ?? null,
           createdById: userId,
           fields: {},
           ...(dto.formFields ? { formFields: dto.formFields as object } : {}),
@@ -772,11 +904,142 @@ export class DocumentsService {
       await this.jobs.enqueue(tx, {
         type: DOCUMENTS_GENERATE_JOB,
         payload: { documentId: row.id },
-        uniqueKey: `doc:gen:${row.id}`,
+        uniqueKey: docGenKey(row.id),
       });
       return row;
     });
     return this.get(userId, created.id);
+  }
+
+  /**
+   * ТРЕТИЙ путь создания — ГОТОВЫЙ файл (договор согласован в Word/PDF вне
+   * платформы, сюда приходит на подпись и в реестр). Файл уже загружен обычным
+   * путём движка файлов; здесь — привязка карточкой.
+   *
+   * PDF становится отпечатком сразу (`pdfFileId = fileId`); DOCX оживляется в
+   * core/docs (правится общим редактором), отпечаток снимет rendition-путь.
+   * Замена файла у такой карточки — не в v1: новый файл = новый документ.
+   */
+  async createUploadedDocument(
+    userId: string,
+    workspaceId: string,
+    dto: CreateUploadedOrgDocumentInput,
+  ): Promise<OrgDocumentDto> {
+    const role = await this.requireTeam(userId, workspaceId);
+    const type = await this.typeOrThrow(workspaceId, dto.docTypeId);
+
+    const subjectUserId =
+      type.category === 'external' ? (dto.subjectUserId ?? null) : (dto.subjectUserId ?? userId);
+    await this.assertSubject(userId, workspaceId, role, subjectUserId);
+    await this.assertCounterpartyBinding(
+      workspaceId,
+      type.category,
+      dto.counterpartyId ?? null,
+      dto.counterpartyContactId ?? null,
+    );
+
+    await this.assertOwnFile(userId, dto.fileId);
+    const file = await this.db.fileObject.findUniqueOrThrow({
+      where: { id: dto.fileId },
+      select: { mime: true, name: true, profile: true },
+    });
+    // Уже карточка другого документа? Один файл — одна карточка: иначе вторая
+    // карточка тихо делила бы правку и подписание с первой. Быстрый ответ — здесь,
+    // НАСТОЯЩАЯ гарантия — уникум `org_documents_file_id_key` (P2002 ниже): проверка
+    // чтением не переживает двойной клик, обе вставки успевают пройти до обеих.
+    const taken = await this.db.orgDocument.findFirst({ where: { fileId: dto.fileId }, select: { id: true } });
+    if (taken) throw new BadRequestException('Этот файл уже прикреплён к другому документу');
+    // Профиль — строго `document` (его потолок 50 МБ и есть расчётный размер
+    // конвейера): файл чужого профиля — двухгигабайтный drive_file, вложение
+    // чата — утащил бы заморозку core/sign и джоб штампа за расчётные размеры.
+    if (file.profile !== 'document') {
+      throw new BadRequestException('Загрузите файл через окно «Загрузить готовый файл» — нужна загрузка профилем «Документ»');
+    }
+    // ФОРМАТ — только печатные: PDF и Word. Остальное (таблицы, фото, архивы)
+    // документом-на-подпись не является.
+    const isPdf = file.mime === PDF_MIME_TYPE;
+    if (!isPdf && file.mime !== DOCX_MIME_TYPE) {
+      throw new BadRequestException('Документом можно сделать только PDF или Word-файл (.docx)');
+    }
+
+    const title = dto.title ?? file.name.replace(/\.(pdf|docx)$/i, '');
+    const created = await this.createUploadedRow(userId, workspaceId, dto, {
+      typeId: type.id,
+      title,
+      subjectUserId,
+      isPdf,
+    });
+
+    // DOCX оживляем в core/docs ПОСЛЕ транзакции (создание документа зовёт движок
+    // с его собственными транзакциями — держать их внутри нашей нельзя).
+    if (!isPdf && this.docs.enabled) {
+      const live = await this.docs
+        .createFromFile(userId, { fileId: dto.fileId, title })
+        .catch((e) => {
+          this.logger.warn(`оживление загруженного документа ${created.id}: ${(e as Error).message}`);
+          return null;
+        });
+      if (live) {
+        await this.db.orgDocument.update({ where: { id: created.id }, data: { documentId: live.id } });
+        await this.requestPdf(created.id).catch(() => undefined);
+      }
+    }
+    return this.get(userId, created.id);
+  }
+
+  /** Вставка карточки загруженного файла: уникум `file_id` → человеческий отказ */
+  private async createUploadedRow(
+    userId: string,
+    workspaceId: string,
+    dto: CreateUploadedOrgDocumentInput,
+    ctx: { typeId: string; title: string; subjectUserId: string | null; isPdf: boolean },
+  ) {
+    const { typeId, title, subjectUserId, isPdf } = ctx;
+    try {
+      return await this.db.$transaction(async (tx) => {
+        const row = await tx.orgDocument.create({
+          data: {
+            workspaceId,
+            docTypeId: typeId,
+            templateId: null,
+            title,
+            status: 'draft',
+            subjectUserId,
+            counterpartyId: dto.counterpartyId ?? null,
+            counterpartyContactId: dto.counterpartyContactId ?? null,
+            createdById: userId,
+            fileId: dto.fileId,
+            // PDF готов быть отпечатком сразу; у DOCX отпечаток снимет rendition
+            pdfFileId: isPdf ? dto.fileId : null,
+            fields: {},
+          },
+        });
+        // Связь с карточкой В ТОЙ ЖЕ транзакции: она делает документ «местом» файла
+        // со своими правилами видимости (scopedPlace) — и держит файл от реапа.
+        await this.files.linkSystemInTx(tx, {
+          fileId: dto.fileId,
+          refType: ORG_DOCUMENT_REF_TYPE,
+          refId: row.id,
+          createdById: userId,
+        });
+        await this.chatter.log(tx, {
+          refType: ORG_DOCUMENT_REF_TYPE,
+          refId: row.id,
+          workspaceId,
+          actorId: userId,
+          actorName: await this.nameOf(userId),
+          typeKey: 'org_document.created',
+          payload: { title: row.title },
+        });
+        return row;
+      });
+    } catch (err) {
+      // Гонку за файл выиграл параллельный запрос — тот же отказ, что у проверки выше
+      if ((err as Prisma.PrismaClientKnownRequestError)?.code === 'P2002') {
+        throw new BadRequestException('Этот файл уже прикреплён к другому документу');
+      }
+      throw err;
+    }
   }
 
   async list(userId: string, workspaceId: string, q: ListOrgDocumentsInput): Promise<OrgDocumentListDto> {
@@ -785,6 +1048,9 @@ export class DocumentsService {
     const filters: Record<string, unknown>[] = [where];
     if (q.docTypeId) filters.push({ docTypeId: q.docTypeId });
     if (q.status) filters.push({ status: q.status });
+    // Вкладка «С контрагентами» = category=external; фильтр по виду документа
+    if (q.category) filters.push({ docType: { category: q.category } });
+    if (q.counterpartyId) filters.push({ counterpartyId: q.counterpartyId });
     if (q.subjectUserId) filters.push({ subjectUserId: q.subjectUserId });
     if (q.createdById) filters.push({ createdById: q.createdById });
     if (q.search) {
@@ -812,9 +1078,12 @@ export class DocumentsService {
       }),
       this.db.orgDocument.count({ where: whereAll }),
     ]);
-    const names = await this.namesOf(rows.flatMap((r) => [r.subjectUserId, r.createdById]));
+    const [names, cpx] = await Promise.all([
+      this.namesOf(rows.flatMap((r) => [r.subjectUserId, r.createdById])),
+      this.counterpartyRefs(rows),
+    ]);
     return {
-      items: rows.map((r) => this.serializeDocument(r, r.docType, r.template, names)),
+      items: rows.map((r) => this.serializeDocument(r, r.docType, r.template, names, cpx)),
       total,
     };
   }
@@ -827,33 +1096,67 @@ export class DocumentsService {
     if (!row) throw new NotFoundException('Документ не найден');
     const role = await this.requireTeam(userId, row.workspaceId);
     if (!(await this.canView(userId, row, role))) throw new ForbiddenException('Нет доступа к документу');
-    const names = await this.namesOf([row.subjectUserId, row.createdById]);
-    const dto = this.serializeDocument(row, row.docType, row.template, names);
+    const [names, cpx] = await Promise.all([
+      this.namesOf([row.subjectUserId, row.createdById]),
+      this.counterpartyRefs([row]),
+    ]);
+    const dto = this.serializeDocument(row, row.docType, row.template, names, cpx);
     // Заявку заводит НОДА маршрута, поэтому колонка карточки всегда пуста — спрашиваем
     // живую у движка решений: без неё с карточки не было пути к маршруту согласования.
     dto.approvalRequestId =
       row.approvalRequestId ?? (await this.approvals.activeRequestIdForRef(ORG_DOCUMENT_REF_TYPE, row.id));
+    const isExternal = row.docType.category === 'external';
+    const authorOrManager = row.createdById === userId || this.isManager(role);
     dto.can = {
       edit: this.canEdit(userId, row, role),
       // Ровно те статусы, которые принимает сам `submit`: пока здесь стоял только
       // 'draft', возвращённый на доработку документ правился, но отправить его было
-      // нечем — кнопки не было, хотя ручка сработала бы.
-      submit: this.canEdit(userId, row, role) && DOC_EDITABLE_STATUSES.includes(row.status as DocStatus),
+      // нечем — кнопки не было, хотя ручка сработала бы. У external маршрута НЕТ —
+      // его путь «Отправить контрагенту», и кнопка submit не показывается.
+      submit:
+        !isExternal &&
+        this.canEdit(userId, row, role) &&
+        DOC_EDITABLE_STATUSES.includes(row.status as DocStatus),
       cancel:
-        (row.createdById === userId || this.isManager(role)) &&
-        ['draft', 'in_review', 'rejected'].includes(row.status),
+        authorOrManager && ['draft', 'in_review', 'rejected', 'declined_external'].includes(row.status),
       // Возврат в черновик — только пока по документу никто не решает; живую заявку
       // проверяем здесь же, чтобы кнопка не появлялась там, где ручка откажет.
       withdraw:
-        (row.createdById === userId || this.isManager(role)) &&
+        authorOrManager &&
         row.status === 'in_review' &&
         !(await this.approvals.activeRequestIdForRef(ORG_DOCUMENT_REF_TYPE, row.id)),
       manage: this.isManager(role),
+      // Внешний контур: номер печатается в тексте ДО отправки (в отличие от
+      // кадрового приказа, где его присваивает нода «Регистрация» после подписи).
+      assignNumber:
+        isExternal && authorOrManager && !row.number && DOC_EDITABLE_STATUSES.includes(row.status as DocStatus),
+      // Отправка контрагенту — Менеджер+ (решение продукта): это не подача заявления
+      // о себе, а действие, которым организацию ОБЯЗЫВАЮТ договором. Черновик при
+      // этом готовит кто угодно из команды — планка стоит на отправке, не на тексте.
+      sendExternal:
+        isExternal && this.isManager(role) && DOC_EDITABLE_STATUSES.includes(row.status as DocStatus),
+      revokeExternal: isExternal && authorOrManager && row.status === 'sent',
+      returnToDraft: isExternal && authorOrManager && row.status === 'declined_external',
     };
-    // Подписи под документом — блок «Подписи» на карточке. Права внутри решает
-    // сам движок подписи (участник, автор либо тот, кому мы разрешили видеть
-    // предмет), поэтому здесь достаточно спросить.
-    dto.sign = await this.sign.summaryForRef(userId, ORG_DOCUMENT_REF_TYPE, row.id).catch(() => null);
+    // Живая пересборка — вебу: кнопки, которые страж assertNotRebuilding отвергнет
+    // («Отправить», «Отправить контрагенту»), карточка гасит заранее и опрашивает
+    // себя, пока флаг не погаснет, — вместо красного тоста на честный клик.
+    dto.rebuilding = await this.isRebuilding(row.id, { pdfRewritesFile: !!row.builderDoc }).catch(() => false);
+    // Подписи под документом — блок «Подписи» на карточке. Право зрителя на
+    // ПРЕДМЕТ проверено выше (canView), о чём движку и говорим: `viewAuthorized`
+    // здесь несущий, а не оптимизация — иначе движок переспрашивает право у
+    // своего резолвера, тот реализован как `documents.get`, и зритель team-вида
+    // без роли в заявке замыкал кольцо get → summaryForRef → canViewRequest →
+    // get: запрос висел до HTTP-таймаута, молотя БД.
+    dto.sign = await this.sign
+      .summaryForRef(userId, ORG_DOCUMENT_REF_TYPE, row.id, { viewAuthorized: true })
+      .catch(() => null);
+    // Внешний этап (только у «С контрагентами»): состояние доставки и подписания
+    // второй стороной — право видеть уже подтверждено canView выше. Адрес ссылки
+    // при этом остаётся у Менеджер+: он даёт ПОДПИСАТЬ, а не посмотреть.
+    if (isExternal) {
+      dto.external = await this.externalStage(row, { manager: this.isManager(role) }).catch(() => null);
+    }
     return dto;
   }
 
@@ -872,6 +1175,18 @@ export class DocumentsService {
     // и удостоверение этого человека — данные, закрытые от коллег по умолчанию.
     if (dto.subjectUserId !== undefined && dto.subjectUserId !== row.subjectUserId) {
       await this.assertSubject(userId, row.workspaceId, role, dto.subjectUserId);
+    }
+    // ТА ЖЕ проверка привязки контрагента, что при создании (одно определение).
+    if (dto.counterpartyId !== undefined || dto.counterpartyContactId !== undefined) {
+      const type = await this.db.docType.findUniqueOrThrow({
+        where: { id: row.docTypeId },
+        select: { category: true },
+      });
+      const nextCounterpartyId =
+        dto.counterpartyId !== undefined ? dto.counterpartyId : row.counterpartyId;
+      const nextContactId =
+        dto.counterpartyContactId !== undefined ? dto.counterpartyContactId : row.counterpartyContactId;
+      await this.assertCounterpartyBinding(row.workspaceId, type.category, nextCounterpartyId, nextContactId);
     }
     // Тело правится только у блочного документа (у docx тело живёт файлом core/docs)
     if (dto.builderDoc && !row.builderDoc) {
@@ -893,6 +1208,14 @@ export class DocumentsService {
           ? { fields: (await this.sanitizeFields(dto.fields, row.templateId, nextSpec)) as object }
           : {}),
         ...(dto.subjectUserId !== undefined ? { subjectUserId: dto.subjectUserId } : {}),
+        ...(dto.counterpartyId !== undefined
+          ? {
+              counterpartyId: dto.counterpartyId,
+              // Снят контрагент — контакт не переживает его (принадлежит ему)
+              ...(dto.counterpartyId === null ? { counterpartyContactId: null } : {}),
+            }
+          : {}),
+        ...(dto.counterpartyContactId !== undefined ? { counterpartyContactId: dto.counterpartyContactId } : {}),
         ...(dto.builderDoc !== undefined ? { builderDoc: dto.builderDoc as object } : {}),
         ...(dto.formFields !== undefined
           ? {
@@ -907,14 +1230,19 @@ export class DocumentsService {
           : {}),
       },
     });
-    // Данные формы или тело поменялись — бланк пересобираем: иначе в документе
-    // останется старое значение, а человек будет уверен, что отправил новое.
-    if (dto.fields !== undefined || dto.builderDoc !== undefined || dto.formFields !== undefined) {
-      await this.jobs.enqueue(null, {
-        type: DOCUMENTS_GENERATE_JOB,
-        payload: { documentId: row.id },
-        uniqueKey: `doc:gen:${row.id}:${Date.now()}`,
-      });
+    // Данные формы, тело, НАЗВАНИЕ (печатается в {Документ.Название} и шапке
+    // конструктора) или КОНТРАГЕНТ поменялись — бланк пересобираем: иначе в
+    // документе останется старое значение (у контрагента — чужие реквизиты в тегах
+    // {Контрагент.*}), а человек будет уверен, что отправил новое.
+    if (
+      dto.title !== undefined ||
+      dto.fields !== undefined ||
+      dto.builderDoc !== undefined ||
+      dto.formFields !== undefined ||
+      dto.counterpartyId !== undefined ||
+      dto.counterpartyContactId !== undefined
+    ) {
+      await this.requestGenerate(row.id);
     }
     return this.get(userId, row.id);
   }
@@ -933,7 +1261,21 @@ export class DocumentsService {
     if (row.status !== 'draft' && row.status !== 'rejected') {
       throw new BadRequestException('Отправить можно только черновик');
     }
+    // У документов «С контрагентами» маршрута НЕТ (v1): их путь прямой — кнопка
+    // «Отправить контрагенту» на карточке (внутренние подписи собираются той же
+    // заявкой). Пускать их на внутренний маршрут значило бы завести документ в
+    // состояние, из которого не существует продолжения.
+    const docType = await this.db.docType.findUniqueOrThrow({
+      where: { id: row.docTypeId },
+      select: { category: true },
+    });
+    if (docType.category === 'external') {
+      throw new BadRequestException('Документ с контрагентом отправляется контрагенту с карточки документа');
+    }
     if (!row.fileId) throw new BadRequestException('Документ ещё формируется — попробуйте через минуту');
+    // Тот же страж, что у отправки контрагенту: замороженный предмет решения не
+    // должен отставать от только что отредактированных полей.
+    await this.assertNotRebuilding(row.id, { pdfRewritesFile: !!row.builderDoc });
 
     // Маршрут ищем ДО заморозки — но его отсутствие не запрещает подачу: в v1 это
     // законный сценарий (сначала заводят виды и шаблоны, маршруты рисуют потом), и
@@ -1031,7 +1373,10 @@ export class DocumentsService {
     if (row.createdById !== userId && !this.isManager(role)) {
       throw new ForbiddenException('Отменить может автор или Менеджер+');
     }
-    if (!['draft', 'in_review', 'rejected'].includes(row.status)) {
+    // `declined_external` отменяем тоже (контрагент отказал — документ закрывают);
+    // из `sent` пути нет: сначала «Отозвать отправку», отмена под ногами у
+    // подписывающего контрагента — это гонка, которую незачем разрешать.
+    if (!['draft', 'in_review', 'rejected', 'declined_external'].includes(row.status)) {
       throw new BadRequestException('Этот документ уже нельзя отменить');
     }
     const claimed = await this.db.orgDocument.updateMany({
@@ -1068,6 +1413,635 @@ export class DocumentsService {
       })
       .catch(() => undefined);
     return this.get(userId, row.id);
+  }
+
+  // ============================================================
+  // ВНЕШНИЙ ЭТАП (категория «С контрагентами»): отправка второй стороне
+  // ============================================================
+
+  /**
+   * Файл документа сейчас ПЕРЕСОБИРАЕТСЯ? Живой джоб сборки бланка означает, что
+   * текущие байты устарели: «Присвоить номер» и правка полей ставят пересборку
+   * фоном и возвращают управление сразу, а заморозка (submit / отправка
+   * контрагенту) берёт файл НЕМЕДЛЕННО. Без этого стража контрагент подписывал
+   * договор с пустой графой номера, при том что в карточке и книге регистрации
+   * номер уже стоял: обе стороны подписали один файл, и криптография расхождения
+   * не видела — оно всплывало при сверке бумаг.
+   *
+   * PDF-джоб блокирует ТОЛЬКО builder-документы: у них он ПЕРЕЗАПИСЫВАЕТ сам
+   * файл карточки из текущих блоков. У docx-документа тот же джоб лишь снимает
+   * контентный отпечаток живого файла и содержимое не трогает — блокировать по
+   * нему значило бы держать submit до получаса (у джоба бэкофф ретраев 30с+,
+   * пока Collabora конвертирует), что сьют и поймал: возврат «на доработку» →
+   * правка названия → повторная отправка упиралась в pdf-джоб ПЕРВОЙ отправки.
+   * Несвежий отпечаток у docx закрыт другим замком: пересборка бланка обнуляет
+   * `pdfFileId`, и отправка честно отвечает «отпечаток ещё формируется».
+   */
+  private async assertNotRebuilding(
+    documentId: string,
+    opts: { pdfRewritesFile: boolean },
+  ): Promise<void> {
+    if (await this.isRebuilding(documentId, opts)) {
+      throw new BadRequestException('Документ ещё пересобирается — попробуйте через несколько секунд');
+    }
+  }
+
+  /**
+   * Живая пересборка содержимого? Тот же предикат, что у стража отправки, — он же
+   * едет в DTO карточки (`rebuilding`): кнопки, которые страж отвергнет, веб гасит
+   * заранее и опрашивает карточку, пока пересборка не дожуётся.
+   */
+  private async isRebuilding(
+    documentId: string,
+    opts: { pdfRewritesFile: boolean },
+  ): Promise<boolean> {
+    const types = opts.pdfRewritesFile
+      ? [DOCUMENTS_GENERATE_JOB, DOCUMENTS_PDF_JOB]
+      : [DOCUMENTS_GENERATE_JOB];
+    const live = await this.db.job.findFirst({
+      where: {
+        type: { in: types },
+        status: { in: ['available', 'executing'] },
+        payload: { path: ['documentId'], equals: documentId },
+      },
+      select: { id: true },
+    });
+    return !!live;
+  }
+
+  /**
+   * Перезаказать сборку содержимого (правка полей/тела/контрагента, присвоение
+   * номера). Схлопывание пересборок: стабильный ключ вместо прежних `…:${Date.now()}`
+   * — одноимённая постановка схлопывается об живой джоб. Но живой мог прочитать
+   * данные ДО нашей правки — тогда (`inserted: false`) ставим ПАРНЫЙ ключ: рендер,
+   * который гарантированно стартует после неё. Симметричный хвост — rerunIfStale
+   * в обработчике (см. docGenKey в documents.constants.ts).
+   */
+  private async requestGenerate(documentId: string): Promise<void> {
+    const { inserted } = await this.jobs.enqueue(null, {
+      type: DOCUMENTS_GENERATE_JOB,
+      payload: { documentId },
+      uniqueKey: docGenKey(documentId),
+    });
+    if (!inserted) {
+      await this.jobs.enqueue(null, {
+        type: DOCUMENTS_GENERATE_JOB,
+        payload: { documentId, rerun: true },
+        uniqueKey: docGenKey(documentId, true),
+        runAt: new Date(Date.now() + 1500),
+      });
+    }
+  }
+
+  /**
+   * Отправить документ контрагенту. Делает разом: клеймит статус `sent`,
+   * закрывает правку (`locked`), заводит заявку подписи (внутренние подписанты +
+   * будущий гость; движковые уведомления об исходе подавлены — их шлём мы, с
+   * контекстом документа), создаёт гостевую ссылку и — по желанию — SMS.
+   *
+   * Повторная отправка = всегда НОВАЯ заявка с НОВОЙ заморозкой («что видел =
+   * что подписал»); частичные подписи прежнего раунда сгорают by design.
+   */
+  async sendToCounterparty(
+    userId: string,
+    documentId: string,
+    dto: SendExternalOrgDocumentInput,
+  ): Promise<OrgDocumentDto> {
+    const row = await this.documentOrThrow(documentId);
+    const role = await this.requireTeam(userId, row.workspaceId);
+    const type = await this.db.docType.findUniqueOrThrow({ where: { id: row.docTypeId } });
+    if (type.category !== 'external') {
+      throw new BadRequestException('Отправка контрагенту — только у документов «С контрагентами»');
+    }
+    // Менеджер+ (решение продукта): отправка ОБЯЗЫВАЕТ организацию договором.
+    // Правило «автор или Менеджер+» здесь не годится — оно пришло из кадрового
+    // контура, где автор подаёт заявление О СЕБЕ; во внешнем автор-Стажёр,
+    // которому нельзя даже править справочник контрагентов, отправлял бы договор
+    // от имени организации и сам же подписывал его ПЭП. Черновик готовит кто
+    // угодно из команды — планка стоит на отправке.
+    if (!this.isManager(role)) {
+      throw new ForbiddenException('Отправить контрагенту может Менеджер и выше');
+    }
+    if (!DOC_EDITABLE_STATUSES.includes(row.status as DocStatus)) {
+      throw new BadRequestException('Отправить можно черновик (или возвращённый документ)');
+    }
+    if (!row.counterpartyId) {
+      throw new BadRequestException('Сначала привяжите контрагента к документу');
+    }
+    // Контрагент жив ИМЕННО СЕЙЧАС: черновики архив справочника не блокируют,
+    // поэтому между созданием и отправкой карточка могла уехать в архив — и
+    // отправлять договор архивному так же нельзя, как заводить по нему новый.
+    await this.counterparties.assertUsable(row.workspaceId, row.counterpartyId);
+    // Уровень диктует ВИД; «без подписи» для двустороннего документа бессмыслен
+    if (type.signatureLevel === 'none') {
+      throw new BadRequestException('Вид документа не предполагает подписи — включите её в настройках вида');
+    }
+    const contact = await this.counterparties.assertContactUsable(row.counterpartyId, dto.counterpartyContactId);
+
+    // Внутренние подписанты — живые члены команды (снимок проверяется сейчас)
+    const signerIds = [...new Set(dto.internalSignerUserIds)];
+    for (const signerId of signerIds) {
+      const signerRole = await this.roleOf(signerId, row.workspaceId);
+      if (!signerRole || signerRole === 'contractor') {
+        throw new BadRequestException('Внутренний подписант должен работать в организации');
+      }
+    }
+
+    // Замораживается ТЕКУЩИЙ файл — значит, он обязан быть актуальным: живая
+    // пересборка (номер, поля, контрагент) должна доехать до байтов ДО заморозки.
+    await this.assertNotRebuilding(row.id, { pdfRewritesFile: !!row.builderDoc });
+
+    // Подписывается ОТПЕЧАТОК (то же правило, что у resolveSubject): его
+    // отсутствие — честный отказ, а не подпись живого .docx.
+    const subjectFileId = row.builderDoc ? row.fileId : row.pdfFileId;
+    if (!subjectFileId) {
+      await this.requestPdf(row.id).catch(() => undefined);
+      throw new BadRequestException('PDF-отпечаток ещё формируется — попробуйте через минуту');
+    }
+
+    const expiresAt = dto.expiresAt
+      ? new Date(dto.expiresAt)
+      : new Date(Date.now() + DOC_EXTERNAL_DEFAULT_TTL_DAYS * 86_400_000);
+    if (expiresAt.getTime() <= Date.now()) {
+      throw new BadRequestException('Срок подписания уже прошёл — выберите дату в будущем');
+    }
+
+    // Статус-клейм гасит двойную отправку (вторая вкладка проиграет здесь);
+    // партиальный уникум свободной заявки — второй ремень на уровне БД.
+    const claimed = await this.db.orgDocument.updateMany({
+      where: { id: row.id, status: row.status },
+      data: { status: 'sent', counterpartyContactId: contact.id },
+    });
+    if (claimed.count === 0) throw new BadRequestException('Документ только что изменился — обновите страницу');
+
+    // Заморозка правки: владелец файла — податель, `readonly` его не держит.
+    if (row.documentId) {
+      await this.docs.systemSetMode(row.documentId, 'locked').catch((e) => {
+        this.logger.error(`заморозка документа ${row.documentId}: ${(e as Error).message}`);
+      });
+    }
+
+    let requestId: string | null = null;
+    let linkUrl: string | null = null;
+    try {
+      const request = await this.sign.createRequest(
+        userId,
+        {
+          refType: ORG_DOCUMENT_REF_TYPE,
+          refId: row.id,
+          level: type.signatureLevel as SignLevel,
+          signerUserIds: signerIds,
+          expiresAt,
+        },
+        {
+          suppressOutcomeNotify: true,
+          // Акт второй стороны заводится СРАЗУ (на контактное лицо): без него
+          // заявка закрывалась бы внутренними подписями, не дождавшись контрагента.
+          guestSigner: { name: contact.name, phone: contact.phone },
+        },
+      );
+      requestId = request.id;
+      // Гостевая ссылка контрагенту: личность форсируют constraints движка
+      // (requireIdentity), лимит открытий на подписных запрещён там же.
+      //
+      // Срок ссылки = сроку сбора подписей: иначе ссылка живёт вечно, и после
+      // истечения заявки контрагент по ней открывает замороженный документ,
+      // которого уже никто не ждёт.
+      const link = await this.shareLinks.create(userId, {
+        refType: SIGN_REQUEST_REF_TYPE,
+        refId: request.id,
+        label: contact.name,
+        expiresAt,
+      } as CreateShareLinkInput);
+      linkUrl = link.url;
+    } catch (e) {
+      // Компенсация: заявка не завелась (гонка/партиальный уникум/сбой) —
+      // документ возвращается в исходный статус, правка открывается.
+      //
+      // Заявку, которая УСПЕЛА завестись (упал следующий шаг — гостевая ссылка),
+      // гасим тоже. Без этого она оставалась живой и свободной: партиальный
+      // уникум `sign_requests_one_active_freeform` отбивал любую повторную
+      // отправку, а `revokeExternal` до неё не дотягивался — он требует статуса
+      // `sent`, которого у откаченного документа уже нет. Документ становился
+      // неотправляемым, пока крон не закроет заявку по сроку, то есть до 30 суток.
+      if (requestId) {
+        const orphanId = requestId;
+        await this.sign
+          .cancelRequest(userId, orphanId)
+          .catch((err) =>
+            this.logger.error(`отмена осиротевшей заявки ${orphanId}: ${(err as Error).message}`),
+          );
+      }
+      await this.db.orgDocument.updateMany({
+        where: { id: row.id, status: 'sent' },
+        data: { status: row.status },
+      });
+      if (row.documentId) await this.docs.systemSetMode(row.documentId, 'edit').catch(() => undefined);
+      if ((e as { code?: string })?.code === 'P2002') {
+        throw new BadRequestException('По документу уже идёт подписание — отзовите прежнюю отправку');
+      }
+      throw e;
+    }
+
+    // SMS — best-effort: ссылка копируема, и её недоставка не откатывает отправку
+    if (dto.sendSms && contact.phone && linkUrl) {
+      const orgName = (await this.db.workspace.findUnique({
+        where: { id: row.workspaceId },
+        select: { name: true },
+      }))?.name ?? 'Организация';
+      await this.smsOutbound
+        .sendLink(row.workspaceId, contact.phone, buildSignLinkSmsText(orgName, linkUrl), {
+          refKey: `org_document:${row.id}`,
+        })
+        .catch((e) => this.logger.warn(`SMS контрагенту по ${row.id}: ${(e as Error).message}`));
+    }
+
+    await this.chatter
+      .log(null, {
+        refType: ORG_DOCUMENT_REF_TYPE,
+        refId: row.id,
+        workspaceId: row.workspaceId,
+        actorId: userId,
+        actorName: await this.nameOf(userId),
+        typeKey: 'org_document.sent_external',
+        payload: { title: row.title, contactSuffix: ` — ${contact.name}`, requestId },
+      })
+      .catch(() => undefined);
+    return this.get(userId, row.id);
+  }
+
+  /**
+   * Отозвать отправку: сбор подписей прекращается, гостевая ссылка гаснет,
+   * документ возвращается в черновик. Уже поставленные подписи остаются
+   * доказательствами (заявка `cancelled`), но документ они не закрывают.
+   */
+  async revokeExternal(userId: string, documentId: string): Promise<OrgDocumentDto> {
+    const row = await this.documentOrThrow(documentId);
+    const role = await this.requireTeam(userId, row.workspaceId);
+    if (row.createdById !== userId && !this.isManager(role)) {
+      throw new ForbiddenException('Отозвать отправку может автор или Менеджер+');
+    }
+    if (row.status !== 'sent') throw new BadRequestException('Документ не у контрагента');
+
+    const request = await this.activeExternalRequest(row.id);
+    if (request) {
+      try {
+        await this.sign.cancelRequest(userId, request.id);
+      } catch {
+        // Гонка: контрагент успел подписать/отказаться — статус документа уже
+        // двигают хуки, отзыв опоздал.
+        throw new BadRequestException('Подписание уже завершилось — обновите страницу');
+      }
+      await this.shareLinks.revokeAllForRefs(null, SIGN_REQUEST_REF_TYPE, [request.id]);
+    }
+
+    const claimed = await this.db.orgDocument.updateMany({
+      where: { id: row.id, status: 'sent' },
+      data: { status: 'draft' },
+    });
+    if (claimed.count === 0) throw new BadRequestException('Документ только что изменился — обновите страницу');
+    if (row.documentId) await this.docs.systemSetMode(row.documentId, 'edit').catch(() => undefined);
+
+    await this.chatter
+      .log(null, {
+        refType: ORG_DOCUMENT_REF_TYPE,
+        refId: row.id,
+        workspaceId: row.workspaceId,
+        actorId: userId,
+        actorName: await this.nameOf(userId),
+        typeKey: 'org_document.external_revoked',
+        payload: { title: row.title },
+      })
+      .catch(() => undefined);
+    return this.get(userId, row.id);
+  }
+
+  /** После отказа контрагента: документ дорабатывают — обратно в черновик */
+  async returnToDraft(userId: string, documentId: string): Promise<OrgDocumentDto> {
+    const row = await this.documentOrThrow(documentId);
+    const role = await this.requireTeam(userId, row.workspaceId);
+    if (row.createdById !== userId && !this.isManager(role)) {
+      throw new ForbiddenException('Вернуть в черновик может автор или Менеджер+');
+    }
+    if (row.status !== 'declined_external') {
+      throw new BadRequestException('Возврат в черновик — после отказа контрагента');
+    }
+    const claimed = await this.db.orgDocument.updateMany({
+      where: { id: row.id, status: 'declined_external' },
+      data: { status: 'draft' },
+    });
+    if (claimed.count === 0) throw new BadRequestException('Документ только что изменился — обновите страницу');
+    if (row.documentId) await this.docs.systemSetMode(row.documentId, 'edit').catch(() => undefined);
+    await this.chatter
+      .log(null, {
+        refType: ORG_DOCUMENT_REF_TYPE,
+        refId: row.id,
+        workspaceId: row.workspaceId,
+        actorId: userId,
+        actorName: await this.nameOf(userId),
+        typeKey: 'org_document.external_returned',
+        payload: { title: row.title },
+      })
+      .catch(() => undefined);
+    return this.get(userId, row.id);
+  }
+
+  /** Перепослать SMS со ссылкой (кулдаун и суточный потолок — у SMS-сервиса) */
+  async resendExternalSms(userId: string, documentId: string): Promise<void> {
+    const row = await this.documentOrThrow(documentId);
+    const role = await this.requireTeam(userId, row.workspaceId);
+    if (row.createdById !== userId && !this.isManager(role)) {
+      throw new ForbiddenException('Отправить SMS может автор или Менеджер+');
+    }
+    if (row.status !== 'sent') throw new BadRequestException('Документ не у контрагента');
+    const request = await this.activeExternalRequest(row.id);
+    if (!request) throw new BadRequestException('Живой заявки на подпись нет — отправьте документ заново');
+    const link = await this.db.shareLink.findFirst({
+      where: { refType: SIGN_REQUEST_REF_TYPE, refId: request.id, revokedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!link) throw new BadRequestException('Гостевая ссылка отозвана — отправьте документ заново');
+    const contact = row.counterpartyContactId
+      ? (await this.counterparties.contactRefsFor([row.counterpartyContactId])).get(row.counterpartyContactId)
+      : null;
+    if (!contact?.phone) throw new BadRequestException('У контактного лица нет номера телефона');
+    const orgName = (await this.db.workspace.findUnique({
+      where: { id: row.workspaceId },
+      select: { name: true },
+    }))?.name ?? 'Организация';
+    await this.smsOutbound.sendLink(
+      row.workspaceId,
+      contact.phone,
+      buildSignLinkSmsText(orgName, buildShareLinkUrl(process.env.WEB_URL || 'http://localhost:3000', link.token)),
+      { refKey: `org_document:${row.id}` },
+    );
+  }
+
+  // ---- системные пути внешнего этапа (зовут хуки движка подписи; права
+  //      проверять некому — работают статус-гварды `updateMany WHERE status`) ----
+
+  /**
+   * Ключ дедупа исхода внешнего этапа. РАУНД, а не документ: повторная отправка
+   * после доработки — это новая заявка и новый исход, и ключ, собранный из одного
+   * documentId, гасил бы уведомление о каждом следующем круге как «уже было».
+   */
+  private outcomeDedupKey(kind: string, documentId: string, requestId?: string | null): string {
+    return `docext:${kind}:${requestId ?? documentId}`;
+  }
+
+  /** Все стороны подписали: sent → signed + подшивка штампованной копии в реестр */
+  async externalMarkSigned(
+    documentId: string,
+    opts: { signerName?: string | null; requestId?: string | null } = {},
+  ): Promise<void> {
+    const row = await this.documentOrThrow(documentId).catch(() => null);
+    if (!row) return;
+    const won = await this.db.orgDocument.updateMany({
+      where: { id: row.id, status: 'sent' },
+      data: { status: 'signed', signedAt: new Date() },
+    });
+    if (won.count === 0) return;
+    await this.notifications
+      .notify(
+        row.createdById,
+        'document.counterparty_signed',
+        { title: row.title, signerLabel: opts.signerName ?? '' },
+        {
+          actionUrl: `/workspaces/${row.workspaceId}/documents/${row.id}`,
+          dedupKey: this.outcomeDedupKey('signed', row.id, opts.requestId),
+        },
+      )
+      .catch(() => undefined);
+    // Подшивка в реестр вида — штампованной копией (джоб дождётся её готовности)
+    await this.jobs.enqueue(null, {
+      type: DOCUMENTS_FILE_JOB,
+      payload: { documentId: row.id },
+      uniqueKey: `doc:file:${row.id}`,
+    });
+  }
+
+  /**
+   * Исход внешнего этапа: отказ контрагента, отказ СВОЕГО подписанта или
+   * истечение срока.
+   *
+   * Отказы двух сторон разведены намеренно. Отказ контрагента — `declined_external`
+   * («Контрагент отказал»): документ ждёт решения, дорабатывать его или закрыть.
+   * Отказ своего подписанта — обычный `rejected` («Отклонён»): к контрагенту
+   * документ вообще не ушёл, и называть это отказом второй стороны — прямая ложь
+   * автору, который пойдёт выяснять отношения с тем, кто документ не открывал.
+   */
+  async externalResolve(
+    documentId: string,
+    outcome: 'declined' | 'declined_internal' | 'expired',
+    opts: { reason?: string | null; signerName?: string | null; requestId?: string | null } = {},
+  ): Promise<void> {
+    const row = await this.documentOrThrow(documentId).catch(() => null);
+    if (!row) return;
+    if (outcome === 'declined_internal') {
+      const won = await this.db.orgDocument.updateMany({
+        where: { id: row.id, status: 'sent' },
+        data: { status: 'rejected' },
+      });
+      if (won.count === 0) return;
+      // Правка снова открыта: автору нечего было бы исправлять перед повторной отправкой
+      if (row.documentId) await this.docs.systemSetMode(row.documentId, 'edit').catch(() => undefined);
+      // Ссылку гасим: собирать по ней подпись уже не будут, а замороженный
+      // документ по живому адресу читал бы всякий, кому его переслали.
+      // Заявку к этому моменту движок уже закрыл (`declined`), поэтому запасной
+      // поиск идёт по ПОСЛЕДНЕЙ свободной заявке, а не по живой.
+      const requestId =
+        opts.requestId ??
+        (
+          await this.db.signRequest.findFirst({
+            where: { refType: ORG_DOCUMENT_REF_TYPE, refId: row.id, approvalStepId: null },
+            orderBy: { createdAt: 'desc' },
+            select: { id: true },
+          })
+        )?.id ??
+        null;
+      if (requestId) {
+        await this.shareLinks
+          .revokeAllForRefs(null, SIGN_REQUEST_REF_TYPE, [requestId])
+          .catch((e) => this.logger.warn(`отзыв ссылки по ${row.id}: ${(e as Error).message}`));
+      }
+      await this.notifications
+        .notify(
+          row.createdById,
+          'document.internal_declined',
+          {
+            title: row.title,
+            signerLabel: opts.signerName ?? '',
+            reasonLabel: opts.reason ? `: ${opts.reason}` : '',
+          },
+          {
+            actionUrl: `/workspaces/${row.workspaceId}/documents/${row.id}`,
+            dedupKey: this.outcomeDedupKey('intdecl', row.id, requestId),
+          },
+        )
+        .catch(() => undefined);
+      return;
+    }
+    if (outcome === 'declined') {
+      const won = await this.db.orgDocument.updateMany({
+        where: { id: row.id, status: 'sent' },
+        data: { status: 'declined_external' },
+      });
+      if (won.count === 0) return;
+      await this.notifications
+        .notify(
+          row.createdById,
+          'document.counterparty_declined',
+          { title: row.title, reasonLabel: opts.reason ?? '' },
+          {
+            actionUrl: `/workspaces/${row.workspaceId}/documents/${row.id}`,
+            dedupKey: this.outcomeDedupKey('declined', row.id, opts.requestId),
+          },
+        )
+        .catch(() => undefined);
+      return;
+    }
+    // expired: авто-возврат в черновик — документ не должен вечно висеть «у контрагента»
+    const won = await this.db.orgDocument.updateMany({
+      where: { id: row.id, status: 'sent' },
+      data: { status: 'draft' },
+    });
+    if (won.count === 0) return;
+    if (row.documentId) await this.docs.systemSetMode(row.documentId, 'edit').catch(() => undefined);
+    await this.chatter
+      .log(null, {
+        refType: ORG_DOCUMENT_REF_TYPE,
+        refId: row.id,
+        workspaceId: row.workspaceId,
+        typeKey: 'org_document.external_expired',
+        payload: { title: row.title },
+      })
+      .catch(() => undefined);
+    await this.notifications
+      .notify(
+        row.createdById,
+        'document.external_expired',
+        { title: row.title },
+        {
+          actionUrl: `/workspaces/${row.workspaceId}/documents/${row.id}`,
+          dedupKey: this.outcomeDedupKey('expired', row.id, opts.requestId),
+        },
+      )
+      .catch(() => undefined);
+  }
+
+  /**
+   * Сверка сертификата ВНЕШНЕГО подписанта с карточкой контрагента (жёсткая,
+   * решение продукта): юрлицо — по БИН, ИП и физлицо — по ИИН. Пустой номер в
+   * карточке → пропуск (личность держит подтверждённый SMS-номер).
+   */
+  async checkCounterpartyCert(
+    documentId: string,
+    cert: { iin: string | null; bin: string | null },
+  ): Promise<{ ok: boolean; reason?: string }> {
+    const row = await this.db.orgDocument.findUnique({ where: { id: documentId } });
+    if (!row?.counterpartyId) return { ok: true };
+    const cp = await this.db.counterparty.findUnique({ where: { id: row.counterpartyId } });
+    if (!cp?.bin) return { ok: true };
+    if (cp.kind === 'legal') {
+      if (!cert.bin) {
+        return { ok: false, reason: `нужен ключ юридического лица «${cp.name}» (в сертификате нет БИН)` };
+      }
+      if (cert.bin !== cp.bin) {
+        return { ok: false, reason: `БИН сертификата не совпадает с БИН контрагента «${cp.name}»` };
+      }
+      return { ok: true };
+    }
+    if (!cert.iin || cert.iin !== cp.bin) {
+      return { ok: false, reason: `ИИН сертификата не совпадает с ИИН контрагента «${cp.name}»` };
+    }
+    return { ok: true };
+  }
+
+  /** Живая свободная заявка внешнего этапа (партиальный уникум держит одну) */
+  private async activeExternalRequest(documentId: string) {
+    return this.db.signRequest.findFirst({
+      where: {
+        refType: ORG_DOCUMENT_REF_TYPE,
+        refId: documentId,
+        status: 'pending',
+        approvalStepId: null,
+      },
+    });
+  }
+
+  /**
+   * Блок `external` карточки: этап и доставка. Подписи (акты, протокол, экспорт)
+   * сюда НЕ дублируются — их рисует блок «Подписи» из `dto.sign`.
+   *
+   * АДРЕС гостевой ссылки видит только Менеджер+ (`viewer.manager`). Ссылка —
+   * не «посмотреть», а ПОДПИСАТЬ: requireIdentity подтверждает владение номером,
+   * но не то, что это номер контактного лица, поэтому любой, кому виден адрес,
+   * может подтвердить СВОЙ номер и поставить ПЭП «за контрагента». У вида с
+   * видимостью «команда» карточку открывает вся организация — раздавать вместе
+   * с ней ключ от подписи второй стороны нельзя. Статус этапа, стороны и счётчик
+   * открытий остаются видны всем, кто видит документ.
+   */
+  private async externalStage(
+    row: {
+      id: string;
+      workspaceId: string;
+      counterpartyContactId: string | null;
+    },
+    viewer: { manager: boolean },
+  ): Promise<OrgDocumentExternalDto | null> {
+    const request = await this.db.signRequest.findFirst({
+      where: { refType: ORG_DOCUMENT_REF_TYPE, refId: row.id, approvalStepId: null },
+      orderBy: { createdAt: 'desc' },
+      include: { acts: { orderBy: { createdAt: 'asc' } } },
+    });
+    if (!request) return null;
+
+    const link = await this.db.shareLink.findFirst({
+      where: { refType: SIGN_REQUEST_REF_TYPE, refId: request.id },
+      orderBy: { createdAt: 'desc' },
+    });
+    const contact = row.counterpartyContactId
+      ? (await this.counterparties.contactRefsFor([row.counterpartyContactId])).get(row.counterpartyContactId)
+      : null;
+
+    const guestActs = request.acts.filter((a) => a.signerType === 'guest');
+    const guestAct = guestActs.length ? guestActs[guestActs.length - 1] : null;
+    const webUrl = process.env.WEB_URL || 'http://localhost:3000';
+
+    return {
+      requestId: request.id,
+      status: request.status as SignRequestStatus,
+      level: request.level as SignLevel,
+      expiresAt: request.expiresAt?.toISOString() ?? null,
+      link:
+        link && viewer.manager
+          ? { url: buildShareLinkUrl(webUrl, link.token), revoked: !!link.revokedAt }
+          : null,
+      internalActs: request.acts
+        .filter((a) => a.signerType === 'user' && a.signerUserId)
+        .map((a) => ({
+          userId: a.signerUserId as string,
+          name: a.signerName,
+          status: a.status as SignActStatus,
+          signedAt: a.signedAt?.toISOString() ?? null,
+        })),
+      guestAct: guestAct
+        ? {
+            name: guestAct.signerName,
+            phoneMasked: guestAct.signerPhone ? maskPhone(guestAct.signerPhone) : null,
+            status: guestAct.status as SignActStatus,
+            signedAt: guestAct.signedAt?.toISOString() ?? null,
+            declineReason: guestAct.declineReason,
+            // Мягкая сверка ПЭП: номер гостя ≠ телефон выбранного контакта —
+            // предупреждение на карточке, не блок (человек мог дать другой номер)
+            matchesContact: !!guestAct.signerPhone && !!contact?.phone && guestAct.signerPhone === contact.phone,
+          }
+        : null,
+      opens: link ? { count: link.openCount, lastOpenedAt: link.lastOpenedAt?.toISOString() ?? null } : null,
+      smsAvailable: (this.smsOutbound.live || isDevEnv()) && !!contact?.phone,
+      // Готовность считает движок — по живой ссылке, а не по колонке
+      stamped: await this.sign.stampedView(request.stampedFileId),
+    };
   }
 
   // ============================================================
@@ -1125,6 +2099,59 @@ export class DocumentsService {
   }
 
   /**
+   * Присвоить номер ЧЕРНОВИКУ — кнопка внешнего контура: у договора номер
+   * печатается в тексте ДО отправки контрагенту (в отличие от кадрового приказа,
+   * где его выдаёт нода «Регистрация» после подписания). Тот же атомарный счётчик
+   * вида, статус НЕ меняется; отправка без номера — предупреждение веба, не блок.
+   */
+  async assignNumber(userId: string, documentId: string): Promise<OrgDocumentDto> {
+    const row = await this.documentOrThrow(documentId);
+    const role = await this.requireTeam(userId, row.workspaceId);
+    if (row.createdById !== userId && !this.isManager(role)) {
+      throw new ForbiddenException('Присвоить номер может автор или Менеджер+');
+    }
+    if (row.number) return this.get(userId, row.id);
+    const type = await this.db.docType.findUniqueOrThrow({ where: { id: row.docTypeId } });
+    if (type.category !== 'external') {
+      throw new BadRequestException('Номер этому виду присваивает маршрут при регистрации');
+    }
+    if (!DOC_EDITABLE_STATUSES.includes(row.status as DocStatus)) {
+      throw new BadRequestException('Номер присваивается черновику — до отправки контрагенту');
+    }
+
+    const now = new Date();
+    const counter = await this.db.docTypeCounter.upsert({
+      where: { docTypeId_year: { docTypeId: type.id, year: now.getFullYear() } },
+      create: { docTypeId: type.id, year: now.getFullYear(), value: 1 },
+      update: { value: { increment: 1 } },
+    });
+    const number = formatDocNumber(type.numberFormat, counter.value, now);
+    const claimed = await this.db.orgDocument.updateMany({
+      where: { id: row.id, number: null },
+      data: { number, numberedAt: now },
+    });
+    if (claimed.count > 0) {
+      await this.chatter
+        .log(null, {
+          refType: ORG_DOCUMENT_REF_TYPE,
+          refId: row.id,
+          workspaceId: row.workspaceId,
+          actorId: userId,
+          actorName: await this.nameOf(userId),
+          typeKey: 'org_document.registered',
+          payload: { number, title: row.title },
+        })
+        .catch(() => undefined);
+      // Номер печатается в тексте ({Документ.Номер}) — бланк пересобираем.
+      // У загруженного файла пересобирать нечего: его номер живёт в карточке.
+      if (row.templateId || row.builderDoc) {
+        await this.requestGenerate(row.id);
+      }
+    }
+    return this.get(userId, row.id);
+  }
+
+  /**
    * Сформировать ПРОИЗВОДНЫЙ документ (нода «Сформировать документ»): приказ из
    * заявления. Родитель остаётся основанием — связь `parentDocumentId` держит цепочку,
    * по которой при проверке видно, на чём приказ основан.
@@ -1173,7 +2200,7 @@ export class DocumentsService {
       await this.jobs.enqueue(tx, {
         type: DOCUMENTS_GENERATE_JOB,
         payload: { documentId: row.id },
-        uniqueKey: `doc:gen:${row.id}`,
+        uniqueKey: docGenKey(row.id),
       });
       return row;
     });
@@ -1269,6 +2296,8 @@ export class DocumentsService {
   /** Заказать PDF-отпечаток текущего содержимого (идемпотентно, контентный ключ у движка). */
   async requestPdf(documentId: string): Promise<{ ready: boolean }> {
     const row = await this.documentOrThrow(documentId);
+    // Загруженный PDF: файл и есть отпечаток, снимать нечего — честное «готово».
+    if (!row.builderDoc && !row.documentId && row.pdfFileId) return { ready: true };
     // Блочный документ: отпечаток собирает наш PDF-рендер, живой файл core/docs не нужен
     const canSnapshot = row.builderDoc ? this.pdfRender.enabled : !!row.documentId && this.docs.enabled;
     if (!canSnapshot) return { ready: false };
@@ -1301,6 +2330,30 @@ export class DocumentsService {
     if (!subjectRole || subjectRole === 'contractor') {
       throw new BadRequestException('Сторона документа должна работать в организации');
     }
+  }
+
+  /**
+   * Привязка КОНТРАГЕНТА к документу. ОДНО определение на сервис (правило «проверка
+   * с создания дублируется на правку» — ровно на нём ловились ИИН постороннего в
+   * PATCH): контрагент — только у видов «С контрагентами», живёт в ЭТОЙ организации,
+   * при привязке не в архиве, контакт принадлежит ему. Принадлежность и жизнь
+   * проверяет сервис «Контрагенты» — второго толкования этих правил быть не должно.
+   */
+  private async assertCounterpartyBinding(
+    workspaceId: string,
+    category: DocCategory | string,
+    counterpartyId: string | null,
+    contactId: string | null,
+  ): Promise<void> {
+    if (!counterpartyId) {
+      if (contactId) throw new BadRequestException('Контактное лицо указывается вместе с контрагентом');
+      return;
+    }
+    if (category !== 'external') {
+      throw new BadRequestException('Контрагент указывается только у документов «С контрагентами»');
+    }
+    await this.counterparties.assertUsable(workspaceId, counterpartyId);
+    if (contactId) await this.counterparties.assertContactUsable(counterpartyId, contactId);
   }
 
   /**
@@ -1653,6 +2706,22 @@ export class DocumentsService {
     return fullName(u);
   }
 
+  /** Контрагенты и контакты страницы — двумя батчами (без N+1), из их сервиса */
+  private async counterpartyRefs(
+    rows: { counterpartyId: string | null; counterpartyContactId: string | null }[],
+  ): Promise<{
+    lites: Map<string, CounterpartyLiteDto>;
+    contacts: Map<string, { id: string; name: string; position: string | null; phone: string | null }>;
+  }> {
+    const [lites, contacts] = await Promise.all([
+      this.counterparties.litesFor(rows.map((r) => r.counterpartyId).filter((v): v is string => !!v)),
+      this.counterparties.contactRefsFor(
+        rows.map((r) => r.counterpartyContactId).filter((v): v is string => !!v),
+      ),
+    ]);
+    return { lites, contacts };
+  }
+
   private async namesOf(ids: (string | null)[]): Promise<Map<string, string>> {
     const unique = [...new Set(ids.filter((v): v is string => !!v))];
     if (!unique.length) return new Map();
@@ -1750,6 +2819,8 @@ export class DocumentsService {
       number: string | null;
       numberedAt: Date | null;
       subjectUserId: string | null;
+      counterpartyId: string | null;
+      counterpartyContactId: string | null;
       createdById: string;
       documentId: string | null;
       fileId: string | null;
@@ -1767,7 +2838,12 @@ export class DocumentsService {
     type: { name: string; category: string },
     template: { name: string; fields?: unknown } | null,
     names: Map<string, string>,
+    cpx?: {
+      lites: Map<string, CounterpartyLiteDto>;
+      contacts: Map<string, { id: string; name: string; position: string | null; phone: string | null }>;
+    },
   ): OrgDocumentDto {
+    const contact = row.counterpartyContactId ? cpx?.contacts.get(row.counterpartyContactId) : null;
     return {
       id: row.id,
       workspaceId: row.workspaceId,
@@ -1782,6 +2858,10 @@ export class DocumentsService {
       numberedAt: row.numberedAt?.toISOString() ?? null,
       subjectUserId: row.subjectUserId,
       subjectName: row.subjectUserId ? (names.get(row.subjectUserId) ?? null) : null,
+      counterparty: (row.counterpartyId ? cpx?.lites.get(row.counterpartyId) : null) ?? null,
+      counterpartyContact: contact
+        ? ({ id: contact.id, name: contact.name, position: contact.position } satisfies OrgDocumentContactRef)
+        : null,
       createdById: row.createdById,
       createdByName: names.get(row.createdById) ?? null,
       documentId: row.documentId,

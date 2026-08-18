@@ -133,6 +133,13 @@ export const FILE_PROFILES: Record<string, FileProfileSpec> = {
    * целостность держат `cmsSha256` на строке акта и запись файла ДО финализации.
    */
   sign_cms: { kind: 'other', maxSize: 4 * MB, allowedMime: null, visibility: 'private', makeVariants: false },
+  /**
+   * Штампованная копия подписанного документа (core/sign): PDF с полосами-штампами
+   * и «Листом подписей». НЕ evidence-профиль намеренно: это витрина для людей, а не
+   * доказательство — при потере пересобирается из замороженной копии и актов,
+   * поэтому живёт обычным файлом (квота, уборка) без вечного режима.
+   */
+  sign_stamped: { kind: 'document', maxSize: 120 * MB, allowedMime: null, visibility: 'private', makeVariants: false },
   /** Фолбэк без специфики */
   generic: { kind: 'any', maxSize: 100 * MB, allowedMime: null, visibility: 'private', makeVariants: true },
 };
@@ -150,6 +157,22 @@ export const EVIDENCE_FILE_PROFILES: readonly string[] = ['sign_subject', 'sign_
 
 export function isEvidenceProfile(profile: string | null | undefined): boolean {
   return !!profile && EVIDENCE_FILE_PROFILES.includes(profile);
+}
+
+/**
+ * Профили, которые человек не удаляет РУКАМИ, но системная уборка трогать может.
+ *
+ * Отличие от доказательств: эти файлы производные и пересобираемые, поэтому в
+ * квоте и в уборке они обычные. Но пока на них ссылается живая строка сервиса,
+ * ручное `DELETE /files/:id` ломает то, что этой строкой обещано. Штампованная
+ * копия подписи — ровно такой случай: `uploaderId` у неё — отправитель, то есть
+ * удалить её мог он сам, а на неё в этот момент указывают `SignRequest.stampedFileId`,
+ * узел реестра на Диске и кнопка «Скачать со штампами» у контрагента.
+ */
+export const SYSTEM_MANAGED_FILE_PROFILES: readonly string[] = ['sign_stamped'];
+
+export function isSystemManagedProfile(profile: string | null | undefined): boolean {
+  return !!profile && SYSTEM_MANAGED_FILE_PROFILES.includes(profile);
 }
 
 export type FileProfileKey = keyof typeof FILE_PROFILES;

@@ -60,13 +60,14 @@ export function DecisionsTab({ workspaceId }: { workspaceId: string }) {
                   style={{
                     display: 'flex',
                     alignItems: 'center',
+                    flexWrap: 'wrap', // телефон: чипы переносятся, а не распирают страницу
                     gap: 'var(--spacing-3)',
                     width: '100%',
                     textAlign: 'left',
                     padding: 'var(--spacing-3)',
                     border: '1px solid var(--border)',
-                    borderRadius: 'var(--radius-item)',
-                    background: 'var(--surface)',
+                    borderRadius: 'var(--radius-md)',
+                    background: 'transparent',
                     cursor: 'pointer',
                   }}
                 >

@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, Param, Post } from '@nestjs/comm
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { CurrentUser, type JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { DatabaseService } from '../../shared/database/database.service';
 import { DocumentsService } from './documents.service';
 
 /**
@@ -18,7 +19,25 @@ const resolveSchema = z.object({ outcome: z.enum(['approved', 'rejected', 'retur
 @ApiTags('documents')
 @Controller('workspaces/:workspaceId/documents/dev')
 export class DocumentsDevController {
-  constructor(private readonly documents: DocumentsService) {}
+  constructor(
+    private readonly documents: DocumentsService,
+    private readonly db: DatabaseService,
+  ) {}
+
+  /**
+   * [dev] Внутренние ссылки карточки — узлы Диска подшивки: сьют проверяет
+   * подшивку ПРЯМЫМ чтением узла, а не только записью хроники.
+   */
+  @Post(':documentId/state')
+  @ApiOperation({ summary: '[dev] Служебные поля карточки (узлы Диска подшивки)' })
+  async state(@CurrentUser() user: JwtPayload, @Param('documentId') documentId: string) {
+    await this.documents.get(user.sub, documentId); // право смотреть = право дёрнуть dev-путь
+    const row = await this.db.orgDocument.findUniqueOrThrow({
+      where: { id: documentId },
+      select: { status: true, number: true, registryNodeId: true, personalNodeId: true },
+    });
+    return { success: true, data: row };
+  }
 
   @Post(':documentId/register')
   @ApiOperation({ summary: '[dev] Присвоить номер — то же, что нода «Регистрация»' })

@@ -124,6 +124,17 @@ export function SignaturesBlock({
             Подписать
           </Button>
         )}
+        {/* Штампованная копия — итоговый PDF с полосами и «Листом подписей»:
+            именно этот экземпляр печатают и рассылают (Doodocs-модель). */}
+        {sign.stamped?.ready && sign.stamped.url && (
+          <Button
+            variant="outline"
+            icon="file"
+            onClick={() => window.open(sign.stamped!.url!, '_blank', 'noopener')}
+          >
+            Скачать со штампами
+          </Button>
+        )}
         {sign.canExport && (
           <>
             <Button

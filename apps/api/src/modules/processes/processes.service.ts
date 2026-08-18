@@ -1067,7 +1067,17 @@ export class ProcessesService implements OnModuleInit {
       .filter((n) => n.type === 'trigger.document')
       .map((n) => String(((n.config ?? {}) as { templateId?: string }).templateId ?? ''))
       .filter(Boolean);
-    if (!wanted.length) return [];
+    // Ноды «Сформировать документ» проверяются НАРАВНЕ с триггерами: раннего выхода
+    // по пустым триггерам здесь быть не может — маршрут без trigger.document всё ещё
+    // способен породить документ нодой doc.generate.
+    const generateNodes = document.nodes
+      .filter((n) => n.type === 'doc.generate')
+      .map((n) => ({
+        nodeId: n.id,
+        templateId: String(((n.config ?? {}) as { templateId?: string }).templateId ?? ''),
+      }))
+      .filter((n) => n.templateId);
+    if (!wanted.length && !generateNodes.length) return [];
 
     const issues: ProcessValidationIssue[] = [];
     const dup = wanted.filter((id, i) => wanted.indexOf(id) !== i);
@@ -1078,6 +1088,34 @@ export class ProcessesService implements OnModuleInit {
         nodeId: undefined,
       });
     }
+
+    // Виды «С контрагентами» по маршрутам v1 не ходят: их путь прямой (черновик →
+    // «Отправить контрагенту»), submit для них отвечает 400 — то есть нарисованный
+    // маршрут было бы нечем запустить, и он лишь обещал бы то, чего не случится.
+    const allTemplateIds = [...new Set([...wanted, ...generateNodes.map((n) => n.templateId)])];
+    const externalTpls = await this.db.docTemplate.findMany({
+      where: { id: { in: allTemplateIds }, docType: { category: 'external' } },
+      select: { id: true, name: true },
+    });
+    for (const tpl of externalTpls) {
+      if (wanted.includes(tpl.id)) {
+        issues.push({
+          severity: 'error',
+          message: `Шаблон «${tpl.name}» — для документов с контрагентами: они отправляются контрагенту с карточки, а маршрут для них появится вместе с нодой отправки`,
+        });
+      }
+      // «Сформировать документ» по external-шаблону породил бы документ в статусе
+      // «На маршруте», из которого для категории «С контрагентами» нет продолжения:
+      // submit его отвергает, а «Отправить контрагенту» требует черновика.
+      for (const g of generateNodes.filter((n) => n.templateId === tpl.id)) {
+        issues.push({
+          severity: 'error',
+          message: `Шаблон «${tpl.name}» — для документов с контрагентами: нода «Сформировать документ» не может создать его на маршруте — такие документы отправляются контрагенту с карточки`,
+          nodeId: g.nodeId,
+        });
+      }
+    }
+    if (!wanted.length) return issues;
 
     const others = await this.db.processTrigger.findMany({
       where: {

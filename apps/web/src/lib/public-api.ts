@@ -167,3 +167,13 @@ export function shareDriveZipUrl(session: string, nodeId?: string): string {
   if (nodeId) params.set('nodeId', nodeId);
   return `${API_URL}/drive/guest/download-zip?${params.toString()}`;
 }
+
+/**
+ * Экземпляр ПОДПИСАНТА: штампованная копия и экспортный пакет по его же ссылке
+ * (ст. 62 ЦК — подписанный документ живёт и у второй стороны). Тот же приём с
+ * пропуском в адресе, что у ZIP-архива папки.
+ */
+export function shareSignPackageUrl(session: string, kind: 'stamped' | 'zip'): string {
+  const params = new URLSearchParams({ session, kind });
+  return `${API_URL}/sign/guest/package?${params.toString()}`;
+}

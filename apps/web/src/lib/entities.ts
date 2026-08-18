@@ -8,7 +8,7 @@
 // ============================================================
 
 import { apiGet } from './api';
-import type { Circle, Contact, CursorPage, StaffDirectory } from '@superapp/shared';
+import type { Circle, Contact, CounterpartyDto, CursorPage, StaffDirectory } from '@superapp/shared';
 
 export interface Principal {
   type: string;
@@ -35,6 +35,7 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   department: 'Отделы',
   position: 'Должности',
   branch: 'Филиалы',
+  counterparty: 'Контрагенты',
 };
 
 /** Контекст загрузки: workspace-скоупные типы (отдел/должность/филиал) требуют организацию. */
@@ -134,12 +135,29 @@ async function loadBranches(ctx?: EntityLoadContext): Promise<EntityOption[]> {
   }));
 }
 
+// Контрагенты — НЕ люди платформы: рисуются EntityChip (иконка организации),
+// а не PersonChip. Workspace-скоупные, как оси оргструктуры.
+async function loadCounterparties(ctx?: EntityLoadContext): Promise<EntityOption[]> {
+  if (!ctx?.workspaceId) return [];
+  const page = await apiGet<CursorPage<CounterpartyDto>>(`/workspaces/${ctx.workspaceId}/counterparties`, {
+    params: { limit: 200 },
+  });
+  return page.items.map((c) => ({
+    type: 'counterparty',
+    id: c.id,
+    title: c.bin ? `${c.name} · ${c.bin}` : c.name,
+    icon: 'workspace',
+    count: c.documentsCount,
+  }));
+}
+
 const LOADERS: Record<string, (ctx?: EntityLoadContext) => Promise<EntityOption[]>> = {
   user: loadUsers,
   circle: loadCircles,
   department: loadDepartments,
   position: loadPositions,
   branch: loadBranches,
+  counterparty: loadCounterparties,
 };
 
 const STAFF_TYPES = new Set(['department', 'position', 'branch']);

@@ -104,6 +104,10 @@ export const createOrgDocumentSchema = z.object({
   templateId: z.string().uuid(),
   /** Сторона документа. Пусто — сам подающий (заявление «от себя») */
   subjectUserId: z.string().uuid().optional(),
+  /** Контрагент — вторая сторона (только виды категории «С контрагентами») */
+  counterpartyId: z.string().uuid().optional(),
+  /** Контактное лицо контрагента — будущий внешний подписант */
+  counterpartyContactId: z.string().uuid().optional(),
   title: safeText(DOC_LIMITS.maxTitleLength).optional(),
   fields: z.record(z.unknown()).optional(),
 });
@@ -112,6 +116,8 @@ export const updateOrgDocumentSchema = z.object({
   title: safeText(DOC_LIMITS.maxTitleLength).optional(),
   fields: z.record(z.unknown()).optional(),
   subjectUserId: z.string().uuid().nullable().optional(),
+  counterpartyId: z.string().uuid().nullable().optional(),
+  counterpartyContactId: z.string().uuid().nullable().optional(),
   /** Правка тела builder-документа (у docx-документов отклоняется сервисом) */
   builderDoc: builderDocSchema.optional(),
   /**
@@ -131,14 +137,49 @@ export const createFreeOrgDocumentSchema = z.object({
   title: safeText(DOC_LIMITS.maxTitleLength),
   /** Сторона документа. Пусто — сам автор */
   subjectUserId: z.string().uuid().optional(),
+  counterpartyId: z.string().uuid().optional(),
+  counterpartyContactId: z.string().uuid().optional(),
   builderDoc: builderDocSchema.optional(),
   /** Свои поля документа (даты/числа удобными контролами) — можно завести сразу */
   formFields: z.array(docFormFieldSchema).max(DOC_LIMITS.maxFormFields).optional(),
 });
 
+/**
+ * Загрузка ГОТОВОГО файла как документа (третий путь создания): договор уже
+ * согласован в Word/PDF вне платформы — сюда он приходит на подпись и в реестр.
+ * Файл загружен обычным путём движка файлов (профиль `document`), сервис сузит
+ * MIME до PDF и DOCX и проверит владение файлом.
+ */
+export const createUploadedOrgDocumentSchema = z.object({
+  docTypeId: z.string().uuid(),
+  fileId: z.string().uuid(),
+  title: safeText(DOC_LIMITS.maxTitleLength).optional(),
+  subjectUserId: z.string().uuid().optional(),
+  counterpartyId: z.string().uuid().optional(),
+  counterpartyContactId: z.string().uuid().optional(),
+});
+
+/**
+ * Отправить документ контрагенту (внешний этап). Внутренних подписантов минимум
+ * один — правило ПРОДУКТА (двусторонний документ без подписи своей стороны не
+ * имеет смысла); движок подписи внутренних не требует, и это его право.
+ */
+export const sendExternalOrgDocumentSchema = z.object({
+  counterpartyContactId: z.string().uuid(),
+  internalSignerUserIds: z.array(z.string().uuid()).min(1).max(10),
+  /** Срок подписания; пусто — DOC_EXTERNAL_DEFAULT_TTL_DAYS от отправки */
+  expiresAt: z.string().datetime().optional(),
+  /** Отправить SMS со ссылкой на номер контакта (при живом SMS-драйвере) */
+  sendSms: z.boolean().optional(),
+});
+
 export const listOrgDocumentsSchema = z.object({
   docTypeId: z.string().uuid().optional(),
-  status: z.string().max(20).optional(),
+  status: z.string().max(30).optional(),
+  /** Категория вида: вкладка «С контрагентами» = category=external */
+  category: categoryEnum.optional(),
+  /** Документы конкретного контрагента (фильтр с его карточки) */
+  counterpartyId: z.string().uuid().optional(),
   /** Сторона документа: «мои документы» — то, что написано ОБО МНЕ */
   subjectUserId: z.string().uuid().optional(),
   /** Автор подачи: «мои заявления» — то, что подал Я. Это разные вопросы */
@@ -158,4 +199,6 @@ export type DocTemplateGrantInput = z.infer<typeof docTemplateGrantSchema>;
 export type CreateOrgDocumentInput = z.infer<typeof createOrgDocumentSchema>;
 export type UpdateOrgDocumentInput = z.infer<typeof updateOrgDocumentSchema>;
 export type CreateFreeOrgDocumentInput = z.infer<typeof createFreeOrgDocumentSchema>;
+export type CreateUploadedOrgDocumentInput = z.infer<typeof createUploadedOrgDocumentSchema>;
+export type SendExternalOrgDocumentInput = z.infer<typeof sendExternalOrgDocumentSchema>;
 export type ListOrgDocumentsInput = z.infer<typeof listOrgDocumentsSchema>;

@@ -109,7 +109,7 @@ const SignatureBlock = createReactBlockSpec(
     type: 'signature',
     propSchema: {
       role: { default: 'Директор' },
-      nameSource: { default: 'director', values: ['subject', 'director', 'custom', 'none'] as const },
+      nameSource: { default: 'director', values: ['subject', 'director', 'counterparty', 'custom', 'none'] as const },
       customName: { default: '' },
       stamp: { default: false },
     },
@@ -137,6 +137,7 @@ const SignatureBlock = createReactBlockSpec(
             >
               <option value="director">Директор (из реквизитов)</option>
               <option value="subject">Сотрудник — сторона документа</option>
+              <option value="counterparty">Подписант контрагента</option>
               <option value="custom">Впишу сам</option>
               <option value="none">Без имени</option>
             </select>

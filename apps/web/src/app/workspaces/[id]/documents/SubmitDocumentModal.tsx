@@ -34,6 +34,8 @@ export function SubmitDocumentModal({
   onClose,
   subjectUserId,
   subjectName,
+  category,
+  onNoTemplates,
 }: {
   workspaceId: string;
   open: boolean;
@@ -41,6 +43,10 @@ export function SubmitDocumentModal({
   /** Документ НА сотрудника (из его карточки в ростере). Пусто — «от себя». */
   subjectUserId?: string;
   subjectName?: string;
+  /** Сузить шаблоны до категории (вкладка «С контрагентами» = 'external') */
+  category?: string;
+  /** В категории нет шаблонов — предложить запасной путь (загрузку файла) */
+  onNoTemplates?: () => void;
 }) {
   const router = useRouter();
   const qc = useQueryClient();
@@ -52,10 +58,14 @@ export function SubmitDocumentModal({
     queryFn: () => fetchAvailableTemplates(workspaceId),
     enabled: open,
   });
+  const available = useMemo(
+    () => (templatesQuery.data ?? []).filter((t) => !category || t.category === category),
+    [templatesQuery.data, category],
+  );
 
   const template = useMemo(
-    () => (templatesQuery.data ?? []).find((t) => t.id === templateId) ?? null,
-    [templatesQuery.data, templateId],
+    () => available.find((t) => t.id === templateId) ?? null,
+    [available, templateId],
   );
 
   const reset = () => {
@@ -129,15 +139,30 @@ export function SubmitDocumentModal({
         >
           Не удалось загрузить список — проверьте связь и попробуйте снова
         </Alert>
-      ) : (templatesQuery.data ?? []).length === 0 ? (
-        <EmptyState
-          icon="file"
-          title="Пока нечего подавать"
-          description="Шаблоны заявлений настраивает управляющий: он же решает, кому какой доступен."
-        />
+      ) : available.length === 0 ? (
+        category === 'external' ? (
+          <EmptyState
+            icon="workspace"
+            title="Шаблонов для контрагентов пока нет"
+            description="Менеджер+ заводит вид категории «С контрагентами» и его шаблон. Готовый договор можно загрузить файлом прямо сейчас."
+            action={
+              onNoTemplates ? (
+                <Button variant="matte" icon="upload" onClick={onNoTemplates}>
+                  Загрузить готовый файл
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <EmptyState
+            icon="file"
+            title="Пока нечего подавать"
+            description="Шаблоны заявлений настраивает управляющий: он же решает, кому какой доступен."
+          />
+        )
       ) : (
         <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
-          {(templatesQuery.data ?? []).map((t) => (
+          {available.map((t) => (
             <TemplateOption key={t.id} template={t} onPick={() => setTemplateId(t.id)} />
           ))}
         </div>

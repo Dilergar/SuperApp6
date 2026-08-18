@@ -29,24 +29,27 @@ import {
   Card,
   Chip,
   EmptyState,
+  Icon,
   LoadingBlock,
+  Menu,
   PageHeader,
   SearchField,
   Select,
-  Tabs,
+  SegmentedControl,
   type TabItem,
 } from '@/components/ui';
 import { PersonChip } from '@/app/circles/PersonCard';
 import { useApprovalsCount } from '@/lib/hooks/useApprovalsCount';
 import { SubmitDocumentModal } from './SubmitDocumentModal';
 import { CreateFreeDocumentModal } from './CreateFreeDocumentModal';
+import { UploadDocumentModal } from './UploadDocumentModal';
 import { DecisionsTab } from './DecisionsTab';
 import { TemplatesTab } from './TemplatesTab';
 import { DocTypesTab } from './DocTypesTab';
 import { fetchDocTypes, fetchOrgDocuments } from './documents-api';
 import { DocStatusChip } from './documents-ui';
 
-type TabKey = 'registry' | 'decisions' | 'mine' | 'submissions' | 'templates' | 'types';
+type TabKey = 'registry' | 'external' | 'decisions' | 'mine' | 'submissions' | 'templates' | 'types';
 
 export default function WorkspaceDocumentsPage() {
   const { isReady } = useRequireAuth();
@@ -55,16 +58,20 @@ export default function WorkspaceDocumentsPage() {
   const meId = useAuthStore((s) => s.user?.id ?? null);
 
   // ?subject=<id> — переход из карточки сотрудника «Его документы»: реестр сразу
-  // отфильтрован по человеку, а не «вот весь список, ищите сами».
+  // отфильтрован по человеку. ?counterparty=<id> — из карточки контрагента:
+  // открывается вкладка «С контрагентами», уже суженная до него.
   const params = useSearchParams();
   const subjectFromUrl = params.get('subject');
+  const counterpartyFromUrl = params.get('counterparty');
 
-  const [tab, setTab] = useState<TabKey>('registry');
+  const [tab, setTab] = useState<TabKey>(counterpartyFromUrl ? 'external' : 'registry');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<DocStatus | null>(null);
   const [docTypeId, setDocTypeId] = useState<string | null>(null);
   const [submitOpen, setSubmitOpen] = useState(false);
   const [freeOpen, setFreeOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [externalSubmitOpen, setExternalSubmitOpen] = useState(false);
 
   const wsQuery = useQuery({
     queryKey: workspaceKey(id),
@@ -83,18 +90,21 @@ export default function WorkspaceDocumentsPage() {
   });
 
   // «Мои документы» — где я СТОРОНА (приказ обо мне тоже мой), «Заявления» — что я
-  // подал сам. Это разные вопросы: приказ на меня пишет кадровик, а не я.
-  const isList = tab === 'registry' || tab === 'mine' || tab === 'submissions';
+  // подал сам. «С контрагентами» — внешний контур (category=external): у него
+  // вторая сторона — контрагент, а не сотрудник.
+  const isList = tab === 'registry' || tab === 'external' || tab === 'mine' || tab === 'submissions';
   const filters = useMemo(
     () => ({
       search: search.trim() || undefined,
       status: status ?? undefined,
       docTypeId: docTypeId ?? undefined,
+      category: tab === 'external' ? 'external' : undefined,
+      counterpartyId: tab === 'external' ? (counterpartyFromUrl ?? undefined) : undefined,
       subjectUserId:
         tab === 'mine' ? (meId ?? undefined) : tab === 'registry' ? (subjectFromUrl ?? undefined) : undefined,
       createdById: tab === 'submissions' ? (meId ?? undefined) : undefined,
     }),
-    [search, status, docTypeId, tab, meId, subjectFromUrl],
+    [search, status, docTypeId, tab, meId, subjectFromUrl, counterpartyFromUrl],
   );
 
   const listQuery = useQuery({
@@ -108,13 +118,28 @@ export default function WorkspaceDocumentsPage() {
   const header = (
     <PageHeader
       breadcrumb={wsQuery.data?.name ?? 'Организация'}
-      title="Документы"
-      description="Заявления, приказы и справки организации: подача, согласование, номер и место в деле"
+      title="Документооборот"
+      description="Внутренние документы и договоры с контрагентами: подача, подпись, номер и место в деле"
       actions={
         <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
-          <Button variant="matte" icon="edit" onClick={() => setFreeOpen(true)}>
-            Создать документ
-          </Button>
+          {/* Три пути создания без третьей кнопки в ряд: свободный документ в
+              конструкторе и загрузка готового файла живут под одним «Создать».
+              Триггер — нативная кнопка классами кита: Menu якорится по ref,
+              а компонент Button ref не пробрасывает. */}
+          <Menu
+            label="Создать"
+            items={[
+              { key: 'free', label: 'Свободный документ', icon: 'edit', onClick: () => setFreeOpen(true) },
+              { key: 'upload', label: 'Загрузить готовый файл', icon: 'upload', onClick: () => setUploadOpen(true) },
+            ]}
+            trigger={(props) => (
+              <button {...props} type="button" className="ui-btn ui-btn--matte ui-btn--md">
+                <Icon name="add" size={17} />
+                Создать
+                <Icon name="caretDown" size={15} />
+              </button>
+            )}
+          />
           <Button icon="add" onClick={() => setSubmitOpen(true)}>
             Подать заявление
           </Button>
@@ -147,6 +172,8 @@ export default function WorkspaceDocumentsPage() {
 
   const tabs: TabItem<TabKey>[] = [
     { key: 'registry', label: 'Реестр', icon: 'list' },
+    // Внешний контур СРАЗУ после общего реестра (реестр продолжает показывать всё)
+    { key: 'external', label: 'С контрагентами', icon: 'workspace' },
     { key: 'decisions', label: 'Ждут решения', icon: 'check', count: decisionsCount || undefined },
     { key: 'mine', label: 'Мои документы', icon: 'file' },
     { key: 'submissions', label: 'Заявления', icon: 'send' },
@@ -162,7 +189,9 @@ export default function WorkspaceDocumentsPage() {
     <>
       {header}
 
-      <Tabs items={tabs} value={tab} onChange={setTab} aria-label="Разделы документов" />
+      {/* Пилюли-сегменты — как «везде» (Сотрудники, переключатель контекста):
+          подчёркнутые Tabs в сервисах вертикали разъезжались с остальным приложением */}
+      <SegmentedControl items={tabs} value={tab} onChange={setTab} aria-label="Разделы документов" />
 
       {tab === 'decisions' && <DecisionsTab workspaceId={id} />}
 
@@ -183,6 +212,13 @@ export default function WorkspaceDocumentsPage() {
               placeholder="Название или номер"
               aria-label="Поиск по документам"
             />
+            {tab === 'external' && (
+              <div style={{ marginLeft: 'auto' }}>
+                <Button icon="add" onClick={() => setExternalSubmitOpen(true)}>
+                  Документ
+                </Button>
+              </div>
+            )}
             <Select
               label="Вид"
               value={docTypeId}
@@ -222,6 +258,23 @@ export default function WorkspaceDocumentsPage() {
                   }
                 />
               ) : (listQuery.data?.items ?? []).length === 0 ? (
+                tab === 'external' ? (
+                  <EmptyState
+                    icon="workspace"
+                    title="Документов с контрагентами пока нет"
+                    description="Договор или АВР можно собрать по шаблону, в конструкторе — или загрузить уже готовый файл. Контрагент подпишет по ссылке, аккаунт ему не нужен."
+                    action={
+                      <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', justifyContent: 'center' }}>
+                        <Button variant="matte" icon="upload" onClick={() => setUploadOpen(true)}>
+                          Загрузить готовый файл
+                        </Button>
+                        <Button icon="add" onClick={() => setExternalSubmitOpen(true)}>
+                          По шаблону
+                        </Button>
+                      </div>
+                    }
+                  />
+                ) : (
                 <EmptyState
                   icon="file"
                   title={
@@ -237,6 +290,7 @@ export default function WorkspaceDocumentsPage() {
                       : 'Нажмите «Подать заявление» — доступные вам шаблоны появятся в списке.'
                   }
                 />
+                )
               ) : (
                 <div style={{ display: 'grid', gap: 'var(--spacing-2)' }}>
                   {(listQuery.data?.items ?? []).map((doc) => (
@@ -248,13 +302,11 @@ export default function WorkspaceDocumentsPage() {
                       style={{
                         display: 'flex',
                         alignItems: 'center',
+                        flexWrap: 'wrap', // телефон: чипы переносятся, а не распирают страницу
                         gap: 'var(--spacing-3)',
                         width: '100%',
                         textAlign: 'left',
                         padding: 'var(--spacing-3)',
-                        border: '1px solid var(--border)',
-                        borderRadius: 'var(--radius-item)',
-                        background: 'var(--surface)',
                         cursor: 'pointer',
                       }}
                     >
@@ -268,6 +320,12 @@ export default function WorkspaceDocumentsPage() {
                           {doc.templateName ? ` · ${doc.templateName}` : ''}
                         </div>
                       </div>
+                      {/* Вторая сторона: у внешнего контура — контрагент, у кадрового — сотрудник */}
+                      {doc.counterparty && (
+                        <Chip size="sm" icon="workspace">
+                          {doc.counterparty.name}
+                        </Chip>
+                      )}
                       {doc.subjectUserId && (
                         <PersonChip size="M" userId={doc.subjectUserId} firstName={doc.subjectName ?? "Сотрудник"} />
                       )}
@@ -291,11 +349,29 @@ export default function WorkspaceDocumentsPage() {
       {tab === 'types' && isManager && <DocTypesTab workspaceId={id} />}
 
       <SubmitDocumentModal workspaceId={id} open={submitOpen} onClose={() => setSubmitOpen(false)} />
+      {/* «+ Документ» на вкладке внешнего контура — те же шаблоны, суженные до
+          категории «С контрагентами»; пусто → подсказка про загрузку готового файла */}
+      <SubmitDocumentModal
+        workspaceId={id}
+        open={externalSubmitOpen}
+        onClose={() => setExternalSubmitOpen(false)}
+        category="external"
+        onNoTemplates={() => {
+          setExternalSubmitOpen(false);
+          setUploadOpen(true);
+        }}
+      />
       <CreateFreeDocumentModal
         workspaceId={id}
         open={freeOpen}
         isManager={isManager}
         onClose={() => setFreeOpen(false)}
+      />
+      <UploadDocumentModal
+        workspaceId={id}
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        presetCounterpartyId={counterpartyFromUrl}
       />
     </>
   );

@@ -141,7 +141,7 @@ export default function TemplateConstructorPage() {
   if (templatesQuery.isError || !template) {
     return (
       <>
-        <PageHeader breadcrumb="Документы" title="Шаблон не открылся" />
+        <PageHeader breadcrumb="Документооборот" title="Шаблон не открылся" />
         <BentoGrid>
           <Card span={12}>
             <EmptyState
@@ -163,7 +163,7 @@ export default function TemplateConstructorPage() {
   return (
     <>
       <PageHeader
-        breadcrumb={`Документы · ${template.docTypeName}`}
+        breadcrumb={`Документооборот · ${template.docTypeName}`}
         title={template.name}
         chip={
           <Chip size="sm" tone={template.status === 'published' ? 'success' : 'neutral'}>
@@ -184,14 +184,19 @@ export default function TemplateConstructorPage() {
                 Открыть бланк
               </Button>
             )}
-            <Button
-              icon="processes"
-              variant="matte"
-              loading={openRoute.isPending}
-              onClick={() => openRoute.mutate()}
-            >
-              {template.hasRoute ? 'Открыть маршрут' : 'Создать маршрут'}
-            </Button>
+            {/* У видов «С контрагентами» маршрутов НЕТ (v1): их путь — «Отправить
+                контрагенту» с карточки, и кнопка обещала бы то, что публикация
+                процесса всё равно отвергнет. */}
+            {template.category !== 'external' && (
+              <Button
+                icon="processes"
+                variant="matte"
+                loading={openRoute.isPending}
+                onClick={() => openRoute.mutate()}
+              >
+                {template.hasRoute ? 'Открыть маршрут' : 'Создать маршрут'}
+              </Button>
+            )}
             {template.status !== 'published' && (
               <Button icon="check" loading={publish.isPending} onClick={() => publish.mutate()}>
                 Опубликовать

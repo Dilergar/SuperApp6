@@ -2,7 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
+import { JobsService } from '../jobs/jobs.service';
 import { SignQrService } from './sign-qr.service';
+import { SIGN_EXPIRED_JOB } from './sign.jobs';
 
 /**
  * Гигиена движка подписи. Ретеншна здесь НЕТ и не будет: акты, протокол и
@@ -17,6 +19,7 @@ export class SignCron {
     private readonly db: DatabaseService,
     private readonly redis: RedisService,
     private readonly qr: SignQrService,
+    private readonly jobs: JobsService,
   ) {}
 
   /** Каждые 5 минут: погасить QR-сессии, которым вышел срок */
@@ -63,6 +66,14 @@ export class SignCron {
           data: { status: 'expired', completedAt: now },
         });
         if (won.count === 0) return;
+        // Разбудить ПОТРЕБИТЕЛЯ — джобом В ЭТОЙ ЖЕ транзакции (outbox): без хука
+        // его предмет навсегда оставался бы «у контрагента», а сам крон про
+        // статусы предметов не знает и знать не должен.
+        await this.jobs.enqueue(tx, {
+          type: SIGN_EXPIRED_JOB,
+          payload: { requestId: r.id },
+          uniqueKey: `signexp:${r.id}`,
+        });
         closed++;
       });
     }

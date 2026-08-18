@@ -520,9 +520,163 @@ async function main() {
 
   await part2({ u1, u2, testIin });
   await part3({ u1 });
+  await part3b({ u1, u2 });
   part4();
   await cleanup(u1);
   finish();
+}
+
+// ============================================================
+// Часть 3б — механизмы ВНЕШНЕГО КОНТУРА (ЭДО) на дев-полигоне:
+// стопка «Ждут решения», cancelRequest, suppressOutcomeNotify, штамп.
+// Гостевое подписание и сверка сертификата с контрагентом — verify-edo.cjs
+// (им нужны share-links + справочник; здесь движок проверяется сам по себе).
+// ============================================================
+
+/** Минимальный КОРРЕКТНЫЙ PDF (ASCII): штампуется только настоящий PDF-предмет */
+function makeMinimalPdf(text) {
+  const esc = String(text).replace(/[^\x20-\x7e]/g, '').replace(/[()\\]/g, '');
+  const header = '%PDF-1.4\n';
+  const content = `BT /F1 12 Tf 50 780 Td (${esc}) Tj ET`;
+  const o1 = '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n';
+  const o2 = '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n';
+  const o3 =
+    '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n';
+  const o4 = `4 0 obj\n<< /Length ${content.length} >>\nstream\n${content}\nendstream\nendobj\n`;
+  const o5 = '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n';
+  const parts = [header, o1, o2, o3, o4, o5];
+  const offsets = [];
+  let pos = 0;
+  for (const p of parts) {
+    offsets.push(pos);
+    pos += Buffer.byteLength(p, 'latin1');
+  }
+  let xref = 'xref\n0 6\n0000000000 65535 f \n';
+  for (let i = 1; i <= 5; i++) xref += String(offsets[i]).padStart(10, '0') + ' 00000 n \n';
+  const trailer = `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${pos}\n%%EOF\n`;
+  return Buffer.from(parts.join('') + xref + trailer, 'latin1');
+}
+
+async function part3b({ u1, u2 }) {
+  console.log('\n--- часть 3б: механизмы внешнего контура ---');
+  const mark = String(Date.now()).slice(-6);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // ---- свободная заявка (без шага маршрута) встаёт в стопку источником sign ----
+  const free = await call('POST', '/sign/dev/requests', u1.token, {
+    level: 'pep',
+    title: `Свободная подпись ${mark}`,
+    signerUserIds: [u2.id],
+  });
+  const freeReq = free.json?.data?.request;
+  check('свободная заявка на двоих создана', free.ok && !!freeReq?.id, JSON.stringify(free.json?.message ?? free.status));
+  const inbox1 = await call('GET', '/approvals/inbox', u2.token);
+  const inboxRow = (inbox1.json?.data?.items ?? []).find(
+    (i) => i.sourceKey === 'sign' && i.title === `Свободная подпись ${mark}`,
+  );
+  check(
+    'подписант видит её в стопке (источник sign, без inline-кнопок)',
+    !!inboxRow && (inboxRow.actions ?? []).length === 0,
+    JSON.stringify(inboxRow ?? inbox1.json?.data?.items?.length),
+  );
+
+  // ---- cancelRequest: отзыв гасит заявку, акты и строку стопки ----
+  const cancelled = await call('POST', '/sign/dev/cancel', u1.token, { requestId: freeReq.id });
+  check('отзыв заявки прошёл', cancelled.ok, JSON.stringify(cancelled.json?.message ?? cancelled.status));
+  const stCancelled = await call('POST', '/sign/dev/state', u1.token, { requestId: freeReq.id });
+  check('заявка закрыта отзывом', stCancelled.json?.data?.status === 'cancelled', stCancelled.json?.data?.status);
+  const inbox2 = await call('GET', '/approvals/inbox', u2.token);
+  check(
+    'строка ушла из стопки',
+    !(inbox2.json?.data?.items ?? []).some((i) => i.sourceKey === 'sign' && i.title === `Свободная подпись ${mark}`),
+  );
+  const flowLate = await call('GET', `/sign/requests/${freeReq.id}`, u2.token);
+  const lateActId = flowLate.json?.data?.myAct?.id;
+  const lateStart = lateActId
+    ? await call('POST', `/sign/acts/${lateActId}/pep/start`, u2.token, { consentAccepted: true })
+    : { ok: false, status: 'нет акта' };
+  check('подписать отозванную нельзя', !lateStart.ok, `status ${lateStart.status}`);
+  const dupCancel = await call('POST', '/sign/dev/cancel', u1.token, { requestId: freeReq.id });
+  check('повторный отзыв — честный отказ (заявка уже закрыта)', !dupCancel.ok, `status ${dupCancel.status}`);
+
+  // ---- suppressOutcomeNotify: движок молчит, когда потребитель шлёт свои ----
+  const supA = await call('POST', '/sign/dev/requests', u1.token, {
+    level: 'pep',
+    title: `Тихая ${mark}`,
+    signerUserIds: [u2.id],
+    suppressOutcomeNotify: true,
+  });
+  const supB = await call('POST', '/sign/dev/requests', u1.token, {
+    level: 'pep',
+    title: `Громкая ${mark}`,
+    signerUserIds: [u2.id],
+  });
+  const stSup = await call('POST', '/sign/dev/state', u1.token, { requestId: supA.json.data.request.id });
+  check('флаг подавления записан на строке заявки', stSup.json?.data?.suppressOutcomeNotify === true);
+  const declineAs = async (req) => {
+    const f = await call('GET', `/sign/requests/${req.id}`, u2.token);
+    return call('POST', `/sign/acts/${f.json.data.myAct.id}/decline`, u2.token, {
+      reason: 'Проверка подавления исходных уведомлений',
+    });
+  };
+  const decA = await declineAs(supA.json.data.request);
+  const decB = await declineAs(supB.json.data.request);
+  check('оба отказа приняты', decA.ok && decB.ok, `${decA.status}/${decB.status}`);
+  // Ждём ГРОМКОЕ уведомление — его приход ограничивает ожидание тихого:
+  // «отсутствие» проверяется только после доказанного прохода конвейера.
+  let loud = null;
+  for (let i = 0; i < 60 && !loud; i++) {
+    const notes = (await call('GET', '/notifications', u1.token)).json?.data?.items ?? [];
+    loud = notes.find((n) => n.type === 'sign.declined' && JSON.stringify(n).includes(`Громкая ${mark}`)) ?? null;
+    if (!loud) await sleep(500);
+  }
+  check('без флага sign.declined приходит', !!loud);
+  const notesAfter = (await call('GET', '/notifications', u1.token)).json?.data?.items ?? [];
+  check(
+    'с флагом движок молчит (дубль уведомления подавлен)',
+    !notesAfter.some((n) => n.type === 'sign.declined' && JSON.stringify(n).includes(`Тихая ${mark}`)),
+  );
+
+  // ---- штамп: completed-заявка получает штампованную копию, /check её знает ----
+  const pdfBytes = makeMinimalPdf(`Stamp probe ${mark}`);
+  const stampReq = await call('POST', '/sign/dev/requests', u1.token, {
+    level: 'pep',
+    title: `Штампуемый ${mark}`,
+    pdf: true,
+    body: pdfBytes.toString('latin1'),
+  });
+  check('PDF-заявка создана', stampReq.ok, JSON.stringify(stampReq.json?.message ?? stampReq.status));
+  const sReqId = stampReq.json.data.request.id;
+  const sFlow = await call('GET', `/sign/requests/${sReqId}`, u1.token);
+  const sActId = sFlow.json?.data?.myAct?.id;
+  const sStart = await call('POST', `/sign/acts/${sActId}/pep/start`, u1.token, { consentAccepted: true });
+  const sCode = await codeFor(SUITE.p1, sStart.json?.data?.challengeId);
+  const sDone = await call('POST', `/sign/acts/${sActId}/pep/confirm`, u1.token, {
+    challengeId: sStart.json?.data?.challengeId,
+    code: sCode,
+  });
+  check('единственный подписант закрыл заявку', sDone.ok && sDone.json?.data?.status === 'signed', JSON.stringify(sDone.json?.message ?? sDone.status));
+  let stamped = null;
+  for (let i = 0; i < 60 && !stamped; i++) {
+    const st = await call('POST', '/sign/dev/state', u1.token, { requestId: sReqId });
+    if (st.json?.data?.stampedSha256) stamped = st.json.data;
+    else await sleep(700);
+  }
+  check('штампованная копия собралась (джоб sign.stamp)', !!stamped, JSON.stringify(stamped ?? 'не дождались за 42с'));
+  if (stamped) {
+    const bySubject = await call('GET', `/sign/check?sha256=${sha256(pdfBytes)}`, null);
+    check(
+      'проверка по оригиналу — matchedBy=subject',
+      bySubject.json?.data?.found === true && (bySubject.json?.data?.matchedBy ?? 'subject') === 'subject',
+      JSON.stringify(bySubject.json?.data?.matchedBy ?? bySubject.status),
+    );
+    const byStamp = await call('GET', `/sign/check?sha256=${stamped.stampedSha256}`, null);
+    check(
+      'проверка по штампованной копии — matchedBy=stamped_copy',
+      byStamp.json?.data?.found === true && byStamp.json?.data?.matchedBy === 'stamped_copy',
+      JSON.stringify(byStamp.json?.data?.matchedBy ?? byStamp.status),
+    );
+  }
 }
 
 /**

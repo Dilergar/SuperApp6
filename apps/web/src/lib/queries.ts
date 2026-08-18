@@ -440,6 +440,14 @@ export const orgDocumentKey = (wsId: string, docId: string) =>
 /** Группы полей шаблона — статичны на процесс API, поэтому ключ без организации */
 export const templateFieldGroupsKey = ['templates', 'field-groups'] as const;
 
+// Сервис «Контрагенты» (B2B): справочник внешних сторон организации.
+export const counterpartiesKey = (wsId: string, filters?: Record<string, string | undefined>) =>
+  ['workspaces', wsId, 'counterparties', 'list', JSON.stringify(filters ?? {})] as const;
+/** ПРЕФИКС списков — им инвалидируют мутации (ключ несёт сериализованные фильтры) */
+export const counterpartiesPrefix = (wsId: string) => ['workspaces', wsId, 'counterparties', 'list'] as const;
+export const counterpartyKey = (wsId: string, cpId: string) =>
+  ['workspaces', wsId, 'counterparties', 'card', cpId] as const;
+
 // Хроника (core/chatter): журнал организации + хроника одной записи
 export const workspaceJournalKey = (wsId: string, category?: string | null) =>
   ['workspaces', wsId, 'journal', category ?? 'all'] as const;

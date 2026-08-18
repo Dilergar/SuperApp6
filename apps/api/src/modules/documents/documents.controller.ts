@@ -7,8 +7,10 @@ import {
   createDocTypeSchema,
   createFreeOrgDocumentSchema,
   createOrgDocumentSchema,
+  createUploadedOrgDocumentSchema,
   docTemplateGrantSchema,
   listOrgDocumentsSchema,
+  sendExternalOrgDocumentSchema,
   updateDocTemplateSchema,
   updateDocTypeSchema,
   updateOrgDocumentSchema,
@@ -224,6 +226,18 @@ export class DocumentsController {
     return { success: true, data };
   }
 
+  @Post('upload')
+  @ApiOperation({ summary: 'Создать документ из готового файла (PDF или .docx)' })
+  async createUploaded(
+    @CurrentUser() user: JwtPayload,
+    @Param('workspaceId') workspaceId: string,
+    @Body() body: unknown,
+  ) {
+    const dto = createUploadedOrgDocumentSchema.parse(body);
+    const data = await this.documents.createUploadedDocument(user.sub, workspaceId, dto);
+    return { success: true, data };
+  }
+
   @Get(':documentId')
   @ApiOperation({ summary: 'Карточка документа' })
   async get(@CurrentUser() user: JwtPayload, @Param('documentId') documentId: string) {
@@ -277,6 +291,48 @@ export class DocumentsController {
   async cancel(@CurrentUser() user: JwtPayload, @Param('documentId') documentId: string) {
     const data = await this.documents.cancel(user.sub, documentId);
     return { success: true, data };
+  }
+
+  @Post(':documentId/assign-number')
+  @ApiOperation({ summary: 'Присвоить номер черновику (внешний контур: номер печатается до отправки)' })
+  async assignNumber(@CurrentUser() user: JwtPayload, @Param('documentId') documentId: string) {
+    const data = await this.documents.assignNumber(user.sub, documentId);
+    return { success: true, data };
+  }
+
+  // ---- Внешний этап (категория «С контрагентами») ----
+
+  @Post(':documentId/send-external')
+  @ApiOperation({ summary: 'Отправить контрагенту: заморозка, заявка подписи, гостевая ссылка, SMS' })
+  async sendExternal(
+    @CurrentUser() user: JwtPayload,
+    @Param('documentId') documentId: string,
+    @Body() body: unknown,
+  ) {
+    const dto = sendExternalOrgDocumentSchema.parse(body);
+    const data = await this.documents.sendToCounterparty(user.sub, documentId, dto);
+    return { success: true, data };
+  }
+
+  @Post(':documentId/revoke-external')
+  @ApiOperation({ summary: 'Отозвать отправку контрагенту (ссылка гаснет, документ в черновик)' })
+  async revokeExternal(@CurrentUser() user: JwtPayload, @Param('documentId') documentId: string) {
+    const data = await this.documents.revokeExternal(user.sub, documentId);
+    return { success: true, data };
+  }
+
+  @Post(':documentId/return-to-draft')
+  @ApiOperation({ summary: 'Вернуть в черновик после отказа контрагента' })
+  async returnToDraft(@CurrentUser() user: JwtPayload, @Param('documentId') documentId: string) {
+    const data = await this.documents.returnToDraft(user.sub, documentId);
+    return { success: true, data };
+  }
+
+  @Post(':documentId/external/sms')
+  @ApiOperation({ summary: 'Перепослать SMS со ссылкой контрагенту (кулдаун 60с)' })
+  async resendExternalSms(@CurrentUser() user: JwtPayload, @Param('documentId') documentId: string) {
+    await this.documents.resendExternalSms(user.sub, documentId);
+    return { success: true, data: { sent: true } };
   }
 
   @Post(':documentId/pdf')

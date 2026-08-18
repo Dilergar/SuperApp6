@@ -387,7 +387,14 @@ textarea.ui-input { resize: vertical; min-height: 5rem; line-height: 1.55; }
   background: var(--hover-ink);
   border-radius: var(--radius-pill);
   padding: 3px;
+  /* На узком экране пилюли скроллятся ВНУТРИ пилюли-контейнера, как .ui-tabs:
+     без этого семь разделов «Документооборота» распирали страницу в боковой скролл */
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
 }
+.ui-segment::-webkit-scrollbar { display: none; }
 .ui-segment-item {
   padding: 0.4375rem 1.125rem;
   border-radius: var(--radius-pill);
@@ -618,6 +625,18 @@ textarea.ui-input { resize: vertical; min-height: 5rem; line-height: 1.55; }
    и правые блоки уезжали за край под горизонтальный скролл. */
 .ui-bento { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--gap-grid); }
 .ui-bento > * { min-width: 0; }
+
+/* Кликабельный ряд списка внутри блока (реестр документов, справочник
+   контрагентов): лёгкая рамка на белом блоке, системный радиус, ховер-подложка.
+   Раньше класс был мёртвым, а ряды рисовались inline с несуществующей
+   переменной --radius-item — и стояли квадратными бежевыми кирпичами. */
+.ui-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.ui-row:hover { background: var(--hover); }
 
 /* Список-колонка внутри блока. Тот же капкан этажом ниже: у `display: grid`
    без явных колонок неявный трек — `auto`, а его базовый размер = min-content

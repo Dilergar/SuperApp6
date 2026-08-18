@@ -124,6 +124,16 @@ export function CheckView({ actId, token }: { actId?: string; token?: string }) 
             <>
               <Alert tone="success">Документ подписан в SuperApp6. Найдено подписей: {result.signatures.length}</Alert>
 
+              {/* Принесли ШТАМПОВАННУЮ копию: у неё свой отпечаток, а подписи стоят
+                  под оригиналом — без объяснения несовпадение хэшей читается как
+                  подделка, хотя это самый частый файл в обороте. */}
+              {result.matchedBy === 'stamped_copy' && (
+                <Alert tone="accent">
+                  Вы проверяете копию со штампами. Подписи поставлены под оригиналом документа — его
+                  отпечаток указан ниже; сам штампованный экземпляр создан системой после подписания.
+                </Alert>
+              )}
+
               {result.subject && (
                 <Card style={{ marginTop: 'var(--spacing-3)' }}>
                   <b>{result.subject.title}</b>
@@ -131,7 +141,7 @@ export function CheckView({ actId, token }: { actId?: string; token?: string }) 
                     {[result.subject.kindLabel, result.subject.orgLabel].filter(Boolean).join(' · ')}
                   </div>
                   <div className="body-xs" style={{ wordBreak: 'break-all', opacity: 0.7 }}>
-                    Отпечаток: {result.subject.sha256}
+                    Отпечаток{result.matchedBy === 'stamped_copy' ? ' подписанного оригинала' : ''}: {result.subject.sha256}
                   </div>
                 </Card>
               )}

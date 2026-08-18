@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { VerifyService } from './verify.service';
 import { VerifySmsService } from './verify.sms';
+import { SmsOutboundService } from './sms-outbound.service';
 import { VerifyController } from './verify.controller';
 import { VerifyCron } from './verify.cron';
 
@@ -16,7 +17,9 @@ import { VerifyCron } from './verify.cron';
 @Global()
 @Module({
   controllers: [VerifyController],
-  providers: [VerifyService, VerifySmsService, VerifyCron],
-  exports: [VerifyService],
+  // SmsOutboundService — служебные SMS (доставка ссылок наружу): зародыш
+  // канального движка уведомлений, живёт рядом с драйвером, пока канал один.
+  providers: [VerifyService, VerifySmsService, SmsOutboundService, VerifyCron],
+  exports: [VerifyService, SmsOutboundService],
 })
 export class VerifyModule {}
