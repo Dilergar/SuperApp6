@@ -1,6 +1,6 @@
 'use client';
 
-import { ModalShell } from '@/components/ui';
+import { CloseChip, ModalShell } from '@/components/ui';
 import { useEffect } from 'react';
 import type { FileDto } from '@superapp/shared';
 import { useFileDisplayUrl } from '../../lib/hooks/useFileUrl';
@@ -56,26 +56,11 @@ export function ImageLightbox({ file, onClose }: ImageLightboxProps) {
       >
         {file.name} · {humanSize(file.size)}
       </div>
-      <button
-        type="button"
+      <CloseChip
+        size={36}
         onClick={onClose}
-        aria-label="Закрыть"
-        style={{
-          position: 'fixed',
-          top: '1rem',
-          right: '1.25rem',
-          border: 'none',
-          background: 'rgba(255,255,255,0.12)',
-          color: 'var(--on-primary)',
-          fontSize: '1.1rem',
-          width: '2.2rem',
-          height: '2.2rem',
-          borderRadius: '999px',
-          cursor: 'pointer',
-        }}
-      >
-        ✕
-      </button>
+        style={{ position: 'fixed', top: '1rem', right: '1.25rem' }}
+      />
     </ModalShell>
   );
 }

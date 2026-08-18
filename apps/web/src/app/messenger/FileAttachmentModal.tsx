@@ -1,6 +1,6 @@
 'use client';
 
-import { Icon, Input, ModalShell } from '@/components/ui';
+import { CloseChip, Input, ModalShell } from '@/components/ui';
 import { useEffect, useRef, useState } from 'react';
 import { MESSENGER_LIMITS } from '@superapp/shared';
 import type { FileDto } from '@superapp/shared';
@@ -88,12 +88,7 @@ export function FileAttachmentModal({
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <h3 className="title-md">Прикрепить файлы</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '1rem' }}
-            aria-label="Закрыть"
-          ><Icon name="close" size={15} /></button>
+          <CloseChip onClick={onClose} />
         </div>
 
         <FileDropzone

@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Button, IconButton } from './Button';
+import { Button, CloseChip, IconButton } from './Button';
 import { Chip } from './Chip';
 import { Glyph } from './Glyph';
 import { Icon } from './Icon';
@@ -199,7 +199,7 @@ export function GlyphPicker({ value, onSelect, onRemove, only, suggest, keepOpen
           width="100%"
           autoFocus
         />
-        {onClose && <IconButton icon="close" label="Закрыть" size={30} onClick={onClose} />}
+        {onClose && <CloseChip size={30} onClick={onClose} />}
       </div>
 
       {!searching && !only && (

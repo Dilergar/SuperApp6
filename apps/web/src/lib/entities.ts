@@ -8,7 +8,7 @@
 // ============================================================
 
 import { apiGet } from './api';
-import type { Circle, Contact, CounterpartyDto, CursorPage, StaffDirectory } from '@superapp/shared';
+import type { Circle, Contact, CounterpartyDto, CursorPage, StaffDirectory, WorkspaceMember } from '@superapp/shared';
 
 export interface Principal {
   type: string;
@@ -64,7 +64,15 @@ function fetchStaffDirectory(workspaceId: string): Promise<StaffDirectory> {
   return staffDirCache.get(workspaceId)!;
 }
 
-async function loadUsers(): Promise<EntityOption[]> {
+async function loadUsers(ctx?: EntityLoadContext): Promise<EntityOption[]> {
+  // В контексте организации «Люди» = РОСТЕР этой организации (вся команда, ВКЛЮЧАЯ
+  // СЕБЯ; Подрядчик изолирован), а не личное окружение: гранты шаблонов, подписанты
+  // ЭДО, сторона документа и шеринг оргдиска адресуют СОТРУДНИКОВ. На личном
+  // окружении здесь ломались оба края: «выдать себе» было невозможно (себя в своём
+  // окружении нет по определению), сотрудник вне окружения в списке отсутствовал,
+  // а человек ИЗ окружения, не работающий в организации, выбирался — и сервер
+  // честно отвергал грант, что для человека выглядело как «ничего не работает».
+  if (ctx?.workspaceId) return loadWorkspaceMembers(ctx.workspaceId);
   const acc: EntityOption[] = [];
   let cursor: string | undefined;
   do {
@@ -84,6 +92,21 @@ async function loadUsers(): Promise<EntityOption[]> {
     cursor = page.nextCursor ?? undefined;
   } while (cursor);
   return acc;
+}
+
+async function loadWorkspaceMembers(workspaceId: string): Promise<EntityOption[]> {
+  const rows = await apiGet<WorkspaceMember[]>(`/workspaces/${workspaceId}/members`);
+  return rows
+    .filter((m) => m.role !== 'contractor')
+    .map((m) => ({
+      type: 'user',
+      id: m.userId,
+      title: m.userName,
+      firstName: m.card?.firstName ?? m.userName,
+      lastName: m.card?.lastName ?? null,
+      // Подпись в пикере = Должность (принцип «роль организации на карте не видна»).
+      role: [...new Set(m.assignments.map((a) => a.positionName))].join(', ') || null,
+    }));
 }
 
 async function loadCircles(): Promise<EntityOption[]> {

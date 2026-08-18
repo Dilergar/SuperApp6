@@ -1,6 +1,6 @@
 'use client';
 
-import { Glyph, ModalShell } from '@/components/ui';
+import { CloseChip, Glyph, ModalShell } from '@/components/ui';
 import { useEffect, useState } from 'react';
 import type {
   CalendarRangeResponse,
@@ -78,21 +78,7 @@ export function AttachCardModal({
           }}
         >
           <h3 className="title-md">Отправить карточку</h3>
-          <button
-            onClick={onClose}
-            aria-label="Закрыть"
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              fontSize: '1.2rem',
-              color: 'var(--on-surface-variant)',
-              opacity: 0.5,
-              lineHeight: 1,
-            }}
-          >
-            ×
-          </button>
+          <CloseChip onClick={onClose} />
         </div>
         <p className="label-sm" style={{ opacity: 0.7, marginBottom: 'var(--spacing-4)' }}>
           Выберите свою задачу, событие или товар — карточка появится в этом чате.

@@ -1,6 +1,6 @@
 'use client';
 
-import { Input, ModalShell } from '@/components/ui';
+import { CloseChip, Input, ModalShell } from '@/components/ui';
 import { useState, useEffect } from 'react';
 import { MESSENGER_LIMITS } from '@superapp/shared';
 import { ContactPicker, useContacts } from './ContactPicker';
@@ -90,21 +90,7 @@ export function NewChatModal({
           }}
         >
           <h3 className="title-md">Новый чат</h3>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              fontSize: '1.2rem',
-              color: 'var(--on-surface-variant)',
-              opacity: 0.5,
-              lineHeight: 1,
-            }}
-            aria-label="Закрыть"
-          >
-            ×
-          </button>
+          <CloseChip onClick={onClose} />
         </div>
 
         {/* Mode toggle */}

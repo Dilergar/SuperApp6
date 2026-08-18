@@ -1,0 +1,11 @@
+# React Query: один ключ = ОДНА форма кэша (фикс 2026-08-19)
+
+**Падение.** Переход Главная → «Моё окружение» ронял `/circles` в `TypeError: Cannot read properties of undefined (reading 'length')`: `/dashboard` писал под `incomingInvitationsKey` плоскую `CursorPage` обычным `useQuery`, а `/circles` читал тот же ключ `useInfiniteQuery`, который ждёт `{pages, pageParams}` — внутренности RQ читали `.pages` у плоской формы. Порядко-зависимый баг: прямой заход на /circles работал, после F5 уходил (кэш живёт внутри вкладки), поэтому жил незамеченным со времён рефакторинга «курсорной лесенки» приглашений. Кодовая база правило уже знала — `contactsPagesKey` заведён отдельно от `contactsKey` с комментарием ровно об этом, — но лесенка приглашений его нарушила.
+
+**Фикс (фундаментальный).** Единственное описание запроса в `apps/web/src/lib/queries.ts` рядом с ключом:
+`export const incomingInvitationsInfinite = () => infiniteQueryOptions({ queryKey: incomingInvitationsKey, queryFn: ({pageParam}) => fetchIncomingInvitations(pageParam || undefined), initialPageParam: undefined as string | undefined, getNextPageParam: (last) => last.nextCursor ?? undefined })`.
+Оба потребителя (`/circles` и панель приглашений Главной) делают `useInfiniteQuery({ ...incomingInvitationsInfinite(), enabled: isReady })`; панель читает первую страницу `data?.pages[0]?.items ?? []`. Свой запрос по месту на этот ключ собирать нельзя. Правило добавлено в CLAUDE.md (плейбук п.6): один ключ = одна форма; общая лента объявляется один раз через `infiniteQueryOptions`.
+
+**Свип на этот класс (2026-08-19, чисто).** Все остальные ключи `useInfiniteQuery` одиночные или разведены: counterparties-пикеры — параметром ключа `forPicker`, хроники chatter — по refType+refId, контакты — отдельный `contactsPagesKey`. Проверка при ревью: у каждого ключа из `useInfiniteQuery` не должно быть второго потребителя с обычным `useQuery`.
+
+**Диагностика.** Ошибка внутри RQ со стеком на строке вызова хука + воспроизводится только при КЛИЕНТСКОМ переходе с другой страницы, а после жёсткого F5 исчезает → почти наверняка столкновение форм на общем ключе. Проверено в браузере: чистая вкладка, Главная → клик «Моё окружение» — страница целиком, консоль пустая; tsc и eslint зелёные.

@@ -121,3 +121,30 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
     </button>
   );
 });
+
+export interface CloseChipProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'color'> {
+  /** Подпись для скринридера. */
+  label?: string;
+  size?: number;
+}
+
+/**
+ * Единый красный чип-крестик закрытия (решение продукта 2026-08-19): ВСЕ
+ * «крестики сверху» оверлеев — модалка кита, пикеры, лайтбокс, панели —
+ * рисуются ТОЛЬКО им. Свой крестик на странице = нарушение кита (как у Button).
+ */
+export const CloseChip = forwardRef<HTMLButtonElement, CloseChipProps>(function CloseChip(
+  { label = 'Закрыть', size = 30, className, ...rest },
+  ref,
+) {
+  return (
+    <IconButton
+      ref={ref}
+      icon="close"
+      label={label}
+      size={size}
+      className={cx('ui-close-chip', className)}
+      {...rest}
+    />
+  );
+});

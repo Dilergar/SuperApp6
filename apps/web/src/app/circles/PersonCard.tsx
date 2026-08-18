@@ -8,6 +8,7 @@ import {
   Chip,
   Glyph,
   IconButton,
+  CloseChip,
   Input,
   Menu,
   ModalShell,
@@ -789,14 +790,12 @@ function ExpandedCard({
   return (
     <ModalShell onClose={onClose} zIndex={1000} label={`Карточка: ${person.firstName}`}>
       <div onClick={(e) => e.stopPropagation()} style={{ position: 'relative', maxWidth: 420, width: '100%' }}>
-        <IconButton
-          icon="close"
-          label="Закрыть"
+        <CloseChip
           onClick={onClose}
           size={32}
           style={{
             position: 'absolute', top: -10, right: -10, zIndex: 5,
-            background: 'var(--block)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-pop)',
+            boxShadow: 'var(--shadow-pop)',
           }}
         />
         <CardShell size="XL" skin={skin} rotation={-1}>

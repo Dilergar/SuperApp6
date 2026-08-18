@@ -21,7 +21,7 @@ import {
   fetchContactsPage,
   fetchCircles,
   fetchCircleDetail,
-  fetchIncomingInvitations,
+  incomingInvitationsInfinite,
   fetchOutgoingInvitations,
   fetchBlocks,
   fetchCurrencyBadge,
@@ -161,11 +161,11 @@ export default function CirclesPage() {
   const groupsQ = useQuery({ queryKey: circlesKey, queryFn: fetchCircles, enabled: isReady });
   // Входящие — той же курсорной лесенкой, что исходящие: раньше UI брал только первую
   // страницу, и приглашение №21 не существовало для человека в принципе.
+  // Описание запроса ОБЩЕЕ с панелью Главной (incomingInvitationsInfinite):
+  // один ключ = одна форма кэша, иначе плоская страница чужого useQuery
+  // роняет эту ленту на «reading 'length'».
   const incomingQ = useInfiniteQuery({
-    queryKey: incomingInvitationsKey,
-    queryFn: ({ pageParam }) => fetchIncomingInvitations((pageParam as string | undefined) || undefined),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    ...incomingInvitationsInfinite(),
     enabled: isReady,
   });
   const outgoingQ = useInfiniteQuery({

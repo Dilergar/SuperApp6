@@ -1,6 +1,6 @@
 'use client';
 
-import { Icon, Input, ModalShell, useConfirm } from '@/components/ui';
+import { CloseChip, Icon, Input, ModalShell, useConfirm } from '@/components/ui';
 import { useState, useEffect } from 'react';
 import type { ChatDetail, ChatMemberRole, ChatParticipantInfo } from '@superapp/shared';
 import { MESSENGER_LIMITS } from '@superapp/shared';
@@ -136,13 +136,7 @@ export function GroupManageModal({
               {detail.participants.length} участник(ов)
             </p>
           </div>
-          <button
-            onClick={onClose}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem', color: 'var(--on-surface-variant)', opacity: 0.5, lineHeight: 1 }}
-            aria-label="Закрыть"
-          >
-            ×
-          </button>
+          <CloseChip onClick={onClose} />
         </div>
 
         {pane === 'add' ? (

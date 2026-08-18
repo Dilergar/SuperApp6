@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from './Button';
-import { IconButton } from './Button';
+import { CloseChip } from './Button';
 import { cx } from './tones';
 
 export type ModalSize = 'sm' | 'md' | 'lg' | 'xl';
@@ -146,7 +146,7 @@ export function Modal({
               {title && <div id={titleId} className="title-md">{title}</div>}
               {subtitle && <div className="label-sm" style={{ marginTop: '0.25rem' }}>{subtitle}</div>}
             </div>
-            {!hideClose && <IconButton icon="close" label="Закрыть" size={32} onClick={onClose} />}
+            {!hideClose && <CloseChip size={32} onClick={onClose} />}
           </div>
         )}
         <div className="ui-modal-body">{children}</div>

@@ -87,6 +87,21 @@
 .ui-iconbtn--outline:hover:not(:disabled) { background: var(--hover); }
 .ui-iconbtn--danger:hover:not(:disabled) { background: var(--danger-container); color: var(--danger); }
 
+/* Единый красный чип-крестик закрытия оверлеев (решение продукта 2026-08-19):
+   компонент CloseChip кита, ОДИН на весь проект — модалка, пикеры, лайтбокс,
+   панели. Свой крестик закрытия на странице не рисовать. Стоит ПОСЛЕ базовых
+   правил .ui-iconbtn, чтобы перебивать их ховер каскадом. */
+.ui-close-chip {
+  background: var(--danger-container);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+.ui-close-chip:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger-base) 22%, transparent);
+  color: var(--danger);
+}
+.ui-close-chip:focus-visible { outline-color: var(--danger); }
+
 /* ---------- Поля ---------- */
 .ui-field-label {
   display: block;

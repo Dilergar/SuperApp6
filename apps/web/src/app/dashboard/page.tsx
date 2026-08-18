@@ -15,7 +15,7 @@
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import type { Task } from '@superapp/shared';
 import { APPROVAL_INBOX_TITLE } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
@@ -30,7 +30,7 @@ const DecisionStack = dynamic(
 import {
   fetchTaskStats, taskStatsKey,
   fetchTasks, tasksListKey,
-  fetchIncomingInvitations, incomingInvitationsKey,
+  incomingInvitationsInfinite,
   fetchFinanceMonthReport, financeMonthReportKey,
   messengerChatsKey,
 } from '@/lib/queries';
@@ -82,12 +82,15 @@ export default function DashboardPage() {
   const unreadChats = chats.filter((c) => c.unreadCount > 0);
   const unreadTotal = unreadChats.reduce((s, c) => s + c.unreadCount, 0);
 
-  const { data: invitesPage } = useQuery({
-    queryKey: incomingInvitationsKey,
-    queryFn: () => fetchIncomingInvitations(),
+  // Панель показывает ПЕРВУЮ страницу ТОЙ ЖЕ ленты, что «Моё окружение»:
+  // описание запроса одно (incomingInvitationsInfinite), поэтому ключ и форма
+  // кэша разъехаться не могут. Обычный useQuery на этом ключе писал плоскую
+  // страницу и ронял /circles при клиентском переходе с Главной.
+  const { data: invitesData } = useInfiniteQuery({
+    ...incomingInvitationsInfinite(),
     enabled: isReady,
   });
-  const invites = invitesPage?.items ?? [];
+  const invites = invitesData?.pages[0]?.items ?? [];
 
   // Финансы: книга создаётся лениво, поэтому у нового человека отчёта может не
   // быть вовсе — тихо показываем прочерк, а не ошибку на главной.

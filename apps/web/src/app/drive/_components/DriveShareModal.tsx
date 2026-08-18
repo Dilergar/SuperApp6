@@ -63,8 +63,11 @@ export function DriveShareModal({
   });
   const canManage = detail ? detail.access === 'manager' || detail.access === 'owner' : false;
 
+  // На диске организации личной Группы в пикере НЕТ: сервер её отвергает
+  // (`assertPrincipalAllowed` — «пустить родственников в рабочие файлы» нельзя),
+  // а предлагать то, что сервер отвергнет, = «кнопка не работает» для человека.
   const types = useMemo(
-    () => (isWorkspace ? ['user', 'circle', 'department', 'position', 'branch'] : ['user', 'circle']),
+    () => (isWorkspace ? ['user', 'department', 'position', 'branch'] : ['user', 'circle']),
     [isWorkspace],
   );
 

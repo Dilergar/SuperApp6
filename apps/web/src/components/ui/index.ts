@@ -14,7 +14,7 @@ export {
   parseGlyph, hexToChar, charToHex, fluentUrl, GLYPH_PREFIX,
   type ParsedGlyph,
 } from './glyph-data';
-export { Button, IconButton, type ButtonProps, type ButtonVariant, type ButtonSize } from './Button';
+export { Button, IconButton, CloseChip, type ButtonProps, type ButtonVariant, type ButtonSize } from './Button';
 export { Field, Input, Textarea, SearchField, type InputProps, type TextareaProps } from './Input';
 export { Select, type SelectOption, type SelectProps } from './Select';
 export { Toggle, Checkbox, type ToggleProps, type CheckboxProps } from './Toggle';

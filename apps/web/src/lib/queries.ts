@@ -8,6 +8,7 @@
 // "refetch absolutely everything" storm.
 // ============================================================
 
+import { infiniteQueryOptions } from '@tanstack/react-query';
 import { apiGet } from './api';
 import type {
   Contact,
@@ -263,6 +264,24 @@ export async function fetchIncomingInvitations(
     params: cursor ? { cursor } : undefined,
   });
 }
+
+/**
+ * ЕДИНОЕ описание бесконечной ленты входящих приглашений — для ВСЕХ потребителей
+ * ключа (страница «Моё окружение» и панель на Главной). Ключ у кэша один, а формы
+ * данных у useQuery и useInfiniteQuery РАЗНЫЕ ({items,…} против {pages,…}):
+ * пока Главная писала под этот ключ плоскую страницу обычным useQuery, переход
+ * Главная → Окружение ронял /circles («Cannot read properties of undefined
+ * (reading 'length')» — внутренности useInfiniteQuery читали .pages у плоской
+ * формы). Правило: один ключ = ОДНА форма, и она объявлена здесь, рядом с ключом;
+ * свой запрос по месту на этот ключ собирать нельзя.
+ */
+export const incomingInvitationsInfinite = () =>
+  infiniteQueryOptions({
+    queryKey: incomingInvitationsKey,
+    queryFn: ({ pageParam }) => fetchIncomingInvitations(pageParam || undefined),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
 
 /**
  * Область исходящих приглашений. `history` отдаёт НЕ-pending строки (отклонённые,

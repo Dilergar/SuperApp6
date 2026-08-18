@@ -98,6 +98,8 @@ export default function WorkspaceStaffPage() {
     invalidateEntities('department');
     invalidateEntities('position');
     invalidateEntities('branch');
+    // «Люди» в контексте организации = ростер: найм/увольнение/должности меняют и его.
+    invalidateEntities('user');
   };
 
   const leave = async () => {
@@ -500,6 +502,32 @@ function MemberModal({
       setPickBranch('');
     });
 
+  // «Сохранить» — закрывающая кнопка, которая ДОВОДИТ начатое: применяет все
+  // невыполненные правки (выбранную роль, выбранную должность с филиалом) и
+  // закрывает окно. Ловушка «выбрал должность → закрыл окно → ничего не
+  // сохранилось» закрыта этим по построению (решение продукта 2026-08-19);
+  // мгновенные кнопки «Сменить»/«Назначить» остаются для точечных операций.
+  const saveAll = async () => {
+    setBusy(true);
+    setLocalError('');
+    try {
+      if (canChangeRole && newRole !== member.role) {
+        await apiPatch(`/workspaces/${workspaceId}/members/${member.userId}`, { role: newRole });
+      }
+      if (canStaff && pickPos[0]) {
+        await apiPost(`/workspaces/${workspaceId}/staff/members/${member.userId}/assignments`, {
+          positionId: pickPos[0].id,
+          branchId: pickBranch || null,
+        });
+      }
+      refreshStaff();
+      onClose();
+    } catch (e) {
+      setLocalError(apiErrorMessage(e));
+      setBusy(false);
+    }
+  };
+
   const unassign = (a: StaffAssignment) =>
     run(async () => {
       await apiDelete(`/workspaces/${workspaceId}/staff/assignments/${a.id}`);
@@ -535,7 +563,9 @@ function MemberModal({
               Уволить
             </Button>
           )}
-          <Button variant="ghost" onClick={onClose}>Готово</Button>
+          <Button variant="primary" tone="success" icon="save" loading={busy} onClick={() => void saveAll()}>
+            Сохранить
+          </Button>
         </>
       }
     >
