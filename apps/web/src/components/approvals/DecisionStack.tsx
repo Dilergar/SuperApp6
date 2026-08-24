@@ -8,6 +8,7 @@ import { Button, Card, EmptyState, Icon, Input, LoadingBlock, Modal, Tabs } from
 import { PersonChip } from '@/app/circles/PersonCard';
 import { approvalInboxKey, approvalsRootKey, type ApprovalScope } from '@/lib/queries';
 import { decideApproval, fetchInbox } from '@/lib/approvals-api';
+import { acknowledgeCampaign } from '@/lib/hr-api';
 import { apiErrorMessage } from '@/lib/api';
 import { toastError } from '@/lib/toast';
 import { MyApprovalsList } from './MyApprovalsList';
@@ -66,7 +67,15 @@ export function DecisionStack({
   }, [item?.id]);
 
   const decide = useMutation({
-    mutationFn: (decision: ApprovalDecisionKind) => decideApproval(item!.id, { decision, comment: comment || undefined }),
+    // Кнопки исполняет ИСТОЧНИК элемента: заявка движка решений — своей ручкой,
+    // кампания ознакомления КЭДО — своей («Ознакомлен» = фиксация клика).
+    mutationFn: async (decision: ApprovalDecisionKind): Promise<void> => {
+      if (item!.sourceKey === 'hr_campaign') {
+        await acknowledgeCampaign(item!.id);
+        return;
+      }
+      await decideApproval(item!.id, { decision, comment: comment || undefined });
+    },
     onSuccess: () => {
       // Префикс — обновляются и стопка, и счётчик бейджа, и «мои заявки»
       void qc.invalidateQueries({ queryKey: approvalsRootKey });
@@ -237,7 +246,14 @@ export function DecisionStack({
           onClose={() => setSigningStepId(null)}
           onSigned={() => {
             void qc.invalidateQueries({ queryKey: approvalsRootKey });
-            setSigningStepId(null);
+            // Очередь подписания «N из M» (мастер онбординг-пакета сотрудника и
+            // очередь работодателя на пачку приказов): следующий подписной шаг
+            // открывается САМ — 200 приказов не требуют 200 ручных заходов.
+            // Список ещё не перезагружен — следующий кандидат считается по
+            // текущему снимку без только что подписанного шага.
+            const rest = items.filter((i) => i.id !== signingStepId);
+            const next = rest[Math.min(index, Math.max(0, rest.length - 1))];
+            setSigningStepId(next?.signRequirement ? next.id : null);
           }}
         />
       )}

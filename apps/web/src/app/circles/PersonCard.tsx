@@ -993,7 +993,7 @@ function RoleEditor({ ctx, skin }: { ctx: RoleEditContext; skin: CardSkinRender 
 // ============================================================
 
 export const StaffPersonCard = memo(function StaffPersonCard({
-  userId, card, positions, branches, onWrite, onManage,
+  userId, card, positions, branches, onWrite, onManage, cardHref,
 }: {
   userId: string;
   card: ContactUserCard;
@@ -1003,6 +1003,8 @@ export const StaffPersonCard = memo(function StaffPersonCard({
   branches: string[];
   onWrite?: () => void;
   onManage?: () => void;
+  /** Страница человека (КЭДО): ссылка «Карточка» — факт, договор, действия, хроника. */
+  cardHref?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
   const skin = usePersonSkin(userId) || DEFAULT_SKIN;
@@ -1049,11 +1051,16 @@ export const StaffPersonCard = memo(function StaffPersonCard({
           {/* Кнопки — «Написать» + «Управлять», обе явные и обе из кита:
               у прежних не было ни фокус-кольца, ни общего ховера (он подделывался
               мутацией style на каждой кнопке). */}
-          {(onWrite || onManage) && (
+          {(onWrite || onManage || cardHref) && (
             <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', justifyContent: 'center' }}>
               {onWrite && (
                 <Button variant="outline" size="sm" icon="messenger" onClick={(e) => { stop(e); onWrite(); }}>
                   Написать
+                </Button>
+              )}
+              {cardHref && (
+                <Button variant="outline" size="sm" icon="file" href={cardHref} onClick={stop}>
+                  Карточка
                 </Button>
               )}
               {onManage && (

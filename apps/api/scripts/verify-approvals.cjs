@@ -313,18 +313,22 @@ const created = [];
     check('глагол берётся из вида шага («Подписать», не «Согласовать»)',
       !!asked && asked.title.startsWith('Подписать'), asked?.title);
 
+    // Пустой снимок — ЧЕСТНЫЙ ОТКАЗ при создании (КЭДО-волна): раньше шаг молча
+    // активировался «в никуда» и заявка ждала вечно — теперь маршрут с адресатом,
+    // которого не существует, не заводится вовсе (машинный код для потребителей).
     const emptyDep = uuid();
-    const { request } = await createRequest(u1.token, [
-      { order: 0, kind: 'approval', assigneeType: 'department', assigneeId: emptyDep },
-    ]);
-    created.push({ id: request.id, token: u1.token });
-    check('шаг активен, но снимок пуст', request.steps[0].status === 'active' && request.steps[0].awaitingUserIds.length === 0);
-
-    await sleep(500);
-    const notif = await prisma.notification.findFirst({
-      where: { userId: u1.id, type: 'approval.unassigned', dedupKey: `apun:${request.steps[0].id}` },
+    const refused = await call('POST', '/approvals/dev/request', u1.token, {
+      refId: uuid(),
+      title: 'Заявление на отпуск',
+      workspaceId: null,
+      sha: null,
+      steps: [{ order: 0, kind: 'approval', assigneeType: 'department', assigneeId: emptyDep }],
     });
-    check('автор предупреждён «некому решать»', !!notif);
+    check(
+      'пустой снимок адресатов — честный отказ при создании',
+      refused.status === 400 && refused.json?.details?.code === 'approval_empty_assignees',
+      `${refused.status} ${refused.json?.details?.code ?? ''}`,
+    );
   }
 
   console.log('\n=== 11. Мои заявки и отзыв ===');
@@ -457,15 +461,19 @@ const created = [];
       if (!foreignWs) {
         check('SKIP: нет чужой организации для проверки снимка', true);
       } else {
-        const { request: foreign } = await createRequest(u1.token, [
-          { order: 0, kind: 'approval', assigneeType: 'user', assigneeId: u2.id },
-        ], { workspaceId: foreignWs.id });
-        created.push({ id: foreign.id, token: u1.token });
-        const step = await prisma.approvalStep.findUnique({ where: { id: foreign.steps[0].id } });
-        check('посторонний не попал в снимок адресатов', (step?.awaitingUserIds ?? []).length === 0,
-          JSON.stringify(step?.awaitingUserIds ?? []));
-        const denied = await call('POST', `/approvals/steps/${foreign.steps[0].id}/decide`, u2.token, { decision: 'approved' });
-        check('и решить он не может', !denied.ok, `status ${denied.status}`);
+        // КЭДО-волна: посторонний по-прежнему вычищается из снимка, но пустой
+        // снимок теперь честный отказ ПРИ СОЗДАНИИ (раньше шаг «в никуда» висел
+        // активным) — отказ и доказывает фильтр, и делает «решить» невозможным.
+        const foreignRefused = await call('POST', '/approvals/dev/request', u1.token, {
+          refId: uuid(),
+          title: 'Заявление на отпуск',
+          workspaceId: foreignWs.id,
+          sha: null,
+          steps: [{ order: 0, kind: 'approval', assigneeType: 'user', assigneeId: u2.id }],
+        });
+        check('посторонний вычищен из снимка → заявка честно не заводится',
+          foreignRefused.status === 400 && foreignRefused.json?.details?.code === 'approval_empty_assignees',
+          `${foreignRefused.status} ${foreignRefused.json?.details?.code ?? ''}`);
       }
     }
   }

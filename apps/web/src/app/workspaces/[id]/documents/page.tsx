@@ -9,7 +9,7 @@
 // реальный гейт — серверный 403.
 // ============================================================
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -44,12 +44,13 @@ import { SubmitDocumentModal } from './SubmitDocumentModal';
 import { CreateFreeDocumentModal } from './CreateFreeDocumentModal';
 import { UploadDocumentModal } from './UploadDocumentModal';
 import { DecisionsTab } from './DecisionsTab';
+import { CampaignsTab } from './CampaignsTab';
 import { TemplatesTab } from './TemplatesTab';
 import { DocTypesTab } from './DocTypesTab';
 import { fetchDocTypes, fetchOrgDocuments } from './documents-api';
 import { DocStatusChip } from './documents-ui';
 
-type TabKey = 'registry' | 'external' | 'decisions' | 'mine' | 'submissions' | 'templates' | 'types';
+type TabKey = 'registry' | 'external' | 'decisions' | 'campaigns' | 'mine' | 'submissions' | 'templates' | 'types';
 
 export default function WorkspaceDocumentsPage() {
   const { isReady } = useRequireAuth();
@@ -63,8 +64,18 @@ export default function WorkspaceDocumentsPage() {
   const params = useSearchParams();
   const subjectFromUrl = params.get('subject');
   const counterpartyFromUrl = params.get('counterparty');
+  // ?tab=campaigns — дип-линки из уведомлений кампаний ознакомления (КЭДО)
+  const tabFromUrl = params.get('tab');
 
-  const [tab, setTab] = useState<TabKey>(counterpartyFromUrl ? 'external' : 'registry');
+  const [tab, setTab] = useState<TabKey>(
+    tabFromUrl === 'campaigns' ? 'campaigns' : counterpartyFromUrl ? 'external' : 'registry',
+  );
+  // Клиентский переход по дип-линку (?tab=campaigns из уведомления, когда
+  // страница уже открыта) меняет только query — вкладку переключает эффект.
+  useEffect(() => {
+    if (tabFromUrl === 'campaigns') setTab('campaigns');
+    else if (counterpartyFromUrl) setTab('external');
+  }, [tabFromUrl, counterpartyFromUrl]);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<DocStatus | null>(null);
   const [docTypeId, setDocTypeId] = useState<string | null>(null);
@@ -175,10 +186,15 @@ export default function WorkspaceDocumentsPage() {
     // Внешний контур СРАЗУ после общего реестра (реестр продолжает показывать всё)
     { key: 'external', label: 'С контрагентами', icon: 'workspace' },
     { key: 'decisions', label: 'Ждут решения', icon: 'check', count: decisionsCount || undefined },
-    { key: 'mine', label: 'Мои документы', icon: 'file' },
+    // «Обо мне», а не «Мои документы»: личный пункт сайдбара «Мои документы»
+    // (бессрочный архив КЭДО) — другой раздел, и два одинаковых имени с разным
+    // составом путали бы (решение Этапа 9).
+    { key: 'mine', label: 'Обо мне', icon: 'file' },
     { key: 'submissions', label: 'Заявления', icon: 'send' },
     ...(isManager
       ? ([
+          // КЭДО: кампании ознакомления с аналитикой до человека
+          { key: 'campaigns', label: 'Ознакомления', icon: 'eye' },
           { key: 'templates', label: 'Шаблоны', icon: 'filePlus' },
           { key: 'types', label: 'Виды', icon: 'folder' },
         ] as TabItem<TabKey>[])
@@ -194,6 +210,7 @@ export default function WorkspaceDocumentsPage() {
       <SegmentedControl items={tabs} value={tab} onChange={setTab} aria-label="Разделы документов" />
 
       {tab === 'decisions' && <DecisionsTab workspaceId={id} />}
+      {tab === 'campaigns' && <CampaignsTab workspaceId={id} />}
 
       {isList && (
         <>
@@ -242,6 +259,24 @@ export default function WorkspaceDocumentsPage() {
               width={190}
             />
           </div>
+
+          {/* Пришли с карточки человека (?subject=…): фильтр обязан быть ВИДЕН и
+              сниматься одним кликом — иначе реестр выглядит подозрительно пустым,
+              и вернуться ко всем документам нечем. */}
+          {tab === 'registry' && subjectFromUrl && (
+            <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center', flexWrap: 'wrap', marginBottom: 'var(--spacing-3)' }}>
+              <span className="meta">Показаны документы одного сотрудника:</span>
+              <PersonChip size="S" userId={subjectFromUrl} firstName="Сотрудник" />
+              <Button
+                variant="ghost"
+                size="sm"
+                icon="close"
+                onClick={() => router.replace(`/workspaces/${id}/documents`)}
+              >
+                Показать все
+              </Button>
+            </div>
+          )}
 
           <BentoGrid>
             <Card span={12}>

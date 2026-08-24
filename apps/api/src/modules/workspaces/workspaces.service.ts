@@ -18,6 +18,7 @@ import { PaymentCardsService } from '../wallet/payment-cards.service';
 import { FilesService } from '../../core/files/files.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { ChatterRefRegistry } from '../../core/chatter/chatter-ref.registry';
+import { ApprovalsService } from '../../core/approvals/approvals.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { fullName } from '../../shared/utils/user-name';
 import {
@@ -93,6 +94,7 @@ export class WorkspacesService implements OnModuleInit {
     private chatter: ChatterService,
     private chatterRegistry: ChatterRefRegistry,
     private redis: RedisService,
+    private approvals: ApprovalsService,
     private moduleRef: ModuleRef,
   ) {}
 
@@ -970,6 +972,9 @@ export class WorkspacesService implements OnModuleInit {
     await this.staff.removeAllAssignmentsForUser(workspaceId, targetUserId, userId);
     // Каскад: участия во встречах офиса (доступ к чатам встреч).
     await this.purgeOfficeParticipations(workspaceId, targetUserId);
+    // Каскад: снять с активных шагов «Ждут решения» (иначе шаг «нужен каждый»
+    // виснет навсегда — решать уволенному запрещает гейт). Общий метод с leaveWorkspace.
+    await this.approvals.releaseUserFromWorkspaceSteps(targetUserId, workspaceId);
     await this.db.workspaceMember.deleteMany({
       where: { workspaceId, userId: targetUserId },
     });
@@ -1001,6 +1006,8 @@ export class WorkspacesService implements OnModuleInit {
     await this.revokeAllWorkspaceRoles(userId, workspaceId);
     await this.staff.removeAllAssignmentsForUser(workspaceId, userId, userId);
     await this.purgeOfficeParticipations(workspaceId, userId);
+    // Тот же каскад, что при увольнении: вышедший не должен подвешивать шаги «нужен каждый».
+    await this.approvals.releaseUserFromWorkspaceSteps(userId, workspaceId);
     await this.db.workspaceMember.deleteMany({ where: { workspaceId, userId } });
 
     await this.chatter.log(null, {

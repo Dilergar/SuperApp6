@@ -25,6 +25,12 @@ export interface DocTypeDto {
   /** Чем подписывается документ этого вида (core/sign) */
   signatureLevel: DocSignatureLevel;
   toPersonalFile: boolean;
+  /** Режим ОБЯЗАТЕЛЬНОГО вручения (ст. 61 п. 3 / ст. 65 ТК РК) — КЭДО */
+  specialDelivery: boolean;
+  /** Номенклатурный срок хранения (справочно; подписанное и так не удаляется) */
+  retentionYears: number | null;
+  /** Откуда установлен (платформенная библиотека кадровых бланков) */
+  libraryKey: string | null;
   sortOrder: number;
   /** Сколько шаблонов у вида — подсказка в справочнике */
   templatesCount?: number;
@@ -70,6 +76,8 @@ export interface DocTemplateDto {
   version: number;
   /** Есть ли опубликованный маршрут (триггер «Документ отправлен») */
   hasRoute?: boolean;
+  /** Откуда установлен (библиотека кадровых бланков КЭДО); null — свой */
+  libraryKey: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -160,6 +168,14 @@ export interface OrgDocumentDto {
   approvalRequestId: string | null;
   processInstanceId: string | null;
   parentDocumentId: string | null;
+  /** КЭДО: кадровое действие, породившее документ */
+  hrActionId: string | null;
+  /** Гибрид: как документ доводится до работника (electronic | paper | hybrid) */
+  deliveryMode: string;
+  /** Фиксация вручения (виды со specialDelivery: ст. 61 п. 3 — 3 рабочих дня) */
+  deliveredAt: string | null;
+  deliveryMethod: string | null;
+  deliveryTrackNumber: string | null;
   signedAt: string | null;
   /**
    * Содержимое СЕЙЧАС пересобирается фоном (правка полей/тела/контрагента, номер).
@@ -194,6 +210,8 @@ export interface OrgDocumentDto {
     revokeExternal?: boolean;
     /** Вернуть в черновик после отказа контрагента (`declined_external`) */
     returnToDraft?: boolean;
+    /** Зафиксировать вручение (виды со specialDelivery; Менеджер+) — КЭДО */
+    fixDelivery?: boolean;
   };
 }
 

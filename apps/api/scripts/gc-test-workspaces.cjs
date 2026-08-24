@@ -29,7 +29,7 @@ const APPLY = process.argv.includes('--apply');
 // начинают ЧУЖИЕ сьюты, а не свой (verify-documents уже так ложился на пустом месте).
 const PREFIXES = [
   'ТестКорп ', 'fin-e2e-', 'chatter-e2e-', 'Ф1-Лого ', 'Демо', 'Журнал-демо',
-  'docs-ws-', 'Сьют-ЭДО', 'Сьют-Контрагенты',
+  'docs-ws-', 'Сьют-ЭДО', 'Сьют-Контрагенты', 'Сьют-КЭДО', 'Сьют-Кампании',
 ];
 const EXACT = [
   'b2b-reach-e2e', 'staff-e2e', 'proc-e2e', 'office-e2e', 'sec-fixes-e2e',

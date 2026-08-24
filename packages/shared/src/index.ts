@@ -19,6 +19,7 @@ export * from './types/search';
 export * from './types/template';
 export * from './types/org-documents';
 export * from './types/counterparty';
+export * from './types/hr';
 export * from './types/doc-builder';
 export * from './types/quick-action';
 export * from './types/scheduled-message';
@@ -74,6 +75,7 @@ export * from './validation/sign';
 export * from './validation/requisites';
 export * from './validation/org-documents';
 export * from './validation/counterparty';
+export * from './validation/hr';
 export * from './validation/doc-builder';
 
 // Utils
@@ -121,3 +123,5 @@ export * from './constants/requisites';
 export * from './constants/templates';
 export * from './constants/org-documents';
 export * from './constants/counterparties';
+export * from './constants/hr';
+export * from './constants/hr-library';

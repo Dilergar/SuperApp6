@@ -217,7 +217,7 @@ export class ApprovalsService implements OnModuleInit {
   ): Promise<{ activated: number }> {
     const steps = await tx.approvalStep.findMany({
       where: { requestId, order, status: 'waiting' },
-      select: { id: true, assigneeType: true, assigneeId: true, dueHours: true },
+      select: { id: true, title: true, assigneeType: true, assigneeId: true, dueHours: true },
     });
     if (steps.length === 0) return { activated: 0 };
 
@@ -225,6 +225,17 @@ export class ApprovalsService implements OnModuleInit {
 
     for (const step of steps) {
       const awaiting = await this.resolveAssignees(tx, step.assigneeType, step.assigneeId, workspaceId);
+      // Пустой снимок — ЧЕСТНАЯ ОШИБКА, а не молчаливая активация: шаг, который
+      // никого не ждёт, висит вечно (битый id адресата, чужой справочник, пустой
+      // отдел). Создателю заявки отказ приходит сразу; решающему предыдущего
+      // шага — понятным текстом (его решение откатывается вместе с транзакцией,
+      // и маршрут остаётся согласованным).
+      if (awaiting.length === 0) {
+        throw coded(
+          `Шаг «${step.title}» никому не адресован: адресат пуст или не существует — исправьте маршрут`,
+          APPROVAL_ERROR_CODES.emptyAssignees,
+        );
+      }
       const deadlineAt = step.dueHours ? new Date(now.getTime() + step.dueHours * 3_600_000) : null;
 
       await tx.approvalStep.updateMany({
@@ -271,6 +282,114 @@ export class ApprovalsService implements OnModuleInit {
   }
 
   /**
+   * Снять уволенного с АКТИВНЫХ шагов организации — ОБЩИЙ метод для обоих
+   * каскадов увольнения (`removeMember` И `leaveWorkspace`: они продублированы,
+   * и правило, живущее в одном из них, — не правило).
+   *
+   * До него каскады approval_steps не трогали, а решать уволенному запрещал
+   * гейт — шаг `rule:'all'` виснул навсегда, и закрыть его можно было только
+   * отменой всей заявки. Снятие ПЕРЕСЧИТЫВАЕТ закрытие шага: остальные могли
+   * уже решить — тогда шаг закрывается и активируется следующая группа.
+   * Опустевший шаг (снятый был единственным) закрывается как `skipped` с
+   * уведомлением автору: молчаливое вечное зависание хуже видимого пропуска.
+   */
+  async releaseUserFromWorkspaceSteps(userId: string, workspaceId: string): Promise<void> {
+    const steps = await this.db.approvalStep.findMany({
+      where: {
+        status: 'active',
+        awaitingUserIds: { has: userId },
+        request: { workspaceId, status: 'pending' },
+      },
+      select: { id: true },
+    });
+
+    for (const { id } of steps) {
+      try {
+        await this.db.$transaction(async (tx) => {
+          // Замок сериализует пересчёт с параллельными решениями (тот же приём,
+          // что в applyDecision у правила «каждый»).
+          await tx.$queryRaw`SELECT id FROM approval_steps WHERE id = ${id} FOR UPDATE`;
+          const step = await tx.approvalStep.findUnique({
+            where: { id },
+            include: { request: { select: { workspaceId: true, status: true, createdById: true, refTitle: true } } },
+          });
+          if (!step || step.status !== 'active' || step.request.status !== 'pending') return;
+          if (!step.awaitingUserIds.includes(userId)) return;
+
+          const remaining = step.awaitingUserIds.filter((u) => u !== userId);
+          await tx.approvalStep.update({ where: { id }, data: { awaitingUserIds: remaining } });
+
+          // «Любой из» с живыми адресатами — шаг просто ждёт остальных.
+          if (step.rule === 'any' && remaining.length > 0) return;
+
+          let closeAs: 'approved' | 'skipped' | null = null;
+          if (remaining.length === 0) {
+            const approvals = await tx.approvalDecision.count({
+              where: { stepId: id, decision: 'approved' },
+            });
+            closeAs = approvals > 0 ? 'approved' : 'skipped';
+          } else if (step.rule === 'all') {
+            const approvals = await tx.approvalDecision.count({
+              where: { stepId: id, decision: 'approved', userId: { in: remaining } },
+            });
+            if (approvals >= remaining.length) closeAs = 'approved';
+          }
+          if (!closeAs) return;
+
+          const won = await tx.approvalStep.updateMany({
+            where: { id, status: 'active' },
+            data: { status: closeAs, decidedAt: new Date() },
+          });
+          if (won.count === 0) return;
+
+          if (closeAs === 'skipped') {
+            await this.notifications
+              .notify(
+                step.request.createdById,
+                'approval.unassigned',
+                { refTitle: step.request.refTitle, stepTitle: step.title, assigneeLabel: step.assigneeLabel ?? 'адресату' },
+                { actionUrl: this.hrefFor(step.request.workspaceId, step.requestId), dedupKey: `apun:${id}` },
+              )
+              .catch(() => undefined);
+          }
+
+          const groupOpen = await tx.approvalStep.count({
+            where: { requestId: step.requestId, order: step.order, status: 'active' },
+          });
+          if (groupOpen > 0) return;
+
+          const next = await tx.approvalStep.findFirst({
+            where: { requestId: step.requestId, status: 'waiting' },
+            orderBy: { order: 'asc' },
+            select: { order: true },
+          });
+          if (!next) {
+            await this.closeRequest(tx, step.requestId, 'approved', null);
+            return;
+          }
+          await this.activateGroup(tx, step.requestId, next.order, step.request.workspaceId);
+        });
+      } catch (e) {
+        // Ошибка одного шага (например, следующая группа разворачивается в никого)
+        // не должна остановить каскад увольнения: транзакция шага откатилась,
+        // остальное продолжаем. Заявку в тупике закроют отменой.
+        this.logger.warn(`releaseUserFromWorkspaceSteps: шаг ${id} — ${(e as Error).message}`);
+      }
+    }
+
+    // Стопка — витрина ПО РЕЕСТРУ источников, и правило «обязанность решать не
+    // переживает членство» обязано действовать во всех, а не только в заявках
+    // этого движка: кампания ознакомления КЭДО держала уволенного адресатом
+    // навсегда. Хук необязателен — источники без него просто пропускаются.
+    for (const [key, source] of this.registry.sourceEntries()) {
+      if (!source.releaseUser) continue;
+      await source
+        .releaseUser(userId, workspaceId)
+        .catch((e) => this.logger.warn(`releaseUser источника ${key}: ${(e as Error).message}`));
+    }
+  }
+
+  /**
    * Развернуть адресата в поимённый список. Делается РОВНО ОДИН РАЗ, при активации.
    *
    * Снимок, а не живой запрос, по двум причинам: принятый в середине согласования
@@ -305,9 +424,18 @@ export class ApprovalsService implements OnModuleInit {
         subjectRelation: '',
       },
       select: { subjectId: true },
-      take: APPROVAL_LIMITS.maxSnapshotSize,
+      // +1 сверх потолка: превышение — ЧЕСТНЫЙ ОТКАЗ с числом, а не молчаливая
+      // обрезка. Обрезанный снимок на компании в 600 человек означал бы 100
+      // неознакомленных, о которых никто не узнает.
+      take: APPROVAL_LIMITS.maxSnapshotSize + 1,
     });
     const ids = [...new Set(rows.map((r) => r.subjectId))];
+    if (ids.length > APPROVAL_LIMITS.maxSnapshotSize) {
+      throw coded(
+        `Адресатов больше потолка (${APPROVAL_LIMITS.maxSnapshotSize}): у шага «каждый» состав фиксируется поимённо. Для массовых ознакомлений используйте кампании КЭДО`,
+        APPROVAL_ERROR_CODES.snapshotTooBig,
+      );
+    }
     if (!workspaceId || ids.length === 0) return ids;
     // Проекция оси может отставать от увольнения — команду перепроверяем поимённо
     // одним запросом (обязанность решать не должна переживать выход из организации).
@@ -366,6 +494,10 @@ export class ApprovalsService implements OnModuleInit {
     }
     if (assigneeType === 'department') {
       const row = await tx.staffDepartment.findUnique({ where: { id: assigneeId }, select: { name: true } });
+      return row?.name ?? null;
+    }
+    if (assigneeType === 'branch') {
+      const row = await tx.staffBranch.findUnique({ where: { id: assigneeId }, select: { name: true } });
       return row?.name ?? null;
     }
     return null;
@@ -458,6 +590,19 @@ export class ApprovalsService implements OnModuleInit {
     await this.announce(step.requestId).catch((err) =>
       this.logger.error(`оповещение по заявке ${step.requestId}: ${(err as Error).message}`),
     );
+
+    // Решение записано — потребителю, для которого оно юридический факт
+    // (ознакомление с приказом → личный архив работника), сообщаем ПОСЛЕ
+    // коммита и best-effort: упавший хук не отменяет состоявшееся решение.
+    await this.registry
+      .get(step.request.refType)
+      ?.onDecided?.({
+        refId: step.request.refId,
+        stepKind: step.kind as ApprovalStepKind,
+        decision: dto.decision as 'approved' | 'rejected' | 'returned',
+        userId,
+      })
+      .catch((err) => this.logger.warn(`onDecided ${step.request.refType}: ${(err as Error).message}`));
 
     return this.get(userId, step.requestId);
   }
@@ -576,6 +721,8 @@ export class ApprovalsService implements OnModuleInit {
     rule: string;
     /** СНИМОК адресатов шага: под них движок подписи заводит акты одной заявкой */
     awaitingUserIds: string[];
+    /** Дедлайн шага: заявка подписи не должна истекать раньше него (dueInHours до 365 суток) */
+    deadlineAt: Date | null;
   }> {
     const step = await this.db.approvalStep.findUnique({ where: { id: stepId }, include: { request: true } });
     if (!step) throw new NotFoundException('Шаг не найден');
@@ -607,6 +754,7 @@ export class ApprovalsService implements OnModuleInit {
       requiredSignatureKind: step.requiredSignatureKind as ApprovalSignatureRequirement,
       rule: step.rule,
       awaitingUserIds: step.awaitingUserIds,
+      deadlineAt: step.deadlineAt,
     };
   }
 

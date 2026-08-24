@@ -62,7 +62,9 @@ import { SignVerifierService } from './drivers/sign-verifier.driver';
     // Свободные подписи (внутренние подписанты ЭДО) в общей стопке «Ждут решения»
     SignInboxProvider,
   ],
-  exports: [SignService, SignRegistry],
+  // SignProtocolService — потребителям, собирающим свои выгрузки с протоколами
+  // (КЭДО: ZIP личного дела для инспекции труда).
+  exports: [SignService, SignRegistry, SignProtocolService],
 })
 export class SignModule implements OnModuleInit {
   constructor(private readonly filesRegistry: FilesRefRegistry) {}

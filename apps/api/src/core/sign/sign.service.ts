@@ -189,6 +189,17 @@ export class SignService {
        * ждущих актов» наступало раньше, чем вторая сторона вообще открыла ссылку.
        */
       guestSigner?: { name: string; phone?: string | null };
+      /**
+       * ВЕЧНАЯ заявка (standing-кампании ознакомления КЭДО): expiresAt = null.
+       * Схема это допускает намеренно — постоянное правило «новичок подписывает
+       * ЛНА» не имеет срока, после которого оно перестаёт действовать.
+       */
+      neverExpires?: boolean;
+      /**
+       * НЕ заводить стартовые акты (кампании: подписантов дописывает пачками
+       * systemEnsureActs — создатель кампании сам не подписант).
+       */
+      noInitialActs?: boolean;
     } = {},
   ): Promise<SignRequestDto> {
     const provider = this.registry.get(input.refType);
@@ -228,7 +239,7 @@ export class SignService {
           approvalStepId: input.approvalStepId ?? null,
           suppressOutcomeNotify: opts.suppressOutcomeNotify ?? false,
           createdById: actorId,
-          expiresAt: input.expiresAt ?? this.defaultExpiry(),
+          expiresAt: opts.neverExpires ? null : (input.expiresAt ?? this.defaultExpiry()),
         },
         select: { id: true },
       });
@@ -242,8 +253,10 @@ export class SignService {
         role: 'subject',
         createdById: actorId,
       });
-      for (const userId of signerIds) {
-        await this.createActTx(tx, request.id, { type: 'user', userId }, input.level, frozen.sha256);
+      if (!opts.noInitialActs) {
+        for (const userId of signerIds) {
+          await this.createActTx(tx, request.id, { type: 'user', userId }, input.level, frozen.sha256);
+        }
       }
       // Акт-ожидание ВТОРОЙ стороны: держит заявку открытой до подписи гостя
       if (opts.guestSigner) {
@@ -321,6 +334,12 @@ export class SignService {
           // разные документы, карточка показывала только последнюю заявку, и первая
           // подпись пропадала из блока «Подписи».
           signerUserIds: step.rule === 'all' ? step.awaitingUserIds : [actor.userId],
+          // Заявка подписи не должна истекать РАНЬШЕ шага: dueInHours допускает до
+          // 365 суток, а дефолтный TTL заявки короче — подписант, пришедший в
+          // законный срок шага, находил бы «заявка истекла».
+          ...(step.deadlineAt && step.deadlineAt > this.defaultExpiry()
+            ? { expiresAt: step.deadlineAt }
+            : {}),
         },
         // Полномочие даёт СНИМОК АДРЕСАТОВ шага, который уже проверил движок
         // решений. Спрашивать сверху `canRequestSign` («вправе отправить на
@@ -412,6 +431,27 @@ export class SignService {
       select: { subjectFileId: true, subjectSha256: true },
     });
     return this.subjectView(request);
+  }
+
+  /**
+   * Пакетно завести PENDING-акты списку внутренних подписантов (кампании
+   * ознакомления КЭДО в режиме SMS). system-контракт: право проверил вызывающий.
+   * Идемпотентно — повтор гасит партиальный уникум «одна живая подпись на
+   * подписанта»; закрытая заявка — тихий no-op.
+   */
+  async systemEnsureActs(requestId: string, userIds: string[]): Promise<void> {
+    const request = await this.db.signRequest.findUnique({
+      where: { id: requestId },
+      select: { status: true, level: true, subjectSha256: true },
+    });
+    if (!request || request.status !== 'pending') return;
+    for (const userId of userIds) {
+      await this.db.$transaction(async (tx) => {
+        const fresh = await tx.signRequest.findUnique({ where: { id: requestId }, select: { status: true } });
+        if (!fresh || fresh.status !== 'pending') return;
+        await this.createActTx(tx, requestId, { type: 'user', userId }, request.level as SignLevel, request.subjectSha256);
+      });
+    }
   }
 
   /** Дописать акт подписанту, который пришёл к уже заведённой заявке (шаг «нужен каждый») */

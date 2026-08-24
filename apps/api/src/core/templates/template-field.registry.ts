@@ -23,6 +23,10 @@ export interface TemplateFieldContext {
   counterpartyId?: string;
   /** Контактное лицо контрагента — будущий внешний подписант */
   counterpartyContactId?: string;
+  /** Шаблон документа — по нему группа «Подписант» находит маршрут и его подписанта */
+  templateId?: string;
+  /** Кадровое действие (КЭДО) — источник группы «Действие» */
+  hrActionId?: string;
 }
 
 export interface TemplateFieldGroup {

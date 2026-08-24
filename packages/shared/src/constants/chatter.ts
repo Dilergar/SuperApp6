@@ -8,7 +8,7 @@
 import { interpolateTemplate } from '../utils/interpolate';
 
 /** Категории для фильтра «Журнала организации» */
-export const CHATTER_CATEGORIES = ['tasks', 'staff', 'drive', 'share', 'documents', 'processes'] as const;
+export const CHATTER_CATEGORIES = ['tasks', 'staff', 'hr', 'drive', 'share', 'documents', 'processes'] as const;
 export type ChatterCategory = (typeof CHATTER_CATEGORIES)[number];
 
 export interface ChatterTypeMeta {
@@ -456,6 +456,80 @@ export const CHATTER_REGISTRY = {
     template: '{{actorName}} опубликовал(а) маршрут «{{processName}}» вопреки предупреждениям: {{ruleList}}',
     icon: '⚠️',
     category: 'processes',
+    chatPost: false,
+  },
+
+  // ---- КЭДО (modules/hr; refType='hr_member', refId=`<wsId>:<userId>` —
+  // хроника вкладки «Хроника» на странице человека; workspaceId у записи
+  // заполнен, поэтому она же видна в «Журнале организации» фильтром «Кадры») ----
+  'hr.employment_updated': {
+    template: '{{actorName}} изменил(а) трудовую карточку: {{fieldLabel}} {{from}} → {{to}}',
+    icon: '📇',
+    category: 'hr',
+    chatPost: false,
+  },
+  'hr.action_created': {
+    template: '{{actorName}} начал(а) действие «{{kindLabel}}»{{documentSuffix}}',
+    icon: '🧾',
+    category: 'hr',
+    chatPost: false,
+  },
+  'hr.action_applied': {
+    template: '{{kindLabel}}: применено{{documentSuffix}}',
+    icon: '✅',
+    category: 'hr',
+    chatPost: false,
+  },
+  'hr.action_failed': {
+    template: '{{kindLabel}}: не применено — {{reason}}',
+    icon: '⚠️',
+    category: 'hr',
+    chatPost: false,
+  },
+  'hr.action_cancelled': {
+    template: '{{actorName}} отменил(а) действие «{{kindLabel}}»{{noteSuffix}}',
+    icon: '🚫',
+    category: 'hr',
+    chatPost: false,
+  },
+  'hr.delivery_fixed': {
+    template: '{{actorName}} зафиксировал(а) вручение: {{methodLabel}}{{trackSuffix}}',
+    icon: '📬',
+    category: 'hr',
+    chatPost: false,
+  },
+  // Акт РАБОТОДАТЕЛЯ на кадровом документе подписан ЭЦП физлица (в сертификате
+  // нет БИН юрлица) — предупреждение, не отказ (v1; жёсткость — после юриста).
+  // Свой ключ, а не hr.action_failed: «не применено» рядом с настоящими
+  // отказами применения вводило бы в заблуждение — действие как раз применилось.
+  'hr.sign_bin_warning': {
+    template: 'Предупреждение о подписи: {{reason}}',
+    icon: '🖋️',
+    category: 'hr',
+    chatPost: false,
+  },
+  'hr.esutd_submitted': {
+    template: '{{actorName}} отметил(а) сдачу в ЕСУТД: {{kindLabel}}{{numberSuffix}}',
+    icon: '🏛️',
+    category: 'hr',
+    chatPost: false,
+  },
+  'hr.campaign_started': {
+    template: '{{actorName}} запустил(а) ознакомление «{{title}}» ({{total}} адресатов)',
+    icon: '📢',
+    category: 'hr',
+    chatPost: false,
+  },
+  'hr.campaign_acknowledged': {
+    template: '{{targetName}} ознакомился(лась): «{{title}}»',
+    icon: '👁️',
+    category: 'hr',
+    chatPost: false,
+  },
+  'hr.library_installed': {
+    template: '{{actorName}} установил(а) из библиотеки «{{title}}»',
+    icon: '📚',
+    category: 'hr',
     chatPost: false,
   },
 } as const satisfies Record<string, ChatterTypeMeta>;

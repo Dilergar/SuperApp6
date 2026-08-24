@@ -88,6 +88,19 @@ export const workspaceKey = (id: string) => ['workspaces', id] as const;
 export const workspaceMembersKey = (id: string) => ['workspaces', id, 'members'] as const;
 export const workspaceStaffKey = (id: string) => ['workspaces', id, 'staff'] as const;
 export const workspaceInvitationsKey = (id: string) => ['workspaces', id, 'invitations'] as const;
+// КЭДО (modules/hr)
+export const hrRootKey = (wsId: string) => ['workspaces', wsId, 'hr'] as const;
+export const hrMemberKey = (wsId: string, userId: string) => ['workspaces', wsId, 'hr', 'member', userId] as const;
+export const hrDeadlinesKey = (wsId: string) => ['workspaces', wsId, 'hr', 'deadlines'] as const;
+export const hrDeadlinesCountKey = (wsId: string) => ['workspaces', wsId, 'hr', 'deadlines-count'] as const;
+export const hrEsutdKey = (wsId: string) => ['workspaces', wsId, 'hr', 'esutd'] as const;
+export const hrRosterOverviewKey = (wsId: string) => ['workspaces', wsId, 'hr', 'roster-overview'] as const;
+export const hrLibraryKey = (wsId: string) => ['workspaces', wsId, 'hr', 'library'] as const;
+export const hrBatchKey = (wsId: string, batchId: string) => ['workspaces', wsId, 'hr', 'batch', batchId] as const;
+export const hrCampaignsKey = (wsId: string) => ['workspaces', wsId, 'hr', 'campaigns'] as const;
+export const hrCampaignKey = (wsId: string, id: string) => ['workspaces', wsId, 'hr', 'campaigns', id] as const;
+export const myHrDocumentsKey = ['hr', 'my-documents'] as const;
+export const myCampaignTaskKey = (documentId: string) => ['hr', 'campaign-task', documentId] as const;
 // Сервис «Процессы» (B2B)
 export const processesKey = (wsId: string) => ['workspaces', wsId, 'processes'] as const;
 export const processKey = (wsId: string, defId: string) =>

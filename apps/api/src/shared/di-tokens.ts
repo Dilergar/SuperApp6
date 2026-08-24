@@ -32,6 +32,8 @@ export const DI_TOKENS = {
   RichCardsService: 'RichCardsService',
   /** Документы ← ноды маршрута Процессов (номер, подшивка, приказ из заявления). */
   DocumentsService: 'DocumentsService',
+  /** КЭДО ← ноды маршрута Процессов (hr.apply — применить кадровое действие, hr.esutd). */
+  HrService: 'HrService',
 } as const;
 
 export type DiTokenName = keyof typeof DI_TOKENS;

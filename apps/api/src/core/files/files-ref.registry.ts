@@ -29,6 +29,14 @@ export interface FileRefResolver {
    * этого движок доводит уборку файла до конца. Пока хук не снял связь, файл живёт.
    */
   onOrphaned?(refId: string): Promise<void>;
+  /**
+   * Место ЗАПРЕЩАЕТ удаление файла (КЭДО: подписанный кадровый документ не
+   * удаляется никем и никогда — ни из реестра, ни с Диска; личная запись-архив
+   * держит файл бессрочно). Движок спрашивает предикат у КАЖДОЙ привязки перед
+   * любым удалением — и пользовательским, и системным: правило, записанное не во
+   * всех путях, не действует (урок ревью core/sign).
+   */
+  blocksDeletion?(refId: string): Promise<boolean>;
 }
 
 export interface FileRefOptions {
@@ -119,6 +127,11 @@ export class FilesRefRegistry {
   /** Типы мест, чьи правила видимости сильнее владения файлом (см. `scopedPlace`) */
   scopedPlaceTypes(): string[] {
     return [...this.entries.entries()].filter(([, e]) => e.options.scopedPlace).map(([refType]) => refType);
+  }
+
+  /** Типы мест, умеющих ЗАПРЕТИТЬ удаление файла (см. `blocksDeletion`) */
+  typesWithDeletionGuard(): string[] {
+    return [...this.entries.entries()].filter(([, e]) => !!e.resolver.blocksDeletion).map(([refType]) => refType);
   }
 
   /** Подписаться на ЛЮБУЮ привязку файла (ключ — имя потребителя, повтор перезаписывает) */

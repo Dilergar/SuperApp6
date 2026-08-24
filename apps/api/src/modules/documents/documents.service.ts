@@ -103,6 +103,25 @@ export interface ProcessesStarter {
 }
 
 /**
+ * Порт КЭДО (modules/hr): документ с `hrActionId` двигает машину кадрового
+ * действия, а закрытый акт подписи и фиксация вручения рождают личную
+ * запись-архив сотрудника. Разрешается лениво на bootstrap (DI_TOKENS.HrService).
+ */
+export interface HrPort {
+  onDocumentSubmitted(hrActionId: string): Promise<void>;
+  onDocumentWithdrawn(hrActionId: string): Promise<void>;
+  onDocumentCancelled(hrActionId: string, documentId: string): Promise<void>;
+  onDocumentResolved(hrActionId: string, outcome: 'approved' | 'rejected' | 'returned' | 'cancelled'): Promise<void>;
+  onDocumentActFinished(
+    documentId: string,
+    info: { outcome: 'signed' | 'declined'; level: 'ecp' | 'pep'; signerUserId: string | null; signRequestId: string; certSubjectBin: string | null },
+  ): Promise<void>;
+  onDocumentDelivered(documentId: string): Promise<void>;
+  /** Сторона документа ознакомилась с ним по шагу маршрута → личная запись-архив */
+  onDocumentAcknowledged(documentId: string, userId: string): Promise<void>;
+}
+
+/**
  * Сервис «Документы» (B2B) — документооборот организации поверх готовых движков.
  *
  * Своего он держит немного: справочник ВИДОВ (нумерация, видимость, категория),
@@ -142,6 +161,38 @@ export class DocumentsService {
   private processes: ProcessesStarter | null = null;
   setProcessesService(svc: ProcessesStarter | null): void {
     this.processes = svc;
+  }
+
+  /**
+   * КЭДО (modules/hr) — ленивое ребро тем же паттерном: hr импортирует документы,
+   * обратное знание идёт через порт, поставленный на bootstrap. Все вызовы
+   * best-effort: кадровая машина не имеет права уронить документооборот.
+   */
+  private hr: HrPort | null = null;
+  setHrService(svc: HrPort | null): void {
+    this.hr = svc;
+  }
+
+  /**
+   * Сторона документа ознакомилась по шагу МАРШРУТА (зовёт approvals-провайдер
+   * этого модуля из хука onDecided). Ознакомление кликом — юридический факт
+   * (ст. 23 п. 2 пп. 6 ТК РК), и обещание экрана «Мои документы» («всё, с чем
+   * ознакомитесь») обязано выполняться и для маршрутов, не только для кампаний.
+   */
+  async notifyHrAcknowledged(documentId: string, userId: string): Promise<void> {
+    await this.hr?.onDocumentAcknowledged(documentId, userId).catch((e) => {
+      this.logger.warn(`hr.onDocumentAcknowledged ${documentId}: ${(e as Error).message}`);
+    });
+  }
+
+  /** Сообщить КЭДО о закрытом акте подписи (зовёт sign-провайдер этого модуля) */
+  async notifyHrActFinished(
+    documentId: string,
+    info: { outcome: 'signed' | 'declined'; level: 'ecp' | 'pep'; signerUserId: string | null; signRequestId: string; certSubjectBin: string | null },
+  ): Promise<void> {
+    await this.hr?.onDocumentActFinished(documentId, info).catch((e) => {
+      this.logger.warn(`hr.onDocumentActFinished ${documentId}: ${(e as Error).message}`);
+    });
   }
 
   // ============================================================
@@ -219,6 +270,8 @@ export class DocumentsService {
           signatureLevel:
             dto.signatureLevel ?? (category === 'hr' ? 'ecp' : category === 'external' ? 'pep' : 'none'),
           toPersonalFile: dto.toPersonalFile ?? false,
+          specialDelivery: dto.specialDelivery ?? false,
+          retentionYears: dto.retentionYears ?? null,
           sortOrder: dto.sortOrder ?? 0,
         },
       });
@@ -302,6 +355,8 @@ export class DocumentsService {
           ...(dto.visibility !== undefined ? { visibility: dto.visibility } : {}),
           ...(dto.signatureLevel !== undefined ? { signatureLevel: dto.signatureLevel } : {}),
           ...(dto.toPersonalFile !== undefined ? { toPersonalFile: dto.toPersonalFile } : {}),
+          ...(dto.specialDelivery !== undefined ? { specialDelivery: dto.specialDelivery } : {}),
+          ...(dto.retentionYears !== undefined ? { retentionYears: dto.retentionYears } : {}),
           ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
         },
         include: { _count: { select: { templates: true } } },
@@ -1137,6 +1192,15 @@ export class DocumentsService {
         isExternal && this.isManager(role) && DOC_EDITABLE_STATUSES.includes(row.status as DocStatus),
       revokeExternal: isExternal && authorOrManager && row.status === 'sent',
       returnToDraft: isExternal && authorOrManager && row.status === 'declined_external',
+      // КЭДО: фиксация вручения — виды со specialDelivery (ст. 61 п. 3 / ст. 65
+      // ТК РК) И документы бумажного/гибридного режима (paperMode: подпись
+      // работника заменяют печать и вручение), после подписания, пока вручение
+      // не зафиксировано; Менеджер+.
+      fixDelivery:
+        (row.docType.specialDelivery || row.deliveryMode !== 'electronic') &&
+        this.isManager(role) &&
+        !row.deliveredAt &&
+        ['signed', 'registered', 'active'].includes(row.status),
     };
     // Живая пересборка — вебу: кнопки, которые страж assertNotRebuilding отвергнет
     // («Отправить», «Отправить контрагенту»), карточка гасит заранее и опрашивает
@@ -1316,6 +1380,10 @@ export class DocumentsService {
         this.logger.error(`запуск маршрута для ${row.id}: ${(e as Error).message}`);
       });
     }
+    // КЭДО: приказ действия ушёл на маршрут → действие «на оформлении»
+    if (row.hrActionId) {
+      await this.hr?.onDocumentSubmitted(row.hrActionId).catch(() => undefined);
+    }
     return this.get(userId, row.id);
   }
 
@@ -1364,6 +1432,10 @@ export class DocumentsService {
         payload: { title: row.title },
       })
       .catch(() => undefined);
+    // КЭДО: приказ вернулся в черновик → и действие обратно в черновик
+    if (row.hrActionId) {
+      await this.hr?.onDocumentWithdrawn(row.hrActionId).catch(() => undefined);
+    }
     return this.get(userId, row.id);
   }
 
@@ -1412,6 +1484,10 @@ export class DocumentsService {
         payload: { title: row.title },
       })
       .catch(() => undefined);
+    // КЭДО: отменили ПРИКАЗ действия → действие отменяется (пакетные документы — нет)
+    if (row.hrActionId) {
+      await this.hr?.onDocumentCancelled(row.hrActionId, row.id).catch(() => undefined);
+    }
     return this.get(userId, row.id);
   }
 
@@ -2276,6 +2352,11 @@ export class DocumentsService {
         .catch(() => undefined);
     }
 
+    // КЭДО: отклонение/доработка возвращают действие в черновик (правится и заново)
+    if (row.hrActionId) {
+      await this.hr?.onDocumentResolved(row.hrActionId, outcome).catch(() => undefined);
+    }
+
     const fresh = await this.documentOrThrow(documentId);
     const outcomeLabel =
       outcome === 'approved' ? 'Документ подписан' : outcome === 'returned' ? 'Документ на доработку' : 'Документ отклонён';
@@ -2291,6 +2372,174 @@ export class DocumentsService {
         { actionUrl: `/workspaces/${fresh.workspaceId}/documents/${fresh.id}` },
       )
       .catch(() => undefined);
+  }
+
+  // ============================================================
+  // КЭДО (modules/hr) — системные пути и вручение
+  // ============================================================
+
+  /**
+   * Создать документ кадрового действия. system-контракт: право (Менеджер+)
+   * проверил вызывающий — hr. Отличия от пользовательского пути: гейт «шаблон
+   * выдан» не спрашивается (приказ заводит машина действия), карточка несёт
+   * `hrActionId`, а режим доставки берётся из paperMode трудовой карточки.
+   */
+  async systemCreateForHrAction(opts: {
+    workspaceId: string;
+    templateId: string;
+    actorId: string;
+    subjectUserId: string;
+    hrActionId: string;
+    title?: string;
+    fields?: Record<string, unknown>;
+  }): Promise<{ id: string }> {
+    const tpl = await this.templateOrThrow(opts.workspaceId, opts.templateId);
+    if (tpl.status !== 'published') throw new BadRequestException('Шаблон приказа ещё не опубликован');
+    const fields = await this.sanitizeFields(opts.fields ?? {}, tpl.id);
+    const employment = await this.db.employment.findFirst({
+      where: { workspaceId: opts.workspaceId, userId: opts.subjectUserId, status: { not: 'terminated' } },
+      select: { paperMode: true },
+    });
+    const created = await this.db.$transaction(async (tx) => {
+      const row = await tx.orgDocument.create({
+        data: {
+          workspaceId: opts.workspaceId,
+          docTypeId: tpl.docTypeId,
+          templateId: tpl.id,
+          title: opts.title ?? tpl.name,
+          status: 'draft',
+          subjectUserId: opts.subjectUserId,
+          createdById: opts.actorId,
+          hrActionId: opts.hrActionId,
+          // Гибрид — постоянный режим: у работника без ЭЦП (paperMode) документ
+          // сразу помечен «электронно и на бумаге».
+          deliveryMode: employment?.paperMode ? 'hybrid' : 'electronic',
+          fields: fields as object,
+          ...(tpl.kind === 'builder' && tpl.builderDoc ? { builderDoc: tpl.builderDoc as object } : {}),
+        },
+      });
+      await this.chatter.log(tx, {
+        refType: ORG_DOCUMENT_REF_TYPE,
+        refId: row.id,
+        workspaceId: opts.workspaceId,
+        actorId: opts.actorId,
+        actorName: await this.nameOf(opts.actorId),
+        typeKey: 'org_document.created',
+        payload: { title: row.title },
+      });
+      await this.jobs.enqueue(tx, {
+        type: DOCUMENTS_GENERATE_JOB,
+        payload: { documentId: row.id },
+        uniqueKey: docGenKey(row.id),
+      });
+      return row;
+    });
+    return { id: created.id };
+  }
+
+  /**
+   * Отменить неприменённые документы действия (отзыв заявления, отмена действия).
+   * ИЗДАННЫЙ документ (подписан/зарегистрирован) не трогается — по нему кадровик
+   * издаёт приказ об отмене (v1 — полуручной путь); возвращаем счётчик таких.
+   */
+  async systemCancelForHrAction(hrActionId: string, actorId: string): Promise<{ cancelled: number; issuedLeft: number }> {
+    const docs = await this.db.orgDocument.findMany({
+      where: { hrActionId },
+      select: { id: true, status: true, workspaceId: true, title: true, documentId: true, processInstanceId: true },
+    });
+    let cancelled = 0;
+    let issuedLeft = 0;
+    for (const doc of docs) {
+      if (['draft', 'in_review', 'rejected'].includes(doc.status)) {
+        const claimed = await this.db.orgDocument.updateMany({
+          where: { id: doc.id, status: doc.status },
+          data: { status: 'cancelled' },
+        });
+        if (claimed.count === 0) continue;
+        cancelled += 1;
+        await this.approvals.cancelForRef(ORG_DOCUMENT_REF_TYPE, doc.id).catch(() => undefined);
+        if (doc.processInstanceId && this.processes?.cancelInstanceProgrammatic) {
+          await this.processes.cancelInstanceProgrammatic(doc.processInstanceId, actorId).catch(() => undefined);
+        }
+        if (doc.documentId) await this.docs.systemSetMode(doc.documentId, 'edit').catch(() => undefined);
+        await this.chatter
+          .log(null, {
+            refType: ORG_DOCUMENT_REF_TYPE,
+            refId: doc.id,
+            workspaceId: doc.workspaceId,
+            actorId,
+            actorName: await this.nameOf(actorId),
+            typeKey: 'org_document.cancelled',
+            payload: { title: doc.title },
+          })
+          .catch(() => undefined);
+      } else if (['signed', 'registered', 'active'].includes(doc.status)) {
+        issuedLeft += 1;
+      }
+    }
+    return { cancelled, issuedLeft };
+  }
+
+  /**
+   * Зафиксировать ВРУЧЕНИЕ (специальный режим — ст. 61 п. 3, ст. 65 ТК РК:
+   * лично, отказ актом, заказное письмо с треком). Пишется один раз; после
+   * фиксации документ считается доведённым до работника — субъект видит его,
+   * КЭДО пишет личную запись-архив.
+   */
+  async fixDelivery(
+    userId: string,
+    documentId: string,
+    dto: { method: string; trackNumber?: string; deliveredAt?: string },
+  ): Promise<OrgDocumentDto> {
+    const row = await this.documentOrThrow(documentId);
+    await this.requireManager(userId, row.workspaceId);
+    if (row.deliveredAt) throw new BadRequestException('Вручение уже зафиксировано');
+    if (!['signed', 'registered', 'active'].includes(row.status)) {
+      throw new BadRequestException('Вручение фиксируется у подписанного документа');
+    }
+    const deliveredAt = dto.deliveredAt ? new Date(dto.deliveredAt) : new Date();
+    const claimed = await this.db.orgDocument.updateMany({
+      where: { id: row.id, deliveredAt: null },
+      data: {
+        deliveredAt,
+        deliveryMethod: dto.method,
+        deliveryTrackNumber: dto.trackNumber ?? null,
+      },
+    });
+    if (claimed.count === 0) throw new BadRequestException('Вручение уже зафиксировано');
+    const methodLabel =
+      dto.method === 'in_person'
+        ? 'лично под роспись'
+        : dto.method === 'refusal_act'
+          ? 'отказ — составлен акт'
+          : 'заказным письмом с уведомлением';
+    // Свой кадровый typeKey (категория «Кадры» в журнале), а не org_document.filed:
+    // «Документ подшит: вручение…» — это про место в деле, здесь же юридический
+    // факт вручения работнику (ст. 61 п. 3), и трек-номер обязан остаться в следе.
+    await this.chatter
+      .log(null, {
+        refType: ORG_DOCUMENT_REF_TYPE,
+        refId: row.id,
+        workspaceId: row.workspaceId,
+        actorId: userId,
+        actorName: await this.nameOf(userId),
+        typeKey: 'hr.delivery_fixed',
+        payload: {
+          methodLabel: `${methodLabel} — «${row.title}»`,
+          trackSuffix: dto.trackNumber ? ` · трек ${dto.trackNumber}` : '',
+        },
+      })
+      .catch(() => undefined);
+    await this.hr?.onDocumentDelivered(row.id).catch(() => undefined);
+    return this.get(userId, row.id);
+  }
+
+  /** Режим доставки (гибрид): electronic | paper | hybrid — Менеджер+ */
+  async setDeliveryMode(userId: string, documentId: string, deliveryMode: string): Promise<OrgDocumentDto> {
+    const row = await this.documentOrThrow(documentId);
+    await this.requireManager(userId, row.workspaceId);
+    await this.db.orgDocument.update({ where: { id: row.id }, data: { deliveryMode } });
+    return this.get(userId, row.id);
   }
 
   /** Заказать PDF-отпечаток текущего содержимого (идемпотентно, контентный ключ у движка). */
@@ -2553,11 +2802,26 @@ export class DocumentsService {
     // видел в стопке «Подписать», а сам документ ему отвечал 403 — он мог только
     // подписать вслепую. Список берём у движка решений: адресность живёт там.
     const decidingIds = await this.decidableDocumentIds(userId, workspaceId);
+    // Адресат кампании ознакомления видит её предмет (иначе задание «ознакомьтесь»
+    // ведёт в 403).
+    const campaignDocIds = await this.campaignSubjectDocumentIds(userId, workspaceId);
     return {
       OR: [
         { createdById: userId },
-        { subjectUserId: userId },
+        // СТОРОНА документа видит его С МОМЕНТА ОТПРАВКИ ЕЙ, а не с черновика
+        // (решение ревью КЭДО): приказ об увольнении не светится субъекту, пока
+        // работодатель его готовит и согласует. «Дошёл до человека» — это статус
+        // ≥ подписан ЛИБО зафиксированное вручение; адресат шага и подписант
+        // покрыты decidingIds, свои заявления — веткой createdById.
+        {
+          subjectUserId: userId,
+          OR: [
+            { status: { in: ['signed', 'registered', 'active', 'archived'] } },
+            { deliveredAt: { not: null } },
+          ],
+        },
         ...(decidingIds.length ? [{ id: { in: decidingIds } }] : []),
+        ...(campaignDocIds.length ? [{ id: { in: campaignDocIds } }] : []),
         ...(teamTypeIds.length ? [{ docTypeId: { in: teamTypeIds } }] : []),
         // «Отдел сотрудника»: вид открыт тем, кто работает в одном отделе со СТОРОНОЙ
         // документа. Оба условия — одной строкой SQL (implicit AND в Prisma).
@@ -2568,15 +2832,47 @@ export class DocumentsService {
     };
   }
 
+  /** Документы-предметы кампаний ознакомления, где зритель — адресат */
+  private async campaignSubjectDocumentIds(userId: string, workspaceId: string): Promise<string[]> {
+    const rows = await this.db.docCampaignTarget.findMany({
+      where: { userId, campaign: { workspaceId } },
+      select: { campaign: { select: { orgDocumentId: true } } },
+      take: 500,
+    });
+    return [...new Set(rows.map((r) => r.campaign.orgDocumentId))];
+  }
+
   private async canView(
     userId: string,
-    row: { id: string; createdById: string; subjectUserId: string | null; docTypeId: string; workspaceId: string },
+    row: {
+      id: string;
+      createdById: string;
+      subjectUserId: string | null;
+      docTypeId: string;
+      workspaceId: string;
+      status: string;
+      deliveredAt: Date | null;
+    },
     role: WorkspaceRole,
   ): Promise<boolean> {
     if (this.isManager(role)) return true;
-    if (row.createdById === userId || row.subjectUserId === userId) return true;
+    if (row.createdById === userId) return true;
+    // СТОРОНА видит документ «с момента отправки ей» — ровно то же правило, что в
+    // visibilityWhere (урок «реестр и карточка отвечают одинаково»): черновик
+    // приказа об увольнении субъекту не светится; адресат шага покрыт isDecider.
+    if (
+      row.subjectUserId === userId &&
+      (['signed', 'registered', 'active', 'archived'].includes(row.status) || row.deliveredAt !== null)
+    ) {
+      return true;
+    }
     // Участник маршрута видит предмет своего решения — иначе он подписывает вслепую.
     if (await this.isDecider(userId, row.id)) return true;
+    // Адресат кампании ознакомления видит её предмет.
+    const asTarget = await this.db.docCampaignTarget.count({
+      where: { userId, campaign: { orgDocumentId: row.id } },
+    });
+    if (asTarget > 0) return true;
     const type = await this.db.docType.findUnique({
       where: { id: row.docTypeId },
       select: { visibility: true },
@@ -2666,6 +2962,10 @@ export class DocumentsService {
         _subjectRefType: ORG_DOCUMENT_REF_TYPE,
         _subjectRefId: row.id,
         _subjectTitle: row.title,
+        // КЭДО: адресат «Сторона документа» у нод решения (работник знакомится с
+        // приказом О СЕБЕ, кто бы ни запускал маршрут) + действие для ноды hr.apply.
+        ...(row.subjectUserId ? { _subjectUserId: row.subjectUserId } : {}),
+        ...(row.hrActionId ? { _hrActionId: row.hrActionId } : {}),
       },
       'event',
       nodeId,
@@ -2744,6 +3044,9 @@ export class DocumentsService {
       visibility: string;
       signatureLevel: string;
       toPersonalFile: boolean;
+      specialDelivery: boolean;
+      retentionYears: number | null;
+      libraryKey: string | null;
       sortOrder: number;
       createdAt: Date;
     },
@@ -2758,6 +3061,9 @@ export class DocumentsService {
       visibility: row.visibility as DocTypeDto['visibility'],
       signatureLevel: row.signatureLevel as DocTypeDto['signatureLevel'],
       toPersonalFile: row.toPersonalFile,
+      specialDelivery: row.specialDelivery,
+      retentionYears: row.retentionYears,
+      libraryKey: row.libraryKey,
       sortOrder: row.sortOrder,
       templatesCount,
       createdAt: row.createdAt.toISOString(),
@@ -2779,6 +3085,7 @@ export class DocumentsService {
       selfService: boolean;
       status: string;
       version: number;
+      libraryKey: string | null;
       createdAt: Date;
       updatedAt: Date;
     },
@@ -2803,6 +3110,7 @@ export class DocumentsService {
       status: row.status as 'draft' | 'published',
       version: row.version,
       hasRoute,
+      libraryKey: row.libraryKey,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
@@ -2831,6 +3139,11 @@ export class DocumentsService {
       approvalRequestId: string | null;
       processInstanceId: string | null;
       parentDocumentId: string | null;
+      hrActionId: string | null;
+      deliveryMode: string;
+      deliveredAt: Date | null;
+      deliveryMethod: string | null;
+      deliveryTrackNumber: string | null;
       signedAt: Date | null;
       createdAt: Date;
       updatedAt: Date;
@@ -2874,6 +3187,11 @@ export class DocumentsService {
       approvalRequestId: row.approvalRequestId,
       processInstanceId: row.processInstanceId,
       parentDocumentId: row.parentDocumentId,
+      hrActionId: row.hrActionId,
+      deliveryMode: row.deliveryMode,
+      deliveredAt: row.deliveredAt?.toISOString() ?? null,
+      deliveryMethod: row.deliveryMethod,
+      deliveryTrackNumber: row.deliveryTrackNumber,
       signedAt: row.signedAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),

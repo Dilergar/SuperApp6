@@ -5,6 +5,8 @@ import {
   builderDocSchema,
   createDocTemplateSchema,
   createDocTypeSchema,
+  docDeliverySchema,
+  docDeliveryModeSchema,
   createFreeOrgDocumentSchema,
   createOrgDocumentSchema,
   createUploadedOrgDocumentSchema,
@@ -341,6 +343,32 @@ export class DocumentsController {
     // Право смотреть документ = право заказать его отпечаток (тот же предикат).
     await this.documents.get(user.sub, documentId);
     const data = await this.documents.requestPdf(documentId);
+    return { success: true, data };
+  }
+
+  // ---- КЭДО: вручение (специальный режим — ст. 61 п. 3 / ст. 65 ТК РК) ----
+
+  @Post(':documentId/delivery')
+  @ApiOperation({ summary: 'Зафиксировать вручение: лично / отказ актом / заказное письмо (Менеджер+)' })
+  async fixDelivery(
+    @CurrentUser() user: JwtPayload,
+    @Param('documentId') documentId: string,
+    @Body() body: unknown,
+  ) {
+    const dto = docDeliverySchema.parse(body);
+    const data = await this.documents.fixDelivery(user.sub, documentId, dto);
+    return { success: true, data };
+  }
+
+  @Post(':documentId/delivery-mode')
+  @ApiOperation({ summary: 'Режим доставки (гибрид): электронно / бумага / оба (Менеджер+)' })
+  async setDeliveryMode(
+    @CurrentUser() user: JwtPayload,
+    @Param('documentId') documentId: string,
+    @Body() body: unknown,
+  ) {
+    const dto = docDeliveryModeSchema.parse(body);
+    const data = await this.documents.setDeliveryMode(user.sub, documentId, dto.deliveryMode);
     return { success: true, data };
   }
 }

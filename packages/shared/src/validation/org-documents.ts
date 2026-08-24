@@ -51,6 +51,10 @@ export const createDocTypeSchema = z.object({
   visibility: visibilityEnum.optional(),
   signatureLevel: z.enum(DOC_SIGNATURE_LEVELS.map((v) => v.value) as [string, ...string[]]).optional(),
   toPersonalFile: z.boolean().optional(),
+  /** Режим обязательного вручения (ст. 61 п. 3 / ст. 65 ТК РК) — КЭДО */
+  specialDelivery: z.boolean().optional(),
+  /** Номенклатурный срок хранения, лет (до 75 — приказ № 279-НК); null снимает */
+  retentionYears: z.number().int().min(1).max(75).nullable().optional(),
   sortOrder: z.number().int().min(0).max(9999).optional(),
 });
 

@@ -29,6 +29,7 @@ import {
   Select,
 } from '@/components/ui';
 import { documentsApi, fetchDocTemplates, fetchDocTypes } from './documents-api';
+import { HrLibraryBlock } from './HrLibraryBlock';
 
 export function TemplatesTab({ workspaceId }: { workspaceId: string }) {
   const router = useRouter();
@@ -55,6 +56,8 @@ export function TemplatesTab({ workspaceId }: { workspaceId: string }) {
       </div>
 
       <BentoGrid>
+        {/* КЭДО: платформенная библиотека кадровых бланков — установка мастером */}
+        <HrLibraryBlock workspaceId={workspaceId} />
         {templatesQuery.isPending ? (
           <Card span={12}>
             <LoadingBlock />

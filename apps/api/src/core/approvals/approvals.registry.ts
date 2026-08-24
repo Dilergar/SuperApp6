@@ -57,6 +57,21 @@ export interface ApprovalRefProvider {
    * показываем: это история решений, и она переживает свой предмет).
    */
   describeRef?(refId: string): Promise<{ title: string; icon?: string; href?: string } | null>;
+
+  /**
+   * Решение по шагу ЗАПИСАНО (после коммита, best-effort). Нужен потребителям,
+   * для которых само решение — юридический факт с последствиями: ознакомление
+   * работника с приказом (ст. 23 п. 2 пп. 6 ТК РК) уходит в его личный архив.
+   * Подписные шаги сюда НЕ приходят — их закрывает core/sign своим
+   * `onActFinished` (у него уже есть акт и заявка); хук зовётся только на пути
+   * обычного «решить кнопкой».
+   */
+  onDecided?(info: {
+    refId: string;
+    stepKind: 'approval' | 'signature' | 'acknowledgement';
+    decision: 'approved' | 'rejected' | 'returned';
+    userId: string;
+  }): Promise<void>;
 }
 
 /**
@@ -84,6 +99,15 @@ export interface InboxSource {
   /** Только счётчик — путь бейджа, он не имеет права быть дорогим */
   count(userId: string, scope: InboxScope): Promise<number>;
   list(userId: string, limit: number, scope: InboxScope): Promise<InboxItemDto[]>;
+  /**
+   * Человек ВЫШЕЛ из организации (увольнение или выход) — снять с него открытые
+   * задания этого источника. Обязанность решать не переживает членство: до
+   * появления хука уволенный оставался адресатом кампании ознакомления, видел
+   * её в стопке и НАВСЕГДА держал разовую кампанию незакрытой (в «Кадровых
+   * сроках» она горела «не ознакомились 1»). Зовётся из общего каскада
+   * увольнения вместе со снятием с шагов заявок; идемпотентно и best-effort.
+   */
+  releaseUser?(userId: string, workspaceId: string): Promise<void>;
 }
 
 @Injectable()

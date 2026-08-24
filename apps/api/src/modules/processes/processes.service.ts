@@ -43,6 +43,7 @@ import { AI_PROCESS_NODES } from './process-ai-nodes';
 import { KZ_PROCESS_NODES } from './process-kz-nodes';
 import { ACTION_PROCESS_NODES } from './process-action-nodes';
 import { DOCUMENT_PROCESS_NODES } from './process-document-nodes';
+import { HR_PROCESS_NODES } from './process-hr-nodes';
 import type { CompiledPlan } from './process-node.types';
 
 const WS_CONTEXT = 'workspace';
@@ -143,6 +144,7 @@ export class ProcessesService implements OnModuleInit {
       ...KZ_PROCESS_NODES,
       ...ACTION_PROCESS_NODES,
       ...DOCUMENT_PROCESS_NODES,
+      ...HR_PROCESS_NODES,
     ]) {
       this.registry.register(provider);
     }

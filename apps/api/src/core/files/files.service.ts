@@ -20,6 +20,7 @@ import {
   FILE_QUOTAS,
   EVIDENCE_FILE_PROFILES,
   EXEC_EXT_BLACKLIST,
+  HR_ERROR_CODES,
   TEAM_WORKSPACE_ROLES,
   isEvidenceProfile,
   isSystemManagedProfile,
@@ -1254,10 +1255,48 @@ export class FilesService implements OnModuleInit {
     if (isSystemManagedProfile(row.profile)) {
       throw new ForbiddenException('Этот файл создан системой и удаляется вместе с документом');
     }
+    // КЭДО: место вправе ЗАПРЕТИТЬ удаление (подписанный кадровый документ, личный
+    // архив сотрудника) — спрашиваем предикат у каждой привязки, а не полагаемся
+    // на то, что «до такого файла руками не доберутся».
+    if (await this.deletionBlocked(fileId)) {
+      throw new ForbiddenException({
+        message: 'Подписанный кадровый документ не удаляется — он хранится вместе с личным делом',
+        details: { code: HR_ERROR_CODES.signedDocProtected },
+      });
+    }
     const isOwner =
       row.uploaderId === userId || (row.ownerType === 'user' && row.ownerId === userId);
     if (!isOwner) throw new ForbiddenException('Удалить файл может владелец или загрузивший');
     await this.doSoftDelete(row);
+  }
+
+  /**
+   * Запрещает ли какое-то из МЕСТ файла его удаление (`blocksDeletion` в
+   * FileRefResolver). Направление знания обычное: движок спрашивает реестр,
+   * про кадровые документы и личные архивы он не знает ничего.
+   */
+  private async deletionBlocked(fileId: string): Promise<boolean> {
+    // Спрашиваем ТОЛЬКО у тех refType, у кого предикат вообще есть: иначе выборка
+    // упиралась в потолок строк, и защищающая привязка, оказавшись сто первой,
+    // молча переставала защищать (у файла-документа привязок бывают десятки).
+    const guarded = this.registry.typesWithDeletionGuard();
+    if (guarded.length === 0) return false;
+    const links = await this.db.fileLink.findMany({
+      where: { fileId, refType: { in: guarded } },
+      select: { refType: true, refId: true },
+    });
+    for (const link of links) {
+      const resolver = this.registry.get(link.refType);
+      if (!resolver?.blocksDeletion) continue;
+      try {
+        if (await resolver.blocksDeletion(link.refId)) return true;
+      } catch {
+        // Предикат упал — считаем, что запрет действует (fail-closed: потерять
+        // кадровый документ хуже, чем не удалить обычный файл прямо сейчас)
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -1270,6 +1309,10 @@ export class FilesService implements OnModuleInit {
     // Системная уборка доказательств тоже не касается: у контейнера CMS вообще нет
     // привязок, и любой путь «файл осиротел → прибрать» вынес бы его молча.
     if (isEvidenceProfile(row.profile)) return;
+    // КЭДО: системные пути (удаление узла Диска навсегда, каскады) тоже не
+    // уничтожают подписанный кадровый документ — тихий пропуск, файл живёт
+    // дальше своими остальными местами (карточка документа, личный архив).
+    if (await this.deletionBlocked(fileId)) return;
     await this.doSoftDelete(row);
   }
 

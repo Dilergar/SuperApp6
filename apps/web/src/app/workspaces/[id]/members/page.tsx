@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
@@ -10,7 +10,11 @@ import {
   workspaceMembersKey,
   workspaceStaffKey,
   workspaceInvitationsKey,
+  hrDeadlinesCountKey,
+  hrRosterOverviewKey,
 } from '@/lib/queries';
+import { fetchHrDeadlinesCount, fetchHrRosterOverview } from '@/lib/hr-api';
+import { DeadlinesTab } from './DeadlinesTab';
 import { invalidateEntities, type Principal } from '@/lib/entities';
 import { EntitySelector } from '@/components/EntitySelector';
 import {
@@ -44,7 +48,7 @@ const splitName = (full: string): [string, string | null] => {
   return [parts[0] ?? '?', parts.slice(1).join(' ') || null];
 };
 
-type Tab = 'people' | 'positions' | 'departments' | 'branches' | 'invites';
+type Tab = 'people' | 'positions' | 'departments' | 'branches' | 'invites' | 'deadlines';
 
 /**
  * Сервис «Сотрудники» (B2B): одна страница с вкладками — ростер L-карточками (как
@@ -58,7 +62,19 @@ export default function WorkspaceStaffPage() {
   const { id: workspaceId } = useParams<{ id: string }>();
   const qc = useQueryClient();
 
-  const [tab, setTab] = useState<Tab>('people');
+  // ?tab=deadlines — дип-линк из уведомлений о сроках ЕСУТД
+  const searchParams = useSearchParams();
+  const initialTab = (searchParams.get('tab') as Tab | null) ?? 'people';
+  const [tab, setTab] = useState<Tab>(
+    ['people', 'positions', 'departments', 'branches', 'invites', 'deadlines'].includes(initialTab) ? initialTab : 'people',
+  );
+  // Клиентский переход (плитка «Кадровые сроки» с УЖЕ открытой страницы) меняет
+  // только query — useState-инициализатор второй раз не зовётся, вкладку
+  // переключает этот эффект.
+  useEffect(() => {
+    const t = searchParams.get('tab') as Tab | null;
+    if (t && ['people', 'positions', 'departments', 'branches', 'invites', 'deadlines'].includes(t)) setTab(t);
+  }, [searchParams]);
   const [error, setError] = useState('');
   const [leaving, setLeaving] = useState(false);
 
@@ -88,6 +104,11 @@ export default function WorkspaceStaffPage() {
     queryKey: workspaceInvitationsKey(workspaceId),
     queryFn: async () =>
       await apiGet<WorkspaceInvitation[]>(`/workspaces/${workspaceId}/invitations`),
+    enabled: isReady && canStaff,
+  });
+  const deadlinesCountQ = useQuery({
+    queryKey: hrDeadlinesCountKey(workspaceId),
+    queryFn: () => fetchHrDeadlinesCount(workspaceId),
     enabled: isReady && canStaff,
   });
 
@@ -124,6 +145,11 @@ export default function WorkspaceStaffPage() {
     { key: 'branches', label: 'Филиалы', icon: 'branch', count: dir.branches.length },
     ...(canStaff
       ? [{ key: 'invites' as Tab, label: 'Приглашения', icon: 'userAdd' as const, count: invitesQ.data?.length ?? 0 }]
+      : []),
+    // КЭДО: сводный экран «что горит сегодня» (ЕСУТД, вручения, расчёты,
+    // испытательные, срочные договоры, ознакомления) — Менеджер+
+    ...(canStaff
+      ? [{ key: 'deadlines' as Tab, label: 'Сроки', icon: 'clock' as const, count: deadlinesCountQ.data?.count ?? 0 }]
       : []),
   ];
 
@@ -186,6 +212,7 @@ export default function WorkspaceStaffPage() {
           onError={setError}
         />
       )}
+      {tab === 'deadlines' && canStaff && <DeadlinesTab workspaceId={workspaceId} />}
 
       <ConfirmDialog
         open={leaving}
@@ -224,8 +251,18 @@ function PeopleTab({
   const [fPos, setFPos] = useState('');
   const [fBr, setFBr] = useState('');
   const [fRole, setFRole] = useState('');
+  const [fHr, setFHr] = useState('');
   const [q, setQ] = useState('');
   const [managedId, setManagedId] = useState<string | null>(null);
+
+  // КЭДО: кадровая сводка для фильтров «нет договора / расхождение» (Менеджер+)
+  const hrOverviewQ = useQuery({
+    queryKey: hrRosterOverviewKey(workspaceId),
+    queryFn: () => fetchHrRosterOverview(workspaceId),
+    enabled: canStaff,
+    retry: false,
+  });
+  const hrByUser = hrOverviewQ.data?.byUser ?? {};
 
   const team = members.filter((m) => m.role !== 'contractor');
   const contractors = members.filter((m) => m.role === 'contractor');
@@ -235,12 +272,14 @@ function PeopleTab({
     if (fPos && !m.assignments.some((a) => a.positionId === fPos)) return false;
     if (fBr && !m.assignments.some((a) => a.branchId === fBr)) return false;
     if (fRole && m.role !== fRole) return false;
+    if (fHr === 'no_contract' && hrByUser[m.userId]) return false;
+    if (fHr === 'mismatch' && !hrByUser[m.userId]?.mismatch) return false;
     if (q && !m.userName.toLowerCase().includes(q.trim().toLowerCase())) return false;
     return true;
   });
 
-  const hasFilter = !!(fDep || fPos || fBr || fRole || q);
-  const clearFilters = () => { setFDep(''); setFPos(''); setFBr(''); setFRole(''); setQ(''); };
+  const hasFilter = !!(fDep || fPos || fBr || fRole || fHr || q);
+  const clearFilters = () => { setFDep(''); setFPos(''); setFBr(''); setFRole(''); setFHr(''); setQ(''); };
 
   // Пропсы карточек считаются ОДИН раз на список и переживают кейстроки поиска:
   // StaffPersonCard обёрнут в memo, и именно стабильность этих объектов позволяет
@@ -316,6 +355,7 @@ function PeopleTab({
           branches={cardProps.get(m.userId)!.branches}
           onWrite={actions.get(m.userId)?.onWrite}
           onManage={actions.get(m.userId)?.onManage}
+          cardHref={`/workspaces/${workspaceId}/members/${m.userId}`}
         />
       ))}
     </div>
@@ -366,6 +406,19 @@ function PeopleTab({
                 ...(['owner', 'admin', 'manager', 'staff', 'trainee'] as const).map((r) => ({ value: r, label: roleLabel(r) })),
               ]}
             />
+            {canStaff && (
+              <Select
+                aria-label="Кадры"
+                value={fHr}
+                onChange={setFHr}
+                width={200}
+                options={[
+                  { value: '', label: 'Кадры: все', icon: 'file' },
+                  { value: 'no_contract', label: 'Нет трудовой карточки' },
+                  { value: 'mismatch', label: 'Расхождение факт/договор' },
+                ]}
+              />
+            )}
             {hasFilter && (
               <Button variant="ghost" size="sm" icon="close" onClick={clearFilters}>Сбросить</Button>
             )}

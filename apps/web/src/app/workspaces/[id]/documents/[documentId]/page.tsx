@@ -49,6 +49,7 @@ import { SendToCounterpartyModal } from '../SendToCounterpartyModal';
 import { ExternalStageBlock } from '../ExternalStageBlock';
 import { ShareCardModal } from '@/app/messenger/ShareCardModal';
 import { DocStatusChip } from '../documents-ui';
+import { CampaignAckBanner, DeliveryBlock } from '../HrDocBlocks';
 
 /** Значение поля читабельной строкой: период — «с … по … (N дней)», не [object Object] */
 function readableFieldValue(value: unknown): string {
@@ -286,7 +287,12 @@ export default function OrgDocumentPage() {
         }
       />
 
+      {/* КЭДО: задание кампании ознакомления адресату — прямо на карточке */}
+      <CampaignAckBanner workspaceId={id} documentId={doc.id} />
+
       <BentoGrid>
+        {/* КЭДО: специальный режим вручения (виды со specialDelivery) */}
+        <DeliveryBlock workspaceId={id} doc={doc} />
         <Card span={7}>
           {/* Заголовок — по категории: у договора «заявление» звучало бы ложью */}
           <CardHeader title={doc.category === 'external' ? 'Данные документа' : 'Данные заявления'} />

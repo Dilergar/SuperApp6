@@ -6,13 +6,15 @@ import { ORG_DOCUMENT_REF_TYPE } from '@superapp/shared';
 import { DriveModule } from '../drive/drive.module';
 import { StaffModule } from '../staff/staff.module';
 import { CounterpartiesModule } from '../counterparties/counterparties.module';
-import { DocumentsService, type ProcessesStarter } from './documents.service';
+import { DocumentsService, type HrPort, type ProcessesStarter } from './documents.service';
 import { DocumentsController } from './documents.controller';
 import { DocumentsDevController } from './documents.dev';
 import { isDevEnv } from '../../shared/config/env.validation';
 import { DocumentsJobs } from './documents.jobs';
 import { DocumentsRegistriesProvider } from './documents-registries.provider';
 import { DocumentsRichCardsProvider } from './documents-rich-cards.provider';
+import { DocCampaignsService } from './doc-campaigns.service';
+import { DocCampaignsController, DocCampaignsPersonalController } from './doc-campaigns.controller';
 
 /**
  * Сервис «Документы» (B2B) — документооборот организации.
@@ -29,16 +31,20 @@ import { DocumentsRichCardsProvider } from './documents-rich-cards.provider';
   imports: [DriveModule, StaffModule, CounterpartiesModule],
   // Дев-полигон системных путей нод маршрута: в production этих маршрутов НЕТ (404),
   // а не «есть, но отвечают 403» — то же правило, что у полигонов джобов и согласований.
-  controllers: isDevEnv() ? [DocumentsController, DocumentsDevController] : [DocumentsController],
+  controllers: isDevEnv()
+    ? [DocumentsController, DocCampaignsController, DocCampaignsPersonalController, DocumentsDevController]
+    : [DocumentsController, DocCampaignsController, DocCampaignsPersonalController],
   providers: [
     DocumentsService,
     DocumentsJobs,
     DocumentsRegistriesProvider,
     // Документ пересылается в чат карточкой (Принцип 3)
     DocumentsRichCardsProvider,
+    // Кампании ознакомления (КЭДО, Этап 5)
+    DocCampaignsService,
     { provide: DI_TOKENS.DocumentsService, useExisting: DocumentsService },
   ],
-  exports: [DocumentsService, DI_TOKENS.DocumentsService],
+  exports: [DocumentsService, DocCampaignsService, DI_TOKENS.DocumentsService],
 })
 export class DocumentsModule implements OnApplicationBootstrap {
   constructor(
@@ -52,6 +58,11 @@ export class DocumentsModule implements OnApplicationBootstrap {
     // уже собраны, и цикла в графе зависимостей нет.
     const processes = this.moduleRef.get<ProcessesStarter>(DI_TOKENS.ProcessesService, { strict: false });
     this.documents.setProcessesService(processes ?? null);
+
+    // КЭДО — то же ленивое ребро: hr импортирует документы, обратное знание
+    // (машина действия, личный архив) идёт через порт, поставленный здесь.
+    const hr = this.moduleRef.get<HrPort>(DI_TOKENS.HrService, { strict: false });
+    this.documents.setHrService(hr ?? null);
 
     // Возврат управления из движка согласований: маршрут ведут Процессы, но когда
     // документ ушёл на решение БЕЗ процесса (маршрут не нарисован), закрыть его

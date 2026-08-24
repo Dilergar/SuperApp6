@@ -386,12 +386,22 @@ export const approvalNode: ProcessNodeProvider = {
           { value: 'member', label: 'Сотрудник' },
           { value: 'position', label: 'Должность (кто на ней сейчас)' },
           { value: 'department', label: 'Отдел' },
+          // Ось `branch#member` давно проецируется в движок прав и объявлена
+          // адресатом в APPROVAL_ASSIGNEE_TYPES — недоставало только режима
+          // здесь, из-за чего «ознакомить филиал с приказом» было недостижимо
+          // с канваса вовсе.
+          { value: 'branch', label: 'Филиал' },
           { value: 'initiator', label: 'Инициатор процесса' },
+          // КЭДО: работник знакомится с приказом О СЕБЕ, кто бы ни запускал маршрут.
+          // До этого режима адресовать шаг стороне документа было нечем: инициатор
+          // кадрового маршрута — кадровик, а не работник.
+          { value: 'subject', label: 'Сторона документа (сотрудник в приказе)' },
         ],
       },
       { key: 'assigneeUserId', label: 'Кто', kind: 'member', showIf: { field: 'assigneeMode', in: ['member'] } },
       { key: 'positionId', label: 'Должность', kind: 'position', showIf: { field: 'assigneeMode', in: ['position'] } },
       { key: 'departmentId', label: 'Отдел', kind: 'department', showIf: { field: 'assigneeMode', in: ['department'] } },
+      { key: 'branchId', label: 'Филиал', kind: 'branch', showIf: { field: 'assigneeMode', in: ['branch'] } },
       {
         key: 'rule',
         label: 'Сколько ответов нужно',
@@ -400,7 +410,7 @@ export const approvalNode: ProcessNodeProvider = {
           { value: 'any', label: 'Любой из них' },
           { value: 'all', label: 'Каждый' },
         ],
-        showIf: { field: 'assigneeMode', in: ['position', 'department'] },
+        showIf: { field: 'assigneeMode', in: ['position', 'department', 'branch'] },
         help: 'Состав фиксируется снимком в момент, когда шаг дошёл до людей.',
       },
       {
@@ -427,10 +437,11 @@ export const approvalNode: ProcessNodeProvider = {
          */
         signatureLevel: z.enum(['none', 'pep', 'ecp']).optional(),
         title: textField(200, 1),
-        assigneeMode: z.enum(['member', 'position', 'department', 'initiator']),
+        assigneeMode: z.enum(['member', 'position', 'department', 'branch', 'initiator', 'subject']),
         assigneeUserId: z.string().uuid().optional(),
         positionId: z.string().uuid().optional(),
         departmentId: z.string().uuid().optional(),
+        branchId: z.string().uuid().optional(),
         rule: z.enum(['any', 'all']).optional(),
         dueInHours: z.coerce.number().int().min(1).max(24 * 365).optional(),
       })
@@ -445,6 +456,10 @@ export const approvalNode: ProcessNodeProvider = {
       .refine((c) => c.assigneeMode !== 'department' || !!c.departmentId, {
         message: 'Выберите отдел',
         path: ['departmentId'],
+      })
+      .refine((c) => c.assigneeMode !== 'branch' || !!c.branchId, {
+        message: 'Выберите филиал',
+        path: ['branchId'],
       }),
     auto: false, // токен спит, пока человек не решит — будит хук движка согласований
   },
@@ -453,23 +468,36 @@ export const approvalNode: ProcessNodeProvider = {
       kind?: 'approval' | 'signature' | 'acknowledgement';
       signatureLevel?: 'none' | 'pep' | 'ecp';
       title: string;
-      assigneeMode: 'member' | 'position' | 'department' | 'initiator';
+      assigneeMode: 'member' | 'position' | 'department' | 'branch' | 'initiator' | 'subject';
       assigneeUserId?: string;
       positionId?: string;
       departmentId?: string;
+      branchId?: string;
       rule?: 'any' | 'all';
       dueInHours?: number;
     };
     const title = ctx.render(cfg.title);
 
-    const assignee: { type: 'user' | 'position' | 'department'; id: string } =
+    // «Сторона документа» — служебный ключ, который кладёт запуск маршрута
+    // документа (`_subjectUserId`). Санитайзер внешних стартов такие ключи
+    // отбрасывает; маршрут без стороны — честная ошибка, не пустой шаг.
+    if (cfg.assigneeMode === 'subject' && typeof ctx.variables._subjectUserId !== 'string') {
+      throw new Error(
+        'Шаг адресован стороне документа, но у запуска её нет: этот маршрут запускается отправкой документа с сотрудником-стороной',
+      );
+    }
+    const assignee: { type: 'user' | 'position' | 'department' | 'branch'; id: string } =
       cfg.assigneeMode === 'initiator'
         ? { type: 'user', id: ctx.startedById }
-        : cfg.assigneeMode === 'member'
-          ? { type: 'user', id: cfg.assigneeUserId! }
-          : cfg.assigneeMode === 'position'
-            ? { type: 'position', id: cfg.positionId! }
-            : { type: 'department', id: cfg.departmentId! };
+        : cfg.assigneeMode === 'subject'
+          ? { type: 'user', id: ctx.variables._subjectUserId as string }
+          : cfg.assigneeMode === 'member'
+            ? { type: 'user', id: cfg.assigneeUserId! }
+            : cfg.assigneeMode === 'position'
+              ? { type: 'position', id: cfg.positionId! }
+              : cfg.assigneeMode === 'branch'
+                ? { type: 'branch', id: cfg.branchId! }
+                : { type: 'department', id: cfg.departmentId! };
 
     // Уволенный после публикации не должен получать решения (та же runtime-проверка,
     // что у задач и уведомлений). Для должности и отдела состав проверит сам движок

@@ -73,6 +73,17 @@ export class DocumentsRegistriesProvider implements OnModuleInit {
           href: `/workspaces/${doc.workspaceId}/documents/${doc.id}`,
         };
       },
+      // Ознакомление СТОРОНЫ документа по шагу маршрута — юридический факт:
+      // уходит в личный архив работника (КЭДО), как и клик в кампании.
+      onDecided: async ({ refId, stepKind, decision, userId }) => {
+        if (stepKind !== 'acknowledgement' || decision !== 'approved') return;
+        const doc = await this.db.orgDocument.findUnique({
+          where: { id: refId },
+          select: { subjectUserId: true },
+        });
+        if (doc?.subjectUserId !== userId) return;
+        await this.documents.notifyHrAcknowledged(refId, userId);
+      },
     });
 
     // ---- Электронная подпись: документ как ПРЕДМЕТ подписи ----
@@ -148,6 +159,15 @@ export class DocumentsRegistriesProvider implements OnModuleInit {
         // сама — маршрута у категории «С контрагентами» нет. Методы статус-
         // гвардятся `WHERE status='sent'` и для внутренних документов no-op.
         await this.externalOutcome(refId, info);
+        // КЭДО: работник подписал документ о себе → личная запись-архив; акт
+        // работодателя ЭЦП физлица на кадровом виде → предупреждение (порт hr).
+        await this.documents.notifyHrActFinished(refId, {
+          outcome: info.outcome,
+          level: info.level,
+          signerUserId: info.signerUserId,
+          signRequestId: info.requestId,
+          certSubjectBin: info.certSubjectBin,
+        });
       },
       // Срок сбора истёк (крон закрыл заявку): документ возвращается в черновик
       onRequestExpired: async (refId, info) => {
@@ -174,6 +194,21 @@ export class DocumentsRegistriesProvider implements OnModuleInit {
         // (после отправки на маршрут правку держит `locked` в core/docs).
         canAttach: (userId, refId) => this.documents.canEditFile(userId, refId),
         canEditContent: (userId, refId) => this.documents.canEditFile(userId, refId),
+        // КЭДО (Этап 8): ПОДПИСАННЫЙ кадровый документ не удаляется никем и
+        // никогда — ни ручкой файлов, ни удалением узла Диска (приказ № 279-НК:
+        // сроки хранения до 75 лет; правило enforce'ит движок файлов на ОБОИХ
+        // путях удаления, спрашивая этот предикат).
+        blocksDeletion: async (refId) => {
+          const doc = await this.db.orgDocument.findUnique({
+            where: { id: refId },
+            select: { status: true, docType: { select: { category: true } } },
+          });
+          if (!doc) return false;
+          return (
+            doc.docType.category === 'hr' &&
+            ['signed', 'registered', 'active', 'archived'].includes(doc.status)
+          );
+        },
       },
       { scopedPlace: true },
     );

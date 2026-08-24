@@ -68,16 +68,51 @@ export class StaffTemplateFieldsProvider implements OnModuleInit {
     });
     if (!user) return null;
 
-    const assignment = ctx.workspaceId
-      ? await this.db.staffAssignment.findFirst({
+    // Приоритет — назначение, совпадающее с ДОГОВОРНОЙ должностью (Employment):
+    // официант на двух филиалах иначе получал в приказ филиал ПЕРВОГО ПО ДАТЕ
+    // назначения. Нет трудовой карточки — прежнее поведение (первое по дате).
+    let assignment: {
+      position: { name: string; department: { name: string } | null } | null;
+      branch: { name: string } | null;
+    } | null = null;
+    if (ctx.workspaceId) {
+      const employment = await this.db.employment.findFirst({
+        where: { workspaceId: ctx.workspaceId, userId: ctx.subjectUserId, status: { not: 'terminated' } },
+        select: { legalPositionId: true, legalBranchId: true },
+      });
+      const include = {
+        position: { select: { name: true, department: { select: { name: true } } } },
+        branch: { select: { name: true } },
+      } as const;
+      if (employment?.legalPositionId) {
+        assignment = await this.db.staffAssignment.findFirst({
+          where: {
+            workspaceId: ctx.workspaceId,
+            userId: ctx.subjectUserId,
+            positionId: employment.legalPositionId,
+            ...(employment.legalBranchId ? { branchId: employment.legalBranchId } : {}),
+          },
+          orderBy: { createdAt: 'asc' },
+          include,
+        });
+        // Договорная должность есть, но точного назначения нет (расхождение факт/договор)
+        // — пробуем без филиала, прежде чем откатиться на первое по дате.
+        if (!assignment && employment.legalBranchId) {
+          assignment = await this.db.staffAssignment.findFirst({
+            where: { workspaceId: ctx.workspaceId, userId: ctx.subjectUserId, positionId: employment.legalPositionId },
+            orderBy: { createdAt: 'asc' },
+            include,
+          });
+        }
+      }
+      if (!assignment) {
+        assignment = await this.db.staffAssignment.findFirst({
           where: { workspaceId: ctx.workspaceId, userId: ctx.subjectUserId },
           orderBy: { createdAt: 'asc' },
-          include: {
-            position: { select: { name: true, department: { select: { name: true } } } },
-            branch: { select: { name: true } },
-          },
-        })
-      : null;
+          include,
+        });
+      }
+    }
 
     const idDoc = user.idDocNumber
       ? [

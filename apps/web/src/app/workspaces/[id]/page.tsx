@@ -94,6 +94,8 @@ export default function WorkspaceHome() {
       : []),
     ...(rank >= WORKSPACE_ROLE_RANK.manager
       ? [
+          // КЭДО: сводный экран «что горит сегодня» — ЕСУТД, вручения, расчёты
+          { title: 'Кадровые сроки', desc: 'ЕСУТД, вручения, расчёты, испытательные', icon: 'clock' as IconName, href: `/workspaces/${id}/members?tab=deadlines` },
           { title: 'Журнал организации', desc: 'Хроника: найм, роли, должности, задачи', icon: 'journal' as IconName, href: `/workspaces/${id}/journal` },
           // Раздать наружу может Менеджер+, значит и закрыть чужое вправе он —
           // иначе ссылки уволенного оставались бы без хозяина.

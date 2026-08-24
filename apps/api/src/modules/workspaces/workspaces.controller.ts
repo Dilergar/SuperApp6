@@ -66,8 +66,14 @@ export class WorkspacesController {
   @Post('dev/purge-archives')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'DEV: прогнать ретеншн архива сейчас (только development)' })
-  async devPurgeArchives() {
+  async devPurgeArchives(@Body() body?: { workspaceId?: string }) {
     if (process.env.NODE_ENV !== 'development') throw new NotFoundException();
+    // Полигон КЭДО: purge КОНКРЕТНОЙ организации сейчас (проверка «личный архив
+    // переживает purge» не может ждать 90 дней ретеншна). Только development.
+    if (body?.workspaceId) {
+      await this.workspaces.purgeWorkspace(String(body.workspaceId));
+      return { success: true, data: { purged: 1, warned: 0 } };
+    }
     const purged = await this.workspaces.purgeExpiredArchives();
     const warned = await this.workspaces.warnExpiringArchives();
     return { success: true, data: { purged, warned } };

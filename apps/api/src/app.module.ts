@@ -32,6 +32,7 @@ import { TemplatesModule } from './core/templates/templates.module';
 import { SignModule } from './core/sign/sign.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { CounterpartiesModule } from './modules/counterparties/counterparties.module';
+import { HrModule } from './modules/hr/hr.module';
 
 // Feature modules (MVP)
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -159,6 +160,9 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // справочник (прямая инъекция CounterpartiesService в DocumentsModule).
     CounterpartiesModule,
     DocumentsModule,
+    // КЭДО (шаг 5 документной вертикали): трудовые карточки, кадровые действия,
+    // ЕСУТД-очередь, библиотека бланков, личный архив «Мои документы».
+    HrModule,
 
     // Feature modules — each is self-contained.
     // Load order: Notifications → Contacts (@Global, consumed by AuthService)

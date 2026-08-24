@@ -36,6 +36,7 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   position: 'Должности',
   branch: 'Филиалы',
   counterparty: 'Контрагенты',
+  workspace: 'Организация',
 };
 
 /** Контекст загрузки: workspace-скоупные типы (отдел/должность/филиал) требуют организацию. */
@@ -174,6 +175,13 @@ async function loadCounterparties(ctx?: EntityLoadContext): Promise<EntityOption
   }));
 }
 
+// «Вся организация» — одноэлементный тип для аудиторий (кампании ознакомления,
+// массовые кадровые действия): выбор целиком, без перечисления людей.
+async function loadWorkspaceAll(ctx?: EntityLoadContext): Promise<EntityOption[]> {
+  if (!ctx?.workspaceId) return [];
+  return [{ type: 'workspace', id: ctx.workspaceId, title: 'Вся организация', icon: 'workspace' }];
+}
+
 const LOADERS: Record<string, (ctx?: EntityLoadContext) => Promise<EntityOption[]>> = {
   user: loadUsers,
   circle: loadCircles,
@@ -181,6 +189,7 @@ const LOADERS: Record<string, (ctx?: EntityLoadContext) => Promise<EntityOption[
   position: loadPositions,
   branch: loadBranches,
   counterparty: loadCounterparties,
+  workspace: loadWorkspaceAll,
 };
 
 const STAFF_TYPES = new Set(['department', 'position', 'branch']);

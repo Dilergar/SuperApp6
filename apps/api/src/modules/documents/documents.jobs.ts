@@ -148,6 +148,9 @@ export class DocumentsJobs implements OnModuleInit {
           // Внешний контур: теги {Контрагент.*} заполняет группа справочника
           counterpartyId: doc.counterpartyId ?? undefined,
           counterpartyContactId: doc.counterpartyContactId ?? undefined,
+          // КЭДО: группы «Договор»/«Действие»/«Подписант» (modules/hr)
+          templateId: doc.templateId ?? undefined,
+          hrActionId: doc.hrActionId ?? undefined,
         },
         this.documentValues(doc),
         // Мягкий режим: недостающее поле остаётся ВИДИМЫМ тегом в черновике. Иначе
@@ -252,6 +255,7 @@ export class DocumentsJobs implements OnModuleInit {
     counterpartyId: string | null;
     counterpartyContactId: string | null;
     templateId: string | null;
+    hrActionId: string | null;
     fields: unknown;
     formFields: unknown;
     builderDoc: unknown;
@@ -263,13 +267,15 @@ export class DocumentsJobs implements OnModuleInit {
       counterpartyId: doc.counterpartyId,
       counterpartyContactId: doc.counterpartyContactId,
       templateId: doc.templateId,
+      // КЭДО: параметры действия печатаются группой «Действие» — вход рендера
+      hrActionId: doc.hrActionId,
       fields: doc.fields ?? null,
       formFields: doc.formFields ?? null,
       builderDoc: doc.builderDoc ?? null,
     });
   }
 
-  /** Свежий снимок входов рендера; null — документ исчез */
+  /** Свежий снимок входов рендера; null — документ исчез. Список полей ДУБЛИРУЕТ contentSnapshot — правятся синхронно. */
   private async freshSnapshot(documentId: string): Promise<string | null> {
     const row = await this.db.orgDocument.findUnique({
       where: { id: documentId },
@@ -280,6 +286,7 @@ export class DocumentsJobs implements OnModuleInit {
         counterpartyId: true,
         counterpartyContactId: true,
         templateId: true,
+        hrActionId: true,
         fields: true,
         formFields: true,
         builderDoc: true,
@@ -393,6 +400,8 @@ export class DocumentsJobs implements OnModuleInit {
     subjectUserId: string | null;
     counterpartyId: string | null;
     counterpartyContactId: string | null;
+    templateId: string | null;
+    hrActionId: string | null;
     title: string;
     number: string | null;
     createdAt: Date;
@@ -408,6 +417,8 @@ export class DocumentsJobs implements OnModuleInit {
         actorUserId: doc.createdById,
         counterpartyId: doc.counterpartyId ?? undefined,
         counterpartyContactId: doc.counterpartyContactId ?? undefined,
+        templateId: doc.templateId ?? undefined,
+        hrActionId: doc.hrActionId ?? undefined,
       })),
     };
     const logoDataUri = await this.documents.builderLogo(doc.workspaceId, builderDoc);

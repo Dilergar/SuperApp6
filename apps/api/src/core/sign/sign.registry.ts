@@ -41,6 +41,12 @@ export interface SignActFinishedInfo {
   signerUserId: string | null;
   /** Все ли подписанты закрыли заявку */
   requestCompleted: boolean;
+  /**
+   * БИН из сертификата ЭЦП (null у ключа физлица и у ПЭП). Потребитель кадрового
+   * контура по нему предупреждает: акт РАБОТОДАТЕЛЯ, подписанный сертификатом
+   * физлица, — вероятная проблема (жёсткость — после ответа юриста, v1 — warning).
+   */
+  certSubjectBin: string | null;
 }
 
 /**

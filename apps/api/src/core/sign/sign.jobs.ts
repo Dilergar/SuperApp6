@@ -124,6 +124,7 @@ export class SignJobs implements OnModuleInit {
         level: act.level as 'ecp' | 'pep',
         signerUserId: act.signerUserId,
         requestCompleted: request.status === 'completed',
+        certSubjectBin: act.certSubjectBin,
       });
     }
 

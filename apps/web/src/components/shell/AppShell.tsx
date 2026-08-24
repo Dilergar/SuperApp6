@@ -25,6 +25,8 @@ import {
   SIDEBAR_COOKIE, buildPersonalNav, buildWorkspaceNav, isBranchActive, isNavItemActive,
   type AppNavConfig, type AppNavItem,
 } from '@/lib/app-nav';
+import { hrDeadlinesCountKey } from '@/lib/queries';
+import { fetchHrDeadlinesCount } from '@/lib/hr-api';
 // Прямые импорты из файлов кита, НЕ из барабана '@/components/ui': шелл сидит
 // в корневом графе каждой страницы, а барабан утащил бы туда весь кит
 // (Modal, DatePicker, Dropzone…) — лишние сотни КБ в каждом чанке dev-сборки.
@@ -105,17 +107,31 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
   const approvalsCount = useApprovalsCount(!!profile);
   const [stackOpen, setStackOpen] = useState(false);
 
+  // КЭДО: бейдж «Кадровые сроки» на пункте «Сотрудники» (Менеджер+; остальным
+  // сервер честно отдаёт 0). Тихо падаем в ноль — как у остальных счётчиков.
+  const activeWsRole = activeWsId ? workspaces.find((w) => w.id === activeWsId)?.myRole : null;
+  const canSeeHrBadge = activeWsRole === 'manager' || activeWsRole === 'admin' || activeWsRole === 'owner';
+  const { data: hrDeadlines } = useQuery({
+    queryKey: activeWsId ? hrDeadlinesCountKey(activeWsId) : ['hr-deadlines-none'],
+    queryFn: () => fetchHrDeadlinesCount(activeWsId!),
+    staleTime: 60_000,
+    enabled: !!profile && !!activeWsId && canSeeHrBadge,
+    retry: false,
+  });
+
   const nav: AppNavConfig = useMemo(() => {
     if (activeWsId) {
       const ws = workspaces.find((w) => w.id === activeWsId);
-      return buildWorkspaceNav(activeWsId, ws?.name ?? 'Организация', ws?.myRole ?? null);
+      return buildWorkspaceNav(activeWsId, ws?.name ?? 'Организация', ws?.myRole ?? null, {
+        hrDeadlines: hrDeadlines?.count || undefined,
+      });
     }
     return buildPersonalNav({
       tasksInbox: taskStats?.inbox,
       tasksToday: taskStats?.today,
       tasksReview: taskStats?.onReview,
     });
-  }, [activeWsId, workspaces, taskStats]);
+  }, [activeWsId, workspaces, taskStats, hrDeadlines]);
 
   // ---- ширина экрана: <768 шторка, 768–1199 авто-рейл, ≥1200 выбор человека
   useEffect(() => {

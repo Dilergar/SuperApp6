@@ -158,6 +158,10 @@ export const SURFACE_NODE_TYPES: Record<string, readonly string[]> = {
     'doc.generate',
     'doc.register',
     'doc.file',
+    // КЭДО: применить кадровое действие / поставить сдачу в ЕСУТД — правило
+    // платформы «всё, что делает система, стоит нодой на канвасе»
+    'hr.apply',
+    'hr.esutd',
     'condition',
     'notify',
     'delay',

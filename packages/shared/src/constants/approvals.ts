@@ -106,8 +106,12 @@ export type ApprovalStepStatus = (typeof APPROVAL_STEP_STATUSES)[number];
  * «Руководитель инициатора» здесь СОЗНАТЕЛЬНО отсутствует: у отдела в платформе
  * пока нет руководителя (StaffDepartment без него), он появится вместе со
  * «Структурой организации» — тогда это станет ещё одним значением, и только.
+ *
+ * `branch` добавлен вместе с КЭДО: рёбра `branch#member` давно проецируются в
+ * движок прав, и ветка была мёртвой только из-за этой константы — «ознакомить
+ * филиал с приказом» иначе невозможно.
  */
-export const APPROVAL_ASSIGNEE_TYPES = ['user', 'position', 'department'] as const;
+export const APPROVAL_ASSIGNEE_TYPES = ['user', 'position', 'department', 'branch'] as const;
 export type ApprovalAssigneeType = (typeof APPROVAL_ASSIGNEE_TYPES)[number];
 
 /**
@@ -152,7 +156,12 @@ export const APPROVAL_SIGNATURE_KIND_LABELS: Record<ApprovalSignatureKind, strin
 export const APPROVAL_LIMITS = {
   /** Шагов в одной заявке. Длиннее — это уже процесс, ему место на канвасе */
   maxSteps: 20,
-  /** Адресатов в снимке шага `all`: ознакомить весь департамент реально, весь завод — нет */
+  /**
+   * Адресатов в снимке шага `all`: ознакомить весь департамент реально, весь
+   * завод — нет. Превышение — ЧЕСТНЫЙ ОТКАЗ с числом, а не молчаливая обрезка
+   * (на компании в 600 человек 100 неознакомленных, о которых никто не узнает, —
+   * хуже отказа). Массовые ознакомления — кампании КЭДО (потолок 5000, пачками).
+   */
   maxSnapshotSize: 500,
   maxTitleLength: 200,
   maxCommentLength: 2000,
@@ -208,6 +217,17 @@ export const APPROVAL_ERROR_CODES = {
    * человека на экран подписания.
    */
   needsSignature: 'approval_needs_signature',
+  /**
+   * Снимок адресатов больше потолка — честный отказ с числом, а не молчаливая
+   * обрезка (`take` без ошибки). Массовые ознакомления — кампании КЭДО.
+   */
+  snapshotTooBig: 'approval_snapshot_too_big',
+  /**
+   * Адресат шага развернулся В НИКОГО (битый id, чужой справочник, пустой отдел).
+   * Шаг, который молча активируется и никого не ждёт, висит вечно — честная
+   * ошибка при активации лучше вечного зависания.
+   */
+  emptyAssignees: 'approval_empty_assignees',
 } as const;
 
 export type ApprovalErrorCode = (typeof APPROVAL_ERROR_CODES)[keyof typeof APPROVAL_ERROR_CODES];
@@ -227,6 +247,10 @@ export const APPROVAL_INBOX_TITLE = 'Ждут решения';
 export const INBOX_SOURCE_KEYS = {
   /** Заявки этого движка */
   approval: 'approval',
+  /** Свободные подписи core/sign (регистрируется в SignJobs) */
+  sign: 'sign',
+  /** Кампании ознакомления КЭДО (регистрируется в doc-campaigns) */
+  hrCampaign: 'hr_campaign',
   /** ЗАДЕЛ: очереди задач отдела в Процессах — регистрируется, когда дойдут руки */
   processQueue: 'process_queue',
   /** ЗАДЕЛ: приёмка работы в Задачнике */

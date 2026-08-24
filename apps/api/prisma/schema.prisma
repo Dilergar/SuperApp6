@@ -689,6 +689,12 @@ model Workspace {
   docTemplates     DocTemplate[]
   orgDocuments     OrgDocument[]
   counterparties   Counterparty[]
+  employments      Employment[]
+  hrActions        HrAction[]
+  hrActionBatches  HrActionBatch[]
+  esutdSubmissions EsutdSubmission[]
+  docCampaigns     DocCampaign[]
+  libraryInstalls  DocTemplateLibraryInstall[]
 
   @@index([ownerId])
   // Ретеншн-крон архива: выборка «что пора удалять» идёт по этой колонке.
@@ -3137,6 +3143,14 @@ model DocType {
   // выбирать это на каждом маршруте вручную — способ однажды забыть.
   signatureLevel String  @default("none") @map("signature_level")
   toPersonalFile Boolean @default(false) @map("to_personal_file")
+  // Режим ОБЯЗАТЕЛЬНОГО вручения (ст. 61 п. 3 / ст. 65 ТК РК — акты о прекращении
+  // и взыскании): печатный комплект + фиксация способа вручения на карточке.
+  specialDelivery Boolean @default(false) @map("special_delivery")
+  // Номенклатурный срок хранения (приказ № 279-НК — до 75 лет). Справочно:
+  // enforcement не нужен, подписанное и так не удаляется.
+  retentionYears Int?    @map("retention_years")
+  // Откуда установлен (платформенная библиотека кадровых бланков)
+  libraryKey     String? @map("library_key")
   sortOrder      Int     @default(0) @map("sort_order")
   archivedAt     DateTime? @map("archived_at")
 
@@ -3189,6 +3203,9 @@ model DocTemplate {
   version     Int     @default(1)
 
   createdById String    @map("created_by_id")
+  // Откуда установлен (платформенная библиотека кадровых бланков) — по нему
+  // работает «Обновить» при новой версии каталога.
+  libraryKey  String?   @map("library_key")
   archivedAt  DateTime? @map("archived_at")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
@@ -3246,6 +3263,16 @@ model OrgDocument {
   processInstanceId String? @map("process_instance_id")
   parentDocumentId  String? @map("parent_document_id") // приказ ← заявление
 
+  // КЭДО: кадровое действие, породившее документ (без FK — паттерн subjectUserId)
+  hrActionId String? @map("hr_action_id")
+  // Гибридный режим: как документ доводится до работника. electronic — подпись/
+  // ознакомление в системе; paper — печатный комплект; hybrid — и то и другое.
+  deliveryMode String @default("electronic") @map("delivery_mode")
+  // Фиксация ВРУЧЕНИЯ (specialDelivery-виды: ст. 61 п. 3 — 3 рабочих дня)
+  deliveredAt         DateTime? @map("delivered_at")
+  deliveryMethod      String?   @map("delivery_method") // in_person | refusal_act | registered_mail
+  deliveryTrackNumber String?   @map("delivery_track_number")
+
   // Узлы Диска: реестр вида и личное дело — ОДИН файл, два места (байты не дублируются).
   registryNodeId String? @map("registry_node_id")
   personalNodeId String? @map("personal_node_id")
@@ -3268,6 +3295,7 @@ model OrgDocument {
   @@index([templateId])
   @@index([parentDocumentId])
   @@index([processInstanceId])
+  @@index([hrActionId])
   @@map("org_documents")
 }
 
@@ -3499,4 +3527,295 @@ model SignQrSession {
   @@index([actId])
   @@index([status, expiresAt])
   @@map("sign_qr_sessions")
+}
+// ============================================================
+// КЭДО — кадровый электронный документооборот (modules/hr, шаг 5 документной
+// вертикали). Данные о трудовых отношениях — домен «Сотрудников», бумаги о них —
+// домен «Документооборота»; hr их связывает и ничего не хранит дважды.
+// ============================================================
+
+/// Юридический план трудовых отношений («по договору»). Живёт РЯДОМ с фактом
+/// (StaffAssignment): расхождение — плашка, не ошибка. Снимки названий должности
+/// и филиала — документ печатает то, о чём договорились, даже если справочник
+/// потом переименуют.
+model Employment {
+  id          String @id @default(uuid())
+  workspaceId String @map("workspace_id")
+  userId      String @map("user_id") // без FK (паттерн OrgDocument.subjectUserId)
+
+  status String @default("draft") // draft | active | terminated
+
+  hiredAt         DateTime? @map("hired_at") @db.Date
+  firedAt         DateTime? @map("fired_at") @db.Date
+  dismissalGround String?   @map("dismissal_ground") // код справочника статей ТК РК
+
+  contractNumber String?   @map("contract_number")
+  contractDate   DateTime? @map("contract_date") @db.Date
+  contractType   String    @default("indefinite") @map("contract_type") // indefinite | fixed_term | seasonal | task_based
+  contractEndAt  DateTime? @map("contract_end_at") @db.Date
+  // Ст. 30 ТК РК: продление срочного договора молчанием — максимум 2 раза,
+  // дальше договор считается бессрочным (плашка в интерфейсе, не блок).
+  contractExtensionsCount Int @default(0) @map("contract_extensions_count")
+
+  probationUntil DateTime? @map("probation_until") @db.Date
+
+  // Снимок должности/филиала ПО ДОГОВОРУ (факт живёт в StaffAssignment)
+  legalPositionId   String? @map("legal_position_id")
+  legalPositionName String? @map("legal_position_name")
+  legalBranchId     String? @map("legal_branch_id")
+  legalBranchName   String? @map("legal_branch_name")
+
+  workRate     Float?  @default(1) @map("work_rate") // ставка: 1 / 0.5 / 0.25
+  workSchedule String? @map("work_schedule") // «5/2, 09:00–18:00»
+
+  // Оклад — СНИМКОМ на карточке (тиыны). Видят Менеджер+ и сам человек:
+  // приказ о приёме обязан печатать оклад (ст. 28 ТК — обязательное условие).
+  salaryAmount   BigInt? @map("salary_amount")
+  salaryCurrency String  @default("KZT") @map("salary_currency")
+
+  // Гибрид — ПОСТОЯННЫЙ режим, не этап миграции: обязать работника получить
+  // ЭЦП нельзя. true → подписи работника заменяет печать комплекта + фиксация
+  // вручения (скан подшивается в дело).
+  paperMode Boolean @default(false) @map("paper_mode")
+
+  personnelNumber String? @map("personnel_number") // табельный (под 1С)
+
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([userId])
+  // ВНИМАНИЕ: партиальный UNIQUE (workspace_id, user_id) WHERE status <> 'terminated'
+  // дописан РУКАМИ в миграции `hr_kedo` — «одна живая трудовая карточка на человека
+  // в организации»; повторный приём после увольнения = новая строка.
+  @@map("hr_employments")
+}
+
+/// Кадровое действие — ПЕРВИЧНО, документ производен: «Уволить» → приказ →
+/// подпись → применение. `scheduled` = документы подписаны, ждёт effectiveAt
+/// (иначе списки не различают «на подписи» и «вступает в силу 01.09»).
+model HrAction {
+  id          String @id @default(uuid())
+  workspaceId String @map("workspace_id")
+  userId      String @map("user_id") // субъект действия (сотрудник)
+
+  kind   String // hire | transfer | salary_change | leave | dismissal
+  status String @default("draft") // draft | in_progress | scheduled | applied | cancelled | failed
+  // Та же сущность, два входа: заявление работника и решение работодателя
+  source String @default("employer") // employee | employer
+
+  effectiveAt DateTime  @map("effective_at") @db.Date
+  effectiveTo DateTime? @map("effective_to") @db.Date // период отпуска
+
+  params Json @default("{}")
+
+  batchId      String?   @map("batch_id")
+  employmentId String?   @map("employment_id") // без FK: действие — историческая запись
+  appliedAt    DateTime? @map("applied_at")
+  failReason   String?   @map("fail_reason")
+
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status, effectiveAt])
+  @@index([workspaceId, userId, createdAt])
+  @@index([batchId])
+  @@map("hr_actions")
+}
+
+/// Массовая кадровая операция: один вид, общие параметры, аудитория из ростера.
+/// Потолок 500 за прогон; экран прогресса читает свои действия по batchId.
+model HrActionBatch {
+  id          String @id @default(uuid())
+  workspaceId String @map("workspace_id")
+
+  kind     String
+  params   Json   @default("{}")
+  audience Json   @default("[]") // принципалы [{type,id}] — снимок выбора
+  total    Int    @default(0)
+  status   String @default("running") // running | done | cancelled
+
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@map("hr_action_batches")
+}
+
+/// Очередь сдачи в ЕСУТД (erdo.enbek.kz). Правила № 353: заключение — 5 РАБОЧИХ
+/// дней от подписания обеими сторонами, изменения — 15 КАЛЕНДАРНЫХ, прекращение —
+/// 3 РАБОЧИХ. `payload` — снимок сведений по перечню Правил («Скопировать
+/// сведения» отдаёт ровно то, что просит форма enbek). После сдачи прекращения
+/// правка — только через госорган по труду (п. 13): валидация строго ДО отправки.
+model EsutdSubmission {
+  id          String @id @default(uuid())
+  workspaceId String @map("workspace_id")
+  userId      String @map("user_id")
+
+  kind         String // contract | amendment | termination
+  hrActionId   String? @map("hr_action_id")
+  employmentId String? @map("employment_id")
+
+  dueAt  DateTime @map("due_at") @db.Date // посчитан по производственному календарю
+  status String   @default("pending") // pending | submitted | failed | not_required
+
+  submittedAt    DateTime? @map("submitted_at")
+  submittedById  String?   @map("submitted_by_id")
+  externalNumber String?   @map("external_number")
+  // Окно исправления ошибочно внесённых сведений — 30 РАБОЧИХ дней без штрафа
+  // (разъяснения к ст. 98 КоАП); считается при отметке о сдаче.
+  correctionUntil DateTime? @map("correction_until") @db.Date
+
+  payload Json @default("{}")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status, dueAt])
+  @@index([hrActionId])
+  @@map("hr_esutd_submissions")
+}
+
+/// Производственный календарь РК. Машиночитаемого госисточника НЕТ — сид руками
+/// из календаря МТСЗН, переносы постановлениями Правительства в течение года →
+/// патч-сид новой версией кода. Расчёт срока за горизонтом засеянных лет —
+/// ЧЕСТНЫЙ ОТКАЗ, а не пессимистичный счёт (недосчёт = штраф).
+model WorkCalendarDay {
+  id   String   @id @default(uuid())
+  date DateTime @unique @db.Date
+  // holiday — праздничный (Закон № 267-II; переносится при совпадении с выходным)
+  // dayoff — выходной по п. 5 ст. 84 ТК (7 января, Курбан-айт; НЕ переносится)
+  // transferred — нерабочий день, назначенный постановлением (перенос)
+  // workday — РАБОЧАЯ суббота/воскресенье (компенсация переноса)
+  // shortened — предпраздничный сокращённый (рабочий)
+  kind String
+  name String
+
+  @@map("hr_work_calendar_days")
+}
+
+/// Личная запись-архив сотрудника («Мои документы»). ПЕРЕЖИВАЕТ увольнение И
+/// purge организации: workspace каскадом уничтожает OrgDocument, а эта строка —
+/// снимки + FileLink `personal_doc` на ТОТ ЖЕ FileObject (байты не дублируются,
+/// файл получает живое место — реап сирот его не трогает). FK нет ни одного
+/// намеренно. Создаётся в транзакции события «документ достиг человека».
+model PersonalDocRecord {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+
+  workspaceId   String  @map("workspace_id") // снимок, БЕЗ FK
+  workspaceName String  @map("workspace_name")
+  orgDocumentId String? @map("org_document_id") // без FK — карточка умрёт с организацией
+
+  title       String
+  number      String?
+  docTypeName String? @map("doc_type_name")
+
+  fileId        String  @map("file_id")
+  stampedFileId String? @map("stamped_file_id") // дописывается джобом по готовности штампа
+  signRequestId String? @map("sign_request_id") // без FK
+
+  kind      String // signed | acknowledged | delivered
+  reachedAt DateTime @default(now()) @map("reached_at")
+
+  @@index([userId, reachedAt])
+  @@index([orgDocumentId])
+  // ВНИМАНИЕ: партиальный UNIQUE (user_id, org_document_id, kind)
+  // WHERE org_document_id IS NOT NULL — РУКАМИ в миграции `hr_kedo`: одно событие
+  // «достиг» не пишется дважды (подпись и вручение — разные kind, обе живут).
+  @@map("hr_personal_doc_records")
+}
+
+/// Кампания ознакомления (ст. 23 п. 2 пп. 6 ТК: факт ознакомления подписи НЕ
+/// требует — «посредством электронной почты и иных ИКТ»). Одна заморозка
+/// предмета на всю кампанию; у каждого адресата своё задание со статусом.
+model DocCampaign {
+  id          String @id @default(uuid())
+  workspaceId String @map("workspace_id")
+
+  title         String
+  orgDocumentId String @map("org_document_id") // без FK: предмет заморожен своей копией
+
+  // Заморозка предмета кампании: что видел каждый адресат (профиль sign_subject)
+  subjectFileId String @map("subject_file_id")
+  subjectSha256 String @map("subject_sha256")
+
+  mode    String @default("one_off") // one_off | standing (догоняет принятых позже)
+  // click — фиксация: acknowledgedAt + sha256 в target + хроника (бесплатно, законно);
+  // sms — SignRequest + акты ПЭП: усиленное доказательство для критичных ЛНА
+  fixMode String @default("click") @map("fix_mode")
+  status  String @default("active") // active | done | cancelled
+
+  audience Json @default("[]") // принципалы [{type,id}]; 'workspace' = вся команда
+
+  signRequestId String?   @map("sign_request_id") // sms-режим: заявка refType='doc_campaign'
+  dueAt         DateTime? @map("due_at") @db.Date
+
+  createdById String    @map("created_by_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  completedAt DateTime? @map("completed_at")
+
+  workspace Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  targets   DocCampaignTarget[]
+
+  @@index([workspaceId, status, createdAt])
+  @@map("doc_campaigns")
+}
+
+/// Задание одного адресата кампании. `sms_failed` — ОТДЕЛЬНЫЙ исход (недоставленная
+/// SMS не равна «не ознакомился»). `subjectSha256` — отпечаток на момент фиксации:
+/// вечный след «с чем именно ознакомился» в click-режиме.
+model DocCampaignTarget {
+  id         String @id @default(uuid())
+  campaignId String @map("campaign_id")
+  userId     String @map("user_id")
+
+  status         String    @default("pending") // pending | acknowledged | sms_failed
+  acknowledgedAt DateTime? @map("acknowledged_at")
+  subjectSha256  String?   @map("subject_sha256")
+  signActId      String?   @map("sign_act_id") // sms-режим: акт ПЭП
+  remindedAt     DateTime? @map("reminded_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  campaign DocCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, userId])
+  @@index([userId, status])
+  @@map("doc_campaign_targets")
+}
+
+/// Что из платформенной библиотеки кадровых бланков установлено в организацию.
+/// Сам каталог — В КОДЕ (`hr-library.ts` в shared): сменился ТК РК — правим у
+/// себя и предлагаем обновление, а не чиним у 500 клиентов.
+model DocTemplateLibraryInstall {
+  id          String @id @default(uuid())
+  workspaceId String @map("workspace_id")
+  libraryKey  String @map("library_key")
+  version     Int    @default(1)
+
+  docTypeId  String  @map("doc_type_id")
+  templateId String  @map("template_id")
+  processId  String? @map("process_id") // опубликованный маршрут, заведённый мастером
+
+  installedById String   @map("installed_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, libraryKey])
+  @@map("doc_template_library_installs")
 }

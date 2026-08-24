@@ -103,6 +103,17 @@ export type NotificationType =
   | 'sign.requested' // документ ждёт вашей подписи
   | 'sign.completed' // документ подписан всеми
   | 'sign.declined' // подписант отказался, документ не подписан
+  // КЭДО (modules/hr)
+  | 'hr.action.applied' // кадровое действие применено (кадровику и сотруднику)
+  | 'hr.action.failed' // действие не применилось (проверка законности/данные)
+  | 'hr.action.withdrawn' // работник отозвал заявление (ст. 56 п. 4) — кадровику
+  | 'hr.esutd.due_soon' // подходит срок сдачи в ЕСУТД
+  | 'hr.campaign.assigned' // вам направлен документ на ознакомление
+  | 'hr.campaign.reminder' // напоминание: документ ждёт ознакомления
+  | 'hr.campaign.done' // кампания ознакомления завершена (автору)
+  | 'hr.delivery.due' // акт ждёт вручения (3 рабочих дня, ст. 61 п. 3)
+  | 'hr.probation.ending' // испытательный срок сотрудника заканчивается
+  | 'hr.contract.expiring' // срочный договор заканчивается (уведомить в последний день!)
   // System
   | 'system.welcome'
   | 'system.announcement';

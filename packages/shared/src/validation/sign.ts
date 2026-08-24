@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { SIGN_LEVELS, SIGN_LIMITS, SIGN_METHODS } from '../constants/sign';
 import { VERIFY_LIMITS } from '../constants/verify';
+import { APPROVAL_LIMITS } from '../constants/approvals';
 
 // ============================================
 // core/sign — Zod-схемы
@@ -15,8 +16,12 @@ import { VERIFY_LIMITS } from '../constants/verify';
  */
 const refType = z.string().trim().min(1).max(64);
 
-/** Подписантов на одну заявку: больше — это уже рассылка, её в v1 нет */
-const SIGN_SIGNERS_MAX = 100;
+/**
+ * Подписантов на одну заявку — потолок СНИМКА шага согласований: шаг «нужен
+ * каждый» на 200 адресатов заводит акты всем разом, и меньший потолок ронял бы
+ * его на валидации. Больше снимка — это уже рассылка: ей место в кампаниях КЭДО.
+ */
+const SIGN_SIGNERS_MAX = APPROVAL_LIMITS.maxSnapshotSize;
 
 const reason = z
   .string()

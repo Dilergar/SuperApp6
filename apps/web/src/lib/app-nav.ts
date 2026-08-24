@@ -123,6 +123,9 @@ export function buildPersonalNav(c: AppNavCounters = {}): AppNavConfig {
             ],
           },
           { key: 'shop', label: 'Магазин', icon: 'shop', href: '/shop' },
+          // КЭДО: личный архив кадровых документов — бессрочный, переживает
+          // увольнение и закрытие компании (PersonalDocRecord)
+          { key: 'my-documents', label: 'Мои документы', icon: 'file', href: '/my-documents' },
           { key: 'recorder', label: 'Диктофон', icon: 'recorder', href: '/recorder' },
         ],
       },
@@ -132,11 +135,17 @@ export function buildPersonalNav(c: AppNavCounters = {}): AppNavConfig {
   };
 }
 
+/** Счётчики бейджей организации («требует внимания» — Кадровые сроки). */
+export interface WorkspaceNavCounters {
+  hrDeadlines?: number;
+}
+
 /** Контекст организации — рабочие сервисы. `role` решает, что показывать. */
 export function buildWorkspaceNav(
   workspaceId: string,
   workspaceName: string,
   role: string | null,
+  c: WorkspaceNavCounters = {},
 ): AppNavConfig {
   const base = `/workspaces/${workspaceId}`;
   const RANK: Record<string, number> = { contractor: 0, trainee: 1, staff: 2, manager: 3, admin: 4, owner: 5 };
@@ -146,7 +155,8 @@ export function buildWorkspaceNav(
 
   const items: AppNavItem[] = [
     { key: 'ws-home', label: 'Главная', icon: 'home', href: base, exact: true },
-    { key: 'ws-members', label: 'Сотрудники', icon: 'staff', href: `${base}/members` },
+    // Бейдж = «Кадровые сроки» КЭДО: несданное в ЕСУТД, вручения, расчёты
+    { key: 'ws-members', label: 'Сотрудники', icon: 'staff', href: `${base}/members`, badge: c.hrDeadlines },
     { key: 'ws-processes', label: 'Процессы', icon: 'processes', href: `${base}/processes` },
     { key: 'ws-office', label: 'Виртуальный офис', icon: 'office', href: `${base}/office` },
     // Диск организации — ОДИН маршрут с вкладками внутри, как у остальных сервисов
