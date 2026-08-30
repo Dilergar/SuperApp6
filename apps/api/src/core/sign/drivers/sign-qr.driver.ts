@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { trustedFetch } from '../../../shared/http';
 
 /**
  * Мост QR-подписания через eGov Mobile (сервис Smart Bridge NITEC-S-5096).
@@ -59,23 +60,26 @@ class SmartBridgeQrDriver implements SignQrDriver {
   ) {}
 
   async createProcedure(req: QrProcedureRequest): Promise<QrProcedureResult> {
-    const res = await fetch(`${this.baseUrl}/sign/procedure`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        // Схема авторизации моста задаётся при подключении; заголовки собраны в
-        // одном месте намеренно — менять придётся ровно здесь.
-        'x-client-id': this.clientId,
-        'x-client-secret': this.clientSecret,
+    const res = await trustedFetch(
+      `${this.baseUrl}/sign/procedure`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          // Схема авторизации моста задаётся при подключении; заголовки собраны в
+          // одном месте намеренно — менять придётся ровно здесь.
+          'x-client-id': this.clientId,
+          'x-client-secret': this.clientSecret,
+        },
+        body: JSON.stringify({
+          dataURL: req.dataUrl,
+          signURL: req.signUrl,
+          description: req.description,
+          expiryDate: req.expiresAt.toISOString(),
+        }),
       },
-      body: JSON.stringify({
-        dataURL: req.dataUrl,
-        signURL: req.signUrl,
-        description: req.description,
-        expiryDate: req.expiresAt.toISOString(),
-      }),
-      signal: AbortSignal.timeout(20_000),
-    });
+      { timeoutMs: 20_000, origin: 'env' },
+    );
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       this.logger.error(`Smart Bridge ${res.status}: ${text.slice(0, 300)}`);

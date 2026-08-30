@@ -4,6 +4,7 @@ import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { DOCS_LIMITS } from '@superapp/shared';
 import { RedisService } from '../../shared/redis/redis.service';
+import { trustedFetch } from '../../shared/http';
 import { DocsRouterService } from './docs-router.service';
 
 /** ext|mime → urlsrc действия «edit» из discovery редактора */
@@ -62,10 +63,11 @@ export class DocsEditorClient {
     const url = `${base}/hosting/discovery`;
     let res: Response;
     try {
-      res = await fetch(url, {
-        headers: { accept: 'application/xml,text/xml' },
-        signal: AbortSignal.timeout(DOCS_LIMITS.editorRequestTimeoutMs),
-      });
+      res = await trustedFetch(
+        url,
+        { headers: { accept: 'application/xml,text/xml' } },
+        { timeoutMs: DOCS_LIMITS.editorRequestTimeoutMs, origin: 'env' },
+      );
     } catch (err) {
       this.logger.warn(`discovery недоступен (${base}): ${String((err as Error)?.message ?? err)}`);
       throw new ServiceUnavailableException('Редактор документов недоступен');
@@ -140,11 +142,11 @@ export class DocsEditorClient {
     form.append('file', await fs.openAsBlob(sourcePath), filename);
     let res: Response;
     try {
-      res = await fetch(`${base}/cool/convert-to/${target}`, {
-        method: 'POST',
-        body: form,
-        signal: AbortSignal.timeout(DOCS_LIMITS.convertTimeoutMs),
-      });
+      res = await trustedFetch(
+        `${base}/cool/convert-to/${target}`,
+        { method: 'POST', body: form },
+        { timeoutMs: DOCS_LIMITS.convertTimeoutMs, origin: 'env' },
+      );
     } catch (err) {
       throw new ServiceUnavailableException(
         `Конвертация недоступна: ${String((err as Error)?.message ?? err)}`,

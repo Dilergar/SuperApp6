@@ -56,6 +56,7 @@ import {
 } from '@superapp/shared';
 import type { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
+import { trustedFetch } from '../../shared/http';
 import { RolesService } from '../../core/roles/roles.service';
 import { AccessService } from '../../core/access/access.service';
 import { principalSubjectRelation } from '../../core/access/access-schema';
@@ -815,7 +816,7 @@ export class DocumentsService {
     const url = logo.startsWith('http') ? logo : `${apiBase}${logo.startsWith('/') ? '' : '/'}${logo}`;
     if (!url.startsWith(apiBase)) return null;
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      const res = await trustedFetch(url, {}, { timeoutMs: 5000, origin: 'self' });
       if (!res.ok) return null;
       const mime = res.headers.get('content-type') ?? 'image/png';
       const buf = Buffer.from(await res.arrayBuffer());

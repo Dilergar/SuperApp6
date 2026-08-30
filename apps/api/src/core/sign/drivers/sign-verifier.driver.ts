@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import type { SignOcspStatus } from '@superapp/shared';
 import { isProdEnv } from '../../../shared/config/env.validation';
+import { trustedFetch } from '../../../shared/http';
 
 /**
  * Верификатор контейнера подписи (CMS/CAdES).
@@ -84,20 +85,23 @@ class NcaNodeVerifier implements SignVerifierDriver {
   async verifyDetached(cms: Buffer, data: Buffer): Promise<CmsVerifyResult> {
     let json: NcaNodeResponse;
     try {
-      const res = await fetch(`${this.baseUrl}/cms/verify`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          cms: cms.toString('base64'),
-          data: data.toString('base64'),
-          // Статус сертификата снимается ИМЕННО СЕЙЧАС и замораживается в акте:
-          // приказ № 1187 требует проверки на момент подписания, а через год
-          // OCSP-ответчик об этом сертификате уже ничего не скажет.
-          checkOcsp: true,
-          checkCrl: false,
-        }),
-        signal: AbortSignal.timeout(30_000),
-      });
+      const res = await trustedFetch(
+        `${this.baseUrl}/cms/verify`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            cms: cms.toString('base64'),
+            data: data.toString('base64'),
+            // Статус сертификата снимается ИМЕННО СЕЙЧАС и замораживается в акте:
+            // приказ № 1187 требует проверки на момент подписания, а через год
+            // OCSP-ответчик об этом сертификате уже ничего не скажет.
+            checkOcsp: true,
+            checkCrl: false,
+          }),
+        },
+        { timeoutMs: 30_000, origin: 'env' },
+      );
       if (!res.ok) {
         const text = await res.text().catch(() => '');
         return this.fail(`верификатор ответил ${res.status}: ${text.slice(0, 200)}`);

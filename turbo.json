@@ -13,6 +13,7 @@
     "lint": {
       "dependsOn": ["^build"]
     },
+    "lint:guard": {},
     "clean": {
       "cache": false
     },

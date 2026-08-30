@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { trustedFetch } from '../../shared/http';
 
 /**
  * HTML → PDF для блочных документов: печатает Chromium в контейнере Gotenberg
@@ -52,11 +53,11 @@ export class PdfRenderService {
       );
     }
 
-    const res = await fetch(`${this.baseUrl}/forms/chromium/convert/html`, {
-      method: 'POST',
-      body: form,
-      signal: AbortSignal.timeout(60_000),
-    });
+    const res = await trustedFetch(
+      `${this.baseUrl}/forms/chromium/convert/html`,
+      { method: 'POST', body: form },
+      { timeoutMs: 60_000, origin: 'env' },
+    );
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`Gotenberg ${res.status}: ${text.slice(0, 300)}`);

@@ -1,4 +1,4 @@
-import { assertPublicUrl, safeFetch } from './process-service-nodes';
+import { assertPublicUrlShallow, safeFetch } from './process-service-nodes';
 
 // ============================================================
 // LLM-клиент Ф4 — чистый fetch к Anthropic Messages / OpenAI Chat
@@ -34,7 +34,7 @@ const LLM_TIMEOUT_MS = 40_000;
 /**
  * ВСЕ исходящие вызовы модуля идут через safeFetch — единственную защищённую точку
  * выхода. Здесь раньше стоял голый fetch, и это была дыра SSRF:
- *  - assertPublicUrl проверяет только СТРОКУ хоста (literalHostIsPrivate возвращает null
+ *  - assertPublicUrlShallow проверяет только СТРОКУ хоста (literalHostIsPrivate возвращает null
  *    для любого не-IP-литерала), поэтому домен с A-записью 169.254.169.254 проходил;
  *  - реальный DNS-чек assertResolvedPublic живёт внутри safeFetch и сюда не доставал;
  *  - голый fetch следует редиректам по умолчанию, так что 302 на внутренний адрес
@@ -60,7 +60,7 @@ async function postJson(url: string, headers: Record<string, string>, body: unkn
 function openaiBase(cfg: LlmConfig): string {
   if (cfg.provider === 'openai') return 'https://api.openai.com/v1';
   const b = (cfg.baseUrl || '').replace(/\/$/, '');
-  assertPublicUrl(b); // SSRF-защита для своего base URL
+  assertPublicUrlShallow(b); // SSRF-защита для своего base URL
   return b;
 }
 

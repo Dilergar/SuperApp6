@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'fs';
 import { VoiceLanguage, VoiceSegment } from '@superapp/shared';
+import { trustedFetch } from '../../shared/http';
 
 /**
  * STT-клиент голосового движка — реестр драйверов (паттерн process-ai-client):
@@ -93,13 +94,13 @@ export class VoiceSttClient {
     try {
       const headers: Record<string, string> = {};
       if (process.env.VOICE_STT_API_KEY) headers.Authorization = `Bearer ${process.env.VOICE_STT_API_KEY}`;
-      const res = await fetch(this.endpoint(), {
-        method: 'POST',
-        headers,
-        body: form,
-        // AbortSignal.timeout (Node 18+) вместо ручного AbortController+setTimeout
-        signal: AbortSignal.timeout(input.timeoutMs),
-      });
+      // Таймаут задаёт дверь (trustedFetch) — своим AbortSignal.timeout здесь
+      // больше не пользуемся, поведение то же.
+      const res = await trustedFetch(
+        this.endpoint(),
+        { method: 'POST', headers, body: form },
+        { timeoutMs: input.timeoutMs, origin: 'env' },
+      );
       if (!res.ok) {
         const body = await res.text().catch(() => '');
         throw new Error(`STT ${res.status}: ${body.slice(0, 300) || res.statusText}`);

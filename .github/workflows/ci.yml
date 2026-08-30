@@ -80,6 +80,15 @@ jobs:
         working-directory: apps/web
         run: npx tsc --noEmit
 
+      # Механический страж исходящих запросов: голый `fetch` и сторонние HTTP-клиенты
+      # в apps/api. Наружу ведут ровно две двери из src/shared/http — `safeFetch`
+      # (адрес из данных, SSRF-щит) и `trustedFetch` (адрес из .env, сидекары).
+      # Мимо них уже уезжал process-ai-client (SSRF, security-ревью 2026-07-25).
+      # Отдельный скрипт, а не `pnpm lint`: тот у API = полный tsc и падает по памяти.
+      - name: Lint API (страж исходящих)
+        working-directory: apps/api
+        run: npx eslint src
+
       # Механический страж границы API ↔ клиент: голые api.get/post/…, `res.data.data`
       # и нативные confirm/alert. Компилятор их не ловит — они его как раз и глушат.
       - name: Lint web (страж границы)

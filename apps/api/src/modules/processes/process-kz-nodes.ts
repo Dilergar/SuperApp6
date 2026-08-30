@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { NodeRunContext, NodeRunResult, ProcessNodeProvider } from './process-node.types';
-import { assertPublicUrl, credentialKey, fetchJson, loadCredentialSecret } from './process-service-nodes';
+import { assertPublicUrlShallow, credentialKey, fetchJson, loadCredentialSecret } from './process-service-nodes';
 
 // ============================================================
 // Ф6 — коннекторы Казахстана (пресеты поверх HTTP-движка).
@@ -289,7 +289,7 @@ export const odataNode: ProcessNodeProvider = {
       const { secret } = await loadCredentialSecret(ctx, cfg.credentialId);
       const auth = `Basic ${Buffer.from(`${secret.username ?? ''}:${secret.password ?? ''}`).toString('base64')}`;
       const base = ctx.render(cfg.baseUrl).replace(/\/$/, '');
-      assertPublicUrl(base); // SSRF: база 1С должна быть публично доступна (не внутренняя сеть)
+      assertPublicUrlShallow(base); // SSRF: база 1С должна быть публично доступна (не внутренняя сеть)
       const headers = { authorization: auth, Accept: 'application/json', 'content-type': 'application/json' };
       if (cfg.operation === 'list') {
         const qs = new URLSearchParams({ $format: 'json' });

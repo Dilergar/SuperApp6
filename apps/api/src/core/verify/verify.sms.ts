@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { maskPhone } from '@superapp/shared';
 import { isDevEnv, isProdEnv } from '../../shared/config/env.validation';
+import { trustedFetch } from '../../shared/http';
 
 /**
  * SMS-слой движка подтверждений — реестр драйверов (паттерн STT-драйверов core/voice).
@@ -60,12 +61,15 @@ class KazinfotehDriver implements SmsDriver {
       // Параметры — ТЕЛОМ, не в query string: логин и пароль в URL оседают в логах
       // обратных прокси, APM и на стороне провайдера (одна из классических утечек
       // сервисных кредов). Шлюз принимает те же поля form-urlencoded.
-      const res = await fetch(this.url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: params.toString(),
-        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
-      });
+      const res = await trustedFetch(
+        this.url,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params.toString(),
+        },
+        { timeoutMs: SEND_TIMEOUT_MS, origin: 'env' },
+      );
       const body = await res.text();
       // Ответ шлюза — XML: <statuscode>0</statuscode> + <statusmessage>…ACCEPTED…</statusmessage>.
       // Разбираем толерантно; точный формат сверяется на живом аккаунте — для этого
