@@ -62,3 +62,6 @@ acc.txt
 # в репозитории лежит рецепт сборки (infra/sign-verifier/), а не чужие артефакты.
 infra/sign-verifier/vendor/
 infra/sign-verifier/roots/
+
+# graphify: генерируемые артефакты графа (внутри venv и кэши) — не коммитятся
+graphify-out/

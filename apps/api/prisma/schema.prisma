@@ -2179,7 +2179,7 @@ model FileLink {
 model FileVariant {
   id         String   @id @default(uuid())
   fileId     String   @map("file_id")
-  kind       String // thumb | medium | poster | waveform | text
+  kind       String // thumb | medium | poster | waveform | text | pdf
   storageKey String   @map("storage_key")
   mime       String
   size       BigInt
@@ -3134,7 +3134,7 @@ model DocType {
   // реестра на Диске ключуется именем, и одноимённые виды делили бы одну папку
   // вместе с её грантами.
   name           String
-  category       String  @default("general") // hr | general — профиль правил и редактора
+  category       String  @default("general") // hr | general | external — профиль правил и редактора (external = ЭДО, контрагенты)
   // «ПР-{ГГГГ}-{NNN}»: номер присваивается ПРИ РЕГИСТРАЦИИ, черновики номеров не съедают
   numberFormat   String? @map("number_format")
   visibility     String  @default("managers") // team | department | managers
