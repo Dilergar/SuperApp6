@@ -26,7 +26,7 @@ const TASKS_CAL_NAME = 'SuperApp6 · Задачи';
  * Mapping: our CalendarEvent.googleEventId ↔ Google event id (idempotent upsert,
  * which also absorbs sync "echo" of our own writes). Conflicts: last-write-wins by
  * update time. Deletions mirror both ways. Participants are NOT pushed as attendees.
- * MVP limit: per-occurrence recurrence exceptions are synced at master+EXDATE level.
+ * Known limitation (docs/roadmap.md): per-occurrence recurrence exceptions are synced at master+EXDATE level.
  */
 @Injectable()
 export class GoogleCalendarService {
@@ -293,7 +293,7 @@ export class GoogleCalendarService {
     g: calendar_v3.Schema$Event,
   ): Promise<'deleted' | 'upserted' | 'skip'> {
     if (!g.id) return 'skip';
-    // Skip recurring-instance exceptions for MVP (handled at master level).
+    // Skip recurring-instance exceptions — known limitation (handled at master level, docs/roadmap.md).
     if (g.recurringEventId) return 'skip';
 
     const existing = await this.db.calendarEvent.findFirst({ where: { userId, googleEventId: g.id } });

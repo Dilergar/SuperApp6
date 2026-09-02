@@ -45,6 +45,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # страж документации сравнивает HEAD~1..HEAD
 
       - uses: pnpm/action-setup@v4
         with:
@@ -57,6 +59,13 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # Механический страж документации: пути в доках существуют, каждый модуль и каждый
+      # док стоят в индексе, env-переменные описаны и валидируются, таблица рёбер модулей
+      # совпадает с импортами, новое ребро движок → фича запрещено. Без LLM, секунды.
+      # Стоит ДО сборок: падать на протухшем доке дешевле, чем после 20 минут сьюта.
+      - name: Docs drift guard
+        run: node scripts/check-docs.cjs --since HEAD~1
 
       - name: Build shared package
         run: pnpm --filter @superapp/shared build

@@ -34,7 +34,7 @@ import { DocumentsModule } from './modules/documents/documents.module';
 import { CounterpartiesModule } from './modules/counterparties/counterparties.module';
 import { HrModule } from './modules/hr/hr.module';
 
-// Feature modules (MVP)
+// Feature modules — сервисы поверх движков (тонкие модули + регистрации в реестрах)
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { ContactsModule } from './modules/contacts/contacts.module';
 import { CirclesModule } from './modules/circles/circles.module';
@@ -94,7 +94,8 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     AuthModule,
     UsersModule,
     RolesModule,
-    // Unified authorization engine (ReBAC). Phase 0: core only, no consumers yet.
+    // Unified authorization engine (ReBAC). Потребители — все сервисы с шерингом (магазин,
+    // календарь, задачи, Диск, документы, финансы, Staff-оси): docs/access_engine.md.
     AccessModule,
     // Reusable interactive rich-card registry + dispatcher (Phase 3). @Global; feature
     // services register their renderers/actions on init.
@@ -107,7 +108,7 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     QuickActionsModule,
     // Files engine — 6-й платформенный движок: хранение/загрузка/раздача файлов
     // (метаданные+связи+варианты в БД, байты у драйвера local|s3). Потребители
-    // регистрируют refType-резолверы в FilesRefRegistry; v1 — фундамент без потребителей.
+    // регистрируют refType-резолверы в FilesRefRegistry (чат, задачи, магазин, Диск, документы, КЭДО).
     FilesModule,
     // Voice engine — 7-й платформенный движок: транскрипция аудио (STT по драйверу:
     // self-host whisper-server/OpenAI-совместимый | mock), подготовка звука ffmpeg,

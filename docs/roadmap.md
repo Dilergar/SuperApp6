@@ -30,9 +30,13 @@
 
 ## Технический долг
 
+**Границы движков (аудит 2026-09-02)**: правило «движки `core/*` не импортируют фичи» нарушено в коде в двух местах. (1) Семь движков (`approvals`, `auth`, `calls`, `files`, `share-links`, `sign`, `users`) зовут фичевый `modules/notifications` напрямую — решение принято: уведомления становятся движком **`core/notifications`** (спроектировать гриллом, перенести; заявка в [gap_analysis_v2.md](gap_analysis_v2.md), «Движки»). (2) `core/users` зовёт `modules/contacts` и `modules/workspaces` (активация приглашений по номеру) — решение НЕ выбрано, вопрос открыт (варианты — в gap-анализе, «Архитектура (долги)»). (3) `core/rich-cards` зовёт `modules/messenger` ленивым токеном (постинг карточки в чат) — чат здесь канал доставки, та же природа, что у уведомлений; решается вместе с `core/notifications`. До закрытия все три случая записаны исключениями в [module_graph.md](module_graph.md), §4, и в списке `KNOWN_CORE_TO_MODULES` стража `scripts/check-docs.cjs` — любое новое ребро движок → фича роняет CI.
+
+**Мелочи аудита 2026-09-02**: `class-validator` в зависимостях API не используется (глобальный `ValidationPipe` инертен при Zod-входе) — снять или оставить как страховку; `API_URL` (Процессы) и `API_PUBLIC_URL` — две переменные одного смысла, слить в одну; запрет прямого импорта `@phosphor-icons/react` вне `Icon.tsx` не покрыт ESLint; у `PersonAvatar` своя шкала размеров (`sm|md|lg`), у `PersonChip` — `CardSize` XS–XL — при желании единой шкалы это правка кода.
+
 **Прод-минимум (частично сделан)**: сделаны /api/v1, AllExceptionsFilter, helmet, fail-closed env, enableShutdownHooks. Остаётся: CORS из env (захардкожен localhost в main.ts), `/health`, Dockerfile API, verification-токен Google-вебхука, прод-наблюдаемость dead-letter джобов (`job.discarded` без подписчиков, /jobs/stats только dev), TURN/TLS 443 + wss для звонков, RNNoise-WASM.
 
-**Mobile-подготовка (блок 8)**: push-пайплайн (модель DeviceToken + Expo Push — инфры доставки сейчас НЕТ) · `packages/design-tokens` (палитра живёт только в CSS веба) + платформо-нейтральные поля CardSkinTokens · upload-модуль mobile · мобильные роуты зеркалят веб-пути (actionUrl = deep link). После подготовки mobile ≈ 50–55% новой работы.
+**Mobile-подготовка (блок 8)**: push-пайплайн (модель DeviceToken + Expo Push — инфры доставки сейчас НЕТ) · пакет `design-tokens` (будущий, в `packages/`; палитра сейчас живёт только в CSS веба) + платформо-нейтральные поля CardSkinTokens · upload-модуль mobile · мобильные роуты зеркалят веб-пути (actionUrl = deep link). После подготовки mobile ≈ 50–55% новой работы.
 
 **Web-гигиена (остатки)**: `shop/page.tsx` на старом useState-стиле (70 useState — переводить при следующей работе над магазином) · распил >800-строчных файлов по ходу · правило кита для голых `<input>` линтером не покрыто.
 

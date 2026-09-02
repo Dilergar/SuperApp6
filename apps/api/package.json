@@ -11,7 +11,6 @@
     "lint:guard": "eslint src",
     "clean": "rm -rf dist",
     "db:generate": "prisma generate",
-    "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio"
   },

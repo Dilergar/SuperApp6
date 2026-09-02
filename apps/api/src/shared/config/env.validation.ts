@@ -50,6 +50,20 @@ export const isDevEnv = (): boolean =>
   process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test';
 export const isProdEnv = (): boolean => !isDevEnv();
 
+/**
+ * IANA-зона, известная ICU этого Node. Неизвестная зона роняет `toLocaleString`/
+ * `Intl.DateTimeFormat` RangeError'ом уже В МОМЕНТ подписи или расчёта календаря —
+ * ловим её на старте, а не на первом документе.
+ */
+const isIanaTimeZone = (tz: string): boolean => {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const envSchema = z
   .object({
     NODE_ENV: blank(
@@ -61,16 +75,31 @@ const envSchema = z
     ),
     DATABASE_URL: blank(z.string({ required_error: 'обязателен (PostgreSQL connection string)' }).min(1)),
     JWT_SECRET: blank(z.string({ required_error: 'обязателен' }).min(8, 'минимум 8 символов')),
+    // Время жизни access/refresh-токенов в записи jsonwebtoken/ms ('15m', '30d', '2 days').
+    // Дефолты '15m' / '30d' живут в core/auth (auth.module / auth.service), которые читают
+    // сырой process.env — схема лишь пропускает значение, формат не сужаем (ms принимает
+    // и числа-секунды, и словесные интервалы; своя регулярка отвергла бы законное).
+    JWT_EXPIRES_IN: blank(z.string().min(1).optional()),
+    JWT_REFRESH_EXPIRES_IN: blank(z.string().min(1).optional()),
     REDIS_URL: blank(z.string().min(1).optional()),
     PORT: blank(z.coerce.number().int().positive().optional()),
     // Базовый адрес веба: редирект после OAuth, PostMessageOrigin редактора документов
     // и адрес гостевой ссылки `${WEB_URL}/s/<токен>` (core/share-links).
     WEB_URL: blank(z.string().url('должен быть URL').optional()),
+    // Часовой пояс детерминированного форматирования дат: штампы и протокол подписи
+    // (core/sign), сутки производственного календаря (modules/hr). Потребители читают
+    // сырой process.env с дефолтом 'Asia/Almaty' — .default() здесь ничего бы не дал,
+    // поэтому его нет; проверяем лишь, что заданная зона существует.
+    APP_TIMEZONE: blank(
+      z.string().min(1).refine(isIanaTimeZone, 'должен быть IANA-зоной (например, Asia/Almaty)').optional(),
+    ),
     // --- Files engine (core/files) ---
     FILES_DRIVER: blank(
       z.enum(['local', 's3'], { errorMap: () => ({ message: 'должен быть local | s3' }) }).default('local'),
     ),
     FILES_LOCAL_ROOT: blank(z.string().min(1).optional()),
+    // База абсолютных адресов НАШЕГО API: файловые ссылки, откат DOCS_WOPI_PUBLIC_URL,
+    // QR подписи, ссылки документов. Пусто → http://localhost:${PORT||3001}.
     API_PUBLIC_URL: blank(z.string().url('должен быть URL (базовый адрес API для файловых ссылок)').optional()),
     S3_ENDPOINT: blank(z.string().url('должен быть URL S3-эндпоинта').optional()),
     S3_REGION: blank(z.string().min(1).optional()),
@@ -165,6 +194,23 @@ const envSchema = z
     SMARTBRIDGE_URL: blank(z.string().url('должен быть URL моста Smart Bridge').optional()),
     SMARTBRIDGE_CLIENT_ID: blank(z.string().min(1).optional()),
     SMARTBRIDGE_CLIENT_SECRET: blank(z.string().min(1).optional()),
+    // --- Процессы (modules/processes) ---
+    // База ПУБЛИЧНЫХ адресов вебхуков: внешние системы дёргают
+    // `${API_URL}/api/processes/webhook/:token`. Пусто → http://localhost:${PORT||3001}.
+    // Отдельная от API_PUBLIC_URL переменная (исторически); читается сырым process.env.
+    API_URL: blank(z.string().url('должен быть URL (база публичных адресов вебхуков процессов)').optional()),
+    // --- Google Calendar (modules/google-calendar) — OAuth; пусто → интеграция инертна ---
+    // Включается только целиком: isConfigured() = заданы все три. Неполный набор — не
+    // ошибка бута, а выключенная интеграция (в отличие от LiveKit): календарь без Google
+    // полностью работоспособен, ронять всё приложение из-за него неправильно.
+    GOOGLE_CLIENT_ID: blank(z.string().min(1).optional()),
+    GOOGLE_CLIENT_SECRET: blank(z.string().min(1).optional()),
+    // Должен совпадать с redirect в консоли Google:
+    // `${API_PUBLIC_URL}/api/v1/integrations/google/callback`.
+    GOOGLE_REDIRECT_URI: blank(z.string().url('должен быть URL (…/api/v1/integrations/google/callback)').optional()),
+    // Публичный адрес для push-уведомлений (events.watch); Google принимает только HTTPS.
+    // Пусто → watch не регистрируется, синхронизация идёт поллингом.
+    GOOGLE_WEBHOOK_URL: blank(z.string().url('должен быть публичный HTTPS-URL для push Google').optional()),
   })
   .superRefine((env, ctx) => {
     if (env.FILES_DRIVER === 's3') {

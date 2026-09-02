@@ -2,6 +2,8 @@
 
 > Платформенная косметика PersonCard: скин = ДАННЫЕ (токены оформления + слои рамка/фон/эффект). Монетизация платформы. НЕ в chokepoint (личная косметика).
 
+Код: `apps/api/src/modules/card-skins/`; веб — `apps/web/src/app/circles/card-skin.ts`, `apps/web/src/app/circles/PersonCard.tsx`.
+
 ## Модель
 
 - **`CardSkin`** (тип: токены, редкость 6 тиров, цена, тираж/окно) + **`CardSkinInstance`** (экземпляр-«вещь»: серийник у лимиток, `@@unique([skinId, serial])`; история передач `CardSkinTransfer` — задел трейда).

@@ -2134,7 +2134,7 @@ model FileObject {
   status        String    @default("uploading") // uploading | ready | failed | deleted
   visibility    String    @default("private") // private | public
   publicToken   String?   @unique @map("public_token") // неугадываемый токен вечной публичной ссылки
-  scanStatus    String    @default("none") @map("scan_status") // none | pending | clean | infected
+  scanStatus    String    @default("none") @map("scan_status") // none | pending | clean | infected | skipped (политика shouldScanFile)
   storageDriver String    @map("storage_driver") // local | s3
   storageKey    String    @map("storage_key")
   uploadId      String?   @map("upload_id") // S3 multipart upload id (живёт пока uploading)

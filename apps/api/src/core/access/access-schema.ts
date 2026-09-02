@@ -257,7 +257,7 @@ export const LIST_OBJECTS_EXTRA_EXPANSION: Record<string, string[]> = {
 /**
  * Cache-epoch fan-out: mutating tuples OF <key type> must invalidate cached check()
  * results of <value types> (the types whose resolution can traverse the mutated tuples).
- * Unmapped types (department/position/branch/new ones) fall back to the GLOBAL epoch —
+ * Unmapped types (any NEW type not listed below) fall back to the GLOBAL epoch —
  * coarse but safe-by-default. This replaces the single global epoch the review flagged
  * (every task/chat write was flushing the WHOLE platform's ACL cache).
  */

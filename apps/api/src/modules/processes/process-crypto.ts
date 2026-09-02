@@ -1,7 +1,8 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 
 // Сейф кредов: AES-256-GCM. Ключ выводится из JWT_SECRET (отдельная env-переменная
-// не нужна; ротация секрета сделает старые креды нечитаемыми — это приемлемо для MVP).
+// не нужна; ротация секрета сделает старые креды нечитаемыми — осознанное ограничение до
+// появления движка ключей, см. docs/gap_analysis_v2.md, «Движок ключей»).
 // Формат строки в БД: base64(iv).base64(tag).base64(ciphertext) — секрет наружу не отдаётся.
 
 function key(): Buffer {

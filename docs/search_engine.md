@@ -4,7 +4,7 @@
 
 ## Модель
 
-- **`SearchDocument`** — индекс-витрина = проекция доменных таблиц (хуки send/edit/delete + крон-сверка + бэкфилл `scripts/backfill-search.cjs`).
+- **`SearchDocument`** — индекс-витрина = проекция доменных таблиц (хуки send/edit/delete + крон-сверка + бэкфилл `apps/api/scripts/backfill-search.cjs`).
 - Postgres FTS `tsvector('russian')` (словоформы) + `pg_trgm` GIN (опечатки/имена/подстроки; БЕЗ `unaccent` — он ломал бы казахские буквы). Типо-порог `word_similarity` 0.4 через `SET LOCAL`.
 - ⚠️ generated tsvector/GIN зеркалить в schema.prisma комментами — иначе `migrate dev` дропнет.
 - Реестр провайдеров: **индексные** (пишут SearchDocument) и **живые** (запрос на лету).

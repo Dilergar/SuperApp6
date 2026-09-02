@@ -5,7 +5,7 @@
  * строка «ломается молча» при переименовании сервиса. Все такие рёбра обязаны ходить через
  * этот манифест: (1) опечатка становится ошибкой компиляции, (2) DiTokensSmokeCheck при
  * бутстрапе резолвит каждый токен и валит старт, если провайдер пропал, (3) карта рёбер
- * в CLAUDE.md ссылается сюда как на источник правды.
+ * в docs/module_graph.md ссылается сюда как на источник правды.
  *
  * Значения = имена провайдеров, под которыми модули регистрируют алиасы
  * (`{ provide: DI_TOKENS.X, useExisting: XService }`) — менять значение можно только
@@ -18,9 +18,9 @@ export const DI_TOKENS = {
   CalendarService: 'CalendarService',
   /** Магазин ← задачи (settlement заказа «с задачей» при приёмке). */
   ShopService: 'ShopService',
-  /** Процессы ← задачи (onTaskCompleted/onTaskCancelled шага-задачи). */
+  /** Процессы ← задачи (onTaskCompleted/onTaskCancelled шага-задачи), ← документы (порт запуска маршрута), ← сами Процессы (нода «под-процесс»). */
   ProcessesService: 'ProcessesService',
-  /** Финансы ← контакты (синхронный отзыв finbook-грантов при разрыве связи) и ← ноды Процессов. */
+  /** Финансы ← ноды Процессов (recordOperationForBook). Отзыв finbook-грантов при разрыве связи идёт через PersonalGraphRegistry, не через токен. */
   FinancesService: 'FinancesService',
   /** Офис ← воркспейсы (каскад увольнения: participations встреч + чаты). */
   OfficeService: 'OfficeService',

@@ -2,6 +2,8 @@
 
 > Слой ИМЁН И ДЕРЕВА поверх core/files, а не второе хранилище: файл в чате и на Диске — ОДИН FileObject с двумя FileLink (байты не копируются, квота не удваивается, правка через core/docs видна везде). На Диске стоит документная вертикаль.
 
+Код: `apps/api/src/modules/drive/`; веб — `apps/web/src/app/drive/`.
+
 ## Модель
 
 - **`DriveSpace`** (personal|workspace, лениво) + **`DriveNode`** (folder|file|shortcut-задел; **материализованные `ancestorIds`** + depth ≤32 + sortRank 0=папка; `nameKey` NFC+lower под частичный unique «одно имя в папке»; `subtreeBytes` с СЕНТИНЕЛОМ null = «пересчитать»; `takenAtLocal`) + `DriveNodeVersion`/`DriveStar`/`DriveRecent`/`DrivePhotoBucket`.

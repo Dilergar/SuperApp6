@@ -12,7 +12,7 @@
 6. Веб-страница: RQ-ключи в `lib/queries.ts`, люди — только `PersonChip`/`PersonAvatar`, пикеры — `EntitySelector`, дизайн строго по `/DESIGN.md`, навигация через `AppShell` (+1 строка в `lib/app-nav.ts`), `+1 файл <сервис>/loading.tsx`. Полные правила — [web_conventions.md](web_conventions.md).
 7. Verify-скрипт `apps/api/scripts/verify-<name>.cjs` (попадает в CI автоматически) — правила в [testing_verify_suite.md](testing_verify_suite.md).
 8. Контроллеры тонкие (Zod parse → сервис); читающие методы объявляют `Promise<Dto из shared>`; страница НЕ расплющивается. Тонкий контроллер = сервис AI-ready.
-9. Обновить документацию: релевантные файлы в `docs/` (+ индекс `docs/README.md`) и CLAUDE.md, если затронуто несущее правило. Новое синхронное ребро между модулями → [module_graph.md](module_graph.md).
+9. Обновить документацию: релевантные файлы в `docs/` (+ индекс `docs/README.md`; в доке сервиса — строка «Код: `apps/api/src/modules/<name>/`») и CLAUDE.md, если затронуто несущее правило. Новое синхронное ребро между модулями → [module_graph.md](module_graph.md); затем `pnpm check:docs --write` (перегенерирует таблицу рёбер и проверит пути/индекс/env).
 10. Мобильный экран — после переписывания mobile (этап 2 дорожной карты).
 
 ## Чек-лист переиспользования движков
@@ -33,7 +33,7 @@
 | Уведомления | Типы в `NOTIFICATION_REGISTRY` + ветка в `notifications.map.ts`; слать `NotificationsService.emitEvent(...)`, НЕ голым `events.emit`. Прямой `notify` — когда адресат известен вызывающему — [notifications.md](notifications.md) |
 | Деньги: оплата/заморозка/сделки | `wallet` (Ledger двойной записи + generic Escrow со своим refType) — ТОЛЬКО синхронно, в одной транзакции — [wallet_ledger.md](wallet_ledger.md) |
 | Фоновая работа (ретраи, отложенный запуск, «обязано случиться») | `core/jobs`: `JobsRegistry.register` + `JobsService.enqueue(tx, …)` В ТРАНЗАКЦИИ мутации; обработчик идемпотентен и делит ошибки на транзиентные (throw) и постоянные (`JobDiscardError`); тяжёлый тип — в СВОЮ очередь — [jobs_engine.md](jobs_engine.md) |
-| Сайд-эффекты между модулями | EventBus — только то, что можно потерять — [module_graph.md](module_graph.md) |
+| Сайд-эффекты между модулями | EventBus — только то, что можно потерять — [event_bus.md](event_bus.md) |
 | SMS-подтверждение владения номером / step-up | `core/verify`: ключ в `VERIFY_PURPOSES` + start + `consume(tx)` в транзакции действия; веб — кит `components/verify/` — [verify_engine.md](verify_engine.md) |
 | Поделиться наружу (человек БЕЗ аккаунта) | `ShareLinksRegistry.register(refType, {authorizeManage, resolveGuestView})` + `<ShareLinkSection/>`. У authorizeManage ДВА отказа: `null` → 404 (посторонний), throw Forbidden → 403 (видит, но не управляет). Гостевые ручки НИКОГДА не отвечают 401 — [share_links_engine.md](share_links_engine.md) |
 | Собрать решение (согласовать/подписать/ознакомиться) | `ApprovalsRegistry.register(refType, …)` + `ApprovalsService.create(...)` из своего кода, проверив СВОЁ право. `describeForCreate` ОБЯЗАН проверять право. Ветвления — НЕ сюда, это Процессы. Своя стопка — `registerSource(key, …)` — [approvals_engine.md](approvals_engine.md) |

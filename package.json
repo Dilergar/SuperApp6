@@ -8,9 +8,9 @@
     "build": "turbo build",
     "lint": "turbo lint",
     "lint:guard": "turbo lint:guard",
+    "check:docs": "node scripts/check-docs.cjs",
     "clean": "turbo clean",
     "db:generate": "turbo db:generate",
-    "db:push": "turbo db:push",
     "db:migrate": "turbo db:migrate"
   },
   "devDependencies": {

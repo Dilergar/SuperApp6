@@ -46,6 +46,7 @@ powershell -Command "cd apps/web; npx next dev"             # Web → http://loc
 
 ```bash
 pnpm lint:guard   # из КОРНЯ: оба стража (~7с) — граница API↔клиенты (веб) + исходящий HTTP (API)
+pnpm check:docs   # страж документации (~2с): пути, индекс, env, рёбра модулей — см. testing_verify_suite.md
 ```
 Страж отдельный от `lint`, потому что `lint` API = полный tsc, который падает по памяти. В CI — отдельные шаги.
 
@@ -97,4 +98,5 @@ docker compose --profile sign up -d    # NCANode (верификатор ЭЦП)
 
 - Репозиторий: GitHub `Dilergar/SuperApp6`.
 - Ветка main; коммиты по завершении логического блока работы (пользователь просит — коммитим).
+- После клона один раз: `graphify hook install` — ставит post-commit хук, который в фоне обновляет `graphify-out/` после каждого коммита (код + изменённые md; ~40 с, коммит не ждёт). Хук живёт в `.git/hooks/`, в репозиторий не попадает. `graphify update .` — ТОЛЬКО из корня: из подпапки он молча строит второй граф внутри неё.
 - CI на каждый push — см. [testing_verify_suite.md](testing_verify_suite.md).
