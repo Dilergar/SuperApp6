@@ -235,6 +235,17 @@ export class WorkspacesController {
     return { success: true, data };
   }
 
+  @Get(':id/members/:userId')
+  @ApiOperation({ summary: 'Один сотрудник: карточка + реквизиты (комплект для договоров — manager+)' })
+  async member(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Param('userId') targetUserId: string,
+  ) {
+    const data = await this.workspaces.getMember(user.sub, id, targetUserId);
+    return { success: true, data };
+  }
+
   @Patch(':id/members/:userId')
   @ApiOperation({ summary: 'Изменить роль сотрудника (admin+; админа — только владелец)' })
   async updateMember(

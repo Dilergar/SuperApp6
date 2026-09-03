@@ -1,5 +1,7 @@
 'use client';
 
+import { pluralRu } from '@superapp/shared';
+
 import { Glyph } from '@/components/ui';
 import { SIZE_CONFIG, type CardSize } from './card-skin';
 import { PersonChip } from './PersonCard';
@@ -55,8 +57,12 @@ export function GroupChip({ size, icon, name, color, count }: {
           }}>
             {name}
           </div>
+          {/* «участн.» — сокращение из ниоткуда: у Группы это ЛЮДИ, у должности —
+              держатели. Пишем словом и склоняем (общий `pluralRu`). */}
           {cfg.showRole && count != null && (
-            <div style={{ color: 'var(--on-surface-variant)', fontSize: cfg.metaSize }}>{count} участн.</div>
+            <div style={{ color: 'var(--on-surface-variant)', fontSize: cfg.metaSize }}>
+              {count} {pluralRu(count, ['человек', 'человека', 'человек'])}
+            </div>
           )}
         </div>
       )}

@@ -5,6 +5,7 @@ import {
   WORKSPACE_ROLE_RANK,
   type DriveRole,
   type DriveShareDto,
+  type AudienceKind,
 } from '@superapp/shared';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { ChatterRefRegistry } from '../../core/chatter/chatter-ref.registry';
@@ -14,6 +15,7 @@ import { PersonalGraphRegistry } from '../contacts/personal-graph.registry';
 import { NotificationsService } from '../notifications/notifications.service';
 import { DriveAccessService, principalRelation } from './drive-access.service';
 import { DriveService } from './drive.service';
+import { AudiencesService } from '../../core/audiences/audiences.service';
 
 const ROLE_LABEL: Record<DriveRole, string> = {
   viewer: 'смотрит',
@@ -41,6 +43,7 @@ export class DriveShareService implements OnModuleInit {
     private readonly notifications: NotificationsService,
     private readonly chatter: ChatterService,
     private readonly chatterRegistry: ChatterRefRegistry,
+    private readonly audiences: AudiencesService,
   ) {}
 
   onModuleInit(): void {
@@ -95,54 +98,16 @@ export class DriveShareService implements OnModuleInit {
     }));
   }
 
-  /** Имена получателей доступа одним походом на каждый тип */
+  /** Имена получателей доступа — единый словарь core/audiences (label через движок адресатов) */
   private async principalLabels(refs: Array<{ type: string; id: string }>): Promise<Map<string, string>> {
     const out = new Map<string, string>();
     if (!refs.length) return out;
-    const byType = new Map<string, Set<string>>();
-    for (const r of refs) {
-      if (!byType.has(r.type)) byType.set(r.type, new Set());
-      byType.get(r.type)?.add(r.id);
-    }
-    for (const [type, set] of byType) {
-      const ids = [...set];
-      switch (type) {
-        case 'user': {
-          const rows = await this.db.user.findMany({
-            where: { id: { in: ids } },
-            select: { id: true, firstName: true, lastName: true },
-          });
-          for (const u of rows) out.set(`user:${u.id}`, `${u.firstName}${u.lastName ? ` ${u.lastName}` : ''}`);
-          break;
-        }
-        case 'circle': {
-          const rows = await this.db.circle.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
-          for (const c of rows) out.set(`circle:${c.id}`, `Группа «${c.name}»`);
-          break;
-        }
-        case 'workspace': {
-          for (const id of ids) out.set(`workspace:${id}`, 'вся команда');
-          break;
-        }
-        case 'department': {
-          const rows = await this.db.staffDepartment.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
-          for (const d of rows) out.set(`department:${d.id}`, `Отдел «${d.name}»`);
-          break;
-        }
-        case 'position': {
-          const rows = await this.db.staffPosition.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
-          for (const p of rows) out.set(`position:${p.id}`, `Должность «${p.name}»`);
-          break;
-        }
-        case 'branch': {
-          const rows = await this.db.staffBranch.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
-          for (const b of rows) out.set(`branch:${b.id}`, `Филиал «${b.name}»`);
-          break;
-        }
-        default:
-          for (const id of ids) out.set(`${type}:${id}`, type);
-      }
-    }
+    const uniq = [...new Map(refs.map((r) => [`${r.type}:${r.id}`, r])).values()];
+    const labels = await this.audiences.labelMany(
+      uniq.map((r) => ({ type: r.type as AudienceKind, id: r.id })),
+      { workspaceId: null },
+    );
+    for (const l of labels) out.set(`${l.type}:${l.id}`, l.label);
     return out;
   }
 
@@ -367,30 +332,7 @@ export class DriveShareService implements OnModuleInit {
 
   /** Как принципал называется в хронике («Аня Н.», «Группа Семья», «Отдел Продажи») */
   private async principalLabel(type: string, id: string): Promise<string> {
-    switch (type) {
-      case 'user':
-        return this.actorName(id);
-      case 'circle': {
-        const c = await this.db.circle.findUnique({ where: { id }, select: { name: true } });
-        return c ? `Группа «${c.name}»` : 'Группа';
-      }
-      case 'workspace':
-        return 'вся команда';
-      case 'department': {
-        const d = await this.db.staffDepartment.findUnique({ where: { id }, select: { name: true } });
-        return d ? `Отдел «${d.name}»` : 'Отдел';
-      }
-      case 'position': {
-        const p = await this.db.staffPosition.findUnique({ where: { id }, select: { name: true } });
-        return p ? `Должность «${p.name}»` : 'Должность';
-      }
-      case 'branch': {
-        const b = await this.db.staffBranch.findUnique({ where: { id }, select: { name: true } });
-        return b ? `Филиал «${b.name}»` : 'Филиал';
-      }
-      default:
-        return type;
-    }
+    return this.audiences.label({ type: type as AudienceKind, id }, { workspaceId: null });
   }
 
   /** Отношение принципала в tuple — общая карта движка Диска */

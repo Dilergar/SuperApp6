@@ -23,7 +23,7 @@ ChatterRefRegistry.registerChatSink(refType)      // плашки контекс
 
 ## Потребители (категории журнала)
 
-Задачи (14 typeKeys: жизненный цикл + диффы + состав) · Организации/Сотрудники (`staff.*`, все chatPost:false — HR-события не текут рядовым) · Документы (`org_document.*`) · Диск · Процессы (`process.published_with_warnings` — принятый риск с поимённым списком правил) · Подпись (идемпотентно по `payload.actId`) · Контрагенты · Кадры (`hr.*`, canView manager+|self через `hr_member`) · share-links (`share.link_*`).
+Задачи (14 typeKeys: жизненный цикл + диффы + состав) · Организации/Сотрудники (`staff.*`, все chatPost:false — HR-события не текут рядовым; оргструктура — `staff.head_set`/`branch_head_set`/`reports_to_set`/`position_moved`/`deputy_opened`/`deputy_closed`/`primary_changed`/`default_branch_changed`) · Документы (`org_document.*`) · Диск · Процессы (`process.published_with_warnings` — принятый риск с поимённым списком правил) · Подпись (идемпотентно по `payload.actId`) · Контрагенты · Кадры (`hr.*`, canView manager+|self через `hr_member`) · share-links (`share.link_*`).
 
 ## «Журнал организации»
 

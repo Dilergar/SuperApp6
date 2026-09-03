@@ -10,12 +10,14 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { buffer as streamToBuffer } from 'node:stream/consumers';
 import { createHash } from 'node:crypto';
 import {
+  CAMPAIGN_AUDIENCE_KINDS,
   DOC_CAMPAIGN_REF_TYPE,
   HR_LIMITS,
   ORG_DOCUMENT_REF_TYPE,
   SIGN_FILE_PROFILES,
   WORKSPACE_ROLE_RANK,
   signRequestHref,
+  type AudienceRef,
   type CreateCampaignInput,
   type DocCampaignDetailDto,
   type DocCampaignDto,
@@ -35,6 +37,7 @@ import { SignRegistry } from '../../core/sign/sign.registry';
 import { SignService } from '../../core/sign/sign.service';
 import { FilesService } from '../../core/files/files.service';
 import { RedisService } from '../../shared/redis/redis.service';
+import { AudiencesService } from '../../core/audiences/audiences.service';
 import { withTempFile } from '../../shared/fs/temp-file.util';
 import { fullName } from '../../shared/utils/user-name';
 
@@ -66,6 +69,7 @@ export class DocCampaignsService implements OnModuleInit {
     private readonly sign: SignService,
     private readonly files: FilesService,
     private readonly redis: RedisService,
+    private readonly audiences: AudiencesService,
   ) {}
 
   onModuleInit(): void {
@@ -210,7 +214,7 @@ export class DocCampaignsService implements OnModuleInit {
     );
     const sha256 = frozen.sha256 ?? createHash('sha256').update(bytes).digest('hex');
 
-    const userIds = await this.resolveAudience(workspaceId, dto.audience);
+    const userIds = await this.resolveAudience(workspaceId, dto.audience, actorId);
     if (userIds.length === 0) throw new BadRequestException('Аудитория пуста — знакомить некого');
     if (userIds.length > HR_LIMITS.campaignMaxTargets) {
       throw new BadRequestException(
@@ -289,7 +293,7 @@ export class DocCampaignsService implements OnModuleInit {
     const campaign = await this.db.docCampaign.findUnique({ where: { id: campaignId } });
     if (!campaign || campaign.status !== 'active') return;
     const audience = (campaign.audience ?? []) as { type: string; id: string }[];
-    const userIds = await this.resolveAudience(campaign.workspaceId, audience);
+    const userIds = await this.resolveAudience(campaign.workspaceId, audience, campaign.createdById);
     // Создание отказывает честно выше потолка; сюда переполнение доходит только
     // у standing-кампании, чья аудитория ВЫРОСЛА после старта. Молчаливой
     // обрезки не оставляем — громкий след (правило «no silent caps»).
@@ -760,48 +764,18 @@ export class DocCampaignsService implements OnModuleInit {
 
   // ---------- Аудитория ----------
 
-  private async resolveAudience(workspaceId: string, audience: { type: string; id: string }[]): Promise<string[]> {
-    const out = new Set<string>();
-    for (const principal of audience) {
-      if (principal.type === 'user') {
-        out.add(principal.id);
-        continue;
-      }
-      if (principal.type === 'workspace') {
-        const members = await this.db.userRole.findMany({
-          where: { context: WS_CONTEXT, tenantId: workspaceId, isActive: true, role: { notIn: ['contractor'] } },
-          select: { userId: true },
-        });
-        members.forEach((m) => out.add(m.userId));
-        continue;
-      }
-      const rows = await this.db.relationTuple.findMany({
-        where: {
-          resourceType: principal.type,
-          resourceId: principal.id,
-          relation: principal.type === 'position' ? 'holder' : 'member',
-          subjectType: 'user',
-          subjectRelation: '',
-        },
-        select: { subjectId: true },
-        take: HR_LIMITS.campaignMaxTargets,
-      });
-      rows.forEach((r) => out.add(r.subjectId));
-    }
-    const ids = [...out];
-    if (!ids.length) return [];
-    // Команда (trainee+), подрядчики исключены — негласное правило платформы явно
-    const live = await this.db.userRole.findMany({
-      where: {
-        userId: { in: ids },
-        context: WS_CONTEXT,
-        tenantId: workspaceId,
-        isActive: true,
-        role: { notIn: ['contractor'] },
-      },
-      select: { userId: true },
-    });
-    const alive = new Set(live.map((r) => r.userId));
-    return ids.filter((id) => alive.has(id));
+  /**
+   * Аудитория кампании — единый словарь core/audiences (в т.ч. относительные виды:
+   * «команда инициатора», «руководитель …»; якорь `$self`/`$initiator` = создатель).
+   * Команда (trainee+), подрядчики исключены — правило движка. Обрезка на потолке
+   * campaignMaxTargets сохранена как была (молчаливая — записанный долг: создание
+   * отказывает честно выше, сюда доходит только выросшая standing-кампания).
+   */
+  private async resolveAudience(workspaceId: string, audience: { type: string; id: string }[], creatorId: string): Promise<string[]> {
+    return this.audiences.resolve(
+      audience as AudienceRef[],
+      { workspaceId, selfId: creatorId, initiatorId: creatorId },
+      { max: HR_LIMITS.campaignMaxTargets, onOverflow: 'truncate', allowedKinds: CAMPAIGN_AUDIENCE_KINDS },
+    );
   }
 }

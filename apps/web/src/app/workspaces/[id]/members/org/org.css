@@ -1,0 +1,309 @@
+/* ============================================================
+   Орг. структура — свои ноды и панели поверх общего полотна.
+
+   Полотно, порты, рёбра, контролы и миникарта (.react-flow__*) красит ТОЛЬКО
+   components/canvas/canvas.css через корневой .sa-canvas. Алиас .ocanvas стоит
+   на том же элементе (FlowCanvas className) и нужен собственным классам:
+   узел-должность .onode, рамка отдела .ogroup, плавающая панель .opanel.
+   Цвета — только переменные DESIGN.md; фиолет/бирюза здесь запрещены.
+   ============================================================ */
+
+/* ---------- Полноэкранный слой ----------
+   Своего слоя у схемы больше нет: геометрия «канвас внутри каркаса» — общая
+   (`.canvas-layer` в globals.css рядом с переменными `--svc-w`/`--svc-topbar-h`).
+   Здесь он был объявлен с `inset: 0` и z-index 40 — то есть накрывал сайдбар. */
+/* Тулбар — светлый блок с несущим 1px-бордером снизу, как топбар каркаса */
+.org-toolbar {
+  flex: none;
+  background: var(--block);
+  border-bottom: 1px solid var(--border);
+}
+.org-toolbar-head { padding: var(--spacing-3) var(--spacing-5) 0; }
+/* Шапка сервиса внутри тулбара: её нижний отступ становится зазором до ряда управления */
+.org-toolbar-head > div:first-child { margin-bottom: var(--spacing-3); }
+.org-toolbar-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0 var(--spacing-5) var(--spacing-3);
+}
+.org-toolbar-spacer { flex: 1; }
+.org-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---------- Узел-должность ---------- */
+.onode {
+  --onode-ring: var(--border);
+  --onode-halo: transparent;
+  position: relative;
+  width: 240px;
+  height: 116px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 0.625rem 0.75rem;
+  background: var(--block);
+  border: 1px solid var(--onode-ring);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 0 0 3px var(--onode-halo), var(--shadow-card);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
+}
+.onode:hover { border-color: var(--line); }
+/* Вакансия — пунктирная рамка (узел без держателей) */
+.onode.is-vacant { border-style: dashed; --onode-ring: var(--control-border); }
+/* Выделение важнее прочего: пока узел выбран, видно именно его */
+.onode.is-selected { --onode-ring: var(--primary); --onode-halo: var(--primary-container); }
+/* Совпадение поиска / цель фокуса — кольцо акцента; остальные приглушаются.
+   Класс ставится на обёртку React Flow (node.className), не в data ноды. */
+.react-flow__node.is-hit .onode { --onode-ring: var(--primary); --onode-halo: var(--primary-container); }
+.react-flow__node.is-dim .onode { opacity: 0.42; }
+
+.onode-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+/* Матовый круг значка — приём системы (DESIGN.md §1) */
+.onode-glyph {
+  position: relative;
+  width: 2.125rem;
+  height: 2.125rem;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-container);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  color: var(--on-surface-variant);
+}
+/* Голова отдела/объекта — маркер --primary на круге значка */
+.onode.is-head .onode-glyph {
+  border-color: var(--primary);
+  background: var(--primary-container);
+  color: var(--primary-dim);
+}
+.onode-head-dot {
+  position: absolute;
+  right: -3px;
+  top: -3px;
+  width: 11px;
+  height: 11px;
+  border-radius: var(--radius-pill);
+  background: var(--primary);
+  border: 2px solid var(--block);
+}
+.onode-text { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.onode-title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: var(--on-surface);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.onode-chips {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  overflow: hidden;
+}
+.onode-chips > * { max-width: 100%; }
+/* Чип отдела ужимается с многоточием (текст — в своём span: flex-контейнер чипа сам ellipsis не умеет),
+   чип статуса держит ширину */
+.onode-chips .ui-chip { flex: none; white-space: nowrap; }
+.onode-chips .onode-chip-dept { flex: 0 1 auto; min-width: 0; }
+.onode-chip-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.onode-people {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2rem;
+}
+.onode-people-note {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* ---------- Рамка отдела ---------- */
+/* Обёртка React Flow: клики проходят сквозь тело рамки к рёбрам и полотну,
+   ловится только заголовок. Полупрозрачная заливка не прячет рёбра под ней. */
+.react-flow__node.ogroup-wrap { pointer-events: none; }
+.ogroup {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--block) 45%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+.ogroup.is-selected { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-container); }
+.react-flow__node.is-hit .ogroup { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-container); }
+.ogroup.is-drop { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, transparent); }
+.ogroup-head {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  max-width: 100%;
+  margin: 0.5rem 0.75rem;
+  padding: 0.25rem 0.625rem;
+  background: var(--block);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  color: var(--on-surface);
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ogroup-head:hover { background: var(--hover); }
+.ogroup-head .meta { color: var(--muted); }
+
+/* ---------- Плавающая панель справа (карточка выбранного) ---------- */
+.opanel {
+  position: absolute;
+  top: var(--spacing-4);
+  right: var(--spacing-4);
+  bottom: var(--spacing-4);
+  z-index: 10;
+  width: 23rem;
+  max-width: calc(100% - 2 * var(--spacing-4));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--block);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+}
+.opanel-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 0.875rem;
+  border-bottom: 1px solid var(--divider);
+}
+.opanel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-4) 0.875rem var(--spacing-5);
+  scrollbar-width: thin;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+}
+.opanel-section { display: flex; flex-direction: column; gap: 0.625rem; }
+.opanel-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.opanel-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.opanel-row > .grow { flex: 1; min-width: 0; }
+.opanel-note {
+  padding: 0.625rem 0.75rem;
+  background: var(--surface-container);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+/* ---------- Плашка над схемой (большая схема, «моя ветка») ---------- */
+.org-banner {
+  position: absolute;
+  top: var(--spacing-4);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  max-width: min(36rem, calc(100% - 2 * var(--spacing-4)));
+  box-shadow: var(--shadow-pop);
+}
+
+/* ---------- Поиск: выпадающий список совпадений ---------- */
+.org-search { position: relative; }
+.org-search-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 60;
+  width: 22rem;
+  max-height: 18rem;
+  overflow-y: auto;
+  padding: 0.375rem;
+  background: var(--block);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+  scrollbar-width: thin;
+}
+.org-search-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.375rem 0.5rem;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--on-surface);
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.org-search-item:hover, .org-search-item:focus-visible { background: var(--hover); border-color: var(--border); outline: none; }
+.org-search-item .meta { color: var(--muted); margin-left: auto; white-space: nowrap; }
+
+/* ---------- Мобильное дерево ---------- */
+.otree { display: flex; flex-direction: column; gap: 0.25rem; }
+.otree-dept {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.25rem;
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--on-surface);
+  cursor: pointer;
+  text-align: left;
+}
+.otree-dept:hover { background: var(--hover); }
+.otree-children {
+  margin-left: 0.75rem;
+  padding-left: 0.75rem;
+  border-left: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.otree-pos {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 0.5rem 0.25rem;
+  min-width: 0;
+}
+.otree-pos-row { display: flex; align-items: center; gap: 0.5rem; min-width: 0; flex-wrap: wrap; }
+.otree-holders { display: flex; flex-wrap: wrap; gap: 0.375rem; }

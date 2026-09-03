@@ -24,6 +24,7 @@ import {
   type DocFormFieldDto,
 } from '@superapp/shared';
 import { apiErrorMessage, apiGet } from '@/lib/api';
+import { dmy } from '@/lib/dates';
 import { toastError } from '@/lib/toast';
 import { documentHref } from '@/lib/docs-api';
 import { approvalsRootKey, orgDocumentKey, orgDocumentsPrefix } from '@/lib/queries';
@@ -54,7 +55,7 @@ import { CampaignAckBanner, DeliveryBlock } from '../HrDocBlocks';
 /** Значение поля читабельной строкой: период — «с … по … (N дней)», не [object Object] */
 function readableFieldValue(value: unknown): string {
   if (isDocDateRangeValue(value)) {
-    const dot = (s: string) => s.split('-').reverse().join('.');
+    const dot = dmy;
     const days = docDateRangeDays(value);
     return value.from === value.to
       ? `${dot(value.from)} (1 день)`

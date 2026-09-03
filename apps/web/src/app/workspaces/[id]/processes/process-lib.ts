@@ -17,6 +17,7 @@ import type {
   ProcessStepStatus,
 } from '@superapp/shared';
 import { ICONS, type IconName, type Tone } from '@/components/ui';
+import type { CanvasTone } from '@/components/canvas/tone';
 
 /**
  * Матовый тон — базовый приём системы (DESIGN.md §1): заливка rgba(база,0.12–0.16)
@@ -26,16 +27,7 @@ import { ICONS, type IconName, type Tone } from '@/components/ui';
  * Цвета — только переменными. В SVG React Flow (миникарта, стрелки рёбер) они
  * работают: библиотека кладёт их в inline-style, а не в атрибут fill.
  */
-export interface NodeTone {
-  /** Заливка матовой подложки. */
-  bg: string;
-  /** Бордер подложки. */
-  border: string;
-  /** Цвет штриха иконки и текста на подложке. */
-  fg: string;
-  /** Насыщенная база — точка на миникарте, кольцо статуса. */
-  base: string;
-}
+export type NodeTone = CanvasTone;
 
 /** Шесть категорий на четыре системных тона не ложатся — два взяты из
  *  расширения палитры (violet/teal в globals.css). Красный не участвует:

@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  CAMPAIGN_AUDIENCE_KINDS,
   ESUTD_KINDS,
   HR_ACTION_KIND_LABELS,
   HR_DEADLINE_RULE_MAP,
@@ -15,6 +16,7 @@ import {
   WORKSPACE_ROLE_RANK,
   isEmployerInitiativeGround,
   hrMemberHref,
+  type AudienceRef,
   type CreateHrActionInput,
   type CreateHrBatchInput,
   type HrActionBatchDto,
@@ -33,6 +35,7 @@ import { StaffService } from '../staff/staff.service';
 import { TasksService } from '../tasks/tasks.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import { HrCalendarService } from './hr-calendar.service';
+import { AudiencesService } from '../../core/audiences/audiences.service';
 import {
   HR_APPLY_JOB,
   HR_BATCH_JOB,
@@ -91,6 +94,7 @@ export class HrActionsService {
     private readonly tasks: TasksService,
     private readonly workspaces: WorkspacesService,
     private readonly calendar: HrCalendarService,
+    private readonly audiences: AudiencesService,
   ) {}
 
   // ---------- Гейты (копия лестницы — прецедент documents/processes) ----------
@@ -734,16 +738,20 @@ export class HrActionsService {
           where: { workspaceId: action.workspaceId, userId: action.userId, positionId: prevLegalPositionId },
           select: { id: true },
         });
-        if (old) await this.staff.removeAssignment(action.createdById, action.workspaceId, old.id);
+        // `system*`: фоновый джоб от имени создателя действия — право проверено при
+        // создании приказа; областной промах здесь означал бы проваленный приказ.
+        if (old) await this.staff.removeAssignmentSystem(action.createdById, action.workspaceId, old.id);
       }
+      // Без объекта назначения не бывает: договор без объекта → основной объект.
+      const targetBranchId = branchId ?? (await this.staff.ensureDefaultBranch(action.workspaceId)).id;
       const exists = await this.db.staffAssignment.findFirst({
-        where: { workspaceId: action.workspaceId, userId: action.userId, positionId, branchId: branchId ?? null },
+        where: { workspaceId: action.workspaceId, userId: action.userId, positionId, branchId: targetBranchId },
         select: { id: true },
       });
       if (!exists) {
-        await this.staff.assignPosition(action.createdById, action.workspaceId, action.userId, {
+        await this.staff.assignPositionSystem(action.createdById, action.workspaceId, action.userId, {
           positionId,
-          branchId,
+          branchId: targetBranchId,
           status: 'certified',
         });
       }
@@ -875,7 +883,7 @@ export class HrActionsService {
   async createBatch(actorId: string, workspaceId: string, dto: CreateHrBatchInput): Promise<HrActionBatchDto> {
     const actorRole = await this.requireManager(actorId, workspaceId);
     await this.assertApplyRoute(workspaceId, dto.templateId);
-    const userIds = await this.resolveAudience(workspaceId, dto.audience, actorRole);
+    const userIds = await this.resolveAudience(workspaceId, dto.audience, actorRole, actorId);
     if (userIds.length === 0) throw new BadRequestException('Аудитория пуста — некому применять');
     if (userIds.length > HR_LIMITS.batchMax) {
       throw new BadRequestException(`Потолок массовой операции — ${HR_LIMITS.batchMax} человек за прогон (выбрано ${userIds.length})`);
@@ -965,64 +973,31 @@ export class HrActionsService {
     await this.db.hrActionBatch.update({ where: { id: batch.id }, data: { status: 'done' } });
   }
 
+  /**
+   * Аудитория массового действия — единый словарь core/audiences (команда trainee+,
+   * подрядчики исключены, относительные виды по оргструктуре; `$self` = актор).
+   * Ранг: массовое действие на «всю организацию» не должно оформлять увольнение
+   * Владельцу руками Менеджера. Тихо отсеиваем (а не отказываем всей пачке) —
+   * иначе аудитория «вся команда» была бы недоступна никому, кроме Владельца.
+   */
   private async resolveAudience(
     workspaceId: string,
     audience: { type: string; id: string }[],
     actorRole?: WorkspaceRole,
+    actorId?: string,
   ): Promise<string[]> {
-    const out = new Set<string>();
-    for (const principal of audience) {
-      if (principal.type === 'user') {
-        out.add(principal.id);
-        continue;
-      }
-      if (principal.type === 'workspace') {
-        const members = await this.db.userRole.findMany({
-          where: {
-            context: WS_CONTEXT,
-            tenantId: workspaceId,
-            isActive: true,
-            role: { notIn: ['contractor'] },
-          },
-          select: { userId: true },
-        });
-        members.forEach((m) => out.add(m.userId));
-        continue;
-      }
-      const rows = await this.db.relationTuple.findMany({
-        where: {
-          resourceType: principal.type,
-          resourceId: principal.id,
-          relation: principal.type === 'position' ? 'holder' : 'member',
-          subjectType: 'user',
-          subjectRelation: '',
-        },
-        select: { subjectId: true },
-        take: HR_LIMITS.campaignMaxTargets,
-      });
-      rows.forEach((r) => out.add(r.subjectId));
-    }
-    // Команда организации, живые роли (подрядчики исключены)
-    const ids = [...out];
-    if (!ids.length) return [];
+    const ids = await this.audiences.resolve(
+      audience as AudienceRef[],
+      { workspaceId, selfId: actorId ?? null, initiatorId: actorId ?? null },
+      { max: HR_LIMITS.campaignMaxTargets, onOverflow: 'truncate', allowedKinds: CAMPAIGN_AUDIENCE_KINDS },
+    );
+    if (!ids.length || !actorRole) return ids;
     const live = await this.db.userRole.findMany({
-      where: {
-        userId: { in: ids },
-        context: WS_CONTEXT,
-        tenantId: workspaceId,
-        isActive: true,
-        role: { notIn: ['contractor'] },
-      },
+      where: { userId: { in: ids }, context: WS_CONTEXT, tenantId: workspaceId, isActive: true, role: { notIn: ['contractor'] } },
       select: { userId: true, role: true },
     });
-    // Ранг: массовое действие на «всю организацию» не должно оформлять увольнение
-    // Владельцу руками Менеджера. Тихо отсеиваем (а не отказываем всей пачке) —
-    // иначе аудитория «вся команда» была бы недоступна никому, кроме Владельца.
-    const manageable = actorRole
-      ? live.filter((r) => canManageHrSubject(actorRole, r.role as WorkspaceRole))
-      : live;
-    const alive = new Set(manageable.map((r) => r.userId));
-    return ids.filter((id) => alive.has(id));
+    const manageable = new Set(live.filter((r) => canManageHrSubject(actorRole, r.role as WorkspaceRole)).map((r) => r.userId));
+    return ids.filter((id) => manageable.has(id));
   }
 
   async getBatch(viewerId: string, workspaceId: string, batchId: string): Promise<HrActionBatchDto> {

@@ -214,18 +214,32 @@ export const ACCESS_SCHEMA: Record<string, ResourceTypeConfig> = {
       viewer: union(THIS, computed('member')),
     },
   },
+  // ---- Оси оргструктуры (проецирует modules/staff, applyStaffDiff) ----
+  // Отдел. `member` пишется ЗАМЫКАНИЕМ ВВЕРХ (сотрудник — член своего отдела и всех
+  // предков: грант отделу достаёт подотделы при `member: THIS`). `head` — держатели
+  // руководящей должности отдела, пишутся ЗАМЫКАНИЕМ ВНИЗ (голова отдела — голова и
+  // всех его подотделов). Правило канона: лестница ROLE_LADDERS ОБЯЗАНА совпадать с
+  // union-цепочкой типа — поэтому `member: union(THIS, computed('head'))`, а не THIS
+  // (иначе check() и grantSetFor отвечали бы по-разному: голова — член отдела в обоих
+  // читающих путях). `manager` — точка расширения под явное делегирование обычным
+  // ребром; в лестницу НЕ входит (делегат — не участник отдела).
   department: {
-    // Subdepartment roll-up is done by CLOSURE projection (Phase 4): each employee is
-    // projected as member of their department AND all ancestor departments, so a grant
-    // to a department naturally reaches subdepartment members with `member: THIS`.
-    relations: { member: THIS },
+    relations: {
+      member: union(THIS, computed('head')),
+      head: THIS,
+      manager: union(THIS, computed('head')),
+    },
   },
   position: {
     relations: { holder: THIS },
   },
-  // Org-structure location (Филиал: city/address/requisites in the future Сотрудники service).
+  // Объект (StaffBranch; в UI пока «Филиал»). `head` — держатели руководящей должности
+  // объекта, работающие В ЭТОМ объекте (управляющий чужой точки — не голова этой).
   branch: {
-    relations: { member: THIS },
+    relations: {
+      member: union(THIS, computed('head')),
+      head: THIS,
+    },
   },
 };
 
@@ -291,6 +305,8 @@ export const EPOCH_FANOUT: Record<string, string[]> = {
   circle: ['circle', 'showcase', 'wishlist', 'calendar', 'card', 'finbook', 'document'],
   // Staff-оси («Сотрудники»): membership-рёбра могут нести гранты на карточки
   // (card.full_viewer), витрины B2B и календарь — будущие аудитории Ленты/отпусков.
+  // Отношения `head`/`manager` оргструктуры новых строк НЕ требуют: фанаут считается
+  // по ТИПУ ресурса, а не по отношению — опасно только отсутствие ключа типа.
   department: ['department', 'card', 'showcase', 'calendar'],
   position: ['position', 'card', 'showcase', 'calendar'],
   branch: ['branch', 'card', 'showcase', 'calendar'],
@@ -324,6 +340,12 @@ export const EPOCH_FANOUT: Record<string, string[]> = {
  */
 export const ROLE_LADDERS: Record<string, readonly string[]> = {
   workspace: ['owner', 'admin', 'manager', 'member'],
+  // Оси оргструктуры: голова отдела/объекта — его участник (грант «отделу продаж»
+  // достаёт и его руководителя, даже если тот сидит вне отдела). Каждый грант
+  // отделу/объекту разворачивается этой лестницей — правило действует на ВСЕХ
+  // потребителях grantSetFor/principalsOf разом (шаблоны, Диск, адресаты).
+  department: ['head', 'member'],
+  branch: ['head', 'member'],
 };
 
 /**

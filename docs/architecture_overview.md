@@ -7,7 +7,7 @@
 ```
 apps/
   api/            # NestJS 10 — модульный монолит (порт 3001; Swagger /api/docs только в dev)
-    src/core/     #   15 платформенных движков + auth/users/roles (всегда загружены)
+    src/core/     #   16 платформенных движков + auth/users/roles (всегда загружены)
     src/modules/  #   функциональные сервисы — тонкие модули поверх движков
     src/shared/   #   Database (chokepoint-скоуп), Redis, EventBus, Guards, фильтры,
                   #   http-двери (safeFetch/trustedFetch), манифест DI_TOKENS
@@ -38,9 +38,9 @@ docker-compose.yml  # PostgreSQL 16 + Redis 7 + опциональные про�
 
 Зафиксированное решение архитектурного ревью: **микросервисы не нужны** — синхронные деньги в одной транзакции это правильный монолитный выбор (путь Shopify/GitHub). Движок `core/access` не переписывать — модель Zanzibar верна.
 
-## 15 платформенных движков (`apps/api/src/core/`)
+## 16 платформенных движков (`apps/api/src/core/`)
 
-`access` · `rich-cards` · `search` · `quick-actions` · `files` · `voice` · `calls` · `chatter` · `jobs` · `verify` · `docs` · `share-links` · `approvals` · `sign` · `templates` — плюс всегда загруженные `auth`/`users`/`roles`. У каждого движка свой файл в docs (`*_engine.md`).
+`access` · `rich-cards` · `search` · `quick-actions` · `files` · `voice` · `calls` · `chatter` · `jobs` · `verify` · `docs` · `share-links` · `approvals` · `sign` · `templates` · `audiences` — плюс всегда загруженные `auth`/`users`/`roles`. У каждого движка свой файл в docs (`*_engine.md`).
 
 Несущий принцип: **сначала переиспользуй, потом пиши** — новый сервис это тонкий модуль + регистрации в движках, а не копия чужой логики. Если движка не хватает — он РАСШИРЯЕТСЯ, а не копируется. Пошагово — [playbook_new_service.md](playbook_new_service.md).
 

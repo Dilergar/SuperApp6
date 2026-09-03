@@ -16,9 +16,12 @@ export interface StaffDepartment {
   id: string;
   workspaceId: string;
   name: string;
-  /** Дерево в данных (отдел внутри отдела); UI пока показывает плоско с родителем. */
+  /** Дерево в данных (отдел внутри отдела). */
   parentId: string | null;
   sortOrder: number;
+  /** Руководящая должность отдела (может лежать ВНЕ отдела и вести несколько отделов). */
+  headPositionId: string | null;
+  headPositionName?: string | null;
   /** Сколько людей в отделе (производное: держатели должностей отдела). */
   membersCount?: number;
   /** Сколько должностей привязано к отделу. */
@@ -35,11 +38,16 @@ export interface StaffPosition {
   departmentName?: string | null;
   description: string | null;
   sortOrder: number;
+  /** Точечное переопределение подчинения — сильнее дерева отделов и головы объекта. */
+  reportsToPositionId: string | null;
+  /** Значок-данные для <Glyph/> (ключ реестра иконок или эмодзи). */
+  glyph: string | null;
   /** Сколько людей держат эту должность. */
   holdersCount?: number;
   createdAt: string;
 }
 
+/** Объект организации (в UI пока «Филиал»); у организации всегда есть основной. */
 export interface StaffBranch {
   id: string;
   workspaceId: string;
@@ -47,12 +55,17 @@ export interface StaffBranch {
   address: string | null;
   note: string | null;
   sortOrder: number;
-  /** Сколько людей работают в филиале (по назначениям). */
+  /** Основной объект: назначение без объекта попадает сюда; удалить нельзя. */
+  isDefault: boolean;
+  /** Руководящая должность объекта («Управляющий точкой»). */
+  headPositionId: string | null;
+  headPositionName?: string | null;
+  /** Сколько людей работают в объекте (по назначениям). */
   membersCount?: number;
   createdAt: string;
 }
 
-/** Назначение должности человеку (с филиалом или без). Несколько на человека — норма. */
+/** Назначение должности человеку — ВСЕГДА в объекте. Несколько на человека — норма. */
 export interface StaffAssignment {
   id: string;
   workspaceId: string;
@@ -62,8 +75,10 @@ export interface StaffAssignment {
   /** Производное от должности (Position.departmentId) — для отображения/фильтров. */
   departmentId: string | null;
   departmentName: string | null;
-  branchId: string | null;
-  branchName: string | null;
+  branchId: string;
+  branchName: string;
+  /** Основное место человека (ровно одно на организацию). */
+  isPrimary: boolean;
   status: StaffAssignmentStatus;
   assignedBy: string | null;
   createdAt: string;

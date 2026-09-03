@@ -34,6 +34,7 @@ import {
 } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { apiErrorMessage, apiGet } from '@/lib/api';
+import { dmy } from '@/lib/dates';
 import { toastError } from '@/lib/toast';
 import {
   counterpartiesKey,
@@ -469,7 +470,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 function RequisitesTab({ cp }: { cp: CounterpartyDto }) {
   const vat = cp.vatPayer
-    ? [cp.vatSeries ? `серия ${cp.vatSeries}` : null, cp.vatNumber ? `№ ${cp.vatNumber}` : null, cp.vatDate ? `от ${cp.vatDate.split('-').reverse().join('.')}` : null]
+    ? [cp.vatSeries ? `серия ${cp.vatSeries}` : null, cp.vatNumber ? `№ ${cp.vatNumber}` : null, cp.vatDate ? `от ${dmy(cp.vatDate)}` : null]
         .filter(Boolean)
         .join(' ') || 'плательщик'
     : 'не плательщик';

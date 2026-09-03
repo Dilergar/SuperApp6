@@ -29,6 +29,7 @@ import { DocsModule } from './core/docs/docs.module';
 import { ShareLinksModule } from './core/share-links/share-links.module';
 import { ApprovalsModule } from './core/approvals/approvals.module';
 import { TemplatesModule } from './core/templates/templates.module';
+import { AudiencesModule } from './core/audiences/audiences.module';
 import { SignModule } from './core/sign/sign.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { CounterpartiesModule } from './modules/counterparties/counterparties.module';
@@ -151,6 +152,8 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // маршрута — «просто согласуй этот документ».
     ApprovalsModule,
     TemplatesModule,
+    // 16-й движок: единый словарь адресатов (относительные виды регистрирует Staff, circle — Contacts)
+    AudiencesModule,
     // Sign engine — 15-й платформенный движок: электронная подпись (шаг 3
     // документной вертикали). Акт подписи, криптография и её проверка, ВЕЧНЫЕ
     // доказательства, экспортный пакет (ст. 62 ЦК РК) и открытая страница

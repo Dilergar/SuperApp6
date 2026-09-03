@@ -221,6 +221,73 @@ export const CHATTER_REGISTRY = {
     category: 'staff',
     chatPost: false,
   },
+  // ---- Оргструктура (refType='workspace'; след в «Журнале», приказа на структуру нет) ----
+  // Появление и исчезновение единиц структуры. Раньше в журнал не попадало вообще:
+  // назначения писались, а удаление целого отдела — нет, и кадровый аудит обрывался
+  // ровно там, где вопрос «куда делся отдел» и возникает. `unitLabel` — «отдел» /
+  // «должность» / «объект» (презентация не запекается в вечную запись отдельным ключом).
+  'staff.unit_created': {
+    template: '{{actorName}} создал(а) {{unitLabel}} «{{unitName}}»',
+    icon: '🧩',
+    category: 'staff',
+    chatPost: false,
+  },
+  'staff.unit_deleted': {
+    template: '{{actorName}} удалил(а) {{unitLabel}} «{{unitName}}»',
+    icon: '🗑️',
+    category: 'staff',
+    chatPost: false,
+  },
+  'staff.head_set': {
+    // payload: departmentName, positionName (null → «снята»)
+    template: '{{actorName}} — руководитель отдела «{{departmentName}}»: {{from}} → {{to}}',
+    icon: '🧭',
+    category: 'staff',
+    chatPost: false,
+  },
+  'staff.branch_head_set': {
+    template: '{{actorName}} — руководитель объекта «{{branchName}}»: {{from}} → {{to}}',
+    icon: '🏬',
+    category: 'staff',
+    chatPost: false,
+  },
+  'staff.reports_to_set': {
+    template: '{{actorName}} — подчинение должности «{{positionName}}»: {{from}} → {{to}}',
+    icon: '🔗',
+    category: 'staff',
+    chatPost: false,
+  },
+  'staff.position_moved': {
+    template: '{{actorName}} перенёс(ла) должность «{{positionName}}»: {{from}} → {{to}}',
+    icon: '📦',
+    category: 'staff',
+    chatPost: false,
+  },
+  'staff.deputy_opened': {
+    // payload: positionName, deputyLabel (должность или человек), periodLabel
+    template: '{{actorName}} назначил(а) заместителя по должности «{{positionName}}»: {{deputyLabel}}{{periodLabel}}',
+    icon: '🔁',
+    category: 'staff',
+    chatPost: false,
+  },
+  'staff.deputy_closed': {
+    template: '{{actorName}} снял(а) заместителя по должности «{{positionName}}»: {{deputyLabel}}',
+    icon: '⏹️',
+    category: 'staff',
+    chatPost: false,
+  },
+  'staff.primary_changed': {
+    template: '{{actorName}} — основное место {{targetName}}: {{from}} → {{to}}',
+    icon: '📌',
+    category: 'staff',
+    chatPost: false,
+  },
+  'staff.default_branch_changed': {
+    template: '{{actorName}} — основной объект организации: {{from}} → {{to}}',
+    icon: '🏠',
+    category: 'staff',
+    chatPost: false,
+  },
 
   // ---- Диск (refType='drive_node') ----
   // Контекстного чата у узла Диска нет, поэтому chatPost везде false: хроника

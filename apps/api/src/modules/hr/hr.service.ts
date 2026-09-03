@@ -359,7 +359,9 @@ export class HrService implements HrPort, HrNodesPort {
       }),
       this.db.staffAssignment.findMany({
         where: { workspaceId, userId: subjectUserId },
-        orderBy: { createdAt: 'asc' },
+        // Основное место (isPrimary) — первым: плашка «факт ≠ договор» и карточка
+        // сравнивают договор с ОСНОВНЫМ назначением, а не с первым по дате.
+        orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
         include: {
           position: { select: { name: true, department: { select: { name: true } } } },
           branch: { select: { name: true } },

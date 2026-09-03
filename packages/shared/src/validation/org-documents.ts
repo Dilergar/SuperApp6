@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DOC_TEMPLATE_GRANT_KINDS } from '../constants/audiences';
 import {
   DOC_CATEGORIES,
   DOC_FIELD_KINDS,
@@ -100,7 +101,7 @@ export const updateDocTemplateSchema = z.object({
  * нет, и грант с таким типом не совпал бы ни с кем.
  */
 export const docTemplateGrantSchema = z.object({
-  principalType: z.enum(['user', 'department', 'position', 'branch']),
+  principalType: z.enum(DOC_TEMPLATE_GRANT_KINDS),
   principalId: z.string().uuid(),
 });
 

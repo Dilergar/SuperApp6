@@ -86,8 +86,21 @@ export const workspacesIncomingInvitationsKey = ['workspaces', 'invitations', 'i
 // Сервис «Сотрудники» (B2B)
 export const workspaceKey = (id: string) => ['workspaces', id] as const;
 export const workspaceMembersKey = (id: string) => ['workspaces', id, 'members'] as const;
+/** ОДИН сотрудник с реквизитным блоком — своя ручка (в списке реквизитов нет) */
+export const workspaceMemberKey = (id: string, userId: string) => ['workspaces', id, 'members', userId] as const;
 export const workspaceStaffKey = (id: string) => ['workspaces', id, 'staff'] as const;
 export const workspaceInvitationsKey = (id: string) => ['workspaces', id, 'invitations'] as const;
+
+// ---------- Орг. структура (граф должностей и объектов; канвасу — СВОЙ React Query,
+// entities.ts кэширует /staff модульной Map для пикеров) ----------
+export const orgRootKey = (wsId: string) => ['workspaces', wsId, 'org'] as const;
+export const orgChartKey = (wsId: string, branchId?: string | null) =>
+  ['workspaces', wsId, 'org', 'chart', branchId ?? 'all'] as const;
+export const orgScopeKey = (wsId: string) => ['workspaces', wsId, 'org', 'scope'] as const;
+export const orgUnassignedKey = (wsId: string) => ['workspaces', wsId, 'org', 'unassigned'] as const;
+export const orgDeputiesKey = (wsId: string, positionId?: string | null) =>
+  ['workspaces', wsId, 'org', 'deputies', positionId ?? 'all'] as const;
+export const orgLineKey = (wsId: string, userId: string) => ['workspaces', wsId, 'org', 'line', userId] as const;
 // КЭДО (modules/hr)
 export const hrRootKey = (wsId: string) => ['workspaces', wsId, 'hr'] as const;
 export const hrMemberKey = (wsId: string, userId: string) => ['workspaces', wsId, 'hr', 'member', userId] as const;

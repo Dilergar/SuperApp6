@@ -1,23 +1,15 @@
 /* ============================================================
-   Канвас «Процессов» — Organic Bento поверх React Flow.
+   Канвас «Процессов» — свои ноды и панели поверх общего полотна.
 
-   Почему отдельный файл, а не инлайн-стили в ProcessCanvas.tsx:
-   состояния (:hover, .selected, .connectingfrom) и чужие классы библиотеки
-   (.react-flow__controls-button, .react-flow__minimap) инлайном не
-   выражаются — до этого файла контролы и миникарта оставались в дефолтном
-   белом стиле React Flow, чужом для системы.
+   Полотно, порты, рёбра, контролы и миникарта (все .react-flow__*) красит
+   ОДИН общий файл components/canvas/canvas.css через корневой .sa-canvas —
+   здесь их трогать нельзя (две точки правды разъехались бы молча). Алиас
+   .pcanvas стоит на том же корневом элементе (FlowCanvas className) и нужен
+   только собственным классам Процессов: нода .pnode, палитра, панели.
 
-   Импортируется ProcessCanvas.tsx ПОСЛЕ стилей библиотеки — иначе дефолты
-   React Flow (тёмные ручки, синие рёбра) перебивают эти правила.
+   Импортируется ProcessCanvas.tsx ПОСЛЕ FlowCanvas (а значит после стилей
+   библиотеки и canvas.css) — порядок несущий.
    ============================================================ */
-
-/* ---------- Полотно ---------- */
-/* Тёплая бумага под чистыми блоками-нодами — та же связка, что у страниц:
-   фон #eae6de, блок #fafbf8, 1px-бордер. */
-.pcanvas {
-  height: 100%;
-  background: var(--page);
-}
 
 /* ---------- Нода ---------- */
 .pnode {
@@ -120,75 +112,6 @@
 .pnode-port-label--bottom { top: 0.875rem; left: 50%; transform: translateX(-50%); }
 .pnode-port-label--top { bottom: 0.875rem; left: 50%; transform: translateX(-50%); }
 .pnode-port-label--right { right: 1rem; top: -0.4rem; color: var(--on-surface-variant); }
-
-/* ---------- Порты ---------- */
-.pcanvas .react-flow__handle {
-  width: 11px;
-  height: 11px;
-  background: var(--block);
-  border: 2px solid var(--line);
-  border-radius: var(--radius-pill);
-  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
-}
-.pcanvas .react-flow__handle:hover,
-.pcanvas .react-flow__handle.connectingfrom,
-.pcanvas .react-flow__handle.connectingto {
-  border-color: var(--primary);
-  background: var(--primary-container);
-  transform: scale(1.15);
-}
-/* Порт без связи держится тише соседей — но остаётся видимой мишенью. */
-.pcanvas .react-flow__handle.connectionindicator { cursor: crosshair; }
-
-/* ---------- Рёбра ---------- */
-.pcanvas .react-flow__edge.selected .react-flow__edge-path,
-.pcanvas .react-flow__edge:focus .react-flow__edge-path {
-  stroke: var(--primary);
-}
-.pcanvas .react-flow__edge-text {
-  font-family: var(--font-body);
-  font-size: 10.5px;
-  font-weight: 700;
-}
-.pcanvas .react-flow__connectionline path { stroke: var(--primary); }
-
-/* ---------- Контролы масштаба ---------- */
-.pcanvas .react-flow__controls {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-card);
-  overflow: hidden;
-}
-.pcanvas .react-flow__controls-button {
-  width: 30px;
-  height: 30px;
-  padding: 7px;
-  background: var(--block);
-  border: none;
-  border-bottom: 1px solid var(--divider);
-  color: var(--on-surface-variant);
-}
-.pcanvas .react-flow__controls-button:last-child { border-bottom: none; }
-.pcanvas .react-flow__controls-button:hover { background: var(--hover); color: var(--on-surface); }
-.pcanvas .react-flow__controls-button svg { fill: currentColor; max-width: 13px; max-height: 13px; }
-
-/* ---------- Миникарта ---------- */
-.pcanvas .react-flow__minimap {
-  background: var(--block);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-card);
-  overflow: hidden;
-}
-/* Затемнение вне вида задаёт проп maskColor в ProcessCanvas.tsx: библиотека
-   пишет его инлайном, и правило отсюда до него не достало бы. */
-
-.pcanvas .react-flow__attribution {
-  background: transparent;
-  color: var(--label);
-  font-size: 9px;
-}
-.pcanvas .react-flow__attribution a { color: var(--label); }
 
 /* ============================================================
    Плавающие панели редактора (палитра, настройки, проблемы, пикер).

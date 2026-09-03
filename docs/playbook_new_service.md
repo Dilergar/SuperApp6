@@ -42,6 +42,8 @@
 | Исходящий HTTP наружу | Одна из ДВУХ дверей `shared/http` (safeFetch — адрес из данных; trustedFetch — адрес из .env, таймаут обязателен) — [security.md](security.md) |
 | Действия «между людьми» | `ContactsService.assertReachable` (для ЛИЧНОГО ресурса — `{personalOnly:true}`); выдал грант человеку из окружения → зарегистрируй `PersonalGraphRegistry.register('<сервис>', {onUnlinked})` — иначе доступ переживёт разрыв связи — [contacts_circles.md](contacts_circles.md) |
 | Состав Группы | ТОЛЬКО `ContactsService.resolveCircleMemberIds` (свой обход графа запрещён). Два режима Группы: назначение = СНИМОК участников; аудитория/видимость = живой принципал `circle` в core/access |
+| Кому адресовано (отдел/должность/объект/Группа/команда/руководитель кого-то) | `AudiencesService.resolve(refs, ctx, {max, onOverflow, allowedKinds})` + свой набор видов из `constants/audiences.ts`; свой разворот `relationTuple` запрещён. Гранты движок не пишет — [audiences_engine.md](audiences_engine.md) |
+| «Кто мой руководитель / моя команда» | адресаты `manager_of` / `subordinates_of` / `branch_head_of` (внутри Staff — `managerOf`/`subordinateIdsOf`); свой обход оргструктуры запрещён — [org_structure.md](org_structure.md) |
 | Свои файлы сущности должны попадать на Диск | `DriveRoutingRegistry.register(refType, {resolvePlacement})` (импорт DriveModule, не наоборот) — [drive.md](drive.md) |
 | Узнать о привязке любого файла | `FilesRefRegistry.registerLinkObserver(key, {onLinked})` — зовётся внутри транзакции привязки |
 | B2B-данные | Chokepoint (workspaceId) или явный ownerType+ownerId + проверка прав — [identity_roles.md](identity_roles.md) |

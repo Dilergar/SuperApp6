@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { CAMPAIGN_AUDIENCE_KINDS } from '../constants/audiences';
+import { audienceListSchema } from './audience';
 import {
   CAMPAIGN_FIX_MODES,
   CAMPAIGN_MODES,
@@ -112,15 +114,8 @@ export const createHrBatchSchema = z.object({
   kind: z.enum(
     HR_ACTION_KINDS.map((k) => k.value).filter((v) => v !== 'hire') as [string, ...string[]],
   ),
-  audience: z
-    .array(
-      z.object({
-        type: z.enum(['user', 'position', 'department', 'branch', 'workspace']),
-        id: z.string().uuid(),
-      }),
-    )
-    .min(1)
-    .max(50),
+  /** Адресаты — словарь core/audiences (в т.ч. относительные: руководитель/команда/руководитель объекта) */
+  audience: audienceListSchema(CAMPAIGN_AUDIENCE_KINDS, 50),
   effectiveAt: isoDate,
   effectiveTo: isoDate.optional(),
   templateId: z.string().uuid(),
@@ -154,15 +149,8 @@ export const createCampaignSchema = z.object({
   title: safeText(200).optional(),
   mode: z.enum(CAMPAIGN_MODES.map((m) => m.value) as [string, ...string[]]).optional(),
   fixMode: z.enum(CAMPAIGN_FIX_MODES.map((m) => m.value) as [string, ...string[]]).optional(),
-  audience: z
-    .array(
-      z.object({
-        type: z.enum(['user', 'position', 'department', 'branch', 'workspace']),
-        id: z.string().uuid(),
-      }),
-    )
-    .min(1)
-    .max(50),
+  /** Адресаты — словарь core/audiences (в т.ч. относительные: руководитель/команда/руководитель объекта) */
+  audience: audienceListSchema(CAMPAIGN_AUDIENCE_KINDS, 50),
   dueAt: isoDate.optional(),
 });
 

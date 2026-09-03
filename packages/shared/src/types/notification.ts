@@ -40,6 +40,8 @@ export type NotificationType =
   | 'workspace.role.changed' // your role in an organization changed (→ member)
   | 'workspace.position.assigned' // a position was assigned to you (→ member)
   | 'workspace.position.certified' // your position training was certified (→ member)
+  | 'staff.head.assigned' // оргструктура: вы стали руководителем отдела/объекта (→ держателям головы)
+  | 'staff.deputy.assigned' // оргструктура: вас назначили заместителем (→ заму)
   | 'workspace.archive.expiring' // your archived org is about to be deleted for good (→ owner)
   // Wallet
   | 'wallet.coins.received' // you were paid coins for a completed task (→ executor)

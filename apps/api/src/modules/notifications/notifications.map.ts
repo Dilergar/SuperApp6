@@ -56,6 +56,9 @@ export const MAPPED_EVENT_TYPES: ReadonlySet<string> = new Set([
   'workspace.role.changed',
   'workspace.position.assigned',
   'workspace.position.certified',
+  // Оргструктура (адресаты — списком в payload.userIds)
+  'staff.head.assigned',
+  'staff.deputy.assigned',
   // Кошелёк
   'wallet.coins.received',
   // Магазин
@@ -202,6 +205,14 @@ export function mapEventToNotifications(
         const userId = str(payload['userId']);
         if (!userId) return [];
         return [{ userId, type: eventType as NotificationType, payload, actionUrl: wsUrl }];
+      }
+      case 'staff.head.assigned':
+      case 'staff.deputy.assigned': {
+        // Держателей руководящей должности может быть несколько — адресаты списком.
+        const ids = Array.isArray(payload['userIds']) ? (payload['userIds'] as unknown[]).filter((v): v is string => typeof v === 'string') : [];
+        const wsId = str(payload['workspaceId']);
+        const actionUrl = wsId ? `/workspaces/${wsId}/members/org` : wsUrl;
+        return [...new Set(ids)].map((uid) => ({ userId: uid, type: eventType as NotificationType, payload, actionUrl }));
       }
       default:
         return [];

@@ -14,7 +14,7 @@
 
 Доменные таблицы остаются хозяином данных; их доступ-рёбра **зеркалятся** в движок (`access-projection.service.ts`): членство в Группах, роли воркспейса, `Circle.calendarVisibility`, владение/parent магазина, роли участников задач / заказов / событий / комнат офиса (`resyncTaskRoles/OrderRoles/EventRoles/OfficeRoomRoles` + `*Deleted`), оси Staff. Хуки best-effort (`safe()` — ошибка проекции не роняет доменную мутацию) + diff-сверка `AccessReconcileCron` (ежедневно 04:00: `reconcile` + бэкфилл магазинов/календаря + задач за окно 25ч; полный бэкфилл задач — только скрипт `apps/api/scripts/backfill-access.cjs`). Проекции — диффные (`applyDiff`: нет revoke-then-grant окна, ноль бампов при пустом диффе).
 
-Оси Staff: `position#holder@user`, `branch#member@user`, `department#member@user` **с closure предков** (грант на отдел достаёт сотрудников подотделов). Роли воркспейса проецируются маппингом `staff|trainee→member`; `contractor` НЕ проецируется.
+Оси Staff: `position#holder@user`, `branch#member@user`, `department#member@user` **с closure предков** (грант на отдел достаёт сотрудников подотделов), `department#head@user` (голова отдела — на отдел и всех ПОТОМКОВ, closure ВНИЗ, + `member` предков), `branch#head@user` (держатели руководящей должности объекта, работающие В ЭТОМ объекте). **Диф проекции сужен по отношению и user-субъекту**: проекция владеет только `position: holder`, `branch: member|head`, `department: member|head` — явное делегирование `department#manager` и гранты Группам переживают resync (без сужения первое чужое ребро стиралось бы после каждой мутации Staff). **Замещения (StaffDeputy) не проецируются никогда**: рёбра — только факты без даты. Роли воркспейса проецируются маппингом `staff|trainee→member`; `contractor` НЕ проецируется.
 
 ## Читающие пути (выбор несущий)
 
@@ -30,7 +30,7 @@
 - **Потребитель начал звать `can()/check()` по типу с пустым фанаутом (Диск, doc_template) → СНАЧАЛА заполнить `EPOCH_FANOUT`**, иначе права протухают до 10 минут (TTL кэша).
 - **Новая форма userset/parent в проекции → в perf-карты** (`GENERIC_PRINCIPALS` / `LIST_OBJECTS_EXTRA_EXPANSION`), иначе `listObjects` пропустит результаты, а кэш переживёт грант.
 - **Гранты не-user принципалам писать с `subjectRelation`** (`principalSubjectRelation`: `position → holder`, остальные → `member`) — без отношения выдача отделу/должности/филиалу молча не работает.
-- Лестницы ролей — `ROLE_LADDERS` (принципал `workspace#manager` разворачивает owner/admin сам); порядок обязан совпадать с union-цепочкой типа в `ACCESS_SCHEMA`.
+- Лестницы ролей — `ROLE_LADDERS` (принципал `workspace#manager` разворачивает owner/admin сам; `department`/`branch`: `head → member` — голова отдела/объекта в его составе); порядок обязан совпадать с union-цепочкой типа в `ACCESS_SCHEMA` (`member: union(THIS, computed('head'))`, иначе `check()` и `grantSetFor` разошлись бы). Отношение ВНЕ лестницы своего типа (`department#manager` — делегирование) `principalsOf` добавляет как есть. Способность `department.manage` = `manager` (голова ⇒ manager).
 - Наследование по СВОЕМУ дереву движок не считает — материализуется в домене (массив предков + GIN, одно условие в SQL; паттерн Диска и closure отделов). Рекурсия `arrow('parent', …)` отвергнута (десятки запросов на промах + сброс кэша всей платформы).
 - Выдал грант «человеку из окружения» → зарегистрируй отзыв в `PersonalGraphRegistry` (иначе доступ переживёт разрыв связи) — [contacts_circles.md](contacts_circles.md).
 - Удаление группы снимает и рёбра, где она ПОЛУЧАТЕЛЬ гранта (`revokeSubject`).

@@ -31,6 +31,8 @@ export const CAPABILITIES = {
   // workspace
   'workspace.admin': { resourceType: 'workspace', relation: 'admin' },
   'workspace.member': { resourceType: 'workspace', relation: 'member' },
+  // оргструктура: править ветку отдела (голова отдела ⇒ manager; явный делегат — обычным ребром)
+  'department.manage': { resourceType: 'department', relation: 'manager' },
   // platform personas (gate FUTURE features; nothing existing is restricted)
   'marketplace.sell': { resourceType: 'platform', relation: 'seller' },
   'jobs.mystery_guest': { resourceType: 'platform', relation: 'mystery_guest' },

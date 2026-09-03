@@ -337,10 +337,28 @@ export class AccessProjectionService {
   // Staff («Сотрудники») — назначения должностей → рёбра трёх осей оргструктуры:
   //   position:<id>#holder@user
   //   branch:<id>#member@user
-  //   department:<id и все предки>#member@user   (CLOSURE: грант на отдел достаёт
-  //                                               и сотрудников подотделов)
+  //   branch:<id>#head@user                       держатели руководящей должности
+  //                                               объекта, работающие В ЭТОМ объекте
+  //   department:<id и все предки>#member@user   (CLOSURE ВВЕРХ: грант на отдел
+  //                                               достаёт и сотрудников подотделов)
+  //   department:<id и все ПОТОМКИ>#head@user     (CLOSURE ВНИЗ: голова отдела —
+  //                                               голова всех его подотделов; плюс
+  //                                               member предков — голова «в дереве»)
   // Членство в отделе ПРОИЗВОДНОЕ: assignment → position.departmentId → ancestors.
+  // Замещения (StaffDeputy) НЕ проецируются никогда: рёбра — только факты без даты.
+  //
+  // ⚠️ Проекция владеет ТОЛЬКО тем, что пишет: position#holder, branch#member|head,
+  // department#member|head — и только user-субъектами. Диф существующих рёбер сужен
+  // по отношению: resync бежит после КАЖДОЙ мутации Staff, и без сужения первое
+  // явное `department#manager` (делегирование) было бы молча стёрто.
   // ------------------------------------------------------------
+
+  /** Отношения, которыми владеет проекция, по типам осей. */
+  private static readonly STAFF_OWNED_RELATIONS: Record<'position' | 'branch' | 'department', string[]> = {
+    position: ['holder'],
+    branch: ['member', 'head'],
+    department: ['member', 'head'],
+  };
 
   /** Re-sync всех staff-рёбер одного воркспейса (вызывается после каждой мутации StaffService). */
   async resyncWorkspaceStaff(workspaceId: string): Promise<void> {
@@ -361,7 +379,7 @@ export class AccessProjectionService {
 
   private async applyStaffDiff(workspaceId: string | null): Promise<DiffResult> {
     const wsWhere = workspaceId ? { workspaceId } : {};
-    const [assignments, departments] = await Promise.all([
+    const [assignments, departments, branches, positions] = await Promise.all([
       this.db.staffAssignment.findMany({
         where: wsWhere,
         select: {
@@ -373,48 +391,121 @@ export class AccessProjectionService {
       }),
       this.db.staffDepartment.findMany({
         where: wsWhere,
-        select: { id: true, parentId: true },
+        select: { id: true, parentId: true, headPositionId: true },
       }),
+      this.db.staffBranch.findMany({
+        where: wsWhere,
+        select: { id: true, headPositionId: true },
+      }),
+      this.db.staffPosition.findMany({ where: wsWhere, select: { id: true } }),
     ]);
 
     const parentOf = new Map(departments.map((d) => [d.id, d.parentId]));
+    const childrenOf = new Map<string, string[]>();
+    for (const d of departments) {
+      if (!d.parentId) continue;
+      const list = childrenOf.get(d.parentId) ?? [];
+      list.push(d.id);
+      childrenOf.set(d.parentId, list);
+    }
     const desiredByKey = new Map<string, RelationTupleInput>();
     const put = (t: RelationTupleInput) => desiredByKey.set(this.key(t), t);
 
+    // Держатели должности: все и по объектам (голова объекта — только работающие в нём).
+    const holdersOf = new Map<string, Set<string>>();
+    const holdersInBranch = new Map<string, Set<string>>(); // `${positionId}:${branchId}`
     for (const a of assignments) {
-      put({ resourceType: 'position', resourceId: a.positionId, relation: 'holder', subjectType: 'user', subjectId: a.userId });
-      if (a.branchId) {
-        put({ resourceType: 'branch', resourceId: a.branchId, relation: 'member', subjectType: 'user', subjectId: a.userId });
-      }
-      // Отдел + все предки (closure; visited-гард на случай повреждённого дерева).
-      let dep = a.position.departmentId;
+      if (!holdersOf.has(a.positionId)) holdersOf.set(a.positionId, new Set());
+      holdersOf.get(a.positionId)!.add(a.userId);
+      const k = `${a.positionId}:${a.branchId}`;
+      if (!holdersInBranch.has(k)) holdersInBranch.set(k, new Set());
+      holdersInBranch.get(k)!.add(a.userId);
+    }
+
+    const ancestorsOf = (depId: string | null): string[] => {
+      const out: string[] = [];
       const visited = new Set<string>();
+      let dep = depId;
       while (dep && !visited.has(dep)) {
         visited.add(dep);
-        put({ resourceType: 'department', resourceId: dep, relation: 'member', subjectType: 'user', subjectId: a.userId });
+        out.push(dep);
         dep = parentOf.get(dep) ?? null;
+      }
+      return out;
+    };
+    const subtreeOf = (depId: string): string[] => {
+      const out: string[] = [];
+      const visited = new Set<string>();
+      const stack = [depId];
+      while (stack.length) {
+        const cur = stack.pop()!;
+        if (visited.has(cur)) continue;
+        visited.add(cur);
+        out.push(cur);
+        for (const c of childrenOf.get(cur) ?? []) stack.push(c);
+      }
+      return out;
+    };
+
+    for (const a of assignments) {
+      put({ resourceType: 'position', resourceId: a.positionId, relation: 'holder', subjectType: 'user', subjectId: a.userId });
+      put({ resourceType: 'branch', resourceId: a.branchId, relation: 'member', subjectType: 'user', subjectId: a.userId });
+      // Отдел + все предки (closure ВВЕРХ; visited-гард на случай повреждённого дерева).
+      for (const dep of ancestorsOf(a.position.departmentId)) {
+        put({ resourceType: 'department', resourceId: dep, relation: 'member', subjectType: 'user', subjectId: a.userId });
+      }
+    }
+
+    // Головы отделов: closure ВНИЗ (голова D — голова всех подотделов D) + member предков
+    // D (голова снаружи отдела всё равно «в дереве»: грант на родительский отдел её достаёт).
+    for (const d of departments) {
+      if (!d.headPositionId) continue;
+      const holders = holdersOf.get(d.headPositionId);
+      if (!holders?.size) continue;
+      const subtree = subtreeOf(d.id);
+      const above = ancestorsOf(d.parentId);
+      for (const userId of holders) {
+        for (const dep of subtree) {
+          put({ resourceType: 'department', resourceId: dep, relation: 'head', subjectType: 'user', subjectId: userId });
+        }
+        for (const dep of above) {
+          put({ resourceType: 'department', resourceId: dep, relation: 'member', subjectType: 'user', subjectId: userId });
+        }
+      }
+    }
+
+    // Головы объектов: ТОЛЬКО держатели, работающие в этом объекте (управляющий
+    // чужой точки не становится головой этой).
+    for (const b of branches) {
+      if (!b.headPositionId) continue;
+      const holders = holdersInBranch.get(`${b.headPositionId}:${b.id}`);
+      if (!holders?.size) continue;
+      for (const userId of holders) {
+        put({ resourceType: 'branch', resourceId: b.id, relation: 'head', subjectType: 'user', subjectId: userId });
       }
     }
 
     // Скоуп существующих tuples: при per-workspace resync — только сущности этого
     // воркспейса (tuples не несут workspaceId); при глобальной сверке — все три типа.
-    let existingWhere: Prisma.RelationTupleWhereInput;
-    if (workspaceId) {
-      const [posIds, brIds, depIds] = await Promise.all([
-        this.db.staffPosition.findMany({ where: { workspaceId }, select: { id: true } }),
-        this.db.staffBranch.findMany({ where: { workspaceId }, select: { id: true } }),
-        this.db.staffDepartment.findMany({ where: { workspaceId }, select: { id: true } }),
-      ]);
-      existingWhere = {
-        OR: [
-          { resourceType: 'position', resourceId: { in: posIds.map((x) => x.id) } },
-          { resourceType: 'branch', resourceId: { in: brIds.map((x) => x.id) } },
-          { resourceType: 'department', resourceId: { in: depIds.map((x) => x.id) } },
-        ],
-      };
-    } else {
-      existingWhere = { resourceType: { in: ['position', 'branch', 'department'] } };
-    }
+    // В ОБОИХ случаях — только отношения, которыми владеет проекция, и только
+    // user-субъекты: чужие рёбра (делегирование, гранты Группам) диф не трогает.
+    const owned = AccessProjectionService.STAFF_OWNED_RELATIONS;
+    const scoped = (type: 'position' | 'branch' | 'department', ids: string[] | null): Prisma.RelationTupleWhereInput => ({
+      resourceType: type,
+      relation: { in: owned[type] },
+      subjectType: 'user',
+      subjectRelation: '',
+      ...(ids ? { resourceId: { in: ids } } : {}),
+    });
+    const existingWhere: Prisma.RelationTupleWhereInput = workspaceId
+      ? {
+          OR: [
+            scoped('position', positions.map((x) => x.id)),
+            scoped('branch', branches.map((x) => x.id)),
+            scoped('department', departments.map((x) => x.id)),
+          ],
+        }
+      : { OR: [scoped('position', null), scoped('branch', null), scoped('department', null)] };
     const existing = await this.db.relationTuple.findMany({
       where: existingWhere,
       select: { id: true, resourceType: true, resourceId: true, relation: true, subjectType: true, subjectId: true, subjectRelation: true },

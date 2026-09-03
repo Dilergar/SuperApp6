@@ -5,6 +5,7 @@
 import { Icon } from '@/components/ui/Icon';
 import type { MessageDeliveryStatus, CardSkinRender } from '@superapp/shared';
 import { usePersonSkin } from '@/lib/person-skins';
+import { ensureReadableInk } from '@/lib/contrast';
 
 // ============================================================
 // Small presentational helpers shared across the Messenger UI.
@@ -31,6 +32,11 @@ export function Avatar({
   const initial = (name || '?').charAt(0).toUpperCase();
   const t = skin?.tokens;
   const radius = t?.avatarRadius || 'var(--radius-sketch)';
+  // Инициалы — функциональный текст: по ним человека узнают, когда фото нет.
+  // Пара «фон + чернила» приезжает из ДАННЫХ скина, и живые скины давали 3.7:1
+  // и 4.0:1 при требовании продукта ≥4.5:1 — гвард дотемняет ЧЕРНИЛА САМОГО СКИНА
+  // (новый цвет не выдумывается), непонятный формат оставляет как есть.
+  const inkColor = t?.avatarBg && t?.avatarColor ? ensureReadableInk(t.avatarBg, t.avatarColor) : t?.avatarColor;
 
   const inner = avatar ? (
     <img
@@ -46,7 +52,7 @@ export function Avatar({
       style={{
         width: dims, height: dims, borderRadius: radius,
         background: t?.avatarBg || 'var(--secondary-container)',
-        color: t?.avatarColor || 'var(--secondary)',
+        color: inkColor || 'var(--secondary)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: fs,
         flexShrink: 0, border: t?.avatarInnerBorder,

@@ -224,7 +224,10 @@ export class HrLibraryService {
 
     const r = item.route;
     if (r.managerApproval) {
-      addHuman('approve', { kind: 'approval', title: `Согласовать: ${item.template.name}`, ...assignee }, 'Согласование руководителя');
+      // Заявление согласует РУКОВОДИТЕЛЬ СТОРОНЫ документа — по оргструктуре в момент
+      // шага (вершина → владелец), а не подписант организации: поимённый согласующий
+      // в 11 бланках был временной заплаткой до появления структуры.
+      addHuman('approve', { kind: 'approval', title: `Согласовать: ${item.template.name}`, assigneeMode: 'subject_manager' }, 'Согласование руководителя');
     }
     if (r.employerSign) {
       addHuman(

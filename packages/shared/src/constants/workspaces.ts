@@ -4,6 +4,18 @@ import type { WorkspaceCardVisibility } from '../types/workspace';
 // Workspace (B2B) limits — enforced in the service layer
 // ============================================================
 
+/**
+ * Машинные коды отказов организации — клиент ветвится по коду, а не по русскому тексту
+ * (правило конверта ошибок, см. docs/api_conventions.md).
+ */
+export const WORKSPACE_ERROR_CODES = {
+  /** У человека действующий трудовой договор — исключать из организации нельзя */
+  employmentActive: 'employment_active',
+  /** Потолок состава организации (WORKSPACE_LIMITS.maxMembersPerWorkspace) */
+  memberLimit: 'workspace_member_limit',
+} as const;
+export type WorkspaceErrorCode = (typeof WORKSPACE_ERROR_CODES)[keyof typeof WORKSPACE_ERROR_CODES];
+
 export const WORKSPACE_LIMITS = {
   // Max workspaces one user can OWN (a person may run several businesses).
   maxWorkspacesOwnedPerUser: 20,

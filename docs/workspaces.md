@@ -7,7 +7,7 @@
 - CRUD + передача владения + выход; лимиты `WORKSPACE_LIMITS`.
 - **Приглашения по номеру** (send/accept/reject/cancel; external-активация при регистрации/смене номера) — найм ВСЕГДА в Стажёра, приглашать может **manager+** (iiko-модель), без кулдаунов (анти-мусорный потолок pending 500). Опционально `positionId` + `branchIds[]` «с порога» → назначения создаются при принятии (в одной tx с членством+ролью).
 - **Профиль организации** (Party-паттерн, зеркало личного /profile): поля + `cardVisibility` на Workspace; `serializeWorkspace` отдаёт поля ПО РОЛИ зрителя (owner/admin видят всё; сотрудники — только включённые, остальные → null).
-- `createWorkspace`/`acceptInvitation`/`transferOwnership` атомарны (`setSoleWorkspaceRoleTx` + инвалидация кэша ролей).
+- `createWorkspace`/`acceptInvitation`/`transferOwnership` атомарны (`setSoleWorkspaceRoleTx` + инвалидация кэша ролей). `createWorkspace` заводит **основной объект** (`StaffBranch.isDefault`, имя организации) в той же транзакции — назначение всегда в объекте ([staff.md](staff.md)); приглашение без объектов → назначение в основной. Смена владельца/роли сбрасывает снимок оргструктуры (`StaffService.invalidateOrgGraph`).
 
 ## Реквизиты (фундамент документной вертикали)
 
@@ -24,13 +24,17 @@
 
 - `DELETE /:id` = деактивация (владелец); `GET /archived` + `POST /:id/restore` (владелец; перепроверяет потолок владения). Деактивация ничего не удаляет.
 - **Ретеншн 90 дней** (`archiveRetentionDays`): `archivedAt` (отдельная колонка — updatedAt двигает любая правка), `purgeAt` считает сервер. Свип — `WorkspacesCron` (ежедневно, Redis-лок) → `purgeWorkspace`.
-- **`purgeWorkspace` — источник правды каскада**: схема каскадит только часть таблиц; ⚠️ `tasks.workspace_id` = SET NULL (голое удаление организации превращает её задачи в ЛИЧНЫЕ) + таблицы с workspace_id без FK (процессы, хроника, звонки, ресурсы, tuples, роли) + чаты задач/встреч. Кошелёк/магазин/финкнига НЕ удаляются (журнал неизменяем).
+- **`purgeWorkspace` — источник правды каскада**: схема каскадит только часть таблиц; ⚠️ `tasks.workspace_id` = SET NULL (голое удаление организации превращает её задачи в ЛИЧНЫЕ) + таблицы с workspace_id без FK (процессы, хроника, звонки, ресурсы, tuples, роли) + чаты задач/встреч + рёбра осей оргструктуры (`position`/`department`/`branch` как ресурс и как получатель гранта — не несут workspaceId; `StaffDeputy` каскадится FK). Кошелёк/магазин/финкнига НЕ удаляются (журнал неизменяем).
 - Предупреждения владельцу за 7/3/1 день (`workspace.archive.expiring`; первый рубеж под остаток — максимум одно письмо за прогон; дедуп dedupKey; склонение — `pluralDays` shared). Обе ручки + DELETE сбрасывают кэш профиля (счётчик «Пространств» в Redis 5 мин).
 - Дев-прогон: `POST /workspaces/dev/purge-archives` (development).
 
 ## API (кратко)
 
-`GET /workspaces` · `POST /` · invitations (incoming/accept/reject; `:id/invitations` CRUD manager+) · `GET/PATCH/DELETE /:id` · requisites GET/PATCH + accounts CRUD · archived/restore · transfer/leave · `GET /:id/members` (ростер: роль + назначения + `member.card` по видимости владельца + `member.requisites` manager+) · `PATCH/DELETE /:id/members/:userId` (роль admin+; админа — только владелец; увольнение — каскад).
+`GET /workspaces` · `POST /` · invitations (incoming/accept/reject; `:id/invitations` CRUD manager+) · `GET/PATCH/DELETE /:id` · requisites GET/PATCH + accounts CRUD · archived/restore · transfer/leave · `GET /:id/members` (ростер: роль + назначения + `member.card` по видимости владельца; **реквизитов и карт в списке НЕТ** — расшифровка основной карты каждого сотрудника ради сетки лиц слишком дорога и слишком откровенна) · `GET /:id/members/:userId` (ОДИН человек с реквизитным блоком: комплект для договоров и выплат — manager+ всегда, коллеге — по тумблерам «Видимости в Компаниях»; здесь и только здесь расшифровывается карта) · `PATCH/DELETE /:id/members/:userId` (роль admin+; админа — только владелец; исключение — каскад).
+
+**Потолок состава** (`WORKSPACE_LIMITS.maxMembersPerWorkspace`) проверяется на приглашении и АВТОРИТЕТНО в транзакции принятия — 409 `workspace_member_limit`.
+
+**Исключение из организации ≠ увольнение по ТК.** С ДЕЙСТВУЮЩИМ трудовым договором `DELETE /:id/members/:userId` отвечает 409 `employment_active`: договор прекращается кадровым действием «Увольнение» (там же галочка «снять и членство»), иначе сроки КЭДО (ЕСУТД, расчёт, конец договора) продолжали бы тикать по человеку, которого в организации уже нет. Живой договор ищет `DI_TOKENS.HrService.liveEmployment` ленивым резолвом — [hr_kedo.md](hr_kedo.md).
 
 ## Веб
 

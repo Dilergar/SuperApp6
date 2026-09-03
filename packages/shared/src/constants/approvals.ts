@@ -13,6 +13,8 @@
 // Для человека всё это называется «Ждут решения»: слово «Согласование» не про
 // того, кому пришёл приказ на ОЗНАКОМЛЕНИЕ — он ничего не согласует.
 
+import { APPROVAL_AUDIENCE_KINDS } from './audiences';
+
 /**
  * Адрес карточки заявки — ОДНА точка правды.
  *
@@ -101,17 +103,20 @@ export const APPROVAL_STEP_STATUSES = ['waiting', 'active', 'approved', 'rejecte
 export type ApprovalStepStatus = (typeof APPROVAL_STEP_STATUSES)[number];
 
 /**
- * Кому адресован шаг.
+ * Кому адресован шаг — подмножество словаря core/audiences (`APPROVAL_AUDIENCE_KINDS`).
  *
- * «Руководитель инициатора» здесь СОЗНАТЕЛЬНО отсутствует: у отдела в платформе
- * пока нет руководителя (StaffDepartment без него), он появится вместе со
- * «Структурой организации» — тогда это станет ещё одним значением, и только.
+ * `manager_of` / `branch_head_of` — ОТНОСИТЕЛЬНЫЕ адресаты оргструктуры: id — человек
+ * или якорь (`$initiator` — автор заявки; сторону документа подставляет тот, кто её
+ * знает, — нода маршрута). Разворачиваются В МОМЕНТ АКТИВАЦИИ шага в снимок, как и
+ * отдел: «руководитель на момент активации» — согласуется с инвариантом снимка.
+ * Вершина без руководителя → владелец организации (снимок не пуст, подпись в
+ * assigneeLabel).
  *
  * `branch` добавлен вместе с КЭДО: рёбра `branch#member` давно проецируются в
  * движок прав, и ветка была мёртвой только из-за этой константы — «ознакомить
  * филиал с приказом» иначе невозможно.
  */
-export const APPROVAL_ASSIGNEE_TYPES = ['user', 'position', 'department', 'branch'] as const;
+export const APPROVAL_ASSIGNEE_TYPES = APPROVAL_AUDIENCE_KINDS;
 export type ApprovalAssigneeType = (typeof APPROVAL_ASSIGNEE_TYPES)[number];
 
 /**

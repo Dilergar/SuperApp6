@@ -24,7 +24,7 @@
 ## Санкционированные методы (копии запрещены)
 
 - **`assertReachable(ownerId, ids, msg?, opts?)`** — единый гейт «между людьми»: связь + нет блока в обе стороны; в контексте организации — со-членство командными ролями («рабочий пропуск»); `{personalOnly:true}` — для личных ресурсов; `alwaysCheckBlocks` — DM; `filterReachable` — не бросающая версия для фоновых путей.
-- **`resolveCircleMemberIds(ownerId, circleId)`** — ЕДИНСТВЕННЫЙ законный разворот Группы в людей (проверяет владение и гейтит состав; `{gate:false}` — только системные пути). Две разъехавшиеся копии уже стоили дыры в гейте.
+- **`resolveCircleMemberIds(ownerId, circleId)`** — ЕДИНСТВЕННЫЙ законный разворот Группы в людей (проверяет владение и гейтит состав; `{gate:false}` — только системные пути). Две разъехавшиеся копии уже стоили дыры в гейте. Адресат `circle` движка [audiences_engine.md](audiences_engine.md) регистрирует `ContactsAudiencesProvider` поверх него.
 - `listCircleIdsWhereMember`, `searchContactUsers`, `filterCoworkers` — вместо прямых чтений таблиц графа.
 - **`resolveVisibilityForViewer(ownerId, memberships, ownerCardVisibility)`** — санкционированный резолв видимости карточки при просмотре; Группы владельца тянутся ОДНИМ findMany в listContacts (без N+1).
 - **`PersonalGraphRegistry`** — выдал грант человеку из окружения → зарегистрируй `{onUnlinked}`; разрыв связи/блок снимает доступ (идемпотентно). Потребители: finances, calendar, shop, drive.

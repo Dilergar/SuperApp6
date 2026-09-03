@@ -22,6 +22,7 @@ import { ApprovalsService } from '../../core/approvals/approvals.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { fullName } from '../../shared/utils/user-name';
 import {
+  WORKSPACE_ERROR_CODES,
   WORKSPACE_LIMITS,
   WORKSPACE_ARCHIVE_WARN_DAYS,
   workspacePurgeAt,
@@ -168,6 +169,12 @@ export class WorkspacesService implements OnModuleInit {
           tenantId: w.id,
           grantedBy: userId,
         },
+      });
+      // Основной объект (StaffBranch.isDefault) заводится вместе с организацией: у
+      // организации ВСЕГДА ≥1 объект, назначение всегда в объекте — малый бизнес без
+      // отделов получает вертикаль «объект = отдел по умолчанию» без фиктивных сущностей.
+      await tx.staffBranch.create({
+        data: { workspaceId: w.id, name: data.name, isDefault: true },
       });
       return w;
     });
@@ -541,12 +548,19 @@ export class WorkspacesService implements OnModuleInit {
     });
     if (!ws) return;
 
-    const [tasks, rooms] = await Promise.all([
+    const [tasks, rooms, positions, departments, branches] = await Promise.all([
       this.db.task.findMany({ where: { workspaceId }, select: { id: true } }),
       this.db.officeRoom.findMany({ where: { workspaceId }, select: { id: true } }),
+      this.db.staffPosition.findMany({ where: { workspaceId }, select: { id: true } }),
+      this.db.staffDepartment.findMany({ where: { workspaceId }, select: { id: true } }),
+      this.db.staffBranch.findMany({ where: { workspaceId }, select: { id: true } }),
     ]);
     const taskIds = tasks.map((t) => t.id);
     const roomIds = rooms.map((r) => r.id);
+    // Оси оргструктуры: их рёбра в движке прав (position#holder, department#member|head,
+    // branch#member|head, гранты «отделу продаж» как получателю) не несут workspaceId и
+    // FK — без явной чистки остались бы сиротами навсегда. StaffDeputy каскадится FK.
+    const orgAxisIds = [...positions, ...departments, ...branches].map((r) => r.id);
     const chats = await this.db.chat.findMany({
       where: {
         OR: [
@@ -576,6 +590,16 @@ export class WorkspacesService implements OnModuleInit {
       await tx.relationTuple.deleteMany({
         where: { OR: [{ resourceId: { in: refIds } }, { subjectId: { in: refIds } }] },
       });
+      if (orgAxisIds.length) {
+        await tx.relationTuple.deleteMany({
+          where: {
+            OR: [
+              { resourceType: { in: ['position', 'department', 'branch'] }, resourceId: { in: orgAxisIds } },
+              { subjectType: { in: ['position', 'department', 'branch'] }, subjectId: { in: orgAxisIds } },
+            ],
+          },
+        });
+      }
       await tx.userRole.deleteMany({ where: { context: WS_CONTEXT, tenantId: workspaceId } });
       await tx.workspace.delete({ where: { id: workspaceId } });
     });
@@ -712,6 +736,8 @@ export class WorkspacesService implements OnModuleInit {
     // Both users' role rows changed inside the tx → bust both caches now.
     await this.roles.invalidateUserCache(toUserId);
     await this.roles.invalidateUserCache(userId);
+    // Владелец — фолбэк вертикали («руководитель не найден → владелец»): снимок графа сбросить.
+    await this.staff.invalidateOrgGraph(workspaceId);
   }
 
   // ============================================================
@@ -770,20 +796,11 @@ export class WorkspacesService implements OnModuleInit {
       if (!cur || ROLE_RANK[role] > ROLE_RANK[cur]) roleByUser.set(r.userId, role);
     }
 
-    // Основные карты — одним запросом на всю страницу (расшифровка в сервисе карт).
-    // Нужны управляющему (всегда) и коллегам тех, кто сам включил тумблер paymentCard.
-    const cardsNeeded = managerView
-      ? members.map((m) => m.userId)
-      : members
-          .filter((m) => {
-            const vis = resolveCardVisibility(
-              m.user.companyCardVisibility as Parameters<typeof resolveCardVisibility>[0],
-            );
-            return !!vis.extras?.[REQUISITE_VISIBILITY_EXTRAS.paymentCard];
-          })
-          .map((m) => m.userId);
-    const primaryCards = await this.paymentCards.primaryCardsFor(cardsNeeded);
-
+    // Реквизитов и карт в СПИСКЕ нет намеренно: ростер рисует сетку карточек, а
+    // расшифровка основной карты каждого сотрудника (полный PAN + IBAN) уезжала в
+    // браузер на каждый заход — тысяча номеров ради сетки лиц. Комплект для
+    // договоров и выплат отдаёт `getMember` по ОДНОМУ человеку, когда его открыли.
+    void managerView;
     return members.map((m) => ({
       id: m.id,
       workspaceId,
@@ -793,9 +810,69 @@ export class WorkspacesService implements OnModuleInit {
       role: roleByUser.get(m.userId) ?? 'staff',
       assignments: assignmentsByUser.get(m.userId) ?? [],
       card: this.companyCard(m.user),
-      ...this.memberRequisites(m.user, managerView, primaryCards.get(m.userId) ?? null),
       joinedAt: m.joinedAt.toISOString(),
     }));
+  }
+
+  /**
+   * ОДИН сотрудник с реквизитным блоком (договоры, трудоустройство, выплаты).
+   * Отдельная ручка, потому что здесь и только здесь расшифровывается основная
+   * карта: список этого делать не должен (см. listMembers).
+   */
+  async getMember(userId: string, workspaceId: string, targetUserId: string): Promise<WorkspaceMember> {
+    const viewerRole = await this.assertTeamMember(userId, workspaceId);
+    const managerView = ROLE_RANK[viewerRole] >= ROLE_RANK.manager;
+    const row = await this.db.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+      include: {
+        user: {
+          select: {
+            id: true,
+            phone: true,
+            firstName: true,
+            lastName: true,
+            avatar: true,
+            dateOfBirth: true,
+            bio: true,
+            city: true,
+            email: true,
+            maritalStatus: true,
+            socialLinks: true,
+            onlineStatusMode: true,
+            companyCardVisibility: true,
+            iin: true,
+            residentialAddress: true,
+            idDocNumber: true,
+            idDocIssuedBy: true,
+            idDocIssuedAt: true,
+          },
+        },
+      },
+    });
+    if (!row) throw new NotFoundException('Этот человек не в организации');
+    const roleRow = await this.db.userRole.findFirst({
+      where: { userId: targetUserId, context: WS_CONTEXT, tenantId: workspaceId, isActive: true },
+      select: { role: true },
+      orderBy: { grantedAt: 'desc' },
+    });
+    const vis = resolveCardVisibility(
+      row.user.companyCardVisibility as Parameters<typeof resolveCardVisibility>[0],
+    );
+    const needCard = managerView || !!vis.extras?.[REQUISITE_VISIBILITY_EXTRAS.paymentCard];
+    const primaryCard = needCard ? (await this.paymentCards.primaryCardsFor([targetUserId])).get(targetUserId) ?? null : null;
+    const assignments = (await this.staff.getAssignmentsByUser(workspaceId)).get(targetUserId) ?? [];
+    return {
+      id: row.id,
+      workspaceId,
+      userId: row.userId,
+      userName: this.fullName(row.user),
+      userAvatar: row.user.avatar,
+      role: (roleRow?.role as WorkspaceRole) ?? 'staff',
+      assignments,
+      card: this.companyCard(row.user),
+      ...this.memberRequisites(row.user, managerView, primaryCard),
+      joinedAt: row.joinedAt.toISOString(),
+    };
   }
 
   /**
@@ -924,6 +1001,8 @@ export class WorkspacesService implements OnModuleInit {
 
     if (data.role !== targetRole) {
       await this.setSoleWorkspaceRole(targetUserId, workspaceId, data.role, userId);
+      // Роли живут в снимке оргструктуры (состав команды, ранги «вне структуры»).
+      await this.staff.invalidateOrgGraph(workspaceId);
       await this.chatter.log(null, {
         refType: 'workspace',
         refId: workspaceId,
@@ -954,6 +1033,24 @@ export class WorkspacesService implements OnModuleInit {
     }
   }
 
+  /**
+   * Действующий трудовой договор человека (КЭДО). Ленивый ModuleRef-резолв: прямая
+   * инъекция HrModule в @Global-воркспейсы дала бы цикл (HR сам тянет Staff/Документы).
+   * Ошибка резолва НЕ блокирует увольнение — гейт закрывает дыру, а не создаёт новую.
+   */
+  private async activeEmploymentOf(workspaceId: string, targetUserId: string): Promise<{ id: string } | null> {
+    try {
+      const hr = this.moduleRef.get<{
+        liveEmployment: (ws: string, uid: string) => Promise<{ id: string; status: string } | null>;
+      }>(DI_TOKENS.HrService, { strict: false });
+      const employment = await hr.liveEmployment(workspaceId, targetUserId);
+      return employment && employment.status === 'active' ? { id: employment.id } : null;
+    } catch (err) {
+      this.logger.error(`activeEmploymentOf: ${err instanceof Error ? err.message : err}`);
+      return null;
+    }
+  }
+
   /** Fire a member (owner/admin). Owner cannot be removed — transfer first. */
   async removeMember(userId: string, workspaceId: string, targetUserId: string): Promise<void> {
     const actorRole = await this.assertCanManage(userId, workspaceId);
@@ -965,6 +1062,16 @@ export class WorkspacesService implements OnModuleInit {
     if (!targetRole) throw new NotFoundException('Этот человек не в организации');
     if (targetRole === 'admin' && actorRole !== 'owner') {
       throw new ForbiddenException('Уволить Админа может только Владелец');
+    }
+    // Исключение из организации ≠ увольнение по ТК: договор живёт в КЭДО и после
+    // ухода продолжал тикать сроками (ЕСУТД, испытательный, конец договора) по
+    // человеку, которого в организации уже нет. Живой договор закрывается кадровым
+    // действием «Увольнение» (там же есть галочка «снять и членство»).
+    if (await this.activeEmploymentOf(workspaceId, targetUserId)) {
+      throw new ConflictException({
+        message: 'У человека действующий трудовой договор. Оформите увольнение по ТК в его карточке — там же можно снять членство в организации',
+        details: { code: WORKSPACE_ERROR_CODES.employmentActive },
+      });
     }
 
     await this.revokeAllWorkspaceRoles(targetUserId, workspaceId);
@@ -1069,6 +1176,16 @@ export class WorkspacesService implements OnModuleInit {
     });
     if (pendingCount >= WORKSPACE_LIMITS.maxPendingInvitationsPerWorkspace) {
       throw new BadRequestException('Достигнут лимит одновременных приглашений');
+    }
+    // Потолок состава был объявлен в shared и НЕ применялся нигде: организация росла
+    // без границы, а ростер отдаётся одним куском. Проверяем на входе (тут) и на
+    // принятии (там — авторитетно, в транзакции).
+    const membersCount = await this.db.workspaceMember.count({ where: { workspaceId } });
+    if (membersCount >= WORKSPACE_LIMITS.maxMembersPerWorkspace) {
+      throw new ConflictException({
+        message: `Достигнут потолок состава организации: ${WORKSPACE_LIMITS.maxMembersPerWorkspace}`,
+        details: { code: WORKSPACE_ERROR_CODES.memberLimit },
+      });
     }
 
     // Должность/филиалы — из справочников ЭТОЙ организации.
@@ -1217,6 +1334,18 @@ export class WorkspacesService implements OnModuleInit {
         throw new BadRequestException('Приглашение уже обработано');
       }
 
+      // Потолок состава: считаем В ТРАНЗАКЦИИ — иначе пачка одновременных принятий
+      // проезжает мимо предпроверки приглашения.
+      const already = await tx.workspaceMember.count({ where: { workspaceId: inv.workspaceId, userId } });
+      if (already === 0) {
+        const total = await tx.workspaceMember.count({ where: { workspaceId: inv.workspaceId } });
+        if (total >= WORKSPACE_LIMITS.maxMembersPerWorkspace) {
+          throw new ConflictException({
+            message: `В организации уже максимум участников (${WORKSPACE_LIMITS.maxMembersPerWorkspace})`,
+            details: { code: WORKSPACE_ERROR_CODES.memberLimit },
+          });
+        }
+      }
       await tx.workspaceMember.upsert({
         where: { workspaceId_userId: { workspaceId: inv.workspaceId, userId } },
         create: { workspaceId: inv.workspaceId, userId },
@@ -1261,7 +1390,13 @@ export class WorkspacesService implements OnModuleInit {
     // Role rows changed inside the tx → bust this user's cache now.
     await this.roles.invalidateUserCache(userId);
     // Назначение создано в tx (мимо StaffService-проекции) — спроецировать рёбра.
+    // Приглашение БЕЗ должности рёбер не добавляет, но состав команды в снимке
+    // оргструктуры меняет ВСЕГДА: снимок несёт живые роли (`members`), и без сброса
+    // новичок до истечения TTL (15 с процесс / 600 с Redis) «не в организации» —
+    // `line` отвечал 404, `manager_of` пустотой, а согласование отказывалось
+    // активировать шаг «руководитель» (`empty_assignees`).
     if (inv.positionId) await this.staff.projectWorkspaceStaff(inv.workspaceId);
+    else await this.staff.invalidateOrgGraph(inv.workspaceId);
 
     await this.notifications.emitEvent(
       'workspace.invitation.accepted',

@@ -155,8 +155,30 @@ export function buildWorkspaceNav(
 
   const items: AppNavItem[] = [
     { key: 'ws-home', label: 'Главная', icon: 'home', href: base, exact: true },
-    // Бейдж = «Кадровые сроки» КЭДО: несданное в ЕСУТД, вручения, расчёты
-    { key: 'ws-members', label: 'Сотрудники', icon: 'staff', href: `${base}/members`, badge: c.hrDeadlines },
+    // «Сотрудники» — ЕДИНСТВЕННЫЙ сервис организации со вторым уровнем сайдбара
+    // (Диску, Процессам, Офису его не заводили намеренно — у них один маршрут с
+    // вкладками). Отклонение осознанное: здесь пять разделов, один из которых —
+    // полноэкранный канвас оргструктуры, и вкладками на одной странице (1359 строк)
+    // это уже не жило. Бейдж = «Кадровые сроки» КЭДО (manager+): несданное в ЕСУТД,
+    // вручения, расчёты — теперь на своём разделе.
+    {
+      key: 'ws-members',
+      label: 'Сотрудники',
+      icon: 'staff',
+      href: `${base}/members`,
+      badge: c.hrDeadlines,
+      children: [
+        { key: 'ws-members-people', label: 'Люди', icon: 'people', href: `${base}/members`, exact: true },
+        { key: 'ws-members-org', label: 'Орг. структура', icon: 'department', href: `${base}/members/org` },
+        { key: 'ws-members-branches', label: 'Объекты', icon: 'branch', href: `${base}/members/branches` },
+        ...(isManager
+          ? [
+              { key: 'ws-members-invites', label: 'Приглашения', icon: 'userAdd' as IconName, href: `${base}/members/invitations` },
+              { key: 'ws-members-deadlines', label: 'Сроки', icon: 'clock' as IconName, href: `${base}/members/deadlines`, badge: c.hrDeadlines },
+            ]
+          : []),
+      ],
+    },
     { key: 'ws-processes', label: 'Процессы', icon: 'processes', href: `${base}/processes` },
     { key: 'ws-office', label: 'Виртуальный офис', icon: 'office', href: `${base}/office` },
     // Диск организации — ОДИН маршрут с вкладками внутри, как у остальных сервисов

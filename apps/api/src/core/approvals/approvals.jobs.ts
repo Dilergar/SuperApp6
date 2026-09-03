@@ -11,6 +11,7 @@ import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { NotificationsService } from '../../modules/notifications/notifications.service';
 import { ApprovalsRegistry } from './approvals.registry';
 import { ApprovalsService } from './approvals.service';
+import { AudiencesService } from '../audiences/audiences.service';
 import {
   APPROVAL_ANNOUNCE_JOB,
   APPROVAL_ESCALATE_JOB,
@@ -42,6 +43,7 @@ export class ApprovalsJobs implements OnModuleInit {
     private readonly registry: ApprovalsRegistry,
     private readonly notifications: NotificationsService,
     private readonly approvals: ApprovalsService,
+    private readonly audiences: AudiencesService,
   ) {}
 
   onModuleInit(): void {
@@ -130,7 +132,22 @@ export class ApprovalsJobs implements OnModuleInit {
 
     const payload = { refTitle: step.request.refTitle, stepTitle: step.title, actionLabel: labels.action };
     // Автор узнаёт вместе с адресатами: просрочка — это его проблема, а не их.
-    const recipients = [...new Set([...step.awaitingUserIds, step.request.createdById])];
+    // И ВВЕРХ: руководитель каждого просрочившего (оргструктура; вершина → владелец) —
+    // эскалация идёт по вертикали, а не только «по кругу». Провал разворота не роняет
+    // эскалацию адресатам.
+    const managers = step.request.workspaceId
+      ? await this.audiences
+          .resolve(
+            step.awaitingUserIds.map((uid) => ({ type: 'manager_of' as const, id: uid })),
+            { workspaceId: step.request.workspaceId },
+            { max: 200, onOverflow: 'truncate' },
+          )
+          .catch((e) => {
+            this.logger.warn(`эскалация ${stepId}: руководители не развернулись — ${(e as Error).message}`);
+            return [] as string[];
+          })
+      : [];
+    const recipients = [...new Set([...step.awaitingUserIds, step.request.createdById, ...managers])];
     for (const uid of recipients) {
       await this.notifications
         .notify(uid, 'approval.overdue', payload, { actionUrl, dedupKey: `apov:${stepId}:${uid}` })

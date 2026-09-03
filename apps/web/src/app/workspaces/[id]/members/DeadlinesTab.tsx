@@ -22,6 +22,7 @@ import {
   type HrDeadlineItemDto,
 } from '@superapp/shared';
 import { apiErrorMessage, apiGet } from '@/lib/api';
+import { dmy } from '@/lib/dates';
 import {
   createHrBatch,
   fetchEsutd,
@@ -63,7 +64,7 @@ const dateToIso = (d: Date | null): string | undefined =>
 function DaysLeftChip({ item }: { item: HrDeadlineItemDto }) {
   if (item.overdue) return <Chip tone="danger">Просрочено</Chip>;
   if (item.workDaysLeft === null) {
-    return item.dueAt ? <Chip tone="neutral">до {item.dueAt.split('-').reverse().join('.')}</Chip> : null;
+    return item.dueAt ? <Chip tone="neutral">до {dmy(item.dueAt)}</Chip> : null;
   }
   const tone = item.workDaysLeft <= 1 ? 'danger' : item.workDaysLeft <= 3 ? 'warning' : 'neutral';
   return (
@@ -250,7 +251,7 @@ export function DeadlinesTab({ workspaceId }: { workspaceId: string }) {
                     <div style={{ fontWeight: 700 }}>
                       {s.kind === 'contract' ? 'Заключение договора' : s.kind === 'amendment' ? 'Изменение договора' : 'Прекращение договора'}
                     </div>
-                    <div className="meta">Срок: до {s.dueAt.split('-').reverse().join('.')}</div>
+                    <div className="meta">Срок: до {dmy(s.dueAt)}</div>
                     {actor && (
                       <div style={{ marginTop: 6 }}>
                         <PersonChip size="S" userId={actor.id} firstName={actor.firstName} lastName={actor.lastName} avatar={actor.avatar} />
@@ -310,7 +311,7 @@ export function DeadlinesTab({ workspaceId }: { workspaceId: string }) {
                   {s.kind === 'contract' ? 'Заключение' : s.kind === 'amendment' ? 'Изменение' : 'Прекращение'} · сдано{' '}
                   {s.submittedAt ? new Date(s.submittedAt).toLocaleDateString('ru-RU') : '—'}
                   {s.externalNumber ? ` (№ ${s.externalNumber})` : ''} · исправление без штрафа до{' '}
-                  {s.correctionUntil!.split('-').reverse().join('.')}
+                  {dmy(s.correctionUntil)}
                 </div>
               ))}
           </div>

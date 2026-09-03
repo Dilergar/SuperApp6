@@ -38,7 +38,7 @@
 
 | Файл | О чём |
 |---|---|
-| [architecture_overview.md](architecture_overview.md) | Монорепо, модульный монолит, 15 движков, стек, порты |
+| [architecture_overview.md](architecture_overview.md) | Монорепо, модульный монолит, 16 движков, стек, порты |
 | [module_graph.md](module_graph.md) | Карта синхронных рёбер модулей, DI_TOKENS, carve-outs, известные нарушения границ. **Новое ребро → сюда** |
 | [module_graph_documents.md](module_graph_documents.md) | Часть 2 карты: Диск, core/docs, гостевые ссылки, Документооборот, Контрагенты, КЭДО, подпись/согласования/шаблоны |
 | [module_graph_edges.md](module_graph_edges.md) | ГЕНЕРИРУЕТСЯ (`pnpm check:docs --write`): точная таблица рёбер из импортов и DI-токенов |
@@ -73,6 +73,7 @@
 | [approvals_engine.md](approvals_engine.md) | Согласования «Ждут решения»: шаги, снимки адресатов, стопка |
 | [sign_engine.md](sign_engine.md) | Электронная подпись (ЭЦП НУЦ РК + ПЭП), вечные доказательства |
 | [templates_engine.md](templates_engine.md) | Заполнение шаблонов: свой docx-драйвер, builder→PDF, реестр полей |
+| [audiences_engine.md](audiences_engine.md) | Адресаты: единый словарь (человек/Группа/команда/оси/относительные), якоря, разворот в людей |
 
 ## Сервисы (apps/api/src/modules/)
 
@@ -87,7 +88,10 @@
 | [wallet_ledger.md](wallet_ledger.md) | Кошелёк-леджер: двойная запись, эскроу, карты, B2B-казна |
 | [card_skins.md](card_skins.md) | Скины карточек (косметика, платформенная валюта) |
 | [workspaces.md](workspaces.md) | Организации: приглашения, профиль, реквизиты, архив 90 дней |
-| [staff.md](staff.md) | Сотрудники: должности/отделы/филиалы, назначения, проекции осей |
+| [staff.md](staff.md) | Сотрудники: должности/отделы/объекты, назначения (основной объект, основное место), проекции осей |
+| [org_structure.md](org_structure.md) | Орг. структура: вертикаль на графе должностей и объектов, заместители, области, API |
+| [org_structure_resolve.md](org_structure_resolve.md) | Вывод вертикали: снимок с кэшем, `managerOf` / `holdersForPosition` / инверсия команды, циклы |
+| [org_structure_web.md](org_structure_web.md) | Орг. структура (веб): канвас, мастер, «Вне структуры», мобильное дерево, профиль |
 | [shop.md](shop.md) | My Wish & Shop: витрины, заказы, краудфандинг, вишлист |
 | [processes.md](processes.md) | Процессы: нодовый канвас, token-движок, AI-кластер, KZ-коннекторы |
 | [finance.md](finance.md) | Финансы B2C: редактируемая двойная запись, лимиты, долги, шеринг |

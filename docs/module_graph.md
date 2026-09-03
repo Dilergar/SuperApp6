@@ -7,7 +7,7 @@
 1. **Синхронно (инъекция сервиса)** — когда нужна атомарность (деньги в одной `$transaction`), консистентное чтение или security-обязательный эффект.
 2. **EventBus** — только то, что допустимо потерять; обязательная фоновая работа — `core/jobs` (`enqueue(tx, …)` в транзакции мутации). Подробно — [event_bus.md](event_bus.md).
 3. **Циклы** закрываются ленивыми ModuleRef-токенами. Все строковые токены — в манифесте `apps/api/src/shared/di-tokens.ts` (`DI_TOKENS`, 11 шт.: Messenger / Calendar / Shop / Processes / Finances / Office / Staff / Workspaces / RichCards / Documents / Hr). Потребители ссылаются на манифест (опечатка = ошибка компиляции); `AppModule.onApplicationBootstrap` smoke-проверяет резолв КАЖДОГО токена и валит старт при пропаже провайдера. Кто какой токен зовёт — в генерируемой таблице [module_graph_edges.md](module_graph_edges.md) (пометка «токен»).
-4. **Движки (`core/*`) не импортируют фичи.** Обратное направление — только реестры (`FilesRefRegistry`, `CallsRefRegistry`, `ChatterRefRegistry`, `CalendarLayersRegistry`, `DriveRoutingRegistry`, `ShareLinksRegistry`, `SignRegistry`, `ApprovalsRegistry`, `TemplateFieldRegistry`, `PersonalGraphRegistry` и т.д.): фича регистрирует резолвер/провайдер в своём `onModuleInit`.
+4. **Движки (`core/*`) не импортируют фичи.** Обратное направление — только реестры (`FilesRefRegistry`, `CallsRefRegistry`, `ChatterRefRegistry`, `CalendarLayersRegistry`, `DriveRoutingRegistry`, `ShareLinksRegistry`, `SignRegistry`, `ApprovalsRegistry`, `TemplateFieldRegistry`, `PersonalGraphRegistry`, `AudiencesRegistry` и т.д.): фича регистрирует резолвер/провайдер в своём `onModuleInit`.
    **Известные нарушения (записанный долг, не норма — [roadmap.md](roadmap.md), «Границы движков»):** семь движков (`approvals`, `auth`, `calls`, `files`, `share-links`, `sign`, `users`) → `modules/notifications` — до появления движка `core/notifications`; `core/users` → `modules/contacts`, `modules/workspaces` — решение не выбрано; `core/rich-cards` → `modules/messenger` (ленивый токен: карточка в чат) — решается вместе с `core/notifications`. Новых рёбер `core/* → modules/*` не добавлять: страж `scripts/check-docs.cjs` знает ровно этот список и роняет CI на любом другом. Точная таблица всех рёбер генерируется из кода — [module_graph_edges.md](module_graph_edges.md).
 
 ## Карта синхронных рёбер (по потребителям)
@@ -41,28 +41,9 @@
 - `CardSkinsService` → `LedgerService` (покупка скина).
 
 ### Организации / Сотрудники
-- `WorkspacesService` → `StaffService` (ростер с назначениями, каскад при увольнении/выходе, назначение «с порога» в одной tx с членством); → `PaymentCardsService` (WalletModule) — основная карта сотрудника батчем (`primaryCardsFor`; расшифровка PAN живёт только в сервисе карт); → `ApprovalsService.releaseUserFromWorkspaceSteps` (`removeMember`/`leaveWorkspace` снимают человека с активных шагов «Ждут решения»); → `DI_TOKENS.OfficeService` (каскад увольнения: участия во встречах + чаты встреч); → `FilesService` (логотип); → `ChatterService` + `ChatterRefRegistry`; → `RolesService`.
+- `WorkspacesService` → `StaffService` (ростер с назначениями, каскад при увольнении/выходе, назначение «с порога» в одной tx с членством); → `PaymentCardsService` (WalletModule) — основная карта сотрудника батчем (`primaryCardsFor`; расшифровка PAN живёт только в сервисе карт); → `ApprovalsService.releaseUserFromWorkspaceSteps` (`removeMember`/`leaveWorkspace` снимают человека с активных шагов «Ждут решения»); → `DI_TOKENS.OfficeService` (каскад увольнения: участия во встречах + чаты встреч); → `DI_TOKENS.HrService.liveEmployment` (гейт исключения из организации: с ДЕЙСТВУЮЩИМ трудовым договором человека не отпускаем — 409 `employment_active`, увольнение по ТК оформляется кадровым действием); → `FilesService` (логотип); → `ChatterService` + `ChatterRefRegistry`; → `RolesService`.
 - `WorkspaceShareLinksController` → `ShareLinksService` (ссылки организации); `WorkspacesTemplateFieldsProvider` → `TemplateFieldRegistry` (реквизиты организации в шаблоны).
-
-### «Между людьми» — единый гейт
-- `MessengerService` / `PresenceService` / `TasksService` / `CalendarService` / `ShopService` → `ContactsService.assertReachable` — контекстный гейт: личный режим = связь + нет блока в обе стороны; контекст организации = со-членство по командным ролям trainee+ («рабочий пропуск»; DM передаёт `alwaysCheckBlocks`). «Подрядчик» (contractor) изолирован. `{personalOnly:true}` — для ЛИЧНЫХ ресурсов (книга, календарь, витрина, вишлист). `filterReachable` — не бросающая версия для фоновых путей.
-- `MentionsService` / `ScheduledMessageService` → `NotificationsService` напрямую.
-
-### Файлы и их потребители
-- `MessengerService` / `ShopService` / `TasksService` → `FilesService` + `FilesRefRegistry` — вложения: регистрация refType-резолвера в onModuleInit (`chat_message`/`listing`/`task`), линковка `linkFile`/`linkManyInTx`, чтение `listLinked`; `FilesScanHook` → `NotificationsService` (заражённый файл).
-
-### Офис / Звонки
-- `OfficeService` → `CallsService`/`CallsRefRegistry` (резолвер `office_room`: canJoin=команда trainee+, canModerate=host∥manager+, `onJoinAuthorized` — синхронная материализация участника); → `MessengerService` (чат встречи); → `NotificationsService`. Carve-out: офис читает таблицы движка `call_sessions`/`call_session_participants` напрямую («идёт сейчас»), мессенджер читает `officeRoom`; `OfficeSystemListener` в мессенджере слушает `office.room.*` + `call.session.*` → системные плашки.
-- `MessengerService` → `CallsRefRegistry.register('chat')` (DM-дозвон, группы-баннеры) и → `CallsService.getActiveForRefs/listActiveByRefType` (activeCall в DTO чатов — от чатов пользователя, не всей платформы); `ChatCallsListener` слушает `call.*` с фильтром `refType==='chat'` → `call:state` + плашки итогов.
-- `CallsRecordingService` (core/calls) → `FilesService.ingestLocalFile` (headless-инжест файла записи) и → `NotificationsService`; `RecorderService` → `CallsRecordingRegistry.register('chat')` — доставка записи звонка каждому клейманту в Диктофон.
-
-### Голос
-- `VoiceService` (core/voice) → `FilesService` (`getMeta` — доступ, `openRawStream`/`localPathFor` — байты, `listLinksOfFile` — привязки в payload событий).
-- `RecorderService` → `FilesService`/`FilesRefRegistry` (refType `voice_recording`) и → `VoiceService` (`getStatusesForFiles`, `deleteForReapedFiles`); `RecorderEvents` → `NotificationsService`.
-
-### Хроника / Джобы (движки как потребители друг друга)
-- `TasksService`/`WorkspacesService`/`StaffService` → `ChatterService.log(tx,…)` — синхронно в транзакции мутации; мессенджер регистрирует chat-sink (`ChatterChatSink` → `registerChatSink('task')`); плашки чатов производит джоб `chatter.chatpost` (core/jobs), поставленный в той же tx; `ChatterService` → `RolesService` (гейт журнала).
-- `ChatterService` → `JobsService.enqueue(tx)`; `ScheduledMessageService` → `enqueue(tx)` + `register('messenger.scheduled.fire')`; `NotificationsDispatch` → `register('notifications.dispatch')`; ~40 сайтов 6 модулей (contacts/tasks/calendar/workspaces/staff/shop) → `NotificationsService.emitEvent` (шина + джоб). Рёбра движков подписи/ссылок/согласований/шаблонов — [module_graph_documents.md](module_graph_documents.md).
+- Оргструктура (внутри `StaffModule`) и потребители `core/audiences` — [module_graph_documents.md](module_graph_documents.md), раздел «Оргструктура и адресаты».
 
 ## Carve-out map (допустимые прямые чтения чужих таблиц)
 

@@ -1,127 +1,52 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
+import { useMemo, useRef, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
-import {
-  workspaceKey,
-  workspaceMembersKey,
-  workspaceStaffKey,
-  workspaceInvitationsKey,
-  hrDeadlinesCountKey,
-  hrRosterOverviewKey,
-} from '@/lib/queries';
-import { fetchHrDeadlinesCount, fetchHrRosterOverview } from '@/lib/hr-api';
-import { DeadlinesTab } from './DeadlinesTab';
-import { invalidateEntities, type Principal } from '@/lib/entities';
+import { workspaceKey, hrRosterOverviewKey, orgScopeKey, workspaceMemberKey } from '@/lib/queries';
+import { fetchHrRosterOverview } from '@/lib/hr-api';
+import { fetchOrgScope } from '@/lib/org-api';
+import { type Principal } from '@/lib/entities';
 import { EntitySelector } from '@/components/EntitySelector';
 import {
-  Alert, BentoGrid, Button, Card, CardHeader, Chip, ConfirmDialog, Divider, EmptyState, Field,
-  Icon, IconButton, Input, LoadingBlock, Modal, PageHeader, SearchField, Select, StatTile, SegmentedControl,
-  type TabItem,
+  Alert, BentoGrid, Button, Card, CardHeader, Chip, ConfirmDialog, EmptyState, Field,
+  Icon, IconButton, LoadingBlock, Modal, SearchField, Select,
 } from '@/components/ui';
 import { PersonChip, StaffPersonCard } from '../../../circles/PersonCard';
 import { SubmitDocumentModal } from '../documents/SubmitDocumentModal';
-import { PersonAvatar } from '../../../messenger/messenger-ui';
 import {
-  WORKSPACE_ROLES,
   ADMIN_ASSIGNABLE_WORKSPACE_ROLES,
   OWNER_ASSIGNABLE_WORKSPACE_ROLES,
-  type Workspace,
   type WorkspaceMember,
-  type WorkspaceInvitation,
   type WorkspaceRole,
   type StaffDirectory,
   type StaffAssignment,
-  type UserLookupDto,
   type ContactUserCard,
   type ChatDetail,
 } from '@superapp/shared';
-
-const roleLabel = (r: string): string => WORKSPACE_ROLES[r as WorkspaceRole]?.name ?? r;
-
-/** «Санжар Намыс» → ['Санжар', 'Намыс'] — PersonChip ждёт имя и фамилию раздельно. */
-const splitName = (full: string): [string, string | null] => {
-  const parts = (full || '?').trim().split(/\s+/);
-  return [parts[0] ?? '?', parts.slice(1).join(' ') || null];
-};
-
-type Tab = 'people' | 'positions' | 'departments' | 'branches' | 'invites' | 'deadlines';
+import { MemberRequisitesBlock, MembersHeader, roleLabel, splitName, useLegacyMembersTabRedirect, useMembersBase } from './members-lib';
 
 /**
- * Сервис «Сотрудники» (B2B): одна страница с вкладками — ростер L-карточками (как
- * «Моё окружение»), справочники Должности/Отделы/Филиалы, наём (всегда в Стажёра,
- * форма 1в1 как добавление в Окружение: номер → имя с инициалом → отправить).
- * Чтение — вся команда; справочники/назначения/наём — Менеджер+; роли/увольнение — Админ+.
+ * Сервис «Сотрудники» (B2B), раздел «Люди»: ростер L-карточками (как «Моё
+ * окружение»), фильтры, окно управления (роль + назначения + реквизиты +
+ * увольнение). Остальные разделы — свои маршруты (второй уровень сайдбара):
+ * Орг. структура · Объекты · Приглашения · Сроки.
+ * Чтение — вся команда; назначения — Менеджер+ и руководители своих веток/объектов
+ * (область считает СЕРВЕР — 403 приходит текстом); роли/увольнение — Админ+.
  */
 export default function WorkspaceStaffPage() {
-  const { isReady, user } = useRequireAuth();
   const router = useRouter();
   const { id: workspaceId } = useParams<{ id: string }>();
-  const qc = useQueryClient();
-
-  // ?tab=deadlines — дип-линк из уведомлений о сроках ЕСУТД
-  const searchParams = useSearchParams();
-  const initialTab = (searchParams.get('tab') as Tab | null) ?? 'people';
-  const [tab, setTab] = useState<Tab>(
-    ['people', 'positions', 'departments', 'branches', 'invites', 'deadlines'].includes(initialTab) ? initialTab : 'people',
-  );
-  // Клиентский переход (плитка «Кадровые сроки» с УЖЕ открытой страницы) меняет
-  // только query — useState-инициализатор второй раз не зовётся, вкладку
-  // переключает этот эффект.
-  useEffect(() => {
-    const t = searchParams.get('tab') as Tab | null;
-    if (t && ['people', 'positions', 'departments', 'branches', 'invites', 'deadlines'].includes(t)) setTab(t);
-  }, [searchParams]);
+  useLegacyMembersTabRedirect(workspaceId);
+  const { isReady, user, ws, wsQ, myRole, canManage, canStaff, dir, members, refreshStaff } = useMembersBase(workspaceId);
+  // Назначения правит не только Менеджер+: сервер пускает руководителя отдела и
+  // управляющего объектом в их области. Роль этого не знает — область считает
+  // сервер (`/org/my-scope`), поэтому ростер спрашивает её, а не гадает по роли.
+  const scopeQ = useQuery({ queryKey: orgScopeKey(workspaceId), queryFn: () => fetchOrgScope(workspaceId), enabled: isReady, retry: false });
+  const canAssign = canStaff || (scopeQ.data?.kind ?? 'none') !== 'none';
   const [error, setError] = useState('');
   const [leaving, setLeaving] = useState(false);
-
-  const wsQ = useQuery({
-    queryKey: workspaceKey(workspaceId),
-    queryFn: async () => await apiGet<Workspace>(`/workspaces/${workspaceId}`),
-    enabled: isReady,
-  });
-  const ws = wsQ.data;
-  const myRole = ws?.myRole;
-  const canManage = myRole === 'owner' || myRole === 'admin';
-  const canStaff = canManage || myRole === 'manager';
-
-  const membersQ = useQuery({
-    queryKey: workspaceMembersKey(workspaceId),
-    queryFn: async () =>
-      await apiGet<WorkspaceMember[]>(`/workspaces/${workspaceId}/members`),
-    enabled: isReady,
-  });
-  const staffQ = useQuery({
-    queryKey: workspaceStaffKey(workspaceId),
-    queryFn: async () =>
-      await apiGet<StaffDirectory>(`/workspaces/${workspaceId}/staff`),
-    enabled: isReady,
-  });
-  const invitesQ = useQuery({
-    queryKey: workspaceInvitationsKey(workspaceId),
-    queryFn: async () =>
-      await apiGet<WorkspaceInvitation[]>(`/workspaces/${workspaceId}/invitations`),
-    enabled: isReady && canStaff,
-  });
-  const deadlinesCountQ = useQuery({
-    queryKey: hrDeadlinesCountKey(workspaceId),
-    queryFn: () => fetchHrDeadlinesCount(workspaceId),
-    enabled: isReady && canStaff,
-  });
-
-  // Любая мутация справочников/назначений → точечная инвалидация + кэш EntitySelector.
-  const refreshStaff = () => {
-    qc.invalidateQueries({ queryKey: workspaceStaffKey(workspaceId) });
-    qc.invalidateQueries({ queryKey: workspaceMembersKey(workspaceId) });
-    invalidateEntities('department');
-    invalidateEntities('position');
-    invalidateEntities('branch');
-    // «Люди» в контексте организации = ростер: найм/увольнение/должности меняют и его.
-    invalidateEntities('user');
-  };
 
   const leave = async () => {
     try {
@@ -135,84 +60,36 @@ export default function WorkspaceStaffPage() {
 
   if (!isReady || wsQ.isLoading || !ws) return <LoadingBlock />;
 
-  const dir = staffQ.data ?? { departments: [], positions: [], branches: [] };
-  const members = membersQ.data ?? [];
-
-  const tabs: TabItem<Tab>[] = [
-    { key: 'people', label: 'Сотрудники', icon: 'people', count: members.length },
-    { key: 'positions', label: 'Должности', icon: 'position', count: dir.positions.length },
-    { key: 'departments', label: 'Отделы', icon: 'department', count: dir.departments.length },
-    { key: 'branches', label: 'Филиалы', icon: 'branch', count: dir.branches.length },
-    ...(canStaff
-      ? [{ key: 'invites' as Tab, label: 'Приглашения', icon: 'userAdd' as const, count: invitesQ.data?.length ?? 0 }]
-      : []),
-    // КЭДО: сводный экран «что горит сегодня» (ЕСУТД, вручения, расчёты,
-    // испытательные, срочные договоры, ознакомления) — Менеджер+
-    ...(canStaff
-      ? [{ key: 'deadlines' as Tab, label: 'Сроки', icon: 'clock' as const, count: deadlinesCountQ.data?.count ?? 0 }]
-      : []),
-  ];
-
   return (
-    <>
-      <PageHeader
-        breadcrumb={ws.name}
-        title="Сотрудники"
-        description="Ростер, справочники должностей и отделов, наём по номеру"
-        chip={<Chip tone="accent" icon="people">{ws.membersCount} чел.</Chip>}
-        // Матовая, а не призрачная: кнопка стоит на ФОНЕ СТРАНИЦЫ, а призрачная
-        // там остаётся без подложки и выпадает из системы (правило из календаря).
-        actions={
-          myRole && myRole !== 'owner' ? (
-            <Button variant="matte" tone="danger" icon="signOut" onClick={() => setLeaving(true)}>
-              Выйти из организации
-            </Button>
-          ) : undefined
-        }
+    <MembersHeader
+      ws={ws}
+      title="Сотрудники"
+      description="Ростер организации: карточки людей, должности, объекты"
+      error={error}
+      onCloseError={() => setError('')}
+      // Матовая, а не призрачная: кнопка стоит на ФОНЕ СТРАНИЦЫ, а призрачная
+      // там остаётся без подложки и выпадает из системы (правило из календаря).
+      actions={
+        myRole && myRole !== 'owner' ? (
+          <Button variant="matte" tone="danger" icon="signOut" onClick={() => setLeaving(true)}>
+            Выйти из организации
+          </Button>
+        ) : undefined
+      }
+    >
+      <PeopleSection
+        workspaceId={workspaceId}
+        members={members}
+        dir={dir}
+        meId={user?.id}
+        myRole={myRole}
+        canManage={canManage}
+        canStaff={canStaff}
+        canAssign={canAssign}
+        ownerId={ws.ownerId}
+        onError={setError}
+        refreshStaff={refreshStaff}
       />
-
-      <div style={{ marginBottom: 'var(--gap-grid)' }}>
-        <SegmentedControl aria-label="Разделы сервиса" items={tabs} value={tab} onChange={(k) => { setTab(k); setError(''); }} />
-      </div>
-
-      {error && (
-        <div style={{ marginBottom: 'var(--gap-grid)' }}>
-          <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>
-        </div>
-      )}
-
-      {tab === 'people' && (
-        <PeopleTab
-          workspaceId={workspaceId}
-          members={members}
-          dir={dir}
-          meId={user?.id}
-          myRole={myRole}
-          canManage={canManage}
-          canStaff={canStaff}
-          ownerId={ws.ownerId}
-          onError={setError}
-          refreshStaff={refreshStaff}
-        />
-      )}
-      {tab === 'positions' && (
-        <PositionsTab workspaceId={workspaceId} dir={dir} canStaff={canStaff} onError={setError} refresh={refreshStaff} />
-      )}
-      {tab === 'departments' && (
-        <DepartmentsTab workspaceId={workspaceId} dir={dir} canStaff={canStaff} onError={setError} refresh={refreshStaff} />
-      )}
-      {tab === 'branches' && (
-        <BranchesTab workspaceId={workspaceId} dir={dir} canStaff={canStaff} onError={setError} refresh={refreshStaff} />
-      )}
-      {tab === 'invites' && canStaff && (
-        <InvitesTab
-          workspaceId={workspaceId}
-          dir={dir}
-          invites={invitesQ.data ?? []}
-          onError={setError}
-        />
-      )}
-      {tab === 'deadlines' && canStaff && <DeadlinesTab workspaceId={workspaceId} />}
 
       <ConfirmDialog
         open={leaving}
@@ -223,17 +100,16 @@ export default function WorkspaceStaffPage() {
         confirmLabel="Выйти"
         danger
       />
-    </>
+    </MembersHeader>
   );
 }
 
 // ============================================================
-// Вкладка «Сотрудники»: фильтры + L-грид (как «Моё окружение») +
-// клик по карточке → окно управления
+// Ростер: фильтры + L-грид (как «Моё окружение») + клик по карточке → окно управления
 // ============================================================
 
-function PeopleTab({
-  workspaceId, members, dir, meId, myRole, canManage, canStaff, ownerId, onError, refreshStaff,
+function PeopleSection({
+  workspaceId, members, dir, meId, myRole, canManage, canStaff, canAssign, ownerId, onError, refreshStaff,
 }: {
   workspaceId: string;
   members: WorkspaceMember[];
@@ -242,6 +118,8 @@ function PeopleTab({
   myRole?: WorkspaceRole;
   canManage: boolean;
   canStaff: boolean;
+  /** Есть ли ХОТЬ КАКАЯ-ТО область правки назначений (роль manager+ или своя ветка/объект) */
+  canAssign: boolean;
   ownerId: string;
   onError: (m: string) => void;
   refreshStaff: () => void;
@@ -274,6 +152,7 @@ function PeopleTab({
     if (fRole && m.role !== fRole) return false;
     if (fHr === 'no_contract' && hrByUser[m.userId]) return false;
     if (fHr === 'mismatch' && !hrByUser[m.userId]?.mismatch) return false;
+    if (fHr === 'no_position' && m.assignments.length > 0) return false;
     if (q && !m.userName.toLowerCase().includes(q.trim().toLowerCase())) return false;
     return true;
   });
@@ -283,31 +162,28 @@ function PeopleTab({
 
   // Пропсы карточек считаются ОДИН раз на список и переживают кейстроки поиска:
   // StaffPersonCard обёрнут в memo, и именно стабильность этих объектов позволяет
-  // ему НЕ перерисовываться на каждый ввод в фильтрах (раньше сотня карточек со
-  // скинами пересобиралась на каждую букву).
+  // ему НЕ перерисовываться на каждый ввод в фильтрах.
   const cardProps = useMemo(() => {
     const map = new Map<string, { card: ContactUserCard; positions: string[]; branches: string[] }>();
     for (const m of members) {
-      // Страховка от устаревшего кэша (member без card после обновления контракта).
       let card: ContactUserCard;
       if (m.card) {
         card = m.card;
       } else {
         const [fn, ln] = splitName(m.userName);
         card = {
-          // `id` есть у ContactUserCard (это ОДИН тип с карточкой окружения) —
-          // локальная копия его теряла, хотя userId у строки ростера тот же самый.
           id: m.userId,
           phone: '', firstName: fn, lastName: ln, avatar: m.userAvatar,
           dateOfBirth: null, bio: null, city: null, email: null, maritalStatus: null,
           socialLinks: null, age: null, showOnlineStatus: false,
         };
       }
+      // Основное место — первым: бейдж карты = должности по порядку значимости.
+      const ordered = [...m.assignments].sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary));
       map.set(m.userId, {
         card,
-        // Бейдж карты = Должности; филиалы — отдельные чипы (роль организации на карте не видна).
-        positions: [...new Set(m.assignments.map((a) => a.positionName))],
-        branches: [...new Set(m.assignments.map((a) => a.branchName).filter((b): b is string => !!b))],
+        positions: [...new Set(ordered.map((a) => a.positionName))],
+        branches: [...new Set(ordered.map((a) => a.branchName).filter((b): b is string => !!b))],
       });
     }
     return map;
@@ -319,18 +195,12 @@ function PeopleTab({
   // «Написать» — DM через «рабочий пропуск» (заголовок организации), затем в чат.
   const writeTo = async (m: WorkspaceMember) => {
     try {
-      const chat = await apiPost<ChatDetail>(
-        '/messenger/chats/dm',
-        { userId: m.userId },
-        { headers: { 'X-Workspace-Id': workspaceId } },
-      );
+      const chat = await apiPost<ChatDetail>('/messenger/chats/dm', { userId: m.userId }, { headers: { 'X-Workspace-Id': workspaceId } });
       router.push(`/messenger?chat=${chat.id}`);
     } catch (e) {
       onError(apiErrorMessage(e));
     }
   };
-  // Стабильные обработчики поверх ref: сами колбэки не пересоздаются между
-  // рендерами (иначе memo карточек не работал бы), а зовут всегда свежий writeTo.
   const writeToRef = useRef(writeTo);
   writeToRef.current = writeTo;
   const actions = useMemo(() => {
@@ -338,11 +208,11 @@ function PeopleTab({
     for (const m of members) {
       map.set(m.userId, {
         onWrite: m.userId !== meId ? () => void writeToRef.current(m) : undefined,
-        onManage: canStaff || canManage ? () => setManagedId(m.userId) : undefined,
+        onManage: canAssign || canManage ? () => setManagedId(m.userId) : undefined,
       });
     }
     return map;
-  }, [members, meId, canStaff, canManage]);
+  }, [members, meId, canAssign, canManage]);
 
   const renderGrid = (list: WorkspaceMember[]) => (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 'var(--gap-grid)', alignItems: 'start' }}>
@@ -364,78 +234,37 @@ function PeopleTab({
   return (
     <>
       <BentoGrid>
-        {/* ---------- Фильтры ---------- */}
         <Card span={12} small>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-            <SearchField
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              onClear={() => setQ('')}
-              placeholder="Поиск по имени…"
-              width={200}
-              aria-label="Поиск по имени"
-            />
-            <Select
-              aria-label="Отдел"
-              value={fDep}
-              onChange={setFDep}
-              width={170}
-              options={[{ value: '', label: 'Все отделы', icon: 'department' }, ...dir.departments.map((d) => ({ value: d.id, label: d.name }))]}
-            />
-            <Select
-              aria-label="Должность"
-              value={fPos}
-              onChange={setFPos}
-              width={180}
-              options={[{ value: '', label: 'Все должности', icon: 'position' }, ...dir.positions.map((p) => ({ value: p.id, label: p.name }))]}
-            />
-            <Select
-              aria-label="Филиал"
-              value={fBr}
-              onChange={setFBr}
-              width={180}
-              options={[{ value: '', label: 'Все филиалы', icon: 'branch' }, ...dir.branches.map((b) => ({ value: b.id, label: b.name }))]}
-            />
-            <Select
-              aria-label="Роль"
-              value={fRole}
-              onChange={setFRole}
-              width={160}
-              options={[
-                { value: '', label: 'Все роли', icon: 'user' },
-                ...(['owner', 'admin', 'manager', 'staff', 'trainee'] as const).map((r) => ({ value: r, label: roleLabel(r) })),
-              ]}
-            />
+            <SearchField value={q} onChange={(e) => setQ(e.target.value)} onClear={() => setQ('')} placeholder="Поиск по имени…" width={200} aria-label="Поиск по имени" />
+            <Select aria-label="Отдел" value={fDep} onChange={setFDep} width={170}
+              options={[{ value: '', label: 'Все отделы', icon: 'department' }, ...dir.departments.map((d) => ({ value: d.id, label: d.name }))]} />
+            <Select aria-label="Должность" value={fPos} onChange={setFPos} width={180}
+              options={[{ value: '', label: 'Все должности', icon: 'position' }, ...dir.positions.map((p) => ({ value: p.id, label: p.name }))]} />
+            <Select aria-label="Объект" value={fBr} onChange={setFBr} width={180}
+              options={[{ value: '', label: 'Все объекты', icon: 'branch' }, ...dir.branches.map((b) => ({ value: b.id, label: b.name }))]} />
+            <Select aria-label="Роль" value={fRole} onChange={setFRole} width={160}
+              options={[{ value: '', label: 'Все роли', icon: 'user' }, ...(['owner', 'admin', 'manager', 'staff', 'trainee'] as const).map((r) => ({ value: r, label: roleLabel(r) }))]} />
             {canStaff && (
-              <Select
-                aria-label="Кадры"
-                value={fHr}
-                onChange={setFHr}
-                width={200}
+              <Select aria-label="Кадры" value={fHr} onChange={setFHr} width={200}
                 options={[
                   { value: '', label: 'Кадры: все', icon: 'file' },
+                  { value: 'no_position', label: 'Без назначения (вне структуры)' },
                   { value: 'no_contract', label: 'Нет трудовой карточки' },
                   { value: 'mismatch', label: 'Расхождение факт/договор' },
-                ]}
-              />
+                ]} />
             )}
-            {hasFilter && (
-              <Button variant="ghost" size="sm" icon="close" onClick={clearFilters}>Сбросить</Button>
-            )}
+            {hasFilter && <Button variant="ghost" size="sm" icon="close" onClick={clearFilters}>Сбросить</Button>}
           </div>
         </Card>
 
-        {/* ---------- Ростер ---------- */}
         <Card span={12}>
-          <CardHeader
-            title="Команда"
-            subtitle={hasFilter ? `Найдено: ${filtered.length} из ${team.length}` : `${team.length} чел.`}
-          />
+          <CardHeader title="Команда" subtitle={hasFilter ? `Найдено: ${filtered.length} из ${team.length}` : `${team.length} чел.`} />
           {filtered.length === 0 ? (
             <EmptyState
               icon="people"
               title={hasFilter ? 'Никого не найдено' : 'В команде пока никого'}
-              description={hasFilter ? 'Смягчите фильтры или сбросьте их.' : 'Наймите первого сотрудника на вкладке «Приглашения».'}
+              description={hasFilter ? 'Смягчите фильтры или сбросьте их.' : 'Наймите первого сотрудника в разделе «Приглашения».'}
               action={hasFilter ? <Button variant="matte" icon="close" onClick={clearFilters}>Сбросить фильтры</Button> : undefined}
             />
           ) : (
@@ -443,20 +272,15 @@ function PeopleTab({
           )}
         </Card>
 
-        {/* ---------- Подрядчики (Коллаб-модель) — только управляющим ---------- */}
         {canManage && contractors.length > 0 && (
           <Card span={12}>
-            <CardHeader
-              title="Подрядчики"
-              subtitle="Внешние исполнители: видят только свои задачи. Назначаются сервисами (Тайный гость, UGC), не вручную"
-            />
+            <CardHeader title="Подрядчики" subtitle="Внешние исполнители: видят только свои задачи. Назначаются сервисами (Тайный гость, UGC), не вручную" />
             {renderGrid(contractors)}
           </Card>
         )}
       </BentoGrid>
 
-      {/* Окно управления сотрудником */}
-      {managed && (canStaff || canManage) && (
+      {managed && (canAssign || canManage) && (
         <MemberModal
           workspaceId={workspaceId}
           member={managed}
@@ -464,19 +288,14 @@ function PeopleTab({
           meId={meId}
           myRole={myRole}
           canManage={canManage}
-          canStaff={canStaff}
+          canStaff={canAssign}
           isOwnerRow={managed.userId === ownerId}
           onClose={() => setManagedId(null)}
           refreshStaff={refreshStaff}
-          onSendDocument={() => {
-            setManagedId(null);
-            setDocumentFor(managed);
-          }}
+          onSendDocument={() => { setManagedId(null); setDocumentFor(managed); }}
         />
       )}
 
-      {/* Документ НА сотрудника — из его же карточки: кадровик оформляет приказ
-          там, где смотрит человека, а не ищет его заново в реестре документов. */}
       {documentFor && (
         <SubmitDocumentModal
           workspaceId={workspaceId}
@@ -490,10 +309,9 @@ function PeopleTab({
   );
 }
 
-/** Окно управления сотрудником: роль + должности + увольнение. */
+/** Окно управления сотрудником: роль + должности (объект, основное место) + увольнение. */
 function MemberModal({
-  workspaceId, member, dir, meId, myRole, canManage, canStaff, isOwnerRow, onClose, refreshStaff,
-  onSendDocument,
+  workspaceId, member, dir, meId, myRole, canManage, canStaff, isOwnerRow, onClose, refreshStaff, onSendDocument,
 }: {
   workspaceId: string;
   member: WorkspaceMember;
@@ -505,10 +323,17 @@ function MemberModal({
   isOwnerRow: boolean;
   onClose: () => void;
   refreshStaff: () => void;
-  /** «Оформить документ» — открывает подачу с этим сотрудником как стороной */
   onSendDocument: () => void;
 }) {
   const qc = useQueryClient();
+  // Реквизиты приезжают ПО ОДНОМУ человеку и только когда его открыли: в списке
+  // их нет (расшифровка карт всей организации на каждый заход — слишком дорого
+  // и слишком много данных «на всякий случай»).
+  const detailsQ = useQuery({
+    queryKey: workspaceMemberKey(workspaceId, member.userId),
+    queryFn: async () => await apiGet<WorkspaceMember>(`/workspaces/${workspaceId}/members/${member.userId}`),
+  });
+  const requisites = detailsQ.data?.requisites;
   const [newRole, setNewRole] = useState<WorkspaceRole>(member.role);
   const [pickPos, setPickPos] = useState<Principal[]>([]);
   const [pickBranch, setPickBranch] = useState('');
@@ -518,13 +343,10 @@ function MemberModal({
 
   const isSelf = member.userId === meId;
   const isContractor = member.role === 'contractor';
-  // Лестница: админа назначает/трогает только владелец; подрядчику роль/должности не меняются.
-  const assignable: readonly WorkspaceRole[] =
-    myRole === 'owner' ? OWNER_ASSIGNABLE_WORKSPACE_ROLES : ADMIN_ASSIGNABLE_WORKSPACE_ROLES;
-  const canChangeRole =
-    canManage && !isContractor && !isOwnerRow && !isSelf && (myRole === 'owner' || member.role !== 'admin');
-  const canFire =
-    canManage && !isOwnerRow && !isSelf && (myRole === 'owner' || member.role !== 'admin');
+  const assignable: readonly WorkspaceRole[] = myRole === 'owner' ? OWNER_ASSIGNABLE_WORKSPACE_ROLES : ADMIN_ASSIGNABLE_WORKSPACE_ROLES;
+  const canChangeRole = canManage && !isContractor && !isOwnerRow && !isSelf && (myRole === 'owner' || member.role !== 'admin');
+  const canFire = canManage && !isOwnerRow && !isSelf && (myRole === 'owner' || member.role !== 'admin');
+  const defaultBranch = dir.branches.find((b) => b.isDefault);
 
   const run = async (fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -539,10 +361,7 @@ function MemberModal({
     }
   };
 
-  const changeRole = () =>
-    run(async () => {
-      await apiPatch(`/workspaces/${workspaceId}/members/${member.userId}`, { role: newRole });
-    });
+  const changeRole = () => run(async () => { await apiPatch(`/workspaces/${workspaceId}/members/${member.userId}`, { role: newRole }); });
 
   const assign = () =>
     run(async () => {
@@ -556,10 +375,7 @@ function MemberModal({
     });
 
   // «Сохранить» — закрывающая кнопка, которая ДОВОДИТ начатое: применяет все
-  // невыполненные правки (выбранную роль, выбранную должность с филиалом) и
-  // закрывает окно. Ловушка «выбрал должность → закрыл окно → ничего не
-  // сохранилось» закрыта этим по построению (решение продукта 2026-08-19);
-  // мгновенные кнопки «Сменить»/«Назначить» остаются для точечных операций.
+  // невыполненные правки (роль, выбранную должность с объектом) и закрывает окно.
   const saveAll = async () => {
     setBusy(true);
     setLocalError('');
@@ -581,10 +397,8 @@ function MemberModal({
     }
   };
 
-  const unassign = (a: StaffAssignment) =>
-    run(async () => {
-      await apiDelete(`/workspaces/${workspaceId}/staff/assignments/${a.id}`);
-    });
+  const unassign = (a: StaffAssignment) => run(async () => { await apiDelete(`/workspaces/${workspaceId}/staff/assignments/${a.id}`); });
+  const makePrimary = (a: StaffAssignment) => run(async () => { await apiPatch(`/workspaces/${workspaceId}/staff/assignments/${a.id}`, { isPrimary: true }); });
 
   const fire = async () => {
     setBusy(true);
@@ -602,6 +416,7 @@ function MemberModal({
   };
 
   const [fn, ln] = splitName(member.userName);
+  const assignments = [...member.assignments].sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary));
 
   return (
     <Modal
@@ -609,18 +424,7 @@ function MemberModal({
       onClose={onClose}
       title={<PersonChip size="M" userId={member.userId} firstName={fn} lastName={ln} avatar={member.userAvatar} role={roleLabel(member.role)} />}
       size="md"
-      footer={
-        <>
-          {canFire && (
-            <Button variant="primary" tone="danger" icon="signOut" disabled={busy} onClick={() => setFiring(true)}>
-              Уволить
-            </Button>
-          )}
-          <Button variant="primary" tone="success" icon="save" loading={busy} onClick={() => void saveAll()}>
-            Сохранить
-          </Button>
-        </>
-      }
+      footer={<Button variant="primary" tone="success" icon="save" loading={busy} onClick={() => void saveAll()}>Сохранить</Button>}
     >
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {localError && <Alert tone="danger" onClose={() => setLocalError('')}>{localError}</Alert>}
@@ -631,28 +435,12 @@ function MemberModal({
           </Alert>
         ) : (
           <>
-            {/* Роль */}
             {canChangeRole && (
               <Field label="Роль в организации">
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <Select
-                    aria-label="Роль в организации"
-                    value={newRole}
-                    onChange={(v) => setNewRole(v as WorkspaceRole)}
-                    width={190}
-                    options={assignable.map((r) => ({ value: r, label: roleLabel(r) }))}
-                  />
-                  <Button
-                    variant="matte"
-                    tone="accent"
-                    size="sm"
-                    icon="check"
-                    disabled={newRole === member.role}
-                    loading={busy}
-                    onClick={changeRole}
-                  >
-                    Сменить
-                  </Button>
+                  <Select aria-label="Роль в организации" value={newRole} onChange={(v) => setNewRole(v as WorkspaceRole)} width={190}
+                    options={assignable.map((r) => ({ value: r, label: roleLabel(r) }))} />
+                  <Button variant="matte" tone="accent" size="sm" icon="check" disabled={newRole === member.role} loading={busy} onClick={changeRole}>Сменить</Button>
                 </div>
               </Field>
             )}
@@ -660,14 +448,13 @@ function MemberModal({
               <Alert tone="neutral" icon="lock">Роль Админа меняет только Владелец</Alert>
             )}
 
-            {/* Должности */}
             <div>
               <div className="label-caps" style={{ marginBottom: 'var(--spacing-2)' }}>Должности</div>
-              {member.assignments.length === 0 ? (
-                <p className="label-sm" style={{ margin: '0 0 var(--spacing-3)' }}>Должностей пока нет</p>
+              {assignments.length === 0 ? (
+                <p className="label-sm" style={{ margin: '0 0 var(--spacing-3)' }}>Должностей пока нет — человек вне структуры</p>
               ) : (
                 <div className="ui-stack" style={{ gap: '0.375rem', marginBottom: 'var(--spacing-3)' }}>
-                  {member.assignments.map((a) => (
+                  {assignments.map((a) => (
                     <div
                       key={a.id}
                       style={{
@@ -680,7 +467,12 @@ function MemberModal({
                         {a.positionName}
                         {a.departmentName ? <span className="label-sm"> · {a.departmentName}</span> : null}
                       </span>
-                      {a.branchName && <Chip size="sm" icon="branch">{a.branchName}</Chip>}
+                      <Chip size="sm" icon="branch">{a.branchName}</Chip>
+                      {a.isPrimary ? (
+                        <Chip size="sm" tone="accent" icon="star">Основное</Chip>
+                      ) : canStaff ? (
+                        <Button variant="ghost" size="sm" disabled={busy} onClick={() => makePrimary(a)}>Сделать основным</Button>
+                      ) : null}
                       {canStaff && (
                         <IconButton icon="close" label="Снять назначение" size={26} iconSize={13} disabled={busy} onClick={() => unassign(a)} />
                       )}
@@ -691,49 +483,51 @@ function MemberModal({
               {canStaff && (
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
                   <div style={{ minWidth: 200, flex: 1 }}>
-                    <EntitySelector
-                      value={pickPos}
-                      onChange={setPickPos}
-                      types={['position']}
-                      multi={false}
-                      placeholder="Должность из справочника…"
-                      context={{ workspaceId }}
-                    />
+                    <EntitySelector value={pickPos} onChange={setPickPos} types={['position']} multi={false} placeholder="Должность из справочника…" context={{ workspaceId }} />
                   </div>
                   <Select
-                    aria-label="Филиал"
+                    aria-label="Объект"
                     value={pickBranch}
                     onChange={setPickBranch}
-                    width={170}
-                    options={[{ value: '', label: 'Без филиала' }, ...dir.branches.map((b) => ({ value: b.id, label: b.name, icon: 'branch' as const }))]}
+                    width={190}
+                    options={[
+                      { value: '', label: defaultBranch ? `Основной: ${defaultBranch.name}` : 'Основной объект', icon: 'home' as const },
+                      ...dir.branches.filter((b) => !b.isDefault).map((b) => ({ value: b.id, label: b.name, icon: 'branch' as const })),
+                    ]}
                   />
-                  <Button variant="primary" tone="success" size="sm" icon="add" disabled={!pickPos[0]} loading={busy} onClick={assign}>
-                    Назначить
-                  </Button>
+                  <Button variant="primary" tone="success" size="sm" icon="add" disabled={!pickPos[0]} loading={busy} onClick={assign}>Назначить</Button>
                 </div>
               )}
             </div>
 
-            {/* Реквизиты для договоров и выплат: приезжают с ростером ТОЛЬКО
-                управляющим (второй, нередактируемый уровень «Видимости в
-                Компаниях») либо когда сотрудник сам открыл поле коллегам. */}
-            {member.requisites && <MemberRequisitesBlock req={member.requisites} />}
+            {requisites && <MemberRequisitesBlock req={requisites} />}
 
-            {/* Документы сотрудника: оформить приказ и посмотреть, что уже есть.
-                Кадровик работает с человеком там, где на него смотрит. */}
             <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
-              <Button variant="matte" size="sm" icon="file" onClick={onSendDocument}>
-                Оформить документ
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                icon="list"
-                href={`/workspaces/${workspaceId}/documents?subject=${member.userId}`}
-              >
-                Его документы
-              </Button>
+              <Button variant="matte" size="sm" icon="file" onClick={onSendDocument}>Оформить документ</Button>
+              <Button variant="ghost" size="sm" icon="list" href={`/workspaces/${workspaceId}/documents?subject=${member.userId}`}>Его документы</Button>
+              <Button variant="ghost" size="sm" icon="department" href={`/workspaces/${workspaceId}/members/org?focus=user:${member.userId}`}>В структуре</Button>
             </div>
+
+            {/* Опасное — отдельным блоком, а не сплошной красной кнопкой вплотную к
+                «Сохранить»: два разных «Уволить» (исключение из организации здесь и
+                кадровое увольнение по ТК в карточке) стояли под одной подписью. */}
+            {canFire && (
+              <div style={{ borderTop: '1px solid var(--divider)', paddingTop: 'var(--spacing-3)', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
+                <div className="label-caps">Уход из организации</div>
+                <p className="label-sm" style={{ margin: 0 }}>
+                  Исключение закрывает доступ к рабочим данным. Трудовой договор этим не прекращается —
+                  для увольнения по ТК откройте карточку сотрудника.
+                </p>
+                <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
+                  <Button variant="matte" tone="danger" size="sm" icon="signOut" disabled={busy} onClick={() => setFiring(true)}>
+                    Исключить из организации
+                  </Button>
+                  <Button variant="ghost" size="sm" icon="file" href={`/workspaces/${workspaceId}/members/${member.userId}`}>
+                    Оформить увольнение по ТК
+                  </Button>
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -742,618 +536,12 @@ function MemberModal({
         open={firing}
         onClose={() => setFiring(false)}
         onConfirm={fire}
-        title={`Уволить «${member.userName}»?`}
-        message="Назначения снимутся, доступ к рабочим данным закроется. Задачи и переписка сохранятся."
-        confirmLabel="Уволить"
+        title={`Исключить «${member.userName}» из организации?`}
+        message="Назначения снимутся, доступ к рабочим данным закроется. Задачи и переписка сохранятся, трудовой договор — тоже: его прекращают кадровым действием в карточке сотрудника."
+        confirmLabel="Исключить"
         danger
         loading={busy}
       />
     </Modal>
-  );
-}
-
-/** Реквизитный блок сотрудника (договоры, трудоустройство, выплаты) */
-function MemberRequisitesBlock({ req }: { req: NonNullable<WorkspaceMember['requisites']> }) {
-  const rows: Array<{ label: string; value: string | null }> = [
-    { label: 'ИИН', value: req.iin },
-    {
-      label: 'Дата рождения',
-      value: req.dateOfBirth ? new Date(req.dateOfBirth).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : null,
-    },
-    { label: 'Адрес проживания', value: req.residentialAddress },
-    {
-      label: 'Удостоверение',
-      value: req.idDocNumber
-        ? `№ ${req.idDocNumber}${req.idDocIssuedBy ? `, ${req.idDocIssuedBy}` : ''}${req.idDocIssuedAt ? `, от ${new Date(req.idDocIssuedAt).toLocaleDateString('ru-RU')}` : ''}`
-        : null,
-    },
-    {
-      label: 'Карта для выплат',
-      value: req.paymentCard
-        ? `${req.paymentCard.pan.replace(/(\d{4})(?=\d)/g, '$1 ')} · ${req.paymentCard.holderName}${req.paymentCard.iban ? ` · ${req.paymentCard.iban}` : ''}`
-        : null,
-    },
-  ].filter((r) => !!r.value);
-  if (!rows.length) return null;
-  return (
-    <div>
-      <div className="label-caps" style={{ marginBottom: 'var(--spacing-2)' }}>Реквизиты</div>
-      <div className="ui-stack" style={{ gap: '0.25rem' }}>
-        {rows.map((r) => (
-          <div key={r.label} style={{ display: 'flex', gap: 'var(--spacing-3)', fontSize: '0.85rem', lineHeight: 1.6 }}>
-            <span style={{ color: 'var(--on-surface-variant)', minWidth: 140 }}>{r.label}</span>
-            <span style={{ fontWeight: 500 }}>{r.value}</span>
-          </div>
-        ))}
-      </div>
-      <p className="label-sm" style={{ margin: 'var(--spacing-2) 0 0', opacity: 0.6 }}>
-        Данные для договоров и выплат. Сотрудник видит их в своей анкете; коллегам они не показываются.
-      </p>
-    </div>
-  );
-}
-
-// ============================================================
-// Справочники: Должности / Отделы / Филиалы
-// ============================================================
-
-function PositionsTab({
-  workspaceId, dir, canStaff, onError, refresh,
-}: {
-  workspaceId: string; dir: StaffDirectory; canStaff: boolean;
-  onError: (m: string) => void; refresh: () => void;
-}) {
-  const [name, setName] = useState('');
-  const [depId, setDepId] = useState('');
-  const [desc, setDesc] = useState('');
-  const [removing, setRemoving] = useState<{ id: string; name: string } | null>(null);
-
-  const create = useMutation({
-    mutationFn: async () =>
-      apiPost(`/workspaces/${workspaceId}/staff/positions`, {
-        name: name.trim(),
-        departmentId: depId || null,
-        description: desc.trim() || null,
-      }),
-    onSuccess: () => { setName(''); setDepId(''); setDesc(''); onError(''); refresh(); },
-    onError: (e) => onError(apiErrorMessage(e)),
-  });
-  const del = useMutation({
-    mutationFn: async (id: string) => apiDelete(`/workspaces/${workspaceId}/staff/positions/${id}`),
-    onSuccess: () => { setRemoving(null); onError(''); refresh(); },
-    onError: (e) => { setRemoving(null); onError(apiErrorMessage(e)); },
-  });
-
-  return (
-    <>
-      <BentoGrid>
-        {canStaff && (
-          <Card span={12} small>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-              <div style={{ width: 240 }}>
-                <Input label="Название" value={name} onChange={(e) => setName(e.target.value)} placeholder="Официант, Бухгалтер…" maxLength={100} />
-              </div>
-              <Select
-                label="Отдел"
-                value={depId}
-                onChange={setDepId}
-                width={200}
-                options={[{ value: '', label: 'Без отдела' }, ...dir.departments.map((d) => ({ value: d.id, label: d.name, icon: 'department' as const }))]}
-              />
-              <div style={{ flex: 1, minWidth: 200 }}>
-                <Input label="Описание" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Необязательно" maxLength={500} />
-              </div>
-              <Button variant="primary" tone="success" icon="add" disabled={!name.trim()} loading={create.isPending} onClick={() => create.mutate()}>
-                Создать
-              </Button>
-            </div>
-          </Card>
-        )}
-
-        <Card span={12}>
-          <CardHeader title="Должности" subtitle="Отдел сотрудника — производный от его должности (модель штатного расписания)" />
-          {dir.positions.length === 0 ? (
-            <EmptyState
-              icon="position"
-              title="Должностей пока нет"
-              description={canStaff ? 'Создайте первую: например «Официант» или «Бухгалтер».' : 'Справочник заполняют управляющие.'}
-            />
-          ) : (
-            <div className="ui-stack" style={{ gap: '0.375rem' }}>
-              {dir.positions.map((p) => (
-                <DirectoryRow
-                  key={p.id}
-                  icon="position"
-                  title={p.name}
-                  subtitle={`${p.departmentName ? `${p.departmentName} · ` : ''}${p.holdersCount ?? 0} чел.${p.description ? ` · ${p.description}` : ''}`}
-                  onRemove={canStaff ? () => setRemoving({ id: p.id, name: p.name }) : undefined}
-                />
-              ))}
-            </div>
-          )}
-        </Card>
-      </BentoGrid>
-
-      <ConfirmDialog
-        open={!!removing}
-        onClose={() => setRemoving(null)}
-        onConfirm={() => { if (removing) del.mutate(removing.id); }}
-        title={removing ? `Удалить должность «${removing.name}»?` : 'Удалить должность?'}
-        message="Если на должности есть люди — удалить не получится, сначала снимите назначения."
-        confirmLabel="Удалить"
-        danger
-        loading={del.isPending}
-      />
-    </>
-  );
-}
-
-/** Строка справочника: значок + название + мета + удаление. */
-function DirectoryRow({
-  icon,
-  title,
-  subtitle,
-  indent = 0,
-  onRemove,
-}: {
-  icon: 'position' | 'department' | 'branch';
-  title: string;
-  subtitle?: string;
-  indent?: number;
-  onRemove?: () => void;
-}) {
-  return (
-    <div
-      style={{
-        display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap',
-        marginLeft: indent, padding: '0.5rem 0.75rem',
-        border: '1px solid var(--divider)', borderRadius: 'var(--radius-md)',
-      }}
-    >
-      <Icon name={icon} size={18} style={{ color: 'var(--muted)' }} />
-      <span style={{ flex: 1, minWidth: 0 }}>
-        <span className="title-sm">{title}</span>
-        {subtitle && <span className="label-sm" style={{ display: 'block', marginTop: '0.125rem' }}>{subtitle}</span>}
-      </span>
-      {onRemove && <IconButton icon="delete" label={`Удалить «${title}»`} size={30} onClick={onRemove} />}
-    </div>
-  );
-}
-
-function DepartmentsTab({
-  workspaceId, dir, canStaff, onError, refresh,
-}: {
-  workspaceId: string; dir: StaffDirectory; canStaff: boolean;
-  onError: (m: string) => void; refresh: () => void;
-}) {
-  const [name, setName] = useState('');
-  const [parentId, setParentId] = useState('');
-  const [removing, setRemoving] = useState<{ id: string; name: string } | null>(null);
-
-  const create = useMutation({
-    mutationFn: async () =>
-      apiPost(`/workspaces/${workspaceId}/staff/departments`, {
-        name: name.trim(),
-        parentId: parentId || null,
-      }),
-    onSuccess: () => { setName(''); setParentId(''); onError(''); refresh(); },
-    onError: (e) => onError(apiErrorMessage(e)),
-  });
-  const del = useMutation({
-    mutationFn: async (id: string) => apiDelete(`/workspaces/${workspaceId}/staff/departments/${id}`),
-    onSuccess: () => { setRemoving(null); onError(''); refresh(); },
-    onError: (e) => { setRemoving(null); onError(apiErrorMessage(e)); },
-  });
-
-  // Дерево → плоский список с отступами (UI пока простой; канвас оргструктуры — позже).
-  const ordered = useMemo(() => {
-    const byParent = new Map<string | null, typeof dir.departments>();
-    for (const d of dir.departments) {
-      const k = d.parentId ?? null;
-      if (!byParent.has(k)) byParent.set(k, []);
-      byParent.get(k)!.push(d);
-    }
-    const out: Array<{ dep: (typeof dir.departments)[number]; depth: number }> = [];
-    const walk = (parent: string | null, depth: number) => {
-      for (const d of byParent.get(parent) ?? []) {
-        out.push({ dep: d, depth });
-        if (depth < 6) walk(d.id, depth + 1);
-      }
-    };
-    walk(null, 0);
-    // Отделы с «потерянным» родителем (на всякий) — в конец без отступа.
-    const seen = new Set(out.map((x) => x.dep.id));
-    for (const d of dir.departments) if (!seen.has(d.id)) out.push({ dep: d, depth: 0 });
-    return out;
-  }, [dir.departments]);
-
-  return (
-    <>
-      <BentoGrid>
-        {canStaff && (
-          <Card span={12} small>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-              <div style={{ width: 260 }}>
-                <Input label="Название" value={name} onChange={(e) => setName(e.target.value)} placeholder="Финансовый отдел…" maxLength={100} />
-              </div>
-              <Select
-                label="Родитель"
-                value={parentId}
-                onChange={setParentId}
-                width={220}
-                options={[{ value: '', label: 'Корневой отдел' }, ...dir.departments.map((d) => ({ value: d.id, label: `внутри: ${d.name}` }))]}
-              />
-              <Button variant="primary" tone="success" icon="add" disabled={!name.trim()} loading={create.isPending} onClick={() => create.mutate()}>
-                Создать
-              </Button>
-            </div>
-          </Card>
-        )}
-
-        <Card span={12}>
-          <CardHeader title="Отделы" subtitle="Дерево: грант на отдел достаёт и сотрудников подотделов" />
-          {dir.departments.length === 0 ? (
-            <EmptyState
-              icon="department"
-              title="Отделов пока нет"
-              description={canStaff ? 'Например «Финансовый отдел» или «Кухня».' : 'Справочник заполняют управляющие.'}
-            />
-          ) : (
-            <div className="ui-stack" style={{ gap: '0.375rem' }}>
-              {ordered.map(({ dep, depth }) => (
-                <DirectoryRow
-                  key={dep.id}
-                  icon="department"
-                  indent={depth * 22}
-                  title={dep.name}
-                  subtitle={`${dep.membersCount ?? 0} чел. · ${dep.positionsCount ?? 0} должн.`}
-                  onRemove={canStaff ? () => setRemoving({ id: dep.id, name: dep.name }) : undefined}
-                />
-              ))}
-            </div>
-          )}
-        </Card>
-      </BentoGrid>
-
-      <ConfirmDialog
-        open={!!removing}
-        onClose={() => setRemoving(null)}
-        onConfirm={() => { if (removing) del.mutate(removing.id); }}
-        title={removing ? `Удалить отдел «${removing.name}»?` : 'Удалить отдел?'}
-        message="Должности отцепятся от отдела, подотделы поднимутся в корень."
-        confirmLabel="Удалить"
-        danger
-        loading={del.isPending}
-      />
-    </>
-  );
-}
-
-function BranchesTab({
-  workspaceId, dir, canStaff, onError, refresh,
-}: {
-  workspaceId: string; dir: StaffDirectory; canStaff: boolean;
-  onError: (m: string) => void; refresh: () => void;
-}) {
-  const [name, setName] = useState('');
-  const [address, setAddress] = useState('');
-  const [removing, setRemoving] = useState<{ id: string; name: string } | null>(null);
-
-  const create = useMutation({
-    mutationFn: async () =>
-      apiPost(`/workspaces/${workspaceId}/staff/branches`, {
-        name: name.trim(),
-        address: address.trim() || null,
-      }),
-    onSuccess: () => { setName(''); setAddress(''); onError(''); refresh(); },
-    onError: (e) => onError(apiErrorMessage(e)),
-  });
-  const del = useMutation({
-    mutationFn: async (id: string) => apiDelete(`/workspaces/${workspaceId}/staff/branches/${id}`),
-    onSuccess: () => { setRemoving(null); onError(''); refresh(); },
-    onError: (e) => { setRemoving(null); onError(apiErrorMessage(e)); },
-  });
-
-  return (
-    <>
-      <BentoGrid>
-        {canStaff && (
-          <Card span={12} small>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-              <div style={{ width: 260 }}>
-                <Input label="Название" value={name} onChange={(e) => setName(e.target.value)} placeholder="Алматинский филиал…" maxLength={100} />
-              </div>
-              <div style={{ flex: 1, minWidth: 220 }}>
-                <Input label="Адрес" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Необязательно" maxLength={300} />
-              </div>
-              <Button variant="primary" tone="success" icon="add" disabled={!name.trim()} loading={create.isPending} onClick={() => create.mutate()}>
-                Создать
-              </Button>
-            </div>
-          </Card>
-        )}
-
-        <Card span={12}>
-          <CardHeader title="Филиалы" subtitle="Сотрудник может обслуживать несколько филиалов" />
-          {dir.branches.length === 0 ? (
-            <EmptyState
-              icon="branch"
-              title="Филиалов пока нет"
-              description={canStaff ? 'Например «Алматинский филиал» или «Офис 1».' : 'Справочник заполняют управляющие.'}
-            />
-          ) : (
-            <div className="ui-stack" style={{ gap: '0.375rem' }}>
-              {dir.branches.map((b) => (
-                <DirectoryRow
-                  key={b.id}
-                  icon="branch"
-                  title={b.name}
-                  subtitle={`${b.membersCount ?? 0} чел.${b.address ? ` · ${b.address}` : ''}`}
-                  onRemove={canStaff ? () => setRemoving({ id: b.id, name: b.name }) : undefined}
-                />
-              ))}
-            </div>
-          )}
-        </Card>
-      </BentoGrid>
-
-      <ConfirmDialog
-        open={!!removing}
-        onClose={() => setRemoving(null)}
-        onConfirm={() => { if (removing) del.mutate(removing.id); }}
-        title={removing ? `Удалить филиал «${removing.name}»?` : 'Удалить филиал?'}
-        message="Если к филиалу привязаны люди — удалить не получится, сначала переведите их."
-        confirmLabel="Удалить"
-        danger
-        loading={del.isPending}
-      />
-    </>
-  );
-}
-
-// ============================================================
-// Вкладка «Приглашения»: форма 1в1 как «Добавить в окружение» (b2c) —
-// номер → поиск человека (имя с инициалом) → блоки-чипы Должность/Филиалы → отправить.
-// Наём всегда в Стажёра (роль не выбирается). Филиалов можно несколько.
-// ============================================================
-
-/**
- * Блок выбора чипами — та же форма, что RolePicker в «Моё окружение»:
- * подпись сверху, матовые чипы кита в flex-wrap. single = одно значение,
- * multi = несколько (филиалы).
- */
-function ChipPickerBlock({
-  label, icon, options, selected, onToggle, emptyHint,
-}: {
-  label: string;
-  icon: 'position' | 'branch';
-  options: Array<{ id: string; label: string }>;
-  selected: string[];
-  onToggle: (id: string) => void;
-  emptyHint: string;
-}) {
-  return (
-    <Field label={label}>
-      {options.length === 0 ? (
-        <p className="label-sm" style={{ margin: 0 }}>{emptyHint}</p>
-      ) : (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem' }}>
-          {options.map((o) => (
-            <Chip
-              key={o.id}
-              size="sm"
-              tone="accent"
-              icon={icon}
-              selected={selected.includes(o.id)}
-              onClick={() => onToggle(o.id)}
-            >
-              {o.label}
-            </Chip>
-          ))}
-        </div>
-      )}
-    </Field>
-  );
-}
-
-function InvitesTab({
-  workspaceId, dir, invites, onError,
-}: {
-  workspaceId: string;
-  dir: StaffDirectory;
-  invites: WorkspaceInvitation[];
-  onError: (m: string) => void;
-}) {
-  const qc = useQueryClient();
-  const [phone, setPhone] = useState('+7');
-  const [posId, setPosId] = useState('');
-  const [branchIds, setBranchIds] = useState<string[]>([]);
-  const [message, setMessage] = useState('');
-  const [cancelling, setCancelling] = useState<WorkspaceInvitation | null>(null);
-
-  // Поиск по номеру — тот же механизм, что в «Моё окружение» (debounce + /users/lookup).
-  const [lookup, setLookup] = useState<UserLookupDto | null>(null);
-  const [lookupDone, setLookupDone] = useState(false);
-  const [lookupLoading, setLookupLoading] = useState(false);
-  const lookupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const handlePhoneLookup = (value: string) => {
-    setPhone(value);
-    setLookup(null);
-    setLookupDone(false);
-    if (lookupTimer.current) clearTimeout(lookupTimer.current);
-    if (value.length >= 12) {
-      setLookupLoading(true);
-      lookupTimer.current = setTimeout(async () => {
-        try {
-          setLookup(await apiGet<UserLookupDto | null>('/users/lookup', { params: { phone: value } }));
-          setLookupDone(true);
-        } catch {
-          setLookupDone(true);
-        } finally {
-          setLookupLoading(false);
-        }
-      }, 500);
-    }
-  };
-
-  useEffect(() => {
-    return () => { if (lookupTimer.current) clearTimeout(lookupTimer.current); };
-  }, []);
-
-  const refresh = () => qc.invalidateQueries({ queryKey: workspaceInvitationsKey(workspaceId) });
-
-  const invite = useMutation({
-    mutationFn: async () => {
-      if (!/^\+7\d{10}$/.test(phone)) throw new Error('bad-phone');
-      return apiPost(`/workspaces/${workspaceId}/invitations`, {
-        phone,
-        positionId: posId || undefined,
-        branchIds: branchIds.length ? branchIds : undefined,
-        message: message.trim() || undefined,
-      });
-    },
-    onSuccess: () => {
-      setPhone('+7'); setLookup(null); setLookupDone(false);
-      setPosId(''); setBranchIds([]); setMessage('');
-      onError('');
-      refresh();
-    },
-    onError: (e) =>
-      onError(
-        (e as Error)?.message === 'bad-phone'
-          ? 'Номер в формате +7XXXXXXXXXX'
-          : apiErrorMessage(e),
-      ),
-  });
-  const cancel = useMutation({
-    mutationFn: async (invId: string) => apiPost(`/workspaces/${workspaceId}/invitations/${invId}/cancel`),
-    onSuccess: () => { setCancelling(null); onError(''); refresh(); },
-    onError: (e) => { setCancelling(null); onError(apiErrorMessage(e)); },
-  });
-
-  return (
-    <>
-      <BentoGrid>
-        <Card span={7}>
-          <CardHeader
-            title="Пригласить сотрудника"
-            subtitle="Каждый наём — в роли «Стажёр». Роль повышается вручную (позже — после обучения в Додзё)"
-          />
-          <form onSubmit={(e) => { e.preventDefault(); invite.mutate(); }} className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
-            <Input
-              label="Номер телефона"
-              type="tel"
-              value={phone}
-              onChange={(e) => handlePhoneLookup(e.target.value)}
-              placeholder="+77001234567"
-              icon="call"
-              autoFocus
-            />
-
-            {lookupLoading && <p className="label-sm" style={{ margin: 0 }}>Поиск…</p>}
-            {lookupDone && lookup && (
-              <div
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)',
-                  border: '1px solid var(--primary-border)', background: 'var(--primary-container)',
-                  borderRadius: 'var(--radius-md)', padding: '0.5rem 0.75rem',
-                }}
-              >
-                <PersonAvatar userId={lookup.id} name={lookup.firstName} avatar={lookup.avatar} size="sm" />
-                <span>
-                  <span className="title-sm">{lookup.firstName} {lookup.lastName || ''}</span>
-                  <span className="label-sm" style={{ display: 'block' }}>{lookup.phone}</span>
-                </span>
-              </div>
-            )}
-            {lookupDone && !lookup && (
-              <Alert tone="neutral" icon="info">Пользователь не найден — приглашение уйдёт на этот номер</Alert>
-            )}
-
-            {/* Должность (одна) + Филиалы (несколько) — чипами, как роли в «Окружении» */}
-            <ChipPickerBlock
-              label="Должность (необязательно)"
-              icon="position"
-              options={dir.positions.map((p) => ({ id: p.id, label: p.departmentName ? `${p.name} · ${p.departmentName}` : p.name }))}
-              selected={posId ? [posId] : []}
-              onToggle={(id) => setPosId((cur) => (cur === id ? '' : id))}
-              emptyHint="Создайте должности во вкладке «Должности»"
-            />
-            <ChipPickerBlock
-              label="Филиалы (можно несколько)"
-              icon="branch"
-              options={dir.branches.map((b) => ({ id: b.id, label: b.name }))}
-              selected={branchIds}
-              onToggle={(id) => setBranchIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]))}
-              emptyHint="Создайте филиалы во вкладке «Филиалы»"
-            />
-
-            <Input
-              label="Сообщение"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              maxLength={500}
-              placeholder="Привет! Приглашаем в команду…"
-            />
-
-            <div>
-              <Button
-                type="submit"
-                variant="primary"
-                tone="success"
-                icon="send"
-                disabled={phone.length < 12}
-                loading={invite.isPending}
-              >
-                Отправить приглашение
-              </Button>
-            </div>
-          </form>
-        </Card>
-
-        <Card span={5}>
-          <CardHeader title="Ожидают ответа" subtitle={invites.length ? `${invites.length} приглашений` : undefined} />
-          {invites.length === 0 ? (
-            <EmptyState icon="userAdd" title="Нет ожидающих приглашений" description="Отправленные наймы появятся здесь." />
-          ) : (
-            <div className="ui-stack" style={{ gap: '0.375rem' }}>
-              {invites.map((inv) => (
-                <div
-                  key={inv.id}
-                  style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-2)',
-                    flexWrap: 'wrap', padding: '0.5rem 0.75rem', border: '1px solid var(--divider)',
-                    borderRadius: 'var(--radius-md)',
-                  }}
-                >
-                  <span style={{ minWidth: 0 }}>
-                    <span className="title-sm">{inv.toPhone}</span>
-                    <span style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.25rem' }}>
-                      <Chip size="sm" tone="neutral" icon="graduation">Стажёр</Chip>
-                      {inv.positionName && <Chip size="sm" icon="position">{inv.positionName}</Chip>}
-                      {inv.branchNames.map((b) => <Chip key={b} size="sm" icon="branch">{b}</Chip>)}
-                    </span>
-                  </span>
-                  <IconButton icon="close" label="Отменить приглашение" size={30} onClick={() => setCancelling(inv)} />
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      </BentoGrid>
-
-      <ConfirmDialog
-        open={!!cancelling}
-        onClose={() => setCancelling(null)}
-        onConfirm={() => { if (cancelling) cancel.mutate(cancelling.id); }}
-        title="Отменить приглашение?"
-        message={cancelling ? `Приглашение на ${cancelling.toPhone} перестанет действовать.` : ''}
-        confirmLabel="Отменить приглашение"
-        cancelLabel="Оставить"
-        danger
-        loading={cancel.isPending}
-      />
-    </>
   );
 }

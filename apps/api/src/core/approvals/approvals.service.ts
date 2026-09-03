@@ -18,6 +18,8 @@ import {
   SIGN_APPROVAL_NEEDS_SIGNATURE,
   INBOX_SOURCE_KEYS,
   TEAM_WORKSPACE_ROLES,
+  APPROVAL_ASSIGNEE_TYPES,
+  type ApprovalAssigneeType,
   type ApprovalActorLite,
   type ApprovalDecisionKind,
   type ApprovalInboxScope,
@@ -35,6 +37,7 @@ import {
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { AccessService } from '../access/access.service';
+import { AudiencesService } from '../audiences/audiences.service';
 import { JobsService } from '../jobs/jobs.service';
 import { NotificationsService } from '../../modules/notifications/notifications.service';
 import { ApprovalsRegistry, type ApprovalRefContext } from './approvals.registry';
@@ -77,6 +80,7 @@ export class ApprovalsService implements OnModuleInit {
     private readonly access: AccessService,
     private readonly jobs: JobsService,
     private readonly notifications: NotificationsService,
+    private readonly audiences: AudiencesService,
   ) {}
 
   /**
@@ -188,7 +192,7 @@ export class ApprovalsService implements OnModuleInit {
             title: step.title ?? APPROVAL_STEP_KIND_LABELS[step.kind].action,
             assigneeType: step.assigneeType,
             assigneeId: step.assigneeId,
-            assigneeLabel: await this.labelOf(tx, step.assigneeType, step.assigneeId),
+            assigneeLabel: await this.labelOf(step.assigneeType, step.assigneeId, ctx.workspaceId),
             rule: step.rule ?? 'any',
             dueHours: step.dueInHours ?? null,
             // Требование подписи пишем ВМЕСТЕ со строкой шага, до его активации:
@@ -221,10 +225,13 @@ export class ApprovalsService implements OnModuleInit {
     });
     if (steps.length === 0) return { activated: 0 };
 
+    // Якорь `$initiator` относительных адресатов = автор заявки.
+    const request = await tx.approvalRequest.findUnique({ where: { id: requestId }, select: { createdById: true } });
+    const initiatorId = request?.createdById ?? null;
     const now = new Date();
 
     for (const step of steps) {
-      const awaiting = await this.resolveAssignees(tx, step.assigneeType, step.assigneeId, workspaceId);
+      const awaiting = await this.resolveAssignees(step.assigneeType, step.assigneeId, workspaceId, initiatorId);
       // Пустой снимок — ЧЕСТНАЯ ОШИБКА, а не молчаливая активация: шаг, который
       // никого не ждёт, висит вечно (битый id адресата, чужой справочник, пустой
       // отдел). Создателю заявки отказ приходит сразу; решающему предыдущего
@@ -396,80 +403,35 @@ export class ApprovalsService implements OnModuleInit {
    * сотрудник не должен молча получать чужую обязанность, а уволенный — навсегда
    * подвешивать шаг «нужен каждый», который уже некому закрыть. Побочная выгода:
    * читающий путь стопки не ходит в движок прав вообще — одно условие по массиву.
+   *
+   * Разворот — единый словарь core/audiences: организация скоупит всё (чужой отдел →
+   * пусто — иначе достаточно подставить в маршрут uuid отдела чужой компании, и её
+   * сотрудники получают в стопку чужой документ), якорь `$initiator` = автор заявки,
+   * относительные адресаты (руководитель / руководитель объекта) считаются по
+   * оргструктуре НА МОМЕНТ АКТИВАЦИИ, вершина без руководителя → владелец; живость
+   * (команда организации, без подрядчиков) проверяется там же.
    */
   private async resolveAssignees(
-    tx: Tx,
     assigneeType: string,
     assigneeId: string,
     workspaceId: string | null,
+    initiatorId: string | null,
   ): Promise<string[]> {
-    // Предмет живёт в организации — значит и адресат обязан быть ЕЁ. Без этой сверки
-    // достаточно подставить в маршрут uuid отдела чужой компании, и её сотрудники
-    // получают в стопку шаг с названием и номером чужого документа.
-    if (workspaceId && assigneeType !== 'user' && !(await this.belongsToWorkspace(tx, assigneeType, assigneeId, workspaceId))) {
-      return [];
-    }
-
-    if (assigneeType === 'user') {
-      if (workspaceId && !(await this.isTeamMember(tx, assigneeId, workspaceId))) return [];
-      return [assigneeId];
-    }
-
-    const rows = await tx.relationTuple.findMany({
-      where: {
-        resourceType: assigneeType,
-        resourceId: assigneeId,
-        relation: assigneeType === 'position' ? 'holder' : 'member',
-        subjectType: 'user',
-        subjectRelation: '',
-      },
-      select: { subjectId: true },
+    const ids = await this.audiences.resolve(
+      [{ type: assigneeType as ApprovalAssigneeType, id: assigneeId }],
+      { workspaceId, initiatorId, selfId: initiatorId },
       // +1 сверх потолка: превышение — ЧЕСТНЫЙ ОТКАЗ с числом, а не молчаливая
       // обрезка. Обрезанный снимок на компании в 600 человек означал бы 100
       // неознакомленных, о которых никто не узнает.
-      take: APPROVAL_LIMITS.maxSnapshotSize + 1,
-    });
-    const ids = [...new Set(rows.map((r) => r.subjectId))];
+      { max: APPROVAL_LIMITS.maxSnapshotSize + 1, onOverflow: 'truncate', allowedKinds: APPROVAL_ASSIGNEE_TYPES },
+    );
     if (ids.length > APPROVAL_LIMITS.maxSnapshotSize) {
       throw coded(
         `Адресатов больше потолка (${APPROVAL_LIMITS.maxSnapshotSize}): у шага «каждый» состав фиксируется поимённо. Для массовых ознакомлений используйте кампании КЭДО`,
         APPROVAL_ERROR_CODES.snapshotTooBig,
       );
     }
-    if (!workspaceId || ids.length === 0) return ids;
-    // Проекция оси может отставать от увольнения — команду перепроверяем поимённо
-    // одним запросом (обязанность решать не должна переживать выход из организации).
-    const live = await tx.userRole.findMany({
-      where: {
-        userId: { in: ids },
-        context: WS_CONTEXT,
-        tenantId: workspaceId,
-        isActive: true,
-        role: { in: [...TEAM_WORKSPACE_ROLES] },
-      },
-      select: { userId: true },
-    });
-    const alive = new Set(live.map((r) => r.userId));
-    return ids.filter((id) => alive.has(id));
-  }
-
-  /** Ось оргструктуры принадлежит этой организации? */
-  private async belongsToWorkspace(
-    tx: Tx,
-    assigneeType: string,
-    assigneeId: string,
-    workspaceId: string,
-  ): Promise<boolean> {
-    if (assigneeType === 'position') {
-      return (await tx.staffPosition.count({ where: { id: assigneeId, workspaceId } })) > 0;
-    }
-    if (assigneeType === 'department') {
-      return (await tx.staffDepartment.count({ where: { id: assigneeId, workspaceId } })) > 0;
-    }
-    if (assigneeType === 'branch') {
-      return (await tx.staffBranch.count({ where: { id: assigneeId, workspaceId } })) > 0;
-    }
-    return false;
+    return ids;
   }
 
   /** Действующий член команды организации (Подрядчик — не команда) */
@@ -487,20 +449,10 @@ export class ApprovalsService implements OnModuleInit {
   }
 
   /** Название должности/отдела — снимком, чтобы история решений пережила переименование */
-  private async labelOf(tx: Tx, assigneeType: string, assigneeId: string): Promise<string | null> {
-    if (assigneeType === 'position') {
-      const row = await tx.staffPosition.findUnique({ where: { id: assigneeId }, select: { name: true } });
-      return row?.name ?? null;
-    }
-    if (assigneeType === 'department') {
-      const row = await tx.staffDepartment.findUnique({ where: { id: assigneeId }, select: { name: true } });
-      return row?.name ?? null;
-    }
-    if (assigneeType === 'branch') {
-      const row = await tx.staffBranch.findUnique({ where: { id: assigneeId }, select: { name: true } });
-      return row?.name ?? null;
-    }
-    return null;
+  /** Подпись адресата для стопки/истории — единый словарь core/audiences (человек — без подписи) */
+  private async labelOf(assigneeType: string, assigneeId: string, workspaceId: string | null): Promise<string | null> {
+    if (assigneeType === 'user') return null;
+    return this.audiences.label({ type: assigneeType as ApprovalAssigneeType, id: assigneeId }, { workspaceId });
   }
 
   // ============================================================

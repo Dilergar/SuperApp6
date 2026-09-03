@@ -8,6 +8,7 @@ import {
   APPROVAL_SIGNATURE_REQUIREMENTS,
   APPROVAL_STEP_KINDS,
 } from '../constants/approvals';
+import { AUDIENCE_KIND_DEFS, isAudienceAnchor } from '../constants/audiences';
 import { queryBoolean } from './query';
 
 // ============================================
@@ -46,7 +47,8 @@ export const approvalStepInputSchema = z
     kind: z.enum(APPROVAL_STEP_KINDS),
     title: title.optional(),
     assigneeType: z.enum(APPROVAL_ASSIGNEE_TYPES),
-    assigneeId: z.string().uuid(),
+    /** uuid; у относительных адресатов (manager_of / branch_head_of) — также якорь `$initiator` */
+    assigneeId: z.string().min(1).max(64),
     rule: z.enum(APPROVAL_RULES).optional(),
     /** Срок решения в часах от активации шага; без него шаг ждёт бесконечно */
     dueInHours: z.coerce.number().int().min(1).max(24 * 365).optional(),
@@ -63,7 +65,14 @@ export const approvalStepInputSchema = z
   .refine((s) => s.assigneeType !== 'user' || (s.rule ?? 'any') === 'any', {
     message: 'Правило «каждый» применимо к должности или отделу, а не к одному человеку',
     path: ['rule'],
-  });
+  })
+  .refine(
+    (s) =>
+      isAudienceAnchor(s.assigneeId)
+        ? AUDIENCE_KIND_DEFS[s.assigneeType].relative || s.assigneeType === 'user'
+        : z.string().uuid().safeParse(s.assigneeId).success,
+    { message: 'Адресат: идентификатор либо якорь у относительного адресата', path: ['assigneeId'] },
+  );
 
 /**
  * POST /approvals — заводит ПОТРЕБИТЕЛЬ (Документы, позже счета и задачи).

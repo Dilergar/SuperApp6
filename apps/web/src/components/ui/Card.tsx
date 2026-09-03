@@ -86,7 +86,7 @@ export function PageHeader({
   return (
     <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 'var(--spacing-4)', marginBottom: 'var(--spacing-6)', flexWrap: 'wrap' }}>
       <div style={{ minWidth: 0 }}>
-        {breadcrumb && <div className="label-caps" style={{ marginBottom: '0.375rem' }}>{breadcrumb}</div>}
+        {breadcrumb && <div className="ui-breadcrumb" style={{ marginBottom: '0.375rem' }}>{breadcrumb}</div>}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
           <h1 className="title-lg" style={{ margin: 0 }}>{title}</h1>
           {chip}

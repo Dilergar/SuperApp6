@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AudiencesService } from '../../core/audiences/audiences.service';
 import {
   PROCESS_CONDITION_OPS,
   PROCESS_EVENT_TYPES,
@@ -252,7 +253,10 @@ export const humanTaskNode: ProcessNodeProvider = {
           { value: 'member', label: 'Сотрудник' },
           { value: 'department', label: 'Отдел (очередь)' },
           { value: 'initiator', label: 'Инициатор процесса' },
+          // Оргструктура: руководитель инициатора по факту назначений (вершина → владелец)
+          { value: 'initiator_manager', label: 'Руководитель инициатора' },
         ],
+        help: 'Руководитель считается по оргструктуре в момент шага; если руководитель не найден — владелец организации.',
       },
       { key: 'assigneeUserId', label: 'Кто', kind: 'member', showIf: { field: 'assigneeMode', in: ['member'] } },
       { key: 'departmentId', label: 'Отдел', kind: 'department', showIf: { field: 'assigneeMode', in: ['department'] } },
@@ -262,7 +266,7 @@ export const humanTaskNode: ProcessNodeProvider = {
       .object({
         title: textField(200, 1),
         description: textField(2000).optional(),
-        assigneeMode: z.enum(['member', 'department', 'initiator']),
+        assigneeMode: z.enum(['member', 'department', 'initiator', 'initiator_manager']),
         assigneeUserId: z.string().uuid().optional(),
         departmentId: z.string().uuid().optional(),
         dueInHours: z.coerce.number().int().min(1).max(24 * 365).optional(),
@@ -285,7 +289,7 @@ export const humanTaskNode: ProcessNodeProvider = {
     const cfg = ctx.config as {
       title: string;
       description?: string;
-      assigneeMode: 'member' | 'department' | 'initiator';
+      assigneeMode: 'member' | 'department' | 'initiator' | 'initiator_manager';
       assigneeUserId?: string;
       departmentId?: string;
       dueInHours?: number;
@@ -317,7 +321,21 @@ export const humanTaskNode: ProcessNodeProvider = {
       };
     }
 
-    const assigneeId = cfg.assigneeMode === 'initiator' ? ctx.startedById : cfg.assigneeUserId!;
+    let assigneeId: string;
+    if (cfg.assigneeMode === 'initiator_manager') {
+      // Единый словарь адресатов: руководитель инициатора по оргструктуре в момент шага;
+      // вершина без руководителя → владелец (задача не остаётся без исполнителя).
+      const audiences = ctx.deps.getService<AudiencesService>(AudiencesService as unknown as new (...args: unknown[]) => unknown);
+      const ids = await audiences.resolve(
+        [{ type: 'manager_of', id: ctx.startedById }],
+        { workspaceId: ctx.workspaceId, initiatorId: ctx.startedById, selfId: ctx.startedById },
+        { max: 50, onOverflow: 'truncate' },
+      );
+      if (!ids.length) throw new Error('Руководитель инициатора не найден: у организации нет ни структуры, ни владельца в команде');
+      assigneeId = ids[0];
+    } else {
+      assigneeId = cfg.assigneeMode === 'initiator' ? ctx.startedById : cfg.assigneeUserId!;
+    }
     await assertActiveMember(ctx, assigneeId, 'Исполнитель шага');
     // Создаём от имени инициатора (он — Постановщик и принимает работу).
     const task = await ctx.deps.tasks.createTask(
@@ -396,7 +414,13 @@ export const approvalNode: ProcessNodeProvider = {
           // До этого режима адресовать шаг стороне документа было нечем: инициатор
           // кадрового маршрута — кадровик, а не работник.
           { value: 'subject', label: 'Сторона документа (сотрудник в приказе)' },
+          // Оргструктура (core/audiences): относительные адресаты — считаются в момент
+          // активации шага; руководитель не найден → владелец организации.
+          { value: 'initiator_manager', label: 'Руководитель инициатора' },
+          { value: 'subject_manager', label: 'Руководитель стороны документа' },
+          { value: 'branch_head', label: 'Руководитель объекта инициатора' },
         ],
+        help: 'Относительные адресаты (руководитель…) считаются по оргструктуре в момент шага; руководитель не найден → владелец организации.',
       },
       { key: 'assigneeUserId', label: 'Кто', kind: 'member', showIf: { field: 'assigneeMode', in: ['member'] } },
       { key: 'positionId', label: 'Должность', kind: 'position', showIf: { field: 'assigneeMode', in: ['position'] } },
@@ -437,7 +461,7 @@ export const approvalNode: ProcessNodeProvider = {
          */
         signatureLevel: z.enum(['none', 'pep', 'ecp']).optional(),
         title: textField(200, 1),
-        assigneeMode: z.enum(['member', 'position', 'department', 'branch', 'initiator', 'subject']),
+        assigneeMode: z.enum(['member', 'position', 'department', 'branch', 'initiator', 'subject', 'initiator_manager', 'subject_manager', 'branch_head']),
         assigneeUserId: z.string().uuid().optional(),
         positionId: z.string().uuid().optional(),
         departmentId: z.string().uuid().optional(),
@@ -468,7 +492,7 @@ export const approvalNode: ProcessNodeProvider = {
       kind?: 'approval' | 'signature' | 'acknowledgement';
       signatureLevel?: 'none' | 'pep' | 'ecp';
       title: string;
-      assigneeMode: 'member' | 'position' | 'department' | 'branch' | 'initiator' | 'subject';
+      assigneeMode: 'member' | 'position' | 'department' | 'branch' | 'initiator' | 'subject' | 'initiator_manager' | 'subject_manager' | 'branch_head';
       assigneeUserId?: string;
       positionId?: string;
       departmentId?: string;
@@ -481,14 +505,20 @@ export const approvalNode: ProcessNodeProvider = {
     // «Сторона документа» — служебный ключ, который кладёт запуск маршрута
     // документа (`_subjectUserId`). Санитайзер внешних стартов такие ключи
     // отбрасывает; маршрут без стороны — честная ошибка, не пустой шаг.
-    if (cfg.assigneeMode === 'subject' && typeof ctx.variables._subjectUserId !== 'string') {
+    if ((cfg.assigneeMode === 'subject' || cfg.assigneeMode === 'subject_manager') && typeof ctx.variables._subjectUserId !== 'string') {
       throw new Error(
         'Шаг адресован стороне документа, но у запуска её нет: этот маршрут запускается отправкой документа с сотрудником-стороной',
       );
     }
-    const assignee: { type: 'user' | 'position' | 'department' | 'branch'; id: string } =
+    const assignee: { type: 'user' | 'position' | 'department' | 'branch' | 'manager_of' | 'branch_head_of'; id: string } =
       cfg.assigneeMode === 'initiator'
         ? { type: 'user', id: ctx.startedById }
+        : cfg.assigneeMode === 'initiator_manager'
+          ? { type: 'manager_of', id: ctx.startedById }
+          : cfg.assigneeMode === 'subject_manager'
+            ? { type: 'manager_of', id: ctx.variables._subjectUserId as string }
+            : cfg.assigneeMode === 'branch_head'
+              ? { type: 'branch_head_of', id: ctx.startedById }
         : cfg.assigneeMode === 'subject'
           ? { type: 'user', id: ctx.variables._subjectUserId as string }
           : cfg.assigneeMode === 'member'

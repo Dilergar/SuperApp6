@@ -25,7 +25,10 @@ async function until(name, fn, timeoutMs = 60000, everyMs = 900) {
 
 const mockCms = (obj) => Buffer.from(JSON.stringify(obj), 'utf8').toString('base64');
 const today = () => new Date().toISOString().slice(0, 10);
-const plusDays = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+// «Сегодня» — как считает сервер: календарная дата в APP_TIMEZONE (Asia/Almaty). UTC-дата после
+// 19:00 по Алматы уже отстаёт на день, и «завтрашнее» действие применялось сразу.
+const almatyToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+const plusDays = (n) => { const d = new Date(almatyToday + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 
 /** Подписать свой акт заявки mock-ЭЦП (dev-верификатор принимает) */
 async function signEcp(user, requestId) {
@@ -124,6 +127,15 @@ async function main() {
   );
   const overview = await call('GET', `/workspaces/${ws.id}/hr/roster-overview`, owner.token);
   check('сводка ростера: расхождение у сотрудника', overview.ok && overview.json.data?.byUser?.[employee.id]?.mismatch === true);
+
+  // Исключение из организации ≠ увольнение по ТК: с ЖИВЫМ договором ростер человека
+  // не отпускает (иначе сроки ЕСУТД и расчёта тикали бы по тому, кого уже нет).
+  const kickLive = await call('DELETE', `/workspaces/${ws.id}/members/${employee.id}`, owner.token);
+  check(
+    'исключение из организации при живом договоре → 409 employment_active',
+    kickLive.status === 409 && kickLive.code === 'employment_active',
+    `status ${kickLive.status} code ${kickLive.code}`,
+  );
 
   // ============ Отрицательное: действие без маршрута с hr.apply ============
   // Свой шаблон без маршрута вовсе

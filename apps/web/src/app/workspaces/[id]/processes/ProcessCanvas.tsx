@@ -1,35 +1,29 @@
 'use client';
 
-// Канвас процессов — обёртка над @xyflow/react (MIT; тот же класс канваса, что у
-// Langflow/Flowise/Dify; n8n сидит на Vue-собрате). Используется редактором
-// (editable) и страницей инстанса (read-only со статусами шагов).
+// Канвас процессов — ноды «Процессов» поверх общего FlowCanvas (@xyflow/react;
+// тот же класс канваса, что у Langflow/Flowise/Dify; n8n сидит на Vue-собрате).
+// Используется редактором (editable) и страницей инстанса (read-only со
+// статусами шагов).
 //
 // Organic Bento (DESIGN.md): полотно — тёплая бумага, нода — светлый блок с
 // 1px-бордером и единственной тенью системы, категория показана матовым кругом
-// с иконкой Phosphor Light. Состояния и чужие классы React Flow — в
-// process-canvas.css (инлайном они не выражаются).
+// с иконкой Phosphor Light. Полотно, порты, контролы и миникарта — общие
+// (components/canvas: FlowCanvas + canvas.css); здесь только свои ноды, их
+// стили (process-canvas.css, алиас .pcanvas) и правила соединения портов.
 
 import { memo, useCallback, useMemo } from 'react';
 import {
-  Background,
-  BackgroundVariant,
-  Controls,
   Handle,
-  MiniMap,
   Position,
-  ReactFlow,
-  ReactFlowProvider,
-  useReactFlow,
   type Connection,
   type Edge,
   type EdgeChange,
-  type FinalConnectionState,
   type NodeChange,
   type NodeProps,
   type ReactFlowInstance,
 } from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
-// Порядок важен: наши правила должны идти ПОСЛЕ стилей библиотеки.
+import { FlowCanvas } from '@/components/canvas/FlowCanvas';
+// Порядок важен: свои ноды — ПОСЛЕ общего canvas.css (его тянет FlowCanvas).
 import './process-canvas.css';
 import { PROCESS_STEP_STATUS_LABELS, type ProcessNodeInput, type ProcessNodeTypeDto } from '@superapp/shared';
 import { Icon } from '@/components/ui';
@@ -173,57 +167,8 @@ export interface ProcessCanvasProps {
   withMiniMap?: boolean;
 }
 
-function CanvasInner({
-  nodes,
-  edges,
-  editable = false,
-  onNodesChange,
-  onEdgesChange,
-  onConnect,
-  onDropNode,
-  onConnectEndOnPane,
-  onNodeClick,
-  onNodeDoubleClick,
-  onPaneClick,
-  onInit,
-  withMiniMap = true,
-}: ProcessCanvasProps) {
-  const { screenToFlowPosition } = useReactFlow();
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      const type = e.dataTransfer.getData('application/superapp-process-node');
-      if (!type || !onDropNode) return;
-      e.preventDefault();
-      onDropNode(type, screenToFlowPosition({ x: e.clientX, y: e.clientY }));
-    },
-    [onDropNode, screenToFlowPosition],
-  );
-
-  const handleConnectEnd = useCallback(
-    (event: MouseEvent | TouchEvent, connectionState: FinalConnectionState) => {
-      if (!onConnectEndOnPane) return;
-      // соединение не состоялось и тянули ИЗ source-порта → пикер «что добавить дальше»
-      if (connectionState.isValid || !connectionState.fromNode) return;
-      if (connectionState.fromHandle?.type !== 'source') return;
-      const { clientX, clientY } =
-        'changedTouches' in event ? event.changedTouches[0] : (event as MouseEvent);
-      onConnectEndOnPane(
-        connectionState.fromNode.id,
-        connectionState.fromHandle?.id ?? 'main',
-        screenToFlowPosition({ x: clientX, y: clientY }),
-        { x: clientX, y: clientY },
-      );
-    },
-    [onConnectEndOnPane, screenToFlowPosition],
-  );
-
-  // Миникарта красит ноды базой тона категории. CSS-переменные тут работают:
-  // React Flow кладёт цвет в inline-style прямоугольника, а не в атрибут fill.
-  const miniMapNodeColor = useMemo(
-    () => (n: PNode) => categoryTone(n.data?.typeDto?.category).base,
-    [],
-  );
+export function ProcessCanvas(props: ProcessCanvasProps) {
+  const { nodes } = props;
 
   // Соединять можно только совместимые порты (main↔main, ai_model↔ai_model и т.д.).
   const isValidConnection = useCallback(
@@ -238,59 +183,20 @@ function CanvasInner({
     [nodes],
   );
 
+  // Миникарта красит ноды базой тона категории. CSS-переменные тут работают:
+  // React Flow кладёт цвет в inline-style прямоугольника, а не в атрибут fill.
+  const miniMapNodeColor = useMemo(
+    () => (n: PNode) => categoryTone(n.data?.typeDto?.category).base,
+    [],
+  );
+
   return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
+    <FlowCanvas<PNode, Edge>
+      {...props}
+      className="pcanvas"
       nodeTypes={NODE_TYPES}
       isValidConnection={isValidConnection}
-      onNodesChange={onNodesChange}
-      onEdgesChange={onEdgesChange}
-      onConnect={onConnect}
-      onConnectEnd={editable ? handleConnectEnd : undefined}
-      onNodeClick={(_, node) => onNodeClick?.(node.id)}
-      onNodeDoubleClick={(_, node) => onNodeDoubleClick?.(node.id)}
-      onPaneClick={onPaneClick}
-      onDrop={editable ? handleDrop : undefined}
-      onDragOver={editable ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } : undefined}
-      onInit={onInit}
-      nodesDraggable={editable}
-      nodesConnectable={editable}
-      elementsSelectable
-      deleteKeyCode={editable ? ['Backspace', 'Delete'] : null}
-      snapToGrid
-      snapGrid={[16, 16]}
-      minZoom={0.15}
-      maxZoom={2}
-      fitView
-      fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
-      connectionLineStyle={{ stroke: 'var(--primary)', strokeWidth: 2 }}
-      proOptions={{ hideAttribution: false }}
-    >
-      <Background variant={BackgroundVariant.Dots} gap={20} size={1.4} color="var(--line)" />
-      <Controls showInteractive={false} position="bottom-left" />
-      {withMiniMap && (
-        <MiniMap
-          pannable
-          zoomable
-          nodeColor={miniMapNodeColor}
-          nodeStrokeWidth={0}
-          nodeBorderRadius={4}
-          // Затемнение вне вида задаётся ИНЛАЙНОМ библиотеки и перебило бы CSS,
-          // поэтому цвет считается из токена здесь (прозрачности у токена нет).
-          maskColor="color-mix(in srgb, var(--surface-container) 62%, transparent)"
-        />
-      )}
-    </ReactFlow>
-  );
-}
-
-export function ProcessCanvas(props: ProcessCanvasProps) {
-  return (
-    <div className="pcanvas" style={{ height: props.height ?? '62vh' }}>
-      <ReactFlowProvider>
-        <CanvasInner {...props} />
-      </ReactFlowProvider>
-    </div>
+      miniMapNodeColor={miniMapNodeColor}
+    />
   );
 }

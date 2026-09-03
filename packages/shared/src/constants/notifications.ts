@@ -220,6 +220,21 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
     pushByDefault: true,
     category: 'workspaces',
   },
+  // Оргструктура: руководство отделом/объектом и замещение
+  'staff.head.assigned': {
+    title: 'Вы руководите {{unitLabel}} в {{workspaceName}}',
+    body: 'Должность «{{positionName}}» назначена руководящей — согласования и заявления подчинённых теперь приходят вам.',
+    icon: '🧭',
+    pushByDefault: true,
+    category: 'workspaces',
+  },
+  'staff.deputy.assigned': {
+    title: 'Вы — заместитель по должности «{{positionName}}» в {{workspaceName}}',
+    body: '{{periodLabel}}',
+    icon: '🔁',
+    pushByDefault: true,
+    category: 'workspaces',
+  },
   // Архив организаций: предупреждения за 7 / 3 / 1 день до полного удаления.
   // Текст в единственном числе «{{daysWord}}» готовит отправитель — шаблонизатор
   // реестра склонять не умеет, а «осталось 1 дней» читается как баг.

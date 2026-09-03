@@ -431,8 +431,11 @@ export default function ProcessEditorPage() {
   const issues = detail.issues;
 
   return (
-    // Полноэкранный слой под топбаром каркаса (z-40 < топбар z-50) — простор как в n8n.
-    <div style={{ position: 'fixed', inset: 0, top: 'var(--svc-topbar-h)', zIndex: 40, display: 'flex', flexDirection: 'column', background: 'var(--page)' }}>
+    // Полноэкранный слой канваса — общий класс (globals.css): он сам считает
+    // топбар и сайдбар каркаса. Инлайновая копия с `inset: 0` тут работала лишь
+    // потому, что у редактора процесса сайдбара нет; на схеме оргструктуры та же
+    // копия накрыла навигацию.
+    <div className="canvas-layer">
       {/* Тулбар — светлый блок с несущим 1px-бордером снизу, как топбар каркаса */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap', padding: '0.5rem var(--spacing-5)', background: 'var(--block)', borderBottom: '1px solid var(--border)' }}>
         <Button variant="ghost" size="sm" icon="arrowLeft" onClick={leave}>Процессы</Button>

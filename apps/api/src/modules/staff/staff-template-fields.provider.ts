@@ -2,24 +2,28 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { DatabaseService } from '../../shared/database/database.service';
 import { TemplateFieldRegistry, type TemplateFieldContext } from '../../core/templates/template-field.registry';
 import { fullName } from '../../shared/utils/user-name';
+import { OrgGraphService } from './org-graph.service';
+import { holdersForPosition, managerOf, orgToday, pickAssignment } from './org-resolve';
 
 /**
  * Группа полей шаблона «Сотрудник» — анкета человека (users: ФИО, ИИН, адрес,
  * удостоверение — блок «Для договоров и трудоустройства») + рабочее место в
- * организации контекста (StaffAssignment: должность, отдел, филиал; первое
- * назначение считается основным — порядок создания, как в ростере).
+ * организации контекста (StaffAssignment: должность, отдел, объект; основное
+ * место — isPrimary) + РУКОВОДИТЕЛЬ по оргструктуре (managerOf по факту: «согласовано:
+ * ____» в приказах перестаёт набираться руками) и руководитель объекта.
  *
  * subjectUserId — СТОРОНА документа (податель заявления, субъект приказа),
  * а не тот, кто нажал «Сформировать». Тумблеры «Видимости в Компаниях» здесь
  * не действуют: документ (приказ, договор) печатает ИИН по определению, а
- * право формировать проверяет сервис «Документы» (Этап 4) — ровно как
- * manager+ видит реквизиты в ростере всегда.
+ * право формировать проверяет сервис «Документы» — ровно как manager+ видит
+ * реквизиты в ростере всегда.
  */
 @Injectable()
 export class StaffTemplateFieldsProvider implements OnModuleInit {
   constructor(
     private readonly db: DatabaseService,
     private readonly templateFields: TemplateFieldRegistry,
+    private readonly graph: OrgGraphService,
   ) {}
 
   onModuleInit() {
@@ -43,7 +47,12 @@ export class StaffTemplateFieldsProvider implements OnModuleInit {
         { key: 'Дата выдачи удостоверения', label: 'Дата выдачи', example: '01.02.2020' },
         { key: 'Должность', label: 'Должность', example: 'Менеджер зала' },
         { key: 'Отдел', label: 'Отдел', example: 'Отдел продаж' },
-        { key: 'Филиал', label: 'Филиал', example: 'Филиал на Абая' },
+        { key: 'Филиал', label: 'Объект (филиал)', example: 'Филиал на Абая' },
+        // Оргструктура: руководитель по факту назначений (вершина → владелец организации)
+        { key: 'Руководитель', label: 'Руководитель (ФИО)', example: 'Иванова Айгуль Сериковна' },
+        { key: 'Руководитель Должность', label: 'Должность руководителя', example: 'Руководитель отдела продаж' },
+        { key: 'Руководитель объекта', label: 'Руководитель объекта (ФИО)', example: 'Сейтжанов Ерлан' },
+        { key: 'Руководитель объекта Должность', label: 'Должность руководителя объекта', example: 'Управляющий точкой' },
       ],
       resolve: (ctx) => this.resolve(ctx),
     });
@@ -69,9 +78,10 @@ export class StaffTemplateFieldsProvider implements OnModuleInit {
     if (!user) return null;
 
     // Приоритет — назначение, совпадающее с ДОГОВОРНОЙ должностью (Employment):
-    // официант на двух филиалах иначе получал в приказ филиал ПЕРВОГО ПО ДАТЕ
-    // назначения. Нет трудовой карточки — прежнее поведение (первое по дате).
+    // официант на двух объектах иначе получал в приказ объект ОСНОВНОГО места.
+    // Нет трудовой карточки — основное место (isPrimary), затем первое по дате.
     let assignment: {
+      id: string;
       position: { name: string; department: { name: string } | null } | null;
       branch: { name: string } | null;
     } | null = null;
@@ -92,15 +102,15 @@ export class StaffTemplateFieldsProvider implements OnModuleInit {
             positionId: employment.legalPositionId,
             ...(employment.legalBranchId ? { branchId: employment.legalBranchId } : {}),
           },
-          orderBy: { createdAt: 'asc' },
+          orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
           include,
         });
         // Договорная должность есть, но точного назначения нет (расхождение факт/договор)
-        // — пробуем без филиала, прежде чем откатиться на первое по дате.
+        // — пробуем без объекта, прежде чем откатиться на основное место.
         if (!assignment && employment.legalBranchId) {
           assignment = await this.db.staffAssignment.findFirst({
             where: { workspaceId: ctx.workspaceId, userId: ctx.subjectUserId, positionId: employment.legalPositionId },
-            orderBy: { createdAt: 'asc' },
+            orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
             include,
           });
         }
@@ -108,7 +118,7 @@ export class StaffTemplateFieldsProvider implements OnModuleInit {
       if (!assignment) {
         assignment = await this.db.staffAssignment.findFirst({
           where: { workspaceId: ctx.workspaceId, userId: ctx.subjectUserId },
-          orderBy: { createdAt: 'asc' },
+          orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
           include,
         });
       }
@@ -123,6 +133,8 @@ export class StaffTemplateFieldsProvider implements OnModuleInit {
           .filter(Boolean)
           .join(' ')
       : null;
+
+    const manager = ctx.workspaceId ? await this.managerFields(ctx.workspaceId, ctx.subjectUserId, assignment?.id ?? null) : null;
 
     return {
       // Кадровый порядок: Фамилия Имя Отчество; незаполненное отчество имя не ломает
@@ -141,6 +153,42 @@ export class StaffTemplateFieldsProvider implements OnModuleInit {
       Должность: assignment?.position?.name ?? null,
       Отдел: assignment?.position?.department?.name ?? null,
       Филиал: assignment?.branch?.name ?? null,
+      Руководитель: manager?.managerName ?? null,
+      'Руководитель Должность': manager?.managerPosition ?? null,
+      'Руководитель объекта': manager?.branchHeadName ?? null,
+      'Руководитель объекта Должность': manager?.branchHeadPosition ?? null,
     };
+  }
+
+  /** Руководитель и руководитель объекта по факту — единственный вход managerOf/holdersForPosition */
+  private async managerFields(
+    workspaceId: string,
+    userId: string,
+    assignmentId: string | null,
+  ): Promise<{ managerName: string | null; managerPosition: string | null; branchHeadName: string | null; branchHeadPosition: string | null }> {
+    const g = await this.graph.load(workspaceId);
+    const m = managerOf(g, userId, { assignmentId });
+    const managerName = m.userIds.length ? await this.kadrName(m.userIds[0]) : null;
+    const managerPosition = m.positionId ? (g.positionById.get(m.positionId)?.name ?? null) : m.userIds.length ? 'Владелец организации' : null;
+
+    let branchHeadName: string | null = null;
+    let branchHeadPosition: string | null = null;
+    const a = pickAssignment(g, userId, { assignmentId });
+    const branch = a ? g.branchById.get(a.branchId) : null;
+    if (branch?.headPositionId) {
+      const holders = holdersForPosition(g, branch.headPositionId, branch.id, orgToday());
+      if (holders.userIds.length) {
+        branchHeadName = await this.kadrName(holders.userIds[0]);
+        branchHeadPosition = g.positionById.get(branch.headPositionId)?.name ?? null;
+      }
+    }
+    return { managerName, managerPosition, branchHeadName, branchHeadPosition };
+  }
+
+  /** Кадровый порядок ФИО: Фамилия Имя Отчество */
+  private async kadrName(userId: string): Promise<string | null> {
+    const u = await this.db.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true, middleName: true } });
+    if (!u) return null;
+    return [u.lastName, u.firstName, u.middleName].filter(Boolean).join(' ') || fullName(u);
   }
 }

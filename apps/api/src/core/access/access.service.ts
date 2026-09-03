@@ -191,9 +191,12 @@ export class AccessService {
     for (const m of memberships) {
       const ladder = ROLE_LADDERS[m.resourceType];
       // Роль ниже по лестнице подразумевается сильнейшей: owner совпадает и с грантом
-      // на manager, и с грантом на member. Тип без лестницы (circle/department/…)
-      // добавляет ровно своё отношение.
-      const relations = ladder ? ladder.slice(ladder.indexOf(m.relation)) : [m.relation];
+      // на manager, и с грантом на member. Тип без лестницы (circle/position/…)
+      // добавляет ровно своё отношение. Отношение ВНЕ лестницы своего типа
+      // (`department#manager` — явное делегирование) тоже добавляется как есть:
+      // `indexOf` дал бы −1, и `slice(-1)` молча подменил бы его последней ступенью.
+      const idx = ladder ? ladder.indexOf(m.relation) : -1;
+      const relations = ladder && idx >= 0 ? ladder.slice(idx) : [m.relation];
       for (const relation of relations) {
         if (!relation) continue;
         const key = `${m.resourceType}:${m.resourceId}:${relation}`;

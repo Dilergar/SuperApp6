@@ -1,4 +1,5 @@
 import { Global, Module } from '@nestjs/common';
+import { ContactsAudiencesProvider } from './contacts-audiences.provider';
 import { ContactsService } from './contacts.service';
 import { ContactsController } from './contacts.controller';
 import { ContactsCron } from './contacts.cron';
@@ -14,7 +15,7 @@ import { PersonalGraphRegistry } from './personal-graph.registry';
 @Global()
 @Module({
   controllers: [ContactsController],
-  providers: [ContactsService, ContactsCron, PersonalGraphRegistry],
+  providers: [ContactsService, ContactsCron, PersonalGraphRegistry, ContactsAudiencesProvider],
   exports: [ContactsService, PersonalGraphRegistry],
 })
 export class ContactsModule {}

@@ -25,6 +25,7 @@ import {
   type UpsertEmploymentInput,
 } from '@superapp/shared';
 import { apiErrorMessage, apiGet } from '@/lib/api';
+import { dmyOrDash } from '@/lib/dates';
 import { cancelHrAction, createHrAction, upsertEmployment } from '@/lib/hr-api';
 import { hrMemberKey, hrRootKey } from '@/lib/queries';
 import { toastError } from '@/lib/toast';
@@ -48,8 +49,8 @@ import type { Principal } from '@/lib/entities';
 
 // ---------- Утилиты ----------
 
-export const fmtDate = (iso: string | null | undefined): string =>
-  iso ? iso.split('-').reverse().join('.') : '—';
+/** Формат один на весь веб — `lib/dates` (здесь только привычное для КЭДО имя) */
+export const fmtDate = (iso: string | null | undefined): string => dmyOrDash(iso);
 
 /** Тиыны (строка/число) → «250 000 ₸» */
 export const fmtMoney = (tiyn: string | number | null | undefined): string => {

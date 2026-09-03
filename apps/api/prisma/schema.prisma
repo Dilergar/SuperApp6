@@ -89,6 +89,7 @@ model User {
   workspaceMembers   WorkspaceMember[]
   ownedWorkspaces    Workspace[]
   staffAssignments   StaffAssignment[]
+  staffDeputies      StaffDeputy[]     @relation("DeputyUser")
   paymentCards       UserPaymentCard[]
 
   // Workspace hiring invitations (separate from ContactInvitation — different semantics)
@@ -682,6 +683,7 @@ model Workspace {
   staffPositions   StaffPosition[]
   staffBranches    StaffBranch[]
   staffAssignments StaffAssignment[]
+  staffDeputies    StaffDeputy[]
   officeRooms      OfficeRoom[]
   requisites       WorkspaceRequisites?
   bankAccounts     WorkspaceBankAccount[]
@@ -839,32 +841,46 @@ model WorkspaceInvitation {
 }
 
 // ============================================================
-// STAFF («Сотрудники») — справочники организации + назначения должностей
+// STAFF («Сотрудники») — справочники организации + назначения должностей + оргструктура
 // ============================================================
-// Должность/Отдел/Филиал — первоклассные справочники воркспейса. Назначение =
-// человек × должность × (опц.) филиал со статусом обучения (Додзё переключит
+// Должность/Отдел/Объект (StaffBranch) — первоклассные справочники воркспейса.
+// Назначение = человек × должность × ОБЪЕКТ со статусом обучения (Додзё переключит
 // training→certified). Членство в отделе — ПРОИЗВОДНОЕ от должности
 // (StaffPosition.departmentId) — модель штатного расписания 1С. Роль прав
 // (trainee/staff/manager/…) живёт в UserRole, справочники прав не несут.
-// Рёбра проецируются в core/access: position#holder / branch#member / department#member.
+//
+// Оргструктура = граф ДОЛЖНОСТЕЙ и ОБЪЕКТОВ (не людей — переживает текучку,
+// SAP SuccessFactors): руководящая должность у отдела (headPositionId) и у объекта,
+// точечное переопределение подчинения (reportsToPositionId), заместители (StaffDeputy).
+// Вертикаль ВЫЧИСЛЯЕТСЯ (modules/staff/org-resolve.ts), а не хранится.
+// Рёбра проецируются в core/access: position#holder / branch#member|head /
+// department#member|head. Замещения (датированные) в рёбра НЕ проецируются —
+// RelationTuple хранит только независимые от времени факты.
 
 model StaffDepartment {
   id          String  @id @default(uuid())
   workspaceId String  @map("workspace_id")
   name        String
-  parentId    String? @map("parent_id") // дерево в данных; UI пока плоский список
+  parentId    String? @map("parent_id") // дерево в данных
   sortOrder   Int     @default(0) @map("sort_order")
+  // Руководящая должность отдела. Лежит НА ОТДЕЛЕ, а не флагом на должности:
+  // должность вправе руководить отделом, находясь ВНЕ его (CFO ведёт «Финансовый»,
+  // сидя вне отдела) и вести несколько отделов сразу (поэтому без @@unique).
+  // FK SetNull + прикладной 409 при удалении должности-головы.
+  headPositionId String? @map("head_position_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  parent    StaffDepartment?  @relation("DepartmentTree", fields: [parentId], references: [id], onDelete: SetNull)
-  children  StaffDepartment[] @relation("DepartmentTree")
-  positions StaffPosition[]
+  workspace    Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  parent       StaffDepartment?  @relation("DepartmentTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children     StaffDepartment[] @relation("DepartmentTree")
+  positions    StaffPosition[]
+  headPosition StaffPosition?    @relation("DepartmentHead", fields: [headPositionId], references: [id], onDelete: SetNull)
 
   @@unique([workspaceId, name])
   @@index([workspaceId])
+  @@index([headPositionId])
   @@map("staff_departments")
 }
 
@@ -875,6 +891,12 @@ model StaffPosition {
   departmentId String? @map("department_id") // отдел должности (опционально)
   description  String?
   sortOrder    Int     @default(0) @map("sort_order")
+  // Точечное переопределение подчинения — сильнее дерева отделов и головы объекта.
+  // Self-FK SetNull: потеря переопределения = откат к дереву, безопасно.
+  // Флага «корень» нет: корень = «нет разрешимого руководителя».
+  reportsToPositionId String? @map("reports_to_position_id")
+  // Значок-данные для <Glyph/> (ключ реестра иконок или эмодзи) — выбирает человек.
+  glyph String?
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -883,13 +905,29 @@ model StaffPosition {
   department  StaffDepartment?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   assignments StaffAssignment[]
   invitations WorkspaceInvitation[]
+  reportsTo   StaffPosition?        @relation("PositionReportsTo", fields: [reportsToPositionId], references: [id], onDelete: SetNull)
+  reports     StaffPosition[]       @relation("PositionReportsTo")
+  headedDepartments StaffDepartment[] @relation("DepartmentHead")
+  headedBranches    StaffBranch[]     @relation("BranchHead")
+  deputiesFor       StaffDeputy[]     @relation("DeputyForPosition")
+  deputyOf          StaffDeputy[]     @relation("DeputyPosition")
 
   @@unique([workspaceId, name])
   @@index([workspaceId])
   @@index([departmentId])
+  @@index([reportsToPositionId])
   @@map("staff_positions")
 }
 
+// Объект (в UI сегодня «Филиал»; сервис «Объекты» переименует и добавит реквизиты
+// на объект — объект может быть отдельным ТОО). У организации ВСЕГДА ≥1 объект:
+// основной (isDefault) заводится вместе с организацией, назначение всегда в объекте.
+// Объект — «отдел по умолчанию»: должность без отдела подчиняется голове объекта.
+//
+// ⚠️ Рукописное ограничение (не выражается в Prisma; переживёт только ручное
+// зеркалирование при `prisma db pull`; `db push` запрещён):
+//   CREATE UNIQUE INDEX "staff_branches_default_per_workspace_key"
+//     ON "staff_branches"("workspace_id") WHERE "is_default";
 model StaffBranch {
   id          String  @id @default(uuid())
   workspaceId String  @map("workspace_id")
@@ -897,28 +935,42 @@ model StaffBranch {
   address     String?
   note        String?
   sortOrder   Int     @default(0) @map("sort_order")
+  isDefault   Boolean @default(false) @map("is_default")
+  // Руководящая должность объекта («Управляющий точкой») — та же модель, что у отдела.
+  headPositionId String? @map("head_position_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  assignments StaffAssignment[]
+  workspace    Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assignments  StaffAssignment[]
+  headPosition StaffPosition?    @relation("BranchHead", fields: [headPositionId], references: [id], onDelete: SetNull)
+  deputies     StaffDeputy[]
 
   @@unique([workspaceId, name])
   @@index([workspaceId])
+  @@index([headPositionId])
   @@map("staff_branches")
 }
 
 // Назначение должности. Несколько на человека — норма (официант + бармен; одна
-// должность в двух филиалах = два назначения). Сервис не даёт дубликат
-// (workspace,user,position,branch); для branch IS NULL дубль закрывает partial
-// unique index в миграции (Postgres считает NULL различными).
+// должность в двух объектах = два назначения). Объект ОБЯЗАТЕЛЕН (по умолчанию —
+// основной объект организации). Дубль закрывает @@unique.
+//
+// isPrimary — основное место человека: первое назначение основное автоматически,
+// смена снимает старое в той же транзакции, удаление основного повышает следующее
+// по createdAt. Читают: computeMismatch КЭДО, поля шаблонов, managerOf.
+//
+// ⚠️ Рукописное ограничение (не выражается в Prisma):
+//   CREATE UNIQUE INDEX "staff_assignments_primary_per_user_key"
+//     ON "staff_assignments"("workspace_id", "user_id") WHERE "is_primary";
 model StaffAssignment {
   id          String  @id @default(uuid())
   workspaceId String  @map("workspace_id")
   userId      String  @map("user_id")
   positionId  String  @map("position_id")
-  branchId    String? @map("branch_id")
+  branchId    String  @map("branch_id")
+  isPrimary   Boolean @default(false) @map("is_primary")
   status      String  @default("training") // training | certified (Додзё/manager+ переключает)
   assignedBy  String? @map("assigned_by") // user_id назначившего (аудит)
 
@@ -928,13 +980,54 @@ model StaffAssignment {
   workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   position  StaffPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
-  branch    StaffBranch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  // Restrict: удаление объекта с людьми — прикладной 409 «сначала переведите».
+  branch    StaffBranch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
 
   @@unique([workspaceId, userId, positionId, branchId])
   @@index([workspaceId, userId])
   @@index([positionId])
   @@index([branchId])
   @@map("staff_assignments")
+}
+
+// Заместитель: КОГО замещают — ДОЛЖНОСТЬ (positionId), в каком объекте (null = во всех).
+// Кем — ровно одно из: должность (deputyPositionId) или человек (deputyUserId).
+// Семантика по датам: без дат = ЗАПАСНОЙ (только когда должность пуста в этом объекте);
+// с датами = ВМЕСТО на период; датированное сильнее. Пересечения разрешены (ответ —
+// множество, как у resolveAssignees). В рёбра прав НЕ проецируется никогда:
+// проекция не пересчитывается в полночь, датированное замещение пережило бы отпуск.
+//
+// ⚠️ Рукописные ограничения (не выражаются в Prisma):
+//   CHECK "staff_deputies_target_xor_check"  — ровно одна цель (должность XOR человек)
+//   CHECK "staff_deputies_dates_check"       — ends_on >= starts_on
+//   CHECK "staff_deputies_not_self_check"    — должность не замещает сама себя
+//   UNIQUE "staff_deputies_dedup_key" по COALESCE(...) — защита от двойного клика
+model StaffDeputy {
+  id               String    @id @default(uuid())
+  workspaceId      String    @map("workspace_id")
+  positionId       String    @map("position_id")
+  branchId         String?   @map("branch_id")
+  deputyPositionId String?   @map("deputy_position_id")
+  deputyUserId     String?   @map("deputy_user_id")
+  startsOn         DateTime? @map("starts_on") @db.Date
+  endsOn           DateTime? @map("ends_on") @db.Date
+  note             String?
+  createdById      String    @map("created_by_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  workspace      Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  position       StaffPosition  @relation("DeputyForPosition", fields: [positionId], references: [id], onDelete: Cascade)
+  branch         StaffBranch?   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  deputyPosition StaffPosition? @relation("DeputyPosition", fields: [deputyPositionId], references: [id], onDelete: Cascade)
+  deputyUser     User?          @relation("DeputyUser", fields: [deputyUserId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([positionId])
+  @@index([deputyPositionId])
+  @@index([deputyUserId])
+  @@map("staff_deputies")
 }
 
 // ============================================================

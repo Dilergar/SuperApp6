@@ -1,0 +1,91 @@
+/* ============================================================
+   Общий канвас приложения — Organic Bento поверх React Flow (@xyflow/react).
+
+   Здесь ТОЛЬКО библиотечные классы React Flow (.react-flow__*), перекрашенные в
+   систему: порты, рёбра, контролы масштаба, миникарта, подпись библиотеки.
+   Свои ноды каждый канвас (Процессы — .pnode, Орг. структура — .onode) стилизует
+   у себя. Корневой класс НЕЙТРАЛЬНЫЙ — .sa-canvas: его ставит FlowCanvas.tsx,
+   а потребитель добавляет свой алиас (.pcanvas, .ocanvas) для нод.
+
+   Порядок несущий: файл импортируется FlowCanvas.tsx ПОСЛЕ
+   @xyflow/react/dist/style.css — иначе дефолты библиотеки (тёмные ручки,
+   синие рёбра, белые контролы) перебивают эти правила. Красить .react-flow__*
+   разрешено только отсюда: две точки правды разъехались бы молча.
+   ============================================================ */
+
+/* ---------- Полотно ---------- */
+/* Тёплая бумага под чистыми блоками-нодами — та же связка, что у страниц:
+   фон #eae6de, блок #fafbf8, 1px-бордер. */
+.sa-canvas {
+  height: 100%;
+  background: var(--page);
+}
+
+/* ---------- Порты ---------- */
+.sa-canvas .react-flow__handle {
+  width: 11px;
+  height: 11px;
+  background: var(--block);
+  border: 2px solid var(--line);
+  border-radius: var(--radius-pill);
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+.sa-canvas .react-flow__handle:hover,
+.sa-canvas .react-flow__handle.connectingfrom,
+.sa-canvas .react-flow__handle.connectingto {
+  border-color: var(--primary);
+  background: var(--primary-container);
+  transform: scale(1.15);
+}
+/* Порт без связи держится тише соседей — но остаётся видимой мишенью. */
+.sa-canvas .react-flow__handle.connectionindicator { cursor: crosshair; }
+
+/* ---------- Рёбра ---------- */
+.sa-canvas .react-flow__edge.selected .react-flow__edge-path,
+.sa-canvas .react-flow__edge:focus .react-flow__edge-path {
+  stroke: var(--primary);
+}
+.sa-canvas .react-flow__edge-text {
+  font-family: var(--font-body);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.sa-canvas .react-flow__connectionline path { stroke: var(--primary); }
+
+/* ---------- Контролы масштаба ---------- */
+.sa-canvas .react-flow__controls {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+.sa-canvas .react-flow__controls-button {
+  width: 30px;
+  height: 30px;
+  padding: 7px;
+  background: var(--block);
+  border: none;
+  border-bottom: 1px solid var(--divider);
+  color: var(--on-surface-variant);
+}
+.sa-canvas .react-flow__controls-button:last-child { border-bottom: none; }
+.sa-canvas .react-flow__controls-button:hover { background: var(--hover); color: var(--on-surface); }
+.sa-canvas .react-flow__controls-button svg { fill: currentColor; max-width: 13px; max-height: 13px; }
+
+/* ---------- Миникарта ---------- */
+.sa-canvas .react-flow__minimap {
+  background: var(--block);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+/* Затемнение вне вида задаёт проп maskColor в FlowCanvas.tsx: библиотека
+   пишет его инлайном, и правило отсюда до него не достало бы. */
+
+.sa-canvas .react-flow__attribution {
+  background: transparent;
+  color: var(--label);
+  font-size: 9px;
+}
+.sa-canvas .react-flow__attribution a { color: var(--label); }
