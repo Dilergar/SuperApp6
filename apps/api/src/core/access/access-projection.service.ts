@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
+import { activeAssignmentWhere } from '../../shared/utils/assignment-window';
 import { AccessService } from './access.service';
 import { RelationTupleInput } from './access.types';
 
@@ -380,8 +381,11 @@ export class AccessProjectionService {
   private async applyStaffDiff(workspaceId: string | null): Promise<DiffResult> {
     const wsWhere = workspaceId ? { workspaceId } : {};
     const [assignments, departments, branches, positions] = await Promise.all([
+      // ТОЛЬКО ДЕЙСТВУЮЩИЕ назначения: истёкшее (endsOn в прошлом) больше не даёт
+      // прав. Наступление/истечение даты события не рождает — его приносит джоб
+      // `staff.assignment.rollover` (полночь в поясе объекта) и ночной reconcile.
       this.db.staffAssignment.findMany({
-        where: wsWhere,
+        where: { ...wsWhere, ...activeAssignmentWhere() },
         select: {
           userId: true,
           positionId: true,
@@ -395,7 +399,7 @@ export class AccessProjectionService {
       }),
       this.db.staffBranch.findMany({
         where: wsWhere,
-        select: { id: true, headPositionId: true },
+        select: { id: true, headPositionId: true, parentId: true, ancestorIds: true },
       }),
       this.db.staffPosition.findMany({ where: wsWhere, select: { id: true } }),
     ]);
@@ -447,9 +451,27 @@ export class AccessProjectionService {
       return out;
     };
 
+    // Дерево объектов: те же две closure, что у отделов. Назначенный на ЭТАЖ —
+    // член этажа, здания и площадки (грант площадке достаёт всех, кто внутри);
+    // голова здания — голова всех его этажей.
+    const branchById = new Map(branches.map((b) => [b.id, b]));
+    const branchAncestors = (id: string): string[] => branchById.get(id)?.ancestorIds ?? [];
+    const branchSubtree = new Map<string, string[]>();
+    for (const b of branches) {
+      for (const anc of b.ancestorIds) {
+        const list = branchSubtree.get(anc) ?? [];
+        list.push(b.id);
+        branchSubtree.set(anc, list);
+      }
+    }
+
     for (const a of assignments) {
       put({ resourceType: 'position', resourceId: a.positionId, relation: 'holder', subjectType: 'user', subjectId: a.userId });
       put({ resourceType: 'branch', resourceId: a.branchId, relation: 'member', subjectType: 'user', subjectId: a.userId });
+      // Объект + все предки (closure ВВЕРХ).
+      for (const anc of branchAncestors(a.branchId)) {
+        put({ resourceType: 'branch', resourceId: anc, relation: 'member', subjectType: 'user', subjectId: a.userId });
+      }
       // Отдел + все предки (closure ВВЕРХ; visited-гард на случай повреждённого дерева).
       for (const dep of ancestorsOf(a.position.departmentId)) {
         put({ resourceType: 'department', resourceId: dep, relation: 'member', subjectType: 'user', subjectId: a.userId });
@@ -474,14 +496,25 @@ export class AccessProjectionService {
       }
     }
 
-    // Головы объектов: ТОЛЬКО держатели, работающие в этом объекте (управляющий
-    // чужой точки не становится головой этой).
+    // Головы объектов: держатели руководящей должности, работающие В ЭТОМ ОБЪЕКТЕ
+    // ИЛИ В ЕГО ПОДДЕРЕВЕ (управляющий сидит на этаже, а руководит зданием — обычная
+    // конфигурация сети). Голова получает `head` на весь свой поддерево (closure ВНИЗ)
+    // и `member` на предков — как у отделов.
     for (const b of branches) {
       if (!b.headPositionId) continue;
-      const holders = holdersInBranch.get(`${b.headPositionId}:${b.id}`);
-      if (!holders?.size) continue;
+      const holders = new Set<string>();
+      for (const scope of [b.id, ...(branchSubtree.get(b.id) ?? [])]) {
+        for (const u of holdersInBranch.get(`${b.headPositionId}:${scope}`) ?? []) holders.add(u);
+      }
+      if (!holders.size) continue;
+      const subtree = [b.id, ...(branchSubtree.get(b.id) ?? [])];
       for (const userId of holders) {
-        put({ resourceType: 'branch', resourceId: b.id, relation: 'head', subjectType: 'user', subjectId: userId });
+        for (const id of subtree) {
+          put({ resourceType: 'branch', resourceId: id, relation: 'head', subjectType: 'user', subjectId: userId });
+        }
+        for (const anc of b.ancestorIds) {
+          put({ resourceType: 'branch', resourceId: anc, relation: 'member', subjectType: 'user', subjectId: userId });
+        }
       }
     }
 

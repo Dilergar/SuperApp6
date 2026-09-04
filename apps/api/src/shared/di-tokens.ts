@@ -34,6 +34,10 @@ export const DI_TOKENS = {
   DocumentsService: 'DocumentsService',
   /** КЭДО ← ноды маршрута Процессов (hr.apply — применить кадровое действие, hr.esutd). */
   HrService: 'HrService',
+  /** План затрат объекта ← будущие Финансы B2B (ставки × смены, вакансии в счёт). */
+  ObjectsPayrollPort: 'ObjectsPayrollPort',
+  /** Факт выходов ← пропускная система (Face ID/турникет) и терминал. */
+  AttendancePort: 'AttendancePort',
 } as const;
 
 export type DiTokenName = keyof typeof DI_TOKENS;

@@ -2,6 +2,8 @@
 
 > «Кто кому руководитель» — граф ДОЛЖНОСТЕЙ и ОБЪЕКТОВ (не людей: переживает текучку; не штатное расписание). **Орг. структура — это Circle для B2B**: на ней стоят согласования, КЭДО, процессы, будущие Объекты и Штатное расписание. Единственный вход «кто мой руководитель / моя команда» — `managerOf` / `subordinateIdsOf`, снаружи — адресаты `manager_of` / `subordinates_of` / `branch_head_of` ([audiences_engine.md](audiences_engine.md)).
 
+> **Дерево объектов.** Объекты стали деревом ([objects.md](objects.md)): «руководитель объекта» (`branch_head_of`, `superiorPositionOf`, `OrgService.branchHeadUserIds`) поднимается к БЛИЖАЙШЕМУ ПРЕДКУ с управляющей должностью — у этажа своей может не быть, отвечает голова здания. Область прав (`OrgRightsService.scopeOf`) разворачивает грант на объект по его поддереву.
+
 Код: `apps/api/src/modules/staff/` (`org-resolve.ts` — чистые функции, `org-graph.service.ts` — снимок + кэш, `org-rights.service.ts` — области, `org.service.ts` + `org.controller.ts` — API, `staff-registries.provider.ts` — регистрации в движках). Справочники и назначения — [staff.md](staff.md). Веб — `apps/web/src/app/workspaces/[id]/members/org/`, общий канвас — `apps/web/src/components/canvas/`.
 
 ## Модель (поверх справочников Staff)

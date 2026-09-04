@@ -20,6 +20,7 @@ import {
   chatterTypeKeysOf,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { fullName } from '../../shared/utils/user-name';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { JobsService } from '../jobs/jobs.service';
 import { ChatterRefRegistry } from './chatter-ref.registry';
@@ -153,7 +154,8 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
   /** Записать пачку записей (updateTask может дать несколько диффов за раз). */
   async logMany(tx: Tx | null, entries: ChatterLogInput[]): Promise<void> {
     if (entries.length === 0) return;
-    const data = entries.map((e) => this.toRow(e));
+    const named = await this.withActorNames(tx, entries);
+    const data = named.map((e) => this.toRow(e));
     if (tx) {
       await this.createWithJobs(tx, data);
       return;
@@ -165,6 +167,40 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
         `chatter log failed (non-fatal): ${String((err as Error)?.message ?? err)}`,
       );
     }
+  }
+
+  /**
+   * Снимок имени актёра, если потребитель его не передал.
+   *
+   * `actorName` — ВЕЧНОЕ поле записи: оно переживает удаление аккаунта и рендерится
+   * шаблоном («{{actorName}} создал(а) объект»). Забытый снимок молча превращает всю
+   * ленту в «Кто-то …», и заметно это только глазами. Дешевле один SELECT на пачку,
+   * чем правило, которое каждый новый сервис обязан помнить.
+   */
+  private async withActorNames(tx: Tx | null, entries: ChatterLogInput[]): Promise<ChatterLogInput[]> {
+    const needActor = entries.filter((e) => e.actorId && !e.actorName).map((e) => e.actorId!);
+    // То же и для {{targetName}}: потребитель кладёт в payload только targetUserId
+    // (id — вечен, имя — снимок), а шаблону нужно имя.
+    const needTarget = entries
+      .map((e) => (e.payload?.targetUserId && !e.payload?.targetName ? String(e.payload.targetUserId) : null))
+      .filter((v): v is string => !!v);
+    const missing = [...new Set([...needActor, ...needTarget])];
+    if (missing.length === 0) return entries;
+    const client = tx ?? this.db;
+    const users = await client.user.findMany({
+      where: { id: { in: missing } },
+      select: { id: true, firstName: true, lastName: true },
+    });
+    const nameOf = new Map(users.map((u) => [u.id, fullName(u)]));
+    return entries.map((e) => {
+      const next = { ...e };
+      if (e.actorId && !e.actorName) next.actorName = nameOf.get(e.actorId) ?? null;
+      const targetId = e.payload?.targetUserId;
+      if (targetId && !e.payload?.targetName) {
+        next.payload = { ...e.payload, targetName: nameOf.get(String(targetId)) ?? null };
+      }
+      return next;
+    });
   }
 
   /**

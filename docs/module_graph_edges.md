@@ -30,6 +30,7 @@
 | `modules/hr` | `core/audiences`, `core/chatter`, `core/files`, `core/jobs`, `core/roles`, `core/sign`, `core/templates`, `modules/documents`, `modules/notifications`, `modules/processes`, `modules/staff`, `modules/tasks`, `modules/workspaces` |
 | `modules/messenger` | `core/access`, `core/calls`, `core/chatter`, `core/files`, `core/jobs`, `core/quick-actions`, `core/search`, `modules/calendar (токен)`, `modules/contacts`, `modules/drive`, `modules/notifications` |
 | `modules/notifications` | `core/jobs` |
+| `modules/objects` | `core/access`, `core/chatter`, `core/files`, `core/jobs`, `core/rich-cards`, `core/roles`, `core/search`, `modules/calendar`, `modules/drive`, `modules/hr`, `modules/notifications`, `modules/staff`, `modules/workspaces` |
 | `modules/office` | `core/access`, `core/calls`, `core/rich-cards`, `core/roles`, `modules/messenger`, `modules/notifications` |
 | `modules/processes` | `core/approvals`, `core/audiences`, `core/chatter`, `core/rich-cards (токен)`, `core/roles`, `modules/documents (токен)`, `modules/finances (токен)`, `modules/hr (токен)`, `modules/messenger (токен)`, `modules/notifications`, `modules/staff (токен)`, `modules/tasks`, `modules/workspaces (токен)` |
 | `modules/recorder` | `core/calls`, `core/files`, `core/voice`, `modules/notifications` |

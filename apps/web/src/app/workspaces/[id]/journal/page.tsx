@@ -36,6 +36,7 @@ const CATEGORY_CHIPS: { key: ChatterCategory | null; label: string }[] = [
   { key: 'drive', label: 'Диск' },
   { key: 'share', label: 'Ссылки наружу' },
   { key: 'processes', label: 'Процессы' },
+  { key: 'objects', label: 'Объекты' },
 ];
 
 export default function WorkspaceJournalPage() {

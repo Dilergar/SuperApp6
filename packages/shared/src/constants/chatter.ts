@@ -8,7 +8,7 @@
 import { interpolateTemplate } from '../utils/interpolate';
 
 /** Категории для фильтра «Журнала организации» */
-export const CHATTER_CATEGORIES = ['tasks', 'staff', 'hr', 'drive', 'share', 'documents', 'processes'] as const;
+export const CHATTER_CATEGORIES = ['tasks', 'staff', 'hr', 'drive', 'share', 'documents', 'processes', 'objects'] as const;
 export type ChatterCategory = (typeof CHATTER_CATEGORIES)[number];
 
 export interface ChatterTypeMeta {
@@ -221,6 +221,209 @@ export const CHATTER_REGISTRY = {
     category: 'staff',
     chatPost: false,
   },
+
+  // ---- Юрлица организации (refType='workspace') ----
+  'legal_entity.created': {
+    template: '{{actorName}} добавил(а) юрлицо «{{name}}»',
+    icon: '🏛️',
+    category: 'objects',
+    chatPost: false,
+  },
+  'legal_entity.updated': {
+    template: '{{actorName}} изменил(а) реквизиты юрлица «{{name}}»',
+    icon: '🏛️',
+    category: 'objects',
+    chatPost: false,
+  },
+  'legal_entity.archived': {
+    template: '{{actorName}} отправил(а) юрлицо «{{name}}» в архив',
+    icon: '📦',
+    category: 'objects',
+    chatPost: false,
+  },
+
+  // ---- Объекты (refType='branch', refId=branchId) ----
+  'branch.created': {
+    template: '{{actorName}} создал(а) объект «{{name}}»',
+    icon: '🏬',
+    category: 'objects',
+    chatPost: false,
+  },
+  'branch.updated': {
+    template: '{{actorName}} изменил(а) объект: {{fieldLabel}} {{from}} → {{to}}',
+    icon: '✏️',
+    category: 'objects',
+    chatPost: false,
+  },
+  'branch.moved': {
+    template: '{{actorName}} перенёс(ла) объект: {{from}} → {{to}}',
+    icon: '🔀',
+    category: 'objects',
+    chatPost: false,
+  },
+  'branch.archived': {
+    template: '{{actorName}} {{archiveVerb}} объект',
+    icon: '📦',
+    category: 'objects',
+    chatPost: false,
+  },
+  'branch.head_set': {
+    template: '{{actorName}} назначил(а) управляющую должность: {{from}} → {{to}}',
+    icon: '⭐',
+    category: 'objects',
+    chatPost: false,
+  },
+  'branch.legal_entity_set': {
+    template: '{{actorName}} сменил(а) юрлицо объекта: {{from}} → {{to}}',
+    icon: '🏛️',
+    category: 'objects',
+    chatPost: false,
+  },
+
+  // ---- Штатное расписание (refType='branch') ----
+  'staffing.unit_created': {
+    template: '{{actorName}} добавил(а) штатную единицу «{{positionName}}» ({{headcount}})',
+    icon: '🧾',
+    category: 'objects',
+    chatPost: false,
+  },
+  'staffing.unit_updated': {
+    template: '{{actorName}} изменил(а) единицу «{{positionName}}»: {{from}} → {{to}}',
+    icon: '🧾',
+    category: 'objects',
+    chatPost: false,
+  },
+  'staffing.unit_archived': {
+    template: '{{actorName}} убрал(а) штатную единицу «{{positionName}}»',
+    icon: '🗑️',
+    category: 'objects',
+    chatPost: false,
+  },
+  'staffing.assigned': {
+    template: '{{actorName}} назначил(а) {{targetName}} на «{{positionName}}» с {{startsOn}}',
+    icon: '💼',
+    category: 'objects',
+    chatPost: false,
+  },
+  'staffing.closed': {
+    template: '{{actorName}} закрыл(а) назначение {{targetName}} («{{positionName}}») по {{endsOn}}',
+    icon: '📤',
+    category: 'objects',
+    chatPost: false,
+  },
+  'staffing.assignment_updated': {
+    template: '{{actorName}} изменил(а) назначение {{targetName}} («{{positionName}}»)',
+    icon: '🗓️',
+    category: 'objects',
+    chatPost: false,
+  },
+  'staffing.rate_set': {
+    template: '{{actorName}} установил(а) ставку {{rateLabel}} с {{effectiveFrom}}',
+    icon: '💰',
+    category: 'objects',
+    chatPost: false,
+  },
+
+  // ---- График смен (refType='branch') ----
+  'shift.created': {
+    template: '{{actorName}} создал(а) смену {{shiftLabel}}',
+    icon: '🗓️',
+    category: 'objects',
+    chatPost: false,
+  },
+  'shift.assigned': {
+    template: '{{actorName}} поставил(а) {{targetName}} на смену {{shiftLabel}}',
+    icon: '🧑‍🍳',
+    category: 'objects',
+    chatPost: false,
+  },
+  'shift.unassigned': {
+    template: '{{actorName}} снял(а) {{targetName}} со смены {{shiftLabel}}',
+    icon: '↩️',
+    category: 'objects',
+    chatPost: false,
+  },
+  'shift.published': {
+    template: '{{actorName}} опубликовал(а) график: {{periodLabel}} ({{count}})',
+    icon: '📣',
+    category: 'objects',
+    chatPost: false,
+  },
+  'shift.cancelled': {
+    template: '{{actorName}} отменил(а) смену {{shiftLabel}}',
+    icon: '🚫',
+    category: 'objects',
+    chatPost: false,
+  },
+  'shift.taken': {
+    template: '{{actorName}} взял(а) открытую смену {{shiftLabel}}',
+    icon: '🙋',
+    category: 'objects',
+    chatPost: false,
+  },
+  'shift.forced': {
+    template: '{{actorName}} поставил(а) смену {{shiftLabel}} в обход правила: {{reason}}',
+    icon: '⚠️',
+    category: 'objects',
+    chatPost: false,
+  },
+  'attendance.marked': {
+    template: '{{actorName}} отметил(а) выход {{targetName}} {{dateLabel}}: {{outcomeLabel}}',
+    icon: '✅',
+    category: 'objects',
+    chatPost: false,
+  },
+  'attendance.removed': {
+    template: '{{actorName}} удалил(а) запись табеля {{targetName}} {{dateLabel}}',
+    icon: '🗑️',
+    category: 'objects',
+    chatPost: false,
+  },
+
+  // ---- Оборудование (refType='asset', refId=assetId) ----
+  'asset.created': {
+    template: '{{actorName}} добавил(а) «{{name}}»',
+    icon: '🔧',
+    category: 'objects',
+    chatPost: false,
+  },
+  'asset.updated': {
+    template: '{{actorName}} изменил(а) карточку: {{fieldLabel}} {{from}} → {{to}}',
+    icon: '✏️',
+    category: 'objects',
+    chatPost: false,
+  },
+  'asset.moved': {
+    template: '{{actorName}} переместил(а): {{from}} → {{to}}',
+    icon: '🚚',
+    category: 'objects',
+    chatPost: false,
+  },
+  'asset.custodian_set': {
+    template: '{{actorName}} сменил(а) ответственного: {{from}} → {{to}}',
+    icon: '🙋',
+    category: 'objects',
+    chatPost: false,
+  },
+  'asset.holding_set': {
+    template: '{{actorName}} изменил(а) владение: {{from}} → {{to}}',
+    icon: '🏛️',
+    category: 'objects',
+    chatPost: false,
+  },
+  'asset.status_set': {
+    template: '{{actorName}} изменил(а) состояние: {{from}} → {{to}}',
+    icon: '🔁',
+    category: 'objects',
+    chatPost: false,
+  },
+  'asset.service_logged': {
+    template: '{{actorName}} записал(а) обслуживание: {{title}}',
+    icon: '🛠️',
+    category: 'objects',
+    chatPost: false,
+  },
+
   // ---- Оргструктура (refType='workspace'; след в «Журнале», приказа на структуру нет) ----
   // Появление и исчезновение единиц структуры. Раньше в журнал не попадало вообще:
   // назначения писались, а удаление целого отдела — нет, и кадровый аудит обрывался

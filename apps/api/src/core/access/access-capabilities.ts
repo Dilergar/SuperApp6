@@ -33,6 +33,14 @@ export const CAPABILITIES = {
   'workspace.member': { resourceType: 'workspace', relation: 'member' },
   // оргструктура: править ветку отдела (голова отдела ⇒ manager; явный делегат — обычным ребром)
   'department.manage': { resourceType: 'department', relation: 'manager' },
+  // Объекты (сервис «Объекты»). ВАЖНО: точечный can() по id ребёнка НЕ видит предков
+  // (кэш резолвится по одному узлу) — списки и страницы считают права через
+  // `ObjectsService.capsFor`, пересекая grantSetFor с [id, ...ancestorIds].
+  'branch.view': { resourceType: 'branch', relation: 'member' },
+  'branch.manage': { resourceType: 'branch', relation: 'manager' },
+  'branch.schedule.manage': { resourceType: 'branch', relation: 'scheduler' },
+  'branch.attendance.mark': { resourceType: 'branch', relation: 'scheduler' },
+  'branch.payroll.view': { resourceType: 'branch', relation: 'payroll_viewer' },
   // platform personas (gate FUTURE features; nothing existing is restricted)
   'marketplace.sell': { resourceType: 'platform', relation: 'seller' },
   'jobs.mystery_guest': { resourceType: 'platform', relation: 'mystery_guest' },

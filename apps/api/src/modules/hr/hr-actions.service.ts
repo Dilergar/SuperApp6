@@ -34,6 +34,8 @@ import { DocumentsService } from '../documents/documents.service';
 import { StaffService } from '../staff/staff.service';
 import { TasksService } from '../tasks/tasks.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
+import { LegalEntitiesService } from '../workspaces/legal-entities.service';
+import { assignmentToday } from '../../shared/utils/assignment-window';
 import { HrCalendarService } from './hr-calendar.service';
 import { AudiencesService } from '../../core/audiences/audiences.service';
 import {
@@ -62,9 +64,19 @@ type HrActionRow = Awaited<ReturnType<DatabaseService['hrAction']['findUniqueOrT
 interface PostApplyEffects {
   syncFact?: { positionId: string; branchId: string | null; prevPositionId: string | null };
   removeMembership?: boolean;
+  /**
+   * Увольнение ЗАКРЫВАЕТ фактические назначения датой приказа (а не стирает их):
+   * история, ставки и смены остаются, права снимаются фильтром по датам.
+   */
+  closeAssignments?: string;
+  /** Приём с syncFact: создать фактическое назначение с даты приказа */
+  hireFact?: { positionId: string; branchId: string | null; startsOn: string };
 }
 
 const dateStr = (d: Date | null | undefined): string | null => (d ? d.toISOString().slice(0, 10) : null);
+
+/** Сегодня в поясе платформы (фолбэк, если у действия нет даты вступления) */
+const orgTodayIso = (): string => assignmentToday();
 
 function coded(message: string, code: string): BadRequestException {
   return new BadRequestException({ message, details: { code } });
@@ -95,6 +107,7 @@ export class HrActionsService {
     private readonly workspaces: WorkspacesService,
     private readonly calendar: HrCalendarService,
     private readonly audiences: AudiencesService,
+    private readonly legal: LegalEntitiesService,
   ) {}
 
   // ---------- Гейты (копия лестницы — прецедент documents/processes) ----------
@@ -212,11 +225,29 @@ export class HrActionsService {
     // Приём: черновик трудовой карточки заводится сразу (применение в hiredAt
     // переведёт в active). Прочие виды требуют живую карточку — их применение
     // меняет её поля, и применять было бы нечего.
+    // Работодатель по действию: явная карточка (совместительство) → её юрлицо;
+    // иначе указанное в параметрах; иначе головное. Живая карточка ищется В ЭТОМ
+    // юрлице — вторая карточка в другом ТОО не мешает приёму.
     let employmentId: string | null = null;
-    const live = await this.db.employment.findFirst({
-      where: { workspaceId, userId: dto.userId, status: { not: 'terminated' } },
-      orderBy: { createdAt: 'desc' },
+    const explicit = dto.employmentId
+      ? await this.db.employment.findFirst({
+          where: { id: dto.employmentId, workspaceId, userId: dto.userId },
+        })
+      : null;
+    if (dto.employmentId && !explicit) throw new BadRequestException('Трудовая карточка не найдена');
+    const legalEntityId = explicit
+      ? explicit.legalEntityId
+      : await this.legal.resolveLegalEntityId(workspaceId, params.legalEntityId ?? null);
+    const legalEntity = await this.db.legalEntity.findUnique({
+      where: { id: legalEntityId },
+      select: { name: true },
     });
+    const live =
+      explicit ??
+      (await this.db.employment.findFirst({
+        where: { workspaceId, userId: dto.userId, legalEntityId, status: { not: 'terminated' } },
+        orderBy: { createdAt: 'desc' },
+      }));
     if (kind === 'hire') {
       if (live && live.status === 'active') {
         throw new BadRequestException('У сотрудника уже есть действующая трудовая карточка');
@@ -227,7 +258,14 @@ export class HrActionsService {
       const draft =
         live ??
         (await this.db.employment.create({
-          data: { workspaceId, userId: dto.userId, status: 'draft', createdById: actorId },
+          data: {
+            workspaceId,
+            userId: dto.userId,
+            legalEntityId,
+            legalEntityName: legalEntity?.name ?? null,
+            status: 'draft',
+            createdById: actorId,
+          },
         }));
       await this.db.employment.update({
         where: { id: draft.id },
@@ -497,6 +535,17 @@ export class HrActionsService {
 
     // ---- После коммита: чужие сервисы и оповещения (best-effort) ----
     const { action, post } = outcome;
+    if (post.closeAssignments) {
+      // `system*`: право проверено при создании приказа (контракт движка).
+      await this.staff
+        .closeAssignmentsSystem(action.workspaceId, action.userId, post.closeAssignments)
+        .catch((e) =>
+          this.logger.warn(`closeAssignments после увольнения ${action.userId}: ${(e as Error).message}`),
+        );
+    }
+    if (post.hireFact) {
+      await this.hireFactAssignment(action, post.hireFact);
+    }
     if (post.syncFact) {
       await this.syncFactAssignment(
         action,
@@ -598,6 +647,15 @@ export class HrActionsService {
           where: { id: employment.id },
           data: { status: 'active', hiredAt: action.effectiveAt },
         });
+        // Приём с галочкой «обновить факт» заводит НАЗНАЧЕНИЕ с даты приказа:
+        // раньше приём факт не создавал вовсе, и человек оставался вне объекта.
+        if (params.syncFact && employment.legalPositionId) {
+          post.hireFact = {
+            positionId: employment.legalPositionId,
+            branchId: employment.legalBranchId ?? null,
+            startsOn: dateStr(action.effectiveAt)!,
+          };
+        }
         // ЕСУТД: заключение — 5 РАБОЧИХ дней от подписания ОБЕИМИ сторонами
         await this.ensureEsutd(tx, action, 'contract', signedBase, employment.id);
         break;
@@ -660,6 +718,9 @@ export class HrActionsService {
         });
         // ЕСУТД: прекращение — 3 РАБОЧИХ дня ОТ ДНЯ ПРЕКРАЩЕНИЯ
         await this.ensureEsutd(tx, action, 'termination', dateStr(action.effectiveAt)!, employment.id);
+        // Факт закрывается ДАТОЙ ПРИКАЗА: назначения остаются в истории (на них
+        // ссылаются ставки и смены), но перестают действовать и давать права.
+        post.closeAssignments = dateStr(action.effectiveAt)!;
         // «И то и другое»: юридическое увольнение снимает и членство в системе —
         // после коммита (removeMember ведёт свои транзакции и каскады).
         if (params.alsoRemoveMembership) post.removeMembership = true;
@@ -727,25 +788,38 @@ export class HrActionsService {
 
   /** Факт вслед за договором: снять назначение старой договорной должности, поставить новую */
   private async syncFactAssignment(
-    action: { workspaceId: string; userId: string; createdById: string },
+    action: { workspaceId: string; userId: string; createdById: string; effectiveAt?: Date },
     positionId: string,
     branchId: string | null,
     prevLegalPositionId: string | null,
   ): Promise<void> {
+    const effectiveAt = dateStr((action as { effectiveAt?: Date }).effectiveAt ?? null) ?? orgTodayIso();
     try {
+      // СНАЧАЛА закрываем старое (иначе EXCLUDE-ограничение по периодам отвергнет
+      // новое назначение той же связки), и только потом создаём новое.
       if (prevLegalPositionId && prevLegalPositionId !== positionId) {
-        const old = await this.db.staffAssignment.findFirst({
-          where: { workspaceId: action.workspaceId, userId: action.userId, positionId: prevLegalPositionId },
-          select: { id: true },
-        });
-        // `system*`: фоновый джоб от имени создателя действия — право проверено при
-        // создании приказа; областной промах здесь означал бы проваленный приказ.
-        if (old) await this.staff.removeAssignmentSystem(action.createdById, action.workspaceId, old.id);
+        const prevDay = new Date(new Date(`${effectiveAt}T00:00:00.000Z`).getTime() - 86_400_000)
+          .toISOString()
+          .slice(0, 10);
+        const closed = await this.staff.closeAssignmentsSystem(
+          action.workspaceId,
+          action.userId,
+          prevDay,
+        );
+        if (closed === 0) {
+          this.logger.warn(`syncFact ${action.userId}: прежних назначений не найдено — расхождение факт/договор`);
+        }
       }
       // Без объекта назначения не бывает: договор без объекта → основной объект.
       const targetBranchId = branchId ?? (await this.staff.ensureDefaultBranch(action.workspaceId)).id;
       const exists = await this.db.staffAssignment.findFirst({
-        where: { workspaceId: action.workspaceId, userId: action.userId, positionId, branchId: targetBranchId },
+        where: {
+          workspaceId: action.workspaceId,
+          userId: action.userId,
+          positionId,
+          branchId: targetBranchId,
+          OR: [{ endsOn: null }, { endsOn: { gte: new Date(`${effectiveAt}T00:00:00.000Z`) } }],
+        },
         select: { id: true },
       });
       if (!exists) {
@@ -753,11 +827,45 @@ export class HrActionsService {
           positionId,
           branchId: targetBranchId,
           status: 'certified',
+          startsOn: effectiveAt,
         });
       }
     } catch (e) {
-      // Синхронизация факта best-effort: расхождение покажет плашка, а не сломанное применение
+      // Синхронизация факта best-effort: расхождение покажет плашка, а не сломанное
+      // применение. Но МОЛЧА глотать нельзя — пишем в хронику человека.
       this.logger.warn(`syncFact ${action.userId}: ${(e as Error).message}`);
+      await this.logMember(null, action.workspaceId, action.userId, 'hr.action_failed', {
+        kindLabel: 'Синхронизация факта',
+        reason: (e as Error).message,
+      }).catch(() => undefined);
+    }
+  }
+
+  /** Приём с syncFact: фактическое назначение с даты приказа (`system*`). */
+  private async hireFactAssignment(
+    action: { workspaceId: string; userId: string; createdById: string },
+    fact: { positionId: string; branchId: string | null; startsOn: string },
+  ): Promise<void> {
+    try {
+      const targetBranchId = fact.branchId ?? (await this.staff.ensureDefaultBranch(action.workspaceId)).id;
+      const exists = await this.db.staffAssignment.findFirst({
+        where: {
+          workspaceId: action.workspaceId,
+          userId: action.userId,
+          positionId: fact.positionId,
+          branchId: targetBranchId,
+          OR: [{ endsOn: null }, { endsOn: { gte: new Date(`${fact.startsOn}T00:00:00.000Z`) } }],
+        },
+        select: { id: true },
+      });
+      if (exists) return;
+      await this.staff.assignPositionSystem(action.createdById, action.workspaceId, action.userId, {
+        positionId: fact.positionId,
+        branchId: targetBranchId,
+        startsOn: fact.startsOn,
+      });
+    } catch (e) {
+      this.logger.warn(`hireFact ${action.userId}: ${(e as Error).message}`);
     }
   }
 

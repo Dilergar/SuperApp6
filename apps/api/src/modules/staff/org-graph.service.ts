@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TEAM_WORKSPACE_ROLES } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { activeAssignmentWhere } from '../../shared/utils/assignment-window';
 import { RedisService } from '../../shared/redis/redis.service';
 import { buildOrgGraph, type OrgGraph, type OrgSnapshotData } from './org-resolve';
 
@@ -80,12 +81,33 @@ export class OrgGraphService {
       }),
       this.db.staffBranch.findMany({
         where: { workspaceId },
-        select: { id: true, name: true, isDefault: true, headPositionId: true, sortOrder: true },
+        // ancestorIds — дерево объектов: «руководитель объекта» поднимается к
+        // ближайшему предку с управляющей должностью (у этажа своей может не быть).
+        select: {
+          id: true,
+          name: true,
+          isDefault: true,
+          headPositionId: true,
+          sortOrder: true,
+          ancestorIds: true,
+        },
         orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       }),
+      // Только ДЕЙСТВУЮЩИЕ: вертикаль, адресаты и ростер не должны видеть
+      // истёкшее назначение. Снимок сбрасывается джобом rollover в полночь.
       this.db.staffAssignment.findMany({
-        where: { workspaceId },
-        select: { id: true, userId: true, positionId: true, branchId: true, isPrimary: true, status: true, createdAt: true },
+        where: { workspaceId, ...activeAssignmentWhere() },
+        select: {
+          id: true,
+          userId: true,
+          positionId: true,
+          branchId: true,
+          isPrimary: true,
+          status: true,
+          startsOn: true,
+          endsOn: true,
+          createdAt: true,
+        },
         orderBy: { createdAt: 'asc' },
       }),
       this.db.staffDeputy.findMany({
@@ -116,7 +138,12 @@ export class OrgGraphService {
       departments,
       positions,
       branches,
-      assignments: assignments.map((a) => ({ ...a, createdAt: a.createdAt.toISOString() })),
+      assignments: assignments.map((a) => ({
+        ...a,
+        startsOn: date(a.startsOn),
+        endsOn: date(a.endsOn),
+        createdAt: a.createdAt.toISOString(),
+      })),
       deputies: deputies.map((d) => ({
         ...d,
         startsOn: date(d.startsOn),

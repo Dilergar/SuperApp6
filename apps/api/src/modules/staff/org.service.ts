@@ -42,6 +42,7 @@ import {
   type ManagerResolution,
   type OrgDeputyRow,
   type OrgGraph,
+  branchHeadHolders,
 } from './org-resolve';
 
 const WS_CONTEXT = 'workspace';
@@ -81,12 +82,13 @@ export class OrgService {
     return subordinateIdsOf(g, userId);
   }
 
-  /** Держатели руководящей должности объекта (в самом объекте; лестница замещений). */
+  /**
+   * Держатели руководящей должности объекта; своей нет — поднимаемся к ближайшему
+   * предку в дереве объектов (лестница замещений внутри).
+   */
   async branchHeadUserIds(workspaceId: string, branchId: string): Promise<string[]> {
     const g = await this.graph.load(workspaceId);
-    const b = g.branchById.get(branchId);
-    if (!b?.headPositionId) return [];
-    return holdersForPosition(g, b.headPositionId, branchId, orgToday()).userIds;
+    return branchHeadHolders(g, branchId, orgToday()).userIds;
   }
 
   // ============================================================
@@ -98,7 +100,11 @@ export class OrgService {
     const [g, scope, requisites] = await Promise.all([
       this.graph.load(workspaceId),
       this.rights.scopeOf(viewerId, workspaceId, role),
-      this.db.workspaceRequisites.findUnique({ where: { workspaceId }, select: { directorUserId: true } }),
+      // Директор ГОЛОВНОГО юрлица — вершина схемы организации.
+      this.db.legalEntity.findFirst({
+        where: { workspaceId, isHead: true },
+        select: { directorUserId: true },
+      }),
     ]);
     if (g.positions.length > ORG_LIMITS.maxChartPositions) {
       throw new ConflictException({

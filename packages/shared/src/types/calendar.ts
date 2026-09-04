@@ -171,7 +171,26 @@ export interface CalendarLayerItemBase {
   href?: string;
 }
 
-export type CalendarItem = CalendarEventOccurrence | CalendarTaskItem | CalendarFinanceItem;
+/** Смена сервиса «Объекты» в личном календаре: только ОПУБЛИКОВАННЫЕ, read-only. */
+export interface CalendarShiftItem extends CalendarLayerItemBase {
+  kind: 'shifts';
+  id: string;
+  /** «Кофейня на Абая · Бариста» */
+  title: string;
+  start: string;
+  end: string;
+  icon: string | null;
+  color: string | null;
+  href: string;
+  branchId: string;
+  status: 'published';
+}
+
+export type CalendarItem =
+  | CalendarEventOccurrence
+  | CalendarTaskItem
+  | CalendarFinanceItem
+  | CalendarShiftItem;
 
 /** Сводка слоя за период (чип в шапке веба), напр. «Платежи: 45 000 ₸ · после них ≈ 120 000 ₸». */
 export interface CalendarLayerRangeMeta {

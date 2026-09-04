@@ -17,7 +17,7 @@
 // counterparty — карточка справочника «Контрагенты»: название, БИН/ИИН, подписант,
 // ссылка «Открыть». БЕЗ action-ключей (тот же довод, что у drive_node/org_document:
 // права считает предикат сервиса по роли, а не can() движка).
-export const RICH_CARD_REF_TYPES = ['order', 'listing', 'crowdfunding', 'task', 'event', 'fin_transaction', 'fin_month', 'office_room', 'drive_node', 'approval_request', 'org_document', 'counterparty'] as const;
+export const RICH_CARD_REF_TYPES = ['order', 'listing', 'crowdfunding', 'task', 'event', 'fin_transaction', 'fin_month', 'office_room', 'drive_node', 'approval_request', 'org_document', 'counterparty', 'branch', 'shift'] as const;
 
 // Button visual styles.
 export const RICH_CARD_ACTION_STYLES = ['primary', 'danger', 'default'] as const;
@@ -49,6 +49,8 @@ export const RICH_CARD_ACTION_KEYS = [
   'approval.approve',
   'approval.reject',
   'approval.return',
+  // Объекты: открытую смену берут прямо из чата объекта («кто возьмёт субботу?»)
+  'shift.take',
 ] as const;
 
 export const RICH_CARD_LIMITS = {

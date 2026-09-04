@@ -683,9 +683,19 @@ model Workspace {
   staffPositions   StaffPosition[]
   staffBranches    StaffBranch[]
   staffAssignments StaffAssignment[]
+  staffingPositions StaffingPosition[]
+  staffRates       StaffRate[]
+  shiftTemplates   ShiftTemplate[]
+  shiftPatterns    ShiftPattern[]
+  shifts           Shift[]
+  shiftAttendance  ShiftAttendance[]
+  assetModels      AssetModel[]
+  assets           Asset[]
+  assetMoves       AssetMove[]
+  assetServices    AssetServiceRecord[]
   staffDeputies    StaffDeputy[]
   officeRooms      OfficeRoom[]
-  requisites       WorkspaceRequisites?
+  legalEntities    LegalEntity[]
   bankAccounts     WorkspaceBankAccount[]
   docTypes         DocType[]
   docTemplates     DocTemplate[]
@@ -704,15 +714,27 @@ model Workspace {
   @@map("workspaces")
 }
 
-// Реквизиты организации (юрлицо для договоров и счетов) — блок «Анкеты компании»,
-// 1:1 при Workspace. Отдельная таблица, а не колонки на Workspace: сама организация
-// участвует в десятках списочных запросов, а реквизиты нужны одной странице анкеты
-// и будущим документам (счёт, договор, ЭДО). Редактирует admin+, сотрудникам блок
-// виден по флагу cardVisibility.requisites (по умолчанию да — реквизиты печатаются
-// на каждом счёте).
-model WorkspaceRequisites {
-  id             String    @id @default(uuid())
-  workspaceId    String    @unique @map("workspace_id")
+// Юрлицо организации (ТОО/ИП) — сторона договора, владелец счетов и балансодержатель.
+// Workspace — это БРЕНД («Сеть кофеен Ромашка»), а договор с работником и счёт
+// подписывает конкретное ТОО; у сети их бывает несколько (разные регионы, разные
+// налоговые режимы). Ровно одно ГОЛОВНОЕ (isHead): его реквизиты отдаёт старая ручка
+// /requisites, оно подставляется по умолчанию всюду, где юрлицо не выбрано.
+// Не удаляется, а АРХИВИРУЕТСЯ: на неё ссылаются трудовые карточки и напечатанные
+// документы. Редактирует admin+, сотрудникам блок виден по флагу cardVisibility.requisites.
+//
+// ⚠️ Рукописные ограничения (не выражаются в Prisma; `db push` запрещён):
+//   CREATE UNIQUE INDEX "legal_entities_head_per_workspace_key"
+//     ON "legal_entities"("workspace_id") WHERE "is_head";
+//   CREATE UNIQUE INDEX "legal_entities_bin_live_key"
+//     ON "legal_entities"("workspace_id","bin") WHERE "bin" IS NOT NULL AND "archived_at" IS NULL;
+model LegalEntity {
+  id          String @id @default(uuid())
+  workspaceId String @map("workspace_id")
+  /** Как показывать в списках: «ТОО „Ромашка"» / «ИП Иванов» */
+  name        String
+  /** Головное — ровно одно на организацию; архивировать нельзя. */
+  isHead      Boolean @default(false) @map("is_head")
+
   orgForm        String?   @map("org_form") // ip | too | ao | kh | pk | institution | branch | other
   taxRegime      String?   @map("tax_regime") // general | simplified | retail | patent | snr_kh | astana_hub | other
   legalName      String?   @map("legal_name") // «ТОО „Ромашка"» — Workspace.name это бренд, в договор идёт юрформа
@@ -727,12 +749,21 @@ model WorkspaceRequisites {
   // нет намеренно — увольнение не должно рвать реквизиты, подпись сверяется на выдаче).
   directorUserId String?   @map("director_user_id")
   signBasis      String?   @map("sign_basis") // «Устава» / «доверенности № 7 от …»
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sortOrder  Int       @default(0) @map("sort_order")
+  archivedAt DateTime? @map("archived_at")
 
-  @@map("workspace_requisites")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  workspace    Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  bankAccounts WorkspaceBankAccount[]
+  employments  Employment[]
+  branches     StaffBranch[]
+  balanceAssets Asset[]
+
+  @@index([workspaceId, archivedAt])
+  @@map("legal_entities")
 }
 
 // Банковские счета организации — СПИСОК с основным (модель 1С/Odoo: счетов несколько,
@@ -743,15 +774,19 @@ model WorkspaceRequisites {
 model WorkspaceBankAccount {
   id          String   @id @default(uuid())
   workspaceId String   @map("workspace_id")
+  /** Счёт принадлежит ЮРЛИЦУ (в платёжку идут его БИН/КБе), а не бренду. */
+  legalEntityId String @map("legal_entity_id")
   iban        String // KZ + 18 знаков, контроль ISO 13616
   bankName    String   @map("bank_name")
   bik         String // 8 знаков SWIFT-формата
   isPrimary   Boolean  @default(false) @map("is_primary")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  legalEntity LegalEntity @relation(fields: [legalEntityId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId])
+  @@index([legalEntityId])
   @@map("workspace_bank_accounts")
 }
 
@@ -904,6 +939,8 @@ model StaffPosition {
   workspace   Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   department  StaffDepartment?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   assignments StaffAssignment[]
+  staffingPositions StaffingPosition[]
+  shifts      Shift[]
   invitations WorkspaceInvitation[]
   reportsTo   StaffPosition?        @relation("PositionReportsTo", fields: [reportsToPositionId], references: [id], onDelete: SetNull)
   reports     StaffPosition[]       @relation("PositionReportsTo")
@@ -939,17 +976,55 @@ model StaffBranch {
   // Руководящая должность объекта («Управляющий точкой») — та же модель, что у отдела.
   headPositionId String? @map("head_position_id")
 
+  // ---- Дерево площадок (сервис «Объекты») ----
+  // Self-FK Restrict: узел с детьми не удаляется (прикладной 409 object_has_children —
+  // дети переносятся явно, а не осиротевают молча).
+  parentId String? @map("parent_id")
+  kind     String  @default("site") // OBJECT_KINDS: site|building|floor|room|warehouse|zone|other
+  // Юрлицо объекта. null = наследуется от ближайшего предка, иначе головное
+  // (ObjectsService.effectiveLegalEntity) — сеть заводит ТОО один раз на площадку.
+  legalEntityId String? @map("legal_entity_id")
+  // Смены считаются в поясе ОБЪЕКТА, не организации: «сегодня» у точки в Актау
+  // наступает раньше, чем у бэк-офиса в Алматы.
+  timeZone String  @default("Asia/Almaty") @map("time_zone")
+  glyph    String?
+  // Материализованные предки (корень ПЕРВЫМ, без себя) + глубина. Паттерн Диска и
+  // closure отделов: одно условие в SQL и для поддерева, и для прав через предков.
+  // ⚠️ РУКАМИ: CREATE INDEX staff_branches_ancestor_ids_gin ON staff_branches USING GIN(ancestor_ids)
+  ancestorIds String[] @default([]) @map("ancestor_ids")
+  depth       Int      @default(0)
+  // Правила смен объекта = ДАННЫЕ (ObjectScheduleSettings): minRestMin, maxShiftMin,
+  // lateToleranceMin, weekStartsOn, accountingPeriod.
+  scheduleSettings Json? @map("schedule_settings")
+  // Закрытая точка: история, смены и активы остаются; в новых формах не предлагается.
+  archivedAt DateTime? @map("archived_at")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   workspace    Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   assignments  StaffAssignment[]
+  staffingPositions StaffingPosition[]
+  shiftTemplates    ShiftTemplate[]
+  shiftPatterns     ShiftPattern[]
+  shifts            Shift[]
+  shiftAttendance   ShiftAttendance[]
+  assets            Asset[]
   headPosition StaffPosition?    @relation("BranchHead", fields: [headPositionId], references: [id], onDelete: SetNull)
   deputies     StaffDeputy[]
+  parent       StaffBranch?      @relation("BranchTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children     StaffBranch[]     @relation("BranchTree")
+  legalEntity  LegalEntity?      @relation(fields: [legalEntityId], references: [id], onDelete: SetNull)
 
-  @@unique([workspaceId, name])
+  // ⚠️ РУКАМИ: уникальность имени — на пару «родитель + имя» и только среди ЖИВЫХ
+  // (Prisma не выражает ни COALESCE, ни партиальный уникум):
+  // CREATE UNIQUE INDEX staff_branches_parent_name_key
+  //   ON staff_branches (workspace_id, COALESCE(parent_id, ''), name) WHERE archived_at IS NULL;
+  // Прежний @@unique([workspaceId, name]) запрещал второй «Этаж 1» во всей сети.
   @@index([workspaceId])
   @@index([headPositionId])
+  @@index([workspaceId, parentId])
+  @@index([legalEntityId])
   @@map("staff_branches")
 }
 
@@ -974,6 +1049,16 @@ model StaffAssignment {
   status      String  @default("training") // training | certified (Додзё/manager+ переключает)
   assignedBy  String? @map("assigned_by") // user_id назначившего (аудит)
 
+  // ---- Датирование (сервис «Объекты») ----
+  // Закрытое назначение ОСТАЁТСЯ: на него ссылаются ставки, смены и история.
+  // null у starts_on = «с сотворения», null у ends_on = бессрочно.
+  startsOn DateTime? @map("starts_on") @db.Date
+  endsOn   DateTime? @map("ends_on") @db.Date
+  /** Доля ставки: два человека по 0.5 закрывают одну штатную единицу */
+  rateShare Float @default(1) @map("rate_share")
+  /** К какой штатной единице отнесено (FK SetNull — единицу можно убрать из штатки) */
+  staffingPositionId String? @map("staffing_position_id")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -982,12 +1067,97 @@ model StaffAssignment {
   position  StaffPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
   // Restrict: удаление объекта с людьми — прикладной 409 «сначала переведите».
   branch    StaffBranch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  staffingPosition StaffingPosition? @relation(fields: [staffingPositionId], references: [id], onDelete: SetNull)
+  rates     StaffRate[]
+  shifts    Shift[]
+  shiftPatterns ShiftPattern[]
 
-  @@unique([workspaceId, userId, positionId, branchId])
+  // ⚠️ РУКАМИ (Prisma не выражает ни EXCLUDE, ни CHECK, ни партиальный уникум):
+  //  · staff_assignments_primary_per_user_key — UNIQUE(workspace_id, user_id) WHERE is_primary
+  //  · staff_assignments_dates_check — CHECK (ends_on >= starts_on)
+  //  · staff_assignments_no_overlap — EXCLUDE по диапазону дат (btree_gist):
+  //    один человек не занимает одну должность в одном объекте дважды в один период.
   @@index([workspaceId, userId])
   @@index([positionId])
   @@index([branchId])
+  @@index([staffingPositionId])
+  @@index([workspaceId, endsOn])
   @@map("staff_assignments")
+}
+
+/// Штатная ЕДИНИЦА: должность × объект. Существует и ВАКАНТНОЙ — на этом держится
+/// план затрат («по штату 3 бариста, работают 2»). Плановая ставка единицы копируется
+/// в фактическую при назначении человека.
+///
+/// ⚠️ Рукописное ограничение (Prisma не выражает):
+///   CREATE UNIQUE INDEX "staffing_positions_live_key"
+///     ON "staffing_positions"("branch_id","position_id") WHERE "archived_at" IS NULL;
+model StaffingPosition {
+  id          String @id @default(uuid())
+  workspaceId String @map("workspace_id")
+  branchId    String @map("branch_id")
+  positionId  String @map("position_id")
+  /** «По штату N» — целое; частичная занятость выражается rateShare назначения */
+  headcount Int @default(1)
+  /** График по умолчанию для новых назначений на эту единицу */
+  shiftTemplateId String? @map("shift_template_id")
+  sortOrder  Int       @default(0) @map("sort_order")
+  note       String?
+  archivedAt DateTime? @map("archived_at")
+
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  branch      StaffBranch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  position    StaffPosition     @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  assignments StaffAssignment[]
+  rates       StaffRate[]
+  shifts      Shift[]
+  shiftPatterns ShiftPattern[]
+  shiftTemplate ShiftTemplate? @relation(fields: [shiftTemplateId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, branchId])
+  @@index([positionId])
+  @@index([shiftTemplateId])
+  @@map("staffing_positions")
+}
+
+/// ВЕРСИЯ ставки (SCD2, append-only). Новая ставка с даты D закрывает предыдущую
+/// (effectiveTo = D−1) в одной транзакции — «сколько платили в марте» обязано
+/// отвечаться через год. Ровно одна цель: штатная единица (план) XOR назначение (факт).
+///
+/// ⚠️ Рукописные ограничения (Prisma их не выражает):
+///   CHECK  staff_rates_target_xor_check   — план XOR факт
+///   CHECK  staff_rates_dates_check        — конец не раньше начала
+///   UNIQUE staff_rates_assignment_from_key / staff_rates_staffing_from_key
+model StaffRate {
+  id          String @id @default(uuid())
+  workspaceId String @map("workspace_id")
+
+  staffingPositionId String? @map("staffing_position_id")
+  assignmentId       String? @map("assignment_id")
+
+  rateType String @map("rate_type") // monthly | per_shift | hourly | revenue_share (reserved)
+  amount   BigInt // тиыны; на проводе — строкой
+  currency String @default("KZT")
+
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+  note          String?
+
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  staffingPosition StaffingPosition? @relation(fields: [staffingPositionId], references: [id], onDelete: Cascade)
+  assignment       StaffAssignment?  @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([assignmentId, effectiveFrom])
+  @@index([staffingPositionId, effectiveFrom])
+  @@index([workspaceId])
+  @@map("staff_rates")
 }
 
 // Заместитель: КОГО замещают — ДОЛЖНОСТЬ (positionId), в каком объекте (null = во всех).
@@ -1028,6 +1198,325 @@ model StaffDeputy {
   @@index([deputyPositionId])
   @@index([deputyUserId])
   @@map("staff_deputies")
+}
+
+/// Шаблон смены («Утро 09–17») — СПРАВОЧНИК. Экземпляр смены замораживает время в
+/// себе: правка шаблона задним числом план не трогает (иначе «мне ставили 9:00»
+/// превращалось бы в спор без доказательств). branchId=null — шаблон организации.
+model ShiftTemplate {
+  id          String  @id @default(uuid())
+  workspaceId String  @map("workspace_id")
+  branchId    String? @map("branch_id")
+  name        String
+  glyph       String?
+  /** Цвет-ДАННЫЕ (выбирает человек) — сетка красит чип по нему */
+  color       String?
+  /** Минуты от полуночи локального дня объекта */
+  startMin    Int @map("start_min")
+  durationMin Int @map("duration_min")
+  breakMin    Int @default(0) @map("break_min")
+  sortOrder   Int @default(0) @map("sort_order")
+  archivedAt  DateTime? @map("archived_at")
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  branch    StaffBranch? @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  shifts    Shift[]
+  staffingPositions StaffingPosition[]
+
+  @@index([workspaceId, branchId])
+  @@map("shift_templates")
+}
+
+/// Ротация (2/2, 5/2, произвольный цикл) — ПОРОЖДАЕТ смены на горизонт джобом
+/// `objects.shifts.generate`. Принадлежит человеку (assignmentId) ИЛИ открытым
+/// слотам штатной единицы (staffingPositionId) — рукописный CHECK XOR.
+model ShiftPattern {
+  id          String @id @default(uuid())
+  workspaceId String @map("workspace_id")
+  branchId    String @map("branch_id")
+
+  assignmentId       String? @map("assignment_id")
+  staffingPositionId String? @map("staffing_position_id")
+
+  name       String
+  anchorDate DateTime @map("anchor_date") @db.Date
+  /** По элементу на день цикла: id шаблона или null (выходной) */
+  cycle      Json
+  activeFrom DateTime  @map("active_from") @db.Date
+  activeTo   DateTime? @map("active_to") @db.Date
+  horizonDays Int      @default(42) @map("horizon_days")
+  archivedAt DateTime? @map("archived_at")
+
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  branch           StaffBranch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  assignment       StaffAssignment?  @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  staffingPosition StaffingPosition? @relation(fields: [staffingPositionId], references: [id], onDelete: Cascade)
+  shifts           Shift[]
+
+  @@index([workspaceId, branchId])
+  @@index([assignmentId])
+  @@index([staffingPositionId])
+  @@map("shift_patterns")
+}
+
+/// ПЛАН смены. Отдельная сущность от факта (ShiftAttendance): «кто закрыл» ≠ «кому
+/// назначена». `userId` денормализован ради слоя календаря; null = ОТКРЫТАЯ смена
+/// (её берёт сотрудник с подходящей должностью).
+///
+/// ⚠️ Рукописные ограничения (Prisma их не выражает):
+///   UNIQUE  shifts_pattern_slot_key   — идемпотентная генерация по ротации
+///   EXCLUDE shifts_user_no_overlap    — (workspace_id, user_id, диапазон): один человек
+///     не стоит на двух пересекающихся сменах В ОДНОЙ организации (между организациями
+///     совместительство не полицействуем — это утечка сквозь B2B-изоляцию)
+model Shift {
+  id          String @id @default(uuid())
+  workspaceId String @map("workspace_id")
+  branchId    String @map("branch_id")
+
+  staffingPositionId String? @map("staffing_position_id")
+  positionId         String  @map("position_id")
+  assignmentId       String? @map("assignment_id")
+  userId             String? @map("user_id")
+
+  /** День НАЧАЛА смены в поясе ОБЪЕКТА (смена через полночь — день начала) */
+  localDate DateTime @map("local_date") @db.Date
+  startsAt  DateTime @map("starts_at")
+  endsAt    DateTime @map("ends_at")
+  breakMin  Int      @default(0) @map("break_min")
+
+  templateId  String? @map("template_id")
+  patternId   String? @map("pattern_id")
+  patternSlot Int     @default(0) @map("pattern_slot")
+
+  status      String    @default("draft") // draft | published | cancelled
+  publishedAt DateTime? @map("published_at")
+  note        String?
+  /** Оптимистичная блокировка правки сетки */
+  version     Int @default(1)
+
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  branch           StaffBranch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  staffingPosition StaffingPosition? @relation(fields: [staffingPositionId], references: [id], onDelete: SetNull)
+  position         StaffPosition     @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  assignment       StaffAssignment?  @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+  template         ShiftTemplate?    @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  pattern          ShiftPattern?     @relation(fields: [patternId], references: [id], onDelete: SetNull)
+  attendance       ShiftAttendance[]
+
+  @@index([workspaceId, branchId, localDate])
+  @@index([userId, startsAt])
+  @@index([patternId, localDate])
+  @@index([assignmentId])
+  @@index([staffingPositionId])
+  @@index([templateId])
+  @@index([positionId])
+  @@map("shifts")
+}
+
+/// ФАКТ выхода. Источник `manual` (менеджер) сегодня, `access_control` (пропускная
+/// система, порт AttendancePort) и `self` — на вырост; таблица одна, чтобы сверка
+/// плана и факта не собиралась из двух моделей.
+///
+/// ⚠️ Рукописное ограничение: UNIQUE shift_attendance_shift_key — один факт на смену.
+model ShiftAttendance {
+  id          String  @id @default(uuid())
+  workspaceId String  @map("workspace_id")
+  branchId    String  @map("branch_id")
+  /** null = внеплановый выход (смены в плане не было) */
+  shiftId     String? @map("shift_id")
+  userId      String  @map("user_id")
+
+  localDate DateTime @map("local_date") @db.Date
+  outcome   String // worked | late | absent
+  lateMin   Int      @default(0) @map("late_min")
+  actualStartAt DateTime? @map("actual_start_at")
+  actualEndAt   DateTime? @map("actual_end_at")
+
+  source    String  @default("manual") @map("source") // manual | access_control | self
+  /** id события устройства — под будущую сверку и акт */
+  sourceRef String? @map("source_ref")
+
+  markedById String?  @map("marked_by_id")
+  markedAt   DateTime @default(now()) @map("marked_at")
+  note       String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  branch    StaffBranch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  shift     Shift?      @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+
+  // ⚠️ РУКАМИ: партиальные уникумы —
+  //  · shift_attendance_shift_key — один факт на смену (WHERE shift_id IS NOT NULL)
+  //  · shift_attendance_source_ref_key — UNIQUE(workspace_id, source_ref)
+  //    WHERE source_ref IS NOT NULL: повтор доставки события турникета не заводит
+  //    второй выход.
+  @@index([workspaceId, branchId, localDate])
+  @@index([userId, localDate])
+  @@map("shift_attendance")
+}
+
+/// СПРАВОЧНИК моделей оборудования (на организацию). Инструкции и паспорт крепятся
+/// СЮДА один раз — на все двадцать одинаковых кофемашин сети.
+model AssetModel {
+  id          String  @id @default(uuid())
+  workspaceId String  @map("workspace_id")
+  kind        String  @default("equipment") // equipment | vehicle | land | other
+  name        String
+  manufacturer String?
+  category     String?
+  specs        Json?
+  glyph        String?
+  archivedAt   DateTime? @map("archived_at")
+  createdById  String    @map("created_by_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assets    Asset[]
+
+  @@unique([workspaceId, kind, name])
+  @@map("asset_models")
+}
+
+/// ЭКЗЕМПЛЯР. Два независимых измерения:
+///   ГДЕ стоит   — branchId + parentAssetId (узел внутри линии) + locationNote;
+///   ЧЬЁ и на балансе ли — holdingKind + balanceLegalEntityId + holdingCounterpartyId.
+/// Арендованная кофемашина стоит в нашем зале, но на балансе арендодателя — смешение
+/// этих осей и есть главная ошибка учёта, которую модель не даёт совершить.
+///
+/// ⚠️ Рукописное ограничение (Prisma его не выражает):
+///   CREATE UNIQUE INDEX "assets_inventory_live_key"
+///     ON "assets"("workspace_id","inventory_number")
+///     WHERE "inventory_number" IS NOT NULL AND "archived_at" IS NULL;
+model Asset {
+  id          String @id @default(uuid())
+  workspaceId String @map("workspace_id")
+  modelId     String @map("model_id")
+  /** Денормализовано с модели — фильтр «только транспорт» без join */
+  kind        String @default("equipment")
+  name        String
+  inventoryNumber String? @map("inventory_number")
+  serialNumber    String? @map("serial_number")
+
+  branchId      String  @map("branch_id")
+  parentAssetId String? @map("parent_asset_id")
+  locationNote  String? @map("location_note")
+
+  holdingKind           String  @default("owned") @map("holding_kind") // owned | leased | rented | third_party
+  balanceLegalEntityId  String? @map("balance_legal_entity_id")
+  holdingCounterpartyId String? @map("holding_counterparty_id")
+  /** Ответственный. Без FK (паттерн Employment.userId): увольнение не рвёт карточку. */
+  custodianUserId       String? @map("custodian_user_id")
+
+  status String @default("active") // active | in_repair | stored | written_off | disposed
+
+  purchasedOn    DateTime? @map("purchased_on") @db.Date
+  commissionedOn DateTime? @map("commissioned_on") @db.Date
+  warrantyUntil  DateTime? @map("warranty_until") @db.Date
+  purchasePrice  BigInt?   @map("purchase_price")
+  currency       String    @default("KZT")
+
+  note       String?
+  sortOrder  Int       @default(0) @map("sort_order")
+  archivedAt DateTime? @map("archived_at")
+
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace           Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  model               AssetModel    @relation(fields: [modelId], references: [id], onDelete: Restrict)
+  branch              StaffBranch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  parentAsset         Asset?        @relation("AssetTree", fields: [parentAssetId], references: [id], onDelete: SetNull)
+  children            Asset[]       @relation("AssetTree")
+  balanceLegalEntity  LegalEntity?  @relation(fields: [balanceLegalEntityId], references: [id], onDelete: SetNull)
+  holdingCounterparty Counterparty? @relation(fields: [holdingCounterpartyId], references: [id], onDelete: SetNull)
+  moves               AssetMove[]
+  services            AssetServiceRecord[]
+
+  @@index([workspaceId, branchId, status])
+  @@index([modelId])
+  @@index([parentAssetId])
+  @@index([custodianUserId])
+  @@index([balanceLegalEntityId])
+  @@index([holdingCounterpartyId])
+  @@map("assets")
+}
+
+/// ЖУРНАЛ движения (append-only): место / ответственный / владение / статус.
+/// «Переместили» без записи о том, кто и когда, — потеря, а не экономия.
+model AssetMove {
+  id          String @id @default(uuid())
+  workspaceId String @map("workspace_id")
+  assetId     String @map("asset_id")
+  kind        String // placement | custodian | holding | status
+
+  fromBranchId      String? @map("from_branch_id")
+  toBranchId        String? @map("to_branch_id")
+  fromParentAssetId String? @map("from_parent_asset_id")
+  toParentAssetId   String? @map("to_parent_asset_id")
+  fromUserId        String? @map("from_user_id")
+  toUserId          String? @map("to_user_id")
+  fromValue         String? @map("from_value")
+  toValue           String? @map("to_value")
+
+  reason    String?
+  movedById String   @map("moved_by_id")
+  movedAt   DateTime @default(now()) @map("moved_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  asset     Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId, movedAt])
+  @@index([workspaceId])
+  @@map("asset_moves")
+}
+
+/// Обслуживание и ремонт — журнал; TCO = SUM(cost) по экземпляру.
+model AssetServiceRecord {
+  id          String @id @default(uuid())
+  workspaceId String @map("workspace_id")
+  assetId     String @map("asset_id")
+  kind        String @default("repair") // maintenance | repair | inspection
+  status      String @default("done")   // planned | in_progress | done | cancelled
+
+  title       String
+  description String?
+  scheduledOn DateTime? @map("scheduled_on") @db.Date
+  startedAt   DateTime? @map("started_at")
+  finishedAt  DateTime? @map("finished_at")
+  nextDueOn   DateTime? @map("next_due_on") @db.Date
+
+  cost     BigInt?
+  currency String  @default("KZT")
+
+  performedByUserId String? @map("performed_by_user_id")
+  counterpartyId    String? @map("counterparty_id")
+
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  asset        Asset         @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  counterparty Counterparty? @relation(fields: [counterpartyId], references: [id], onDelete: SetNull)
+
+  @@index([assetId, scheduledOn])
+  @@index([workspaceId, status, nextDueOn])
+  @@index([counterpartyId])
+  @@map("asset_service_records")
 }
 
 // ============================================================
@@ -3153,6 +3642,8 @@ model Counterparty {
   workspace    Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   contacts     CounterpartyContact[]
   bankAccounts CounterpartyBankAccount[]
+  heldAssets   Asset[]
+  assetServices AssetServiceRecord[]
 
   @@index([workspaceId, archivedAt])
   @@index([workspaceId, name])
@@ -3635,6 +4126,10 @@ model Employment {
   id          String @id @default(uuid())
   workspaceId String @map("workspace_id")
   userId      String @map("user_id") // без FK (паттерн OrgDocument.subjectUserId)
+  // РАБОТОДАТЕЛЬ по договору. Restrict: юрлицо с карточками только архивируется.
+  // Совместительство внутри организации = вторая карточка в ДРУГОМ юрлице.
+  legalEntityId   String  @map("legal_entity_id")
+  legalEntityName String? @map("legal_entity_name") // снимок на момент договора (как legalBranchName)
 
   status String @default("draft") // draft | active | terminated
 
@@ -3677,13 +4172,16 @@ model Employment {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  legalEntity LegalEntity @relation(fields: [legalEntityId], references: [id], onDelete: Restrict)
 
   @@index([workspaceId, status])
   @@index([userId])
-  // ВНИМАНИЕ: партиальный UNIQUE (workspace_id, user_id) WHERE status <> 'terminated'
-  // дописан РУКАМИ в миграции `hr_kedo` — «одна живая трудовая карточка на человека
-  // в организации»; повторный приём после увольнения = новая строка.
+  @@index([legalEntityId])
+  // ВНИМАНИЕ: партиальный UNIQUE (workspace_id, user_id, legal_entity_id)
+  // WHERE status <> 'terminated' дописан РУКАМИ (миграция `legal_entities`) —
+  // «одна живая трудовая карточка на человека В КАЖДОМ юрлице»; повторный приём
+  // после увольнения = новая строка.
   @@map("hr_employments")
 }
 

@@ -43,6 +43,10 @@ export type NotificationType =
   | 'staff.head.assigned' // оргструктура: вы стали руководителем отдела/объекта (→ держателям головы)
   | 'staff.deputy.assigned' // оргструктура: вас назначили заместителем (→ заму)
   | 'workspace.archive.expiring' // your archived org is about to be deleted for good (→ owner)
+  // Объекты (график смен)
+  | 'objects.shifts.published' // график объекта опубликован — ДАЙДЖЕСТ за период (→ сотруднику)
+  | 'objects.shift.changed' // вашу смену изменили или отменили (→ сотруднику, адресно)
+  | 'objects.shift.taken' // открытую смену взяли (→ планировщику объекта)
   // Wallet
   | 'wallet.coins.received' // you were paid coins for a completed task (→ executor)
   // My Wish & Shop (orders)

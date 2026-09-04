@@ -40,6 +40,7 @@ import {
   EmptyState,
   Input,
   Modal,
+  SegmentedControl,
   Select,
   Toggle,
   useConfirm,
@@ -108,7 +109,11 @@ export function EmploymentCard({
   card: HrMemberCardDto;
 }) {
   const [editing, setEditing] = useState(false);
-  const e = card.employment;
+  // Совместительство: у человека может быть карточка в каждом юрлице организации.
+  // Переключатель появляется, только когда их правда больше одной.
+  const employments = card.employments?.length ? card.employments : card.employment ? [card.employment] : [];
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const e = employments.find((x) => x.id === activeId) ?? employments[0] ?? null;
 
   if (!card.canSeeEmployment) {
     return (
@@ -131,6 +136,15 @@ export function EmploymentCard({
           ) : undefined
         }
       />
+      {employments.length > 1 && (
+        <div style={{ marginBottom: 'var(--spacing-4)' }}>
+          <SegmentedControl
+            value={e?.id ?? employments[0].id}
+            onChange={setActiveId}
+            items={employments.map((x) => ({ key: x.id, label: x.legalEntityName ?? 'Юрлицо' }))}
+          />
+        </div>
+      )}
       {!e ? (
         <EmptyState
           icon="file"
@@ -139,6 +153,7 @@ export function EmploymentCard({
         />
       ) : (
         <div>
+          <Row label="Работодатель" value={e.legalEntityName ?? '—'} />
           <Row
             label="Статус"
             value={
@@ -237,6 +252,8 @@ function EmploymentEditModal({
       const rate = workRate.trim() ? parseRate(workRate) : 1;
       if (rate === undefined) throw new Error('Ставка — это число, например 1 или 0,5');
       const dto: UpsertEmploymentInput = {
+        // Правим КОНКРЕТНУЮ карточку: у совместителя их несколько (по юрлицам)
+        ...(e ? { employmentId: e.id } : {}),
         hiredAt: hiredAt ?? null,
         contractNumber: contractNumber.trim() || null,
         contractDate: contractDate ?? null,

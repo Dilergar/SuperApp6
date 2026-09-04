@@ -48,13 +48,23 @@ export class WorkspacesTemplateFieldsProvider implements OnModuleInit {
 
   private async resolve(ctx: TemplateFieldContext): Promise<Record<string, unknown> | null> {
     if (!ctx.workspaceId) return null;
-    const [workspace, requisites, primaryAccount] = await Promise.all([
+    // Реквизиты берутся у ЮРЛИЦА контекста (договор подписывает конкретное ТОО);
+    // не задано — головное. Бренд-название организации остаётся полем «Название».
+    const requisites = ctx.legalEntityId
+      ? await this.db.legalEntity.findFirst({
+          where: { id: ctx.legalEntityId, workspaceId: ctx.workspaceId },
+        })
+      : await this.db.legalEntity.findFirst({
+          where: { workspaceId: ctx.workspaceId, isHead: true },
+        });
+    const [workspace, primaryAccount] = await Promise.all([
       this.db.workspace.findUnique({ where: { id: ctx.workspaceId }, select: { name: true } }),
-      this.db.workspaceRequisites.findUnique({ where: { workspaceId: ctx.workspaceId } }),
-      this.db.workspaceBankAccount.findFirst({
-        where: { workspaceId: ctx.workspaceId },
-        orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
-      }),
+      requisites
+        ? this.db.workspaceBankAccount.findFirst({
+            where: { legalEntityId: requisites.id },
+            orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+          })
+        : Promise.resolve(null),
     ]);
     if (!workspace) return null;
 

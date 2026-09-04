@@ -6,7 +6,14 @@ import { SearchRegistry } from '../../core/search/search.registry';
 import type { SearchProviderOpts, SearchProviderResult } from '../../core/search/search.types';
 import { fullName } from '../../shared/utils/user-name';
 import { OrgGraphService } from './org-graph.service';
-import { holdersForPosition, managerOf, orgToday, pickAssignment, subordinateIdsOf } from './org-resolve';
+import {
+  branchHeadHolders,
+  holdersForPosition,
+  managerOf,
+  orgToday,
+  pickAssignment,
+  subordinateIdsOf,
+} from './org-resolve';
 
 const WS_CONTEXT = 'workspace';
 
@@ -56,16 +63,14 @@ export class StaffRegistriesProvider implements OnModuleInit {
         if (!ctx.workspaceId) return [];
         const g = await this.graph.load(ctx.workspaceId);
         const at = orgToday();
+        // Объекты — дерево: у этажа своей управляющей должности может не быть,
+        // тогда отвечает голова здания, затем площадки (branchHeadHolders).
         const branch = g.branchById.get(id);
-        if (branch) {
-          if (!branch.headPositionId) return [];
-          return holdersForPosition(g, branch.headPositionId, branch.id, at).userIds;
-        }
+        if (branch) return branchHeadHolders(g, branch.id, at).userIds;
         if (!g.memberRole.has(id)) return [];
         const a = pickAssignment(g, id, { branchId: ctx.branchId ?? null });
-        const b = a ? g.branchById.get(a.branchId) : null;
-        if (!b?.headPositionId) return [];
-        return holdersForPosition(g, b.headPositionId, b.id, at).userIds.filter((u) => u !== id);
+        if (!a) return [];
+        return branchHeadHolders(g, a.branchId, at, id).userIds;
       },
       label: async (id, ctx) => {
         if (ctx.workspaceId) {

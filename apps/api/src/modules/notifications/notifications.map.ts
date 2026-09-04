@@ -59,6 +59,10 @@ export const MAPPED_EVENT_TYPES: ReadonlySet<string> = new Set([
   // Оргструктура (адресаты — списком в payload.userIds)
   'staff.head.assigned',
   'staff.deputy.assigned',
+  // Объекты: график смен (адресат — payload.userId, ссылка — payload.href)
+  'objects.shifts.published',
+  'objects.shift.changed',
+  'objects.shift.taken',
   // Кошелёк
   'wallet.coins.received',
   // Магазин
@@ -237,6 +241,26 @@ export function mapEventToNotifications(
   // ------------------------------------------------------------
   // Магазин — жизненный цикл заказа
   // ------------------------------------------------------------
+  // ------------------------------------------------------------
+  // Объекты: график смен.
+  // Дайджест публикации — ОДНО уведомление на человека за период (а не по смене);
+  // изменение смены и «взяли открытую» — адресно. Адресат и ссылка приходят в
+  // payload: карта не ходит в БД.
+  // ------------------------------------------------------------
+  if (eventType.startsWith('objects.')) {
+    const uid = str(payload['userId']);
+    if (!uid) return [];
+    const workspaceId = str(payload['workspaceId']);
+    return [
+      {
+        userId: uid,
+        type: eventType as NotificationType,
+        payload,
+        actionUrl: str(payload['href']) ?? (workspaceId ? `/workspaces/${workspaceId}` : null),
+      },
+    ];
+  }
+
   if (eventType.startsWith('shop.order.')) {
     const actionUrl = '/shop';
     const target =

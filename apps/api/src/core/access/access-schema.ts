@@ -233,12 +233,19 @@ export const ACCESS_SCHEMA: Record<string, ResourceTypeConfig> = {
   position: {
     relations: { holder: THIS },
   },
-  // Объект (StaffBranch; в UI пока «Филиал»). `head` — держатели руководящей должности
+  // Объект (StaffBranch, сервис «Объекты»). `head` — держатели руководящей должности
   // объекта, работающие В ЭТОМ объекте (управляющий чужой точки — не голова этой).
+  // `manager` / `scheduler` / `payroll_viewer` — ЯВНОЕ делегирование обычным ребром
+  // (в лестницу ROLE_LADDERS не входят: делегат — не участник объекта). Наследование
+  // по дереву объектов проекция пишет ЗАМЫКАНИЕМ (member вверх, head вниз), а
+  // делегирования учитывает `ObjectsService.capsFor` через ancestorIds.
   branch: {
     relations: {
       member: union(THIS, computed('head')),
       head: THIS,
+      manager: union(THIS, computed('head')),
+      scheduler: union(THIS, computed('manager')),
+      payroll_viewer: union(THIS, computed('manager')),
     },
   },
 };

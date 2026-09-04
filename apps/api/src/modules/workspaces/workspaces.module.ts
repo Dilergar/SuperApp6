@@ -1,6 +1,8 @@
 import { Module, Global } from '@nestjs/common';
 import { WorkspacesService } from './workspaces.service';
 import { WorkspacesController } from './workspaces.controller';
+import { LegalEntitiesService } from './legal-entities.service';
+import { LegalEntitiesController } from './legal-entities.controller';
 import { WorkspaceJournalController } from './journal.controller';
 import { WorkspaceShareLinksController } from './share-links.controller';
 import { WorkspacesCron } from './workspaces.cron';
@@ -21,14 +23,20 @@ import { WalletModule } from '../wallet/wallet.module';
 @Global()
 @Module({
   imports: [StaffModule, WalletModule],
-  controllers: [WorkspacesController, WorkspaceJournalController, WorkspaceShareLinksController],
+  controllers: [
+    WorkspacesController,
+    LegalEntitiesController,
+    WorkspaceJournalController,
+    WorkspaceShareLinksController,
+  ],
   // Строковый токен для нод «Процессов» (ctx.deps.getService), как 'MessengerService'.
   providers: [
     WorkspacesService,
+    LegalEntitiesService,
     WorkspacesCron,
     WorkspacesTemplateFieldsProvider,
     { provide: 'WorkspacesService', useExisting: WorkspacesService },
   ],
-  exports: [WorkspacesService, 'WorkspacesService'],
+  exports: [WorkspacesService, LegalEntitiesService, 'WorkspacesService'],
 })
 export class WorkspacesModule {}

@@ -8,7 +8,15 @@
 // ============================================================
 
 import { apiGet } from './api';
-import type { Circle, Contact, CounterpartyDto, CursorPage, StaffDirectory, WorkspaceMember } from '@superapp/shared';
+import type {
+  Circle,
+  Contact,
+  CounterpartyDto,
+  CursorPage,
+  ObjectTreeDto,
+  StaffDirectory,
+  WorkspaceMember,
+} from '@superapp/shared';
 
 export interface Principal {
   type: string;
@@ -34,7 +42,7 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   circle: 'Группы',
   department: 'Отделы',
   position: 'Должности',
-  branch: 'Филиалы',
+  branch: 'Объекты',
   counterparty: 'Контрагенты',
   workspace: 'Организация',
 };
@@ -147,16 +155,24 @@ async function loadPositions(ctx?: EntityLoadContext): Promise<EntityOption[]> {
   }));
 }
 
+/**
+ * Объекты — ДЕРЕВО: в списке нужен путь «Площадка › Здание › Этаж», иначе три
+ * «Этажа 2» неразличимы. Архивные не предлагаем: пикер не должен показывать то,
+ * что сервер отвергнет. Дерево уже обрезано правами зрителя.
+ */
 async function loadBranches(ctx?: EntityLoadContext): Promise<EntityOption[]> {
   if (!ctx?.workspaceId) return [];
-  const dir = await fetchStaffDirectory(ctx.workspaceId);
-  return dir.branches.map((b) => ({
-    type: 'branch',
-    id: b.id,
-    title: b.name,
-    icon: 'office',
-    count: b.membersCount,
-  }));
+  const tree = await apiGet<ObjectTreeDto>(`/workspaces/${ctx.workspaceId}/objects/tree`);
+  const nameById = new Map(tree.nodes.map((n) => [n.id, n.name]));
+  return tree.nodes
+    .filter((n) => !n.archivedAt && n.caps.view)
+    .map((n) => ({
+      type: 'branch' as const,
+      id: n.id,
+      title: [...n.ancestorIds.map((a) => nameById.get(a)).filter(Boolean), n.name].join(' › '),
+      icon: 'storefront',
+      count: n.membersCount,
+    }));
 }
 
 // Контрагенты — НЕ люди платформы: рисуются EntityChip (иконка организации),

@@ -214,6 +214,25 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
     pushByDefault: true,
     category: 'workspaces',
   },
+  'objects.shifts.published': {
+    title: 'График опубликован: {{branchName}}',
+    body: '{{periodLabel}} — смен: {{count}}',
+    icon: '📣',
+    pushByDefault: true,
+    category: 'workspaces',
+  },
+  'objects.shift.changed': {
+    title: 'Смена изменена: {{dateLabel}}',
+    icon: '🗓️',
+    pushByDefault: true,
+    category: 'workspaces',
+  },
+  'objects.shift.taken': {
+    title: 'Открытую смену взяли: {{dateLabel}}',
+    icon: '🙋',
+    pushByDefault: false,
+    category: 'workspaces',
+  },
   'workspace.position.certified': {
     title: 'Вы аттестованы по должности {{positionName}} в {{workspaceName}}',
     icon: '🎓',

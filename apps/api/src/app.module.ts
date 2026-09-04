@@ -33,6 +33,7 @@ import { AudiencesModule } from './core/audiences/audiences.module';
 import { SignModule } from './core/sign/sign.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { CounterpartiesModule } from './modules/counterparties/counterparties.module';
+import { ObjectsModule } from './modules/objects/objects.module';
 import { HrModule } from './modules/hr/hr.module';
 
 // Feature modules — сервисы поверх движков (тонкие модули + регистрации в реестрах)
@@ -163,6 +164,7 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // Контрагенты — ПЕРЕД Документооборотом: внешний контур документов читает
     // справочник (прямая инъекция CounterpartiesService в DocumentsModule).
     CounterpartiesModule,
+    ObjectsModule,
     DocumentsModule,
     // КЭДО (шаг 5 документной вертикали): трудовые карточки, кадровые действия,
     // ЕСУТД-очередь, библиотека бланков, личный архив «Мои документы».

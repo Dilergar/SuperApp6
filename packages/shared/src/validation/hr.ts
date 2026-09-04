@@ -36,6 +36,10 @@ const salarySchema = z.number().int().min(0).max(1_000_000_000_000);
 // ---------- Трудовая карточка ----------
 
 export const upsertEmploymentSchema = z.object({
+  /** Работодатель. Не передан → головное юрлицо организации. */
+  legalEntityId: z.string().uuid().optional(),
+  /** Правка КОНКРЕТНОЙ карточки (совместительство): id живой карточки */
+  employmentId: z.string().uuid().optional(),
   hiredAt: isoDate.nullable().optional(),
   contractNumber: safeText(60).nullable().optional(),
   contractDate: isoDate.nullable().optional(),
@@ -68,6 +72,8 @@ export const hrActionParamsSchema = z
     banExceptionConfirmed: z.boolean().optional(),
     /** «И то и другое»: при применении увольнения снять и членство в организации */
     alsoRemoveMembership: z.boolean().optional(),
+    /** Юрлицо-работодатель (приём; перевод между ТОО — будущий этап) */
+    legalEntityId: z.string().uuid().optional(),
     // transfer
     legalPositionId: z.string().uuid().optional(),
     legalBranchId: z.string().uuid().nullable().optional(),
@@ -98,6 +104,8 @@ const periodMessage = { message: 'Дата окончания не может б
 export const createHrActionSchema = z.object({
   kind: kindEnum,
   userId: z.string().uuid(),
+  /** К какой трудовой карточке относится действие (совместительство) */
+  employmentId: z.string().uuid().optional(),
   effectiveAt: isoDate,
   effectiveTo: isoDate.optional(),
   /** Шаблон ПРИКАЗА (у него обязан быть опубликованный маршрут с нодой hr.apply) */

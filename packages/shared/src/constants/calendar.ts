@@ -173,6 +173,9 @@ export const CALENDAR_LAYER_REGISTRY = {
   events: { label: 'События', icon: 'calendar', tone: 'accent', serverDefault: true },
   tasks: { label: 'Задачи', icon: 'tasks', tone: 'danger', serverDefault: true },
   finance: { label: 'Платежи', icon: 'finance', tone: 'warning', serverDefault: false },
+  // Смены сервиса «Объекты»: опубликованный график сотрудника ложится в его личный
+  // календарь (регистрирует ВЛАДЕЛЕЦ данных — modules/objects).
+  shifts: { label: 'Смены', icon: 'calendarCheck', tone: 'success', serverDefault: true },
 } as const satisfies Record<string, CalendarLayerMeta>;
 
 export type CalendarLayerKey = keyof typeof CALENDAR_LAYER_REGISTRY;

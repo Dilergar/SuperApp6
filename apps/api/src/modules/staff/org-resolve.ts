@@ -36,6 +36,8 @@ export interface OrgBranchRow {
   isDefault: boolean;
   headPositionId: string | null;
   sortOrder: number;
+  /** Материализованные предки объекта, корень ПЕРВЫМ (дерево «Объектов») */
+  ancestorIds: string[];
 }
 export interface OrgAssignmentRow {
   id: string;
@@ -46,6 +48,9 @@ export interface OrgAssignmentRow {
   status: string;
   /** ISO — порядок «самое раннее» несёт смысл (основное место, фолбэки) */
   createdAt: string;
+  /** Датирование (сервис «Объекты»): назначение действует в окне */
+  startsOn: string | null;
+  endsOn: string | null;
 }
 export interface OrgDeputyRow {
   id: string;
@@ -220,11 +225,43 @@ export function superiorPositionOf(g: OrgGraph, positionId: string, branchId: st
     if (head && head !== positionId && g.positionById.has(head)) return head;
   }
   const effectiveBranchId = branchId ?? g.defaultBranchId;
-  const branch = effectiveBranchId ? g.branchById.get(effectiveBranchId) : null;
-  if (branch?.headPositionId && branch.headPositionId !== positionId && g.positionById.has(branch.headPositionId)) {
-    return branch.headPositionId;
+  // Объект и ЕГО ПРЕДКИ: у этажа управляющей должности может не быть — тогда
+  // руководитель ищется у здания, затем у площадки (дерево «Объектов»).
+  for (const id of branchChainOf(g, effectiveBranchId)) {
+    const head = g.branchById.get(id)?.headPositionId ?? null;
+    if (head && head !== positionId && g.positionById.has(head)) return head;
   }
   return null;
+}
+
+/**
+ * Кто отвечает за ОБЪЕКТ: держатели его управляющей должности, а если своей у
+ * объекта нет — ближайшего предка (у этажа управляющий обычно на здании).
+ * `exclude` убирает самого спрашивающего (человек не свой руководитель).
+ */
+export function branchHeadHolders(
+  g: OrgGraph,
+  branchId: string | null,
+  at: string,
+  exclude?: string,
+): HoldersResult {
+  for (const id of branchChainOf(g, branchId)) {
+    const head = g.branchById.get(id)?.headPositionId ?? null;
+    if (!head) continue;
+    const res = holdersForPosition(g, head, id, at);
+    const userIds = exclude ? res.userIds.filter((u) => u !== exclude) : res.userIds;
+    if (userIds.length) return { ...res, userIds };
+  }
+  return EMPTY_HOLDERS;
+}
+
+/** Объект и его предки (ближний → дальний); пустой массив, если объекта нет. */
+export function branchChainOf(g: OrgGraph, branchId: string | null): string[] {
+  if (!branchId) return [];
+  const b = g.branchById.get(branchId);
+  if (!b) return [branchId];
+  // ancestorIds лежат «корень первым» — идём от ближайшего предка к корню.
+  return [b.id, ...[...b.ancestorIds].reverse()];
 }
 
 export interface HoldersResult {

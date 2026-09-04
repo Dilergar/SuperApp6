@@ -27,6 +27,11 @@ export interface TemplateFieldContext {
   templateId?: string;
   /** Кадровое действие (КЭДО) — источник группы «Действие» */
   hrActionId?: string;
+  /**
+   * ЮРЛИЦО-сторона документа (ТОО подписывает договор, а не бренд-организация).
+   * Не задано → головное юрлицо организации.
+   */
+  legalEntityId?: string;
 }
 
 export interface TemplateFieldGroup {
@@ -44,11 +49,38 @@ export interface TemplateFieldGroup {
   resolve(ctx: TemplateFieldContext): Promise<Record<string, unknown> | null>;
 }
 
+/**
+ * Дополнить контекст перед резолвом групп. Нужен, когда одна фича знает то, чего
+ * не знает потребитель: КЭДО по `hrActionId` достаёт ЮРЛИЦО-работодателя, и группа
+ * «Организация» печатает реквизиты нужного ТОО, а не головного. Движок при этом
+ * по-прежнему не импортирует фичи — направление только обратное (реестр).
+ */
+export type TemplateContextEnricher = (ctx: TemplateFieldContext) => Promise<TemplateFieldContext>;
+
 @Injectable()
 export class TemplateFieldRegistry {
   private readonly logger = new Logger(TemplateFieldRegistry.name);
   private readonly byKey = new Map<string, TemplateFieldGroup>();
   private readonly byPrefix = new Map<string, TemplateFieldGroup>();
+  private readonly enrichers: TemplateContextEnricher[] = [];
+
+  /** Дополнитель контекста (регистрирует ВЛАДЕЛЕЦ данных, как слои календаря). */
+  registerContextEnricher(fn: TemplateContextEnricher): void {
+    this.enrichers.push(fn);
+  }
+
+  /** Прогнать контекст через дополнителей; упавший — в лог, документ не рушим. */
+  async enrich(ctx: TemplateFieldContext): Promise<TemplateFieldContext> {
+    let out = ctx;
+    for (const fn of this.enrichers) {
+      try {
+        out = await fn(out);
+      } catch (e) {
+        this.logger.error(`Дополнитель контекста упал: ${(e as Error).message}`);
+      }
+    }
+    return out;
+  }
 
   register(group: TemplateFieldGroup): void {
     if (this.byKey.has(group.key) || this.byPrefix.has(group.tagPrefix)) {
@@ -93,7 +125,8 @@ export class TemplateFieldRegistry {
    * «не хватает данных»), упавшая — тоже, с ошибкой в лог: сломанный резолвер
    * одной группы не должен прятать документ целиком без следа.
    */
-  async resolveValues(ctx: TemplateFieldContext): Promise<Record<string, unknown>> {
+  async resolveValues(rawCtx: TemplateFieldContext): Promise<Record<string, unknown>> {
+    const ctx = await this.enrich(rawCtx);
     const out: Record<string, unknown> = {};
     for (const group of this.byKey.values()) {
       try {

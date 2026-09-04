@@ -6,6 +6,11 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { DatabaseService } from '../../shared/database/database.service';
+import {
+  activeAssignmentWhere,
+  assignmentToday,
+  isAssignmentOverlapError,
+} from '../../shared/utils/assignment-window';
 import { RolesService } from '../../core/roles/roles.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -13,6 +18,7 @@ import { AccessProjectionService } from '../../core/access/access-projection.ser
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { fullName } from '../../shared/utils/user-name';
 import {
+  OBJECTS_ERROR_CODES,
   ORG_ERROR_CODES,
   STAFF_LIMITS,
   WORKSPACE_ROLE_RANK,
@@ -131,8 +137,10 @@ export class StaffService {
         include: { headPosition: { select: { name: true } } },
         orderBy: [{ isDefault: 'desc' }, { sortOrder: 'asc' }, { name: 'asc' }],
       }),
+      // Счётчики справочника — по ДЕЙСТВУЮЩИМ назначениям: закрытые остаются в
+      // истории, но «в объекте работает N» про них не рассказывает.
       this.db.staffAssignment.findMany({
-        where: { workspaceId },
+        where: { workspaceId, ...activeAssignmentWhere() },
         select: {
           userId: true,
           positionId: true,
@@ -692,7 +700,9 @@ export class StaffService {
         ORG_ERROR_CODES.defaultBranch,
       );
     }
-    const used = await this.db.staffAssignment.count({ where: { branchId } });
+    const used = await this.db.staffAssignment.count({
+      where: { branchId, ...activeAssignmentWhere() },
+    });
     if (used > 0) {
       throw new ConflictException('Сначала переведите сотрудников из этого объекта');
     }
@@ -731,7 +741,24 @@ export class StaffService {
     actorId: string,
     workspaceId: string,
     targetUserId: string,
-    data: { positionId: string; branchId?: string | null; status?: 'training' | 'certified'; isPrimary?: boolean },
+    data: {
+      positionId: string;
+      branchId?: string | null;
+      status?: 'training' | 'certified';
+      isPrimary?: boolean;
+      /** Датирование (сервис «Объекты»): с какого дня действует */
+      startsOn?: string | null;
+      endsOn?: string | null;
+      /** Доля ставки: 0.5 = полставки */
+      rateShare?: number;
+      /** К какой штатной единице отнести */
+      staffingPositionId?: string | null;
+    },
+    /**
+     * Хук «в ТОЙ ЖЕ транзакции»: штатное расписание пишет фактическую ставку рядом
+     * с назначением — деньги и назначение обязаны появиться одним коммитом.
+     */
+    inTx?: (tx: Tx, assignmentId: string) => Promise<void>,
   ) {
     const targetRole = await this.getRoleOf(targetUserId, workspaceId);
     if (!targetRole) throw new NotFoundException('Этот человек не в организации');
@@ -743,17 +770,33 @@ export class StaffService {
     const branchId = await this.resolveBranchId(workspaceId, data.branchId);
 
     const existingCount = await this.db.staffAssignment.count({
-      where: { workspaceId, userId: targetUserId },
+      where: { workspaceId, userId: targetUserId, ...activeAssignmentWhere() },
     });
     if (existingCount >= STAFF_LIMITS.maxAssignmentsPerMember) {
       throw new BadRequestException(`Лимит должностей на сотрудника: ${STAFF_LIMITS.maxAssignmentsPerMember}`);
     }
 
+    // Дубль ищем среди действующих НА ДАТУ НАЧАЛА нового назначения: уникум в БД
+    // снят (человек возвращается на ту же позицию новой строкой), а «уже есть»
+    // и «периоды пересекаются» — одно и то же правило, поэтому и код один.
+    const at = data.startsOn ?? assignmentToday();
     const dup = await this.db.staffAssignment.findFirst({
-      where: { workspaceId, userId: targetUserId, positionId: data.positionId, branchId },
+      where: {
+        workspaceId,
+        userId: targetUserId,
+        positionId: data.positionId,
+        branchId,
+        ...activeAssignmentWhere(at),
+        ...(data.endsOn ? {} : {}),
+      },
       select: { id: true },
     });
-    if (dup) throw new ConflictException('Такое назначение уже есть');
+    if (dup) {
+      throw new ConflictException({
+        message: 'Такое назначение уже есть',
+        details: { code: OBJECTS_ERROR_CODES.assignmentOverlap },
+      });
+    }
 
     // Имена для вечной записи снимаем ДО транзакции: внутри неё остаётся только запись.
     const [actorName, targetName] = await Promise.all([
@@ -780,9 +823,18 @@ export class StaffService {
             status: data.status ?? 'training',
             isPrimary: makePrimary,
             assignedBy: actorId,
+            ...(data.startsOn !== undefined
+              ? { startsOn: data.startsOn ? new Date(data.startsOn) : null }
+              : {}),
+            ...(data.endsOn !== undefined ? { endsOn: data.endsOn ? new Date(data.endsOn) : null } : {}),
+            ...(data.rateShare !== undefined ? { rateShare: data.rateShare } : {}),
+            ...(data.staffingPositionId !== undefined
+              ? { staffingPositionId: data.staffingPositionId }
+              : {}),
           },
           include: ASSIGNMENT_INCLUDE,
         });
+        if (inTx) await inTx(tx, row.id);
         await this.chatter.log(tx, {
           refType: 'workspace',
           refId: workspaceId,
@@ -805,6 +857,14 @@ export class StaffService {
       // Гонка двух параллельных назначений — unique-индексы решают.
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new ConflictException('Такое назначение уже есть');
+      }
+      // 23P01 — EXCLUDE `staff_assignments_no_overlap`: периоды одной связки
+      // пересеклись. Это данные, а не UI: машинный код, чтобы веб не гадал по тексту.
+      if (isAssignmentOverlapError(e)) {
+        throw new ConflictException({
+          message: 'Периоды назначения пересекаются — закройте предыдущее',
+          details: { code: OBJECTS_ERROR_CODES.assignmentOverlap },
+        });
       }
       throw e;
     }
@@ -860,6 +920,7 @@ export class StaffService {
           positionId: current.positionId,
           branchId: data.branchId,
           id: { not: assignmentId },
+          ...activeAssignmentWhere(),
         },
         select: { id: true },
       });
@@ -1023,6 +1084,51 @@ export class StaffService {
     await this.afterStructureChanged(workspaceId);
   }
 
+  /**
+   * ЗАКРЫТЬ действующие назначения человека датой (порт КЭДО: увольнение закрывает
+   * назначения датой приказа, а не стирает их — история, ставки и смены остаются).
+   * Прав НЕ проверяет: право проверил вызывающий (контракт `system*`).
+   */
+  async closeAssignmentsSystem(
+    workspaceId: string,
+    userId: string,
+    endsOn: string,
+    opts: { branchId?: string } = {},
+  ): Promise<number> {
+    const day = new Date(`${endsOn}T00:00:00.000Z`);
+    const rows = await this.db.staffAssignment.findMany({
+      where: {
+        workspaceId,
+        userId,
+        ...(opts.branchId ? { branchId: opts.branchId } : {}),
+        OR: [{ endsOn: null }, { endsOn: { gt: day } }],
+      },
+      select: { id: true, isPrimary: true, startsOn: true },
+    });
+    if (rows.length === 0) return 0;
+    await this.db.$transaction(async (tx) => {
+      for (const r of rows) {
+        // Назначение, ещё не начавшееся к дате закрытия, закрывать «задним числом»
+        // нельзя (CHECK ends_on >= starts_on) — сворачиваем его в один день.
+        const from = r.startsOn ? r.startsOn.toISOString().slice(0, 10) : null;
+        const effective = from && from > endsOn ? from : endsOn;
+        await tx.staffAssignment.update({
+          where: { id: r.id },
+          data: { endsOn: new Date(`${effective}T00:00:00.000Z`), isPrimary: false },
+        });
+      }
+      // Основное место освободилось — поднимаем следующее ДЕЙСТВУЮЩЕЕ.
+      const next = await tx.staffAssignment.findFirst({
+        where: { workspaceId, userId, OR: [{ endsOn: null }, { endsOn: { gt: day } }] },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      });
+      if (next) await tx.staffAssignment.update({ where: { id: next.id }, data: { isPrimary: true } });
+    });
+    await this.afterStructureChanged(workspaceId);
+    return rows.length;
+  }
+
   /** Каскад при увольнении/выходе — вызывается WorkspacesService (без проверки прав). */
   async removeAllAssignmentsForUser(workspaceId: string, userId: string, actorId: string) {
     // Снимок должностей ДО удаления — чтобы «Журнал» получил staff.position_removed
@@ -1085,7 +1191,7 @@ export class StaffService {
    */
   async getAssignmentsByUser(workspaceId: string): Promise<Map<string, StaffAssignment[]>> {
     const rows = await this.db.staffAssignment.findMany({
-      where: { workspaceId },
+      where: { workspaceId, ...activeAssignmentWhere() },
       include: ASSIGNMENT_INCLUDE,
       orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
     });
@@ -1282,6 +1388,16 @@ export class StaffService {
     }
   }
 
+  /**
+   * Публичный вход для сервисов, которые ходят через `assignPositionSystem`
+   * («Объекты»): тот прав НЕ проверяет по контракту `system*`, но правило ранга
+   * действует и там — иначе управляющий точкой закрывал бы назначение владельца.
+   */
+  async assertRankOver(actorId: string, workspaceId: string, targetUserId: string): Promise<void> {
+    const actor = await this.actorFor(actorId, workspaceId);
+    await this.assertRankAllows(actor, workspaceId, targetUserId);
+  }
+
   /** Публичный вход для чужих сервисов (Процессы): управление структурой — вся организация. */
   async assertOrgWideStaffManage(userId: string, workspaceId: string): Promise<WorkspaceRole> {
     const actor = await this.actorFor(userId, workspaceId);
@@ -1458,7 +1574,7 @@ export class StaffService {
   private async notifyHeadHolders(workspaceId: string, positionId: string, unitLabel: string, branchId?: string): Promise<void> {
     const [holders, ws, pos] = await Promise.all([
       this.db.staffAssignment.findMany({
-        where: { workspaceId, positionId, ...(branchId ? { branchId } : {}) },
+        where: { workspaceId, positionId, ...(branchId ? { branchId } : {}), ...activeAssignmentWhere() },
         select: { userId: true },
       }),
       this.db.workspace.findUnique({ where: { id: workspaceId }, select: { name: true } }),

@@ -149,6 +149,48 @@ export const walletCardsKey = ['wallet', 'cards'] as const;
 export const companyWalletKey = (wsId: string) => ['workspaces', wsId, 'wallet'] as const;
 // Реквизиты организации (анкета + карточка компании)
 export const workspaceRequisitesKey = (wsId: string) => ['workspaces', wsId, 'requisites'] as const;
+/** Юрлица организации (список ТОО/ИП) — `archived` в ключе: одна форма кэша на набор */
+export const legalEntitiesKey = (wsId: string, archived = false) =>
+  ['workspaces', wsId, 'legal-entities', archived] as const;
+/** Справочник юрлиц для выпадашек (вся команда) */
+export const legalEntitiesLiteKey = (wsId: string) => ['workspaces', wsId, 'legal-entities', 'lite'] as const;
+
+// ---------- Сервис «Объекты» ----------
+// Один ключ = ОДНА форма кэша: список активов живёт infinite-запросом (см.
+// objectAssetsInfinite), карточка актива — своим ключом.
+export const objectsTreeKey = (wsId: string, archived = false) =>
+  ['workspaces', wsId, 'objects', 'tree', archived] as const;
+export const objectsMineKey = (wsId: string) => ['workspaces', wsId, 'objects', 'mine'] as const;
+export const objectKey = (wsId: string, objectId: string) => ['workspaces', wsId, 'objects', objectId] as const;
+export const objectStaffingKey = (wsId: string, objectId: string, period: string) =>
+  ['workspaces', wsId, 'objects', objectId, 'staffing', period] as const;
+export const objectShiftsKey = (wsId: string, objectId: string, from: string, to: string) =>
+  ['workspaces', wsId, 'objects', objectId, 'shifts', from, to] as const;
+export const objectAssetsKey = (wsId: string, objectId: string, filter: string) =>
+  ['workspaces', wsId, 'objects', objectId, 'assets', filter] as const;
+export const assetKey = (wsId: string, assetId: string) => ['workspaces', wsId, 'assets', assetId] as const;
+export const assetModelsKey = (wsId: string, search = '') =>
+  ['workspaces', wsId, 'asset-models', search] as const;
+export const assetModelFilesKey = (wsId: string, modelId: string) =>
+  ['workspaces', wsId, 'asset-models', modelId, 'files'] as const;
+export const objectFilesKey = (wsId: string, objectId: string) =>
+  ['workspaces', wsId, 'objects', objectId, 'files'] as const;
+export const objectPeopleKey = (wsId: string, objectId: string) =>
+  ['workspaces', wsId, 'objects', objectId, 'people'] as const;
+export const objectChatterKey = (wsId: string, objectId: string) =>
+  ['workspaces', wsId, 'objects', objectId, 'chatter'] as const;
+export const objectAttendanceKey = (wsId: string, objectId: string, from: string, to: string) =>
+  ['workspaces', wsId, 'objects', objectId, 'attendance', from, to] as const;
+export const assetFilesKey = (wsId: string, assetId: string) =>
+  ['workspaces', wsId, 'assets', assetId, 'files'] as const;
+export const assetChatterKey = (wsId: string, assetId: string) =>
+  ['workspaces', wsId, 'assets', assetId, 'chatter'] as const;
+export const shiftTemplatesKey = (wsId: string, objectId = '') =>
+  ['workspaces', wsId, 'shift-templates', objectId] as const;
+export const shiftPatternsKey = (wsId: string, objectId: string) =>
+  ['workspaces', wsId, 'objects', objectId, 'shift-patterns'] as const;
+export const assignmentRatesKey = (wsId: string, assignmentId: string) =>
+  ['workspaces', wsId, 'staffing', 'assignments', assignmentId, 'rates'] as const;
 export const companyHoldersKey = (wsId: string) => ['workspaces', wsId, 'wallet', 'holders'] as const;
 // Магазин (My Wish & Shop)
 export const shopMineKey = ['shop', 'mine'] as const;

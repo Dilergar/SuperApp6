@@ -17,6 +17,15 @@ interface AttachmentsSectionProps {
   /** Профиль загрузки (по умолчанию chat_attachment — приватный, любой тип) */
   profile?: string;
   /**
+   * Профиль для КАРТИНОК, если он отличается от `profile`.
+   *
+   * Профиль движка файлов несёт белый список MIME: `document` не принимает фото,
+   * `asset_photo` — только фото. Секция «Фото и документы» обязана принимать и то
+   * и другое, поэтому здесь ДВА загрузчика, и файл едет в свой по типу. Не задан —
+   * поведение прежнее: всё уходит одним профилем.
+   */
+  imageProfile?: string;
+  /**
    * Место вложения (напр. {refType:'task', refId}) — включает у офисных файлов
    * кнопку «Редактировать»: право правки документа наследуется именно от места.
    */
@@ -34,12 +43,41 @@ export function AttachmentsSection({
   files,
   canEdit,
   profile = 'chat_attachment',
+  imageProfile,
   docPlace,
   onAttach,
   onRemove,
 }: AttachmentsSectionProps) {
   const [lightbox, setLightbox] = useState<FileDto | null>(null);
   const uploader = useFileUpload(profile, { onUploaded: onAttach });
+  // Второй загрузчик существует всегда (хуки не вызываются условно), но получает
+  // файлы, только если вызывающий объявил отдельный профиль для картинок.
+  const imageUploader = useFileUpload(imageProfile ?? profile, { onUploaded: onAttach });
+
+  const addFiles = (incoming: FileList | File[]) => {
+    const all = Array.from(incoming);
+    if (!imageProfile) {
+      uploader.add(all);
+      return;
+    }
+    const images = all.filter((f) => f.type.startsWith('image/'));
+    const rest = all.filter((f) => !f.type.startsWith('image/'));
+    if (images.length > 0) imageUploader.add(images);
+    if (rest.length > 0) uploader.add(rest);
+  };
+
+  // localId уникален на загрузчик; отмена по чужому id — тихий no-op.
+  const pending = [...uploader.items, ...(imageProfile ? imageUploader.items : [])].filter(
+    (i) => i.status !== 'done',
+  );
+  const cancelUpload = (localId: string) => {
+    uploader.cancel(localId);
+    imageUploader.cancel(localId);
+  };
+  const removeUpload = (localId: string) => {
+    uploader.remove(localId);
+    imageUploader.remove(localId);
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
@@ -62,12 +100,8 @@ export function AttachmentsSection({
 
       {canEdit && (
         <>
-          <FileDropzone onFiles={(fs) => uploader.add(fs)} paste multiple compact label="Прикрепить файл" />
-          <UploadProgressList
-            items={uploader.items.filter((i) => i.status !== 'done')}
-            onCancel={uploader.cancel}
-            onRemove={uploader.remove}
-          />
+          <FileDropzone onFiles={(fs) => addFiles(fs)} paste multiple compact label="Прикрепить файл" />
+          <UploadProgressList items={pending} onCancel={cancelUpload} onRemove={removeUpload} />
         </>
       )}
 

@@ -47,12 +47,20 @@ export class OrgRightsService {
       this.access.grantSetFor(userId, 'department'),
       this.access.grantSetFor(userId, 'branch'),
       this.db.staffDepartment.findMany({ where: { workspaceId }, select: { id: true } }),
-      this.db.staffBranch.findMany({ where: { workspaceId }, select: { id: true } }),
+      this.db.staffBranch.findMany({ where: { workspaceId }, select: { id: true, ancestorIds: true } }),
     ]);
     const ownDepIds = new Set(ownDeps.map((d) => d.id));
-    const ownBrIds = new Set(ownBrs.map((b) => b.id));
     const departmentIds = [...new Set([...(deps.granted.get('head') ?? []), ...(deps.granted.get('manager') ?? [])])].filter((id) => ownDepIds.has(id));
-    const branchIds = [...new Set(brs.granted.get('head') ?? [])].filter((id) => ownBrIds.has(id));
+    // Объекты — ДЕРЕВО: право на здание распространяется на его этажи и зоны.
+    // Проекция пишет head вниз по поддереву сама, но ЯВНОЕ делегирование
+    // (branch#manager на родителе) существует одним ребром — разворачиваем здесь.
+    const grantedBranch = new Set([
+      ...(brs.granted.get('head') ?? []),
+      ...(brs.granted.get('manager') ?? []),
+    ]);
+    const branchIds = ownBrs
+      .filter((b) => grantedBranch.has(b.id) || b.ancestorIds.some((a) => grantedBranch.has(a)))
+      .map((b) => b.id);
     if (!departmentIds.length && !branchIds.length) return { kind: 'none', departmentIds: [], branchIds: [], role: r };
     return { kind: 'scoped', departmentIds, branchIds, role: r };
   }

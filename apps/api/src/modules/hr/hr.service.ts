@@ -24,6 +24,7 @@ import {
   type WorkspaceRole,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { activeAssignmentWhere } from '../../shared/utils/assignment-window';
 import { RolesService } from '../../core/roles/roles.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { FilesService } from '../../core/files/files.service';
@@ -31,6 +32,7 @@ import type { HrPort } from '../documents/documents.service';
 import type { HrNodesPort } from '../processes/process-hr-nodes';
 import { HrCalendarService } from './hr-calendar.service';
 import { HrActionsService } from './hr-actions.service';
+import { LegalEntitiesService } from '../workspaces/legal-entities.service';
 import { HR_MEMBER_REF_TYPE, assertCanManageHrSubject, hrMemberRefId } from './hr.constants';
 import { fullName } from '../../shared/utils/user-name';
 
@@ -63,6 +65,7 @@ export class HrService implements HrPort, HrNodesPort {
     private readonly files: FilesService,
     private readonly calendar: HrCalendarService,
     private readonly actions: HrActionsService,
+    private readonly legal: LegalEntitiesService,
   ) {}
 
   // ============================================================
@@ -109,6 +112,8 @@ export class HrService implements HrPort, HrNodesPort {
     id: string;
     workspaceId: string;
     userId: string;
+    legalEntityId: string;
+    legalEntityName: string | null;
     status: string;
     hiredAt: Date | null;
     firedAt: Date | null;
@@ -136,6 +141,8 @@ export class HrService implements HrPort, HrNodesPort {
       id: row.id,
       workspaceId: row.workspaceId,
       userId: row.userId,
+      legalEntityId: row.legalEntityId,
+      legalEntityName: row.legalEntityName,
       status: row.status as EmploymentDto['status'],
       hiredAt: dateStr(row.hiredAt),
       firedAt: dateStr(row.firedAt),
@@ -161,12 +168,103 @@ export class HrService implements HrPort, HrNodesPort {
     };
   }
 
-  /** Живая (не terminated) трудовая карточка человека — системный поиск */
-  async liveEmployment(workspaceId: string, userId: string) {
-    return this.db.employment.findFirst({
+  /**
+   * Живая (не terminated) трудовая карточка человека — системный поиск.
+   * Без `legalEntityId` возвращает карточку ГОЛОВНОГО юрлица, а если её нет —
+   * самую свежую живую (совместительство: карточек может быть несколько).
+   */
+  async liveEmployment(workspaceId: string, userId: string, legalEntityId?: string | null) {
+    if (legalEntityId) {
+      return this.db.employment.findFirst({
+        where: { workspaceId, userId, legalEntityId, status: { not: 'terminated' } },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+    const rows = await this.liveEmployments(workspaceId, userId);
+    return rows[0] ?? null;
+  }
+
+  /**
+   * ВСЕ живые карточки человека в организации — по одной на юрлицо.
+   * Головное юрлицо первым: старые вызовы, ждущие «одну карточку», получают ту же,
+   * что и до появления совместительства.
+   */
+  async liveEmployments(workspaceId: string, userId: string) {
+    return this.db.employment.findMany({
       where: { workspaceId, userId, status: { not: 'terminated' } },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ legalEntity: { isHead: 'desc' } }, { createdAt: 'desc' }],
     });
+  }
+
+  /**
+   * Снимки трудовых карточек пачкой — для штатного расписания «Объектов»
+   * (одна выборка на таблицу вместо запроса на строку).
+   */
+  async employmentSnapshotsFor(
+    workspaceId: string,
+    userIds: string[],
+  ): Promise<
+    Map<
+      string,
+      {
+        id: string;
+        status: string;
+        contractType: string;
+        workRate: number | null;
+        salaryAmount: bigint | null;
+        salaryCurrency: string;
+        legalEntityId: string;
+        legalEntityName: string | null;
+      }[]
+    >
+  > {
+    const out = new Map<
+      string,
+      {
+        id: string;
+        status: string;
+        contractType: string;
+        workRate: number | null;
+        salaryAmount: bigint | null;
+        salaryCurrency: string;
+        legalEntityId: string;
+        legalEntityName: string | null;
+      }[]
+    >();
+    if (userIds.length === 0) return out;
+    const rows = await this.db.employment.findMany({
+      where: { workspaceId, userId: { in: userIds }, status: { not: 'terminated' } },
+      select: {
+        id: true,
+        userId: true,
+        status: true,
+        contractType: true,
+        workRate: true,
+        salaryAmount: true,
+        salaryCurrency: true,
+        legalEntityId: true,
+        legalEntityName: true,
+        legalEntity: { select: { name: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    for (const r of rows) {
+      const list = out.get(r.userId) ?? [];
+      list.push({
+        id: r.id,
+        status: r.status,
+        contractType: r.contractType,
+        workRate: r.workRate,
+        salaryAmount: r.salaryAmount,
+        salaryCurrency: r.salaryCurrency,
+        legalEntityId: r.legalEntityId,
+        // Имя юрлица берём ЖИВОЕ (переименование ТОО обязано быть видно в штатке);
+        // снимок в карточке остаётся для печати договора.
+        legalEntityName: r.legalEntity?.name ?? r.legalEntityName,
+      });
+      out.set(r.userId, list);
+    }
+    return out;
   }
 
   /**
@@ -190,7 +288,24 @@ export class HrService implements HrPort, HrNodesPort {
     assertCanManageHrSubject(actorRole, subjectRole, 'трудовую карточку');
     const snapshots = await this.legalSnapshots(workspaceId, dto.legalPositionId, dto.legalBranchId);
 
-    const existing = await this.liveEmployment(workspaceId, subjectUserId);
+    // Работодатель: явная карточка (совместительство) → её юрлицо; иначе указанное
+    // юрлицо; иначе головное. Живая карточка ищется В ЭТОМ юрлице — вторая карточка
+    // в другом ТОО это НЕ дубль (партиальный уникум по тройке).
+    const target = dto.employmentId
+      ? await this.db.employment.findFirst({
+          where: { id: dto.employmentId, workspaceId, userId: subjectUserId },
+        })
+      : null;
+    if (dto.employmentId && !target) throw new NotFoundException('Трудовая карточка не найдена');
+    const legalEntityId = target
+      ? target.legalEntityId
+      : await this.legal.resolveLegalEntityId(workspaceId, dto.legalEntityId ?? null);
+    const legalEntity = await this.db.legalEntity.findUnique({
+      where: { id: legalEntityId },
+      select: { name: true },
+    });
+
+    const existing = target ?? (await this.liveEmployment(workspaceId, subjectUserId, legalEntityId));
     const data = {
       ...(dto.hiredAt !== undefined ? { hiredAt: dto.hiredAt ? new Date(dto.hiredAt) : null } : {}),
       ...(dto.contractNumber !== undefined ? { contractNumber: dto.contractNumber } : {}),
@@ -223,7 +338,15 @@ export class HrService implements HrPort, HrNodesPort {
       : await (async () => {
           try {
             const created = await this.db.employment.create({
-              data: { workspaceId, userId: subjectUserId, status: 'active', createdById: actorId, ...data },
+              data: {
+                workspaceId,
+                userId: subjectUserId,
+                legalEntityId,
+                legalEntityName: legalEntity?.name ?? null,
+                status: 'active',
+                createdById: actorId,
+                ...data,
+              },
             });
             await this.logMember(actorId, workspaceId, subjectUserId, 'hr.action_created', {
               kindLabel: 'Трудовая карточка заведена',
@@ -233,7 +356,7 @@ export class HrService implements HrPort, HrNodesPort {
           } catch (err) {
             // Партиальный уникум hr_employments_one_live: параллельное создание
             if ((err as Prisma.PrismaClientKnownRequestError)?.code === 'P2002') {
-              const twin = await this.liveEmployment(workspaceId, subjectUserId);
+              const twin = await this.liveEmployment(workspaceId, subjectUserId, legalEntityId);
               if (twin) return this.db.employment.update({ where: { id: twin.id }, data });
             }
             throw err;
@@ -358,7 +481,9 @@ export class HrService implements HrPort, HrNodesPort {
         select: { id: true, firstName: true, lastName: true, avatar: true, phone: true },
       }),
       this.db.staffAssignment.findMany({
-        where: { workspaceId, userId: subjectUserId },
+        // Факт = ДЕЙСТВУЮЩИЕ назначения: закрытые остаются в истории, но плашку
+        // «факт ≠ договор» и карточку рисуют только живые.
+        where: { workspaceId, userId: subjectUserId, ...activeAssignmentWhere() },
         // Основное место (isPrimary) — первым: плашка «факт ≠ договор» и карточка
         // сравнивают договор с ОСНОВНЫМ назначением, а не с первым по дате.
         orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
@@ -367,16 +492,19 @@ export class HrService implements HrPort, HrNodesPort {
           branch: { select: { name: true } },
         },
       }),
-      this.liveEmployment(workspaceId, subjectUserId),
+      this.liveEmployments(workspaceId, subjectUserId),
     ]);
     // После увольнения карточка показывает ПОСЛЕДНЮЮ запись (терминированную) —
     // «уволен, основание, дата» это ровно то, зачем на неё смотрят.
-    const employment =
-      liveEmp ??
-      (await this.db.employment.findFirst({
-        where: { workspaceId, userId: subjectUserId },
-        orderBy: { createdAt: 'desc' },
-      }));
+    const employments =
+      liveEmp.length > 0
+        ? liveEmp
+        : await this.db.employment.findMany({
+            where: { workspaceId, userId: subjectUserId },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+          });
+    const employment = employments[0] ?? null;
     if (!user) throw new NotFoundException('Пользователь не найден');
 
     const canSeeEmployment = viewerId === subjectUserId || this.isManager(viewerRole);
@@ -411,6 +539,7 @@ export class HrService implements HrPort, HrNodesPort {
         status: a.status,
       })),
       employment: canSeeEmployment && employment ? this.serializeEmployment(employment) : null,
+      employments: canSeeEmployment ? employments.map((e) => this.serializeEmployment(e)) : [],
       mismatch: this.computeMismatch(
         assignments.map((a) => ({
           positionId: a.positionId,
@@ -461,7 +590,7 @@ export class HrService implements HrPort, HrNodesPort {
         select: { userId: true, status: true, legalPositionId: true, legalBranchId: true },
       }),
       this.db.staffAssignment.findMany({
-        where: { workspaceId },
+        where: { workspaceId, ...activeAssignmentWhere() },
         select: { userId: true, positionId: true, branchId: true },
       }),
     ]);
@@ -682,15 +811,20 @@ export class HrService implements HrPort, HrNodesPort {
         select: { firstName: true, lastName: true, middleName: true, iin: true },
       }),
       row.employmentId ? this.db.employment.findUnique({ where: { id: row.employmentId } }) : this.liveEmployment(workspaceId, row.userId),
-      this.db.workspace.findUnique({
-        where: { id: workspaceId },
-        select: { name: true, requisites: { select: { bin: true, legalName: true } } },
-      }),
+      this.db.workspace.findUnique({ where: { id: workspaceId }, select: { name: true } }),
     ]);
+    // Работодатель в ЕСУТД — ЮРЛИЦО карточки (совместительство: разные ТОО — разные
+    // отправки); карточки нет — головное юрлицо организации.
+    const legalEntity = await this.db.legalEntity.findFirst({
+      where: employment
+        ? { id: employment.legalEntityId }
+        : { workspaceId, isHead: true },
+      select: { bin: true, legalName: true, name: true },
+    });
     return {
       'Вид сведений': ESUTD_KINDS.find((k) => k.value === row.kind)?.label ?? row.kind,
-      'Работодатель': ws?.requisites?.legalName ?? ws?.name ?? null,
-      'БИН работодателя': ws?.requisites?.bin ?? null,
+      'Работодатель': legalEntity?.legalName ?? legalEntity?.name ?? ws?.name ?? null,
+      'БИН работодателя': legalEntity?.bin ?? null,
       'ФИО работника': user ? [user.lastName, user.firstName, user.middleName].filter(Boolean).join(' ') : null,
       'ИИН работника': user?.iin ?? null,
       'Номер договора': employment?.contractNumber ?? null,

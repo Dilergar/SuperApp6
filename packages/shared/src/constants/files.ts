@@ -140,6 +140,11 @@ export const FILE_PROFILES: Record<string, FileProfileSpec> = {
    * поэтому живёт обычным файлом (квота, уборка) без вечного режима.
    */
   sign_stamped: { kind: 'document', maxSize: 120 * MB, allowedMime: null, visibility: 'private', makeVariants: false },
+  /**
+   * Фото оборудования (сервис «Объекты»): плитка актива, карточка, лайтбокс.
+   * Приватный профиль с вариантами — фото видит член объекта, посторонний нет.
+   */
+  asset_photo: { kind: 'image', maxSize: 15 * MB, allowedMime: IMAGE_MIME, visibility: 'private', makeVariants: true },
   /** Фолбэк без специфики */
   generic: { kind: 'any', maxSize: 100 * MB, allowedMime: null, visibility: 'private', makeVariants: true },
 };

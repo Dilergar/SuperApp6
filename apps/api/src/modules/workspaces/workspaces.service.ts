@@ -10,6 +10,7 @@ import {
 import { ModuleRef } from '@nestjs/core';
 import { DI_TOKENS } from '../../shared/di-tokens';
 import { DatabaseService } from '../../shared/database/database.service';
+import { LegalEntitiesService } from './legal-entities.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -96,6 +97,7 @@ export class WorkspacesService implements OnModuleInit {
     private chatterRegistry: ChatterRefRegistry,
     private redis: RedisService,
     private approvals: ApprovalsService,
+    private legal: LegalEntitiesService,
     private moduleRef: ModuleRef,
   ) {}
 
@@ -175,6 +177,11 @@ export class WorkspacesService implements OnModuleInit {
       // отделов получает вертикаль «объект = отдел по умолчанию» без фиктивных сущностей.
       await tx.staffBranch.create({
         data: { workspaceId: w.id, name: data.name, isDefault: true },
+      });
+      // Головное юрлицо — сторона будущих договоров и владелец счетов. Заводится
+      // вместе с организацией: «реквизиты организации» = его реквизиты.
+      await tx.legalEntity.create({
+        data: { workspaceId: w.id, name: data.name, isHead: true },
       });
       return w;
     });
@@ -314,7 +321,7 @@ export class WorkspacesService implements OnModuleInit {
       }
     }
 
-    const data: Prisma.WorkspaceRequisitesUncheckedUpdateInput = {};
+    const data: Prisma.LegalEntityUncheckedUpdateInput = {};
     for (const key of [
       'orgForm',
       'taxRegime',
@@ -332,11 +339,9 @@ export class WorkspacesService implements OnModuleInit {
     if (dto.vatPayer !== undefined) data.vatPayer = dto.vatPayer;
     if (dto.vatDate !== undefined) data.vatDate = dto.vatDate;
 
-    await this.db.workspaceRequisites.upsert({
-      where: { workspaceId },
-      create: { ...(data as Omit<Prisma.WorkspaceRequisitesUncheckedCreateInput, 'workspaceId'>), workspaceId },
-      update: data,
-    });
+    // Старая ручка правит ГОЛОВНОЕ юрлицо — прочие редактируются через /legal-entities.
+    const head = await this.legal.ensureHeadLegalEntity(workspaceId);
+    await this.db.legalEntity.update({ where: { id: head.id }, data });
     return (await this.serializeRequisites(workspaceId)) as WorkspaceRequisitesDto;
   }
 
@@ -346,8 +351,9 @@ export class WorkspacesService implements OnModuleInit {
     dto: CreateBankAccountInput,
   ): Promise<WorkspaceRequisitesDto> {
     await this.assertCanManage(userId, workspaceId);
+    const head = await this.legal.ensureHeadLegalEntity(workspaceId);
     await this.db.$transaction(async (tx) => {
-      const count = await tx.workspaceBankAccount.count({ where: { workspaceId } });
+      const count = await tx.workspaceBankAccount.count({ where: { legalEntityId: head.id } });
       if (count >= REQUISITE_LIMITS.maxBankAccountsPerWorkspace) {
         throw new BadRequestException('Слишком много счетов — удалите ненужный');
       }
@@ -355,12 +361,19 @@ export class WorkspacesService implements OnModuleInit {
       const makePrimary = dto.isPrimary || count === 0;
       if (makePrimary) {
         await tx.workspaceBankAccount.updateMany({
-          where: { workspaceId, isPrimary: true },
+          where: { legalEntityId: head.id, isPrimary: true },
           data: { isPrimary: false },
         });
       }
       await tx.workspaceBankAccount.create({
-        data: { workspaceId, iban: dto.iban, bankName: dto.bankName, bik: dto.bik, isPrimary: makePrimary },
+        data: {
+          workspaceId,
+          legalEntityId: head.id,
+          iban: dto.iban,
+          bankName: dto.bankName,
+          bik: dto.bik,
+          isPrimary: makePrimary,
+        },
       });
     });
     return (await this.serializeRequisites(workspaceId)) as WorkspaceRequisitesDto;
@@ -373,12 +386,15 @@ export class WorkspacesService implements OnModuleInit {
     dto: UpdateBankAccountInput,
   ): Promise<WorkspaceRequisitesDto> {
     await this.assertCanManage(userId, workspaceId);
+    const head = await this.legal.ensureHeadLegalEntity(workspaceId);
     await this.db.$transaction(async (tx) => {
-      const acc = await tx.workspaceBankAccount.findFirst({ where: { id: accountId, workspaceId } });
+      const acc = await tx.workspaceBankAccount.findFirst({
+        where: { id: accountId, legalEntityId: head.id },
+      });
       if (!acc) throw new NotFoundException('Счёт не найден');
       if (dto.isPrimary) {
         await tx.workspaceBankAccount.updateMany({
-          where: { workspaceId, isPrimary: true },
+          where: { legalEntityId: head.id, isPrimary: true },
           data: { isPrimary: false },
         });
       }
@@ -401,15 +417,18 @@ export class WorkspacesService implements OnModuleInit {
     accountId: string,
   ): Promise<WorkspaceRequisitesDto> {
     await this.assertCanManage(userId, workspaceId);
+    const head = await this.legal.ensureHeadLegalEntity(workspaceId);
     await this.db.$transaction(async (tx) => {
-      const acc = await tx.workspaceBankAccount.findFirst({ where: { id: accountId, workspaceId } });
+      const acc = await tx.workspaceBankAccount.findFirst({
+        where: { id: accountId, legalEntityId: head.id },
+      });
       if (!acc) throw new NotFoundException('Счёт не найден');
       await tx.workspaceBankAccount.delete({ where: { id: acc.id } });
       // Основной удалили — роль переходит старейшему из оставшихся: «основной» не
       // должен пропадать, пока есть хоть один счёт (на него смотрят документы).
       if (acc.isPrimary) {
         const next = await tx.workspaceBankAccount.findFirst({
-          where: { workspaceId },
+          where: { legalEntityId: head.id },
           orderBy: { createdAt: 'asc' },
         });
         if (next) await tx.workspaceBankAccount.update({ where: { id: next.id }, data: { isPrimary: true } });
@@ -427,11 +446,13 @@ export class WorkspacesService implements OnModuleInit {
       .sort((a, b) => ROLE_RANK[b] - ROLE_RANK[a])[0];
   }
 
+  /** Реквизиты = ГОЛОВНОЕ юрлицо организации (совместимость старой ручки). */
   private async serializeRequisites(workspaceId: string): Promise<WorkspaceRequisitesDto> {
+    const head = await this.legal.ensureHeadLegalEntity(workspaceId);
     const [req, accounts] = await Promise.all([
-      this.db.workspaceRequisites.findUnique({ where: { workspaceId } }),
+      this.db.legalEntity.findUnique({ where: { id: head.id } }),
       this.db.workspaceBankAccount.findMany({
-        where: { workspaceId },
+        where: { legalEntityId: head.id },
         orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
       }),
     ]);

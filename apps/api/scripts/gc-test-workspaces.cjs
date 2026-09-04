@@ -22,6 +22,15 @@ const { PrismaClient } = require('@prisma/client');
 
 const APPLY = process.argv.includes('--apply');
 
+// Точечная уборка: --only=Сьют-,Зонд- убирает ТОЛЬКО организации с этими префиксами.
+// Нужно, когда упёрлись в потолок «20 организаций на владельца» и надо освободить
+// место под прогон, не трогая демо-организации человека («Демо», «ТестКорп»).
+const ONLY = (process.argv.find((a) => a.startsWith('--only=')) ?? '')
+  .replace('--only=', '')
+  .split(',')
+  .map((x) => x.trim())
+  .filter(Boolean);
+
 // Имена, которые генерят сами скрипты и демо-прогоны в браузере. Всё остальное —
 // организации человека, их не трогаем.
 // ⚠️ Новый verify-скрипт, создающий организацию, ОБЯЗАН добавить сюда своё имя:
@@ -30,6 +39,8 @@ const APPLY = process.argv.includes('--apply');
 const PREFIXES = [
   'ТестКорп ', 'fin-e2e-', 'chatter-e2e-', 'Ф1-Лого ', 'Демо', 'Журнал-демо',
   'docs-ws-', 'Сьют-ЭДО', 'Сьют-Контрагенты', 'Сьют-КЭДО', 'Сьют-Кампании',
+  'Сьют-Юрлица', 'Сьют-Объекты', 'Сьют-Чужая', 'Сьют-Смены', 'Сьют-Оборудование',
+  'Сьют-', 'DBG ', 'Зонд-', 'Фикс-', 'Проверка-фиксов',
 ];
 const EXACT = [
   'b2b-reach-e2e', 'staff-e2e', 'proc-e2e', 'office-e2e', 'sec-fixes-e2e',
@@ -41,7 +52,9 @@ async function main() {
   const prisma = new PrismaClient();
   try {
     const doomed = await prisma.workspace.findMany({
-      where: { OR: [...PREFIXES.map((p) => ({ name: { startsWith: p } })), { name: { in: EXACT } }] },
+      where: ONLY.length
+        ? { OR: ONLY.map((p) => ({ name: { startsWith: p } })) }
+        : { OR: [...PREFIXES.map((p) => ({ name: { startsWith: p } })), { name: { in: EXACT } }] },
       select: { id: true, name: true },
     });
     if (doomed.length === 0) { console.log('Нечего убирать.'); return; }

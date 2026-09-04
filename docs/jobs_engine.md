@@ -67,6 +67,7 @@ onDiscard(payload, { jobId, attempts, error })
 - `drive` (4): `drive.ingest|rollup|copy|photo.index`.
 - `documents` (3): `documents.generate|pdf|file` (пара стабильных ключей `docGenKey` + снимок входов `contentSnapshot` — два рендера не бегут параллельно, правка во время рендера перезаказывает хвостом) · `documents.campaign.run` (`apps/api/src/modules/documents/doc-campaigns.service.ts`).
 - `hr`: `hr.action.apply` (runAt=дата вступления) · `hr.batch.run`.
+- `objects` (5 попыток): `objects.shifts.generate` (порождение смен по ротации на горизонт; `uniqueKey sp:<patternId>:<НАЧАЛО НЕДЕЛИ>` — не сегодняшняя дата, иначе ключ посуточный) · `staff.assignment.rollover` (`runAt` = полночь в поясе ОБЪЕКТА; для конца назначения — полночь СЛЕДУЮЩЕГО дня: в последний рабочий день права снимать рано) — `apps/api/src/modules/objects/objects.jobs.ts`, константы типов — `objects.job-types.ts` (отдельным файлом: их импортируют и те, кто ставит джоб из своей транзакции).
 - `sign`: `sign.requested` · `sign.act.finished` · `sign.request.expired`; `sign_stamp` (2): `sign.stamp` (тяжёлый pdf-lib — своя очередь) — `apps/api/src/core/sign/sign.jobs.ts`.
 
 Бэкфилл доджобовых строк — onApplicationBootstrap потребителя (сверяется ТОЛЬКО с живыми джобами; uniqueKey дедупит).

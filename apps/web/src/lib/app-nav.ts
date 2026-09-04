@@ -170,7 +170,6 @@ export function buildWorkspaceNav(
       children: [
         { key: 'ws-members-people', label: 'Люди', icon: 'people', href: `${base}/members`, exact: true },
         { key: 'ws-members-org', label: 'Орг. структура', icon: 'department', href: `${base}/members/org` },
-        { key: 'ws-members-branches', label: 'Объекты', icon: 'branch', href: `${base}/members/branches` },
         ...(isManager
           ? [
               { key: 'ws-members-invites', label: 'Приглашения', icon: 'userAdd' as IconName, href: `${base}/members/invitations` },
@@ -179,6 +178,10 @@ export function buildWorkspaceNav(
           : []),
       ],
     },
+    // Объекты — физические площадки сети: дерево, штатное расписание, график смен
+    // и оборудование. Видят ВСЕ сотрудники (каждый — свои объекты); деньги внутри
+    // закрыты правом branch.payroll.view.
+    { key: 'ws-objects', label: 'Объекты', icon: 'storefront', href: `${base}/objects` },
     { key: 'ws-processes', label: 'Процессы', icon: 'processes', href: `${base}/processes` },
     { key: 'ws-office', label: 'Виртуальный офис', icon: 'office', href: `${base}/office` },
     // Диск организации — ОДИН маршрут с вкладками внутри, как у остальных сервисов

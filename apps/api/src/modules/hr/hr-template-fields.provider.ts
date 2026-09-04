@@ -7,6 +7,7 @@ import {
   type HrActionKind,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { activeAssignmentWhere } from '../../shared/utils/assignment-window';
 import { TemplateFieldRegistry, type TemplateFieldContext } from '../../core/templates/template-field.registry';
 import { fullName } from '../../shared/utils/user-name';
 
@@ -84,7 +85,12 @@ export class HrTemplateFieldsProvider implements OnModuleInit {
   private async resolveContract(ctx: TemplateFieldContext): Promise<Record<string, unknown> | null> {
     if (!ctx.workspaceId || !ctx.subjectUserId) return null;
     const e = await this.db.employment.findFirst({
-      where: { workspaceId: ctx.workspaceId, userId: ctx.subjectUserId },
+      where: {
+        workspaceId: ctx.workspaceId,
+        userId: ctx.subjectUserId,
+        // Совместительство: печатаем карточку ТОГО юрлица, от имени которого документ
+        ...(ctx.legalEntityId ? { legalEntityId: ctx.legalEntityId } : {}),
+      },
       // Живая карточка приоритетна; после увольнения печатается последняя
       orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
     });
@@ -182,7 +188,9 @@ export class HrTemplateFieldsProvider implements OnModuleInit {
       signerUserId = cfg.assigneeUserId;
     } else if (cfg.assigneeMode === 'position' && cfg.positionId) {
       const holder = await this.db.staffAssignment.findFirst({
-        where: { workspaceId: ctx.workspaceId, positionId: cfg.positionId },
+        // Подписант — ДЕЙСТВУЮЩИЙ держатель должности: закрытое назначение
+        // не подставляет уволенного в приказ.
+        where: { workspaceId: ctx.workspaceId, positionId: cfg.positionId, ...activeAssignmentWhere() },
         orderBy: { createdAt: 'asc' },
         select: { userId: true, position: { select: { name: true } } },
       });
@@ -200,7 +208,7 @@ export class HrTemplateFieldsProvider implements OnModuleInit {
     if (!user) return null;
     if (!positionName) {
       const assignment = await this.db.staffAssignment.findFirst({
-        where: { workspaceId: ctx.workspaceId, userId: signerUserId },
+        where: { workspaceId: ctx.workspaceId, userId: signerUserId, ...activeAssignmentWhere() },
         orderBy: { createdAt: 'asc' },
         select: { position: { select: { name: true } } },
       });

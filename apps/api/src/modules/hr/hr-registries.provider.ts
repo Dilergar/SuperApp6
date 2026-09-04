@@ -4,6 +4,7 @@ import { DatabaseService } from '../../shared/database/database.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { FilesRefRegistry } from '../../core/files/files-ref.registry';
 import { ChatterRefRegistry } from '../../core/chatter/chatter-ref.registry';
+import { TemplateFieldRegistry } from '../../core/templates/template-field.registry';
 import { HR_MEMBER_REF_TYPE } from './hr.constants';
 
 /**
@@ -16,6 +17,7 @@ export class HrRegistriesProvider implements OnModuleInit {
     private readonly roles: RolesService,
     private readonly filesRegistry: FilesRefRegistry,
     private readonly chatterRegistry: ChatterRefRegistry,
+    private readonly templateFields: TemplateFieldRegistry,
   ) {}
 
   onModuleInit(): void {
@@ -38,6 +40,34 @@ export class HrRegistriesProvider implements OnModuleInit {
         const count = await this.db.personalDocRecord.count({ where: { id: refId } });
         return count > 0;
       },
+    });
+
+    // ---- Юрлицо-работодатель в контекст шаблона ----
+    // Договор и приказ печатает ТОО, которое наняло человека, а не головное:
+    // по действию находим трудовую карточку и кладём её `legalEntityId` — группа
+    // «Организация» подставит реквизиты именно этого юрлица.
+    this.templateFields.registerContextEnricher(async (ctx) => {
+      if (ctx.legalEntityId || !ctx.hrActionId) return ctx;
+      const action = await this.db.hrAction.findUnique({
+        where: { id: ctx.hrActionId },
+        select: { employmentId: true, workspaceId: true, userId: true },
+      });
+      if (!action) return ctx;
+      const employment = action.employmentId
+        ? await this.db.employment.findUnique({
+            where: { id: action.employmentId },
+            select: { legalEntityId: true },
+          })
+        : await this.db.employment.findFirst({
+            where: {
+              workspaceId: action.workspaceId,
+              userId: action.userId,
+              status: { not: 'terminated' },
+            },
+            orderBy: { createdAt: 'desc' },
+            select: { legalEntityId: true },
+          });
+      return employment ? { ...ctx, legalEntityId: employment.legalEntityId } : ctx;
     });
 
     // ---- Хроника страницы человека (`hr_member`, refId = `<wsId>:<userId>`) ----

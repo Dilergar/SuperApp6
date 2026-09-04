@@ -34,6 +34,10 @@ export interface EmploymentDto {
   id: string;
   workspaceId: string;
   userId: string;
+  /** Работодатель по договору. Совместительство = вторая карточка в другом юрлице. */
+  legalEntityId: string;
+  /** Снимок имени юрлица на момент договора (переживает переименование) */
+  legalEntityName: string | null;
   status: EmploymentStatus;
   hiredAt: string | null; // YYYY-MM-DD
   firedAt: string | null;
@@ -113,8 +117,13 @@ export interface HrMemberCardDto {
     branchName: string | null;
     status: string;
   }[];
-  /** Юридический план — «как договорились». null = трудовая карточка не заведена */
+  /**
+   * Юридический план — «как договорились». null = трудовой карточки нет.
+   * Совместимость: головное юрлицо, иначе первая из `employments`.
+   */
   employment: EmploymentDto | null;
+  /** Все трудовые карточки человека в организации (по одной на юрлицо) */
+  employments: EmploymentDto[];
   mismatch: EmploymentMismatchDto;
   /** Кадровые действия человека (последние) */
   actions: HrActionDto[];

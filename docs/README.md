@@ -40,7 +40,7 @@
 |---|---|
 | [architecture_overview.md](architecture_overview.md) | Монорепо, модульный монолит, 16 движков, стек, порты |
 | [module_graph.md](module_graph.md) | Карта синхронных рёбер модулей, DI_TOKENS, carve-outs, известные нарушения границ. **Новое ребро → сюда** |
-| [module_graph_documents.md](module_graph_documents.md) | Часть 2 карты: Диск, core/docs, гостевые ссылки, Документооборот, Контрагенты, КЭДО, подпись/согласования/шаблоны |
+| [module_graph_documents.md](module_graph_documents.md) | Часть 2 карты: Диск, core/docs, ссылки, Документооборот, Контрагенты, КЭДО, подпись |
 | [module_graph_edges.md](module_graph_edges.md) | ГЕНЕРИРУЕТСЯ (`pnpm check:docs --write`): точная таблица рёбер из импортов и DI-токенов |
 | [event_bus.md](event_bus.md) | EventBus: at-most-once, что нельзя класть на шину, каталог событий и подписчиков |
 | [identity_roles.md](identity_roles.md) | Universal Identity, лестница ролей, chokepoint, «рабочий пропуск» |
@@ -84,11 +84,11 @@
 | [notifications.md](notifications.md) | Уведомления: реестр, emitEvent, карта доставки |
 | [tasks.md](tasks.md) | Задачник (роли Bitrix24, эскроу наград, GTD-инбокс) |
 | [calendar.md](calendar.md) | Календарь + реестр слоёв + Google-синхра + ресурсы |
-| [messenger.md](messenger.md) | Мессенджер: DM/группы/контекстные чаты, presence, звонки, виртуализация |
+| [messenger.md](messenger.md) | Мессенджер: чаты, presence, звонки, виртуализация |
 | [wallet_ledger.md](wallet_ledger.md) | Кошелёк-леджер: двойная запись, эскроу, карты, B2B-казна |
 | [card_skins.md](card_skins.md) | Скины карточек (косметика, платформенная валюта) |
 | [workspaces.md](workspaces.md) | Организации: приглашения, профиль, реквизиты, архив 90 дней |
-| [staff.md](staff.md) | Сотрудники: должности/отделы/объекты, назначения (основной объект, основное место), проекции осей |
+| [staff.md](staff.md) | Сотрудники: должности/отделы/объекты, назначения, проекции осей |
 | [org_structure.md](org_structure.md) | Орг. структура: вертикаль на графе должностей и объектов, заместители, области, API |
 | [org_structure_resolve.md](org_structure_resolve.md) | Вывод вертикали: снимок с кэшем, `managerOf` / `holdersForPosition` / инверсия команды, циклы |
 | [org_structure_web.md](org_structure_web.md) | Орг. структура (веб): канвас, мастер, «Вне структуры», мобильное дерево, профиль |
@@ -100,6 +100,11 @@
 | [drive.md](drive.md) | Диск (OmniDrive): дерево поверх файлов, закрытые папки, фото |
 | [documents_service.md](documents_service.md) | Документооборот: виды/шаблоны/карточки, конструктор, ЭДО, кампании |
 | [counterparties.md](counterparties.md) | Контрагенты: единый справочник внешних сторон |
+| [objects.md](objects.md) | Объекты: дерево площадок, права, порты-хаб |
+| [objects_shifts.md](objects_shifts.md) | Часть 2: смены (план/факт, пропускная, табель) |
+| [objects_assets.md](objects_assets.md) | Часть 3: оборудование (модели, журналы) |
+| [objects_staffing.md](objects_staffing.md) | Часть 4: штатка (единицы, назначения, ставки) |
+| [legal_entities.md](legal_entities.md) | Юрлица: ТОО/ИП, реквизиты, счета, сторона договора |
 | [hr_kedo.md](hr_kedo.md) | КЭДО: трудовые карточки, кадровые действия, ЕСУТД, «Мои документы» |
 
 ## Статус и планы

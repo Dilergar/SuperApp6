@@ -6,6 +6,7 @@ import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
 import { CompanyCard } from '../../CompanyCard';
 import { RequisitesSection } from '../RequisitesSection';
+import { LegalEntitiesSection } from '../LegalEntitiesSection';
 import { EntitySelector } from '@/components/EntitySelector';
 import { AvatarUploadBlock } from '@/components/files/AvatarUploadBlock';
 import {
@@ -303,8 +304,8 @@ export default function WorkspaceSectionPage() {
             </div>
           </Card>
 
-          {/* Реквизиты для документов: юрформа, БИН, банк, директор (admin+) */}
-          <RequisitesSection workspaceId={id} mode="edit" span={12} />
+          {/* Юрлица: список ТОО/ИП + реквизиты выбранного (admin+) */}
+          <LegalEntitiesSection workspaceId={id} span={12} />
         </BentoGrid>
       )}
 

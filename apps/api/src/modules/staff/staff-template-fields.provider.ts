@@ -1,5 +1,6 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { DatabaseService } from '../../shared/database/database.service';
+import { activeAssignmentWhere } from '../../shared/utils/assignment-window';
 import { TemplateFieldRegistry, type TemplateFieldContext } from '../../core/templates/template-field.registry';
 import { fullName } from '../../shared/utils/user-name';
 import { OrgGraphService } from './org-graph.service';
@@ -101,6 +102,8 @@ export class StaffTemplateFieldsProvider implements OnModuleInit {
             userId: ctx.subjectUserId,
             positionId: employment.legalPositionId,
             ...(employment.legalBranchId ? { branchId: employment.legalBranchId } : {}),
+            // Печатаем ДЕЙСТВУЮЩЕЕ назначение: закрытое осталось в истории.
+            ...activeAssignmentWhere(),
           },
           orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
           include,
@@ -109,7 +112,12 @@ export class StaffTemplateFieldsProvider implements OnModuleInit {
         // — пробуем без объекта, прежде чем откатиться на основное место.
         if (!assignment && employment.legalBranchId) {
           assignment = await this.db.staffAssignment.findFirst({
-            where: { workspaceId: ctx.workspaceId, userId: ctx.subjectUserId, positionId: employment.legalPositionId },
+            where: {
+              workspaceId: ctx.workspaceId,
+              userId: ctx.subjectUserId,
+              positionId: employment.legalPositionId,
+              ...activeAssignmentWhere(),
+            },
             orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
             include,
           });
@@ -117,7 +125,7 @@ export class StaffTemplateFieldsProvider implements OnModuleInit {
       }
       if (!assignment) {
         assignment = await this.db.staffAssignment.findFirst({
-          where: { workspaceId: ctx.workspaceId, userId: ctx.subjectUserId },
+          where: { workspaceId: ctx.workspaceId, userId: ctx.subjectUserId, ...activeAssignmentWhere() },
           orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
           include,
         });

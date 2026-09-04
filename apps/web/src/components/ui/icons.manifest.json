@@ -155,5 +155,15 @@
   "signature": "Signature",
   "qrCode": "QrCode",
   "sealCheck": "SealCheck",
-  "certificate": "Certificate"
+  "certificate": "Certificate",
+  "storefront": "Storefront",
+  "buildings": "Buildings",
+  "warehouse": "Warehouse",
+  "door": "Door",
+  "stairs": "Stairs",
+  "wrench": "Wrench",
+  "toolbox": "Toolbox",
+  "mapPin": "MapPin",
+  "truck": "Truck",
+  "bank": "Bank"
 }

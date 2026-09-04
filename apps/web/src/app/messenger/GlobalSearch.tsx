@@ -26,10 +26,12 @@ const SECTION_LABELS: Record<SearchSourceType, string> = {
   org_document: 'Документы',
   counterparty: 'Контрагенты',
   org_unit: 'Оргструктура',
+  branch: 'Объекты',
+  asset: 'Оборудование',
 };
 // Stable display order of the grouped sections. Диск идёт последним: в поиске
 // ВНУТРИ мессенджера чаще ищут переписку, а не файлы.
-const SECTION_ORDER: SearchSourceType[] = ['chat', 'person', 'message', 'drive_node', 'org_document', 'counterparty', 'org_unit'];
+const SECTION_ORDER: SearchSourceType[] = ['chat', 'person', 'message', 'drive_node', 'org_document', 'counterparty', 'org_unit', 'branch', 'asset'];
 
 export function GlobalSearch({
   onSelectChat,

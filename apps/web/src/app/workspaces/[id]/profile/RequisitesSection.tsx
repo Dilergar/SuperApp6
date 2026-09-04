@@ -23,6 +23,8 @@ import {
   isValidKbe,
   isValidKzIban,
   normalizeIban,
+  LEGAL_ENTITY_LIMITS,
+  type LegalEntityDto,
   type WorkspaceMember,
   type WorkspaceRequisitesDto,
 } from '@superapp/shared';
@@ -30,10 +32,12 @@ import { Button, Card, CardHeader, Chip, Divider, Input, Select, Toggle, useConf
 import { EntitySelector } from '@/components/EntitySelector';
 import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
 import { toastError } from '@/lib/toast';
-import { workspaceRequisitesKey } from '@/lib/queries';
+import { legalEntitiesKey, workspaceRequisitesKey } from '@/lib/queries';
 
 const ORG_FORM_LABEL = new Map<string, string>(ORG_FORMS.map((f) => [f.value, f.label]));
 const TAX_REGIME_LABEL = new Map<string, string>(TAX_REGIMES.map((r) => [r.value, r.label]));
+
+export type { LegalEntityDto };
 
 export function RequisitesSection({
   workspaceId,
@@ -124,15 +128,31 @@ function RequisitesView({ data, span }: { data: WorkspaceRequisitesDto; span: nu
 // Правка (анкета, admin+)
 // ------------------------------------------------------------
 
-function RequisitesEditor({
+export function RequisitesEditor({
   workspaceId,
   initial,
   span,
+  // Адрес ручек: головное юрлицо доступно и по старому пути /requisites.
+  basePath,
+  invalidateKeys,
+  title = 'Реквизиты',
+  subtitle = 'Юрформа, БИН, банк, директор — для договоров и счетов. Видимость сотрудникам — тумблер «Реквизиты» справа',
+  // Имя юрлица правится только у неголовных (у головного имя = название организации).
+  nameField,
+  headerExtra,
 }: {
   workspaceId: string;
   initial: WorkspaceRequisitesDto | null;
   span: number;
+  basePath?: string;
+  invalidateKeys?: readonly unknown[][];
+  title?: string;
+  subtitle?: string;
+  nameField?: { value: string; onChange: (v: string) => void };
+  headerExtra?: React.ReactNode;
 }) {
+  const path = basePath ?? `/workspaces/${workspaceId}/requisites`;
+  const accountsPath = `${path}/accounts`;
   const qc = useQueryClient();
   const [confirm, confirmUI] = useConfirm();
   const [form, setForm] = useState({
@@ -160,11 +180,15 @@ function RequisitesEditor({
     queryFn: async () => await apiGet<WorkspaceMember[]>(`/workspaces/${workspaceId}/members`),
   });
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: workspaceRequisitesKey(workspaceId) });
+  const invalidate = () => {
+    const keys = invalidateKeys ?? [[...workspaceRequisitesKey(workspaceId)]];
+    for (const key of keys) void qc.invalidateQueries({ queryKey: key });
+  };
 
   const save = useMutation({
     mutationFn: async () => {
-      await apiPatch(`/workspaces/${workspaceId}/requisites`, {
+      await apiPatch(path, {
+        ...(nameField ? { name: nameField.value.trim() } : {}),
         orgForm: form.orgForm || null,
         taxRegime: form.taxRegime || null,
         legalName: form.legalName.trim() || null,
@@ -188,7 +212,7 @@ function RequisitesEditor({
 
   const addAccount = useMutation({
     mutationFn: async () => {
-      await apiPost(`/workspaces/${workspaceId}/requisites/accounts`, {
+      await apiPost(accountsPath, {
         iban: accIbanNorm,
         bankName: accBank.trim(),
         bik: accBik.trim().toUpperCase(),
@@ -204,25 +228,31 @@ function RequisitesEditor({
   });
 
   const makePrimary = useMutation({
-    mutationFn: (accId: string) =>
-      apiPatch(`/workspaces/${workspaceId}/requisites/accounts/${accId}`, { isPrimary: true }),
+    mutationFn: (accId: string) => apiPatch(`${accountsPath}/${accId}`, { isPrimary: true }),
     onSuccess: () => void invalidate(),
     onError: (e) => toastError(apiErrorMessage(e)),
   });
 
   const removeAccount = useMutation({
-    mutationFn: (accId: string) => apiDelete(`/workspaces/${workspaceId}/requisites/accounts/${accId}`),
+    mutationFn: (accId: string) => apiDelete(`${accountsPath}/${accId}`),
     onSuccess: () => void invalidate(),
     onError: (e) => toastError(apiErrorMessage(e)),
   });
 
   return (
     <Card span={span}>
-      <CardHeader
-        title="Реквизиты"
-        subtitle="Юрформа, БИН, банк, директор — для договоров и счетов. Видимость сотрудникам — тумблер «Реквизиты» справа"
-      />
+      <CardHeader title={title} subtitle={subtitle} actions={headerExtra} />
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
+        {nameField && (
+          <Input
+            label="Название юрлица"
+            placeholder="ТОО «Ромашка»"
+            maxLength={LEGAL_ENTITY_LIMITS.nameMaxLength}
+            value={nameField.value}
+            onChange={(e) => nameField.onChange(e.target.value)}
+            hint="Как показывать в списках и выпадашках"
+          />
+        )}
         <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)' }}>
           <Select
             label="Форма"

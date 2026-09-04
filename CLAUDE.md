@@ -62,7 +62,7 @@ Before implementing:
 
 **16 платформенных движков** (`apps/api/src/core/`): access (ReBAC) · rich-cards · search · quick-actions · files · voice (STT) · calls (LiveKit) · chatter · jobs (outbox) · verify (SMS-OTP) · docs (WOPI) · share-links · approvals · sign (ЭЦП+ПЭП) · templates · audiences (адресаты).
 
-**Сервисы** (`apps/api/src/modules/`): Окружение (Circle — фундамент) · Задачник · Календарь (+Google) · Мессенджер · My Wish & Shop · Кошелёк-леджер · Скины карточек · Организации · Сотрудники + Орг. структура (вертикаль на графе должностей и объектов) · Процессы (нодовый канвас) · Финансы (B2C) · Диктофон · Виртуальный офис · Диск (OmniDrive) · Документооборот (+ЭДО) · Контрагенты · КЭДО (HR). Документная вертикаль ЗАВЕРШЕНА.
+**Сервисы** (`apps/api/src/modules/`): Окружение (Circle — фундамент) · Задачник · Календарь (+Google) · Мессенджер · My Wish & Shop · Кошелёк-леджер · Скины карточек · Организации · Сотрудники + Орг. структура (вертикаль на графе должностей и объектов) · Процессы (нодовый канвас) · Финансы (B2C) · Диктофон · Виртуальный офис · Диск (OmniDrive) · Документооборот (+ЭДО) · Контрагенты · КЭДО (HR) · Объекты (дерево площадок + юрлица + штатное расписание + график смен + оборудование). Документная вертикаль ЗАВЕРШЕНА; B2B-вертикаль объектов ПОСТРОЕНА.
 
 Все сервисы — «между людьми»: Мама ставит задачу Сыну, семья скидывается на подарок, сотрудник пишет коллеге по «рабочему пропуску».
 
@@ -109,6 +109,10 @@ Before implementing:
 | Закрыть папку от наследования | `DriveNode.restricted` | `docs/drive.md` |
 | Вторая сторона договора (без аккаунта) | `modules/counterparties` — единый справочник | `docs/counterparties.md` |
 | Исходящий HTTP наружу | Две двери `shared/http`: safeFetch (адрес из данных) / trustedFetch (из .env) | `docs/security.md` |
+| Физическая площадка (точка, здание, этаж, склад) | `modules/objects` — дерево `StaffBranch` (`ancestorIds`+GIN), права через предков `capsFor` | `docs/objects.md` |
+| Штат, ставки, смены, оборудование объекта | тот же модуль: `StaffingPosition`/`StaffRate` · `Shift`/`ShiftAttendance` · семья `Asset` | `docs/objects_staffing.md`, `docs/objects_shifts.md`, `docs/objects_assets.md` |
+| Сторона договора и счёта (ТОО/ИП внутри организации) | `LegalEntity` (головное — самолечение; `/requisites` = головное) | `docs/legal_entities.md` |
+| «Кто работает СЕЙЧАС» (назначения датированы) | `activeAssignmentWhere()` у КАЖДОГО потребителя + джоб `staff.assignment.rollover` | `docs/objects.md` |
 | B2B-изоляция | chokepoint `X-Workspace-Id` ИЛИ ownerType+ownerId + права | `docs/identity_roles.md` |
 | Выбор человека/сущности в UI | `EntitySelector` (контекстный тип user) | `docs/web_conventions.md` |
 | Значок сущности | `GlyphField`/`Glyph`; из API — ключ реестра иконок | `docs/web_conventions.md` |
