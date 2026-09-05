@@ -101,18 +101,17 @@ export class StaffingService {
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
 
-    // Назначения объекта: и привязанные к единице, и «исторические» без неё —
-    // последние подцепляем к единице той же должности, иначе человек пропал бы
-    // из штатки, хотя работает.
-    const assignments = await this.db.staffAssignment.findMany({
-      where: {
-        workspaceId,
-        branchId,
-        OR: [{ endsOn: null }, { endsOn: { gte: dayOf(from) } }],
-      },
+    // Назначения объекта ЦЕЛИКОМ, без окна периода: в строки идут те, что действуют
+    // или закрылись в периоде, а «вакантно с …» считается по всей хронике единицы —
+    // закрытое в прошлом году назначение и есть причина сегодняшней вакансии.
+    // Привязанные к единице и «исторические» без неё — последние подцепляем к
+    // единице той же должности, иначе человек пропал бы из штатки, хотя работает.
+    const history = await this.db.staffAssignment.findMany({
+      where: { workspaceId, branchId },
       include: { user: { select: { firstName: true, lastName: true, avatar: true } } },
       orderBy: [{ startsOn: 'asc' }, { createdAt: 'asc' }],
     });
+    const assignments = history.filter((a) => !a.endsOn || dateStr(a.endsOn)! >= from);
 
     const assignmentIds = assignments.map((a) => a.id);
     const unitIds = units.map((u) => u.id);
@@ -145,16 +144,21 @@ export class StaffingService {
       if (r.staffingPositionId && !rateByUnit.has(r.staffingPositionId)) rateByUnit.set(r.staffingPositionId, r);
     }
 
-    const byUnit = new Map<string, typeof assignments>();
     const unitOfPosition = new Map<string, string>();
     for (const u of units) unitOfPosition.set(u.positionId, u.id);
-    for (const a of assignments) {
-      const unitId = a.staffingPositionId ?? unitOfPosition.get(a.positionId);
-      if (!unitId) continue;
-      const list = byUnit.get(unitId) ?? [];
-      list.push(a);
-      byUnit.set(unitId, list);
-    }
+    const groupByUnit = (list: typeof history) => {
+      const map = new Map<string, typeof history>();
+      for (const a of list) {
+        const unitId = a.staffingPositionId ?? unitOfPosition.get(a.positionId);
+        if (!unitId) continue;
+        const bucket = map.get(unitId) ?? [];
+        bucket.push(a);
+        map.set(unitId, bucket);
+      }
+      return map;
+    };
+    const byUnit = groupByUnit(assignments);
+    const historyByUnit = groupByUnit(history);
 
     const rows: StaffingRowDto[] = [];
     let plannedCost = 0n;
@@ -164,7 +168,7 @@ export class StaffingService {
       const filled = active.reduce((sum, a) => sum + (a.rateShare ?? 1), 0);
       const plannedRate = rateByUnit.get(u.id) ?? null;
 
-      const makeRow = (a: (typeof people)[number] | null): StaffingRowDto => {
+      const makeRow = (a: (typeof people)[number] | null, vacantSince?: string): StaffingRowDto => {
         const shifts = a ? (shiftStats.byUser.get(a.userId) ?? EMPTY_SHIFTS) : (shiftStats.open ?? EMPTY_SHIFTS);
         const actual = a ? (rateByAssignment.get(a.id) ?? null) : null;
         const emp = a ? (employments.get(a.userId) ?? [])[0] : undefined;
@@ -192,6 +196,7 @@ export class StaffingService {
           schedule: null,
           shifts,
         };
+        if (!a && vacantSince) row.vacantSince = vacantSince;
         if (caps.payrollView) {
           row.plannedRate = plannedRate ? this.serializeRate(plannedRate) : null;
           row.actualRate = actual ? this.serializeRate(actual) : null;
@@ -212,7 +217,8 @@ export class StaffingService {
       for (const a of people) rows.push(makeRow(a));
       // Вакансии — тоже СТРОКИ: план затрат считает незанятые ставки.
       const vacancies = Math.max(0, u.headcount - Math.ceil(filled));
-      for (let i = 0; i < vacancies; i += 1) rows.push(makeRow(null));
+      const since = this.vacantSince(u, branch.timeZone, historyByUnit.get(u.id) ?? [], to, vacancies);
+      for (let i = 0; i < vacancies; i += 1) rows.push(makeRow(null, since[i]));
 
       if (caps.payrollView) {
         plannedCost += this.rowsCost(u, plannedRate, rateByAssignment, people, to);
@@ -235,6 +241,47 @@ export class StaffingService {
       };
     }
     return table;
+  }
+
+  /**
+   * «Вакантно с …» для каждой из `count` вакансий единицы. k-я вакансия (k от 1,
+   * первая — самая давняя) пустует с даты, начиная с которой занятость единицы ни
+   * разу не поднималась выше `headcount − k` вплоть до конца периода. Хроника — по
+   * ВСЕМ назначениям единицы, включая закрытые до периода. Провала не нашлось — с
+   * создания единицы (раньше неё вакансии быть не могло, даже если история
+   * должности старше). Штат считается постоянным: история headcount не хранится.
+   */
+  private vacantSince(
+    unit: { headcount: number; createdAt: Date },
+    timeZone: string,
+    history: Array<Parameters<typeof isAssignmentActiveOn>[0] & { rateShare: number | null }>,
+    to: string,
+    count: number,
+  ): string[] {
+    if (count === 0) return [];
+    const created = utcToLocalDate(timeZone, unit.createdAt);
+    // Даты, в которые состав меняется: начало назначения и день ПОСЛЕ его конца
+    const marks = new Set<string>([created]);
+    for (const a of history) {
+      const s = a.startsOn ? dateStr(new Date(a.startsOn)) : null;
+      if (s && s <= to) marks.add(s);
+      const e = a.endsOn ? dateStr(new Date(a.endsOn)) : null;
+      if (e && addDays(e, 1) <= to) marks.add(addDays(e, 1));
+    }
+    const bounds = [...marks].filter((d) => d <= to).sort().reverse(); // от поздних к ранним
+    const vacantOn = (d: string) =>
+      unit.headcount -
+      Math.ceil(history.filter((a) => isAssignmentActiveOn(a, d)).reduce((sum, a) => sum + (a.rateShare ?? 1), 0));
+    const result: string[] = [];
+    for (let k = 1; k <= count; k += 1) {
+      let since = to;
+      for (const d of bounds) {
+        if (vacantOn(d) < k) break;
+        since = d;
+      }
+      result.push(since < created ? created : since);
+    }
+    return result;
   }
 
   // ============================================================

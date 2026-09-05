@@ -23,6 +23,7 @@ import {
 } from '@/components/ui';
 import { PersonChip } from '@/app/circles/PersonCard';
 import { AttachmentsSection } from '@/components/files/AttachmentsSection';
+import { NotesPanel } from '@/components/notes/NotesPanel';
 import { apiDelete, apiErrorMessage, apiGet, apiPost } from '@/lib/api';
 import { toastError } from '@/lib/toast';
 import { FALLBACK_TZ, todayIn } from '@/lib/objects-time';
@@ -299,6 +300,11 @@ export default function ObjectOverviewPage() {
               ))}
             </div>
           )}
+        </Card>
+
+        <Card span={12}>
+          <CardHeader title="Заметки" subtitle="Записи об этом объекте — сразу привязанные к нему" />
+          <NotesPanel target={{ type: 'branch', id: objectId }} scope={{ workspaceId: id }} />
         </Card>
 
         <Card span={12}>

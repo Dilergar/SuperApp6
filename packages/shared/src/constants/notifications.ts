@@ -27,6 +27,7 @@ export interface NotificationMeta {
     | 'processes'
     | 'finance'
     | 'drive'
+    | 'notes'
     | 'system';
 }
 
@@ -463,6 +464,14 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
     icon: '🗂️',
     pushByDefault: true,
     category: 'drive',
+  },
+  // Заметки
+  'note.shared': {
+    title: '{{ownerName}} поделил(ась) заметкой',
+    body: '«{{noteName}}» — {{roleLabel}}',
+    icon: '📝',
+    pushByDefault: true,
+    category: 'notes',
   },
   // Гостевые ссылки наружу (core/share-links)
   'share.link.opened': {

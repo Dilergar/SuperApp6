@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CounterpartiesService } from './counterparties.service';
+import { CounterpartiesNotesTargetProvider } from './counterparties-notes-target.provider';
+import { NotesModule } from '../notes/notes.module';
 import { CounterpartiesController } from './counterparties.controller';
 import { CounterpartiesRegistriesProvider } from './counterparties-registries.provider';
 import { CounterpartiesRichCardsProvider } from './counterparties-rich-cards.provider';
@@ -12,8 +14,9 @@ import { CounterpartiesRichCardsProvider } from './counterparties-rich-cards.pro
  * «Документообороту» (внешний контур) и будущим Счетам/Финансам B2B.
  */
 @Module({
+  imports: [NotesModule],
   controllers: [CounterpartiesController],
-  providers: [CounterpartiesService, CounterpartiesRegistriesProvider, CounterpartiesRichCardsProvider],
+  providers: [CounterpartiesService, CounterpartiesNotesTargetProvider, CounterpartiesRegistriesProvider, CounterpartiesRichCardsProvider],
   exports: [CounterpartiesService],
 })
 export class CounterpartiesModule {}

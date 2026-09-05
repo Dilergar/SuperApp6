@@ -43,6 +43,7 @@ import {
 } from '@/components/ui';
 import { PersonChip } from '@/app/circles/PersonCard';
 import { ChronicleFeed } from '@/components/chatter/ChronicleFeed';
+import { NotesPanel } from '@/components/notes/NotesPanel';
 import { SignaturesBlock } from '@/components/sign/SignaturesBlock';
 import { documentsApi, fetchOrgDocument } from '../documents-api';
 import { FormFields } from '../SubmitDocumentModal';
@@ -477,6 +478,11 @@ export default function OrgDocumentPage() {
             />
           </div>
         )}
+
+        <Card span={12}>
+          <CardHeader title="Заметки" subtitle="Договорённости и детали по документу — видны тем, с кем поделились" />
+          <NotesPanel target={{ type: 'document', id: documentId }} scope={{ workspaceId: id }} />
+        </Card>
 
         <Card span={12}>
           <CardHeader title="Хроника документа" />

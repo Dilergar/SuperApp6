@@ -154,6 +154,64 @@ export class MentionsService {
     }
   }
 
+  /**
+   * Generic recorder for non-chat sources (notes today; tasks/calendar later): the caller has
+   * ALREADY security-filtered `mentionedUserIds` to people who can see the source. Records only
+   * the people not yet recorded for this (sourceType, sourceId) and notifies just them.
+   * Best-effort like the messenger path: never throws.
+   */
+  /**
+   * Кто из этих людей УЖЕ записан как упомянутый в этом источнике. Нужен вызывающему,
+   * чтобы понять, можно ли пропустить дорогую проверку доступа: если запись есть,
+   * доступ у человека был и подсказка «упомянут, но не видит» его не касается.
+   */
+  async recordedMentionees(sourceType: MentionSourceType, sourceId: string, userIds: string[]): Promise<Set<string>> {
+    if (!userIds.length) return new Set();
+    const rows = await this.db.mention.findMany({
+      where: { sourceType, sourceId, mentionedUserId: { in: userIds } },
+      select: { mentionedUserId: true },
+    });
+    return new Set(rows.map((r) => r.mentionedUserId));
+  }
+
+  async recordMentions(opts: {
+    sourceType: MentionSourceType;
+    sourceId: string;
+    mentionerUserId: string;
+    mentionedUserIds: string[];
+    snippet: string | null;
+    actionUrl: string;
+  }): Promise<void> {
+    const { sourceType, sourceId, mentionerUserId, actionUrl } = opts;
+    try {
+      const candidateIds = [...new Set(opts.mentionedUserIds.filter((id) => id && id !== mentionerUserId))];
+      if (!candidateIds.length) return;
+      const existing = await this.db.mention.findMany({
+        where: { sourceType, sourceId, mentionedUserId: { in: candidateIds } },
+        select: { mentionedUserId: true },
+      });
+      const existingIds = new Set(existing.map((e) => e.mentionedUserId));
+      const toCreate = candidateIds.filter((id) => !existingIds.has(id)).slice(0, MENTION_LIMITS.maxPerMessage);
+      if (!toCreate.length) return;
+      const snippet = opts.snippet ? opts.snippet.slice(0, MENTION_LIMITS.snippetLength) : null;
+      await this.db.mention.createMany({
+        data: toCreate.map((mentionedUserId) => ({ mentionedUserId, mentionerUserId, sourceType, sourceId, snippet })),
+        skipDuplicates: true,
+      });
+      const author = await this.db.user.findUnique({ where: { id: mentionerUserId }, select: USER_LITE });
+      const mentionerName = fullName(author);
+      for (const userId of toCreate) {
+        try {
+          await this.notifications.notify(userId, 'mention.received', { mentionerName, snippet }, { actionUrl });
+        } catch (e) {
+          this.logger.warn(`mention notify failed for ${userId}: ${String(e)}`);
+        }
+      }
+    } catch (e) {
+      this.logger.warn(`recordMentions failed (${sourceType} ${sourceId}): ${String(e)}`);
+    }
+  }
+
   /** The Mentions Hub feed for a user: keyset pagination by (createdAt desc, id desc). */
   async listFeed(userId: string, cursor?: string): Promise<MentionFeed> {
     const limit = MENTION_LIMITS.feedPageSize;
@@ -238,6 +296,9 @@ export class MentionsService {
         return `/calendar?event=${sourceId}`;
       case 'listing':
         return `/shop?listing=${sourceId}`;
+      case 'note':
+        // Личный маршрут сам переадресует рабочую заметку внутрь организации
+        return `/notes/${sourceId}`;
       default:
         return '/';
     }

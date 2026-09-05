@@ -1,18 +1,18 @@
 {
   "version": "0.0.1",
+  "comment": "Стек поднимается ОДНОЙ командой `pnpm dev` из корня (API :3001 + Web :3000). Порты несущие: CORS API и редиректы завязаны на localhost:3000, поэтому autoPort здесь запрещён. Конфигурации без команды — присоединение к уже работающему серверу, чтобы предпросмотр не поднимал вторую копию поверх вашей.",
   "configurations": [
     {
       "name": "web",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "./apps/web", "dev"],
-      "port": 3000
+      "port": 3000,
+      "url": "http://localhost:3000",
+      "autoPort": false
     },
     {
       "name": "api",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "./apps/api", "start"],
       "port": 3001,
-      "url": "http://localhost:3001"
+      "url": "http://localhost:3001",
+      "autoPort": false
     }
   ]
 }

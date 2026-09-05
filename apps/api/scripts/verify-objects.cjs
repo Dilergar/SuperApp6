@@ -143,6 +143,10 @@ async function main() {
   const barmanRows = (table?.rows ?? []).filter((r) => r.positionId === posBarman.id);
   check('вакансии — отдельные строки (2 по штату)', barmanRows.length === 2 && barmanRows.every((r) => r.assignment === null), `${barmanRows.length}`);
   check('владельцу видна плановая ставка', !!barmanRows[0]?.plannedRate, JSON.stringify(barmanRows[0]?.plannedRate));
+  // Свежая единица без истории пустует с даты создания — в поясе ОБЪЕКТА (Almaty =
+  // UTC+5), а isoDate() здесь UTC: до 05:00 по Алматы это «завтра» по UTC.
+  const todays = [isoDate(new Date()), isoDate(new Date(Date.now() + 86400000))];
+  check('у вакансии «вакантно с» = дата создания единицы', barmanRows.every((r) => todays.includes(r.vacantSince)), JSON.stringify(barmanRows.map((r) => r.vacantSince)));
 
   const spId = barmanRows[0]?.staffingPositionId;
   const assignRes = await call('POST', `${base}/${floor.id}/staffing/assign`, owner.token, {
@@ -159,6 +163,7 @@ async function main() {
   check('фактическая ставка записана', !!filled?.actualRate, JSON.stringify(filled?.actualRate ?? null));
   const barmanAfter = (table2?.rows ?? []).filter((r) => r.positionId === posBarman.id);
   check('вакансия осталась строкой (2 по штату)', barmanAfter.length === 2 && barmanAfter.some((r) => !r.assignment), `${barmanAfter.length}`);
+  check('«вакантно с» только у вакансии', barmanAfter.every((r) => (r.assignment ? !('vacantSince' in r) : typeof r.vacantSince === 'string')), JSON.stringify(barmanAfter.map((r) => r.vacantSince ?? null)));
 
   // Деньги в JSON: рядовому их НЕТ (полей нет вовсе, не null)
   const tableWorker = (await call('GET', `${base}/${floor.id}/staffing?period=${period}`, worker.token)).json?.data;

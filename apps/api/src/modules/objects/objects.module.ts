@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ObjectsService } from './objects.service';
+import { ObjectsNotesTargetProvider } from './objects-notes-target.provider';
+import { NotesModule } from '../notes/notes.module';
 import { ObjectsController } from './objects.controller';
 import { ObjectsRegistriesProvider } from './objects-registries.provider';
 import { StaffingService } from './staffing.service';
@@ -28,7 +30,7 @@ import { CalendarModule } from '../calendar/calendar.module';
  * регистрации в них собраны в ObjectsRegistriesProvider.
  */
 @Module({
-  imports: [StaffModule, DriveModule, HrModule, CalendarModule],
+  imports: [StaffModule, DriveModule, HrModule, CalendarModule, NotesModule],
   controllers: [ObjectsController, StaffingController, ShiftsController, AssetsController],
   providers: [
     ObjectsService,
@@ -38,6 +40,7 @@ import { CalendarModule } from '../calendar/calendar.module';
     AssetsService,
     ObjectsJobs,
     ObjectsRegistriesProvider,
+    ObjectsNotesTargetProvider,
     ObjectsCalendarProvider,
     ObjectsCardsProvider,
     // Порты-алиасы: чужие сервисы берут их через ModuleRef по строковому токену

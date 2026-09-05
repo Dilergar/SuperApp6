@@ -7,6 +7,8 @@ import { DriveModule } from '../drive/drive.module';
 import { StaffModule } from '../staff/staff.module';
 import { CounterpartiesModule } from '../counterparties/counterparties.module';
 import { DocumentsService, type HrPort, type ProcessesStarter } from './documents.service';
+import { DocumentsNotesTargetProvider } from './documents-notes-target.provider';
+import { NotesModule } from '../notes/notes.module';
 import { DocumentsController } from './documents.controller';
 import { DocumentsDevController } from './documents.dev';
 import { isDevEnv } from '../../shared/config/env.validation';
@@ -28,7 +30,7 @@ import { DocCampaignsController, DocCampaignsPersonalController } from './doc-ca
  * через ссылку, поставленную на bootstrap. Прямые инъекции замкнули бы модули.
  */
 @Module({
-  imports: [DriveModule, StaffModule, CounterpartiesModule],
+  imports: [DriveModule, StaffModule, CounterpartiesModule, NotesModule],
   // Дев-полигон системных путей нод маршрута: в production этих маршрутов НЕТ (404),
   // а не «есть, но отвечают 403» — то же правило, что у полигонов джобов и согласований.
   controllers: isDevEnv()
@@ -38,6 +40,7 @@ import { DocCampaignsController, DocCampaignsPersonalController } from './doc-ca
     DocumentsService,
     DocumentsJobs,
     DocumentsRegistriesProvider,
+    DocumentsNotesTargetProvider,
     // Документ пересылается в чат карточкой (Принцип 3)
     DocumentsRichCardsProvider,
     // Кампании ознакомления (КЭДО, Этап 5)

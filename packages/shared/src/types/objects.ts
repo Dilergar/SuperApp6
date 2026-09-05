@@ -133,6 +133,12 @@ export interface StaffingRowDto {
   actualRate?: StaffRateDto | null;
   /** Плановая ставка штатной единицы; только при caps.payrollView */
   plannedRate?: StaffRateDto | null;
+  /**
+   * Только у ВАКАНСИИ: с какой даты место пустует (YYYY-MM-DD). Считается по всей
+   * хронике назначений единицы, не по окну периода; если провалов не было — дата
+   * создания единицы.
+   */
+  vacantSince?: string;
   /** Подпись графика («2/2 · Утро 09–17») или null */
   schedule: { label: string } | null;
   shifts: { planned: number; worked: number; late: number; absent: number };

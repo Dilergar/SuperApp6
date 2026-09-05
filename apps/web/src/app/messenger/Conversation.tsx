@@ -24,6 +24,7 @@ import { searchInChat, getQuickActions } from '@/lib/messenger-api';
 import { QuickActionMenu, quickActionsKey } from './QuickActionMenu';
 import { ScheduledPanel, usePendingScheduledCount, scheduledKey } from './ScheduledPanel';
 import { CreateTaskModal, ScheduleMessageModal } from './QuickActionModals';
+import { NoteFromMessageModal } from '@/components/notes/NoteFromMessageModal';
 
 /** A message being quoted in the composer (Phase 7 reply). */
 export interface ReplyTarget {
@@ -121,7 +122,7 @@ export function Conversation({
   // message-scope quick-action modals opened from a bubble's corner menu.
   const [replyingTo, setReplyingTo] = useState<ReplyTarget | null>(null);
   const [showScheduled, setShowScheduled] = useState(false);
-  const [msgModal, setMsgModal] = useState<{ kind: 'task' | 'schedule'; text: string } | null>(null);
+  const [msgModal, setMsgModal] = useState<{ kind: 'task' | 'schedule' | 'note'; text: string } | null>(null);
 
   // Message-scope quick actions for this chat (drives each bubble's corner menu).
   const { data: messageActions = EMPTY_ACTIONS } = useQuery<QuickActionDescriptor[]>({
@@ -318,7 +319,7 @@ export function Conversation({
       text: (m.content || fallback).slice(0, 200),
     });
   }, []);
-  const openMsgModal = useCallback((kind: 'task' | 'schedule', text: string) => {
+  const openMsgModal = useCallback((kind: 'task' | 'schedule' | 'note', text: string) => {
     setMsgModal({ kind, text });
   }, []);
 
@@ -807,6 +808,7 @@ export function Conversation({
           onScheduled={() => refreshScheduled()}
         />
       )}
+      {msgModal?.kind === 'note' && <NoteFromMessageModal text={msgModal.text} onClose={() => setMsgModal(null)} />}
     </div>
   );
 }

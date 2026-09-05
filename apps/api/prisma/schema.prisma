@@ -990,7 +990,8 @@ model StaffBranch {
   glyph    String?
   // Материализованные предки (корень ПЕРВЫМ, без себя) + глубина. Паттерн Диска и
   // closure отделов: одно условие в SQL и для поддерева, и для прав через предков.
-  // ⚠️ РУКАМИ: CREATE INDEX staff_branches_ancestor_ids_gin ON staff_branches USING GIN(ancestor_ids)
+  // GIN объявлен НИЖЕ (@@index): пока он жил только в комментарии, следующая же
+  // `prisma migrate dev` посчитала его дрейфом и вписала в чужую миграцию DROP INDEX.
   ancestorIds String[] @default([]) @map("ancestor_ids")
   depth       Int      @default(0)
   // Правила смен объекта = ДАННЫЕ (ObjectScheduleSettings): minRestMin, maxShiftMin,
@@ -1025,6 +1026,8 @@ model StaffBranch {
   @@index([headPositionId])
   @@index([workspaceId, parentId])
   @@index([legalEntityId])
+  // Права через предков (`ancestor_ids && granted`) и обход поддерева — только по нему
+  @@index([ancestorIds(ops: ArrayOps)], map: "staff_branches_ancestor_ids_gin", type: Gin)
   @@map("staff_branches")
 }
 
@@ -4409,4 +4412,180 @@ model DocTemplateLibraryInstall {
 
   @@unique([workspaceId, libraryKey])
   @@map("doc_template_library_installs")
+}
+
+// ============================================================
+// ЗАМЕТКИ (modules/notes): пространства, дерево папок, заметки со своим JSON-документом
+// и производными проекциями (Markdown, чистый текст, чанки), версии, ссылки, доска стикеров.
+//
+// Права: core/access хранит гранты на note_space / note_folder / note, наследование по
+// дереву считает сервис ОДНИМ условием (folder_path && granted) — модель Диска. Чтение
+// прав только через grantSetFor (EPOCH_FANOUT пустой), поэтому массивы предков
+// материализованы и покрыты GIN.
+// ============================================================
+
+/// Пространство заметок: личное (user) или организации (workspace). Создаётся лениво.
+model NoteSpace {
+  id        String   @id @default(uuid())
+  ownerType String   @map("owner_type") // user | workspace
+  ownerId   String   @map("owner_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  folders    NoteFolder[]
+  notes      Note[]
+  boardItems NoteBoardItem[]
+  chunks     NoteChunk[]
+
+  @@unique([ownerType, ownerId])
+  @@map("note_spaces")
+}
+
+/// Папка заметок (дерево). ancestor_ids — предки от корня БЕЗ себя.
+model NoteFolder {
+  id          String    @id @default(uuid())
+  spaceId     String    @map("space_id")
+  parentId    String?   @map("parent_id")
+  name        String
+  // NFC + нижний регистр — по нему живёт частичный unique «одно имя в папке» (руками в миграции)
+  nameKey     String    @map("name_key")
+  color       String?
+  ancestorIds String[]  @default([]) @map("ancestor_ids")
+  depth       Int       @default(0)
+  sortRank    Int       @default(0) @map("sort_rank")
+  createdById String    @map("created_by_id")
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  space    NoteSpace    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  parent   NoteFolder?  @relation("NoteFolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children NoteFolder[] @relation("NoteFolderTree")
+  notes    Note[]
+
+  // РУКАМИ в миграции notes (Prisma не выражает WHERE и выражения):
+  //   CREATE UNIQUE INDEX note_folder_name_uniq ON note_folders (space_id, COALESCE(parent_id, ''), name_key) WHERE deleted_at IS NULL;
+  @@index([spaceId, parentId])
+  @@index([ancestorIds(ops: ArrayOps)], map: "note_folder_anc", type: Gin)
+  @@map("note_folders")
+}
+
+/// Заметка. content — СВОЙ формат NoteDoc (единственная правда); content_md/plain_text —
+/// производные проекции, которые сервер пересчитывает в той же транзакции сохранения.
+model Note {
+  id          String    @id @default(uuid())
+  spaceId     String    @map("space_id")
+  folderId    String?   @map("folder_id")
+  // [folder_id, ...ancestor_ids папки]: один GIN-предикат наследования грантов с папок
+  folderPath  String[]  @default([]) @map("folder_path")
+  title       String    @default("")
+  content     Json
+  contentMd   String    @default("") @map("content_md")
+  plainText   String    @default("") @map("plain_text")
+  contentHash String    @map("content_hash")
+  version     Int       @default(1)
+  color       String?
+  tags        String[]  @default([])
+  pinnedAt    DateTime? @map("pinned_at")
+  createdById String    @map("created_by_id")
+  updatedById String    @map("updated_by_id")
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  space      NoteSpace       @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  folder     NoteFolder?     @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  revisions  NoteRevision[]
+  links      NoteLink[]
+  boardItems NoteBoardItem[]
+  chunks     NoteChunk[]
+
+  @@index([spaceId, folderId, deletedAt])
+  @@index([spaceId, updatedAt(sort: Desc)])
+  @@index([folderPath(ops: ArrayOps)], map: "note_folder_path", type: Gin)
+  @@index([tags(ops: ArrayOps)], map: "note_tags", type: Gin)
+  // Корзина: purge-джоб идёт по deleted_at (руками в миграции — частичный:
+  //   CREATE INDEX note_trash ON notes (deleted_at) WHERE deleted_at IS NOT NULL;)
+  @@map("notes")
+}
+
+/// Снимок содержимого на каждое принятое сохранение (кап — NOTE_LIMITS.revisionsKeep).
+model NoteRevision {
+  id          String   @id @default(uuid())
+  noteId      String   @map("note_id")
+  version     Int
+  content     Json
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  note Note @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@unique([noteId, version])
+  @@map("note_revisions")
+}
+
+/// Ссылка заметки: вики-ссылка на заметку (kind=wikilink, target_type=note) или
+/// привязка к бизнес-сущности (kind=related). Обратные ссылки и панель «Заметки» на
+/// карточке сущности — один запрос по (target_type, target_id).
+model NoteLink {
+  id          String   @id @default(uuid())
+  noteId      String   @map("note_id")
+  targetType  String   @map("target_type") // note | task | counterparty | branch | document
+  targetId    String   @map("target_id")
+  kind        String // wikilink | related
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  note Note @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@unique([noteId, targetType, targetId, kind])
+  @@index([targetType, targetId])
+  @@map("note_links")
+}
+
+/// Раскладка карточки заметки на доске зрителя (per-user): позиция в пикселях холста,
+/// размер, слой, свёрнутость. Доска — вид на раздел; строка появляется при первом жесте.
+model NoteBoardItem {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  spaceId   String   @map("space_id")
+  folderId  String?  @map("folder_id")
+  noteId    String   @map("note_id")
+  x         Float    @default(10) // пиксели холста доски от левого верхнего угла
+  y         Float    @default(10)
+  w         Int      @default(260) // пиксели
+  h         Int      @default(220)
+  z         Int      @default(1)
+  collapsed Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  note  Note      @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  space NoteSpace @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, noteId])
+  @@index([userId, spaceId, folderId])
+  @@map("note_board_items")
+}
+
+/// Чанк заметки под RAG: структурная нарезка по заголовкам с контекст-префиксом.
+/// Колонка embedding появится задачей pgvector (core/embeddings) — строки уже готовы.
+model NoteChunk {
+  id            String   @id @default(uuid())
+  noteId        String   @map("note_id")
+  spaceId       String   @map("space_id")
+  ord           Int
+  headingPath   String[] @default([]) @map("heading_path")
+  text          String
+  contextPrefix String   @map("context_prefix")
+  tokenCount    Int      @map("token_count")
+  contentHash   String   @map("content_hash")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  note  Note      @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  space NoteSpace @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@unique([noteId, ord])
+  @@index([spaceId])
+  @@map("note_chunks")
 }

@@ -10,9 +10,11 @@
 
 import { infiniteQueryOptions } from '@tanstack/react-query';
 import { apiGet } from './api';
+import { fetchNotes, type NotesListFilter } from './notes-api';
 import type {
   Contact,
   CursorPage,
+  NoteSpaceRef,
   OffsetPage,
   Currency,
   CurrencyHolder,
@@ -625,3 +627,27 @@ export async function fetchCurrencyBadge(): Promise<{ icon: string | null; holde
     return { icon: null, holders: {} };
   }
 }
+
+// ---- Заметки: ключи вложены под ['notes'] — инвалидация корня накрывает панель,
+// списки, доски и карточки разом (одно сохранение меняет их все).
+export const notesRootKey = ['notes'] as const;
+export const notesSidebarKey = (scopeKey: string) => ['notes', 'sidebar', scopeKey] as const;
+export const notesListKey = (scopeKey: string, filterKey: string) => ['notes', 'list', scopeKey, filterKey] as const;
+/**
+ * Список заметок раздела — ТОЛЬКО бесконечной формой (дерево папок подгружает страницы
+ * по «Ещё…»). Один ключ = одна форма кэша: плоский useQuery на этот же ключ запрещён.
+ */
+export const notesListInfinite = (scope: NoteSpaceRef, scopeKey: string, filter: NotesListFilter) =>
+  infiniteQueryOptions({
+    queryKey: notesListKey(scopeKey, JSON.stringify(filter)),
+    queryFn: ({ pageParam }) => fetchNotes(scope, filter, pageParam || undefined),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+export const noteDetailKey = (id: string) => ['notes', 'detail', id] as const;
+export const noteSharesKey = (id: string) => ['notes', 'shares', id] as const;
+export const noteFolderSharesKey = (id: string) => ['notes', 'folder-shares', id] as const;
+export const notesBoardKey = (scopeKey: string, filterKey: string) => ['notes', 'board', scopeKey, filterKey] as const;
+export const notesByTargetKey = (targetType: string, targetId: string) => ['notes', 'by-target', targetType, targetId] as const;
+export const noteRevisionsKey = (id: string) => ['notes', 'revisions', id] as const;
+export const notesAttachPickerKey = (scopeKey: string, q: string) => ['notes', 'attach-picker', scopeKey, q] as const;

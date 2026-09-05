@@ -66,6 +66,7 @@ import {
 } from '@/components/ui';
 import { ChronicleFeed } from '@/components/chatter/ChronicleFeed';
 import { ShareCardModal } from '@/app/messenger/ShareCardModal';
+import { NotesPanel } from '@/components/notes/NotesPanel';
 import { counterpartiesApi, fetchCounterparties, fetchCounterparty, lookupCounterparty } from './counterparties-api';
 
 export default function CounterpartiesPage() {
@@ -276,7 +277,7 @@ const FORM_LABEL = (cp: Pick<CounterpartyDto, 'kind' | 'orgForm'>) =>
 // Карточка: Реквизиты (+контакты и счета) · Хроника
 // ============================================================
 
-type CardTab = 'requisites' | 'chronicle';
+type CardTab = 'requisites' | 'notes' | 'chronicle';
 
 function CounterpartyCard({
   workspaceId,
@@ -346,6 +347,7 @@ function CounterpartyCard({
   // карточка читается одной страницей; отдельной вкладкой — только длинная хроника.
   const tabs: TabItem<CardTab>[] = [
     { key: 'requisites', label: 'Реквизиты', icon: 'workspace' },
+    { key: 'notes', label: 'Заметки', icon: 'notes' },
     { key: 'chronicle', label: 'Хроника', icon: 'journal' },
   ];
 
@@ -433,6 +435,14 @@ function CounterpartyCard({
           <RequisitesTab cp={cp} />
           <ContactsTab workspaceId={workspaceId} cp={cp} isManager={isManager} onChanged={refresh} />
           <AccountsTab workspaceId={workspaceId} cp={cp} isManager={isManager} onChanged={refresh} />
+        </BentoGrid>
+      )}
+      {tab === 'notes' && (
+        <BentoGrid>
+          <Card span={12}>
+            <CardHeader title="Заметки о контрагенте" subtitle="Записи по клиенту — модель «Notes» Salesforce: заметка привязана к карточке" />
+            <NotesPanel target={{ type: 'counterparty', id: cp.id }} scope={{ workspaceId }} />
+          </Card>
         </BentoGrid>
       )}
       {tab === 'chronicle' && <ChronicleTab counterpartyId={cp.id} />}

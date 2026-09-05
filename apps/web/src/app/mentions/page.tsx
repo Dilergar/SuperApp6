@@ -364,6 +364,8 @@ function sourceLabel(t: MentionItem['sourceType']): string {
       return 'Событие';
     case 'listing':
       return 'Товар';
+    case 'note':
+      return 'Заметка';
     case 'messenger':
     default:
       return 'Чат';

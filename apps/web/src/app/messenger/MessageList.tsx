@@ -83,7 +83,7 @@ export const MessageList = forwardRef<MessageListHandle, {
   onDelete: (messageId: string) => void;
   onReply: (message: ChatMessage) => void;
   onJumpTo: (messageId: string) => void;
-  onMessageAction: (kind: 'task' | 'schedule', text: string) => void;
+  onMessageAction: (kind: 'task' | 'schedule' | 'note', text: string) => void;
   onCardUpdated?: (messageId: string, card: RichCardPayload) => void;
 }>(function MessageList(
   {
@@ -433,7 +433,7 @@ const MessageBubble = memo(function MessageBubble({
   /** Jump+flash the quoted message when its preview is clicked (Phase 7). */
   onJumpTo: (messageId: string) => void;
   /** Open a message-scope quick-action modal prefilled with this message's text. */
-  onMessageAction: (kind: 'task' | 'schedule', text: string) => void;
+  onMessageAction: (kind: 'task' | 'schedule' | 'note', text: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [editDraft, setEditDraft] = useState(message.content ?? '');
@@ -565,8 +565,8 @@ const MessageBubble = memo(function MessageBubble({
                   }}
                 />
                 {messageActions.map((a) => {
-                  const kind: 'task' | 'schedule' | null =
-                    a.key === 'task.create' ? 'task' : a.key === 'message.schedule' ? 'schedule' : null;
+                  const kind: 'task' | 'schedule' | 'note' | null =
+                    a.key === 'task.create' ? 'task' : a.key === 'message.schedule' ? 'schedule' : a.key === 'notes.from-message' ? 'note' : null;
                   if (!kind) return null; // forward-compatible: skip unknown message actions
                   return (
                     <CornerMenuItem

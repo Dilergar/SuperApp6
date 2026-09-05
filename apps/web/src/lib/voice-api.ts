@@ -4,6 +4,7 @@ import type {
   VoiceLanguage,
   VoiceRecordingDto,
   VoiceStatusDto,
+  VoiceSyncSttResult,
   VoiceTranscriptDto,
 } from '@superapp/shared';
 import { apiDelete, apiGet, apiPatch, apiPost } from './api';
@@ -55,4 +56,17 @@ export async function renameRecording(id: string, title: string): Promise<{ id: 
 
 export async function deleteRecording(id: string): Promise<void> {
   await apiDelete(`/recorder/recordings/${id}`);
+}
+
+// ---- Синхронная расшифровка (диктовка в Заметках, голосовые команды) ----
+
+/** `POST /voice/stt`: короткое аудио (≤25 МБ) → текст. Файл не сохраняется. */
+export async function sttSync(file: File | Blob, language?: VoiceLanguage): Promise<VoiceSyncSttResult> {
+  const fd = new FormData();
+  fd.append('file', file, (file as File).name || 'dictation.webm');
+  if (language) fd.append('language', language);
+  return apiPost<VoiceSyncSttResult>('/voice/stt', fd, {
+    timeout: 0, // расшифровка минуты речи дольше глобальных 10с инстанса
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
 }

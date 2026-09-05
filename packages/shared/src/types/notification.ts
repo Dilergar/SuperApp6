@@ -90,6 +90,7 @@ export type NotificationType =
   | 'finance.book.shared' // вам открыли доступ к финансовой книге
   // Drive (OmniDrive)
   | 'drive.shared' // вам открыли доступ к папке или файлу на Диске
+  | 'note.shared' // вам открыли доступ к заметке или папке заметок
   | 'document.resolved' // маршрут вашего документа завершён (подписан/отклонён/на доработку)
   | 'document.counterparty_signed' // внешний контур: контрагент подписал документ
   | 'document.counterparty_declined' // внешний контур: контрагент отказался подписывать

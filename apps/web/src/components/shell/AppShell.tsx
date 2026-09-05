@@ -22,7 +22,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/lib/stores/auth';
 import {
-  SIDEBAR_COOKIE, buildPersonalNav, buildWorkspaceNav, isBranchActive, isNavItemActive,
+  SIDEBAR_COOKIE, buildPersonalNav, buildWorkspaceNav, isBranchActive, isNavItemActive, prefersRail,
   type AppNavConfig, type AppNavItem,
 } from '@/lib/app-nav';
 import { hrDeadlinesCountKey } from '@/lib/queries';
@@ -36,6 +36,7 @@ import { SearchField } from '@/components/ui/Input';
 import { Menu } from '@/components/ui/Menu';
 import { PersonAvatar } from '@/app/messenger/messenger-ui';
 import { useMentionsUnread } from '@/lib/hooks/useMentionsUnread';
+import { useNotesLayer } from '@/lib/stores/notes-layer';
 import { useApprovalsCount } from '@/lib/hooks/useApprovalsCount';
 import { APPROVAL_INBOX_TITLE } from '@superapp/shared';
 // Стопка — динамическим импортом по той же причине, что и барабан кита: она
@@ -62,6 +63,13 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
   const logout = useAuthStore((s) => s.logout);
 
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  // Рабочий стол (Заметки) входит со свёрнутым меню: это переопределение НА ВИЗИТ поверх
+  // личной настройки — ручной разворот внутри него cookie не пишет, а уход из раздела
+  // возвращает меню в то состояние, что было. Начальное значение — в инициализаторе,
+  // а не в эффекте: иначе первый кадр рисовал бы широкое меню и сдвигал полотно.
+  const railPreferred = prefersRail(pathname);
+  const [railOverride, setRailOverride] = useState<boolean | null>(() => (railPreferred ? true : null));
+  useEffect(() => { setRailOverride(railPreferred ? true : null); }, [railPreferred]);
   const [isMobile, setIsMobile] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [openBranch, setOpenBranch] = useState<string | null>(null);
@@ -152,8 +160,12 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
 
   // ---- Ctrl/Cmd+B — свернуть/развернуть; Esc — закрыть шторку
   const toggleCollapsed = useCallback(() => {
+    if (railOverride !== null) {
+      setRailOverride(!railOverride);
+      return;
+    }
     setCollapsed((c) => { writeSidebarCookie(!c); return !c; });
-  }, []);
+  }, [railOverride]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); toggleCollapsed(); }
@@ -173,7 +185,7 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
     if (branch) setOpenBranch(branch.key);
   }, [pathname, nav]);
 
-  const rail = collapsed && !isMobile;
+  const rail = (railOverride ?? collapsed) && !isMobile;
   const contexts = [{ id: null as string | null, label: 'Личное' }, ...workspaces.map((w) => ({ id: w.id, label: w.name }))];
 
   function switchContext(id: string | null) {
@@ -206,6 +218,8 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
               а разбор (срок, исполнитель) делается там же. Полная форма живёт
               на «Обзоре» — открыть её отсюда нельзя, контекст сервиса ниже. */}
           <IconButton href="/tasks/inbox" icon="add" label="Быстро записать задачу" />
+          {/* Стикеры Заметок: та же доска, что по Alt+N — кнопка нужна телефону, где Alt нет */}
+          <IconButton icon="stickyNote" label="Доска заметок (Alt+N)" onClick={() => useNotesLayer.getState().toggle()} />
           {/* Обёртка — неинтерактивный span: якорь кита сам ссылка (href→next/link),
               вложить его в <Link> значило бы «управление внутри управления». */}
           <span style={{ position: 'relative', display: 'inline-flex' }}>

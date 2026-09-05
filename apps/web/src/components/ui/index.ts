@@ -31,10 +31,14 @@ export { Pagination } from './Pagination';
 export { Calendar, DatePicker, type DatePickerProps } from './DatePicker';
 export { Dropzone, type DropzoneProps } from './Dropzone';
 export {
+  Table,
   TableHeader,
   TableRow,
+  TableGroupRow,
   TableCell,
   type TableColumn,
+  type TableProps,
+  type TableGroupRowProps,
   type TableHeaderProps,
   type TableRowProps,
   type TableCellProps,

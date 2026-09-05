@@ -896,17 +896,27 @@ textarea.ui-input { resize: vertical; min-height: 5rem; line-height: 1.55; }
   text-transform: uppercase;
   color: var(--label);
 }
+/* Ячейка — flex (тянется на высоту строки, центрирует), многоточие — у обёртки */
 .ui-tbl-cell {
+  display: flex;
+  align-items: center;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: 13px;
   color: var(--on-surface);
 }
+.ui-tbl-cellin {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .ui-tbl-end {
-  text-align: right;
   justify-self: end;
+  justify-content: flex-end;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .ui-tbl-clickable {
   cursor: pointer;
@@ -938,6 +948,111 @@ textarea.ui-input { resize: vertical; min-height: 5rem; line-height: 1.55; }
 .ui-tbl-sortbtn:hover { color: var(--on-surface); }
 .ui-tbl-sort { color: var(--primary-dim); }
 
+/* Общая сетка `<Table>`: шаблон колонок держит контейнер, строки — subgrid.
+   Без этого трек `auto` считается по содержимому КАЖДОЙ строки, и одна колонка
+   у соседних строк разъезжается. Зазор колонок объявлен и здесь, и у строки
+   (одинаковый): у subgrid'а свой gap побеждает родительский. */
+.ui-tbl {
+  display: grid;
+  grid-template-columns: var(--ui-tbl-cols);
+  column-gap: var(--gap-grid, 16px);
+  align-items: center;
+}
+.ui-tbl > .ui-tbl-row {
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+/* Строка-группа: разделитель сверху (кроме первой под шапкой), ячейка на все треки */
+.ui-tbl-group {
+  border-radius: 0;
+  border-top-color: var(--divider);
+  margin-top: var(--spacing-2, 8px);
+}
+.ui-tbl-head + .ui-tbl-group {
+  border-top-color: transparent;
+  margin-top: 0;
+}
+.ui-tbl-groupcell {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--gap-grid, 16px);
+  min-width: 0;
+  font-size: 13px;
+  color: var(--on-surface);
+}
+
+/* Линованный режим `<Table lines>`: зазоры уходят в отступы ячеек, между
+   строками — --divider, между колонками — --divider, перед группой — 2px --line.
+   Скругления и «воздух» строк здесь ни к чему: это сетка, а не список. */
+.ui-tbl--lines {
+  column-gap: 0;
+  border-bottom: 1px solid var(--divider);
+}
+.ui-tbl--lines > .ui-tbl-row {
+  gap: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  border-top: 1px solid var(--divider);
+}
+.ui-tbl--lines > .ui-tbl-head {
+  border-top: 0;
+  border-bottom: 1px solid var(--divider);
+}
+.ui-tbl--lines > .ui-tbl-group {
+  margin-top: 0;
+  border-top: 2px solid var(--line);
+}
+.ui-tbl--lines > .ui-tbl-head + .ui-tbl-group {
+  border-top-color: transparent;
+}
+.ui-tbl--lines > .ui-tbl-row:not(.ui-tbl-head):hover {
+  background: var(--hover);
+}
+/* Ячейка занимает ВЕСЬ трек (и по вертикали, и по горизонтали): у колонок с
+   выравниванием вправо иначе ячейка сжималась под содержимое и прижималась к
+   правому краю — её левая линия гуляла от строки к строке. Само выравнивание
+   делает flex внутри (justify-content у .ui-tbl-end). */
+.ui-tbl--lines .ui-tbl-cell,
+.ui-tbl--lines .ui-tbl-groupcell {
+  align-self: stretch;
+  justify-self: stretch;
+  padding: var(--row-py, 12px) 12px;
+}
+.ui-tbl--lines .ui-tbl-cell + .ui-tbl-cell {
+  border-left: 1px solid var(--divider);
+}
+.ui-tbl--lines .ui-tbl-head .ui-tbl-cell {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+/* Итоговая строка и сворачиваемая группа */
+.ui-tbl-foot {
+  font-weight: 600;
+}
+.ui-tbl--lines > .ui-tbl-foot {
+  border-top: 2px solid var(--line);
+}
+.ui-tbl-group--toggle {
+  cursor: pointer;
+  user-select: none;
+}
+.ui-tbl-group--toggle:hover {
+  background: var(--hover);
+}
+.ui-tbl-caret {
+  flex: none;
+  margin-right: calc(8px - var(--gap-grid, 16px));
+  transition: transform 0.15s ease;
+}
+.ui-tbl-caret--collapsed {
+  transform: rotate(-90deg);
+}
+
 @media (max-width: 700px) {
   .ui-tbl-hide-sm { display: none; }
+  .ui-tbl { grid-template-columns: var(--ui-tbl-cols-sm); }
+  .ui-tbl-groupcell { flex-wrap: wrap; }
 }

@@ -1,0 +1,385 @@
+/* ============================================================
+   Заметки: слой доски (z 190 по шкале DESIGN.md), карточка, проводник папок,
+   рабочий стол страницы, панель «Заметки» на карточках. Цвет заметки — данные:
+   подставляется в --note-color инлайном, форма остаётся системной.
+   ============================================================ */
+
+/* ---------------- слой стикеров ---------------- */
+.notes-layer {
+  position: fixed;
+  inset: 0; /* слой НАД каркасом целиком (как .ui-backdrop), поэтому inset здесь законен */
+  z-index: 190;
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  color: var(--on-surface);
+}
+.notes-layer::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: rgba(29, 27, 29, 0.28);
+  backdrop-filter: blur(6px);
+}
+.notes-layer-side {
+  background: var(--block);
+  border-right: 1px solid var(--divider);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.notes-layer-side-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-3) var(--spacing-3) var(--spacing-2);
+}
+.notes-layer-side-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notes-layer-side-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 var(--spacing-2) var(--spacing-3); }
+.notes-layer-board {
+  position: relative;
+  /* Flex-колонка ОБЯЗАТЕЛЬНА: доска внутри — flex: 1 1 auto и растягивается на всю
+     высоту только у flex-родителя. Без этого высота доски равнялась высоте холста
+     (сетка карточек), и всё ниже неё было невидимой границей с полосой прокрутки. */
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.notes-layer-top {
+  position: absolute;
+  top: var(--spacing-3);
+  right: var(--spacing-3);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  z-index: 3;
+}
+.notes-layer-hint {
+  position: absolute;
+  left: 50%;
+  top: 44%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  color: #fff;
+  opacity: 0.85;
+  max-width: 320px;
+  pointer-events: none;
+}
+.notes-layer-hint kbd {
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 6px;
+}
+
+/* пачка новых стикеров — правый нижний угол */
+/* Стопка чистых листов — ЕДИНСТВЕННЫЙ вход «новая заметка» на доске: левый верхний угол,
+   на ней только плюс. Цвет — матовый зелёный палитры (`--success-base`): зелёное в
+   каркасе закреплено за «создать/подтвердить», а не цвет будущей заметки (его у листа нет).
+   Высота 56px зашита в PACK_INSET у NotesBoard: первая строка сетки начинается под стопкой. */
+.notes-pack {
+  position: absolute;
+  top: var(--spacing-3);
+  left: var(--spacing-3);
+  z-index: 3;
+  width: 64px;
+  height: 56px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.notes-pack:disabled { cursor: progress; opacity: 0.7; }
+.notes-pack-sheet {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-md);
+  background: var(--success-base);
+  box-shadow: var(--shadow-card);
+  transition: transform 160ms ease;
+}
+.notes-pack-sheet:nth-child(1) { transform: rotate(-6deg) translate(-3px, 5px); opacity: 0.7; }
+.notes-pack-sheet:nth-child(2) { transform: rotate(3deg) translate(2px, 2px); opacity: 0.85; }
+.notes-pack-sheet:nth-child(3) { transform: rotate(0deg); }
+.notes-pack:hover .notes-pack-sheet:nth-child(3),
+.notes-pack:hover .notes-pack-label { transform: translateY(-4px); }
+.notes-pack-label {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--success);
+  transition: transform 160ms ease;
+}
+.notes-pack:focus-visible { outline: 2px solid var(--success); outline-offset: 4px; border-radius: var(--radius-md); }
+.notes-board--layer .notes-pack:focus-visible { outline-color: #fff; }
+
+/* ---------------- стикер ---------------- */
+.note-sticky {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-md);
+  background: var(--note-color, var(--block));
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+  min-width: 180px;
+  min-height: 120px;
+  transition: box-shadow 120ms;
+}
+.note-sticky--dragging { box-shadow: 0 16px 48px rgba(0, 0, 0, 0.22); cursor: grabbing; }
+/* Выбранная в дереве заметка: доска прокрутилась к ней — покажем, к какой именно */
+.note-sticky--chosen { outline: 2px solid var(--primary); outline-offset: 2px; }
+.note-sticky--collapsed { min-height: 0; height: auto !important; }
+.note-sticky-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px 4px 8px;
+  cursor: grab;
+  user-select: none;
+  background: rgba(255, 255, 255, 0.25);
+}
+.note-sticky-head:active { cursor: grabbing; }
+.note-sticky-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--on-surface);
+}
+.note-sticky-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.note-sticky-body .ne-content { color: var(--on-surface); }
+.note-sticky-foot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px 4px;
+  min-height: 30px;
+}
+.note-sticky-foot .ne-toolbar { border: 0; padding: 0; }
+.note-sticky-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 50%, rgba(29, 27, 29, 0.25) 50%, rgba(29, 27, 29, 0.25) 60%, transparent 60%, transparent 75%, rgba(29, 27, 29, 0.25) 75%, rgba(29, 27, 29, 0.25) 85%, transparent 85%);
+}
+.note-sticky-saving { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); opacity: 0.8; }
+
+/* мобильный слой — список */
+@media (max-width: 767px) {
+  .notes-layer { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .notes-layer-side { border-right: 0; border-bottom: 1px solid var(--divider); max-height: 40vh; }
+  .notes-layer-board { overflow-y: auto; padding: var(--spacing-3) var(--spacing-3) 120px; display: flex; flex-direction: column; gap: var(--spacing-3); }
+  .note-sticky { position: static !important; width: auto !important; height: auto !important; min-height: 160px; }
+  .note-sticky-head { cursor: default; }
+  .note-sticky-resize { display: none; }
+  .notes-layer-hint { display: none; }
+}
+
+/* ---------------- дерево папок ---------------- */
+.notes-tree { display: flex; flex-direction: column; gap: 1px; }
+.notes-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--on-surface);
+  font: inherit;
+  font-size: 0.8125rem;
+  text-align: left;
+  cursor: pointer;
+}
+.notes-tree-item:hover { background: var(--hover); }
+.notes-tree-item[aria-current='true'] { background: var(--primary-container); color: var(--primary-dim); font-weight: 600; }
+.notes-tree-item .notes-tree-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notes-tree-count { font-size: 0.6875rem; color: var(--on-surface-variant); font-variant-numeric: tabular-nums; }
+.notes-tree-caret {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.notes-tree-caret:hover { background: var(--active); }
+/* Строка узла: шеврон (или его место) + имя + меню */
+.notes-tree-row { display: flex; align-items: center; }
+.notes-tree-caret-gap { width: 18px; flex: 0 0 auto; }
+.notes-tree-muted { display: block; padding: 0.2rem 0.5rem; font-size: 0.75rem; color: var(--on-surface-variant); }
+.notes-tree-more { color: var(--primary-dim); }
+.notes-tree-dot { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; background: var(--note-color, var(--surface-container-high)); }
+.notes-tree-section {
+  padding: var(--spacing-3) 0.5rem var(--spacing-1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ---------------- страница: рабочий стол на весь экран (проводник · доска) ----------------
+   Полотно — .canvas-layer (globals.css): всё правее сайдбара и ниже топбара, страница
+   не прокручивается — прокручиваются проводник и доска каждый внутри себя. */
+.notes-ws {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  /* Ряд ОБЯЗАН быть minmax(0,1fr): при авто-ряде панели растут по содержимому,
+     и доска вместо своей прокрутки утаскивает полотно вниз. */
+  grid-template-rows: minmax(0, 1fr);
+}
+.notes-ws-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  background: var(--block);
+  border-right: 1px solid var(--divider);
+}
+.notes-side-head { padding: var(--spacing-3) var(--spacing-3) var(--spacing-2); }
+.notes-side-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 var(--spacing-2) var(--spacing-3); }
+.notes-ws-board {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+  min-width: 0;
+  background: var(--block);
+}
+.notes-board-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-3) var(--spacing-4);
+  border-bottom: 1px solid var(--divider);
+}
+/* Доска занимает остаток своей flex-колонки (панель страницы / блок слоя). Вбок не
+   прокручивается: карточка, вылезшая за правый край старой раскладкой, обрезается, а
+   перетаскивание держит её в пределах холста. */
+.notes-board { position: relative; flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; }
+/* Холст внутри скроллера: его высоту задаёт сетка карточек (см. NotesBoard) */
+.notes-board-canvas { position: relative; min-height: 100%; }
+.notes-board-hint { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.notes-board--layer .notes-board-hint { color: #fff; }
+/* Список заметок под выбранным разделом в левой панели */
+.notes-tree-notes { display: flex; flex-direction: column; gap: 1px; padding-right: 0.25rem; margin: 2px 0 4px; }
+.notes-tree-note {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.28rem 0.5rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--on-surface);
+  font: inherit;
+  font-size: 0.8125rem;
+  text-align: left;
+  cursor: pointer;
+}
+.notes-tree-note:hover { background: var(--hover); }
+.notes-tree-note[aria-current='true'] { background: var(--primary-container); color: var(--primary-dim); font-weight: 600; }
+.notes-tree-note .notes-tree-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notes-list-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--spacing-2); padding-right: 2px; }
+.note-card {
+  display: flex;
+  gap: var(--spacing-3);
+  width: 100%;
+  padding: var(--spacing-3);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-md);
+  background: var(--block);
+  text-align: left;
+  cursor: pointer;
+  color: var(--on-surface);
+  font: inherit;
+}
+.note-card:hover { background: var(--hover); }
+.note-card[aria-current='true'] { border-color: var(--primary-border); background: var(--primary-container); }
+.note-card-color { width: 6px; border-radius: 3px; flex: 0 0 auto; background: var(--note-color, var(--surface-container-high)); }
+.note-card-main { flex: 1 1 auto; min-width: 0; }
+.note-card-title { font-weight: 600; font-size: 0.875rem; display: flex; align-items: center; gap: 0.35rem; }
+.note-card-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-card-snippet { color: var(--on-surface-variant); font-size: 0.8125rem; line-height: 1.35; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.note-card-meta { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.35rem; color: var(--on-surface-variant); font-size: 0.6875rem; flex-wrap: wrap; }
+
+.note-pane-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-3) var(--spacing-4);
+  border-bottom: 1px solid var(--divider);
+  flex-wrap: wrap;
+}
+/* Поля названия в шапке больше нет — название живёт первой строкой самой заметки;
+   распорка раздвигает действия по краям. */
+.note-pane-grow { flex: 1 1 auto; }
+.note-pane-crumbs { display: flex; align-items: center; gap: 0.35rem; color: var(--on-surface-variant); font-size: 0.75rem; flex-wrap: wrap; padding: 0 var(--spacing-4); margin-top: var(--spacing-2); }
+.note-pane-related { display: flex; flex-wrap: wrap; gap: 0.35rem; padding: var(--spacing-2) var(--spacing-4) 0; }
+.note-pane-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.note-pane-body .ne-root { height: auto; flex: 1 1 auto; }
+.note-pane-body .ne-mount { overflow: visible; }
+.note-pane-foot { padding: var(--spacing-3) var(--spacing-4) var(--spacing-4); border-top: 1px solid var(--divider); display: flex; flex-direction: column; gap: var(--spacing-2); }
+.note-mentions-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  flex-wrap: wrap;
+  padding: var(--spacing-2) var(--spacing-4);
+  background: var(--waiting-container);
+  border-bottom: 1px solid var(--waiting-border);
+  font-size: 0.8125rem;
+}
+.note-color-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1px solid rgba(29, 27, 29, 0.12);
+  background: var(--note-color, var(--surface-container-high));
+  cursor: pointer;
+  padding: 0;
+}
+.note-color-swatch[aria-pressed='true'] { outline: 2px solid var(--primary); outline-offset: 1px; }
+.note-color-grid { display: grid; grid-template-columns: repeat(4, 22px); gap: 6px; padding: 6px; }
+
+@media (max-width: 1100px) {
+  .notes-ws { grid-template-columns: 260px minmax(0, 1fr); }
+}
+@media (max-width: 767px) {
+  /* Телефон: одна панель за раз (переключатель «Папки» в шапке доски), каждая — на весь экран */
+  .notes-ws { display: flex; flex-direction: column; }
+  .notes-ws-side { border-right: 0; flex: 1 1 auto; }
+  .notes-ws-board { flex: 1 1 auto; }
+  .notes-ws-side[hidden],
+  .notes-ws-board[hidden] { display: none; }
+}
+
+/* ---------------- панель на карточке сущности ---------------- */
+.notes-panel-list { display: flex; flex-direction: column; gap: var(--spacing-2); }
+
+/* элементы только для телефона (кнопка «Папки» над списком) */
+.notes-mobile-only { display: none; }
+@media (max-width: 767px) {
+  .notes-mobile-only { display: inline-flex; }
+}

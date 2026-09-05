@@ -30,6 +30,7 @@ import {
   markRead,
 } from '@/lib/messenger-api';
 import { useMessengerSocket } from '@/lib/hooks/useMessengerSocket';
+import { NotesPanel } from '@/components/notes/NotesPanel';
 import type { WsMessageNew, WsMessageUpdated, WsMessageDeleted, WsReceipt } from '@superapp/shared';
 import { TASK_STATUS_ICON } from '../tasks-ui';
 import { Conversation } from '../../messenger/Conversation';
@@ -432,6 +433,10 @@ export default function TaskDetailPage() {
         {/* Вложения задачи (движок файлов) — постановщик и участники могут прикреплять */}
         <h2 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-3)' }}>Вложения</h2>
         <TaskAttachments taskId={task.id} canEdit={isCreator || isWorker} />
+
+        {/* Заметки о задаче (сервис «Заметки», привязка related): стикер создаётся уже привязанным */}
+        <h2 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-3)' }}>Заметки</h2>
+        <NotesPanel target={{ type: 'task', id: task.id }} scope={task.workspaceId ? { workspaceId: task.workspaceId } : {}} />
 
         {/* Chat — the task's context chat in the Messenger */}
         <h2 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-3)' }}>Чат задачи</h2>

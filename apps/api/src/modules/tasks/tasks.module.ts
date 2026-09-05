@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TasksService } from './tasks.service';
+import { TasksNotesTargetProvider } from './tasks-notes-target.provider';
+import { NotesModule } from '../notes/notes.module';
 import { TasksController } from './tasks.controller';
 import { TasksCron } from './tasks.cron';
 import { TasksRichCardsProvider } from './tasks-rich-cards.provider';
@@ -14,9 +16,9 @@ import { DriveModule } from '../drive/drive.module';
   // (TasksCalendarProvider); обратного импорта нет — календарь потребителей не знает.
   // DriveModule — ради реестра маршрутизации: задача сама объявляет, на чей Диск
   // складывать свои вложения (организации или личный).
-  imports: [WalletModule, MessengerModule, CalendarModule, DriveModule],
+  imports: [WalletModule, MessengerModule, CalendarModule, DriveModule, NotesModule],
   controllers: [TasksController],
-  providers: [TasksService, TasksCron, TasksRichCardsProvider, TasksCalendarProvider],
+  providers: [TasksService, TasksNotesTargetProvider, TasksCron, TasksRichCardsProvider, TasksCalendarProvider],
   exports: [TasksService],
 })
 export class TasksModule {}

@@ -43,6 +43,7 @@ export * from './types/share-links';
 export * from './types/approval';
 export * from './types/sign';
 export * from './types/common';
+export * from './types/notes';
 
 // Validation schemas
 export * from './validation/query';
@@ -85,6 +86,7 @@ export * from './validation/org-documents';
 export * from './validation/counterparty';
 export * from './validation/hr';
 export * from './validation/doc-builder';
+export * from './validation/notes';
 
 // Utils
 export * from './utils/phone';
@@ -118,6 +120,12 @@ export * from './constants/card-skin';
 export * from './constants/process';
 export * from './constants/finance';
 export * from './constants/files';
+export * from './constants/notes';
+
+// Заметки: формат документа и проекции (общие для API и веба)
+export * from './notes/note-doc';
+export * from './notes/note-markdown';
+export * from './notes/note-extract';
 export * from './constants/voice';
 export * from './constants/calls';
 export * from './constants/office';

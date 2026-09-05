@@ -26,7 +26,7 @@ Self-host: профиль voice → `hwdsl2/whisper-server` (faster-whisper + д
 
 ## HTTP API
 
-`GET /voice/status` → `{enabled, mock}` · `POST /voice/transcripts` · `GET /voice/transcripts/:fileId` (поллинг) · `POST /voice/stt` (sync — фундамент голосовых AI-команд и SuperTerminal6).
+`GET /voice/status` → `{enabled, mock}` · `POST /voice/transcripts` · `GET /voice/transcripts/:fileId` (поллинг) · `POST /voice/stt` (sync — фундамент голосовых AI-команд и SuperTerminal6; первый веб-потребитель — диктовка в Заметках: `sttSync(file, language?)` в `apps/web/src/lib/voice-api.ts`, текст встаёт в каретку, аудио не хранится).
 
 ## Веб-кит
 

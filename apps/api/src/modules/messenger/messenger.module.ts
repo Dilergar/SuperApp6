@@ -47,6 +47,6 @@ import { DriveModule } from '../drive/drive.module';
     DocsSystemListener,
     ChatCallsListener,
   ],
-  exports: [MessengerService],
+  exports: [MessengerService, MentionsService],
 })
 export class MessengerModule {}

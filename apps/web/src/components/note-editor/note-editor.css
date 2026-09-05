@@ -1,0 +1,263 @@
+/* ============================================================
+   Редактор заметок — стили поверх ProseMirror. Импортируется из .tsx (Turbopack
+   не кладёт CSS из чистого .ts в сборку). Цвета — только токены системы; цвет
+   заметки (данные) красит контейнер снаружи.
+   ============================================================ */
+
+.ne-root {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.ne-mount {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.ne-content {
+  outline: none;
+  min-height: 6rem;
+  padding: var(--spacing-3) var(--spacing-4) var(--spacing-6);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--on-surface);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.ne-content--compact {
+  min-height: 3rem;
+  padding: var(--spacing-2) var(--spacing-3) var(--spacing-3);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.ne-content > * + * { margin-top: 0.5em; }
+.ne-content h1, .ne-content h2, .ne-content h3 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 1.25;
+  margin-top: 1em;
+}
+.ne-content > h1:first-child, .ne-content > h2:first-child, .ne-content > h3:first-child { margin-top: 0; }
+.ne-content h1 { font-size: 1.5rem; }
+.ne-content h2 { font-size: 1.25rem; }
+.ne-content h3 { font-size: 1.0625rem; }
+.ne-content--compact h1 { font-size: 1.125rem; }
+.ne-content--compact h2 { font-size: 1rem; }
+.ne-content--compact h3 { font-size: 0.9375rem; }
+.ne-content p { margin: 0; }
+.ne-content ul, .ne-content ol { padding-left: 1.5em; margin: 0; }
+.ne-content li + li { margin-top: 0.15em; }
+.ne-content li > p { display: inline-block; min-width: 1px; margin: 0; }
+.ne-content li > ul, .ne-content li > ol { margin-top: 0.15em; }
+.ne-content blockquote {
+  margin: 0;
+  padding: 0.25em 0 0.25em 0.875em;
+  border-left: 2px solid var(--primary-border);
+  color: var(--on-surface-variant);
+}
+.ne-content pre {
+  margin: 0;
+  padding: 0.75em 0.875em;
+  border-radius: var(--radius-sm);
+  background: var(--surface-container);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8125rem;
+  overflow-x: auto;
+  white-space: pre;
+}
+.ne-content code.ne-code {
+  padding: 0.05em 0.35em;
+  border-radius: 6px;
+  background: var(--surface-container);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85em;
+}
+.ne-content hr {
+  border: 0;
+  height: 1px;
+  background: var(--divider);
+  margin: 0.75em 0;
+}
+.ne-content a.ne-link { color: var(--secondary); text-decoration: underline; text-underline-offset: 2px; }
+/* Адрес вне белого списка схем: текст остаётся, ссылки нет (см. schema.ts) */
+.ne-content span.ne-link--blocked { color: var(--on-surface-variant); text-decoration: line-through; text-decoration-style: dotted; }
+
+/* ---- чекбоксы ---- */
+.ne-content ul[data-task-list] { list-style: none; padding-left: 0.25em; }
+.ne-content li[data-task-item] { display: flex; align-items: flex-start; gap: 0.5em; }
+.ne-content li[data-task-item] > .ne-task-content { flex: 1 1 auto; min-width: 0; }
+.ne-content li[data-task-item][data-checked='true'] > .ne-task-content > p { color: var(--on-surface-variant); text-decoration: line-through; }
+.ne-task-box {
+  appearance: none;
+  width: 16px; height: 16px;
+  margin: 0.3em 0 0;
+  flex: 0 0 auto;
+  border: 1.5px solid var(--on-surface-variant);
+  border-radius: 5px;
+  background: var(--block);
+  cursor: pointer;
+  position: relative;
+}
+.ne-task-box:checked { background: var(--success-base); border-color: var(--success-base); }
+.ne-task-box:checked::after {
+  content: '';
+  position: absolute; left: 4px; top: 1px;
+  width: 5px; height: 9px;
+  border: solid #fff; border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.ne-task-box:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* ---- таблицы ---- */
+.ne-content table { border-collapse: collapse; width: 100%; table-layout: fixed; margin: 0.25em 0; }
+.ne-content td, .ne-content th {
+  border: 1px solid var(--divider);
+  padding: 0.35em 0.5em;
+  vertical-align: top;
+  min-width: 3em;
+}
+.ne-content th { background: var(--surface-container); font-weight: 600; text-align: left; }
+.ne-content .selectedCell { background: var(--primary-container); }
+.ne-content .column-resize-handle { position: absolute; right: -2px; top: 0; bottom: 0; width: 4px; background: var(--primary); pointer-events: none; }
+
+/* ---- атомы: чипы людей/заметок/тегов, картинки ---- */
+.ne-atom-inline { display: inline-block; vertical-align: middle; margin: 0 1px; }
+.ne-atom-inline.ne-selected > * { outline: 2px solid var(--primary); outline-offset: 1px; border-radius: var(--radius-sm); }
+.ne-mention-chip { display: inline-block; vertical-align: middle; }
+.ne-atom-block { margin: 0.5em 0; }
+.ne-atom-block.ne-selected .ne-image { outline: 2px solid var(--primary); outline-offset: 2px; }
+.ne-image {
+  position: relative;
+  margin: 0;
+  max-width: 100%;
+  display: inline-block;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.ne-image img { display: block; max-width: 100%; height: auto; border-radius: var(--radius-md); }
+.ne-image-ph { width: 240px; height: 140px; border-radius: var(--radius-md); background: var(--surface-container); }
+.ne-image-ph--loading { animation: ne-pulse 1.2s ease-in-out infinite; }
+@keyframes ne-pulse { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+.ne-image-handle {
+  position: absolute; right: 4px; bottom: 4px;
+  width: 14px; height: 14px;
+  border-radius: 4px;
+  background: var(--block);
+  border: 1.5px solid var(--primary);
+  cursor: ew-resize;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.ne-image:hover .ne-image-handle, .ne-selected .ne-image-handle { opacity: 1; }
+.ne-image figcaption { padding: 0.25em 0.5em; color: var(--on-surface-variant); }
+
+/* ---- плейсхолдер ---- */
+.ne-placeholder::before {
+  content: attr(data-placeholder);
+  color: var(--on-surface-variant);
+  opacity: 0.7;
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+/* ---- первая строка = название заметки ----
+   Отдельного поля названия нет: имя заметки — её первая строка (модель Apple Notes).
+   Поэтому первый блок всегда выглядит титулом: крупно, жирно, по центру. */
+.ne-content > *.ne-title-line {
+  font-family: var(--font-display, inherit);
+  font-size: 1.55em;
+  line-height: 1.25;
+  font-weight: 700;
+  text-align: center;
+  margin: 0 0 0.6em;
+}
+.ne-content > *.ne-title-line.ne-placeholder::before { float: none; display: block; }
+/* На стикере места мало — тот же титул, но скромнее */
+.ne-content--compact > *.ne-title-line { font-size: 1.15em; margin-bottom: 0.35em; }
+
+/* ---- панель ---- */
+.ne-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: var(--spacing-1) var(--spacing-2);
+  border-bottom: 1px solid var(--divider);
+  position: relative;
+  flex: 0 0 auto;
+}
+.ne-toolbar--compact { padding: 2px var(--spacing-1); border-bottom-color: transparent; }
+.ne-tb-sep { width: 1px; height: 18px; background: var(--divider); margin: 0 4px; }
+.ne-tb-grow { flex: 1 1 auto; }
+.ne-tb-on { background: var(--primary-container) !important; color: var(--primary-dim) !important; }
+.ne-link-pop {
+  position: fixed;
+  z-index: 310;
+  padding: var(--spacing-3);
+  background: var(--block);
+  border-radius: var(--radius-md);
+  min-width: 300px;
+}
+
+/* ---- подсказки ---- */
+.ne-suggest {
+  position: fixed;
+  z-index: 320;
+  min-width: 240px;
+  max-width: 320px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--block);
+  border-radius: var(--radius-md);
+}
+.ne-suggest-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--on-surface);
+  font: inherit;
+  font-size: 0.8125rem;
+  text-align: left;
+  cursor: pointer;
+}
+.ne-suggest-item[data-active='true'] { background: var(--hover); }
+.ne-suggest-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ne-suggest-sub { color: var(--on-surface-variant); }
+.ne-suggest-empty { padding: 0.5rem 0.625rem; color: var(--on-surface-variant); }
+
+/* ---- диктовка ---- */
+.ne-dictate { display: inline-flex; align-items: center; gap: 0.25rem; }
+.ne-dictate-timer { display: inline-flex; align-items: center; gap: 0.3rem; color: var(--danger); font-variant-numeric: tabular-nums; }
+.ne-dictate-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger-base); animation: ne-pulse 1s ease-in-out infinite; }
+.ne-dictate-lang {
+  border: 1px solid var(--divider);
+  background: var(--block);
+  border-radius: var(--radius-pill);
+  padding: 0.1rem 0.45rem;
+  cursor: pointer;
+  color: var(--on-surface-variant);
+  font: inherit;
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+.ne-dictate-lang:hover { background: var(--hover); }
+
+/* ---- курсор перетаскивания ---- */
+.ne-dropcursor { background: var(--primary); }
+
+/* ProseMirror: базовое */
+.ProseMirror { position: relative; }
+.ProseMirror-gapcursor { display: none; pointer-events: none; position: absolute; }
+.ProseMirror-gapcursor:after { content: ''; display: block; position: absolute; top: -2px; width: 20px; border-top: 1px solid var(--on-surface); animation: ne-blink 1.1s steps(2, start) infinite; }
+@keyframes ne-blink { to { visibility: hidden; } }
+.ProseMirror-focused .ProseMirror-gapcursor { display: block; }
+.ProseMirror-hideselection *::selection { background: transparent; }
+.ProseMirror-selectednode { outline: 2px solid var(--primary); }

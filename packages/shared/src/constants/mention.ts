@@ -1,6 +1,6 @@
 // Mentions Hub (Phase 5) — shared constants + token parser.
 
-export const MENTION_SOURCE_TYPES = ['messenger', 'task', 'calendar', 'listing'] as const;
+export const MENTION_SOURCE_TYPES = ['messenger', 'task', 'calendar', 'listing', 'note'] as const;
 
 export const MENTION_LIMITS = {
   /** Max mentions honored in a single message (anti-spam). */

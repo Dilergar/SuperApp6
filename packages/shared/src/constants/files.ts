@@ -145,6 +145,11 @@ export const FILE_PROFILES: Record<string, FileProfileSpec> = {
    * Приватный профиль с вариантами — фото видит член объекта, посторонний нет.
    */
   asset_photo: { kind: 'image', maxSize: 15 * MB, allowedMime: IMAGE_MIME, visibility: 'private', makeVariants: true },
+  /**
+   * Картинка в заметке (сервис «Заметки»): приватный профиль с вариантами — файл
+   * видит тот, кто видит заметку (scopedPlace у FilesRefRegistry 'note').
+   */
+  note_image: { kind: 'image', maxSize: 15 * MB, allowedMime: IMAGE_MIME, visibility: 'private', makeVariants: true },
   /** Фолбэк без специфики */
   generic: { kind: 'any', maxSize: 100 * MB, allowedMime: null, visibility: 'private', makeVariants: true },
 };

@@ -302,6 +302,42 @@ importers:
       next:
         specifier: 15.5.21
         version: 15.5.21(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      prosemirror-commands:
+        specifier: 1.7.2
+        version: 1.7.2
+      prosemirror-dropcursor:
+        specifier: 1.8.3
+        version: 1.8.3
+      prosemirror-gapcursor:
+        specifier: 1.4.1
+        version: 1.4.1
+      prosemirror-history:
+        specifier: 1.5.0
+        version: 1.5.0
+      prosemirror-inputrules:
+        specifier: 1.5.1
+        version: 1.5.1
+      prosemirror-keymap:
+        specifier: 1.2.3
+        version: 1.2.3
+      prosemirror-model:
+        specifier: 1.25.11
+        version: 1.25.11
+      prosemirror-schema-list:
+        specifier: 1.5.1
+        version: 1.5.1
+      prosemirror-state:
+        specifier: 1.4.4
+        version: 1.4.4
+      prosemirror-tables:
+        specifier: 1.8.5
+        version: 1.8.5
+      prosemirror-transform:
+        specifier: 1.12.0
+        version: 1.12.0
+      prosemirror-view:
+        specifier: 1.42.2
+        version: 1.42.2
       react:
         specifier: ^19.0.0
         version: 19.2.4

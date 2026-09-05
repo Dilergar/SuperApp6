@@ -14,11 +14,19 @@ import {
   Alert, AvatarStack, Badge, BentoGrid, Button, Calendar, Card, CardHeader, Checkbox, Chip,
   ConfirmDialog, DatePicker, Divider, Dropzone, EmojiIcon, EmptyState, GlyphField, GradientTickBar, Icon,
   IconButton, ICONS, Input, Menu, Modal, PageHeader, Pagination, SearchField, SegmentedControl,
-  Select, Skeleton, Spinner, StatTile, StatusDot, Tabs, Textarea, TickBar, Toggle, Tooltip,
-  type IconName, type Tone,
+  Select, Skeleton, Spinner, StatTile, StatusDot, Table, TableCell, TableGroupRow, TableHeader, TableRow, Tabs,
+  Textarea, TickBar, Toggle, Tooltip,
+  type IconName, type TableColumn, type Tone,
 } from '@/components/ui';
 
 const TONES: Tone[] = ['accent', 'success', 'warning', 'danger', 'waiting', 'neutral'];
+
+const TABLE_COLUMNS: TableColumn[] = [
+  { key: 'who', label: 'Кто', width: 'minmax(160px,1fr)' },
+  { key: 'status', label: 'Как оформлен', width: 'max-content', hideOnMobile: true },
+  { key: 'shifts', label: 'Смены', title: 'Запланировано / отработано за период', width: 'max-content', align: 'end', hideOnMobile: true },
+  { key: 'actions', label: '', width: 'max-content', align: 'end' },
+];
 
 export default function DevUiPage() {
   if (process.env.NODE_ENV !== 'development') notFound();
@@ -27,6 +35,7 @@ export default function DevUiPage() {
   const [tab, setTab] = useState('all');
   const [sel, setSel] = useState<string | null>('medium');
   const [page, setPage] = useState(2);
+  const [groupOpen, setGroupOpen] = useState(true);
   const [date, setDate] = useState<Date | null>(null);
   const [calDate, setCalDate] = useState<Date | null>(new Date());
   const [toggles, setToggles] = useState({ alerts: true, scale: false, tfa: true });
@@ -309,6 +318,54 @@ export default function DevUiPage() {
         <StatTile span={3} label="Расходы · июль" value="244 530 ₸" icon="finance" tone="warning" trend={{ text: '+14,5% к июню', direction: 'up' }} />
         <StatTile span={3} label="Непрочитанных" value="7" icon="messenger" tone="success" />
         <StatTile span={3} label="Просрочено" value="3" icon="overdue" tone="danger" trend={{ text: '−2 за неделю', direction: 'down' }} />
+
+        {/* ---------- Таблица ---------- */}
+        <Card span={12}>
+          <CardHeader
+            title="Таблица"
+            subtitle="<Table lines>: общая сетка колонок (subgrid), линии между строками и колонками; группа сворачивается, итоги — строкой footer"
+          />
+          <div style={{ overflowX: 'auto' }}>
+            <Table columns={TABLE_COLUMNS} lines className="density-compact" aria-label="Пример таблицы">
+              <TableHeader />
+              <TableGroupRow rowIndex={2} expanded={groupOpen} onToggle={() => setGroupOpen((v) => !v)} toggleLabel="«Бариста»">
+                <span style={{ fontWeight: 700, fontSize: '0.875rem' }}>Бариста</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <TickBar value={67} tone="warning" height={6} style={{ width: 96 }} aria-label="Укомплектованность" />
+                  <span className="label-sm">2 / 3</span>
+                </span>
+                <span style={{ marginLeft: 'auto' }}>
+                  <Button size="sm" variant="ghost">Править</Button>
+                </span>
+              </TableGroupRow>
+              {groupOpen && [
+                { name: 'Айгерим', status: <Chip tone="success">Оформлен · ТОО «Утро»</Chip>, shifts: '12 / 11' },
+                { name: 'Данияр', status: <Chip tone="warning">Не оформлен</Chip>, shifts: '8 / 8' },
+              ].map((r, i) => (
+                <TableRow key={r.name} rowIndex={i + 3}>
+                  <TableCell>{r.name}</TableCell>
+                  <TableCell hideOnMobile>{r.status}</TableCell>
+                  <TableCell align="end" hideOnMobile><span className="label-sm">{r.shifts}</span></TableCell>
+                  <TableCell align="end"><Button size="sm" variant="ghost">Ставки</Button></TableCell>
+                </TableRow>
+              ))}
+              {groupOpen && (
+              <TableRow rowIndex={5}>
+                <TableCell><span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}><Chip tone="neutral">Вакантно</Chip><span className="label-sm">с 12.08</span></span></TableCell>
+                <TableCell hideOnMobile><span className="label-sm">—</span></TableCell>
+                <TableCell align="end" hideOnMobile><span className="label-sm">—</span></TableCell>
+                <TableCell align="end"><Button size="sm" variant="outline">Назначить</Button></TableCell>
+              </TableRow>
+              )}
+              <TableRow footer rowIndex={6}>
+                <TableCell>Итого · по штату 3 · занято 2</TableCell>
+                <TableCell hideOnMobile />
+                <TableCell align="end" hideOnMobile>20 / 19</TableCell>
+                <TableCell align="end" />
+              </TableRow>
+            </Table>
+          </div>
+        </Card>
 
         {/* ---------- Загрузка и пустота ---------- */}
         <Card span={6}>

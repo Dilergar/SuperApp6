@@ -11,6 +11,7 @@ import {
   Icon,
   Spinner,
   TableCell,
+  Table,
   TableHeader,
   TableRow,
   type TableColumn,
@@ -54,7 +55,7 @@ export function DriveNodeList({
   if (!nodes?.length) return <EmptyState icon={emptyIcon} title={emptyTitle} description={emptyText} />;
 
   return (
-    <div role="table" aria-rowcount={nodes.length + 1}>
+    <Table columns={COLUMNS} aria-rowcount={nodes.length + 1}>
       <TableHeader columns={COLUMNS} />
       {nodes.map((node, i) => (
         <TableRow
@@ -83,7 +84,7 @@ export function DriveNodeList({
           </TableCell>
         </TableRow>
       ))}
-    </div>
+    </Table>
   );
 }
 

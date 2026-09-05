@@ -65,6 +65,7 @@ export function buildPersonalNav(c: AppNavCounters = {}): AppNavConfig {
           { key: 'dashboard', label: 'Главная', icon: 'home', href: '/dashboard', exact: true },
           { key: 'circles', label: 'Моё окружение', icon: 'circle', href: '/circles' },
           { key: 'messenger', label: 'Мессенджер', icon: 'messenger', href: '/messenger', badge: c.messenger },
+          { key: 'notes', label: 'Заметки', icon: 'notes', href: '/notes' },
         ],
       },
       {
@@ -182,6 +183,9 @@ export function buildWorkspaceNav(
     // и оборудование. Видят ВСЕ сотрудники (каждый — свои объекты); деньги внутри
     // закрыты правом branch.payroll.view.
     { key: 'ws-objects', label: 'Объекты', icon: 'storefront', href: `${base}/objects` },
+    // Заметки организации — приватные по умолчанию, шеринг людям/отделам/всей команде;
+    // слой стикеров открывается Alt+N на любой странице организации.
+    { key: 'ws-notes', label: 'Заметки', icon: 'notes', href: `${base}/notes` },
     { key: 'ws-processes', label: 'Процессы', icon: 'processes', href: `${base}/processes` },
     { key: 'ws-office', label: 'Виртуальный офис', icon: 'office', href: `${base}/office` },
     // Диск организации — ОДИН маршрут с вкладками внутри, как у остальных сервисов
@@ -214,4 +218,15 @@ export function isNavItemActive(item: Pick<AppNavItem, 'href' | 'exact'>, pathna
 export function isBranchActive(item: AppNavItem, pathname: string): boolean {
   if (isNavItemActive(item, pathname)) return true;
   return (item.children ?? []).some((c) => isNavItemActive(c, pathname));
+}
+
+/**
+ * Рабочие столы, где полотно важнее меню (Заметки): каркас входит в них со СВЁРНУТЫМ
+ * сайдбаром, а человек при желании разворачивает его руками — на этот визит. Личная
+ * настройка (cookie `SIDEBAR_COOKIE`) не трогается: в остальных сервисах меню как было,
+ * а следующий вход в рабочий стол снова сворачивает его.
+ */
+const RAIL_ROUTES = [/^\/notes(\/|$)/, /^\/workspaces\/[^/]+\/notes(\/|$)/];
+export function prefersRail(pathname: string): boolean {
+  return RAIL_ROUTES.some((re) => re.test(pathname));
 }

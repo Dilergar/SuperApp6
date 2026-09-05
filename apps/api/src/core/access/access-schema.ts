@@ -181,6 +181,23 @@ export const ACCESS_SCHEMA: Record<string, ResourceTypeConfig> = {
     },
   },
 
+  // ---- Заметки (modules/notes): гранты на папке и на заметке, наследование по дереву папок
+  //      считает сервис (Note.folderPath && granted) — модель Диска. check() не используется.
+  note_folder: {
+    relations: {
+      manager: THIS,
+      editor: union(THIS, computed('manager')),
+      viewer: union(THIS, computed('editor')),
+    },
+  },
+  note: {
+    relations: {
+      manager: THIS,
+      editor: union(THIS, computed('manager')),
+      viewer: union(THIS, computed('editor')),
+    },
+  },
+
   // ---- Platform personas (system-level grants that unlock features; additive, gate nothing
   //      existing — used by future Marketplace / Jobs «Тайный гость» / UGC). Singleton resource id. ----
   platform: {

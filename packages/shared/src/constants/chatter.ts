@@ -8,7 +8,7 @@
 import { interpolateTemplate } from '../utils/interpolate';
 
 /** Категории для фильтра «Журнала организации» */
-export const CHATTER_CATEGORIES = ['tasks', 'staff', 'hr', 'drive', 'share', 'documents', 'processes', 'objects'] as const;
+export const CHATTER_CATEGORIES = ['tasks', 'staff', 'hr', 'drive', 'share', 'documents', 'processes', 'objects', 'notes'] as const;
 export type ChatterCategory = (typeof CHATTER_CATEGORIES)[number];
 
 export interface ChatterTypeMeta {
@@ -802,6 +802,25 @@ export const CHATTER_REGISTRY = {
     category: 'hr',
     chatPost: false,
   },
+  // ---- Заметки (refType='note' и 'note_folder'; текст правок в хронику НЕ пишется — только метаданные) ----
+  'note.created': { template: '{{actorName}} создал(а) заметку «{{targetName}}»', icon: '📝', category: 'notes', chatPost: false },
+  'note.renamed': { template: '{{actorName}} переименовал(а): «{{from}}» → «{{to}}»', icon: '✏️', category: 'notes', chatPost: false },
+  'note.moved': { template: '{{actorName}} переместил(а) «{{targetName}}» в «{{to}}»', icon: '📁', category: 'notes', chatPost: false },
+  'note.shared': { template: '{{actorName}} открыл(а) доступ к «{{targetName}}»: {{principalLabel}} — {{roleLabel}}', icon: '🔓', category: 'notes', chatPost: false },
+  'note.unshared': { template: '{{actorName}} закрыл(а) доступ к «{{targetName}}»: {{principalLabel}}', icon: '🔒', category: 'notes', chatPost: false },
+  'note.trashed': { template: '{{actorName}} удалил(а) «{{targetName}}» в корзину', icon: '🗑️', category: 'notes', chatPost: false },
+  'note.restored': { template: '{{actorName}} восстановил(а) «{{targetName}}»', icon: '♻️', category: 'notes', chatPost: false },
+  'note.related': { template: '{{actorName}} привязал(а) заметку к «{{to}}»', icon: '🔗', category: 'notes', chatPost: false },
+  'note.unrelated': { template: '{{actorName}} отвязал(а) заметку от «{{from}}»', icon: '🔗', category: 'notes', chatPost: false },
+  // Папка — отдельные ключи: у неё своя лента (refType note_folder), и события заметки
+  // на ней читались как «создал(а) заметку «Клиенты»».
+  'note.folder.created': { template: '{{actorName}} создал(а) папку «{{targetName}}»', icon: '📁', category: 'notes', chatPost: false },
+  'note.folder.renamed': { template: '{{actorName}} переименовал(а) папку: «{{from}}» → «{{to}}»', icon: '✏️', category: 'notes', chatPost: false },
+  'note.folder.moved': { template: '{{actorName}} переместил(а) папку «{{targetName}}» в «{{to}}»', icon: '📁', category: 'notes', chatPost: false },
+  'note.folder.shared': { template: '{{actorName}} открыл(а) доступ к папке «{{targetName}}»: {{principalLabel}} — {{roleLabel}}', icon: '🔓', category: 'notes', chatPost: false },
+  'note.folder.unshared': { template: '{{actorName}} закрыл(а) доступ к папке «{{targetName}}»: {{principalLabel}}', icon: '🔒', category: 'notes', chatPost: false },
+  'note.folder.trashed': { template: '{{actorName}} удалил(а) папку «{{targetName}}» в корзину', icon: '🗑️', category: 'notes', chatPost: false },
+  'note.folder.restored': { template: '{{actorName}} восстановил(а) папку «{{targetName}}»', icon: '♻️', category: 'notes', chatPost: false },
 } as const satisfies Record<string, ChatterTypeMeta>;
 
 export type ChatterTypeKey = keyof typeof CHATTER_REGISTRY;

@@ -7,6 +7,7 @@ import { useAuthStore } from '@/lib/stores/auth';
 import { registerQueryClient } from '@/lib/session-reset';
 import { Toaster } from '@/lib/toast';
 import { CallsWatcher } from '@/components/calls/CallsWatcher';
+import { NotesStickyLayer } from '@/components/notes/NotesStickyLayer';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -51,6 +52,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
         {children}
         {/* Входящие звонки ловятся на любой странице (модалка + рингтон) */}
         <CallsWatcher />
+        {/* Слой стикеров Заметок: Alt+N на любой странице (контекст — из адреса) */}
+        <NotesStickyLayer />
         {/* Сообщения об ошибках — вместо нативного alert() (см. lib/toast) */}
         <Toaster />
       </ErrorBoundary>

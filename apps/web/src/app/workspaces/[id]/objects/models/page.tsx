@@ -34,6 +34,7 @@ import {
   SearchField,
   Select,
   TableCell,
+  Table,
   TableHeader,
   TableRow,
   useConfirm,
@@ -183,7 +184,7 @@ export default function AssetModelsPage() {
             }
           />
         ) : (
-          <div role="table" aria-label="Модели оборудования">
+          <Table columns={COLUMNS} aria-label="Модели оборудования">
             <TableHeader columns={COLUMNS} />
             {list.map((m, i) => {
               const kind = KIND_META.get(m.kind);
@@ -269,7 +270,7 @@ export default function AssetModelsPage() {
                 </TableRow>
               );
             })}
-          </div>
+          </Table>
         )}
       </Card>
 

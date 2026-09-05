@@ -51,6 +51,10 @@
 - Порты наружу: `DI_TOKENS.ObjectsPayrollPort` (план затрат — будущие Финансы B2B) и `DI_TOKENS.AttendancePort` (факт выходов — пропускная система, терминал). Реализации — `StaffingService` / `AttendanceService`.
 - `AssetsService` ссылается на `Counterparty` (арендодатель, подрядчик ремонта) полем FK — прямых вызовов `CounterpartiesService` нет.
 
+### Заметки (NotesModule)
+- `NotesModule` → `MessengerModule` (`MentionsService.recordMentions` — лента упоминаний общая с чатом; источник `note`), → `DriveModule` (`DriveRoutingRegistry` — картинки заметки на Диск владельца пространства), → `RolesModule` (надзор owner/admin по рангу), → `ContactsModule` (`assertReachable`, `PersonalGraphRegistry`).
+- `TasksModule`, `CounterpartiesModule`, `ObjectsModule`, `DocumentsModule` → `NotesModule` (`NoteTargetRegistry.register` — сущность как цель привязки; направление перевёрнуто, как у `DriveRoutingRegistry`).
+
 ## Carve-out map (допустимые прямые чтения чужих таблиц)
 
 Для монолита допустимо; список — граница будущего выделения сервисов:
