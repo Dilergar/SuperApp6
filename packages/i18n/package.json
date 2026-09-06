@@ -1,0 +1,51 @@
+{
+  "name": "@superapp/i18n",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./locale": {
+      "import": "./dist/resolve.js",
+      "require": "./dist/resolve.js",
+      "types": "./dist/resolve.d.ts"
+    },
+    "./format": {
+      "import": "./dist/format.js",
+      "require": "./dist/format.js",
+      "types": "./dist/format.d.ts"
+    },
+    "./config": {
+      "import": "./dist/config.js",
+      "require": "./dist/config.js",
+      "types": "./dist/config.d.ts"
+    },
+    "./chatter": {
+      "import": "./dist/chatter.js",
+      "require": "./dist/chatter.js",
+      "types": "./dist/chatter.d.ts"
+    }
+  },
+  "scripts": {
+    "gen": "node scripts/gen-messages.cjs",
+    "prebuild": "node scripts/gen-messages.cjs",
+    "build": "tsc",
+    "lint": "tsc --noEmit",
+    "lint:guard": "eslint src",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@typescript-eslint/parser": "^8.20.0",
+    "eslint": "^9.18.0",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "@superapp/shared": "workspace:*",
+    "use-intl": "^3.26.5"
+  }
+}

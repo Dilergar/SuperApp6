@@ -49,4 +49,7 @@ export const dateToYmd = (d: Date | null): string | null =>
 export const bookParams = (bookId: string | null | undefined) => (bookId ? { params: { bookId } } : undefined);
 
 // Группировка по дню — общий web-util (lib/day-groups): переиспользуется Хроникой/Журналом.
-export { localToday, formatDayLabel } from '@/lib/day-groups';
+// Подпись дня зависит от ЯЗЫКА («Сегодня», месяц прописью), поэтому она пришла
+// хуком `useDayLabel()` — брать её чистой функцией больше нельзя.
+export { localToday } from '@/lib/day-groups';
+export { useDayLabel } from '@/lib/format';

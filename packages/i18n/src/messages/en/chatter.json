@@ -1,0 +1,192 @@
+{
+  "type": {
+    "task": {
+      "created": "{actorName} created a task",
+      "assigned": "{actorName} assigned the task",
+      "submitted": "{actorName} submitted the work for review",
+      "accepted": "The work was accepted",
+      "returned": "The work was sent back for rework",
+      "completed": "The task is done",
+      "document_created": "{actorName} opened the file «{title}» for co-editing",
+      "document_edited": "{actorName} edited the document «{title}» ({period})",
+      "cancelled": "{actorName} cancelled the task",
+      "deadline_changed": "{actorName} changed the due date: {from} → {to}",
+      "priority_changed": "{actorName} changed the priority: {from} → {to}",
+      "reward_changed": "{actorName} changed the reward: {from} → {to}",
+      "title_changed": "{actorName} renamed the task: «{from}» → «{to}»",
+      "description_changed": "{actorName} updated the description",
+      "participant_added": "{actorName} added {targetName} — {roleLabel}",
+      "participant_removed": "{actorName} removed {targetName}"
+    },
+    "document": {
+      "edited": "{actorName} edited the document ({period})",
+      "version_saved": "{actorName} saved version {versionNo}",
+      "restored": "{actorName} made version {versionNo} current again",
+      "created": "{actorName} opened the file «{title}» for co-editing"
+    },
+    "staff": {
+      "invited": "{actorName} invited {targetName} to the organization",
+      "hired": "{actorName} joined the organization (Trainee)",
+      "fired": "{actorName} dismissed {targetName}",
+      "left": "{actorName} left the organization",
+      "role_changed": "{actorName} changed the role of {targetName}: {from} → {to}",
+      "ownership_transferred": "{actorName} transferred ownership of the organization — {targetName}",
+      "position_assigned": "{actorName} assigned {targetName} to the position «{positionName}»{branchClause}",
+      "position_updated": "{actorName} changed the assignment of {targetName} («{positionName}»): {from} → {to}",
+      "position_certified": "{targetName} is certified for the position «{positionName}»",
+      "position_removed": "{actorName} removed {targetName} from the position «{positionName}»",
+      "unit_created": "{actorName} created the {unitLabel} «{unitName}»",
+      "unit_deleted": "{actorName} deleted the {unitLabel} «{unitName}»",
+      "head_set": "{actorName} — head of the department «{departmentName}»: {from} → {to}",
+      "branch_head_set": "{actorName} — head of the site «{branchName}»: {from} → {to}",
+      "reports_to_set": "{actorName} — reporting line of the position «{positionName}»: {from} → {to}",
+      "position_moved": "{actorName} moved the position «{positionName}»: {from} → {to}",
+      "deputy_opened": "{actorName} appointed a deputy for the position «{positionName}»: {deputyLabel}{periodLabel}",
+      "deputy_closed": "{actorName} removed the deputy for the position «{positionName}»: {deputyLabel}",
+      "primary_changed": "{actorName} — main place of {targetName}: {from} → {to}",
+      "default_branch_changed": "{actorName} — main site of the organization: {from} → {to}"
+    },
+    "legal_entity": {
+      "created": "{actorName} added the legal entity «{name}»",
+      "updated": "{actorName} changed the details of the legal entity «{name}»",
+      "archived": "{actorName} archived the legal entity «{name}»"
+    },
+    "branch": {
+      "created": "{actorName} created the site «{name}»",
+      "updated": "{actorName} changed the site: {fieldLabel} {from} → {to}",
+      "moved": "{actorName} moved the site: {from} → {to}",
+      "archived": "{actorName} {archiveVerb} the site",
+      "head_set": "{actorName} set the managing position: {from} → {to}",
+      "legal_entity_set": "{actorName} changed the legal entity of the site: {from} → {to}"
+    },
+    "staffing": {
+      "unit_created": "{actorName} added the staffing unit «{positionName}» ({headcount})",
+      "unit_updated": "{actorName} changed the unit «{positionName}»: {from} → {to}",
+      "unit_archived": "{actorName} removed the staffing unit «{positionName}»",
+      "assigned": "{actorName} assigned {targetName} to «{positionName}» from {startsOn}",
+      "closed": "{actorName} closed the assignment of {targetName} («{positionName}») as of {endsOn}",
+      "assignment_updated": "{actorName} changed the assignment of {targetName} («{positionName}»)",
+      "rate_set": "{actorName} set the rate {rateLabel} from {effectiveFrom}"
+    },
+    "shift": {
+      "created": "{actorName} created the shift {shiftLabel}",
+      "assigned": "{actorName} put {targetName} on the shift {shiftLabel}",
+      "unassigned": "{actorName} removed {targetName} from the shift {shiftLabel}",
+      "published": "{actorName} published the schedule: {periodLabel} ({count})",
+      "cancelled": "{actorName} cancelled the shift {shiftLabel}",
+      "taken": "{actorName} took the open shift {shiftLabel}",
+      "forced": "{actorName} set the shift {shiftLabel} against the rule: {reason}"
+    },
+    "attendance": {
+      "marked": "{actorName} marked the attendance of {targetName} on {dateLabel}: {outcomeLabel}",
+      "removed": "{actorName} deleted the timesheet record of {targetName} on {dateLabel}"
+    },
+    "asset": {
+      "created": "{actorName} added «{name}»",
+      "updated": "{actorName} changed the card: {fieldLabel} {from} → {to}",
+      "moved": "{actorName} moved it: {from} → {to}",
+      "custodian_set": "{actorName} changed the person in charge: {from} → {to}",
+      "holding_set": "{actorName} changed the ownership: {from} → {to}",
+      "status_set": "{actorName} changed the condition: {from} → {to}",
+      "service_logged": "{actorName} logged maintenance: {title}"
+    },
+    "drive": {
+      "created": "{actorName} added «{targetName}»",
+      "renamed": "{actorName} renamed it: «{from}» → «{to}»",
+      "moved": "{actorName} moved «{targetName}» to «{to}»",
+      "shared": "{actorName} shared «{targetName}»: {principalLabel} — {roleLabel}",
+      "unshared": "{actorName} revoked access to «{targetName}»: {principalLabel}",
+      "trashed": "{actorName} moved «{targetName}» to the trash",
+      "restored": "{actorName} restored «{targetName}»",
+      "version_saved": "{actorName} saved version {versionNo}",
+      "version_restored": "{actorName} restored version {versionNo}"
+    },
+    "org_document": {
+      "created": "{actorName} created the document «{title}»",
+      "submitted": "{actorName} sent the document along the route",
+      "approved": "The document is approved",
+      "signed": "The document is signed",
+      "rejected": "The document was rejected{reasonSuffix}",
+      "returned": "The document was sent back for rework{reasonSuffix}",
+      "registered": "The document received the number {number}",
+      "filed": "The document was filed: {placeLabel}",
+      "cancelled": "{actorName} cancelled the document",
+      "withdrawn": "{actorName} returned the document to draft",
+      "sent_external": "{actorName} sent the document to the counterparty{contactSuffix}",
+      "counterparty_signed": "The counterparty signed the document{signerSuffix}",
+      "counterparty_declined": "The counterparty refused to sign{reasonSuffix}",
+      "external_revoked": "{actorName} revoked the sending to the counterparty",
+      "external_expired": "The counterparty signing deadline passed — the document returned to draft",
+      "external_returned": "{actorName} put the document back to work after the counterparty refusal"
+    },
+    "counterparty": {
+      "restored": "{actorName} restored the counterparty «{name}» from the archive",
+      "created": "{actorName} added the counterparty «{name}»",
+      "updated": "{actorName} changed the counterparty card",
+      "archived": "{actorName} archived the counterparty",
+      "contact_added": "{actorName} added the contact person {contactName}",
+      "contact_removed": "{actorName} removed the contact person {contactName}"
+    },
+    "share": {
+      "link_created": "{actorName} created a guest link to «{targetName}»{labelSuffix}",
+      "link_revoked": "{actorName} revoked the guest link to «{targetName}»{labelSuffix}",
+      "link_rotated": "{actorName} changed the address of the guest link to «{targetName}»{labelSuffix}"
+    },
+    "process": {
+      "published_with_warnings": "{actorName} published the route «{processName}» despite the warnings: {ruleList}"
+    },
+    "hr": {
+      "employment_updated": "{actorName} changed the employment card: {fieldLabel} {from} → {to}",
+      "action_created": "{actorName} started the action «{kindLabel}»{documentSuffix}",
+      "action_applied": "{kindLabel}: applied{documentSuffix}",
+      "action_failed": "{kindLabel}: not applied — {reason}",
+      "action_cancelled": "{actorName} cancelled the action «{kindLabel}»{noteSuffix}",
+      "delivery_fixed": "{actorName} recorded the hand-over: {methodLabel}{trackSuffix}",
+      "sign_bin_warning": "Signature warning: {reason}",
+      "esutd_submitted": "{actorName} marked the ESUTD filing: {kindLabel}{numberSuffix}",
+      "campaign_started": "{actorName} started the read-and-sign campaign «{title}» ({total} recipients)",
+      "campaign_acknowledged": "{targetName} has read it: «{title}»",
+      "library_installed": "{actorName} installed «{title}» from the library"
+    },
+    "note": {
+      "created": "{actorName} created the note «{targetName}»",
+      "renamed": "{actorName} renamed it: «{from}» → «{to}»",
+      "moved": "{actorName} moved «{targetName}» to «{to}»",
+      "shared": "{actorName} shared «{targetName}»: {principalLabel} — {roleLabel}",
+      "unshared": "{actorName} revoked access to «{targetName}»: {principalLabel}",
+      "trashed": "{actorName} moved «{targetName}» to the trash",
+      "restored": "{actorName} restored «{targetName}»",
+      "related": "{actorName} linked the note to «{to}»",
+      "unrelated": "{actorName} unlinked the note from «{from}»",
+      "folder": {
+        "created": "{actorName} created the folder «{targetName}»",
+        "renamed": "{actorName} renamed the folder: «{from}» → «{to}»",
+        "moved": "{actorName} moved the folder «{targetName}» to «{to}»",
+        "shared": "{actorName} shared the folder «{targetName}»: {principalLabel} — {roleLabel}",
+        "unshared": "{actorName} revoked access to the folder «{targetName}»: {principalLabel}",
+        "trashed": "{actorName} moved the folder «{targetName}» to the trash",
+        "restored": "{actorName} restored the folder «{targetName}»"
+      }
+    }
+  },
+  "fields": {
+    "task": {
+      "dueDate": "Due date",
+      "priority": "Priority",
+      "coinReward": "Reward",
+      "title": "Title"
+    },
+    "counterparty": {
+      "name": "Name",
+      "legalName": "Legal name",
+      "bin": "BIN / IIN",
+      "legalAddress": "Legal address",
+      "actualAddress": "Actual address",
+      "taxRegime": "Tax regime",
+      "directorName": "Director",
+      "phone": "Phone",
+      "email": "E-mail"
+    }
+  },
+  "branchClause": "branch «{name}»"
+}

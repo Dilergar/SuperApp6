@@ -6,12 +6,17 @@ import { Icon } from '@/components/ui';
 // Первый потребитель — «Журнал организации»; позже — секции «История»
 // на детальных страницах записей. Презентационный компонент: данные
 // (страницы ChatterPageDto) грузит родитель.
+//
+// МУЛЬТИЯЗЫЧНОСТЬ. Текст записи приходит от API ГОТОВЫМ (`entry.text`) — сервер
+// собрал его из структуры в языке запроса. Каталог шаблонов хроники (134 типа)
+// на клиент не едет вовсе, а компонент остаётся вставляемым в любой сервис:
+// его собственные подписи взяты из `common`, который есть на каждой странице.
 // ============================================================
 
 import React, { useMemo } from 'react';
+import { useTranslations } from 'next-intl';
 import {
   CHATTER_REGISTRY,
-  renderChatterText,
   type ChatterActorLite,
   type ChatterChange,
   type ChatterEntryDto,
@@ -19,23 +24,23 @@ import {
 } from '@superapp/shared';
 import { PersonAvatar } from '@/app/messenger/messenger-ui';
 import { PersonChip } from '@/app/circles/PersonCard';
-import { localDayKey, formatDayLabel } from '@/lib/day-groups';
+import { localDayKey } from '@/lib/day-groups';
+import { useDayLabel, useFormatters } from '@/lib/format';
 
 const REGISTRY = CHATTER_REGISTRY as Record<string, ChatterTypeMeta>;
-
-function timeLabel(iso: string): string {
-  return new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-}
 
 export function ChronicleFeed({
   entries,
   actors,
-  emptyText = 'Пока пусто — события появятся здесь',
+  emptyText,
 }: {
   entries: ChatterEntryDto[];
   actors: Record<string, ChatterActorLite>;
+  /** Своя формулировка пустоты; не задана — общая из каталога. */
   emptyText?: string;
 }) {
+  const t = useTranslations('common');
+  const dayLabel = useDayLabel();
   // Группировка по ЛОКАЛЬНОЙ дате зрителя (не по UTC-срезу createdAt) — иначе ночные
   // события уезжали в чужой день и давали две секции «Сегодня» подряд.
   const groups = useMemo(() => {
@@ -52,7 +57,7 @@ export function ChronicleFeed({
   if (entries.length === 0) {
     return (
       <p className="label-md" style={{ padding: 'var(--spacing-4) var(--spacing-2)' }}>
-        {emptyText}
+        {emptyText ?? t('chronicle.empty')}
       </p>
     );
   }
@@ -69,7 +74,7 @@ export function ChronicleFeed({
               paddingLeft: 'var(--spacing-2)',
             }}
           >
-            {formatDayLabel(day)}
+            {dayLabel(day)}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
             {list.map((e) => (
@@ -92,6 +97,7 @@ function buildSentence(
   text: string,
   target: { targetUserId: string | null; targetName: string | null },
   change: ChatterChange | null,
+  dash: string,
 ): { nodes: React.ReactNode[]; diffInline: boolean } {
   const nodes: React.ReactNode[] = [];
   let rest = text;
@@ -108,15 +114,14 @@ function buildSentence(
 
   let diffInline = false;
   if (change) {
-    const candidates = [
-      `${change.from ?? '—'} → ${change.to ?? '—'}`,
-      `«${change.from ?? '—'}» → «${change.to ?? '—'}»`,
-    ];
+    const from = change.from ?? dash;
+    const to = change.to ?? dash;
+    const candidates = [`${from} → ${to}`, `«${from}» → «${to}»`];
     for (const c of candidates) {
       const j = rest.indexOf(c);
       if (j >= 0) {
         if (j > 0) nodes.push(<span key={key++}>{rest.slice(0, j)}</span>);
-        nodes.push(<DiffChips key={key++} from={change.from} to={change.to} />);
+        nodes.push(<DiffChips key={key++} from={from} to={to} />);
         rest = rest.slice(j + c.length);
         diffInline = true;
         break;
@@ -135,8 +140,10 @@ function ChronicleRow({
   entry: ChatterEntryDto;
   actor?: ChatterActorLite;
 }) {
+  const t = useTranslations('common');
+  const fmt = useFormatters();
   const meta = REGISTRY[entry.typeKey];
-  const text = renderChatterText(entry.typeKey, entry);
+  const dash = t('chronicle.emptyValue');
   const change = entry.changes?.[0] ?? null;
   const targetUserId =
     typeof entry.payload?.targetUserId === 'string' ? entry.payload.targetUserId : null;
@@ -149,7 +156,10 @@ function ChronicleRow({
       ? (entry.payload.taskTitle as string)
       : null;
 
-  const { nodes, diffInline } = buildSentence(text, { targetUserId, targetName }, change);
+  // `entry.text` уже собран сервером в языке запроса — второй рендер на клиенте
+  // означал бы вторую реализацию тех же правил и, рано или поздно, две разные фразы
+  // об одном событии (ровно так когда-то разъехались плашка чата и журнал).
+  const { nodes, diffInline } = buildSentence(entry.text, { targetUserId, targetName }, change, dash);
   const showChangeBelow = !!change && !diffInline;
 
   return (
@@ -176,7 +186,7 @@ function ChronicleRow({
           />
         ) : (
           <div
-            title="Система"
+            title={t('chronicle.system')}
             style={{
               width: '1.8rem',
               height: '1.8rem',
@@ -206,25 +216,25 @@ function ChronicleRow({
           {nodes}
           {taskTitle && (
             <span className="label-md" style={{ fontSize: '0.85rem' }}>
-              · Задача «{taskTitle}»
+              {t('chronicle.taskContext', { title: taskTitle })}
             </span>
           )}
         </div>
         {showChangeBelow && change && (
           <div style={{ marginTop: 'var(--spacing-1)' }}>
-            <DiffChips from={change.from} to={change.to} />
+            <DiffChips from={change.from ?? dash} to={change.to ?? dash} />
           </div>
         )}
       </div>
       <span className="label-sm" style={{ flexShrink: 0, opacity: 0.7, marginTop: '0.2rem' }}>
-        {timeLabel(entry.createdAt)}
+        {fmt.time(entry.createdAt)}
       </span>
     </div>
   );
 }
 
 /** Чипы «было → стало»: старое зачёркнуто на приглушённой подложке, новое — на акцентной. */
-function DiffChips({ from, to }: { from: string | null; to: string | null }) {
+function DiffChips({ from, to }: { from: string; to: string }) {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', margin: '0 0.15rem' }}>
       <span
@@ -238,7 +248,7 @@ function DiffChips({ from, to }: { from: string | null; to: string | null }) {
           whiteSpace: 'nowrap',
         }}
       >
-        {from ?? '—'}
+        {from}
       </span>
       <span aria-hidden style={{ fontSize: '0.8rem' }}><Icon name="arrowRight" size={15} /></span>
       <span
@@ -251,7 +261,7 @@ function DiffChips({ from, to }: { from: string | null; to: string | null }) {
           whiteSpace: 'nowrap',
         }}
       >
-        {to ?? '—'}
+        {to}
       </span>
     </span>
   );

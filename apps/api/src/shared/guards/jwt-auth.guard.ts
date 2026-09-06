@@ -1,7 +1,8 @@
-import { Injectable, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { Injectable, ExecutionContext } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { unauthorized } from '../errors/api-error';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
@@ -25,7 +26,10 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 
   handleRequest<TUser = unknown>(err: Error | null, user: TUser): TUser {
     if (err || !user) {
-      throw err || new UnauthorizedException('Необходима авторизация');
+      // Отказ гарда случается ДО интерцептора контекста, поэтому язык фильтр
+      // берёт из заголовка запроса, а не из ALS. Код — всегда, текст — на языке
+      // просящего: «войдите» на незнакомом языке бесполезно.
+      throw err || unauthorized('auth.unauthorized');
     }
     return user;
   }

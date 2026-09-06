@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { cardVisibilityObjectSchema } from './card-visibility';
 import { userRequisiteFieldsSchema } from './requisites';
+import { SUPPORTED_LOCALES } from '../constants/i18n';
 
 const noHtml = (s: string) => !/[<>]/.test(s);
 const noHtmlMsg = 'Недопустимые символы';
@@ -23,7 +24,7 @@ export const updateProfileSchema = z.object({
     whatsapp: z.string().max(20).optional(),
   }).strict().nullable().optional(),
   onlineStatusMode: z.enum(['everyone', 'contacts', 'nobody']).optional(),
-  locale: z.enum(['ru', 'kk', 'en']).optional(),
+  locale: z.enum(SUPPORTED_LOCALES).optional(),
   timezone: z.string().max(50).optional(),
   // Реквизиты для договоров и трудоустройства (блок «Моей Анкеты»):
   // ИИН с контрольной суммой, адрес проживания, удостоверение личности.

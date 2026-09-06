@@ -6,13 +6,14 @@
 
 1. Папка `apps/api/src/modules/<name>/`: `<name>.module.ts`, `<name>.service.ts`, `<name>.controller.ts` (+ `<name>.events.ts` для подписок на шину, `<name>.cron.ts` под Redis-локом при необходимости).
 2. Prisma-модели в `apps/api/prisma/schema.prisma` + миграция (`pnpm db:migrate`). Партиальные уникумы — руками в миграцию + коммент в схеме.
-3. `packages/shared`: `types/<name>.ts` + `validation/<name>.ts` (Zod) + `constants/<name>.ts` + экспорт в `index.ts`. DTO ответов — сюда же, и каждый ОБЯЗАН сразу встать на обе стороны провода. Тип входа = `z.infer` рядом со схемой. Страница — `CursorPage<T>`/`OffsetPage<T>`. Полные правила — [contract_boundary.md](contract_boundary.md).
+3. `packages/shared`: `types/<name>.ts` + `validation/<name>.ts` (Zod) + `constants/<name>.ts` + экспорт в `index.ts`. Реестры несут КЛЮЧИ каталога (`labelKey`), а не подписи — строка в реестре это один язык навсегда сразу у трёх клиентов. DTO ответов — сюда же, и каждый ОБЯЗАН сразу встать на обе стороны провода. Тип входа = `z.infer` рядом со схемой. Страница — `CursorPage<T>`/`OffsetPage<T>`. Полные правила — [contract_boundary.md](contract_boundary.md).
 4. Зарегистрировать модуль в `apps/api/src/app.module.ts`.
 5. **Чек-лист переиспользования движков** (см. ниже).
-6. Веб-страница: RQ-ключи в `lib/queries.ts`, люди — только `PersonChip`/`PersonAvatar`, пикеры — `EntitySelector`, дизайн строго по `/DESIGN.md`, навигация через `AppShell` (+1 строка в `lib/app-nav.ts`), `+1 файл <сервис>/loading.tsx`. Полные правила — [web_conventions.md](web_conventions.md).
-7. Verify-скрипт `apps/api/scripts/verify-<name>.cjs` (попадает в CI автоматически) — правила в [testing_verify_suite.md](testing_verify_suite.md).
-8. Контроллеры тонкие (Zod parse → сервис); читающие методы объявляют `Promise<Dto из shared>`; страница НЕ расплющивается. Тонкий контроллер = сервис AI-ready.
-9. Обновить документацию: релевантные файлы в `docs/` (+ индекс `docs/README.md`; в доке сервиса — строка «Код: `apps/api/src/modules/<name>/`») и CLAUDE.md, если затронуто несущее правило. Новое синхронное ребро между модулями → [module_graph.md](module_graph.md); затем `pnpm check:docs --write` (перегенерирует таблицу рёбер и проверит пути/индекс/env).
+6. **Каталог сообщений**: строка в `NAMESPACES` (`packages/i18n/src/namespaces.ts`) + три файла `packages/i18n/src/messages/{en,kk,ru}/<ns>.json` (en — источник) + `pnpm i18n:gen`. Тексты уведомлений и хроники сервиса — туда же. Проверка — `pnpm check:i18n`; подробно — [i18n.md](i18n.md).
+7. Веб-страница: RQ-ключи в `lib/queries.ts`, люди — только `PersonChip`/`PersonAvatar`, пикеры — `EntitySelector`, дизайн строго по `/DESIGN.md`, навигация через `AppShell` (+1 строка `labelKey` в `lib/app-nav.ts`), `+1 файл <сервис>/loading.tsx`, `+1 файл <сервис>/layout.tsx` с `<ServiceMessages ns="<ns>">` (иначе каталог сервиса не доедет до клиента). Ни одной строки-литерала для человека. Полные правила — [web_conventions.md](web_conventions.md).
+8. Verify-скрипт `apps/api/scripts/verify-<name>.cjs` (попадает в CI автоматически) — правила в [testing_verify_suite.md](testing_verify_suite.md).
+9. Контроллеры тонкие (Zod parse → сервис); читающие методы объявляют `Promise<Dto из shared>`; страница НЕ расплющивается. Отказы — фабриками `apiError` (код, а не текст). Тонкий контроллер = сервис AI-ready.
+10. Обновить документацию: релевантные файлы в `docs/` (+ индекс `docs/README.md`; в доке сервиса — строка «Код: `apps/api/src/modules/<name>/`») и CLAUDE.md, если затронуто несущее правило. Новое синхронное ребро между модулями → [module_graph.md](module_graph.md); затем `pnpm check:docs --write` (перегенерирует таблицу рёбер и проверит пути/индекс/env).
 10. Мобильный экран — после переписывания mobile (этап 2 дорожной карты).
 
 ## Чек-лист переиспользования движков

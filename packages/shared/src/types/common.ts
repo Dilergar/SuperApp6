@@ -8,19 +8,33 @@ export interface ApiOk<T> {
   data: T;
 }
 
-/** Поле `errors`: Zod отдаёт `{path, message}`, сервис может бросить свой список. */
+/** Поле `errors`: Zod отдаёт `{path, message, code}`, сервис может бросить свой список. */
 export interface ApiErrorItem {
   path?: string;
   message: string;
+  /** Машинный код проблемы поля (`validation.too_small`) — клиент не ветвится по тексту. */
+  code?: string;
+}
+
+/**
+ * Машиночитаемые детали отказа. `code` ОБЯЗАТЕЛЕН (модель Stripe/Google APIs):
+ * `message` — текст для человека в языке запроса и может измениться вместе с
+ * переводом, `code` вечен, и именно по нему клиент ветвит поведение.
+ */
+export interface ApiErrorDetails {
+  code: string;
+  /** Параметры подстановки текста (клиент может собрать свою фразу) */
+  params?: Record<string, string | number | boolean>;
+  [key: string]: unknown;
 }
 
 export interface ApiError {
   success: false;
   statusCode: number;
+  /** Уже переведён сервером в языке запроса (`Accept-Language`). */
   message: string;
   errors?: ApiErrorItem[];
-  /** Машиночитаемые детали отказа (первый потребитель — core/verify: code/resendInSec/attemptsLeft). */
-  details?: Record<string, unknown>;
+  details?: ApiErrorDetails;
 }
 
 /**

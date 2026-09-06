@@ -15,7 +15,12 @@ export const SIDEBAR_COOKIE = 'sa6_sidebar';
 
 export interface AppNavItem {
   key: string;
-  label: string;
+  /**
+   * Ключ каталога в неймспейсе `shell` (`nav.tasks`), а не готовая строка.
+   * Реестр называет ПУНКТ, каталог даёт ему имя на языке зрителя — тот же
+   * приём, что `icon: 'tasks'`.
+   */
+  labelKey: string;
   icon: IconName;
   href: string;
   /** Активен только при точном совпадении адреса (для главной раздела). */
@@ -28,13 +33,18 @@ export interface AppNavItem {
 
 export interface AppNavGroup {
   key: string;
-  label?: string;
+  labelKey?: string;
   items: AppNavItem[];
 }
 
 export interface AppNavConfig {
-  /** Что показывает переключатель контекста. */
-  contextLabel: string;
+  /**
+   * Что показывает переключатель контекста. У организации это ДАННЫЕ (её имя —
+   * его не переводят), у личного контекста — ключ каталога: ровно поэтому поля
+   * два, а не одно с «иногда ключом».
+   */
+  contextLabel?: string;
+  contextLabelKey?: string;
   groups: AppNavGroup[];
   /**
    * Нижний блок сайдбара. В ЛИЧНОМ контексте он пуст осознанно: Профиль,
@@ -56,78 +66,78 @@ export interface AppNavCounters {
 /** Личный контекст — сервисы человека. */
 export function buildPersonalNav(c: AppNavCounters = {}): AppNavConfig {
   return {
-    contextLabel: 'Личное',
+    contextLabelKey: 'context.personal',
     groups: [
       {
         key: 'main',
-        label: 'Главное',
+        labelKey: 'group.main',
         items: [
-          { key: 'dashboard', label: 'Главная', icon: 'home', href: '/dashboard', exact: true },
-          { key: 'circles', label: 'Моё окружение', icon: 'circle', href: '/circles' },
-          { key: 'messenger', label: 'Мессенджер', icon: 'messenger', href: '/messenger', badge: c.messenger },
-          { key: 'notes', label: 'Заметки', icon: 'notes', href: '/notes' },
+          { key: 'dashboard', labelKey: 'nav.dashboard', icon: 'home', href: '/dashboard', exact: true },
+          { key: 'circles', labelKey: 'nav.circles', icon: 'circle', href: '/circles' },
+          { key: 'messenger', labelKey: 'nav.messenger', icon: 'messenger', href: '/messenger', badge: c.messenger },
+          { key: 'notes', labelKey: 'nav.notes', icon: 'notes', href: '/notes' },
         ],
       },
       {
         key: 'work',
-        label: 'Дела',
+        labelKey: 'group.work',
         items: [
           {
             key: 'tasks',
-            label: 'Задачи',
+            labelKey: 'nav.tasks',
             icon: 'tasks',
             href: '/tasks',
             badge: c.tasksInbox,
             children: [
-              { key: 'tasks-overview', label: 'Обзор', icon: 'dashboard', href: '/tasks', exact: true },
-              { key: 'tasks-inbox', label: 'Входящие', icon: 'empty', href: '/tasks/inbox', badge: c.tasksInbox },
-              { key: 'tasks-today', label: 'Сегодня', icon: 'sun', href: '/tasks/today', badge: c.tasksToday },
-              { key: 'tasks-overdue', label: 'Просроченные', icon: 'overdue', href: '/tasks/overdue' },
-              { key: 'tasks-upcoming', label: 'Предстоящие', icon: 'clock', href: '/tasks/upcoming' },
-              { key: 'tasks-assigned', label: 'Мне поставили', icon: 'target', href: '/tasks/assigned' },
-              { key: 'tasks-delegated', label: 'Я поручил', icon: 'handshake', href: '/tasks/delegated' },
-              { key: 'tasks-review', label: 'На проверке', icon: 'eye', href: '/tasks/review', badge: c.tasksReview },
-              { key: 'tasks-all', label: 'Все задачи', icon: 'list', href: '/tasks/all' },
-              { key: 'tasks-done', label: 'Выполненные', icon: 'check', href: '/tasks/done' },
+              { key: 'tasks-overview', labelKey: 'nav.tasksOverview', icon: 'dashboard', href: '/tasks', exact: true },
+              { key: 'tasks-inbox', labelKey: 'nav.tasksInbox', icon: 'empty', href: '/tasks/inbox', badge: c.tasksInbox },
+              { key: 'tasks-today', labelKey: 'nav.tasksToday', icon: 'sun', href: '/tasks/today', badge: c.tasksToday },
+              { key: 'tasks-overdue', labelKey: 'nav.tasksOverdue', icon: 'overdue', href: '/tasks/overdue' },
+              { key: 'tasks-upcoming', labelKey: 'nav.tasksUpcoming', icon: 'clock', href: '/tasks/upcoming' },
+              { key: 'tasks-assigned', labelKey: 'nav.tasksAssigned', icon: 'target', href: '/tasks/assigned' },
+              { key: 'tasks-delegated', labelKey: 'nav.tasksDelegated', icon: 'handshake', href: '/tasks/delegated' },
+              { key: 'tasks-review', labelKey: 'nav.tasksReview', icon: 'eye', href: '/tasks/review', badge: c.tasksReview },
+              { key: 'tasks-all', labelKey: 'nav.tasksAll', icon: 'list', href: '/tasks/all' },
+              { key: 'tasks-done', labelKey: 'nav.tasksDone', icon: 'check', href: '/tasks/done' },
             ],
           },
-          { key: 'calendar', label: 'Календарь', icon: 'calendar', href: '/calendar' },
+          { key: 'calendar', labelKey: 'nav.calendar', icon: 'calendar', href: '/calendar' },
           {
             key: 'finance',
-            label: 'Финансы',
+            labelKey: 'nav.finance',
             icon: 'finance',
             href: '/finance',
             children: [
-              { key: 'fin-overview', label: 'Обзор', icon: 'dashboard', href: '/finance', exact: true },
-              { key: 'fin-feed', label: 'Лента', icon: 'list', href: '/finance/feed' },
-              { key: 'fin-reports', label: 'Отчёты', icon: 'chart', href: '/finance/reports' },
-              { key: 'fin-coins', label: 'Коины', icon: 'coins', href: '/finance/coins' },
-              { key: 'fin-accounts', label: 'Счета', icon: 'card', href: '/finance/accounts' },
-              { key: 'fin-categories', label: 'Категории', icon: 'folder', href: '/finance/categories' },
-              { key: 'fin-people', label: 'Люди', icon: 'people', href: '/finance/people' },
-              { key: 'fin-debts', label: 'Долги', icon: 'debt', href: '/finance/debts' },
-              { key: 'fin-recurring', label: 'Повторы', icon: 'refresh', href: '/finance/recurring' },
+              { key: 'fin-overview', labelKey: 'nav.finOverview', icon: 'dashboard', href: '/finance', exact: true },
+              { key: 'fin-feed', labelKey: 'nav.finFeed', icon: 'list', href: '/finance/feed' },
+              { key: 'fin-reports', labelKey: 'nav.finReports', icon: 'chart', href: '/finance/reports' },
+              { key: 'fin-coins', labelKey: 'nav.finCoins', icon: 'coins', href: '/finance/coins' },
+              { key: 'fin-accounts', labelKey: 'nav.finAccounts', icon: 'card', href: '/finance/accounts' },
+              { key: 'fin-categories', labelKey: 'nav.finCategories', icon: 'folder', href: '/finance/categories' },
+              { key: 'fin-people', labelKey: 'nav.finPeople', icon: 'people', href: '/finance/people' },
+              { key: 'fin-debts', labelKey: 'nav.finDebts', icon: 'debt', href: '/finance/debts' },
+              { key: 'fin-recurring', labelKey: 'nav.finRecurring', icon: 'refresh', href: '/finance/recurring' },
             ],
           },
           {
             key: 'drive',
-            label: 'Диск',
+            labelKey: 'nav.drive',
             icon: 'drive',
             href: '/drive',
             children: [
-              { key: 'drive-my', label: 'Мой диск', icon: 'folder', href: '/drive', exact: true },
-              { key: 'drive-photos', label: 'Фото', icon: 'image', href: '/drive/photos' },
-              { key: 'drive-shared', label: 'Доступно мне', icon: 'share', href: '/drive/shared' },
-              { key: 'drive-starred', label: 'Избранное', icon: 'star', href: '/drive/starred' },
-              { key: 'drive-recent', label: 'Недавние', icon: 'clock', href: '/drive/recent' },
-              { key: 'drive-trash', label: 'Корзина', icon: 'delete', href: '/drive/trash' },
+              { key: 'drive-my', labelKey: 'nav.driveMy', icon: 'folder', href: '/drive', exact: true },
+              { key: 'drive-photos', labelKey: 'nav.drivePhotos', icon: 'image', href: '/drive/photos' },
+              { key: 'drive-shared', labelKey: 'nav.driveShared', icon: 'share', href: '/drive/shared' },
+              { key: 'drive-starred', labelKey: 'nav.driveStarred', icon: 'star', href: '/drive/starred' },
+              { key: 'drive-recent', labelKey: 'nav.driveRecent', icon: 'clock', href: '/drive/recent' },
+              { key: 'drive-trash', labelKey: 'nav.driveTrash', icon: 'delete', href: '/drive/trash' },
             ],
           },
-          { key: 'shop', label: 'Магазин', icon: 'shop', href: '/shop' },
+          { key: 'shop', labelKey: 'nav.shop', icon: 'shop', href: '/shop' },
           // КЭДО: личный архив кадровых документов — бессрочный, переживает
           // увольнение и закрытие компании (PersonalDocRecord)
-          { key: 'my-documents', label: 'Мои документы', icon: 'file', href: '/my-documents' },
-          { key: 'recorder', label: 'Диктофон', icon: 'recorder', href: '/recorder' },
+          { key: 'my-documents', labelKey: 'nav.myDocuments', icon: 'file', href: '/my-documents' },
+          { key: 'recorder', labelKey: 'nav.recorder', icon: 'recorder', href: '/recorder' },
         ],
       },
     ],
@@ -155,7 +165,7 @@ export function buildWorkspaceNav(
   const isOwner = rank >= 5;
 
   const items: AppNavItem[] = [
-    { key: 'ws-home', label: 'Главная', icon: 'home', href: base, exact: true },
+    { key: 'ws-home', labelKey: 'nav.wsHome', icon: 'home', href: base, exact: true },
     // «Сотрудники» — ЕДИНСТВЕННЫЙ сервис организации со вторым уровнем сайдбара
     // (Диску, Процессам, Офису его не заводили намеренно — у них один маршрут с
     // вкладками). Отклонение осознанное: здесь пять разделов, один из которых —
@@ -164,17 +174,17 @@ export function buildWorkspaceNav(
     // вручения, расчёты — теперь на своём разделе.
     {
       key: 'ws-members',
-      label: 'Сотрудники',
+      labelKey: 'nav.wsMembers',
       icon: 'staff',
       href: `${base}/members`,
       badge: c.hrDeadlines,
       children: [
-        { key: 'ws-members-people', label: 'Люди', icon: 'people', href: `${base}/members`, exact: true },
-        { key: 'ws-members-org', label: 'Орг. структура', icon: 'department', href: `${base}/members/org` },
+        { key: 'ws-members-people', labelKey: 'nav.wsMembersPeople', icon: 'people', href: `${base}/members`, exact: true },
+        { key: 'ws-members-org', labelKey: 'nav.wsMembersOrg', icon: 'department', href: `${base}/members/org` },
         ...(isManager
           ? [
-              { key: 'ws-members-invites', label: 'Приглашения', icon: 'userAdd' as IconName, href: `${base}/members/invitations` },
-              { key: 'ws-members-deadlines', label: 'Сроки', icon: 'clock' as IconName, href: `${base}/members/deadlines`, badge: c.hrDeadlines },
+              { key: 'ws-members-invites', labelKey: 'nav.wsMembersInvites', icon: 'userAdd' as IconName, href: `${base}/members/invitations` },
+              { key: 'ws-members-deadlines', labelKey: 'nav.wsMembersDeadlines', icon: 'clock' as IconName, href: `${base}/members/deadlines`, badge: c.hrDeadlines },
             ]
           : []),
       ],
@@ -182,29 +192,29 @@ export function buildWorkspaceNav(
     // Объекты — физические площадки сети: дерево, штатное расписание, график смен
     // и оборудование. Видят ВСЕ сотрудники (каждый — свои объекты); деньги внутри
     // закрыты правом branch.payroll.view.
-    { key: 'ws-objects', label: 'Объекты', icon: 'storefront', href: `${base}/objects` },
+    { key: 'ws-objects', labelKey: 'nav.wsObjects', icon: 'storefront', href: `${base}/objects` },
     // Заметки организации — приватные по умолчанию, шеринг людям/отделам/всей команде;
     // слой стикеров открывается Alt+N на любой странице организации.
-    { key: 'ws-notes', label: 'Заметки', icon: 'notes', href: `${base}/notes` },
-    { key: 'ws-processes', label: 'Процессы', icon: 'processes', href: `${base}/processes` },
-    { key: 'ws-office', label: 'Виртуальный офис', icon: 'office', href: `${base}/office` },
+    { key: 'ws-notes', labelKey: 'nav.wsNotes', icon: 'notes', href: `${base}/notes` },
+    { key: 'ws-processes', labelKey: 'nav.wsProcesses', icon: 'processes', href: `${base}/processes` },
+    { key: 'ws-office', labelKey: 'nav.wsOffice', icon: 'office', href: `${base}/office` },
     // Диск организации — ОДИН маршрут с вкладками внутри, как у остальных сервисов
     // организации (Сотрудники, Процессы, Офис): второй уровень сайдбара тут не заведён.
-    { key: 'ws-drive', label: 'Диск', icon: 'drive', href: `${base}/drive` },
+    { key: 'ws-drive', labelKey: 'nav.wsDrive', icon: 'drive', href: `${base}/drive` },
     // Документооборот — вся команда: внутренний контур (заявления, приказы) и
     // внешний (договоры с контрагентами); настройку внутри страницы закрывает роль.
-    { key: 'ws-documents', label: 'Документооборот', icon: 'file', href: `${base}/documents` },
+    { key: 'ws-documents', labelKey: 'nav.wsDocuments', icon: 'file', href: `${base}/documents` },
     // Контрагенты — справочник внешних сторон, стоит РЯДОМ со своим главным
     // потребителем (дальше его же читают Счета, Финансы B2B, ЭСФ).
-    { key: 'ws-counterparties', label: 'Контрагенты', icon: 'workspace', href: `${base}/counterparties` },
+    { key: 'ws-counterparties', labelKey: 'nav.wsCounterparties', icon: 'workspace', href: `${base}/counterparties` },
   ];
-  if (isManager) items.push({ key: 'ws-journal', label: 'Журнал', icon: 'journal', href: `${base}/journal` });
-  if (isOwner) items.push({ key: 'ws-wallet', label: 'Кошелёк компании', icon: 'coins', href: `${base}/wallet` });
+  if (isManager) items.push({ key: 'ws-journal', labelKey: 'nav.wsJournal', icon: 'journal', href: `${base}/journal` });
+  if (isOwner) items.push({ key: 'ws-wallet', labelKey: 'nav.wsWallet', icon: 'coins', href: `${base}/wallet` });
 
   return {
     contextLabel: workspaceName,
-    groups: [{ key: 'ws', label: 'Организация', items }],
-    footer: [{ key: 'ws-profile', label: 'Профиль организации', icon: 'workspace', href: `${base}/profile/card` }],
+    groups: [{ key: 'ws', labelKey: 'group.organization', items }],
+    footer: [{ key: 'ws-profile', labelKey: 'nav.wsProfile', icon: 'workspace', href: `${base}/profile/card` }],
   };
 }
 

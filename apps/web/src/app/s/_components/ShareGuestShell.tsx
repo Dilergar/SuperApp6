@@ -10,6 +10,8 @@
 
 import type { ReactNode } from 'react';
 import { Icon } from '@/components/ui/Icon';
+import { useTranslations } from 'next-intl';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 
 export function ShareGuestShell({
   title,
@@ -23,6 +25,7 @@ export function ShareGuestShell({
   /** Папка шире карточки входа: в ней таблица */
   wide?: boolean;
 }) {
+  const t = useTranslations('common');
   return (
     <div style={{ minHeight: '100vh', padding: 'var(--spacing-6)' }}>
       <div style={{ width: '100%', maxWidth: wide ? 880 : 520, margin: '0 auto' }}>
@@ -57,8 +60,17 @@ export function ShareGuestShell({
           className="label-sm"
           style={{ textAlign: 'center', marginTop: 'var(--spacing-5)', color: 'var(--on-surface-variant)' }}
         >
-          Этим поделились с вами через SuperApp6
+          {t('guest.sharedVia')}
         </p>
+
+        {/*
+          Переключатель языка и здесь: гость по ссылке — человек БЕЗ аккаунта, и
+          другого места сменить язык у него нет. Язык он получил из браузера
+          (negotiateLocale), но браузер угадывает не всегда.
+        */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 'var(--spacing-4)' }}>
+          <LanguageSwitcher width={180} />
+        </div>
       </div>
     </div>
   );

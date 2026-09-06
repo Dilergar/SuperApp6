@@ -19,6 +19,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/lib/stores/auth';
 import {
@@ -38,7 +39,6 @@ import { PersonAvatar } from '@/app/messenger/messenger-ui';
 import { useMentionsUnread } from '@/lib/hooks/useMentionsUnread';
 import { useNotesLayer } from '@/lib/stores/notes-layer';
 import { useApprovalsCount } from '@/lib/hooks/useApprovalsCount';
-import { APPROVAL_INBOX_TITLE } from '@superapp/shared';
 // Стопка — динамическим импортом по той же причине, что и барабан кита: она
 // тянет Modal и клиент движка, а шелл сидит в корневом графе каждой страницы.
 const DecisionStack = dynamic(
@@ -57,6 +57,7 @@ function writeSidebarCookie(collapsed: boolean) {
 }
 
 export function AppShell({ defaultCollapsed = false, children }: { defaultCollapsed?: boolean; children: React.ReactNode }) {
+  const t = useTranslations('shell');
   const pathname = usePathname();
   const router = useRouter();
   const profile = useAuthStore((s) => s.user);
@@ -130,7 +131,7 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
   const nav: AppNavConfig = useMemo(() => {
     if (activeWsId) {
       const ws = workspaces.find((w) => w.id === activeWsId);
-      return buildWorkspaceNav(activeWsId, ws?.name ?? 'Организация', ws?.myRole ?? null, {
+      return buildWorkspaceNav(activeWsId, ws?.name ?? t('context.organization'), ws?.myRole ?? null, {
         hrDeadlines: hrDeadlines?.count || undefined,
       });
     }
@@ -139,7 +140,7 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
       tasksToday: taskStats?.today,
       tasksReview: taskStats?.onReview,
     });
-  }, [activeWsId, workspaces, taskStats, hrDeadlines]);
+  }, [activeWsId, workspaces, taskStats, hrDeadlines, t]);
 
   // ---- ширина экрана: <768 шторка, 768–1199 авто-рейл, ≥1200 выбор человека
   useEffect(() => {
@@ -186,7 +187,8 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
   }, [pathname, nav]);
 
   const rail = (railOverride ?? collapsed) && !isMobile;
-  const contexts = [{ id: null as string | null, label: 'Личное' }, ...workspaces.map((w) => ({ id: w.id, label: w.name }))];
+  // Имя организации — ДАННЫЕ (его не переводят), «Личное» — фраза продукта.
+  const contexts = [{ id: null as string | null, label: t('context.personal') }, ...workspaces.map((w) => ({ id: w.id, label: w.name }))];
 
   function switchContext(id: string | null) {
     router.push(id ? `/workspaces/${id}` : '/dashboard');
@@ -201,7 +203,7 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
     <div className={`svc-shell${rail ? ' collapsed' : ''}`}>
       {/* ---------------- Топбар ---------------- */}
       <header className="svc-topbar">
-        <button className="svc-burger" aria-label="Открыть меню" aria-expanded={drawerOpen} onClick={() => setDrawerOpen(true)}>
+        <button className="svc-burger" aria-label={t('topbar.openMenu')} aria-expanded={drawerOpen} onClick={() => setDrawerOpen(true)}>
           <Icon name="list" size={20} />
         </button>
 
@@ -212,21 +214,21 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
             onSubmit={(e) => { e.preventDefault(); if (query.trim()) router.push(`/messenger?q=${encodeURIComponent(query.trim())}`); }}
             className="app-topbar-search"
           >
-            <SearchField value={query} onChange={(e) => setQuery(e.target.value)} onClear={() => setQuery('')} placeholder="Поиск…" width={240} />
+            <SearchField value={query} onChange={(e) => setQuery(e.target.value)} onClear={() => setQuery('')} placeholder={t('topbar.searchPlaceholder')} width={240} />
           </form>
           {/* «＋» ведёт в быстрый ввод Входящих: он ловит мысль одной строкой,
               а разбор (срок, исполнитель) делается там же. Полная форма живёт
               на «Обзоре» — открыть её отсюда нельзя, контекст сервиса ниже. */}
-          <IconButton href="/tasks/inbox" icon="add" label="Быстро записать задачу" />
+          <IconButton href="/tasks/inbox" icon="add" label={t('topbar.quickTask')} />
           {/* Стикеры Заметок: та же доска, что по Alt+N — кнопка нужна телефону, где Alt нет */}
-          <IconButton icon="stickyNote" label="Доска заметок (Alt+N)" onClick={() => useNotesLayer.getState().toggle()} />
+          <IconButton icon="stickyNote" label={t('topbar.stickyBoard')} onClick={() => useNotesLayer.getState().toggle()} />
           {/* Обёртка — неинтерактивный span: якорь кита сам ссылка (href→next/link),
               вложить его в <Link> значило бы «управление внутри управления». */}
           <span style={{ position: 'relative', display: 'inline-flex' }}>
             <IconButton
               href="/mentions"
               icon="bell"
-              label={mentionsUnread ? 'Упоминания — есть непрочитанные' : 'Упоминания'}
+              label={mentionsUnread ? t('topbar.mentionsUnread') : t('topbar.mentions')}
             />
             {!!mentionsUnread && mentionsUnread > 0 && (
               // Синяя точка: красный в системе означает только опасность.
@@ -245,7 +247,7 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
           <span style={{ position: 'relative', display: 'inline-flex' }}>
             <IconButton
               icon="checkCircle"
-              label={approvalsCount > 0 ? `${APPROVAL_INBOX_TITLE}: ${approvalsCount}` : APPROVAL_INBOX_TITLE}
+              label={approvalsCount > 0 ? t('topbar.approvalsCount', { n: approvalsCount }) : t('topbar.approvals')}
               onClick={() => setStackOpen(true)}
             />
             {approvalsCount > 0 && (
@@ -264,15 +266,15 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
           </span>
           <Menu
             align="end"
-            label="Профиль"
+            label={t('topbar.profile')}
             items={[
-              { key: 'profile', label: 'Мой профиль', icon: 'profile', href: '/profile/card' },
-              { key: 'wallet', label: 'Кошелёк', icon: 'coins', href: '/profile/wallet' },
-              { key: 'settings', label: 'Настройки', icon: 'settings', href: '/profile/settings' },
-              { key: 'logout', label: 'Выйти', icon: 'signOut', danger: true, separatorBefore: true, onClick: () => void handleLogout() },
+              { key: 'profile', label: t('topbar.myProfile'), icon: 'profile', href: '/profile/card' },
+              { key: 'wallet', label: t('topbar.wallet'), icon: 'coins', href: '/profile/wallet' },
+              { key: 'settings', label: t('topbar.settings'), icon: 'settings', href: '/profile/settings' },
+              { key: 'logout', label: t('topbar.logout'), icon: 'signOut', danger: true, separatorBefore: true, onClick: () => void handleLogout() },
             ]}
             trigger={({ ref, onClick, ...aria }) => (
-              <button ref={ref} onClick={onClick} {...aria} aria-label="Меню профиля" className="app-avatar-btn">
+              <button ref={ref} onClick={onClick} {...aria} aria-label={t('topbar.profileMenu')} className="app-avatar-btn">
                 {profile
                   ? <PersonAvatar userId={profile.id} name={`${profile.firstName} ${profile.lastName ?? ''}`.trim()} avatar={profile.avatar} size="sm" />
                   : <Icon name="user" size={18} />}
@@ -285,21 +287,21 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
       {drawerOpen && <div className="svc-backdrop" aria-hidden onClick={() => setDrawerOpen(false)} />}
 
       {/* ---------------- Сайдбар ---------------- */}
-      <aside className={`svc-sidebar${drawerOpen ? ' drawer-open' : ''}`} aria-label="Навигация приложения">
+      <aside className={`svc-sidebar${drawerOpen ? ' drawer-open' : ''}`} aria-label={t('nav.aria')}>
         <div className="svc-side-head">
           {/* Кнопка закрытия видна только в мобильной шторке (медиазапрос) */}
           <div className="svc-drawer-top">
-            <span className="label-caps">Меню</span>
-            <button className="svc-drawer-close" aria-label="Закрыть меню" onClick={() => setDrawerOpen(false)}>
+            <span className="label-caps">{t('topbar.menu')}</span>
+            <button className="svc-drawer-close" aria-label={t('topbar.closeMenu')} onClick={() => setDrawerOpen(false)}>
               <Icon name="close" size={20} />
             </button>
           </div>
-          <Link href="/dashboard" className="app-logo" aria-label="SuperApp6 — на главную">
+          <Link href="/dashboard" className="app-logo" aria-label={t('logo.aria')}>
             <span className="app-logo-mark">S</span>
             {!rail && (
               <span style={{ minWidth: 0 }}>
                 <span className="app-logo-name">SuperApp6</span>
-                <span className="app-logo-context">{nav.contextLabel}</span>
+                <span className="app-logo-context">{nav.contextLabel ?? (nav.contextLabelKey ? t(nav.contextLabelKey) : '')}</span>
               </span>
             )}
           </Link>
@@ -308,11 +310,12 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
         <nav className="svc-side-nav">
           {nav.groups.map((g) => (
             <div key={g.key} className="svc-group">
-              {g.label && <div className="svc-group-label">{g.label}</div>}
+              {g.labelKey && <div className="svc-group-label">{t(g.labelKey)}</div>}
               {g.items.map((item) => (
                 <NavItem
                   key={item.key}
                   item={item}
+                  label={t(item.labelKey)}
                   pathname={pathname}
                   rail={rail}
                   open={openBranch === item.key}
@@ -329,12 +332,12 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
         {(nav.footer.length > 0 || !isMobile) && (
           <div className="svc-side-foot">
             {nav.footer.map((item) => (
-              <NavItem key={item.key} item={item} pathname={pathname} rail={rail} open={false} onToggle={() => {}} />
+              <NavItem key={item.key} item={item} label={t(item.labelKey)} pathname={pathname} rail={rail} open={false} onToggle={() => {}} />
             ))}
             {!isMobile && (
-              <button className="svc-item" onClick={toggleCollapsed} aria-label={rail ? 'Развернуть меню' : 'Свернуть меню'}>
+              <button className="svc-item" onClick={toggleCollapsed} aria-label={rail ? t('sidebar.expand') : t('sidebar.collapse')}>
                 <span className="svc-ico"><Icon name={rail ? 'caretRight' : 'caretLeft'} size={18} /></span>
-                {!rail && <span className="svc-label">Свернуть</span>}
+                {!rail && <span className="svc-label">{t('topbar.collapse')}</span>}
               </button>
             )}
           </div>
@@ -356,10 +359,14 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
 // ------------------------------------------------------------
 
 function NavItem({
-  item, pathname, rail, open, onToggle,
+  item, label, pathname, rail, open, onToggle,
 }: {
-  item: AppNavItem; pathname: string; rail: boolean; open: boolean; onToggle: () => void;
+  item: AppNavItem;
+  /** Уже переведённая подпись: реестр несёт ключ, слова даёт каркас. */
+  label: string;
+  pathname: string; rail: boolean; open: boolean; onToggle: () => void;
 }) {
+  const t = useTranslations('shell');
   const active = isNavItemActive(item, pathname);
   const branchActive = isBranchActive(item, pathname);
   const hasChildren = !!item.children?.length;
@@ -367,7 +374,7 @@ function NavItem({
   const face = (
     <>
       <span className="svc-ico"><Icon name={item.icon} size={20} /></span>
-      {!rail && <span className="svc-label">{item.label}</span>}
+      {!rail && <span className="svc-label">{label}</span>}
       {!rail && !!item.badge && item.badge > 0 && <span className="svc-badge">{item.badge}</span>}
       {rail && !!item.badge && item.badge > 0 && <span className="svc-badge-dot" />}
     </>
@@ -379,7 +386,7 @@ function NavItem({
         href={item.href}
         className={`svc-item${branchActive ? ' active' : ''}`}
         aria-current={active ? 'page' : undefined}
-        title={rail ? item.label : undefined}
+        title={rail ? label : undefined}
       >
         {face}
       </Link>
@@ -395,7 +402,7 @@ function NavItem({
         <button
           className="svc-chevron"
           aria-expanded={open}
-          aria-label={open ? `Свернуть ${item.label}` : `Развернуть ${item.label}`}
+          aria-label={open ? t('nav.collapseBranch', { name: label }) : t('nav.expandBranch', { name: label })}
           onClick={onToggle}
         >
           <Icon name="caretDown" size={14} />
@@ -412,7 +419,7 @@ function NavItem({
                 style={{ fontSize: '0.8125rem', fontWeight: 500, padding: '0.4375rem 0.75rem' }}
               >
                 <span className="svc-ico" style={{ width: '1.25rem', minWidth: '1.25rem' }}><Icon name={c.icon} size={16} /></span>
-                <span className="svc-label">{c.label}</span>
+                <span className="svc-label">{t(c.labelKey)}</span>
                 {!!c.badge && c.badge > 0 && <span className="svc-badge">{c.badge}</span>}
               </Link>
             </div>
@@ -438,6 +445,7 @@ function ContextSwitcher({
       за экран уже при одной организации — всегда показываем выпадающее меню. */
   forceMenu?: boolean;
 }) {
+  const ariaLabel = useTranslations('shell')('context.aria');
   const current = contexts.find((c) => c.id === activeId) ?? contexts[0];
 
   // Единственный контекст («Личное» без организаций) ничего не выталкивает —
@@ -446,7 +454,7 @@ function ContextSwitcher({
     return (
       // role="group"+aria-pressed: это переключатель контекста, а не вкладки —
       // role="tab" без tabpanel был бы ложью для скринридера
-      <div className="ui-segment" role="group" aria-label="Контекст">
+      <div className="ui-segment" role="group" aria-label={ariaLabel}>
         {contexts.map((c) => (
           <button
             key={c.id ?? 'personal'}
@@ -465,7 +473,7 @@ function ContextSwitcher({
   return (
     <Menu
       align="start"
-      label="Контекст"
+      label={ariaLabel}
       items={contexts.map((c) => ({
         key: c.id ?? 'personal',
         label: c.label,

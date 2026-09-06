@@ -1,0 +1,68 @@
+{
+  "http": {
+    "badRequest": "Неверный запрос",
+    "unauthorized": "Войдите, чтобы продолжить",
+    "forbidden": "Нет доступа",
+    "notFound": "Не найдено",
+    "conflict": "Конфликт данных",
+    "tooManyRequests": "Слишком много попыток, попробуйте позже",
+    "payloadTooLarge": "Файл слишком большой",
+    "unsupportedMedia": "Такой тип файла не поддерживается"
+  },
+  "internal": "Внутренняя ошибка сервера",
+  "unavailable": "Сервис временно недоступен",
+  "db": {
+    "uniqueViolation": "Конфликт данных: такая запись уже существует",
+    "notFound": "Запись не найдена",
+    "relationMissing": "Связанная запись не найдена"
+  },
+  "validation": {
+    "failed": "Проверьте форму",
+    "invalidType": "«{path}»: ожидалось {expected}, пришло {received}",
+    "required": "«{path}» — обязательное поле",
+    "tooSmall": {
+      "string": "«{path}»: не меньше {minimum, plural, one {# символа} few {# символов} many {# символов} other {# символов}}",
+      "number": "«{path}»: минимум {minimum}",
+      "array": "«{path}»: не меньше {minimum, plural, one {# элемента} few {# элементов} many {# элементов} other {# элементов}}",
+      "date": "«{path}»: дата слишком ранняя",
+      "other": "«{path}»: значение слишком мало"
+    },
+    "tooBig": {
+      "string": "«{path}»: не больше {maximum, plural, one {# символа} few {# символов} many {# символов} other {# символов}}",
+      "number": "«{path}»: максимум {maximum}",
+      "array": "«{path}»: не больше {maximum, plural, one {# элемента} few {# элементов} many {# элементов} other {# элементов}}",
+      "date": "«{path}»: дата слишком поздняя",
+      "other": "«{path}»: значение слишком велико"
+    },
+    "invalidString": {
+      "email": "«{path}»: неверный e-mail",
+      "url": "«{path}»: неверная ссылка",
+      "uuid": "«{path}»: неверный идентификатор",
+      "datetime": "«{path}»: неверные дата и время",
+      "other": "«{path}»: неверный формат"
+    },
+    "invalidEnum": "«{path}»: неизвестное значение",
+    "invalidDate": "«{path}»: неверная дата",
+    "unrecognizedKeys": "Неизвестные поля: {keys}",
+    "notMultipleOf": "«{path}»: должно быть кратно {multipleOf}",
+    "notFinite": "«{path}»: число вне диапазона",
+    "custom": "«{path}»: недопустимое значение"
+  },
+  "workspace": {
+    "noAccess": "Нет доступа к этой организации",
+    "notFound": "Организация не найдена"
+  },
+  "auth": {
+    "unauthorized": "Войдите, чтобы продолжить",
+    "sessionExpired": "Сессия истекла — войдите заново",
+    "localeUnsupported": "Этот язык не поддерживается"
+  },
+  "notification": {
+    "notFound": "Уведомление не найдено"
+  },
+  "chatter": {
+    "forbidden": "Хроника этой записи вам недоступна",
+    "journalForbidden": "Журнал организации доступен с роли Менеджер",
+    "unknownRef": "Неизвестный тип записи"
+  }
+}

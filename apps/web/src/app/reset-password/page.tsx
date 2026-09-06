@@ -20,11 +20,13 @@ import { useAuthStore } from '@/lib/stores/auth';
 import { isTokenStale, useOtpFlow } from '@/components/verify/otp-flow';
 import { OtpStep } from '@/components/verify/OtpStep';
 import { Alert, Button, Input } from '@/components/ui';
+import { useTranslations } from 'next-intl';
 import { AuthLayout } from '../auth-ui';
 
 type Step = 'phone' | 'code' | 'password';
 
 export default function ResetPasswordPage() {
+  const t = useTranslations('auth');
   const router = useRouter();
   const applySession = useAuthStore((s) => s.applySession);
   const flow = useOtpFlow();
@@ -81,10 +83,10 @@ export default function ResetPasswordPage() {
 
   return (
     <AuthLayout
-      title="Восстановление"
-      subtitle="Подтвердите номер — и задайте новый пароль"
-      step={{ current: STEP_IDX[step], total: 3, labels: ['Номер', 'Код', 'Пароль'] }}
-      footer={<>Вспомнили пароль? <Link href="/login" style={{ fontWeight: 700 }}>Войти</Link></>}
+      title={t('reset.title')}
+      subtitle={t('reset.subtitle')}
+      step={{ current: STEP_IDX[step], total: 3, labels: [t('reset.stepPhone'), t('reset.stepCode'), t('reset.stepPassword')] }}
+      footer={<>{t('reset.remembered')} <Link href="/login" style={{ fontWeight: 700 }}>{t('login.submit')}</Link></>}
     >
       {error && step !== 'code' && (
         <Alert tone="danger" className="reset-error">
@@ -95,7 +97,7 @@ export default function ResetPasswordPage() {
               onClick={() => { setError(''); setTokenStale(false); void requestCode(); }}
               style={{ display: 'block', marginTop: '0.4rem', background: 'none', border: 'none', padding: 0, fontWeight: 700, color: 'inherit', textDecoration: 'underline', cursor: 'pointer' }}
             >
-              Получить новый код
+              {t('register.newCode')}
             </button>
           )}
         </Alert>
@@ -104,19 +106,19 @@ export default function ResetPasswordPage() {
       {step === 'phone' && (
         <form onSubmit={requestCode} className="ui-stack" style={{ gap: 'var(--spacing-4)', marginTop: error ? 'var(--spacing-4)' : 0 }}>
           <Input
-            label="Телефон"
+            label={t('login.phone')}
             type="tel"
             icon="device"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             placeholder="+77001234567"
-            hint="Если номер зарегистрирован — отправим SMS с кодом"
+            hint={t('reset.phoneHint')}
             autoComplete="tel"
             required
             autoFocus
           />
           <Button type="submit" variant="primary" size="lg" block loading={busy}>
-            {busy ? 'Отправляем…' : 'Получить код'}
+            {busy ? t('register.sending') : t('register.getCode')}
           </Button>
         </form>
       )}
@@ -128,19 +130,19 @@ export default function ResetPasswordPage() {
       {step === 'password' && (
         <form onSubmit={handleComplete} className="ui-stack" style={{ gap: 'var(--spacing-4)', marginTop: error ? 'var(--spacing-4)' : 0 }}>
           <Input
-            label="Новый пароль"
+            label={t('reset.newPassword')}
             type="password"
             icon="lock"
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
-            placeholder="Минимум 8 символов"
-            hint="Заглавная и строчная буквы, цифра и спецсимвол. Все старые сессии будут завершены"
+            placeholder={t('login.passwordPlaceholder')}
+            hint={t('reset.newPasswordHint')}
             autoComplete="new-password"
             required
             autoFocus
           />
           <Button type="submit" variant="primary" tone="success" size="lg" block loading={busy}>
-            {busy ? 'Сохраняем…' : 'Сменить пароль и войти'}
+            {busy ? t('reset.saving') : t('reset.submit')}
           </Button>
         </form>
       )}

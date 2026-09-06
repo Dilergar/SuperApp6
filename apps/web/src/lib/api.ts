@@ -1,3 +1,4 @@
+import { readLocaleCookie } from '@/i18n/locale';
 import {
   createApiClient,
   ACCESS_TOKEN_KEY,
@@ -27,6 +28,12 @@ const webStorage: TokenStorage = {
 const client = createApiClient({
   baseURL: API_URL,
   storage: webStorage,
+  // ВЫБРАННЫЙ язык (заголовок `X-Locale`): сервер рендерит ПРИ ЧТЕНИИ, и без него
+  // он взял бы подсказку браузера — а её маршрутизирует рынок (русский браузер →
+  // казахский), то есть выбор человека был бы перебит. Читаем cookie, а не стор:
+  // cookie — тот же источник, что у RSC, поэтому серверный и клиентский тексты на
+  // одной странице совпадают. Нет выбора (гость) → заголовка нет, решает сервер.
+  getLocale: () => readLocaleCookie(),
   onAuthFailure: () => {
     if (typeof window !== 'undefined') window.location.href = '/login';
   },

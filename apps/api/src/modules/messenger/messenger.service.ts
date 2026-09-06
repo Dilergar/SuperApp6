@@ -20,6 +20,8 @@ import { FilesRefRegistry } from '../../core/files/files-ref.registry';
 import { CallsService } from '../../core/calls/calls.service';
 import { CallsRefRegistry } from '../../core/calls/calls-ref.registry';
 import { DriveRoutingRegistry } from '../drive/drive-routing.registry';
+import { I18nService } from '../../shared/i18n/i18n.service';
+import { renderChatter, type ChatterEntryLike } from '@superapp/i18n';
 import { MESSENGER_LIMITS, OFFICE_ROOM_ROLE_LABELS, attachmentPreviewText } from '@superapp/shared';
 import type {
   CallActiveDto,
@@ -110,6 +112,7 @@ export class MessengerService implements OnModuleInit {
     private callsRegistry: CallsRefRegistry,
     private driveRouting: DriveRoutingRegistry,
     private redis: RedisService,
+    private i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -2159,6 +2162,34 @@ export class MessengerService implements OnModuleInit {
     this.events.emit('messenger.receipt', wsPayload, 'messenger');
   }
 
+  /**
+   * Текст системной плашки в языке ЗАПРОСА.
+   *
+   * Плашки — проекция записей core/chatter, и запись хранит СТРУКТУРУ (актёр,
+   * changes, payload). Синк кладёт её в `payload.chatter` рядом со снимком
+   * `payload.text` в языке-источнике. Здесь структура снова превращается в текст —
+   * поэтому лента читается по-казахски у одного человека и по-английски у другого,
+   * включая плашки, написанные год назад. Нет структуры (сообщение до этой
+   * версии, плашка не из хроники) → снимок как есть.
+   */
+  private systemText(payload: unknown): string | null {
+    const p = (payload ?? null) as Record<string, unknown> | null;
+    if (!p) return null;
+    const snapshot = typeof p.text === 'string' ? p.text : null;
+    const typeKey = typeof p.eventType === 'string' ? p.eventType : null;
+    const source = p.chatter as ChatterEntryLike | undefined;
+    if (!typeKey || !source) return snapshot;
+    const locale = this.i18n.locale;
+    const rendered = renderChatter(
+      this.i18n.forLocale(locale),
+      typeKey,
+      source,
+      this.i18n.format(locale),
+    );
+    // renderChatter возвращает сам typeKey, если типа нет в каталоге — снимок честнее.
+    return rendered === typeKey ? snapshot : rendered;
+  }
+
   private toMessage(
     r: any,
     viewerId: string,
@@ -2173,6 +2204,13 @@ export class MessengerService implements OnModuleInit {
       status = peerReadSeq >= r.seq ? 'read' : peerDeliveredSeq >= r.seq ? 'delivered' : 'sent';
     }
     const deleted = !!r.deletedAt;
+    let payload = deleted ? null : ((r.payload as Record<string, unknown> | null) ?? null);
+    if (payload && r.type === 'system') {
+      // Перерисовываем ИМЕННО payload.text: его читают и веб (SystemPlaque), и
+      // mobile — одна точка вместо второго поля рядом.
+      const text = this.systemText(payload);
+      if (text !== null && text !== payload.text) payload = { ...payload, text };
+    }
     return {
       id: r.id,
       chatId: r.chatId,
@@ -2182,7 +2220,7 @@ export class MessengerService implements OnModuleInit {
       authorRoleTag: r.authorId ? labelMap?.get(r.authorId) ?? null : null,
       type: r.type,
       content: deleted ? null : r.content ?? null,
-      payload: deleted ? null : ((r.payload as Record<string, unknown> | null) ?? null),
+      payload,
       seq: r.seq,
       editedAt: r.editedAt ? r.editedAt.toISOString() : null,
       deletedAt: r.deletedAt ? r.deletedAt.toISOString() : null,
@@ -2200,7 +2238,7 @@ export class MessengerService implements OnModuleInit {
     if (deleted) text = null;
     else if (rt.type === 'text') text = rt.content ?? '';
     else if (rt.type === 'attachment') text = rt.content || this.attachmentPreviewText(rt.payload);
-    else if (rt.type === 'system') text = (rt.payload?.text as string) ?? 'Системное сообщение';
+    else if (rt.type === 'system') text = this.systemText(rt.payload) ?? this.i18n.translate('messenger.systemPlaque.unknown');
     else text = (rt.payload?.title as string) ?? 'Карточка';
     return {
       id: rt.id,
@@ -2221,7 +2259,7 @@ export class MessengerService implements OnModuleInit {
     if (deleted) text = 'Сообщение удалено';
     else if (r.type === 'text') text = r.content ?? '';
     else if (r.type === 'attachment') text = r.content || this.attachmentPreviewText(r.payload);
-    else if (r.type === 'system') text = (r.payload?.text as string) ?? 'Системное сообщение';
+    else if (r.type === 'system') text = this.systemText(r.payload) ?? this.i18n.translate('messenger.systemPlaque.unknown');
     else text = (r.payload?.title as string) ?? 'Карточка';
     return {
       id: r.id,

@@ -1,0 +1,16 @@
+{
+  "unavailable": "Карточка недоступна",
+  "deleted": "Запись удалена",
+  "event": {
+    "when": "Когда",
+    "where": "Где",
+    "yourStatus": "Ваш статус",
+    "organizer": "Организатор",
+    "rsvp": {
+      "pending": "Не ответил(а)",
+      "accepted": "Иду",
+      "declined": "Не иду",
+      "tentative": "Возможно"
+    }
+  }
+}

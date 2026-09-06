@@ -8,7 +8,9 @@
 
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { useTranslations } from 'next-intl';
 import { Icon } from '@/components/ui';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 
 export function AuthLayout({
   title,
@@ -24,6 +26,7 @@ export function AuthLayout({
   footer?: ReactNode;
   step?: { current: number; total: number; labels: string[] };
 }) {
+  const t = useTranslations('auth');
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 'var(--spacing-6)' }}>
       <div style={{ width: '100%', maxWidth: 420 }}>
@@ -32,7 +35,7 @@ export function AuthLayout({
           className="label-sm"
           style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', marginBottom: 'var(--spacing-5)', color: 'var(--on-surface-variant)' }}
         >
-          <Icon name="arrowLeft" size={15} /> На главную
+          <Icon name="arrowLeft" size={15} /> {t('layout.backHome')}
         </Link>
 
         <div className="card">
@@ -55,6 +58,15 @@ export function AuthLayout({
             {footer}
           </p>
         )}
+
+        {/*
+          Переключатель языка ЗДЕСЬ, а не только в профиле: человек, которому
+          продукт открылся на незнакомом языке, ещё не вошёл — настройки ему
+          недоступны, и без этого выбора он застрял бы на первом же экране.
+        */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 'var(--spacing-5)' }}>
+          <LanguageSwitcher label={t('layout.language')} width={180} />
+        </div>
       </div>
     </div>
   );

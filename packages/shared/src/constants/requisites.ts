@@ -76,31 +76,11 @@ export const REQUISITE_VISIBILITY_EXTRAS = {
   paymentCard: 'paymentCard',
 } as const;
 
-export const REQUISITE_VISIBILITY_LABELS: Record<
-  (typeof REQUISITE_VISIBILITY_EXTRAS)[keyof typeof REQUISITE_VISIBILITY_EXTRAS],
-  string
-> = {
-  iin: 'ИИН',
-  residentialAddress: 'Адрес проживания',
-  idDocument: 'Удостоверение личности',
-  paymentCard: 'Карта для выплат',
-};
+// Подписи реквизитов живут в каталоге `@superapp/i18n` (`profile.requisite.*`):
+// строка в реестре — это один язык навсегда, а карточку читают на трёх.
 
-/** Названия месяцев для раздельного ввода даты рождения (день / месяц / год) */
-export const MONTH_NAMES_RU = [
-  'января',
-  'февраля',
-  'марта',
-  'апреля',
-  'мая',
-  'июня',
-  'июля',
-  'августа',
-  'сентября',
-  'октября',
-  'ноября',
-  'декабря',
-] as const;
+// Названия месяцев больше не константа: их даёт `Intl` НА ЯЗЫКЕ зрителя
+// (monthOptionNames в профиле, monthNames в DatePicker кита).
 
 export const REQUISITE_LIMITS = {
   legalNameMaxLength: 200,

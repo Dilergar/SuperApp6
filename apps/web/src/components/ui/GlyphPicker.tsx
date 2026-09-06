@@ -19,6 +19,7 @@ import { Icon } from './Icon';
 import { Field, SearchField } from './Input';
 import { SegmentedControl } from './Tabs';
 import { usePopover } from './usePopover';
+import { useTranslations } from 'next-intl';
 import {
   browseGlyphs, charToHex, GLYPH_PREFIX, loadGlyphIndex, parseGlyph, pushRecentGlyph,
   recentGlyphs, searchGlyphs, type GlyphHit, type GlyphIndex,
@@ -26,10 +27,11 @@ import {
 
 type Mode = 'icons' | 'fluent' | 'noto';
 
-const MODE_ITEMS: Array<{ key: Mode; label: string }> = [
-  { key: 'icons', label: 'Иконки' },
-  { key: 'fluent', label: 'Свои' },
-  { key: 'noto', label: 'Noto' },
+/** Ключи каталога; готовые подписи собираются в компоненте (`Noto` — имя набора). */
+const MODE_KEYS: Array<{ key: Mode; labelKey: string }> = [
+  { key: 'icons', labelKey: 'glyph.setIcons' },
+  { key: 'fluent', labelKey: 'glyph.setOwn' },
+  { key: 'noto', labelKey: 'glyph.setNoto' },
 ];
 
 export interface GlyphPickerProps {
@@ -52,6 +54,7 @@ export interface GlyphPickerProps {
 
 /** Панель выбора. Позиционированием занимается обёртка (поповер). */
 export function GlyphPicker({ value, onSelect, onRemove, only, suggest, keepOpen, onClose }: GlyphPickerProps) {
+  const t = useTranslations('common');
   const [index, setIndex] = useState<GlyphIndex | null>(null);
   const [failed, setFailed] = useState(false);
   const [query, setQuery] = useState('');
@@ -181,12 +184,13 @@ export function GlyphPicker({ value, onSelect, onRemove, only, suggest, keepOpen
   const section = (title: string, hits: GlyphHit[], total: number) => (hits.length ? (
     <div key={title}>
       <div className="label-caps" style={{ margin: '0.5rem 0 0.25rem' }}>
-        {title}{total > hits.length ? ` · ${hits.length} из ${total}` : ''}
+        {title}{total > hits.length ? ` ${t('glyph.shown', { shown: hits.length, total })}` : ''}
       </div>
       <div className="ui-glyph-grid">{hits.map(cell)}</div>
     </div>
   ) : null);
 
+  const modeItems = MODE_KEYS.map((m) => ({ key: m.key, label: t(m.labelKey) }));
   return (
     <div className="ui-glyphpicker">
       <div style={{ display: 'flex', gap: '0.375rem', alignItems: 'center' }}>
@@ -194,8 +198,8 @@ export function GlyphPicker({ value, onSelect, onRemove, only, suggest, keepOpen
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onClear={() => setQuery('')}
-          placeholder="Найти значок…"
-          aria-label="Поиск значка"
+          placeholder={t('glyph.searchPlaceholder')}
+          aria-label={t('glyph.searchAria')}
           width="100%"
           autoFocus
         />
@@ -204,7 +208,7 @@ export function GlyphPicker({ value, onSelect, onRemove, only, suggest, keepOpen
 
       {!searching && !only && (
         <div style={{ marginTop: '0.5rem' }}>
-          <SegmentedControl aria-label="Набор значков" value={mode} onChange={setMode} items={MODE_ITEMS} />
+          <SegmentedControl aria-label={t('glyph.setAria')} value={mode} onChange={setMode} items={modeItems} />
         </div>
       )}
 
@@ -219,16 +223,16 @@ export function GlyphPicker({ value, onSelect, onRemove, only, suggest, keepOpen
       )}
 
       <div className="ui-glyph-body" ref={gridRef} onKeyDown={onGridKey}>
-        {failed && <div className="body-sm" style={{ padding: '1rem 0' }}>Не удалось загрузить набор значков.</div>}
-        {!index && !failed && <div className="body-sm" style={{ padding: '1rem 0' }}>Загружаю…</div>}
+        {failed && <div className="body-sm" style={{ padding: '1rem 0' }}>{t('glyph.loadFailed')}</div>}
+        {!index && !failed && <div className="body-sm" style={{ padding: '1rem 0' }}>{t('state.loading')}</div>}
 
         {index && searching && results && (
           <>
-            {(!only || only === 'icons') && section('Иконки', results.icons, results.totals.icons)}
-            {(!only || only === 'fluent') && section('Свои эмодзи', results.fluent, results.totals.fluent)}
-            {(!only || only === 'noto') && section('Noto', results.noto, results.totals.noto)}
+            {(!only || only === 'icons') && section(t('glyph.setIcons'), results.icons, results.totals.icons)}
+            {(!only || only === 'fluent') && section(t('glyph.ownEmoji'), results.fluent, results.totals.fluent)}
+            {(!only || only === 'noto') && section(t('glyph.setNoto'), results.noto, results.totals.noto)}
             {!results.icons.length && !results.fluent.length && !results.noto.length && (
-              <div className="body-sm" style={{ padding: '1rem 0' }}>Ничего не нашлось. Попробуйте другое слово.</div>
+              <div className="body-sm" style={{ padding: '1rem 0' }}>{t('glyph.nothingFound')}</div>
             )}
           </>
         )}
@@ -237,8 +241,8 @@ export function GlyphPicker({ value, onSelect, onRemove, only, suggest, keepOpen
           <>
             {shownRecent.length > 0 && group === 0 && (
               <>
-                <div className="label-caps" style={{ margin: '0.25rem 0' }}>Недавние</div>
-                <div className="ui-glyph-grid">{shownRecent.map((v) => cell({ value: v, label: 'Недавний значок' }))}</div>
+                <div className="label-caps" style={{ margin: '0.25rem 0' }}>{t('glyph.recent')}</div>
+                <div className="ui-glyph-grid">{shownRecent.map((v) => cell({ value: v, label: t('glyph.recentItem') }))}</div>
                 <div className="label-caps" style={{ margin: '0.5rem 0 0.25rem' }}>{groups[group]?.l}</div>
               </>
             )}
@@ -250,7 +254,7 @@ export function GlyphPicker({ value, onSelect, onRemove, only, suggest, keepOpen
       {onRemove && value && (
         <div style={{ borderTop: '1px solid var(--divider)', paddingTop: '0.5rem' }}>
           <Button variant="ghost" size="sm" icon="close" onClick={() => { onRemove(); onClose?.(); }}>
-            Убрать значок
+            {t('glyph.remove')}
           </Button>
         </div>
       )}
@@ -262,6 +266,7 @@ export function GlyphPicker({ value, onSelect, onRemove, only, suggest, keepOpen
 
 /** Поповер с выборщиком у произвольной кнопки-якоря. */
 function useGlyphPopover(props: Omit<GlyphPickerProps, 'onClose'>) {
+  const t = useTranslations('common');
   const pop = usePopover<HTMLButtonElement>({ maxHeight: 430 });
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -274,7 +279,7 @@ function useGlyphPopover(props: Omit<GlyphPickerProps, 'onClose'>) {
           ref={pop.layerRef}
           className="ui-popover"
           role="dialog"
-          aria-label="Выбор значка"
+          aria-label={t('glyph.dialogAria')}
           style={{ ...pop.layerStyle, padding: '0.625rem', width: 336 }}
         >
           <GlyphPicker {...props} onClose={() => { pop.setOpen(false); pop.anchorRef.current?.focus(); }} />
@@ -297,7 +302,8 @@ export interface GlyphFieldProps extends Omit<GlyphPickerProps, 'onSelect' | 'on
 }
 
 /** Поле формы «Значок»: квадрат с текущим значком, по клику — выбор. */
-export function GlyphField({ label = 'Значок', hint, value, onChange, size = 44, suggest, only }: GlyphFieldProps) {
+export function GlyphField({ label, hint, value, onChange, size = 44, suggest, only }: GlyphFieldProps) {
+  const t = useTranslations('common');
   const { pop, layer } = useGlyphPopover({
     value,
     suggest,
@@ -307,7 +313,7 @@ export function GlyphField({ label = 'Значок', hint, value, onChange, size
   });
 
   return (
-    <Field label={label} hint={hint}>
+    <Field label={label ?? t('glyph.field')} hint={hint}>
       <button
         ref={pop.anchorRef}
         type="button"
@@ -316,8 +322,8 @@ export function GlyphField({ label = 'Значок', hint, value, onChange, size
         onClick={() => pop.setOpen(!pop.open)}
         aria-haspopup="dialog"
         aria-expanded={pop.open}
-        aria-label={value ? 'Изменить значок' : 'Выбрать значок'}
-        title={value ? 'Изменить значок' : 'Выбрать значок'}
+        aria-label={value ? t('glyph.change') : t('glyph.pick')}
+        title={value ? t('glyph.change') : t('glyph.pick')}
       >
         {value
           ? <Glyph value={value} size={Math.round(size * 0.55)} />

@@ -4,6 +4,7 @@
 // Chip / Badge / StatusDot — матовые метки статусов и фильтров.
 // ============================================================
 import { memo, type CSSProperties, type ReactNode } from 'react';
+import { useTranslations } from 'next-intl';
 import { Glyph } from './Glyph';
 import { Icon, type IconName } from './Icon';
 import { cx, toneVars, TONE_BASE, type Tone } from './tones';
@@ -41,11 +42,13 @@ export const Chip = memo(function Chip({
   onClick,
   selected,
   onRemove,
-  removeLabel = 'Убрать',
+  removeLabel,
   title,
   className,
   style,
 }: ChipProps) {
+  const t = useTranslations('common');
+  const removeText = removeLabel ?? t('actions.remove');
   // У чипа-фильтра невыбранное состояние всегда нейтральное: иначе десяток
   // разноцветных чипов в строке фильтров читается как набор статусов.
   const effective: Tone = onClick && selected === false ? 'neutral' : tone;
@@ -65,7 +68,7 @@ export const Chip = memo(function Chip({
         <span
           role="button"
           tabIndex={0}
-          aria-label={removeLabel}
+          aria-label={removeText}
           className="ui-chip-x"
           onClick={(e) => { e.stopPropagation(); onRemove(); }}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onRemove(); } }}
@@ -88,7 +91,7 @@ export const Chip = memo(function Chip({
         <button type="button" className="ui-chip-main" onClick={onClick} title={title} aria-pressed={selected}>
           {label}
         </button>
-        <button type="button" className="ui-chip-x" aria-label={removeLabel} title={removeLabel} onClick={onRemove}>
+        <button type="button" className="ui-chip-x" aria-label={removeText} title={removeText} onClick={onRemove}>
           <Icon name="close" size={12} />
         </button>
       </span>

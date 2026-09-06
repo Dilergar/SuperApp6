@@ -20,6 +20,9 @@
 - **Выгрузка файла с JWT-ручки — только БАЙТАМИ** (`apiGetRaw` → blob): голая `<a href>` на защищённую ручку = всегда 401 (прецеденты: протокол подписания, экспортный ZIP, кадровые выгрузки).
 - Поля — только из кита с `label`/`aria-label` (кит сам связывает `htmlFor`+`id`); голый `<input className="ui-input">` с несвязанным `<label>` оставляет поле без имени.
 - Закрытие оверлеев — единый `CloseChip` (самодельный × запрещён). Модалка кита: `role="dialog"` + Esc + ловушка фокуса + возврат фокуса.
+- **Строка для человека — только ключ каталога** (`useTranslations('<ns>')`), никогда не литерал: литерал — это один язык навсегда. Запрещено линтером `i18n/no-cyrillic-literal`. Свои неймспейсы страница получает серверным layout'ом: `<ServiceMessages ns="tasks">` (`apps/web/src/i18n/ServiceMessages.tsx`); `common` и `shell` есть везде. Подробно — [i18n.md](i18n.md).
+- **Форматирование — только через `@superapp/i18n`.** `toLocaleDateString('ru-RU')` запрещён: это язык и регион сразу, зашитые навсегда. Числовые даты и деньги языка не требуют (чистые `apps/web/src/lib/dates.ts`, `apps/web/src/lib/wallet-format.ts`); где есть слова — хуки `apps/web/src/lib/format.ts` (`useFormatters`, `useDayLabel`, `useByteUnits`).
+- Реестры UI несут КЛЮЧИ, а не подписи: `apps/web/src/lib/app-nav.ts` — `labelKey`, шаги мастеров — `labelKey`. Тот же приём, что `icon: 'tasks'`.
 
 ## Человек и выбор сущностей
 
@@ -57,12 +60,13 @@
 - ⚠️ CSS-импорты пакетов из чистого `.ts`-модуля Turbopack в сборку НЕ кладёт — переносить в `.tsx` компонента.
 - ⚠️ **Mantine запинен на ^8.3.11** (прямая зависимость apps/web) — НЕ поднимать до 9, пока Next не на react 19.2+ (Mantine 9 зовёт `useEffectEvent`, которого нет в вендоренном react App Router).
 - Lottie — через `next/dynamic` + IntersectionObserver-гейт.
-- Мобильный веб обязан работать: 375px без горизонтального скролла; сетки модалок — `auto-fit`, не жёсткие столбцы.
+- Мобильный веб обязан работать: 375px без горизонтального скролла; сетки модалок — `auto-fit`, не жёсткие столбцы. Запас ширины считать по kk/en: они длиннее русского до +30 %.
+- Клиентский код НЕ импортирует `@superapp/i18n` целиком — только подпути `/format` и `/locale`: пакет CommonJS, tree-shaking на него не действует, и полный импорт утащит в бандл словарь всех трёх языков.
 
 ## Линтер веба
 
-`apps/web/eslint.config.mjs` (flat, только стражи границы; всё — `error`): голый `api.get|post|patch|put|delete` — ВЕЗДЕ, включая `apps/web/src/lib/api.ts` (адаптер лишь реэкспортирует хелперы `@superapp/api-client`, override'а у него нет); распаковка конверта `res.data.data` И `data.data` после деструктуризации (два селектора); нативные `confirm`/`alert`. Единственное ослабление — `apps/web/src/lib/public-api.ts` (гостевой клиент, свой axios без перехватчиков): там разрешена распаковка `data.data` в типизированных `guestGet/guestPost`, запрет голого `api.*` действует и там. `pnpm lint` веба = `eslint src`, шаг в CI. Правила Next/react-hooks здесь не живут (их дом `next lint`).
+`apps/web/eslint.config.mjs` (flat, только стражи границы; всё — `error`): кириллица в литералах/шаблонах/тексте JSX (`i18n/no-cyrillic-literal` — ратчет `apps/web/i18n.legacy.json`, постоянное исключение `src/app/dev/**`); голый `api.get|post|patch|put|delete` — ВЕЗДЕ, включая `apps/web/src/lib/api.ts` (адаптер лишь реэкспортирует хелперы `@superapp/api-client`, override'а у него нет); распаковка конверта `res.data.data` И `data.data` после деструктуризации (два селектора); нативные `confirm`/`alert`. Единственное ослабление — `apps/web/src/lib/public-api.ts` (гостевой клиент, свой axios без перехватчиков): там разрешена распаковка `data.data` в типизированных `guestGet/guestPost`, запрет голого `api.*` действует и там. `pnpm lint` веба = `eslint src`, шаг в CI. Правила Next/react-hooks здесь не живут (их дом `next lint`).
 
 ## Связанные доки
 
-[contract_boundary.md](contract_boundary.md) · `/DESIGN.md` · [platform_gotchas.md](platform_gotchas.md) (браузерные ловушки проверки).
+[contract_boundary.md](contract_boundary.md) · [i18n.md](i18n.md) · `/DESIGN.md` · [platform_gotchas.md](platform_gotchas.md) (браузерные ловушки проверки).

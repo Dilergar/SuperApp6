@@ -1,0 +1,89 @@
+{
+  "actions": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "remove": "Remove",
+    "done": "Done",
+    "retry": "Try again",
+    "confirm": "Confirm",
+    "select": "Select",
+    "yes": "Yes",
+    "no": "No"
+  },
+  "state": {
+    "loading": "Loading…",
+    "empty": "Nothing here yet",
+    "error": "Something went wrong"
+  },
+  "day": {
+    "today": "Today",
+    "yesterday": "Yesterday"
+  },
+  "units": {
+    "b": "B",
+    "kb": "KB",
+    "mb": "MB",
+    "gb": "GB"
+  },
+  "labels": {
+    "dash": "—",
+    "someone": "Someone"
+  },
+  "a11y": {
+    "close": "Close",
+    "loading": "Loading",
+    "notifications": "Notifications",
+    "actions": "Actions",
+    "group": "group",
+    "expandGroup": "Expand {name}",
+    "collapseGroup": "Collapse {name}"
+  },
+  "chronicle": {
+    "empty": "Nothing has happened here yet — events will show up here",
+    "system": "System",
+    "taskContext": "· Task «{title}»",
+    "emptyValue": "—"
+  },
+  "calendar": {
+    "prevMonth": "Previous month",
+    "nextMonth": "Next month",
+    "pickDate": "Pick a date",
+    "clearDate": "Clear the date"
+  },
+  "glyph": {
+    "setIcons": "Icons",
+    "setOwn": "Ours",
+    "setNoto": "Noto",
+    "ownEmoji": "Our emoji",
+    "setAria": "Icon set",
+    "searchPlaceholder": "Find an icon…",
+    "searchAria": "Icon search",
+    "loadFailed": "Could not load the icon set.",
+    "nothingFound": "Nothing found. Try another word.",
+    "recent": "Recent",
+    "recentItem": "Recent icon",
+    "remove": "Remove icon",
+    "field": "Icon",
+    "change": "Change icon",
+    "pick": "Pick an icon",
+    "shown": "· {shown} of {total}",
+    "dialogAria": "Icon picker"
+  },
+  "language": {
+    "label": "Interface language",
+    "hint": "Menus, buttons and notifications will be shown in this language on every device."
+  },
+  "otp": {
+    "title": "Code from SMS",
+    "sentTo": "We sent the code to",
+    "yourNumber": "your number",
+    "smsOff": "SMS delivery is not configured — the message will not arrive, take the code from the hint below.",
+    "resend": "Send again",
+    "resendIn": "Send again ({time})",
+    "changeNumber": "Change the number"
+  },
+  "guest": {
+    "sharedVia": "Shared with you via SuperApp6"
+  }
+}

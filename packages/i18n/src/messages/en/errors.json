@@ -1,0 +1,68 @@
+{
+  "http": {
+    "badRequest": "The request is invalid",
+    "unauthorized": "Sign in to continue",
+    "forbidden": "You have no access to this",
+    "notFound": "Not found",
+    "conflict": "The data conflicts",
+    "tooManyRequests": "Too many attempts, try later",
+    "payloadTooLarge": "The file is too large",
+    "unsupportedMedia": "This file type is not supported"
+  },
+  "internal": "Internal server error",
+  "unavailable": "The service is temporarily unavailable",
+  "db": {
+    "uniqueViolation": "Such a record already exists",
+    "notFound": "The record was not found",
+    "relationMissing": "A related record was not found"
+  },
+  "validation": {
+    "failed": "Check the form",
+    "invalidType": "«{path}»: expected {expected}, got {received}",
+    "required": "«{path}» is required",
+    "tooSmall": {
+      "string": "«{path}»: at least {minimum, plural, one {# character} other {# characters}}",
+      "number": "«{path}»: minimum {minimum}",
+      "array": "«{path}»: at least {minimum, plural, one {# item} other {# items}}",
+      "date": "«{path}»: the date is too early",
+      "other": "«{path}»: the value is too small"
+    },
+    "tooBig": {
+      "string": "«{path}»: at most {maximum, plural, one {# character} other {# characters}}",
+      "number": "«{path}»: maximum {maximum}",
+      "array": "«{path}»: at most {maximum, plural, one {# item} other {# items}}",
+      "date": "«{path}»: the date is too late",
+      "other": "«{path}»: the value is too large"
+    },
+    "invalidString": {
+      "email": "«{path}»: invalid e-mail",
+      "url": "«{path}»: invalid link",
+      "uuid": "«{path}»: invalid identifier",
+      "datetime": "«{path}»: invalid date and time",
+      "other": "«{path}»: invalid format"
+    },
+    "invalidEnum": "«{path}»: unknown value",
+    "invalidDate": "«{path}»: invalid date",
+    "unrecognizedKeys": "Unknown fields: {keys}",
+    "notMultipleOf": "«{path}»: must be a multiple of {multipleOf}",
+    "notFinite": "«{path}»: the number is out of range",
+    "custom": "«{path}»: invalid value"
+  },
+  "workspace": {
+    "noAccess": "You have no access to this organization",
+    "notFound": "The organization was not found"
+  },
+  "auth": {
+    "unauthorized": "Sign in to continue",
+    "sessionExpired": "The session has expired — sign in again",
+    "localeUnsupported": "This language is not supported"
+  },
+  "notification": {
+    "notFound": "The notification was not found"
+  },
+  "chatter": {
+    "forbidden": "The chronicle of this record is not available to you",
+    "journalForbidden": "The organization journal is available from the Manager role",
+    "unknownRef": "Unknown record type"
+  }
+}

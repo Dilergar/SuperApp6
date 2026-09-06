@@ -19,17 +19,20 @@ import { apiErrorMessage } from '@/lib/api';
 import { isTokenStale, useOtpFlow } from '@/components/verify/otp-flow';
 import { OtpStep } from '@/components/verify/OtpStep';
 import { Alert, Button, Input } from '@/components/ui';
+import { useTranslations } from 'next-intl';
 import { AuthLayout } from '../auth-ui';
 
 type Step = 'phone' | 'code' | 'profile';
 
-const STEPS: Array<{ key: Step; label: string }> = [
-  { key: 'phone', label: 'Номер' },
-  { key: 'code', label: 'Код' },
-  { key: 'profile', label: 'О себе' },
+/** Шаги мастера: реестр несёт КЛЮЧИ, подписи собирает компонент. */
+const STEPS: Array<{ key: Step; labelKey: string }> = [
+  { key: 'phone', labelKey: 'register.stepPhone' },
+  { key: 'code', labelKey: 'register.stepCode' },
+  { key: 'profile', labelKey: 'register.stepProfile' },
 ];
 
 export default function RegisterPage() {
+  const t = useTranslations('auth');
   const router = useRouter();
   const register = useAuthStore((s) => s.register);
   const flow = useOtpFlow();
@@ -103,10 +106,10 @@ export default function RegisterPage() {
 
   return (
     <AuthLayout
-      title="Создать аккаунт"
-      subtitle="Один аккаунт — для всей жизни"
-      step={{ current: stepIdx, total: STEPS.length, labels: STEPS.map((s) => s.label) }}
-      footer={<>Уже есть аккаунт? <Link href="/login" style={{ fontWeight: 700 }}>Войти</Link></>}
+      title={t('register.title')}
+      subtitle={t('register.subtitle')}
+      step={{ current: stepIdx, total: STEPS.length, labels: STEPS.map((s) => t(s.labelKey)) }}
+      footer={<>{t('register.haveAccount')} <Link href="/login" style={{ fontWeight: 700 }}>{t('register.signIn')}</Link></>}
     >
       {/* ===== Шаг 1: номер ===== */}
       {step === 'phone' && (
@@ -116,32 +119,32 @@ export default function RegisterPage() {
               {phoneError}
               {phoneTaken && (
                 <div style={{ marginTop: '0.5rem', display: 'flex', gap: 'var(--spacing-4)' }}>
-                  <Link href="/login" style={{ fontWeight: 700 }}>Войти</Link>
-                  <Link href="/reset-password" style={{ fontWeight: 700 }}>Забыли пароль?</Link>
+                  <Link href="/login" style={{ fontWeight: 700 }}>{t('register.signIn')}</Link>
+                  <Link href="/reset-password" style={{ fontWeight: 700 }}>{t('login.forgot')}</Link>
                 </div>
               )}
             </Alert>
           )}
 
           <Input
-            label="Телефон"
+            label={t('login.phone')}
             type="tel"
             icon="device"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             placeholder="+77001234567"
-            hint="Отправим SMS с кодом подтверждения"
+            hint={t('register.phoneHint')}
             autoComplete="tel"
             required
             autoFocus
           />
 
           <Button type="submit" variant="primary" size="lg" block loading={phoneBusy}>
-            {phoneBusy ? 'Отправляем…' : 'Получить код'}
+            {phoneBusy ? t('register.sending') : t('register.getCode')}
           </Button>
 
           <p className="label-sm" style={{ textAlign: 'center', margin: 0 }}>
-            Бесплатный пробный период — 3 месяца
+            {t('register.trial')}
           </p>
         </form>
       )}
@@ -163,38 +166,38 @@ export default function RegisterPage() {
                   onClick={() => { setError(''); setTokenStale(false); void requestCode(); }}
                   style={{ display: 'block', marginTop: '0.4rem', background: 'none', border: 'none', padding: 0, fontWeight: 700, color: 'inherit', textDecoration: 'underline', cursor: 'pointer' }}
                 >
-                  Получить новый код
+                  {t('register.newCode')}
                 </button>
               )}
             </Alert>
           )}
 
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr)', gap: 'var(--spacing-4)' }}>
-            <Input label="Имя" value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="Санжар" required autoFocus />
-            <Input label="Фамилия" value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Не обяз." />
+            <Input label={t('register.firstName')} value={firstName} onChange={(e) => setFirstName(e.target.value)} required autoFocus />
+            <Input label={t('register.lastName')} value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder={t('register.lastNameHint')} />
           </div>
 
           <Input
-            label="Дата рождения"
+            label={t('register.dob')}
             type="date"
             value={dateOfBirth}
             onChange={(e) => setDateOfBirth(e.target.value)}
-            hint="Не обязательно — скрыта по умолчанию"
+            hint={t('register.dobHint')}
           />
 
           <Input
-            label="Пароль"
+            label={t('register.password')}
             type="password"
             icon="lock"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Минимум 8 символов"
+            placeholder={t('login.passwordPlaceholder')}
             autoComplete="new-password"
             required
           />
 
           <Button type="submit" variant="primary" tone="success" size="lg" block loading={loading}>
-            {loading ? 'Создаём…' : 'Создать аккаунт'}
+            {loading ? t('register.creating') : t('register.submit')}
           </Button>
         </form>
       )}

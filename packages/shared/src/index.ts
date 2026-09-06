@@ -98,6 +98,7 @@ export * from './utils/glyph';
 export * from './utils/requisites';
 
 // Constants
+export * from './constants/i18n';
 export * from './constants/roles';
 export * from './constants/contacts';
 export * from './constants/card-visibility';

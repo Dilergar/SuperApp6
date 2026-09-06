@@ -13,6 +13,10 @@ async function http(method, path, { token, body } = {}) {
     method,
     headers: {
       'Content-Type': 'application/json',
+      // Язык ответов сьюты — ЯВНЫМ заголовком выбора: `Accept-Language` сервер
+      // маршрутизирует под рынок (русский браузер → казахский), и русские ассерты
+      // ниже покраснели бы разом. Скрипты про сам перевод шлют свои заголовки.
+      'X-Locale': process.env.SA6_SUITE_LOCALE || 'ru',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     ...(body ? { body: JSON.stringify(body) } : {}),

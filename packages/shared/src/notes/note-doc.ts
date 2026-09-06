@@ -31,7 +31,6 @@ export function isSafeNoteHref(raw: unknown): boolean {
 /** Ссылка, годная к показу, либо null. Возвращает очищенную строку (без \0, \n, \t, BOM). */
 export function normalizeNoteHref(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
-  // eslint-disable-next-line no-control-regex
   const cleaned = raw.replace(/[\u0000-\u001F\u007F\u200B-\u200D\uFEFF]/g, '').trim();
   if (!cleaned || cleaned.length > NOTE_LIMITS.maxHrefLength) return null;
   // Протокол-относительная («//зло») запрещена: она уводит на чужой хост без схемы.

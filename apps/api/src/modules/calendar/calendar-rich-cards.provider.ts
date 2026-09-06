@@ -2,32 +2,33 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import type { RichCardAction, RichCardField, RichCardPayload } from '@superapp/shared';
 import { RichCardRegistry } from '../../core/rich-cards/rich-cards.registry';
 import type { RichCardDeps } from '../../core/rich-cards/rich-card.types';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { CalendarService } from './calendar.service';
 
-const RSVP_WORDS: Record<string, string> = {
-  pending: 'Не ответил(а)',
-  accepted: 'Иду',
-  declined: 'Не иду',
-  tentative: 'Возможно',
+/** RSVP → ключ каталога. Реестр называет смысл, каталог даёт слово. */
+const RSVP_KEYS: Record<string, string> = {
+  pending: 'richCards.event.rsvp.pending',
+  accepted: 'richCards.event.rsvp.accepted',
+  declined: 'richCards.event.rsvp.declined',
+  tentative: 'richCards.event.rsvp.tentative',
 };
-
-function fmtRange(start: Date, end: Date, allDay: boolean): string {
-  if (allDay) return start.toLocaleDateString('ru-RU');
-  const d = start.toLocaleDateString('ru-RU');
-  const opts: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
-  return `${d}, ${start.toLocaleTimeString('ru-RU', opts)}–${end.toLocaleTimeString('ru-RU', opts)}`;
-}
 
 /**
  * Registers the 'event' rich-card renderer + RSVP action handlers. The RSVP buttons show
  * only to an attendee (the organizer doesn't RSVP to their own event). Actions delegate to
  * CalendarService.rsvp, which re-checks participation.
+ *
+ * ЭТАЛОН переезда провайдера рич-карт на каталог (остальные — по сервису за
+ * сессию). Правило простое: ни одной строки для человека в файле — только ключи;
+ * даты и время — через `i18n.format(locale)`, а не `toLocaleString('ru-RU')`,
+ * иначе карточка навсегда останется русской с российскими форматами.
  */
 @Injectable()
 export class CalendarRichCardsProvider implements OnModuleInit {
   constructor(
     private readonly registry: RichCardRegistry,
     private readonly calendar: CalendarService,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit() {
@@ -45,6 +46,12 @@ export class CalendarRichCardsProvider implements OnModuleInit {
       requiredCapability: 'event.view',
       handler: (userId, refId) => this.calendar.rsvp(userId, refId, 'tentative'),
     });
+  }
+
+  /** Дата и время в правилах региона зрителя (пояс продукта — см. I18nService.format). */
+  private range(start: Date, end: Date, allDay: boolean): string {
+    const fmt = this.i18n.format();
+    return allDay ? fmt.date(start) : fmt.timeRange(start, end);
   }
 
   private async renderEvent(
@@ -67,24 +74,23 @@ export class CalendarRichCardsProvider implements OnModuleInit {
     });
     if (!event) return null;
 
+    const t = (key: string) => this.i18n.translate(key);
     const isOrganizer = event.userId === viewerId;
-    const myRsvp = event.participants[0]?.rsvp ?? null;
+    const myRsvp = event.participants[0]?.rsvp ?? 'pending';
+    const rsvpLabel = t(RSVP_KEYS[myRsvp] ?? RSVP_KEYS.pending);
+    const statusLabel = isOrganizer ? t('richCards.event.organizer') : rsvpLabel;
+    const when = this.range(event.startTime, event.endTime, event.allDay);
 
-    const fields: RichCardField[] = [
-      { label: 'Когда', value: fmtRange(event.startTime, event.endTime, event.allDay) },
-    ];
-    if (event.location) fields.push({ label: 'Где', value: event.location });
-    fields.push({
-      label: 'Ваш статус',
-      value: isOrganizer ? 'Организатор' : RSVP_WORDS[myRsvp ?? 'pending'] ?? 'Не ответил(а)',
-    });
+    const fields: RichCardField[] = [{ label: t('richCards.event.when'), value: when }];
+    if (event.location) fields.push({ label: t('richCards.event.where'), value: event.location });
+    fields.push({ label: t('richCards.event.yourStatus'), value: statusLabel });
 
     const actions: RichCardAction[] = [];
     // Only an attendee RSVPs (the organizer doesn't answer their own invite).
     if (!isOrganizer && event.participants.length > 0) {
-      actions.push({ key: 'event.rsvp_accept', label: 'Иду', style: 'primary' });
-      actions.push({ key: 'event.rsvp_tentative', label: 'Возможно', style: 'default' });
-      actions.push({ key: 'event.rsvp_decline', label: 'Не иду', style: 'danger' });
+      actions.push({ key: 'event.rsvp_accept', label: t('richCards.event.rsvp.accepted'), style: 'primary' });
+      actions.push({ key: 'event.rsvp_tentative', label: t('richCards.event.rsvp.tentative'), style: 'default' });
+      actions.push({ key: 'event.rsvp_decline', label: t('richCards.event.rsvp.declined'), style: 'danger' });
     }
 
     return {
@@ -92,12 +98,12 @@ export class CalendarRichCardsProvider implements OnModuleInit {
       cardType: 'event',
       ref: { type: 'event', id: refId },
       title: event.title,
-      subtitle: fmtRange(event.startTime, event.endTime, event.allDay),
+      subtitle: when,
       icon: '📅',
       imageUrl: null,
       fields,
       progress: null,
-      status: isOrganizer ? 'Организатор' : RSVP_WORDS[myRsvp ?? 'pending'] ?? null,
+      status: statusLabel,
       actions,
       href: '/calendar',
     };

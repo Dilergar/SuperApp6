@@ -20,6 +20,7 @@ import {
   type SignCheckResultDto,
 } from '@superapp/shared';
 import { Alert, Button, Card, Chip, Dropzone, Icon, Spinner } from '@/components/ui';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { signCheck } from '@/lib/public-api';
 
 export function CheckView({ actId, token }: { actId?: string; token?: string }) {
@@ -196,6 +197,15 @@ export function CheckView({ actId, token }: { actId?: string; token?: string }) 
           )}
         </div>
       )}
+
+      {/*
+        Открытая страница проверки подписи: сюда приходит человек ИЗВНЕ, без
+        аккаунта, и другого места сменить язык у него нет. Сам текст страницы
+        переедет в каталог вместе с сервисом подписи (docs/i18n_migration.md).
+      */}
+      <div style={{ display: 'flex', justifyContent: 'center', marginTop: 'var(--spacing-6)' }}>
+        <LanguageSwitcher width={180} />
+      </div>
     </main>
   );
 }

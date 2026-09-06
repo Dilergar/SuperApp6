@@ -21,7 +21,7 @@ const P1 = '+77009990001', P2 = '+77009990002', P3 = '+77009990003', PW = 'Test1
 let fails = 0;
 const check = (name, ok, extra) => { console.log(`${ok ? '✓' : '✗ FAIL'}  ${name}${extra ? `  (${extra})` : ''}`); if (!ok) fails++; };
 async function call(method, p, token, body) {
-  const res = await fetch(BASE + p, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  const res = await fetch(BASE + p, { method, headers: { 'Content-Type': 'application/json', 'X-Locale': process.env.SA6_SUITE_LOCALE || 'ru', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, body: body ? JSON.stringify(body) : undefined });
   let json = null; try { json = await res.json(); } catch {}
   return { status: res.status, ok: res.ok, json };
 }

@@ -9,13 +9,29 @@ import type { CursorPage } from './common';
 
 export type { ChatterCategory, ChatterTypeKey };
 
-/** Одно изменение поля «было → стало» (display-ready строки, готовые к показу) */
-export interface ChatterChange {
-  field: string;
-  /** «Срок», «Приоритет», «Роль»… */
-  label: string;
+/**
+ * Сырые значения изменения — чтобы зритель мог показать их СВОИМИ правилами.
+ * Дата, записанная как «03.09.2026», навсегда останется этим текстом; ISO-строка
+ * рядом с ней переформатируется под язык и регион того, кто читает.
+ */
+export interface ChatterChangeRaw {
   from: string | null;
   to: string | null;
+  kind: 'text' | 'date' | 'datetime' | 'number';
+}
+
+/** Одно изменение поля «было → стало» */
+export interface ChatterChange {
+  field: string;
+  /**
+   * СНАПШОТ подписи на момент записи («Срок», «Приоритет») — фолбэк для типов,
+   * чьи подписи ещё не переехали в каталог `chatter.fields.<refType>.<field>`.
+   */
+  label: string;
+  /** Снапшот display-строк — тот же фолбэк, когда `raw` нет (старые записи) */
+  from: string | null;
+  to: string | null;
+  raw?: ChatterChangeRaw | null;
 }
 
 /** Лайт-профиль актёра для PersonChip (батч-обогащение страницы) */
@@ -40,6 +56,12 @@ export interface ChatterEntryDto {
   typeKey: string;
   changes: ChatterChange[] | null;
   payload: Record<string, unknown> | null;
+  /**
+   * Плоский текст записи, уже собранный сервером в языке ЗАПРОСА.
+   * Веб может нарисовать своё (чипы людей через `t.rich`), mobile и AI берут
+   * готовую строку — контракт «и текст, и структура» из решения по i18n.
+   */
+  text: string;
   createdAt: string;
 }
 

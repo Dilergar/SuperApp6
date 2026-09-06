@@ -17,6 +17,7 @@ import { Icon, type IconName } from './Icon';
 import { Field } from './Input';
 import { cx } from './tones';
 import { usePopover } from './usePopover';
+import { useTranslations } from 'next-intl';
 
 export interface SelectOption<V extends string = string> {
   value: V;
@@ -54,7 +55,7 @@ export function Select<V extends string = string>({
   value,
   onChange,
   options,
-  placeholder = 'Выберите…',
+  placeholder,
   label,
   hint,
   error,
@@ -64,6 +65,8 @@ export function Select<V extends string = string>({
   id,
   'aria-label': ariaLabel,
 }: SelectProps<V>) {
+  const t = useTranslations('common');
+  const placeholderText = placeholder ?? t('actions.select');
   const { anchorRef, layerRef, open, setOpen, layerStyle } = usePopover<HTMLButtonElement>({ matchWidth: true });
   const [active, setActive] = useState(0);
   const [mounted, setMounted] = useState(false);
@@ -149,7 +152,7 @@ export function Select<V extends string = string>({
       aria-invalid={error ? true : undefined}
       aria-describedby={error || hint ? descId : undefined}
     >
-      <OptionFace opt={selected} placeholder={placeholder} />
+      <OptionFace opt={selected} placeholder={placeholderText} />
       <Icon name="caretDown" size={14} style={{ marginLeft: 'auto', color: 'var(--label)' }} />
     </button>
   );
@@ -161,7 +164,7 @@ export function Select<V extends string = string>({
               generic-элемент между listbox и option рвёт родство ролей */}
           <div ref={listRef} id={listboxId} role="listbox" aria-label={ariaLabel ?? label}>
             {options.length === 0 && (
-              <div style={{ padding: '0.75rem', fontSize: '0.75rem', color: 'var(--muted)' }}>Ничего нет</div>
+              <div style={{ padding: '0.75rem', fontSize: '0.75rem', color: 'var(--muted)' }}>{t('state.empty')}</div>
             )}
             {options.map((o, i) => (
               <button

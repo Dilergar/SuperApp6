@@ -4,25 +4,28 @@
 // Spinner / Skeleton / AvatarStack — мелкие индикаторы и группа аватаров.
 // ============================================================
 import type { CSSProperties, ReactNode } from 'react';
+import { useTranslations } from 'next-intl';
 import { cx } from './tones';
 
 export function Spinner({ size = 18, className, style }: { size?: number; className?: string; style?: CSSProperties }) {
+  const label = useTranslations('common')('a11y.loading');
   return (
     <span
       className={cx('ui-spinner', className)}
       style={{ width: size, height: size, ...style }}
       role="status"
-      aria-label="Загрузка"
+      aria-label={label}
     />
   );
 }
 
 /** Крупная заглушка загрузки раздела. */
-export function LoadingBlock({ text = 'Загружаем…' }: { text?: string }) {
+export function LoadingBlock({ text }: { text?: string }) {
+  const t = useTranslations('common');
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', padding: 'var(--spacing-12)' }}>
       <Spinner size={24} />
-      <span className="label-sm">{text}</span>
+      <span className="label-sm">{text ?? t('state.loading')}</span>
     </div>
   );
 }

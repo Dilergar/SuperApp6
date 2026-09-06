@@ -15,7 +15,7 @@ import {
 } from '@/components/ui';
 import { PersonChip } from '../circles/PersonCard';
 import {
-  bookParams, currencySymbol, dateToYmd, formatDayLabel, formatMoney, localToday,
+  bookParams, currencySymbol, dateToYmd, useDayLabel, formatMoney, localToday,
   parseMoneyInput, ymdToDate,
 } from './finance-lib';
 import { FinList, FinRow, Money } from './finance-ui';
@@ -428,6 +428,7 @@ export function TransactionFeed({
 }) {
   const [removing, setRemoving] = useState<FinTransactionDto | null>(null);
   const [busy, setBusy] = useState(false);
+  const dayLabel = useDayLabel();
 
   const groups = useMemo(() => {
     const byDay = new Map<string, FinTransactionDto[]>();
@@ -484,7 +485,7 @@ export function TransactionFeed({
             return (
               <div key={day}>
                 <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.5rem', marginBottom: 'var(--spacing-2)' }}>
-                  <span className="label-caps">{formatDayLabel(day)}</span>
+                  <span className="label-caps">{dayLabel(day)}</span>
                   {dayExpense.size > 0 && (
                     <span className="label-sm">
                       −{[...dayExpense.entries()].map(([code, sum]) => formatMoney(sum, code)).join(' · ')}

@@ -1,0 +1,192 @@
+{
+  "type": {
+    "task": {
+      "created": "{actorName} создал(а) задачу",
+      "assigned": "{actorName} назначил(а) задачу",
+      "submitted": "{actorName} сдал(а) работу на проверку",
+      "accepted": "Работа принята",
+      "returned": "Работа возвращена на доработку",
+      "completed": "Задача выполнена",
+      "document_created": "{actorName} открыл(а) файл «{title}» для совместного редактирования",
+      "document_edited": "{actorName} правил(а) документ «{title}» ({period})",
+      "cancelled": "{actorName} отменил(а) задачу",
+      "deadline_changed": "{actorName} изменил(а) срок: {from} → {to}",
+      "priority_changed": "{actorName} изменил(а) приоритет: {from} → {to}",
+      "reward_changed": "{actorName} изменил(а) награду: {from} → {to}",
+      "title_changed": "{actorName} переименовал(а) задачу: «{from}» → «{to}»",
+      "description_changed": "{actorName} обновил(а) описание",
+      "participant_added": "{actorName} добавил(а) {targetName} — {roleLabel}",
+      "participant_removed": "{actorName} исключил(а) {targetName}"
+    },
+    "document": {
+      "edited": "{actorName} правил(а) документ ({period})",
+      "version_saved": "{actorName} сохранил(а) версию {versionNo}",
+      "restored": "{actorName} вернул(а) версию {versionNo} как текущую",
+      "created": "{actorName} открыл(а) файл «{title}» для совместного редактирования"
+    },
+    "staff": {
+      "invited": "{actorName} пригласил(а) {targetName} в организацию",
+      "hired": "{actorName} вступил(а) в организацию (Стажёр)",
+      "fired": "{actorName} уволил(а) {targetName}",
+      "left": "{actorName} покинул(а) организацию",
+      "role_changed": "{actorName} изменил(а) роль {targetName}: {from} → {to}",
+      "ownership_transferred": "{actorName} передал(а) владение организацией — {targetName}",
+      "position_assigned": "{actorName} назначил(а) {targetName} на должность «{positionName}»{branchClause}",
+      "position_updated": "{actorName} изменил(а) назначение {targetName} («{positionName}»): {from} → {to}",
+      "position_certified": "{targetName} аттестован(а) по должности «{positionName}»",
+      "position_removed": "{actorName} снял(а) {targetName} с должности «{positionName}»",
+      "unit_created": "{actorName} создал(а) {unitLabel} «{unitName}»",
+      "unit_deleted": "{actorName} удалил(а) {unitLabel} «{unitName}»",
+      "head_set": "{actorName} — руководитель отдела «{departmentName}»: {from} → {to}",
+      "branch_head_set": "{actorName} — руководитель объекта «{branchName}»: {from} → {to}",
+      "reports_to_set": "{actorName} — подчинение должности «{positionName}»: {from} → {to}",
+      "position_moved": "{actorName} перенёс(ла) должность «{positionName}»: {from} → {to}",
+      "deputy_opened": "{actorName} назначил(а) заместителя по должности «{positionName}»: {deputyLabel}{periodLabel}",
+      "deputy_closed": "{actorName} снял(а) заместителя по должности «{positionName}»: {deputyLabel}",
+      "primary_changed": "{actorName} — основное место {targetName}: {from} → {to}",
+      "default_branch_changed": "{actorName} — основной объект организации: {from} → {to}"
+    },
+    "legal_entity": {
+      "created": "{actorName} добавил(а) юрлицо «{name}»",
+      "updated": "{actorName} изменил(а) реквизиты юрлица «{name}»",
+      "archived": "{actorName} отправил(а) юрлицо «{name}» в архив"
+    },
+    "branch": {
+      "created": "{actorName} создал(а) объект «{name}»",
+      "updated": "{actorName} изменил(а) объект: {fieldLabel} {from} → {to}",
+      "moved": "{actorName} перенёс(ла) объект: {from} → {to}",
+      "archived": "{actorName} {archiveVerb} объект",
+      "head_set": "{actorName} назначил(а) управляющую должность: {from} → {to}",
+      "legal_entity_set": "{actorName} сменил(а) юрлицо объекта: {from} → {to}"
+    },
+    "staffing": {
+      "unit_created": "{actorName} добавил(а) штатную единицу «{positionName}» ({headcount})",
+      "unit_updated": "{actorName} изменил(а) единицу «{positionName}»: {from} → {to}",
+      "unit_archived": "{actorName} убрал(а) штатную единицу «{positionName}»",
+      "assigned": "{actorName} назначил(а) {targetName} на «{positionName}» с {startsOn}",
+      "closed": "{actorName} закрыл(а) назначение {targetName} («{positionName}») по {endsOn}",
+      "assignment_updated": "{actorName} изменил(а) назначение {targetName} («{positionName}»)",
+      "rate_set": "{actorName} установил(а) ставку {rateLabel} с {effectiveFrom}"
+    },
+    "shift": {
+      "created": "{actorName} создал(а) смену {shiftLabel}",
+      "assigned": "{actorName} поставил(а) {targetName} на смену {shiftLabel}",
+      "unassigned": "{actorName} снял(а) {targetName} со смены {shiftLabel}",
+      "published": "{actorName} опубликовал(а) график: {periodLabel} ({count})",
+      "cancelled": "{actorName} отменил(а) смену {shiftLabel}",
+      "taken": "{actorName} взял(а) открытую смену {shiftLabel}",
+      "forced": "{actorName} поставил(а) смену {shiftLabel} в обход правила: {reason}"
+    },
+    "attendance": {
+      "marked": "{actorName} отметил(а) выход {targetName} {dateLabel}: {outcomeLabel}",
+      "removed": "{actorName} удалил(а) запись табеля {targetName} {dateLabel}"
+    },
+    "asset": {
+      "created": "{actorName} добавил(а) «{name}»",
+      "updated": "{actorName} изменил(а) карточку: {fieldLabel} {from} → {to}",
+      "moved": "{actorName} переместил(а): {from} → {to}",
+      "custodian_set": "{actorName} сменил(а) ответственного: {from} → {to}",
+      "holding_set": "{actorName} изменил(а) владение: {from} → {to}",
+      "status_set": "{actorName} изменил(а) состояние: {from} → {to}",
+      "service_logged": "{actorName} записал(а) обслуживание: {title}"
+    },
+    "drive": {
+      "created": "{actorName} добавил(а) «{targetName}»",
+      "renamed": "{actorName} переименовал(а): «{from}» → «{to}»",
+      "moved": "{actorName} переместил(а) «{targetName}» в «{to}»",
+      "shared": "{actorName} открыл(а) доступ к «{targetName}»: {principalLabel} — {roleLabel}",
+      "unshared": "{actorName} закрыл(а) доступ к «{targetName}»: {principalLabel}",
+      "trashed": "{actorName} удалил(а) «{targetName}» в корзину",
+      "restored": "{actorName} восстановил(а) «{targetName}»",
+      "version_saved": "{actorName} сохранил(а) версию {versionNo}",
+      "version_restored": "{actorName} вернул(а) версию {versionNo}"
+    },
+    "org_document": {
+      "created": "{actorName} создал(а) документ «{title}»",
+      "submitted": "{actorName} отправил(а) документ на маршрут",
+      "approved": "Документ согласован",
+      "signed": "Документ подписан",
+      "rejected": "Документ отклонён{reasonSuffix}",
+      "returned": "Документ отправлен на доработку{reasonSuffix}",
+      "registered": "Документу присвоен номер {number}",
+      "filed": "Документ подшит: {placeLabel}",
+      "cancelled": "{actorName} отменил(а) документ",
+      "withdrawn": "{actorName} вернул(а) документ в черновик",
+      "sent_external": "{actorName} отправил(а) документ контрагенту{contactSuffix}",
+      "counterparty_signed": "Контрагент подписал документ{signerSuffix}",
+      "counterparty_declined": "Контрагент отказался подписывать{reasonSuffix}",
+      "external_revoked": "{actorName} отозвал(а) отправку контрагенту",
+      "external_expired": "Срок подписания контрагентом истёк — документ вернулся в черновик",
+      "external_returned": "{actorName} вернул(а) документ в работу после отказа контрагента"
+    },
+    "counterparty": {
+      "restored": "{actorName} вернул(а) контрагента «{name}» из архива",
+      "created": "{actorName} добавил(а) контрагента «{name}»",
+      "updated": "{actorName} изменил(а) карточку контрагента",
+      "archived": "{actorName} убрал(а) контрагента в архив",
+      "contact_added": "{actorName} добавил(а) контактное лицо {contactName}",
+      "contact_removed": "{actorName} убрал(а) контактное лицо {contactName}"
+    },
+    "share": {
+      "link_created": "{actorName} создал(а) гостевую ссылку на «{targetName}»{labelSuffix}",
+      "link_revoked": "{actorName} отозвал(а) гостевую ссылку на «{targetName}»{labelSuffix}",
+      "link_rotated": "{actorName} сменил(а) адрес гостевой ссылки на «{targetName}»{labelSuffix}"
+    },
+    "process": {
+      "published_with_warnings": "{actorName} опубликовал(а) маршрут «{processName}» вопреки предупреждениям: {ruleList}"
+    },
+    "hr": {
+      "employment_updated": "{actorName} изменил(а) трудовую карточку: {fieldLabel} {from} → {to}",
+      "action_created": "{actorName} начал(а) действие «{kindLabel}»{documentSuffix}",
+      "action_applied": "{kindLabel}: применено{documentSuffix}",
+      "action_failed": "{kindLabel}: не применено — {reason}",
+      "action_cancelled": "{actorName} отменил(а) действие «{kindLabel}»{noteSuffix}",
+      "delivery_fixed": "{actorName} зафиксировал(а) вручение: {methodLabel}{trackSuffix}",
+      "sign_bin_warning": "Предупреждение о подписи: {reason}",
+      "esutd_submitted": "{actorName} отметил(а) сдачу в ЕСУТД: {kindLabel}{numberSuffix}",
+      "campaign_started": "{actorName} запустил(а) ознакомление «{title}» ({total} адресатов)",
+      "campaign_acknowledged": "{targetName} ознакомился(лась): «{title}»",
+      "library_installed": "{actorName} установил(а) из библиотеки «{title}»"
+    },
+    "note": {
+      "created": "{actorName} создал(а) заметку «{targetName}»",
+      "renamed": "{actorName} переименовал(а): «{from}» → «{to}»",
+      "moved": "{actorName} переместил(а) «{targetName}» в «{to}»",
+      "shared": "{actorName} открыл(а) доступ к «{targetName}»: {principalLabel} — {roleLabel}",
+      "unshared": "{actorName} закрыл(а) доступ к «{targetName}»: {principalLabel}",
+      "trashed": "{actorName} удалил(а) «{targetName}» в корзину",
+      "restored": "{actorName} восстановил(а) «{targetName}»",
+      "related": "{actorName} привязал(а) заметку к «{to}»",
+      "unrelated": "{actorName} отвязал(а) заметку от «{from}»",
+      "folder": {
+        "created": "{actorName} создал(а) папку «{targetName}»",
+        "renamed": "{actorName} переименовал(а) папку: «{from}» → «{to}»",
+        "moved": "{actorName} переместил(а) папку «{targetName}» в «{to}»",
+        "shared": "{actorName} открыл(а) доступ к папке «{targetName}»: {principalLabel} — {roleLabel}",
+        "unshared": "{actorName} закрыл(а) доступ к папке «{targetName}»: {principalLabel}",
+        "trashed": "{actorName} удалил(а) папку «{targetName}» в корзину",
+        "restored": "{actorName} восстановил(а) папку «{targetName}»"
+      }
+    }
+  },
+  "fields": {
+    "task": {
+      "dueDate": "Срок",
+      "priority": "Приоритет",
+      "coinReward": "Награда",
+      "title": "Название"
+    },
+    "counterparty": {
+      "name": "Название",
+      "legalName": "Юрнаименование",
+      "bin": "БИН/ИИН",
+      "legalAddress": "Юрадрес",
+      "actualAddress": "Фактический адрес",
+      "taxRegime": "Налоговый режим",
+      "directorName": "Руководитель",
+      "phone": "Телефон",
+      "email": "E-mail"
+    }
+  },
+  "branchClause": "филиал «{name}»"
+}

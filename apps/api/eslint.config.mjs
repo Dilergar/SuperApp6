@@ -1,5 +1,6 @@
 import tsParser from '@typescript-eslint/parser';
 import tsPlugin from '@typescript-eslint/eslint-plugin';
+import noCyrillicLiteral from '../../scripts/eslint-rules/no-cyrillic-literal.cjs';
 
 // ============================================================
 // МЕХАНИЧЕСКИЙ СТРАЖ ИСХОДЯЩИХ ЗАПРОСОВ.
@@ -132,5 +133,25 @@ export default [
     // исключение ровно в том месте, ради которого написан весь конфиг.
     files: ['src/shared/http/**/*.ts'],
     linterOptions: { reportUnusedDisableDirectives: 'error' },
+  },
+  // ============================================================
+  // СТРАЖ МУЛЬТИЯЗЫЧНОСТИ: текст для человека API тоже отдаёт из каталога
+  // (@superapp/i18n через I18nService), а не литералом.
+  // ============================================================
+  {
+    files: ['src/**/*.ts'],
+    plugins: { i18n: { rules: { 'no-cyrillic-literal': noCyrillicLiteral } } },
+    rules: {
+      'i18n/no-cyrillic-literal': [
+        'error',
+        {
+          allowFiles: [
+            // DSL шаблонов документов: имена форматтеров («дата:долгая») — это
+            // СИНТАКСИС, который человек пишет в самом шаблоне, а не интерфейс.
+            'src/core/templates/template-formatters.ts',
+          ],
+        },
+      ],
+    },
   },
 ];

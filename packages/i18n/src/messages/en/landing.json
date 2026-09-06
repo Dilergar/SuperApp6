@@ -1,0 +1,46 @@
+{
+  "nav": {
+    "signIn": "Sign in",
+    "start": "Get started"
+  },
+  "hero": {
+    "line1": "One app.",
+    "line2": "A whole life.",
+    "text": "Tasks, calendar, your circle, work tools — all in one account. Like a sketchbook that holds your whole life.",
+    "cta": "Create an account",
+    "trial": "Free for 3 months"
+  },
+  "demo": {
+    "circleLabel": "Circle",
+    "circleName": "Family",
+    "wife": "wife",
+    "mom": "mom",
+    "brother": "brother",
+    "taskLabel": "Task",
+    "taskTitle": "Buy groceries",
+    "taskDue": "by 18:00",
+    "taskCoins": "+5 coins"
+  },
+  "features": {
+    "titleBefore": "Your ",
+    "titleAccent": "personal",
+    "titleAfter": " superapp",
+    "circle": {
+      "title": "Circle",
+      "text": "Organize your contacts by role: family, friends, colleagues. Assign tasks and share your calendar."
+    },
+    "tasks": {
+      "title": "Tasks",
+      "text": "Set tasks for yourself and for the people close to you. Subtasks, deadlines, priorities, coins for getting them done."
+    },
+    "calendar": {
+      "title": "Calendar",
+      "text": "Every event and task in one place. Google Calendar sync, sharing with the family."
+    }
+  },
+  "cta": {
+    "title": "One account — for everything",
+    "text": "Husband, friend, employee, administrator — every role in one place. No extra accounts and passwords.",
+    "button": "Try it free"
+  }
+}

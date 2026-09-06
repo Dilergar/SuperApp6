@@ -7,10 +7,11 @@ import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { useAuthStore } from '@/lib/stores/auth';
 import { apiDelete, apiErrorMessage, apiGet, apiPatch } from '@/lib/api';
 import { useConfirm } from '@/components/ui/useConfirm';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
+import { useFormatters } from '@/lib/format';
+import { useLocale, useTranslations } from 'next-intl';
 import {
-  MONTH_NAMES_RU,
   REQUISITE_VISIBILITY_EXTRAS,
-  REQUISITE_VISIBILITY_LABELS,
   isValidIinOrBin,
   resolveCardVisibility,
   type CardVisibility,
@@ -32,28 +33,35 @@ type Section = 'form' | 'card' | 'skins' | 'wallet' | 'stats' | 'roles' | 'subsc
 
 const KNOWN_SECTIONS: Section[] = ['form', 'card', 'skins', 'wallet', 'stats', 'roles', 'subscription', 'settings', 'security'];
 
-const MARITAL_OPTIONS = [
-  { value: '', label: 'Не указано' },
-  { value: 'single', label: 'Не женат/не замужем' },
-  { value: 'married', label: 'Женат/замужем' },
-  { value: 'relationship', label: 'В отношениях' },
-  { value: 'divorced', label: 'Разведён(а)' },
-  { value: 'widowed', label: 'Вдовец/вдова' },
-];
+/** Значения перечисления + ключи каталога: подписи собираются в компоненте. */
+const MARITAL_VALUES = ['', 'single', 'married', 'relationship', 'divorced', 'widowed'] as const;
+const MARITAL_KEYS: Record<string, string> = {
+  '': 'form.marital.none',
+  single: 'form.marital.single',
+  married: 'form.marital.married',
+  relationship: 'form.marital.relationship',
+  divorced: 'form.marital.divorced',
+  widowed: 'form.marital.widowed',
+};
+
+/**
+ * Названия месяцев для раздельного ввода даты рождения даёт `Intl` НА ЯЗЫКЕ
+ * зрителя — родительный падеж («января») там, где язык его требует.
+ */
+function monthOptionNames(locale: string): string[] {
+  const f = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', timeZone: 'UTC' });
+  return Array.from({ length: 12 }, (_, i) =>
+    // Из «1 января» берём только месяц: отдельного «genitive month» в Intl нет.
+    f.format(new Date(Date.UTC(2021, i, 1))).replace(/^\s*\d+\s*/, '').trim(),
+  );
+}
 
 type VisField =
   | 'city' | 'bio' | 'dateOfBirth' | 'age'
   | 'maritalStatus' | 'email' | 'socialLinks' | 'onlineStatus';
 
-const FIELD_META: { key: VisField; label: string }[] = [
-  { key: 'city', label: 'Город' },
-  { key: 'bio', label: 'О себе' },
-  { key: 'dateOfBirth', label: 'Дата рождения' },
-  { key: 'age', label: 'Возраст' },
-  { key: 'maritalStatus', label: 'Семейное положение' },
-  { key: 'email', label: 'Email' },
-  { key: 'socialLinks', label: 'Соцсети' },
-  { key: 'onlineStatus', label: 'Онлайн-статус' },
+const FIELD_KEYS: VisField[] = [
+  'city', 'bio', 'dateOfBirth', 'age', 'maritalStatus', 'email', 'socialLinks', 'onlineStatus',
 ];
 
 const DEFAULT_PREVIEW = '__default__';
@@ -63,6 +71,11 @@ const DEFAULT_PREVIEW = '__default__';
 // ============================================================
 
 export default function ProfileSectionPage() {
+  const t = useTranslations('profile');
+  const common = useTranslations('common');
+  const locale = useLocale();
+  // Даты и числа — через форматтеры платформы (регион КЗ), а не toLocaleString('ru-RU').
+  const fmt = useFormatters();
   const router = useRouter();
   const params = useParams<{ section: string }>();
   const rawSection = (params?.section ?? 'card') as Section;
@@ -169,7 +182,7 @@ export default function ProfileSectionPage() {
 
   const handleDeleteAccount = async () => {
     setDeleteError('');
-    if (!deletePassword) { setDeleteError('Введите пароль'); return; }
+    if (!deletePassword) { setDeleteError(t('delete.enterPassword')); return; }
     setDeleting(true);
     try {
       // Schedules deletion (30-day grace) and revokes sessions server-side.
@@ -178,7 +191,7 @@ export default function ProfileSectionPage() {
       router.push('/login?deleted=1');
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { message?: string } } };
-      setDeleteError(axiosErr.response?.data?.message || 'Не удалось удалить аккаунт');
+      setDeleteError(axiosErr.response?.data?.message || t('delete.failed'));
       setDeleting(false);
     }
   };
@@ -186,7 +199,7 @@ export default function ProfileSectionPage() {
   const handleSaveProfile = async () => {
     clear();
     if (!editData.firstName.trim()) {
-      setError('Имя обязательно');
+      setError(t('form.firstNameRequired'));
       return;
     }
     // Дата рождения собирается из трёх полей; заполнена частично — честная ошибка,
@@ -194,7 +207,7 @@ export default function ProfileSectionPage() {
     const dobParts = [editData.dobDay, editData.dobMonth, editData.dobYear];
     const dobFilled = dobParts.filter((p) => p !== '').length;
     if (dobFilled > 0 && dobFilled < 3) {
-      setError('Дата рождения: заполните день, месяц и год (или очистите все три поля)');
+      setError(t('form.dobPartial'));
       return;
     }
     let dateOfBirth: string | null = null;
@@ -210,13 +223,13 @@ export default function ProfileSectionPage() {
         year < 1900 ||
         composed.getTime() > Date.now()
       ) {
-        setError('Дата рождения: такой даты не существует');
+        setError(t('form.dobInvalid'));
         return;
       }
       dateOfBirth = `${year}-${String(monthIdx + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     }
     if (editData.iin.trim() && !isValidIinOrBin(editData.iin.trim())) {
-      setError('ИИН: 12 цифр, проверьте номер — не сходится контрольная сумма');
+      setError(t('form.iinInvalidLong'));
       return;
     }
     try {
@@ -243,10 +256,10 @@ export default function ProfileSectionPage() {
 
       await apiPatch('/users/me', payload);
       await fetchProfile();
-      setSuccessMsg('Анкета сохранена');
+      setSuccessMsg(t('form.saved'));
     } catch (err: unknown) {
       const a = err as { response?: { data?: { message?: string } } };
-      setError(a.response?.data?.message || 'Ошибка сохранения');
+      setError(a.response?.data?.message || t('form.saveFailed'));
     }
   };
 
@@ -260,9 +273,9 @@ export default function ProfileSectionPage() {
     visTimer.current = setTimeout(async () => {
       try {
         await apiPatch('/users/me', { cardVisibility: next });
-        setSuccessMsg('Видимость по умолчанию сохранена');
+        setSuccessMsg(t('visibility.savedDefault'));
       } catch {
-        setError('Ошибка сохранения видимости');
+        setError(t('visibility.saveFailed'));
       }
     }, 600);
   };
@@ -277,9 +290,9 @@ export default function ProfileSectionPage() {
     visCompanyTimer.current = setTimeout(async () => {
       try {
         await apiPatch('/users/me', { companyCardVisibility: next });
-        setSuccessMsg('Видимость в Компаниях сохранена');
+        setSuccessMsg(t('visibility.savedCompany'));
       } catch {
-        setError('Ошибка сохранения видимости');
+        setError(t('visibility.saveFailed'));
       }
     }, 600);
   };
@@ -298,9 +311,9 @@ export default function ProfileSectionPage() {
     visCompanyTimer.current = setTimeout(async () => {
       try {
         await apiPatch('/users/me', { companyCardVisibility: next });
-        setSuccessMsg('Видимость в Компаниях сохранена');
+        setSuccessMsg(t('visibility.savedCompany'));
       } catch {
-        setError('Ошибка сохранения видимости');
+        setError(t('visibility.saveFailed'));
       }
     }, 600);
   };
@@ -309,7 +322,7 @@ export default function ProfileSectionPage() {
     try {
       setSessions(await apiGet<SessionInfo[]>('/users/me/sessions'));
     } catch {
-      setError('Не удалось загрузить сессии');
+      setError(t('security.sessionsFailed'));
     }
   };
 
@@ -317,7 +330,7 @@ export default function ProfileSectionPage() {
     try {
       await apiDelete(`/users/me/sessions/${sessionId}`);
       setSessions((prev) => prev.filter((s) => s.id !== sessionId));
-      setSuccessMsg('Сессия завершена');
+      setSuccessMsg(t('security.sessionEnded'));
     } catch (err: unknown) {
       setError(apiErrorMessage(err));
     }
@@ -331,9 +344,9 @@ export default function ProfileSectionPage() {
     if (session.isCurrent) {
       confirm(
         {
-          title: 'Это ваша текущая сессия',
-          message: 'Завершив её, вы выйдете из аккаунта на этом устройстве.',
-          confirmLabel: 'Завершить и выйти',
+          title: t('security.currentTitle'),
+          message: t('security.currentText'),
+          confirmLabel: t('security.currentConfirm'),
           danger: true,
         },
         () => dropSession(session.id),
@@ -349,7 +362,7 @@ export default function ProfileSectionPage() {
   }, [section, isReady]);
 
   if (!isReady || !profile) {
-    return <p className="label-md" style={{ fontSize: '1rem' }}>Загрузка...</p>;
+    return <p className="label-md" style={{ fontSize: '1rem' }}>{common('state.loading')}</p>;
   }
 
   const p = profile;
@@ -357,7 +370,10 @@ export default function ProfileSectionPage() {
   const previewVis = previewGroup
     ? resolveCardVisibility(previewGroup.cardVisibility)
     : resolveCardVisibility(vis ?? p.cardVisibility ?? null);
-  const previewLabel = previewGroup ? previewGroup.name : 'По умолчанию (без группы)';
+  const previewLabel = previewGroup ? previewGroup.name : t('card.defaultGroup');
+  const monthNames = monthOptionNames(locale);
+  const maritalOptions = MARITAL_VALUES.map((v) => ({ value: v as string, label: t(MARITAL_KEYS[v]) }));
+  const fieldMeta = FIELD_KEYS.map((key) => ({ key, label: t(`field.${key}`) }));
 
   return (
     <div>
@@ -368,9 +384,9 @@ export default function ProfileSectionPage() {
       {/* === Моя Анкета: данные + видимость по умолчанию === */}
       {section === 'form' && (
         <div>
-          <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-2)' }}>Моя Анкета</h2>
+          <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-2)' }}>{t('form.title')}</h2>
           <p className="label-sm" style={{ marginBottom: 'var(--spacing-6)', opacity: 0.7 }}>
-            Здесь вся информация. Видимость для конкретных людей настраивается по Группам на странице «Окружение».
+            {t('form.subtitle')}
           </p>
 
           <div className="card-elevated" style={{ padding: 'var(--spacing-6)', maxWidth: '560px' }}>
@@ -380,11 +396,11 @@ export default function ProfileSectionPage() {
               <AvatarUploadBlock
                 current={profile?.avatar ?? null}
                 fallback={(profile?.firstName?.[0] ?? '?').toUpperCase()}
-                label="Аватарка"
+                label={t('form.avatar')}
                 onSaved={async (url) => {
                   await apiPatch('/users/me', { avatar: url });
                   await fetchProfile();
-                  setSuccessMsg(url ? 'Фото обновлено' : 'Фото удалено');
+                  setSuccessMsg(url ? t('form.photoUpdated') : t('form.photoRemoved'));
                   setTimeout(() => setSuccessMsg(''), 2500);
                 }}
               />
@@ -393,41 +409,41 @@ export default function ProfileSectionPage() {
                   анкеты не имело имени для скринридера, а клик по подписи не наводил
                   курсор в поле. */}
               <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)' }}>
-                <Input label="Имя" required value={editData.firstName} onChange={(e) => setEditData({ ...editData, firstName: e.target.value })} />
-                <Input label="Фамилия" value={editData.lastName} onChange={(e) => setEditData({ ...editData, lastName: e.target.value })} />
+                <Input label={t('form.firstName')} required value={editData.firstName} onChange={(e) => setEditData({ ...editData, firstName: e.target.value })} />
+                <Input label={t('form.lastName')} value={editData.lastName} onChange={(e) => setEditData({ ...editData, lastName: e.target.value })} />
               </div>
               <Input
-                label="О себе"
-                hint={`${editData.bio.length}/160 символов`}
+                label={t('form.bio')}
+                hint={t('form.bioHint', { n: editData.bio.length })}
                 value={editData.bio}
                 onChange={(e) => setEditData({ ...editData, bio: e.target.value.slice(0, 160) })}
-                placeholder="Расскажите о себе..."
+                placeholder={t('form.bioPlaceholder')}
               />
-              <Input label="Город" value={editData.city} onChange={(e) => setEditData({ ...editData, city: e.target.value })} placeholder="Алматы" />
+              <Input label={t('form.city')} value={editData.city} onChange={(e) => setEditData({ ...editData, city: e.target.value })} />
               {/* Дата рождения — три поля (день / месяц названием / год), решение продукта */}
               <div>
-                <span className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-2)', fontWeight: 600 }}>Дата рождения</span>
+                <span className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-2)', fontWeight: 600 }}>{t('form.dob')}</span>
                 <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 100px', gap: 'var(--spacing-3)' }}>
                   <Input
-                    aria-label="День рождения"
+                    aria-label={t('form.dobDay')}
                     inputMode="numeric"
-                    placeholder="День"
+                    placeholder={t('form.dobDayShort')}
                     value={editData.dobDay}
                     onChange={(e) => setEditData({ ...editData, dobDay: e.target.value.replace(/\D/g, '').slice(0, 2) })}
                   />
                   <Select
-                    aria-label="Месяц рождения"
+                    aria-label={t('form.dobMonth')}
                     value={editData.dobMonth}
                     onChange={(v) => setEditData({ ...editData, dobMonth: v })}
                     options={[
-                      { value: '', label: 'Месяц' },
-                      ...MONTH_NAMES_RU.map((m, i) => ({ value: String(i), label: m })),
+                      { value: '', label: t('form.dobMonthShort') },
+                      ...monthNames.map((m, i) => ({ value: String(i), label: m })),
                     ]}
                   />
                   <Input
-                    aria-label="Год рождения"
+                    aria-label={t('form.dobYear')}
                     inputMode="numeric"
-                    placeholder="Год"
+                    placeholder={t('form.dobYearShort')}
                     value={editData.dobYear}
                     onChange={(e) => setEditData({ ...editData, dobYear: e.target.value.replace(/\D/g, '').slice(0, 4) })}
                   />
@@ -435,10 +451,10 @@ export default function ProfileSectionPage() {
               </div>
               <Input label="Email" type="email" value={editData.email} onChange={(e) => setEditData({ ...editData, email: e.target.value })} placeholder="user@example.com" />
               <Select
-                label="Семейное положение"
+                label={t('form.maritalStatus')}
                 value={editData.maritalStatus}
                 onChange={(v) => setEditData({ ...editData, maritalStatus: v })}
-                options={MARITAL_OPTIONS}
+                options={maritalOptions}
               />
               <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)' }}>
                 <Input label="Telegram" value={editData.telegram} onChange={(e) => setEditData({ ...editData, telegram: e.target.value })} placeholder="@username" />
@@ -447,74 +463,70 @@ export default function ProfileSectionPage() {
                 <Input label="WhatsApp" value={editData.whatsapp} onChange={(e) => setEditData({ ...editData, whatsapp: e.target.value })} placeholder="+77001234567" />
               </div>
               {/* ---- Реквизиты: комплект для трудового договора и выплат ---- */}
-              <h3 className="title-md" style={{ margin: 'var(--spacing-4) 0 0' }}>Для договоров и трудоустройства</h3>
+              <h3 className="title-md" style={{ margin: 'var(--spacing-4) 0 0' }}>{t('form.requisitesTitle')}</h3>
               <p className="label-sm" style={{ margin: 0, opacity: 0.7, lineHeight: 1.5 }}>
-                Эти данные видят только управляющие организаций, где вы работаете, — для договоров,
-                трудоустройства и выплат. Друзьям и коллегам они не показываются (коллегам — только
-                если включите ниже в «Видимости в Компаниях»).
+                {t('form.requisitesText')}
               </p>
               <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)' }}>
                 <Input
-                  label="Отчество"
-                  placeholder="Болатұлы"
-                  hint="Печатается в полном ФИО приказов и договоров"
+                  label={t('form.middleName')}
+                  hint={t('form.middleNameHint')}
                   value={editData.middleName}
                   onChange={(e) => setEditData({ ...editData, middleName: e.target.value })}
                 />
                 <Input
-                  label="ИИН"
+                  label={t('form.iin')}
                   inputMode="numeric"
-                  placeholder="12 цифр"
+                  placeholder={t('form.iinPlaceholder')}
                   value={editData.iin}
                   onChange={(e) => setEditData({ ...editData, iin: e.target.value.replace(/\D/g, '').slice(0, 12) })}
-                  error={editData.iin && !isValidIinOrBin(editData.iin) ? 'Не сходится контрольная сумма' : undefined}
+                  error={editData.iin && !isValidIinOrBin(editData.iin) ? t('form.iinInvalid') : undefined}
                 />
                 <Input
-                  label="Адрес проживания"
+                  label={t('form.address')}
                   value={editData.residentialAddress}
                   onChange={(e) => setEditData({ ...editData, residentialAddress: e.target.value })}
-                  placeholder="г. Алматы, ул. …, д. …, кв. …"
+
                 />
               </div>
               <div className="grid md:grid-cols-3" style={{ gap: 'var(--spacing-4)' }}>
                 <Input
-                  label="Удостоверение №"
+                  label={t('form.idNumber')}
                   value={editData.idDocNumber}
                   onChange={(e) => setEditData({ ...editData, idDocNumber: e.target.value })}
                   placeholder="0XXXXXXXX"
                 />
                 <Input
-                  label="Кем выдано"
+                  label={t('form.idIssuedBy')}
                   value={editData.idDocIssuedBy}
                   onChange={(e) => setEditData({ ...editData, idDocIssuedBy: e.target.value })}
-                  placeholder="МВД РК"
+
                 />
                 <Input
-                  label="Дата выдачи"
+                  label={t('form.idIssuedAt')}
                   type="date"
                   value={editData.idDocIssuedAt}
                   onChange={(e) => setEditData({ ...editData, idDocIssuedAt: e.target.value })}
                 />
               </div>
               <p className="label-sm" style={{ margin: 0, opacity: 0.7 }}>
-                Карта для выплат добавляется в разделе «Кошелёк».
+                {t('form.payoutCardNote')}
               </p>
               <Button variant="primary" tone="success" onClick={handleSaveProfile} style={{ marginTop: 'var(--spacing-2)', alignSelf: 'flex-start' }}>
-                Сохранить анкету
+                {t('form.save')}
               </Button>
             </div>
           </div>
 
           {/* Default visibility (for people in no group) */}
-          <h3 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-1)' }}>Видимость по умолчанию</h3>
+          <h3 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-1)' }}>{t('visibility.defaultTitle')}</h3>
           <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)', opacity: 0.7 }}>
-            Что видит человек из окружения, которого ты ещё не добавил ни в одну Группу.
-            Имя, фамилия, телефон и роль видны всегда. Сохраняется автоматически.
+            {t('visibility.defaultText')}
           </p>
           {vis && (
             <div className="card-elevated" style={{ padding: 'var(--spacing-4)' }}>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)' }}>
-                {FIELD_META.map((f) => {
+                {fieldMeta.map((f) => {
                   const on = vis[f.key];
                   return (
                     <button
@@ -529,7 +541,7 @@ export default function ProfileSectionPage() {
                         opacity: on ? 1 : 0.6, transition: 'all 0.15s ease',
                       }}
                     >
-                      {f.label}: {on ? 'вид.' : 'скр.'}
+                      {f.label}: {on ? t('visibility.on') : t('visibility.off')}
                     </button>
                   );
                 })}
@@ -538,15 +550,14 @@ export default function ProfileSectionPage() {
           )}
 
           {/* Видимость в Компаниях (что видят коллеги по организациям) */}
-          <h3 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-1)' }}>Видимость в Компаниях</h3>
+          <h3 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-1)' }}>{t('visibility.companyTitle')}</h3>
           <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)', opacity: 0.7 }}>
-            Что видят коллеги по организациям на твоей карточке в разделе «Сотрудники».
-            Имя, фамилия, телефон и должность видны всегда. Сохраняется автоматически.
+            {t('visibility.companyText')}
           </p>
           {visCompany && (
             <div className="card-elevated" style={{ padding: 'var(--spacing-4)' }}>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)' }}>
-                {FIELD_META.map((f) => {
+                {fieldMeta.map((f) => {
                   const on = visCompany[f.key];
                   return (
                     <button
@@ -561,14 +572,14 @@ export default function ProfileSectionPage() {
                         opacity: on ? 1 : 0.6, transition: 'all 0.15s ease',
                       }}
                     >
-                      {f.label}: {on ? 'вид.' : 'скр.'}
+                      {f.label}: {on ? t('visibility.on') : t('visibility.off')}
                     </button>
                   );
                 })}
               </div>
               {/* Конфиденциальные реквизиты коллегам — по умолчанию ВЫКЛЮЧЕНЫ */}
               <p className="label-sm" style={{ margin: 'var(--spacing-4) 0 var(--spacing-2)', opacity: 0.7 }}>
-                Конфиденциальное (коллегам по умолчанию скрыто):
+                {t('visibility.confidential')}
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)' }}>
                 {(Object.values(REQUISITE_VISIBILITY_EXTRAS) as string[]).map((key) => {
@@ -586,7 +597,7 @@ export default function ProfileSectionPage() {
                         opacity: on ? 1 : 0.6, transition: 'all 0.15s ease',
                       }}
                     >
-                      {REQUISITE_VISIBILITY_LABELS[key as keyof typeof REQUISITE_VISIBILITY_LABELS]}: {on ? 'вид.' : 'скр.'}
+                      {t(`requisite.${key}`)}: {on ? t('visibility.on') : t('visibility.off')}
                     </button>
                   );
                 })}
@@ -595,13 +606,12 @@ export default function ProfileSectionPage() {
           )}
 
           {/* Второй уровень — управляющим; нередактируемый по решению продукта */}
-          <h3 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-1)' }}>Для управляющих организаций</h3>
+          <h3 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-1)' }}>{t('visibility.managersTitle')}</h3>
           <div className="alert-neutral-inline" style={{ padding: 'var(--spacing-4)', maxWidth: '560px' }}>
             <p className="label-sm" style={{ margin: 0, lineHeight: 1.55 }}>
-              Управляющим (Менеджер и выше) организаций, где вы работаете, всегда видны:
-              <b> ИИН, дата рождения, адрес проживания, удостоверение личности и основная карта</b> —
-              это данные для договоров, трудоустройства и выплат. Отключить их нельзя;
-              рядовые коллеги их не видят, пока вы не включите тумблеры выше.
+              {t('visibility.managersText')}
+              <b>{t('visibility.managersList')}</b>{' '}
+              {t('visibility.managersTail')}
             </p>
           </div>
         </div>
@@ -611,24 +621,23 @@ export default function ProfileSectionPage() {
       {section === 'card' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--spacing-4)', flexWrap: 'wrap', marginBottom: 'var(--spacing-6)' }}>
-            <h2 className="title-lg">Моя карточка</h2>
+            <h2 className="title-lg">{t('card.title')}</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
-              <span className="label-sm">Как видит:</span>
+              <span className="label-sm">{t('card.seenBy')}</span>
               <Select
-                aria-label="Чьими глазами смотреть на карточку"
+                aria-label={t('card.previewAria')}
                 value={previewId}
                 onChange={setPreviewId}
                 width={240}
                 options={[
-                  { value: DEFAULT_PREVIEW, label: 'По умолчанию (без группы)' },
+                  { value: DEFAULT_PREVIEW, label: t('card.defaultGroup') },
                   ...groups.map((g) => ({ value: g.id, label: g.name })),
                 ]}
               />
             </div>
           </div>
           <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)', opacity: 0.7 }}>
-            Так выглядит ваша карточка для «{previewLabel}». Данные меняются во вкладке «Моя Анкета»,
-            видимость групп — на странице «Окружение».
+            {t('card.note', { name: previewLabel })}
           </p>
           <PersonCard
             mode="full"
@@ -659,12 +668,15 @@ export default function ProfileSectionPage() {
       {/* === Stats === */}
       {section === 'stats' && (
         <div>
-          <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-6)' }}>Статистика</h2>
+          <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-6)' }}>{t('stats.title')}</h2>
           <div className="grid grid-cols-2 md:grid-cols-4" style={{ gap: 'var(--spacing-4)' }}>
-            <StatTile label="Людей" value={p.contactsCount ?? 0} />
-            <StatTile label="Групп" value={p.circlesCount ?? 0} />
-            <StatTile label="Пространств" value={p.workspacesCount ?? 0} />
-            <StatTile label="Член с" value={p.createdAt ? new Date(p.createdAt).toLocaleDateString('ru-RU', { month: 'short', year: 'numeric' }) : '—'} />
+            <StatTile label={t('stats.people')} value={p.contactsCount ?? 0} />
+            <StatTile label={t('stats.groups')} value={p.circlesCount ?? 0} />
+            <StatTile label={t('stats.workspaces')} value={p.workspacesCount ?? 0} />
+            <StatTile
+              label={t('stats.memberSince')}
+              value={p.createdAt ? fmt.date(p.createdAt, 'monthYear') : common('labels.dash')}
+            />
           </div>
         </div>
       )}
@@ -672,7 +684,7 @@ export default function ProfileSectionPage() {
       {/* === Roles === */}
       {section === 'roles' && (
         <div>
-          <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-6)' }}>Мои роли</h2>
+          <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-6)' }}>{t('roles.title')}</h2>
           {p.roles && p.roles.length > 0 ? (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-3)' }}>
               {p.roles.map((r, i) => (
@@ -683,7 +695,7 @@ export default function ProfileSectionPage() {
               ))}
             </div>
           ) : (
-            <p className="label-md">Нет активных ролей</p>
+            <p className="label-md">{t('roles.empty')}</p>
           )}
         </div>
       )}
@@ -691,19 +703,19 @@ export default function ProfileSectionPage() {
       {/* === Subscription === */}
       {section === 'subscription' && (
         <div>
-          <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-6)' }}>Подписка</h2>
+          <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-6)' }}>{t('subscription.title')}</h2>
           {p.activeSubscription ? (
             <div className="alert-accent-inline" style={{ padding: 'var(--spacing-6)', maxWidth: '400px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--spacing-3)' }}>
                 <span className="title-md" style={{ textTransform: 'capitalize' }}>{p.activeSubscription.plan}</span>
-                <span className="ui-chip ui-chip--sm">{p.activeSubscription.status === 'trial' ? 'Пробный период' : p.activeSubscription.status}</span>
+                <span className="ui-chip ui-chip--sm">{p.activeSubscription.status === 'trial' ? t('subscription.trial') : p.activeSubscription.status}</span>
               </div>
-              <p className="label-sm">Истекает: {new Date(p.activeSubscription.expiresAt).toLocaleDateString('ru-RU')}</p>
+              <p className="label-sm">{t('subscription.expires', { date: fmt.date(p.activeSubscription.expiresAt) })}</p>
             </div>
           ) : (
             <div className="card" style={{ padding: 'var(--spacing-6)', maxWidth: '400px', textAlign: 'center' }}>
-              <p className="label-md" style={{ marginBottom: 'var(--spacing-4)' }}>Бесплатный план</p>
-              <button className="btn-primary" style={{ opacity: 0.5, cursor: 'not-allowed' }}>Улучшить (скоро)</button>
+              <p className="label-md" style={{ marginBottom: 'var(--spacing-4)' }}>{t('subscription.free')}</p>
+              <button className="btn-primary" style={{ opacity: 0.5, cursor: 'not-allowed' }}>{t('subscription.upgrade')}</button>
             </div>
           )}
         </div>
@@ -712,31 +724,39 @@ export default function ProfileSectionPage() {
       {/* === Settings === */}
       {section === 'settings' && (
         <div>
-          <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-6)' }}>Настройки</h2>
+          <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-6)' }}>{t('settings.title')}</h2>
           <div className="card-elevated" style={{ padding: 'var(--spacing-6)', maxWidth: '400px', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
-            <Select
-              label="Язык"
-              hint="Смена языка — скоро"
+            <h3 className="title-md" style={{ margin: 0 }}>{t('language.section')}</h3>
+            {/*
+              ОДИН тумблер «Язык» — форматы дат и чисел ему не подчиняются: они
+              принадлежат РЕГИОНУ (Казахстан), и человек, выбравший English,
+              по-прежнему видит 03.09.2026 и 12 500 ₸. Регион станет отдельной
+              настройкой позже — модель уже разделена, рефакторинг не понадобится.
+            */}
+            <LanguageSwitcher label={t('language.label')} width="100%" />
+            <Input
+              label={t('language.regionLabel')}
+              value={t('language.regionValue')}
+              hint={t('language.regionHint')}
+              readOnly
               disabled
-              value={p.locale || 'ru'}
-              onChange={() => {}}
-              options={[
-                { value: 'ru', label: 'Русский' },
-                { value: 'kk', label: 'Қазақша' },
-                { value: 'en', label: 'English' },
-              ]}
             />
-            <Input label="Часовой пояс" defaultValue={p.timezone || 'Asia/Almaty'} disabled />
+            <Input
+              label={t('language.timezoneLabel')}
+              defaultValue={p.timezone || 'Asia/Almaty'}
+              hint={t('language.timezoneHint')}
+              disabled
+            />
             <Select
-              label="Онлайн-статус видят"
+              label={t('settings.onlineStatus')}
               value={p.onlineStatusMode || 'everyone'}
               onChange={async (v) => {
-                try { await apiPatch('/users/me', { onlineStatusMode: v }); await fetchProfile(); setSuccessMsg('Сохранено'); } catch { setError('Ошибка'); }
+                try { await apiPatch('/users/me', { onlineStatusMode: v }); await fetchProfile(); setSuccessMsg(t('settings.saved')); } catch { setError(t('settings.saveFailed')); }
               }}
               options={[
-                { value: 'everyone', label: 'Все' },
-                { value: 'contacts', label: 'Только контакты' },
-                { value: 'nobody', label: 'Никто' },
+                { value: 'everyone', label: t('settings.online.everyone') },
+                { value: 'contacts', label: t('settings.online.contacts') },
+                { value: 'nobody', label: t('settings.online.nobody') },
               ]}
             />
           </div>
@@ -746,27 +766,27 @@ export default function ProfileSectionPage() {
       {/* === Security === */}
       {section === 'security' && (
         <div>
-          <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-6)' }}>Безопасность</h2>
+          <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-6)' }}>{t('security.title')}</h2>
 
-          <h3 className="title-md" style={{ marginBottom: 'var(--spacing-4)' }}>Активные сессии</h3>
+          <h3 className="title-md" style={{ marginBottom: 'var(--spacing-4)' }}>{t('security.sessions')}</h3>
           {confirmUI}
           {sessions.length === 0 ? (
-            <p className="label-md">Нет активных сессий</p>
+            <p className="label-md">{t('security.noSessions')}</p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)', maxWidth: '500px' }}>
               {sessions.map((s) => (
                 <div key={s.id} className="card" style={{ padding: 'var(--spacing-4)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 500, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
-                      {s.deviceInfo || 'Неизвестное устройство'}
-                      {s.isCurrent && <Chip tone="accent" size="sm">Текущая</Chip>}
+                      {s.deviceInfo || t('security.unknownDevice')}
+                      {s.isCurrent && <Chip tone="accent" size="sm">{t('security.current')}</Chip>}
                     </div>
-                    <div className="label-sm">Последняя активность: {new Date(s.lastActive).toLocaleString('ru-RU')}</div>
+                    <div className="label-sm">{t('security.lastActive', { date: fmt.dateTime(s.lastActive) })}</div>
                   </div>
                   <button onClick={() => handleDeleteSession(s)}
                     style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 500 }}
                   >
-                    Завершить
+                    {t('security.endSession')}
                   </button>
                 </div>
               ))}
@@ -774,28 +794,27 @@ export default function ProfileSectionPage() {
           )}
 
           <div style={{ marginTop: 'var(--spacing-8)' }}>
-            <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>Пароль и номер</h3>
+            <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>{t('security.passwordPhone')}</h3>
             <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)', opacity: 0.75, maxWidth: '460px', lineHeight: 1.5 }}>
-              Обе операции подтверждаются SMS-кодом. Смена номера требует доступ и к текущему,
-              и к новому номеру.
+              {t('security.passwordPhoneText')}
             </p>
             <div style={{ display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
               <button className="btn-ghost-inline" style={{ fontSize: '0.85rem' }} onClick={() => setShowPasswordDialog(true)}>
-                Изменить пароль
+                {t('security.changePassword')}
               </button>
               <button className="btn-ghost-inline" style={{ fontSize: '0.85rem' }} onClick={() => setShowPhoneDialog(true)}>
-                Сменить номер телефона
+                {t('security.changePhone')}
               </button>
             </div>
           </div>
 
           <div style={{ marginTop: 'var(--spacing-8)' }}>
-            <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)', color: 'var(--danger)' }}>Опасная зона</h3>
+            <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)', color: 'var(--danger)' }}>{t('security.dangerZone')}</h3>
             <button
               onClick={() => { setShowDeleteModal(true); setDeletePassword(''); setDeleteError(''); }}
               style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--danger)', background: 'none', border: '1.5px solid var(--danger)', borderRadius: '10px', padding: 'var(--spacing-2) var(--spacing-4)', cursor: 'pointer' }}
             >
-              Удалить аккаунт
+              {t('security.deleteAccount')}
             </button>
           </div>
         </div>
@@ -809,23 +828,23 @@ export default function ProfileSectionPage() {
       {showDeleteModal && (
         <ModalShell onClose={() => !deleting && setShowDeleteModal(false)} zIndex={200}>
           <div onClick={(e) => e.stopPropagation()} className="card" style={{ maxWidth: '440px', width: '100%', padding: 'var(--spacing-6)' }}>
-            <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)', color: 'var(--danger)' }}>Удалить аккаунт?</h3>
+            <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)', color: 'var(--danger)' }}>{t('delete.title')}</h3>
             <p className="label-md" style={{ marginBottom: 'var(--spacing-4)', lineHeight: 1.55 }}>
-              Аккаунт будет помечен на удаление. У вас есть <b>30 дней</b>, чтобы передумать — просто войдите снова, и он восстановится. По истечении срока данные удаляются безвозвратно.
+              {t('delete.textBefore')}<b>{t('delete.days')}</b>{t('delete.textAfter')}
             </p>
             <Input
-              label="Текущий пароль"
+              label={t('delete.password')}
               type="password"
               autoComplete="current-password"
               value={deletePassword}
               onChange={(e) => setDeletePassword(e.target.value)}
-              placeholder="Подтвердите текущим паролем"
+              placeholder={t('delete.passwordPlaceholder')}
               wrapClassName="mb-3"
             />
             {deleteError && <p style={{ color: 'var(--danger)', fontSize: '0.8rem', marginBottom: 'var(--spacing-3)' }}>{deleteError}</p>}
             <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end' }}>
-              <button className="btn-ghost-inline" disabled={deleting} style={{ fontSize: '0.85rem' }} onClick={() => { setShowDeleteModal(false); setDeletePassword(''); setDeleteError(''); }}>Отмена</button>
-              <button disabled={deleting} onClick={handleDeleteAccount} style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--on-primary)', background: 'var(--danger)', border: 'none', borderRadius: '10px', padding: 'var(--spacing-2) var(--spacing-5)', cursor: deleting ? 'default' : 'pointer', opacity: deleting ? 0.6 : 1 }}>{deleting ? 'Удаление…' : 'Удалить'}</button>
+              <button className="btn-ghost-inline" disabled={deleting} style={{ fontSize: '0.85rem' }} onClick={() => { setShowDeleteModal(false); setDeletePassword(''); setDeleteError(''); }}>{common('actions.cancel')}</button>
+              <button disabled={deleting} onClick={handleDeleteAccount} style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--on-primary)', background: 'var(--danger)', border: 'none', borderRadius: '10px', padding: 'var(--spacing-2) var(--spacing-5)', cursor: deleting ? 'default' : 'pointer', opacity: deleting ? 0.6 : 1 }}>{deleting ? t('delete.deleting') : t('delete.submit')}</button>
             </div>
           </div>
         </ModalShell>

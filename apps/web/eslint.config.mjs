@@ -1,6 +1,7 @@
 import tsParser from '@typescript-eslint/parser';
 import nextPlugin from '@next/eslint-plugin-next';
 import reactHooks from 'eslint-plugin-react-hooks';
+import noCyrillicLiteral from '../../scripts/eslint-rules/no-cyrillic-literal.cjs';
 
 // ============================================================
 // МЕХАНИЧЕСКИЙ СТРАЖ ГРАНИЦЫ API ↔ клиент (третий эшелон защиты).
@@ -89,6 +90,28 @@ export default [
             "CallExpression[callee.object.name='api'][callee.property.name=/^(get|post|patch|put|delete)$/]",
           message:
             'Голый api.get/post/... запрещён. Ходите в API хелперами apiGet<T>/apiPost<T>/… из @/lib/api: тип T берётся из @superapp/shared и стоит на ОБЕИХ сторонах провода.',
+        },
+      ],
+    },
+  },
+  // ============================================================
+  // СТРАЖ МУЛЬТИЯЗЫЧНОСТИ: строка для человека — только ключ каталога.
+  //
+  // Список `i18n.legacy.json` рядом с этим конфигом перечисляет файлы, которые
+  // ещё не переведены. Он только СОКРАЩАЕТСЯ: `pnpm check:i18n` падает, когда
+  // файл из списка уже чист, — значит строку пора убрать.
+  // ============================================================
+  {
+    files: ['src/**/*.ts', 'src/**/*.tsx'],
+    plugins: { i18n: { rules: { 'no-cyrillic-literal': noCyrillicLiteral } } },
+    rules: {
+      'i18n/no-cyrillic-literal': [
+        'error',
+        {
+          allowFiles: [
+            // Витрина кита: она ПОКАЗЫВАЕТ компоненты, и её образцы — не продукт.
+            'src/app/dev/**',
+          ],
         },
       ],
     },

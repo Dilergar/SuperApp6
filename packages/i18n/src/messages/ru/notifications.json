@@ -1,0 +1,455 @@
+{
+  "contact": {
+    "invitation": {
+      "received": {
+        "title": "{fromName} хочет добавить вас в контакты",
+        "body": "{message}"
+      },
+      "accepted": {
+        "title": "{byName} принял ваше приглашение"
+      },
+      "rejected": {
+        "title": "{byName} отклонил ваше приглашение"
+      },
+      "cancelled": {
+        "title": "Приглашение отменено"
+      },
+      "expired": {
+        "title": "Приглашение для {toPhone} истекло",
+        "body": "Его можно отправить повторно"
+      }
+    },
+    "linked": {
+      "title": "{otherName} теперь в ваших контактах"
+    },
+    "removed": {
+      "title": "Контакт удалён"
+    }
+  },
+  "task": {
+    "assigned": {
+      "title": "Вам назначена задача: {taskTitle}"
+    },
+    "completed": {
+      "title": "Задача выполнена: {taskTitle}"
+    },
+    "due_soon": {
+      "title": "Скоро дедлайн: {taskTitle}"
+    },
+    "submitted": {
+      "title": "{byName} сдал(а) задачу на проверку: {taskTitle}"
+    },
+    "accepted": {
+      "title": "Задача принята: {taskTitle}"
+    },
+    "returned": {
+      "title": "Задача возвращена в работу: {taskTitle}"
+    },
+    "overdue": {
+      "title": "Просрочена задача: {taskTitle}"
+    }
+  },
+  "wallet": {
+    "coins": {
+      "received": {
+        "title": "Вы заработали {amount} {currencyName}",
+        "body": "За задачу «{taskTitle}»"
+      }
+    }
+  },
+  "calendar": {
+    "event": {
+      "invited": {
+        "title": "Приглашение на событие: {eventTitle}"
+      },
+      "reminder": {
+        "title": "Напоминание: {eventTitle}"
+      },
+      "rsvp": {
+        "title": "{byName}: {rsvpLabel} — {eventTitle}"
+      },
+      "updated": {
+        "title": "Событие изменено: {eventTitle}"
+      },
+      "cancelled": {
+        "title": "Событие отменено: {eventTitle}"
+      }
+    },
+    "resource": {
+      "requested": {
+        "title": "Заявка на «{resourceName}»: {eventTitle}"
+      },
+      "confirmed": {
+        "title": "Бронь подтверждена: {resourceName}"
+      },
+      "rejected": {
+        "title": "Бронь отклонена: {resourceName}"
+      }
+    }
+  },
+  "workspace": {
+    "invitation": {
+      "received": {
+        "title": "{workspaceName} приглашает вас на работу",
+        "body": "{message}"
+      },
+      "accepted": {
+        "title": "{byName} принял(а) приглашение в {workspaceName}"
+      },
+      "rejected": {
+        "title": "{byName} отклонил(а) приглашение в {workspaceName}"
+      }
+    },
+    "member": {
+      "removed": {
+        "title": "Вас исключили из организации {workspaceName}"
+      }
+    },
+    "role": {
+      "changed": {
+        "title": "Ваша роль в {workspaceName} изменена: {role}"
+      }
+    },
+    "position": {
+      "assigned": {
+        "title": "Вам назначена должность в {workspaceName}: {positionName}",
+        "body": "{branchName}"
+      },
+      "certified": {
+        "title": "Вы аттестованы по должности {positionName} в {workspaceName}"
+      }
+    },
+    "archive": {
+      "expiring": {
+        "title": "Организация «{workspaceName}» будет удалена через {daysWord}",
+        "body": "Она в архиве. Восстановите её, если удалять не нужно — после {purgeDate} вернуть будет нельзя."
+      }
+    }
+  },
+  "objects": {
+    "shifts": {
+      "published": {
+        "title": "График опубликован: {branchName}",
+        "body": "{periodLabel} — смен: {count}"
+      }
+    },
+    "shift": {
+      "changed": {
+        "title": "Смена изменена: {dateLabel}"
+      },
+      "taken": {
+        "title": "Открытую смену взяли: {dateLabel}"
+      }
+    }
+  },
+  "staff": {
+    "head": {
+      "assigned": {
+        "title": "Вы руководите {unitLabel} в {workspaceName}",
+        "body": "Должность «{positionName}» назначена руководящей — согласования и заявления подчинённых теперь приходят вам."
+      }
+    },
+    "deputy": {
+      "assigned": {
+        "title": "Вы — заместитель по должности «{positionName}» в {workspaceName}",
+        "body": "{periodLabel}"
+      }
+    }
+  },
+  "shop": {
+    "order": {
+      "placed": {
+        "title": "Новый заказ: {title}"
+      },
+      "confirmed": {
+        "title": "Заказ подтверждён: {title}"
+      },
+      "rejected": {
+        "title": "Заказ отклонён: {title}"
+      },
+      "cancelled": {
+        "title": "Покупатель отменил заказ: {title}"
+      },
+      "funded": {
+        "title": "Сбор собран: {title} — подтвердите"
+      }
+    }
+  },
+  "mention": {
+    "received": {
+      "title": "{mentionerName} упомянул(а) вас",
+      "body": "{snippet}"
+    }
+  },
+  "auth": {
+    "password": {
+      "changed": {
+        "title": "Пароль изменён",
+        "body": "Если это были не вы — срочно смените пароль и завершите чужие сессии."
+      }
+    },
+    "phone": {
+      "changed": {
+        "title": "Номер телефона изменён",
+        "body": "Новый номер входа: {newPhoneMasked}. Если это были не вы — свяжитесь с нами."
+      }
+    }
+  },
+  "files": {
+    "scan": {
+      "infected": {
+        "title": "Файл «{name}» заражён и заблокирован"
+      }
+    }
+  },
+  "voice": {
+    "transcript": {
+      "ready": {
+        "title": "Расшифровка «{title}» готова"
+      },
+      "failed": {
+        "title": "Не удалось расшифровать «{title}»"
+      }
+    }
+  },
+  "call": {
+    "missed": {
+      "title": "Пропущенный звонок от {fromName}"
+    },
+    "recording": {
+      "ready": {
+        "title": "Запись звонка «{title}» — в Журнале звонков"
+      },
+      "failed": {
+        "title": "Не удалось записать звонок"
+      }
+    }
+  },
+  "office": {
+    "meeting": {
+      "invited": {
+        "title": "{byName} приглашает вас на встречу «{roomName}»"
+      }
+    }
+  },
+  "process": {
+    "finished": {
+      "title": "Процесс «{processName}» завершён"
+    },
+    "failed": {
+      "title": "Процесс «{processName}» остановлен с ошибкой",
+      "body": "{error}"
+    },
+    "step": {
+      "notify": {
+        "title": "{title}",
+        "body": "{message}"
+      },
+      "overdue": {
+        "title": "Просрочен шаг: {title}",
+        "body": "Процесс «{processName}»"
+      }
+    },
+    "approval": {
+      "requested": {
+        "title": "Нужно ваше решение: {title}",
+        "body": "Процесс «{processName}»"
+      }
+    },
+    "task": {
+      "queued": {
+        "title": "Новая задача отдела: {title}",
+        "body": "{departmentName} · процесс «{processName}»"
+      }
+    }
+  },
+  "finance": {
+    "budget": {
+      "warning": {
+        "title": "Лимит «{categoryName}» почти исчерпан",
+        "body": "{spent} из {limit} за {periodLabel}"
+      },
+      "exceeded": {
+        "title": "Лимит «{categoryName}» превышен",
+        "body": "{spent} из {limit} за {periodLabel}"
+      }
+    },
+    "debt": {
+      "payment_due": {
+        "title": "Сегодня платёж по «{debtName}»",
+        "body": "{amount} — подтвердите оплату в Финансах"
+      },
+      "paid": {
+        "title": "Долг «{debtName}» полностью выплачен 🎉",
+        "body": "{amount}"
+      }
+    },
+    "recurring": {
+      "due": {
+        "title": "Подтвердите операцию «{title}»",
+        "body": "{amount}"
+      },
+      "recorded": {
+        "title": "Записано: {title}",
+        "body": "{amount}"
+      }
+    },
+    "book": {
+      "shared": {
+        "title": "{ownerName} открыл(а) вам доступ к финансам",
+        "body": "Роль: {roleLabel}"
+      }
+    }
+  },
+  "drive": {
+    "shared": {
+      "title": "{ownerName} открыл(а) вам доступ",
+      "body": "«{nodeName}» — {roleLabel}"
+    }
+  },
+  "note": {
+    "shared": {
+      "title": "{ownerName} поделил(ась) заметкой",
+      "body": "«{noteName}» — {roleLabel}"
+    }
+  },
+  "share": {
+    "link": {
+      "opened": {
+        "title": "Ссылку открыли",
+        "body": "«{targetName}»{labelSuffix}{guestSuffix}",
+        "muted": {
+          "title": "Ссылку открывают часто",
+          "body": "«{targetName}»{labelSuffix} — сегодня больше не уведомляем, счётчик в «Моих ссылках»"
+        }
+      }
+    }
+  },
+  "document": {
+    "resolved": {
+      "title": "{outcomeLabel}: «{title}»",
+      "body": "{numberLabel}"
+    },
+    "counterparty_signed": {
+      "title": "Контрагент подписал: «{title}»",
+      "body": "{signerLabel}"
+    },
+    "counterparty_declined": {
+      "title": "Контрагент отказал: «{title}»",
+      "body": "{reasonLabel}"
+    },
+    "internal_declined": {
+      "title": "Подписант отказал: «{title}»",
+      "body": "{signerLabel}{reasonLabel}"
+    },
+    "external_expired": {
+      "title": "Срок подписания истёк: «{title}»",
+      "body": "Документ вернулся в черновик — отправьте его заново"
+    }
+  },
+  "approval": {
+    "requested": {
+      "title": "{actionLabel}: «{refTitle}»",
+      "body": "{stepTitle}"
+    },
+    "due_soon": {
+      "title": "Скоро срок: «{refTitle}»",
+      "body": "{stepTitle} — до {deadlineLabel}"
+    },
+    "overdue": {
+      "title": "Просрочено решение по «{refTitle}»",
+      "body": "{stepTitle}"
+    },
+    "resolved": {
+      "title": "{outcomeLabel}: «{refTitle}»",
+      "body": "{comment}"
+    },
+    "unassigned": {
+      "title": "Некому решать: «{refTitle}»",
+      "body": "{stepTitle} — в «{assigneeLabel}» нет ни одного сотрудника"
+    }
+  },
+  "sign": {
+    "requested": {
+      "title": "Подпишите: «{refTitle}»",
+      "body": "{levelLabel}"
+    },
+    "completed": {
+      "title": "Документ подписан: «{refTitle}»",
+      "body": "{signersLabel}"
+    },
+    "declined": {
+      "title": "Отказ от подписи: «{refTitle}»",
+      "body": "{reason}"
+    }
+  },
+  "hr": {
+    "action": {
+      "applied": {
+        "title": "{kindLabel}: применено",
+        "body": "{targetName} · с {effectiveAt}"
+      },
+      "failed": {
+        "title": "{kindLabel}: не применено",
+        "body": "{reason}"
+      },
+      "withdrawn": {
+        "title": "{targetName} отозвал(а) заявление",
+        "body": "Отзыв безусловен весь срок уведомления (ст. 56 п. 4 ТК РК). {note}"
+      }
+    },
+    "esutd": {
+      "due_soon": {
+        "title": "ЕСУТД: подходит срок сдачи",
+        "body": "{kindLabel} · {targetName} · осталось {daysLeft}"
+      }
+    },
+    "campaign": {
+      "assigned": {
+        "title": "Ознакомьтесь: «{title}»",
+        "body": "{workspaceName}"
+      },
+      "reminder": {
+        "title": "Документ ждёт ознакомления: «{title}»"
+      },
+      "done": {
+        "title": "Кампания завершена: «{title}»",
+        "body": "Ознакомились {acknowledged} из {total}"
+      }
+    },
+    "delivery": {
+      "due": {
+        "title": "Акт ждёт вручения: «{title}»",
+        "body": "Вручить в течение 3 рабочих дней со дня издания (ст. 61 п. 3 ТК РК)"
+      }
+    },
+    "probation": {
+      "ending": {
+        "title": "Испытательный срок заканчивается",
+        "body": "{targetName} · до {until}. Не уведомили до истечения — работник считается прошедшим (ст. 37 ТК РК)"
+      }
+    },
+    "contract": {
+      "expiring": {
+        "title": "Срочный договор заканчивается",
+        "body": "{targetName} · до {until}. Уведомите в последний рабочий день, иначе автопродление (ст. 30 ТК РК)"
+      }
+    }
+  },
+  "messenger": {
+    "scheduled": {
+      "sent": {
+        "title": "Напоминание отправлено",
+        "body": "{snippet}"
+      }
+    }
+  },
+  "system": {
+    "welcome": {
+      "title": "Добро пожаловать в SuperApp6!"
+    },
+    "announcement": {
+      "title": "{title}"
+    }
+  }
+}

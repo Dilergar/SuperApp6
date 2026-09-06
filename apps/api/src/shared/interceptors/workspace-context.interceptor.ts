@@ -1,18 +1,14 @@
-import {
-  CallHandler,
-  ExecutionContext,
-  ForbiddenException,
-  Injectable,
-  NestInterceptor,
-} from '@nestjs/common';
+import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import {
   WorkspaceContextService,
   type WorkspaceContext,
 } from '../context/workspace-context.service';
 import { RolesService } from '../../core/roles/roles.service';
+import { forbidden } from '../errors/api-error';
 import type { JwtPayload } from '../decorators/current-user.decorator';
-import { WORKSPACE_ROLE_RANK } from '@superapp/shared';
+import { LOCALE_HEADER, WORKSPACE_ROLE_RANK } from '@superapp/shared';
+import { countryFromHeaders, negotiateLocale } from '@superapp/i18n';
 
 const ROLE_RANK: Record<string, number> = WORKSPACE_ROLE_RANK;
 
@@ -44,7 +40,22 @@ export class WorkspaceContextInterceptor implements NestInterceptor {
 
     const userId = req?.user?.sub;
     const headerWs = this.readHeader(req?.headers);
-    const context: WorkspaceContext = { userId };
+    // Язык запроса — из `Accept-Language`, БЕЗ обращения к БД: клиент шлёт свой
+    // текущий язык сам (веб — из cookie/профиля, mobile — из настроек, гость —
+    // из браузера). Поход в `users` ради одного поля на КАЖДЫЙ запрос стоил бы
+    // дороже, чем весь перевод.
+    //
+    // Страна — из гео-заголовка CDN, если он есть (в dev его нет). Она нужна
+    // ровно для одного случая: человек В РОССИИ, просящий русский, получает
+    // русский, а не государственный язык рынка (см. negotiateLocale).
+    const locale = negotiateLocale(
+      this.readFirst(req?.headers, 'accept-language'),
+      // Явный выбор человека (веб и mobile шлют его `X-Locale`) сильнее любых
+      // догадок: маршрут рынка применяется только к подсказке браузера.
+      this.readFirst(req?.headers, LOCALE_HEADER.toLowerCase()),
+      { country: countryFromHeaders((name) => this.readFirst(req?.headers, name)) },
+    );
+    const context: WorkspaceContext = { userId, locale };
 
     if (userId && headerWs) {
       const roles = await this.roles.getRolesInContext(
@@ -53,7 +64,7 @@ export class WorkspaceContextInterceptor implements NestInterceptor {
         headerWs,
       );
       if (roles.length === 0) {
-        throw new ForbiddenException('Нет доступа к этой организации');
+        throw forbidden('workspace.noAccess');
       }
       context.activeWorkspaceId = headerWs;
       context.role = roles
@@ -72,6 +83,14 @@ export class WorkspaceContextInterceptor implements NestInterceptor {
         });
       });
     });
+  }
+
+  /** Заголовок первой строкой (Express кладёт массив при повторе). */
+  private readFirst(headers: Record<string, unknown> | undefined, name: string): string | undefined {
+    const raw = headers?.[name];
+    if (typeof raw === 'string') return raw;
+    if (Array.isArray(raw) && typeof raw[0] === 'string') return raw[0];
+    return undefined;
   }
 
   private readHeader(headers?: Record<string, unknown>): string | undefined {

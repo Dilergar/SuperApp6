@@ -21,6 +21,11 @@ export interface TemplateRenderOptions {
    * «undefined», easy-template-x молчит — для документа на печать это худший отказ).
    */
   strict?: boolean;
+  /**
+   * Язык БЛАНКА (не интерфейса): приказ печатается на языке, на котором
+   * составлен. Крюк мультиязычности — сегодня форматтеры знают только `ru`.
+   */
+  language?: 'ru' | 'kk';
 }
 
 export interface TemplateRenderResult {

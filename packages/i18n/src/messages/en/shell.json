@@ -1,0 +1,113 @@
+{
+  "app": {
+    "title": "SuperApp6 — one app for everything",
+    "description": "SuperApp6 brings tasks, calendar, finances and work tools together in one account"
+  },
+  "context": {
+    "personal": "Personal",
+    "aria": "Context",
+    "organization": "Organization"
+  },
+  "group": {
+    "main": "Main",
+    "work": "Work",
+    "organization": "Organization"
+  },
+  "nav": {
+    "dashboard": "Home",
+    "circles": "My circle",
+    "messenger": "Messenger",
+    "notes": "Notes",
+    "tasks": "Tasks",
+    "tasksOverview": "Overview",
+    "tasksInbox": "Inbox",
+    "tasksToday": "Today",
+    "tasksOverdue": "Overdue",
+    "tasksUpcoming": "Upcoming",
+    "tasksAssigned": "Assigned to me",
+    "tasksDelegated": "I delegated",
+    "tasksReview": "In review",
+    "tasksAll": "All tasks",
+    "tasksDone": "Completed",
+    "calendar": "Calendar",
+    "finance": "Finance",
+    "finOverview": "Overview",
+    "finFeed": "Feed",
+    "finReports": "Reports",
+    "finCoins": "Coins",
+    "finAccounts": "Accounts",
+    "finCategories": "Categories",
+    "finPeople": "People",
+    "finDebts": "Debts",
+    "finRecurring": "Recurring",
+    "drive": "Drive",
+    "driveMy": "My drive",
+    "drivePhotos": "Photos",
+    "driveShared": "Shared with me",
+    "driveStarred": "Starred",
+    "driveRecent": "Recent",
+    "driveTrash": "Trash",
+    "shop": "Shop",
+    "myDocuments": "My documents",
+    "recorder": "Recorder",
+    "wsHome": "Home",
+    "wsMembers": "Employees",
+    "wsMembersPeople": "People",
+    "wsMembersOrg": "Org chart",
+    "wsMembersInvites": "Invitations",
+    "wsMembersDeadlines": "Deadlines",
+    "wsObjects": "Sites",
+    "wsNotes": "Notes",
+    "wsProcesses": "Processes",
+    "wsOffice": "Virtual office",
+    "wsDrive": "Drive",
+    "wsDocuments": "Documents",
+    "wsCounterparties": "Counterparties",
+    "wsJournal": "Journal",
+    "wsWallet": "Company wallet",
+    "wsProfile": "Organization profile",
+    "aria": "App navigation",
+    "expandBranch": "Expand {name}",
+    "collapseBranch": "Collapse {name}"
+  },
+  "topbar": {
+    "profile": "Profile",
+    "wallet": "Wallet",
+    "settings": "Settings",
+    "logout": "Log out",
+    "mentions": "Mentions",
+    "openMenu": "Open menu",
+    "closeMenu": "Close menu",
+    "menu": "Menu",
+    "collapse": "Collapse",
+    "searchPlaceholder": "Search…",
+    "quickTask": "Quickly note a task",
+    "stickyBoard": "Notes board (Alt+N)",
+    "mentionsUnread": "Mentions — unread",
+    "profileMenu": "Profile menu",
+    "approvals": "Awaiting decision",
+    "approvalsCount": "Awaiting decision: {n}",
+    "myProfile": "My profile"
+  },
+  "sidebar": {
+    "expand": "Expand menu",
+    "collapse": "Collapse menu"
+  },
+  "error": {
+    "routeTitle": "This page did not open",
+    "routeText": "Something went wrong while loading this section. The rest of the app still works — try again or go to another section.",
+    "digest": "Error code: {digest}",
+    "goHome": "Go home",
+    "goTasks": "Go to tasks",
+    "appTitle": "The app crashed",
+    "appText": "Reload the page. If it happens again, tell us what you were doing.",
+    "reload": "Reload"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "text": "The address may have a typo, or this page no longer exists."
+  },
+  "logo": {
+    "aria": "SuperApp6 — go home"
+  }
+}

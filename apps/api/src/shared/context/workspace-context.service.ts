@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { DEFAULT_LOCALE, type Locale } from '@superapp/i18n';
 
 export interface WorkspaceContext {
   userId?: string;
@@ -7,6 +8,13 @@ export interface WorkspaceContext {
   activeWorkspaceId?: string;
   /** The user's effective role in the active workspace. */
   role?: string;
+  /**
+   * Язык ЭТОГО запроса (`Accept-Language` клиента). Ставится интерцептором без
+   * единого обращения к БД: клиент (веб/mobile/AI) шлёт свой текущий язык сам,
+   * гость — язык браузера. `User.locale` нужен только ФОНУ (push/SMS), где
+   * запроса нет вовсе.
+   */
+  locale?: Locale;
 }
 
 /**
@@ -33,5 +41,10 @@ export class WorkspaceContextService {
 
   get activeWorkspaceId(): string | undefined {
     return this.als.getStore()?.activeWorkspaceId;
+  }
+
+  /** Язык запроса; вне запроса (бутстрап, крон без обёртки) — язык по умолчанию. */
+  get locale(): Locale {
+    return this.als.getStore()?.locale ?? DEFAULT_LOCALE;
   }
 }

@@ -22,13 +22,14 @@ import {
 import {
   BentoGrid, Button, Card, CardHeader, EmptyState, PageHeader, StatTile,
 } from '@/components/ui';
-import { WEEKDAYS_SHORT, formatDayLabel, formatMoney, localToday } from './finance-lib';
+import { WEEKDAYS_SHORT, useDayLabel, formatMoney, localToday } from './finance-lib';
 import { txPresentation } from './finance-feed';
 import { BudgetBar, FinList, FinRow, Money, MoneyStack, budgetProgress } from './finance-ui';
 import { useFinanceBook } from './finance-shell';
 
 export default function FinanceOverviewPage() {
   const { bookId, accounts, categories, canEdit, withBook } = useFinanceBook();
+  const dayLabel = useDayLabel();
 
   const period = localToday().slice(0, 7);
   const monthName = new Date(`${period}-01T00:00:00`).toLocaleDateString('ru-RU', { month: 'long' });
@@ -253,7 +254,7 @@ export default function FinanceOverviewPage() {
                       glyphTone={p.tone}
                       glyphFallback="receipt"
                       title={p.title}
-                      subtitle={formatDayLabel(tx.occurredOn)}
+                      subtitle={dayLabel(tx.occurredOn)}
                       right={<Money minor={tx.amount} code={tx.currencyCode} sign={p.sign} tone={p.tone === 'danger' ? 'danger' : p.tone === 'success' ? 'success' : undefined} />}
                       href={withBook('/finance/feed')}
                     />

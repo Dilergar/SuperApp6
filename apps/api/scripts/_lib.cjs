@@ -29,14 +29,26 @@ const SUITE = {
   password: 'Test1234!',
 };
 
+// Язык ответов сьюты. Пиннится ЯВНЫМ заголовком выбора (`X-Locale`), а не
+// `Accept-Language`: подсказку браузера сервер маршрутизирует под рынок
+// (русский браузер → казахский), и 70+ русских текстовых ассертов покраснели бы
+// разом. Скрипты, которые проверяют САМ перевод, шлют свои заголовки явно.
+const SUITE_LOCALE = process.env.SA6_SUITE_LOCALE || 'ru';
+
 async function call(method, p, token, body, headers) {
+  const merged = {
+    'Content-Type': 'application/json',
+    'X-Locale': SUITE_LOCALE,
+    ...(token ? { Authorization: 'Bearer ' + token } : {}),
+    ...(headers || {}),
+  };
+  // `null` у вызывающего СНИМАЕТ заголовок. Нужно скриптам, которые проверяют
+  // поведение БЕЗ явного выбора языка (что увидит гость с таким браузером):
+  // иначе дефолтный X-Locale сьюты перебил бы то, что они и проверяют.
+  for (const k of Object.keys(merged)) if (merged[k] === null || merged[k] === undefined) delete merged[k];
   const res = await fetch(BASE + p, {
     method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: 'Bearer ' + token } : {}),
-      ...(headers || {}),
-    },
+    headers: merged,
     body: body ? JSON.stringify(body) : undefined,
   });
   let json = null;
@@ -76,4 +88,4 @@ function makeChecker() {
   };
 }
 
-module.exports = { BASE, SUITE, call, login, makeChecker };
+module.exports = { BASE, SUITE, SUITE_LOCALE, call, login, makeChecker };

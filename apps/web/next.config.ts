@@ -1,4 +1,9 @@
 import type { NextConfig } from 'next';
+import createNextIntlPlugin from 'next-intl/plugin';
+
+// Плагин подключает src/i18n/request.ts к RSC: серверные компоненты получают
+// getTranslations/getMessages без явного проброса конфигурации через дерево.
+const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 
 // Адрес API известен на сборке; из него выводим http(s)- и ws(s)-источники для CSP.
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
@@ -52,7 +57,7 @@ const cspReportOnly = [
 const nextConfig: NextConfig = {
   // Оба воркспейс-пакета — иначе dev-сервер не следит за их dist, и правка
   // пакета не доезжает до веба без перезапуска (у shared это уже стояло).
-  transpilePackages: ['@superapp/shared', '@superapp/api-client'],
+  transpilePackages: ['@superapp/shared', '@superapp/api-client', '@superapp/i18n'],
   experimental: {
     // Реестр иконок (components/ui/Icon.tsx) импортирует ~150 имён из одного
     // пакета. Без этого Next тянет в бандл весь набор Phosphor (несколько тысяч
@@ -101,4 +106,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withNextIntl(nextConfig);

@@ -4,7 +4,9 @@
 
 ## Модель
 
-`ChatterEntry` — полиморфно refType+refId, **FK-free** (хроника переживает сущности), BigInt id = append-log и курсор (в DTO строкой), снапшот `actorName` (переживает удаление аккаунта), `workspaceId` денормализован под журнал, `changes` JSONB `[{field, label, from, to}]` display-ready.
+`ChatterEntry` — полиморфно refType+refId, **FK-free** (хроника переживает сущности), BigInt id = append-log и курсор (в DTO строкой), снапшот `actorName` (переживает удаление аккаунта), `workspaceId` денормализован под журнал, `changes` JSONB `[{field, label, from, to, raw?}]`.
+
+`label` и `from/to` — СНАПШОТЫ на момент записи (фолбэк). `raw` — сырые значения (`{from, to, kind: 'text'|'date'|'datetime'|'number'}`): дата, записанная как «03.09.2026», навсегда останется этим текстом, а ISO-строка рядом переформатируется под язык и пояс читателя. `kind` может зависеть от строки — у срока задачи это «дата» при `allDay` и «дата+время» иначе.
 
 ## Контракт
 
@@ -17,9 +19,10 @@ ChatterRefRegistry.registerChatSink(refType)      // плашки контекс
 ```
 
 - Шина для записи НЕ годится: at-most-once + события без old-значений.
-- Реестр типов `CHATTER_REGISTRY` (shared) несёт `chatPost`-флаг + шаблоны; `renderChatterText` (поверх общего `interpolateTemplate`) — ЕДИНЫЙ рендер для API-плашки и веб-журнала.
+- Реестр типов `CHATTER_REGISTRY` (shared) несёт СМЫСЛ: иконку, категорию журнала, флаг `chatPost`. ШАБЛОНЫ живут в каталоге `chatter.type.<typeKey>` (`@superapp/i18n`), рендер — `renderChatter(t, typeKey, entry)`. Текст собирается ПРИ ЧТЕНИИ в языке зрителя, поэтому накопленная за годы хроника переводится вместе с каталогом ([i18n.md](i18n.md)).
 - **Плашки чатов производит джоб `chatter.chatpost`** (core/jobs, ставится В ТОЙ ЖЕ tx, что и запись; uniqueKey `ce:<id>`): идемпотентность — терминал `chatPostedAt` + дедуп мессенджера по `payload.chatterEntryId`; родитель удалён → `JobDiscardError` (не 8 попыток с ложным dead-letter), сама запись живёт (FK-free).
-- Даты «было → стало» форматируются ДЕТЕРМИНИРОВАННО в `APP_TIMEZONE`; презентация (суффикс филиала) не запекается в payload — строит `renderChatterText` из raw-полей.
+- Даты «было → стало» форматируются ДЕТЕРМИНИРОВАННО в `APP_TIMEZONE`; презентация (суффикс филиала) не запекается в payload — строит `renderChatter` из raw-полей.
+- DTO несёт И готовый `text` (плоский рендер в языке запроса), И структуру: веб рисует своё (чипы людей поверх `text`), mobile и AI берут готовую строку. Подписи полей — `chatter.fields.<refType>.<field>`, снапшот `label` работает фолбэком для ещё не переведённых типов.
 
 ## Потребители (категории журнала)
 
@@ -37,7 +40,8 @@ ChatterRefRegistry.registerChatSink(refType)      // плашки контекс
 
 - Одна запись на ЗАХОД правки документа (не на каждое автосохранение) + склейка плашки не чаще раза в час (`hasRecent`) — иначе чат превращается в ленту «правил… правил…».
 - FinAuditLog НЕ тронут — отдельный compliance-слой с полными before/after (Salesforce тоже разделяет Feed и Field History).
+- `ChatterTrackSpec.raw` НЕ заменяет `format`, а дополняет: старые записи (без `raw`) обязаны читаться, и фолбэк на display-строки — их единственный путь.
 
 ## Проверка
 
-`verify-chatter.cjs`.
+`verify-chatter.cjs`, `verify-i18n.cjs` (текст записи и плашки в языке запроса).

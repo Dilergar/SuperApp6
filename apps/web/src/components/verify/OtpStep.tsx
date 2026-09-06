@@ -8,6 +8,7 @@
  * API в development-режиме отдаёт её ручкой last-code).
  */
 
+import { useTranslations } from 'next-intl';
 import { Alert, Button } from '@/components/ui';
 import { CodeInput } from './CodeInput';
 import { useVerifyStatus } from './use-verify-status';
@@ -24,8 +25,8 @@ export function OtpStep({
   flow,
   onSubmit,
   onBack,
-  backLabel = 'Изменить номер',
-  title = 'Код из SMS',
+  backLabel,
+  title,
 }: {
   flow: OtpFlow;
   /** Вызывается с кодом при автосабмите/ручном сабмите. */
@@ -34,18 +35,19 @@ export function OtpStep({
   backLabel?: string;
   title?: string;
 }) {
+  const t = useTranslations('common');
   const status = useVerifyStatus();
 
   return (
     <div>
-      <h2 className="title-md" style={{ margin: '0 0 0.375rem' }}>{title}</h2>
+      <h2 className="title-md" style={{ margin: '0 0 0.375rem' }}>{title ?? t('otp.title')}</h2>
       <p className="body-sm" style={{ margin: '0 0 var(--spacing-5)' }}>
-        Отправили код на <b style={{ whiteSpace: 'nowrap', color: 'var(--on-surface)' }}>{flow.phoneMasked || 'ваш номер'}</b>
+        {t('otp.sentTo')} <b style={{ whiteSpace: 'nowrap', color: 'var(--on-surface)' }}>{flow.phoneMasked || t('otp.yourNumber')}</b>
       </p>
 
       {status && !status.smsEnabled && (
         <Alert tone="warning" className="otp-alert">
-          Отправка SMS не настроена — сообщение не придёт, код возьмите из подсказки ниже.
+          {t('otp.smsOff')}
         </Alert>
       )}
 
@@ -75,11 +77,11 @@ export function OtpStep({
           onClick={flow.resend}
           disabled={flow.resendLeft > 0 || flow.busy}
         >
-          {flow.resendLeft > 0 ? `Отправить ещё раз (${formatCountdown(flow.resendLeft)})` : 'Отправить ещё раз'}
+          {flow.resendLeft > 0 ? t('otp.resendIn', { time: formatCountdown(flow.resendLeft) }) : t('otp.resend')}
         </Button>
         {onBack && (
           <Button variant="ghost" size="sm" icon="arrowLeft" onClick={onBack} disabled={flow.busy}>
-            {backLabel}
+            {backLabel ?? t('otp.changeNumber')}
           </Button>
         )}
       </div>

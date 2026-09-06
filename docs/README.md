@@ -22,6 +22,7 @@
 | Контракт API↔клиенты | [contract_boundary.md](contract_boundary.md) + [testing_verify_suite.md](testing_verify_suite.md) |
 | Среда / env / docker | [dev_environment.md](dev_environment.md) + [environment_variables.md](environment_variables.md) |
 | Безопасность | [security.md](security.md) (+ [verify_engine.md](verify_engine.md), [sign_engine.md](sign_engine.md)) |
+| Текст для человека (любой) | [i18n.md](i18n.md) — строка живёт в каталоге `@superapp/i18n`, а не в коде |
 
 ## Правила ведения docs/ (несущие — рассчитаны на рост проекта в десятки раз)
 
@@ -48,6 +49,8 @@
 | [contract_boundary.md](contract_boundary.md) | Граница API↔клиенты: три эшелона, api-client, правила DTO |
 | [security.md](security.md) | Auth/tokenEpoch, fail-closed env, две двери исходящего HTTP, заголовки, секреты |
 | [web_conventions.md](web_conventions.md) | AppShell, кит UI, PersonChip/EntitySelector, React Query, loading.tsx, виртуализация |
+| [i18n.md](i18n.md) | Мультиязычность: язык/регион/пояс, каталоги, render-at-read, коды отказов, стражи и ратчет |
+| [i18n_migration.md](i18n_migration.md) | Глоссарий терминов en/kk/ru и порядок перевода сервисов (ратчет) |
 | [testing_verify_suite.md](testing_verify_suite.md) | Verify-сьют, аккаунты suite/tester, правила чистоты, CI |
 | [dev_environment.md](dev_environment.md) | Команды, порядок сборки, docker-профили, свои образы, ловушки среды |
 | [environment_variables.md](environment_variables.md) | Все env-переменные по подсистемам |

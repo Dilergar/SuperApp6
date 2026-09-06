@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { DatabaseService } from '../../shared/database/database.service';
 import { utcTs } from '../../shared/database/sql-time';
@@ -7,10 +7,12 @@ import { JobsService } from '../../core/jobs/jobs.service';
 import {
   NOTIFICATION_REGISTRY,
   NOTIFICATION_LIMITS,
-  interpolateTemplate,
   type NotificationType,
   type NotificationListResponse,
 } from '@superapp/shared';
+import type { Locale } from '@superapp/i18n';
+import { I18nService } from '../../shared/i18n/i18n.service';
+import { notFound } from '../../shared/errors/api-error';
 import type { Prisma } from '@prisma/client';
 import { MAPPED_EVENT_TYPES, NOTIFY_DISPATCH_JOB } from './notifications.map';
 
@@ -23,8 +25,10 @@ import { MAPPED_EVENT_TYPES, NOTIFY_DISPATCH_JOB } from './notifications.map';
  *   (Волна 1 движка джобов): событие уходит на шину (для остальных листенеров)
  *   И — для типов из MAPPED_EVENT_TYPES — ставится джоб notifications.dispatch,
  *   который надёжно (at-least-once + dedupKey) создаст строки уведомлений.
- * - Title / body / icon come from NOTIFICATION_REGISTRY in @superapp/shared,
- *   so all three layers (api / web / mobile) agree on presentation.
+ * - Иконка, категория и `pushByDefault` — из NOTIFICATION_REGISTRY (@superapp/shared),
+ *   СЛОВА — из каталога @superapp/i18n (`notifications.<type>.title|body`).
+ *   Строки в БД пишутся в языке АДРЕСАТА (фолбэк для push), а лента перерисовывает
+ *   их при чтении в языке ЗАПРОСА — смена языка меняет и накопленную историю.
  * - Push delivery is not yet wired; when it is, `pushByDefault` from the
  *   registry will drive the decision.
  */
@@ -36,6 +40,7 @@ export class NotificationsService {
     private db: DatabaseService,
     private readonly events: EventBusService,
     private readonly jobs: JobsService,
+    private readonly i18n: I18nService,
   ) {}
 
   /**
@@ -48,15 +53,21 @@ export class NotificationsService {
     userId: string,
     type: NotificationType,
     payload: Record<string, unknown> = {},
-    options: { actionUrl?: string | null; dedupKey?: string } = {},
+    options: { actionUrl?: string | null; dedupKey?: string; locale?: Locale } = {},
   ) {
     const meta = NOTIFICATION_REGISTRY[type];
     if (!meta) {
       throw new Error(`Unknown notification type: ${type}`);
     }
 
-    const title = renderTemplate(meta.title, payload);
-    const body = meta.body ? renderTemplate(meta.body, payload) : null;
+    // Строки в БД пишутся в языке АДРЕСАТА (`User.locale`), а не запроса: они —
+    // фолбэк для push (человека нет в приложении, переспросить некого) и для
+    // старых клиентов, которые читают title/body как есть. Живой список ручка
+    // перерисовывает заново из type+payload в языке ЗАПРОСА (см. list()).
+    // Язык адресата: фанаут джоба берёт его пачкой заранее (options.locale) —
+    // иначе рассылка на отдел давала бы N+1 походов в `users` за одним полем.
+    const locale = options.locale ?? (await this.i18n.localeOf(userId));
+    const { title, body } = this.render(locale, type, payload);
 
     if (options.dedupKey) {
       // created_at — через utcTs(), а не SQL now(). Колонка `timestamp` БЕЗ пояса, и
@@ -126,6 +137,26 @@ export class NotificationsService {
     });
   }
 
+  /**
+   * Текст уведомления в заданном языке: `notifications.<type>.title|body`.
+   * Тело есть не у всех типов — спрашиваем каталог, а не реестр: реестр знает
+   * СМЫСЛ (иконка, категория, push), каталог — СЛОВА.
+   */
+  private render(
+    locale: Locale,
+    type: NotificationType,
+    payload: Record<string, unknown>,
+  ): { title: string; body: string | null } {
+    const values = toValues(payload);
+    const bodyKey = `notifications.${type}.body`;
+    return {
+      title: this.i18n.translateFor(locale, `notifications.${type}.title`, values),
+      body: this.i18n.has(bodyKey, locale)
+        ? this.i18n.translateFor(locale, bodyKey, values)
+        : null,
+    };
+  }
+
   /** Feed: cursor pagination by createdAt (newest first). */
   async list(userId: string, cursor?: string): Promise<NotificationListResponse> {
     const limit = NOTIFICATION_LIMITS.pageSize;
@@ -159,20 +190,34 @@ export class NotificationsService {
     const nextCursor =
       hasMore && last ? encodeCursor(last.createdAt, last.id) : null;
 
+    // Рендер ПРИ ЧТЕНИИ: текст собирается из type+payload в языке запроса, а не
+    // отдаётся тем, что запеклось при записи. Иначе смена языка не трогала бы
+    // накопленную ленту, и человек навсегда оставался бы в языке, на котором
+    // когда-то зарегистрировался.
+    const locale = this.i18n.locale;
     return {
-      items: page.map((n) => ({
-        id: n.id,
-        userId: n.userId,
+      items: page.map((n) => {
         // Колонка String в БД; перечисление живёт в NOTIFICATION_REGISTRY (тот же
         // класс каста, что `status as WorkspaceInvitationStatus`).
-        type: n.type as NotificationType,
-        title: n.title,
-        body: n.body,
-        payload: n.payload,
-        actionUrl: n.actionUrl,
-        readAt: n.readAt ? n.readAt.toISOString() : null,
-        createdAt: n.createdAt.toISOString(),
-      })),
+        const type = n.type as NotificationType;
+        const payload = (n.payload ?? {}) as Record<string, unknown>;
+        // Тип, которого больше нет в реестре (строка из прошлой версии), и записи
+        // без payload-совместимости показывают запечённый текст — он честнее пустоты.
+        const rendered = NOTIFICATION_REGISTRY[type]
+          ? this.render(locale, type, payload)
+          : { title: n.title, body: n.body };
+        return {
+          id: n.id,
+          userId: n.userId,
+          type,
+          title: rendered.title || n.title,
+          body: rendered.body ?? n.body,
+          payload: n.payload,
+          actionUrl: n.actionUrl,
+          readAt: n.readAt ? n.readAt.toISOString() : null,
+          createdAt: n.createdAt.toISOString(),
+        };
+      }),
       unreadCount,
       nextCursor,
     };
@@ -204,7 +249,7 @@ export class NotificationsService {
   async delete(userId: string, id: string) {
     const notification = await this.db.notification.findUnique({ where: { id } });
     if (!notification || notification.userId !== userId) {
-      throw new NotFoundException('Уведомление не найдено');
+      throw notFound('notification.notFound');
     }
     await this.db.notification.delete({ where: { id } });
   }
@@ -239,13 +284,20 @@ export class NotificationsService {
   }
 }
 
+
 /**
- * `{{placeholder}}` renderer для шаблонов NOTIFICATION_REGISTRY — единый движок
- * подстановки на весь проект (interpolateTemplate из @superapp/shared; тот же
- * используют хроника и «Процессы»). Пропущенный ключ → пустая строка.
+ * payload записи → значения ICU. Объекты и массивы отбрасываются: в тексте для
+ * человека им взяться неоткуда, а «[object Object]» на экране — верный способ
+ * узнать об этом от пользователя, а не от компилятора.
  */
-function renderTemplate(template: string, payload: Record<string, unknown>): string {
-  return interpolateTemplate(template, payload);
+function toValues(payload: Record<string, unknown>): Record<string, string | number | boolean> {
+  const out: Record<string, string | number | boolean> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (value === null || value === undefined) continue;
+    if (typeof value === 'object') continue;
+    out[key] = value as string | number | boolean;
+  }
+  return out;
 }
 
 /** Opaque keyset cursor: "<ISO createdAt>_<id>". Neither part contains '_'. */

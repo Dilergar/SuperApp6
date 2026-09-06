@@ -1,5 +1,4 @@
 import {
-  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -24,6 +23,9 @@ import { fullName } from '../../shared/utils/user-name';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { JobsService } from '../jobs/jobs.service';
 import { ChatterRefRegistry } from './chatter-ref.registry';
+import { I18nService } from '../../shared/i18n/i18n.service';
+import { forbidden, notFound } from '../../shared/errors/api-error';
+import { renderChatter, type ChatterRawKind } from '@superapp/i18n';
 
 /** Тип джоба проекции плашки (core/jobs); payload = { entryId }, uniqueKey = `ce:<id>`. */
 export const CHATTER_CHATPOST_JOB = 'chatter.chatpost';
@@ -54,9 +56,24 @@ export type ChatterTrackSpec<T> = Record<
   string,
   {
     typeKey: string;
+    /**
+     * СНАПШОТ подписи (фолбэк). Живая подпись живёт в каталоге —
+     * `chatter.fields.<refType>.<field>`; зритель берёт её, если она там есть.
+     */
     label: string;
     /** Значение → display-строка (null = «пусто»); сравнение идёт по результату */
     format: (row: T) => string | null;
+    /**
+     * СЫРОЕ значение (ISO-дата, число строкой) — чтобы зритель показал его
+     * своими правилами региона, а не тем форматом, который запёкся при записи.
+     * Не задано → в записи останутся только display-строки `format`.
+     */
+    raw?: (row: T) => string | null;
+    /**
+     * Как показывать сырое значение. Функция — когда вид зависит от самой строки:
+     * у срока задачи это «дата» при allDay и «дата+время» иначе.
+     */
+    kind?: ChatterRawKind | ((row: T) => ChatterRawKind);
   }
 >;
 
@@ -78,6 +95,7 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
     private readonly registry: ChatterRefRegistry,
     private readonly jobs: JobsService,
     private readonly jobsRegistry: JobsRegistry,
+    private readonly i18n: I18nService,
   ) {}
 
   /** Обработчик джоба проекции — регистрация до старта воркера (onApplicationBootstrap). */
@@ -244,7 +262,23 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
       if (from === to) continue;
       out.push({
         typeKey: def.typeKey,
-        change: { field, label: def.label, from, to },
+        change: {
+          field,
+          label: def.label,
+          from,
+          to,
+          // `raw` пишется рядом со снапшотом, а не вместо него: старые записи
+          // (без raw) обязаны читаться, и фолбэк на display-строки — их путь.
+          raw: def.raw
+            ? {
+                from: def.raw(before),
+                to: def.raw(after),
+                // Вид берём по состоянию ПОСЛЕ изменения: именно оно описывает то,
+                // что человек видит сейчас в карточке.
+                kind: typeof def.kind === 'function' ? def.kind(after) : def.kind ?? 'text',
+              }
+            : null,
+        },
       });
     }
     return out;
@@ -377,10 +411,10 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
   ): Promise<ChatterPageDto> {
     const resolver = this.registry.get(refType);
     if (!resolver) {
-      throw new NotFoundException('Хроника недоступна для этого типа записей');
+      throw notFound('chatter.unknownRef');
     }
     const ok = await resolver.canView(viewerId, refId);
-    if (!ok) throw new ForbiddenException('Нет доступа к хронике этой записи');
+    if (!ok) throw forbidden('chatter.forbidden');
 
     return this.page({ refType, refId }, q.cursor, q.limit);
   }
@@ -398,7 +432,7 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
   ): Promise<ChatterPageDto> {
     const resolver = this.registry.get('workspace');
     if (!resolver || !(await resolver.canView(viewerId, workspaceId))) {
-      throw new ForbiddenException('Журнал организации доступен с роли Менеджер');
+      throw forbidden('chatter.journalForbidden');
     }
 
     const where: Prisma.ChatterEntryWhereInput = { workspaceId };
@@ -465,7 +499,16 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
     return (CHATTER_REGISTRY as Record<string, ChatterTypeMeta>)[typeKey]?.chatPost ?? false;
   }
 
+  /**
+   * Строка в БД → DTO. `text` собирается ЗДЕСЬ, в языке запроса: запись вечна и
+   * хранит только структуру (typeKey + payload + changes), поэтому один и тот же
+   * факт читается по-казахски у одного человека и по-английски у другого, а
+   * накопленная история переводится задним числом вместе с каталогом.
+   */
   private toDto(row: ChatterEntry): ChatterEntryDto {
+    const changes = (row.changes as unknown as ChatterChange[] | null) ?? null;
+    const payload = (row.payload as Record<string, unknown> | null) ?? null;
+    const locale = this.i18n.locale;
     return {
       id: row.id.toString(),
       refType: row.refType,
@@ -474,8 +517,14 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
       actorId: row.actorId,
       actorName: row.actorName,
       typeKey: row.typeKey,
-      changes: (row.changes as unknown as ChatterChange[] | null) ?? null,
-      payload: (row.payload as Record<string, unknown> | null) ?? null,
+      changes,
+      payload,
+      text: renderChatter(
+        this.i18n.forLocale(locale),
+        row.typeKey,
+        { refType: row.refType, actorName: row.actorName, changes, payload },
+        this.i18n.format(locale),
+      ),
       createdAt: row.createdAt.toISOString(),
     };
   }

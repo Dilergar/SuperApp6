@@ -27,6 +27,7 @@ import { createContext, useContext, type CSSProperties, type ReactNode } from 'r
 import { Icon } from './Icon';
 import { IconButton } from './Button';
 import { cx } from './tones';
+import { useTranslations } from 'next-intl';
 
 export interface TableColumn {
   key: string;
@@ -65,7 +66,9 @@ const TableCtx = createContext<TableColumn[] | null>(null);
 function useGrid(own?: TableColumn[]): { columns: TableColumn[]; rowTemplate?: string } {
   const shared = useContext(TableCtx);
   if (shared) return { columns: own ?? shared };
-  if (!own) throw new Error('Строка таблицы вне <Table> обязана получить columns');
+  // Сообщение РАЗРАБОТЧИКУ, а не человеку: оно не переводится и никогда не
+  // показывается в интерфейсе — это ошибка сборки экрана.
+  if (!own) throw new Error('Table row outside <Table> must receive columns');
   return { columns: own, rowTemplate: template(own) };
 }
 
@@ -241,6 +244,7 @@ export function TableGroupRow({
   const { columns } = useGrid();
   // Клик по кнопке, ссылке или меню внутри строки — их дело, не сворачивание;
   // стрелка сама зовёт onToggle, поэтому здесь её клик тоже пропускаем.
+  const t = useTranslations('common');
   const onRowClick = onToggle
     ? (e: React.MouseEvent<HTMLDivElement>) => {
         if ((e.target as HTMLElement).closest('button, a, [role="menu"]')) return;
@@ -259,7 +263,11 @@ export function TableGroupRow({
         {onToggle && (
           <IconButton
             icon="caretDown"
-            label={`${expanded ? 'Свернуть' : 'Развернуть'} ${toggleLabel ?? 'группу'}`}
+            label={
+              expanded
+                ? t('a11y.collapseGroup', { name: toggleLabel ?? t('a11y.group') })
+                : t('a11y.expandGroup', { name: toggleLabel ?? t('a11y.group') })
+            }
             size={28}
             round={false}
             aria-expanded={expanded}

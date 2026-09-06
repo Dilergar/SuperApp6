@@ -18,6 +18,7 @@ export interface User {
   socialLinks: SocialLinks | null;
   onlineStatusMode: string; // everyone, contacts, nobody
   isVerified: boolean;
+  /** Язык интерфейса (BCP-47, одна из SUPPORTED_LOCALES); string на проводе — форвард-совместимость со старыми клиентами */
   locale: string;
   timezone: string;
   // ---- Реквизиты («Моя Анкета» → блок «Для договоров и трудоустройства») ----

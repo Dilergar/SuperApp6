@@ -1,17 +1,17 @@
 // ============================================================
 // Notification type registry
 // ============================================================
-// Central place where each notification type is described.
-// Services that emit notifications look up the meta here
-// to get a default title/body template and icon hint.
+// Реестр называет СМЫСЛ типа: иконка, категория настроек, нужен ли push.
+// СЛОВА живут в каталоге `@superapp/i18n` — `notifications.<type>.title` и
+// (необязательно) `notifications.<type>.body`. Тот же приём, что `icon: '📋'`:
+// shared называет вещь, каталог даёт ей имя на языке зрителя.
+//
+// Почему подписи здесь больше нет: строка в реестре — это ОДИН язык навсегда,
+// а текст уведомления рендерится ПРИ ЧТЕНИИ в языке того, кто открыл ленту.
 
 import type { NotificationType } from '../types/notification';
 
 export interface NotificationMeta {
-  // Human-readable title template (may reference payload via {{placeholder}})
-  title: string;
-  // Optional body template
-  body?: string;
   // Icon hint for the client (emoji or icon name)
   icon: string;
   // Whether this notification type produces a push notification by default.
@@ -34,223 +34,180 @@ export interface NotificationMeta {
 export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> = {
   // Contacts
   'contact.invitation.received': {
-    title: '{{fromName}} хочет добавить вас в контакты',
-    body: '{{message}}',
     icon: '👋',
     pushByDefault: true,
     category: 'contacts',
   },
   'contact.invitation.accepted': {
-    title: '{{byName}} принял ваше приглашение',
     icon: '✅',
     pushByDefault: true,
     category: 'contacts',
   },
   'contact.invitation.rejected': {
-    title: '{{byName}} отклонил ваше приглашение',
     icon: '✖️',
     pushByDefault: false,
     category: 'contacts',
   },
   'contact.invitation.cancelled': {
-    title: 'Приглашение отменено',
     icon: '↩️',
     pushByDefault: false,
     category: 'contacts',
   },
   'contact.invitation.expired': {
-    title: 'Приглашение для {{toPhone}} истекло',
-    body: 'Его можно отправить повторно',
     icon: '⌛',
     pushByDefault: false,
     category: 'contacts',
   },
   'contact.linked': {
-    title: '{{otherName}} теперь в ваших контактах',
     icon: '🔗',
     pushByDefault: false,
     category: 'contacts',
   },
   'contact.removed': {
-    title: 'Контакт удалён',
     icon: '🗑️',
     pushByDefault: false,
     category: 'contacts',
   },
   // Tasks
   'task.assigned': {
-    title: 'Вам назначена задача: {{taskTitle}}',
     icon: '📋',
     pushByDefault: true,
     category: 'tasks',
   },
   'wallet.coins.received': {
-    title: 'Вы заработали {{amount}} {{currencyName}}',
-    body: 'За задачу «{{taskTitle}}»',
     icon: '💰',
     pushByDefault: true,
     category: 'tasks',
   },
   'task.completed': {
-    title: 'Задача выполнена: {{taskTitle}}',
     icon: '✅',
     pushByDefault: false,
     category: 'tasks',
   },
   'task.due_soon': {
-    title: 'Скоро дедлайн: {{taskTitle}}',
     icon: '⏰',
     pushByDefault: true,
     category: 'tasks',
   },
   'task.submitted': {
-    title: '{{byName}} сдал(а) задачу на проверку: {{taskTitle}}',
     icon: '📤',
     pushByDefault: true,
     category: 'tasks',
   },
   'task.accepted': {
-    title: 'Задача принята: {{taskTitle}}',
     icon: '🎉',
     pushByDefault: true,
     category: 'tasks',
   },
   'task.returned': {
-    title: 'Задача возвращена в работу: {{taskTitle}}',
     icon: '↩️',
     pushByDefault: true,
     category: 'tasks',
   },
   'task.overdue': {
-    title: 'Просрочена задача: {{taskTitle}}',
     icon: '🔴',
     pushByDefault: true,
     category: 'tasks',
   },
   // Calendar
   'calendar.event.invited': {
-    title: 'Приглашение на событие: {{eventTitle}}',
     icon: '📅',
     pushByDefault: true,
     category: 'calendar',
   },
   'calendar.event.reminder': {
-    title: 'Напоминание: {{eventTitle}}',
     icon: '🔔',
     pushByDefault: true,
     category: 'calendar',
   },
   'calendar.event.rsvp': {
-    title: '{{byName}}: {{rsvpLabel}} — {{eventTitle}}',
     icon: '✉️',
     pushByDefault: false,
     category: 'calendar',
   },
   'calendar.event.updated': {
-    title: 'Событие изменено: {{eventTitle}}',
     icon: '✏️',
     pushByDefault: true,
     category: 'calendar',
   },
   'calendar.event.cancelled': {
-    title: 'Событие отменено: {{eventTitle}}',
     icon: '🚫',
     pushByDefault: true,
     category: 'calendar',
   },
   'calendar.resource.requested': {
-    title: 'Заявка на «{{resourceName}}»: {{eventTitle}}',
     icon: '📦',
     pushByDefault: true,
     category: 'calendar',
   },
   'calendar.resource.confirmed': {
-    title: 'Бронь подтверждена: {{resourceName}}',
     icon: '✅',
     pushByDefault: true,
     category: 'calendar',
   },
   'calendar.resource.rejected': {
-    title: 'Бронь отклонена: {{resourceName}}',
     icon: '🚫',
     pushByDefault: true,
     category: 'calendar',
   },
   // Workspaces (B2B)
   'workspace.invitation.received': {
-    title: '{{workspaceName}} приглашает вас на работу',
-    body: '{{message}}',
     icon: '🏢',
     pushByDefault: true,
     category: 'workspaces',
   },
   'workspace.invitation.accepted': {
-    title: '{{byName}} принял(а) приглашение в {{workspaceName}}',
     icon: '✅',
     pushByDefault: true,
     category: 'workspaces',
   },
   'workspace.invitation.rejected': {
-    title: '{{byName}} отклонил(а) приглашение в {{workspaceName}}',
     icon: '✖️',
     pushByDefault: false,
     category: 'workspaces',
   },
   'workspace.member.removed': {
-    title: 'Вас исключили из организации {{workspaceName}}',
     icon: '🚪',
     pushByDefault: true,
     category: 'workspaces',
   },
   'workspace.role.changed': {
-    title: 'Ваша роль в {{workspaceName}} изменена: {{role}}',
     icon: '🔁',
     pushByDefault: true,
     category: 'workspaces',
   },
   'workspace.position.assigned': {
-    title: 'Вам назначена должность в {{workspaceName}}: {{positionName}}',
-    body: '{{branchName}}',
     icon: '💼',
     pushByDefault: true,
     category: 'workspaces',
   },
   'objects.shifts.published': {
-    title: 'График опубликован: {{branchName}}',
-    body: '{{periodLabel}} — смен: {{count}}',
     icon: '📣',
     pushByDefault: true,
     category: 'workspaces',
   },
   'objects.shift.changed': {
-    title: 'Смена изменена: {{dateLabel}}',
     icon: '🗓️',
     pushByDefault: true,
     category: 'workspaces',
   },
   'objects.shift.taken': {
-    title: 'Открытую смену взяли: {{dateLabel}}',
     icon: '🙋',
     pushByDefault: false,
     category: 'workspaces',
   },
   'workspace.position.certified': {
-    title: 'Вы аттестованы по должности {{positionName}} в {{workspaceName}}',
     icon: '🎓',
     pushByDefault: true,
     category: 'workspaces',
   },
   // Оргструктура: руководство отделом/объектом и замещение
   'staff.head.assigned': {
-    title: 'Вы руководите {{unitLabel}} в {{workspaceName}}',
-    body: 'Должность «{{positionName}}» назначена руководящей — согласования и заявления подчинённых теперь приходят вам.',
     icon: '🧭',
     pushByDefault: true,
     category: 'workspaces',
   },
   'staff.deputy.assigned': {
-    title: 'Вы — заместитель по должности «{{positionName}}» в {{workspaceName}}',
-    body: '{{periodLabel}}',
     icon: '🔁',
     pushByDefault: true,
     category: 'workspaces',
@@ -259,225 +216,174 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
   // Текст в единственном числе «{{daysWord}}» готовит отправитель — шаблонизатор
   // реестра склонять не умеет, а «осталось 1 дней» читается как баг.
   'workspace.archive.expiring': {
-    title: 'Организация «{{workspaceName}}» будет удалена через {{daysWord}}',
-    body: 'Она в архиве. Восстановите её, если удалять не нужно — после {{purgeDate}} вернуть будет нельзя.',
     icon: '🗑️',
     pushByDefault: true,
     category: 'workspaces',
   },
   // My Wish & Shop (orders)
   'shop.order.placed': {
-    title: 'Новый заказ: {{title}}',
     icon: '🛍️',
     pushByDefault: true,
     category: 'shop',
   },
   'shop.order.confirmed': {
-    title: 'Заказ подтверждён: {{title}}',
     icon: '✅',
     pushByDefault: true,
     category: 'shop',
   },
   'shop.order.rejected': {
-    title: 'Заказ отклонён: {{title}}',
     icon: '✖️',
     pushByDefault: true,
     category: 'shop',
   },
   'shop.order.cancelled': {
-    title: 'Покупатель отменил заказ: {{title}}',
     icon: '↩️',
     pushByDefault: false,
     category: 'shop',
   },
   'shop.order.funded': {
-    title: 'Сбор собран: {{title}} — подтвердите',
     icon: '🎯',
     pushByDefault: true,
     category: 'shop',
   },
   // Mentions
   'mention.received': {
-    title: '{{mentionerName}} упомянул(а) вас',
-    body: '{{snippet}}',
     icon: '@',
     pushByDefault: true,
     category: 'system',
   },
   // Auth / безопасность аккаунта (движок core/verify)
   'auth.password.changed': {
-    title: 'Пароль изменён',
-    body: 'Если это были не вы — срочно смените пароль и завершите чужие сессии.',
     icon: '🔒',
     pushByDefault: true,
     category: 'system',
   },
   'auth.phone.changed': {
-    title: 'Номер телефона изменён',
-    body: 'Новый номер входа: {{newPhoneMasked}}. Если это были не вы — свяжитесь с нами.',
     icon: '📱',
     pushByDefault: true,
     category: 'system',
   },
   // Files engine — антивирус
   'files.scan.infected': {
-    title: 'Файл «{{name}}» заражён и заблокирован',
     icon: '🦠',
     pushByDefault: true,
     category: 'system',
   },
   // Voice engine — Диктофон
   'voice.transcript.ready': {
-    title: 'Расшифровка «{{title}}» готова',
     icon: '🎙️',
     pushByDefault: true,
     category: 'system',
   },
   'voice.transcript.failed': {
-    title: 'Не удалось расшифровать «{{title}}»',
     icon: '🎙️',
     pushByDefault: false,
     category: 'system',
   },
   // Calls engine — звонки мессенджера
   'call.missed': {
-    title: 'Пропущенный звонок от {{fromName}}',
     icon: '📞',
     pushByDefault: true,
     category: 'system',
   },
   'call.recording.ready': {
-    title: 'Запись звонка «{{title}}» — в Журнале звонков',
     icon: '⏺',
     pushByDefault: true,
     category: 'system',
   },
   'call.recording.failed': {
-    title: 'Не удалось записать звонок',
     icon: '⏺',
     pushByDefault: false,
     category: 'system',
   },
   // Виртуальный офис (B2B) — видеовстречи
   'office.meeting.invited': {
-    title: '{{byName}} приглашает вас на встречу «{{roomName}}»',
     icon: '🎥',
     pushByDefault: true,
     category: 'workspaces',
   },
   // Processes (бизнес-процессы)
   'process.finished': {
-    title: 'Процесс «{{processName}}» завершён',
     icon: '🏁',
     pushByDefault: true,
     category: 'processes',
   },
   'process.failed': {
-    title: 'Процесс «{{processName}}» остановлен с ошибкой',
-    body: '{{error}}',
     icon: '⚠️',
     pushByDefault: true,
     category: 'processes',
   },
   'process.step.notify': {
-    title: '{{title}}',
-    body: '{{message}}',
     icon: '🔔',
     pushByDefault: true,
     category: 'processes',
   },
   'process.approval.requested': {
-    title: 'Нужно ваше решение: {{title}}',
-    body: 'Процесс «{{processName}}»',
     icon: '✅',
     pushByDefault: true,
     category: 'processes',
   },
   'process.task.queued': {
-    title: 'Новая задача отдела: {{title}}',
-    body: '{{departmentName}} · процесс «{{processName}}»',
     icon: '📥',
     pushByDefault: true,
     category: 'processes',
   },
   'process.step.overdue': {
-    title: 'Просрочен шаг: {{title}}',
-    body: 'Процесс «{{processName}}»',
     icon: '⏰',
     pushByDefault: true,
     category: 'processes',
   },
   // Финансы
   'finance.budget.warning': {
-    title: 'Лимит «{{categoryName}}» почти исчерпан',
-    body: '{{spent}} из {{limit}} за {{periodLabel}}',
     icon: '⚠️',
     pushByDefault: true,
     category: 'finance',
   },
   'finance.budget.exceeded': {
-    title: 'Лимит «{{categoryName}}» превышен',
-    body: '{{spent}} из {{limit}} за {{periodLabel}}',
     icon: '🚨',
     pushByDefault: true,
     category: 'finance',
   },
   'finance.debt.payment_due': {
-    title: 'Сегодня платёж по «{{debtName}}»',
-    body: '{{amount}} — подтвердите оплату в Финансах',
     icon: '📅',
     pushByDefault: true,
     category: 'finance',
   },
   'finance.debt.paid': {
-    title: 'Долг «{{debtName}}» полностью выплачен 🎉',
-    body: '{{amount}}',
     icon: '✅',
     pushByDefault: true,
     category: 'finance',
   },
   'finance.recurring.due': {
-    title: 'Подтвердите операцию «{{title}}»',
-    body: '{{amount}}',
     icon: '🔁',
     pushByDefault: true,
     category: 'finance',
   },
   'finance.recurring.recorded': {
-    title: 'Записано: {{title}}',
-    body: '{{amount}}',
     icon: '✅',
     pushByDefault: false,
     category: 'finance',
   },
   'finance.book.shared': {
-    title: '{{ownerName}} открыл(а) вам доступ к финансам',
-    body: 'Роль: {{roleLabel}}',
     icon: '📒',
     pushByDefault: true,
     category: 'finance',
   },
   // Drive
   'drive.shared': {
-    title: '{{ownerName}} открыл(а) вам доступ',
-    body: '«{{nodeName}}» — {{roleLabel}}',
     icon: '🗂️',
     pushByDefault: true,
     category: 'drive',
   },
   // Заметки
   'note.shared': {
-    title: '{{ownerName}} поделил(ась) заметкой',
-    body: '«{{noteName}}» — {{roleLabel}}',
     icon: '📝',
     pushByDefault: true,
     category: 'notes',
   },
   // Гостевые ссылки наружу (core/share-links)
   'share.link.opened': {
-    title: 'Ссылку открыли',
     // guestSuffix — « — Асель», когда ссылка требовала подтверждение номера; иначе пусто.
-    body: '«{{targetName}}»{{labelSuffix}}{{guestSuffix}}',
     icon: '🔗',
     pushByDefault: false,
     category: 'drive',
@@ -485,8 +391,6 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
   // Предохранитель: ссылку открывают часто — дальше сегодня молчим, иначе массовая
   // рассылка превратила бы ленту уведомлений в счётчик.
   'share.link.opened.muted': {
-    title: 'Ссылку открывают часто',
-    body: '«{{targetName}}»{{labelSuffix}} — сегодня больше не уведомляем, счётчик в «Моих ссылках»',
     icon: '🔕',
     pushByDefault: false,
     category: 'drive',
@@ -496,8 +400,6 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
   // Документы: итог маршрута автору. Пер-шаговые решения оповещает сам движок
   // согласований — здесь только конец пути, ради которого документ и заводили.
   'document.resolved': {
-    title: '{{outcomeLabel}}: «{{title}}»',
-    body: '{{numberLabel}}',
     icon: '📄',
     pushByDefault: true,
     category: 'documents',
@@ -506,15 +408,11 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
   // Движковые sign.completed/declined для этих заявок подавлены — иначе автор
   // получал бы дубль без контекста документа.
   'document.counterparty_signed': {
-    title: 'Контрагент подписал: «{{title}}»',
-    body: '{{signerLabel}}',
     icon: '🖊️',
     pushByDefault: true,
     category: 'documents',
   },
   'document.counterparty_declined': {
-    title: 'Контрагент отказал: «{{title}}»',
-    body: '{{reasonLabel}}',
     icon: '⛔',
     pushByDefault: true,
     category: 'documents',
@@ -523,22 +421,16 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
   // другая сторона отказа, другой виновник и другой следующий шаг (доработать и
   // отправить заново, а не ждать вторую сторону).
   'document.internal_declined': {
-    title: 'Подписант отказал: «{{title}}»',
-    body: '{{signerLabel}}{{reasonLabel}}',
     icon: '⛔',
     pushByDefault: true,
     category: 'documents',
   },
   'document.external_expired': {
-    title: 'Срок подписания истёк: «{{title}}»',
-    body: 'Документ вернулся в черновик — отправьте его заново',
     icon: '⌛',
     pushByDefault: true,
     category: 'documents',
   },
   'approval.requested': {
-    title: '{{actionLabel}}: «{{refTitle}}»',
-    body: '{{stepTitle}}',
     icon: '🖋️',
     pushByDefault: true,
     category: 'workspaces',
@@ -547,22 +439,16 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
   // ждёт: у людей есть время, и дёргать его нечем. Когда срок выйдет, придёт
   // 'approval.overdue' — и уже обоим.
   'approval.due_soon': {
-    title: 'Скоро срок: «{{refTitle}}»',
-    body: '{{stepTitle}} — до {{deadlineLabel}}',
     icon: '⏰',
     pushByDefault: true,
     category: 'workspaces',
   },
   'approval.overdue': {
-    title: 'Просрочено решение по «{{refTitle}}»',
-    body: '{{stepTitle}}',
     icon: '⏳',
     pushByDefault: true,
     category: 'workspaces',
   },
   'approval.resolved': {
-    title: '{{outcomeLabel}}: «{{refTitle}}»',
-    body: '{{comment}}',
     icon: '📋',
     pushByDefault: true,
     category: 'workspaces',
@@ -571,8 +457,6 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
   // человека. Молча пропустить такой шаг нельзя (это согласование), поэтому он
   // остаётся ждать, а автор узнаёт об этом сразу, а не через неделю.
   'approval.unassigned': {
-    title: 'Некому решать: «{{refTitle}}»',
-    body: '{{stepTitle}} — в «{{assigneeLabel}}» нет ни одного сотрудника',
     icon: '⚠️',
     pushByDefault: true,
     category: 'workspaces',
@@ -581,113 +465,84 @@ export const NOTIFICATION_REGISTRY: Record<NotificationType, NotificationMeta> =
   // Отдельные типы, а не переиспользование approval.*: подпись — юридическое
   // действие, и человек должен видеть в ленте именно «подписать», а не «решить».
   'sign.requested': {
-    title: 'Подпишите: «{{refTitle}}»',
-    body: '{{levelLabel}}',
     icon: '🖊️',
     pushByDefault: true,
     category: 'workspaces',
   },
   'sign.completed': {
-    title: 'Документ подписан: «{{refTitle}}»',
-    body: '{{signersLabel}}',
     icon: '✅',
     pushByDefault: true,
     category: 'workspaces',
   },
   'sign.declined': {
-    title: 'Отказ от подписи: «{{refTitle}}»',
-    body: '{{reason}}',
     icon: '⛔',
     pushByDefault: true,
     category: 'workspaces',
   },
   // КЭДО (modules/hr)
   'hr.action.applied': {
-    title: '{{kindLabel}}: применено',
-    body: '{{targetName}} · с {{effectiveAt}}',
     icon: '✅',
     pushByDefault: true,
     category: 'workspaces',
   },
   'hr.action.failed': {
-    title: '{{kindLabel}}: не применено',
-    body: '{{reason}}',
     icon: '⚠️',
     pushByDefault: true,
     category: 'workspaces',
   },
   'hr.action.withdrawn': {
-    title: '{{targetName}} отозвал(а) заявление',
-    body: 'Отзыв безусловен весь срок уведомления (ст. 56 п. 4 ТК РК). {{note}}',
     icon: '↩️',
     pushByDefault: true,
     category: 'workspaces',
   },
   'hr.esutd.due_soon': {
-    title: 'ЕСУТД: подходит срок сдачи',
-    body: '{{kindLabel}} · {{targetName}} · осталось {{daysLeft}}',
     icon: '⏰',
     pushByDefault: true,
     category: 'workspaces',
   },
   'hr.campaign.assigned': {
-    title: 'Ознакомьтесь: «{{title}}»',
-    body: '{{workspaceName}}',
     icon: '📄',
     pushByDefault: true,
     category: 'workspaces',
   },
   'hr.campaign.reminder': {
-    title: 'Документ ждёт ознакомления: «{{title}}»',
     icon: '🔔',
     pushByDefault: true,
     category: 'workspaces',
   },
   'hr.campaign.done': {
-    title: 'Кампания завершена: «{{title}}»',
-    body: 'Ознакомились {{acknowledged}} из {{total}}',
     icon: '🏁',
     pushByDefault: false,
     category: 'workspaces',
   },
   'hr.delivery.due': {
-    title: 'Акт ждёт вручения: «{{title}}»',
-    body: 'Вручить в течение 3 рабочих дней со дня издания (ст. 61 п. 3 ТК РК)',
     icon: '📬',
     pushByDefault: true,
     category: 'workspaces',
   },
   'hr.probation.ending': {
-    title: 'Испытательный срок заканчивается',
-    body: '{{targetName}} · до {{until}}. Не уведомили до истечения — работник считается прошедшим (ст. 37 ТК РК)',
     icon: '⏳',
     pushByDefault: true,
     category: 'workspaces',
   },
   'hr.contract.expiring': {
-    title: 'Срочный договор заканчивается',
-    body: '{{targetName}} · до {{until}}. Уведомите в последний рабочий день, иначе автопродление (ст. 30 ТК РК)',
     icon: '📆',
     pushByDefault: true,
     category: 'workspaces',
   },
   // Messenger — scheduled ("Напомнить")
   'messenger.scheduled.sent': {
-    title: 'Напоминание отправлено',
-    body: '{{snippet}}',
     icon: '⏰',
     pushByDefault: true,
     category: 'system',
   },
   // System
   'system.welcome': {
-    title: 'Добро пожаловать в SuperApp6!',
     icon: '🎉',
     pushByDefault: false,
     category: 'system',
   },
   'system.announcement': {
-    title: '{{title}}',
     icon: '📢',
     pushByDefault: false,
     category: 'system',

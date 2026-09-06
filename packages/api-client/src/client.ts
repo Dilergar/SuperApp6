@@ -4,7 +4,7 @@ import axios, {
   type AxiosRequestConfig,
   type InternalAxiosRequestConfig,
 } from 'axios';
-import type { ApiOk } from '@superapp/shared';
+import { LOCALE_HEADER, type ApiOk } from '@superapp/shared';
 
 /**
  * Хранилище токенов. Синхронное на вебе (localStorage), асинхронное на mobile
@@ -28,6 +28,16 @@ export interface ApiClientConfig {
   onAuthFailure?: () => void;
   /** Контекст организации: вернуть id → уедет заголовком `X-Workspace-Id` на каждом запросе. */
   getWorkspaceId?: () => string | null;
+  /**
+   * ВЫБРАННЫЙ человеком язык: вернуть код (`kk`/`ru`/`en`) → уедет заголовком
+   * `X-Locale`, и сервер ответит именно на нём (тексты уведомлений, хроники и
+   * отказов рендерятся при чтении).
+   *
+   * Отдельный заголовок, а не `Accept-Language`: тот — подсказка браузера, и
+   * сервер вправе её маршрутизировать под рынок. Выбор человека маршруту не
+   * подчиняется. Не задан → сервер решает сам по `Accept-Language` (гость).
+   */
+  getLocale?: () => string | null | undefined;
   /** Таймаут по умолчанию, мс (0 = без таймаута). Загрузки файлов переопределяют его в конфиге вызова. */
   timeout?: number;
 }
@@ -62,7 +72,7 @@ function withLock<T>(name: string, run: () => Promise<T>): Promise<T> {
 }
 
 export function createApiClient(config: ApiClientConfig): ApiClient {
-  const { baseURL, storage, onAuthFailure, getWorkspaceId } = config;
+  const { baseURL, storage, onAuthFailure, getWorkspaceId, getLocale } = config;
 
   const api = axios.create({
     baseURL,
@@ -75,6 +85,10 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     if (token) cfg.headers.Authorization = `Bearer ${token}`;
     const workspaceId = getWorkspaceId?.();
     if (workspaceId) cfg.headers['X-Workspace-Id'] = workspaceId;
+    // Ставим ТОЛЬКО когда выбор действительно есть: у гостя его нет, и решать
+    // за него должен сервер по `Accept-Language` браузера.
+    const locale = getLocale?.();
+    if (locale) cfg.headers[LOCALE_HEADER] = locale;
     return cfg;
   });
 

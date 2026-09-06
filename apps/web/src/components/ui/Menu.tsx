@@ -11,6 +11,7 @@ import { Icon, type IconName } from './Icon';
 import { IconButton } from './Button';
 import { cx } from './tones';
 import { usePopover } from './usePopover';
+import { useTranslations } from 'next-intl';
 
 export interface MenuAction {
   key: string;
@@ -34,7 +35,11 @@ export interface MenuProps {
   className?: string;
 }
 
-export function Menu({ items, trigger, label = 'Действия', align = 'end', className }: MenuProps) {
+export function Menu({ items, trigger, label, align = 'end', className }: MenuProps) {
+  // Хук зовём БЕЗУСЛОВНО: `label ?? useTranslations(...)` — это вызов хука за
+  // оператором короткого замыкания, то есть разное число хуков между рендерами.
+  const t = useTranslations('common');
+  const menuLabel = label ?? t('a11y.actions');
   const { anchorRef, layerRef, open, setOpen, layerStyle } = usePopover<HTMLButtonElement>({ align });
   const [active, setActive] = useState(-1);
   const [mounted, setMounted] = useState(false);
@@ -88,7 +93,7 @@ export function Menu({ items, trigger, label = 'Действия', align = 'end'
         <IconButton
           ref={anchorRef}
           icon="more"
-          label={label}
+          label={menuLabel}
           size={36}
           round={false}
           variant="outline"
@@ -102,7 +107,7 @@ export function Menu({ items, trigger, label = 'Действия', align = 'end'
         createPortal(
           // role="menu" держит пункты ПРЯМЫМИ детьми (фрагменты не в счёт):
           // generic-обёртка между menu и menuitem рвала родство ролей
-          <div ref={layerRef} className="ui-popover" style={layerStyle} role="menu" aria-label={label}>
+          <div ref={layerRef} className="ui-popover" style={layerStyle} role="menu" aria-label={menuLabel}>
             {items.map((it) => {
               const idx = it.disabled ? -1 : (usableIdx += 1);
               const cls = cx('ui-menu-item', it.danger && 'ui-menu-item--danger');

@@ -1,0 +1,455 @@
+{
+  "contact": {
+    "invitation": {
+      "received": {
+        "title": "{fromName} сізді контактіге қосқысы келеді",
+        "body": "{message}"
+      },
+      "accepted": {
+        "title": "{byName} шақыруыңызды қабылдады"
+      },
+      "rejected": {
+        "title": "{byName} шақыруыңыздан бас тартты"
+      },
+      "cancelled": {
+        "title": "Шақыру тоқтатылды"
+      },
+      "expired": {
+        "title": "{toPhone} үшін шақыру мерзімі өтті",
+        "body": "Оны қайта жіберуге болады"
+      }
+    },
+    "linked": {
+      "title": "{otherName} енді сіздің контактілеріңізде"
+    },
+    "removed": {
+      "title": "Контакт жойылды"
+    }
+  },
+  "task": {
+    "assigned": {
+      "title": "Сізге тапсырма берілді: {taskTitle}"
+    },
+    "completed": {
+      "title": "Тапсырма орындалды: {taskTitle}"
+    },
+    "due_soon": {
+      "title": "Мерзімі жақындады: {taskTitle}"
+    },
+    "submitted": {
+      "title": "{byName} тапсырманы тексеруге тапсырды: {taskTitle}"
+    },
+    "accepted": {
+      "title": "Тапсырма қабылданды: {taskTitle}"
+    },
+    "returned": {
+      "title": "Тапсырма пысықтауға қайтарылды: {taskTitle}"
+    },
+    "overdue": {
+      "title": "Тапсырма мерзімі өтті: {taskTitle}"
+    }
+  },
+  "wallet": {
+    "coins": {
+      "received": {
+        "title": "Сіз {amount} {currencyName} таптыңыз",
+        "body": "«{taskTitle}» тапсырмасы үшін"
+      }
+    }
+  },
+  "calendar": {
+    "event": {
+      "invited": {
+        "title": "Оқиғаға шақыру: {eventTitle}"
+      },
+      "reminder": {
+        "title": "Еске салу: {eventTitle}"
+      },
+      "rsvp": {
+        "title": "{byName}: {rsvpLabel} — {eventTitle}"
+      },
+      "updated": {
+        "title": "Оқиға өзгертілді: {eventTitle}"
+      },
+      "cancelled": {
+        "title": "Оқиға тоқтатылды: {eventTitle}"
+      }
+    },
+    "resource": {
+      "requested": {
+        "title": "«{resourceName}» бойынша өтінім: {eventTitle}"
+      },
+      "confirmed": {
+        "title": "Брондау расталды: {resourceName}"
+      },
+      "rejected": {
+        "title": "Брондау қабылданбады: {resourceName}"
+      }
+    }
+  },
+  "workspace": {
+    "invitation": {
+      "received": {
+        "title": "{workspaceName} сізді жұмысқа шақырады",
+        "body": "{message}"
+      },
+      "accepted": {
+        "title": "{byName} {workspaceName} ұйымына шақыруды қабылдады"
+      },
+      "rejected": {
+        "title": "{byName} {workspaceName} ұйымына шақырудан бас тартты"
+      }
+    },
+    "member": {
+      "removed": {
+        "title": "Сіз {workspaceName} ұйымынан шығарылдыңыз"
+      }
+    },
+    "role": {
+      "changed": {
+        "title": "{workspaceName} ұйымындағы рөліңіз өзгерді: {role}"
+      }
+    },
+    "position": {
+      "assigned": {
+        "title": "{workspaceName} ұйымында сізге лауазым берілді: {positionName}",
+        "body": "{branchName}"
+      },
+      "certified": {
+        "title": "{workspaceName} ұйымында {positionName} лауазымы бойынша аттестациядан өттіңіз"
+      }
+    },
+    "archive": {
+      "expiring": {
+        "title": "«{workspaceName}» ұйымы {daysWord} кейін жойылады",
+        "body": "Ол мұрағатта. Жоюдың қажеті болмаса, қалпына келтіріңіз — {purgeDate} өткен соң қайтару мүмкін болмайды."
+      }
+    }
+  },
+  "objects": {
+    "shifts": {
+      "published": {
+        "title": "Кесте жарияланды: {branchName}",
+        "body": "{periodLabel} — ауысым саны: {count}"
+      }
+    },
+    "shift": {
+      "changed": {
+        "title": "Ауысым өзгертілді: {dateLabel}"
+      },
+      "taken": {
+        "title": "Ашық ауысымды алды: {dateLabel}"
+      }
+    }
+  },
+  "staff": {
+    "head": {
+      "assigned": {
+        "title": "{workspaceName} ұйымында {unitLabel} басқарасыз",
+        "body": "«{positionName}» лауазымы басшылық лауазым болып белгіленді — бағыныштылардың келісімдері мен өтініштері енді сізге келеді."
+      }
+    },
+    "deputy": {
+      "assigned": {
+        "title": "{workspaceName} ұйымында «{positionName}» лауазымы бойынша орынбасарсыз",
+        "body": "{periodLabel}"
+      }
+    }
+  },
+  "shop": {
+    "order": {
+      "placed": {
+        "title": "Жаңа тапсырыс: {title}"
+      },
+      "confirmed": {
+        "title": "Тапсырыс расталды: {title}"
+      },
+      "rejected": {
+        "title": "Тапсырыс қабылданбады: {title}"
+      },
+      "cancelled": {
+        "title": "Сатып алушы тапсырысты тоқтатты: {title}"
+      },
+      "funded": {
+        "title": "Жиналым жиналды: {title} — растаңыз"
+      }
+    }
+  },
+  "mention": {
+    "received": {
+      "title": "{mentionerName} сізді атап өтті",
+      "body": "{snippet}"
+    }
+  },
+  "auth": {
+    "password": {
+      "changed": {
+        "title": "Құпия сөз өзгертілді",
+        "body": "Бұл сіз болмасаңыз — құпия сөзді дереу ауыстырып, бөгде сеанстарды аяқтаңыз."
+      }
+    },
+    "phone": {
+      "changed": {
+        "title": "Телефон нөмірі өзгертілді",
+        "body": "Кіруге арналған жаңа нөмір: {newPhoneMasked}. Бұл сіз болмасаңыз — бізге хабарласыңыз."
+      }
+    }
+  },
+  "files": {
+    "scan": {
+      "infected": {
+        "title": "«{name}» файлы вирус жұқтырған және бұғатталды"
+      }
+    }
+  },
+  "voice": {
+    "transcript": {
+      "ready": {
+        "title": "«{title}» мәтіні дайын"
+      },
+      "failed": {
+        "title": "«{title}» мәтінге түрлендірілмеді"
+      }
+    }
+  },
+  "call": {
+    "missed": {
+      "title": "{fromName} қоңырауы жауапсыз қалды"
+    },
+    "recording": {
+      "ready": {
+        "title": "«{title}» қоңырауының жазбасы — Қоңыраулар журналында"
+      },
+      "failed": {
+        "title": "Қоңырауды жазу мүмкін болмады"
+      }
+    }
+  },
+  "office": {
+    "meeting": {
+      "invited": {
+        "title": "{byName} сізді «{roomName}» кездесуіне шақырады"
+      }
+    }
+  },
+  "process": {
+    "finished": {
+      "title": "«{processName}» процесі аяқталды"
+    },
+    "failed": {
+      "title": "«{processName}» процесі қатемен тоқтады",
+      "body": "{error}"
+    },
+    "step": {
+      "notify": {
+        "title": "{title}",
+        "body": "{message}"
+      },
+      "overdue": {
+        "title": "Қадам мерзімі өтті: {title}",
+        "body": "«{processName}» процесі"
+      }
+    },
+    "approval": {
+      "requested": {
+        "title": "Сіздің шешіміңіз керек: {title}",
+        "body": "«{processName}» процесі"
+      }
+    },
+    "task": {
+      "queued": {
+        "title": "Бөлімнің жаңа тапсырмасы: {title}",
+        "body": "{departmentName} · «{processName}» процесі"
+      }
+    }
+  },
+  "finance": {
+    "budget": {
+      "warning": {
+        "title": "«{categoryName}» лимиті таусылуға жақын",
+        "body": "{periodLabel} ішінде {limit} ішінен {spent}"
+      },
+      "exceeded": {
+        "title": "«{categoryName}» лимитінен асып кетті",
+        "body": "{periodLabel} ішінде {limit} ішінен {spent}"
+      }
+    },
+    "debt": {
+      "payment_due": {
+        "title": "Бүгін «{debtName}» бойынша төлем",
+        "body": "{amount} — Қаржы бөлімінде төлемді растаңыз"
+      },
+      "paid": {
+        "title": "«{debtName}» қарызы толық өтелді 🎉",
+        "body": "{amount}"
+      }
+    },
+    "recurring": {
+      "due": {
+        "title": "«{title}» операциясын растаңыз",
+        "body": "{amount}"
+      },
+      "recorded": {
+        "title": "Жазылды: {title}",
+        "body": "{amount}"
+      }
+    },
+    "book": {
+      "shared": {
+        "title": "{ownerName} сізге қаржысына рұқсат берді",
+        "body": "Рөл: {roleLabel}"
+      }
+    }
+  },
+  "drive": {
+    "shared": {
+      "title": "{ownerName} сізге рұқсат берді",
+      "body": "«{nodeName}» — {roleLabel}"
+    }
+  },
+  "note": {
+    "shared": {
+      "title": "{ownerName} жазбамен бөлісті",
+      "body": "«{noteName}» — {roleLabel}"
+    }
+  },
+  "share": {
+    "link": {
+      "opened": {
+        "title": "Сілтемені ашты",
+        "body": "«{targetName}»{labelSuffix}{guestSuffix}",
+        "muted": {
+          "title": "Сілтемені жиі ашады",
+          "body": "«{targetName}»{labelSuffix} — бүгін бұдан әрі хабарламаймыз, есептегіш «Менің сілтемелерімде»"
+        }
+      }
+    }
+  },
+  "document": {
+    "resolved": {
+      "title": "{outcomeLabel}: «{title}»",
+      "body": "{numberLabel}"
+    },
+    "counterparty_signed": {
+      "title": "Контрагент қол қойды: «{title}»",
+      "body": "{signerLabel}"
+    },
+    "counterparty_declined": {
+      "title": "Контрагент бас тартты: «{title}»",
+      "body": "{reasonLabel}"
+    },
+    "internal_declined": {
+      "title": "Қол қоюшы бас тартты: «{title}»",
+      "body": "{signerLabel}{reasonLabel}"
+    },
+    "external_expired": {
+      "title": "Қол қою мерзімі өтті: «{title}»",
+      "body": "Құжат жобаға қайтты — оны қайта жіберіңіз"
+    }
+  },
+  "approval": {
+    "requested": {
+      "title": "{actionLabel}: «{refTitle}»",
+      "body": "{stepTitle}"
+    },
+    "due_soon": {
+      "title": "Мерзімі жақындады: «{refTitle}»",
+      "body": "{stepTitle} — {deadlineLabel} дейін"
+    },
+    "overdue": {
+      "title": "«{refTitle}» бойынша шешім мерзімі өтті",
+      "body": "{stepTitle}"
+    },
+    "resolved": {
+      "title": "{outcomeLabel}: «{refTitle}»",
+      "body": "{comment}"
+    },
+    "unassigned": {
+      "title": "Шешетін адам жоқ: «{refTitle}»",
+      "body": "{stepTitle} — «{assigneeLabel}» ішінде бірде-бір қызметкер жоқ"
+    }
+  },
+  "sign": {
+    "requested": {
+      "title": "Қол қойыңыз: «{refTitle}»",
+      "body": "{levelLabel}"
+    },
+    "completed": {
+      "title": "Құжатқа қол қойылды: «{refTitle}»",
+      "body": "{signersLabel}"
+    },
+    "declined": {
+      "title": "Қол қоюдан бас тарту: «{refTitle}»",
+      "body": "{reason}"
+    }
+  },
+  "hr": {
+    "action": {
+      "applied": {
+        "title": "{kindLabel}: қолданылды",
+        "body": "{targetName} · {effectiveAt} бастап"
+      },
+      "failed": {
+        "title": "{kindLabel}: қолданылмады",
+        "body": "{reason}"
+      },
+      "withdrawn": {
+        "title": "{targetName} өтінішін кері қайтарды",
+        "body": "Кері қайтару хабарлау мерзімінің бүкіл кезеңінде сөзсіз (ҚР ЕК 56-бап 4-т.). {note}"
+      }
+    },
+    "esutd": {
+      "due_soon": {
+        "title": "ЕЭХЖ: тапсыру мерзімі жақындады",
+        "body": "{kindLabel} · {targetName} · {daysLeft} қалды"
+      }
+    },
+    "campaign": {
+      "assigned": {
+        "title": "Танысыңыз: «{title}»",
+        "body": "{workspaceName}"
+      },
+      "reminder": {
+        "title": "Құжат танысуды күтуде: «{title}»"
+      },
+      "done": {
+        "title": "Науқан аяқталды: «{title}»",
+        "body": "{total} ішінен {acknowledged} танысты"
+      }
+    },
+    "delivery": {
+      "due": {
+        "title": "Акт тапсыруды күтуде: «{title}»",
+        "body": "Шығарылған күннен бастап 3 жұмыс күні ішінде тапсыру керек (ҚР ЕК 61-бап 3-т.)"
+      }
+    },
+    "probation": {
+      "ending": {
+        "title": "Сынақ мерзімі аяқталуда",
+        "body": "{targetName} · {until} дейін. Мерзім өткенше хабарламасаңыз, қызметкер өткен болып саналады (ҚР ЕК 37-бап)"
+      }
+    },
+    "contract": {
+      "expiring": {
+        "title": "Мерзімді шарт аяқталуда",
+        "body": "{targetName} · {until} дейін. Соңғы жұмыс күні хабарлаңыз, әйтпесе автоматты түрде ұзартылады (ҚР ЕК 30-бап)"
+      }
+    }
+  },
+  "messenger": {
+    "scheduled": {
+      "sent": {
+        "title": "Еске салу жіберілді",
+        "body": "{snippet}"
+      }
+    }
+  },
+  "system": {
+    "welcome": {
+      "title": "SuperApp6-ке қош келдіңіз!"
+    },
+    "announcement": {
+      "title": "{title}"
+    }
+  }
+}

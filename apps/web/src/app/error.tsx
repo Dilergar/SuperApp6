@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 
 // ============================================================
 // Граница ошибок маршрута. Раньше её не было вовсе: любая ошибка отрисовки
@@ -21,10 +22,13 @@ export default function RouteError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const t = useTranslations('shell');
+  const common = useTranslations('common');
+
   useEffect(() => {
     // В консоль — чтобы ошибка не потерялась молча (в проде сюда встанет отправка
     // в трекер; digest — идентификатор серверной ошибки в логах Next).
-    console.error('Ошибка страницы:', error);
+    console.error('Route error:', error);
   }, [error]);
 
   return (
@@ -40,19 +44,18 @@ export default function RouteError({
         padding: 'var(--spacing-6)',
       }}
     >
-      <h1 className="title-lg" style={{ margin: 0 }}>Страница не открылась</h1>
+      <h1 className="title-lg" style={{ margin: 0 }}>{t('error.routeTitle')}</h1>
       <p className="body-sm" style={{ margin: 0, maxWidth: '32rem', color: 'var(--on-surface-variant)' }}>
-        Что-то пошло не так при загрузке этого раздела. Остальное приложение работает — можно
-        попробовать снова или перейти в другой раздел.
+        {t('error.routeText')}
       </p>
       {error.digest && (
         <p className="label-sm" style={{ margin: 0, opacity: 0.6 }}>
-          Код ошибки: {error.digest}
+          {t('error.digest', { digest: error.digest })}
         </p>
       )}
       <div style={{ display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap', justifyContent: 'center' }}>
-        <button type="button" onClick={reset} className="btn-primary">Попробовать снова</button>
-        <Link href="/dashboard" className="btn-ghost-inline">На главную</Link>
+        <button type="button" onClick={reset} className="btn-primary">{common('actions.retry')}</button>
+        <Link href="/dashboard" className="btn-ghost-inline">{t('error.goHome')}</Link>
       </div>
     </div>
   );

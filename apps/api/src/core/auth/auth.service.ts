@@ -17,6 +17,7 @@ import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../../modules/notifications/notifications.service';
 import { VerifyService } from '../verify/verify.service';
 import { JobsService } from '../jobs/jobs.service';
+import { WorkspaceContextService } from '../../shared/context/workspace-context.service';
 import { USER_PHONE_INVITATIONS_JOB } from '../users/user-jobs';
 import type { AuthTokens } from '@superapp/shared';
 import type { JwtPayload } from '../../shared/decorators/current-user.decorator';
@@ -34,6 +35,7 @@ export class AuthService {
     private notifications: NotificationsService,
     private verify: VerifyService,
     private jobs: JobsService,
+    private wsContext: WorkspaceContextService,
   ) {}
 
   async register(data: {
@@ -88,6 +90,11 @@ export class AuthService {
           lastName: data.lastName,
           dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
           phoneVerifiedAt: data.verifyToken ? new Date() : null,
+          // Язык, на котором человек ЗАПОЛНЯЛ форму (из Accept-Language запроса),
+          // а не дефолт колонки: он уже читает продукт на нём, и первое же
+          // уведомление должно прийти на том же языке. Незнакомый язык браузера
+          // negotiateLocale сводит к казахскому.
+          locale: this.wsContext.locale,
         },
       });
 

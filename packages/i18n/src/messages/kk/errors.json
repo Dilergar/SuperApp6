@@ -1,0 +1,68 @@
+{
+  "http": {
+    "badRequest": "Сұрау дұрыс емес",
+    "unauthorized": "Жалғастыру үшін кіріңіз",
+    "forbidden": "Рұқсат жоқ",
+    "notFound": "Табылмады",
+    "conflict": "Деректер қайшылығы",
+    "tooManyRequests": "Тым көп әрекет, кейінірек көріңіз",
+    "payloadTooLarge": "Файл тым үлкен",
+    "unsupportedMedia": "Файлдың бұл түрі қолданылмайды"
+  },
+  "internal": "Сервердің ішкі қатесі",
+  "unavailable": "Қызмет уақытша қолжетімсіз",
+  "db": {
+    "uniqueViolation": "Мұндай жазба бұрыннан бар",
+    "notFound": "Жазба табылмады",
+    "relationMissing": "Байланысты жазба табылмады"
+  },
+  "validation": {
+    "failed": "Пішінді тексеріңіз",
+    "invalidType": "«{path}»: {expected} күтілді, {received} келді",
+    "required": "«{path}» — міндетті өріс",
+    "tooSmall": {
+      "string": "«{path}»: кемінде {minimum, plural, one {# таңба} other {# таңба}}",
+      "number": "«{path}»: ең азы {minimum}",
+      "array": "«{path}»: кемінде {minimum, plural, one {# элемент} other {# элемент}}",
+      "date": "«{path}»: күн тым ерте",
+      "other": "«{path}»: мән тым аз"
+    },
+    "tooBig": {
+      "string": "«{path}»: ең көбі {maximum, plural, one {# таңба} other {# таңба}}",
+      "number": "«{path}»: ең көбі {maximum}",
+      "array": "«{path}»: ең көбі {maximum, plural, one {# элемент} other {# элемент}}",
+      "date": "«{path}»: күн тым кеш",
+      "other": "«{path}»: мән тым үлкен"
+    },
+    "invalidString": {
+      "email": "«{path}»: e-mail дұрыс емес",
+      "url": "«{path}»: сілтеме дұрыс емес",
+      "uuid": "«{path}»: идентификатор дұрыс емес",
+      "datetime": "«{path}»: күн мен уақыт дұрыс емес",
+      "other": "«{path}»: пішім дұрыс емес"
+    },
+    "invalidEnum": "«{path}»: белгісіз мән",
+    "invalidDate": "«{path}»: күн дұрыс емес",
+    "unrecognizedKeys": "Белгісіз өрістер: {keys}",
+    "notMultipleOf": "«{path}»: {multipleOf} еселік болуы керек",
+    "notFinite": "«{path}»: сан ауқымнан тыс",
+    "custom": "«{path}»: жарамсыз мән"
+  },
+  "workspace": {
+    "noAccess": "Бұл ұйымға рұқсат жоқ",
+    "notFound": "Ұйым табылмады"
+  },
+  "auth": {
+    "unauthorized": "Жалғастыру үшін кіріңіз",
+    "sessionExpired": "Сеанс мерзімі бітті — қайта кіріңіз",
+    "localeUnsupported": "Бұл тіл қолданылмайды"
+  },
+  "notification": {
+    "notFound": "Хабарлама табылмады"
+  },
+  "chatter": {
+    "forbidden": "Бұл жазбаның хроникасы сізге қолжетімсіз",
+    "journalForbidden": "Ұйым журналы Менеджер рөлінен бастап қолжетімді",
+    "unknownRef": "Жазба түрі белгісіз"
+  }
+}

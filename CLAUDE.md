@@ -8,6 +8,7 @@
 - `PRODUCT.md` — продукт, пользователи, позиционирование;
 - `DESIGN.md` — дизайн-система (ОБЯЗАТЕЛЕН перед любым UI);
 - `docs/gap_analysis_v2.md` — живой план; `docs/roadmap.md` — этапы и техдолг.
+- `docs/i18n.md` — мультиязычность (ОБЯЗАТЕЛЕН перед любым текстом для человека).
 
 ---
 
@@ -62,7 +63,7 @@ Before implementing:
 
 **16 платформенных движков** (`apps/api/src/core/`): access (ReBAC) · rich-cards · search · quick-actions · files · voice (STT) · calls (LiveKit) · chatter · jobs (outbox) · verify (SMS-OTP) · docs (WOPI) · share-links · approvals · sign (ЭЦП+ПЭП) · templates · audiences (адресаты).
 
-**Сервисы** (`apps/api/src/modules/`): Окружение (Circle — фундамент) · Задачник · Календарь (+Google) · Мессенджер · My Wish & Shop · Кошелёк-леджер · Скины карточек · Организации · Сотрудники + Орг. структура (вертикаль на графе должностей и объектов) · Процессы (нодовый канвас) · Финансы (B2C) · Диктофон · Виртуальный офис · Диск (OmniDrive) · Документооборот (+ЭДО) · Контрагенты · КЭДО (HR) · Объекты (дерево площадок + юрлица + штатное расписание + график смен + оборудование) · Заметки (B2C+B2B: свой формат документа, доска-вид на раздел с Alt+N на любой странице, привязка к задачам/контрагентам/объектам/документам). Документная вертикаль ЗАВЕРШЕНА; B2B-вертикаль объектов ПОСТРОЕНА.
+**Сервисы** (`apps/api/src/modules/`): Окружение (Circle — фундамент) · Задачник · Календарь (+Google) · Мессенджер · My Wish & Shop · Кошелёк-леджер · Скины карточек · Организации · Сотрудники + Орг. структура (вертикаль на графе должностей и объектов) · Процессы (нодовый канвас) · Финансы (B2C) · Диктофон · Виртуальный офис · Диск (OmniDrive) · Документооборот (+ЭДО) · Контрагенты · КЭДО (HR) · Объекты (дерево площадок + юрлица + штатное расписание + график смен + оборудование) · Заметки (B2C+B2B: свой формат документа, доска-вид на раздел с Alt+N на любой странице, привязка к задачам/контрагентам/объектам/документам). Документная вертикаль ЗАВЕРШЕНА; B2B-вертикаль объектов ПОСТРОЕНА; **мультиязычный фундамент построен** (kk/ru/en, render-at-read, стражи — `docs/i18n.md`), сервисы переводятся по одному за сессию.
 
 Все сервисы — «между людьми»: Мама ставит задачу Сыну, семья скидывается на подарок, сотрудник пишет коллеге по «рабочему пропуску».
 
@@ -97,6 +98,7 @@ Before implementing:
 | Собрать решение (согласовать/подписать/ознакомиться) | `core/approvals`: describeForCreate проверяет право | `docs/approvals_engine.md` |
 | Юридическая подпись (ЭЦП/ПЭП) | `core/sign`: движок сам замораживает предмет | `docs/sign_engine.md` |
 | Данные в шаблон документа | `core/templates`: TemplateFieldRegistry + renderForContext | `docs/templates_engine.md` |
+| **Текст для человека (любой)** | `@superapp/i18n`: ключ каталога + `useTranslations`/`I18nService`; литерал запрещён линтером | `docs/i18n.md` |
 | Уведомления | NOTIFICATION_REGISTRY + emitEvent (не голый events.emit) | `docs/notifications.md` |
 | Деньги: оплата, заморозка, сделки | `wallet` (Ledger + Escrow) — только синхронно в одной tx | `docs/wallet_ledger.md` |
 | Записи на сетке календаря | Реестр слоёв (регистрирует ВЛАДЕЛЕЦ данных) | `docs/calendar.md` |
@@ -133,13 +135,14 @@ Before implementing:
 - Методы `system*` движков прав НЕ проверяют — проверяет вызывающий (первое, что смотрит ревью).
 - Переходы состояний — status-guarded `updateMany`; идемпотентность — уникальные индексы; партиальные уникумы — руками в миграцию + коммент в схеме.
 - Время в сыром SQL — только `utcTs()`/`ts(d)`; `db push` запрещён (только prisma migrate).
-- Все ошибки — единый конверт через `AllExceptionsFilter`; машинные коды в `details.code` (клиент не ветвится по русскому тексту).
+- Все ошибки — единый конверт через `AllExceptionsFilter`: `details.code` есть ВСЕГДА, `message` сервер ПЕРЕВОДИТ в языке запроса. Новый отказ пишется без текста — `throw notFound('code')` / `forbidden` / `badRequest` (`shared/errors/api-error.ts`).
 
 **Веб** (`docs/web_conventions.md`):
 - Нативные `confirm()`/`alert()` ЗАПРЕЩЕНЫ → `useConfirm()` / `toastError()`.
 - Примитивы — только кит `components/ui/`; человек — только `PersonChip`/`PersonAvatar`; пикеры — `EntitySelector`; пикер не предлагает того, что сервер отвергнет.
 - RQ-ключи — в `lib/queries.ts`; один ключ = ОДНА форма кэша (useQuery и useInfiniteQuery несовместимы на общем ключе).
-- Новый сервис = +1 строка `lib/app-nav.ts` + 1 файл `<сервис>/loading.tsx` (в корне app/ — НЕЛЬЗЯ).
+- **Строка для человека — только ключ каталога** (`useTranslations`), никогда не литерал: строка в коде = один язык навсегда. Форматирование дат/чисел/денег — только `@superapp/i18n` (`toLocaleDateString('ru-RU')` запрещён).
+- Новый сервис = +1 строка `lib/app-nav.ts` (`labelKey`) + 1 файл `<сервис>/loading.tsx` + 1 файл `<сервис>/layout.tsx` с `<ServiceMessages ns="…">` (в корне app/ — НЕЛЬЗЯ).
 - Смысл несёт ФОРМА (статус = Chip, действие = Button); цвета не придумывать — нет в DESIGN.md → спросить (исключение — цвет-данные); UI несуществующих фич не показывать.
 
 **Данные и фон** (`docs/jobs_engine.md`, `docs/module_graph.md`):
@@ -162,12 +165,14 @@ Before implementing:
 ```bash
 docker compose up -d                        # PostgreSQL 16 + Redis 7
 pnpm install
-cd packages/shared && pnpm build            # ПОРЯДОК НЕСУЩИЙ: shared → api-client → api/web
+cd packages/shared && pnpm build            # ПОРЯДОК НЕСУЩИЙ: shared → i18n → api-client → api/web
+cd ../i18n && pnpm build                    # prebuild сам пересоберёт messages/index.ts
 cd ../api-client && pnpm build
 cd apps/api && pnpm db:generate && npx prisma migrate deploy   # схему менял → pnpm db:migrate
 pnpm dev                                    # всё сразу (API :3001, Web :3000, Swagger /api/docs в dev)
 pnpm lint:guard                             # оба линт-стража (~7с, из корня)
 pnpm check:docs                             # страж документации (~2с): пути, индекс, env, рёбра модулей; --write обновляет module_graph_edges.md
+pnpm check:i18n                             # страж каталогов (~1с): паритет ключей en/kk/ru, разбор ICU, плейсхолдеры
 node apps/api/scripts/verify-<name>.cjs     # e2e-сьют (при запущенном API)
 ```
 

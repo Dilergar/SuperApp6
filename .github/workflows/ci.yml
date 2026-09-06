@@ -67,8 +67,21 @@ jobs:
       - name: Docs drift guard
         run: node scripts/check-docs.cjs --since HEAD~1
 
+      # Механический страж каталогов сообщений: файл неймспейса есть в КАЖДОЙ локали,
+      # набор ключей en ⇔ kk ⇔ ru совпадает полностью, каждая фраза разбирается
+      # ICU-парсером, плейсхолдеры и обязательные ветки plural не потеряны при
+      # переводе. Пропущенный ключ показывает человеку сам ключ — и только на одном
+      # языке, то есть глазами это не ловится. Секунды, без LLM и без сборок.
+      - name: i18n catalogs guard
+        run: node scripts/check-i18n.cjs
+
       - name: Build shared package
         run: pnpm --filter @superapp/shared build
+
+      # Каталоги сообщений и форматтеры. Между shared (константы провода: список
+      # локалей, имя cookie) и api-client — порядок несущий.
+      - name: Build i18n package
+        run: pnpm --filter @superapp/i18n build
 
       # Транспорт границы (axios + single-flight refresh + хелперы apiGet/apiPost).
       # Собирается ПОСЛЕ shared: конверт ответа (ApiOk) он берёт оттуда.
@@ -103,6 +116,13 @@ jobs:
       - name: Lint web (страж границы)
         working-directory: apps/web
         run: npx eslint src
+
+      # Те же стражи в пакетах: `no-cyrillic-literal` бережёт shared (одна русская
+      # подпись в реестре делает русскими сразу три клиента) и сам движок i18n.
+      - name: Lint shared + i18n (страж мультиязычности)
+        run: |
+          pnpm --filter @superapp/shared lint:guard
+          pnpm --filter @superapp/i18n lint:guard
 
       # The verify scripts read apps/api/.env directly — give them the CI connection strings.
       # VOICE_STT_MOCK=true — голосовой движок на mock-драйвере: verify-voice.cjs

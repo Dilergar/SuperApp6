@@ -23,8 +23,10 @@ import {
   type UserPaymentCardDto,
 } from '@superapp/shared';
 import { toastError } from '@/lib/toast';
+import { useTranslations } from 'next-intl';
+import { useFormatters } from '@/lib/format';
 
-function errMsg(e: unknown, fallback = 'Ошибка'): string {
+function errMsg(e: unknown, fallback: string): string {
   const ax = e as { response?: { data?: { message?: string; error?: string } } };
   return ax?.response?.data?.message || ax?.response?.data?.error || fallback;
 }
@@ -37,6 +39,10 @@ const fmt = (n: number, scale = 0) => formatWalletAmount(n, scale);
  * / delete), see your multi-currency balances, transaction history and who holds your coins.
  */
 export function WalletSection() {
+  const t = useTranslations('profile');
+  const common = useTranslations('common');
+  // Даты — форматтеры платформы; суммы — formatWalletAmount (он знает scale валюты).
+  const dfmt = useFormatters();
   // Общий кэш React Query: повторный заход рисуется мгновенно, действия
   // обновляют только затронутые ключи (раньше каждый клик перезапрашивал всё).
   const qc = useQueryClient();
@@ -96,54 +102,54 @@ export function WalletSection() {
       await Promise.all(keys.map((k) => qc.invalidateQueries({ queryKey: k })));
       if (success) flash(success);
     } catch (e) {
-      setError(errMsg(e));
+      setError(errMsg(e, common('state.error')));
     } finally {
       setBusy(false);
     }
   };
 
   const createCurrency = () => {
-    if (!cName.trim()) return setError('Введите название');
+    if (!cName.trim()) return setError(t('wallet.nameRequired'));
     return run(async () => {
       await apiPost('/wallet/currency', { name: cName.trim(), icon: cIcon });
       setCName('');
-    }, [walletCurrencyKey, walletOverviewKey, currencyBadgeKey], 'Валюта создана');
+    }, [walletCurrencyKey, walletOverviewKey, currencyBadgeKey], t('wallet.created'));
   };
 
   const mint = () => {
     const n = parseInt(mintAmt, 10);
-    if (!Number.isInteger(n) || n <= 0) return setError('Введите целое число больше 0');
+    if (!Number.isInteger(n) || n <= 0) return setError(t('wallet.integerError'));
     return run(async () => {
       await apiPost('/wallet/currency/mint', { amount: n });
       setMintAmt('');
-    }, [walletOverviewKey, walletHistoryKey, walletHoldersKey, currencyBadgeKey], `Выпущено ${fmt(n)}`);
+    }, [walletOverviewKey, walletHistoryKey, walletHoldersKey, currencyBadgeKey], t('wallet.minted', { amount: fmt(n) }));
   };
 
   const saveEdit = () =>
     run(async () => {
       await apiPatch('/wallet/currency', { name: eName.trim(), icon: eIcon });
       setEditing(false);
-    }, [walletCurrencyKey, walletHistoryKey, currencyBadgeKey], 'Сохранено');
+    }, [walletCurrencyKey, walletHistoryKey, currencyBadgeKey], t('settings.saved'));
 
   const del = () =>
     run(async () => {
       await apiDelete('/wallet/currency');
       setConfirmDel(false);
-    }, [walletCurrencyKey, walletOverviewKey, walletHistoryKey, walletHoldersKey, currencyBadgeKey], 'Валюта удалена');
+    }, [walletCurrencyKey, walletOverviewKey, walletHistoryKey, walletHoldersKey, currencyBadgeKey], t('wallet.deleted'));
 
   const burnCoins = (currencyId: string) => {
     const n = parseInt(burnAmt, 10);
-    if (!Number.isInteger(n) || n <= 0) return setError('Введите целое число больше 0');
+    if (!Number.isInteger(n) || n <= 0) return setError(t('wallet.integerError'));
     return run(async () => {
       await apiPost('/wallet/burn', { currencyId, amount: n });
       setBurnId(null);
       setBurnAmt('');
-    }, [walletOverviewKey, walletHistoryKey], 'Сожжено');
+    }, [walletOverviewKey, walletHistoryKey], t('wallet.burned'));
   };
 
-  if (loading) return <p className="label-md">Загрузка кошелька…</p>;
+  if (loading) return <p className="label-md">{t('wallet.loading')}</p>;
   if (loadError && wallet.length === 0) {
-    return <p style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>{errMsg(loadError, 'Не удалось загрузить кошелёк')}</p>;
+    return <p style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>{errMsg(loadError, t('wallet.loadFailed'))}</p>;
   }
 
   const own = wallet.find((w) => w.isOwn);
@@ -152,9 +158,9 @@ export function WalletSection() {
 
   return (
     <div>
-      <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-2)' }}>Кошелёк</h2>
+      <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-2)' }}>{t('wallet.title')}</h2>
       <p className="label-sm" style={{ marginBottom: 'var(--spacing-6)', opacity: 0.7 }}>
-        Своя валюта, которой вы награждаете людей за задачи, и монеты, заработанные у других.
+        {t('wallet.subtitle')}
       </p>
 
       {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: 'var(--spacing-4)' }}>{error}</p>}
@@ -164,23 +170,23 @@ export function WalletSection() {
       <PaymentCardsBlock />
 
       {/* ===== Моя валюта ===== */}
-      <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>Моя валюта</h3>
+      <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>{t('wallet.mine')}</h3>
       {!currency ? (
         <div className="card" style={{ padding: 'var(--spacing-6)', maxWidth: '460px', marginBottom: 'var(--spacing-8)' }}>
           <p className="label-md" style={{ marginBottom: 'var(--spacing-4)', lineHeight: 1.5 }}>
-            У вас ещё нет своей валюты. Придумайте название и иконку — ею вы будете награждать людей из окружения за задачи.
+            {t('wallet.noneText')}
           </p>
           <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-            <GlyphField label="Иконка" value={cIcon} onChange={(v) => setCIcon(v ?? '')} suggest={cName} />
+            <GlyphField label={t('wallet.icon')} value={cIcon} onChange={(v) => setCIcon(v ?? '')} suggest={cName} />
             <Input
-              label="Название"
+              label={t('wallet.name')}
               value={cName}
               onChange={(e) => setCName(e.target.value)}
               maxLength={WALLET_LIMITS.maxCurrencyNameLength}
-              placeholder="Напр. Монеты Мамы"
+              placeholder={t('wallet.namePlaceholder')}
               wrapClassName="wallet-name-field"
             />
-            <button className="btn-success" disabled={busy} onClick={createCurrency} style={{ fontSize: '0.85rem' }}>Создать</button>
+            <button className="btn-success" disabled={busy} onClick={createCurrency} style={{ fontSize: '0.85rem' }}>{t('wallet.create')}</button>
           </div>
         </div>
       ) : (
@@ -192,26 +198,26 @@ export function WalletSection() {
                 <div style={{ flex: 1 }}>
                   <div className="title-md">{currency.name}</div>
                   <div className="label-sm" style={{ opacity: 0.7 }}>
-                    Баланс: <b style={{ color: 'var(--primary)' }}>{fmt(own?.balance ?? 0, own?.scale)}</b>
-                    {!!own && own.held > 0 && <> · заморожено {fmt(own.held, own.scale)} · доступно {fmt(own.available, own.scale)}</>}
+                    {t('wallet.balance')} <b style={{ color: 'var(--primary)' }}>{fmt(own?.balance ?? 0, own?.scale)}</b>
+                    {!!own && own.held > 0 && t('wallet.heldAvailable', { held: fmt(own.held, own.scale), available: fmt(own.available, own.scale) })}
                   </div>
                 </div>
               </div>
 
               <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'flex-end', marginBottom: 'var(--spacing-4)' }}>
                 <Input
-                  label="Выпустить себе"
+                  label={t('wallet.mintLabel')}
                   type="number"
                   min={1}
                   value={mintAmt}
                   onChange={(e) => setMintAmt(e.target.value)}
-                  placeholder="Сколько монет"
+                  placeholder={t('wallet.mintPlaceholder')}
                   wrapClassName="wallet-name-field"
                 />
-                <button className="btn-success" disabled={busy} onClick={mint} style={{ fontSize: '0.85rem' }}>Выпустить</button>
+                <button className="btn-success" disabled={busy} onClick={mint} style={{ fontSize: '0.85rem' }}>{t('wallet.mint')}</button>
               </div>
               <p className="label-sm" style={{ fontSize: '0.7rem', opacity: 0.55, marginBottom: 'var(--spacing-4)' }}>
-                Лимит эмиссии — 10 000 000 монет «на руках» (баланс + заморожено).
+                {t('wallet.mintLimit')}
               </p>
 
               <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
@@ -220,49 +226,49 @@ export function WalletSection() {
                   disabled={busy || renameLocked}
                   onClick={() => { setEName(currency.name); setEIcon(currency.icon); setEditing(true); }}
                   style={{ fontSize: '0.8rem', opacity: renameLocked ? 0.5 : 1, cursor: renameLocked ? 'not-allowed' : 'pointer' }}
-                  title={renameLocked ? `Менять можно раз в 3 месяца — после ${new Date(currency.renameAvailableAt!).toLocaleDateString('ru-RU')}` : undefined}
+                  title={renameLocked ? t('wallet.renameLocked', { date: dfmt.date(currency.renameAvailableAt!) }) : undefined}
                 >
-                  Изменить
+                  {t('wallet.edit')}
                 </button>
                 {!confirmDel ? (
                   <button onClick={() => setConfirmDel(true)} disabled={busy} style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer' }}>
-                    Удалить валюту
+                    {t('wallet.delete')}
                   </button>
                 ) : (
                   <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
-                    <span className="label-sm" style={{ color: 'var(--danger)' }}>Сгорит у всех. Точно?</span>
-                    <button onClick={del} disabled={busy} style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--on-primary)', background: 'var(--danger)', border: 'none', borderRadius: '8px', padding: '0.25rem 0.7rem', cursor: 'pointer' }}>Да</button>
-                    <button onClick={() => setConfirmDel(false)} disabled={busy} className="btn-ghost-inline" style={{ fontSize: '0.8rem', padding: '0.25rem 0.7rem' }}>Нет</button>
+                    <span className="label-sm" style={{ color: 'var(--danger)' }}>{t('wallet.deleteConfirm')}</span>
+                    <button onClick={del} disabled={busy} style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--on-primary)', background: 'var(--danger)', border: 'none', borderRadius: '8px', padding: '0.25rem 0.7rem', cursor: 'pointer' }}>{common('actions.yes')}</button>
+                    <button onClick={() => setConfirmDel(false)} disabled={busy} className="btn-ghost-inline" style={{ fontSize: '0.8rem', padding: '0.25rem 0.7rem' }}>{common('actions.no')}</button>
                   </span>
                 )}
               </div>
               {renameLocked && (
                 <p className="label-sm" style={{ fontSize: '0.7rem', opacity: 0.55, marginTop: 'var(--spacing-2)' }}>
-                  Следующее изменение названия/иконки — после {new Date(currency.renameAvailableAt!).toLocaleDateString('ru-RU')}.
+                  {t('wallet.renameNext', { date: dfmt.date(currency.renameAvailableAt!) })}
                 </p>
               )}
             </>
           ) : (
             <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-              <GlyphField label="Иконка" value={eIcon} onChange={(v) => setEIcon(v ?? '')} suggest={eName} />
+              <GlyphField label={t('wallet.icon')} value={eIcon} onChange={(v) => setEIcon(v ?? '')} suggest={eName} />
               <Input
-                label="Название"
+                label={t('wallet.name')}
                 value={eName}
                 onChange={(e) => setEName(e.target.value)}
                 maxLength={WALLET_LIMITS.maxCurrencyNameLength}
                 wrapClassName="wallet-name-field"
               />
-              <button className="btn-success" disabled={busy} onClick={saveEdit} style={{ fontSize: '0.85rem' }}>Сохранить</button>
-              <button className="btn-ghost-inline" disabled={busy} onClick={() => setEditing(false)} style={{ fontSize: '0.85rem' }}>Отмена</button>
+              <button className="btn-success" disabled={busy} onClick={saveEdit} style={{ fontSize: '0.85rem' }}>{common('actions.save')}</button>
+              <button className="btn-ghost-inline" disabled={busy} onClick={() => setEditing(false)} style={{ fontSize: '0.85rem' }}>{common('actions.cancel')}</button>
             </div>
           )}
         </div>
       )}
 
       {/* ===== Заработанные валюты ===== */}
-      <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>Заработанные валюты</h3>
+      <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>{t('wallet.earned')}</h3>
       {foreign.length === 0 ? (
-        <p className="label-md" style={{ marginBottom: 'var(--spacing-8)', opacity: 0.7 }}>Вы ещё не заработали чужих валют.</p>
+        <p className="label-md" style={{ marginBottom: 'var(--spacing-8)', opacity: 0.7 }}>{t('wallet.earnedEmpty')}</p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)', maxWidth: '460px', marginBottom: 'var(--spacing-8)' }}>
           {foreign.map((w) => (
@@ -271,13 +277,13 @@ export function WalletSection() {
                 <Glyph value={w.icon} size={24} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 500, fontSize: '0.9rem' }}>{w.name}</div>
-                  <div className="label-sm" style={{ opacity: 0.6, fontSize: '0.72rem' }}>от {w.issuerName}</div>
+                  <div className="label-sm" style={{ opacity: 0.6, fontSize: '0.72rem' }}>{t('wallet.from', { name: w.issuerName })}</div>
                 </div>
                 <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: w.balance < 0 ? 'var(--danger)' : 'var(--on-surface)' }}>{fmt(w.balance, w.scale)}</div>
                 {w.balance > 0 && (
                   <button
                     onClick={() => { setBurnId(burnId === w.currencyId ? null : w.currencyId); setBurnAmt(''); }}
-                    title="Сжечь монеты"
+                    title={t('wallet.burnTitle')}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', opacity: 0.6 }}
                   >
                     🔥
@@ -287,17 +293,17 @@ export function WalletSection() {
               {burnId === w.currencyId && (
                 <div style={{ marginTop: 'var(--spacing-2)', display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center' }}>
                   <Input
-                    aria-label={`Сколько монет «${w.name}» сжечь`}
+                    aria-label={t('wallet.burnAria', { name: w.name })}
                     type="number"
                     min={1}
                     value={burnAmt}
                     onChange={(e) => setBurnAmt(e.target.value)}
-                    placeholder="Сколько сжечь"
+                    placeholder={t('wallet.burnPlaceholder')}
                     wrapClassName="wallet-name-field"
                     style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem' }}
                   />
-                  <button onClick={() => burnCoins(w.currencyId)} disabled={busy} style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--on-primary)', background: 'var(--danger)', border: 'none', borderRadius: '8px', padding: '0.3rem 0.7rem', cursor: 'pointer' }}>Сжечь</button>
-                  <button onClick={() => setBurnId(null)} className="btn-ghost-inline" style={{ fontSize: '0.78rem', padding: '0.3rem 0.7rem' }}>Отмена</button>
+                  <button onClick={() => burnCoins(w.currencyId)} disabled={busy} style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--on-primary)', background: 'var(--danger)', border: 'none', borderRadius: '8px', padding: '0.3rem 0.7rem', cursor: 'pointer' }}>{t('wallet.burn')}</button>
+                  <button onClick={() => setBurnId(null)} className="btn-ghost-inline" style={{ fontSize: '0.78rem', padding: '0.3rem 0.7rem' }}>{common('actions.cancel')}</button>
                 </div>
               )}
             </div>
@@ -308,9 +314,9 @@ export function WalletSection() {
       {/* ===== Держатели моей валюты ===== */}
       {currency && (
         <>
-          <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>Держатели моей валюты</h3>
+          <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>{t('wallet.holders')}</h3>
           {holders.length === 0 ? (
-            <p className="label-md" style={{ marginBottom: 'var(--spacing-8)', opacity: 0.7 }}>Пока никто не держит вашу валюту.</p>
+            <p className="label-md" style={{ marginBottom: 'var(--spacing-8)', opacity: 0.7 }}>{t('wallet.holdersEmpty')}</p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)', maxWidth: '460px', marginBottom: 'var(--spacing-8)' }}>
               {holders.map((h) => (
@@ -325,16 +331,16 @@ export function WalletSection() {
       )}
 
       {/* ===== История ===== */}
-      <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>История транзакций</h3>
+      <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>{t('wallet.history')}</h3>
       {history.length === 0 ? (
-        <p className="label-md" style={{ opacity: 0.7 }}>Пока нет операций.</p>
+        <p className="label-md" style={{ opacity: 0.7 }}>{t('wallet.historyEmpty')}</p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-1)', maxWidth: '460px' }}>
           {history.map((h) => (
             <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', padding: 'var(--spacing-2) 0', borderBottom: '1px dashed rgba(0, 0, 0, 0.12)' }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: '0.85rem', fontWeight: 500 }}>{LEDGER_ENTRY_LABELS[h.entryType] ?? h.entryType}</div>
-                <div className="label-sm" style={{ fontSize: '0.7rem', opacity: 0.55 }}>{new Date(h.createdAt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+                <div className="label-sm" style={{ fontSize: '0.7rem', opacity: 0.55 }}>{dfmt.dateTime(h.createdAt)}</div>
               </div>
               <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: h.amount < 0 ? 'var(--danger)' : 'var(--secondary)' }}>
                 {h.amount > 0 ? '+' : ''}{fmt(h.amount, h.scale)}
@@ -354,6 +360,8 @@ export function WalletSection() {
 // ============================================================
 
 function PaymentCardsBlock() {
+  const t = useTranslations('profile');
+  const common = useTranslations('common');
   const qc = useQueryClient();
   const [confirm, confirmUI] = useConfirm();
   const [adding, setAdding] = useState(false);
@@ -397,28 +405,26 @@ function PaymentCardsBlock() {
       setPan(''); setIban(''); setHolder(''); setExp(''); setMakePrimary(false);
       void invalidate();
     },
-    onError: (e) => toastError(errMsg(e, 'Не удалось добавить карту')),
+    onError: (e) => toastError(errMsg(e, t('cards.addFailed'))),
   });
 
   const setPrimary = useMutation({
     mutationFn: (id: string) => apiPatch(`/wallet/cards/${id}`, { isPrimary: true }),
     onSuccess: () => void invalidate(),
-    onError: (e) => toastError(errMsg(e)),
+    onError: (e) => toastError(errMsg(e, t('cards.genericError'))),
   });
 
   const remove = useMutation({
     mutationFn: (id: string) => apiDelete(`/wallet/cards/${id}`),
     onSuccess: () => void invalidate(),
-    onError: (e) => toastError(errMsg(e)),
+    onError: (e) => toastError(errMsg(e, t('cards.genericError'))),
   });
 
   return (
     <div style={{ marginBottom: 'var(--spacing-8)' }}>
-      <h3 className="title-md" style={{ marginBottom: 'var(--spacing-1)' }}>Мои карты</h3>
+      <h3 className="title-md" style={{ marginBottom: 'var(--spacing-1)' }}>{t('cards.title')}</h3>
       <p className="label-sm" style={{ marginBottom: 'var(--spacing-3)', opacity: 0.7, maxWidth: '460px', lineHeight: 1.5 }}>
-        Реквизиты для выплат — зарплаты и возвратов. CVV не запрашивается и не хранится:
-        платежи через карту не проводятся. Основную карту видят управляющие организаций,
-        где вы работаете.
+        {t('cards.subtitle')}
       </p>
 
       {cards.map((c) => (
@@ -427,20 +433,20 @@ function PaymentCardsBlock() {
             <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, letterSpacing: '0.05em' }}>
               {revealed === c.id ? c.pan.replace(/(\d{4})(?=\d)/g, '$1 ') : c.panMasked}
             </span>
-            {c.isPrimary && <Chip tone="success">Основная</Chip>}
+            {c.isPrimary && <Chip tone="success">{t('cards.primary')}</Chip>}
             <span style={{ flex: 1 }} />
             <Button size="sm" variant="ghost" onClick={() => setRevealed((r) => (r === c.id ? null : c.id))}>
-              {revealed === c.id ? 'Скрыть' : 'Показать'}
+              {revealed === c.id ? t('cards.hide') : t('cards.show')}
             </Button>
           </div>
           <div className="label-sm" style={{ marginTop: 'var(--spacing-2)', opacity: 0.75 }}>
-            {c.holderName} · до {String(c.expMonth).padStart(2, '0')}/{String(c.expYear % 100).padStart(2, '0')}
+            {c.holderName} · {t('cards.until')} {String(c.expMonth).padStart(2, '0')}/{String(c.expYear % 100).padStart(2, '0')}
             {c.iban && revealed === c.id && <> · {c.iban}</>}
           </div>
           <div style={{ display: 'flex', gap: 'var(--spacing-2)', marginTop: 'var(--spacing-2)' }}>
             {!c.isPrimary && (
               <Button size="sm" variant="ghost" loading={setPrimary.isPending} onClick={() => setPrimary.mutate(c.id)}>
-                Сделать основной
+                {t('cards.makePrimary')}
               </Button>
             )}
             <Button
@@ -450,16 +456,16 @@ function PaymentCardsBlock() {
               onClick={() =>
                 confirm(
                   {
-                    title: 'Удалить карту?',
-                    message: `Карта ${c.panMasked} будет удалена из реквизитов.`,
-                    confirmLabel: 'Удалить',
+                    title: t('cards.deleteTitle'),
+                    message: t('cards.deleteText', { mask: c.panMasked }),
+                    confirmLabel: common('actions.delete'),
                     danger: true,
                   },
                   () => remove.mutateAsync(c.id).then(() => undefined),
                 )
               }
             >
-              Удалить
+              {common('actions.delete')}
             </Button>
           </div>
         </div>
@@ -467,35 +473,35 @@ function PaymentCardsBlock() {
 
       {!adding ? (
         <Button variant="outline" size="sm" icon="add" onClick={() => setAdding(true)}>
-          Добавить карту
+          {t('cards.add')}
         </Button>
       ) : (
         <div className="card-elevated" style={{ padding: 'var(--spacing-5)', maxWidth: '460px', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
           <Input
-            label="Номер карты"
+            label={t('cards.pan')}
             inputMode="numeric"
             placeholder="0000 0000 0000 0000"
             value={pan}
             onChange={(e) => setPan(e.target.value.replace(/[^\d\s]/g, '').slice(0, 23))}
-            error={panNorm && !isValidCardPan(panNorm) ? 'Проверьте номер — не сходится контрольная сумма' : undefined}
+            error={panNorm && !isValidCardPan(panNorm) ? t('cards.panInvalid') : undefined}
           />
           <Input
-            label="IBAN карт-счёта (необязательно)"
+            label={t('cards.iban')}
             placeholder="KZ00 0000 0000 0000 0000"
             value={iban}
             onChange={(e) => setIban(e.target.value)}
-            error={ibanNorm && !isValidKzIban(ibanNorm) ? 'Проверьте номер счёта (KZ + 18 знаков)' : undefined}
-            hint="Kaspi показывает его в реквизитах карты — на счёт идут переводы из банков"
+            error={ibanNorm && !isValidKzIban(ibanNorm) ? t('cards.ibanInvalid') : undefined}
+            hint={t('cards.ibanHint')}
           />
           <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-3)' }}>
             <Input
-              label="Имя как на карте"
+              label={t('cards.holder')}
               value={holder}
               onChange={(e) => setHolder(e.target.value.toUpperCase())}
               placeholder="ASSEL NUROVA"
             />
             <Input
-              label="Срок (ММ/ГГ)"
+              label={t('cards.exp')}
               inputMode="numeric"
               placeholder="08/29"
               value={exp}
@@ -505,13 +511,13 @@ function PaymentCardsBlock() {
               }}
             />
           </div>
-          <Toggle checked={makePrimary} onChange={setMakePrimary} label="Сделать основной" />
+          <Toggle checked={makePrimary} onChange={setMakePrimary} label={t('cards.makePrimary')} />
           <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
             <Button variant="primary" size="sm" loading={create.isPending} disabled={!formOk} onClick={() => create.mutate()}>
-              Сохранить карту
+              {t('cards.save')}
             </Button>
             <Button variant="ghost" size="sm" onClick={() => setAdding(false)}>
-              Отмена
+              {common('actions.cancel')}
             </Button>
           </div>
         </div>

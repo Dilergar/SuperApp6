@@ -19,6 +19,7 @@ import { REFRESH_TOKEN_KEY, apiErrorMessage, apiPost } from '@/lib/api';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useOtpFlow } from '@/components/verify/otp-flow';
 import { OtpStep } from '@/components/verify/OtpStep';
+import { useTranslations } from 'next-intl';
 
 function DialogFrame({ children, onClose, busy, label }: { children: React.ReactNode; onClose: () => void; busy: boolean; label: string }) {
   return (
@@ -37,6 +38,8 @@ const refreshToken = () => (typeof window === 'undefined' ? undefined : localSto
 // ============================================================
 
 export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
+  const t = useTranslations('profile');
+  const common = useTranslations('common');
   const flow = useOtpFlow();
   const [step, setStep] = useState<'form' | 'code' | 'done'>('form');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -81,13 +84,13 @@ export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <DialogFrame onClose={onClose} busy={busy} label="Смена пароля">
+    <DialogFrame onClose={onClose} busy={busy} label={t('pwd.dialogLabel')}>
       {step === 'form' && (
         <form onSubmit={requestCode}>
-          <h3 className="title-md" style={{ marginBottom: 'var(--spacing-4)' }}>Смена пароля</h3>
+          <h3 className="title-md" style={{ marginBottom: 'var(--spacing-4)' }}>{t('pwd.title')}</h3>
           {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: 'var(--spacing-3)' }}>{error}</p>}
           <Input
-            label="Текущий пароль"
+            label={t('pwd.current')}
             type="password"
             value={currentPassword}
             onChange={(e) => setCurrentPassword(e.target.value)}
@@ -97,21 +100,21 @@ export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
             wrapClassName="mb-5"
           />
           <Input
-            label="Новый пароль"
+            label={t('pwd.new')}
             type="password"
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
             required
-            placeholder="Минимум 8 символов"
+            placeholder={t('pwd.newPlaceholder')}
             autoComplete="new-password"
           />
           <p className="label-sm" style={{ marginTop: 'var(--spacing-2)', marginBottom: 'var(--spacing-5)', opacity: 0.7 }}>
-            Подтвердим SMS-кодом на ваш номер. Остальные сессии будут завершены
+            {t('pwd.note')}
           </p>
           <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end' }}>
-            <button type="button" className="btn-ghost-inline" disabled={busy} style={{ fontSize: '0.85rem' }} onClick={onClose}>Отмена</button>
+            <button type="button" className="btn-ghost-inline" disabled={busy} style={{ fontSize: '0.85rem' }} onClick={onClose}>{common('actions.cancel')}</button>
             <button type="submit" className="btn-primary" disabled={busy || !currentPassword || !newPassword} style={{ fontSize: '0.85rem', opacity: busy ? 0.6 : 1 }}>
-              {busy ? 'Отправка…' : 'Получить код'}
+              {busy ? t('pwd.sending') : t('pwd.getCode')}
             </button>
           </div>
         </form>
@@ -122,19 +125,19 @@ export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
           flow={flow}
           onSubmit={submitCode}
           onBack={() => { flow.reset(); setStep('form'); }}
-          backLabel="← назад"
-          title="Подтвердите смену пароля"
+          backLabel={t('pwd.back')}
+          title={t('pwd.confirm')}
         />
       )}
 
       {step === 'done' && (
         <div>
-          <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>Пароль изменён 🔒</h3>
+          <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>{t('pwd.doneTitle')}</h3>
           <p className="label-md" style={{ marginBottom: 'var(--spacing-5)', lineHeight: 1.55 }}>
-            Все остальные сессии завершены. Эта — продолжает работать.
+            {t('pwd.doneText')}
           </p>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button className="btn-primary" style={{ fontSize: '0.85rem' }} onClick={onClose}>Готово</button>
+            <button className="btn-primary" style={{ fontSize: '0.85rem' }} onClick={onClose}>{t('pwd.done')}</button>
           </div>
         </div>
       )}
@@ -147,6 +150,8 @@ export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
 // ============================================================
 
 export function ChangePhoneDialog({ onClose }: { onClose: () => void }) {
+  const t = useTranslations('profile');
+  const common = useTranslations('common');
   const flow = useOtpFlow();
   const fetchProfile = useAuthStore((s) => s.fetchProfile);
   const [step, setStep] = useState<'form' | 'code_old' | 'code_new' | 'done'>('form');
@@ -224,17 +229,16 @@ export function ChangePhoneDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <DialogFrame onClose={onClose} busy={busy} label="Смена номера телефона">
+    <DialogFrame onClose={onClose} busy={busy} label={t('phone.dialogLabel')}>
       {step === 'form' && (
         <form onSubmit={submitForm}>
-          <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>Смена номера</h3>
+          <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>{t('phone.title')}</h3>
           <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)', lineHeight: 1.5, opacity: 0.8 }}>
-            Подтвердим кодами ОБА номера: сначала текущий, затем новый. Если доступа к текущему
-            номеру больше нет — смена пока невозможна.
+            {t('phone.note')}
           </p>
           {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: 'var(--spacing-3)' }}>{error}</p>}
           <Input
-            label="Пароль"
+            label={t('phone.password')}
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -244,7 +248,7 @@ export function ChangePhoneDialog({ onClose }: { onClose: () => void }) {
             wrapClassName="mb-5"
           />
           <Input
-            label="Новый номер"
+            label={t('phone.new')}
             type="tel"
             value={newPhone}
             onChange={(e) => setNewPhone(e.target.value)}
@@ -253,9 +257,9 @@ export function ChangePhoneDialog({ onClose }: { onClose: () => void }) {
             autoComplete="tel"
           />
           <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end', marginTop: 'var(--spacing-5)' }}>
-            <button type="button" className="btn-ghost-inline" disabled={busy} style={{ fontSize: '0.85rem' }} onClick={onClose}>Отмена</button>
+            <button type="button" className="btn-ghost-inline" disabled={busy} style={{ fontSize: '0.85rem' }} onClick={onClose}>{common('actions.cancel')}</button>
             <button type="submit" className="btn-primary" disabled={busy || !password} style={{ fontSize: '0.85rem', opacity: busy ? 0.6 : 1 }}>
-              {busy ? 'Отправка…' : oldToken ? 'Код на новый номер' : 'Код на текущий номер'}
+              {busy ? t('pwd.sending') : oldToken ? t('phone.codeToNew') : t('phone.codeToOld')}
             </button>
           </div>
         </form>
@@ -266,8 +270,8 @@ export function ChangePhoneDialog({ onClose }: { onClose: () => void }) {
           flow={flow}
           onSubmit={submitOldCode}
           onBack={() => { flow.reset(); setStep('form'); }}
-          backLabel="← назад"
-          title="Код на ТЕКУЩИЙ номер"
+          backLabel={t('pwd.back')}
+          title={t('phone.oldTitle')}
         />
       )}
 
@@ -276,19 +280,19 @@ export function ChangePhoneDialog({ onClose }: { onClose: () => void }) {
           flow={flow}
           onSubmit={submitNewCode}
           onBack={() => { flow.reset(); setStep('form'); }}
-          backLabel="← назад"
-          title="Код на НОВЫЙ номер"
+          backLabel={t('pwd.back')}
+          title={t('phone.newTitle')}
         />
       )}
 
       {step === 'done' && (
         <div>
-          <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>Номер изменён 📱</h3>
+          <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>{t('phone.doneTitle')}</h3>
           <p className="label-md" style={{ marginBottom: 'var(--spacing-5)', lineHeight: 1.55 }}>
-            Теперь вход — по новому номеру. Остальные сессии завершены.
+            {t('phone.doneText')}
           </p>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button className="btn-primary" style={{ fontSize: '0.85rem' }} onClick={onClose}>Готово</button>
+            <button className="btn-primary" style={{ fontSize: '0.85rem' }} onClick={onClose}>{t('pwd.done')}</button>
           </div>
         </div>
       )}

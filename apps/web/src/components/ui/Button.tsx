@@ -6,6 +6,7 @@
 // ============================================================
 import Link from 'next/link';
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { useTranslations } from 'next-intl';
 import { Icon, type IconName } from './Icon';
 import { cx, toneVars, type Tone } from './tones';
 
@@ -134,14 +135,15 @@ export interface CloseChipProps extends Omit<ButtonHTMLAttributes<HTMLButtonElem
  * рисуются ТОЛЬКО им. Свой крестик на странице = нарушение кита (как у Button).
  */
 export const CloseChip = forwardRef<HTMLButtonElement, CloseChipProps>(function CloseChip(
-  { label = 'Закрыть', size = 30, className, ...rest },
+  { label, size = 30, className, ...rest },
   ref,
 ) {
+  const t = useTranslations('common');
   return (
     <IconButton
       ref={ref}
       icon="close"
-      label={label}
+      label={label ?? t('a11y.close')}
       size={size}
       className={cx('ui-close-chip', className)}
       {...rest}

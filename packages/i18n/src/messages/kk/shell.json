@@ -1,0 +1,113 @@
+{
+  "app": {
+    "title": "SuperApp6 — Бәріне арналған бір қосымша",
+    "description": "SuperApp6 тапсырмаларды, күнтізбені, қаржыны және жұмыс құралдарын бір аккаунтқа біріктіреді"
+  },
+  "context": {
+    "personal": "Жеке",
+    "aria": "Контекст",
+    "organization": "Ұйым"
+  },
+  "group": {
+    "main": "Негізгі",
+    "work": "Істер",
+    "organization": "Ұйым"
+  },
+  "nav": {
+    "dashboard": "Басты бет",
+    "circles": "Менің айналам",
+    "messenger": "Мессенджер",
+    "notes": "Жазбалар",
+    "tasks": "Тапсырмалар",
+    "tasksOverview": "Шолу",
+    "tasksInbox": "Кіріс",
+    "tasksToday": "Бүгін",
+    "tasksOverdue": "Мерзімі өткен",
+    "tasksUpcoming": "Алдағы",
+    "tasksAssigned": "Маған қойылған",
+    "tasksDelegated": "Мен тапсырдым",
+    "tasksReview": "Тексеруде",
+    "tasksAll": "Барлық тапсырма",
+    "tasksDone": "Орындалған",
+    "calendar": "Күнтізбе",
+    "finance": "Қаржы",
+    "finOverview": "Шолу",
+    "finFeed": "Таспа",
+    "finReports": "Есептер",
+    "finCoins": "Коиндар",
+    "finAccounts": "Шоттар",
+    "finCategories": "Санаттар",
+    "finPeople": "Адамдар",
+    "finDebts": "Қарыздар",
+    "finRecurring": "Қайталанатын",
+    "drive": "Диск",
+    "driveMy": "Менің дискім",
+    "drivePhotos": "Фото",
+    "driveShared": "Маған ашық",
+    "driveStarred": "Таңдаулы",
+    "driveRecent": "Соңғылары",
+    "driveTrash": "Себет",
+    "shop": "Дүкен",
+    "myDocuments": "Менің құжаттарым",
+    "recorder": "Диктофон",
+    "wsHome": "Басты бет",
+    "wsMembers": "Қызметкерлер",
+    "wsMembersPeople": "Адамдар",
+    "wsMembersOrg": "Ұйым құрылымы",
+    "wsMembersInvites": "Шақырулар",
+    "wsMembersDeadlines": "Мерзімдер",
+    "wsObjects": "Нысандар",
+    "wsNotes": "Жазбалар",
+    "wsProcesses": "Процестер",
+    "wsOffice": "Виртуалды кеңсе",
+    "wsDrive": "Диск",
+    "wsDocuments": "Құжат айналымы",
+    "wsCounterparties": "Контрагенттер",
+    "wsJournal": "Журнал",
+    "wsWallet": "Компания әмияны",
+    "wsProfile": "Ұйым профилі",
+    "aria": "Қосымша навигациясы",
+    "expandBranch": "{name} жаю",
+    "collapseBranch": "{name} жию"
+  },
+  "topbar": {
+    "profile": "Профиль",
+    "wallet": "Әмиян",
+    "settings": "Баптаулар",
+    "logout": "Шығу",
+    "mentions": "Аталымдар",
+    "openMenu": "Мәзірді ашу",
+    "closeMenu": "Мәзірді жабу",
+    "menu": "Мәзір",
+    "collapse": "Жию",
+    "searchPlaceholder": "Іздеу…",
+    "quickTask": "Тапсырманы жылдам жазу",
+    "stickyBoard": "Жазбалар тақтасы (Alt+N)",
+    "mentionsUnread": "Аталымдар — оқылмағаны бар",
+    "profileMenu": "Профиль мәзірі",
+    "approvals": "Шешім күтуде",
+    "approvalsCount": "Шешім күтуде: {n}",
+    "myProfile": "Менің профилім"
+  },
+  "sidebar": {
+    "expand": "Мәзірді жаю",
+    "collapse": "Мәзірді жию"
+  },
+  "error": {
+    "routeTitle": "Бет ашылмады",
+    "routeText": "Осы бөлімді жүктеу кезінде бірдеңе дұрыс болмады. Қосымшаның қалған бөлігі жұмыс істеп тұр — қайталап көріңіз немесе басқа бөлімге өтіңіз.",
+    "digest": "Қате коды: {digest}",
+    "goHome": "Басты бетке",
+    "goTasks": "Тапсырмаларға",
+    "appTitle": "Қосымша құлады",
+    "appText": "Бетті қайта жүктеңіз. Қайталанса — не істегеніңізді айтыңыз.",
+    "reload": "Қайта жүктеу"
+  },
+  "notFound": {
+    "title": "Бет табылмады",
+    "text": "Мекенжайда қате болуы мүмкін немесе бұл бет енді жоқ."
+  },
+  "logo": {
+    "aria": "SuperApp6 — басты бетке"
+  }
+}

@@ -26,7 +26,7 @@ const PNG_1PX = Buffer.from(
 let fails = 0;
 const check = (n, ok, extra) => { console.log(`${ok ? '✓' : '✗ FAIL'}  ${n}${extra ? `  (${extra})` : ''}`); if (!ok) fails++; };
 async function call(method, p, token, body, headers) {
-  const res = await fetch(BASE + p, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(headers || {}) }, body: body ? JSON.stringify(body) : undefined });
+  const res = await fetch(BASE + p, { method, headers: { 'Content-Type': 'application/json', 'X-Locale': process.env.SA6_SUITE_LOCALE || 'ru', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(headers || {}) }, body: body ? JSON.stringify(body) : undefined });
   let json = null; try { json = await res.json(); } catch {}
   return { status: res.status, ok: res.ok, json };
 }

@@ -10,7 +10,7 @@ import {
   type TemplateRenderResult,
   type TemplateValues,
 } from './template.types';
-import { applyFormatterChain, TemplateFormatError } from './template-formatters';
+import { applyFormatterChain, TemplateFormatError, type TemplateLanguage } from './template-formatters';
 
 /**
  * СОБСТВЕННЫЙ драйвер рендера .docx (решение пользователя 2026-08-03: готовые
@@ -381,6 +381,8 @@ function substituteFields(
   partLabel: string,
   resolve: ResolveFn,
   blankRepeatMarkers: boolean,
+  /** Язык БЛАНКА — доезжает до форматтеров «дата:долгая» и «прописью». */
+  language: TemplateLanguage,
 ): SubstituteOutcome {
   const part = lexPart(xml, partLabel);
   const edits: NodeEdit[] = [];
@@ -404,7 +406,7 @@ function substituteFields(
     }
     let rendered: string;
     try {
-      rendered = applyFormatterChain(value, tag.formatters, tag.path);
+      rendered = applyFormatterChain(value, tag.formatters, tag.path, language);
     } catch (e) {
       if (e instanceof TemplateFormatError) {
         missing.push(e.message);
@@ -562,6 +564,7 @@ class DocxRenderDriver implements TemplateRenderDriver {
 
   render(template: Buffer, values: TemplateValues, opts?: TemplateRenderOptions): TemplateRenderResult {
     const strict = opts?.strict !== false;
+    const language: TemplateLanguage = opts?.language ?? 'ru';
     if (template.length > TEMPLATE_LIMITS.maxTemplateBytes) {
       throw new TemplateCompileError([
         { code: 'bad_structure', message: 'Шаблон больше допустимого размера' },
@@ -609,7 +612,7 @@ class DocxRenderDriver implements TemplateRenderDriver {
         const renderedRows: string[] = [];
         for (let idx = 0; idx < collection.length; idx++) {
           const itemResolve = makeItemResolver(collection[idx], idx, resolveGlobal);
-          const sub = substituteFields(rowXml, p.label, itemResolve, true);
+          const sub = substituteFields(rowXml, p.label, itemResolve, true, language);
           // Структурных ошибок внутри строки быть не может — часть уже проверена целиком
           missing.push(...sub.missing.map((path) => `${pair.open.path}[${idx + 1}].${path}`));
           replaced += sub.replaced;
@@ -622,7 +625,7 @@ class DocxRenderDriver implements TemplateRenderDriver {
 
       // Проход 3 — обычные поля (оставшиеся маркеры сорванных повторов затираются:
       // их отсутствие данных уже сосчитано выше)
-      const out = substituteFields(xml, p.label, resolveGlobal, true);
+      const out = substituteFields(xml, p.label, resolveGlobal, true, language);
       missing.push(...out.missing);
       replaced += out.replaced;
       entries[p.name] = encoder.encode(out.xml);

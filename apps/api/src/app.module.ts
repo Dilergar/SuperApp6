@@ -10,6 +10,7 @@ import { RedisModule } from './shared/redis/redis.module';
 import { SessionValidatorModule } from './shared/auth/session-validator.module';
 import { EventBusModule } from './shared/events/event-bus.module';
 import { WorkspaceContextModule } from './shared/context/workspace-context.module';
+import { I18nModule } from './shared/i18n/i18n.module';
 
 // Core modules
 import { AuthModule } from './core/auth/auth.module';
@@ -87,6 +88,9 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
 
     // Shared infrastructure — available to all modules
     WorkspaceContextModule,
+    // Слова платформы (каталоги @superapp/i18n) — глобально: их читает и фильтр
+    // исключений, и джобы рассылок, и любой сервис, рисующий текст для человека.
+    I18nModule,
     DatabaseModule,
     RedisModule,
     // Живость/отзыв сессии — общая проверка для HTTP (JwtStrategy) и рукопожатия сокета.

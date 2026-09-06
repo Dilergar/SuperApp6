@@ -1,5 +1,7 @@
 import axios, { isAxiosError, type AxiosRequestConfig } from 'axios';
+import { readLocaleCookie } from '@/i18n/locale';
 import {
+  LOCALE_HEADER,
   type ApiOk,
   type ShareDriveNodesPage,
   SHARE_SESSION_HEADER,
@@ -25,6 +27,15 @@ export const publicApi = axios.create({
   baseURL: API_URL,
   timeout: 15000,
   headers: { 'Content-Type': 'application/json' },
+});
+
+// Язык гостя: cookie, если он его выбирал на гостевой странице; иначе
+// заголовок не ставим вовсе — сервер решит сам по `Accept-Language` браузера
+// (маршрут рынка: русский и казахский → казахский, прочее → английский).
+publicApi.interceptors.request.use((cfg) => {
+  const locale = readLocaleCookie();
+  if (locale) cfg.headers[LOCALE_HEADER] = locale;
+  return cfg;
 });
 
 // Типизированная распаковка конверта — тот же контракт `ApiOk<T>` из shared, что у

@@ -5,9 +5,11 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/lib/stores/auth';
 import { Alert, Button, Input } from '@/components/ui';
+import { useTranslations } from 'next-intl';
 import { AuthLayout } from '../auth-ui';
 
 export default function LoginPage() {
+  const t = useTranslations('auth');
   const router = useRouter();
   const login = useAuthStore((s) => s.login);
   const [phone, setPhone] = useState('+7');
@@ -29,7 +31,7 @@ export default function LoginPage() {
       router.push('/dashboard');
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { message?: string } } };
-      setError(axiosErr.response?.data?.message || 'Ошибка входа');
+      setError(axiosErr.response?.data?.message || t('login.failed'));
     } finally {
       setLoading(false);
     }
@@ -37,24 +39,24 @@ export default function LoginPage() {
 
   return (
     <AuthLayout
-      title="Войти"
-      subtitle="Рады видеть вас снова"
+      title={t('login.title')}
+      subtitle={t('login.subtitle')}
       footer={
         <>
-          Нет аккаунта? <Link href="/register" style={{ fontWeight: 700 }}>Создать</Link>
+          {t('login.noAccount')} <Link href="/register" style={{ fontWeight: 700 }}>{t('login.createAccount')}</Link>
         </>
       }
     >
       <form onSubmit={handleSubmit} className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {deletedNote && (
-          <Alert tone="warning" title="Аккаунт помечен на удаление">
-            У вас есть 30 дней — войдите, чтобы восстановить его.
+          <Alert tone="warning" title={t('login.deletedTitle')}>
+            {t('login.deletedText')}
           </Alert>
         )}
         {error && <Alert tone="danger">{error}</Alert>}
 
         <Input
-          label="Телефон"
+          label={t('login.phone')}
           type="tel"
           icon="device"
           value={phone}
@@ -70,9 +72,9 @@ export default function LoginPage() {
                 (он читал плейсхолдер «Минимум 8 символов») и по подписи нельзя кликнуть.
                 Свой ряд нужен, потому что справа стоит ссылка «Забыли пароль?». */}
             <label className="ui-field-label" htmlFor="login-password">
-              Пароль<span style={{ color: 'var(--danger)' }}> *</span>
+              {t('login.password')}<span style={{ color: 'var(--danger)' }}> *</span>
             </label>
-            <Link href="/reset-password" className="label-sm" style={{ fontWeight: 700 }}>Забыли пароль?</Link>
+            <Link href="/reset-password" className="label-sm" style={{ fontWeight: 700 }}>{t('login.forgot')}</Link>
           </div>
           <Input
             id="login-password"
@@ -80,14 +82,14 @@ export default function LoginPage() {
             icon="lock"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Минимум 8 символов"
+            placeholder={t('login.passwordPlaceholder')}
             autoComplete="current-password"
             required
           />
         </div>
 
         <Button type="submit" variant="primary" size="lg" block loading={loading}>
-          {loading ? 'Входим…' : 'Войти'}
+          {loading ? t('login.submitting') : t('login.submit')}
         </Button>
       </form>
     </AuthLayout>

@@ -1,0 +1,113 @@
+{
+  "app": {
+    "title": "SuperApp6 — Одно приложение для всего",
+    "description": "SuperApp6 объединяет задачи, календарь, финансы и рабочие инструменты в одном аккаунте"
+  },
+  "context": {
+    "personal": "Личное",
+    "aria": "Контекст",
+    "organization": "Организация"
+  },
+  "group": {
+    "main": "Главное",
+    "work": "Дела",
+    "organization": "Организация"
+  },
+  "nav": {
+    "dashboard": "Главная",
+    "circles": "Моё окружение",
+    "messenger": "Мессенджер",
+    "notes": "Заметки",
+    "tasks": "Задачи",
+    "tasksOverview": "Обзор",
+    "tasksInbox": "Входящие",
+    "tasksToday": "Сегодня",
+    "tasksOverdue": "Просроченные",
+    "tasksUpcoming": "Предстоящие",
+    "tasksAssigned": "Мне поставили",
+    "tasksDelegated": "Я поручил",
+    "tasksReview": "На проверке",
+    "tasksAll": "Все задачи",
+    "tasksDone": "Выполненные",
+    "calendar": "Календарь",
+    "finance": "Финансы",
+    "finOverview": "Обзор",
+    "finFeed": "Лента",
+    "finReports": "Отчёты",
+    "finCoins": "Коины",
+    "finAccounts": "Счета",
+    "finCategories": "Категории",
+    "finPeople": "Люди",
+    "finDebts": "Долги",
+    "finRecurring": "Повторы",
+    "drive": "Диск",
+    "driveMy": "Мой диск",
+    "drivePhotos": "Фото",
+    "driveShared": "Доступно мне",
+    "driveStarred": "Избранное",
+    "driveRecent": "Недавние",
+    "driveTrash": "Корзина",
+    "shop": "Магазин",
+    "myDocuments": "Мои документы",
+    "recorder": "Диктофон",
+    "wsHome": "Главная",
+    "wsMembers": "Сотрудники",
+    "wsMembersPeople": "Люди",
+    "wsMembersOrg": "Орг. структура",
+    "wsMembersInvites": "Приглашения",
+    "wsMembersDeadlines": "Сроки",
+    "wsObjects": "Объекты",
+    "wsNotes": "Заметки",
+    "wsProcesses": "Процессы",
+    "wsOffice": "Виртуальный офис",
+    "wsDrive": "Диск",
+    "wsDocuments": "Документооборот",
+    "wsCounterparties": "Контрагенты",
+    "wsJournal": "Журнал",
+    "wsWallet": "Кошелёк компании",
+    "wsProfile": "Профиль организации",
+    "aria": "Навигация приложения",
+    "expandBranch": "Развернуть {name}",
+    "collapseBranch": "Свернуть {name}"
+  },
+  "topbar": {
+    "profile": "Профиль",
+    "wallet": "Кошелёк",
+    "settings": "Настройки",
+    "logout": "Выйти",
+    "mentions": "Упоминания",
+    "openMenu": "Открыть меню",
+    "closeMenu": "Закрыть меню",
+    "menu": "Меню",
+    "collapse": "Свернуть",
+    "searchPlaceholder": "Поиск…",
+    "quickTask": "Быстро записать задачу",
+    "stickyBoard": "Доска заметок (Alt+N)",
+    "mentionsUnread": "Упоминания — есть непрочитанные",
+    "profileMenu": "Меню профиля",
+    "approvals": "Ждут решения",
+    "approvalsCount": "Ждут решения: {n}",
+    "myProfile": "Мой профиль"
+  },
+  "sidebar": {
+    "expand": "Развернуть меню",
+    "collapse": "Свернуть меню"
+  },
+  "error": {
+    "routeTitle": "Страница не открылась",
+    "routeText": "Что-то пошло не так при загрузке этого раздела. Остальное приложение работает — можно попробовать снова или перейти в другой раздел.",
+    "digest": "Код ошибки: {digest}",
+    "goHome": "На главную",
+    "goTasks": "К задачам",
+    "appTitle": "Приложение упало",
+    "appText": "Перезагрузите страницу. Если это повторится — расскажите, что вы делали.",
+    "reload": "Перезагрузить"
+  },
+  "notFound": {
+    "title": "Страница не найдена",
+    "text": "Возможно, адрес набран с опечаткой, или эта страница больше не существует."
+  },
+  "logo": {
+    "aria": "SuperApp6 — на главную"
+  }
+}

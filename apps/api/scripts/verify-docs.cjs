@@ -30,7 +30,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function call(method, p, token, body, headers) {
   const res = await fetch(BASE + p, {
     method,
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(headers || {}) },
+    headers: { 'Content-Type': 'application/json', 'X-Locale': process.env.SA6_SUITE_LOCALE || 'ru', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(headers || {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
   let json = null; try { json = await res.json(); } catch {}

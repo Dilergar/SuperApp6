@@ -1,0 +1,455 @@
+{
+  "contact": {
+    "invitation": {
+      "received": {
+        "title": "{fromName} wants to add you as a contact",
+        "body": "{message}"
+      },
+      "accepted": {
+        "title": "{byName} accepted your invitation"
+      },
+      "rejected": {
+        "title": "{byName} declined your invitation"
+      },
+      "cancelled": {
+        "title": "Invitation cancelled"
+      },
+      "expired": {
+        "title": "The invitation for {toPhone} has expired",
+        "body": "You can send it again"
+      }
+    },
+    "linked": {
+      "title": "{otherName} is now in your contacts"
+    },
+    "removed": {
+      "title": "Contact removed"
+    }
+  },
+  "task": {
+    "assigned": {
+      "title": "A task was assigned to you: {taskTitle}"
+    },
+    "completed": {
+      "title": "Task completed: {taskTitle}"
+    },
+    "due_soon": {
+      "title": "Deadline is near: {taskTitle}"
+    },
+    "submitted": {
+      "title": "{byName} submitted a task for review: {taskTitle}"
+    },
+    "accepted": {
+      "title": "Task accepted: {taskTitle}"
+    },
+    "returned": {
+      "title": "Task sent back for rework: {taskTitle}"
+    },
+    "overdue": {
+      "title": "Task overdue: {taskTitle}"
+    }
+  },
+  "wallet": {
+    "coins": {
+      "received": {
+        "title": "You earned {amount} {currencyName}",
+        "body": "For the task «{taskTitle}»"
+      }
+    }
+  },
+  "calendar": {
+    "event": {
+      "invited": {
+        "title": "Event invitation: {eventTitle}"
+      },
+      "reminder": {
+        "title": "Reminder: {eventTitle}"
+      },
+      "rsvp": {
+        "title": "{byName}: {rsvpLabel} — {eventTitle}"
+      },
+      "updated": {
+        "title": "Event changed: {eventTitle}"
+      },
+      "cancelled": {
+        "title": "Event cancelled: {eventTitle}"
+      }
+    },
+    "resource": {
+      "requested": {
+        "title": "Request for «{resourceName}»: {eventTitle}"
+      },
+      "confirmed": {
+        "title": "Booking confirmed: {resourceName}"
+      },
+      "rejected": {
+        "title": "Booking declined: {resourceName}"
+      }
+    }
+  },
+  "workspace": {
+    "invitation": {
+      "received": {
+        "title": "{workspaceName} invites you to work",
+        "body": "{message}"
+      },
+      "accepted": {
+        "title": "{byName} accepted the invitation to {workspaceName}"
+      },
+      "rejected": {
+        "title": "{byName} declined the invitation to {workspaceName}"
+      }
+    },
+    "member": {
+      "removed": {
+        "title": "You were removed from {workspaceName}"
+      }
+    },
+    "role": {
+      "changed": {
+        "title": "Your role in {workspaceName} changed: {role}"
+      }
+    },
+    "position": {
+      "assigned": {
+        "title": "You were given a position in {workspaceName}: {positionName}",
+        "body": "{branchName}"
+      },
+      "certified": {
+        "title": "You are certified for {positionName} in {workspaceName}"
+      }
+    },
+    "archive": {
+      "expiring": {
+        "title": "The organization «{workspaceName}» will be deleted in {daysWord}",
+        "body": "It is archived. Restore it if you did not mean to delete it — after {purgeDate} it cannot be brought back."
+      }
+    }
+  },
+  "objects": {
+    "shifts": {
+      "published": {
+        "title": "Schedule published: {branchName}",
+        "body": "{periodLabel} — shifts: {count}"
+      }
+    },
+    "shift": {
+      "changed": {
+        "title": "Shift changed: {dateLabel}"
+      },
+      "taken": {
+        "title": "An open shift was taken: {dateLabel}"
+      }
+    }
+  },
+  "staff": {
+    "head": {
+      "assigned": {
+        "title": "You now lead {unitLabel} in {workspaceName}",
+        "body": "The position «{positionName}» is now a managing one — approvals and requests from your reports will come to you."
+      }
+    },
+    "deputy": {
+      "assigned": {
+        "title": "You are a deputy for «{positionName}» in {workspaceName}",
+        "body": "{periodLabel}"
+      }
+    }
+  },
+  "shop": {
+    "order": {
+      "placed": {
+        "title": "New order: {title}"
+      },
+      "confirmed": {
+        "title": "Order confirmed: {title}"
+      },
+      "rejected": {
+        "title": "Order declined: {title}"
+      },
+      "cancelled": {
+        "title": "The buyer cancelled the order: {title}"
+      },
+      "funded": {
+        "title": "Collected in full: {title} — please confirm"
+      }
+    }
+  },
+  "mention": {
+    "received": {
+      "title": "{mentionerName} mentioned you",
+      "body": "{snippet}"
+    }
+  },
+  "auth": {
+    "password": {
+      "changed": {
+        "title": "Password changed",
+        "body": "If this was not you — change the password right away and end the other sessions."
+      }
+    },
+    "phone": {
+      "changed": {
+        "title": "Phone number changed",
+        "body": "New sign-in number: {newPhoneMasked}. If this was not you — contact us."
+      }
+    }
+  },
+  "files": {
+    "scan": {
+      "infected": {
+        "title": "The file «{name}» is infected and blocked"
+      }
+    }
+  },
+  "voice": {
+    "transcript": {
+      "ready": {
+        "title": "The transcript of «{title}» is ready"
+      },
+      "failed": {
+        "title": "Could not transcribe «{title}»"
+      }
+    }
+  },
+  "call": {
+    "missed": {
+      "title": "Missed call from {fromName}"
+    },
+    "recording": {
+      "ready": {
+        "title": "The recording of «{title}» is in the call log"
+      },
+      "failed": {
+        "title": "Could not record the call"
+      }
+    }
+  },
+  "office": {
+    "meeting": {
+      "invited": {
+        "title": "{byName} invites you to the meeting «{roomName}»"
+      }
+    }
+  },
+  "process": {
+    "finished": {
+      "title": "The process «{processName}» has finished"
+    },
+    "failed": {
+      "title": "The process «{processName}» stopped with an error",
+      "body": "{error}"
+    },
+    "step": {
+      "notify": {
+        "title": "{title}",
+        "body": "{message}"
+      },
+      "overdue": {
+        "title": "Step overdue: {title}",
+        "body": "Process «{processName}»"
+      }
+    },
+    "approval": {
+      "requested": {
+        "title": "Your decision is needed: {title}",
+        "body": "Process «{processName}»"
+      }
+    },
+    "task": {
+      "queued": {
+        "title": "New department task: {title}",
+        "body": "{departmentName} · process «{processName}»"
+      }
+    }
+  },
+  "finance": {
+    "budget": {
+      "warning": {
+        "title": "The limit for «{categoryName}» is almost used up",
+        "body": "{spent} of {limit} for {periodLabel}"
+      },
+      "exceeded": {
+        "title": "The limit for «{categoryName}» is exceeded",
+        "body": "{spent} of {limit} for {periodLabel}"
+      }
+    },
+    "debt": {
+      "payment_due": {
+        "title": "Payment for «{debtName}» is due today",
+        "body": "{amount} — confirm the payment in Finance"
+      },
+      "paid": {
+        "title": "The debt «{debtName}» is fully paid 🎉",
+        "body": "{amount}"
+      }
+    },
+    "recurring": {
+      "due": {
+        "title": "Confirm the operation «{title}»",
+        "body": "{amount}"
+      },
+      "recorded": {
+        "title": "Recorded: {title}",
+        "body": "{amount}"
+      }
+    },
+    "book": {
+      "shared": {
+        "title": "{ownerName} gave you access to their finances",
+        "body": "Role: {roleLabel}"
+      }
+    }
+  },
+  "drive": {
+    "shared": {
+      "title": "{ownerName} gave you access",
+      "body": "«{nodeName}» — {roleLabel}"
+    }
+  },
+  "note": {
+    "shared": {
+      "title": "{ownerName} shared a note",
+      "body": "«{noteName}» — {roleLabel}"
+    }
+  },
+  "share": {
+    "link": {
+      "opened": {
+        "title": "The link was opened",
+        "body": "«{targetName}»{labelSuffix}{guestSuffix}",
+        "muted": {
+          "title": "The link is opened often",
+          "body": "«{targetName}»{labelSuffix} — no more notifications today, the counter is in «My links»"
+        }
+      }
+    }
+  },
+  "document": {
+    "resolved": {
+      "title": "{outcomeLabel}: «{title}»",
+      "body": "{numberLabel}"
+    },
+    "counterparty_signed": {
+      "title": "The counterparty signed: «{title}»",
+      "body": "{signerLabel}"
+    },
+    "counterparty_declined": {
+      "title": "The counterparty refused: «{title}»",
+      "body": "{reasonLabel}"
+    },
+    "internal_declined": {
+      "title": "A signer refused: «{title}»",
+      "body": "{signerLabel}{reasonLabel}"
+    },
+    "external_expired": {
+      "title": "The signing deadline has passed: «{title}»",
+      "body": "The document returned to draft — send it again"
+    }
+  },
+  "approval": {
+    "requested": {
+      "title": "{actionLabel}: «{refTitle}»",
+      "body": "{stepTitle}"
+    },
+    "due_soon": {
+      "title": "Deadline is near: «{refTitle}»",
+      "body": "{stepTitle} — until {deadlineLabel}"
+    },
+    "overdue": {
+      "title": "The decision on «{refTitle}» is overdue",
+      "body": "{stepTitle}"
+    },
+    "resolved": {
+      "title": "{outcomeLabel}: «{refTitle}»",
+      "body": "{comment}"
+    },
+    "unassigned": {
+      "title": "Nobody can decide: «{refTitle}»",
+      "body": "{stepTitle} — «{assigneeLabel}» has no employees"
+    }
+  },
+  "sign": {
+    "requested": {
+      "title": "Please sign: «{refTitle}»",
+      "body": "{levelLabel}"
+    },
+    "completed": {
+      "title": "The document is signed: «{refTitle}»",
+      "body": "{signersLabel}"
+    },
+    "declined": {
+      "title": "Signing refused: «{refTitle}»",
+      "body": "{reason}"
+    }
+  },
+  "hr": {
+    "action": {
+      "applied": {
+        "title": "{kindLabel}: applied",
+        "body": "{targetName} · from {effectiveAt}"
+      },
+      "failed": {
+        "title": "{kindLabel}: not applied",
+        "body": "{reason}"
+      },
+      "withdrawn": {
+        "title": "{targetName} withdrew the request",
+        "body": "The withdrawal is unconditional for the whole notice period (Labour Code of the RK, art. 56 (4)). {note}"
+      }
+    },
+    "esutd": {
+      "due_soon": {
+        "title": "ESUTD: the filing deadline is near",
+        "body": "{kindLabel} · {targetName} · {daysLeft} left"
+      }
+    },
+    "campaign": {
+      "assigned": {
+        "title": "Please read: «{title}»",
+        "body": "{workspaceName}"
+      },
+      "reminder": {
+        "title": "A document is waiting to be read: «{title}»"
+      },
+      "done": {
+        "title": "The campaign is finished: «{title}»",
+        "body": "{acknowledged} of {total} have read it"
+      }
+    },
+    "delivery": {
+      "due": {
+        "title": "An act is waiting to be handed over: «{title}»",
+        "body": "Hand it over within 3 working days from the date of issue (Labour Code of the RK, art. 61 (3))"
+      }
+    },
+    "probation": {
+      "ending": {
+        "title": "The probation period is ending",
+        "body": "{targetName} · until {until}. If not notified before it ends, the employee is deemed to have passed (Labour Code of the RK, art. 37)"
+      }
+    },
+    "contract": {
+      "expiring": {
+        "title": "The fixed-term contract is ending",
+        "body": "{targetName} · until {until}. Notify on the last working day, otherwise it renews automatically (Labour Code of the RK, art. 30)"
+      }
+    }
+  },
+  "messenger": {
+    "scheduled": {
+      "sent": {
+        "title": "The reminder was sent",
+        "body": "{snippet}"
+      }
+    }
+  },
+  "system": {
+    "welcome": {
+      "title": "Welcome to SuperApp6!"
+    },
+    "announcement": {
+      "title": "{title}"
+    }
+  }
+}

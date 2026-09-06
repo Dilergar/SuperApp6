@@ -1,6 +1,20 @@
 import Link from 'next/link';
+import { getTranslations } from 'next-intl/server';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 
-export default function HomePage() {
+// ============================================================
+// Публичная витрина. СЕРВЕРНЫЙ компонент — подписи берутся через
+// `getTranslations`, поэтому каталог `landing` не уезжает в браузер вовсе
+// (клиентского состояния на странице нет), а первый кадр приходит уже на
+// нужном языке.
+//
+// Это первый экран человека, который ещё ничего не выбирал: язык решает
+// `Accept-Language` его браузера (незнакомый → казахский, см. docs/i18n.md).
+// ============================================================
+
+export default async function HomePage() {
+  const t = await getTranslations('landing');
+
   return (
     <div className="min-h-screen flex flex-col">
       {/* Nav — glassmorphism */}
@@ -10,12 +24,18 @@ export default function HomePage() {
       }}>
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <span className="title-md" style={{ color: 'var(--primary)' }}>SuperApp6</span>
-          <div className="flex gap-3">
+          <div className="flex gap-3 items-center">
+            {/*
+              Переключатель ЗДЕСЬ, а не только на /login: витрина — первый экран
+              человека, которому язык угадал браузер. Если угадали неверно, он не
+              должен искать, где это исправить.
+            */}
+            <LanguageSwitcher compact width={150} />
             <Link href="/login" className="btn-secondary" style={{ padding: '0.5rem 1.5rem', fontSize: '0.875rem' }}>
-              Войти
+              {t('nav.signIn')}
             </Link>
             <Link href="/register" className="btn-primary" style={{ padding: '0.5rem 1.5rem', fontSize: '0.875rem' }}>
-              Начать
+              {t('nav.start')}
             </Link>
           </div>
         </div>
@@ -28,9 +48,9 @@ export default function HomePage() {
             {/* Left — text, offset */}
             <div style={{ paddingLeft: 'var(--spacing-4)', paddingRight: 'var(--spacing-10)' }}>
               <h1 className="display-lg" style={{ color: 'var(--on-surface)', marginBottom: 'var(--spacing-6)' }}>
-                Одно приложение.
+                {t('hero.line1')}
                 <br />
-                <span style={{ color: 'var(--primary)' }}>Вся жизнь.</span>
+                <span style={{ color: 'var(--primary)' }}>{t('hero.line2')}</span>
               </h1>
               <p style={{
                 fontSize: '1.125rem',
@@ -39,14 +59,13 @@ export default function HomePage() {
                 marginBottom: 'var(--spacing-10)',
                 maxWidth: '24rem',
               }}>
-                Задачи, календарь, окружение, рабочие инструменты — всё в одном аккаунте.
-                Как скетчбук, в котором собрана вся ваша жизнь.
+                {t('hero.text')}
               </p>
               <div className="flex gap-4 items-center">
                 <Link href="/register" className="btn-success" style={{ fontSize: '1.1rem', padding: '0.875rem 2.5rem' }}>
-                  Создать аккаунт
+                  {t('hero.cta')}
                 </Link>
-                <span className="label-sm">Бесплатно 3 месяца</span>
+                <span className="label-sm">{t('hero.trial')}</span>
               </div>
             </div>
 
@@ -66,12 +85,12 @@ export default function HomePage() {
                 left: '5%',
                 width: '75%',
               }}>
-                <div className="label-sm" style={{ marginBottom: 'var(--spacing-2)' }}>Окружение</div>
-                <div className="title-md">Семья</div>
+                <div className="label-sm" style={{ marginBottom: 'var(--spacing-2)' }}>{t('demo.circleLabel')}</div>
+                <div className="title-md">{t('demo.circleName')}</div>
                 <div style={{ marginTop: 'var(--spacing-3)', display: 'flex', gap: 'var(--spacing-2)' }}>
-                  <span className="alert-accent-inline" style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}>жена</span>
-                  <span className="alert-accent-inline" style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}>мама</span>
-                  <span className="alert-accent-inline" style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}>брат</span>
+                  <span className="alert-accent-inline" style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}>{t('demo.wife')}</span>
+                  <span className="alert-accent-inline" style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}>{t('demo.mom')}</span>
+                  <span className="alert-accent-inline" style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}>{t('demo.brother')}</span>
                 </div>
               </div>
 
@@ -81,22 +100,22 @@ export default function HomePage() {
                 right: '0',
                 width: '70%',
               }}>
-                <div className="label-sm" style={{ marginBottom: 'var(--spacing-2)' }}>Задача</div>
-                <div className="title-md">Купить продукты</div>
+                <div className="label-sm" style={{ marginBottom: 'var(--spacing-2)' }}>{t('demo.taskLabel')}</div>
+                <div className="title-md">{t('demo.taskTitle')}</div>
                 <div style={{
                   marginTop: 'var(--spacing-3)',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
                 }}>
-                  <span className="label-sm">до 18:00</span>
+                  <span className="label-sm">{t('demo.taskDue')}</span>
                   <span style={{
                     background: 'var(--tertiary-container)',
                     padding: '0.2rem 0.6rem',
                     borderRadius: 'var(--radius-sketch)',
                     fontSize: '0.75rem',
                     fontWeight: 600,
-                  }}>+5 коинов</span>
+                  }}>{t('demo.taskCoins')}</span>
                 </div>
               </div>
             </div>
@@ -111,25 +130,25 @@ export default function HomePage() {
       }}>
         <div className="max-w-5xl mx-auto px-6">
           <h2 className="display-md text-center" style={{ marginBottom: 'var(--spacing-12)' }}>
-            Ваш <span style={{ color: 'var(--primary)' }}>личный</span> суперапп
+            {t('features.titleBefore')}<span style={{ color: 'var(--primary)' }}>{t('features.titleAccent')}</span>{t('features.titleAfter')}
           </h2>
 
           <div className="grid md:grid-cols-3 gap-8">
             <FeatureCard
-              title="Окружение"
-              description="Организуйте контакты по ролям: семья, друзья, коллеги. Назначайте задачи и делитесь календарём."
+              title={t('features.circle.title')}
+              description={t('features.circle.text')}
               accent="var(--primary-container)"
               offset="mt-0"
             />
             <FeatureCard
-              title="Задачи"
-              description="Ставьте задачи себе и близким. Подзадачи, сроки, приоритеты, коины за выполнение."
+              title={t('features.tasks.title')}
+              description={t('features.tasks.text')}
               accent="var(--secondary-container)"
               offset="mt-6"
             />
             <FeatureCard
-              title="Календарь"
-              description="Все события и задачи в одном месте. Синхронизация с Google Calendar, шаринг с семьёй."
+              title={t('features.calendar.title')}
+              description={t('features.calendar.text')}
               accent="var(--tertiary-container)"
               offset="mt-2"
             />
@@ -141,14 +160,13 @@ export default function HomePage() {
       <section style={{ padding: 'var(--spacing-16) 0' }}>
         <div className="max-w-2xl mx-auto px-6 text-center">
           <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-6)' }}>
-            Один аккаунт — для всего
+            {t('cta.title')}
           </h2>
           <p className="label-md" style={{ marginBottom: 'var(--spacing-8)', fontSize: '1rem' }}>
-            Муж, друг, сотрудник, администратор — все роли в одном месте.
-            Без лишних аккаунтов и паролей.
+            {t('cta.text')}
           </p>
           <Link href="/register" className="btn-primary" style={{ fontSize: '1.1rem', padding: '0.875rem 2.5rem' }}>
-            Попробовать бесплатно
+            {t('cta.button')}
           </Link>
         </div>
       </section>

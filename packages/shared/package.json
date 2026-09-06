@@ -14,9 +14,12 @@
   "scripts": {
     "build": "tsc",
     "lint": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "lint:guard": "eslint src"
   },
   "devDependencies": {
+    "@typescript-eslint/parser": "^8.20.0",
+    "eslint": "^9.18.0",
     "typescript": "^5.7.0"
   },
   "dependencies": {

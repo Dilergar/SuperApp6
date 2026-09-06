@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { getTranslations } from 'next-intl/server';
 
 // ============================================================
 // Страница 404. До неё Next показывал СВОЮ стандартную — на английском
@@ -11,7 +12,9 @@ import Link from 'next/link';
 // уходит дальше в один клик, а не «в никуда».
 // ============================================================
 
-export default function NotFound() {
+export default async function NotFound() {
+  const t = await getTranslations('shell');
+
   return (
     <div
       style={{
@@ -28,13 +31,13 @@ export default function NotFound() {
       <div style={{ fontFamily: 'var(--font-display)', fontSize: '3.5rem', fontWeight: 800, color: 'var(--primary)', lineHeight: 1 }}>
         404
       </div>
-      <h1 className="title-lg" style={{ margin: 0 }}>Страница не найдена</h1>
+      <h1 className="title-lg" style={{ margin: 0 }}>{t('notFound.title')}</h1>
       <p className="body-sm" style={{ margin: 0, maxWidth: '30rem', color: 'var(--on-surface-variant)' }}>
-        Возможно, адрес набран с опечаткой, или эта страница больше не существует.
+        {t('notFound.text')}
       </p>
       <div style={{ display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap', justifyContent: 'center' }}>
-        <Link href="/dashboard" className="btn-primary">На главную</Link>
-        <Link href="/tasks" className="btn-ghost-inline">К задачам</Link>
+        <Link href="/dashboard" className="btn-primary">{t('error.goHome')}</Link>
+        <Link href="/tasks" className="btn-ghost-inline">{t('error.goTasks')}</Link>
       </div>
     </div>
   );

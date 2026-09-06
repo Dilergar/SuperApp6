@@ -23,7 +23,7 @@ const CREDS = {
 async function http(method, p, { token, body } = {}) {
   const res = await fetch(`${BASE}${p}`, {
     method,
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    headers: { 'Content-Type': 'application/json', 'X-Locale': process.env.SA6_SUITE_LOCALE || 'ru', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   const t = await res.text();

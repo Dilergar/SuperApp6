@@ -1,0 +1,16 @@
+{
+  "unavailable": "Card unavailable",
+  "deleted": "The record was deleted",
+  "event": {
+    "when": "When",
+    "where": "Where",
+    "yourStatus": "Your answer",
+    "organizer": "Organizer",
+    "rsvp": {
+      "pending": "No answer",
+      "accepted": "Going",
+      "declined": "Not going",
+      "tentative": "Maybe"
+    }
+  }
+}

@@ -14,6 +14,7 @@
 // Обновление списка будит только сам Toaster, не дерево приложения.
 // ============================================================
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 
 export type ToastTone = 'danger' | 'success' | 'info';
 
@@ -52,6 +53,7 @@ export function toastError(message: string) {
 }
 
 export function Toaster() {
+  const t = useTranslations('common');
   const [list, setList] = useState<ToastItem[]>(items);
 
   useEffect(() => {
@@ -66,17 +68,17 @@ export function Toaster() {
   // существовать до события. Пустой он ничего не перекрывает: pointer-events
   // отключены на стеке и возвращены самим тостам (globals.css).
   return (
-    <div className="toast-stack" role="region" aria-label="Уведомления">
-      {list.map((t) => (
+    <div className="toast-stack" role="region" aria-label={t('a11y.notifications')}>
+      {list.map((item) => (
         <div
-          key={t.id}
-          className={`toast toast--${t.tone}`}
+          key={item.id}
+          className={`toast toast--${item.tone}`}
           // assertive только для ошибок: успех не должен перебивать чтение
-          role={t.tone === 'danger' ? 'alert' : 'status'}
-          aria-live={t.tone === 'danger' ? 'assertive' : 'polite'}
+          role={item.tone === 'danger' ? 'alert' : 'status'}
+          aria-live={item.tone === 'danger' ? 'assertive' : 'polite'}
         >
-          <span className="toast-text">{t.message}</span>
-          <button type="button" className="toast-close" aria-label="Закрыть" onClick={() => dismiss(t.id)}>
+          <span className="toast-text">{item.message}</span>
+          <button type="button" className="toast-close" aria-label={t('a11y.close')} onClick={() => dismiss(item.id)}>
             ×
           </button>
         </div>

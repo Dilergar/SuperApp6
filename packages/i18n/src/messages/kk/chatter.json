@@ -1,0 +1,192 @@
+{
+  "type": {
+    "task": {
+      "created": "{actorName} тапсырма құрды",
+      "assigned": "{actorName} тапсырманы тағайындады",
+      "submitted": "{actorName} жұмысты тексеруге тапсырды",
+      "accepted": "Жұмыс қабылданды",
+      "returned": "Жұмыс пысықтауға қайтарылды",
+      "completed": "Тапсырма орындалды",
+      "document_created": "{actorName} «{title}» файлын бірлесіп өңдеуге ашты",
+      "document_edited": "{actorName} «{title}» құжатын өңдеді ({period})",
+      "cancelled": "{actorName} тапсырманы тоқтатты",
+      "deadline_changed": "{actorName} мерзімді өзгертті: {from} → {to}",
+      "priority_changed": "{actorName} басымдықты өзгертті: {from} → {to}",
+      "reward_changed": "{actorName} сыйақыны өзгертті: {from} → {to}",
+      "title_changed": "{actorName} тапсырманың атын өзгертті: «{from}» → «{to}»",
+      "description_changed": "{actorName} сипаттаманы жаңартты",
+      "participant_added": "{actorName} қосты: {targetName} — {roleLabel}",
+      "participant_removed": "{actorName} шығарды: {targetName}"
+    },
+    "document": {
+      "edited": "{actorName} құжатты өңдеді ({period})",
+      "version_saved": "{actorName} {versionNo} нұсқасын сақтады",
+      "restored": "{actorName} {versionNo} нұсқасын ағымдағы етіп қайтарды",
+      "created": "{actorName} «{title}» файлын бірлесіп өңдеуге ашты"
+    },
+    "staff": {
+      "invited": "{actorName} ұйымға шақырды: {targetName}",
+      "hired": "{actorName} ұйымға кірді (Тағылымдамашы)",
+      "fired": "{actorName} жұмыстан босатты: {targetName}",
+      "left": "{actorName} ұйымнан кетті",
+      "role_changed": "{actorName} рөлін өзгертті — {targetName}: {from} → {to}",
+      "ownership_transferred": "{actorName} ұйым иелігін берді — {targetName}",
+      "position_assigned": "{actorName} «{positionName}» лауазымына тағайындады — {targetName}{branchClause}",
+      "position_updated": "{actorName} тағайындауды өзгертті — {targetName} («{positionName}»): {from} → {to}",
+      "position_certified": "{targetName} «{positionName}» лауазымы бойынша аттестациядан өтті",
+      "position_removed": "{actorName} «{positionName}» лауазымынан босатты — {targetName}",
+      "unit_created": "{actorName} «{unitName}» {unitLabel} құрды",
+      "unit_deleted": "{actorName} «{unitName}» {unitLabel} жойды",
+      "head_set": "{actorName} — «{departmentName}» бөлімінің басшысы: {from} → {to}",
+      "branch_head_set": "{actorName} — «{branchName}» нысанының басшысы: {from} → {to}",
+      "reports_to_set": "{actorName} — «{positionName}» лауазымының бағыныштылығы: {from} → {to}",
+      "position_moved": "{actorName} «{positionName}» лауазымын ауыстырды: {from} → {to}",
+      "deputy_opened": "{actorName} «{positionName}» лауазымы бойынша орынбасар тағайындады: {deputyLabel}{periodLabel}",
+      "deputy_closed": "{actorName} «{positionName}» лауазымы бойынша орынбасарды босатты: {deputyLabel}",
+      "primary_changed": "{actorName} — негізгі орны {targetName}: {from} → {to}",
+      "default_branch_changed": "{actorName} — ұйымның негізгі нысаны: {from} → {to}"
+    },
+    "legal_entity": {
+      "created": "{actorName} «{name}» заңды тұлғасын қосты",
+      "updated": "{actorName} «{name}» заңды тұлғасының деректемелерін өзгертті",
+      "archived": "{actorName} «{name}» заңды тұлғасын мұрағатқа жіберді"
+    },
+    "branch": {
+      "created": "{actorName} «{name}» нысанын құрды",
+      "updated": "{actorName} нысанды өзгертті: {fieldLabel} {from} → {to}",
+      "moved": "{actorName} нысанды ауыстырды: {from} → {to}",
+      "archived": "{actorName} нысанды {archiveVerb}",
+      "head_set": "{actorName} басқарушы лауазымды белгіледі: {from} → {to}",
+      "legal_entity_set": "{actorName} нысанның заңды тұлғасын ауыстырды: {from} → {to}"
+    },
+    "staffing": {
+      "unit_created": "{actorName} «{positionName}» штат бірлігін қосты ({headcount})",
+      "unit_updated": "{actorName} «{positionName}» бірлігін өзгертті: {from} → {to}",
+      "unit_archived": "{actorName} «{positionName}» штат бірлігін алып тастады",
+      "assigned": "{actorName} «{positionName}» лауазымына тағайындады — {targetName}, {startsOn} бастап",
+      "closed": "{actorName} тағайындауды жапты — {targetName} («{positionName}»), {endsOn} дейін",
+      "assignment_updated": "{actorName} тағайындауды өзгертті — {targetName} («{positionName}»)",
+      "rate_set": "{actorName} {rateLabel} мөлшерлемесін белгіледі, {effectiveFrom} бастап"
+    },
+    "shift": {
+      "created": "{actorName} {shiftLabel} ауысымын құрды",
+      "assigned": "{actorName} {shiftLabel} ауысымына қойды — {targetName}",
+      "unassigned": "{actorName} {shiftLabel} ауысымынан алды — {targetName}",
+      "published": "{actorName} кестені жариялады: {periodLabel} ({count})",
+      "cancelled": "{actorName} {shiftLabel} ауысымын тоқтатты",
+      "taken": "{actorName} ашық {shiftLabel} ауысымын алды",
+      "forced": "{actorName} ережеден тыс {shiftLabel} ауысымын қойды: {reason}"
+    },
+    "attendance": {
+      "marked": "{actorName} шығуды белгіледі — {targetName}, {dateLabel}: {outcomeLabel}",
+      "removed": "{actorName} табель жазбасын жойды — {targetName}, {dateLabel}"
+    },
+    "asset": {
+      "created": "{actorName} «{name}» қосты",
+      "updated": "{actorName} карточканы өзгертті: {fieldLabel} {from} → {to}",
+      "moved": "{actorName} ауыстырды: {from} → {to}",
+      "custodian_set": "{actorName} жауаптыны ауыстырды: {from} → {to}",
+      "holding_set": "{actorName} иелікті өзгертті: {from} → {to}",
+      "status_set": "{actorName} күйін өзгертті: {from} → {to}",
+      "service_logged": "{actorName} қызмет көрсетуді жазды: {title}"
+    },
+    "drive": {
+      "created": "{actorName} «{targetName}» қосты",
+      "renamed": "{actorName} атын өзгертті: «{from}» → «{to}»",
+      "moved": "{actorName} «{targetName}» «{to}» ішіне ауыстырды",
+      "shared": "{actorName} «{targetName}» рұқсатын ашты: {principalLabel} — {roleLabel}",
+      "unshared": "{actorName} «{targetName}» рұқсатын жапты: {principalLabel}",
+      "trashed": "{actorName} «{targetName}» себетке жіберді",
+      "restored": "{actorName} «{targetName}» қалпына келтірді",
+      "version_saved": "{actorName} {versionNo} нұсқасын сақтады",
+      "version_restored": "{actorName} {versionNo} нұсқасын қайтарды"
+    },
+    "org_document": {
+      "created": "{actorName} «{title}» құжатын құрды",
+      "submitted": "{actorName} құжатты маршрутқа жіберді",
+      "approved": "Құжат келісілді",
+      "signed": "Құжатқа қол қойылды",
+      "rejected": "Құжат қабылданбады{reasonSuffix}",
+      "returned": "Құжат пысықтауға жіберілді{reasonSuffix}",
+      "registered": "Құжатқа {number} нөмірі берілді",
+      "filed": "Құжат тіркелді: {placeLabel}",
+      "cancelled": "{actorName} құжатты тоқтатты",
+      "withdrawn": "{actorName} құжатты жобаға қайтарды",
+      "sent_external": "{actorName} құжатты контрагентке жіберді{contactSuffix}",
+      "counterparty_signed": "Контрагент құжатқа қол қойды{signerSuffix}",
+      "counterparty_declined": "Контрагент қол қоюдан бас тартты{reasonSuffix}",
+      "external_revoked": "{actorName} контрагентке жіберуді кері қайтарды",
+      "external_expired": "Контрагенттің қол қою мерзімі өтті — құжат жобаға қайтты",
+      "external_returned": "{actorName} контрагент бас тартқан соң құжатты жұмысқа қайтарды"
+    },
+    "counterparty": {
+      "restored": "{actorName} «{name}» контрагентін мұрағаттан қайтарды",
+      "created": "{actorName} «{name}» контрагентін қосты",
+      "updated": "{actorName} контрагент карточкасын өзгертті",
+      "archived": "{actorName} контрагентті мұрағатқа жіберді",
+      "contact_added": "{actorName} байланыс тұлғасын қосты: {contactName}",
+      "contact_removed": "{actorName} байланыс тұлғасын алып тастады: {contactName}"
+    },
+    "share": {
+      "link_created": "{actorName} «{targetName}» үшін қонақ сілтемесін құрды{labelSuffix}",
+      "link_revoked": "{actorName} «{targetName}» қонақ сілтемесін кері қайтарды{labelSuffix}",
+      "link_rotated": "{actorName} «{targetName}» қонақ сілтемесінің мекенжайын ауыстырды{labelSuffix}"
+    },
+    "process": {
+      "published_with_warnings": "{actorName} ескертулерге қарамастан «{processName}» маршрутын жариялады: {ruleList}"
+    },
+    "hr": {
+      "employment_updated": "{actorName} еңбек карточкасын өзгертті: {fieldLabel} {from} → {to}",
+      "action_created": "{actorName} «{kindLabel}» әрекетін бастады{documentSuffix}",
+      "action_applied": "{kindLabel}: қолданылды{documentSuffix}",
+      "action_failed": "{kindLabel}: қолданылмады — {reason}",
+      "action_cancelled": "{actorName} «{kindLabel}» әрекетін тоқтатты{noteSuffix}",
+      "delivery_fixed": "{actorName} тапсыруды тіркеді: {methodLabel}{trackSuffix}",
+      "sign_bin_warning": "Қол қою туралы ескерту: {reason}",
+      "esutd_submitted": "{actorName} ЕЭХЖ-ға тапсырғанын белгіледі: {kindLabel}{numberSuffix}",
+      "campaign_started": "{actorName} «{title}» танысу науқанын бастады ({total} алушы)",
+      "campaign_acknowledged": "{targetName} танысты: «{title}»",
+      "library_installed": "{actorName} кітапханадан «{title}» орнатты"
+    },
+    "note": {
+      "created": "{actorName} «{targetName}» жазбасын құрды",
+      "renamed": "{actorName} атын өзгертті: «{from}» → «{to}»",
+      "moved": "{actorName} «{targetName}» «{to}» ішіне ауыстырды",
+      "shared": "{actorName} «{targetName}» рұқсатын ашты: {principalLabel} — {roleLabel}",
+      "unshared": "{actorName} «{targetName}» рұқсатын жапты: {principalLabel}",
+      "trashed": "{actorName} «{targetName}» себетке жіберді",
+      "restored": "{actorName} «{targetName}» қалпына келтірді",
+      "related": "{actorName} жазбаны «{to}» дегенге байланыстырды",
+      "unrelated": "{actorName} жазбаны «{from}» дегеннен ажыратты",
+      "folder": {
+        "created": "{actorName} «{targetName}» қалтасын құрды",
+        "renamed": "{actorName} қалтаның атын өзгертті: «{from}» → «{to}»",
+        "moved": "{actorName} «{targetName}» қалтасын «{to}» ішіне ауыстырды",
+        "shared": "{actorName} «{targetName}» қалтасының рұқсатын ашты: {principalLabel} — {roleLabel}",
+        "unshared": "{actorName} «{targetName}» қалтасының рұқсатын жапты: {principalLabel}",
+        "trashed": "{actorName} «{targetName}» қалтасын себетке жіберді",
+        "restored": "{actorName} «{targetName}» қалтасын қалпына келтірді"
+      }
+    }
+  },
+  "fields": {
+    "task": {
+      "dueDate": "Мерзімі",
+      "priority": "Басымдық",
+      "coinReward": "Сыйақы",
+      "title": "Атауы"
+    },
+    "counterparty": {
+      "name": "Атауы",
+      "legalName": "Заңды атауы",
+      "bin": "БСН/ЖСН",
+      "legalAddress": "Заңды мекенжайы",
+      "actualAddress": "Нақты мекенжайы",
+      "taxRegime": "Салық режимі",
+      "directorName": "Басшысы",
+      "phone": "Телефон",
+      "email": "E-mail"
+    }
+  },
+  "branchClause": "«{name}» филиалы"
+}

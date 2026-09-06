@@ -22,12 +22,13 @@ import { PersonCard } from '../circles/PersonCard';
 import { GroupChip } from '../circles/EntityChip';
 import { DEFAULT_SKIN, RARITY_META } from '../circles/card-skin';
 import { invalidatePersonSkins } from '@/lib/person-skins';
+import { useTranslations } from 'next-intl';
+import { useFormatters } from '@/lib/format';
 
-function errMsg(e: unknown, fallback = 'Ошибка'): string {
+function errMsg(e: unknown, fallback: string): string {
   const ax = e as { response?: { data?: { message?: string; error?: string } } };
   return ax?.response?.data?.message || ax?.response?.data?.error || fallback;
 }
-const fmt = (n: number) => n.toLocaleString('ru-RU');
 
 interface SkinsSectionProps {
   /**
@@ -43,6 +44,10 @@ interface SkinsSectionProps {
  * equip a default skin, and (premium) assign a different skin per group.
  */
 export function SkinsSection({ profile }: SkinsSectionProps) {
+  const t = useTranslations('profile');
+  const common = useTranslations('common');
+  // Числа — через форматтеры платформы (разделители профиля региона).
+  const { number: fmt } = useFormatters();
   // Данные — в общем кэше React Query: повторный заход в секцию рисуется из
   // кэша мгновенно, а каждое действие обновляет ТОЛЬКО затронутые ключи
   // (раньше любой клик «Купить/Надеть» перезапрашивал все 5 эндпоинтов).
@@ -93,34 +98,33 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
       await fn();
       await Promise.all(keys.map((k) => qc.invalidateQueries({ queryKey: k })));
       if (success) flash(success);
-    } catch (e) { setError(errMsg(e)); }
+    } catch (e) { setError(errMsg(e, common('state.error'))); }
     finally { setBusy(false); inFlight.current = false; }
   };
 
   const topUp = () => {
     const n = parseInt(topAmt, 10);
-    if (!Number.isInteger(n) || n <= 0) return setError('Введите целое число больше 0');
-    return run(async () => { await apiPost('/card-skins/wallet/topup', { amount: n }); }, [cardSkinsWalletKey], `Пополнено на ${fmt(n)}`);
+    if (!Number.isInteger(n) || n <= 0) return setError(t('skins.integerError'));
+    return run(async () => { await apiPost('/card-skins/wallet/topup', { amount: n }); }, [cardSkinsWalletKey], t('skins.toppedUp', { amount: fmt(n) }));
   };
   const buy = (id: string) =>
-    run(async () => { await apiPost(`/card-skins/${id}/buy`); }, [cardSkinsWalletKey, cardSkinsCatalogKey, cardSkinsInventoryKey], 'Скин куплен');
+    run(async () => { await apiPost(`/card-skins/${id}/buy`); }, [cardSkinsWalletKey, cardSkinsCatalogKey, cardSkinsInventoryKey], t('skins.bought'));
   const equipDefault = (instanceId: string | null) =>
-    run(async () => { await apiPut('/card-skins/equip/default', { instanceId }); invalidatePersonSkins(); }, [cardSkinsEquipKey], instanceId ? 'Скин надет' : 'Скин снят');
+    run(async () => { await apiPut('/card-skins/equip/default', { instanceId }); invalidatePersonSkins(); }, [cardSkinsEquipKey], instanceId ? t('skins.putOnDone') : t('skins.takenOff'));
   const equipGroup = (circleId: string, instanceId: string | null) =>
-    run(async () => { await apiPut('/card-skins/equip/group', { circleId, instanceId }); invalidatePersonSkins(); }, [cardSkinsEquipKey], 'Готово');
+    run(async () => { await apiPut('/card-skins/equip/group', { circleId, instanceId }); invalidatePersonSkins(); }, [cardSkinsEquipKey], common('actions.done'));
 
-  if (loading) return <p className="label-md">Загрузка скинов…</p>;
-  if (loadError && !wallet) return <p style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>{errMsg(loadError, 'Не удалось загрузить скины')}</p>;
+  if (loading) return <p className="label-md">{t('skins.loading')}</p>;
+  if (loadError && !wallet) return <p style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>{errMsg(loadError, t('skins.loadFailed'))}</p>;
 
   const defaultInst = inventory.find((i) => i.id === equip?.defaultInstanceId) || null;
   const previewSkin: CardSkinRender = defaultInst ? defaultInst.skin : DEFAULT_SKIN;
 
   return (
     <div>
-      <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-2)' }}>Скины карточки</h2>
+      <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-2)' }}>{t('skins.title')}</h2>
       <p className="label-sm" style={{ marginBottom: 'var(--spacing-6)', opacity: 0.7 }}>
-        Оформление вашей карточки, которое видят люди из окружения. Купите скин, наденьте его —
-        а на премиум-тарифе можно ставить разные скины для разных групп.
+        {t('skins.subtitle')}
       </p>
 
       {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: 'var(--spacing-4)' }}>{error}</p>}
@@ -129,12 +133,12 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
       {/* ===== Wallet ===== */}
       <div className="card" style={{ padding: 'var(--spacing-4) var(--spacing-6)', maxWidth: 520, marginBottom: 'var(--spacing-8)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-4)', flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 160 }}>
-          <div className="label-sm" style={{ opacity: 0.7 }}>Баланс</div>
+          <div className="label-sm" style={{ opacity: 0.7 }}>{t('skins.balance')}</div>
           <div className="title-md">{wallet?.icon} {fmt(wallet?.balance ?? 0)} <span style={{ fontSize: '0.8rem', opacity: 0.6 }}>{wallet?.name}</span></div>
         </div>
         <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'flex-end' }}>
           <Input
-            label="Пополнить (тест)"
+            label={t('skins.topUpLabel')}
             type="number"
             min={1}
             value={topAmt}
@@ -142,20 +146,20 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
             wrapClassName="skin-topup-field"
             style={{ padding: '0.3rem 0.5rem', fontSize: '0.85rem' }}
           />
-          <button className="btn-success" disabled={busy} onClick={topUp} style={{ fontSize: '0.8rem' }}>Пополнить</button>
+          <button className="btn-success" disabled={busy} onClick={topUp} style={{ fontSize: '0.8rem' }}>{t('skins.topUp')}</button>
         </div>
       </div>
 
       {/* ===== Live preview ===== */}
       {profile && (
         <div style={{ marginBottom: 'var(--spacing-8)' }}>
-          <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>Предпросмотр</h3>
+          <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>{t('skins.preview')}</h3>
           <PersonCard
             mode="full"
             initialSize="L"
             skin={previewSkin}
             profile={{
-              firstName: profile.firstName ?? 'Имя',
+              firstName: profile.firstName ?? common('labels.dash'),
               lastName: profile.lastName ?? null,
               phone: profile.phone ?? '',
               avatar: null,
@@ -172,7 +176,7 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
       )}
 
       {/* ===== Shop ===== */}
-      <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>Магазин</h3>
+      <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>{t('skins.shop')}</h3>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 'var(--spacing-4)', marginBottom: 'var(--spacing-8)' }}>
         {catalog.map((s) => {
           const r = RARITY_META[s.rarity];
@@ -184,11 +188,11 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
                 <div style={{ fontSize: '0.66rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: r.color }}>{r.label}</div>
               </div>
               <div className="label-sm" style={{ fontSize: '0.78rem' }}>
-                {s.priceAmount > 0 ? <>{wallet?.icon} {fmt(s.priceAmount)}</> : 'Бесплатно'}
+                {s.priceAmount > 0 ? <>{wallet?.icon} {fmt(s.priceAmount)}</> : t('skins.free')}
               </div>
               {s.supply !== null && (
                 <div className="label-sm" style={{ fontSize: '0.66rem', opacity: 0.7 }}>
-                  {s.soldOut ? 'Распродано' : `осталось ${fmt(s.remaining ?? 0)} из ${fmt(s.supply)}`}
+                  {s.soldOut ? t('skins.soldOut') : t('skins.remaining', { left: fmt(s.remaining ?? 0), total: fmt(s.supply) })}
                 </div>
               )}
               <button
@@ -197,7 +201,7 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
                 onClick={() => buy(s.id)}
                 style={{ fontSize: '0.78rem', padding: '0.3rem 0.9rem', opacity: s.available ? 1 : 0.5, cursor: s.available ? 'pointer' : 'not-allowed' }}
               >
-                {s.soldOut ? 'Распродано' : s.owned ? 'Купить ещё' : 'Купить'}
+                {s.soldOut ? t('skins.soldOut') : s.owned ? t('skins.buyMore') : t('skins.buy')}
               </button>
             </div>
           );
@@ -205,9 +209,9 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
       </div>
 
       {/* ===== Inventory ===== */}
-      <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>Мои скины</h3>
+      <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>{t('skins.mine')}</h3>
       {inventory.length === 0 ? (
-        <p className="label-md" style={{ marginBottom: 'var(--spacing-8)', opacity: 0.7 }}>Пока нет купленных скинов.</p>
+        <p className="label-md" style={{ marginBottom: 'var(--spacing-8)', opacity: 0.7 }}>{t('skins.noneBought')}</p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)', maxWidth: 520, marginBottom: 'var(--spacing-8)' }}>
           {inventory.map((i) => {
@@ -226,11 +230,11 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
                 </div>
                 {isDefault ? (
                   <>
-                    <span className="label-sm" style={{ color: 'var(--secondary)', fontWeight: 600 }}>Надето ✓</span>
-                    <button onClick={() => equipDefault(null)} disabled={busy} className="btn-ghost-inline" style={{ fontSize: '0.75rem', padding: '0.25rem 0.7rem' }}>Снять</button>
+                    <span className="label-sm" style={{ color: 'var(--secondary)', fontWeight: 600 }}>{t('skins.equipped')}</span>
+                    <button onClick={() => equipDefault(null)} disabled={busy} className="btn-ghost-inline" style={{ fontSize: '0.75rem', padding: '0.25rem 0.7rem' }}>{t('skins.takeOff')}</button>
                   </>
                 ) : (
-                  <button onClick={() => equipDefault(i.id)} disabled={busy} className="btn-primary" style={{ fontSize: '0.75rem', padding: '0.25rem 0.8rem' }}>Надеть</button>
+                  <button onClick={() => equipDefault(i.id)} disabled={busy} className="btn-primary" style={{ fontSize: '0.75rem', padding: '0.25rem 0.8rem' }}>{t('skins.putOn')}</button>
                 )}
               </div>
             );
@@ -240,14 +244,13 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
 
       {/* ===== Per-group skins (premium) ===== */}
       <h3 className="title-md" style={{ marginBottom: 'var(--spacing-2)' }}>
-        Скины на группы {!equip?.premium && <span className="label-sm" style={{ fontSize: '0.7rem', color: 'var(--tertiary)' }}>🔒 премиум</span>}
+        {t('skins.perGroup')} {!equip?.premium && <span className="label-sm" style={{ fontSize: '0.7rem', color: 'var(--tertiary)' }}>{t('skins.premiumBadge')}</span>}
       </h3>
       <p className="label-sm" style={{ marginBottom: 'var(--spacing-3)', opacity: 0.7 }}>
-        Премиум-тариф позволяет показывать разным группам разные скины. Если человек в нескольких группах —
-        выигрывает группа выше в списке окружения.
+        {t('skins.perGroupText')}
       </p>
       {groups.length === 0 ? (
-        <p className="label-md" style={{ opacity: 0.7 }}>Сначала создайте группы на странице «Окружение».</p>
+        <p className="label-md" style={{ opacity: 0.7 }}>{t('skins.noGroups')}</p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)', maxWidth: 520 }}>
           {groups.map((g) => {
@@ -258,13 +261,13 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
                   <GroupChip size="M" icon={g.icon} name={g.name} color={g.color} count={g.membersCount} />
                 </div>
                 <Select
-                  aria-label={`Скин для группы «${g.name}»`}
+                  aria-label={t('skins.groupAria', { name: g.name })}
                   value={cur}
                   disabled={busy || !equip?.premium}
                   onChange={(v) => equipGroup(g.id, v || null)}
                   width={180}
                   options={[
-                    { value: '', label: 'По умолчанию' },
+                    { value: '', label: t('skins.default') },
                     ...inventory.map((i) => ({
                       value: i.id,
                       label: `${i.skin.name}${i.serial !== null ? ` #${i.serial}` : ''}`,
@@ -296,8 +299,8 @@ function SkinSwatch({ skin, mini }: { skin: CardSkinRender; mini?: boolean }) {
         width: av, height: av, borderRadius: t.avatarRadius, background: t.avatarBg, color: t.avatarColor,
         border: t.avatarInnerBorder, display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: av * 0.42,
-      }}>А</div>
-      {!mini && <div style={{ color: t.nameColor, fontFamily: t.nameFont, fontWeight: 700, fontSize: '0.72rem', letterSpacing: '0.04em' }}>ИМЯ</div>}
+      }}>{'A'}</div>
+      {!mini && <div style={{ color: t.nameColor, fontFamily: t.nameFont, fontWeight: 700, fontSize: '0.72rem', letterSpacing: '0.04em' }}>{'NAME'}</div>}
     </div>
   );
 }

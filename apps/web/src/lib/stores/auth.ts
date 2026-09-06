@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import { isAxiosError } from 'axios';
 import type { AuthTokens, RegisterInput, UserProfile } from '@superapp/shared';
-import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY, apiGet, apiPost } from '../api';
+import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY, apiGet, apiPatch, apiPost } from '../api';
 import { resetSessionCaches } from '../session-reset';
+import { isLocale, readLocaleCookie, writeLocaleCookie } from '@/i18n/locale';
 
 // Локального `UserProfile` здесь БОЛЬШЕ НЕТ: он был урезанной копией серверного
 // (без реквизитов, без companyCardVisibility, почти всё optional), из-за чего
@@ -32,6 +33,37 @@ const setTokens = (accessToken: string, refreshToken: string) => {
   localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
 };
 
+/**
+ * Cookie языка = зеркало `User.locale`. Расхождение возможно только одним путём:
+ * человек сменил язык на другом устройстве. Тогда перезагружаем страницу —
+ * серверный кадр (RSC) читает именно cookie, и без перезагрузки каркас остался бы
+ * на старом языке до следующей навигации.
+ */
+const syncLocaleCookie = (locale: string | null | undefined) => {
+  if (!isLocale(locale)) return;
+  if (readLocaleCookie() === locale) return;
+  writeLocaleCookie(locale);
+  if (typeof window !== 'undefined') window.location.reload();
+};
+
+/**
+ * Язык, выбранный на ЭКРАНЕ ВХОДА, — осознанный выбор человека, и он обязан
+ * переехать в аккаунт. Иначе получалось бы так: гость выбрал English, вошёл, а
+ * на следующей перезагрузке `hydrate` вернул бы язык из БД — и выбор пропал бы
+ * молча. Поэтому после входа cookie ПОБЕЖДАЕТ и уезжает на сервер.
+ */
+const adoptLocaleFromCookie = async (user: UserProfile): Promise<UserProfile> => {
+  const chosen = readLocaleCookie();
+  if (!chosen || chosen === user.locale) return user;
+  try {
+    await apiPatch('/users/me', { locale: chosen });
+    return { ...user, locale: chosen };
+  } catch {
+    // Не удалось — не беда: cookie уже показывает нужный язык на этом устройстве.
+    return user;
+  }
+};
+
 const clearTokens = () => {
   localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
@@ -51,7 +83,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return;
     }
     try {
-      set({ user: await apiGet<UserProfile>('/users/me'), isAuthenticated: true, isHydrated: true });
+      const user = await apiGet<UserProfile>('/users/me');
+      // Язык человека мог измениться НА ДРУГОМ УСТРОЙСТВЕ: cookie этой машины
+      // об этом не знает, а `User.locale` знает. Расхождение чинится сразу и
+      // перерисовкой RSC — иначе вторая машина навсегда осталась бы на старом.
+      syncLocaleCookie(user.locale);
+      set({ user, isAuthenticated: true, isHydrated: true });
     } catch (err) {
       // Токены сносим ТОЛЬКО когда сервер отказал в доступе. 401 сюда долетает уже
       // после неудачной попытки обновления (интерсептор в lib/api), то есть сессия
@@ -104,6 +141,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   fetchProfile: async () => {
-    set({ user: await apiGet<UserProfile>('/users/me'), isAuthenticated: true });
+    const user = await apiGet<UserProfile>('/users/me');
+    set({ user: await adoptLocaleFromCookie(user), isAuthenticated: true });
   },
 }));

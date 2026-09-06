@@ -14,12 +14,28 @@ import { Field } from './Input';
 import { IconButton } from './Button';
 import { cx } from './tones';
 import { usePopover } from './usePopover';
+import { useTranslations, useLocale } from 'next-intl';
+import { formatDate as formatRegionDate } from '@superapp/i18n/format';
+import type { Locale } from '@superapp/shared';
 
-const MONTHS = [
-  'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
-  'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
-];
-const WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+/**
+ * Названия месяцев и дней недели даёт `Intl` НА ЯЗЫКЕ зрителя — своего массива
+ * здесь быть не может: он был бы двенадцатью строками одного языка навсегда, и
+ * в нём же пришлось бы держать склонения каждого следующего.
+ *
+ * Неделя начинается с ПОНЕДЕЛЬНИКА — это правило РЕГИОНА (RegionProfile), а не
+ * языка: календарь не должен переезжать на воскресенье вместе с English.
+ */
+function monthNames(locale: string): string[] {
+  const f = new Intl.DateTimeFormat(locale, { month: 'long', timeZone: 'UTC' });
+  return Array.from({ length: 12 }, (_, i) => f.format(new Date(Date.UTC(2021, i, 15))));
+}
+
+function weekdayNames(locale: string): string[] {
+  const f = new Intl.DateTimeFormat(locale, { weekday: 'short', timeZone: 'UTC' });
+  // 2021-03-01 — понедельник; берём семь дней подряд от него.
+  return Array.from({ length: 7 }, (_, i) => f.format(new Date(Date.UTC(2021, 2, 1 + i))));
+}
 
 /** Ключ локального дня — для сравнения без часовых поясов. */
 function dayKey(d: Date): string {
@@ -60,6 +76,10 @@ export function Calendar({ value, onChange, defaultMonth, min, max, className }:
     );
   }, [value]);
 
+  const locale = useLocale();
+  const MONTHS = useMemo(() => monthNames(locale), [locale]);
+  const WEEKDAYS = useMemo(() => weekdayNames(locale), [locale]);
+  const t = useTranslations('common');
   const today = useMemo(() => new Date(), []);
   const y = cursor.getFullYear();
   const m = cursor.getMonth();
@@ -80,8 +100,8 @@ export function Calendar({ value, onChange, defaultMonth, min, max, className }:
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-3)' }}>
         <div className="title-sm">{MONTHS[m]} {y}</div>
         <div style={{ display: 'flex', gap: '0.25rem' }}>
-          <IconButton icon="caretLeft" label="Предыдущий месяц" size={26} iconSize={13} onClick={() => setCursor(new Date(y, m - 1, 1))} />
-          <IconButton icon="caretRight" label="Следующий месяц" size={26} iconSize={13} onClick={() => setCursor(new Date(y, m + 1, 1))} />
+          <IconButton icon="caretLeft" label={t('calendar.prevMonth')} size={26} iconSize={13} onClick={() => setCursor(new Date(y, m - 1, 1))} />
+          <IconButton icon="caretRight" label={t('calendar.nextMonth')} size={26} iconSize={13} onClick={() => setCursor(new Date(y, m + 1, 1))} />
         </div>
       </div>
 
@@ -109,7 +129,7 @@ export function Calendar({ value, onChange, defaultMonth, min, max, className }:
               type="button"
               className="ui-cal-day"
               aria-pressed={k === selectedKey}
-              aria-label={`${i + 1} ${MONTHS[m].toLowerCase()} ${y}`}
+              aria-label={formatRegionDate(d, { locale: locale as Locale }, 'long')}
               data-today={k === todayKey ? 'true' : 'false'}
               disabled={off}
               onClick={() => onChange(d)}
@@ -138,8 +158,9 @@ export interface DatePickerProps {
   className?: string;
 }
 
-function formatDate(d: Date): string {
-  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+/** Числовая дата в правилах РЕГИОНА (03.09.2026) — от языка не зависит. */
+function formatDate(d: Date, locale: Locale): string {
+  return formatRegionDate(d, { locale }, 'short');
 }
 
 export function DatePicker({
@@ -148,7 +169,7 @@ export function DatePicker({
   label,
   hint,
   error,
-  placeholder = 'Выберите дату',
+  placeholder,
   min,
   max,
   disabled,
@@ -156,6 +177,8 @@ export function DatePicker({
   width,
   className,
 }: DatePickerProps) {
+  const t = useTranslations('common');
+  const locale = useLocale() as Locale;
   const { anchorRef, layerRef, open, setOpen, layerStyle } = usePopover<HTMLButtonElement>({ maxHeight: 340 });
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -180,7 +203,7 @@ export function DatePicker({
         aria-describedby={error || hint ? descId : undefined}
       >
         <Icon name="calendar" size={16} style={{ color: 'var(--label)' }} />
-        <span>{value ? formatDate(value) : placeholder}</span>
+        <span>{value ? formatDate(value, locale) : placeholder ?? t('calendar.pickDate')}</span>
         {!showClear && <Icon name="caretDown" size={14} style={{ marginLeft: 'auto', color: 'var(--label)' }} />}
       </button>
 
@@ -190,7 +213,7 @@ export function DatePicker({
       {showClear && (
         <button
           type="button"
-          aria-label="Очистить дату"
+          aria-label={t('calendar.clearDate')}
           className="ui-iconbtn"
           style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', width: 24, height: 24, borderRadius: 'var(--radius-pill)' }}
           onClick={() => onChange(null)}
@@ -201,7 +224,7 @@ export function DatePicker({
 
       {open && mounted &&
         createPortal(
-          <div ref={layerRef} className="ui-popover" style={{ ...layerStyle, width: 288, padding: 'var(--spacing-4)' }} role="dialog" aria-label="Выбор даты">
+          <div ref={layerRef} className="ui-popover" style={{ ...layerStyle, width: 288, padding: 'var(--spacing-4)' }} role="dialog" aria-label={t('calendar.pickDate')}>
             <Calendar
               value={value}
               min={min}

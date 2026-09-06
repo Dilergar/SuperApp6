@@ -35,8 +35,9 @@
 - single-flight refresh (Web Locks + re-read storage для мульти-таб) — параллельные 401 не ротируют refresh наперегонки;
 - `sid` строки сессии чеканится в `generateTokens` и едет в payload access-токена → сервер сам считает `isCurrent` у сессий;
 - socket — `auth` как функция (свежий токен на каждом reconnect);
-- транспорт покрыт своим сьютом `verify-api-client.cjs` (против живого API).
+- транспорт покрыт своим сьютом `verify-api-client.cjs` (против живого API);
+- `getLocale()` в конфиге клиента → заголовок `X-Locale` (`LOCALE_HEADER` из `@superapp/shared`) на каждом запросе. Язык — часть КОНТРАКТА: сервер рендерит текст при чтении (уведомления, хроника, отказы). Заголовок ОТДЕЛЬНЫЙ от `Accept-Language` намеренно: тот — подсказка браузера, которую сервер маршрутизирует под рынок (русскоязычный гость в Казахстане видит государственный язык), а выбор человека маршруту не подчиняется. Нет выбора (гость) → заголовка нет, решает сервер. Веб отдаёт туда cookie `sa6_locale` — тот же источник, что у RSC, поэтому серверный и клиентский текст на одной странице совпадают. Тип `Locale` и `SUPPORTED_LOCALES` живут в `@superapp/shared` (форма провода), каталоги — в `@superapp/i18n`. Подробно — [i18n.md](i18n.md).
 
 ## Связанные доки
 
-[api_conventions.md](api_conventions.md) · [web_conventions.md](web_conventions.md) · [testing_verify_suite.md](testing_verify_suite.md).
+[api_conventions.md](api_conventions.md) · [web_conventions.md](web_conventions.md) · [i18n.md](i18n.md) · [testing_verify_suite.md](testing_verify_suite.md).

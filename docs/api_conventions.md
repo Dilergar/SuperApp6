@@ -13,8 +13,11 @@
 
 - Успех: `{ success: true, data: … }`.
 - ВСЕ ошибки — через глобальный `AllExceptionsFilter` (APP_FILTER, `shared/filters/all-exceptions.filter.ts`) в конверте `{ success: false, statusCode, message, errors?, details? }` — форма провода `ApiError` (`packages/shared/src/types/common.ts`):
-  - ZodError → 400 с полями; HttpException → как есть; Prisma P2002/P2025 → 409/404; прочее → 500 + лог;
-  - `details` — машиночитаемые коды (`details.code`, `resendInSec`, `attemptsLeft`); клиент ветвится по коду, НЕ по русскому тексту;
+  - ZodError → 400 с полями; HttpException → как есть; Prisma P2002/P2025/P2003 → 409/404/400; прочее → 500 + лог;
+  - `details.code` есть ВСЕГДА (модель Stripe/Google APIs): `message` — текст для человека в языке запроса и меняется вместе с переводом, `code` вечен, и клиент ветвится по нему. Рядом — `params` подстановки и прикладные числа (`resendInSec`, `attemptsLeft`);
+  - `message` СЕРВЕР ПЕРЕВОДИТ в языке `Accept-Language` запроса. Новый отказ пишется без текста — фабриками `apiError` (`apps/api/src/shared/errors/api-error.ts`): `throw notFound('notification.notFound')`, `throw forbidden('workspace.noAccess')`, `throw badRequest('code', { params })`. Фраза живёт в каталоге `errors.<code>` ([i18n.md](i18n.md));
+  - наследные `new ForbiddenException('русский текст')` работают как есть (текст пробрасывается, код подставляется по статусу) — их вытесняет ратчет, а не запрет;
+  - каждая запись `errors[]` несёт свой `code` (`validation.too_small` и т.п.);
   - при наличии `resendInSec` на 429 ставится заголовок `Retry-After`;
   - явный `errors` из тела исключения пробрасывается (не терять список «что именно не так»); `message: string[]` длиной >1 без явного `errors` → `errors: [{message}]`, `message` = первый элемент;
   - не-HTTP контексты (WS/RPC) фильтр пробрасывает как есть — у гейтвеев своя обработка.

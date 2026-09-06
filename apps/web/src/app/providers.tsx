@@ -2,6 +2,7 @@
 
 import React, { Component, type ErrorInfo } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import { useEffect, useState, useRef } from 'react';
 import { useAuthStore } from '@/lib/stores/auth';
 import { registerQueryClient } from '@/lib/session-reset';
@@ -48,7 +49,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ErrorBoundary>
+      <ErrorBoundary fallback={<AppCrash />}>
         {children}
         {/* Входящие звонки ловятся на любой странице (модалка + рингтон) */}
         <CallsWatcher />
@@ -70,7 +71,29 @@ interface ErrorBoundaryState {
   error: Error | null;
 }
 
-class ErrorBoundary extends Component<{ children: React.ReactNode }, ErrorBoundaryState> {
+/**
+ * Запасной экран — ОТДЕЛЬНЫЙ функциональный компонент, а не разметка внутри
+ * класса: подписи берутся из каталога, а хуки в классовом компоненте невозможны.
+ * Граница остаётся классом (React других API для неё не даёт).
+ */
+function AppCrash() {
+  const t = useTranslations('shell');
+  return (
+    <div style={{
+      minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      flexDirection: 'column', gap: '1rem', padding: '2rem', textAlign: 'center',
+      fontFamily: 'var(--font-body)', color: 'var(--on-surface)',
+    }}>
+      <h2 className="title-lg">{t('error.appTitle')}</h2>
+      <p style={{ fontSize: '0.875rem', color: 'var(--on-surface-variant)' }}>{t('error.appText')}</p>
+      <button onClick={() => window.location.reload()} className="btn-primary">
+        {t('error.reload')}
+      </button>
+    </div>
+  );
+}
+
+class ErrorBoundary extends Component<{ children: React.ReactNode; fallback: React.ReactNode }, ErrorBoundaryState> {
   state: ErrorBoundaryState = { hasError: false, error: null };
 
   static getDerivedStateFromError(error: Error) {
@@ -82,24 +105,7 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, ErrorBounda
   }
 
   render() {
-    if (this.state.hasError) {
-      return (
-        <div style={{
-          minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          flexDirection: 'column', gap: '1rem', padding: '2rem', textAlign: 'center',
-          fontFamily: 'var(--font-body)', color: 'var(--on-surface)',
-        }}>
-          <h2 className="title-lg">Что-то пошло не так</h2>
-          <p style={{ fontSize: '0.875rem', color: 'var(--on-surface-variant)' }}>{this.state.error?.message}</p>
-          <button
-            onClick={() => { this.setState({ hasError: false, error: null }); window.location.reload(); }}
-            className="btn-primary"
-          >
-            Перезагрузить
-          </button>
-        </div>
-      );
-    }
+    if (this.state.hasError) return this.props.fallback;
     return this.props.children;
   }
 }

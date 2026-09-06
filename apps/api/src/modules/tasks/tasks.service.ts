@@ -73,6 +73,11 @@ const TASK_TRACK_SPEC: ChatterTrackSpec<TaskTrackRow> = {
   dueDate: {
     typeKey: 'task.deadline_changed',
     label: 'Срок',
+    // Сырая ISO-дата рядом со снимком: зритель покажет её СВОИМИ правилами
+    // (язык и пояс читателя), а не тем форматом, что запёкся при записи.
+    // Задача «на весь день» показывается без часов — вид зависит от строки.
+    raw: (r) => (r.dueDate ? r.dueDate.toISOString() : null),
+    kind: (r: TaskTrackRow) => (r.allDay ? 'date' : 'datetime'),
     // Формат ДЕТЕРМИНИРОВАН в APP_TIMEZONE (не в TZ окружения сервера) и включает
     // время у не-allDay — иначе прод-UTC зафиксировал бы день раньше и не заметил
     // перенос времени в пределах суток (строка «было → стало» пишется навсегда).
@@ -88,6 +93,8 @@ const TASK_TRACK_SPEC: ChatterTrackSpec<TaskTrackRow> = {
     typeKey: 'task.reward_changed',
     label: 'Награда',
     format: (r) => `${r.coinReward} 🪙`,
+    raw: (r) => String(r.coinReward),
+    kind: 'number' as const,
   },
   title: {
     typeKey: 'task.title_changed',

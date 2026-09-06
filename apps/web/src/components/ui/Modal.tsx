@@ -9,6 +9,7 @@
 // блокировка прокрутки фона. Всё это здесь — один раз.
 // ============================================================
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useTranslations } from 'next-intl';
 import { createPortal } from 'react-dom';
 import { Button } from './Button';
 import { CloseChip } from './Button';
@@ -176,11 +177,12 @@ export function ConfirmDialog({
   onConfirm,
   title,
   message,
-  confirmLabel = 'Подтвердить',
-  cancelLabel = 'Отмена',
+  confirmLabel,
+  cancelLabel,
   danger,
   loading,
 }: ConfirmDialogProps) {
+  const t = useTranslations('common');
   return (
     <Modal
       open={open}
@@ -189,7 +191,7 @@ export function ConfirmDialog({
       size="sm"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>{cancelLabel}</Button>
+          <Button variant="ghost" onClick={onClose}>{cancelLabel ?? t('actions.cancel')}</Button>
           {/* DESIGN.md §1: опасное подтверждение — сплошная красная, обычное —
               зелёная («Подтвердить/Принять»). Матовая кнопка тут выглядела бы
               слабее безопасной «Отмены». */}
@@ -199,7 +201,7 @@ export function ConfirmDialog({
             loading={loading}
             onClick={() => void onConfirm()}
           >
-            {confirmLabel}
+            {confirmLabel ?? t('actions.confirm')}
           </Button>
         </>
       }
