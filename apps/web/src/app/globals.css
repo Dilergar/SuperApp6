@@ -1200,3 +1200,95 @@ a:hover {
       var(--shadow-card);
   }
 }
+
+/* ============================================================
+   Центр уведомлений (core/notifications): панель у колокольчика, строки ленты,
+   страница /notifications. Цвета и радиусы — только из токенов; бейдж синий
+   (красный в системе — опасность).
+   ============================================================ */
+.ntf-bell { position: relative; display: inline-flex; }
+.ntf-bell-badge {
+  position: absolute; top: 2px; right: 0;
+  min-width: 16px; height: 16px; padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--primary); color: var(--on-primary);
+  font-size: 10px; line-height: 16px; text-align: center; font-weight: 600;
+  border: 2px solid var(--surface);
+  pointer-events: none;
+}
+.ntf-dot {
+  display: inline-block; width: 6px; height: 6px; margin-left: 0.375rem;
+  border-radius: 50%; background: var(--primary); vertical-align: middle;
+}
+.ntf-popover { border-radius: var(--radius-lg); overflow: hidden; }
+.ntf-panel { display: flex; flex-direction: column; max-height: inherit; min-height: 320px; }
+.ntf-panel-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  padding: 0.75rem 0.875rem 0.5rem;
+}
+.ntf-panel-head-actions { display: inline-flex; align-items: center; gap: 0.25rem; }
+.ntf-panel-moon { width: 32px; height: 32px; border-radius: var(--radius-pill); }
+.ntf-panel-moon.is-on { color: var(--primary-dim); background: color-mix(in srgb, var(--primary) 12%, transparent); }
+.ntf-panel-tabs { padding: 0 0.875rem; }
+.ntf-panel-contexts { display: flex; flex-wrap: wrap; gap: 0.375rem; padding: 0.5rem 0.875rem 0; }
+.ntf-panel-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0.375rem 0.375rem; }
+.ntf-panel-foot { border-top: 1px solid var(--divider); padding: 0.375rem 0.5rem; display: flex; justify-content: flex-end; }
+
+.ntf-list { display: flex; flex-direction: column; gap: 2px; }
+.ntf-list-more { display: flex; justify-content: center; padding: 0.75rem 0; }
+.ntf-row {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 0.75rem;
+  align-items: flex-start; padding: 0.625rem 0.75rem;
+  border-radius: var(--radius-md); background: transparent;
+  transition: background 0.15s ease;
+}
+.ntf-row:hover { background: var(--hover); }
+.ntf-row--unread { background: color-mix(in srgb, var(--primary) 5%, transparent); }
+.ntf-row--compact { padding: 0.5rem 0.5rem; }
+.ntf-row-avatar { position: relative; flex-shrink: 0; padding-top: 2px; }
+.ntf-row-sys {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 2rem; height: 2rem; border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--primary) 12%, transparent); color: var(--primary-dim);
+}
+.ntf-row-typeicon {
+  position: absolute; right: -4px; bottom: -2px;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: var(--radius-pill);
+  background: var(--block); color: var(--on-surface-variant); border: 1px solid var(--border);
+}
+.ntf-row-main {
+  display: flex; flex-direction: column; gap: 0.125rem; min-width: 0;
+  text-align: left; background: transparent; border: none; padding: 0; cursor: pointer;
+  font-family: var(--font-body); color: var(--on-surface);
+}
+.ntf-row-main:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: var(--radius-sm); }
+.ntf-row-title { font-size: 0.875rem; font-weight: 500; line-height: 1.4; display: flex; align-items: center; gap: 0.375rem; flex-wrap: wrap; }
+.ntf-row--unread .ntf-row-title { font-weight: 800; }
+.ntf-row-body {
+  font-size: 0.8125rem; color: var(--on-surface-variant); line-height: 1.45;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.ntf-row-meta { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; color: var(--on-surface-variant); margin-top: 0.125rem; }
+.ntf-row-actions { display: inline-flex; align-items: center; gap: 0.125rem; flex-shrink: 0; }
+.ntf-row-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--primary); margin-right: 0.25rem; }
+.ntf-row-snooze { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0.375rem; padding: 0.375rem 0 0.125rem 2.75rem; }
+.ntf-row-card { grid-column: 1 / -1; padding: 0.5rem 0 0.25rem 2.75rem; }
+@media (max-width: 767px) {
+  .ntf-row-snooze, .ntf-row-card { padding-left: 0; }
+}
+
+/* Матрица настроек уведомлений: сервис × канал, раскрывается до типов */
+.ntf-matrix { display: flex; flex-direction: column; }
+.ntf-matrix-head, .ntf-matrix-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 6.5rem 6.5rem; align-items: center; gap: 0.5rem;
+  padding: 0.5rem 0.25rem; border-bottom: 1px solid var(--divider);
+}
+.ntf-matrix-head { color: var(--on-surface-variant); }
+.ntf-matrix-row--type { padding-left: 2.25rem; background: color-mix(in srgb, var(--surface) 55%, transparent); }
+.ntf-matrix-name { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+.ntf-matrix-cell { display: flex; justify-content: center; }
+@media (max-width: 767px) {
+  .ntf-matrix-head, .ntf-matrix-row { grid-template-columns: minmax(0, 1fr) 4.5rem 4.5rem; }
+}
+.ntf-policy-row { grid-template-columns: minmax(0, 1fr) auto auto; }

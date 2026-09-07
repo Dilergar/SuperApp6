@@ -25,7 +25,7 @@ import {
 import { DatabaseService } from '../../shared/database/database.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { JobsService } from '../../core/jobs/jobs.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService } from '../../core/notifications/notifications.service';
 import { isAssignmentActiveOn } from '../../shared/utils/assignment-window';
 import { ObjectsService, type ObjectsScope, type BranchRow } from './objects.service';
 import { SHIFTS_GENERATE_JOB } from './objects.job-types';
@@ -609,7 +609,7 @@ export class ShiftsService {
       .catch((e: unknown) => this.rethrowShiftOverlap(e));
     // Изменённая ОПУБЛИКОВАННАЯ смена — адресное уведомление человеку.
     if (updated.status === 'published' && updated.userId) {
-      await this.notifyShift('shift.changed', updated, [updated.userId]);
+      await this.notifyShift('shift.changed', updated, [updated.userId], userId);
     }
     return this.serializeShift(updated, { userName: null, canTake: false });
   }
@@ -631,7 +631,7 @@ export class ShiftsService {
       await this.logShift(tx, workspaceId, shift.branchId, userId, 'shift.cancelled', updated, null);
       return updated;
     });
-    if (row.userId) await this.notifyShift('shift.changed', row, [row.userId]);
+    if (row.userId) await this.notifyShift('shift.changed', row, [row.userId], userId);
     return this.serializeShift(row, { userName: null, canTake: false });
   }
 
@@ -684,19 +684,16 @@ export class ShiftsService {
     for (const d of batch) if (d.userId) byUser.set(d.userId, (byUser.get(d.userId) ?? 0) + 1);
     for (const [uid, count] of byUser) {
       await this.notifications
-        .emitEvent(
-          'objects.shifts.published',
-          {
-            workspaceId,
-            userId: uid,
-            branchId,
-            branchName: branch.name,
-            periodLabel: `${dto.from} — ${dto.to}`,
-            count,
-            href: `/workspaces/${workspaceId}/objects/${branchId}/shifts`,
-          },
-          'ShiftsService',
-        )
+        .send(null, {
+          type: 'objects.shifts.published',
+          to: [{ userId: uid }],
+          payload: { workspaceId, branchId, branchName: branch.name, periodLabel: `${dto.from} — ${dto.to}`, count },
+          workspaceId,
+          actorId: userId,
+          ref: { type: 'branch', id: branchId },
+          reason: 'assigned',
+          actionUrl: `/workspaces/${workspaceId}/objects/${branchId}/shifts`,
+        })
         .catch(() => undefined);
     }
     return { published, hasMore };
@@ -758,7 +755,7 @@ export class ShiftsService {
 
     // Планировщикам объекта — адресно.
     const schedulers = await this.schedulersOf(workspaceId, shift.branchId);
-    if (schedulers.length) await this.notifyShift('shift.taken', row, schedulers);
+    if (schedulers.length) await this.notifyShift('shift.taken', row, schedulers, userId);
     return this.serializeShift(row, { userName: null, canTake: false });
   }
 
@@ -968,22 +965,23 @@ export class ShiftsService {
     type: 'shift.changed' | 'shift.taken',
     shift: { id: string; workspaceId: string; branchId: string; localDate: Date; userId: string | null },
     recipients: string[],
+    actorId: string | null,
   ): Promise<void> {
-    for (const uid of recipients) {
-      await this.notifications
-        .emitEvent(
-          type === 'shift.changed' ? 'objects.shift.changed' : 'objects.shift.taken',
-          {
-            workspaceId: shift.workspaceId,
-            userId: uid,
-            branchId: shift.branchId,
-            dateLabel: dateStr(shift.localDate),
-            href: `/workspaces/${shift.workspaceId}/objects/${shift.branchId}/shifts`,
-          },
-          'ShiftsService',
-        )
-        .catch(() => undefined);
-    }
+    if (!recipients.length) return;
+    // «Изменена смена» схлопывается по типу в контексте организации (12 правок → одна
+    // строка «Изменено 12 ваших смен»); «взяли открытую» — по смене.
+    await this.notifications
+      .send(null, {
+        type: type === 'shift.changed' ? 'objects.shift.changed' : 'objects.shift.taken',
+        to: recipients.map((id) => ({ userId: id })),
+        payload: { workspaceId: shift.workspaceId, branchId: shift.branchId, shiftId: shift.id, dateLabel: dateStr(shift.localDate) },
+        workspaceId: shift.workspaceId,
+        actorId: actorId ?? null,
+        ref: { type: 'shift', id: shift.id },
+        reason: type === 'shift.changed' ? 'assigned' : 'manager',
+        actionUrl: `/workspaces/${shift.workspaceId}/objects/${shift.branchId}/shifts`,
+      })
+      .catch(() => undefined);
   }
 
   private serializeTemplate(r: {

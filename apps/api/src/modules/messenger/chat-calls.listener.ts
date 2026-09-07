@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { DatabaseService } from '../../shared/database/database.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService } from '../../core/notifications/notifications.service';
 import { JobsRegistry } from '../../core/jobs/jobs.registry';
 import { CALLS_SESSION_SUMMARIZE_JOB } from '../../core/calls/calls.service';
 import { MessengerService } from './messenger.service';
@@ -158,7 +158,16 @@ export class ChatCallsListener implements OnModuleInit {
           // Ни звонящему, ни тому, кто сам завершил (нажал «Отклонить»), — «Пропущенный» не шлём
           if (userId === p.startedById || userId === p.endedById) continue;
           await this.notifications
-            .notify(userId, 'call.missed', { fromName }, { actionUrl: `/messenger?chat=${chatId}` })
+            .send(null, {
+              type: 'call.missed',
+              to: [{ userId }],
+              payload: { fromName, chatId },
+              ref: { type: 'chat', id: chatId },
+              actorId: p.startedById,
+              reason: 'participant',
+              actionUrl: `/messenger?chat=${chatId}`,
+              idempotencyKey: `call:missed:${p.sessionId ?? chatId}:${userId}`,
+            })
             .catch(() => undefined);
         }
         return;

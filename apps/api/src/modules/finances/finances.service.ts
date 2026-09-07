@@ -1,3 +1,4 @@
+import type { NotificationType } from '@superapp/shared';
 import {
   Injectable,
   Logger,
@@ -11,7 +12,7 @@ import { Prisma, FinAccount, FinBook, FinTransaction } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { PersonalGraphRegistry } from '../contacts/personal-graph.registry';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService } from '../../core/notifications/notifications.service';
 import { AccessService } from '../../core/access/access.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import {
@@ -1021,9 +1022,9 @@ export class FinancesService implements OnModuleInit {
         period,
       };
       if (crossed(1n, 1n)) {
-        await this.notifications.notify(book.ownerId, 'finance.budget.exceeded', payload, { actionUrl: '/finance' });
+        await this.notifySafe(book, 'finance.budget.exceeded', payload, { type: 'fin_budget', id: `${book.id}:${budget.categoryAccountId}:${period}` });
       } else if (crossed(4n, 5n)) {
-        await this.notifications.notify(book.ownerId, 'finance.budget.warning', payload, { actionUrl: '/finance' });
+        await this.notifySafe(book, 'finance.budget.warning', payload, { type: 'fin_budget', id: `${book.id}:${budget.categoryAccountId}:${period}` });
       }
     }
   }
@@ -1228,11 +1229,19 @@ export class FinancesService implements OnModuleInit {
     if (dto.principalType === 'user') {
       const me = await this.db.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true } });
       try {
-        await this.notifications.notify(dto.principalId, 'finance.book.shared', {
-          ownerName: me ? `${me.firstName} ${me.lastName ?? ''}`.trim() : 'Пользователь',
-          roleLabel: dto.role === 'editor' ? 'ведёт вместе' : 'смотрит',
-          bookId: book.id,
-        }, { actionUrl: `/finance?book=${book.id}` });
+        await this.notifications.send(null, {
+          type: 'finance.book.shared',
+          to: [{ userId: dto.principalId }],
+          payload: {
+            ownerName: me ? `${me.firstName} ${me.lastName ?? ''}`.trim() : 'Пользователь',
+            roleLabel: dto.role === 'editor' ? 'ведёт вместе' : 'смотрит',
+            bookId: book.id,
+          },
+          ref: { type: 'fin_book', id: book.id },
+          actorId: userId,
+          reason: 'subscribed',
+          actionUrl: `/finance?book=${book.id}`,
+        });
       } catch (e) {
         this.logger.warn(`share notify failed: ${(e as Error)?.message ?? e}`);
       }
@@ -1630,10 +1639,22 @@ export class FinancesService implements OnModuleInit {
     return this.serializeDebt(updated, -(balances.get(updated.id) ?? 0n));
   }
 
-  private async notifySafe(book: FinBook, type: Parameters<NotificationsService['notify']>[1], payload: Record<string, unknown>): Promise<void> {
+  private async notifySafe(
+    book: FinBook,
+    type: NotificationType,
+    payload: Record<string, unknown>,
+    ref: { type: string; id: string } | null = null,
+  ): Promise<void> {
     if (book.ownerType !== 'user') return;
     try {
-      await this.notifications.notify(book.ownerId, type, payload, { actionUrl: '/finance' });
+      await this.notifications.send(null, {
+        type,
+        to: [{ userId: book.ownerId }],
+        payload,
+        ref: ref ?? { type: 'fin_book', id: book.id },
+        reason: 'owner',
+        actionUrl: '/finance',
+      });
     } catch (e) {
       this.logger.warn(`notify failed: ${(e as Error)?.message ?? e}`);
     }

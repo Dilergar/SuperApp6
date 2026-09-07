@@ -14,6 +14,7 @@ import { HrJobs } from './hr.jobs';
 import { HrTemplateFieldsProvider } from './hr-template-fields.provider';
 import { HrRegistriesProvider } from './hr-registries.provider';
 import { HrController, HrPersonalController } from './hr.controller';
+import { HrNotificationRefsProvider } from './hr-notification-refs.provider';
 
 /**
  * КЭДО (шаг 5 документной вертикали) — тонкий модуль-связка: данные о трудовых
@@ -30,6 +31,8 @@ import { HrController, HrPersonalController } from './hr.controller';
   imports: [StaffModule, DocumentsModule, ProcessesModule, TasksModule],
   controllers: [HrController, HrPersonalController],
   providers: [
+    // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
+    HrNotificationRefsProvider,
     HrCalendarService,
     HrActionsService,
     HrService,

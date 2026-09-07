@@ -3,7 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { ESUTD_KINDS, HR_DEADLINE_RULE_MAP, HR_LIMITS, hrMemberHref } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { JobsRegistry } from '../../core/jobs/jobs.registry';
-import { NotificationsService } from '../../modules/notifications/notifications.service';
+import { NotificationsService } from '../../core/notifications/notifications.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { HrActionsService } from './hr-actions.service';
 import { HrCalendarService } from './hr-calendar.service';
@@ -94,20 +94,23 @@ export class HrJobs implements OnModuleInit {
       if (left === null || left > 2) continue;
       const managers = await this.managersOf(r.workspaceId);
       const kindLabel = ESUTD_KINDS.find((k) => k.value === r.kind)?.label ?? r.kind;
-      const daysLeft = left < 0 ? `просрочено (${-left} раб. дн.)` : left === 0 ? 'сегодня' : `${left} раб. дн.`;
-      for (const uid of managers) {
-        await this.notifications
-          .notify(
-            uid,
-            'hr.esutd.due_soon',
-            { kindLabel, targetName: await this.nameOf(r.userId), daysLeft, workspaceId: r.workspaceId },
-            {
-              actionUrl: `/workspaces/${r.workspaceId}/members?tab=deadlines`,
-              dedupKey: `esutd:${r.id}:${today}:${uid}`,
-            },
-          )
-          .catch(() => undefined);
-      }
+      // Остаток срока едет ЧИСЛОМ и признаком состояния, а не собранной фразой: фраза
+      // застыла бы в одном языке (в каталоге получалось «осталось просрочено (4 раб. дн.)»,
+      // а у английского читателя — русский кусок внутри английской строки). Слова —
+      // в каталоге, ветками ICU `state`/`plural` (docs/i18n.md, render-at-read).
+      const state = left < 0 ? 'overdue' : left === 0 ? 'today' : 'left';
+      await this.notifications
+        .send(null, {
+          type: 'hr.esutd.due_soon',
+          to: managers.map((uid) => ({ userId: uid })),
+          payload: { kindLabel, targetName: await this.nameOf(r.userId), state, days: Math.abs(left), workspaceId: r.workspaceId },
+          ref: { type: 'esutd_submission', id: r.id },
+          workspaceId: r.workspaceId,
+          reason: 'manager',
+          actionUrl: `/workspaces/${r.workspaceId}/members?tab=deadlines`,
+          idempotencyKey: `esutd:${r.id}:${today}`,
+        })
+        .catch(() => undefined);
     }
   }
 
@@ -140,19 +143,18 @@ export class HrJobs implements OnModuleInit {
       const left = await this.calendar.workDaysLeft(today, due);
       if (left === null || left > 1) continue;
       const title = r.number ? `${r.title} № ${r.number}` : r.title;
-      for (const uid of await this.managersOf(r.workspaceId)) {
-        await this.notifications
-          .notify(
-            uid,
-            'hr.delivery.due',
-            { title, workspaceId: r.workspaceId },
-            {
-              actionUrl: `/workspaces/${r.workspaceId}/documents/${r.id}`,
-              dedupKey: `hrdel:${r.id}:${today}:${uid}`,
-            },
-          )
-          .catch(() => undefined);
-      }
+      await this.notifications
+        .send(null, {
+          type: 'hr.delivery.due',
+          to: (await this.managersOf(r.workspaceId)).map((uid) => ({ userId: uid })),
+          payload: { title, workspaceId: r.workspaceId, documentId: r.id },
+          ref: { type: 'org_document', id: r.id },
+          workspaceId: r.workspaceId,
+          reason: 'manager',
+          actionUrl: `/workspaces/${r.workspaceId}/documents/${r.id}`,
+          idempotencyKey: `hrdel:${r.id}:${today}`,
+        })
+        .catch(() => undefined);
     }
   }
 
@@ -170,17 +172,19 @@ export class HrJobs implements OnModuleInit {
     });
     for (const r of rows) {
       const until = r.probationUntil!.toISOString().slice(0, 10).split('-').reverse().join('.');
-      for (const uid of await this.managersOf(r.workspaceId)) {
-        await this.notifications
-          .notify(
-            uid,
-            'hr.probation.ending',
-            { targetName: await this.nameOf(r.userId), until, workspaceId: r.workspaceId },
-            // Ключ с датой рубежа: перенесли испытание — предупреждение придёт заново
-            { actionUrl: hrMemberHref(r.workspaceId, r.userId), dedupKey: `hrprob:${r.id}:${until}:${uid}` },
-          )
-          .catch(() => undefined);
-      }
+      await this.notifications
+        .send(null, {
+          type: 'hr.probation.ending',
+          to: (await this.managersOf(r.workspaceId)).map((uid) => ({ userId: uid })),
+          payload: { targetName: await this.nameOf(r.userId), until, workspaceId: r.workspaceId },
+          ref: { type: 'employment', id: r.id },
+          workspaceId: r.workspaceId,
+          reason: 'manager',
+          actionUrl: hrMemberHref(r.workspaceId, r.userId),
+          // Ключ с датой рубежа: перенесли испытание — предупреждение придёт заново
+          idempotencyKey: `hrprob:${r.id}:${until}`,
+        })
+        .catch(() => undefined);
     }
   }
 
@@ -199,16 +203,18 @@ export class HrJobs implements OnModuleInit {
     });
     for (const r of rows) {
       const until = r.contractEndAt!.toISOString().slice(0, 10).split('-').reverse().join('.');
-      for (const uid of await this.managersOf(r.workspaceId)) {
-        await this.notifications
-          .notify(
-            uid,
-            'hr.contract.expiring',
-            { targetName: await this.nameOf(r.userId), until, workspaceId: r.workspaceId },
-            { actionUrl: hrMemberHref(r.workspaceId, r.userId), dedupKey: `hrcontr:${r.id}:${until}:${uid}` },
-          )
-          .catch(() => undefined);
-      }
+      await this.notifications
+        .send(null, {
+          type: 'hr.contract.expiring',
+          to: (await this.managersOf(r.workspaceId)).map((uid) => ({ userId: uid })),
+          payload: { targetName: await this.nameOf(r.userId), until, workspaceId: r.workspaceId },
+          ref: { type: 'employment', id: r.id },
+          workspaceId: r.workspaceId,
+          reason: 'manager',
+          actionUrl: hrMemberHref(r.workspaceId, r.userId),
+          idempotencyKey: `hrcontr:${r.id}:${until}`,
+        })
+        .catch(() => undefined);
     }
   }
 }

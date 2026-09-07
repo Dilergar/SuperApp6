@@ -17,6 +17,7 @@ import { DocumentsRegistriesProvider } from './documents-registries.provider';
 import { DocumentsRichCardsProvider } from './documents-rich-cards.provider';
 import { DocCampaignsService } from './doc-campaigns.service';
 import { DocCampaignsController, DocCampaignsPersonalController } from './doc-campaigns.controller';
+import { DocumentsNotificationRefsProvider } from './documents-notification-refs.provider';
 
 /**
  * Сервис «Документы» (B2B) — документооборот организации.
@@ -37,6 +38,8 @@ import { DocCampaignsController, DocCampaignsPersonalController } from './doc-ca
     ? [DocumentsController, DocCampaignsController, DocCampaignsPersonalController, DocumentsDevController]
     : [DocumentsController, DocCampaignsController, DocCampaignsPersonalController],
   providers: [
+    // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
+    DocumentsNotificationRefsProvider,
     DocumentsService,
     DocumentsJobs,
     DocumentsRegistriesProvider,

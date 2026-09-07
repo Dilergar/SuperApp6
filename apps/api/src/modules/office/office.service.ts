@@ -25,7 +25,7 @@ import { RolesService } from '../../core/roles/roles.service';
 import { AccessProjectionService } from '../../core/access/access-projection.service';
 import { CallsRefRegistry } from '../../core/calls/calls-ref.registry';
 import { CallsService } from '../../core/calls/calls.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService } from '../../core/notifications/notifications.service';
 import { MessengerService } from '../messenger/messenger.service';
 
 const WS_CONTEXT = 'workspace';
@@ -230,16 +230,16 @@ export class OfficeService implements OnModuleInit {
     }
 
     const byName = await this.nameOf(userId);
-    await Promise.all(
-      validIds.map((uid) =>
-        this.notifications.notify(
-          uid,
-          'office.meeting.invited',
-          { byName, roomName: room.name, workspaceId },
-          { actionUrl: `/workspaces/${workspaceId}/office/${roomId}` },
-        ),
-      ),
-    );
+    await this.notifications.send(null, {
+      type: 'office.meeting.invited',
+      to: validIds.map((uid) => ({ userId: uid })),
+      payload: { byName, roomName: room.name, workspaceId, roomId },
+      ref: { type: 'office_room', id: roomId },
+      workspaceId,
+      actorId: userId,
+      reason: 'participant',
+      actionUrl: `/workspaces/${workspaceId}/office/${roomId}`,
+    });
     this.events.emit(
       'office.room.invited',
       { roomId, workspaceId, byUserId: userId, userIds: validIds },

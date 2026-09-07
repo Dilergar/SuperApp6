@@ -23,7 +23,7 @@ import {
   CallsRecordingRegistry,
   type CallRecordingReadyContext,
 } from '../../core/calls/calls-recording.registry';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService } from '../../core/notifications/notifications.service';
 
 /**
  * Диктофон — потребитель голосового движка (прото-Plaud без железки): запись
@@ -118,12 +118,15 @@ export class RecorderService implements OnModuleInit {
       throw err;
     }
     await this.notifications
-      .notify(
-        ctx.claimantUserId,
-        'call.recording.ready',
-        { title: row.title, recordingId: row.id, fileId: ctx.fileId },
-        { actionUrl: `/recorder?id=${row.id}` },
-      )
+      .send(null, {
+        type: 'call.recording.ready',
+        to: [{ userId: ctx.claimantUserId }],
+        payload: { title: row.title, recordingId: row.id, fileId: ctx.fileId },
+        ref: { type: 'voice_recording', id: row.id },
+        reason: 'owner',
+        actionUrl: `/recorder?id=${row.id}`,
+        idempotencyKey: `callrec:ready:${row.id}`,
+      })
       .catch((err) =>
         this.logger.warn(`notify call.recording.ready: ${err instanceof Error ? err.message : err}`),
       );

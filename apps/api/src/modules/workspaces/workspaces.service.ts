@@ -13,7 +13,7 @@ import { DatabaseService } from '../../shared/database/database.service';
 import { LegalEntitiesService } from './legal-entities.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService } from '../../core/notifications/notifications.service';
 import { StaffService } from '../staff/staff.service';
 import { PaymentCardsService } from '../wallet/payment-cards.service';
 import { FilesService } from '../../core/files/files.service';
@@ -622,6 +622,9 @@ export class WorkspacesService implements OnModuleInit {
         });
       }
       await tx.userRole.deleteMany({ where: { context: WS_CONTEXT, tenantId: workspaceId } });
+      // `Notification.workspaceId` — колонка без FK: строки пережили бы организацию и
+      // остались бы «призраком контекста» (в бейдже есть, отфильтровать нечем).
+      await this.notifications.archiveWorkspaceRowsForAll(tx, workspaceId);
       await tx.workspace.delete({ where: { id: workspaceId } });
     });
 
@@ -663,22 +666,22 @@ export class WorkspacesService implements OnModuleInit {
       const milestone = WORKSPACE_ARCHIVE_WARN_DAYS.find((m) => daysLeft <= m);
       if (milestone === undefined) continue; // ещё рано (или уже пора удалять — это дело purge)
       try {
-        await this.notifications.notify(
-          w.ownerId,
-          'workspace.archive.expiring',
-          {
+        await this.notifications.send(null, {
+          type: 'workspace.archive.expiring',
+          to: [{ userId: w.ownerId }],
+          payload: {
             workspaceId: w.id,
             workspaceName: w.name,
             days: daysLeft,
             daysWord: pluralDays(daysLeft),
             purgeDate: formatTaskDeadline(purgeAt, true),
           },
-          {
-            actionUrl: '/dashboard',
-            // Рубеж, а не остаток: иначе один и тот же рубеж слал бы письмо каждый день.
-            dedupKey: `wsarch:${w.id}:${milestone}`,
-          },
-        );
+          ref: { type: 'workspace', id: w.id },
+          reason: 'owner',
+          actionUrl: '/dashboard',
+          // Рубеж, а не остаток: иначе один и тот же рубеж слал бы письмо каждый день.
+          idempotencyKey: `wsarch:${w.id}:${milestone}`,
+        });
         sent++;
       } catch (err) {
         // Упавшее уведомление не должно останавливать остальные — и уж точно не
@@ -1041,16 +1044,14 @@ export class WorkspacesService implements OnModuleInit {
         ],
         payload: { targetUserId, targetName: await this.userName(targetUserId) },
       });
-      await this.notifications.emitEvent(
-        'workspace.role.changed',
-        {
-          workspaceId,
-          workspaceName: ws.name,
-          userId: targetUserId,
-          role: WORKSPACE_ROLES[data.role]?.name ?? data.role,
-        },
-        'WorkspacesService',
-      );
+      await this.notifications.send(null, {
+        type: 'workspace.role.changed',
+        to: [{ userId: targetUserId }],
+        payload: { workspaceId, workspaceName: ws.name, role: WORKSPACE_ROLES[data.role]?.name ?? data.role },
+        workspaceId,
+        actorId: userId,
+        actionUrl: `/workspaces/${workspaceId}`,
+      });
     }
   }
 
@@ -1116,11 +1117,17 @@ export class WorkspacesService implements OnModuleInit {
       typeKey: 'staff.fired',
       payload: { targetUserId, targetName: await this.userName(targetUserId) },
     });
-    await this.notifications.emitEvent(
-      'workspace.member.removed',
-      { workspaceId, workspaceName: ws.name, userId: targetUserId },
-      'WorkspacesService',
-    );
+    // Шина — триггеры Процессов («Сотрудник уволен»); строки организации у человека
+    // архивируются (не удаляются), новое уведомление ложится в «Личное» — он уже не член.
+    this.events.emit('workspace.member.removed', { workspaceId, workspaceName: ws.name, userId: targetUserId }, 'WorkspacesService');
+    await this.notifications.archiveWorkspaceRows(null, targetUserId, workspaceId);
+    await this.notifications.send(null, {
+      type: 'workspace.member.removed',
+      to: [{ userId: targetUserId }],
+      payload: { workspaceId, workspaceName: ws.name },
+      workspaceId,
+      actorId: userId,
+    });
   }
 
   /** Voluntary leave (non-owner). */
@@ -1146,6 +1153,9 @@ export class WorkspacesService implements OnModuleInit {
       actorName: await this.userName(userId),
       typeKey: 'staff.left',
     });
+    // Правило стоит на ОБОИХ путях ухода: строки организации архивируются и у того, кто
+    // вышел сам, — иначе они висят в бейдже, а чипа этой организации у него уже нет.
+    await this.notifications.archiveWorkspaceRows(null, userId, workspaceId);
   }
 
   // ============================================================
@@ -1243,18 +1253,26 @@ export class WorkspacesService implements OnModuleInit {
       include: INVITATION_INCLUDE,
     });
 
-    await this.notifications.emitEvent(
-      'workspace.invitation.sent',
-      {
-        invitationId: inv.id,
+    // Приглашённый ещё не член — строка ляжет в «Личное» (контекст по членству адресата).
+    if (inv.toUserId) {
+      await this.notifications.send(null, {
+        type: 'workspace.invitation.received',
+        to: [{ userId: inv.toUserId }],
+        payload: {
+          invitationId: inv.id,
+          workspaceId,
+          workspaceName: ws.name,
+          positionName: inv.position?.name ?? '',
+          message: inv.message ?? '',
+        },
         workspaceId,
-        workspaceName: ws.name,
-        toUserId: inv.toUserId,
-        positionName: inv.position?.name ?? null,
-        message: inv.message,
-      },
-      'WorkspacesService',
-    );
+        actorId: userId,
+        ref: { type: 'workspace_invitation', id: inv.id },
+        reason: 'requested',
+        actionUrl: '/dashboard',
+        idempotencyKey: `wsi:sent:${inv.id}`,
+      });
+    }
 
     const inviter = await this.db.user.findUnique({
       where: { id: userId },
@@ -1419,16 +1437,20 @@ export class WorkspacesService implements OnModuleInit {
     if (inv.positionId) await this.staff.projectWorkspaceStaff(inv.workspaceId);
     else await this.staff.invalidateOrgGraph(inv.workspaceId);
 
-    await this.notifications.emitEvent(
+    this.events.emit(
       'workspace.invitation.accepted',
-      {
-        workspaceId: inv.workspaceId,
-        workspaceName: inv.workspace.name,
-        inviterId: inv.invitedBy,
-        byName: me ? this.fullName(me) : '',
-      },
+      { workspaceId: inv.workspaceId, workspaceName: inv.workspace.name, inviterId: inv.invitedBy, byName: me ? this.fullName(me) : '', userId },
       'WorkspacesService',
     );
+    await this.notifications.send(null, {
+      type: 'workspace.invitation.accepted',
+      to: [{ userId: inv.invitedBy }],
+      payload: { workspaceId: inv.workspaceId, workspaceName: inv.workspace.name, byName: me ? this.fullName(me) : '' },
+      workspaceId: inv.workspaceId,
+      actorId: userId,
+      actionUrl: `/workspaces/${inv.workspaceId}/members`,
+      idempotencyKey: `wsi:acc:${inv.id}`,
+    });
 
     const ws = await this.db.workspace.findUnique({
       where: { id: inv.workspaceId },
@@ -1459,16 +1481,15 @@ export class WorkspacesService implements OnModuleInit {
       where: { id: userId },
       select: { firstName: true, lastName: true },
     });
-    await this.notifications.emitEvent(
-      'workspace.invitation.rejected',
-      {
-        workspaceId: inv.workspaceId,
-        workspaceName: inv.workspace.name,
-        inviterId: inv.invitedBy,
-        byName: me ? this.fullName(me) : '',
-      },
-      'WorkspacesService',
-    );
+    await this.notifications.send(null, {
+      type: 'workspace.invitation.rejected',
+      to: [{ userId: inv.invitedBy }],
+      payload: { workspaceId: inv.workspaceId, workspaceName: inv.workspace.name, byName: me ? this.fullName(me) : '' },
+      workspaceId: inv.workspaceId,
+      actorId: userId,
+      actionUrl: `/workspaces/${inv.workspaceId}/members/invites`,
+      idempotencyKey: `wsi:rej:${inv.id}`,
+    });
   }
 
   /**
@@ -1488,18 +1509,23 @@ export class WorkspacesService implements OnModuleInit {
     });
 
     for (const inv of pending) {
-      await this.notifications.emitEvent(
-        'workspace.invitation.sent',
-        {
+      await this.notifications.send(null, {
+        type: 'workspace.invitation.received',
+        to: [{ userId }],
+        payload: {
           invitationId: inv.id,
           workspaceId: inv.workspaceId,
           workspaceName: inv.workspace.name,
-          toUserId: userId,
-          positionName: inv.position?.name ?? null,
-          message: inv.message,
+          positionName: inv.position?.name ?? '',
+          message: inv.message ?? '',
         },
-        'WorkspacesService',
-      );
+        workspaceId: inv.workspaceId,
+        actorId: inv.invitedBy,
+        ref: { type: 'workspace_invitation', id: inv.id },
+        reason: 'requested',
+        actionUrl: '/dashboard',
+        idempotencyKey: `wsi:act:${inv.id}`,
+      });
     }
   }
 

@@ -160,8 +160,8 @@ async function main() {
     check('уведомление-нода прошла', stepMap.notify_boss?.status === 'done');
     check('токен ждёт на «Установить»', stepMap.task_install?.status === 'active' && !!stepMap.task_install?.taskId);
     check('секундомер: у завершённых шагов есть durationMs', typeof stepMap.task_find?.durationMs === 'number' && stepMap.task_find.durationMs >= 0);
-    const notifBoss = await prisma.notification.findFirst({ where: { userId: u1, type: 'process.step.notify' }, orderBy: { createdAt: 'desc' } });
-    check('уведомление «Крупная покупка» дошло инициатору', !!notifBoss && (notifBoss.title ?? '').includes('200000'), notifBoss?.title);
+    const notifBoss = await prisma.notification.findFirst({ where: { userId: u1, type: 'process.step.notify' }, orderBy: { createdAt: 'desc' }, include: { event: true } });
+    check('уведомление «Крупная покупка» дошло инициатору', !!notifBoss && String(notifBoss.event.payload?.title ?? '').includes('200000'), notifBoss?.event?.payload?.title);
 
     // ===== Version pinning: правка → новый черновик v2, публикация v2 — бегущий инстанс доживает на v1 =====
     const editAfterPub = await call('PUT', PR(`/${defId}/document`), t1, { document: { ...goodDoc, nodes: goodDoc.nodes.map((n) => (n.id === 'cond_big' ? { ...n, config: { ...n.config, value: '999999' } } : n)) } });
@@ -808,8 +808,10 @@ async function main() {
       const tgSteps = await prisma.processStepRun.findMany({ where: { instanceId: tgInst.id }, select: { nodeId: true } });
       check('инстанс стартовал С ТРИГГЕР-НОДЫ «tgin»', tgSteps.some((s) => s.nodeId === 'tgin'), JSON.stringify(tgSteps.map((s) => s.nodeId)));
     }
-    const echoNotif = await prisma.notification.findFirst({ where: { userId: u1, type: 'process.step.notify' }, orderBy: { createdAt: 'desc' } });
-    check('эхо-ответ с текстом и именем отправителя', !!echoNotif && (echoNotif.title ?? '').includes('Привет, бот!') && (echoNotif.title ?? '').includes('Диана'), echoNotif?.title);
+    // Строка ленты текста не хранит: заголовок = payload.title события (render-at-read).
+    const echoNotif = await prisma.notification.findFirst({ where: { userId: u1, type: 'process.step.notify' }, orderBy: { createdAt: 'desc' }, include: { event: true } });
+    const echoTitle = String(echoNotif?.event?.payload?.title ?? '');
+    check('эхо-ответ с текстом и именем отправителя', !!echoNotif && echoTitle.includes('Привет, бот!') && echoTitle.includes('Диана'), echoTitle);
     // не-текстовый апдейт (фото) тихо игнорируется: 200, без нового инстанса
     const tgBefore = await prisma.processInstance.count({ where: { definitionId: defTgId } });
     const tgPhoto = await call('POST', `/processes/webhook/telegram/${tgToken}`, null, { update_id: 2, message: { message_id: 8, chat: { id: 555111 }, from: { id: 999 }, photo: [{}] } });
@@ -1336,7 +1338,7 @@ async function main() {
     await call('POST', PR(`/${defExpr}/publish`), t1);
     await call('POST', PR(`/${defExpr}/start`), t1, { input: { sum: 100 } });
     await sleep(800);
-    check('Ф5: Set + выражение round(form.sum*0.12,2)=12 вычислено и подставлено', !!(await prisma.notification.findFirst({ where: { userId: u1, type: 'process.step.notify', title: 'налог 12' } })));
+    check('Ф5: Set + выражение round(form.sum*0.12,2)=12 вычислено и подставлено', !!(await prisma.notification.findFirst({ where: { userId: u1, type: 'process.step.notify', event: { payload: { path: ['title'], equals: 'налог 12' } } } })));
     await call('DELETE', PR(`/${defExpr}`), t1).catch(() => {});
 
     // 2) «Перебрать список»: вебхук несёт массив → на каждый элемент под-ветка ({{item.n}}*2)
@@ -1365,14 +1367,15 @@ async function main() {
     await call('POST', PR(`/${defLoop}/publish`), t1);
     const whTok = ((await call('GET', PR(`/${defLoop}`), t1)).json?.data?.triggers ?? []).find((t) => t.type === 'webhook')?.webhookUrl?.split('/processes/webhook/')[1];
     check('Ф5 loop: вебхук-триггер синхронизирован', !!whTok);
-    const beforeDone = await prisma.notification.count({ where: { userId: u1, title: 'перебор готов' } });
+    const byTitle = (title) => ({ userId: u1, event: { payload: { path: ['title'], equals: title } } });
+    const beforeDone = await prisma.notificationEvent.count({ where: { payload: { path: ['title'], equals: 'перебор готов' } } });
     await call('POST', `/processes/webhook/${whTok}`, null, { items: [] }); // пустой список → сразу «Готово»
     await sleep(1000);
-    check('Ф5 loop: пустой список → сразу «Готово» (0 элементов)', (await prisma.notification.count({ where: { userId: u1, title: 'перебор готов' } })) > beforeDone);
+    check('Ф5 loop: пустой список → сразу «Готово» (0 элементов)', (await prisma.notificationEvent.count({ where: { payload: { path: ['title'], equals: 'перебор готов' } } })) > beforeDone);
     await call('POST', `/processes/webhook/${whTok}`, null, { items: [{ n: 5 }, { n: 10 }] }); // список из 2
     await sleep(1800);
-    check('Ф5 loop: элемент 1 ({{item.n}}=5 → double=10) обработан', !!(await prisma.notification.findFirst({ where: { userId: u1, title: 'результат 10' } })));
-    check('Ф5 loop: элемент 2 ({{item.n}}=10 → double=20) обработан', !!(await prisma.notification.findFirst({ where: { userId: u1, title: 'результат 20' } })));
+    check('Ф5 loop: элемент 1 ({{item.n}}=5 → double=10) обработан', !!(await prisma.notification.findFirst({ where: byTitle('результат 10') })));
+    check('Ф5 loop: элемент 2 ({{item.n}}=10 → double=20) обработан', !!(await prisma.notification.findFirst({ where: byTitle('результат 20') })));
     for (const i of await prisma.processInstance.findMany({ where: { definitionId: defLoop, status: 'running' }, select: { id: true } })) await call('POST', PR(`/instances/${i.id}/cancel`), t1).catch(() => {});
     await call('DELETE', PR(`/${defLoop}`), t1).catch(() => {});
 

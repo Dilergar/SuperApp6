@@ -21,6 +21,7 @@ import { CallsService } from '../../core/calls/calls.service';
 import { CallsRefRegistry } from '../../core/calls/calls-ref.registry';
 import { DriveRoutingRegistry } from '../drive/drive-routing.registry';
 import { I18nService } from '../../shared/i18n/i18n.service';
+import { NotificationsRenderer } from '../../core/notifications/notifications.render';
 import { renderChatter, type ChatterEntryLike } from '@superapp/i18n';
 import { MESSENGER_LIMITS, OFFICE_ROOM_ROLE_LABELS, attachmentPreviewText } from '@superapp/shared';
 import type {
@@ -113,6 +114,7 @@ export class MessengerService implements OnModuleInit {
     private driveRouting: DriveRoutingRegistry,
     private redis: RedisService,
     private i18n: I18nService,
+    private notificationsRenderer: NotificationsRenderer,
   ) {}
 
   onModuleInit(): void {
@@ -1326,6 +1328,31 @@ export class MessengerService implements OnModuleInit {
     await this.postSystemMessage(chatId, eventType, text);
   }
 
+  /**
+   * Канал `chat` движка уведомлений: системное сообщение с событием уведомления в
+   * payload (перерисовывается в языке читателя, см. systemText). Идемпотентно по
+   * eventId — ретрай канального джоба не дублит плашку.
+   */
+  async postNotificationMessage(
+    chatId: string,
+    input: { type: string; text: string; payload: Record<string, unknown>; href: string | null; ref: { type: string; id: string } | null; eventId: string },
+  ): Promise<string | null> {
+    const dup = await this.db.message.findFirst({
+      where: { chatId, type: 'system', payload: { path: ['notificationEventId'], equals: input.eventId } },
+      select: { id: true },
+    });
+    if (dup) return dup.id;
+    await this.postSystemMessage(chatId, 'notification', input.text, {
+      notificationEventId: input.eventId,
+      notification: { type: input.type, payload: input.payload, href: input.href, ref: input.ref },
+    });
+    const created = await this.db.message.findFirst({
+      where: { chatId, type: 'system', payload: { path: ['notificationEventId'], equals: input.eventId } },
+      select: { id: true },
+    });
+    return created?.id ?? null;
+  }
+
   // ============================================================
   // Rich cards (Phase 3) — a service-posted interactive card message
   // ============================================================
@@ -2177,6 +2204,16 @@ export class MessengerService implements OnModuleInit {
     if (!p) return null;
     const snapshot = typeof p.text === 'string' ? p.text : null;
     const typeKey = typeof p.eventType === 'string' ? p.eventType : null;
+    // Плашка канала `chat` движка уведомлений: текст собирается в языке читателя из
+    // type+payload события (render-at-read), снимок — фолбэк ушедшего типа.
+    if (typeKey === 'notification') {
+      const n = p.notification as { type?: string; payload?: Record<string, unknown> } | undefined;
+      if (n?.type) {
+        const r = this.notificationsRenderer.render(this.i18n.locale, n.type, n.payload ?? {}, { snapshot: { title: snapshot } });
+        return r.body ? `${r.title}\n${r.body}` : r.title;
+      }
+      return snapshot;
+    }
     const source = p.chatter as ChatterEntryLike | undefined;
     if (!typeKey || !source) return snapshot;
     const locale = this.i18n.locale;

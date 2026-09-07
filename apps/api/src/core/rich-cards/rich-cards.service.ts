@@ -1,20 +1,17 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { ModuleRef } from '@nestjs/core';
 import type {
   RichCardPayload,
   ExecuteRichCardActionResult,
   RichCardRefType,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
-import { DI_TOKENS } from '../../shared/di-tokens';
+import { badRequest } from '../../shared/errors/api-error';
+import { NotificationChannelRegistry } from '../notifications/notifications.registry';
 import { AccessService } from '../access/access.service';
 import { RichCardRegistry } from './rich-cards.registry';
 import type { RichCardDeps } from './rich-card.types';
 
 /** Minimal surface RichCardsService needs from MessengerService (resolved lazily, no cycle). */
-interface MessengerLike {
-  postRichCard(chatId: string, payload: RichCardPayload, authorId: string): Promise<unknown>;
-}
 
 /**
  * Central dispatcher for interactive rich cards (Phase 3). Renderers + action handlers are
@@ -28,7 +25,7 @@ export class RichCardsService {
     private readonly registry: RichCardRegistry,
     private readonly db: DatabaseService,
     private readonly access: AccessService,
-    private readonly moduleRef: ModuleRef,
+    private readonly channels: NotificationChannelRegistry,
   ) {}
 
   private deps(): RichCardDeps {
@@ -91,8 +88,22 @@ export class RichCardsService {
     const card = await this.render(userId, refType, refId);
     if (!card) throw new ForbiddenException('Нет доступа к карточке');
 
-    const messenger = this.moduleRef.get<MessengerLike>(DI_TOKENS.MessengerService, { strict: false });
-    await messenger.postRichCard(chatId, card, userId);
+    // Чат — канал доставки движка уведомлений: драйвер регистрирует мессенджер, ленивого
+    // токена на фичу у движка больше нет (ребро core/rich-cards → modules/messenger закрыто).
+    const chat = this.channels.chat();
+    if (!chat?.live) throw badRequest('notification.chat.notConfigured');
+    const res = await chat.post({
+      chatId,
+      eventId: `share:${refType}:${refId}:${userId}:${Date.now()}`,
+      type: 'rich_card',
+      text: card.title,
+      payload: {},
+      href: card.href ?? null,
+      ref: { type: refType, id: refId },
+      richCardType: refType,
+      actorId: userId,
+    });
+    if (!res.ok) throw badRequest('notification.chat.notConfigured');
     return card;
   }
 }

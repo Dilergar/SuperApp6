@@ -10,7 +10,8 @@
 
 - `GET /rich-cards/:refType/:refId` — живая карточка для зрителя.
 - `POST /rich-cards/:actionKey/execute` `{ref, payload?}` — выполнить (перепроверка способности → обновлённая карточка).
-- `POST /rich-cards/share` `{chatId, refType, refId}` — кинуть карточку в чат.
+- `POST /rich-cards/share` `{chatId, refType, refId}` — кинуть карточку в чат (через канал `chat` движка уведомлений — драйвер регистрирует мессенджер; движок фичу не импортирует).
+- Строка центра уведомлений с `ref` зарегистрированного типа раскрывается в ту же живую карточку (`GET /rich-cards/:refType/:refId` + `execute`) — [notifications_engine.md](notifications_engine.md).
 
 ## Зарегистрированные типы/действия
 

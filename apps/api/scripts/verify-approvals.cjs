@@ -307,11 +307,12 @@ const created = [];
     created.push({ id: fresh.request.id, token: u1.token });
     await sleep(500);
     const asked = await prisma.notification.findFirst({
-      where: { userId: u2.id, type: 'approval.requested', dedupKey: `apreq:${fresh.request.steps[0].id}:${u2.id}` },
+      where: { userId: u2.id, type: 'approval.requested', event: { idempotencyKey: `apreq:${fresh.request.steps[0].id}` } },
+      include: { event: true },
     });
     check('адресат позван при СОЗДАНИИ заявки, а не после первого решения', !!asked);
     check('глагол берётся из вида шага («Подписать», не «Согласовать»)',
-      !!asked && asked.title.startsWith('Подписать'), asked?.title);
+      !!asked && String(asked.event.payload?.actionLabel ?? '').startsWith('Подписать'), asked?.event?.payload?.actionLabel);
 
     // Пустой снимок — ЧЕСТНЫЙ ОТКАЗ при создании (КЭДО-волна): раньше шаг молча
     // активировался «в никуда» и заявка ждала вечно — теперь маршрут с адресатом,

@@ -4,38 +4,38 @@
 
 | Потребитель | Зависит от |
 |---|---|
-| `core/approvals` | `core/access`, `core/audiences`, `core/jobs`, `core/rich-cards`, `modules/notifications` |
+| `core/approvals` | `core/access`, `core/audiences`, `core/jobs`, `core/notifications`, `core/rich-cards` |
 | `core/audiences` | `core/access` |
-| `core/auth` | `core/jobs`, `core/users`, `core/verify`, `modules/notifications` |
-| `core/calls` | `core/files`, `core/jobs`, `modules/notifications` |
+| `core/auth` | `core/jobs`, `core/notifications`, `core/users`, `core/verify` |
+| `core/calls` | `core/files`, `core/jobs`, `core/notifications` |
 | `core/chatter` | `core/jobs` |
 | `core/docs` | `core/access`, `core/chatter`, `core/files`, `core/jobs`, `core/share-links` |
-| `core/files` | `core/jobs`, `modules/notifications` |
+| `core/files` | `core/jobs`, `core/notifications` |
+| `core/notifications` | `core/audiences`, `core/jobs`, `core/realtime`, `core/roles`, `core/verify` |
 | `core/quick-actions` | `core/access` |
-| `core/rich-cards` | `core/access`, `modules/messenger (токен)` |
+| `core/rich-cards` | `core/access`, `core/notifications` |
 | `core/roles` | `core/access` |
-| `core/share-links` | `core/chatter`, `core/verify`, `modules/notifications` |
-| `core/sign` | `core/approvals`, `core/files`, `core/jobs`, `core/roles`, `core/share-links`, `core/templates`, `core/verify`, `modules/notifications` |
+| `core/share-links` | `core/chatter`, `core/notifications`, `core/verify` |
+| `core/sign` | `core/approvals`, `core/files`, `core/jobs`, `core/notifications`, `core/roles`, `core/share-links`, `core/templates`, `core/verify` |
 | `core/templates` | `core/files` |
-| `core/users` | `core/access`, `core/files`, `core/jobs`, `core/verify`, `modules/contacts`, `modules/notifications`, `modules/workspaces` |
+| `core/users` | `core/access`, `core/files`, `core/jobs`, `core/notifications`, `core/verify`, `modules/contacts`, `modules/workspaces` |
 | `core/voice` | `core/files`, `core/jobs` |
-| `modules/calendar` | `core/access`, `core/jobs`, `core/quick-actions`, `core/rich-cards`, `modules/contacts`, `modules/notifications` |
+| `modules/calendar` | `core/access`, `core/jobs`, `core/notifications`, `core/quick-actions`, `core/rich-cards`, `modules/contacts` |
 | `modules/card-skins` | `modules/wallet` |
 | `modules/circles` | `core/access`, `modules/contacts` |
-| `modules/contacts` | `core/access`, `core/audiences`, `modules/notifications` |
+| `modules/contacts` | `core/access`, `core/audiences`, `core/notifications` |
 | `modules/counterparties` | `core/chatter`, `core/rich-cards`, `core/roles`, `core/search`, `core/templates`, `modules/notes` |
-| `modules/documents` | `core/access`, `core/approvals`, `core/audiences`, `core/chatter`, `core/docs`, `core/files`, `core/jobs`, `core/rich-cards`, `core/roles`, `core/search`, `core/share-links`, `core/sign`, `core/templates`, `core/verify`, `modules/counterparties`, `modules/drive`, `modules/hr (токен)`, `modules/notes`, `modules/notifications`, `modules/processes (токен)`, `modules/staff` |
-| `modules/drive` | `core/access`, `core/audiences`, `core/chatter`, `core/files`, `core/jobs`, `core/quick-actions`, `core/rich-cards`, `core/roles`, `core/search`, `core/share-links`, `modules/contacts`, `modules/notifications` |
-| `modules/finances` | `core/access`, `core/quick-actions`, `core/rich-cards`, `modules/calendar`, `modules/contacts`, `modules/notifications` |
-| `modules/hr` | `core/audiences`, `core/chatter`, `core/files`, `core/jobs`, `core/roles`, `core/sign`, `core/templates`, `modules/documents`, `modules/notifications`, `modules/processes`, `modules/staff`, `modules/tasks`, `modules/workspaces` |
-| `modules/messenger` | `core/access`, `core/calls`, `core/chatter`, `core/files`, `core/jobs`, `core/quick-actions`, `core/search`, `modules/calendar (токен)`, `modules/contacts`, `modules/drive`, `modules/notifications` |
-| `modules/notes` | `core/access`, `core/audiences`, `core/chatter`, `core/files`, `core/jobs`, `core/quick-actions`, `core/rich-cards`, `core/roles`, `core/search`, `modules/contacts`, `modules/drive`, `modules/messenger`, `modules/notifications` |
-| `modules/notifications` | `core/jobs` |
-| `modules/objects` | `core/access`, `core/chatter`, `core/files`, `core/jobs`, `core/rich-cards`, `core/roles`, `core/search`, `modules/calendar`, `modules/drive`, `modules/hr`, `modules/notes`, `modules/notifications`, `modules/staff`, `modules/workspaces` |
-| `modules/office` | `core/access`, `core/calls`, `core/rich-cards`, `core/roles`, `modules/messenger`, `modules/notifications` |
-| `modules/processes` | `core/approvals`, `core/audiences`, `core/chatter`, `core/rich-cards (токен)`, `core/roles`, `modules/documents (токен)`, `modules/finances (токен)`, `modules/hr (токен)`, `modules/messenger (токен)`, `modules/notifications`, `modules/staff (токен)`, `modules/tasks`, `modules/workspaces (токен)` |
-| `modules/recorder` | `core/calls`, `core/files`, `core/voice`, `modules/notifications` |
-| `modules/shop` | `core/access`, `core/files`, `core/rich-cards`, `modules/calendar`, `modules/contacts`, `modules/messenger`, `modules/notifications`, `modules/tasks`, `modules/wallet` |
-| `modules/staff` | `core/access`, `core/audiences`, `core/chatter`, `core/roles`, `core/search`, `core/templates`, `modules/notifications` |
-| `modules/tasks` | `core/access`, `core/chatter`, `core/files`, `core/quick-actions`, `core/rich-cards`, `modules/calendar`, `modules/contacts`, `modules/drive`, `modules/messenger`, `modules/notes`, `modules/notifications`, `modules/processes (токен)`, `modules/shop (токен)`, `modules/wallet` |
-| `modules/workspaces` | `core/approvals`, `core/chatter`, `core/files`, `core/roles`, `core/share-links`, `core/templates`, `modules/hr (токен)`, `modules/notifications`, `modules/office (токен)`, `modules/staff`, `modules/wallet` |
+| `modules/documents` | `core/access`, `core/approvals`, `core/audiences`, `core/chatter`, `core/docs`, `core/files`, `core/jobs`, `core/notifications`, `core/rich-cards`, `core/roles`, `core/search`, `core/share-links`, `core/sign`, `core/templates`, `core/verify`, `modules/counterparties`, `modules/drive`, `modules/hr (токен)`, `modules/notes`, `modules/processes (токен)`, `modules/staff` |
+| `modules/drive` | `core/access`, `core/audiences`, `core/chatter`, `core/files`, `core/jobs`, `core/notifications`, `core/quick-actions`, `core/rich-cards`, `core/roles`, `core/search`, `core/share-links`, `modules/contacts` |
+| `modules/finances` | `core/access`, `core/notifications`, `core/quick-actions`, `core/rich-cards`, `modules/calendar`, `modules/contacts` |
+| `modules/hr` | `core/audiences`, `core/chatter`, `core/files`, `core/jobs`, `core/notifications`, `core/roles`, `core/sign`, `core/templates`, `modules/documents`, `modules/processes`, `modules/staff`, `modules/tasks`, `modules/workspaces` |
+| `modules/messenger` | `core/access`, `core/calls`, `core/chatter`, `core/files`, `core/jobs`, `core/notifications`, `core/quick-actions`, `core/realtime`, `core/rich-cards`, `core/search`, `modules/calendar (токен)`, `modules/contacts`, `modules/drive` |
+| `modules/notes` | `core/access`, `core/audiences`, `core/chatter`, `core/files`, `core/jobs`, `core/notifications`, `core/quick-actions`, `core/rich-cards`, `core/roles`, `core/search`, `modules/contacts`, `modules/drive`, `modules/messenger` |
+| `modules/objects` | `core/access`, `core/chatter`, `core/files`, `core/jobs`, `core/notifications`, `core/rich-cards`, `core/roles`, `core/search`, `modules/calendar`, `modules/drive`, `modules/hr`, `modules/notes`, `modules/staff`, `modules/workspaces` |
+| `modules/office` | `core/access`, `core/calls`, `core/notifications`, `core/rich-cards`, `core/roles`, `modules/messenger` |
+| `modules/processes` | `core/approvals`, `core/audiences`, `core/chatter`, `core/notifications`, `core/rich-cards (токен)`, `core/roles`, `modules/documents (токен)`, `modules/finances (токен)`, `modules/hr (токен)`, `modules/messenger (токен)`, `modules/staff (токен)`, `modules/tasks`, `modules/workspaces (токен)` |
+| `modules/recorder` | `core/calls`, `core/files`, `core/notifications`, `core/voice` |
+| `modules/shop` | `core/access`, `core/files`, `core/notifications`, `core/rich-cards`, `modules/calendar`, `modules/contacts`, `modules/messenger`, `modules/tasks`, `modules/wallet` |
+| `modules/staff` | `core/access`, `core/audiences`, `core/chatter`, `core/notifications`, `core/roles`, `core/search`, `core/templates` |
+| `modules/tasks` | `core/access`, `core/chatter`, `core/files`, `core/notifications`, `core/quick-actions`, `core/rich-cards`, `modules/calendar`, `modules/contacts`, `modules/drive`, `modules/messenger`, `modules/notes`, `modules/processes (токен)`, `modules/shop (токен)`, `modules/wallet` |
+| `modules/workspaces` | `core/approvals`, `core/chatter`, `core/files`, `core/notifications`, `core/roles`, `core/share-links`, `core/templates`, `modules/hr (токен)`, `modules/office (токен)`, `modules/staff`, `modules/wallet` |

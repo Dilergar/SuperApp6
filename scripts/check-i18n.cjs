@@ -235,6 +235,55 @@ for (const ns of NAMESPACES) {
   }
 }
 
+// ---------- 5b. реестр уведомлений ⇔ каталог `notifications` ----------
+// Тип объявляется в `packages/shared/src/notifications/<service>.ts`, а слова — в
+// `notifications.<type>.title` (тело необязательно). Тип без заголовка показал бы
+// человеку голый ключ; заголовок без типа — мёртвый текст, который никто не рендерит
+// (динамический префикс `notifications.` прячет его от проверки 6).
+{
+  const regDir = path.join(ROOT, 'packages', 'shared', 'src', 'notifications');
+  const registryTypes = new Set();
+  if (fs.existsSync(regDir)) {
+    for (const file of fs.readdirSync(regDir)) {
+      if (!file.endsWith('.ts') || file === 'index.ts' || file === 'types.ts') continue;
+      const text = fs.readFileSync(path.join(regDir, file), 'utf8');
+      for (const m of text.matchAll(/^\s*'([a-z_]+(?:\.[a-z_]+)+)':\s*\{/gm)) registryTypes.add(m[1]);
+    }
+  }
+  if (!registryTypes.size) {
+    err('реестр уведомлений не найден или пуст: packages/shared/src/notifications/*.ts');
+  }
+  for (const locale of LOCALES) {
+    const cat = flat[locale]?.notifications;
+    if (!cat) continue;
+    const missing = [...registryTypes].filter((t) => !cat.has(`${t}.title`));
+    if (missing.length) {
+      err(
+        `messages/${locale}/notifications.json — у ${missing.length} типов реестра нет \`.title\`:\n    ` +
+          missing.slice(0, 20).join('\n    ') + (missing.length > 20 ? '\n    …' : ''),
+      );
+    }
+  }
+  // Ветки каталога, которые не типы: слова центра и настроек (`settings.quiet.title`
+  // — заголовок блока, а не тип `settings.quiet`). Новая UI-ветка с `.title` внутри —
+  // сюда, иначе страж примет её за осиротевший тип.
+  const UI_BRANCHES = new Set(['settings', 'page', 'policy', 'meta', 'push', 'sms', 'chat', 'service', 'channel', 'priority']);
+  const source = flat[SOURCE_LOCALE]?.notifications;
+  if (source) {
+    const orphans = [];
+    for (const key of source.keys()) {
+      const m = /^([a-z_]+(?:\.[a-z_]+)+)\.(title|body|collapsed)$/.exec(key);
+      if (m && !UI_BRANCHES.has(m[1].split('.')[0]) && !registryTypes.has(m[1])) orphans.push(key);
+    }
+    if (orphans.length) {
+      err(
+        `messages/${SOURCE_LOCALE}/notifications.json — ${orphans.length} ключей типов, которых нет в реестре:\n    ` +
+          orphans.slice(0, 20).join('\n    ') + (orphans.length > 20 ? '\n    …' : ''),
+      );
+    }
+  }
+}
+
 // ---------- 6. ключ, которого нет в коде (предупреждение) ----------
 {
   const files = [];

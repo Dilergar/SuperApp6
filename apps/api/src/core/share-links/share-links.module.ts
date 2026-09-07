@@ -6,6 +6,7 @@ import { ShareLinksRegistry } from './share-links.registry';
 import { ShareLinksCron } from './share-links.cron';
 import { ShareLinksController } from './share-links.controller';
 import { ShareLinksGuestController } from './share-links-guest.controller';
+import { ShareLinksNotificationRefsProvider } from './share-links-notification-refs.provider';
 
 /**
  * Движок гостевых ссылок (core/share-links) — 13-й платформенный: «поделиться наружу»
@@ -25,6 +26,8 @@ import { ShareLinksGuestController } from './share-links-guest.controller';
 @Module({
   controllers: [ShareLinksController, ShareLinksGuestController],
   providers: [
+    // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
+    ShareLinksNotificationRefsProvider,
     ShareLinksService,
     ShareLinksGuestService,
     ShareLinksTokenService,

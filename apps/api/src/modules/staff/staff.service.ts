@@ -13,7 +13,7 @@ import {
 } from '../../shared/utils/assignment-window';
 import { RolesService } from '../../core/roles/roles.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService } from '../../core/notifications/notifications.service';
 import { AccessProjectionService } from '../../core/access/access-projection.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { fullName } from '../../shared/utils/user-name';
@@ -875,17 +875,19 @@ export class StaffService {
       where: { id: workspaceId },
       select: { name: true },
     });
-    await this.notifications.emitEvent(
+    this.events.emit(
       'workspace.position.assigned',
-      {
-        workspaceId,
-        workspaceName: ws?.name ?? '',
-        userId: targetUserId,
-        positionName: position.name,
-        branchName: created.branch?.name ?? '',
-      },
+      { workspaceId, workspaceName: ws?.name ?? '', userId: targetUserId, positionName: position.name, branchName: created.branch?.name ?? '' },
       'StaffService',
     );
+    await this.notifications.send(null, {
+      type: 'workspace.position.assigned',
+      to: [{ userId: targetUserId }],
+      payload: { workspaceId, workspaceName: ws?.name ?? '', positionName: position.name, branchName: created.branch?.name ?? '' },
+      workspaceId,
+      actorId: actorId,
+      actionUrl: `/workspaces/${workspaceId}`,
+    });
     await this.notifyIfHead(workspaceId, position.id, branchId, [targetUserId], ws?.name ?? '');
 
     return this.serializeAssignment(created);
@@ -1012,16 +1014,19 @@ export class StaffService {
         where: { id: workspaceId },
         select: { name: true },
       });
-      await this.notifications.emitEvent(
+      this.events.emit(
         'workspace.position.certified',
-        {
-          workspaceId,
-          workspaceName: ws?.name ?? '',
-          userId: updated.userId,
-          positionName: updated.position.name,
-        },
+        { workspaceId, workspaceName: ws?.name ?? '', userId: updated.userId, positionName: updated.position.name },
         'StaffService',
       );
+      await this.notifications.send(null, {
+        type: 'workspace.position.certified',
+        to: [{ userId: updated.userId }],
+        payload: { workspaceId, workspaceName: ws?.name ?? '', positionName: updated.position.name },
+        workspaceId,
+        actorId,
+        actionUrl: `/workspaces/${workspaceId}`,
+      });
     }
 
     return this.serializeAssignment(updated);
@@ -1582,11 +1587,14 @@ export class StaffService {
     ]);
     const userIds = [...new Set(holders.map((h) => h.userId))];
     if (!userIds.length) return;
-    await this.notifications.emitEvent(
-      'staff.head.assigned',
-      { workspaceId, workspaceName: ws?.name ?? '', userIds, unitLabel, positionName: pos?.name ?? '' },
-      'StaffService',
-    );
+    await this.notifications.send(null, {
+      type: 'staff.head.assigned',
+      to: userIds.map((id) => ({ userId: id })),
+      payload: { workspaceId, workspaceName: ws?.name ?? '', unitLabel, positionName: pos?.name ?? '' },
+      workspaceId,
+      reason: 'manager',
+      actionUrl: `/workspaces/${workspaceId}/members/org`,
+    });
   }
 
   /** Человек получил должность, которая уже руководит отделом/объектом — сказать ему. */
@@ -1605,10 +1613,13 @@ export class StaffService {
     ]);
     const units = [...deps.map((d) => `отделом «${d.name}»`), ...brs.map((b) => `объектом «${b.name}»`)];
     if (!units.length) return;
-    await this.notifications.emitEvent(
-      'staff.head.assigned',
-      { workspaceId, workspaceName, userIds, unitLabel: units.join(', '), positionName: pos?.name ?? '' },
-      'StaffService',
-    );
+    await this.notifications.send(null, {
+      type: 'staff.head.assigned',
+      to: userIds.map((id) => ({ userId: id })),
+      payload: { workspaceId, workspaceName, unitLabel: units.join(', '), positionName: pos?.name ?? '' },
+      workspaceId,
+      reason: 'manager',
+      actionUrl: `/workspaces/${workspaceId}/members/org`,
+    });
   }
 }

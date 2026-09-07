@@ -600,6 +600,7 @@ export class NotesService {
         mentionedUserIds: withAccess,
         snippet: this.displayTitle(note),
         actionUrl: noteUrl(scope.space, note.id),
+        workspaceId: scope.space.ownerType === 'workspace' ? scope.space.ownerId : null,
       });
     }
     if (!without.length) return { hints: [], checked: true };

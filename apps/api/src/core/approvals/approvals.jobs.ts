@@ -8,7 +8,7 @@ import {
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
-import { NotificationsService } from '../../modules/notifications/notifications.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { ApprovalsRegistry } from './approvals.registry';
 import { ApprovalsService } from './approvals.service';
 import { AudiencesService } from '../audiences/audiences.service';
@@ -94,7 +94,16 @@ export class ApprovalsJobs implements OnModuleInit {
 
     for (const uid of waiting) {
       await this.notifications
-        .notify(uid, 'approval.due_soon', payload, { actionUrl, dedupKey: `aprm:${stepId}:${uid}` })
+        .send(null, {
+          type: 'approval.due_soon',
+          to: [{ userId: uid }],
+          payload,
+          ref: { type: 'approval_request', id: step.requestId },
+          workspaceId: step.request.workspaceId,
+          reason: 'requested',
+          actionUrl,
+          idempotencyKey: `aprm:${stepId}:${uid}`,
+        })
         .catch(() => undefined);
     }
   }
@@ -150,7 +159,16 @@ export class ApprovalsJobs implements OnModuleInit {
     const recipients = [...new Set([...step.awaitingUserIds, step.request.createdById, ...managers])];
     for (const uid of recipients) {
       await this.notifications
-        .notify(uid, 'approval.overdue', payload, { actionUrl, dedupKey: `apov:${stepId}:${uid}` })
+        .send(null, {
+          type: 'approval.overdue',
+          to: [{ userId: uid }],
+          payload,
+          ref: { type: 'approval_request', id: step.requestId },
+          workspaceId: step.request.workspaceId,
+          reason: uid === step.request.createdById ? 'owner' : 'requested',
+          actionUrl,
+          idempotencyKey: `apov:${stepId}:${uid}`,
+        })
         .catch(() => undefined);
     }
   }

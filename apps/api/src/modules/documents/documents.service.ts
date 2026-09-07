@@ -69,7 +69,7 @@ import { ApprovalsService } from '../../core/approvals/approvals.service';
 import { SignService } from '../../core/sign/sign.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { JobsService } from '../../core/jobs/jobs.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService } from '../../core/notifications/notifications.service';
 import { CounterpartiesService } from '../counterparties/counterparties.service';
 import { FilesService } from '../../core/files/files.service';
 import { ShareLinksService } from '../../core/share-links/share-links.service';
@@ -1879,15 +1879,16 @@ export class DocumentsService {
     });
     if (won.count === 0) return;
     await this.notifications
-      .notify(
-        row.createdById,
-        'document.counterparty_signed',
-        { title: row.title, signerLabel: opts.signerName ?? '' },
-        {
-          actionUrl: `/workspaces/${row.workspaceId}/documents/${row.id}`,
-          dedupKey: this.outcomeDedupKey('signed', row.id, opts.requestId),
-        },
-      )
+      .send(null, {
+        type: 'document.counterparty_signed',
+        to: [{ userId: row.createdById }],
+        payload: { title: row.title, signerLabel: opts.signerName ?? '', documentId: row.id },
+        ref: { type: 'org_document', id: row.id },
+        workspaceId: row.workspaceId,
+        reason: 'owner',
+        actionUrl: `/workspaces/${row.workspaceId}/documents/${row.id}`,
+        idempotencyKey: this.outcomeDedupKey('signed', row.id, opts.requestId),
+      })
       .catch(() => undefined);
     // Подшивка в реестр вида — штампованной копией (джоб дождётся её готовности)
     await this.jobs.enqueue(null, {
@@ -1942,19 +1943,21 @@ export class DocumentsService {
           .catch((e) => this.logger.warn(`отзыв ссылки по ${row.id}: ${(e as Error).message}`));
       }
       await this.notifications
-        .notify(
-          row.createdById,
-          'document.internal_declined',
-          {
+        .send(null, {
+          type: 'document.internal_declined',
+          to: [{ userId: row.createdById }],
+          payload: {
             title: row.title,
             signerLabel: opts.signerName ?? '',
             reasonLabel: opts.reason ? `: ${opts.reason}` : '',
+            documentId: row.id,
           },
-          {
-            actionUrl: `/workspaces/${row.workspaceId}/documents/${row.id}`,
-            dedupKey: this.outcomeDedupKey('intdecl', row.id, requestId),
-          },
-        )
+          ref: { type: 'org_document', id: row.id },
+          workspaceId: row.workspaceId,
+          reason: 'owner',
+          actionUrl: `/workspaces/${row.workspaceId}/documents/${row.id}`,
+          idempotencyKey: this.outcomeDedupKey('intdecl', row.id, requestId),
+        })
         .catch(() => undefined);
       return;
     }
@@ -1965,15 +1968,16 @@ export class DocumentsService {
       });
       if (won.count === 0) return;
       await this.notifications
-        .notify(
-          row.createdById,
-          'document.counterparty_declined',
-          { title: row.title, reasonLabel: opts.reason ?? '' },
-          {
-            actionUrl: `/workspaces/${row.workspaceId}/documents/${row.id}`,
-            dedupKey: this.outcomeDedupKey('declined', row.id, opts.requestId),
-          },
-        )
+        .send(null, {
+          type: 'document.counterparty_declined',
+          to: [{ userId: row.createdById }],
+          payload: { title: row.title, reasonLabel: opts.reason ?? '', documentId: row.id },
+          ref: { type: 'org_document', id: row.id },
+          workspaceId: row.workspaceId,
+          reason: 'owner',
+          actionUrl: `/workspaces/${row.workspaceId}/documents/${row.id}`,
+          idempotencyKey: this.outcomeDedupKey('declined', row.id, opts.requestId),
+        })
         .catch(() => undefined);
       return;
     }
@@ -1994,15 +1998,16 @@ export class DocumentsService {
       })
       .catch(() => undefined);
     await this.notifications
-      .notify(
-        row.createdById,
-        'document.external_expired',
-        { title: row.title },
-        {
-          actionUrl: `/workspaces/${row.workspaceId}/documents/${row.id}`,
-          dedupKey: this.outcomeDedupKey('expired', row.id, opts.requestId),
-        },
-      )
+      .send(null, {
+        type: 'document.external_expired',
+        to: [{ userId: row.createdById }],
+        payload: { title: row.title, documentId: row.id },
+        ref: { type: 'org_document', id: row.id },
+        workspaceId: row.workspaceId,
+        reason: 'owner',
+        actionUrl: `/workspaces/${row.workspaceId}/documents/${row.id}`,
+        idempotencyKey: this.outcomeDedupKey('expired', row.id, opts.requestId),
+      })
       .catch(() => undefined);
   }
 
@@ -2362,16 +2367,20 @@ export class DocumentsService {
     const outcomeLabel =
       outcome === 'approved' ? 'Документ подписан' : outcome === 'returned' ? 'Документ на доработку' : 'Документ отклонён';
     await this.notifications
-      .notify(
-        fresh.createdById,
-        'document.resolved',
-        {
+      .send(null, {
+        type: 'document.resolved',
+        to: [{ userId: fresh.createdById }],
+        payload: {
           outcomeLabel,
           title: fresh.title,
           numberLabel: fresh.number ? `№ ${fresh.number}` : '',
+          documentId: fresh.id,
         },
-        { actionUrl: `/workspaces/${fresh.workspaceId}/documents/${fresh.id}` },
-      )
+        ref: { type: 'org_document', id: fresh.id },
+        workspaceId: fresh.workspaceId,
+        reason: 'owner',
+        actionUrl: `/workspaces/${fresh.workspaceId}/documents/${fresh.id}`,
+      })
       .catch(() => undefined);
   }
 

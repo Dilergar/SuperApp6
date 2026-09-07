@@ -21,7 +21,7 @@ import {
   type WorkspaceRole,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService } from '../../core/notifications/notifications.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { fullName } from '../../shared/utils/user-name';
 import { OrgGraphService } from './org-graph.service';
@@ -381,17 +381,19 @@ export class OrgService {
         ];
     if (recipients.length) {
       const ws = await this.db.workspace.findUnique({ where: { id: workspaceId }, select: { name: true } });
-      await this.notifications.emitEvent(
-        'staff.deputy.assigned',
-        {
+      await this.notifications.send(null, {
+        type: 'staff.deputy.assigned',
+        to: recipients.map((id) => ({ userId: id })),
+        payload: {
           workspaceId,
           workspaceName: ws?.name ?? '',
-          userIds: recipients,
           positionName: position.name,
           periodLabel: periodLabel ? `Период: ${periodLabel}` : 'Запасной: когда на должности никого нет',
         },
-        'OrgService',
-      );
+        workspaceId,
+        reason: 'assigned',
+        actionUrl: `/workspaces/${workspaceId}/members/org`,
+      });
     }
     return dtoOut;
   }

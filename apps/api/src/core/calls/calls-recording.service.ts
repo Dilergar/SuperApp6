@@ -16,7 +16,7 @@ import { EgressStatus, type WebhookEvent } from 'livekit-server-sdk';
 import type { CallRecordingDto } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
-import { NotificationsService } from '../../modules/notifications/notifications.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { FilesService } from '../files/files.service';
 import { CallsLivekitClient } from './calls-livekit.client';
 import { CallsRefRegistry } from './calls-ref.registry';
@@ -426,7 +426,14 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
     if (done.count !== 1) return;
     this.events.emit('call.recording.failed', this.eventPayload(rec), 'calls');
     await this.notifications
-      .notify(rec.startedById, 'call.recording.failed', {}, { actionUrl: null })
+      .send(null, {
+        type: 'call.recording.failed',
+        to: [{ userId: rec.startedById }],
+        ref: { type: 'call_recording', id: rec.id },
+        reason: 'owner',
+        includeActor: true,
+        idempotencyKey: `callrec:fail:${rec.id}`,
+      })
       .catch(() => undefined);
   }
 

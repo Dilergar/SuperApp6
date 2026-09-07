@@ -6,7 +6,7 @@
 
 - **На шину — только то, что можно потерять**: плашки-листенеры, подстраховки-сверки, google-sync, сигналы сокету, вторые ремни. Деньги, security-эффекты (отзыв доступа) и обязательная фоновая работа — НЕ сюда: синхронно в транзакции либо `core/jobs` (`enqueue(tx, …)`, transactional outbox, at-least-once) — [jobs_engine.md](jobs_engine.md).
 - Второй ремень к синхронному пути — законная роль шины: `FinancesEvents` на `contact.removed/blocked` дублирует хук `PersonalGraphRegistry`; `ShopEvents` на `task.completed` дублирует токен `ShopService`; `ProcessesEvents` на `task.*` дублирует токен `ProcessesService`.
-- Уведомления людям — только `NotificationsService.emitEvent(type, …)`: он публикует событие на шину И ставит джоб доставки; голый `events.emit` для уведомлений запрещён — [notifications.md](notifications.md). Типы таких событий = `NOTIFICATION_REGISTRY` (shared).
+- Уведомления людям — НЕ через шину: `NotificationsService.send(tx, …)` (outbox `core/notifications`, [notifications_engine.md](notifications_engine.md)). Шина остаётся для доменных событий, у которых есть листенер (плашки, триггеры Процессов, подстраховки); `events.emit` без подписчика не пишется.
 - Сбой Redis best-effort: подписчик не превращает ошибку в unhandled rejection и не останавливает фоновую работу ([platform_gotchas.md](platform_gotchas.md)).
 - Подписчик обязан быть идемпотентным: событие может прийти после того, как синхронный путь уже всё сделал, а может не прийти вовсе.
 
@@ -16,9 +16,10 @@
 |---|---|
 | Auth (`core/auth`, `core/users`) | `auth.sessions.revoked` — logout / смена пароля / отзыв сессии: гасит сокеты |
 | Окружение (`modules/contacts`) | `contact.removed`, `contact.blocked` |
-| Задачи (`modules/tasks`) | `task.completed`, `task.deleted`, `task.cancelled` (+ типы уведомлений через `emitEvent`) |
+| Задачи (`modules/tasks`) | `task.created`, `task.completed`, `task.deleted`, `task.cancelled` |
 | Календарь (`modules/calendar`) | `calendar.event.created / updated / cancelled / invited / rsvp / participant_removed / reminder` |
 | Мессенджер (`modules/messenger`) | `messenger.message.created / updated / deleted`, `messenger.receipt`, `messenger.presence.changed`, `messenger.call.state`, `messenger.scheduled.sent` |
+| Уведомления (`core/notifications`) | `notifications.created` (фанаут → relay `notification:new`), `notifications.counts` (seen/read → relay `notification:counts`) |
 | Магазин (`modules/shop`) | `shop.order.placed / funded / confirmed / cancelled / rejected` |
 | Файлы (`core/files`) | `file.uploaded`, `file.ready`, `file.variant.created`, `file.deleted`, `file.scan.infected` |
 | Звонки (`core/calls`) | `call.session.started`, `call.participant.joined / left`, `call.recording.started / stopped / ready / failed` |
@@ -34,7 +35,7 @@
 
 | Подписчик | Слушает | Делает |
 |---|---|---|
-| `apps/api/src/modules/messenger/messenger.gateway.ts` | `messenger.*`, `auth.sessions.revoked` | Сокет: доставка в комнаты, отключение отозванных сессий |
+| `apps/api/src/core/realtime/realtime.gateway.ts` | relay из `RealtimeRegistry` (`messenger.*` — регистрирует мессенджер; `notifications.created|counts` — уведомления), `auth.sessions.revoked` | Сокет `/realtime`: доставка в комнаты, отключение отозванных сессий |
 | `apps/api/src/modules/messenger/calendar-system.listener.ts` | `calendar.event.*` | Системные плашки в чатах событий |
 | `apps/api/src/modules/messenger/chat-calls.listener.ts` | `call.session.*`, `call.participant.*`, `call.recording.*` (фильтр `refType === 'chat'`) | `call:state` в сокет + плашки итогов звонка |
 | `apps/api/src/modules/messenger/office-system.listener.ts` | `office.room.*`, `call.session.*` | Плашки встреч офиса |
@@ -55,4 +56,4 @@
 
 ## Связанные доки
 
-[module_graph.md](module_graph.md) · [jobs_engine.md](jobs_engine.md) · [notifications.md](notifications.md) · [platform_gotchas.md](platform_gotchas.md)
+[module_graph.md](module_graph.md) · [jobs_engine.md](jobs_engine.md) · [notifications_engine.md](notifications_engine.md) · [platform_gotchas.md](platform_gotchas.md)

@@ -21,6 +21,7 @@ import {
 import { PersonCard } from '../../circles/PersonCard';
 import { WalletSection } from '../WalletSection';
 import { SkinsSection } from '../SkinsSection';
+import { NotificationsSection } from '../NotificationsSection';
 import { AvatarUploadBlock } from '@/components/files/AvatarUploadBlock';
 import { ChangePasswordDialog, ChangePhoneDialog } from './security-dialogs';
 import type { CardSkinRender } from '../../circles/card-skin';
@@ -29,9 +30,9 @@ import type { CardSkinRender } from '../../circles/card-skin';
 // Types & constants
 // ============================================================
 
-type Section = 'form' | 'card' | 'skins' | 'wallet' | 'stats' | 'roles' | 'subscription' | 'settings' | 'security';
+type Section = 'form' | 'card' | 'skins' | 'wallet' | 'stats' | 'roles' | 'subscription' | 'settings' | 'notifications' | 'security';
 
-const KNOWN_SECTIONS: Section[] = ['form', 'card', 'skins', 'wallet', 'stats', 'roles', 'subscription', 'settings', 'security'];
+const KNOWN_SECTIONS: Section[] = ['form', 'card', 'skins', 'wallet', 'stats', 'roles', 'subscription', 'settings', 'notifications', 'security'];
 
 /** Значения перечисления + ключи каталога: подписи собираются в компоненте. */
 const MARITAL_VALUES = ['', 'single', 'married', 'relationship', 'divorced', 'widowed'] as const;
@@ -664,6 +665,8 @@ export default function ProfileSectionPage() {
 
       {/* === Кошелёк === */}
       {section === 'wallet' && <WalletSection />}
+
+      {section === 'notifications' && <NotificationsSection />}
 
       {/* === Stats === */}
       {section === 'stats' && (

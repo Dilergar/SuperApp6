@@ -126,6 +126,18 @@ export class PresenceService {
     return !!v && Number(v) > 0;
   }
 
+  /** Батч для движка уведомлений (presence-aware push): один MGET на фанаут, не N GET. */
+  async onlineOf(userIds: string[]): Promise<Set<string>> {
+    const ids = [...new Set(userIds)];
+    if (!ids.length) return new Set();
+    const values = await this.redis.getClient().mget(ids.map((id) => this.key(id)));
+    const out = new Set<string>();
+    values.forEach((v, i) => {
+      if (v && Number(v) > 0) out.add(ids[i]);
+    });
+    return out;
+  }
+
   async getLastSeen(userId: string): Promise<string | null> {
     return this.redis.get(this.lastSeenKey(userId));
   }

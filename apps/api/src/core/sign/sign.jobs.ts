@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { SIGN_LEVEL_LABELS, signRequestHref, type SignLevel } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
-import { NotificationsService } from '../../modules/notifications/notifications.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { SignRegistry } from './sign.registry';
 import { SignStampService } from './sign-stamp.service';
 
@@ -86,15 +86,20 @@ export class SignJobs implements OnModuleInit {
     for (const act of request.acts) {
       if (act.status !== 'pending' || !act.signerUserId) continue;
       await this.notifications
-        .notify(
-          act.signerUserId,
-          'sign.requested',
-          {
+        .send(null, {
+          type: 'sign.requested',
+          to: [{ userId: act.signerUserId }],
+          payload: {
             refTitle: request.refTitle,
             levelLabel: SIGN_LEVEL_LABELS[request.level as SignLevel].short,
           },
-          { actionUrl: href, dedupKey: `sign:req:${act.id}` },
-        )
+          ref: { type: 'sign_request', id: request.id },
+          workspaceId: request.workspaceId,
+          actorId: request.createdById,
+          reason: 'requested',
+          actionUrl: href,
+          idempotencyKey: `sign:req:${act.id}`,
+        })
         .catch(() => undefined);
     }
   }
@@ -136,12 +141,17 @@ export class SignJobs implements OnModuleInit {
     const href = signRequestHref(request.id, request.workspaceId);
     if (payload.outcome === 'declined') {
       await this.notifications
-        .notify(
-          request.createdById,
-          'sign.declined',
-          { refTitle: request.refTitle, reason: payload.reason ?? '' },
-          { actionUrl: href, dedupKey: `sign:dec:${act.id}` },
-        )
+        .send(null, {
+          type: 'sign.declined',
+          to: [{ userId: request.createdById }],
+          payload: { refTitle: request.refTitle, reason: payload.reason ?? '' },
+          ref: { type: 'sign_request', id: request.id },
+          workspaceId: request.workspaceId,
+          actorId: act.signerUserId,
+          reason: 'owner',
+          actionUrl: href,
+          idempotencyKey: `sign:dec:${act.id}`,
+        })
         .catch(() => undefined);
       return;
     }
@@ -154,12 +164,16 @@ export class SignJobs implements OnModuleInit {
       .map((a) => a.signerName)
       .join(', ');
     await this.notifications
-      .notify(
-        request.createdById,
-        'sign.completed',
-        { refTitle: request.refTitle, signersLabel: names },
-        { actionUrl: href, dedupKey: `sign:done:${request.id}` },
-      )
+      .send(null, {
+        type: 'sign.completed',
+        to: [{ userId: request.createdById }],
+        payload: { refTitle: request.refTitle, signersLabel: names },
+        ref: { type: 'sign_request', id: request.id },
+        workspaceId: request.workspaceId,
+        reason: 'owner',
+        actionUrl: href,
+        idempotencyKey: `sign:done:${request.id}`,
+      })
       .catch(() => undefined);
   }
 }

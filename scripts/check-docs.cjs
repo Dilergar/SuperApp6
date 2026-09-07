@@ -56,18 +56,9 @@ const DOC_SIZE_EXEMPT = new Set(['gap_analysis_v2.md']);
  * Закрыл долг — убери строку отсюда, иначе страж не заметит возврата нарушения.
  */
 const KNOWN_CORE_TO_MODULES = new Set([
-  'core/approvals → modules/notifications',
-  'core/auth → modules/notifications',
-  'core/calls → modules/notifications',
-  'core/files → modules/notifications',
-  'core/share-links → modules/notifications',
-  'core/sign → modules/notifications',
-  'core/users → modules/notifications',
+  // Активация приглашений по номеру — решение не выбрано (docs/roadmap.md, «Границы движков»).
   'core/users → modules/contacts',
   'core/users → modules/workspaces',
-  // rich-cards постит карточку в чат ленивым токеном MessengerService — чат как канал доставки,
-  // та же природа, что и уведомления; решается вместе с core/notifications.
-  'core/rich-cards → modules/messenger',
 ]);
 
 const args = process.argv.slice(2);

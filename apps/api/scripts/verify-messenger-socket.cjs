@@ -50,7 +50,7 @@ async function ensureContact(tokenA, tokenB, phoneB) {
 }
 function connect(token) {
   return new Promise((resolve, reject) => {
-    const sock = io(`${ORIGIN}/messenger`, { auth: { token }, transports: ['websocket'], reconnection: false });
+    const sock = io(`${ORIGIN}/realtime`, { auth: { token }, transports: ['websocket'], reconnection: false });
     sock.on('connect', () => resolve(sock));
     sock.on('connect_error', (e) => reject(new Error('connect_error: ' + e.message)));
     setTimeout(() => reject(new Error('socket connect timeout')), 8000);
@@ -106,7 +106,7 @@ async function main() {
   // 4) bad token is rejected (socket disconnects / never connects).
   let rejected = false;
   try {
-    const bad = io(`${ORIGIN}/messenger`, { auth: { token: 'garbage' }, transports: ['websocket'], reconnection: false });
+    const bad = io(`${ORIGIN}/realtime`, { auth: { token: 'garbage' }, transports: ['websocket'], reconnection: false });
     await new Promise((resolve) => {
       bad.on('disconnect', () => { rejected = true; resolve(); });
       bad.on('connect', () => setTimeout(() => { rejected = !bad.connected; resolve(); }, 1500));

@@ -54,7 +54,12 @@
 
 - `SHARE_LINK_SECRET` — ключ гостевых пропусков, ≥ 32 символов если задан (пусто → производный от `JWT_SECRET`). Адрес ссылки — из `WEB_URL` (`/s/<токен>`)
 - `GOTENBERG_URL` — PDF-рендер блочного конструктора (пусто → builder-документы не собираются, submit честно блокируется). Dev: профиль pdf → `http://localhost:3030`
-- `SMS_DRIVER` — `kazinfoteh` | `mock`/пусто (dev: mock; prod: warn — SMS никуда не уходят, регистрация недоступна)
+- `SMS_DRIVER` — `kazinfoteh` | `mock`/пусто (dev: mock; prod: warn — SMS никуда не уходят, регистрация недоступна). Тот же драйвер — канал `sms` движка уведомлений.
+
+### Движок уведомлений (`core/notifications`) — web push
+
+- `WEB_PUSH_VAPID_PUBLIC_KEY` · `WEB_PUSH_VAPID_PRIVATE_KEY` — пара VAPID (`npx web-push generate-vapid-keys`); пусто → push выключен: тумблер «уведомления в этом браузере» и карточка в панели не показываются, доставки `skipped: driver_not_configured`, регистрация web-устройства отвечает `400 notification.push.notConfigured`.
+- `WEB_PUSH_SUBJECT` — контакт для push-служб по спецификации VAPID (`mailto:…` или `https://…`; дефолт `mailto:support@superapp6.kz`).
 - `KIT_USERNAME` / `KIT_PASSWORD` / `KIT_ORIGINATOR` — все три обязательны при kazinfoteh (уходят телом POST, не в query) · `KIT_URL` (пусто → боевой шлюз `kazinfoteh.org:9507/api`)
 - `VERIFY_REQUIRED` — пусто = secure-by-default (production → да); `true` форс в dev; `false` — аварийный рубильник в production (warn)
 - `VERIFY_TEST_PHONES` — тест-карта `"+7700…:111111,…"` (SMS не шлётся, фикс-код, лимиты скипаются; в production игнорируется) · `VERIFY_TEST_PHONES_ALLOW_PROD` (осознанный прод-смоук)

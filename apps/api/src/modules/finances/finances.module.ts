@@ -6,6 +6,7 @@ import { FinancesCalendarProvider } from './finances-calendar.provider';
 import { FinancesCron } from './finances.cron';
 import { FinancesEvents } from './finances.events';
 import { CalendarModule } from '../calendar/calendar.module';
+import { FinancesNotificationRefsProvider } from './finances-notification-refs.provider';
 
 /**
  * «Финансы» (B2C): personal + family managerial accounting — an editable bookkeeping
@@ -19,6 +20,8 @@ import { CalendarModule } from '../calendar/calendar.module';
   imports: [CalendarModule],
   controllers: [FinancesController],
   providers: [
+    // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
+    FinancesNotificationRefsProvider,
     FinancesService,
     // Строковый токен для нод «Процессов» (ctx.deps.getService), как 'MessengerService'.
     { provide: 'FinancesService', useExisting: FinancesService },

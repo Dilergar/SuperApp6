@@ -39,7 +39,7 @@
 
 | Файл | О чём |
 |---|---|
-| [architecture_overview.md](architecture_overview.md) | Монорепо, модульный монолит, 16 движков, стек, порты |
+| [architecture_overview.md](architecture_overview.md) | Монорепо, модульный монолит, 18 движков, стек, порты |
 | [module_graph.md](module_graph.md) | Карта синхронных рёбер модулей, DI_TOKENS, carve-outs, известные нарушения границ. **Новое ребро → сюда** |
 | [module_graph_documents.md](module_graph_documents.md) | Часть 2 карты: Диск, core/docs, ссылки, Документооборот, Контрагенты, КЭДО, подпись |
 | [module_graph_edges.md](module_graph_edges.md) | ГЕНЕРИРУЕТСЯ (`pnpm check:docs --write`): точная таблица рёбер из импортов и DI-токенов |
@@ -77,6 +77,8 @@
 | [sign_engine.md](sign_engine.md) | Электронная подпись (ЭЦП НУЦ РК + ПЭП), вечные доказательства |
 | [templates_engine.md](templates_engine.md) | Заполнение шаблонов: свой docx-драйвер, builder→PDF, реестр полей |
 | [audiences_engine.md](audiences_engine.md) | Адресаты: единый словарь (человек/Группа/команда/оси/относительные), якоря, разворот в людей |
+| [notifications_engine.md](notifications_engine.md) | Уведомления: событие + строка на адресата + журнал доставки, реестр типов по сервисам, каналы in-app/push/SMS/chat, предпочтения, политика организации, тишина |
+| [realtime_engine.md](realtime_engine.md) | Один сокет платформы `/realtime`: комнаты `user:<id>`, реестр relay/хендлеров/хуков, Redis-адаптер |
 
 ## Сервисы (apps/api/src/modules/)
 
@@ -84,10 +86,9 @@
 |---|---|
 | [users_profile.md](users_profile.md) | Профиль и аккаунт человека: анкета, реквизиты, сессии, грейс удаления |
 | [contacts_circles.md](contacts_circles.md) | Окружение (Circle) — социальный граф, фундамент |
-| [notifications.md](notifications.md) | Уведомления: реестр, emitEvent, карта доставки |
 | [tasks.md](tasks.md) | Задачник (роли Bitrix24, эскроу наград, GTD-инбокс) |
 | [calendar.md](calendar.md) | Календарь + реестр слоёв + Google-синхра + ресурсы |
-| [messenger.md](messenger.md) | Мессенджер: чаты, presence, звонки, виртуализация |
+| [messenger.md](messenger.md) | Мессенджер: чаты, presence, звонки, виртуализация, упоминания как уведомления |
 | [wallet_ledger.md](wallet_ledger.md) | Кошелёк-леджер: двойная запись, эскроу, карты, B2B-казна |
 | [card_skins.md](card_skins.md) | Скины карточек (косметика, платформенная валюта) |
 | [workspaces.md](workspaces.md) | Организации: приглашения, профиль, реквизиты, архив 90 дней |

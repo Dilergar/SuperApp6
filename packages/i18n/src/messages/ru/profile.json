@@ -11,7 +11,8 @@
     "settings": "Настройки",
     "links": "Ссылки наружу",
     "security": "Безопасность",
-    "logout": "Выйти"
+    "logout": "Выйти",
+    "notifications": "Уведомления"
   },
   "form": {
     "title": "Моя Анкета",

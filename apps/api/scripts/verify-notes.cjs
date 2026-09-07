@@ -112,8 +112,8 @@ async function main() {
   check('посторонний не видит заметку (404, не 403)', p3Get.status === 404);
   const p2Get0 = await call('GET', `/notes/${note.id}`, p2.token);
   check('упомянутый без гранта не видит заметку', p2Get0.status === 404);
-  const feed0 = (await call('GET', '/mentions', p2.token)).json?.data?.items ?? [];
-  check('упоминание без доступа НЕ попало в ленту', !feed0.some((m) => m.sourceType === 'note' && m.sourceId === note.id));
+  const feed0 = (await call('GET', '/notifications?mentions=1', p2.token)).json?.data?.items ?? [];
+  check('упоминание без доступа НЕ попало в ленту', !feed0.some((m) => m.ref?.type === 'note' && m.ref?.id === note.id));
 
   // Поделиться с упомянутыми: p2 из окружения получит viewer, p3 (вне окружения) — пропущен
   const shared = await call('POST', `/notes/${note.id}/shares/mentioned`, p1.token);
@@ -125,11 +125,11 @@ async function main() {
   check('сохранение с baseVersion=1 → version 2', resave.ok && resave.json.data.version === 2);
   check('после шеринга p2 ушёл из подсказки', !(resave.json?.data?.mentionsWithoutAccess ?? []).some((u) => u.id === p2.id));
   await sleep(300);
-  const feed1 = (await call('GET', '/mentions', p2.token)).json?.data?.items ?? [];
-  const noteMention = feed1.find((m) => m.sourceType === 'note' && m.sourceId === note.id);
-  check('упоминание с доступом попало в ленту /mentions с адресом заметки', !!noteMention && noteMention.url === `/notes/${note.id}`);
-  const feedAgain = (await call('GET', '/mentions', p2.token)).json?.data?.items ?? [];
-  check('повторное сохранение не дублирует упоминание', feedAgain.filter((m) => m.sourceType === 'note' && m.sourceId === note.id).length === 1);
+  const feed1 = (await call('GET', '/notifications?mentions=1', p2.token)).json?.data?.items ?? [];
+  const noteMention = feed1.find((m) => m.ref?.type === 'note' && m.ref?.id === note.id);
+  check('упоминание с доступом попало в ленту (mentions=1) с адресом заметки', !!noteMention && noteMention.href === `/notes/${note.id}`, noteMention?.href);
+  const feedAgain = (await call('GET', '/notifications?mentions=1', p2.token)).json?.data?.items ?? [];
+  check('повторное сохранение не дублирует упоминание', feedAgain.filter((m) => m.ref?.type === 'note' && m.ref?.id === note.id).length === 1);
 
   // Версии: устаревшая база → 409 с машинным кодом
   const stale = await call('PATCH', `/notes/${note.id}`, p1.token, { baseVersion: 1, content: doc(para('устарело')) });

@@ -19,7 +19,7 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import type { Task } from '@superapp/shared';
 import { APPROVAL_INBOX_TITLE } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { useMentionsUnread } from '@/lib/hooks/useMentionsUnread';
+import { useNotificationCounts } from '@/lib/hooks/useNotificationCounts';
 import { useApprovalsCount } from '@/lib/hooks/useApprovalsCount';
 
 // Стопка решений — лениво: она нужна только по клику по плитке.
@@ -65,7 +65,7 @@ export default function DashboardPage() {
   const period = useMemo(currentPeriod, []);
 
   const { data: stats } = useQuery({ queryKey: taskStatsKey, queryFn: fetchTaskStats, enabled: isReady });
-  const mentionsUnread = useMentionsUnread(isReady);
+  const notifCounts = useNotificationCounts(isReady);
   // Главная — витрина ЛИЧНОГО контекста, поэтому и решения здесь только личные:
   // у человека с несколькими компаниями иначе на личной странице копятся чужие
   // заявления и приказы. Сквозной вид живёт в топбаре — галочка видна отсюда же.
@@ -161,7 +161,7 @@ export default function DashboardPage() {
         ) : (
           <StatTile span={3} label="Непрочитанных" value={unreadTotal} icon="messenger" tone={unreadTotal ? 'success' : 'neutral'} href="/messenger" />
         )}
-        <StatTile span={3} label="Упоминания" value={mentionsUnread} icon="mentions" tone={mentionsUnread ? 'warning' : 'neutral'} href="/mentions" />
+        <StatTile span={3} label="Уведомления" value={notifCounts.unseen} icon="bell" tone={notifCounts.unseen ? 'accent' : 'neutral'} href="/notifications" />
 
         {/* ---------- Сегодня ---------- */}
         <Card span={8}>

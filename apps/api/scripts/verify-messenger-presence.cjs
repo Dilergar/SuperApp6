@@ -26,7 +26,7 @@ async function http(method, p, { token, body } = {}) {
 async function login(c) { const { json } = await http('POST', '/auth/login', { body: c }); const token = json.data.accessToken; const me = await http('GET', '/users/me', { token }); return { token, id: me.json.data.id }; }
 function connect(token) {
   return new Promise((resolve, reject) => {
-    const s = io(`${ORIGIN}/messenger`, { auth: { token }, transports: ['websocket'], reconnection: false });
+    const s = io(`${ORIGIN}/realtime`, { auth: { token }, transports: ['websocket'], reconnection: false });
     s.on('connect', () => resolve(s));
     s.on('connect_error', (e) => reject(new Error('connect_error ' + e.message)));
     setTimeout(() => reject(new Error('connect timeout')), 8000);

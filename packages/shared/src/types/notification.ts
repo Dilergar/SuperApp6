@@ -1,223 +1,245 @@
 // ============================================================
-// Notifications — cross-module notification feed
+// core/notifications — формы провода (обе стороны: API и клиенты)
 // ============================================================
-// Every module emits notifications through the central NotificationsService.
-// `type` is a dot-namespaced string; `payload` is type-specific JSON.
-// Clients render the notification using `title` + `body` + `actionUrl`,
-// and use `type` / `payload` for richer UI (icon, click handler).
+// Реестр типов и словарь движка — `../notifications` (сервис × приоритет × значок).
+// Здесь — DTO ленты, счётчиков, настроек, устройств и политики организации.
 
-export type NotificationType =
-  // Contacts / Invitations
-  | 'contact.invitation.received'
-  | 'contact.invitation.accepted'
-  | 'contact.invitation.rejected'
-  | 'contact.invitation.cancelled'
-  | 'contact.invitation.expired' // TTL ran out — told to the SENDER, who else would never know
-  | 'contact.linked' // generic: a new ContactLink appeared (either direction)
-  | 'contact.removed'
-  // Tasks
-  | 'task.assigned' // you were added to a task (executor / co_executor / observer)
-  | 'task.submitted' // an executor sent their part for review (→ creator)
-  | 'task.accepted' // the creator accepted your work (→ executor)
-  | 'task.returned' // the creator returned your work for rework (→ executor)
-  | 'task.completed' // a task was fully completed
-  | 'task.due_soon' // deadline approaching
-  | 'task.overdue'
-  // Calendar
-  | 'calendar.event.invited'
-  | 'calendar.event.reminder'
-  | 'calendar.event.rsvp' // a participant answered (→ organizer)
-  | 'calendar.event.updated' // organizer changed time/details (→ participants)
-  | 'calendar.event.cancelled' // organizer deleted the event (→ participants)
-  | 'calendar.resource.requested' // someone requested your resource (→ owner)
-  | 'calendar.resource.confirmed' // owner confirmed your booking (→ booker)
-  | 'calendar.resource.rejected' // owner rejected your booking (→ booker)
-  // Workspaces (B2B)
-  | 'workspace.invitation.received' // you were invited to join an organization (→ invitee)
-  | 'workspace.invitation.accepted' // an invitee accepted (→ inviter / admins)
-  | 'workspace.invitation.rejected' // an invitee declined (→ inviter)
-  | 'workspace.member.removed' // you were removed from an organization (→ member)
-  | 'workspace.role.changed' // your role in an organization changed (→ member)
-  | 'workspace.position.assigned' // a position was assigned to you (→ member)
-  | 'workspace.position.certified' // your position training was certified (→ member)
-  | 'staff.head.assigned' // оргструктура: вы стали руководителем отдела/объекта (→ держателям головы)
-  | 'staff.deputy.assigned' // оргструктура: вас назначили заместителем (→ заму)
-  | 'workspace.archive.expiring' // your archived org is about to be deleted for good (→ owner)
-  // Объекты (график смен)
-  | 'objects.shifts.published' // график объекта опубликован — ДАЙДЖЕСТ за период (→ сотруднику)
-  | 'objects.shift.changed' // вашу смену изменили или отменили (→ сотруднику, адресно)
-  | 'objects.shift.taken' // открытую смену взяли (→ планировщику объекта)
-  // Wallet
-  | 'wallet.coins.received' // you were paid coins for a completed task (→ executor)
-  // My Wish & Shop (orders)
-  | 'shop.order.placed' // a buyer placed an order on your shop (→ seller / co-managers)
-  | 'shop.order.confirmed' // the seller confirmed the order (→ buyer)
-  | 'shop.order.rejected' // the seller rejected the order (→ buyer)
-  | 'shop.order.cancelled' // the buyer cancelled their order (→ seller)
-  | 'shop.order.funded' // a crowdfunding campaign reached its goal (→ seller / co-managers)
-  // Mentions
-  | 'mention.received' // someone @mentioned you (messenger / task / event …)
-  // Auth / безопасность аккаунта (движок core/verify)
-  | 'auth.password.changed' // пароль изменён (сброс по SMS или смена из профиля)
-  | 'auth.phone.changed' // номер телефона аккаунта изменён
-  // Files engine — антивирус
-  | 'files.scan.infected' // загруженный вами файл заражён и заблокирован
-  // Voice engine — Диктофон
-  | 'voice.transcript.ready' // расшифровка записи готова (→ владелец записи)
-  | 'voice.transcript.failed' // расшифровка не удалась (→ владелец записи)
-  // Calls engine — звонки мессенджера
-  | 'call.missed' // пропущенный DM-звонок (→ не подключившийся собеседник)
-  | 'call.recording.ready' // запись звонка в «Журнале звонков» (→ каждый клеймант)
-  | 'call.recording.failed' // запись звонка не удалась (→ включивший запись)
-  // Виртуальный офис (B2B) — видеовстречи
-  | 'office.meeting.invited' // вас пригласили на встречу (→ приглашённый)
-  // Processes (бизнес-процессы)
-  | 'process.finished' // запущенный вами процесс дошёл до конца (→ инициатор)
-  | 'process.failed' // процесс остановился с ошибкой (→ инициатор)
-  | 'process.step.notify' // нода «Уведомить» внутри процесса (произвольный текст)
-  | 'process.approval.requested' // нужно ваше решение по одобрению (→ согласующий)
-  | 'process.task.queued' // новая задача вашего отдела ждёт в очереди (→ члены отдела)
-  | 'process.step.overdue' // шаг процесса просрочен по SLA (→ инициатор)
-  // Messenger — scheduled ("Напомнить")
-  | 'messenger.scheduled.sent' // your scheduled message was delivered to the chat (→ you)
-  // Финансы
-  | 'finance.budget.warning' // лимит категории почти исчерпан (пересекли 80%)
-  | 'finance.budget.exceeded' // лимит категории превышен (пересекли 100%)
-  | 'finance.debt.payment_due' // сегодня платёж по долгу (напоминание + «Оплачено» в 1 тап)
-  | 'finance.debt.paid' // долг полностью выплачен 🎉
-  | 'finance.recurring.due' // повторяющаяся операция ждёт подтверждения (autoRecord=false)
-  | 'finance.recurring.recorded' // повторяющаяся операция записана автоматически
-  | 'finance.book.shared' // вам открыли доступ к финансовой книге
-  // Drive (OmniDrive)
-  | 'drive.shared' // вам открыли доступ к папке или файлу на Диске
-  | 'note.shared' // вам открыли доступ к заметке или папке заметок
-  | 'document.resolved' // маршрут вашего документа завершён (подписан/отклонён/на доработку)
-  | 'document.counterparty_signed' // внешний контур: контрагент подписал документ
-  | 'document.counterparty_declined' // внешний контур: контрагент отказался подписывать
-  | 'document.internal_declined' // внешний контур: отказался НАШ подписант — документ не ушёл к контрагенту
-  | 'document.external_expired' // внешний контур: срок подписания истёк, документ вернулся в черновик
-  | 'share.link.opened' // вашу гостевую ссылку наружу открыли
-  | 'share.link.opened.muted' // открывают часто — уведомления по ней замолкают до завтра
-  // Согласования (core/approvals) — «Ждут решения»
-  | 'approval.requested' // от вас ждут решения: согласовать, подписать или ознакомиться
-  | 'approval.due_soon' // срок подходит — напоминание тем, кто ещё не ответил
-  | 'approval.overdue' // срок решения вышел, а решения нет
-  | 'approval.resolved' // по вашей заявке принято решение
-  | 'approval.unassigned' // решать некому: в отделе или на должности нет ни одного человека
-  // Электронная подпись (core/sign). Отдельные типы, а не approval.*: подпись —
-  // юридическое действие, и в ленте человек должен видеть «подпишите», а не
-  // «решите» (от этого зависит, с каким ключом он сядет за компьютер).
-  | 'sign.requested' // документ ждёт вашей подписи
-  | 'sign.completed' // документ подписан всеми
-  | 'sign.declined' // подписант отказался, документ не подписан
-  // КЭДО (modules/hr)
-  | 'hr.action.applied' // кадровое действие применено (кадровику и сотруднику)
-  | 'hr.action.failed' // действие не применилось (проверка законности/данные)
-  | 'hr.action.withdrawn' // работник отозвал заявление (ст. 56 п. 4) — кадровику
-  | 'hr.esutd.due_soon' // подходит срок сдачи в ЕСУТД
-  | 'hr.campaign.assigned' // вам направлен документ на ознакомление
-  | 'hr.campaign.reminder' // напоминание: документ ждёт ознакомления
-  | 'hr.campaign.done' // кампания ознакомления завершена (автору)
-  | 'hr.delivery.due' // акт ждёт вручения (3 рабочих дня, ст. 61 п. 3)
-  | 'hr.probation.ending' // испытательный срок сотрудника заканчивается
-  | 'hr.contract.expiring' // срочный договор заканчивается (уведомить в последний день!)
-  // System
-  | 'system.welcome'
-  | 'system.announcement';
+import type { CursorPage } from './common';
+import type { RichCardRefType } from './rich-card';
+import type {
+  NotificationChannel,
+  NotificationPrefChannel,
+  NotificationPriority,
+  NotificationReason,
+  NotificationServiceKey,
+} from '../notifications/types';
+import type { NotificationType } from '../notifications';
 
-export interface Notification<TPayload = unknown> {
+/** Ссылка на объект — deep link и привязка к rich-card решаются реестром движка. */
+export interface NotificationRef {
+  type: string;
   id: string;
-  userId: string;
-  type: NotificationType;
+}
+
+/** Строка ленты адресата (текст собран ПРИ ЧТЕНИИ в языке запроса). */
+export interface NotificationDto {
+  id: string;
+  /** Тип реестра; строка из прошлой версии (тип ушёл) отдаётся как есть со снимком текста */
+  type: NotificationType | string;
+  service: NotificationServiceKey | string;
+  priority: NotificationPriority;
+  /** Ключ реестра иконок веба (Phosphor) */
+  icon: string;
   title: string;
   body: string | null;
-  payload: TPayload | null;
-  actionUrl: string | null;
+  /** Куда ведёт строка: `actionUrl` продюсера, иначе `href(ref)` из реестра; null — некуда */
+  href: string | null;
+  ref: NotificationRef | null;
+  /** Тип рич-карты, если `ref` зарегистрирован в core/rich-cards — строка раскрывается в живую карточку */
+  richCardType: RichCardRefType | null;
+  /** Актор ПОСЛЕДНЕГО схлопнутого события; `actorIds` — все (для «Асель и ещё 4») */
+  actorId: string | null;
+  actorIds: string[];
+  /** Сколько событий схлопнулось в строку (1 — обычная строка) */
+  collapseCount: number;
+  /** Контекст строки: организация (адресат — её член) либо null = «Личное» */
+  workspaceId: string | null;
+  reason: NotificationReason | null;
+  /** Данные последнего события — для рич-рендера клиента (только скаляры и id) */
+  payload: Record<string, unknown> | null;
+  seenAt: string | null;
   readAt: string | null;
+  archivedAt: string | null;
+  savedAt: string | null;
+  snoozedUntil: string | null;
+  /** Когда случилось (не меняется) */
+  createdAt: string;
+  /** Порядок ленты: поднимается при схлопывании и пробуждении */
+  sortAt: string;
+}
+
+/** Актор строки — карточка человека (PersonChip/PersonAvatar по правилу платформы). */
+export interface NotificationActorDto {
+  id: string;
+  firstName: string;
+  lastName: string | null;
+  avatar: string | null;
+}
+
+/** Организация-контекст строки (логотип/имя вместо актора у системных событий). */
+export interface NotificationWorkspaceDto {
+  id: string;
+  name: string;
+  logo: string | null;
+}
+
+/** Страница ленты — цельной, с довесками пачкой (без N+1 на клиенте). */
+export interface NotificationPageDto extends CursorPage<NotificationDto> {
+  actors: NotificationActorDto[];
+  workspaces: NotificationWorkspaceDto[];
+}
+
+/** Бейдж = unseen; точки по контекстам — для переключателя организаций. */
+export interface NotificationCountsDto {
+  unseen: number;
+  /** `personal` | id организации → unseen в контексте */
+  byContext: Record<string, number>;
+}
+
+// ---- Настройки: сервис × канал, раскрываемые до типов ----
+
+/** Ячейка матрицы: что действует, есть ли личное переопределение, заперто ли организацией. */
+export interface NotificationChannelCellDto {
+  enabled: boolean;
+  /** Личное переопределение (null — дефолт) */
+  override: boolean | null;
+  /** Политика организации: `locked_on` — человек изменить не может */
+  locked: boolean;
+}
+
+export interface NotificationTypePrefDto {
+  type: NotificationType;
+  priority: NotificationPriority;
+  icon: string;
+  channels: Record<NotificationPrefChannel, NotificationChannelCellDto>;
+  smsEligible: boolean;
+  /** SMS-opt-in человека для этого критичного типа */
+  smsOptIn: boolean;
+}
+
+export interface NotificationServicePrefDto {
+  service: NotificationServiceKey;
+  channels: Record<NotificationPrefChannel, NotificationChannelCellDto>;
+  /** Типы контекста (critical сюда не входят — они в `critical`) */
+  types: NotificationTypePrefDto[];
+}
+
+export interface NotificationPreferencesDto {
+  /** `personal` | id организации */
+  context: string;
+  services: NotificationServicePrefDto[];
+  /** «Всегда приходят» — critical-типы контекста (доверие вместо скрытия) */
+  critical: { type: NotificationType; service: NotificationServiceKey; icon: string; smsEligible: boolean; smsOptIn: boolean }[];
+  /** Живой ли SMS-драйвер (блок «SMS для важного» показывается только при нём) */
+  smsLive: boolean;
+}
+
+/** Правило тишины: дни недели (1 = понедельник … 7 = воскресенье) и окно `HH:MM` в поясе человека. */
+export interface NotificationQuietRule {
+  days: number[];
+  from: string;
+  to: string;
+}
+
+export interface NotificationQuietDto {
+  schedule: NotificationQuietRule[] | null;
+  pausedUntil: string | null;
+  /** `User.timezone` — подпись «по времени Алматы» */
+  timezone: string;
+  /** Тишина действует прямо сейчас (расписание или пауза) */
+  activeNow: boolean;
+}
+
+export const NOTIFICATION_DEVICE_PLATFORMS = ['web', 'ios', 'android'] as const;
+export type NotificationDevicePlatform = (typeof NOTIFICATION_DEVICE_PLATFORMS)[number];
+export const NOTIFICATION_DEVICE_PROVIDERS = ['webpush', 'expo', 'fcm'] as const;
+export type NotificationDeviceProvider = (typeof NOTIFICATION_DEVICE_PROVIDERS)[number];
+
+export interface NotificationDeviceDto {
+  id: string;
+  platform: NotificationDevicePlatform;
+  provider: NotificationDeviceProvider;
+  userAgent: string | null;
+  lastSeenAt: string;
+  createdAt: string;
+  disabledAt: string | null;
+}
+
+export interface NotificationDeviceRegisteredDto {
+  id: string;
+}
+
+// ---- Политика организации (дефолты + замки) ----
+
+export const NOTIFICATION_POLICY_MODES = ['default_on', 'default_off', 'locked_on'] as const;
+export type NotificationPolicyMode = (typeof NOTIFICATION_POLICY_MODES)[number];
+
+export const NOTIFICATION_SUBJECT_KINDS = ['service', 'type'] as const;
+export type NotificationSubjectKind = (typeof NOTIFICATION_SUBJECT_KINDS)[number];
+
+export interface WorkspaceNotificationPolicyRuleDto {
+  subjectKind: NotificationSubjectKind;
+  subjectKey: string;
+  channel: NotificationPrefChannel;
+  mode: NotificationPolicyMode;
+}
+
+export interface WorkspaceNotificationPolicyTypeDto {
+  type: NotificationType;
+  priority: NotificationPriority;
+  icon: string;
+  lockable: boolean;
+}
+
+export interface WorkspaceNotificationPolicyServiceDto {
+  service: NotificationServiceKey;
+  types: WorkspaceNotificationPolicyTypeDto[];
+}
+
+export interface WorkspaceNotificationPolicyDto {
+  workspaceId: string;
+  rules: WorkspaceNotificationPolicyRuleDto[];
+  /** B2B-сервисы и их типы — форма матрицы (critical не показываются: их не настраивают) */
+  services: WorkspaceNotificationPolicyServiceDto[];
+}
+
+// ---- Dev-наблюдаемость ----
+
+export const NOTIFICATION_DELIVERY_STATUSES = ['queued', 'sent', 'delivered', 'failed', 'skipped'] as const;
+export type NotificationDeliveryStatus = (typeof NOTIFICATION_DELIVERY_STATUSES)[number];
+
+/** Почему канал не сработал — видно за минуту в dev-ручке доставок. */
+export const NOTIFICATION_SKIP_REASONS = [
+  'pref_off',
+  'policy',
+  'muted',
+  'quiet',
+  'no_device',
+  'driver_not_configured',
+  'no_access',
+  'actor',
+  'throttled',
+  'seen',
+  'burst',
+  'no_phone',
+  'budget',
+  'expired',
+] as const;
+export type NotificationSkipReason = (typeof NOTIFICATION_SKIP_REASONS)[number];
+
+export interface NotificationDeliveryDto {
+  id: string;
+  eventId: string;
+  recipient: string;
+  userId: string | null;
+  channel: NotificationChannel;
+  notificationId: string | null;
+  status: NotificationDeliveryStatus;
+  skipReason: NotificationSkipReason | null;
+  providerMessageId: string | null;
+  error: string | null;
+  attempts: number;
+  scheduledAt: string | null;
+  sentAt: string | null;
   createdAt: string;
 }
 
-// ============================================================
-// Payload shapes per notification type
-// ============================================================
-// ЗАГОТОВКА — осознанно без потребителей. Сегодня карта `notifications.map.ts`
-// объявляет `payload: Record<string, unknown>`, а центра уведомлений в вебе нет
-// вовсе. Эти формы описывают богатый рендер (иконка, обработчик клика) и
-// подключаются вместе с центром уведомлений и mobile-push (блок 8 дорожной карты).
-// Не удалять «как мёртвые»: это не рукопись мимо реализации, а согласованный
-// список того, что фактически кладут эмиттеры.
-
-export interface ContactInvitationReceivedPayload {
-  invitationId: string;
-  fromUserId: string;
-  fromName: string;
-  fromPhone: string;
-  proposedRoleForRecipient: string | null;
-  message: string | null;
+/** Результат `send()` продюсера. */
+export interface NotificationSendResult {
+  eventId: string;
 }
 
-export interface ContactInvitationAcceptedPayload {
-  invitationId: string;
-  byUserId: string;
-  byName: string;
-  contactLinkId: string;
+/** Публичный VAPID-ключ для подписки браузера (пусто — web push не настроен). */
+export interface NotificationVapidDto {
+  publicKey: string | null;
 }
-
-export interface ContactInvitationRejectedPayload {
-  invitationId: string;
-  byUserId: string;
-  byName: string;
-}
-
-export interface ContactLinkedPayload {
-  contactLinkId: string;
-  otherUserId: string;
-  otherName: string;
-}
-
-export interface TaskNotificationPayload {
-  taskId: string;
-  taskTitle: string;
-  /** The actor who triggered the notification (assigner, submitter, accepter…). */
-  byUserId?: string;
-  byName?: string;
-}
-
-export interface WorkspaceInvitationReceivedPayload {
-  invitationId: string;
-  workspaceId: string;
-  workspaceName: string;
-  invitedByName: string;
-  role: string;
-  position: string | null;
-  message: string | null;
-}
-
-export interface WorkspaceNotificationPayload {
-  workspaceId: string;
-  workspaceName: string;
-  /** Present for accepted/rejected (the invitee's name) and role.changed (the new role). */
-  byName?: string;
-  role?: string;
-}
-
-export interface WalletCoinsReceivedPayload {
-  amount: number;
-  currencyName: string;
-  taskId?: string;
-  taskTitle?: string;
-}
-
-// ============================================================
-// Requests / feed list
-// ============================================================
-
-export interface NotificationListResponse {
-  items: Notification[];
-  unreadCount: number;
-  nextCursor: string | null;
-}
-
-// Тело `POST /notifications/mark-read` описано Zod-схемой
-// (`markNotificationsReadSchema` → `MarkNotificationsReadInput`) — рукописного
-// интерфейса здесь нет по общему правилу «вход = z.infer».

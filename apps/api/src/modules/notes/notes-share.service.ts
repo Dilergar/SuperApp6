@@ -15,7 +15,7 @@ import { AudiencesService } from '../../core/audiences/audiences.service';
 import { DatabaseService } from '../../shared/database/database.service';
 import { fullName } from '../../shared/utils/user-name';
 import { ContactsService } from '../contacts/contacts.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService } from '../../core/notifications/notifications.service';
 import { NotesAccessService, type NoteScope } from './notes-access.service';
 import { noteUrl } from './notes-dto';
 import { NotesFoldersService } from './notes-folders.service';
@@ -295,7 +295,15 @@ export class NotesShareService {
     if (input.principalType !== 'user') return;
     const actor = await this.db.user.findUnique({ where: { id: actorId }, select: { firstName: true, lastName: true } });
     await this.notifications
-      .notify(input.principalId, 'note.shared', { ownerName: fullName(actor), noteName: name, roleLabel: ROLE_LABEL[input.role] }, { actionUrl: url })
+      .send(null, {
+        type: 'note.shared',
+        to: [{ userId: input.principalId }],
+        payload: { ownerName: fullName(actor), noteName: name, roleLabel: ROLE_LABEL[input.role] },
+        actorId,
+        workspaceId: scope.space.ownerType === 'workspace' ? scope.space.ownerId : null,
+        reason: 'subscribed',
+        actionUrl: url,
+      })
       .catch(() => undefined);
   }
 

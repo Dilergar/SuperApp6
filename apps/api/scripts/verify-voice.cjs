@@ -191,11 +191,12 @@ async function main() {
         notif = await prisma.notification.findFirst({
           where: { userId: u1, type: 'voice.transcript.ready', createdAt: { gt: new Date(Date.now() - 60_000) } },
           orderBy: { createdAt: 'desc' },
+          include: { event: true },
         });
         if (!notif) await sleep(1000);
       }
-      check('уведомление voice.transcript.ready владельцу', !!notif, notif?.title);
-      check('дип-линк ведёт в Диктофон', !!notif?.actionUrl && notif.actionUrl.includes(`/recorder?id=${recId}`), notif?.actionUrl);
+      check('уведомление voice.transcript.ready владельцу', !!notif, notif?.type);
+      check('дип-линк ведёт в Диктофон', !!notif?.event?.actionUrl && notif.event.actionUrl.includes(`/recorder?id=${recId}`), notif?.event?.actionUrl);
 
       // чужой файл Диктофона: посторонний не может ни читать, ни заказывать
       const strangerReq = await call('POST', '/voice/transcripts', t2, { fileId: dictFileId });

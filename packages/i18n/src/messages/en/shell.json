@@ -75,7 +75,6 @@
     "wallet": "Wallet",
     "settings": "Settings",
     "logout": "Log out",
-    "mentions": "Mentions",
     "openMenu": "Open menu",
     "closeMenu": "Close menu",
     "menu": "Menu",
@@ -83,11 +82,12 @@
     "searchPlaceholder": "Search…",
     "quickTask": "Quickly note a task",
     "stickyBoard": "Notes board (Alt+N)",
-    "mentionsUnread": "Mentions — unread",
     "profileMenu": "Profile menu",
     "approvals": "Awaiting decision",
     "approvalsCount": "Awaiting decision: {n}",
-    "myProfile": "My profile"
+    "myProfile": "My profile",
+    "notifications": "Notifications",
+    "notificationsUnread": "Notifications — {n, plural, one {# new} other {# new}}"
   },
   "sidebar": {
     "expand": "Expand menu",
@@ -109,5 +109,62 @@
   },
   "logo": {
     "aria": "SuperApp6 — go home"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "tabs": {
+      "all": "All",
+      "unread": "Unread",
+      "mentions": "@ Mentions"
+    },
+    "contexts": {
+      "all": "Everywhere"
+    },
+    "readAll": "Mark all as read",
+    "allLink": "All notifications",
+    "empty": {
+      "title": "Nothing new",
+      "description": "Notifications from all services will appear here"
+    },
+    "showMore": "Show more",
+    "loadError": "Could not load notifications",
+    "retry": "Retry",
+    "pause": {
+      "label": "Pause notifications",
+      "m30": "30 minutes",
+      "h1": "1 hour",
+      "h2": "2 hours",
+      "morning": "Until morning",
+      "clear": "Resume",
+      "active": "Paused until {time}"
+    },
+    "row": {
+      "read": "Mark as read",
+      "unread": "Mark as unread",
+      "done": "Done",
+      "save": "Save",
+      "unsave": "Remove from saved",
+      "snooze": "Snooze",
+      "muteRef": "Don’t notify about this",
+      "disableType": "Turn off notifications like this",
+      "expand": "Details",
+      "menu": "Notification actions",
+      "snoozedUntil": "Until {time}",
+      "mutedToast": "You will no longer be notified about this item",
+      "typeDisabledToast": "Notifications like this are turned off in settings"
+    },
+    "snooze": {
+      "h1": "1 hour",
+      "h3": "3 hours",
+      "morning": "Until morning",
+      "week": "A week"
+    },
+    "targetGone": "This item no longer exists",
+    "pushCard": {
+      "title": "Turn on browser notifications",
+      "description": "Important things will reach you even when the tab is closed",
+      "enable": "Turn on",
+      "later": "Later"
+    }
   }
 }

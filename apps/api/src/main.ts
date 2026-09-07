@@ -7,18 +7,11 @@ import { AppModule } from './app.module';
 import { RedisIoAdapter } from './redis-io.adapter';
 import { validateEnv } from './shared/config/env.validation';
 import { wopiRawBodyMiddleware } from './core/docs/wopi-raw-body.middleware';
+import { isAllowedWebOrigin, webOrigins } from './shared/config/web-origins';
 
 // Защитная сеть: одна «забытая» асинхронная ошибка (unhandled rejection) в новых
 // версиях Node роняет ВЕСЬ процесс. Логируем и продолжаем работать — сервер не падает
 // из-за фонового сбоя (фоновой задачи, веб-хука, листенера); причина видна в логе.
-// Адреса веб-приложения в разработке. Один список на два потребителя — CORS и
-// frame-ancestors на выдаче байтов: разъехавшись, они дают разные симптомы («не грузится
-// список» против «пустая рамка вместо документа»), которые ищут в разных местах.
-const WEB_DEV_ORIGINS = [
-  'http://localhost:3000', // Next.js web
-  'http://127.0.0.1:3000', // тот же веб вторым origin (две изолированные dev-сессии: звонки/чаты)
-];
-
 const fatalLogger = new Logger('Process');
 process.on('unhandledRejection', (reason) => {
   fatalLogger.error(`Unhandled promise rejection: ${reason instanceof Error ? reason.stack : String(reason)}`);
@@ -107,10 +100,7 @@ async function bootstrap() {
   // выдачи байтов грубый XFO меняется на адресный frame-ancestors: тот же приём и та же
   // причина, что у CORP выше. Список origin'ов — из WEB_URL (в dev к нему добавляется
   // второй адрес того же веба, как в CORS).
-  const frameAncestors = [
-    "'self'",
-    ...new Set([process.env.WEB_URL || 'http://localhost:3000', ...WEB_DEV_ORIGINS]),
-  ].join(' ');
+  const frameAncestors = ["'self'", ...webOrigins()].join(' ');
   const FRAMEABLE_BYTE_PATHS = ['/api/files/raw/', '/api/public-files/'];
   app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (FRAMEABLE_BYTE_PATHS.some((p) => req.path.startsWith(p))) {
@@ -123,9 +113,10 @@ async function bootstrap() {
   // Global prefix
   app.setGlobalPrefix('api');
 
-  // CORS — allow mobile and web apps
+  // CORS — веб и мобильный клиент. Список — общий с сокетом и frame-ancestors
+  // (shared/config/web-origins.ts); прод-адрес приходит из WEB_URL.
   app.enableCors({
-    origin: [...WEB_DEV_ORIGINS, 'http://localhost:8081' /* Expo dev */],
+    origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => cb(null, isAllowedWebOrigin(origin)),
     credentials: true,
   });
 
@@ -152,8 +143,8 @@ async function bootstrap() {
     SwaggerModule.setup('api/docs', app, document);
   }
 
-  // Realtime (messenger): socket.io with a Redis adapter so room broadcasts reach
-  // connected clients across all API instances.
+  // Realtime (core/realtime, namespace /realtime): socket.io с Redis-адаптером — рассылка
+  // в комнаты доходит до клиентов на всех инстансах API.
   const redisIoAdapter = new RedisIoAdapter(app);
   await redisIoAdapter.connectToRedis();
   app.useWebSocketAdapter(redisIoAdapter);

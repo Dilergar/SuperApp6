@@ -11,7 +11,8 @@
     "settings": "Settings",
     "links": "Outbound links",
     "security": "Security",
-    "logout": "Log out"
+    "logout": "Log out",
+    "notifications": "Notifications"
   },
   "form": {
     "title": "My details",

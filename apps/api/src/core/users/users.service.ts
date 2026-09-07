@@ -21,7 +21,7 @@ import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { USER_PHONE_INVITATIONS_JOB } from './user-jobs';
 import { ContactsService } from '../../modules/contacts/contacts.service';
 import { WorkspacesService } from '../../modules/workspaces/workspaces.service';
-import { NotificationsService } from '../../modules/notifications/notifications.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   maskPhone,
   resolveCardVisibility,
@@ -364,7 +364,7 @@ export class UsersService implements OnModuleInit {
     // Уведомление не имеет права уронить ответ: пароль УЖЕ сменён, а 500 клиенту
     // читается как «не сменился» и провоцирует повтор с уже негодным пропуском.
     this.notifications
-      .notify(userId, 'auth.password.changed', {})
+      .send(null, { type: 'auth.password.changed', to: [{ userId }], reason: 'system', actionUrl: '/profile/security' })
       .catch((err) => this.logger.error(`Уведомление о смене пароля не создано: ${err.message}`));
     return { changed: true };
   }
@@ -427,7 +427,13 @@ export class UsersService implements OnModuleInit {
     await this.redis.del(authAliveKey(userId)).catch(() => undefined);
     this.events.emit('auth.sessions.revoked', { userId }, 'users');
     this.notifications
-      .notify(userId, 'auth.phone.changed', { newPhoneMasked: maskPhone(input.newPhone) })
+      .send(null, {
+        type: 'auth.phone.changed',
+        to: [{ userId }],
+        payload: { newPhoneMasked: maskPhone(input.newPhone) },
+        reason: 'system',
+        actionUrl: '/profile/security',
+      })
       .catch((err) => this.logger.error(`Уведомление о смене номера не создано: ${err.message}`));
     return { changed: true, phone: input.newPhone };
   }

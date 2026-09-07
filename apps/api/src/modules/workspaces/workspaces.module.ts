@@ -9,6 +9,7 @@ import { WorkspacesCron } from './workspaces.cron';
 import { WorkspacesTemplateFieldsProvider } from './workspaces-template-fields.provider';
 import { StaffModule } from '../staff/staff.module';
 import { WalletModule } from '../wallet/wallet.module';
+import { WorkspacesNotificationRefsProvider } from './workspaces-notification-refs.provider';
 
 /**
  * WorkspacesModule — B2B organizations + membership.
@@ -31,6 +32,8 @@ import { WalletModule } from '../wallet/wallet.module';
   ],
   // Строковый токен для нод «Процессов» (ctx.deps.getService), как 'MessengerService'.
   providers: [
+    // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
+    WorkspacesNotificationRefsProvider,
     WorkspacesService,
     LegalEntitiesService,
     WorkspacesCron,

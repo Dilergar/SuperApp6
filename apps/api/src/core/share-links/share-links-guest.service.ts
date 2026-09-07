@@ -11,7 +11,7 @@ import {
   type ShareGuestSessionDto,
   type ShareLinkErrorCode,
 } from '@superapp/shared';
-import { NotificationsService } from '../../modules/notifications/notifications.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { DatabaseService } from '../../shared/database/database.service';
 import { utcTs } from '../../shared/database/sql-time';
 import { VerifyService } from '../verify/verify.service';
@@ -463,9 +463,10 @@ export class ShareLinksGuestService {
   ): Promise<void> {
     if (!link.notifyOnOpen) return;
     // Номер открытия за сутки посчитан АТОМАРНО в том же UPDATE, что и сам клейм.
-    const cap = SHARE_LINK_LIMITS.notifyPerDay;
+    // Суточного предохранителя здесь больше нет: тип `share.link.opened` схлопывается
+    // по ссылке («открыли ×12») и троттлится реестром движка — прощальное «дальше тихо»
+    // не нужно, счётчик человек видит на самой строке.
     const { openNo, day } = open;
-    if (openNo > cap + 1) return; // потолок пройден, прощальное уже ушло — тишина
     try {
       // Куда вести владельца: потребитель знает карточку объекта (у подписи —
       // карточка заявки: «контрагент открыл договор» логично открывать на нём).
@@ -474,10 +475,10 @@ export class ShareLinksGuestService {
         .get(link.refType)
         ?.describeRef?.(link.refId)
         .catch(() => null);
-      await this.notifications.notify(
-        link.createdById,
-        openNo === cap + 1 ? 'share.link.opened.muted' : 'share.link.opened',
-        {
+      await this.notifications.send(null, {
+        type: 'share.link.opened',
+        to: [{ userId: link.createdById }],
+        payload: {
           // Название — из СНИМКА на строке: в момент раздачи объект назывался так, и
           // ходить за свежим именем к потребителю на каждое открытие незачем.
           targetName: link.refTitle ?? 'объект',
@@ -487,12 +488,13 @@ export class ShareLinksGuestService {
           guestSuffix: guest ? ` — ${guest.name}` : '',
           shareLinkId: link.id,
         },
-        // Ключ дедупа — АТОМАРНЫЙ номер открытия за сутки, а не `openCount + 1` из
-        // прочитанной в начале запроса строки: у параллельных заходов та строка одна и
-        // та же, ключи совпадали, и уникальный индекс уведомлений схлопывал их все в
-        // одно. То есть предохранитель работал, а сами уведомления пропадали.
-        { actionUrl: described?.href ?? '/profile/links', dedupKey: `sl:${link.id}:${day}:${openNo}` },
-      );
+        ref: { type: 'share_link', id: link.id },
+        reason: 'owner',
+        actionUrl: described?.href ?? '/profile/links',
+        // Ключ идемпотентности — АТОМАРНЫЙ номер открытия за сутки, а не `openCount + 1`
+        // из прочитанной в начале запроса строки (у параллельных заходов она одна).
+        idempotencyKey: `sl:${link.id}:${day}:${openNo}`,
+      });
     } catch {
       // Уведомление — сигнал, а не обязательство: страница гостя важнее.
     }

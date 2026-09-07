@@ -31,6 +31,7 @@
 
 - **`safeFetch` / `fetchJson`** — адрес пришёл ИЗ ДАННЫХ (конфиг ноды Процессов, ввод человека): SSRF-щит с DNS-резолвом каждого хопа, ручные редиректы, срезание `authorization`/`cookie`/`x-api-key` при кросс-хост редиректе.
 - **`trustedFetch(url, init, {timeoutMs, origin: 'env'|'self'})`** — адрес из .env (сидекар, выбранный оператором): щита НЕТ намеренно (адреса сидекаров приватны — `localhost:9980` и т.п., щит отверг бы их), но таймаут обязателен по сигнатуре.
+- **Web push** (`core/notifications`, драйвер `webpush`): endpoint подписки браузера — адрес ИЗ ДАННЫХ, но ходит на него библиотека `web-push`, а не наши двери; поэтому щит — **белый список хостов push-служб** `isAllowedWebPushEndpoint` (`packages/shared/src/notifications/index.ts`: `fcm.googleapis.com`, `updates.push.services.mozilla.com`, `web.push.apple.com`, `*.notify.windows.com`, `*.push.apple.com`; только `https:`) при регистрации устройства (`400 notification.device.invalidEndpoint`) И перед каждой отправкой. Новая push-служба = строка в списке, не отключение проверки.
 - `assertPublicUrlShallow` — только дешёвый предварительный отказ ПЕРЕД `safeFetch` (не резолвит DNS — домен с A-записью на `169.254.169.254` проходит её насквозь); связка «она + trustedFetch» защитой НЕ является.
 - Законных `fetch` ровно два — по одному внутри каждой двери, разрешены директивами на конкретной строке; в `src/shared/http/**` включён `reportUnusedDisableDirectives: 'error'` (протухшая директива роняет линтер). ⚠️ Глобально эта проверка ВЫКЛЮЧЕНА намеренно, а `@typescript-eslint` подключён с выключенными правилами: в API живут декоративные `eslint-disable` из эпохи без ESLint, и ESLint 9 считает ошибкой директиву к неизвестному правилу — «включить правила как надо» уронит линтер.
 - Запуск стража: `pnpm lint:guard` из корня (гоняет ОБА стража — API и веб; отдельный от `lint`, потому что полный tsc API падает по памяти).
@@ -41,6 +42,7 @@
 - `helmet` на API: CSP выключен (API не рендерит HTML), **`crossOriginResourcePolicy: 'cross-origin'` ОБЯЗАТЕЛЕН** — дефолтный same-origin убил бы медиа-выдачу с :3001 на :3000.
 - Глобальный `X-Frame-Options` НЕ снимать; на маршрутах выдачи байтов (`/api/files/raw`, `/api/public-files`) грубый XFO заменён адресным `frame-ancestors` со списком origin'ов веба (иначе iframe гостевой страницы с PDF получает `net::ERR_BLOCKED_BY_RESPONSE` — 200 в сети, пустая рамка на экране).
 - Веб (`next.config.ts` headers): `frame-ancestors 'none'`/XFO боевыми, полный CSP пока Report-Only; `frame-src` включает origin API и `blob:` (PDF-превью).
+- **Origin'ы веба — один список на трёх потребителей** (`shared/config/web-origins.ts`): CORS HTTP, CORS сокета `/realtime`, `frame-ancestors` выдачи байтов. Прод-адрес берётся из `WEB_URL`, и берётся ФУНКЦИЕЙ в момент запроса: декоратор gateway вычисляется при импорте файла, массив зафиксировал бы только адреса разработки. Разъехавшись, эти три списка дают разные симптомы («не грузится список» / «сокет не подключается» / «пустая рамка вместо документа»), которые ищут в трёх местах.
 
 ## Секреты
 
@@ -61,7 +63,7 @@
 
 ## Прод-хвост (отдельные будущие ТЗ)
 
-Движок ключей (разделение JWT_SECRET + ротация + шифрование Google-токенов) · аудит безопасности · анти-абьюз (CAPTCHA-слот в core/verify готов) · 2FA на вход. Плюс прод-минимум: CORS из env (сейчас захардкожен localhost в main.ts), `/health`, Dockerfile API, verification-токен Google-вебхука — [roadmap.md](roadmap.md).
+Движок ключей (разделение JWT_SECRET + ротация + шифрование Google-токенов) · аудит безопасности · анти-абьюз (CAPTCHA-слот в core/verify готов) · 2FA на вход. Плюс прод-минимум: `/health`, Dockerfile API, verification-токен Google-вебхука — [roadmap.md](roadmap.md).
 
 ## Связанные доки
 

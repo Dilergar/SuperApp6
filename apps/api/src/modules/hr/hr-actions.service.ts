@@ -29,7 +29,7 @@ import { DatabaseService } from '../../shared/database/database.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { JobsService } from '../../core/jobs/jobs.service';
-import { NotificationsService } from '../../modules/notifications/notifications.service';
+import { NotificationsService } from '../../core/notifications/notifications.service';
 import { DocumentsService } from '../documents/documents.service';
 import { StaffService } from '../staff/staff.service';
 import { TasksService } from '../tasks/tasks.service';
@@ -884,11 +884,18 @@ export class HrActionsService {
     };
     const actionUrl = hrMemberHref(action.workspaceId, action.userId);
     const recipients = new Set([action.createdById, ...(type === 'hr.action.applied' ? [action.userId] : [])]);
-    for (const uid of recipients) {
-      await this.notifications
-        .notify(uid, type, payload, { actionUrl, dedupKey: `${type}:${action.id}:${uid}` })
-        .catch(() => undefined);
-    }
+    await this.notifications
+      .send(null, {
+        type,
+        to: [...recipients].map((uid) => ({ userId: uid })),
+        payload,
+        ref: { type: 'hr_action', id: action.id },
+        workspaceId: action.workspaceId,
+        reason: 'participant',
+        actionUrl,
+        idempotencyKey: `${type}:${action.id}`,
+      })
+      .catch(() => undefined);
   }
 
   // ============================================================
@@ -965,16 +972,21 @@ export class HrActionsService {
 
     if (isOwnApplication && !this.isManager(role)) {
       await this.notifications
-        .notify(
-          action.createdById,
-          'hr.action.withdrawn',
-          {
+        .send(null, {
+          type: 'hr.action.withdrawn',
+          to: [{ userId: action.createdById }],
+          payload: {
             targetName: await this.nameOf(action.userId),
             note: issued.issuedLeft > 0 ? 'Приказ уже издан — издайте приказ об отмене.' : '',
             workspaceId,
           },
-          { actionUrl: hrMemberHref(workspaceId, action.userId), dedupKey: `hrwd:${action.id}` },
-        )
+          ref: { type: 'hr_action', id: action.id },
+          workspaceId,
+          actorId,
+          reason: 'owner',
+          actionUrl: hrMemberHref(workspaceId, action.userId),
+          idempotencyKey: `hrwd:${action.id}`,
+        })
         .catch(() => undefined);
     }
     await this.logMember(actorId, workspaceId, action.userId, 'hr.action_cancelled', {

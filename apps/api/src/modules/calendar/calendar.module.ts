@@ -6,6 +6,7 @@ import { ResourcesService } from './resources.service';
 import { ResourcesController } from './resources.controller';
 import { CalendarRichCardsProvider } from './calendar-rich-cards.provider';
 import { CalendarLayersRegistry } from './calendar-layers.registry';
+import { CalendarNotificationRefsProvider } from './calendar-notification-refs.provider';
 
 @Module({
   // Чужих модулей календарь НЕ импортирует: слои «Задачи»/«Платежи» (и любые будущие —
@@ -13,6 +14,8 @@ import { CalendarLayersRegistry } from './calendar-layers.registry';
   // импортирует CalendarModule и регистрирует провайдер в onModuleInit (розетка платформы).
   controllers: [CalendarController, ResourcesController],
   providers: [
+    // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
+    CalendarNotificationRefsProvider,
     CalendarService,
     // String-token alias so the messenger PresenceService can resolve CalendarService
     // lazily (ModuleRef.get('CalendarService', { strict: false })) for contextual

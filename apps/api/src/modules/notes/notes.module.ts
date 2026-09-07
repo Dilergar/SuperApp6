@@ -15,6 +15,7 @@ import { NotesSearchService } from './notes-search.service';
 import { NotesShareService } from './notes-share.service';
 import { NoteTargetRegistry } from './notes-targets.registry';
 import { NotesService } from './notes.service';
+import { NotesNotificationRefsProvider } from './notes-notification-refs.provider';
 
 /**
  * Сервис «Заметки» — B2C и B2B в одном модуле (пространство личное или организации).
@@ -31,6 +32,8 @@ import { NotesService } from './notes.service';
   imports: [RolesModule, DriveModule, MessengerModule],
   controllers: [NotesController],
   providers: [
+    // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
+    NotesNotificationRefsProvider,
     NoteTargetRegistry,
     NotesAccessService,
     NotesFoldersService,

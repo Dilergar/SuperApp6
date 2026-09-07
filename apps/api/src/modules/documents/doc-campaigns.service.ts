@@ -31,7 +31,7 @@ import { RolesService } from '../../core/roles/roles.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { JobsRegistry } from '../../core/jobs/jobs.registry';
 import { JobsService } from '../../core/jobs/jobs.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService } from '../../core/notifications/notifications.service';
 import { ApprovalsRegistry } from '../../core/approvals/approvals.registry';
 import { SignRegistry } from '../../core/sign/sign.registry';
 import { SignService } from '../../core/sign/sign.service';
@@ -321,22 +321,23 @@ export class DocCampaignsService implements OnModuleInit {
         await this.sign.systemEnsureActs(campaign.signRequestId, fresh);
       }
       const ws = await this.db.workspace.findUnique({ where: { id: campaign.workspaceId }, select: { name: true } });
-      for (const userId of fresh) {
-        await this.notifications
-          .notify(
-            userId,
-            'hr.campaign.assigned',
-            { title: campaign.title, workspaceName: ws?.name ?? '', workspaceId: campaign.workspaceId },
-            {
-              actionUrl:
-                campaign.fixMode === 'sms' && campaign.signRequestId
-                  ? signRequestHref(campaign.signRequestId, campaign.workspaceId)
-                  : `/workspaces/${campaign.workspaceId}/documents/${campaign.orgDocumentId}`,
-              dedupKey: `dcassign:${campaignId}:${userId}`,
-            },
-          )
-          .catch(() => undefined);
-      }
+      await this.notifications
+        .send(null, {
+          type: 'hr.campaign.assigned',
+          to: fresh.map((uid) => ({ userId: uid })),
+          payload: { title: campaign.title, workspaceName: ws?.name ?? '', workspaceId: campaign.workspaceId, campaignId },
+          ref: { type: 'doc_campaign', id: campaignId },
+          workspaceId: campaign.workspaceId,
+          actorId: campaign.createdById,
+          reason: 'requested',
+          actionUrl:
+            campaign.fixMode === 'sms' && campaign.signRequestId
+              ? signRequestHref(campaign.signRequestId, campaign.workspaceId)
+              : `/workspaces/${campaign.workspaceId}/documents/${campaign.orgDocumentId}`,
+          // Одно событие на волну адресатов: леджер движка не даст второй строки тому же человеку
+          idempotencyKey: `dcassign:${campaignId}:${fresh.slice().sort().join(',').slice(0, 512)}`,
+        })
+        .catch(() => undefined);
     }
   }
 
@@ -377,18 +378,19 @@ export class DocCampaignsService implements OnModuleInit {
     });
     for (const t of targets) {
       await this.notifications
-        .notify(
-          t.userId,
-          'hr.campaign.reminder',
-          { title: t.campaign.title, workspaceId: t.campaign.workspaceId },
-          {
-            actionUrl:
-              t.campaign.fixMode === 'sms' && t.campaign.signRequestId
-                ? signRequestHref(t.campaign.signRequestId, t.campaign.workspaceId)
-                : `/workspaces/${t.campaign.workspaceId}/documents/${t.campaign.orgDocumentId}`,
-            dedupKey: `dcremind:${t.id}:${new Date().toISOString().slice(0, 10)}`,
-          },
-        )
+        .send(null, {
+          type: 'hr.campaign.reminder',
+          to: [{ userId: t.userId }],
+          payload: { title: t.campaign.title, workspaceId: t.campaign.workspaceId, campaignId: t.campaign.id },
+          ref: { type: 'doc_campaign', id: t.campaign.id },
+          workspaceId: t.campaign.workspaceId,
+          reason: 'requested',
+          actionUrl:
+            t.campaign.fixMode === 'sms' && t.campaign.signRequestId
+              ? signRequestHref(t.campaign.signRequestId, t.campaign.workspaceId)
+              : `/workspaces/${t.campaign.workspaceId}/documents/${t.campaign.orgDocumentId}`,
+          idempotencyKey: `dcremind:${t.id}:${new Date().toISOString().slice(0, 10)}`,
+        })
         .catch(() => undefined);
       await this.db.docCampaignTarget.update({ where: { id: t.id }, data: { remindedAt: new Date() } }).catch(() => undefined);
     }
@@ -478,12 +480,16 @@ export class DocCampaignsService implements OnModuleInit {
       where: { campaignId: campaign.id, status: 'acknowledged' },
     });
     await this.notifications
-      .notify(
-        campaign.createdById,
-        'hr.campaign.done',
-        { title: campaign.title, acknowledged, total, workspaceId: campaign.workspaceId },
-        { actionUrl: `/workspaces/${campaign.workspaceId}/documents?tab=campaigns`, dedupKey: `dcdone:${campaign.id}` },
-      )
+      .send(null, {
+        type: 'hr.campaign.done',
+        to: [{ userId: campaign.createdById }],
+        payload: { title: campaign.title, acknowledged, total, workspaceId: campaign.workspaceId, campaignId: campaign.id },
+        ref: { type: 'doc_campaign', id: campaign.id },
+        workspaceId: campaign.workspaceId,
+        reason: 'owner',
+        actionUrl: `/workspaces/${campaign.workspaceId}/documents?tab=campaigns`,
+        idempotencyKey: `dcdone:${campaign.id}`,
+      })
       .catch(() => undefined);
   }
 

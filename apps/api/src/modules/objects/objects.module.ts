@@ -19,6 +19,7 @@ import { StaffModule } from '../staff/staff.module';
 import { DriveModule } from '../drive/drive.module';
 import { HrModule } from '../hr/hr.module';
 import { CalendarModule } from '../calendar/calendar.module';
+import { ObjectsNotificationRefsProvider } from './objects-notification-refs.provider';
 
 /**
  * ObjectsModule — сервис «Объекты»: дерево физических площадок организации
@@ -33,6 +34,8 @@ import { CalendarModule } from '../calendar/calendar.module';
   imports: [StaffModule, DriveModule, HrModule, CalendarModule, NotesModule],
   controllers: [ObjectsController, StaffingController, ShiftsController, AssetsController],
   providers: [
+    // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
+    ObjectsNotificationRefsProvider,
     ObjectsService,
     StaffingService,
     ShiftsService,

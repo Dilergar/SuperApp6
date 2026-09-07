@@ -148,6 +148,13 @@ const envSchema = z
     // позволяет ротировать её независимо. Адрес самой ссылки строится из WEB_URL.
     // Других переменных у движка нет — внешних зависимостей у него тоже нет.
     SHARE_LINK_SECRET: blank(z.string().min(32, 'минимум 32 символа').optional()),
+    // --- Движок уведомлений (core/notifications) — web push (VAPID). Пусто → push выключен:
+    // тумблер «уведомления браузера» в вебе не показывается, доставки `skipped: driver_not_configured`.
+    // Пара генерируется один раз: `npx web-push generate-vapid-keys`.
+    WEB_PUSH_VAPID_PUBLIC_KEY: blank(z.string().min(32).optional()),
+    WEB_PUSH_VAPID_PRIVATE_KEY: blank(z.string().min(16).optional()),
+    // Контакт для push-служб (mailto: или https:) — обязателен по спецификации VAPID
+    WEB_PUSH_SUBJECT: blank(z.string().regex(/^(mailto:|https:)/, 'mailto:… или https://…').optional()),
     // --- Движок подтверждений (core/verify) — SMS-OTP ---
     SMS_DRIVER: blank(
       z.enum(['kazinfoteh', 'mock'], { errorMap: () => ({ message: 'должен быть kazinfoteh | mock' }) }).optional(),

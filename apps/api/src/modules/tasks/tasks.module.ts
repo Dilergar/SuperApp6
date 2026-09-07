@@ -10,6 +10,7 @@ import { WalletModule } from '../wallet/wallet.module';
 import { MessengerModule } from '../messenger/messenger.module';
 import { CalendarModule } from '../calendar/calendar.module';
 import { DriveModule } from '../drive/drive.module';
+import { TasksNotificationRefsProvider } from './tasks-notification-refs.provider';
 
 @Module({
   // CalendarModule — регистрация слоя «Задачи» в календаре-платформе
@@ -18,7 +19,9 @@ import { DriveModule } from '../drive/drive.module';
   // складывать свои вложения (организации или личный).
   imports: [WalletModule, MessengerModule, CalendarModule, DriveModule, NotesModule],
   controllers: [TasksController],
-  providers: [TasksService, TasksNotesTargetProvider, TasksCron, TasksRichCardsProvider, TasksCalendarProvider],
+  providers: [
+    // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
+    TasksNotificationRefsProvider,TasksService, TasksNotesTargetProvider, TasksCron, TasksRichCardsProvider, TasksCalendarProvider],
   exports: [TasksService],
 })
 export class TasksModule {}

@@ -6,7 +6,7 @@ import type {
   ProcessValidationIssue,
 } from '@superapp/shared';
 import type { TasksService } from '../tasks/tasks.service';
-import type { NotificationsService } from '../notifications/notifications.service';
+import type { NotificationsService } from '../../core/notifications/notifications.service';
 import type { DatabaseService } from '../../shared/database/database.service';
 import type { ApprovalsService } from '../../core/approvals/approvals.service';
 

@@ -44,13 +44,11 @@ import {
   markRead,
   getPresence,
 } from '@/lib/messenger-api';
-import { useMentionsUnread } from '@/lib/hooks/useMentionsUnread';
 import { useIsMobile } from '@/lib/hooks/useIsMobile';
 import { ChatList } from './ChatList';
 import { Conversation } from './Conversation';
 import { NewChatModal } from './NewChatModal';
 import { GroupManageModal } from './GroupManageModal';
-import { MentionsNavLink } from './MentionsNavLink';
 import { GlobalSearch } from './GlobalSearch';
 
 // Оверлей звонка — только в браузере (livekit-client = WebRTC)
@@ -73,9 +71,6 @@ function MessengerInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
-
-  // Unread "mentions of me" — drives the nav badge (shares the hub's cache key).
-  const mentionsUnread = useMentionsUnread(isReady);
 
   const isMobile = useIsMobile();
   const [activeChatId, setActiveChatId] = useState<string | null>(null);

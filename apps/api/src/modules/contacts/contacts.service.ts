@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService } from '../../core/notifications/notifications.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { WorkspaceContextService } from '../../shared/context/workspace-context.service';
 import { AccessProjectionService } from '../../core/access/access-projection.service';
@@ -548,15 +548,14 @@ export class ContactsService {
     // Каждый такой сервис зарегистрирован в реестре — здесь их поимённо не знают.
     await this.graphHooks.fireUnlinked(link.userAId, link.userBId);
 
-    await this.notifications.emitEvent(
-      'contact.removed',
-      {
-        contactLinkId: linkId,
-        userIds: [link.userAId, link.userBId],
-        removedBy: userId,
-      },
-      'contacts',
-    );
+    // Шина — второй ремень отзыва finbook-грантов (FinancesEvents); уведомление — движком.
+    this.events.emit('contact.removed', { contactLinkId: linkId, userIds: [link.userAId, link.userBId], removedBy: userId }, 'contacts');
+    await this.notifications.send(null, {
+      type: 'contact.removed',
+      to: [{ userId: link.userAId }, { userId: link.userBId }],
+      payload: { contactLinkId: linkId },
+      actorId: userId,
+    });
 
     await Promise.all([
       this.redis.invalidateUserProfile(link.userAId),
@@ -738,20 +737,27 @@ export class ContactsService {
       throw err;
     }
 
-    await this.notifications.emitEvent(
-      'contact.invitation.sent',
-      {
-        invitationId: invitation.id,
-        fromUserId,
-        fromName: formatName(sender.firstName, sender.lastName),
-        fromPhone: sender.phone,
-        toUserId: recipient?.id ?? null,
-        toPhone: data.toPhone,
-        proposedRoleForRecipient: invitation.proposedRoleForRecipient,
-        message: invitation.message,
-      },
-      'contacts',
-    );
+    // Адресат — зарегистрированный получатель (по номеру без аккаунта уведомлять некого;
+    // активация при регистрации шлёт своё — см. activatePendingInvitations).
+    if (recipient?.id) {
+      await this.notifications.send(null, {
+        type: 'contact.invitation.received',
+        to: [{ userId: recipient.id }],
+        payload: {
+          invitationId: invitation.id,
+          fromUserId,
+          fromName: formatName(sender.firstName, sender.lastName),
+          fromPhone: sender.phone,
+          proposedRoleForRecipient: invitation.proposedRoleForRecipient,
+          message: invitation.message ?? '',
+        },
+        actorId: fromUserId,
+        ref: { type: 'contact_invitation', id: invitation.id },
+        reason: 'requested',
+        actionUrl: '/circles',
+        idempotencyKey: `ci:sent:${invitation.id}`,
+      });
+    }
 
     return invitation;
   }
@@ -918,17 +924,19 @@ export class ContactsService {
       select: { firstName: true, lastName: true },
     });
 
-    await this.notifications.emitEvent(
-      'contact.invitation.accepted',
-      {
+    await this.notifications.send(null, {
+      type: 'contact.invitation.accepted',
+      to: [{ userId: invitation.fromUserId }],
+      payload: {
         invitationId: invitation.id,
         contactLinkId: link.id,
-        fromUserId: invitation.fromUserId,
         byUserId: userId,
         byName: formatName(recipient?.firstName ?? '', recipient?.lastName ?? null),
       },
-      'contacts',
-    );
+      actorId: userId,
+      actionUrl: '/circles',
+      idempotencyKey: `ci:acc:${invitation.id}`,
+    });
 
     // Both sides gained a contact → bust cached /users/me (contactsCount).
     await Promise.all([
@@ -944,18 +952,24 @@ export class ContactsService {
       recipient?.firstName ?? '',
       recipient?.lastName ?? null,
     );
-    await this.notifications.emitEvent(
-      'contact.linked',
-      {
-        contactLinkId: link.id,
-        userIds: [invitation.fromUserId, userId],
-        otherNameByUser: {
-          [invitation.fromUserId]: recipientName,
-          [userId]: senderName,
-        },
-      },
-      'contacts',
-    );
+    // «В вашем окружении появился человек» — каждой стороне о ДРУГОЙ (два события,
+    // потому что текст у каждого свой; актора не вычитаем — обе строки адресные).
+    await this.notifications.send(null, {
+      type: 'contact.linked',
+      to: [{ userId: invitation.fromUserId }],
+      payload: { contactLinkId: link.id, otherUserId: userId, otherName: recipientName },
+      actorId: userId,
+      actionUrl: '/circles',
+      idempotencyKey: `ci:link:${link.id}:${invitation.fromUserId}`,
+    });
+    await this.notifications.send(null, {
+      type: 'contact.linked',
+      to: [{ userId }],
+      payload: { contactLinkId: link.id, otherUserId: invitation.fromUserId, otherName: senderName },
+      actorId: invitation.fromUserId,
+      actionUrl: '/circles',
+      idempotencyKey: `ci:link:${link.id}:${userId}`,
+    });
 
     return link;
   }
@@ -982,16 +996,17 @@ export class ContactsService {
       select: { firstName: true, lastName: true },
     });
 
-    await this.notifications.emitEvent(
-      'contact.invitation.rejected',
-      {
+    await this.notifications.send(null, {
+      type: 'contact.invitation.rejected',
+      to: [{ userId: invitation.fromUserId }],
+      payload: {
         invitationId: invitation.id,
-        fromUserId: invitation.fromUserId,
         byUserId: userId,
         byName: formatName(recipient?.firstName ?? '', recipient?.lastName ?? null),
       },
-      'contacts',
-    );
+      actorId: userId,
+      idempotencyKey: `ci:rej:${invitation.id}`,
+    });
   }
 
   async cancelInvitation(userId: string, invitationId: string) {
@@ -1011,16 +1026,15 @@ export class ContactsService {
       data: { status: 'cancelled', respondedAt: new Date() },
     });
 
-    await this.notifications.emitEvent(
-      'contact.invitation.cancelled',
-      {
-        invitationId: invitation.id,
-        fromUserId: invitation.fromUserId,
-        toUserId: invitation.toUserId,
-        toPhone: invitation.toPhone,
-      },
-      'contacts',
-    );
+    if (invitation.toUserId) {
+      await this.notifications.send(null, {
+        type: 'contact.invitation.cancelled',
+        to: [{ userId: invitation.toUserId }],
+        payload: { invitationId: invitation.id, fromUserId: invitation.fromUserId },
+        actorId: invitation.fromUserId,
+        idempotencyKey: `ci:cancel:${invitation.id}`,
+      });
+    }
   }
 
   async resendInvitation(userId: string, invitationId: string) {
@@ -1187,20 +1201,23 @@ export class ContactsService {
     });
 
     for (const inv of pending) {
-      await this.notifications.emitEvent(
-        'contact.invitation.activated',
-        {
+      await this.notifications.send(null, {
+        type: 'contact.invitation.received',
+        to: [{ userId }],
+        payload: {
           invitationId: inv.id,
           fromUserId: inv.fromUserId,
           fromName: formatName(inv.fromUser.firstName, inv.fromUser.lastName),
           fromPhone: inv.fromUser.phone,
-          toUserId: userId,
-          toPhone: phone,
           proposedRoleForRecipient: inv.proposedRoleForRecipient,
-          message: inv.message,
+          message: inv.message ?? '',
         },
-        'contacts',
-      );
+        actorId: inv.fromUserId,
+        ref: { type: 'contact_invitation', id: inv.id },
+        reason: 'requested',
+        actionUrl: '/circles',
+        idempotencyKey: `ci:act:${inv.id}`,
+      });
     }
   }
 
@@ -1323,16 +1340,15 @@ export class ContactsService {
         data: { status: 'expired', respondedAt: new Date() },
       });
       for (const inv of expiring) {
-        await this.notifications.emitEvent(
-          'contact.invitation.expired',
-          {
-            invitationId: inv.id,
-            fromUserId: inv.fromUserId,
-            toUserId: inv.toUserId,
-            toPhone: maskPhone(inv.toPhone),
-          },
-          'contacts',
-        );
+        // Адресат — ОТПРАВИТЕЛЬ: получатель ничего не терял, а отправитель иначе
+        // узнаёт об истечении, только заглянув в список.
+        await this.notifications.send(null, {
+          type: 'contact.invitation.expired',
+          to: [{ userId: inv.fromUserId }],
+          payload: { invitationId: inv.id, toPhone: maskPhone(inv.toPhone) },
+          actionUrl: '/circles',
+          idempotencyKey: `ci:exp:${inv.id}`,
+        });
       }
     }
 

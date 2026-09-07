@@ -56,6 +56,7 @@
     "sharp": "^0.35.3",
     "socket.io": "^4.8.0",
     "thumbhash": "^0.1.1",
+    "web-push": "3",
     "yazl": "^3.3.1",
     "zod": "^3.24.0"
   },
@@ -68,6 +69,7 @@
     "@types/node": "^22.0.0",
     "@types/passport-jwt": "^4.0.1",
     "@types/qrcode": "^1.5.5",
+    "@types/web-push": "^3.6.4",
     "@types/yazl": "^3.3.1",
     "@typescript-eslint/eslint-plugin": "^8.20.0",
     "@typescript-eslint/parser": "^8.20.0",

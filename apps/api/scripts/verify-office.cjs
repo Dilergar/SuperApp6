@@ -100,12 +100,18 @@ async function main() {
     check('приглашение P2 → invited 1', invite.ok && invite.json?.data?.invited === 1, JSON.stringify(invite.json?.data));
     const part2 = await prisma.officeRoomParticipant.findUnique({ where: { roomId_userId: { roomId, userId: u2 } } });
     check('P2 стал участником (role=participant)', part2?.role === 'participant', `role=${part2?.role}`);
-    const notif = await prisma.notification.findFirst({
-      where: { userId: u2, type: 'office.meeting.invited' },
-      orderBy: { createdAt: 'desc' },
-    });
+    // Строка ленты рождается ДЖОБОМ фанаута (outbox) — ждём, а не читаем сразу
+    let notif = null;
+    for (let i = 0; i < 20 && !notif; i++) {
+      notif = await prisma.notification.findFirst({
+        where: { userId: u2, type: 'office.meeting.invited', event: { refType: 'office_room', refId: roomId } },
+        orderBy: { createdAt: 'desc' },
+        include: { event: true },
+      });
+      if (!notif) await new Promise((r) => setTimeout(r, 400));
+    }
     check('уведомление office.meeting.invited у P2', !!notif, notif ? '' : 'нет строки');
-    check('actionUrl ведёт на встречу', (notif?.actionUrl ?? '').includes(`/office/${roomId}`), notif?.actionUrl ?? '');
+    check('actionUrl ведёт на встречу', (notif?.event?.actionUrl ?? '').includes(`/office/${roomId}`), notif?.event?.actionUrl ?? '');
 
     const inviteAlien = await call('POST', O(`/rooms/${roomId}/invite`), t1, { userIds: [u3] });
     check('приглашение НЕ-члена ws → invited 0 (молча отсеян)', inviteAlien.ok && inviteAlien.json?.data?.invited === 0, JSON.stringify(inviteAlien.json?.data));

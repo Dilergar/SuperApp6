@@ -13,7 +13,7 @@ import { AccessService } from '../../core/access/access.service';
 import { JobDiscardError, JobsRegistry } from '../../core/jobs/jobs.registry';
 import { JobsService } from '../../core/jobs/jobs.service';
 import { QuickActionRegistry } from '../../core/quick-actions/quick-actions.registry';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService } from '../../core/notifications/notifications.service';
 import { MessengerService } from './messenger.service';
 
 /** Тип джоба выстрела (core/jobs); один живой джоб на ВЕРСИЮ времени: uniqueKey `sm:<id>:<sendAtMs>`. */
@@ -244,12 +244,15 @@ export class ScheduledMessageService implements OnModuleInit, OnApplicationBoots
         data: { status: 'sent', sentMessageId: msg.id },
       });
       try {
-        await this.notifications.notify(
-          row.authorId,
-          'messenger.scheduled.sent',
-          { snippet: row.content.slice(0, 140) },
-          { actionUrl: `/messenger?chat=${row.chatId}&msg=${msg.id}` },
-        );
+        await this.notifications.send(null, {
+          type: 'messenger.scheduled.sent',
+          to: [{ userId: row.authorId }],
+          payload: { snippet: row.content.slice(0, 140), chatId: row.chatId, messageId: msg.id },
+          ref: { type: 'chat_message', id: msg.id },
+          reason: 'owner',
+          actionUrl: `/messenger?chat=${row.chatId}&msg=${msg.id}`,
+          idempotencyKey: `sm:sent:${id}`,
+        });
       } catch (e) {
         this.logger.warn(`scheduled notify failed for ${id}: ${String(e)}`);
       }

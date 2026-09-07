@@ -12,7 +12,7 @@ import { CalendarEvent as CalEventRow } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { fullName } from '../../shared/utils/user-name';
 import { EventBusService } from '../../shared/events/event-bus.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService } from '../../core/notifications/notifications.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { PersonalGraphRegistry } from '../contacts/personal-graph.registry';
 import { ResourcesService } from './resources.service';
@@ -164,7 +164,15 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
         eventId: r.eventId,
         occurrenceStart: r.occurrenceStart.toISOString(),
       };
-      await this.notifications.enqueueForEvent(tx, 'calendar.event.reminder', payload);
+      // Уведомление — В ТРАНЗАКЦИИ клейма напоминания (outbox): коммит = строка будет.
+      await this.notifications.send(tx, {
+        type: 'calendar.event.reminder',
+        to: [{ userId: r.userId }],
+        payload: { eventTitle: r.event.title, eventId: r.eventId, occurrenceStart: payload.occurrenceStart },
+        ref: { type: 'event', id: r.eventId },
+        reason: 'participant',
+        idempotencyKey: `cal:rem:${reminderId}`,
+      });
       return payload;
     });
     if (!fired) return;
@@ -697,11 +705,15 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     }
 
     if (toAdd.length) {
-      await this.notifications.emitEvent(
-        'calendar.event.invited',
-        { recipientIds: toAdd, eventTitle: event.title, eventId, byUserId: organizerId },
-        'calendar',
-      );
+      this.events.emit('calendar.event.invited', { recipientIds: toAdd, eventTitle: event.title, eventId, byUserId: organizerId }, 'calendar');
+      await this.notifications.send(null, {
+        type: 'calendar.event.invited',
+        to: toAdd.map((id) => ({ userId: id })),
+        payload: { eventTitle: event.title, eventId, byUserId: organizerId },
+        ref: { type: 'event', id: eventId },
+        actorId: organizerId,
+        reason: 'participant',
+      });
     }
     return toAdd;
   }
@@ -721,18 +733,22 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     });
     if (event) {
       const me = await this.userMini(userId);
-      await this.notifications.emitEvent(
-        'calendar.event.rsvp',
-        {
-          recipientIds: [event.userId],
-          byUserId: userId,
-          byName: fullName(me),
-          rsvpLabel: RSVP_META[status]?.label ?? status,
-          eventTitle: event.title,
-          eventId,
-        },
-        'calendar',
-      );
+      const rsvpPayload = {
+        byUserId: userId,
+        byName: fullName(me),
+        rsvpLabel: RSVP_META[status]?.label ?? status,
+        eventTitle: event.title,
+        eventId,
+      };
+      this.events.emit('calendar.event.rsvp', { recipientIds: [event.userId], ...rsvpPayload }, 'calendar');
+      await this.notifications.send(null, {
+        type: 'calendar.event.rsvp',
+        to: [{ userId: event.userId }],
+        payload: rsvpPayload,
+        ref: { type: 'event', id: eventId },
+        actorId: userId,
+        reason: 'owner',
+      });
     }
   }
 
@@ -1318,7 +1334,15 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     });
     const recipientIds = ps.map((p) => p.userId);
     if (recipientIds.length) {
-      await this.notifications.emitEvent(type, { recipientIds, eventTitle, eventId, byUserId }, 'calendar');
+      this.events.emit(type, { recipientIds, eventTitle, eventId, byUserId }, 'calendar');
+      await this.notifications.send(null, {
+        type,
+        to: recipientIds.map((id) => ({ userId: id })),
+        payload: { eventTitle, eventId, byUserId },
+        ref: { type: 'event', id: eventId },
+        actorId: byUserId,
+        reason: 'participant',
+      });
     }
   }
 

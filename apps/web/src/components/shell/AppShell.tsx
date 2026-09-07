@@ -36,7 +36,8 @@ import { IconButton } from '@/components/ui/Button';
 import { SearchField } from '@/components/ui/Input';
 import { Menu } from '@/components/ui/Menu';
 import { PersonAvatar } from '@/app/messenger/messenger-ui';
-import { useMentionsUnread } from '@/lib/hooks/useMentionsUnread';
+import { NotificationBell } from '@/components/notifications/NotificationBell';
+import { useNotificationCounts } from '@/lib/hooks/useNotificationCounts';
 import { useNotesLayer } from '@/lib/stores/notes-layer';
 import { useApprovalsCount } from '@/lib/hooks/useApprovalsCount';
 // Стопка — динамическим импортом по той же причине, что и барабан кита: она
@@ -100,10 +101,9 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
     staleTime: 60_000,
     enabled: !!profile && !activeWsId,
   });
-  // Готовый хук приложения, а не свой запрос: ключ у них общий, и второй
-  // queryFn на том же ключе конфликтует с первым (ровно это и случилось).
-  // Кормит ТОЛЬКО точку на колокольчике — пункта «Упоминания» в сайдбаре нет.
-  const mentionsUnread = useMentionsUnread(!!profile);
+  // Счётчики центра уведомлений: точки по контекстам в переключателе организаций
+  // (Slack — бейджи на воркспейс); сам бейдж колокольчика читает тот же кэш.
+  const notifCounts = useNotificationCounts(!!profile);
   // Стопка «Ждут решения». Счётчик лёгкий и общий по всем источникам; сама
   // модалка грузится лениво — она тянет кит и клиент движка, а шелл сидит в
   // корневом графе КАЖДОЙ страницы.
@@ -207,7 +207,7 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
           <Icon name="list" size={20} />
         </button>
 
-        <ContextSwitcher contexts={contexts} activeId={activeWsId} onSwitch={switchContext} forceMenu={isMobile} />
+        <ContextSwitcher contexts={contexts} activeId={activeWsId} onSwitch={switchContext} forceMenu={isMobile} unseen={notifCounts.byContext} />
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <form
@@ -222,20 +222,9 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
           <IconButton href="/tasks/inbox" icon="add" label={t('topbar.quickTask')} />
           {/* Стикеры Заметок: та же доска, что по Alt+N — кнопка нужна телефону, где Alt нет */}
           <IconButton icon="stickyNote" label={t('topbar.stickyBoard')} onClick={() => useNotesLayer.getState().toggle()} />
-          {/* Обёртка — неинтерактивный span: якорь кита сам ссылка (href→next/link),
-              вложить его в <Link> значило бы «управление внутри управления». */}
-          <span style={{ position: 'relative', display: 'inline-flex' }}>
-            <IconButton
-              href="/mentions"
-              icon="bell"
-              label={mentionsUnread ? t('topbar.mentionsUnread') : t('topbar.mentions')}
-            />
-            {!!mentionsUnread && mentionsUnread > 0 && (
-              // Синяя точка: красный в системе означает только опасность.
-              // aria-hidden — смысл несёт label кнопки, точка чисто визуальная
-              <span aria-hidden style={{ position: 'absolute', top: 7, right: 8, width: 8, height: 8, borderRadius: '50%', background: 'var(--primary)', border: '2px solid var(--surface)' }} />
-            )}
-          </span>
+          {/* Центр уведомлений — сквозной (правило витрин): панель на десктопе,
+              на телефоне колокольчик ведёт на страницу. Бейдж = unseen. */}
+          <NotificationBell enabled={!!profile} isMobile={isMobile} workspaces={workspaces} />
           {/* «Ждут решения» — не ссылка, а КНОПКА: стопка открывается модалкой
               поверх текущей страницы, чтобы разобрать её не уходя с работы.
               Счётчик приходит сложенным по всем источникам реестра.
@@ -436,7 +425,7 @@ function NavItem({
  * уезжает за край у того, кто состоит в десятке организаций.
  */
 function ContextSwitcher({
-  contexts, activeId, onSwitch, forceMenu,
+  contexts, activeId, onSwitch, forceMenu, unseen,
 }: {
   contexts: { id: string | null; label: string }[];
   activeId: string | null;
@@ -444,9 +433,12 @@ function ContextSwitcher({
   /** Телефон: сегменты не сжимаются (nowrap) и выталкивают правый блок топбара
       за экран уже при одной организации — всегда показываем выпадающее меню. */
   forceMenu?: boolean;
+  /** Непросмотренные уведомления по контекстам (`personal` | id организации) — точка у сегмента */
+  unseen?: Record<string, number>;
 }) {
   const ariaLabel = useTranslations('shell')('context.aria');
   const current = contexts.find((c) => c.id === activeId) ?? contexts[0];
+  const dotFor = (id: string | null) => (unseen?.[id ?? 'personal'] ?? 0) > 0;
 
   // Единственный контекст («Личное» без организаций) ничего не выталкивает —
   // сегмент остаётся и на телефоне
@@ -464,6 +456,7 @@ function ContextSwitcher({
             onClick={() => onSwitch(c.id)}
           >
             {c.label}
+            {dotFor(c.id) && <span className="ntf-dot" aria-hidden />}
           </button>
         ))}
       </div>
@@ -476,7 +469,7 @@ function ContextSwitcher({
       label={ariaLabel}
       items={contexts.map((c) => ({
         key: c.id ?? 'personal',
-        label: c.label,
+        label: dotFor(c.id) ? `${c.label} •` : c.label,
         icon: c.id ? ('workspace' as const) : ('user' as const),
         onClick: () => onSwitch(c.id),
       }))}

@@ -61,7 +61,7 @@ onDiscard(payload, { jobId, attempts, error })
 
 Тип → очередь (cap, если сужен). Константы типов живут у владельца (`*.constants.ts` / `*.job-names.ts` / сам сервис), не в движке.
 
-- `default`: `chatter.chatpost` (плашки чатов; onDiscard) · `messenger.scheduled.fire` (uniqueKey с версией времени `sm:<id>:<sendAtMs>`; onDiscard) · `notifications.dispatch` · `calls.recording.deliver` · `calls.session.summarize` (ставит core/calls, обработчик регистрирует МЕССЕНДЖЕР) · `calendar.reminder.fire` (runAt=fireAt — точность секунды) · `approvals.remind|escalate|resolved|announce` · `users.phone.invitations` · `jobs.dev.echo`.
+- `default`: `chatter.chatpost` (плашки чатов; onDiscard) · `messenger.scheduled.fire` (uniqueKey с версией времени `sm:<id>:<sendAtMs>`; onDiscard) · `calls.recording.deliver` · `calls.session.summarize` (ставит core/calls, обработчик регистрирует МЕССЕНДЖЕР) · `calendar.reminder.fire` (runAt=fireAt — точность секунды) · `approvals.remind|escalate|resolved|announce` · `users.phone.invitations` · `jobs.dev.echo`.
 - `media` (3): `files.pipeline` · `scan` (3): `files.scan` · `voice` (2): `voice.transcribe` · `recording` (2): `calls.recording.finalize`.
 - `docs` (`DOCS_LIMITS.queueConcurrency`): `docs.milestone|rendition|text` (константы `DOCS_JOB_TYPES`, `packages/shared/src/constants/documents.ts`).
 - `drive` (4): `drive.ingest|rollup|copy|photo.index`.
@@ -69,6 +69,7 @@ onDiscard(payload, { jobId, attempts, error })
 - `hr`: `hr.action.apply` (runAt=дата вступления) · `hr.batch.run`.
 - `objects` (5 попыток): `objects.shifts.generate` (порождение смен по ротации на горизонт; `uniqueKey sp:<patternId>:<НАЧАЛО НЕДЕЛИ>` — не сегодняшняя дата, иначе ключ посуточный) · `staff.assignment.rollover` (`runAt` = полночь в поясе ОБЪЕКТА; для конца назначения — полночь СЛЕДУЮЩЕГО дня: в последний рабочий день права снимать рано) — `apps/api/src/modules/objects/objects.jobs.ts`, константы типов — `objects.job-types.ts` (отдельным файлом: их импортируют и те, кто ставит джоб из своей транзакции).
 - `sign`: `sign.requested` · `sign.act.finished` · `sign.request.expired`; `sign_stamp` (2): `sign.stamp` (тяжёлый pdf-lib — своя очередь) — `apps/api/src/core/sign/sign.jobs.ts`.
+- `notifications` (4): `notifications.fanout` (+ `fanout.chunk` по 500 адресатов; `uniqueKey fanout:<eventId>:<offset>`) · `notifications.deliver.push` (батчер на человека: `uniqueKey push:<userId>`, парный догоняющий `push:<userId>:next`, critical — `push:<userId>:critical`) · `notifications.deliver.sms` · `notifications.deliver.chat` · `notifications.unsnooze` (`runAt = until`, `uniqueKey snooze:<id>`) — `apps/api/src/core/notifications/notifications.constants.ts`.
 
 Бэкфилл доджобовых строк — onApplicationBootstrap потребителя (сверяется ТОЛЬКО с живыми джобами; uniqueKey дедупит).
 
@@ -78,4 +79,4 @@ Token-walker Процессов (домен со своей семантикой
 
 ## Проверка
 
-`apps/api/scripts/verify-jobs.cjs` (полигон: клеймы, аренды, бэкофф, дедуп, зомби-врайт) + `verify-notify-jobs.cjs` + сьюты потребителей.
+`apps/api/scripts/verify-jobs.cjs` (полигон: клеймы, аренды, бэкофф, дедуп, зомби-врайт) + `verify-notify-jobs.cjs` (фанаут уведомлений: событие → джоб → строка, ретрай без дубля) + сьюты потребителей.

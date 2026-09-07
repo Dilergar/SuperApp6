@@ -5,7 +5,7 @@ import * as net from 'net';
 import { Readable } from 'stream';
 import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
-import { NotificationsService } from '../../modules/notifications/notifications.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { JobsService } from '../jobs/jobs.service';
 import { STORAGE_DRIVER, StorageDriver } from './storage/storage-driver';
@@ -179,7 +179,13 @@ export class FilesScanHook implements OnModuleInit, OnApplicationBootstrap {
     if (verdict === 'infected') {
       this.events.emit('file.scan.infected', { fileId, name: file.name, signature }, 'files');
       try {
-        await this.notifications.notify(file.uploaderId, 'files.scan.infected', { name: file.name });
+        await this.notifications.send(null, {
+          type: 'files.scan.infected',
+          to: [{ userId: file.uploaderId }],
+          payload: { name: file.name, fileId },
+          reason: 'owner',
+          idempotencyKey: `scan:inf:${fileId}`,
+        });
       } catch {
         // уведомление best-effort
       }

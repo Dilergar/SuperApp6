@@ -11,6 +11,7 @@
 import { infiniteQueryOptions } from '@tanstack/react-query';
 import { apiGet } from './api';
 import { fetchNotes, type NotesListFilter } from './notes-api';
+import { fetchNotifications, type NotificationFeedFilter } from './notifications-api';
 import type {
   Contact,
   CursorPage,
@@ -651,3 +652,23 @@ export const notesBoardKey = (scopeKey: string, filterKey: string) => ['notes', 
 export const notesByTargetKey = (targetType: string, targetId: string) => ['notes', 'by-target', targetType, targetId] as const;
 export const noteRevisionsKey = (id: string) => ['notes', 'revisions', id] as const;
 export const notesAttachPickerKey = (scopeKey: string, q: string) => ['notes', 'attach-picker', scopeKey, q] as const;
+
+// ---- Уведомления (core/notifications) — ключи и бесконечная лента ----
+// Лента объявляется ОДИН раз бесконечной формой: панель колокольчика и страница
+// читают один и тот же кэш; плоский useQuery на этот ключ запрещён.
+export const notificationsRootKey = ['notifications'] as const;
+export const notificationCountsKey = ['notifications', 'counts'] as const;
+export const notificationsFeedKey = (filterKey: string) => ['notifications', 'feed', filterKey] as const;
+export const notificationsFeedInfinite = (filter: NotificationFeedFilter) =>
+  infiniteQueryOptions({
+    queryKey: notificationsFeedKey(JSON.stringify(filter)),
+    queryFn: ({ pageParam }) => fetchNotifications(filter, pageParam || undefined),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+export const notificationPreferencesKey = (context: string) => ['notifications', 'preferences', context] as const;
+export const notificationQuietKey = ['notifications', 'quiet'] as const;
+export const notificationDevicesKey = ['notifications', 'devices'] as const;
+export const notificationVapidKey = ['notifications', 'vapid'] as const;
+export const workspaceNotificationPolicyKey = (workspaceId: string) => ['notifications', 'policy', workspaceId] as const;
+export const richCardKey = (refType: string, refId: string) => ['rich-cards', refType, refId] as const;

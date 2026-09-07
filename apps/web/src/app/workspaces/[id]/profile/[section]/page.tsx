@@ -7,6 +7,7 @@ import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api
 import { CompanyCard } from '../../CompanyCard';
 import { RequisitesSection } from '../RequisitesSection';
 import { LegalEntitiesSection } from '../LegalEntitiesSection';
+import { WorkspaceNotificationPolicySection } from '../WorkspaceNotificationPolicySection';
 import { EntitySelector } from '@/components/EntitySelector';
 import { AvatarUploadBlock } from '@/components/files/AvatarUploadBlock';
 import {
@@ -20,7 +21,7 @@ import type {
   WorkspaceCardVisibility,
 } from '@superapp/shared';
 
-const KNOWN = ['card', 'anketa', 'stats', 'subscription', 'settings', 'security'] as const;
+const KNOWN = ['card', 'anketa', 'stats', 'subscription', 'settings', 'notifications', 'security'] as const;
 type Section = (typeof KNOWN)[number];
 
 const SECTION_TITLE: Record<Section, string> = {
@@ -29,6 +30,7 @@ const SECTION_TITLE: Record<Section, string> = {
   stats: 'Статистика',
   subscription: 'Подписка',
   settings: 'Настройки',
+  notifications: 'Уведомления',
   security: 'Безопасность',
 };
 
@@ -111,7 +113,7 @@ export default function WorkspaceSectionPage() {
   // Redirect off manage-only sections once the role is known.
   useEffect(() => {
     if (!ws) return;
-    if ((section === 'anketa' || section === 'settings') && !canManage) {
+    if ((section === 'anketa' || section === 'settings' || section === 'notifications') && !canManage) {
       router.replace(`/workspaces/${id}/profile/card`);
     }
     if (section === 'security' && !isOwner) {
@@ -344,6 +346,9 @@ export default function WorkspaceSectionPage() {
           </Card>
         </BentoGrid>
       )}
+
+      {/* ---------- Уведомления: политика организации (дефолты + замки) ---------- */}
+      {section === 'notifications' && canManage && <WorkspaceNotificationPolicySection workspaceId={id} />}
 
       {/* ---------- Безопасность ---------- */}
       {section === 'security' && isOwner && (

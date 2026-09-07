@@ -8,7 +8,6 @@ import type {
   RichCardPayload,
   PresenceInfo,
   MentionCandidate,
-  MentionFeed,
   GlobalSearchResults,
   SearchResultPage,
   QuickActionDescriptor,
@@ -209,23 +208,6 @@ export async function getMentionable(chatId: string, q: string): Promise<Mention
   });
 }
 
-/** Cursor-paginated feed of "mentions of me" (+ the unread count). */
-export async function getMentions(cursor?: string): Promise<MentionFeed> {
-  return apiGet<MentionFeed>('/mentions', {
-    params: cursor ? { cursor } : undefined,
-  });
-}
-
-/** Лёгкий счётчик непрочитанного для нав-бейджа — не тянет всю ленту упоминаний. */
-export async function getMentionsUnreadCount(): Promise<number> {
-  const res = await apiGet<{ unreadCount: number }>('/mentions/unread-count');
-  return res.unreadCount;
-}
-
-/** Mark specific mentions read, or all of them when `ids` is omitted. */
-export async function markMentionsRead(ids?: string[]): Promise<void> {
-  await apiPost('/mentions/mark-read', ids && ids.length ? { ids } : {});
-}
 
 // ============================================================
 // Search (Phase 6) — one endpoint, two modes:

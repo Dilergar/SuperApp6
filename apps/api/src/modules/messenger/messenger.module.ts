@@ -1,13 +1,13 @@
 import { Module } from '@nestjs/common';
 import { MessengerController } from './messenger.controller';
-import { MentionsController } from './mentions.controller';
 import { MessengerService } from './messenger.service';
 import { MentionsService } from './mentions.service';
 import { MessengerSearchService } from './messenger-search.service';
 import { ScheduledMessageService } from './scheduled-message.service';
 import { ScheduledMessageCron } from './scheduled-message.cron';
 import { PresenceService } from './presence.service';
-import { MessengerGateway } from './messenger.gateway';
+import { MessengerRealtimeProvider } from './messenger-realtime.provider';
+import { MessengerNotificationsProvider } from './messenger-notifications.provider';
 import { ChatterChatSink } from './chatter-chat.sink';
 import { OrderSystemListener } from './order-system.listener';
 import { CalendarSystemListener } from './calendar-system.listener';
@@ -26,7 +26,7 @@ import { DriveModule } from '../drive/drive.module';
   // Направление такое же, как у слоёв календаря: знание о природе сущности живёт у
   // её владельца, а движок-получатель про потребителей не знает.
   imports: [DriveModule],
-  controllers: [MessengerController, MentionsController],
+  controllers: [MessengerController],
   providers: [
     MessengerService,
     MentionsService,
@@ -37,7 +37,10 @@ import { DriveModule } from '../drive/drive.module';
     // String-token alias so the @Global RichCardsService can resolve MessengerService
     // lazily (ModuleRef.get('MessengerService')) for shareToChat without a module cycle.
     { provide: 'MessengerService', useExisting: MessengerService },
-    MessengerGateway,
+    // Сокет — один на платформу (core/realtime); мессенджер регистрирует relay/хендлеры/presence-хук
+    MessengerRealtimeProvider,
+    // Движок уведомлений: presence-провайдер + резолверы chat/chat_message (фича → движок)
+    MessengerNotificationsProvider,
     // Плашки задач = проекция хроники core/chatter (chat-sink; заменил TaskSystemListener)
     ChatterChatSink,
     OrderSystemListener,

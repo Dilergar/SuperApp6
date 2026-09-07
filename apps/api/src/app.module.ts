@@ -32,6 +32,8 @@ import { ApprovalsModule } from './core/approvals/approvals.module';
 import { TemplatesModule } from './core/templates/templates.module';
 import { AudiencesModule } from './core/audiences/audiences.module';
 import { SignModule } from './core/sign/sign.module';
+import { NotificationsModule } from './core/notifications/notifications.module';
+import { RealtimeModule } from './core/realtime/realtime.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { CounterpartiesModule } from './modules/counterparties/counterparties.module';
 import { ObjectsModule } from './modules/objects/objects.module';
@@ -39,7 +41,6 @@ import { NotesModule } from './modules/notes/notes.module';
 import { HrModule } from './modules/hr/hr.module';
 
 // Feature modules — сервисы поверх движков (тонкие модули + регистрации в реестрах)
-import { NotificationsModule } from './modules/notifications/notifications.module';
 import { ContactsModule } from './modules/contacts/contacts.module';
 import { CirclesModule } from './modules/circles/circles.module';
 import { TasksModule } from './modules/tasks/tasks.module';
@@ -160,6 +161,14 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     TemplatesModule,
     // 16-й движок: единый словарь адресатов (относительные виды регистрирует Staff, circle — Contacts)
     AudiencesModule,
+    // Notifications engine — 17-й платформенный движок: событие + строка на адресата +
+    // журнал доставки; каналы in-app/realtime · web push · SMS · chat · email (контракт).
+    // Продюсеры зовут `NotificationsService.send(tx, …)` в транзакции мутации; владельцы
+    // сущностей регистрируют резолверы в NotificationRefRegistry: docs/notifications_engine.md.
+    NotificationsModule,
+    // Realtime engine — 18-й платформенный движок: один сокет платформы (/realtime),
+    // личные комнаты, Redis-адаптер; relay/хендлеры регистрируют мессенджер и уведомления.
+    RealtimeModule,
     // Sign engine — 15-й платформенный движок: электронная подпись (шаг 3
     // документной вертикали). Акт подписи, криптография и её проверка, ВЕЧНЫЕ
     // доказательства, экспортный пакет (ст. 62 ЦК РК) и открытая страница
@@ -179,7 +188,6 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // Feature modules — each is self-contained.
     // Load order: Notifications → Contacts (@Global, consumed by AuthService)
     // → Circles (depends on ContactsService).
-    NotificationsModule,
     ContactsModule,
     CirclesModule,
     // Wallet — issued currencies + immutable ledger; underpins task coin rewards (escrow).

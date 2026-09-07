@@ -1,42 +1,10 @@
 /* eslint-disable */
-// E2E: Волна 1 движка джобов — создание уведомлений через джоб notifications.dispatch
-// (замена шинного NotificationsEventsListener). Уведомление доезжает джобом; ровно одна
-// строка (дубля листенера нет); ретрай джоба не дублит (dedupKey ON CONFLICT); актор
-// не уведомляется о своём действии. Requires API on 3001 + testers.
+// E2E: продюсер → `NotificationsService.send` → джоб `notifications.fanout` → строка у
+// адресата (не у актора). Ретрай джоба не дублит и не накручивает счётчик (леджер
+// доставки); событие ровно одно на назначение задачи. Requires API on 3001 + suite accounts.
 // Run: node apps/api/scripts/verify-notify-jobs.cjs
-const BASE = process.env.API_URL || 'http://localhost:3001/api';
-const CREDS = {
-  t1: { phone: '+77009990001', password: 'Test1234!' },
-  t2: { phone: '+77009990002', password: 'Test1234!' },
-};
-async function http(method, path, { token, body } = {}) {
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      // Язык ответов сьюты — ЯВНЫМ заголовком выбора: `Accept-Language` сервер
-      // маршрутизирует под рынок (русский браузер → казахский), и русские ассерты
-      // ниже покраснели бы разом. Скрипты про сам перевод шлют свои заголовки.
-      'X-Locale': process.env.SA6_SUITE_LOCALE || 'ru',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-  const text = await res.text();
-  let json; try { json = text ? JSON.parse(text) : null; } catch { json = { raw: text }; }
-  return { status: res.status, ok: res.ok, json };
-}
-async function login(creds) {
-  const { json } = await http('POST', '/auth/login', { body: creds });
-  const token = json.data.accessToken;
-  const me = await http('GET', '/users/me', { token });
-  return { token, id: me.json.data.id };
-}
-let passed = 0, failed = 0;
-const check = (n, c, extra) => {
-  if (c) { passed++; console.log(`  PASS ${n}`); }
-  else { failed++; console.log(`  FAIL ${n}${extra ? `  (${extra})` : ''}`); }
-};
+const { SUITE, call, login, makeChecker } = require('./_lib.cjs');
+const { PrismaClient } = require('@prisma/client');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function waitFor(fn, timeoutMs, intervalMs = 500) {
   const until = Date.now() + timeoutMs;
@@ -49,19 +17,12 @@ async function waitFor(fn, timeoutMs, intervalMs = 500) {
 }
 
 async function main() {
-  const fs = require('fs'); const path = require('path');
-  for (const line of fs.readFileSync(path.join(__dirname, '..', '.env'), 'utf8').split(/\r?\n/)) {
-    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/i);
-    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
-  }
-  const { PrismaClient } = require('@prisma/client');
+  const { check, finish } = makeChecker();
   const prisma = new PrismaClient();
+  const t1 = await login(SUITE.p1);
+  const t2 = await login(SUITE.p2);
+  console.log('logged in 2 suite accounts');
 
-  const t1 = await login(CREDS.t1);
-  const t2 = await login(CREDS.t2);
-  console.log('logged in 2 testers');
-
-  // Детерминированная связь t1↔t2 (назначение задачи требует окружения).
   const [a, b] = t1.id < t2.id ? [t1.id, t2.id] : [t2.id, t1.id];
   await prisma.contactLink.upsert({
     where: { userAId_userBId: { userAId: a, userBId: b } },
@@ -69,89 +30,57 @@ async function main() {
     create: { userAId: a, userBId: b, roleAForB: 'Коллега', roleBForA: 'Коллега', initiatedBy: t1.id },
   });
 
-  const cleanup = { taskId: null, jobIds: [] };
-  const notifCountFor = async (userId, taskId) =>
-    prisma.notification.count({
-      where: { userId, type: 'task.assigned', payload: { path: ['taskId'], equals: taskId } },
+  const cleanup = { taskId: null, eventIds: [] };
+  const rowsFor = (userId, taskId) =>
+    prisma.notification.findMany({
+      where: { userId, type: 'task.assigned', event: { refType: 'task', refId: taskId } },
     });
 
   try {
-    // ============================================================
-    console.log('\n-- 1. событие → джоб → уведомление (task.assigned исполнителю) --');
-    let r = await http('POST', '/tasks', {
-      token: t1.token,
-      body: { title: 'Notify-jobs e2e', executorId: t2.id },
-    });
+    console.log('\n-- 1. назначение → событие → джоб → строка у исполнителя --');
+    let r = await call('POST', '/tasks', t1.token, { title: 'Notify-jobs e2e', executorId: t2.id });
     check('задача создана', r.ok, `status ${r.status}`);
     const taskId = r.json?.data?.id;
     cleanup.taskId = taskId;
 
+    const event = await waitFor(async () =>
+      prisma.notificationEvent.findFirst({ where: { type: 'task.assigned', refType: 'task', refId: taskId }, orderBy: { createdAt: 'desc' } }), 8000);
+    check('событие task.assigned записано', !!event, 'не появилось за 8с');
+    if (event) cleanup.eventIds.push(event.id);
+    check('актор события — постановщик', event?.actorId === t1.id);
+
     const job = await waitFor(async () =>
-      prisma.job.findFirst({
-        where: { type: 'notifications.dispatch', payload: { path: ['data', 'taskId'], equals: taskId } },
-        orderBy: { id: 'desc' },
-      }), 8000);
-    check('джоб notifications.dispatch поставлен', !!job, 'не появился за 8с');
-    if (job) cleanup.jobIds.push(job.id);
-    check('payload джоба несёт событие', job?.payload?.event === 'task.assigned', JSON.stringify(job?.payload?.event));
+      prisma.job.findFirst({ where: { type: 'notifications.fanout', payload: { path: ['eventId'], equals: event?.id ?? '' } }, orderBy: { id: 'desc' } }), 8000);
+    check('джоб notifications.fanout поставлен', !!job);
 
-    const arrived = await waitFor(async () => (await notifCountFor(t2.id, taskId)) >= 1 ? true : null, 10_000);
-    check('исполнитель получил уведомление (джобом)', !!arrived, 'нет строки за 10с');
-    const jobDone = await waitFor(async () => {
-      const j = await prisma.job.findUnique({ where: { id: job.id } });
-      return j?.status === 'completed' ? j : null;
-    }, 8000);
-    check('джоб completed', !!jobDone, 'не completed за 8с');
+    const arrived = await waitFor(async () => ((await rowsFor(t2.id, taskId)).length >= 1 ? true : null), 10_000);
+    check('исполнитель получил строку (джобом)', !!arrived, 'нет строки за 10с');
+    const done = await waitFor(async () => { const j = await prisma.job.findUnique({ where: { id: job.id } }); return j?.status === 'completed' ? j : null; }, 8000);
+    check('джоб completed', !!done);
 
-    console.log('\n-- 2. ровно одна строка (дубля от старого листенера нет) --');
-    await sleep(1500); // дать гипотетическому дублю шанс появиться
-    let cnt = await notifCountFor(t2.id, taskId);
-    check('строка ровно одна', cnt === 1, `count ${cnt}`);
-    check('актор (постановщик) себя не уведомил', (await notifCountFor(t1.id, taskId)) === 0);
+    console.log('\n-- 2. ровно одна строка, актор не уведомлён --');
+    await sleep(1200);
+    let rows = await rowsFor(t2.id, taskId);
+    check('строка ровно одна', rows.length === 1, `count ${rows.length}`);
+    check('актор (постановщик) себя не уведомил', (await rowsFor(t1.id, taskId)).length === 0);
+    const ledger = await prisma.notificationDelivery.findFirst({ where: { eventId: event.id, recipient: `user:${t2.id}`, channel: 'inapp' } });
+    check('леджер доставки inapp записан (sent)', ledger?.status === 'sent' && ledger?.notificationId === rows[0]?.id, JSON.stringify(ledger?.status));
 
-    // dedupKey проставлен по схеме j<jobId>:<userId>:<type>
-    const row = await prisma.notification.findFirst({
-      where: { userId: t2.id, type: 'task.assigned', payload: { path: ['taskId'], equals: taskId } },
-    });
-    check('dedupKey записан', row?.dedupKey === `j${job.id}:${t2.id}:task.assigned`, row?.dedupKey ?? 'null');
+    console.log('\n-- 3. ретрай джоба НЕ дублит и не накручивает счётчик (леджер) --');
+    await prisma.job.update({ where: { id: job.id }, data: { status: 'available', runAt: new Date(), leaseUntil: null, finishedAt: null } });
+    const rerun = await waitFor(async () => { const j = await prisma.job.findUnique({ where: { id: job.id } }); return j?.status === 'completed' && j.attempts >= 2 ? j : null; }, 10_000);
+    check('джоб перепрогнан (attempt 2)', !!rerun);
+    rows = await rowsFor(t2.id, taskId);
+    check('дубля нет — строка по-прежнему одна, collapseCount=1', rows.length === 1 && rows[0].collapseCount === 1, `count ${rows.length}, collapse ${rows[0]?.collapseCount}`);
 
-    // ============================================================
-    console.log('\n-- 3. ретрай джоба НЕ дублит (dedupKey ON CONFLICT) --');
-    // Возвращаем ГОТОВЫЙ джоб в очередь (симуляция ретрая после частичного фанаута) —
-    // обработчик снова создаст все цели, dedupKey погасит существующие.
-    await prisma.job.update({
-      where: { id: job.id },
-      data: { status: 'available', runAt: new Date(), leaseUntil: null, finishedAt: null },
-    });
-    const rerun = await waitFor(async () => {
-      const j = await prisma.job.findUnique({ where: { id: job.id } });
-      return j?.status === 'completed' && j.attempts >= 2 ? j : null;
-    }, 10_000);
-    check('джоб перепрогнан (attempt 2)', !!rerun, 'не перепрогнался за 10с');
-    cnt = await notifCountFor(t2.id, taskId);
-    check('дубля нет — строка по-прежнему одна', cnt === 1, `count ${cnt}`);
-
-    // ============================================================
-    console.log('\n-- 4. немаппленное событие джоб не ставит (emitEvent-гейт) --');
-    // task.created не в карте: после создания задачи джоб был только по task.assigned.
-    const extraJobs = await prisma.job.count({
-      where: { type: 'notifications.dispatch', payload: { path: ['data', 'taskId'], equals: taskId } },
-    });
-    check('джоб один (только по assigned)', extraJobs === 1, `count ${extraJobs}`);
+    console.log('\n-- 4. событие одно на назначение (не на каждое task.* событие) --');
+    const events = await prisma.notificationEvent.count({ where: { refType: 'task', refId: taskId } });
+    check('событий уведомлений по задаче — одно (только assigned)', events === 1, `count ${events}`);
   } finally {
-    if (cleanup.taskId) {
-      await http('DELETE', `/tasks/${cleanup.taskId}`, { token: t1.token }).catch(() => {});
-      await prisma.notification.deleteMany({
-        where: { type: 'task.assigned', payload: { path: ['taskId'], equals: cleanup.taskId } },
-      }).catch(() => {});
-    }
-    if (cleanup.jobIds.length) {
-      await prisma.job.deleteMany({ where: { id: { in: cleanup.jobIds } } }).catch(() => {});
-    }
+    if (cleanup.taskId) await call('DELETE', `/tasks/${cleanup.taskId}`, t1.token).catch(() => {});
+    if (cleanup.eventIds.length) await prisma.notificationEvent.deleteMany({ where: { id: { in: cleanup.eventIds } } }).catch(() => {});
     await prisma.$disconnect();
   }
-
-  console.log(`\nRESULT ${passed} passed, ${failed} failed`);
-  process.exit(failed ? 1 : 0);
+  finish();
 }
 main().catch((e) => { console.error(e); process.exit(1); });

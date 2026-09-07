@@ -6,6 +6,7 @@ import { ApprovalsJobs } from './approvals.jobs';
 import { ApprovalsRichCardProvider } from './approvals-rich-card.provider';
 import { ApprovalsDevController, ApprovalsDevProvider } from './approvals.dev';
 import { isDevEnv } from '../../shared/config/env.validation';
+import { ApprovalsNotificationRefsProvider } from './approvals-notification-refs.provider';
 
 /**
  * core/approvals — 14-й платформенный движок: «Задачник для решений».
@@ -28,7 +29,9 @@ import { isDevEnv } from '../../shared/config/env.validation';
   // Дев-полигон — по тому же правилу, что у движка джобов: в production маршрутов
   // просто НЕТ (404), а не «есть, но отвечают 403».
   controllers: isDevEnv() ? [ApprovalsController, ApprovalsDevController] : [ApprovalsController],
-  providers: [ApprovalsService, ApprovalsRegistry, ApprovalsJobs, ApprovalsRichCardProvider, ApprovalsDevProvider],
+  providers: [
+    // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
+    ApprovalsNotificationRefsProvider,ApprovalsService, ApprovalsRegistry, ApprovalsJobs, ApprovalsRichCardProvider, ApprovalsDevProvider],
   exports: [ApprovalsService, ApprovalsRegistry],
 })
 export class ApprovalsModule {}

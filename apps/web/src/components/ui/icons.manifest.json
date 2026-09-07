@@ -187,5 +187,11 @@
   "arrowsOut": "ArrowsOutSimple",
   "arrowsIn": "ArrowsInSimple",
   "brackets": "BracketsSquare",
-  "layers": "Stack"
+  "layers": "Stack",
+  "moon": "Moon",
+  "bellSlash": "BellSlash",
+  "bookmark": "BookmarkSimple",
+  "bookmarkFill": "BookmarkSimple",
+  "envelopeOpen": "EnvelopeOpen",
+  "checks": "Checks"
 }

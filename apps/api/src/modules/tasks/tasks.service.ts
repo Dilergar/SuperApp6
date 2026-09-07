@@ -10,7 +10,7 @@ import { ModuleRef } from '@nestjs/core';
 import { DatabaseService } from '../../shared/database/database.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService } from '../../core/notifications/notifications.service';
 import { EscrowService } from '../wallet/escrow.service';
 import { AccessService } from '../../core/access/access.service';
 import { AccessProjectionService } from '../../core/access/access-projection.service';
@@ -465,11 +465,15 @@ export class TasksService implements OnModuleInit {
     // Notify everyone who was put on the task (not the creator).
     const recipientIds = participantsCreate.map((p) => p.userId).filter((id) => id !== userId);
     if (recipientIds.length > 0) {
-      await this.notifications.emitEvent(
-        'task.assigned',
-        { taskId: task.id, taskTitle: task.title, byUserId: userId, byName: fullName(task.creator), recipientIds },
-        'tasks',
-      );
+      await this.notifications.send(null, {
+        type: 'task.assigned',
+        to: recipientIds.map((id) => ({ userId: id })),
+        payload: { taskId: task.id, taskTitle: task.title, byUserId: userId, byName: fullName(task.creator) },
+        ref: { type: 'task', id: task.id },
+        actorId: userId,
+        workspaceId: task.workspaceId,
+        reason: 'assigned',
+      });
     }
 
     return this.toDto(task, userId);
@@ -1109,7 +1113,16 @@ export class TasksService implements OnModuleInit {
         typeKey: 'task.completed',
         payload: { taskTitle: task.title },
       });
-      await this.notifications.emitEvent('task.completed', { taskId, taskTitle: task.title, recipientIds: [userId] }, 'tasks');
+      this.events.emit('task.completed', { taskId, taskTitle: task.title, recipientIds: [userId] }, 'tasks');
+      await this.notifications.send(null, {
+        type: 'task.completed',
+        to: [{ userId }],
+        payload: { taskId, taskTitle: task.title },
+        ref: { type: 'task', id: taskId },
+        workspaceId: task.workspaceId,
+        includeActor: true,
+        reason: 'owner',
+      });
       await this.settleLinkedOrder(taskId);
       await this.settleLinkedProcess(taskId);
       try {
@@ -1144,11 +1157,15 @@ export class TasksService implements OnModuleInit {
         typeKey: 'task.submitted',
         payload: { taskTitle: task.title },
       });
-      await this.notifications.emitEvent(
-        'task.submitted',
-        { taskId, taskTitle: task.title, byUserId: userId, byName, recipientIds: [task.creatorId] },
-        'tasks',
-      );
+      await this.notifications.send(null, {
+        type: 'task.submitted',
+        to: [{ userId: task.creatorId }],
+        payload: { taskId, taskTitle: task.title, byUserId: userId, byName },
+        ref: { type: 'task', id: taskId },
+        actorId: userId,
+        workspaceId: task.workspaceId,
+        reason: 'owner',
+      });
     }
 
     await this.recomputeStatus(taskId);
@@ -1183,23 +1200,29 @@ export class TasksService implements OnModuleInit {
         payload: { taskTitle: task.title, targetUserId: target.userId, targetName },
       });
     });
-    await this.notifications.emitEvent(
-      'task.accepted',
-      { taskId, taskTitle: task.title, recipientIds: [target.userId] },
-      'tasks',
-    );
+    await this.notifications.send(null, {
+      type: 'task.accepted',
+      to: [{ userId: target.userId }],
+      payload: { taskId, taskTitle: task.title, byUserId: userId, byName: actorName },
+      ref: { type: 'task', id: taskId },
+      actorId: userId,
+      workspaceId: task.workspaceId,
+      reason: 'assigned',
+    });
     if (captured) {
-      await this.notifications.emitEvent(
-        'wallet.coins.received',
-        {
-          recipientIds: [target.userId],
+      await this.notifications.send(null, {
+        type: 'wallet.coins.received',
+        to: [{ userId: target.userId }],
+        payload: {
           amount: (captured as { amount: number }).amount,
           currencyName: (captured as { currencyName: string }).currencyName,
           taskId,
           taskTitle: task.title,
         },
-        'tasks',
-      );
+        ref: { type: 'task', id: taskId },
+        actorId: userId,
+        actionUrl: `/tasks/${taskId}`,
+      });
     }
     await this.recomputeStatus(taskId);
     return this.getTask(userId, taskId);
@@ -1228,11 +1251,15 @@ export class TasksService implements OnModuleInit {
         payload: { taskTitle: task.title, targetUserId: target.userId, targetName },
       });
     });
-    await this.notifications.emitEvent(
-      'task.returned',
-      { taskId, taskTitle: task.title, recipientIds: [target.userId] },
-      'tasks',
-    );
+    await this.notifications.send(null, {
+      type: 'task.returned',
+      to: [{ userId: target.userId }],
+      payload: { taskId, taskTitle: task.title, byUserId: userId, byName: actorName },
+      ref: { type: 'task', id: taskId },
+      actorId: userId,
+      workspaceId: task.workspaceId,
+      reason: 'assigned',
+    });
     await this.recomputeStatus(taskId);
     return this.getTask(userId, taskId);
   }
@@ -1304,11 +1331,15 @@ export class TasksService implements OnModuleInit {
         typeKey: 'task.completed',
         payload: { taskTitle: task.title },
       });
-      await this.notifications.emitEvent(
-        'task.completed',
-        { taskId, taskTitle: task.title, recipientIds: [...new Set(recipients)] },
-        'tasks',
-      );
+      this.events.emit('task.completed', { taskId, taskTitle: task.title, recipientIds: [...new Set(recipients)] }, 'tasks');
+      await this.notifications.send(null, {
+        type: 'task.completed',
+        to: [...new Set(recipients)].map((id) => ({ userId: id })),
+        payload: { taskId, taskTitle: task.title },
+        ref: { type: 'task', id: taskId },
+        workspaceId: task.workspaceId,
+        reason: 'participant',
+      });
       await this.settleLinkedOrder(taskId);
       await this.settleLinkedProcess(taskId);
       if (full) {
@@ -1416,11 +1447,15 @@ export class TasksService implements OnModuleInit {
     });
     await this.accessProjection.resyncTaskRoles(taskId);
     await this.messenger.syncTaskChatMembers(taskId);
-    await this.notifications.emitEvent(
-      'task.assigned',
-      { taskId, taskTitle: task.title, byUserId: task.creatorId, byName: '', recipientIds: [newExecutorId] },
-      'tasks',
-    );
+    await this.notifications.send(null, {
+      type: 'task.assigned',
+      to: [{ userId: newExecutorId }],
+      payload: { taskId, taskTitle: task.title, byUserId: task.creatorId, byName: '' },
+      ref: { type: 'task', id: taskId },
+      actorId: task.creatorId,
+      workspaceId: task.workspaceId,
+      reason: 'assigned',
+    });
   }
 
   /** On completion of a recurring task, clone the next occurrence (TickTick-style). */
@@ -1636,11 +1671,15 @@ export class TasksService implements OnModuleInit {
       take: 500,
     });
     for (const t of due) {
-      await this.notifications.emitEvent(
-        'task.due_soon',
-        { taskId: t.id, taskTitle: t.title, recipientIds: this.taskAudience(t) },
-        'tasks',
-      );
+      await this.notifications.send(null, {
+        type: 'task.due_soon',
+        to: this.taskAudience(t).map((id) => ({ userId: id })),
+        payload: { taskId: t.id, taskTitle: t.title },
+        ref: { type: 'task', id: t.id },
+        workspaceId: t.workspaceId,
+        reason: 'participant',
+        idempotencyKey: `task:due:${t.id}:${t.reminderAt?.toISOString() ?? ''}`,
+      });
       await this.db.task.update({ where: { id: t.id }, data: { reminderSentAt: now } });
     }
     return due.length;
@@ -1659,11 +1698,15 @@ export class TasksService implements OnModuleInit {
       take: 500,
     });
     for (const t of overdue) {
-      await this.notifications.emitEvent(
-        'task.overdue',
-        { taskId: t.id, taskTitle: t.title, recipientIds: this.taskAudience(t) },
-        'tasks',
-      );
+      await this.notifications.send(null, {
+        type: 'task.overdue',
+        to: this.taskAudience(t).map((id) => ({ userId: id })),
+        payload: { taskId: t.id, taskTitle: t.title },
+        ref: { type: 'task', id: t.id },
+        workspaceId: t.workspaceId,
+        reason: 'participant',
+        idempotencyKey: `task:overdue:${t.id}:${t.dueDate?.toISOString() ?? ''}`,
+      });
     }
     return overdue.length;
   }

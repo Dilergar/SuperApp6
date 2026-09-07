@@ -7,7 +7,7 @@
 - Единый `Chat` (dm|group|context; `workspaceId` для B2B; per-chat `seq` через `Chat.lastSeq`; одна DM-пара = `dmKey`).
 - **Доступ — core/access тип `chat`**: DM+группы = прямые tuples `chat#member@user`; контекстные = usersets `chat#member@<task|order|event|office_room>#<role>` → роли сущности = источник истины, снятие = мгновенный **Hard Revoke**. Роли проецируются СИНХРОННО при доменной мутации; EventBus-листенер — идемпотентная подстраховка. Пообъектная ACL-эпоха chat (см. [access_engine.md](access_engine.md)).
 - «Прочитано» — указатели `deliveredSeq`/`lastReadSeq` в ChatMember; галочки только в DM. Системные сообщения (`type='system'`, authorId=null) не в непрочитанном.
-- Realtime — socket.io (namespace `/messenger`, JWT + tokenEpoch на рукопожатии, комната `user:<id>`, Redis-adapter). WS-типы — в shared, карты событий типизируют gateway И клиентский хук ([contract_boundary.md](contract_boundary.md)).
+- Realtime — общий сокет платформы `core/realtime` (namespace `/realtime`, JWT + tokenEpoch на рукопожатии, комната `user:<id>`, Redis-adapter): мессенджер регистрирует relay `messenger.*`, хендлеры delivered/read/heartbeat/typing и presence-хук (`messenger-realtime.provider.ts`); своего gateway нет — [realtime_engine.md](realtime_engine.md). WS-типы — в shared, карты событий типизируют gateway И клиентский хук ([contract_boundary.md](contract_boundary.md)).
 - Создание чата — АТОМАРНО (чат+tuples+member в одной $transaction; иначе cold-start 403).
 
 ## Возможности
@@ -16,7 +16,7 @@
 - **Голосовые** — [voice_engine.md](voice_engine.md): кнопка 🎤 → upload voice_message → attachment-путь; `VoiceMessageBubble` (волна, скорость, «Расшифровать»).
 - **Rich Cards** — [rich_cards.md](rich_cards.md): скрепка 📎 (задачи/события/лоты) + «Переслать в чат».
 - **Presence**: online/lastSeen (Redis + heartbeat, батч MGET), «печатает…», контекстный статус «На <событие> до HH:MM» (наследует уровень доступа календаря зрителя); приватность `onlineStatusMode` + взаимность; зелёная точка только в DM.
-- **Mentions Hub**: @-пикер по имени → токен `@[Имя](userId)` (парсер в shared); security-фильтр «только активные участники чата» (форж чужого id игнорируется); отдельная таблица Mention (`@@unique([messageId, mentionedUserId])` — правка не дублит); лента `/mentions` + бейдж (`GET /mentions/unread-count`). Источники не из чата — `MentionsService.recordMentions({sourceType, sourceId, mentionedUserIds, snippet, actionUrl})`: вызывающий САМ фильтрует адресатов по праву видеть источник (Заметки — `note`, дедуп по паре источник+упомянутый; `urlFor('note')` = `/notes/<id>`).
+- **Упоминания**: @-пикер по имени → токен `@[Имя](userId)` (парсер в shared); security-фильтр «только активные участники чата» (форж чужого id игнорируется). Отдельной модели нет: упоминание = уведомление `mention.received` движка (`reason: 'mention'`, `ref: chat_message`, `idempotencyKey mention:<messageId>:<userId>` — правка не дублит); вкладка «Упоминания» центра = `GET /notifications?mentions=1`, mute объекта его не глушит. Источники не из чата — `MentionsService.recordMentions({sourceType, sourceId, mentionedUserIds, snippet, actionUrl, workspaceId?})`: вызывающий САМ фильтрует адресатов по праву видеть источник (Заметки — `note`; `recordedMentionees` — по ключам идемпотентности событий).
 - **Поиск** — провайдеры message/chat/person в core/search (обрезка по правам в SQL: активный член + `seq>=visibleFromSeq`).
 - **Быстрые действия и отложенные** — [quick_actions.md](quick_actions.md); цитата `replyToId` (только из этого чата); отложенные — джоб `messenger.scheduled.fire` (uniqueKey с версией времени; memberIds до транзакции — throwable-шаг после коммита давал до 8 копий).
 - **Звонки в чатах** (refType='chat', [calls_engine.md](calls_engine.md)): DM — полноценный дозвон WhatsApp-модели (глобальный `CallsWatcher` в providers: модалка + WebAudio-рингтон на любой странице; ринг-условие: active ∧ участники непусты ∧ меня нет ∧ не я звоню; caller-таймер 45с → «Пропущенный»); группы/контекстные — баннер «Идёт звонок · N» (Telegram); чаты офис-встреч исключены. `call:state` — единый идемпотентный снимок (socket + поллинг `/messenger/calls/active` раз в 12с как страховка at-most-once шины; выборка active идёт ОТ ЧЛЕНСТВА пользователя — пустой ответ = один индексный запрос; снимок кэшируется в Redis 15с). Плашки ТОЛЬКО по завершении («Звонок · N» / «Пропущенный»; идемпотентность `CallSession.summarizedAt` — движковый джоб `calls.session.summarize`, обработчик регистрирует мессенджер; `endedById` не получает «Пропущенный»; длительность = endedAt−firstJoinedAt). Запись → «Журнал звонков» Диктофона.
@@ -27,7 +27,7 @@
 
 ## API (кратко)
 
-`GET /messenger/chats` · dm/group CRUD + members/admins/leave · контекстные get-or-create: `GET /messenger/tasks|orders|events|office-rooms/:id/chat` · `GET/POST …/messages?before=<seq>` · PATCH/DELETE message · `POST …/read` · `GET /messenger/presence?userIds=` · mentions (mentionable, лента, mark-read) · `GET /search…` · quick-actions · scheduled CRUD · `GET /messenger/calls/active`. WS: `message:new|updated|deleted`, `receipt`, `presence:changed`, `typing`, `call:state`; клиент: `message:delivered|read`, `heartbeat`, `typing:start|stop`.
+`GET /messenger/chats` · dm/group CRUD + members/admins/leave · контекстные get-or-create: `GET /messenger/tasks|orders|events|office-rooms/:id/chat` · `GET/POST …/messages?before=<seq>` · PATCH/DELETE message · `POST …/read` · `GET /messenger/presence?userIds=` · `GET /messenger/chats/:id/mentionable` · `GET /search…` · quick-actions · scheduled CRUD · `GET /messenger/calls/active`. WS (`/realtime`): `message:new|updated|deleted`, `receipt`, `presence:changed`, `typing`, `call:state`; клиент: `message:delivered|read`, `heartbeat`, `typing:start|stop`. Канал `chat` уведомлений — системное сообщение `eventType: 'notification'` (перерисовывается `systemText` через `NotificationsRenderer`) либо рич-карта от актора.
 
 ## Ловушки
 
@@ -39,4 +39,4 @@
 
 ## Проверка
 
-`verify-messenger.cjs`, `-group`, `-socket`, `-task`, `-presence`(в mentions), `verify-mentions.cjs`, `verify-search.cjs`, `verify-quickactions.cjs`, `verify-messenger-calls.cjs`, `verify-call-recording.cjs`, `verify-richcards.cjs`.
+`verify-messenger.cjs`, `-group`, `-socket`, `-task`, `-presence`, `verify-mentions.cjs`, `verify-logout-socket.cjs`, `verify-search.cjs`, `verify-quickactions.cjs`, `verify-messenger-calls.cjs`, `verify-call-recording.cjs`, `verify-richcards.cjs`.

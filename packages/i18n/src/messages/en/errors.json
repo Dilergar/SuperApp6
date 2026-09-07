@@ -58,7 +58,40 @@
     "localeUnsupported": "This language is not supported"
   },
   "notification": {
-    "notFound": "The notification was not found"
+    "notFound": "The notification was not found",
+    "policy": {
+      "forbidden": "The organization made this notification mandatory — it cannot be turned off",
+      "notLockable": "This notification type cannot be made mandatory",
+      "noAccess": "Notification policy is managed from the Admin role"
+    },
+    "critical": {
+      "immutable": "This notification always arrives — it cannot be turned off"
+    },
+    "context": {
+      "notMember": "You are not a member of this organization"
+    },
+    "device": {
+      "invalidEndpoint": "The push service address is not allowed",
+      "notFound": "The device was not found"
+    },
+    "push": {
+      "notConfigured": "Browser notifications are not set up on the server"
+    },
+    "rateLimited": "The organization’s notification budget for this hour is exhausted",
+    "snooze": {
+      "tooFar": "You can snooze for up to {days} days",
+      "inPast": "The snooze time must be in the future"
+    },
+    "sms": {
+      "notEligible": "SMS is available only for critical notifications"
+    },
+    "recipient": {
+      "unknownRef": "Unknown recipient type"
+    },
+    "unknownType": "Unknown notification type",
+    "chat": {
+      "notConfigured": "The chat channel is not available"
+    }
   },
   "chatter": {
     "forbidden": "The chronicle of this record is not available to you",

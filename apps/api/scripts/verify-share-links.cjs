@@ -592,39 +592,44 @@ async function main() {
     });
     created.links.push(cQuiet.json.data.id);
     await call('POST', `/share-links/guest/${tokenOf(cQuiet.json.data.url)}/session`, null, {});
-    const quietNotes = await prisma.notification.count({
-      where: { userId: u1, type: 'share.link.opened', payload: { path: ['shareLinkId'], equals: cQuiet.json.data.id } },
+    const quietNotes = await prisma.notificationEvent.count({
+      where: { type: 'share.link.opened', payload: { path: ['shareLinkId'], equals: cQuiet.json.data.id } },
     });
     check('с выключенным тумблером не уведомляем', quietNotes === 0, String(quietNotes));
 
     const cLoud = await call('POST', '/share-links', t1, { refType: 'drive_node', refId: folderNotify, label: 'шумная' });
     created.links.push(cLoud.json.data.id);
     const loudTok = tokenOf(cLoud.json.data.url);
-    // Открываем на один раз больше потолка: последнее уведомление должно быть прощальным.
+    // Суточного предохранителя больше нет: движок уведомлений СХЛОПЫВАЕТ открытия одной
+    // ссылки в одну строку ленты («открыли ×N») и троттлит реестром типа.
     for (let i = 0; i <= SHARE_NOTIFY_PER_DAY; i++) {
       await call('POST', `/share-links/guest/${loudTok}/session`, null, {});
     }
     const loudWhere = { path: ['shareLinkId'], equals: cLoud.json.data.id };
-    const [loudNotes, mutedNotes] = await Promise.all([
-      prisma.notification.count({ where: { userId: u1, type: 'share.link.opened', payload: loudWhere } }),
-      prisma.notification.count({ where: { userId: u1, type: 'share.link.opened.muted', payload: loudWhere } }),
-    ]);
-    check('уведомления об открытии приходят', loudNotes === SHARE_NOTIFY_PER_DAY, `${loudNotes} из ${SHARE_NOTIFY_PER_DAY}`);
-    check('после потолка — одно прощальное «дальше тихо»', mutedNotes === 1, String(mutedNotes));
+    const loudRow = await (async () => {
+      for (let i = 0; i < 20; i++) {
+        const rows = await prisma.notification.findMany({ where: { userId: u1, type: 'share.link.opened', collapseKey: `share.link.opened:share_link:${cLoud.json.data.id}` } });
+        if (rows.length === 1 && rows[0].collapseCount >= SHARE_NOTIFY_PER_DAY + 1) return rows[0];
+        await sleep(400);
+      }
+      return null;
+    })();
+    const loudEvents = await prisma.notificationEvent.count({ where: { type: 'share.link.opened', payload: loudWhere } });
+    check('каждое открытие — событие', loudEvents === SHARE_NOTIFY_PER_DAY + 1, `${loudEvents} из ${SHARE_NOTIFY_PER_DAY + 1}`);
+    check('открытия схлопнуты в ОДНУ строку ленты со счётчиком', !!loudRow && loudRow.collapseCount === SHARE_NOTIFY_PER_DAY + 1, String(loudRow?.collapseCount));
     // describeRef.href (появился ради sign_request): у потребителя БЕЗ href
     // actionUrl обязан откатываться на общий раздел «Ссылки наружу» — иначе
     // расширение реестра молча увело бы старые уведомления в никуда.
-    const openedNote = await prisma.notification.findFirst({
-      where: { userId: u1, type: 'share.link.opened', payload: loudWhere },
+    const openedNote = await prisma.notificationEvent.findFirst({
+      where: { type: 'share.link.opened', payload: loudWhere },
       select: { actionUrl: true },
     });
     check('actionUrl без describeRef.href — «Ссылки наружу»', openedNote?.actionUrl === '/profile/links', String(openedNote?.actionUrl));
-    // Ещё открытия за те же сутки не должны добавлять ни одного уведомления.
+    // Ещё одно открытие — та же строка, счётчик +1 (не вторая строка).
     await call('POST', `/share-links/guest/${loudTok}/session`, null, {});
-    const afterMute = await prisma.notification.count({
-      where: { userId: u1, type: { in: ['share.link.opened', 'share.link.opened.muted'] }, payload: loudWhere },
-    });
-    check('после «тихо» уведомлений больше нет', afterMute === SHARE_NOTIFY_PER_DAY + 1, String(afterMute));
+    await sleep(1200);
+    const afterMore = await prisma.notification.findMany({ where: { userId: u1, type: 'share.link.opened', collapseKey: `share.link.opened:share_link:${cLoud.json.data.id}` } });
+    check('следующее открытие — та же строка, счётчик +1', afterMore.length === 1 && afterMore[0].collapseCount === SHARE_NOTIFY_PER_DAY + 2, `${afterMore.length} строк, count=${afterMore[0]?.collapseCount}`);
 
     // ============================================================
     // 14д. «Мои ссылки»: обзор всего, что человек раздал наружу
@@ -699,13 +704,13 @@ async function main() {
       ),
     );
     const raceWhere = { path: ['shareLinkId'], equals: cRace2.json.data.id };
-    const raceNotes = await prisma.notification.count({
-      where: { userId: u1, type: { in: ['share.link.opened', 'share.link.opened.muted'] }, payload: raceWhere },
-    });
+    await sleep(1500);
+    const raceEvents = await prisma.notificationEvent.count({ where: { type: 'share.link.opened', payload: raceWhere } });
+    const raceRows = await prisma.notification.count({ where: { userId: u1, type: 'share.link.opened', collapseKey: `share.link.opened:share_link:${cRace2.json.data.id}` } });
     check(
-      'потолок уведомлений держится и в гонке',
-      raceNotes === SHARE_NOTIFY_PER_DAY + 1,
-      `${raceNotes}, ожидалось ${SHARE_NOTIFY_PER_DAY + 1}`,
+      'в гонке каждое открытие даёт своё событие (атомарный номер открытия), а строка — одна',
+      raceEvents === SHARE_NOTIFY_PER_DAY + 4 && raceRows === 1,
+      `events=${raceEvents} (ожидалось ${SHARE_NOTIFY_PER_DAY + 4}), rows=${raceRows}`,
     );
 
     // ============================================================
@@ -888,11 +893,11 @@ async function main() {
       check('гость записан на владельца ссылки', guestRow?.ownerType === 'user' && guestRow?.ownerId === u1, JSON.stringify({ t: guestRow?.ownerType, o: guestRow?.ownerId }));
 
       // Уведомление владельцу называет гостя по имени.
-      const notif = await prisma.notification.findFirst({
-        where: { userId: u1, type: 'share.link.opened', body: { contains: 'Асель Гостевая' } },
+      const notif = await prisma.notificationEvent.findFirst({
+        where: { type: 'share.link.opened', payload: { path: ['guestSuffix'], string_contains: 'Асель Гостевая' } },
         orderBy: { createdAt: 'desc' },
       });
-      check('уведомление «ссылку открыли» несёт имя гостя', !!notif, notif?.body);
+      check('уведомление «ссылку открыли» несёт имя гостя', !!notif, JSON.stringify(notif?.payload?.guestSuffix));
     }
 
     // identity/start на ссылке БЕЗ тумблера — не источник SMS-трафика.

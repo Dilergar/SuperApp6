@@ -16,6 +16,7 @@ import { DriveService } from './drive.service';
 import { DriveShareService } from './drive-share.service';
 import { DriveTreeService } from './drive-tree.service';
 import { DriveVersionsService } from './drive-versions.service';
+import { DriveNotificationRefsProvider } from './drive-notification-refs.provider';
 
 /**
  * OmniDrive («Диск») — B2C и B2B в одном сервисе.
@@ -32,6 +33,8 @@ import { DriveVersionsService } from './drive-versions.service';
   imports: [RolesModule],
   controllers: [DriveController, DriveGuestController],
   providers: [
+    // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
+    DriveNotificationRefsProvider,
     DriveShareLinksProvider,
     DriveGuestZipService,
     DriveService,

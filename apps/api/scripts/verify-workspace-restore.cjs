@@ -85,8 +85,10 @@ async function main() {
 
     // ===== Предупреждения за 7 / 3 / 1 день =====
     const u1 = (await prisma.user.findUnique({ where: { phone: P1 }, select: { id: true } })).id;
-    const warnsOf = () => prisma.notification.findMany({
-      where: { userId: u1, type: 'workspace.archive.expiring', payload: { path: ['workspaceId'], equals: wsId } },
+    // Предупреждения — СОБЫТИЯ движка (строка ленты схлопывается по организации,
+    // а рубежи 7/3/1 различимы только по событиям).
+    const warnsOf = () => prisma.notificationEvent.findMany({
+      where: { type: 'workspace.archive.expiring', payload: { path: ['workspaceId'], equals: wsId } },
       orderBy: { createdAt: 'asc' },
     });
     const archivedDaysAgo = (d) => prisma.workspace.update({
@@ -103,8 +105,10 @@ async function main() {
     await sweep();
     let warns = await warnsOf();
     check('за 7 дней пришло предупреждение', warns.length === 1, `${warns.length}`);
-    check('в тексте склонённый срок и имя организации', /через 7 дней/.test(warns[0]?.title || '') && (warns[0]?.title || '').includes('restore-e2e'), warns[0]?.title);
-    check('в теле — дата, после которой не вернуть', /после \d{2}\.\d{2}\.\d{4}/.test(warns[0]?.body || ''), warns[0]?.body);
+    // Текст рендерится ПРИ ЧТЕНИИ в языке зрителя; событие несёт данные шаблона:
+    // склонённое слово («дней»/«дня»/«день») готовит эмиттер, дата — в payload.
+    check('в событии склонённый срок и имя организации', warns[0]?.payload?.days === 7 && warns[0]?.payload?.daysWord === '7 дней' && String(warns[0]?.payload?.workspaceName || '').includes('restore-e2e'), JSON.stringify(warns[0]?.payload));
+    check('в событии — дата, после которой не вернуть', /\d{2}\.\d{2}\.\d{4}/.test(String(warns[0]?.payload?.purgeDate || '')), String(warns[0]?.payload?.purgeDate));
     check('дип-линк ведёт на дашборд', warns[0]?.actionUrl === '/dashboard');
 
     await sweep();
@@ -118,13 +122,13 @@ async function main() {
     await sweep();
     warns = await warnsOf();
     check('за 3 дня пришло второе предупреждение', warns.length === 2, `${warns.length}`);
-    check('во втором — «через 3 дня»', /через 3 дня/.test(warns[1]?.title || ''), warns[1]?.title);
+    check('во втором — «3 дня»', warns[1]?.payload?.days === 3 && warns[1]?.payload?.daysWord === '3 дня', JSON.stringify(warns[1]?.payload));
 
     await archivedDaysAgo(RETENTION_DAYS - 1); // остался 1
     await sweep();
     warns = await warnsOf();
     check('за 1 день пришло третье предупреждение', warns.length === 3, `${warns.length}`);
-    check('в третьем — «через 1 день», а не «1 дней»', /через 1 день(?!\w)/.test(warns[2]?.title || ''), warns[2]?.title);
+    check('в третьем — «1 день», а не «1 дней»', warns[2]?.payload?.days === 1 && warns[2]?.payload?.daysWord === '1 день', JSON.stringify(warns[2]?.payload));
 
     await call('POST', `/workspaces/${wsId}/restore`, t1);
     await sweep();
@@ -154,11 +158,11 @@ async function main() {
     check('её нет ни в списке, ни в архиве', !has((await call('GET', '/workspaces/archived', t1)).json.data, wsId) && !has((await call('GET', '/workspaces', t1)).json.data, wsId));
     // Уведомления FK-free (переживают удаление организации) — убираем за собой сами,
     // иначе прогоны копят «предупреждения» о давно удалённых тест-организациях.
-    await prisma.notification.deleteMany({ where: { type: 'workspace.archive.expiring', payload: { path: ['workspaceId'], equals: wsId } } }).catch(() => {});
+    await prisma.notificationEvent.deleteMany({ where: { type: 'workspace.archive.expiring', payload: { path: ['workspaceId'], equals: wsId } } }).catch(() => {});
     wsId = null; // организация уже удалена — finally нечего прибирать
   } finally {
     if (wsId) {
-      await prisma.notification.deleteMany({ where: { type: 'workspace.archive.expiring', payload: { path: ['workspaceId'], equals: wsId } } }).catch(() => {});
+      await prisma.notificationEvent.deleteMany({ where: { type: 'workspace.archive.expiring', payload: { path: ['workspaceId'], equals: wsId } } }).catch(() => {});
       await prisma.userRole.deleteMany({ where: { tenantId: wsId } }).catch(() => {});
       await prisma.relationTuple.deleteMany({ where: { OR: [{ resourceId: wsId }, { subjectId: wsId }] } }).catch(() => {});
       await prisma.workspace.delete({ where: { id: wsId } }).catch(() => {});

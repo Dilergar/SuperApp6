@@ -39,7 +39,7 @@ async function main() {
   if (!login.ok) throw new Error(`login: ${login.status}`);
   const token = login.json.data.accessToken;
 
-  const socket = io('http://localhost:3001/messenger', {
+  const socket = io('http://localhost:3001/realtime', {
     auth: { token },
     transports: ['websocket'],
     reconnection: false,
@@ -71,7 +71,7 @@ async function main() {
   // Nest зовёт handleConnection ПОСЛЕ установки соединения, поэтому клиент успевает
   // увидеть 'connect'; отказ виден как немедленный разрыв (socket.connected === false).
   let revokedRejected = false;
-  const reSocket = io('http://localhost:3001/messenger', {
+  const reSocket = io('http://localhost:3001/realtime', {
     auth: { token }, // тот же, уже отозванный logout-all токен
     transports: ['websocket'],
     reconnection: false,
@@ -88,7 +88,7 @@ async function main() {
   // Контроль: свежий токен после повторного входа по-прежнему пускают — проверка
   // отзыва не должна ломать нормальный вход.
   const relogin = await call('POST', '/auth/login', null, { phone: P1, password: PW });
-  const freshSocket = io('http://localhost:3001/messenger', {
+  const freshSocket = io('http://localhost:3001/realtime', {
     auth: { token: relogin.json.data.accessToken },
     transports: ['websocket'],
     reconnection: false,

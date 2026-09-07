@@ -100,7 +100,7 @@ async function main() {
       await prisma.workspaceInvitation.deleteMany({ where: { workspaceId: wsId } }).catch(() => {});
       await prisma.workspaceMember.deleteMany({ where: { workspaceId: wsId } }).catch(() => {});
       await prisma.userRole.deleteMany({ where: { context: 'workspace', tenantId: wsId } }).catch(() => {});
-      await prisma.notification.deleteMany({ where: { payload: { path: ['workspaceId'], equals: wsId } } }).catch(() => {});
+      await prisma.notificationEvent.deleteMany({ where: { workspaceId: wsId } }).catch(() => {});
       await prisma.workspace.delete({ where: { id: wsId } }).catch(() => {});
     }
     await prisma.$disconnect();

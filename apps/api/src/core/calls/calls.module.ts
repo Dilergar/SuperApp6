@@ -7,6 +7,7 @@ import { CallsRecordingService } from './calls-recording.service';
 import { CallsController } from './calls.controller';
 import { CallsWebhookController } from './calls-webhook.controller';
 import { CallsCron } from './calls.cron';
+import { CallsNotificationRefsProvider } from './calls-notification-refs.provider';
 
 /**
  * Движок звонков (core/calls) — 8-й платформенный движок: аудио/видеокомнаты
@@ -20,6 +21,8 @@ import { CallsCron } from './calls.cron';
 @Module({
   controllers: [CallsController, CallsWebhookController],
   providers: [
+    // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
+    CallsNotificationRefsProvider,
     CallsService,
     CallsLivekitClient,
     CallsRefRegistry,

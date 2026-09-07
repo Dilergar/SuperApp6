@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { RecorderService } from './recorder.service';
 import { RecorderController } from './recorder.controller';
 import { RecorderEvents } from './recorder.events';
+import { RecorderNotificationRefsProvider } from './recorder-notification-refs.provider';
 
 /**
  * Диктофон — сервис-потребитель голосового движка (Files/Voice/Notifications
@@ -10,7 +11,9 @@ import { RecorderEvents } from './recorder.events';
  */
 @Module({
   controllers: [RecorderController],
-  providers: [RecorderService, RecorderEvents],
+  providers: [
+    // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
+    RecorderNotificationRefsProvider,RecorderService, RecorderEvents],
   exports: [RecorderService],
 })
 export class RecorderModule {}

@@ -14,7 +14,7 @@ import type { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
-import { NotificationsService } from '../../modules/notifications/notifications.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { VerifyService } from '../verify/verify.service';
 import { JobsService } from '../jobs/jobs.service';
 import { WorkspaceContextService } from '../../shared/context/workspace-context.service';
@@ -247,7 +247,7 @@ export class AuthService {
     // Уведомление — ПОСЛЕ коммита и без права уронить ответ: пароль уже сменён, а в
     // ответе едут токены автовхода. Упавшая лента не должна выглядеть как «сброс не удался».
     this.notifications
-      .notify(userId, 'auth.password.changed', {})
+      .send(null, { type: 'auth.password.changed', to: [{ userId }], reason: 'system', actionUrl: '/profile/security' })
       .catch((err) => this.logger.error(`Уведомление о смене пароля не создано: ${err.message}`));
 
     const roles = await this.db.userRole.findMany({

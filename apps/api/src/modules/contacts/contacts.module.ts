@@ -4,6 +4,7 @@ import { ContactsService } from './contacts.service';
 import { ContactsController } from './contacts.controller';
 import { ContactsCron } from './contacts.cron';
 import { PersonalGraphRegistry } from './personal-graph.registry';
+import { ContactsNotificationRefsProvider } from './contacts-notification-refs.provider';
 
 /**
  * ContactsModule — bilateral confirmed social graph.
@@ -15,7 +16,9 @@ import { PersonalGraphRegistry } from './personal-graph.registry';
 @Global()
 @Module({
   controllers: [ContactsController],
-  providers: [ContactsService, ContactsCron, PersonalGraphRegistry, ContactsAudiencesProvider],
+  providers: [
+    // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
+    ContactsNotificationRefsProvider,ContactsService, ContactsCron, PersonalGraphRegistry, ContactsAudiencesProvider],
   exports: [ContactsService, PersonalGraphRegistry],
 })
 export class ContactsModule {}

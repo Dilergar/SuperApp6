@@ -306,13 +306,18 @@ export const humanTaskNode: ProcessNodeProvider = {
       });
       if (!dep || dep.workspaceId !== ctx.workspaceId) throw new Error('Отдел не найден');
       const memberIds = await departmentMemberIds(ctx, cfg.departmentId!);
-      for (const uid of memberIds) {
-        await ctx.deps.notifications
-          .notify(uid, 'process.task.queued', { title, departmentName: dep.name, processName: ctx.definitionName }, {
-            actionUrl: `/workspaces/${ctx.workspaceId}/processes/inbox`,
-          })
-          .catch(() => undefined);
-      }
+      await ctx.deps.notifications
+        .send(null, {
+          type: 'process.task.queued',
+          to: memberIds.map((uid) => ({ userId: uid })),
+          payload: { title, departmentName: dep.name, processName: ctx.definitionName, instanceId: ctx.instanceId },
+          ref: { type: 'process_instance', id: ctx.instanceId },
+          workspaceId: ctx.workspaceId,
+          reason: 'participant',
+          actionUrl: `/workspaces/${ctx.workspaceId}/processes/inbox`,
+          budget: 'workspace',
+        })
+        .catch(() => undefined);
       return {
         kind: 'wait',
         patch: { departmentId: cfg.departmentId, deadlineAt },
@@ -770,8 +775,15 @@ export const notifyNode: ProcessNodeProvider = {
       schema: { type: 'object', properties: { title: { type: 'string' }, message: { type: 'string' } }, required: ['title'] },
       async execute(ctx, input) {
         await ctx.deps.notifications
-          .notify(ctx.startedById, 'process.step.notify', { title: String(input.title ?? 'AI'), message: String(input.message ?? '') }, {
+          .send(null, {
+            type: 'process.step.notify',
+            to: [{ userId: ctx.startedById }],
+            payload: { title: String(input.title ?? 'AI'), message: String(input.message ?? ''), instanceId: ctx.instanceId },
+            ref: { type: 'process_instance', id: ctx.instanceId },
+            workspaceId: ctx.workspaceId,
+            reason: 'owner',
             actionUrl: `/workspaces/${ctx.workspaceId}/processes/instances/${ctx.instanceId}`,
+            budget: 'workspace',
           })
           .catch(() => undefined);
         return 'Уведомление отправлено';
@@ -787,12 +799,18 @@ export const notifyNode: ProcessNodeProvider = {
     if (!title || !recipientId) return { kind: 'complete', output: { skipped: !title ? 'нет заголовка' : 'нет получателя' } };
     try {
       if (cfg.to === 'member') await assertActiveMember(ctx, recipientId, 'Получатель уведомления');
-      await ctx.deps.notifications.notify(
-        recipientId,
-        'process.step.notify',
-        { title, message: cfg.message ? ctx.render(cfg.message) : '' },
-        { actionUrl: `/workspaces/${ctx.workspaceId}/processes/instances/${ctx.instanceId}` },
-      );
+      // Программируемый продюсер — с бюджетом организации (10 000 событий/час);
+      // сверх бюджета движок отвечает `notification.rateLimited`, нода фиксирует skipped.
+      await ctx.deps.notifications.send(null, {
+        type: 'process.step.notify',
+        to: [{ userId: recipientId }],
+        payload: { title, message: cfg.message ? ctx.render(cfg.message) : '', instanceId: ctx.instanceId },
+        ref: { type: 'process_instance', id: ctx.instanceId },
+        workspaceId: ctx.workspaceId,
+        reason: cfg.to === 'initiator' ? 'owner' : 'participant',
+        actionUrl: `/workspaces/${ctx.workspaceId}/processes/instances/${ctx.instanceId}`,
+        budget: 'workspace',
+      });
       return { kind: 'complete', output: { recipientId } };
     } catch (err) {
       return { kind: 'complete', output: { skipped: (err as Error).message } };

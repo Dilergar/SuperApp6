@@ -12,7 +12,7 @@ import { ChatterRefRegistry } from '../../core/chatter/chatter-ref.registry';
 import { DatabaseService } from '../../shared/database/database.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { PersonalGraphRegistry } from '../contacts/personal-graph.registry';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService } from '../../core/notifications/notifications.service';
 import { DriveAccessService, principalRelation } from './drive-access.service';
 import { DriveService } from './drive.service';
 import { AudiencesService } from '../../core/audiences/audiences.service';
@@ -313,12 +313,15 @@ export class DriveShareService implements OnModuleInit {
     if (input.principalType !== 'user') return;
     const ownerName = await this.actorName(actorId);
     await this.notifications
-      .notify(
-        input.principalId,
-        'drive.shared',
-        { ownerName, nodeName, roleLabel: ROLE_LABEL[input.role], nodeId },
-        { actionUrl: `/drive/n/${nodeId}` },
-      )
+      .send(null, {
+        type: 'drive.shared',
+        to: [{ userId: input.principalId }],
+        payload: { ownerName, nodeName, roleLabel: ROLE_LABEL[input.role], nodeId },
+        ref: { type: 'drive_node', id: nodeId },
+        actorId,
+        reason: 'subscribed',
+        actionUrl: `/drive/n/${nodeId}`,
+      })
       .catch(() => undefined);
   }
 

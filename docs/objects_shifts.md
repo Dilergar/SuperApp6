@@ -62,4 +62,4 @@
 
 ## Связанные доки
 
-[objects.md](objects.md) · [calendar.md](calendar.md) · [jobs_engine.md](jobs_engine.md) · [notifications.md](notifications.md) · [rich_cards.md](rich_cards.md)
+[objects.md](objects.md) · [calendar.md](calendar.md) · [jobs_engine.md](jobs_engine.md) · [notifications_engine.md](notifications_engine.md) · [rich_cards.md](rich_cards.md)

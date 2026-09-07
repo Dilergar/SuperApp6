@@ -8,6 +8,7 @@ import { WalletModule } from '../wallet/wallet.module';
 import { TasksModule } from '../tasks/tasks.module';
 import { CalendarModule } from '../calendar/calendar.module';
 import { MessengerModule } from '../messenger/messenger.module';
+import { ShopNotificationRefsProvider } from './shop-notification-refs.provider';
 
 /**
  * My Wish & Shop. Catalog + sharing/staff/management decided by the @Global AccessService
@@ -21,6 +22,8 @@ import { MessengerModule } from '../messenger/messenger.module';
   imports: [WalletModule, TasksModule, CalendarModule, MessengerModule],
   controllers: [ShopController],
   providers: [
+    // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
+    ShopNotificationRefsProvider,
     ShopService,
     // String-token alias so TasksService can settle a linked order SYNCHRONOUSLY on fulfilment-task
     // completion via ModuleRef.get('ShopService', { strict: false }) — a direct import would create

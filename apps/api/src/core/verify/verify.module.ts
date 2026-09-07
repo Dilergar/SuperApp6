@@ -20,6 +20,6 @@ import { VerifyCron } from './verify.cron';
   // SmsOutboundService — служебные SMS (доставка ссылок наружу): зародыш
   // канального движка уведомлений, живёт рядом с драйвером, пока канал один.
   providers: [VerifyService, VerifySmsService, SmsOutboundService, VerifyCron],
-  exports: [VerifyService, SmsOutboundService],
+  exports: [VerifyService, VerifySmsService, SmsOutboundService],
 })
 export class VerifyModule {}

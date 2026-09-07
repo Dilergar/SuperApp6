@@ -4,6 +4,7 @@ import { OfficeService } from './office.service';
 import { OfficeController } from './office.controller';
 import { OfficeCron } from './office.cron';
 import { OfficeRichCardsProvider } from './office-rich-cards.provider';
+import { OfficeNotificationRefsProvider } from './office-notification-refs.provider';
 
 /**
  * OfficeModule — сервис «Виртуальный офис» (B2B): видеовстречи организации на движке
@@ -15,6 +16,8 @@ import { OfficeRichCardsProvider } from './office-rich-cards.provider';
   imports: [MessengerModule],
   controllers: [OfficeController],
   providers: [
+    // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
+    OfficeNotificationRefsProvider,
     OfficeService,
     OfficeCron,
     OfficeRichCardsProvider,

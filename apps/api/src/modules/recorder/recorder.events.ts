@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService } from '../../core/notifications/notifications.service';
 
 /**
  * Слушатель голосового движка: расшифровка записи Диктофона готова/не удалась →
@@ -47,12 +47,15 @@ export class RecorderEvents implements OnModuleInit {
       });
       for (const rec of recs) {
         await this.notifications
-          .notify(
-            rec.ownerId,
+          .send(null, {
             type,
-            { title: rec.title, recordingId: rec.id, fileId: payload.fileId },
-            { actionUrl: `/recorder?id=${rec.id}` },
-          )
+            to: [{ userId: rec.ownerId }],
+            payload: { title: rec.title, recordingId: rec.id, fileId: payload.fileId },
+            ref: { type: 'voice_recording', id: rec.id },
+            reason: 'owner',
+            actionUrl: `/recorder?id=${rec.id}`,
+            idempotencyKey: `${type}:${rec.id}:${payload.fileId}`,
+          })
           .catch(() => undefined);
       }
     } catch (err) {

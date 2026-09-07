@@ -61,7 +61,7 @@ Before implementing:
 
 ## 6. Что уже работает
 
-**16 платформенных движков** (`apps/api/src/core/`): access (ReBAC) · rich-cards · search · quick-actions · files · voice (STT) · calls (LiveKit) · chatter · jobs (outbox) · verify (SMS-OTP) · docs (WOPI) · share-links · approvals · sign (ЭЦП+ПЭП) · templates · audiences (адресаты).
+**18 платформенных движков** (`apps/api/src/core/`): access (ReBAC) · rich-cards · search · quick-actions · files · voice (STT) · calls (LiveKit) · chatter · jobs (outbox) · verify (SMS-OTP) · docs (WOPI) · share-links · approvals · sign (ЭЦП+ПЭП) · templates · audiences (адресаты) · notifications (уведомления: in-app/push/SMS/chat, предпочтения, политика организации) · realtime (один сокет `/realtime`).
 
 **Сервисы** (`apps/api/src/modules/`): Окружение (Circle — фундамент) · Задачник · Календарь (+Google) · Мессенджер · My Wish & Shop · Кошелёк-леджер · Скины карточек · Организации · Сотрудники + Орг. структура (вертикаль на графе должностей и объектов) · Процессы (нодовый канвас) · Финансы (B2C) · Диктофон · Виртуальный офис · Диск (OmniDrive) · Документооборот (+ЭДО) · Контрагенты · КЭДО (HR) · Объекты (дерево площадок + юрлица + штатное расписание + график смен + оборудование) · Заметки (B2C+B2B: свой формат документа, доска-вид на раздел с Alt+N на любой странице, привязка к задачам/контрагентам/объектам/документам). Документная вертикаль ЗАВЕРШЕНА; B2B-вертикаль объектов ПОСТРОЕНА; **мультиязычный фундамент построен** (kk/ru/en, render-at-read, стражи — `docs/i18n.md`), сервисы переводятся по одному за сессию.
 
@@ -99,7 +99,8 @@ Before implementing:
 | Юридическая подпись (ЭЦП/ПЭП) | `core/sign`: движок сам замораживает предмет | `docs/sign_engine.md` |
 | Данные в шаблон документа | `core/templates`: TemplateFieldRegistry + renderForContext | `docs/templates_engine.md` |
 | **Текст для человека (любой)** | `@superapp/i18n`: ключ каталога + `useTranslations`/`I18nService`; литерал запрещён линтером | `docs/i18n.md` |
-| Уведомления | NOTIFICATION_REGISTRY + emitEvent (не голый events.emit) | `docs/notifications.md` |
+| Уведомления человеку | `core/notifications`: тип в реестре shared (`packages/shared/src/notifications/<сервис>.ts` + `.title/.label` в трёх каталогах) + `send(tx, …)` В транзакции мутации + `NotificationRefRegistry` (право видеть + deep link); продюсер решает КОМУ, движок — КАК (каналы, предпочтения, тишина, схлопывание) | `docs/notifications_engine.md` |
+| Событие в сокет / команда с клиента | `core/realtime`: `registerRelay` / `registerHandler` / `registerConnectionHook`; свой gateway запрещён | `docs/realtime_engine.md` |
 | Деньги: оплата, заморозка, сделки | `wallet` (Ledger + Escrow) — только синхронно в одной tx | `docs/wallet_ledger.md` |
 | Записи на сетке календаря | Реестр слоёв (регистрирует ВЛАДЕЛЕЦ данных) | `docs/calendar.md` |
 | «Человек достижим?» | `ContactsService.assertReachable` (+personalOnly для личного) | `docs/contacts_circles.md` |
@@ -192,7 +193,7 @@ Docker-профили сайдкаров (`--profile s3|scan|voice|calls|docs|pd
 
 ## 13. Новый сервис — чек-лист
 
-Грилл дизайна → модуль в `modules/` → Prisma-миграция → типы/Zod в shared (обе стороны провода!) → регистрация в app.module → **чек-лист движков** → веб-страница по конвенциям → `verify-<name>.cjs` → обновить `docs/` (+`docs/module_graph.md` при новом ребре, +строку в `docs/README.md`). Полный плейбук — **`docs/playbook_new_service.md`**.
+Грилл дизайна → модуль в `modules/` → Prisma-миграция → типы/Zod в shared (обе стороны провода!) → регистрация в app.module → **чек-лист движков** (в т.ч. уведомления: файл реестра + 3 каталога + `send(tx)` + `NotificationRefRegistry`) → веб-страница по конвенциям → `verify-<name>.cjs` → обновить `docs/` (+`docs/module_graph.md` при новом ребре, +строку в `docs/README.md`). Полный плейбук — **`docs/playbook_new_service.md`**.
 
 ## 14. Дизайн-система
 

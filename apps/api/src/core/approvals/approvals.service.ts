@@ -39,7 +39,7 @@ import { DatabaseService } from '../../shared/database/database.service';
 import { AccessService } from '../access/access.service';
 import { AudiencesService } from '../audiences/audiences.service';
 import { JobsService } from '../jobs/jobs.service';
-import { NotificationsService } from '../../modules/notifications/notifications.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { ApprovalsRegistry, type ApprovalRefContext } from './approvals.registry';
 import {
   APPROVAL_ANNOUNCE_JOB,
@@ -351,12 +351,16 @@ export class ApprovalsService implements OnModuleInit {
 
           if (closeAs === 'skipped') {
             await this.notifications
-              .notify(
-                step.request.createdById,
-                'approval.unassigned',
-                { refTitle: step.request.refTitle, stepTitle: step.title, assigneeLabel: step.assigneeLabel ?? 'адресату' },
-                { actionUrl: this.hrefFor(step.request.workspaceId, step.requestId), dedupKey: `apun:${id}` },
-              )
+              .send(tx, {
+                type: 'approval.unassigned',
+                to: [{ userId: step.request.createdById }],
+                payload: { refTitle: step.request.refTitle, stepTitle: step.title, assigneeLabel: step.assigneeLabel ?? 'адресату' },
+                ref: { type: 'approval_request', id: step.requestId },
+                workspaceId: step.request.workspaceId,
+                reason: 'owner',
+                actionUrl: this.hrefFor(step.request.workspaceId, step.requestId),
+                idempotencyKey: `apun:${id}`,
+              })
               .catch(() => undefined);
           }
 
@@ -889,16 +893,20 @@ export class ApprovalsService implements OnModuleInit {
 
     const last = [...request.steps].reverse().find((s) => s.decidedAt);
     await this.notifications
-      .notify(
-        request.createdById,
-        'approval.resolved',
-        {
+      .send(null, {
+        type: 'approval.resolved',
+        to: [{ userId: request.createdById }],
+        payload: {
           refTitle: request.refTitle,
           outcomeLabel: APPROVAL_REQUEST_STATUS_LABELS[request.status as keyof typeof APPROVAL_REQUEST_STATUS_LABELS],
           comment: last ? ((await this.lastComment(last.id)) ?? '') : '',
         },
-        { actionUrl: this.hrefFor(request.workspaceId, request.id) },
-      )
+        ref: { type: 'approval_request', id: request.id },
+        workspaceId: request.workspaceId,
+        reason: 'owner',
+        actionUrl: this.hrefFor(request.workspaceId, request.id),
+        idempotencyKey: `apres:${request.id}:${request.status}`,
+      })
       .catch(() => undefined);
   }
 
@@ -927,27 +935,34 @@ export class ApprovalsService implements OnModuleInit {
       });
       if (request) {
         await this.notifications
-          .notify(
-            request.createdById,
-            'approval.unassigned',
-            { refTitle, stepTitle: step.title, assigneeLabel: step.assigneeLabel ?? 'выбранной группе' },
-            { actionUrl, dedupKey: `apun:${step.id}` },
-          )
+          .send(null, {
+            type: 'approval.unassigned',
+            to: [{ userId: request.createdById }],
+            payload: { refTitle, stepTitle: step.title, assigneeLabel: step.assigneeLabel ?? 'выбранной группе' },
+            ref: { type: 'approval_request', id: step.requestId },
+            workspaceId,
+            reason: 'owner',
+            actionUrl,
+            idempotencyKey: `apun:${step.id}`,
+          })
           .catch(() => undefined);
       }
       return;
     }
 
-    for (const uid of step.awaitingUserIds) {
-      await this.notifications
-        .notify(
-          uid,
-          'approval.requested',
-          { refTitle, stepTitle: step.title, actionLabel: labels.action },
-          { actionUrl, dedupKey: `apreq:${step.id}:${uid}` },
-        )
-        .catch(() => undefined);
-    }
+    // Все адресаты шага — одним событием (леджер движка дедупит повтор активации шага)
+    await this.notifications
+      .send(null, {
+        type: 'approval.requested',
+        to: step.awaitingUserIds.map((uid) => ({ userId: uid })),
+        payload: { refTitle, stepTitle: step.title, actionLabel: labels.action },
+        ref: { type: 'approval_request', id: step.requestId },
+        workspaceId,
+        reason: 'requested',
+        actionUrl,
+        idempotencyKey: `apreq:${step.id}`,
+      })
+      .catch(() => undefined);
   }
 
   /**

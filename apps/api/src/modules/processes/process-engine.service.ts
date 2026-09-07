@@ -4,7 +4,7 @@ import { PROCESS_LIMITS, TEAM_WORKSPACE_ROLES } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService } from '../../core/notifications/notifications.service';
 import { TasksService } from '../tasks/tasks.service';
 import { ApprovalsService } from '../../core/approvals/approvals.service';
 import { DI_TOKENS } from '../../shared/di-tokens';
@@ -740,13 +740,18 @@ export class ProcessEngineService {
       const label = plan?.nodes[s.nodeId]?.label ?? s.nodeId;
       const recipients = new Set<string>([s.instance.startedById]);
       if (s.assigneeId) recipients.add(s.assigneeId);
-      for (const uid of recipients) {
-        await this.notifications
-          .notify(uid, 'process.step.overdue', { title: label, processName: s.instance.definition.name }, {
-            actionUrl: `/workspaces/${s.instance.workspaceId}/processes/instances/${s.instance.id}`,
-          })
-          .catch(() => undefined);
-      }
+      await this.notifications
+        .send(null, {
+          type: 'process.step.overdue',
+          to: [...recipients].map((uid) => ({ userId: uid })),
+          payload: { title: label, processName: s.instance.definition.name, instanceId: s.instance.id },
+          ref: { type: 'process_instance', id: s.instance.id },
+          workspaceId: s.instance.workspaceId,
+          reason: 'participant',
+          actionUrl: `/workspaces/${s.instance.workspaceId}/processes/instances/${s.instance.id}`,
+          idempotencyKey: `proc:overdue:${s.id}`,
+        })
+        .catch(() => undefined);
     }
   }
 
@@ -949,12 +954,16 @@ export class ProcessEngineService {
     });
     if (!instance) return;
     await this.notifications
-      .notify(
-        instance.startedById,
-        'process.finished',
-        { processName: instance.definition.name },
-        { actionUrl: `/workspaces/${instance.workspaceId}/processes/instances/${instanceId}` },
-      )
+      .send(null, {
+        type: 'process.finished',
+        to: [{ userId: instance.startedById }],
+        payload: { processName: instance.definition.name, instanceId },
+        ref: { type: 'process_instance', id: instanceId },
+        workspaceId: instance.workspaceId,
+        reason: 'owner',
+        actionUrl: `/workspaces/${instance.workspaceId}/processes/instances/${instanceId}`,
+        idempotencyKey: `proc:done:${instanceId}`,
+      })
       .catch(() => undefined);
     this.events.emit(
       'process.finished',
@@ -984,16 +993,18 @@ export class ProcessEngineService {
     // sfflow#4: сбой видит и ОТВЕТСТВЕННЫЙ за процесс (создатель определения), а не только
     // инициатор — для авто-запусков (runAs=служебный сотрудник) инициатор мог бы не заметить.
     const recipients = new Set<string>([instance.startedById, instance.definition.createdById]);
-    for (const uid of recipients) {
-      await this.notifications
-        .notify(
-          uid,
-          'process.failed',
-          { processName: instance.definition.name, error: instance.error ?? '' },
-          { actionUrl: `/workspaces/${instance.workspaceId}/processes/instances/${instanceId}` },
-        )
-        .catch(() => undefined);
-    }
+    await this.notifications
+      .send(null, {
+        type: 'process.failed',
+        to: [...recipients].map((uid) => ({ userId: uid })),
+        payload: { processName: instance.definition.name, error: instance.error ?? '', instanceId },
+        ref: { type: 'process_instance', id: instanceId },
+        workspaceId: instance.workspaceId,
+        reason: 'owner',
+        actionUrl: `/workspaces/${instance.workspaceId}/processes/instances/${instanceId}`,
+        idempotencyKey: `proc:fail:${instanceId}`,
+      })
+      .catch(() => undefined);
     this.events.emit(
       'process.failed',
       { instanceId, definitionId: instance.definitionId, workspaceId: instance.workspaceId, startedById: instance.startedById, error: instance.error },

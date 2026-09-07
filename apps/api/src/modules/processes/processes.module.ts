@@ -9,6 +9,7 @@ import { ProcessesEventsListener } from './processes.events';
 import { ProcessTriggerRouter } from './process-triggers.service';
 import { ProcessesCron } from './processes.cron';
 import { ProcessApprovalsProvider } from './process-approvals.provider';
+import { ProcessesNotificationRefsProvider } from './processes-notification-refs.provider';
 
 /**
  * «Процессы» (B2B) — нодовый движок бизнес-процессов (Фазы 1–3).
@@ -20,6 +21,8 @@ import { ProcessApprovalsProvider } from './process-approvals.provider';
   imports: [TasksModule],
   controllers: [ProcessesController, ProcessWebhookController],
   providers: [
+    // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
+    ProcessesNotificationRefsProvider,
     ProcessNodeRegistry,
     ProcessEngineService,
     ProcessesService,
