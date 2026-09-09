@@ -12,16 +12,18 @@
 // различаются только скоуп и загрузчики.
 // ============================================================
 
+import { useTranslations } from 'next-intl';
 import { ShareLinksBrowser } from '@/components/share-links/ShareLinksBrowser';
 import { myShareLinksScopeKey } from '@/lib/queries';
 import { fetchMyShareLinks, fetchMyShareStats, revokeMyShareLinks } from '@/lib/share-links-api';
 
 export default function ProfileLinksPage() {
+  const t = useTranslations('share');
   return (
     <ShareLinksBrowser
-      title="Ссылки наружу"
-      subtitle="Всё, чем вы поделились по ссылке с людьми без аккаунта SuperApp6."
-      emptyDescription="Ссылка появляется здесь, как только вы поделитесь файлом, папкой или документом наружу."
+      title={t('mine.title')}
+      subtitle={t('mine.subtitle')}
+      emptyDescription={t('mine.empty')}
       source={{
         keyPrefix: myShareLinksScopeKey,
         list: ({ status, cursor }) => fetchMyShareLinks({ status, ...(cursor ? { cursor } : {}) }),

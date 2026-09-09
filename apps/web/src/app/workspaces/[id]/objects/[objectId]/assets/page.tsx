@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ASSET_STATUSES, type AssetDto, type CursorPage } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
@@ -32,6 +33,8 @@ import { AssetForm } from '../../_components/AssetForm';
 const STATUS_META = new Map(ASSET_STATUSES.map((s) => [s.value, s]));
 
 export default function AssetsPage() {
+  const t = useTranslations('objects');
+  const tc = useTranslations('common');
   const { isReady } = useRequireAuth();
   const { id, objectId } = useParams<{ id: string; objectId: string }>();
   const qc = useQueryClient();
@@ -78,16 +81,16 @@ export default function AssetsPage() {
     <>
       <Card>
         <CardHeader
-          title="Оборудование"
-          subtitle="Оборудование объекта: где стоит, кто отвечает, что с ним было"
+          title={t('assets.breadcrumb')}
+          subtitle={t('assets.subtitle')}
           actions={
             <>
               <Button size="sm" variant="ghost" icon="toolbox" href={`/workspaces/${id}/objects/models`}>
-                Справочник моделей
+                {t('models.breadcrumb')}
               </Button>
               {canManage && (
                 <Button size="sm" variant="primary" icon="add" onClick={() => setCreating(true)}>
-                  Оборудование
+                  {t('assets.one')}
                 </Button>
               )}
             </>
@@ -98,10 +101,13 @@ export default function AssetsPage() {
           <SegmentedControl
             value={status}
             onChange={setStatus}
-            items={[{ key: '', label: 'Все' }, ...ASSET_STATUSES.map((s) => ({ key: s.value, label: s.label }))]}
+            items={[
+              { key: '', label: tc('labels.all') },
+              ...ASSET_STATUSES.map((s) => ({ key: s.value, label: t(`assetStatus.${s.value}`) })),
+            ]}
           />
           <SearchField
-            placeholder="Название, инвентарный, серийный…"
+            placeholder={t('assets.searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -112,12 +118,12 @@ export default function AssetsPage() {
         ) : items.length === 0 ? (
           <EmptyState
             icon="wrench"
-            title="Оборудования пока нет"
-            description="Добавьте первую единицу — кофемашину, холодильник, кассу. Модель можно создать прямо в форме."
+            title={t('assets.empty')}
+            description={t('assets.emptyHint')}
             action={
               canManage ? (
                 <Button variant="primary" icon="add" onClick={() => setCreating(true)}>
-                  Добавить оборудование
+                  {t('assets.add')}
                 </Button>
               ) : undefined
             }
@@ -138,7 +144,7 @@ export default function AssetsPage() {
             {hasNextPage && (
               <div style={{ marginTop: 'var(--spacing-4)', display: 'flex', justifyContent: 'center' }}>
                 <Button variant="ghost" loading={isFetchingNextPage} onClick={() => void fetchNextPage()}>
-                  Показать ещё
+                  {t('assets.showMore')}
                 </Button>
               </div>
             )}
@@ -177,6 +183,7 @@ function AssetTile({
   objectId: string;
   asset: AssetDto;
 }) {
+  const t = useTranslations('objects');
   const meta = STATUS_META.get(asset.status);
   return (
     <Link
@@ -201,12 +208,14 @@ function AssetTile({
         </div>
         <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>{asset.name}</div>
         <div className="label-sm" style={{ opacity: 0.7, marginBottom: '0.5rem' }}>
-          {[asset.modelName, asset.inventoryNumber ? `инв. ${asset.inventoryNumber}` : null]
+          {[asset.modelName, asset.inventoryNumber ? t('assets.inventoryShort', { number: asset.inventoryNumber }) : null]
             .filter(Boolean)
             .join(' · ')}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <Chip tone={(meta?.tone ?? 'neutral') as 'success' | 'warning' | 'neutral'}>{meta?.label ?? asset.status}</Chip>
+          <Chip tone={(meta?.tone ?? 'neutral') as 'success' | 'warning' | 'neutral'}>
+            {meta ? t(`assetStatus.${asset.status}`) : asset.status}
+          </Chip>
           {asset.custodianUserId && asset.custodianName && (
             <PersonChip size="XS" userId={asset.custodianUserId} firstName={asset.custodianName} />
           )}

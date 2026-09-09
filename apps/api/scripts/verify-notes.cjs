@@ -248,7 +248,7 @@ async function main() {
   check('джоб проекций нарезал чанки (RAG-готовность)', chunks >= 1, `chunks=${chunks}`);
   if (chunks) {
     const ch = await prisma.noteChunk.findFirst({ where: { noteId: note.id }, orderBy: { ord: 'asc' } });
-    check('чанк несёт контекст-префикс и текст', !!ch?.contextPrefix?.includes('Заметка') && ch.text.length > 0 && ch.tokenCount > 0);
+    check('чанк несёт контекст-префикс и текст', !!ch?.contextPrefix?.includes(word) && ch.text.length > 0 && ch.tokenCount > 0, ch?.contextPrefix);
   }
 
   const card = await call('GET', `/rich-cards/note/${note.id}`, p1.token);

@@ -1,13 +1,5 @@
 import type { NotificationType } from '@superapp/shared';
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  BadRequestException,
-  ForbiddenException,
-  ConflictException,
-  type OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { Prisma, FinAccount, FinBook, FinTransaction } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { ContactsService } from '../contacts/contacts.service';
@@ -15,12 +7,17 @@ import { PersonalGraphRegistry } from '../contacts/personal-graph.registry';
 import { NotificationsService } from '../../core/notifications/notifications.service';
 import { AccessService } from '../../core/access/access.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
+import { SOURCE_LOCALE } from '@superapp/i18n';
+import { I18nService } from '../../shared/i18n/i18n.service';
+import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
 import {
   FIN_LIMITS,
   FIN_DEFAULT_CURRENCY,
   FIN_SEED_ACCOUNTS,
+  FIN_SEED_EQUITY_KEY,
   FIN_SEED_EXPENSE_CATEGORIES,
   FIN_SEED_INCOME_CATEGORIES,
+  SUPPORTED_LOCALES,
 } from '@superapp/shared';
 import type {
   FinAccountDto,
@@ -45,6 +42,23 @@ import type {
 import type { FinRecurringRule } from '@prisma/client';
 
 type Tx = Prisma.TransactionClient;
+
+/**
+ * `memo` проводки леджера — МАШИННАЯ пометка ('mint', 'card-skin:<id>',
+ * 'company payout'), а не текст для человека: печатать её в ленте значило бы
+ * показать внутреннее имя. Слово подбирает каталог по пометке; незнакомая
+ * пометка слова не даёт — заголовок собирается по направлению перевода.
+ */
+const MEMO_TITLE_KEYS: Record<string, string> = {
+  mint: 'finance.coinFeed.minted',
+  burn: 'finance.coinFeed.burned',
+  'company payout': 'finance.coinFeed.companyPayout',
+  'escrow return': 'finance.coinFeed.escrowReturn',
+  'card-skin': 'finance.coinFeed.cardSkin',
+};
+
+/** Автоимя книги: платформа называет её сама, человек не переименовывает. */
+const BOOK_NAME_KEY = 'finance.book.defaultName';
 
 const MONEY_KINDS = new Set(['asset', 'liability']);
 const CATEGORY_KINDS = new Set(['expense', 'income']);
@@ -76,6 +90,7 @@ export class FinancesService implements OnModuleInit {
     private readonly access: AccessService,
     private readonly events: EventBusService,
     private readonly graphHooks: PersonalGraphRegistry,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -101,7 +116,9 @@ export class FinancesService implements OnModuleInit {
     if (existing) return existing;
     try {
       return await this.db.$transaction(async (tx) => {
-        const book = await tx.finBook.create({ data: { ownerType, ownerId } });
+        const book = await tx.finBook.create({
+          data: { ownerType, ownerId, name: this.i18n.translateFor(SOURCE_LOCALE, BOOK_NAME_KEY) },
+        });
         await this.seedBook(tx, book.id);
         return book;
       });
@@ -126,16 +143,14 @@ export class FinancesService implements OnModuleInit {
       return { ...own, myRole: 'owner' };
     }
     const book = await this.db.finBook.findUnique({ where: { id: bookId } });
-    if (!book) throw new NotFoundException('Финансовая книга не найдена');
+    if (!book) throw notFound('finance.bookNotFound');
     if (book.ownerType === 'user' && book.ownerId === userId) return { ...book, myRole: 'owner' };
     const principal = { type: 'user', id: userId };
     if (await this.access.can(principal, 'finbook.edit', book.id)) return { ...book, myRole: 'editor' };
     if (need === 'view' && (await this.access.can(principal, 'finbook.view', book.id))) {
       return { ...book, myRole: 'viewer' };
     }
-    throw new ForbiddenException(
-      need === 'edit' ? 'Нет права вести эту книгу (нужна роль «ведёт вместе»)' : 'Нет доступа к этой финансовой книге',
-    );
+    throw forbidden(need === 'edit' ? 'finance.bookEditDenied' : 'finance.bookViewDenied');
   }
 
   /** Может ли зритель видеть книгу (для rich-card рендереров; Ф6 добавит finbook в core/access). */
@@ -148,27 +163,46 @@ export class FinancesService implements OnModuleInit {
     }
   }
 
-  /** Seed chart of accounts: Наличные + Карта, hidden equity peg, category tree. */
+  /**
+   * Seed chart of accounts: cash + card, hidden equity peg, category tree.
+   *
+   * Имена засева НЕ переводятся при чтении: это обычные строки книги, которые
+   * человек тут же переименовывает. Поэтому слово берётся из каталога ОДИН раз —
+   * в языке того, кто книгу завёл (`I18nService` читает язык запроса из ALS).
+   */
+  /**
+   * Имя книги для ЧТЕНИЯ. Книгу называет ПЛАТФОРМА (переименования нет вовсе),
+   * поэтому автоимя перерисовывается в языке зрителя — та же механика, что у
+   * системных папок Диска и автоимени встречи. Имя, отличное от автоимени
+   * (заведено извне), отдаём как есть.
+   */
+  private bookName(name: string): string {
+    return name === this.i18n.translateFor(SOURCE_LOCALE, BOOK_NAME_KEY)
+      ? this.i18n.translate(BOOK_NAME_KEY)
+      : name;
+  }
+
   private async seedBook(tx: Tx, bookId: string): Promise<void> {
+    const t = (key: string) => this.i18n.translate(key);
     await tx.finAccount.createMany({
       data: FIN_SEED_ACCOUNTS.map((a, i) => ({
         bookId,
         kind: 'asset',
         subtype: a.subtype,
-        name: a.name,
+        name: t(a.nameKey),
         icon: a.icon,
         currencyCode: FIN_DEFAULT_CURRENCY,
         sortOrder: i,
       })),
     });
     await tx.finAccount.create({
-      data: { bookId, kind: 'equity', name: 'Начальный остаток', isSystem: true, currencyCode: FIN_DEFAULT_CURRENCY },
+      data: { bookId, kind: 'equity', name: t(FIN_SEED_EQUITY_KEY), isSystem: true, currencyCode: FIN_DEFAULT_CURRENCY },
     });
     const seedTree = async (kind: 'expense' | 'income', seeds: typeof FIN_SEED_EXPENSE_CATEGORIES) => {
       let sort = 0;
       for (const seed of seeds) {
         const parent = await tx.finAccount.create({
-          data: { bookId, kind, name: seed.name, icon: seed.icon, currencyCode: FIN_DEFAULT_CURRENCY, sortOrder: sort++ },
+          data: { bookId, kind, name: t(seed.nameKey), icon: seed.icon, currencyCode: FIN_DEFAULT_CURRENCY, sortOrder: sort++ },
         });
         if (seed.children?.length) {
           await tx.finAccount.createMany({
@@ -176,7 +210,7 @@ export class FinancesService implements OnModuleInit {
               bookId,
               kind,
               parentId: parent.id,
-              name: c.name,
+              name: t(c.nameKey),
               icon: c.icon,
               currencyCode: FIN_DEFAULT_CURRENCY,
               sortOrder: i,
@@ -203,7 +237,13 @@ export class FinancesService implements OnModuleInit {
     const money = accounts.filter((a) => MONEY_KINDS.has(a.kind));
     const categories = accounts.filter((a) => CATEGORY_KINDS.has(a.kind));
     return {
-      book: { id: book.id, ownerType: book.ownerType as 'user' | 'workspace', ownerId: book.ownerId, name: book.name, myRole: book.myRole },
+      book: {
+        id: book.id,
+        ownerType: book.ownerType as 'user' | 'workspace',
+        ownerId: book.ownerId,
+        name: this.bookName(book.name),
+        myRole: book.myRole,
+      },
       accounts: money.map((a) => this.serializeAccount(a, balances.get(a.id) ?? 0n)),
       categories: categories.map((a) => this.serializeAccount(a, 0n)),
     };
@@ -254,7 +294,7 @@ export class FinancesService implements OnModuleInit {
   ): Promise<FinAccountDto> {
     const book = await this.resolveBook(userId, bookId, 'edit');
     const moneyCount = await this.db.finAccount.count({ where: { bookId: book.id, kind: { in: ['asset', 'liability'] } } });
-    if (moneyCount >= FIN_LIMITS.maxAccounts) throw new BadRequestException(`Не больше ${FIN_LIMITS.maxAccounts} счетов`);
+    if (moneyCount >= FIN_LIMITS.maxAccounts) throw badRequest('finance.tooManyAccounts', { max: FIN_LIMITS.maxAccounts });
 
     const account = await this.db.$transaction(async (tx) => {
       const created = await tx.finAccount.create({
@@ -280,7 +320,7 @@ export class FinancesService implements OnModuleInit {
   /** Opening balance = equity → asset (the double-entry way to "start with money"). */
   private async createOpeningTx(tx: Tx, bookId: string, account: FinAccount, amount: number, userId: string): Promise<void> {
     const equity = await tx.finAccount.findFirst({ where: { bookId, kind: 'equity' } });
-    if (!equity) throw new ConflictException('Системный счёт «Начальный остаток» не найден');
+    if (!equity) throw conflict('finance.equityAccountMissing');
     const row = await tx.finTransaction.create({
       data: {
         bookId,
@@ -289,7 +329,7 @@ export class FinancesService implements OnModuleInit {
         amount: BigInt(amount),
         currencyCode: account.currencyCode,
         occurredOn: toDbDate(todayStr()),
-        note: 'Начальный остаток',
+        note: this.i18n.translate(FIN_SEED_EQUITY_KEY),
         createdById: userId,
         source: 'manual',
       },
@@ -306,13 +346,13 @@ export class FinancesService implements OnModuleInit {
   async setAccountBalance(userId: string, accountId: string, target: number, bookId?: string): Promise<FinAccountDto> {
     const book = await this.resolveBook(userId, bookId, 'edit');
     const account = await this.db.finAccount.findFirst({ where: { id: accountId, bookId: book.id, kind: 'asset' } });
-    if (!account) throw new NotFoundException('Счёт не найден');
+    if (!account) throw notFound('finance.accountNotFound');
     const balances = await this.computeBalances(book.id);
     const current = balances.get(account.id) ?? 0n;
     const delta = BigInt(target) - current;
     if (delta === 0n) return this.serializeAccount(account, current);
     const equity = await this.db.finAccount.findFirst({ where: { bookId: book.id, kind: 'equity' } });
-    if (!equity) throw new ConflictException('Системный счёт «Начальный остаток» не найден');
+    if (!equity) throw conflict('finance.equityAccountMissing');
     await this.db.$transaction(async (tx) => {
       const row = await tx.finTransaction.create({
         data: {
@@ -322,7 +362,7 @@ export class FinancesService implements OnModuleInit {
           amount: delta > 0n ? delta : -delta,
           currencyCode: account.currencyCode,
           occurredOn: toDbDate(todayStr()),
-          note: 'Корректировка остатка',
+          note: this.i18n.translate('finance.note.balanceAdjustment'),
           createdById: userId,
           source: 'manual',
         },
@@ -340,8 +380,8 @@ export class FinancesService implements OnModuleInit {
   ): Promise<FinAccountDto> {
     const book = await this.resolveBook(userId, bookId, 'edit');
     const account = await this.db.finAccount.findFirst({ where: { id: accountId, bookId: book.id, kind: { in: ['asset', 'liability'] } } });
-    if (!account) throw new NotFoundException('Счёт не найден');
-    if (account.isSystem) throw new BadRequestException('Системный счёт менять нельзя');
+    if (!account) throw notFound('finance.accountNotFound');
+    if (account.isSystem) throw badRequest('finance.systemAccountImmutable');
     const updated = await this.db.$transaction(async (tx) => {
       const row = await tx.finAccount.update({
         where: { id: account.id },
@@ -363,8 +403,8 @@ export class FinancesService implements OnModuleInit {
   async deleteAccount(userId: string, accountId: string, bookId?: string): Promise<{ archived: boolean }> {
     const book = await this.resolveBook(userId, bookId, 'edit');
     const account = await this.db.finAccount.findFirst({ where: { id: accountId, bookId: book.id, kind: { in: ['asset', 'liability'] } } });
-    if (!account) throw new NotFoundException('Счёт не найден');
-    if (account.isSystem) throw new BadRequestException('Системный счёт удалить нельзя');
+    if (!account) throw notFound('finance.accountNotFound');
+    if (account.isSystem) throw badRequest('finance.systemAccountUndeletable');
     return this.archiveOrDelete(book.id, account, userId);
   }
 
@@ -379,7 +419,7 @@ export class FinancesService implements OnModuleInit {
   ): Promise<FinAccountDto> {
     const book = await this.resolveBook(userId, bookId, 'edit');
     const count = await this.db.finAccount.count({ where: { bookId: book.id, kind: { in: ['expense', 'income'] } } });
-    if (count >= FIN_LIMITS.maxCategories) throw new BadRequestException(`Не больше ${FIN_LIMITS.maxCategories} категорий`);
+    if (count >= FIN_LIMITS.maxCategories) throw badRequest('finance.tooManyCategories', { max: FIN_LIMITS.maxCategories });
     if (dto.parentId) await this.assertValidParent(book.id, dto.kind, dto.parentId);
 
     const created = await this.db.$transaction(async (tx) => {
@@ -402,8 +442,8 @@ export class FinancesService implements OnModuleInit {
 
   private async assertValidParent(bookId: string, kind: string, parentId: string): Promise<FinAccount> {
     const parent = await this.db.finAccount.findFirst({ where: { id: parentId, bookId } });
-    if (!parent || parent.kind !== kind) throw new BadRequestException('Родительская категория не найдена');
-    if (parent.parentId) throw new BadRequestException('Категории вкладываются максимум на два уровня');
+    if (!parent || parent.kind !== kind) throw badRequest('finance.parentCategoryNotFound');
+    if (parent.parentId) throw badRequest('finance.categoryDepth');
     return parent;
   }
 
@@ -415,11 +455,11 @@ export class FinancesService implements OnModuleInit {
   ): Promise<FinAccountDto> {
     const book = await this.resolveBook(userId, bookId, 'edit');
     const category = await this.db.finAccount.findFirst({ where: { id: categoryId, bookId: book.id, kind: { in: ['expense', 'income'] } } });
-    if (!category) throw new NotFoundException('Категория не найдена');
+    if (!category) throw notFound('finance.categoryNotFound');
     if (dto.parentId !== undefined && dto.parentId !== null) {
-      if (dto.parentId === category.id) throw new BadRequestException('Категория не может быть родителем себя');
+      if (dto.parentId === category.id) throw badRequest('finance.categorySelfParent');
       const childrenCount = await this.db.finAccount.count({ where: { parentId: category.id } });
-      if (childrenCount > 0) throw new ConflictException('У категории есть подкатегории — сначала перенесите их');
+      if (childrenCount > 0) throw conflict('finance.categoryHasChildrenMove');
       await this.assertValidParent(book.id, category.kind, dto.parentId);
     }
     const updated = await this.db.$transaction(async (tx) => {
@@ -442,9 +482,9 @@ export class FinancesService implements OnModuleInit {
   async deleteCategory(userId: string, categoryId: string, bookId?: string): Promise<{ archived: boolean }> {
     const book = await this.resolveBook(userId, bookId, 'edit');
     const category = await this.db.finAccount.findFirst({ where: { id: categoryId, bookId: book.id, kind: { in: ['expense', 'income'] } } });
-    if (!category) throw new NotFoundException('Категория не найдена');
+    if (!category) throw notFound('finance.categoryNotFound');
     const childrenCount = await this.db.finAccount.count({ where: { parentId: category.id } });
-    if (childrenCount > 0) throw new ConflictException('У категории есть подкатегории — сначала удалите или перенесите их');
+    if (childrenCount > 0) throw conflict('finance.categoryHasChildrenDelete');
     return this.archiveOrDelete(book.id, category, userId);
   }
 
@@ -486,7 +526,7 @@ export class FinancesService implements OnModuleInit {
     if (fromKind === 'asset' && toKind === 'liability') return 'debt_payment';
     if (fromKind === 'liability' && toKind === 'asset') return 'debt_draw';
     if ((fromKind === 'equity' && toKind === 'asset') || (fromKind === 'asset' && toKind === 'equity')) return 'opening';
-    throw new BadRequestException('Недопустимая пара счетов для операции');
+    throw badRequest('finance.badAccountPair');
   }
 
   /**
@@ -502,10 +542,10 @@ export class FinancesService implements OnModuleInit {
     const moneyFrom = MONEY_KINDS.has(from.kind);
     const moneyTo = MONEY_KINDS.has(to.kind);
     if (moneyFrom && moneyTo && from.currencyCode !== to.currencyCode) {
-      if (amountTo == null) throw new BadRequestException('Для обмена валют укажите сумму зачисления (amountTo)');
+      if (amountTo == null) throw badRequest('finance.exchangeAmountToRequired');
       return { currencyCode: from.currencyCode, amountTo: BigInt(amountTo) };
     }
-    if (amountTo != null) throw new BadRequestException('amountTo указывается только при обмене валют');
+    if (amountTo != null) throw badRequest('finance.amountToOnlyForExchange');
     return { currencyCode: moneyFrom ? from.currencyCode : to.currencyCode, amountTo: null };
   }
 
@@ -515,19 +555,19 @@ export class FinancesService implements OnModuleInit {
     toId: string,
     rejectArchived = false,
   ): Promise<{ from: FinAccount; to: FinAccount }> {
-    if (fromId === toId) throw new BadRequestException('Счета операции должны различаться');
+    if (fromId === toId) throw badRequest('finance.sameAccounts');
     const rows = await this.db.finAccount.findMany({ where: { id: { in: [fromId, toId] }, bookId } });
     const from = rows.find((r) => r.id === fromId);
     const to = rows.find((r) => r.id === toId);
-    if (!from || !to) throw new NotFoundException('Счёт операции не найден в этой книге');
+    if (!from || !to) throw notFound('finance.txAccountNotInBook');
     if (from.kind === 'equity' || to.kind === 'equity') {
-      throw new BadRequestException('Начальный остаток задаётся при создании счёта, вручную он не редактируется');
+      throw badRequest('finance.openingBalanceReadonly');
     }
     // На СОЗДАНИИ новой операции архивный счёт/категорию не оживляем (иначе скрытый счёт
     // получает ненулевой баланс). На ПРАВКЕ существующей операции архив допустим — иначе
     // нельзя исправить историческую операцию по счёту, который потом архивировали.
     if (rejectArchived && (from.archived || to.archived)) {
-      throw new BadRequestException('Нельзя записать операцию на архивный счёт или категорию');
+      throw badRequest('finance.archivedAccount');
     }
     return { from, to };
   }
@@ -539,13 +579,13 @@ export class FinancesService implements OnModuleInit {
    */
   private async resolvePerson(userId: string, personUserId: string): Promise<{ id: string; name: string }> {
     if (personUserId !== userId) {
-      await this.contacts.assertReachable(userId, [personUserId], 'Этого человека нет в вашем окружении');
+      await this.contacts.assertReachable(userId, [personUserId], 'contacts.notInCircle');
     }
     const person = await this.db.user.findUnique({
       where: { id: personUserId },
       select: { firstName: true, lastName: true },
     });
-    if (!person) throw new BadRequestException('Пользователь не найден');
+    if (!person) throw badRequest('finance.personNotFound');
     return { id: personUserId, name: `${person.firstName} ${person.lastName ?? ''}`.trim() };
   }
 
@@ -639,7 +679,7 @@ export class FinancesService implements OnModuleInit {
   ): Promise<FinTransactionDto> {
     const book = await this.resolveBook(userId, bookId, 'edit');
     const existing = await this.db.finTransaction.findFirst({ where: { id: txId, bookId: book.id, deletedAt: null } });
-    if (!existing) throw new NotFoundException('Операция не найдена');
+    if (!existing) throw notFound('finance.transactionNotFound');
 
     const fromId = dto.fromAccountId ?? existing.fromAccountId;
     const toId = dto.toAccountId ?? existing.toAccountId;
@@ -651,7 +691,7 @@ export class FinancesService implements OnModuleInit {
     // старый amountTo стал бы несогласован с новым amount (нога назначения по старому курсу).
     const crossCurrency = MONEY_KINDS.has(from.kind) && MONEY_KINDS.has(to.kind) && from.currencyCode !== to.currencyCode;
     if (crossCurrency && dto.amount !== undefined && dto.amountTo === undefined) {
-      throw new BadRequestException('При изменении суммы обмена укажите и сумму зачисления (amountTo)');
+      throw badRequest('finance.exchangeAmountToRequired');
     }
     const effectiveAmountTo =
       dto.amountTo !== undefined ? dto.amountTo : crossCurrency ? (existing.amountTo != null ? Number(existing.amountTo) : null) : null;
@@ -715,7 +755,7 @@ export class FinancesService implements OnModuleInit {
   async deleteTransaction(userId: string, txId: string, bookId?: string): Promise<{ success: true }> {
     const book = await this.resolveBook(userId, bookId, 'edit');
     const existing = await this.db.finTransaction.findFirst({ where: { id: txId, bookId: book.id, deletedAt: null } });
-    if (!existing) throw new NotFoundException('Операция не найдена');
+    if (!existing) throw notFound('finance.transactionNotFound');
     await this.db.$transaction(async (tx) => {
       await tx.finTransaction.update({ where: { id: existing.id }, data: { deletedAt: new Date() } });
       await this.audit(tx, book.id, 'transaction', existing.id, userId, 'delete', existing, undefined);
@@ -818,8 +858,7 @@ export class FinancesService implements OnModuleInit {
 
   private formatMoneyHuman(minor: bigint | number, code: string): string {
     const symbols: Record<string, string> = { KZT: '₸', USD: '$', EUR: '€', RUB: '₽' };
-    const major = Number(minor) / 100;
-    return `${major.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ${symbols[code] ?? code}`;
+    return this.i18n.format().money(Number(minor), { scale: 2, symbol: symbols[code] ?? code });
   }
 
   /** PUT semantics: amount=null удаляет лимит. Лимиты — только на категории расходов. */
@@ -832,7 +871,7 @@ export class FinancesService implements OnModuleInit {
     const category = await this.db.finAccount.findFirst({
       where: { id: dto.categoryAccountId, bookId: book.id, kind: 'expense', archived: false },
     });
-    if (!category) throw new NotFoundException('Категория расходов не найдена');
+    if (!category) throw notFound('finance.expenseCategoryNotFound');
 
     const where = {
       bookId_categoryAccountId_period: { bookId: book.id, categoryAccountId: category.id, period: dto.period },
@@ -1004,7 +1043,6 @@ export class FinancesService implements OnModuleInit {
       select: { id: true, name: true },
     });
     const nameById = new Map(cats.map((c) => [c.id, c.name]));
-    const periodLabel = new Date(`${period}-01T00:00:00Z`).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
 
     for (const budget of budgets) {
       const spentAfter = await this.spentForCategory(book.id, budget.categoryAccountId, budget.currencyCode, period);
@@ -1013,13 +1051,14 @@ export class FinancesService implements OnModuleInit {
       const crossed = (thresholdNum: bigint, thresholdDen: bigint) =>
         spentBefore * thresholdDen < limit * thresholdNum && spentAfter * thresholdDen >= limit * thresholdNum;
       const payload = {
-        categoryName: nameById.get(budget.categoryAccountId) ?? 'Категория',
+        categoryName: nameById.get(budget.categoryAccountId) ?? this.i18n.translate('finance.card.category'),
         spent: this.formatMoneyHuman(spentAfter, budget.currencyCode),
         limit: this.formatMoneyHuman(limit, budget.currencyCode),
-        periodLabel,
         bookId: book.id,
         categoryAccountId: budget.categoryAccountId,
-        period,
+        // Машинный `YYYY-MM` помечен суффиксом: рендер покажет «сентябрь 2026»
+        // словами и правилами ЗРИТЕЛЯ, а не «2026-09» (docs/i18n.md).
+        periodIso: period,
       };
       if (crossed(1n, 1n)) {
         await this.notifySafe(book, 'finance.budget.exceeded', payload, { type: 'fin_budget', id: `${book.id}:${budget.categoryAccountId}:${period}` });
@@ -1059,7 +1098,7 @@ export class FinancesService implements OnModuleInit {
   async addPerson(userId: string, personUserId: string, bookId?: string): Promise<FinPersonDto> {
     const book = await this.resolveBook(userId, bookId, 'edit');
     const count = await this.db.finPerson.count({ where: { bookId: book.id } });
-    if (count >= FIN_LIMITS.maxPeople) throw new BadRequestException(`Не больше ${FIN_LIMITS.maxPeople} близких`);
+    if (count >= FIN_LIMITS.maxPeople) throw badRequest('finance.tooManyPeople', { max: FIN_LIMITS.maxPeople });
     const person = await this.resolvePerson(userId, personUserId);
     try {
       await this.db.finPerson.create({ data: { bookId: book.id, userId: person.id, name: person.name, sortOrder: count } });
@@ -1124,7 +1163,7 @@ export class FinancesService implements OnModuleInit {
         const u = userById.get(id);
         row = {
           userId: id,
-          name: u ? `${u.firstName} ${u.lastName ?? ''}`.trim() : snapshotById.get(id) ?? 'Пользователь',
+          name: u ? `${u.firstName} ${u.lastName ?? ''}`.trim() : snapshotById.get(id) ?? this.i18n.translate('common.labels.someone'),
           avatar: u?.avatar ?? null,
           spent: [],
           received: [],
@@ -1150,7 +1189,7 @@ export class FinancesService implements OnModuleInit {
   /** Owner-only гейт для управления доступом. */
   private async requireOwnBook(userId: string, bookId?: string): Promise<FinBook> {
     const book = await this.resolveBook(userId, bookId, 'edit');
-    if (book.myRole !== 'owner') throw new ForbiddenException('Доступом управляет только владелец книги');
+    if (book.myRole !== 'owner') throw forbidden('finance.shareOwnerOnly');
     return book;
   }
 
@@ -1191,7 +1230,7 @@ export class FinancesService implements OnModuleInit {
   ): Promise<FinShareDto[]> {
     const book = await this.requireOwnBook(userId, bookId);
     if (dto.principalType === 'user') {
-      if (dto.principalId === userId) throw new BadRequestException('Себе доступ не нужен — это ваша книга');
+      if (dto.principalId === userId) throw badRequest('finance.shareSelf');
       // personalOnly: книга — ЛИЧНЫЙ ресурс. Через «рабочий пропуск» доступ
       // выдавался бы коллеге вне окружения (сообщение об ошибке при этом врало),
       // а ночной свип, который ищет гранты без живого ContactLink, потом молча
@@ -1199,12 +1238,12 @@ export class FinancesService implements OnModuleInit {
       await this.contacts.assertReachable(
         userId,
         [dto.principalId],
-        'Делиться финансами можно только с людьми из окружения',
+        'contacts.shareFinanceCircleOnly',
         { personalOnly: true },
       );
     } else {
       const circle = await this.db.circle.findFirst({ where: { id: dto.principalId, ownerId: userId } });
-      if (!circle) throw new NotFoundException('Группа не найдена');
+      if (!circle) throw notFound('finance.circleNotFound');
     }
     const subjectRelation = dto.principalType === 'circle' ? 'member' : undefined;
     // Одна роль на принципала: снимаем обе, ставим нужную.
@@ -1233,8 +1272,10 @@ export class FinancesService implements OnModuleInit {
           type: 'finance.book.shared',
           to: [{ userId: dto.principalId }],
           payload: {
-            ownerName: me ? `${me.firstName} ${me.lastName ?? ''}`.trim() : 'Пользователь',
-            roleLabel: dto.role === 'editor' ? 'ведёт вместе' : 'смотрит',
+            ownerName: me ? `${me.firstName} ${me.lastName ?? ''}`.trim() : this.i18n.translate('common.labels.someone'),
+            // «Ключ вместо слова»: роль в ВЕЧНОМ payload не вправе застыть в
+            // языке того, кто поделился книгой (docs/i18n.md, render-at-read).
+            roleLabelKey: dto.role === 'editor' ? 'finance.role.editor' : 'finance.role.viewer',
             bookId: book.id,
           },
           ref: { type: 'fin_book', id: book.id },
@@ -1289,9 +1330,9 @@ export class FinancesService implements OnModuleInit {
       const canEdit = await this.access.can(principal, 'finbook.edit', book.id);
       result.push({
         bookId: book.id,
-        name: book.name,
+        name: this.bookName(book.name),
         ownerUserId: book.ownerId,
-        ownerName: owner ? `${owner.firstName} ${owner.lastName ?? ''}`.trim() : 'Пользователь',
+        ownerName: owner ? `${owner.firstName} ${owner.lastName ?? ''}`.trim() : this.i18n.translate('common.labels.someone'),
         ownerAvatar: owner?.avatar ?? null,
         myRole: canEdit ? 'editor' : 'viewer',
       });
@@ -1386,16 +1427,33 @@ export class FinancesService implements OnModuleInit {
   // Долги «я должен» (Phase 5): рассрочка-покупка + кредит деньгами
   // ============================================================
 
-  private static readonly INTEREST_CATEGORY = 'Проценты по кредитам';
+  private static readonly INTEREST_CATEGORY_KEY = 'finance.seed.loanInterest';
 
-  /** Ленивая категория для переплаты по кредиту (total − received). */
+  /**
+   * Ленивая категория для переплаты по кредиту (total − received).
+   *
+   * Имя — обычная строка книги (человек её переименует), поэтому рождается на
+   * языке запроса. Но ИСКАТЬ по имени одного языка нельзя: сменивший язык завёл
+   * бы вторую такую же категорию. Поэтому поиск идёт по слову ВСЕХ языков сразу,
+   * а создание — на языке того, кто оформляет кредит.
+   */
   private async ensureInterestCategory(tx: Tx, bookId: string): Promise<FinAccount> {
+    const names = [
+      ...new Set(SUPPORTED_LOCALES.map((l) => this.i18n.translateFor(l, FinancesService.INTEREST_CATEGORY_KEY))),
+    ];
     const existing = await tx.finAccount.findFirst({
-      where: { bookId, kind: 'expense', name: FinancesService.INTEREST_CATEGORY, parentId: null },
+      where: { bookId, kind: 'expense', name: { in: names }, parentId: null },
     });
     if (existing) return existing;
     return tx.finAccount.create({
-      data: { bookId, kind: 'expense', name: FinancesService.INTEREST_CATEGORY, icon: '🏦', currencyCode: FIN_DEFAULT_CURRENCY, sortOrder: 999 },
+      data: {
+        bookId,
+        kind: 'expense',
+        name: this.i18n.translate(FinancesService.INTEREST_CATEGORY_KEY),
+        icon: '🏦',
+        currencyCode: FIN_DEFAULT_CURRENCY,
+        sortOrder: 999,
+      },
     });
   }
 
@@ -1427,20 +1485,20 @@ export class FinancesService implements OnModuleInit {
     const book = await this.resolveBook(userId, bookId, 'edit');
     const currencyCode = dto.currencyCode ?? FIN_DEFAULT_CURRENCY;
     const total = BigInt(dto.totalAmount ?? dto.monthlyPayment * dto.months);
-    if (total <= 0n) throw new BadRequestException('Сумма долга должна быть больше нуля');
+    if (total <= 0n) throw badRequest('finance.debtAmountPositive');
 
     let category: FinAccount | null = null;
     let creditAccount: FinAccount | null = null;
     if (dto.type === 'installment') {
       category = await this.db.finAccount.findFirst({ where: { id: dto.categoryAccountId, bookId: book.id, kind: 'expense', archived: false } });
-      if (!category) throw new NotFoundException('Категория покупки не найдена');
+      if (!category) throw notFound('finance.purchaseCategoryNotFound');
     } else {
       creditAccount = await this.db.finAccount.findFirst({ where: { id: dto.creditAccountId, bookId: book.id, kind: 'asset', archived: false } });
-      if (!creditAccount) throw new NotFoundException('Счёт зачисления не найден');
-      if (creditAccount.currencyCode !== currencyCode) throw new BadRequestException('Валюта кредита должна совпадать с валютой счёта зачисления');
+      if (!creditAccount) throw notFound('finance.creditAccountNotFound');
+      if (creditAccount.currencyCode !== currencyCode) throw badRequest('finance.loanCurrencyMismatch');
     }
     const received = dto.type === 'loan' ? BigInt(dto.amountReceived ?? Number(total)) : 0n;
-    if (dto.type === 'loan' && received > total) throw new BadRequestException('Получено не может превышать сумму долга');
+    if (dto.type === 'loan' && received > total) throw badRequest('finance.receivedAboveTotal');
     const person = dto.personUserId ? await this.resolvePerson(userId, dto.personUserId) : null;
     const occurredOn = toDbDate(dto.occurredOn ?? todayStr());
 
@@ -1485,7 +1543,13 @@ export class FinancesService implements OnModuleInit {
         if (received < total) {
           const interestCat = await this.ensureInterestCategory(tx, book.id);
           await tx.finTransaction.create({
-            data: { ...baseTx, fromAccountId: debt.id, toAccountId: interestCat.id, amount: total - received, note: 'Проценты и комиссии по кредиту' },
+            data: {
+              ...baseTx,
+              fromAccountId: debt.id,
+              toAccountId: interestCat.id,
+              amount: total - received,
+              note: this.i18n.translate('finance.note.loanInterest'),
+            },
           });
         }
       }
@@ -1546,7 +1610,7 @@ export class FinancesService implements OnModuleInit {
   ): Promise<FinDebtDto> {
     const book = await this.resolveBook(userId, bookId, 'edit');
     const source = await this.db.finAccount.findFirst({ where: { id: dto.fromAccountId, bookId: book.id, kind: 'asset', archived: false } });
-    if (!source) throw new NotFoundException('Счёт списания не найден');
+    if (!source) throw notFound('finance.sourceAccountNotFound');
 
     // Атомарность: весь платёж (пересчёт остатка → запись → закрытие) под ОДНОЙ транзакцией
     // с FOR UPDATE на строку долга — сериализует конкурентные payDebt (двойной тап / два
@@ -1555,12 +1619,12 @@ export class FinancesService implements OnModuleInit {
     const result = await this.db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM fin_accounts WHERE id = ${debtAccountId} AND book_id = ${book.id} FOR UPDATE`;
       const debt = await tx.finAccount.findFirst({ where: { id: debtAccountId, bookId: book.id, kind: 'liability' } });
-      if (!debt) throw new NotFoundException('Долг не найден');
-      if (debt.debtClosedAt) throw new BadRequestException('Долг уже закрыт');
-      if (source.currencyCode !== debt.currencyCode) throw new BadRequestException('Валюта платежа должна совпадать с валютой долга');
+      if (!debt) throw notFound('finance.debtNotFound');
+      if (debt.debtClosedAt) throw badRequest('finance.debtClosed');
+      if (source.currencyCode !== debt.currencyCode) throw badRequest('finance.debtCurrencyMismatch');
 
       const remaining = await this.debtRemainingTx(tx, debt.id);
-      if (remaining <= 0n) throw new BadRequestException('Долг уже выплачен');
+      if (remaining <= 0n) throw badRequest('finance.debtAlreadyPaid');
       const requested = dto.amount != null ? BigInt(dto.amount) : (debt.debtMonthly != null ? debt.debtMonthly : remaining);
       const amount = requested > remaining ? remaining : requested; // кэп остатком — без переплаты
 
@@ -1622,7 +1686,7 @@ export class FinancesService implements OnModuleInit {
   ): Promise<FinDebtDto> {
     const book = await this.resolveBook(userId, bookId, 'edit');
     const debt = await this.db.finAccount.findFirst({ where: { id: debtAccountId, bookId: book.id, kind: 'liability' } });
-    if (!debt) throw new NotFoundException('Долг не найден');
+    if (!debt) throw notFound('finance.debtNotFound');
     const updated = await this.db.$transaction(async (tx) => {
       const row = await tx.finAccount.update({
         where: { id: debt.id },
@@ -1725,7 +1789,7 @@ export class FinancesService implements OnModuleInit {
     const { from, to } = await this.loadPair(book.id, dto.fromAccountId, dto.toAccountId);
     this.derivePairType(from.kind, to.kind);
     if (MONEY_KINDS.has(from.kind) && MONEY_KINDS.has(to.kind) && from.currencyCode !== to.currencyCode) {
-      throw new BadRequestException('Повторы между валютами не поддерживаются (курс меняется) — записывайте обмен вручную');
+      throw badRequest('finance.recurringCrossCurrency');
     }
     const person = dto.personUserId ? await this.resolvePerson(userId, dto.personUserId) : null;
     const rule = await this.db.finRecurringRule.create({
@@ -1774,7 +1838,7 @@ export class FinancesService implements OnModuleInit {
   ): Promise<FinRecurringRuleDto> {
     const book = await this.resolveBook(userId, bookId, 'edit');
     const rule = await this.db.finRecurringRule.findFirst({ where: { id: ruleId, bookId: book.id } });
-    if (!rule) throw new NotFoundException('Повтор не найден');
+    if (!rule) throw notFound('finance.recurringNotFound');
     const dayChanged = dto.dayOfMonth !== undefined || dto.weekday !== undefined;
     const updated = await this.db.finRecurringRule.update({
       where: { id: rule.id },
@@ -1816,7 +1880,7 @@ export class FinancesService implements OnModuleInit {
   async recordRecurringNow(userId: string, ruleId: string, bookId?: string): Promise<FinTransactionDto> {
     const book = await this.resolveBook(userId, bookId, 'edit');
     const rule = await this.db.finRecurringRule.findFirst({ where: { id: ruleId, bookId: book.id } });
-    if (!rule) throw new NotFoundException('Повтор не найден');
+    if (!rule) throw notFound('finance.recurringNotFound');
     return this.createTransaction(
       userId,
       {
@@ -1989,12 +2053,16 @@ export class FinancesService implements OnModuleInit {
       : [];
     const orderById = new Map(orders.map((o) => [o.id, o]));
 
+    const t = (key: string, values?: Record<string, string>) => this.i18n.translate(key, values);
     const items: FinCoinFeedItemDto[] = page.map((r) => {
       const out = myIds.has(r.debitAccountId);
       const counter = counterById.get(out ? r.creditAccountId : r.debitAccountId);
       const currency = currencyById.get(r.currencyId);
       let kind: FinCoinFeedItemDto['kind'] = 'other';
-      let title = r.memo ?? (out ? 'Перевод' : 'Получено');
+      const memoKey = r.memo
+        ? MEMO_TITLE_KEYS[r.memo.startsWith('card-skin:') ? 'card-skin' : r.memo]
+        : undefined;
+      let title = memoKey ? t(memoKey) : t(out ? 'finance.coinFeed.sent' : 'finance.coinFeed.received');
       let href: string | null = null;
       let counterpartyUserId: string | null = null;
       let counterpartyName: string | null = null;
@@ -2003,26 +2071,31 @@ export class FinancesService implements OnModuleInit {
       if (agreement?.refType === 'task') {
         kind = 'task';
         const task = taskById.get(agreement.refId);
-        title = `${out ? 'Выплата награды за задачу' : 'Награда за задачу'}${task ? ` «${task.title}»` : ''}`;
+        title = t(out ? 'finance.coinFeed.taskRewardPaid' : 'finance.coinFeed.taskReward', {
+          suffix: task ? ` «${task.title}»` : '',
+        });
         href = `/tasks/${agreement.refId}`;
       } else if (agreement?.refType === 'order') {
         kind = 'order';
         const order = orderById.get(agreement.refId);
-        const word = order?.crowdfunding ? (out ? 'Вклад в сбор' : 'Сбор (вскладчину)') : out ? 'Покупка' : 'Продажа';
+        const word = order?.crowdfunding
+          ? t(out ? 'finance.coinFeed.pledge' : 'finance.coinFeed.crowdfunding')
+          : t(out ? 'finance.coinFeed.purchase' : 'finance.coinFeed.sale');
         title = `${word}${order ? `: ${order.titleSnapshot}` : ''}`;
         href = '/shop';
       } else if (counter?.type === 'issuance') {
         kind = out ? 'burn' : 'mint';
-        title = out ? 'Монеты сожжены' : 'Выпуск монет';
+        title = t(out ? 'finance.coinFeed.burned' : 'finance.coinFeed.minted');
       } else if (counter?.ownerType === 'system') {
-        title = r.memo ?? 'Платформа';
+        title = memoKey ? t(memoKey) : t('finance.coinFeed.platform');
       }
 
       if (counter?.type === 'user' && counter.ownerType === 'user' && counter.ownerId !== userId) {
         counterpartyUserId = counter.ownerId;
         counterpartyName = userNameById.get(counter.ownerId) ?? null;
       } else if (counter?.ownerType === 'workspace') {
-        counterpartyName = wsNameById.get(counter.ownerId) ? `Казна: ${wsNameById.get(counter.ownerId)}` : 'Казна компании';
+        const wsName = wsNameById.get(counter.ownerId);
+        counterpartyName = wsName ? t('finance.coinFeed.treasuryOf', { name: wsName }) : t('finance.coinFeed.treasury');
       }
 
       return {
@@ -2030,7 +2103,7 @@ export class FinancesService implements OnModuleInit {
         direction: out ? 'out' : 'in',
         amount: Number(r.amount),
         scale: currency?.scale ?? 0,
-        currencyName: currency?.name ?? 'Коины',
+        currencyName: currency?.name ?? t('finance.coinFeed.coins'),
         currencyIcon: currency?.icon ?? '🪙',
         title,
         kind,
@@ -2105,7 +2178,7 @@ export class FinancesService implements OnModuleInit {
           items.push({
             kind: 'finance',
             id: `debt:${debt.id}:${dateStr}`,
-            title: `Платёж: ${debt.name}`,
+            title: this.i18n.translate('finance.calendar.debtPayment', { name: debt.name }),
             start: iso,
             allDay: true,
             amount: Number(debt.debtMonthly ?? 0n),
@@ -2160,9 +2233,9 @@ export class FinancesService implements OnModuleInit {
         upcoming.set(it.currencyCode, (upcoming.get(it.currencyCode) ?? 0n) + v);
       }
     }
-    let summary = `Платежи: ${[...totals.entries()]
-      .map(([c, v]) => this.formatMoneyHuman(v, c))
-      .join(' · ')}`;
+    let summary = this.i18n.translate('finance.calendar.paymentsTotal', {
+      sums: [...totals.entries()].map(([c, v]) => this.formatMoneyHuman(v, c)).join(' · '),
+    });
     if (upcoming.size) {
       // Одна «главная» валюта предстоящих — чтобы чип в шапке оставался коротким.
       const [mainCur, upSum] = [...upcoming.entries()].sort((a, b) => Number(b[1] - a[1]))[0];
@@ -2173,7 +2246,9 @@ export class FinancesService implements OnModuleInit {
       if (assets.length) {
         const balances = await this.computeBalances(bookId);
         const bal = assets.reduce((s, a) => s + (balances.get(a.id) ?? 0n), 0n);
-        summary += ` · после них ≈ ${this.formatMoneyHuman(bal - upSum, mainCur)}`;
+        summary += ` · ${this.i18n.translate('finance.calendar.afterPayments', {
+          amount: this.formatMoneyHuman(bal - upSum, mainCur),
+        })}`;
       }
     }
     return summary;
@@ -2188,9 +2263,9 @@ export class FinancesService implements OnModuleInit {
     workspaceId: string,
     dto: { kind: 'expense' | 'income'; amount: number; categoryName: string; note?: string; actorUserId: string },
   ): Promise<{ transactionId: string; bookId: string }> {
-    if (!Number.isFinite(dto.amount) || dto.amount <= 0) throw new BadRequestException('Сумма должна быть больше нуля');
+    if (!Number.isFinite(dto.amount) || dto.amount <= 0) throw badRequest('finance.amountPositive');
     const book = await this.getOrCreateBook('workspace', workspaceId);
-    const categoryName = dto.categoryName.trim() || 'Прочее';
+    const categoryName = dto.categoryName.trim() || this.i18n.translate('finance.seed.other');
 
     return this.db.$transaction(async (tx) => {
       let category = await tx.finAccount.findFirst({
@@ -2204,7 +2279,14 @@ export class FinancesService implements OnModuleInit {
       let cashbox = await tx.finAccount.findFirst({ where: { bookId: book.id, kind: 'asset', archived: false }, orderBy: { sortOrder: 'asc' } });
       if (!cashbox) {
         cashbox = await tx.finAccount.create({
-          data: { bookId: book.id, kind: 'asset', subtype: 'other', name: 'Касса', icon: '🧮', currencyCode: FIN_DEFAULT_CURRENCY },
+          data: {
+            bookId: book.id,
+            kind: 'asset',
+            subtype: 'other',
+            name: this.i18n.translate('finance.seed.cashbox'),
+            icon: '🧮',
+            currencyCode: FIN_DEFAULT_CURRENCY,
+          },
         });
       }
       const row = await tx.finTransaction.create({

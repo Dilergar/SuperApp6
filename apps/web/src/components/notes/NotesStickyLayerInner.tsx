@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import { NOTE_HOTKEYS } from '@superapp/shared';
 import { CloseChip, IconButton } from '@/components/ui';
 import { fetchNotesSidebar, noteScopeKey } from '@/lib/notes-api';
@@ -21,6 +22,7 @@ import './notes.css';
 // ============================================================
 
 export function NotesStickyLayerInner() {
+  const t = useTranslations('notes');
   const pathname = usePathname();
   const search = useSearchParams();
   const router = useRouter();
@@ -86,13 +88,13 @@ export function NotesStickyLayerInner() {
   };
 
   return (
-    <div className="notes-layer" role="dialog" aria-modal="true" aria-label="Доска заметок">
+    <div className="notes-layer" role="dialog" aria-modal="true" aria-label={t('board.layerAria')}>
       <aside className="notes-layer-side">
         <div className="notes-layer-side-head">
-          <span className="title-sm notes-layer-side-title">{sidebar.data?.space.title ?? 'Заметки'}</span>
+          <span className="title-sm notes-layer-side-title">{sidebar.data?.space.title ?? t('title')}</span>
           <IconButton
             icon="external"
-            label="Открыть Заметки"
+            label={t('board.openNotes')}
             size={28}
             iconSize={15}
             onClick={() => {
@@ -117,7 +119,7 @@ export function NotesStickyLayerInner() {
       </aside>
       <div className="notes-layer-board">
         <div className="notes-layer-top">
-          <CloseChip label={`Закрыть доску (Esc, ${NOTE_HOTKEYS.toggleBoard})`} onClick={closeLayer} />
+          <CloseChip label={t('board.closeLayer', { keys: NOTE_HOTKEYS.toggleBoard })} onClick={closeLayer} />
         </div>
         <NotesBoard
           scope={scope}

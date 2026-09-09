@@ -4,9 +4,13 @@ import {
   StyleSheet, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { Link, router } from 'expo-router';
+import { useTranslations } from 'use-intl';
 import { useAuthStore } from '../../src/stores/auth.store';
 
 export default function LoginScreen() {
+  const t = useTranslations('auth');
+  const tc = useTranslations('common');
+  const tShell = useTranslations('shell');
   const [phone, setPhone] = useState('+7');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -14,7 +18,7 @@ export default function LoginScreen() {
 
   const handleLogin = async () => {
     if (phone.length < 12 || password.length < 8) {
-      Alert.alert('Ошибка', 'Проверьте номер телефона и пароль');
+      Alert.alert(tc('state.error'), t('login.checkForm'));
       return;
     }
 
@@ -24,8 +28,8 @@ export default function LoginScreen() {
       router.replace('/(app)/dashboard');
     } catch (err: any) {
       Alert.alert(
-        'Ошибка входа',
-        err.response?.data?.error?.message || 'Неверный номер или пароль',
+        t('login.failed'),
+        err.response?.data?.message || t('login.wrongCredentials'),
       );
     } finally {
       setLoading(false);
@@ -39,12 +43,12 @@ export default function LoginScreen() {
     >
       <View style={styles.content}>
         <Text style={styles.logo}>SuperApp6</Text>
-        <Text style={styles.subtitle}>Одно приложение для всего</Text>
+        <Text style={styles.subtitle}>{tShell('app.title')}</Text>
 
         <View style={styles.form}>
           <TextInput
             style={styles.input}
-            placeholder="Номер телефона"
+            placeholder={t('login.phonePlaceholder')}
             placeholderTextColor="#666"
             value={phone}
             onChangeText={setPhone}
@@ -54,7 +58,7 @@ export default function LoginScreen() {
 
           <TextInput
             style={styles.input}
-            placeholder="Пароль"
+            placeholder={t('login.password')}
             placeholderTextColor="#666"
             value={password}
             onChangeText={setPassword}
@@ -67,13 +71,13 @@ export default function LoginScreen() {
             disabled={loading}
           >
             <Text style={styles.buttonText}>
-              {loading ? 'Вход...' : 'Войти'}
+              {loading ? t('login.submitting') : t('login.submit')}
             </Text>
           </TouchableOpacity>
         </View>
 
         <Link href="/(auth)/register" style={styles.link}>
-          <Text style={styles.linkText}>Нет аккаунта? Регистрация</Text>
+          <Text style={styles.linkText}>{t('login.noAccountRegister')}</Text>
         </Link>
       </View>
     </KeyboardAvoidingView>

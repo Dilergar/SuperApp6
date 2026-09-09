@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
@@ -7,6 +7,7 @@ import { DRIVE_LIMITS, DRIVE_NODE_REF_TYPE, type DriveVersionDto } from '@supera
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { FilesService } from '../../core/files/files.service';
 import { DatabaseService } from '../../shared/database/database.service';
+import { badRequest, notFound } from '../../shared/errors/api-error';
 import { DriveService } from './drive.service';
 
 /** Роль связи файла-снимка: отдельная от 'attachment', иначе версии попадали бы в вложения */
@@ -59,7 +60,7 @@ export class DriveVersionsService {
    */
   async snapshot(userId: string, nodeId: string, opts: { protectVersionId?: string } = {}): Promise<DriveVersionDto> {
     const { node } = await this.drive.requireNode(userId, nodeId, 'editor');
-    if (node.kind !== 'file' || !node.fileId) throw new BadRequestException('Версии есть только у файлов');
+    if (node.kind !== 'file' || !node.fileId) throw badRequest('drive.versionsFilesOnly');
     const space = await this.drive.loadSpace(node.spaceId);
 
     const copy = await this.files.copyFile({
@@ -95,7 +96,7 @@ export class DriveVersionsService {
         if ((e as { code?: string })?.code !== 'P2002') throw e;
       }
     }
-    if (!version) throw new BadRequestException('Не удалось сохранить версию, попробуйте ещё раз');
+    if (!version) throw badRequest('drive.versionSaveFailed');
 
     // Снимок обязан иметь связь, иначе реап сирот движка снесёт его через сутки как
     // «приватный файл без единого места».
@@ -136,9 +137,9 @@ export class DriveVersionsService {
    */
   async restore(userId: string, nodeId: string, versionId: string): Promise<number> {
     const { node } = await this.drive.requireNode(userId, nodeId, 'editor');
-    if (!node.fileId) throw new BadRequestException('У объекта нет файла');
+    if (!node.fileId) throw badRequest('drive.noFile');
     const version = await this.db.driveNodeVersion.findFirst({ where: { id: versionId, nodeId } });
-    if (!version) throw new NotFoundException('Версия не найдена');
+    if (!version) throw notFound('drive.versionNotFound');
 
     const tmp = path.join(this.tmpDir(), `drive-restore-${randomUUID()}`);
     try {
@@ -154,7 +155,7 @@ export class DriveVersionsService {
 
     const space = await this.drive.loadSpace(node.spaceId);
     await this.logChatter(userId, node, space, 'drive.version_restored', { versionNo: version.versionNo });
-    this.logger.log(`узел ${nodeId}: версия ${version.versionNo} возвращена`);
+    this.logger.log(`Node ${nodeId}: version ${version.versionNo} restored`);
     return version.versionNo;
   }
 
@@ -198,7 +199,7 @@ export class DriveVersionsService {
       await this.files.systemDeleteFile(v.fileId).catch(() => undefined);
       await this.db.driveNodeVersion.delete({ where: { id: v.id } }).catch(() => undefined);
     }
-    if (doomed.length) this.logger.log(`ретеншн версий узла ${nodeId}: удалено ${doomed.length}`);
+    if (doomed.length) this.logger.log(`Version retention for node ${nodeId}: ${doomed.length} deleted`);
   }
 
   private async logChatter(

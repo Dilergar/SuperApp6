@@ -6,6 +6,7 @@
 // ============================================================
 
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import type { FinAccountDto, FinPersonDto, FinTransactionDto } from '@superapp/shared';
 import { apiDelete, apiErrorMessage, apiPatch, apiPost } from '@/lib/api';
 import { EntitySelector } from '@/components/EntitySelector';
@@ -32,6 +33,7 @@ type EntryTab = 'expense' | 'income' | 'transfer';
 export function txPresentation(
   tx: FinTransactionDto,
   accountById: Map<string, FinAccountDto>,
+  t: (key: string, values?: Record<string, string | number>) => string,
 ): { icon: string; title: string; sign: '+' | '−' | ''; tone: Tone } {
   const from = accountById.get(tx.fromAccountId);
   const to = accountById.get(tx.toAccountId);
@@ -43,13 +45,13 @@ export function txPresentation(
   switch (tx.type) {
     case 'expense':
       icon = to?.icon ?? 'receipt';
-      title = to?.name ?? 'Расход';
+      title = to?.name ?? t('txType.expense');
       sign = '−';
       tone = 'danger';
       break;
     case 'income':
       icon = from?.icon ?? 'coins';
-      title = from?.name ?? 'Доход';
+      title = from?.name ?? t('txType.income');
       sign = '+';
       tone = 'success';
       break;
@@ -59,30 +61,30 @@ export function txPresentation(
       break;
     case 'debt_payment':
       icon = 'debt';
-      title = `Платёж: ${to?.name ?? 'долг'}`;
+      title = t('feed.debtPaymentTitle', { name: to?.name ?? t('feed.debtWord') });
       tone = 'accent';
       break;
     case 'debt_draw':
       icon = 'savings';
-      title = `Кредит: ${from?.name ?? 'долг'}`;
+      title = t('feed.debtDrawTitle', { name: from?.name ?? t('feed.debtWord') });
       sign = '+';
       tone = 'success';
       break;
     case 'opening':
       icon = 'scales';
-      title = 'Корректировка остатка';
+      title = t('txType.opening');
       break;
   }
   return { icon, title, sign, tone };
 }
 
 /** Плоский список опций из дерева категорий: подкатегория несёт подпись родителя. */
-function categoryOptions(cats: FinAccountDto[]): SelectOption[] {
+function categoryOptions(cats: FinAccountDto[], wholeHint: string): SelectOption[] {
   const roots = cats.filter((c) => !c.parentId);
   const out: SelectOption[] = [];
   for (const root of roots) {
     const children = cats.filter((c) => c.parentId === root.id);
-    out.push({ value: root.id, label: root.name, emoji: root.icon, hint: children.length ? 'в целом' : undefined });
+    out.push({ value: root.id, label: root.name, emoji: root.icon, hint: children.length ? wholeHint : undefined });
     for (const child of children) {
       out.push({ value: child.id, label: child.name, emoji: child.icon, hint: root.name });
     }
@@ -121,6 +123,8 @@ export function QuickEntry({
   /** Колонок бенто-сетки (страница решает, как широко стоит форма). */
   span?: number;
 }) {
+  const t = useTranslations('finance');
+  const common = useTranslations('common');
   const [tab, setTab] = useState<EntryTab>('expense');
   const [amount, setAmount] = useState('');
   const [amountTo, setAmountTo] = useState('');
@@ -186,11 +190,11 @@ export function QuickEntry({
   const submit = async () => {
     const minor = parseMoneyInput(amount);
     if (!minor || !fromId || !toId || busy) {
-      setError(minor ? 'Выберите счёт и категорию' : 'Укажите сумму');
+      setError(t(minor ? 'recurring.pickAccountAndCategory' : 'accounts.amountRequired'));
       return;
     }
     const minorTo = needsAmountTo ? parseMoneyInput(amountTo) : null;
-    if (needsAmountTo && !minorTo) { setError('Укажите сумму зачисления во второй валюте'); return; }
+    if (needsAmountTo && !minorTo) { setError(t('feed.amountToRequired')); return; }
     setBusy(true);
     setError(null);
     try {
@@ -215,27 +219,29 @@ export function QuickEntry({
     }
   };
 
-  const personLabel = tab === 'expense' ? 'На кого (не обязательно)' : 'От кого (не обязательно)';
+  const personLabel = t(tab === 'expense' ? 'feed.personForWhom' : 'feed.personFromWhom');
 
   return (
     <Card span={span}>
       <CardHeader
-        title={editingTx ? 'Исправить операцию' : 'Записать'}
+        title={t(editingTx ? 'feed.editTitle' : 'feed.recordTitle')}
         actions={
           editingTx ? (
-            <Button variant="ghost" size="sm" onClick={() => { reset(); onCancelEdit(); }}>Отменить правку</Button>
+            <Button variant="ghost" size="sm" onClick={() => { reset(); onCancelEdit(); }}>
+              {t('feed.cancelEdit')}
+            </Button>
           ) : undefined
         }
       />
 
       <SegmentedControl
-        aria-label="Тип операции"
+        aria-label={t('feed.txTypeLabel')}
         value={tab}
         onChange={setTab}
         items={[
-          { key: 'expense', label: 'Расход', icon: 'trendDown' },
-          { key: 'income', label: 'Доход', icon: 'trendUp' },
-          { key: 'transfer', label: 'Перевод', icon: 'refresh' },
+          { key: 'expense', label: t('txType.expense'), icon: 'trendDown' },
+          { key: 'income', label: t('txType.income'), icon: 'trendUp' },
+          { key: 'transfer', label: t('txType.transfer'), icon: 'refresh' },
         ]}
       />
 
@@ -248,34 +254,34 @@ export function QuickEntry({
         }}
       >
         <Input
-          label={`Сумма${fromAcc && tab !== 'income' ? ` · ${currencySymbol(fromAcc.currencyCode)}` : ''}`}
+          label={`${t('debts.amountField')}${fromAcc && tab !== 'income' ? ` · ${currencySymbol(fromAcc.currencyCode)}` : ''}`}
           inputMode="decimal"
           placeholder="2 500"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           style={{ fontSize: '1.25rem', fontFamily: 'var(--font-display)', fontWeight: 700 }}
         />
-        <DatePicker label="Дата" value={ymdToDate(date)} onChange={(d) => setDate(dateToYmd(d) ?? localToday())} />
+        <DatePicker label={t('card.date')} value={ymdToDate(date)} onChange={(d) => setDate(dateToYmd(d) ?? localToday())} />
 
         {tab === 'expense' && (
           <>
-            <Select label="Со счёта" value={fromId || null} onChange={setFromId} options={moneyOptions(money)} placeholder="Счёт…" />
-            <Select label="Категория" value={toId || null} onChange={setToId} options={categoryOptions(expenseCats)} placeholder="Категория…" />
+            <Select label={t('debts.fromAccount')} value={fromId || null} onChange={setFromId} options={moneyOptions(money)} placeholder={t('debts.accountPlaceholder')} />
+            <Select label={t('recurring.category')} value={toId || null} onChange={setToId} options={categoryOptions(expenseCats, t('feed.wholeCategory'))} placeholder={t('feed.categoryPlaceholder')} />
           </>
         )}
         {tab === 'income' && (
           <>
-            <Select label="Источник" value={fromId || null} onChange={setFromId} options={categoryOptions(incomeCats)} placeholder="Источник…" />
-            <Select label="На счёт" value={toId || null} onChange={setToId} options={moneyOptions(money)} placeholder="Счёт…" />
+            <Select label={t('recurring.source')} value={fromId || null} onChange={setFromId} options={categoryOptions(incomeCats, t('feed.wholeCategory'))} placeholder={t('feed.sourcePlaceholder')} />
+            <Select label={t('card.toAccount')} value={toId || null} onChange={setToId} options={moneyOptions(money)} placeholder={t('debts.accountPlaceholder')} />
           </>
         )}
         {tab === 'transfer' && (
           <>
-            <Select label="Со счёта" value={fromId || null} onChange={setFromId} options={moneyOptions(money)} placeholder="Счёт…" />
-            <Select label="На счёт" value={toId || null} onChange={setToId} options={moneyOptions(money)} placeholder="Счёт…" />
+            <Select label={t('debts.fromAccount')} value={fromId || null} onChange={setFromId} options={moneyOptions(money)} placeholder={t('debts.accountPlaceholder')} />
+            <Select label={t('card.toAccount')} value={toId || null} onChange={setToId} options={moneyOptions(money)} placeholder={t('debts.accountPlaceholder')} />
             {needsAmountTo && (
               <Input
-                label={`Зачислено · ${toAcc ? currencySymbol(toAcc.currencyCode) : ''}`}
+                label={`${t('card.credited')} · ${toAcc ? currencySymbol(toAcc.currencyCode) : ''}`}
                 inputMode="decimal"
                 placeholder="100"
                 value={amountTo}
@@ -287,8 +293,8 @@ export function QuickEntry({
 
         <div style={{ gridColumn: '1 / -1' }}>
           <Input
-            label="Заметка"
-            placeholder="Magnum, подарок…"
+            label={t('feed.note')}
+            placeholder={t('feed.notePlaceholder')}
             value={note}
             onChange={(e) => setNote(e.target.value)}
           />
@@ -303,9 +309,13 @@ export function QuickEntry({
                   <PersonPickChip
                     selected={personUserId === meId}
                     onClick={() => setPersonUserId((cur) => (cur === meId ? null : meId))}
-                    title={personUserId === meId ? 'Убрать' : tab === 'income' ? 'От себя' : 'На себя'}
+                    title={
+                      personUserId === meId
+                        ? common('actions.remove')
+                        : t(tab === 'income' ? 'feed.fromMyself' : 'debts.forMyself')
+                    }
                   >
-                    <PersonChip size="S" userId={meId} firstName={meName} role="Я" />
+                    <PersonChip size="S" userId={meId} firstName={meName} role={t('book.me')} />
                   </PersonPickChip>
                 )}
                 {people.filter((p) => p.userId !== meId).map((p) => (
@@ -313,17 +323,17 @@ export function QuickEntry({
                     key={p.userId}
                     selected={personUserId === p.userId}
                     onClick={() => setPersonUserId((cur) => (cur === p.userId ? null : p.userId))}
-                    title={personUserId === p.userId ? 'Убрать' : `На ${p.name}`}
+                    title={personUserId === p.userId ? common('actions.remove') : t('debts.forPerson', { name: p.name })}
                   >
                     <PersonChip size="S" userId={p.userId} firstName={p.name} avatar={p.avatar} />
                   </PersonPickChip>
                 ))}
                 <Button variant="ghost" size="sm" onClick={() => setPersonPickerOpen((v) => !v)}>
-                  {personPickerOpen ? 'Скрыть' : 'Из окружения…'}
+                  {personPickerOpen ? common('actions.hide') : t('feed.fromCircle')}
                 </Button>
                 {personUserId && personUserId !== meId && !people.some((p) => p.userId === personUserId) && (
                   <Button variant="matte" tone="accent" size="sm" icon="close" onClick={() => setPersonUserId(null)}>
-                    Выбран человек
+                    {t('feed.personPicked')}
                   </Button>
                 )}
               </div>
@@ -335,7 +345,7 @@ export function QuickEntry({
                   onChange={(next) => setPersonUserId(next[0]?.id ?? null)}
                   types={['user']}
                   multi={false}
-                  placeholder="Найти человека…"
+                  placeholder={t('feed.findPerson')}
                 />
               </div>
             )}
@@ -351,7 +361,7 @@ export function QuickEntry({
 
       <div style={{ marginTop: 'var(--spacing-5)' }}>
         <Button variant="primary" tone="success" icon={editingTx ? 'save' : 'add'} onClick={submit} loading={busy}>
-          {editingTx ? 'Сохранить правку' : 'Записать'}
+          {t(editingTx ? 'feed.saveEdit' : 'feed.recordTitle')}
         </Button>
       </div>
     </Card>
@@ -426,6 +436,8 @@ export function TransactionFeed({
   meId: string | null;
   span?: number;
 }) {
+  const t = useTranslations('finance');
+  const common = useTranslations('common');
   const [removing, setRemoving] = useState<FinTransactionDto | null>(null);
   const [busy, setBusy] = useState(false);
   const dayLabel = useDayLabel();
@@ -457,7 +469,7 @@ export function TransactionFeed({
   return (
     <Card span={span}>
       <CardHeader
-        title="Операции"
+        title={t('feed.listTitle')}
         actions={
           filterLabel ? (
             <Button variant="matte" tone="accent" size="sm" icon="close" onClick={onClearFilter}>
@@ -470,8 +482,8 @@ export function TransactionFeed({
       {groups.length === 0 ? (
         <EmptyState
           icon="receipt"
-          title="Пока пусто"
-          description="Задайте остаток счёта в «Счетах» и запишите первую трату."
+          title={t('coins.feedEmptyTitle')}
+          description={t('feed.emptyDescription')}
         />
       ) : (
         <div className="density-compact ui-stack" style={{ gap: 'var(--spacing-5)' }}>
@@ -514,7 +526,7 @@ export function TransactionFeed({
 
       {hasMore && (
         <div style={{ textAlign: 'center', marginTop: 'var(--spacing-5)' }}>
-          <Button variant="matte" size="sm" onClick={onLoadMore} loading={loadingMore}>Показать ещё</Button>
+          <Button variant="matte" size="sm" onClick={onLoadMore} loading={loadingMore}>{t('coins.loadMore')}</Button>
         </div>
       )}
 
@@ -522,9 +534,9 @@ export function TransactionFeed({
         open={!!removing}
         onClose={() => setRemoving(null)}
         onConfirm={remove}
-        title="Удалить операцию?"
-        message="Удаление останется в аудите книги — след операции не исчезает."
-        confirmLabel="Удалить"
+        title={t('feed.confirmDelete')}
+        message={t('feed.confirmDeleteMessage')}
+        confirmLabel={common('actions.delete')}
         danger
         loading={busy}
       />
@@ -549,9 +561,11 @@ function TransactionRow({
   onShare: () => void;
   onRemove: () => void;
 }) {
+  const t = useTranslations('finance');
+  const common = useTranslations('common');
   const from = accountById.get(tx.fromAccountId);
   const to = accountById.get(tx.toAccountId);
-  const { icon, title, sign, tone } = txPresentation(tx, accountById);
+  const { icon, title, sign, tone } = txPresentation(tx, accountById, t);
   const editable = tx.type !== 'opening';
 
   return (
@@ -564,24 +578,24 @@ function TransactionRow({
           <span>{title}</span>
           {tx.personName && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
-              <span className="label-sm">{tx.type === 'income' ? 'от' : 'на'}</span>
+              <span className="label-sm">{t(tx.type === 'income' ? 'feed.fromPrefix' : 'feed.toPrefix')}</span>
               <PersonChip size="S" userId={tx.personUserId} firstName={tx.personName} />
             </span>
           )}
           {tx.createdByName && meId && tx.createdById !== meId && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
-              <span className="label-sm">внёс(ла)</span>
+              <span className="label-sm">{t('feed.recordedBy')}</span>
               <PersonChip size="S" userId={tx.createdById} firstName={tx.createdByName} />
             </span>
           )}
         </>
       }
-      subtitle={tx.note ?? (tx.type === 'expense' ? `со счёта: ${from?.name ?? '—'}` : undefined)}
+      subtitle={tx.note ?? (tx.type === 'expense' ? t('feed.fromAccountLine', { name: from?.name ?? '—' }) : undefined)}
       actions={
         <>
-          <IconButton icon="messenger" label="Отправить в чат" size={28} onClick={onShare} />
-          {editable && canEdit && <IconButton icon="edit" label="Исправить" size={28} onClick={onEdit} />}
-          {canEdit && <IconButton icon="delete" label="Удалить" size={28} onClick={onRemove} />}
+          <IconButton icon="messenger" label={t('feed.shareToChat')} size={28} onClick={onShare} />
+          {editable && canEdit && <IconButton icon="edit" label={t('feed.fix')} size={28} onClick={onEdit} />}
+          {canEdit && <IconButton icon="delete" label={common('actions.delete')} size={28} onClick={onRemove} />}
         </>
       }
       right={

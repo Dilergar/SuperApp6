@@ -32,7 +32,7 @@ export class LegalEntitiesController {
   constructor(private legal: LegalEntitiesService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Юрлица организации (admin+)' })
+  @ApiOperation({ summary: 'The legal entities of the organization (admin+)' })
   async list(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -44,7 +44,7 @@ export class LegalEntitiesController {
   }
 
   @Post()
-  @ApiOperation({ summary: 'Добавить юрлицо (admin+)' })
+  @ApiOperation({ summary: 'Add a legal entity (admin+)' })
   async create(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -56,7 +56,7 @@ export class LegalEntitiesController {
   }
 
   @Get('lite')
-  @ApiOperation({ summary: 'Справочник юрлиц для выпадашек (вся команда)' })
+  @ApiOperation({ summary: 'The list of legal entities for pickers (the whole team)' })
   async listLite(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -68,7 +68,7 @@ export class LegalEntitiesController {
   }
 
   @Get(':leId')
-  @ApiOperation({ summary: 'Юрлицо + счета (admin+)' })
+  @ApiOperation({ summary: 'A legal entity + its accounts (admin+)' })
   async getOne(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -79,7 +79,7 @@ export class LegalEntitiesController {
   }
 
   @Patch(':leId')
-  @ApiOperation({ summary: 'Изменить юрлицо (admin+; null очищает поле)' })
+  @ApiOperation({ summary: 'Change a legal entity (admin+; null clears a field)' })
   async update(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -93,7 +93,7 @@ export class LegalEntitiesController {
 
   @Post(':leId/archive')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'В архив (головное — 409)' })
+  @ApiOperation({ summary: 'Send to the archive (the head one — 409)' })
   async archive(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -105,7 +105,7 @@ export class LegalEntitiesController {
 
   @Post(':leId/make-head')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Сделать юрлицо головным (снимает флаг у прежнего)' })
+  @ApiOperation({ summary: 'Make the legal entity the head one (clears the flag on the previous one)' })
   async makeHead(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -117,7 +117,7 @@ export class LegalEntitiesController {
 
   @Post(':leId/restore')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Вернуть из архива' })
+  @ApiOperation({ summary: 'Restore from the archive' })
   async restore(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -128,7 +128,7 @@ export class LegalEntitiesController {
   }
 
   @Post(':leId/accounts')
-  @ApiOperation({ summary: 'Добавить счёт юрлица (первый становится основным)' })
+  @ApiOperation({ summary: 'Add a bank account of the legal entity (the first one becomes the main one)' })
   async addAccount(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -141,7 +141,7 @@ export class LegalEntitiesController {
   }
 
   @Patch(':leId/accounts/:accId')
-  @ApiOperation({ summary: 'Изменить счёт / назначить основным' })
+  @ApiOperation({ summary: 'Change an account / make it the main one' })
   async updateAccount(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -156,7 +156,7 @@ export class LegalEntitiesController {
 
   @Delete(':leId/accounts/:accId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Удалить счёт' })
+  @ApiOperation({ summary: 'Delete an account' })
   async removeAccount(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,

@@ -1,10 +1,6 @@
-import {
-  Injectable,
-  NotFoundException,
-  ForbiddenException,
-  ConflictException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { Prisma, Resource as ResourceRow } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { fullName } from '../../shared/utils/user-name';
@@ -27,6 +23,7 @@ export class ResourcesService {
     private db: DatabaseService,
     private events: EventBusService,
     private contacts: ContactsService,
+    private i18n: I18nService,
   ) {}
 
   // ============================================================
@@ -91,10 +88,10 @@ export class ResourcesService {
   /** Bookings of one resource in a range (owner sees booker names; others see "Занято"). */
   async schedule(userId: string, id: string, fromISO: string, toISO: string): Promise<ResourceBooking[]> {
     const resource = await this.db.resource.findUnique({ where: { id } });
-    if (!resource) throw new NotFoundException('Ресурс не найден');
+    if (!resource) throw notFound('resource.notFound');
     const isOwner = resource.ownerId === userId;
     if (!isOwner && !(await this.canBook(resource, userId))) {
-      throw new ForbiddenException('Нет доступа к ресурсу');
+      throw forbidden('resource.noAccess');
     }
     const from = new Date(fromISO);
     const to = new Date(toISO);
@@ -147,13 +144,13 @@ export class ResourcesService {
     // pass `active < capacity` (the loser waits here and re-counts the winner's booking).
     if (tx) await tx.$queryRaw`SELECT id FROM resources WHERE id = ${resourceId} FOR UPDATE`;
     const resource = await db.resource.findUnique({ where: { id: resourceId } });
-    if (!resource) throw new NotFoundException('Ресурс не найден');
+    if (!resource) throw notFound('resource.notFound');
     if (resource.ownerId !== bookerId && !(await this.canBook(resource, bookerId))) {
-      throw new ForbiddenException('Нет доступа к бронированию этого ресурса');
+      throw forbidden('resource.bookingNoAccess');
     }
     const active = await this.countActive(resourceId, start, end, excludeEventId, db);
     if (active >= resource.capacity) {
-      throw new ConflictException('Ресурс занят в это время');
+      throw conflict('resource.busy');
     }
     return {
       status: resource.ownerId === bookerId ? 'confirmed' : 'pending',
@@ -165,7 +162,7 @@ export class ResourcesService {
   async confirm(ownerId: string, eventId: string): Promise<void> {
     const ev = await this.loadBookingForOwner(ownerId, eventId);
     if (ev.resourceStatus !== 'pending') {
-      throw new BadRequestException('Заявка не в статусе ожидания');
+      throw badRequest('resource.requestNotPending');
     }
     await this.db.$transaction(async (tx) => {
       // Resource row lock: two parallel confirms of overlapping requests (or a confirm racing a
@@ -181,13 +178,13 @@ export class ResourcesService {
         },
       });
       if (confirmed >= ev.resource!.capacity) {
-        throw new ConflictException('В это время ресурс уже занят подтверждёнными бронями');
+        throw conflict('resource.busyConfirmed');
       }
       const claimed = await tx.calendarEvent.updateMany({
         where: { id: eventId, resourceStatus: 'pending' },
         data: { resourceStatus: 'confirmed' },
       });
-      if (claimed.count === 0) throw new BadRequestException('Заявка не в статусе ожидания');
+      if (claimed.count === 0) throw badRequest('resource.requestNotPending');
     });
     this.events.emit(
       'calendar.resource.confirmed',
@@ -236,7 +233,7 @@ export class ResourcesService {
       await this.contacts.assertReachable(
         ownerId,
         bookerUserIds,
-        'Давать доступ к брони можно только людям из вашего окружения',
+        'contacts.bookingCircleOnly',
         { personalOnly: true },
       );
     }
@@ -252,8 +249,8 @@ export class ResourcesService {
       where: { id: eventId },
       include: { resource: { select: { ownerId: true, name: true, capacity: true } } },
     });
-    if (!ev || !ev.resource) throw new NotFoundException('Бронь не найдена');
-    if (ev.resource.ownerId !== ownerId) throw new ForbiddenException('Вы не владелец ресурса');
+    if (!ev || !ev.resource) throw notFound('resource.bookingNotFound');
+    if (ev.resource.ownerId !== ownerId) throw forbidden('resource.notOwner');
     return ev;
   }
 
@@ -285,8 +282,8 @@ export class ResourcesService {
 
   private async assertOwned(ownerId: string, id: string): Promise<ResourceRow> {
     const r = await this.db.resource.findUnique({ where: { id } });
-    if (!r) throw new NotFoundException('Ресурс не найден');
-    if (r.ownerId !== ownerId) throw new ForbiddenException('Вы не владелец ресурса');
+    if (!r) throw notFound('resource.notFound');
+    if (r.ownerId !== ownerId) throw forbidden('resource.notOwner');
     return r;
   }
 
@@ -318,11 +315,11 @@ export class ResourcesService {
       eventId: e.id,
       resourceId: e.resourceId ?? '',
       resourceName,
-      title: revealBooker ? e.title : 'Занято',
+      title: revealBooker ? e.title : this.i18n.translate('calendar.bookedSlot'),
       start: e.startTime.toISOString(),
       end: e.endTime.toISOString(),
       bookerId: e.userId,
-      bookerName: revealBooker ? fullName(e.user) : 'Занято',
+      bookerName: revealBooker ? fullName(e.user) : this.i18n.translate('calendar.bookedSlot'),
       status: (e.resourceStatus as ResourceBookingStatus) ?? 'confirmed',
     };
   }

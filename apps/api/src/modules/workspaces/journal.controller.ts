@@ -16,7 +16,7 @@ export class WorkspaceJournalController {
   constructor(private readonly chatter: ChatterService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Журнал организации (хроника воркспейса; Менеджер+; фильтр category)' })
+  @ApiOperation({ summary: 'The journal of the organization (its chronicle; Manager+; filter by category)' })
   async list(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,

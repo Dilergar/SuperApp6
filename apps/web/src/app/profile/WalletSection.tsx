@@ -10,7 +10,6 @@ import {
 } from '@/lib/queries';
 import {
   WALLET_LIMITS,
-  LEDGER_ENTRY_LABELS,
   isValidCardPan,
   isValidKzIban,
   normalizeCardPan,
@@ -41,6 +40,7 @@ const fmt = (n: number, scale = 0) => formatWalletAmount(n, scale);
 export function WalletSection() {
   const t = useTranslations('profile');
   const common = useTranslations('common');
+  const walletT = useTranslations('wallet');
   // Даты — форматтеры платформы; суммы — formatWalletAmount (он знает scale валюты).
   const dfmt = useFormatters();
   // Общий кэш React Query: повторный заход рисуется мгновенно, действия
@@ -339,7 +339,8 @@ export function WalletSection() {
           {history.map((h) => (
             <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', padding: 'var(--spacing-2) 0', borderBottom: '1px dashed rgba(0, 0, 0, 0.12)' }}>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '0.85rem', fontWeight: 500 }}>{LEDGER_ENTRY_LABELS[h.entryType] ?? h.entryType}</div>
+                {/* Вид записи леджера: слово собирается по ЗНАЧЕНИЮ, словаря слов в коде нет. */}
+                <div style={{ fontSize: '0.85rem', fontWeight: 500 }}>{walletT(`entryType.${h.entryType}`)}</div>
                 <div className="label-sm" style={{ fontSize: '0.7rem', opacity: 0.55 }}>{dfmt.dateTime(h.createdAt)}</div>
               </div>
               <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: h.amount < 0 ? 'var(--danger)' : 'var(--secondary)' }}>

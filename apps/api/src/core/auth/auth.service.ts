@@ -6,6 +6,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { badRequest, conflict, unauthorized } from '../../shared/errors/api-error';
 // Нативный bcrypt (libuv threadpool): bcryptjs считал cost-12 хэш НА event-loop'е
 // (~0.5–1.5с CPU) — десяток одновременных логинов душил все запросы инстанса.
 import * as bcrypt from 'bcrypt';
@@ -50,7 +51,7 @@ export class AuthService {
     // SMS-кодом номера создать нельзя — иначе возвращается дыра «занял чужой номер —
     // получил его приглашения». В development/test токен опционален (seed/verify-скрипты).
     if (this.verify.required && !data.verifyToken) {
-      throw new BadRequestException('Требуется подтверждение номера по SMS');
+      throw badRequest('auth.verifyRequired');
     }
 
     // Check if phone already exists
@@ -60,11 +61,9 @@ export class AuthService {
 
     if (existing) {
       if (existing.deletionScheduledAt && !existing.deletedAt) {
-        throw new ConflictException(
-          'Этот номер привязан к аккаунту, помеченному на удаление. Войдите, чтобы восстановить его.',
-        );
+        throw conflict('auth.phoneOnDeletedAccount');
       }
-      throw new ConflictException('Этот номер телефона уже зарегистрирован');
+      throw conflict('auth.phoneTaken');
     }
 
     // Hash password
@@ -153,17 +152,17 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('Неверный номер телефона или пароль');
+      throw unauthorized('auth.badCredentials');
     }
 
     if (user.deletedAt) {
-      throw new UnauthorizedException('Аккаунт удалён');
+      throw unauthorized('auth.accountDeleted');
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Неверный номер телефона или пароль');
+      throw unauthorized('auth.badCredentials');
     }
 
     // Logging in during the deletion grace window cancels the pending deletion.
@@ -176,7 +175,7 @@ export class AuthService {
         data: { deletionScheduledAt: null },
       });
       if (count === 0) {
-        throw new UnauthorizedException('Аккаунт удалён');
+        throw unauthorized('auth.accountDeleted');
       }
       await this.redis.invalidateUserProfile(user.id);
       restored = true;
@@ -226,7 +225,7 @@ export class AuthService {
       // Нейтральная формулировка (анти-энумерация reset-потока сохраняется).
       // Проверка phone: номер аккаунта не должен был поменяться после выдачи пропуска.
       if (!user || user.deletedAt || user.phone !== consumed.phone) {
-        throw new BadRequestException('Подтверждение недействительно или устарело. Запросите код заново');
+        throw badRequest('auth.verifyStale');
       }
       await tx.user.update({
         where: { id: user.id },
@@ -248,7 +247,7 @@ export class AuthService {
     // ответе едут токены автовхода. Упавшая лента не должна выглядеть как «сброс не удался».
     this.notifications
       .send(null, { type: 'auth.password.changed', to: [{ userId }], reason: 'system', actionUrl: '/profile/security' })
-      .catch((err) => this.logger.error(`Уведомление о смене пароля не создано: ${err.message}`));
+      .catch((err) => this.logger.error(`The password-change notification was not created: ${err.message}`));
 
     const roles = await this.db.userRole.findMany({
       where: { userId, context: 'system', isActive: true },
@@ -282,7 +281,7 @@ export class AuthService {
     });
 
     if (!session || session.expiresAt < new Date()) {
-      throw new UnauthorizedException('Сессия истекла, войдите снова');
+      throw unauthorized('auth.sessionExpired');
     }
 
     // Rotate refresh token (security best practice)

@@ -50,7 +50,7 @@ export class VoiceAudioPrep {
       cleanup: async () => undefined,
     };
     if (!bins) {
-      this.logger.warn('ffmpeg недоступен — STT получит оригинальные байты');
+      this.logger.warn('ffmpeg is unavailable — STT will get the original bytes');
       return passthrough;
     }
 
@@ -75,7 +75,7 @@ export class VoiceAudioPrep {
         ),
       );
       const stat = await fs.promises.stat(out);
-      if (!stat.size) throw new Error('пустой результат транскода');
+      if (!stat.size) throw new Error('the transcode produced an empty result');
       return {
         path: out,
         mime: 'audio/wav',
@@ -85,7 +85,7 @@ export class VoiceAudioPrep {
       };
     } catch (err) {
       await fs.promises.unlink(out).catch(() => undefined);
-      this.logger.warn(`prep не удался (${err instanceof Error ? err.message : err}) — оригинал в STT`);
+      this.logger.warn(`prep failed (${err instanceof Error ? err.message : err}) — sending the original to STT`);
       return { ...passthrough, durationMs };
     }
   }

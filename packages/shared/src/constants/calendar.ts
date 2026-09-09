@@ -1,5 +1,11 @@
 // ============================================================
 // CALENDAR — constants (presets, palette, limits)
+//
+// Реестр называет СМЫСЛ, каталог даёт СЛОВО. Здесь раньше лежали готовые
+// русские подписи — то есть один язык навсегда и сразу у трёх клиентов (API,
+// веб, мобильный). Теперь каждая запись несёт КЛЮЧ (`key`/`labelKey`) либо
+// выводимое из значения перечисления имя ключа, а слова живут в неймспейсе
+// `calendar` (`packages/i18n/src/messages/<locale>/calendar.json`).
 // ============================================================
 
 import type {
@@ -11,15 +17,12 @@ import type {
 } from '../types/calendar';
 
 // Per-event privacy override options (semantics wired in Phase 2).
-export const EVENT_VISIBILITY_OPTIONS: Array<{
-  value: CalendarEventVisibility;
-  label: string;
-  hint: string;
-}> = [
-  { value: 'inherit', label: 'Как настроено', hint: 'По правилам доступа Групп/людей' },
-  { value: 'busy', label: 'Только «Занят»', hint: 'Видно занятость, без деталей' },
-  { value: 'hidden', label: 'Скрыто', hint: 'Не видит никто, даже занятость' },
-];
+// Слова — `calendar.visibility.<value>` и `calendar.visibility.<value>Hint`.
+export const EVENT_VISIBILITY_VALUES: readonly CalendarEventVisibility[] = [
+  'inherit',
+  'busy',
+  'hidden',
+] as const;
 
 // Calendar access scale (Phase 2): how much of your calendar a viewer sees.
 export const CALENDAR_ACCESS_LEVELS: readonly CalendarAccessLevel[] = [
@@ -28,52 +31,52 @@ export const CALENDAR_ACCESS_LEVELS: readonly CalendarAccessLevel[] = [
   'detailed',
 ] as const;
 
-export const CALENDAR_ACCESS_LEVEL_META: Record<
-  CalendarAccessLevel,
-  { label: string; rank: number; hint: string }
-> = {
-  none: { label: 'Нет доступа', rank: 0, hint: 'Не видит твой календарь' },
-  busy: { label: 'Только «Занят»', rank: 1, hint: 'Видит занятость без деталей' },
-  detailed: { label: 'Детально', rank: 2, hint: 'Видит все события целиком' },
+/** Ранг уровня доступа. Слова — `calendar.access.<level>` и `…Hint`. */
+export const CALENDAR_ACCESS_LEVEL_META: Record<CalendarAccessLevel, { rank: number }> = {
+  none: { rank: 0 },
+  busy: { rank: 1 },
+  detailed: { rank: 2 },
 };
 
 /** Default access for someone not granted anything (private-by-default). */
 export const DEFAULT_CALENDAR_ACCESS: CalendarAccessLevel = 'none';
 
-// Recurrence presets — `rule` is the RRULE stored on the event.
-export const CALENDAR_RECURRENCE_PRESETS: Array<{ label: string; rule: string | null }> = [
-  { label: 'Не повторять', rule: null },
-  { label: 'Ежедневно', rule: 'FREQ=DAILY' },
-  { label: 'По будням', rule: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' },
-  { label: 'Еженедельно', rule: 'FREQ=WEEKLY' },
-  { label: 'Каждые 2 недели', rule: 'FREQ=WEEKLY;INTERVAL=2' },
-  { label: 'Ежемесячно', rule: 'FREQ=MONTHLY' },
-  { label: 'Ежегодно', rule: 'FREQ=YEARLY' },
+// Recurrence presets — `rule` is the RRULE stored on the event, `key` names the
+// catalog entry `calendar.recurrence.<key>`.
+export const CALENDAR_RECURRENCE_PRESETS: Array<{ key: string; rule: string | null }> = [
+  { key: 'none', rule: null },
+  { key: 'daily', rule: 'FREQ=DAILY' },
+  { key: 'weekdays', rule: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' },
+  { key: 'weekly', rule: 'FREQ=WEEKLY' },
+  { key: 'biweekly', rule: 'FREQ=WEEKLY;INTERVAL=2' },
+  { key: 'monthly', rule: 'FREQ=MONTHLY' },
+  { key: 'yearly', rule: 'FREQ=YEARLY' },
 ];
 
-// Reminder presets — minutes before the event start.
-export const CALENDAR_REMINDER_PRESETS: Array<{ label: string; minutesBefore: number }> = [
-  { label: 'В момент начала', minutesBefore: 0 },
-  { label: 'За 10 минут', minutesBefore: 10 },
-  { label: 'За 30 минут', minutesBefore: 30 },
-  { label: 'За 1 час', minutesBefore: 60 },
-  { label: 'За 2 часа', minutesBefore: 120 },
-  { label: 'За 1 день', minutesBefore: 1440 },
-  { label: 'За 2 дня', minutesBefore: 2880 },
-  { label: 'За неделю', minutesBefore: 10080 },
+// Reminder presets — minutes before the event start (`calendar.reminder.<key>`).
+export const CALENDAR_REMINDER_PRESETS: Array<{ key: string; minutesBefore: number }> = [
+  { key: 'atStart', minutesBefore: 0 },
+  { key: 'min10', minutesBefore: 10 },
+  { key: 'min30', minutesBefore: 30 },
+  { key: 'hour1', minutesBefore: 60 },
+  { key: 'hour2', minutesBefore: 120 },
+  { key: 'day1', minutesBefore: 1440 },
+  { key: 'day2', minutesBefore: 2880 },
+  { key: 'week1', minutesBefore: 10080 },
 ];
 
 /** Defaults applied to new events (ТЗ: за 24ч и за 30мин). */
 export const DEFAULT_REMINDER_OFFSETS: readonly number[] = [1440, 30];
 
-// Sketchbook palette for events (DESIGN.md aesthetic).
-export const CALENDAR_EVENT_COLORS: Array<{ name: string; value: string }> = [
-  { name: 'Красный', value: '#de6d68' },
-  { name: 'Синий', value: '#588cd3' },
-  { name: 'Персиковый', value: '#d6966c' },
-  { name: 'Зелёный', value: '#74a277' },
-  { name: 'Сливовый', value: '#8a6fae' },
-  { name: 'Графитовый', value: '#6b655e' },
+// Sketchbook palette for events (DESIGN.md aesthetic). Хекс — ДАННЫЕ события
+// (человек выбрал цвет сам), имя цвета — слово: `calendar.color.<key>`.
+export const CALENDAR_EVENT_COLORS: Array<{ key: string; value: string }> = [
+  { key: 'red', value: '#de6d68' },
+  { key: 'blue', value: '#588cd3' },
+  { key: 'peach', value: '#d6966c' },
+  { key: 'green', value: '#74a277' },
+  { key: 'plum', value: '#8a6fae' },
+  { key: 'graphite', value: '#6b655e' },
 ];
 
 export const DEFAULT_EVENT_COLOR = '#588cd3';
@@ -100,16 +103,18 @@ export const DEFAULT_EVENT_DURATION_MIN = 60;
 
 // ---- Phase 2 (social) ----
 
-export const RSVP_META: Record<
-  RsvpStatus,
-  { label: string; group: string; icon: string }
-> = {
-  // Поле color удалено (2026-08-01): его не читал НИКТО (веб красит RSVP
-  // тонами — RSVP_TONE в EventModal), а хекс не пересекает границу shared
-  pending: { label: 'Не ответил', group: 'Не ответили', icon: '○' },
-  accepted: { label: 'Приду', group: 'Придут', icon: '✓' },
-  declined: { label: 'Не приду', group: 'Не придут', icon: '✕' },
-  tentative: { label: 'Может быть', group: 'Думают', icon: '?' },
+/**
+ * Значок ответа. Слова — в каталоге: `calendar.rsvp.<status>` (мой ответ) и
+ * `calendar.rsvpGroup.<status>` (заголовок группы участников).
+ *
+ * Поле color удалено (2026-08-01): его не читал НИКТО (веб красит RSVP
+ * тонами — RSVP_TONE в EventModal), а хекс не пересекает границу shared.
+ */
+export const RSVP_META: Record<RsvpStatus, { icon: string }> = {
+  pending: { icon: '○' },
+  accepted: { icon: '✓' },
+  declined: { icon: '✕' },
+  tentative: { icon: '?' },
 };
 
 /** Smart Match defaults: working window + slot granularity. */
@@ -120,31 +125,32 @@ export const SMART_MATCH_DEFAULTS = {
   maxSlots: 30,
 } as const;
 
-export const SMART_MATCH_DURATIONS: Array<{ label: string; min: number }> = [
-  { label: '30 минут', min: 30 },
-  { label: '1 час', min: 60 },
-  { label: '1,5 часа', min: 90 },
-  { label: '2 часа', min: 120 },
+export const SMART_MATCH_DURATIONS: Array<{ key: string; min: number }> = [
+  { key: 'min30', min: 30 },
+  { key: 'hour1', min: 60 },
+  { key: 'hour1h', min: 90 },
+  { key: 'hour2', min: 120 },
 ];
 
 // ---- Phase 3 (resources) ----
 
-export const RESOURCE_TYPE_META: Record<ResourceType, { label: string; icon: string }> = {
-  room: { label: 'Помещение', icon: '🚪' },
-  vehicle: { label: 'Транспорт', icon: '🚗' },
-  equipment: { label: 'Оборудование', icon: '🔧' },
-  other: { label: 'Другое', icon: '📦' },
+/** Значок вида ресурса. Слово — `calendar.resourceType.<type>`. */
+export const RESOURCE_TYPE_META: Record<ResourceType, { icon: string }> = {
+  room: { icon: '🚪' },
+  vehicle: { icon: '🚗' },
+  equipment: { icon: '🔧' },
+  other: { icon: '📦' },
 };
 
-export const RESOURCE_BOOKING_STATUS_META: Record<
-  ResourceBookingStatus,
-  { label: string }
-> = {
-  // color удалён (2026-08-01) — мёртвое поле, см. комментарий у RSVP_META
-  pending: { label: 'Ожидает подтверждения' },
-  confirmed: { label: 'Подтверждена' },
-  rejected: { label: 'Отклонена' },
-};
+/**
+ * Статусы брони ресурса. Слова — `calendar.bookingStatus.<status>`.
+ * color удалён (2026-08-01) — мёртвое поле, см. комментарий у RSVP_META.
+ */
+export const RESOURCE_BOOKING_STATUSES: readonly ResourceBookingStatus[] = [
+  'pending',
+  'confirmed',
+  'rejected',
+] as const;
 
 // ---- Слои календаря (реестр платформы) ----
 
@@ -159,8 +165,8 @@ export const RESOURCE_BOOKING_STATUS_META: Record<
  * легаси-исключения, новые слои называют kind ровно как ключ).
  */
 export interface CalendarLayerMeta {
-  /** Подпись тумблера слоя. */
-  label: string;
+  /** Ключ каталога подписи тумблера (`calendar.layer.<key>`). */
+  labelKey: string;
   /** Имя иконки кита для тумблера. */
   icon: string;
   /** Матовый тон чипа-тумблера. */
@@ -170,12 +176,12 @@ export interface CalendarLayerMeta {
 }
 
 export const CALENDAR_LAYER_REGISTRY = {
-  events: { label: 'События', icon: 'calendar', tone: 'accent', serverDefault: true },
-  tasks: { label: 'Задачи', icon: 'tasks', tone: 'danger', serverDefault: true },
-  finance: { label: 'Платежи', icon: 'finance', tone: 'warning', serverDefault: false },
+  events: { labelKey: 'calendar.layer.events', icon: 'calendar', tone: 'accent', serverDefault: true },
+  tasks: { labelKey: 'calendar.layer.tasks', icon: 'tasks', tone: 'danger', serverDefault: true },
+  finance: { labelKey: 'calendar.layer.finance', icon: 'finance', tone: 'warning', serverDefault: false },
   // Смены сервиса «Объекты»: опубликованный график сотрудника ложится в его личный
   // календарь (регистрирует ВЛАДЕЛЕЦ данных — modules/objects).
-  shifts: { label: 'Смены', icon: 'calendarCheck', tone: 'success', serverDefault: true },
+  shifts: { labelKey: 'calendar.layer.shifts', icon: 'calendarCheck', tone: 'success', serverDefault: true },
 } as const satisfies Record<string, CalendarLayerMeta>;
 
 export type CalendarLayerKey = keyof typeof CALENDAR_LAYER_REGISTRY;

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import type { FileDto } from '@superapp/shared';
 import { uploadFile } from '../files-api';
 
@@ -25,6 +26,7 @@ export interface UseFileUploadOptions {
  * (как EntitySelector для людей): любой сервис получает загрузчик одним хуком.
  */
 export function useFileUpload(profile: string, options?: UseFileUploadOptions) {
+  const t = useTranslations('common');
   const [items, setItems] = useState<UploadItem[]>([]);
   const controllers = useRef(new Map<string, AbortController>());
   const optsRef = useRef(options);
@@ -42,7 +44,7 @@ export function useFileUpload(profile: string, options?: UseFileUploadOptions) {
         controllers.current.set(localId, ctrl);
         setItems((prev) => [
           ...prev,
-          { localId, name: f.name || 'файл', size: f.size, progress: 0, status: 'uploading' },
+          { localId, name: f.name || t('files.unnamed'), size: f.size, progress: 0, status: 'uploading' },
         ]);
         uploadFile(f, profile, {
           signal: ctrl.signal,
@@ -57,16 +59,19 @@ export function useFileUpload(profile: string, options?: UseFileUploadOptions) {
             if (ctrl.signal.aborted) {
               patch(localId, { status: 'cancelled' });
             } else {
+              // Показываем фразу СЕРВЕРА (она переведена в языке запроса) либо свою из
+              // каталога. `err.message` — это «Network Error» axios или наш машинный
+              // текст для разработчика; человеку он ничего не объясняет.
               patch(localId, {
                 status: 'error',
-                error: err?.response?.data?.message ?? err?.message ?? 'Ошибка загрузки',
+                error: err?.response?.data?.message ?? t('files.uploadFailed'),
               });
             }
           })
           .finally(() => controllers.current.delete(localId));
       }
     },
-    [profile, patch],
+    [profile, patch, t],
   );
 
   const cancel = useCallback((localId: string) => {

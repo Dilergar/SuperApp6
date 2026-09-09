@@ -42,10 +42,14 @@ export function isAudienceAnchor(id: string): id is AudienceAnchor {
   return AUDIENCE_ANCHOR_IDS.includes(id);
 }
 
-export const AUDIENCE_ANCHOR_LABELS: Record<AudienceAnchor, string> = {
-  $initiator: 'инициатора',
-  $subject: 'стороны документа',
-  $self: 'меня',
+/**
+ * Якорь → КЛЮЧ каталога (`common.audience.anchor.<ключ>`). Реестр называет смысл,
+ * слово ему даёт каталог: подпись адресата читает человек.
+ */
+export const AUDIENCE_ANCHOR_KEYS: Record<AudienceAnchor, string> = {
+  $initiator: 'initiator',
+  $subject: 'subject',
+  $self: 'self',
 };
 
 export interface AudienceKindDef {
@@ -55,19 +59,22 @@ export interface AudienceKindDef {
   grantable: boolean;
   /** Существует только в контексте организации */
   workspaceOnly: boolean;
-  label: string;
 }
 
+/**
+ * Свойства вида адресата. Слова у видов нет: подпись даёт каталог по ключу вида
+ * (`common.audience.kind.<вид>`) в языке зрителя.
+ */
 export const AUDIENCE_KIND_DEFS: Record<AudienceKind, AudienceKindDef> = {
-  user: { relative: false, grantable: true, workspaceOnly: false, label: 'Человек' },
-  circle: { relative: false, grantable: true, workspaceOnly: false, label: 'Группа' },
-  workspace: { relative: false, grantable: true, workspaceOnly: true, label: 'Вся команда' },
-  department: { relative: false, grantable: true, workspaceOnly: true, label: 'Отдел' },
-  position: { relative: false, grantable: true, workspaceOnly: true, label: 'Должность' },
-  branch: { relative: false, grantable: true, workspaceOnly: true, label: 'Объект' },
-  manager_of: { relative: true, grantable: false, workspaceOnly: true, label: 'Руководитель' },
-  subordinates_of: { relative: true, grantable: false, workspaceOnly: true, label: 'Команда (подчинённые)' },
-  branch_head_of: { relative: true, grantable: false, workspaceOnly: true, label: 'Руководитель объекта' },
+  user: { relative: false, grantable: true, workspaceOnly: false },
+  circle: { relative: false, grantable: true, workspaceOnly: false },
+  workspace: { relative: false, grantable: true, workspaceOnly: true },
+  department: { relative: false, grantable: true, workspaceOnly: true },
+  position: { relative: false, grantable: true, workspaceOnly: true },
+  branch: { relative: false, grantable: true, workspaceOnly: true },
+  manager_of: { relative: true, grantable: false, workspaceOnly: true },
+  subordinates_of: { relative: true, grantable: false, workspaceOnly: true },
+  branch_head_of: { relative: true, grantable: false, workspaceOnly: true },
 };
 
 /** Наборы видов на потребителя — каждый enum ниже есть ПОДМНОЖЕСТВО AUDIENCE_KINDS */

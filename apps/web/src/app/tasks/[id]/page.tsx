@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import { Chip, useConfirm } from '@/components/ui';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/lib/api';
@@ -12,8 +13,6 @@ import { PersonChip } from '../../circles/PersonCard';
 import {
   TASK_STATUS_META,
   TASK_PRIORITY_META,
-  TASK_ROLE_LABELS,
-  TASK_CREATOR_LABEL,
   PARTICIPANT_STATUS_META,
   type Task,
   type TaskParticipant,
@@ -32,7 +31,7 @@ import {
 import { useMessengerSocket } from '@/lib/hooks/useMessengerSocket';
 import { NotesPanel } from '@/components/notes/NotesPanel';
 import type { WsMessageNew, WsMessageUpdated, WsMessageDeleted, WsReceipt } from '@superapp/shared';
-import { TASK_STATUS_ICON } from '../tasks-ui';
+import { TASK_STATUS_ICON, useDueFormat } from '../tasks-ui';
 import { Conversation } from '../../messenger/Conversation';
 import { ShareCardModal } from '../../messenger/ShareCardModal';
 import { AttachmentsSection } from '@/components/files/AttachmentsSection';
@@ -43,6 +42,9 @@ import type { FileDto } from '@superapp/shared';
 // кэш со страницей /messenger (локальная копия литерала молча разорвала бы его)
 
 export default function TaskDetailPage() {
+  const t = useTranslations('tasks');
+  const tc = useTranslations('common');
+  const formatDue = useDueFormat();
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { isReady, user } = useRequireAuth();
@@ -61,7 +63,7 @@ export default function TaskDetailPage() {
       setTask(await apiGet<Task>(`/tasks/${id}`));
     } catch (err: unknown) {
       const a = err as { response?: { status?: number } };
-      setError(a.response?.status === 403 ? 'Нет доступа к этой задаче' : 'Задача не найдена');
+      setError(a.response?.status === 403 ? t('detail.noAccess') : t('detail.notFound'));
     } finally {
       setLoading(false);
     }
@@ -74,7 +76,7 @@ export default function TaskDetailPage() {
     try { await fn(); await load(); }
     catch (err: unknown) {
       const a = err as { response?: { data?: { message?: string } } };
-      setError(a.response?.data?.message || 'Ошибка');
+      setError(a.response?.data?.message || tc('state.error'));
     } finally { setBusy(false); }
   };
 
@@ -257,7 +259,7 @@ export default function TaskDetailPage() {
         const saved = await sendAttachmentMessage(chatId, fileIds, caption || undefined, replyToId);
         upsertMessageInCache(chatId, saved);
       } catch (e) {
-        console.error('Не удалось отправить вложения', e);
+        console.error('Failed to send the attachments', e);
       }
     },
     [chatId, upsertMessageInCache],
@@ -322,13 +324,13 @@ export default function TaskDetailPage() {
   }, [chatId, loadingMore, hasMore, queryClient]);
 
   if (!isReady || loading) {
-    return <div className="min-h-screen flex items-center justify-center"><p className="label-md">Загрузка...</p></div>;
+    return <div className="min-h-screen flex items-center justify-center"><p className="label-md">{tc('state.loading')}</p></div>;
   }
   if (!task) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ flexDirection: 'column', gap: '1rem' }}>
-        <p className="label-md">{error || 'Задача не найдена'}</p>
-        <Link href="/tasks" className="btn-secondary" style={{ padding: '0.4rem 1rem' }}>К задачам</Link>
+        <p className="label-md">{error || t('detail.notFound')}</p>
+        <Link href="/tasks" className="btn-secondary" style={{ padding: '0.4rem 1rem' }}>{t('detail.backToList')}</Link>
       </div>
     );
   }
@@ -347,22 +349,22 @@ export default function TaskDetailPage() {
     <div style={{ maxWidth: 800 }}>
       {/* Топбар и сайдбар теперь даёт ServiceShell — здесь только строка действий */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-5)', flexWrap: 'wrap' }}>
-        <Link href="/tasks" className="label-md" style={{ color: 'var(--secondary)', fontWeight: 600, textDecoration: 'none' }}>← Задачи</Link>
+        <Link href="/tasks" className="label-md" style={{ color: 'var(--secondary)', fontWeight: 600, textDecoration: 'none' }}>← {t('breadcrumb')}</Link>
         <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button onClick={() => setShowForward(true)} className="btn-ghost-inline" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>↗ Переслать в чат</button>
+          <button onClick={() => setShowForward(true)} className="btn-ghost-inline" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>↗ {t('detail.forward')}</button>
           {isCreator && (
             <>
               {task.status !== 'cancelled' && task.status !== 'done' && (
-                <button onClick={cancel} disabled={busy} className="btn-ghost-inline" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>Отменить</button>
+                <button onClick={cancel} disabled={busy} className="btn-ghost-inline" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>{t('detail.cancel')}</button>
               )}
               <button
                 onClick={() => confirm(
-                  { title: 'Удалить задачу?', message: 'Задача и её чат исчезнут у всех участников. Отменить это нельзя.', confirmLabel: 'Удалить', danger: true },
+                  { title: t('detail.deleteConfirm.title'), message: t('detail.deleteConfirm.message'), confirmLabel: tc('actions.delete'), danger: true },
                   remove,
                 )}
                 disabled={busy}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: '0.8rem', fontWeight: 600 }}
-              >Удалить</button>
+              >{tc('actions.delete')}</button>
             </>
           )}
         </div>
@@ -376,8 +378,8 @@ export default function TaskDetailPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-2)' }}>
             {/* Те же чипы, что в строке списка (`tasks-ui.tsx`) — статус в одном
                 месте не имеет права выглядеть иначе, чем в другом. */}
-            <Chip tone={st.tone} icon={TASK_STATUS_ICON[task.status]}>{st.label}</Chip>
-            <Chip size="sm" tone={pr.tone}>{pr.label} приоритет</Chip>
+            <Chip tone={st.tone} icon={TASK_STATUS_ICON[task.status]}>{t(`status.${task.status}`)}</Chip>
+            <Chip size="sm" tone={pr.tone}>{t('detail.priorityChip', { priority: t(`priority.${task.priority}`) })}</Chip>
           </div>
           <h1 className="title-lg" style={{ marginBottom: 'var(--spacing-2)', textDecoration: task.status === 'done' ? 'line-through' : 'none' }}>{task.title}</h1>
           {task.description && <p className="label-md" style={{ fontSize: '0.95rem', whiteSpace: 'pre-wrap' }}>{task.description}</p>}
@@ -386,42 +388,42 @@ export default function TaskDetailPage() {
         {/* Meta */}
         <div className="card" style={{ padding: 'var(--spacing-4) var(--spacing-5)', marginBottom: 'var(--spacing-5)', display: 'flex', gap: 'var(--spacing-6)', flexWrap: 'wrap' }}>
           <div>
-            <div className="label-sm" style={{ fontSize: '0.7rem', opacity: 0.7, marginBottom: '0.15rem' }}>{TASK_CREATOR_LABEL}</div>
+            <div className="label-sm" style={{ fontSize: '0.7rem', opacity: 0.7, marginBottom: '0.15rem' }}>{t('role.creator')}</div>
             <PersonChip size="S" userId={task.creatorId} firstName={task.creatorName} avatar={task.creatorAvatar} />
           </div>
-          {task.dueDate && <Meta label="Дедлайн" value={formatDue(task.dueDate, task.allDay)} />}
-          {task.recurrenceRule && <Meta label="Повтор" value="включён" />}
-          {task.coinReward > 0 && <Meta label={task.assignedCircleName ? 'Награда (каждому)' : 'Награда'} value={`${task.coinReward}`} />}
-          {task.progress && <Meta label="Прогресс" value={`${task.progress.accepted} из ${task.progress.total} принято`} />}
+          {task.dueDate && <Meta label={t('detail.due')} value={formatDue(task.dueDate, task.allDay, true)} />}
+          {task.recurrenceRule && <Meta label={t('detail.recurrence')} value={t('recurrence.on')} />}
+          {task.coinReward > 0 && <Meta label={task.assignedCircleName ? t('detail.rewardEach') : t('detail.reward')} value={`${task.coinReward}`} />}
+          {task.progress && <Meta label={t('detail.progress')} value={t('row.progress', { accepted: task.progress.accepted, total: task.progress.total })} />}
         </div>
 
         {/* My actions */}
         {(canStart || canSubmit) && (
           <div style={{ display: 'flex', gap: 'var(--spacing-3)', marginBottom: 'var(--spacing-5)' }}>
-            {canStart && <button onClick={start} disabled={busy} className="btn-ghost-inline" style={{ fontSize: '0.9rem' }}>Взять в работу</button>}
-            {canSubmit && <button onClick={submit} disabled={busy} className="btn-primary" style={{ fontSize: '0.9rem' }}>{isSelfTask ? 'Готово' : 'Сдать на проверку'}</button>}
+            {canStart && <button onClick={start} disabled={busy} className="btn-ghost-inline" style={{ fontSize: '0.9rem' }}>{t('detail.take')}</button>}
+            {canSubmit && <button onClick={submit} disabled={busy} className="btn-primary" style={{ fontSize: '0.9rem' }}>{isSelfTask ? t('detail.markDone') : t('detail.submit')}</button>}
           </div>
         )}
         {isWorker && task.myParticipantStatus === 'submitted' && (
-          <p className="alert-accent-inline" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-5)', fontSize: '0.85rem', color: 'var(--secondary)' }}>Сдано — ждёт приёмки Постановщика</p>
+          <p className="alert-accent-inline" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-5)', fontSize: '0.85rem', color: 'var(--secondary)' }}>{t('detail.submittedWaiting')}</p>
         )}
 
         {/* Roles / participants */}
         <h2 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>
-          {task.assignedCircleName ? `Исполнитель: Группа «${task.assignedCircleName}»` : 'Участники'}
+          {task.assignedCircleName ? t('detail.circleExecutor', { name: task.assignedCircleName }) : t('detail.participants')}
         </h2>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-3)' }}>
           {workers.length === 0 && !task.assignedCircleName && (
-            <p className="label-sm">Личная задача — без других участников</p>
+            <p className="label-sm">{t('detail.noParticipants')}</p>
           )}
           {workers.map((p) => (
-            <ParticipantRow key={p.id} p={p} showAccept={isCreator} busy={busy}
+            <ParticipantRow key={p.id} p={p} showAccept={isCreator} busy={busy} t={t}
               onAccept={() => accept(p.userId)} onReturn={() => returnWork(p.userId)} />
           ))}
         </div>
         {task.observers.length > 0 && (
           <div style={{ marginBottom: 'var(--spacing-3)' }}>
-            <span className="label-sm" style={{ fontWeight: 600 }}>{TASK_ROLE_LABELS.observer}и: </span>
+            <span className="label-sm" style={{ fontWeight: 600 }}>{t('detail.observers')} </span>
             {task.observers.map((o) => (
               <span key={o.id} style={{ display: 'inline-block', marginRight: 'var(--spacing-2)' }}>
                 <PersonChip size="S" userId={o.userId} firstName={o.name} avatar={o.avatar} />
@@ -431,15 +433,15 @@ export default function TaskDetailPage() {
         )}
 
         {/* Вложения задачи (движок файлов) — постановщик и участники могут прикреплять */}
-        <h2 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-3)' }}>Вложения</h2>
+        <h2 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-3)' }}>{t('detail.attachments')}</h2>
         <TaskAttachments taskId={task.id} canEdit={isCreator || isWorker} />
 
         {/* Заметки о задаче (сервис «Заметки», привязка related): стикер создаётся уже привязанным */}
-        <h2 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-3)' }}>Заметки</h2>
+        <h2 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-3)' }}>{t('detail.notes')}</h2>
         <NotesPanel target={{ type: 'task', id: task.id }} scope={task.workspaceId ? { workspaceId: task.workspaceId } : {}} />
 
         {/* Chat — the task's context chat in the Messenger */}
-        <h2 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-3)' }}>Чат задачи</h2>
+        <h2 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-3)' }}>{t('detail.chat')}</h2>
         <div style={{ height: '520px', minHeight: '380px' }}>
           {chatDetail ? (
             <Conversation
@@ -466,7 +468,7 @@ export default function TaskDetailPage() {
                 borderRadius: 'var(--radius-md)',
               }}
             >
-              <p className="label-sm">{chatQuery.isError ? 'Не удалось загрузить чат задачи' : 'Загрузка чата...'}</p>
+              <p className="label-sm">{chatQuery.isError ? t('detail.chatFailed') : t('detail.chatLoading')}</p>
             </div>
           )}
         </div>
@@ -485,9 +487,11 @@ export default function TaskDetailPage() {
   );
 }
 
-function ParticipantRow({ p, showAccept, busy, onAccept, onReturn }: {
+function ParticipantRow({ p, showAccept, busy, onAccept, onReturn, t }: {
   p: TaskParticipant; showAccept: boolean; busy: boolean;
   onAccept: () => void; onReturn: () => void;
+  /** Переводчик неймспейса `tasks` передаётся сверху: хук зовём в одном месте. */
+  t: (key: string, values?: Record<string, string | number>) => string;
 }) {
   const stat = PARTICIPANT_STATUS_META[p.status];
   return (
@@ -495,15 +499,15 @@ function ParticipantRow({ p, showAccept, busy, onAccept, onReturn }: {
       <PersonAvatar userId={p.userId} name={p.name} size="sm" />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{p.name}</div>
-        <span className="label-sm" style={{ fontSize: '0.7rem' }}>{roleLabel(p.role)}</span>
+        <span className="label-sm" style={{ fontSize: '0.7rem' }}>{t(`role.${p.role}`)}</span>
       </div>
       {/* Статус — матовый чип, а не покрашенный текст: цветное слово без своей
           подложки читается как ссылка-действие (DESIGN.md §1 «Статус — чип»). */}
-      <Chip size="sm" tone={stat.tone}>{stat.label}</Chip>
+      <Chip size="sm" tone={stat.tone}>{t(`participantStatus.${p.status}`)}</Chip>
       {showAccept && p.status === 'submitted' && (
         <div style={{ display: 'flex', gap: 'var(--spacing-1)' }}>
-          <button onClick={onAccept} disabled={busy} className="btn-success" style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem' }}>Принять</button>
-          <button onClick={onReturn} disabled={busy} className="btn-ghost-inline" style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem' }}>Вернуть</button>
+          <button onClick={onAccept} disabled={busy} className="btn-success" style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem' }}>{t('detail.accept')}</button>
+          <button onClick={onReturn} disabled={busy} className="btn-ghost-inline" style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem' }}>{t('detail.return')}</button>
         </div>
       )}
     </div>
@@ -548,15 +552,3 @@ function TaskAttachments({ taskId, canEdit }: { taskId: string; canEdit: boolean
 }
 
 // (local Avatar removed — people now render via the shared skin-aware PersonAvatar)
-
-function roleLabel(role: string): string {
-  if (role === 'creator') return TASK_CREATOR_LABEL;
-  return TASK_ROLE_LABELS[role as keyof typeof TASK_ROLE_LABELS] ?? role;
-}
-
-function formatDue(iso: string, allDay: boolean): string {
-  const d = new Date(iso);
-  const date = d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
-  if (allDay) return date;
-  return `${date}, ${d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
-}

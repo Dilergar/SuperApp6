@@ -16,7 +16,7 @@ export class ChatterController {
   constructor(private readonly chatter: ChatterService) {}
 
   @Get(':refType/:refId')
-  @ApiOperation({ summary: 'Хроника записи (кто/что/когда + «было → стало»; keyset-курсор)' })
+  @ApiOperation({ summary: 'The record chronicle (who/what/when plus “was → became”; keyset cursor)' })
   async list(
     @CurrentUser() user: JwtPayload,
     @Param('refType') refType: string,

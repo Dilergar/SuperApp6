@@ -1,0 +1,179 @@
+{
+  "browser": {
+    "emptyTitle": "No links yet",
+    "showMore": "Show more"
+  },
+  "copyFailed": "Could not copy — select the address by hand",
+  "edit": {
+    "rotate": "Change the address",
+    "rotateMessage": "The old address stops working at once — for everyone you sent it to. The settings, the password and the log of opens are kept; the new address has to be sent out again.",
+    "rotateTitle": "Change the address of the link?",
+    "rotatedAt": "the address was changed {date}",
+    "save": "Save"
+  },
+  "expiry": {
+    "days": "{n, plural, one {# day} other {# days}}",
+    "keep": "Keep it (until {date})",
+    "never": "No expiry"
+  },
+  "filter": {
+    "active": "Active",
+    "all": "All",
+    "inactive": "No longer working"
+  },
+  "form": {
+    "allowDownload": "Allow downloading",
+    "allowDownloadOff": "The guest will see a smaller copy but will not download the original",
+    "create": "Create a link",
+    "expiry": "Expires",
+    "label": "Who it is for (optional)",
+    "labelPlaceholder": "For example: the contractor Askhat",
+    "labelShort": "Who it is for",
+    "maxOpens": "Open limit",
+    "maxOpensPlaceholder": "no limit",
+    "newPassword": "New password",
+    "notifyOnOpen": "Notify me about opens",
+    "password": "Password",
+    "passwordClear": "Remove the password",
+    "passwordHint": "At least {min, plural, one {# character} other {# characters}} — pass it on separately from the link",
+    "passwordKeep": "Keep the old one",
+    "passwordNone": "No password",
+    "passwordSet": "Set a password",
+    "passwordSetNew": "Set a new one",
+    "requireIdentity": "Ask to confirm the phone number",
+    "requireIdentityKept": "The guest gives a name and confirms the number by an SMS code",
+    "requireIdentityOn": "The guest gives a name and confirms the number by an SMS code — the log will show who opened it",
+    "requireIdentityTurnOn": "The anonymous sessions that are already open will close — from now on only with a confirmed number",
+    "withPassword": "Protect with a password"
+  },
+  "guest": {
+    "availableUntil": "Available until {date}",
+    "codeSentTo": "The code was sent to {phone}",
+    "codeWrongLeft": "Wrong code — {n, plural, one {# attempt} other {# attempts}} left",
+    "dead": {
+      "exhausted": {
+        "description": "This link could be opened a limited number of times.",
+        "title": "The opening limit is used up"
+      },
+      "expired": {
+        "description": "The link was temporary. Ask the person who shared it for a new one.",
+        "title": "The link has expired"
+      },
+      "fallback": {
+        "description": "Try refreshing the page in a minute.",
+        "title": "The link could not be opened"
+      },
+      "notFound": {
+        "description": "The address may have been copied incompletely, or the link was deleted.",
+        "title": "The link was not found"
+      },
+      "refGone": {
+        "description": "It was deleted or moved to the trash.",
+        "title": "The item is no longer available"
+      },
+      "revoked": {
+        "description": "The person who shared it revoked this link. Ask for a new one.",
+        "title": "Access by this link is closed"
+      },
+      "sessionInvalid": {
+        "description": "Refresh the page to open the link again.",
+        "title": "The viewing session has expired"
+      }
+    },
+    "devCode": "[dev] code: {code}",
+    "doc": {
+      "checkAgain": "Check again",
+      "downloadPdf": "Download the PDF",
+      "preparing": "Preparing the document…",
+      "slow": "The document is taking longer than usual.",
+      "unavailable": "The document cannot be viewed right now. Try opening the link later."
+    },
+    "drive": {
+      "closePreview": "Close the preview",
+      "downloadAll": "Download everything",
+      "downloadOff": "The owner allowed viewing only — downloading is turned off.",
+      "emptyFolder": "The folder is empty",
+      "fileBlocked": "The file is not available — it is still being processed or was blocked by the security check.",
+      "loadFailed": "Could not load the contents",
+      "noPreview": "The owner allowed viewing only, and this file type has no preview.",
+      "noPreviewNamed": "«{name}» — the owner allowed viewing only, and this file type has no preview.",
+      "pathAria": "Path",
+      "showMore": "Show more"
+    },
+    "genericError": "Something went wrong — please try again",
+    "getCode": "Get the code",
+    "identitySubtitle": "The person who shared the link asked to confirm who opens it",
+    "identityTitle": "Please introduce yourself",
+    "nameLabel": "What is your name",
+    "next": "Next",
+    "open": "Open",
+    "pageTitle": "A link — SuperApp6",
+    "passwordLabel": "Password",
+    "passwordLocked": "Too many wrong attempts. Try again in {min, plural, one {# minute} other {# minutes}}.",
+    "passwordSubtitle": "Enter the password you were given",
+    "passwordTitle": "The link is password-protected",
+    "passwordWrong": "Wrong password",
+    "passwordWrongLeft": "Wrong password — {n, plural, one {# attempt} other {# attempts}} left",
+    "phoneHint": "Only Kazakhstani mobile numbers are supported for now",
+    "phoneLabel": "Phone number",
+    "unsupported": {
+      "description": "Refresh the page later — the app may not know this kind of content yet.",
+      "title": "This link is not supported"
+    }
+  },
+  "mine": {
+    "empty": "A link shows up here as soon as you share a file, a folder or a document outside.",
+    "subtitle": "Everything you shared by a link with people who have no account.",
+    "title": "Guest links"
+  },
+  "past": {
+    "hidden": "The last {n} are shown — there were {hidden} more before that.",
+    "summary": "Links that no longer work ({n})",
+    "summaryOf": "Links that no longer work ({n} of {total})"
+  },
+  "revoke": {
+    "confirm": "Revoke",
+    "manyTitle": "Revoke the links: {n}?",
+    "message": "It will not open any more. That does not take back the files that are already downloaded.",
+    "picked": "Revoke the picked ({n})",
+    "title": "Revoke the link?"
+  },
+  "row": {
+    "authorUnavailable": "the author is not available",
+    "byNumber": "by phone number",
+    "collapse": "Collapse",
+    "copied": "Copied",
+    "copy": "Copy",
+    "createdAt": "created {date}",
+    "forWhom": "for: {label}",
+    "lastOpened": "the last one — {when}",
+    "noDownload": "no downloading",
+    "objectDeleted": "The object is deleted",
+    "opens": "Opens: {n}",
+    "opensOf": "Opens: {n} of {max}",
+    "pickAria": "Pick the link to «{title}»",
+    "settings": "Set up",
+    "someObject": "the object",
+    "until": "until {date}",
+    "withPassword": "with a password"
+  },
+  "section": {
+    "intro": "Anyone with the link can open and download it, even without a SuperApp6 account."
+  },
+  "stats": {
+    "activeLinks": "active links",
+    "barTitle": "{date} — {n}",
+    "chartAria": "Opens by day over {n, plural, one {# day} other {# days}}, {total} in total",
+    "opensInPeriod": "opens over {n, plural, one {# day} other {# days}}",
+    "sharedObjects": "objects shared"
+  },
+  "status": {
+    "active": "Active",
+    "exhausted": "The limit is used up",
+    "expired": "Expired",
+    "revoked": "Revoked"
+  },
+  "visits": {
+    "empty": "The link has not been opened yet."
+  }
+}

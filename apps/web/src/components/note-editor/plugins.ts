@@ -23,6 +23,7 @@ import {
   tableEditing,
   toggleHeaderRow,
 } from 'prosemirror-tables';
+import { noteEditorLabels } from './labels';
 import { noteSchema } from './schema';
 
 // ============================================================
@@ -297,7 +298,7 @@ export function placeholderPlugin(text: string): Plugin {
         if (!first) return DecorationSet.empty;
         const decos = [Decoration.node(0, first.nodeSize, { class: 'ne-title-line' })];
         if (first.content.size === 0) {
-          decos.push(Decoration.node(0, first.nodeSize, { class: 'ne-placeholder', 'data-placeholder': 'Без названия' }));
+          decos.push(Decoration.node(0, first.nodeSize, { class: 'ne-placeholder', 'data-placeholder': noteEditorLabels.title }));
         }
         const second = doc.childCount > 1 ? doc.child(1) : null;
         if (second && second.type === s.nodes.paragraph && second.content.size === 0 && doc.childCount === 2) {

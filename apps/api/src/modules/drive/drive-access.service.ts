@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   DRIVE_NODE_REF_TYPE,
@@ -12,6 +12,7 @@ import { AccessService } from '../../core/access/access.service';
 import { principalSubjectRelation } from '../../core/access/access-schema';
 import { RolesService } from '../../core/roles/roles.service';
 import { DatabaseService } from '../../shared/database/database.service';
+import { forbidden, notFound } from '../../shared/errors/api-error';
 
 type SpaceRow = {
   id: string;
@@ -159,14 +160,10 @@ export class DriveAccessService {
   }
 
   /** Бросить, если прав на узле не хватает */
-  assertAccess(access: DriveAccess | null, need: DriveRole, what = 'этому объекту'): void {
-    if (!access) throw new NotFoundException('Объект не найден');
+  assertAccess(access: DriveAccess | null, need: DriveRole): void {
+    if (!access) throw notFound('drive.nodeNotFound');
     if (this.rank(access) < DRIVE_ROLE_RANK[need]) {
-      throw new ForbiddenException(
-        need === 'manager'
-          ? 'Управлять доступом может только владелец объекта'
-          : `Нет прав на изменение: доступ к ${what} только на просмотр`,
-      );
+      throw forbidden(need === 'manager' ? 'drive.ownerManagesAccess' : 'drive.readOnly');
     }
   }
 

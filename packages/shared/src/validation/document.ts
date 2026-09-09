@@ -10,9 +10,9 @@ import { DOCS_LIMITS, DOCUMENT_USER_MODES } from '../constants/documents';
 const title = z
   .string()
   .trim()
-  .min(1, 'Название обязательно')
+  .min(1, 'validation.docs.titleRequired')
   .max(DOCS_LIMITS.maxTitleLength)
-  .refine((s) => !/[<>]/.test(s), 'Недопустимые символы');
+  .refine((s) => !/[<>]/.test(s), 'validation.docs.badCharacters');
 
 /**
  * Место, откуда человек пришёл к документу (кнопка на вложении задачи/чата). ПРАВКА
@@ -23,7 +23,7 @@ const refType = z.string().trim().min(1).max(40);
 const refId = z.string().trim().min(1).max(64);
 
 const bothOrNeither = (v: { refType?: string; refId?: string }) => !!v.refType === !!v.refId;
-const bothOrNeitherMsg = { message: 'refType и refId задаются вместе' };
+const bothOrNeitherMsg = { message: 'validation.docs.refPair' };
 
 /** POST /docs/from-file — оживить загруженный файл в документ (ЯВНЫЙ акт человека, п.9) */
 export const documentFromFileSchema = z
@@ -56,7 +56,7 @@ export const documentUpdateSchema = z
     mode: z.enum(DOCUMENT_USER_MODES).optional(),
   })
   .strict()
-  .refine((v) => v.title !== undefined || v.mode !== undefined, { message: 'Нечего обновлять' });
+  .refine((v) => v.title !== undefined || v.mode !== undefined, { message: 'validation.docs.nothingToUpdate' });
 
 /**
  * POST /docs/:id/versions — «Сохранить версию» вручную (pre_sign — задел под ЭЦП).

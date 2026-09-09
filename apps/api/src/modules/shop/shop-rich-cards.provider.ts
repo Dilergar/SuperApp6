@@ -10,19 +10,10 @@ import { RichCardRegistry } from '../../core/rich-cards/rich-cards.registry';
 import { RichCardsService } from '../../core/rich-cards/rich-cards.service';
 import type { RichCardDeps } from '../../core/rich-cards/rich-card.types';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { ShopService } from './shop.service';
 import { MessengerService } from '../messenger/messenger.service';
 import { FilesService } from '../../core/files/files.service';
-
-const ORDER_STATUS_WORDS: Record<string, string> = {
-  funding: 'Идёт сбор',
-  pending: 'Ожидает подтверждения',
-  confirmed: 'В работе',
-  settled: 'Завершён',
-  rejected: 'Отклонён',
-  cancelled: 'Отменён',
-  refunded: 'Возвращён',
-};
 
 /** "120 / 200 🪙" style line per currency. */
 function priceLine(amount: number, icon: string): string {
@@ -44,6 +35,7 @@ export class ShopRichCardsProvider implements OnModuleInit {
     private readonly messenger: MessengerService,
     private readonly richCards: RichCardsService,
     private readonly files: FilesService,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit() {
@@ -138,10 +130,16 @@ export class ShopRichCardsProvider implements OnModuleInit {
     const isBuyer = order.buyerId === viewerId;
     const currencies = await this.currencyIcons(order.prices.map((p) => p.currencyId));
 
+    // Статус заказа: слово собирается по ЗНАЧЕНИЮ (`shop.orderStatus.<status>`),
+    // словаря слов в коде нет. Незнакомый статус остаётся машинным именем.
+    const t = (key: string) => this.i18n.translate(key);
+    const statusKey = `shop.orderStatus.${order.status}`;
+    const statusWord = this.i18n.has(statusKey) ? t(statusKey) : order.status;
+
     const fields: RichCardField[] = [
-      { label: 'Статус', value: ORDER_STATUS_WORDS[order.status] ?? order.status },
+      { label: t('shop.card.status'), value: statusWord },
       {
-        label: 'Сумма',
+        label: t('shop.card.amount'),
         value:
           order.prices.map((p) => priceLine(Number(p.amount), currencies.get(p.currencyId) ?? '🪙')).join(', ') || '—',
       },
@@ -149,14 +147,14 @@ export class ShopRichCardsProvider implements OnModuleInit {
 
     const actions: RichCardAction[] = [];
     if (isSeller && order.status === 'pending') {
-      actions.push({ key: 'order.confirm', label: 'Подтвердить', style: 'primary' });
-      actions.push({ key: 'order.reject', label: 'Отклонить', style: 'danger' });
+      actions.push({ key: 'order.confirm', label: t('shop.action.confirm'), style: 'primary' });
+      actions.push({ key: 'order.reject', label: t('shop.action.reject'), style: 'danger' });
     }
     if (isBuyer && !order.crowdfunding && order.status === 'pending') {
-      actions.push({ key: 'order.cancel', label: 'Отменить', style: 'danger' });
+      actions.push({ key: 'order.cancel', label: t('shop.action.cancel'), style: 'danger' });
     }
     if (isSeller && order.status === 'confirmed') {
-      actions.push({ key: 'order.refund', label: 'Вернуть', style: 'danger' });
+      actions.push({ key: 'order.refund', label: t('shop.action.refund'), style: 'danger' });
     }
 
     return {
@@ -164,12 +162,12 @@ export class ShopRichCardsProvider implements OnModuleInit {
       cardType: 'order',
       ref: { type: 'order', id: refId },
       title: order.titleSnapshot,
-      subtitle: ORDER_STATUS_WORDS[order.status] ?? null,
+      subtitle: statusWord,
       icon: '🧾',
       imageUrl: null,
       fields,
       progress: null,
-      status: ORDER_STATUS_WORDS[order.status] ?? null,
+      status: statusWord,
       actions,
       href: '/shop',
     };
@@ -210,7 +208,8 @@ export class ShopRichCardsProvider implements OnModuleInit {
     const priceStr =
       listing.prices.map((p) => priceLine(Number(p.amount), currencies.get(p.currencyId) ?? '🪙')).join(', ') || '—';
 
-    const fields: RichCardField[] = [{ label: 'Цена', value: priceStr }];
+    const t = (key: string) => this.i18n.translate(key);
+    const fields: RichCardField[] = [{ label: t('shop.card.price'), value: priceStr }];
     const actions: RichCardAction[] = [];
     let progress: RichCardPayload['progress'] = null;
 
@@ -236,16 +235,21 @@ export class ShopRichCardsProvider implements OnModuleInit {
         !!campaign && campaign.contributions.some((c) => c.contributorId === viewerId);
       const open = listing.status === 'active' && (!campaign || campaign.status === 'funding');
       if (!isOwner && open) {
-        actions.push({ key: 'crowdfunding.contribute', label: 'Скинуться', style: 'primary' });
+        actions.push({ key: 'crowdfunding.contribute', label: t('shop.action.chipIn'), style: 'primary' });
       }
       if (iHavePledged && campaign && campaign.status === 'funding') {
         // withdraw operates on the campaign (Order) id, not the listing.
-        actions.push({ key: 'crowdfunding.withdraw', label: 'Отозвать вклад', style: 'danger', payload: { orderId: campaign.id } });
+        actions.push({
+          key: 'crowdfunding.withdraw',
+          label: t('shop.action.withdrawPledge'),
+          style: 'danger',
+          payload: { orderId: campaign.id },
+        });
       }
     } else {
       if (!isOwner && listing.status === 'active' && !listing.crowdfunding) {
-        actions.push({ key: 'listing.buy', label: 'Купить', style: 'primary' });
-        actions.push({ key: 'listing.talk', label: 'Поговорить', style: 'default' });
+        actions.push({ key: 'listing.buy', label: t('shop.action.buy'), style: 'primary' });
+        actions.push({ key: 'listing.talk', label: t('shop.action.talk'), style: 'default' });
       }
     }
 

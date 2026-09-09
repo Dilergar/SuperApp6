@@ -1,89 +1,246 @@
 {
-  "actions": {
-    "save": "Сақтау",
-    "cancel": "Болдырмау",
-    "delete": "Жою",
-    "remove": "Алып тастау",
-    "done": "Дайын",
-    "retry": "Қайталап көру",
-    "confirm": "Растау",
-    "select": "Таңдау",
-    "yes": "Иә",
-    "no": "Жоқ"
+  "a11y": {
+    "actions": "Әрекеттер",
+    "clear": "Тазалау",
+    "close": "Жабу",
+    "collapseGroup": "{name} жию",
+    "expandGroup": "{name} жаю",
+    "group": "топты",
+    "loading": "Жүктелуде",
+    "notifications": "Хабарламалар"
   },
-  "state": {
-    "loading": "Жүктелуде…",
-    "empty": "Әзірге бос",
-    "error": "Бірдеңе дұрыс болмады"
+  "actions": {
+    "add": "Қосу",
+    "apply": "Қолдану",
+    "back": "Артқа",
+    "cancel": "Болдырмау",
+    "close": "Жабу",
+    "confirm": "Растау",
+    "copy": "Көшіру",
+    "create": "Құру",
+    "delete": "Жою",
+    "done": "Дайын",
+    "download": "Жүктеп алу",
+    "edit": "Өңдеу",
+    "hide": "Жасыру",
+    "no": "Жоқ",
+    "open": "Ашу",
+    "ready": "Дайын",
+    "remove": "Алып тастау",
+    "rename": "Атын өзгерту",
+    "retry": "Қайталап көру",
+    "save": "Сақтау",
+    "search": "Іздеу",
+    "select": "Таңдау",
+    "show": "Көрсету",
+    "yes": "Иә"
+  },
+  "audience": {
+    "anchor": {
+      "initiator": "бастамашының",
+      "self": "мені",
+      "subject": "құжат тарапының"
+    },
+    "kind": {
+      "branch": "Нысан",
+      "branch_head_of": "Нысан басшысы",
+      "circle": "Топ",
+      "department": "Бөлім",
+      "manager_of": "Басшы",
+      "position": "Лауазым",
+      "subordinates_of": "Команда (бағыныштылар)",
+      "user": "Адам",
+      "workspace": "Бүкіл команда"
+    },
+    "label": {
+      "branch": "«{name}» нысаны",
+      "department": "«{name}» бөлімі",
+      "managerOf": "Басшы: {who}",
+      "managerOfAnchor": "{who} басшысы",
+      "position": "«{name}» лауазымы",
+      "siteHeadOf": "Нысан басшысы: {who}",
+      "siteHeadOfAnchor": "{who} нысанының басшысы",
+      "siteHeadOfSite": "«{name}» нысанының басшысы",
+      "teamOf": "Команда: {who}",
+      "teamOfAnchor": "{who} командасы",
+      "wholeTeam": "бүкіл команда"
+    }
+  },
+  "calendar": {
+    "clearDate": "Күнді тазарту",
+    "nextMonth": "Келесі ай",
+    "pickDate": "Күнді таңдаңыз",
+    "prevMonth": "Алдыңғы ай"
+  },
+  "calls": {
+    "recordingTitle": "Қоңырау · {date} {time}"
+  },
+  "chronicle": {
+    "empty": "Әзірге бос — оқиғалар осында шығады",
+    "emptyValue": "—",
+    "system": "Жүйе",
+    "taskContext": "· «{title}» тапсырмасы"
   },
   "day": {
     "today": "Бүгін",
     "yesterday": "Кеше"
   },
-  "units": {
-    "b": "Б",
-    "kb": "КБ",
-    "mb": "МБ",
-    "gb": "ГБ"
+  "docs": {
+    "bigFileHint": "Файл үлкен ({mb} МБ) — ашылуы бір минутқа дейін созылуы мүмкін",
+    "milestoneName": "{title} (н{n}).{ext}",
+    "othersEditing": "{name} және тағы {n}"
   },
-  "labels": {
-    "dash": "—",
-    "someone": "Біреу"
+  "dropzone": {
+    "title": "Файлдарды осында сүйреңіз немесе <pick>таңдаңыз</pick>"
   },
-  "a11y": {
-    "close": "Жабу",
-    "loading": "Жүктелуде",
-    "notifications": "Хабарламалар",
-    "actions": "Әрекеттер",
-    "group": "топты",
-    "expandGroup": "{name} жаю",
-    "collapseGroup": "{name} жию"
+  "entitySelector": {
+    "nothingFound": "Ештеңе табылмады",
+    "placeholder": "Атын жаза бастаңыз…",
+    "removeAria": "Алып тастау: {title}"
   },
-  "chronicle": {
-    "empty": "Әзірге бос — оқиғалар осында шығады",
-    "system": "Жүйе",
-    "taskContext": "· «{title}» тапсырмасы",
-    "emptyValue": "—"
+  "entityType": {
+    "branch": "Нысандар",
+    "circle": "Топтар",
+    "counterparty": "Контрагенттер",
+    "department": "Бөлімдер",
+    "position": "Лауазымдар",
+    "user": "Адамдар",
+    "workspace": "Ұйым",
+    "workspaceAll": "Бүкіл ұйым"
   },
-  "calendar": {
-    "prevMonth": "Алдыңғы ай",
-    "nextMonth": "Келесі ай",
-    "pickDate": "Күнді таңдаңыз",
-    "clearDate": "Күнді тазарту"
+  "files": {
+    "attach": "Файл тіркеу",
+    "cancelUpload": "Жүктеуді тоқтату",
+    "dropHint": "Файлдарды осында сүйреңіз немесе басыңыз",
+    "editHint": "Өңдеуге ашу: өзгерістер автоматты сақталады және файлға қолжетімділігі бар барлық адамға көрінеді",
+    "loadingVideo": "Бейне жүктелуде…",
+    "maxSize": "Ең үлкен өлшемі: {mb} МБ",
+    "noAttachments": "Тіркемелер жоқ.",
+    "openAria": "Ашу: {name}",
+    "openDocument": "Құжатты ашу",
+    "pasteHint": "Алмасу буферінен қоюға болады — Ctrl+V",
+    "photo": "Фото",
+    "removeAttachmentAria": "Тіркемені алып тастау: {name}",
+    "removeFromList": "Тізімнен алып тастау",
+    "replace": "Ауыстыру",
+    "unnamed": "файл",
+    "upload": "Жүктеу",
+    "uploadCancelled": "Тоқтатылды",
+    "uploadError": "Қате",
+    "uploadFailed": "Жүктеу сәтсіз аяқталды",
+    "uploadPhotoAria": "Фото жүктеу",
+    "view": "Қарау",
+    "viewHint": "Тек оқу үшін ашу — ештеңе өзгермейді"
   },
   "glyph": {
-    "setIcons": "Белгішелер",
-    "setOwn": "Өзіміздікі",
-    "setNoto": "Noto",
-    "ownEmoji": "Өз эмодзилеріміз",
-    "setAria": "Белгіше жинағы",
-    "searchPlaceholder": "Белгіше табу…",
-    "searchAria": "Белгіше іздеу",
+    "change": "Белгішені өзгерту",
+    "dialogAria": "Белгіше таңдау",
+    "field": "Белгіше",
     "loadFailed": "Белгіше жинағын жүктеу мүмкін болмады.",
     "nothingFound": "Ештеңе табылмады. Басқа сөзді байқап көріңіз.",
+    "ownEmoji": "Өз эмодзилеріміз",
+    "pick": "Белгіше таңдау",
     "recent": "Соңғылары",
     "recentItem": "Соңғы белгіше",
     "remove": "Белгішені алып тастау",
-    "field": "Белгіше",
-    "change": "Белгішені өзгерту",
-    "pick": "Белгіше таңдау",
-    "shown": "· {total} ішінен {shown}",
-    "dialogAria": "Белгіше таңдау"
-  },
-  "language": {
-    "label": "Интерфейс тілі",
-    "hint": "Мәзір, түймелер мен хабарламалар барлық құрылғыда осы тілде көрсетіледі."
-  },
-  "otp": {
-    "title": "SMS коды",
-    "sentTo": "Кодты мына нөмірге жібердік",
-    "yourNumber": "сіздің нөміріңіз",
-    "smsOff": "SMS жіберу бапталмаған — хабарлама келмейді, кодты төмендегі кеңестен алыңыз.",
-    "resend": "Қайта жіберу",
-    "resendIn": "Қайта жіберу ({time})",
-    "changeNumber": "Нөмірді өзгерту"
+    "searchAria": "Белгіше іздеу",
+    "searchPlaceholder": "Белгіше табу…",
+    "setAria": "Белгіше жинағы",
+    "setIcons": "Белгішелер",
+    "setNoto": "Noto",
+    "setOwn": "Өзіміздікі",
+    "shown": "· {total} ішінен {shown}"
   },
   "guest": {
     "sharedVia": "Бұл сізбен SuperApp6 арқылы бөлісілді"
+  },
+  "labels": {
+    "all": "Барлығы",
+    "dash": "—",
+    "deletedUser": "Жойылған пайдаланушы",
+    "description": "Сипаттама",
+    "item": "нысан",
+    "name": "Атауы",
+    "none": "Жоқ",
+    "optional": "Міндетті емес",
+    "someone": "Біреу",
+    "status": "Күйі",
+    "system": "Жүйе",
+    "total": "Барлығы",
+    "type": "Түрі"
+  },
+  "language": {
+    "auto": "Авто",
+    "hint": "Мәзір, түймелер мен хабарламалар барлық құрылғыда осы тілде көрсетіледі.",
+    "label": "Интерфейс тілі"
+  },
+  "otp": {
+    "changeNumber": "Нөмірді өзгерту",
+    "devCode": "[dev] код: <b>{code}</b>",
+    "resend": "Қайта жіберу",
+    "resendIn": "Қайта жіберу ({time})",
+    "sentTo": "Кодты мына нөмірге жібердік",
+    "smsOff": "SMS жіберу бапталмаған — хабарлама келмейді, кодты төмендегі кеңестен алыңыз.",
+    "title": "SMS коды",
+    "yourNumber": "сіздің нөміріңіз"
+  },
+  "pagination": {
+    "aria": "Беттер бойынша шарлау",
+    "next": "Келесі бет",
+    "page": "{n}-бет",
+    "prev": "Алдыңғы бет",
+    "summary": "{total} беттен {page}-бет"
+  },
+  "person": {
+    "ageValue": "{n, plural, one {# жаста} other {# жаста}}",
+    "details": "{name} — толығырақ",
+    "marital": {
+      "divorced": "Ажырасқан",
+      "married": "Тұрмыста",
+      "relationship": "Қарым-қатынаста",
+      "single": "Тұрмыс құрмаған",
+      "widowed": "Жесір"
+    },
+    "peopleCount": "{n, plural, one {# адам} other {# адам}}",
+    "visibleToOthers": "{label}: басқаларға көрінеді"
+  },
+  "presence": {
+    "at": "{date}, {time}",
+    "hoursAgo": "{n, plural, one {# сағат} other {# сағат}} бұрын",
+    "justNow": "жаңа ғана",
+    "lastSeen": "соңғы рет {when} желіде болды",
+    "minutesAgo": "{n, plural, one {# минут} other {# минут}} бұрын",
+    "online": "желіде"
+  },
+  "role": {
+    "circle": {
+      "member": "Қатысушы",
+      "owner": "Құрушы"
+    },
+    "system": {
+      "admin": "Әкімші",
+      "moderator": "Модератор",
+      "user": "Пайдаланушы"
+    },
+    "workspace": {
+      "admin": "Әкімші",
+      "contractor": "Мердігер",
+      "manager": "Менеджер",
+      "owner": "Иесі",
+      "staff": "Қызметкер",
+      "trainee": "Тағылымдамашы"
+    }
+  },
+  "state": {
+    "empty": "Әзірге бос",
+    "error": "Бірдеңе дұрыс болмады",
+    "loading": "Жүктелуде…"
+  },
+  "units": {
+    "b": "Б",
+    "gb": "ГБ",
+    "hourShort": "сағ",
+    "kb": "КБ",
+    "mb": "МБ"
   }
 }

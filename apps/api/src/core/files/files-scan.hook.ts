@@ -165,7 +165,7 @@ export class FilesScanHook implements OnModuleInit, OnApplicationBootstrap {
           where: { id: fileId, status: 'ready', scanStatus: 'pending' },
           data: { scanStatus: 'error' },
         });
-        throw new JobDiscardError(`clamd отверг поток ${fileId}: ${message}`);
+        throw new JobDiscardError(`clamd rejected the stream ${fileId}: ${message}`);
       }
       // Сетевая ошибка (clamd недоступен) — транзиентна: бросаем, движок ретраит с бэкоффом.
       throw err;
@@ -189,7 +189,7 @@ export class FilesScanHook implements OnModuleInit, OnApplicationBootstrap {
       } catch {
         // уведомление best-effort
       }
-      this.logger.warn(`Файл ${fileId} заражён (${signature}) — выдача заблокирована`);
+      this.logger.warn(`File ${fileId} is infected (${signature}) — serving is blocked`);
     }
   }
 

@@ -7,7 +7,6 @@
 
 import { apiErrorMessage } from '@/lib/api';
 import { toast, toastError } from '@/lib/toast';
-import { pluralRu } from '@superapp/shared';
 import type { Circle, Contact } from '@superapp/shared';
 
 /**
@@ -19,15 +18,15 @@ import type { Circle, Contact } from '@superapp/shared';
  * У каждого образца есть ИМЯ: пять безымянных квадратиков подряд — это пять
  * кнопок без названия, и выбрать цвет с клавиатуры было невозможно.
  */
-export const GROUP_COLORS: { value: string; name: string }[] = [
-  { value: '#f0c4c2', name: 'Розовый' },
-  { value: '#c3d8f0', name: 'Голубой' },
-  { value: '#eed6ae', name: 'Песочный' },
-  { value: '#c6ddc7', name: 'Зелёный' },
-  { value: '#e1bee7', name: 'Сиреневый' },
-  { value: '#ffccbc', name: 'Персиковый' },
-  { value: '#b2dfdb', name: 'Бирюзовый' },
-  { value: '#f0f4c3', name: 'Лаймовый' },
+export const GROUP_COLORS: { value: string; key: string }[] = [
+  { value: '#f0c4c2', key: 'pink' },
+  { value: '#c3d8f0', key: 'sky' },
+  { value: '#eed6ae', key: 'sand' },
+  { value: '#c6ddc7', key: 'green' },
+  { value: '#e1bee7', key: 'lilac' },
+  { value: '#ffccbc', key: 'peach' },
+  { value: '#b2dfdb', key: 'teal' },
+  { value: '#f0f4c3', key: 'lime' },
 ];
 
 /**
@@ -44,23 +43,19 @@ export type VisField =
   | 'city' | 'bio' | 'dateOfBirth' | 'age'
   | 'maritalStatus' | 'email' | 'socialLinks' | 'onlineStatus';
 
-export const VIS_FIELDS: { key: VisField; label: string }[] = [
-  { key: 'city', label: 'Город' },
-  { key: 'bio', label: 'О себе' },
-  { key: 'dateOfBirth', label: 'Дата рождения' },
-  { key: 'age', label: 'Возраст' },
-  { key: 'maritalStatus', label: 'Семейное положение' },
-  { key: 'email', label: 'Email' },
-  { key: 'socialLinks', label: 'Соцсети' },
-  { key: 'onlineStatus', label: 'Онлайн-статус' },
+/** Порядок полей карточки; подпись — `circles.visField.<key>` в каталоге. */
+export const VIS_FIELDS: readonly VisField[] = [
+  'city',
+  'bio',
+  'dateOfBirth',
+  'age',
+  'maritalStatus',
+  'email',
+  'socialLinks',
+  'onlineStatus',
 ];
 
 export type ContactSort = 'recent' | 'name';
-
-/** Люди: «5 человек», «2 человека». */
-export function pluralPeople(n: number): string {
-  return `${n} ${pluralRu(n, ['человек', 'человека', 'человек'])}`;
-}
 
 /**
  * Одна точка разбора ошибок страницы. Раньше блок
@@ -107,7 +102,7 @@ export function samePhone(a: string, b: string): boolean {
  */
 export function sortGroups(groups: Circle[]): Circle[] {
   return [...groups].sort((a, b) =>
-    a.sortOrder !== b.sortOrder ? a.sortOrder - b.sortOrder : a.name.localeCompare(b.name, 'ru'),
+    a.sortOrder !== b.sortOrder ? a.sortOrder - b.sortOrder : a.name.localeCompare(b.name),
   );
 }
 
@@ -144,7 +139,9 @@ export function sortContacts(list: Contact[], sort: ContactSort): Contact[] {
       (a, b) => new Date(b.confirmedAt).getTime() - new Date(a.confirmedAt).getTime(),
     );
   }
-  const collator = new Intl.Collator('ru', { sensitivity: 'base' });
+  // Сравнение имён — правилами ЯЗЫКА ЗРИТЕЛЯ: зашитый 'ru' сортировал бы
+  // казахские и английские имена русским алфавитом.
+  const collator = new Intl.Collator(undefined, { sensitivity: 'base' });
   return [...list].sort((a, b) => {
     const byFirst = collator.compare(a.them.firstName, b.them.firstName);
     if (byFirst !== 0) return byFirst;

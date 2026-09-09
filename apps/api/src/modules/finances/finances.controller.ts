@@ -1,9 +1,10 @@
 import {
   Controller, Get, Post, Patch, Put, Delete,
-  Body, Param, Query, HttpCode, HttpStatus, BadRequestException,
+  Body, Param, Query, HttpCode, HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { badRequest } from '../../shared/errors/api-error';
 import {
   createFinAccountSchema,
   updateFinAccountSchema,
@@ -40,7 +41,7 @@ export class FinancesController {
   constructor(private readonly finances: FinancesService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Обзор книги: счета с балансами + дерево категорий (лениво создаёт книгу)' })
+  @ApiOperation({ summary: 'Book overview: accounts with balances + the category tree (lazily creates the book)' })
   async getOverview(@CurrentUser() user: JwtPayload, @Query('bookId') bookId?: string) {
     const data = await this.finances.getOverview(user.sub, bookId || undefined);
     return { success: true, data };
@@ -49,7 +50,7 @@ export class FinancesController {
   // ---------- accounts ----------
 
   @Post('accounts')
-  @ApiOperation({ summary: 'Создать счёт (наличные/карта/депозит) с необязательным начальным остатком' })
+  @ApiOperation({ summary: 'Create an account (cash / card / savings) with an optional opening balance' })
   async createAccount(
     @CurrentUser() user: JwtPayload,
     @Body() body: Record<string, unknown>,
@@ -61,7 +62,7 @@ export class FinancesController {
   }
 
   @Post('accounts/:id/set-balance')
-  @ApiOperation({ summary: '«У меня сейчас на счёте N» — корректировка остатка (двойная запись через Начальный остаток)' })
+  @ApiOperation({ summary: '"I now have N on the account" — a balance adjustment (double entry via the opening balance)' })
   async setAccountBalance(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -74,7 +75,7 @@ export class FinancesController {
   }
 
   @Patch('accounts/:id')
-  @ApiOperation({ summary: 'Обновить счёт (имя/иконка/архив/порядок)' })
+  @ApiOperation({ summary: 'Update an account (name / icon / archive / order)' })
   async updateAccount(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -88,7 +89,7 @@ export class FinancesController {
 
   @Delete('accounts/:id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Удалить счёт (с историей — архивируется)' })
+  @ApiOperation({ summary: 'Delete an account (one with history is archived)' })
   async deleteAccount(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -101,7 +102,7 @@ export class FinancesController {
   // ---------- categories ----------
 
   @Post('categories')
-  @ApiOperation({ summary: 'Создать категорию расходов/доходов (дерево до 2 уровней)' })
+  @ApiOperation({ summary: 'Create an expense / income category (tree up to 2 levels)' })
   async createCategory(
     @CurrentUser() user: JwtPayload,
     @Body() body: Record<string, unknown>,
@@ -113,7 +114,7 @@ export class FinancesController {
   }
 
   @Patch('categories/:id')
-  @ApiOperation({ summary: 'Обновить категорию (имя/иконка/архив/родитель)' })
+  @ApiOperation({ summary: 'Update a category (name / icon / archive / parent)' })
   async updateCategory(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -127,7 +128,7 @@ export class FinancesController {
 
   @Delete('categories/:id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Удалить категорию (с историей — архивируется; с подкатегориями — 409)' })
+  @ApiOperation({ summary: 'Delete a category (one with history is archived; one with children returns 409)' })
   async deleteCategory(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -140,7 +141,7 @@ export class FinancesController {
   // ---------- budgets + reports (план-факт) ----------
 
   @Put('budgets')
-  @ApiOperation({ summary: 'Задать/обновить лимит категории на месяц (amount=null — удалить)' })
+  @ApiOperation({ summary: 'Set or update a category budget for a month (amount=null deletes it)' })
   async upsertBudget(
     @CurrentUser() user: JwtPayload,
     @Body() body: Record<string, unknown>,
@@ -152,7 +153,7 @@ export class FinancesController {
   }
 
   @Get('reports/month')
-  @ApiOperation({ summary: 'Отчёт месяца: категории (факт), доходы, платежи по долгам, лимиты план-факт' })
+  @ApiOperation({ summary: 'Month report: categories (actual), income, debt payments, budget plan vs fact' })
   async monthReport(@CurrentUser() user: JwtPayload, @Query() rawQuery: Record<string, unknown>) {
     const q = finMonthReportQuerySchema.parse(rawQuery);
     const data = await this.finances.getMonthReport(user.sub, q.period, q.bookId);
@@ -160,7 +161,7 @@ export class FinancesController {
   }
 
   @Get('reports/trend')
-  @ApiOperation({ summary: 'Динамика по месяцам: расходы/доходы (по валютам)' })
+  @ApiOperation({ summary: 'Month-by-month trend: expense / income (per currency)' })
   async trend(@CurrentUser() user: JwtPayload, @Query() rawQuery: Record<string, unknown>) {
     const q = finTrendQuerySchema.parse(rawQuery);
     const data = await this.finances.getTrend(user.sub, q.months ?? 6, q.bookId);
@@ -170,14 +171,14 @@ export class FinancesController {
   // ---------- people («Близкие» + отчёт по людям) ----------
 
   @Get('people')
-  @ApiOperation({ summary: '«Близкие» — быстрый список для поля «на кого»' })
+  @ApiOperation({ summary: 'Close people — the quick-pick list for the "who" field' })
   async listPeople(@CurrentUser() user: JwtPayload, @Query('bookId') bookId?: string) {
     const data = await this.finances.listPeople(user.sub, bookId || undefined);
     return { success: true, data };
   }
 
   @Post('people')
-  @ApiOperation({ summary: 'Добавить человека из окружения в «Близкие»' })
+  @ApiOperation({ summary: 'Add a person from the circle to close people' })
   async addPerson(
     @CurrentUser() user: JwtPayload,
     @Body() body: Record<string, unknown>,
@@ -190,7 +191,7 @@ export class FinancesController {
 
   @Delete('people/:userId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Убрать человека из «Близких» (история операций не трогается)' })
+  @ApiOperation({ summary: 'Remove a person from close people (the transaction history is untouched)' })
   async removePerson(
     @CurrentUser() user: JwtPayload,
     @Param('userId') userId: string,
@@ -201,7 +202,7 @@ export class FinancesController {
   }
 
   @Get('reports/people')
-  @ApiOperation({ summary: 'Отчёт «по людям»: сколько потратил на / получил от каждого' })
+  @ApiOperation({ summary: 'People report: how much was spent on / received from each person' })
   async peopleReport(@CurrentUser() user: JwtPayload, @Query() rawQuery: Record<string, unknown>) {
     const q = finPeopleReportQuerySchema.parse(rawQuery);
     const data = await this.finances.getPeopleReport(user.sub, q, q.bookId);
@@ -211,7 +212,7 @@ export class FinancesController {
   // ---------- coins: авто-лента экосистемы (проекция кошелька, только своя) ----------
 
   @Get('coins')
-  @ApiOperation({ summary: 'Коин-лента экосистемы: награды задач, покупки, казна — из леджера, с контекстом' })
+  @ApiOperation({ summary: 'Ecosystem coin feed: task rewards, purchases, treasury — from the ledger, with context' })
   async coinFeed(@CurrentUser() user: JwtPayload, @Query() rawQuery: Record<string, unknown>) {
     const q = finCoinFeedQuerySchema.parse(rawQuery);
     // Страница цельной в `data` (вариант A): контроллер её не расплющивает.
@@ -221,14 +222,14 @@ export class FinancesController {
   // ---------- shares (семейный доступ) ----------
 
   @Get('shares')
-  @ApiOperation({ summary: 'Кому открыта моя книга (люди и Группы, роли «смотрит»/«ведёт»)' })
+  @ApiOperation({ summary: 'Who my book is open to (people and groups, the viewer / editor roles)' })
   async listShares(@CurrentUser() user: JwtPayload, @Query('bookId') bookId?: string) {
     const data = await this.finances.listShares(user.sub, bookId || undefined);
     return { success: true, data };
   }
 
   @Post('shares')
-  @ApiOperation({ summary: 'Дать доступ к книге человеку из окружения или своей Группе' })
+  @ApiOperation({ summary: 'Grant book access to a person from the circle or to a group' })
   async addShare(
     @CurrentUser() user: JwtPayload,
     @Body() body: Record<string, unknown>,
@@ -241,7 +242,7 @@ export class FinancesController {
 
   @Delete('shares/:principalType/:principalId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Отозвать доступ' })
+  @ApiOperation({ summary: 'Revoke access' })
   async removeShare(
     @CurrentUser() user: JwtPayload,
     @Param('principalType') principalType: string,
@@ -251,14 +252,14 @@ export class FinancesController {
     if (principalType !== 'user' && principalType !== 'circle') {
       // Через AllExceptionsFilter → единый конверт с HTTP 400 (а не 200 + success:false,
       // который axios-обёртки и клиент не отличат от успеха).
-      throw new BadRequestException('Неизвестный тип принципала');
+      throw badRequest('finance.unknownPrincipal');
     }
     const data = await this.finances.removeShare(user.sub, principalType, principalId, bookId || undefined);
     return { success: true, data };
   }
 
   @Get('shared-with-me')
-  @ApiOperation({ summary: 'Книги, которыми со мной поделились (для переключателя)' })
+  @ApiOperation({ summary: 'Books shared with me (for the switcher)' })
   async sharedWithMe(@CurrentUser() user: JwtPayload) {
     const data = await this.finances.listSharedWithMe(user.sub);
     return { success: true, data };
@@ -267,14 +268,14 @@ export class FinancesController {
   // ---------- debts (долги «я должен») ----------
 
   @Get('debts')
-  @ApiOperation({ summary: 'Мои долги: рассрочки и кредиты (остаток, прогресс, день платежа)' })
+  @ApiOperation({ summary: 'My debts: instalments and loans (balance, progress, payment day)' })
   async listDebts(@CurrentUser() user: JwtPayload, @Query('bookId') bookId?: string) {
     const data = await this.finances.listDebts(user.sub, bookId || undefined);
     return { success: true, data };
   }
 
   @Post('debts')
-  @ApiOperation({ summary: 'Создать долг: рассрочка-покупка (расход полной суммой) или кредит деньгами' })
+  @ApiOperation({ summary: 'Create a debt: an instalment purchase (full-amount expense) or a cash loan' })
   async createDebt(
     @CurrentUser() user: JwtPayload,
     @Body() body: Record<string, unknown>,
@@ -286,7 +287,7 @@ export class FinancesController {
   }
 
   @Post('debts/:id/pay')
-  @ApiOperation({ summary: '«Оплачено» в 1 тап: платёж по долгу (по умолчанию — ежемесячный, не больше остатка)' })
+  @ApiOperation({ summary: 'One-tap "paid": a debt payment (the monthly one by default, never above the balance)' })
   async payDebt(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -299,7 +300,7 @@ export class FinancesController {
   }
 
   @Patch('debts/:id')
-  @ApiOperation({ summary: 'Обновить долг (имя / день платежа / ежемесячный платёж)' })
+  @ApiOperation({ summary: 'Update a debt (name / payment day / monthly payment)' })
   async updateDebt(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -314,14 +315,14 @@ export class FinancesController {
   // ---------- recurring (повторяющиеся операции) ----------
 
   @Get('recurring')
-  @ApiOperation({ summary: 'Повторяющиеся операции (шаблоны: авто-запись или напоминание)' })
+  @ApiOperation({ summary: 'Recurring transactions (templates: auto-record or reminder)' })
   async listRecurring(@CurrentUser() user: JwtPayload, @Query('bookId') bookId?: string) {
     const data = await this.finances.listRecurring(user.sub, bookId || undefined);
     return { success: true, data };
   }
 
   @Post('recurring')
-  @ApiOperation({ summary: 'Создать повтор (подписка/аренда: месяц или неделя)' })
+  @ApiOperation({ summary: 'Create a recurring rule (subscription / rent: monthly or weekly)' })
   async createRecurring(
     @CurrentUser() user: JwtPayload,
     @Body() body: Record<string, unknown>,
@@ -333,7 +334,7 @@ export class FinancesController {
   }
 
   @Patch('recurring/:id')
-  @ApiOperation({ summary: 'Обновить повтор (сумма/день/авто/пауза)' })
+  @ApiOperation({ summary: 'Update a recurring rule (amount / day / auto / pause)' })
   async updateRecurring(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -347,7 +348,7 @@ export class FinancesController {
 
   @Delete('recurring/:id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Удалить повтор (история операций не трогается)' })
+  @ApiOperation({ summary: 'Delete a recurring rule (the transaction history is untouched)' })
   async deleteRecurring(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -358,7 +359,7 @@ export class FinancesController {
   }
 
   @Post('recurring/:id/record-now')
-  @ApiOperation({ summary: '«Записать сейчас» — операция по шаблону сегодняшним днём' })
+  @ApiOperation({ summary: '"Record now" — a transaction from the template dated today' })
   async recordRecurringNow(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -371,14 +372,14 @@ export class FinancesController {
   // ---------- transactions ----------
 
   @Get('transactions')
-  @ApiOperation({ summary: 'Список операций: фильтры по датам/счёту/категории/человеку, курсорная пагинация' })
+  @ApiOperation({ summary: 'Transaction list: filters by date / account / category / person, cursor pagination' })
   async listTransactions(@CurrentUser() user: JwtPayload, @Query() rawQuery: Record<string, unknown>) {
     const query = listFinTransactionsQuerySchema.parse(rawQuery);
     return { success: true, data: await this.finances.listTransactions(user.sub, query) };
   }
 
   @Post('transactions')
-  @ApiOperation({ summary: 'Записать операцию: расход / доход / перевод / обмен (двойная запись from→to)' })
+  @ApiOperation({ summary: 'Record a transaction: expense / income / transfer / exchange (double entry from→to)' })
   async createTransaction(
     @CurrentUser() user: JwtPayload,
     @Body() body: Record<string, unknown>,
@@ -390,7 +391,7 @@ export class FinancesController {
   }
 
   @Patch('transactions/:id')
-  @ApiOperation({ summary: 'Исправить операцию (правка пишется в аудит-журнал)' })
+  @ApiOperation({ summary: 'Correct a transaction (the edit goes to the audit log)' })
   async updateTransaction(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -404,7 +405,7 @@ export class FinancesController {
 
   @Delete('transactions/:id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Удалить операцию (мягко; удаление в аудит-журнале)' })
+  @ApiOperation({ summary: 'Delete a transaction (soft; the deletion goes to the audit log)' })
   async deleteTransaction(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,

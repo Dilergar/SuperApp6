@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import type { RichCardPayload } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { RichCardRegistry } from '../../core/rich-cards/rich-cards.registry';
 import type { RichCardDeps } from '../../core/rich-cards/rich-card.types';
 import { ObjectsService } from './objects.service';
@@ -20,6 +21,7 @@ export class ObjectsCardsProvider implements OnModuleInit {
     private readonly registry: RichCardRegistry,
     private readonly objects: ObjectsService,
     private readonly shifts: ShiftsService,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -48,7 +50,7 @@ export class ObjectsCardsProvider implements OnModuleInit {
     const shift = await deps.db.shift.findUnique({
       where: { id: refId },
       include: {
-        branch: { select: { id: true, name: true, ancestorIds: true, workspaceId: true } },
+        branch: { select: { id: true, name: true, ancestorIds: true, workspaceId: true, timeZone: true } },
         position: { select: { name: true } },
         template: { select: { name: true } },
       },
@@ -59,27 +61,35 @@ export class ObjectsCardsProvider implements OnModuleInit {
     if (!caps.view) return null;
 
     const open = !shift.userId && shift.status === 'published';
-    const timeLabel = `${fmt(shift.startsAt)} — ${fmt(shift.endsAt)}`;
+    const t = (key: string) => this.i18n.translate(key);
+    // Часы смены — в поясе ОБЪЕКТА (смена живёт по его времени, а не по UTC),
+    // локальный день — без пояса вовсе: это дата-ярлык, а не момент.
+    const fmt = this.i18n.format(this.i18n.locale, shift.branch.timeZone);
+    const timeLabel = fmt.timeRange(shift.startsAt, shift.endsAt);
+    const dayLabel = this.i18n.format(this.i18n.locale, 'UTC').date(shift.localDate);
     return {
       kind: 'rich_card',
       cardType: 'shift',
       ref: { type: 'shift', id: refId },
       title: `${shift.branch.name} · ${shift.position.name}`,
-      subtitle: `${shift.localDate.toISOString().slice(0, 10)} · ${timeLabel}`,
+      subtitle: `${dayLabel} · ${timeLabel}`,
       icon: '🗓️',
       imageUrl: null,
       fields: [
-        ...(shift.template?.name ? [{ label: 'Смена', value: shift.template.name }] : []),
-        { label: 'Статус', value: open ? 'Открыта' : shift.status === 'published' ? 'Занята' : 'Черновик' },
+        ...(shift.template?.name ? [{ label: t('richCards.shift.template'), value: shift.template.name }] : []),
+        {
+          label: t('common.labels.status'),
+          value: open
+            ? t('richCards.shift.open')
+            : shift.status === 'published'
+              ? t('richCards.shift.taken')
+              : t('objects.shiftStatus.draft'),
+        },
       ],
       progress: null,
-      status: open ? 'Открытая смена' : null,
-      actions: open ? [{ key: 'shift.take', label: 'Возьму', style: 'primary' }] : [],
+      status: open ? t('richCards.shift.openStatus') : null,
+      actions: open ? [{ key: 'shift.take', label: t('richCards.shift.take'), style: 'primary' }] : [],
       href: `/workspaces/${shift.workspaceId}/objects/${shift.branchId}/shifts`,
     };
   }
-}
-
-function fmt(d: Date): string {
-  return d.toISOString().slice(11, 16);
 }

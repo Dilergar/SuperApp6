@@ -1,0 +1,57 @@
+{
+  "controls": {
+    "audioOnlyOff": "Turn the audio-only mode off (bring the video of the participants back)",
+    "audioOnlyOn": "The audio-only mode — save the traffic on a weak network",
+    "camOff": "Turn the camera off",
+    "camOn": "Turn the camera on",
+    "endForAll": "End for everyone",
+    "leave": "Leave",
+    "micOff": "Turn the microphone off",
+    "micOn": "Turn the microphone on",
+    "screenStart": "Share the screen",
+    "screenStop": "Stop the screen share"
+  },
+  "incoming": {
+    "accept": "Accept",
+    "decline": "Decline",
+    "subtitle": "📞 Incoming call…",
+    "title": "Incoming call"
+  },
+  "panel": {
+    "empty": "Nobody here yet",
+    "kick": "Remove from the call",
+    "kickConfirm": "Remove",
+    "kickFailed": "Could not remove the participant",
+    "kickMessage": "The person will leave the room and can come back only through a new link.",
+    "kickTitle": "Remove {name} from the call?",
+    "micOff": "The microphone is off",
+    "micOn": "The microphone is on",
+    "mute": "Mute the participant",
+    "muteFailed": "Could not mute the participant",
+    "thisPerson": "this participant"
+  },
+  "prejoin": {
+    "camLabel": "Camera",
+    "cameraOff": "The camera is off",
+    "default": "By default",
+    "join": "Join",
+    "joining": "Connecting…",
+    "mediaError": "No access to the camera or the microphone — check the permissions of the browser",
+    "micLabel": "Microphone"
+  },
+  "resilience": {
+    "autoAudioOnly": "📶 Weak network — the audio-only mode is on (bring the video back with the 🎧 button)",
+    "qualityLost": "The connection is lost",
+    "qualityPoor": "Weak network at this participant",
+    "weakNetwork": "📶 Weak network — the quality may drop"
+  },
+  "shell": {
+    "reconnecting": "Reconnecting… the call will come back on its own"
+  },
+  "tile": {
+    "micOff": "The microphone is off",
+    "participant": "Participant",
+    "screenShare": "🖥️ Screen share — {name}",
+    "you": "you"
+  }
+}

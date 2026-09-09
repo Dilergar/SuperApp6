@@ -32,7 +32,7 @@ import {
   type OrgPositionNode,
   type OrgViewMode,
 } from './org-layout';
-import type { OrgSelection } from './org-lib';
+import { useOrgLayoutLabels, type OrgSelection } from './org-lib';
 
 export interface OrgCanvasProps {
   chart: OrgChartDto;
@@ -60,7 +60,8 @@ export function OrgCanvas({
   chart, view, focusMode, frames, hits, focusNodeId, focusTick, resetTick, selection, onSelect, canEdit, hireHref,
   onMoveToDepartment, onReportsTo,
 }: OrgCanvasProps) {
-  const layout = useMemo(() => layoutOrg({ chart, view, focus: focusMode, frames }), [chart, view, focusMode, frames]);
+  const labels = useOrgLayoutLabels();
+  const layout = useMemo(() => layoutOrg({ chart, view, focus: focusMode, frames, labels }), [chart, view, focusMode, frames, labels]);
 
   // Цель фокуса: рамка отдела, если нарисована, иначе первая должность отдела
   const resolvedFocus = useMemo(() => {

@@ -2,9 +2,8 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { DRIVE_NODE_REF_TYPE, type RichCardPayload } from '@superapp/shared';
 import { RichCardRegistry } from '../../core/rich-cards/rich-cards.registry';
 import type { RichCardDeps } from '../../core/rich-cards/rich-card.types';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { DriveService } from './drive.service';
-
-const KB = 1024;
 
 /**
  * Rich card «Объект Диска» (Принцип 3): название, тип, размер и ссылка «Открыть».
@@ -20,6 +19,7 @@ export class DriveRichCardsProvider implements OnModuleInit {
   constructor(
     private readonly registry: RichCardRegistry,
     private readonly drive: DriveService,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -39,11 +39,12 @@ export class DriveRichCardsProvider implements OnModuleInit {
 
     const isFolder = node.kind === 'folder';
     const bytes = node.subtreeBytes === null ? null : Number(node.subtreeBytes);
+    const t = (key: string): string => this.i18n.translate(key);
     const fields = [
-      { label: 'Тип', value: isFolder ? 'Папка' : 'Файл' },
-      ...(bytes !== null ? [{ label: 'Размер', value: humanSize(bytes) }] : []),
+      { label: t('drive.card.type'), value: t(isFolder ? 'drive.kind.folder' : 'drive.kind.file') },
+      ...(bytes !== null ? [{ label: t('drive.card.size'), value: this.i18n.bytes(bytes) }] : []),
       ...(isFolder && node.subtreeFiles !== null
-        ? [{ label: 'Файлов внутри', value: String(node.subtreeFiles) }]
+        ? [{ label: t('drive.card.filesInside'), value: String(node.subtreeFiles) }]
         : []),
     ];
 
@@ -51,8 +52,8 @@ export class DriveRichCardsProvider implements OnModuleInit {
       kind: 'rich_card',
       cardType: DRIVE_NODE_REF_TYPE,
       ref: { type: DRIVE_NODE_REF_TYPE, id: refId },
-      title: node.name,
-      subtitle: isFolder ? 'Папка на Диске' : 'Файл на Диске',
+      title: this.drive.displayName(node),
+      subtitle: t(isFolder ? 'drive.kind.folderOnDrive' : 'drive.kind.fileOnDrive'),
       icon: isFolder ? '📁' : '📄',
       imageUrl: null,
       fields,
@@ -62,11 +63,4 @@ export class DriveRichCardsProvider implements OnModuleInit {
       href: `/drive/n/${refId}`,
     };
   }
-}
-
-function humanSize(bytes: number): string {
-  if (bytes < KB) return `${bytes} Б`;
-  if (bytes < KB * KB) return `${(bytes / KB).toFixed(1)} КБ`;
-  if (bytes < KB ** 3) return `${(bytes / KB ** 2).toFixed(1)} МБ`;
-  return `${(bytes / KB ** 3).toFixed(2)} ГБ`;
 }

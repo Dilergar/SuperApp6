@@ -1,19 +1,21 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { fullName } from '../../shared/utils/user-name';
+import { badRequest, conflict, notFound } from '../../shared/errors/api-error';
 import {
   LEGAL_ENTITY_ERROR_CODES,
   LEGAL_ENTITY_LIMITS,
   REQUISITE_LIMITS,
+  SOURCE_LOCALE,
   WORKSPACE_ROLE_RANK,
+  composeSignBasis,
+  signBasisColumnsOf,
+  signBasisPartsOf,
+  type SignBasisColumns,
   type CreateLegalEntityInput,
   type CreateBankAccountInput,
   type LegalEntityDto,
@@ -43,7 +45,10 @@ type RequisiteData = Partial<
     | 'vatPayer'
     | 'vatDate'
     | 'directorUserId'
-    | 'signBasis'
+    | 'signBasisKind'
+    | 'signBasisNumber'
+    | 'signBasisDate'
+    | 'signBasisText'
   >
 >;
 type DbLike = DatabaseService | Tx;
@@ -62,7 +67,6 @@ const REQUISITE_KEYS = [
   'vatSeries',
   'vatNumber',
   'directorUserId',
-  'signBasis',
 ] as const;
 
 /**
@@ -82,6 +86,7 @@ export class LegalEntitiesService {
     private db: DatabaseService,
     private roles: RolesService,
     private chatter: ChatterService,
+    private i18n: I18nService,
   ) {}
 
   // ============================================================
@@ -102,10 +107,10 @@ export class LegalEntitiesService {
     if (found) return found;
 
     const ws = await db.workspace.findUnique({ where: { id: workspaceId }, select: { name: true } });
-    if (!ws) throw new NotFoundException('Организация не найдена');
+    if (!ws) throw notFound('workspace.notFound');
     try {
       return await db.legalEntity.create({
-        data: { workspaceId, name: ws.name, isHead: true },
+        data: { workspaceId, name: ws.name, isHead: true, ...this.defaultSignBasis() },
         select: { id: true, name: true },
       });
     } catch {
@@ -113,7 +118,7 @@ export class LegalEntitiesService {
         where: { workspaceId, isHead: true },
         select: { id: true, name: true },
       });
-      if (!again) throw new ConflictException('Не удалось создать головное юрлицо');
+      if (!again) throw conflict('workspace.headLegalEntityFailed');
       return again;
     }
   }
@@ -138,12 +143,9 @@ export class LegalEntitiesService {
       where: { id: legalEntityId, workspaceId },
       select: { id: true, archivedAt: true },
     });
-    if (!le) throw new NotFoundException('Юрлицо не найдено');
+    if (!le) throw notFound('legalEntity.notFound');
     if (le.archivedAt) {
-      throw new ConflictException({
-        message: 'Юрлицо в архиве — выберите действующее',
-        details: { code: LEGAL_ENTITY_ERROR_CODES.archived },
-      });
+      throw conflict('legalEntity.archived', undefined, { code: LEGAL_ENTITY_ERROR_CODES.archived });
     }
     return le.id;
   }
@@ -173,7 +175,7 @@ export class LegalEntitiesService {
     includeArchived: boolean,
   ): Promise<LegalEntityLiteDto[]> {
     const role = await this.roleOf(userId, workspaceId);
-    if (!role || role === 'contractor') throw new NotFoundException('Организация не найдена');
+    if (!role || role === 'contractor') throw notFound('workspace.notFound');
     await this.ensureHeadLegalEntity(workspaceId);
     return this.listLite(workspaceId, includeArchived);
   }
@@ -199,7 +201,7 @@ export class LegalEntitiesService {
   async getOne(userId: string, workspaceId: string, leId: string): Promise<LegalEntityDto> {
     await this.assertCanManage(userId, workspaceId);
     const row = await this.db.legalEntity.findFirst({ where: { id: leId, workspaceId } });
-    if (!row) throw new NotFoundException('Юрлицо не найдено');
+    if (!row) throw notFound('legalEntity.notFound');
     return this.serialize(row);
   }
 
@@ -212,7 +214,7 @@ export class LegalEntitiesService {
     await this.ensureHeadLegalEntity(workspaceId);
     const count = await this.db.legalEntity.count({ where: { workspaceId } });
     if (count >= LEGAL_ENTITY_LIMITS.maxPerWorkspace) {
-      throw new BadRequestException(`Лимит юрлиц: ${LEGAL_ENTITY_LIMITS.maxPerWorkspace}`);
+      throw badRequest('legalEntity.limitReached', { max: LEGAL_ENTITY_LIMITS.maxPerWorkspace });
     }
     await this.validateDirector(workspaceId, dto.directorUserId ?? null);
 
@@ -224,6 +226,7 @@ export class LegalEntitiesService {
             name: dto.name,
             isHead: false,
             sortOrder: count,
+            ...this.defaultSignBasis(),
             ...this.requisiteData(dto),
           },
         })
@@ -249,7 +252,7 @@ export class LegalEntitiesService {
   ): Promise<LegalEntityDto> {
     await this.assertCanManage(userId, workspaceId);
     const row = await this.db.legalEntity.findFirst({ where: { id: leId, workspaceId } });
-    if (!row) throw new NotFoundException('Юрлицо не найдено');
+    if (!row) throw notFound('legalEntity.notFound');
     if (dto.directorUserId) await this.validateDirector(workspaceId, dto.directorUserId);
 
     const updated = await this.db.$transaction(async (tx) => {
@@ -285,11 +288,10 @@ export class LegalEntitiesService {
   async makeHead(userId: string, workspaceId: string, leId: string): Promise<LegalEntityDto> {
     await this.assertCanManage(userId, workspaceId);
     const row = await this.db.legalEntity.findFirst({ where: { id: leId, workspaceId } });
-    if (!row) throw new NotFoundException('Юрлицо не найдено');
+    if (!row) throw notFound('legalEntity.notFound');
     if (row.archivedAt) {
-      throw new ConflictException({
-        message: 'Архивное юрлицо головным не делают',
-        details: { code: LEGAL_ENTITY_ERROR_CODES.archived },
+      throw conflict('legalEntity.archivedNotHead', undefined, {
+        code: LEGAL_ENTITY_ERROR_CODES.archived,
       });
     }
     if (row.isHead) return this.serialize(row);
@@ -306,7 +308,14 @@ export class LegalEntitiesService {
         actorId: userId,
         typeKey: 'legal_entity.updated',
         payload: { name: next.name },
-        changes: [{ field: 'isHead', label: 'Головное юрлицо', from: 'нет', to: 'да' }],
+        changes: [
+          {
+            field: 'isHead',
+            label: this.src('chatter.fields.workspace.isHead'),
+            from: this.src('common.actions.no'),
+            to: this.src('common.actions.yes'),
+          },
+        ],
       });
       return next;
     });
@@ -317,11 +326,10 @@ export class LegalEntitiesService {
   async archive(userId: string, workspaceId: string, leId: string): Promise<LegalEntityDto> {
     await this.assertCanManage(userId, workspaceId);
     const row = await this.db.legalEntity.findFirst({ where: { id: leId, workspaceId } });
-    if (!row) throw new NotFoundException('Юрлицо не найдено');
+    if (!row) throw notFound('legalEntity.notFound');
     if (row.isHead) {
-      throw new ConflictException({
-        message: 'Головное юрлицо архивировать нельзя',
-        details: { code: LEGAL_ENTITY_ERROR_CODES.head },
+      throw conflict('legalEntity.headNotArchivable', undefined, {
+        code: LEGAL_ENTITY_ERROR_CODES.head,
       });
     }
     if (row.archivedAt) return this.serialize(row);
@@ -347,7 +355,7 @@ export class LegalEntitiesService {
   async restore(userId: string, workspaceId: string, leId: string): Promise<LegalEntityDto> {
     await this.assertCanManage(userId, workspaceId);
     const row = await this.db.legalEntity.findFirst({ where: { id: leId, workspaceId } });
-    if (!row) throw new NotFoundException('Юрлицо не найдено');
+    if (!row) throw notFound('legalEntity.notFound');
     if (!row.archivedAt) return this.serialize(row);
     const updated = await this.db.legalEntity
       .update({ where: { id: leId }, data: { archivedAt: null } })
@@ -370,7 +378,7 @@ export class LegalEntitiesService {
     await this.db.$transaction(async (tx) => {
       const count = await tx.workspaceBankAccount.count({ where: { legalEntityId: le.id } });
       if (count >= REQUISITE_LIMITS.maxBankAccountsPerWorkspace) {
-        throw new BadRequestException('Слишком много счетов — удалите ненужный');
+        throw badRequest('workspace.tooManyBankAccounts');
       }
       // Первый счёт — основной сам; явный isPrimary снимает флаг с прочих ЭТОГО юрлица.
       const makePrimary = dto.isPrimary || count === 0;
@@ -407,7 +415,7 @@ export class LegalEntitiesService {
       const acc = await tx.workspaceBankAccount.findFirst({
         where: { id: accountId, legalEntityId: le.id },
       });
-      if (!acc) throw new NotFoundException('Счёт не найден');
+      if (!acc) throw notFound('workspace.bankAccountNotFound');
       if (dto.isPrimary) {
         await tx.workspaceBankAccount.updateMany({
           where: { legalEntityId: le.id, isPrimary: true },
@@ -439,7 +447,7 @@ export class LegalEntitiesService {
       const acc = await tx.workspaceBankAccount.findFirst({
         where: { id: accountId, legalEntityId: le.id },
       });
-      if (!acc) throw new NotFoundException('Счёт не найден');
+      if (!acc) throw notFound('workspace.bankAccountNotFound');
       await tx.workspaceBankAccount.delete({ where: { id: acc.id } });
       // Основной удалили — роль переходит старейшему из оставшихся счетов юрлица.
       if (acc.isPrimary) {
@@ -478,7 +486,10 @@ export class LegalEntitiesService {
       vatNumber: string | null;
       vatDate: Date | null;
       directorUserId: string | null;
-      signBasis: string | null;
+      signBasisKind: string | null;
+      signBasisNumber: string | null;
+      signBasisDate: Date | null;
+      signBasisText: string | null;
     },
     tx?: Tx,
   ): Promise<LegalEntityDto> {
@@ -514,7 +525,14 @@ export class LegalEntitiesService {
       vatDate: row.vatDate ? row.vatDate.toISOString().slice(0, 10) : null,
       directorUserId: row.directorUserId,
       directorName: director ? fullName(director) : null,
-      signBasis: row.signBasis,
+      // Фраза для ЭКРАНА — в языке зрителя; в документ ту же структуру печатает
+      // группа полей шаблона, и там язык у неё язык БУМАГИ
+      signBasis: composeSignBasis(
+        signBasisPartsOf(row),
+        (key, values) => this.i18n.translate(`counterparties.${key}`, values),
+        (iso) => this.i18n.format().date(iso),
+      ),
+      signBasisParts: signBasisPartsOf(row),
       bankAccounts: accounts.map((a) => ({
         id: a.id,
         iban: a.iban,
@@ -532,6 +550,8 @@ export class LegalEntitiesService {
     }
     if (dto.vatPayer !== undefined) data.vatPayer = dto.vatPayer;
     if (dto.vatDate !== undefined) data.vatDate = dto.vatDate;
+    // Основание подписи хранится СТРУКТУРОЙ: фраза собирается на выходе
+    if (dto.signBasis !== undefined) Object.assign(data, signBasisColumnsOf(dto.signBasis));
     return data;
   }
 
@@ -540,7 +560,7 @@ export class LegalEntitiesService {
       where: { id: leId, workspaceId },
       select: { id: true },
     });
-    if (!row) throw new NotFoundException('Юрлицо не найдено');
+    if (!row) throw notFound('legalEntity.notFound');
     return row;
   }
 
@@ -549,7 +569,7 @@ export class LegalEntitiesService {
     if (!directorUserId) return;
     const role = await this.roleOf(directorUserId, workspaceId);
     if (!role || role === 'contractor') {
-      throw new BadRequestException('Директор выбирается из сотрудников организации');
+      throw badRequest('workspace.directorNotMember');
     }
   }
 
@@ -559,9 +579,8 @@ export class LegalEntitiesService {
     const meta = (e as { meta?: { target?: unknown } })?.meta;
     const target = JSON.stringify(meta?.target ?? '');
     if (code === 'P2002' && (target.includes('bin') || target.includes('legal_entities_bin'))) {
-      throw new ConflictException({
-        message: 'Юрлицо с таким БИН уже есть в организации',
-        details: { code: LEGAL_ENTITY_ERROR_CODES.binDuplicate },
+      throw conflict('legalEntity.binDuplicate', undefined, {
+        code: LEGAL_ENTITY_ERROR_CODES.binDuplicate,
       });
     }
     throw e as Error;
@@ -576,7 +595,21 @@ export class LegalEntitiesService {
   private async assertCanManage(userId: string, workspaceId: string): Promise<void> {
     const role = await this.roleOf(userId, workspaceId);
     if (!role || (role !== 'owner' && role !== 'admin')) {
-      throw new NotFoundException('Организация не найдена');
+      throw notFound('workspace.notFound');
     }
+  }
+
+  /** Слово для снимка, который ложится в БД, — в языке ИСТОЧНИКА (docs/i18n.md). */
+  private src(key: string): string {
+    return this.i18n.translateFor(SOURCE_LOCALE, key);
+  }
+
+  /**
+   * «на основании Устава» по умолчанию — СТРУКТУРОЙ, а не фразой: слово к ней
+   * подбирается там, где известен язык (внутри договора — язык бумаги, на
+   * экране — язык зрителя).
+   */
+  defaultSignBasis(): SignBasisColumns {
+    return signBasisColumnsOf({ kind: 'ustav' });
   }
 }

@@ -1,6 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { DatabaseService } from '../../shared/database/database.service';
+import { SOURCE_LOCALE } from '@superapp/shared';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { MessengerService } from './messenger.service';
 
 interface DocsCreatedPayload {
@@ -31,7 +33,13 @@ export class DocsSystemListener implements OnModuleInit {
     private readonly events: EventBusService,
     private readonly db: DatabaseService,
     private readonly messenger: MessengerService,
+    private readonly i18n: I18nService,
   ) {}
+
+  /** Снимок плашки в языке источника (перерисовывается при чтении). */
+  private src(key: string, params?: Record<string, string>): string {
+    return this.i18n.translateFor(SOURCE_LOCALE, key, params);
+  }
 
   onModuleInit(): void {
     this.events.onPattern('docs.document.*').subscribe((e) => {
@@ -48,14 +56,17 @@ export class DocsSystemListener implements OnModuleInit {
         select: { chatId: true, deletedAt: true },
       });
       if (!message || message.deletedAt) return;
-      const who = p.actorName || 'Кто-то';
-      await this.messenger.postChatSystemMessage(
-        message.chatId,
-        'docs.document.created',
-        `${who} открыл(а) файл «${p.title ?? 'документ'}» как документ — теперь его правят участники чата`,
-      );
+      await this.messenger.postChatSystemMessage(message.chatId, 'docs.document.created', {
+        typeKey: 'docs.document_created',
+        // Имени файла может не быть — тогда едет КЛЮЧ («документ»), а слово к нему
+        // подберёт язык читателя (`resolveLabelKeys`).
+        values: {
+          actorName: p.actorName ?? '',
+          ...(p.title ? { title: p.title } : { titleKey: 'messenger.documentFallback' }),
+        },
+      });
     } catch (err) {
-      this.logger.warn(`плашка документа не поставлена: ${String((err as Error)?.message ?? err)}`);
+      this.logger.warn(`The document plaque was not posted: ${String((err as Error)?.message ?? err)}`);
     }
   }
 }

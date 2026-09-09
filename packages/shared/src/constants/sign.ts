@@ -49,33 +49,15 @@ export const SIGN_METHOD_LEVEL: Record<SignMethod, SignLevel> = {
   pep_otp: 'pep',
 };
 
-export const SIGN_METHOD_LABELS: Record<SignMethod, { title: string; hint: string; icon: string }> = {
-  qr: {
-    title: 'ЭЦП через eGov Mobile',
-    hint: 'Отсканируйте QR в приложении eGov Mobile и подтвердите подпись',
-    icon: 'qrCode',
-  },
-  ncalayer: {
-    title: 'ЭЦП через NCALayer',
-    hint: 'Нужен запущенный NCALayer и ключ ЭЦП (AUTH/RSA или GOST)',
-    icon: 'certificate',
-  },
-  pep_otp: {
-    title: 'Простая подпись по SMS',
-    hint: 'Согласие сторон + код из SMS на ваш подтверждённый номер',
-    icon: 'signature',
-  },
-};
-
-export const SIGN_LEVEL_LABELS: Record<SignLevel, { short: string; full: string }> = {
-  ecp: {
-    short: 'ЭЦП',
-    full: 'Электронная цифровая подпись (ст. 49 Цифрового кодекса РК)',
-  },
-  pep: {
-    short: 'Простая подпись',
-    full: 'Простая электронная подпись — цифровое подтверждение (ст. 46–47 Цифрового кодекса РК)',
-  },
+/**
+ * Значок способа подписания. Реестр несёт СМЫСЛ (значок), слова живут в
+ * каталоге: `sign.method.<способ>.title` и `.hint`, `sign.level.<уровень>.short`
+ * и `.full` — иначе подпись говорила бы на одном языке у всех трёх клиентов.
+ */
+export const SIGN_METHOD_ICONS: Record<SignMethod, string> = {
+  qr: 'qrCode',
+  ncalayer: 'certificate',
+  pep_otp: 'signature',
 };
 
 /**
@@ -112,13 +94,6 @@ export type SignRequestStatus = (typeof SIGN_REQUEST_STATUSES)[number];
 export const SIGN_ACT_STATUSES = ['pending', 'signed', 'declined', 'failed', 'expired'] as const;
 export type SignActStatus = (typeof SIGN_ACT_STATUSES)[number];
 
-export const SIGN_ACT_STATUS_LABELS: Record<SignActStatus, string> = {
-  pending: 'Ожидает подписи',
-  signed: 'Подписано',
-  declined: 'Отказ от подписи',
-  failed: 'Подпись не принята',
-  expired: 'Срок подписания истёк',
-};
 
 export const SIGN_SIGNER_TYPES = ['user', 'guest'] as const;
 export type SignSignerType = (typeof SIGN_SIGNER_TYPES)[number];
@@ -145,21 +120,6 @@ export const SIGN_ACT_EVENT_TYPES = [
 ] as const;
 export type SignActEventType = (typeof SIGN_ACT_EVENT_TYPES)[number];
 
-export const SIGN_ACT_EVENT_LABELS: Record<SignActEventType, string> = {
-  created: 'Документ направлен на подпись',
-  viewed: 'Подписант открыл документ',
-  consent: 'Принято соглашение об электронной подписи',
-  otp_sent: 'Отправлен код подтверждения',
-  otp_verified: 'Код подтверждён',
-  qr_issued: 'Сформирован QR для eGov Mobile',
-  qr_claimed: 'Данные получены приложением eGov Mobile',
-  cms_received: 'Получен контейнер подписи',
-  chain_checked: 'Проверены сертификат, статус и метка времени',
-  signed: 'Документ подписан',
-  declined: 'Отказ от подписания',
-  failed: 'Подпись не принята',
-  cancelled: 'Отправитель отозвал заявку',
-};
 
 /** Одноразовая QR-сессия eGov Mobile (требование паспорта сервиса Smart Bridge) */
 export const SIGN_QR_SESSION_STATUSES = ['issued', 'claimed', 'submitted', 'expired'] as const;
@@ -288,36 +248,24 @@ export const SIGN_APPROVAL_NEEDS_SIGNATURE = 'approval_needs_signature';
 // который человек видел. Живая ссылка на «текущую редакцию» доказательством не
 // является — поэтому в акт едет сам текст, а не его адрес.
 
-export const SIGN_CONSENT_VERSION = '2026-08-1';
-
 /**
- * Соглашение об использовании простой электронной подписи. Подставляется
- * название документа: соглашение даётся ПОД КОНКРЕТНЫЙ документ, а не «вообще».
+ * Редакция текстов согласий. Версия обязана меняться вместе с ТЕКСТОМ — в том
+ * числе когда текст переведён на другой язык: доказывать придётся ту редакцию,
+ * которую человек видел.
  */
-export function buildSignPepConsentText(opts: { docTitle: string; orgName?: string | null }): string {
-  const org = opts.orgName ? ` (${opts.orgName})` : '';
-  return [
-    `Я подтверждаю, что ознакомлен(а) с документом «${opts.docTitle}»${org} и подписываю его простой электронной подписью.`,
-    'Стороны согласились, что простая электронная подпись — одноразовый код, направленный на подтверждённый номер телефона после входа в SuperApp6, — равнозначна собственноручной подписи (ст. 46–47 Цифрового кодекса Республики Казахстан, ст. 152 Гражданского кодекса Республики Казахстан).',
-    'Целостность подписанного документа обеспечивает информационная система SuperApp6: сохраняются отпечаток документа (SHA-256), время подписания и протокол действий.',
-  ].join('\n\n');
-}
+export const SIGN_CONSENT_VERSION = '2026-09-1';
 
 /**
- * Согласие на обработку персональных данных (ст. 8 Закона «О персональных
- * данных»: согласие даётся способом, позволяющим ПОДТВЕРДИТЬ его получение —
- * поэтому оно тоже уходит в акт и в протокол, а не только в галочку на экране).
+ * Тексты согласий живут в каталоге `sign.consent.*`, а собирает их API
+ * (`SignConsentService`) в языке ЗАПРОСА подписанта: человек соглашается с тем,
+ * что прочитал, поэтому в акт снимается ровно та строка, которую ему показали.
  *
- * Нужно ВНЕШНЕМУ подписанту: у сотрудника согласие получено при трудоустройстве
- * и при регистрации в платформе.
+ *   `sign.consent.pep`            соглашение сторон о ПЭП (ст. 46–47 ЦК, ст. 152 ГК)
+ *   `sign.consent.pd`             согласие на обработку ПД (ст. 8 закона о ПД)
+ *   `sign.consent.orgSuffix`      « (Организация)» — когда владелец известен
+ *   `sign.consent.pdHolderOrg`    получатель согласия: организация
+ *   `sign.consent.pdHolderOwner`  получатель согласия: владелец документа
  */
-export function buildSignPdConsentText(opts: { orgName?: string | null }): string {
-  const org = opts.orgName ? `организации «${opts.orgName}»` : 'владельцу документа';
-  return [
-    `Я даю согласие ${org} и оператору информационной системы SuperApp6 на сбор и обработку моих персональных данных (фамилия, имя, отчество, номер телефона, ИИН — при подписании ЭЦП), необходимых для подписания настоящего документа и хранения доказательств подписания.`,
-    'Согласие даётся на срок хранения подписанного документа и может быть отозвано в порядке, предусмотренном законодательством Республики Казахстан.',
-  ].join('\n\n');
-}
 
 /**
  * Путь публичной страницы проверки подписи (ст. 61 ЦК — открытый сервис проверки).

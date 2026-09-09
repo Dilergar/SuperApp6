@@ -26,7 +26,7 @@ export function encryptField(context: string, plaintext: string): string {
 
 export function decryptField(context: string, stored: string): string {
   const [ivB64, tagB64, dataB64] = stored.split('.');
-  if (!ivB64 || !tagB64 || !dataB64) throw new Error('Повреждённое зашифрованное поле');
+  if (!ivB64 || !tagB64 || !dataB64) throw new Error('The encrypted field is corrupted');
   const decipher = createDecipheriv('aes-256-gcm', keyFor(context), Buffer.from(ivB64, 'base64'));
   decipher.setAuthTag(Buffer.from(tagB64, 'base64'));
   return Buffer.concat([decipher.update(Buffer.from(dataB64, 'base64')), decipher.final()]).toString('utf8');

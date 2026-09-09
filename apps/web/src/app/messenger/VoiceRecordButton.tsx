@@ -2,6 +2,7 @@
 
 import { Icon } from '@/components/ui';
 import { useEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { VOICE_LIMITS } from '@superapp/shared';
 import { apiErrorMessage } from '@/lib/api';
 import { uploadFile } from '@/lib/files-api';
@@ -17,6 +18,7 @@ import { toastError } from '@/lib/toast';
 // ============================================================
 
 export function VoiceRecordButton({ onSent }: { onSent: (fileId: string) => void }) {
+  const t = useTranslations('messenger');
   const { state, elapsedMs, start, stop, cancel } = useVoiceRecorder();
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -37,7 +39,7 @@ export function VoiceRecordButton({ onSent }: { onSent: (fileId: string) => void
       });
       onSent(dto.id);
     } catch (err) {
-      toastError(`Не удалось отправить голосовое: ${apiErrorMessage(err)}`);
+      toastError(t('voice.sendFailed', { reason: apiErrorMessage(err) }));
     } finally {
       sendingRef.current = false;
       setUploading(false);
@@ -68,7 +70,7 @@ export function VoiceRecordButton({ onSent }: { onSent: (fileId: string) => void
           color: 'var(--on-surface-variant)',
         }}
       >
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}><Icon name="mic" size={14} /> Отправка… {progress}%</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}><Icon name="mic" size={14} /> {t('voice.sending', { progress })}</span>
       </div>
     );
   }
@@ -102,8 +104,8 @@ export function VoiceRecordButton({ onSent }: { onSent: (fileId: string) => void
         </span>
         <button
           onClick={cancel}
-          title="Отменить запись"
-          aria-label="Отменить запись"
+          title={t('voice.cancelRecording')}
+          aria-label={t('voice.cancelRecording')}
           style={{
             background: 'none',
             border: 'none',
@@ -115,8 +117,8 @@ export function VoiceRecordButton({ onSent }: { onSent: (fileId: string) => void
         ><Icon name="close" size={15} /></button>
         <button
           onClick={() => void finishAndSend()}
-          title="Отправить голосовое"
-          aria-label="Отправить голосовое"
+          title={t('voice.sendVoice')}
+          aria-label={t('voice.sendVoice')}
           style={{
             background: 'var(--primary)',
             color: 'var(--on-primary, #fff)',
@@ -139,8 +141,8 @@ export function VoiceRecordButton({ onSent }: { onSent: (fileId: string) => void
   return (
     <button
       onClick={() => void start()}
-      title={state === 'denied' ? 'Доступ к микрофону запрещён — разрешите в настройках браузера' : 'Записать голосовое'}
-      aria-label="Записать голосовое"
+      title={state === 'denied' ? t('voice.micDenied') : t('voice.recordVoice')}
+      aria-label={t('voice.recordVoice')}
       style={{
         flexShrink: 0,
         background: 'var(--surface-container-high)',

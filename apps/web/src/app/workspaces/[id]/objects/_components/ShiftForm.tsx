@@ -5,12 +5,14 @@
 // чужого всё равно отвергнет, а пикер не должен предлагать то, что не пройдёт.
 
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import type { ShiftTemplateDto, StaffingTableDto } from '@superapp/shared';
 import { Alert, Button, Checkbox, Input, Modal, Select } from '@/components/ui';
 import { apiErrorMessage } from '@/lib/api';
 import { toastError } from '@/lib/toast';
-import { hoursLabel } from '@/lib/objects-time';
+import { dmy } from '@/lib/dates';
+import { useHoursLabel } from '@/lib/format';
 import { objectStaffingKey, shiftTemplatesKey } from '@/lib/queries';
 import { fetchShiftTemplates, fetchStaffing, shiftsApi } from '../objects-api';
 
@@ -48,6 +50,9 @@ export function ShiftForm({
   onClose: () => void;
   onSaved?: () => void;
 }) {
+  const t = useTranslations('objects');
+  const tc = useTranslations('common');
+  const hoursLabel = useHoursLabel();
   const period = localDate.slice(0, 7);
   const { data: staffing } = useQuery({
     queryKey: objectStaffingKey(workspaceId, objectId, period),
@@ -105,9 +110,9 @@ export function ShiftForm({
   const save = useMutation({
     mutationFn: async () => {
       const startMin = minutesOf(start);
-      if (startMin === null) throw new Error('Время начала — в формате 09:00');
+      if (startMin === null) throw new Error(t('shifts.startFormat'));
       const durationMin = Number(duration);
-      if (!Number.isFinite(durationMin) || durationMin < 15) throw new Error('Длительность — минуты, минимум 15');
+      if (!Number.isFinite(durationMin) || durationMin < 15) throw new Error(t('shifts.durationFormat'));
       const unit = units.find((u) => u.id === unitId);
       return shiftsApi.create(workspaceId, objectId, {
         localDate,
@@ -131,59 +136,67 @@ export function ShiftForm({
   const durationHint = Number.isFinite(durationMin) && durationMin > 0 ? hoursLabel(durationMin) : undefined;
 
   return (
-    <Modal open={open} onClose={onClose} title={`Смена ${localDate}`}>
+    <Modal open={open} onClose={onClose} title={t('shifts.formTitle', { date: dmy(localDate) })}>
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {noUnits ? (
           <>
             <Alert
               tone="warning"
-              title="Ставить смену не на что"
+              title={t('shifts.noUnits')}
               action={
                 <Button size="sm" variant="outline" href={`/workspaces/${workspaceId}/objects/${objectId}/staffing`}>
-                  Штатное расписание
+                  {t('tabs.staffing')}
                 </Button>
               }
             >
-              {userId
-                ? 'У этого человека нет действующей штатной единицы в объекте. Сначала назначьте его на позицию в штатном расписании.'
-                : 'Сначала добавьте позицию в штатное расписание объекта.'}
+              {userId ? t('shifts.noUnitsForPerson') : t('shifts.noUnitsAtAll')}
             </Alert>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <Button variant="ghost" onClick={onClose}>
-                Закрыть
+                {tc('actions.close')}
               </Button>
             </div>
           </>
         ) : (
           <>
             <Select
-              label="Позиция"
+              label={t('staffing.position')}
               value={unitId}
               onChange={setUnitId}
               options={units.map((u) => ({ value: u.id, label: u.label }))}
             />
             <Select
-              label="Шаблон смены"
+              label={t('shifts.template')}
               value={templateId}
               onChange={setTemplateId}
               options={[
-                { value: '', label: 'Своё время' },
-                ...((templates as ShiftTemplateDto[] | undefined) ?? []).map((t) => ({
-                  value: t.id,
-                  label: `${t.name} · ${hhmm(t.startMin)}`,
+                { value: '', label: t('shifts.ownTime') },
+                ...((templates as ShiftTemplateDto[] | undefined) ?? []).map((tpl) => ({
+                  value: tpl.id,
+                  label: `${tpl.name} · ${hhmm(tpl.startMin)}`,
                 })),
               ]}
             />
             <div className="grid md:grid-cols-3" style={{ gap: 'var(--spacing-3)' }}>
-              <Input label="Начало" placeholder="09:00" value={start} onChange={(e) => setStart(e.target.value)} />
               <Input
-                label="Длительность, мин"
+                label={t('shifts.start')}
+                placeholder="09:00"
+                value={start}
+                onChange={(e) => setStart(e.target.value)}
+              />
+              <Input
+                label={t('shifts.durationMin')}
                 inputMode="numeric"
                 value={duration}
                 hint={durationHint}
                 onChange={(e) => setDuration(e.target.value)}
               />
-              <Input label="Перерыв, мин" inputMode="numeric" value={breakMin} onChange={(e) => setBreakMin(e.target.value)} />
+              <Input
+                label={t('shifts.breakMin')}
+                inputMode="numeric"
+                value={breakMin}
+                onChange={(e) => setBreakMin(e.target.value)}
+              />
             </div>
             {/* Обход правил объекта разрешён ТОЛЬКО с branch.manage (сервер иначе
                 отвергает) — интерфейс не показывает того, что не пройдёт. */}
@@ -191,15 +204,15 @@ export function ShiftForm({
               <Checkbox
                 checked={force}
                 onChange={setForce}
-                label="Поставить в обход правил объекта (отдых, длина смены)"
+                label={t('shifts.force')}
               />
             )}
             <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end' }}>
               <Button variant="ghost" onClick={onClose}>
-                Отмена
+                {tc('actions.cancel')}
               </Button>
               <Button variant="primary" loading={save.isPending} disabled={!unitId} onClick={() => save.mutate()}>
-                Поставить
+                {t('shifts.put')}
               </Button>
             </div>
           </>

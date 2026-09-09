@@ -2,6 +2,8 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
+import { useFormatters } from '@/lib/format';
 import {
   Alert, Button, Card, Chip, EmptyState, GlyphField, IconButton, Input,
   PageHeader, SearchField, SegmentedControl, useConfirm,
@@ -43,7 +45,6 @@ import {
   GROUP_COLORS,
   PHONE_LOOKUP_MIN_LENGTH,
   filterContacts,
-  pluralPeople,
   runAction,
   samePhone,
   sortContacts,
@@ -65,6 +66,9 @@ import { AcceptInvitationModal, GroupEditModal } from './circles-modals';
 type InvitationTab = 'active' | 'history';
 
 export default function CirclesPage() {
+  const t = useTranslations('circles');
+  const tc = useTranslations('common');
+  const f = useFormatters();
   const { isReady } = useRequireAuth();
   const queryClient = useQueryClient();
   const [confirm, confirmUI] = useConfirm();
@@ -341,7 +345,7 @@ export default function CirclesPage() {
       if (invMessage.trim()) payload.message = invMessage.trim();
       if (invGroupIds.length > 0) payload.autoAddToCircleIds = invGroupIds;
       await apiPost('/contacts/invitations', payload);
-    }, 'Приглашение отправлено');
+    }, t('toast.inviteSent'));
     setSending(false);
     if (ok) {
       setShowInvite(false);
@@ -354,20 +358,20 @@ export default function CirclesPage() {
     runAction(async () => {
       await apiPost(`/contacts/invitations/${invId}/reject`);
       queryClient.invalidateQueries({ queryKey: incomingInvitationsKey });
-    }, 'Приглашение отклонено');
+    }, t('toast.inviteRejected'));
 
   const handleCancel = (invId: string) =>
     runAction(async () => {
       await apiPost(`/contacts/invitations/${invId}/cancel`);
       queryClient.invalidateQueries({ queryKey: outgoingInvitationsRootKey });
-    }, 'Приглашение отменено');
+    }, t('toast.inviteCancelled'));
 
   const handleResend = async (invId: string) => {
     setResendingId(invId);
     await runAction(async () => {
       await apiPost(`/contacts/invitations/${invId}/resend`);
       queryClient.invalidateQueries({ queryKey: outgoingInvitationsRootKey });
-    }, 'Приглашение отправлено повторно');
+    }, t('toast.inviteResent'));
     setResendingId(null);
   };
 
@@ -379,14 +383,14 @@ export default function CirclesPage() {
       refreshContacts(); // связь удалена, приглашения гаснут
       refreshGroups(); // membersCount
       if (activeGroup) queryClient.invalidateQueries({ queryKey: circleDetailKey(activeGroup) });
-    }, 'Пользователь заблокирован');
+    }, t('toast.blocked'));
 
   const handleBlock = (userId: string, name: string) => {
     confirm(
       {
-        title: `Заблокировать ${name}?`,
-        message: 'Связь будет удалена у обоих. Он(а) больше не сможет вам писать, приглашать и видеть ваши данные.',
-        confirmLabel: 'Заблокировать',
+        title: t('confirm.block.title', { name }),
+        message: t('confirm.block.message'),
+        confirmLabel: t('card.block'),
         danger: true,
       },
       // async-обёртка, а не `() => blockNow(...)`: окно подтверждения ЖДЁТ
@@ -402,15 +406,15 @@ export default function CirclesPage() {
   const handleUnblock = (userId: string, name: string) => {
     confirm(
       {
-        title: `Разблокировать ${name}?`,
-        message: 'Человек снова сможет отправить вам приглашение. Прежняя связь при этом НЕ восстановится — её нужно будет подтвердить заново.',
-        confirmLabel: 'Разблокировать',
+        title: t('confirm.unblock.title', { name }),
+        message: t('confirm.unblock.message'),
+        confirmLabel: t('blocked.unblock'),
       },
       async () => {
         await runAction(async () => {
           await apiDelete(`/contacts/blocks/${userId}`);
           queryClient.invalidateQueries({ queryKey: blocksKey });
-        }, 'Пользователь разблокирован');
+        }, t('toast.unblocked'));
       },
     );
   };
@@ -421,7 +425,7 @@ export default function CirclesPage() {
       refreshContacts();
       refreshGroups(); // membersCount
       if (activeGroup) queryClient.invalidateQueries({ queryKey: circleDetailKey(activeGroup) });
-    }, 'Связь удалена');
+    }, t('toast.linkDeleted'));
 
   const handleCreateGroup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -431,7 +435,7 @@ export default function CirclesPage() {
     const ok = await runAction(async () => {
       await apiPost('/circles', { name, color: groupColor, ...(groupIcon ? { icon: groupIcon } : {}) });
       refreshGroups();
-    }, 'Группа создана');
+    }, t('toast.groupCreated'));
     setCreatingGroup(false);
     if (ok) {
       setGroupName('');
@@ -445,7 +449,7 @@ export default function CirclesPage() {
       await apiDelete(`/circles/${groupId}`);
       if (activeGroup === groupId) setActiveGroup(null);
       refreshGroups();
-    }, 'Группа удалена');
+    }, t('toast.groupDeleted'));
 
   const handleAddToGroup = (contactLinkId: string, groupId: string) =>
     runAction(async () => {
@@ -483,7 +487,7 @@ export default function CirclesPage() {
       map.set(c.linkId, {
         onDelete: () => {
           cardActionsRef.current.confirm(
-            { title: 'Удалить из окружения?', message: 'Действие двустороннее — связь исчезнет у обоих.', confirmLabel: 'Удалить', danger: true },
+            { title: t('confirm.deleteContact.title'), message: t('confirm.deleteContact.message'), confirmLabel: tc('actions.delete'), danger: true },
             async () => { await cardActionsRef.current.handleDeleteContact(c.linkId); },
           );
         },
@@ -521,7 +525,7 @@ export default function CirclesPage() {
   if (!mounted) {
     return (
       <div style={{ paddingBottom: 'var(--spacing-16)' }}>
-        <PageHeader title="Моё окружение" description="Загружаем окружение…" />
+        <PageHeader title={t('title')} description={t('page.loading')} />
       </div>
     );
   }
@@ -529,24 +533,24 @@ export default function CirclesPage() {
   const activeGroupObj = activeGroup ? groups.find((g) => g.id === activeGroup) ?? null : null;
   const activeInvitations = incoming.length + outgoing.length;
   const headerSubtitle = !isReady || contactsQ.isPending
-    ? 'Загружаем окружение…'
+    ? t('page.loading')
     : contactsQ.hasNextPage
-      ? `Загружено ${pluralPeople(contacts.length)}`
-      : pluralPeople(contacts.length);
+      ? t('page.loadedCount', { count: t('peopleCount', { n: contacts.length }) })
+      : t('peopleCount', { n: contacts.length });
 
   return (
     <div style={{ paddingBottom: 'var(--spacing-16)' }}>
       <PageHeader
-        title="Моё окружение"
+        title={t('title')}
         description={headerSubtitle}
         actions={
           // «Отмена» закрывает форму, а не разрушает данные — она призрачная,
           // красить её нельзя (DESIGN.md §1).
           showInvite ? (
-            <Button variant="ghost" onClick={() => setShowInvite(false)}>Отмена</Button>
+            <Button variant="ghost" onClick={() => setShowInvite(false)}>{tc('actions.cancel')}</Button>
           ) : (
             <Button variant="primary" tone="success" icon="add" onClick={() => setShowInvite(true)}>
-              Добавить
+              {t('page.add')}
             </Button>
           )
         }
@@ -556,10 +560,10 @@ export default function CirclesPage() {
       {showInvite && (
         <Card style={{ marginBottom: 'var(--spacing-8)' }}>
           <form onSubmit={handleSendInvitation}>
-            <div className="title-md" style={{ marginBottom: 'var(--spacing-4)' }}>Добавить в окружение</div>
+            <div className="title-md" style={{ marginBottom: 'var(--spacing-4)' }}>{t('inviteForm.title')}</div>
 
             <Input
-              label="Номер телефона"
+              label={t('inviteForm.phone')}
               type="tel"
               inputMode="tel"
               autoComplete="tel"
@@ -571,7 +575,7 @@ export default function CirclesPage() {
             />
 
             {invLookupLoading && (
-              <p className="label-sm" role="status" style={{ marginBottom: 'var(--spacing-4)' }}>Ищем человека…</p>
+              <p className="label-sm" role="status" style={{ marginBottom: 'var(--spacing-4)' }}>{t('inviteForm.searching')}</p>
             )}
 
             {invLookupDone && invLookup && !inviteBlocked && (
@@ -585,32 +589,32 @@ export default function CirclesPage() {
             )}
             {invLookupDone && !invLookup && (
               <Alert tone="neutral" className="mb-6">
-                Пользователь не найден — приглашение уйдёт на этот номер
+                {t('inviteForm.notFound')}
               </Alert>
             )}
 
             {/* Отказ сервера здесь предсказуем — говорим о нём ДО отправки. */}
             {alreadyInEnvironment && (
-              <Alert tone="warning" title="Этот человек уже в вашем окружении" className="mb-6">
+              <Alert tone="warning" title={t('inviteForm.alreadyLinked')} className="mb-6">
                 {alreadyInEnvironment.myRole
-                  ? `Вы называете его(её) «${alreadyInEnvironment.myRole}». Приглашение отправлять не нужно.`
-                  : 'Приглашение отправлять не нужно.'}
+                  ? t('inviteForm.alreadyLinkedRole', { role: alreadyInEnvironment.myRole })
+                  : t('inviteForm.alreadyLinkedPlain')}
               </Alert>
             )}
             {!alreadyInEnvironment && alreadyInvited && (
-              <Alert tone="warning" title="Приглашение на этот номер уже отправлено" className="mb-6">
-                Оно ждёт ответа — найдите его в разделе «Приглашения».
+              <Alert tone="warning" title={t('inviteForm.alreadyInvited')} className="mb-6">
+                {t('inviteForm.alreadyInvitedHint')}
               </Alert>
             )}
 
             <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)', marginBottom: 'var(--spacing-4)' }}>
               <RolePicker
-                label="Моя роль (как он(а) видит меня)"
+                label={t('inviteForm.myRole')}
                 value={invMeForThem}
                 onChange={setInvMeForThem}
               />
               <RolePicker
-                label={invLookup ? `Роль: ${invLookup.firstName}` : 'Его(её) роль'}
+                label={invLookup ? t('inviteForm.theirRoleNamed', { name: invLookup.firstName }) : t('inviteForm.theirRole')}
                 value={invTheyForMe}
                 onChange={setInvTheyForMe}
               />
@@ -618,8 +622,8 @@ export default function CirclesPage() {
 
             <div style={{ marginBottom: 'var(--spacing-4)' }}>
               <GroupSelectField
-                label="Сразу добавить в мои группы"
-                hint="Необязательно — человек попадёт в эти группы, когда примет приглашение."
+                label={t('inviteForm.addToGroups')}
+                hint={t('inviteForm.addToGroupsHint')}
                 groups={groups}
                 value={invGroupIds}
                 onChange={setInvGroupIds}
@@ -627,10 +631,10 @@ export default function CirclesPage() {
             </div>
 
             <Input
-              label="Сообщение"
+              label={t('inviteForm.message')}
               value={invMessage}
               onChange={(e) => setInvMessage(e.target.value)}
-              placeholder="Привет! Давай добавимся…"
+              placeholder={t('inviteForm.messagePlaceholder')}
               wrapClassName="mb-6"
             />
 
@@ -642,7 +646,7 @@ export default function CirclesPage() {
               disabled={invPhone.length < PHONE_LOOKUP_MIN_LENGTH || inviteBlocked}
               loading={sending}
             >
-              Отправить приглашение
+              {t('inviteForm.submit')}
             </Button>
           </form>
         </Card>
@@ -653,26 +657,26 @@ export default function CirclesPage() {
         <CollapseHeader
           open={showInvitations}
           onToggle={() => setShowInvitations((v) => !v)}
-          title="Приглашения"
+          title={t('invitations.title')}
           count={activeInvitations}
         />
 
         {showInvitations && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)', marginTop: 'var(--spacing-3)' }}>
             <SegmentedControl
-              aria-label="Какие приглашения показывать"
+              aria-label={t('invitations.tabAria')}
               value={invitationTab}
               onChange={setInvitationTab}
               items={[
-                { key: 'active', label: 'Активные', count: activeInvitations },
-                { key: 'history', label: 'История' },
+                { key: 'active', label: t('invitations.active'), count: activeInvitations },
+                { key: 'history', label: t('invitations.history') },
               ]}
             />
 
             {invitationTab === 'active' ? (
               <>
                 {activeInvitations === 0 && !incomingQ.isPending && !outgoingQ.isPending && (
-                  <p className="label-sm" style={{ padding: 'var(--spacing-2) 0' }}>Активных приглашений нет</p>
+                  <p className="label-sm" style={{ padding: 'var(--spacing-2) 0' }}>{t('invitations.noneActive')}</p>
                 )}
                 {incoming.map((inv) => (
                   <InvitationCard
@@ -688,7 +692,7 @@ export default function CirclesPage() {
                     expiresAt={inv.expiresAt}
                     onAccept={() => setAcceptTarget(inv)}
                     onReject={() => void handleReject(inv.id)}
-                    onBlock={() => handleBlock(inv.fromUserId, inv.from?.firstName || 'этого пользователя')}
+                    onBlock={() => handleBlock(inv.fromUserId, inv.from?.firstName || t('page.somebody'))}
                   />
                 ))}
                 {incomingQ.hasNextPage && (
@@ -698,7 +702,7 @@ export default function CirclesPage() {
                     loading={incomingQ.isFetchingNextPage}
                     onClick={() => void incomingQ.fetchNextPage()}
                   >
-                    Показать ещё входящие
+                    {t('invitations.moreIncoming')}
                   </Button>
                 )}
                 {outgoing.map((inv) => (
@@ -724,7 +728,7 @@ export default function CirclesPage() {
                     loading={outgoingQ.isFetchingNextPage}
                     onClick={() => void outgoingQ.fetchNextPage()}
                   >
-                    Показать ещё приглашения
+                    {t('invitations.moreOutgoing')}
                   </Button>
                 )}
               </>
@@ -733,17 +737,17 @@ export default function CirclesPage() {
                 {historyQ.isError && (
                   <Alert
                     tone="danger"
-                    action={<Button size="sm" variant="outline" icon="replay" onClick={() => void historyQ.refetch()}>Повторить</Button>}
+                    action={<Button size="sm" variant="outline" icon="replay" onClick={() => void historyQ.refetch()}>{tc('actions.retry')}</Button>}
                   >
-                    Не удалось загрузить историю приглашений
+                    {t('invitations.historyFailed')}
                   </Alert>
                 )}
                 {historyQ.isPending && !historyQ.isError && (
-                  <p className="label-sm" role="status" style={{ padding: 'var(--spacing-2) 0' }}>Загружаем историю…</p>
+                  <p className="label-sm" role="status" style={{ padding: 'var(--spacing-2) 0' }}>{t('invitations.historyLoading')}</p>
                 )}
                 {historyQ.isSuccess && history.length === 0 && (
                   <p className="label-sm" style={{ padding: 'var(--spacing-2) 0' }}>
-                    История пуста — отклонённых и отменённых приглашений пока не было
+                    {t('invitations.historyEmpty')}
                   </p>
                 )}
                 {history.map((inv) => (
@@ -771,7 +775,7 @@ export default function CirclesPage() {
                     loading={historyQ.isFetchingNextPage}
                     onClick={() => void historyQ.fetchNextPage()}
                   >
-                    Показать ещё
+                    {t('grid.showMore')}
                   </Button>
                 )}
               </>
@@ -786,7 +790,7 @@ export default function CirclesPage() {
           <CollapseHeader
             open={showBlocked}
             onToggle={() => setShowBlocked((v) => !v)}
-            title="Заблокированные"
+            title={t('blocked.title')}
             count={blocks.length}
             countTone="neutral"
           />
@@ -801,16 +805,16 @@ export default function CirclesPage() {
                         firstName={b.blockedFirstName || '?'} lastName={b.blockedLastName}
                         avatar={b.blockedAvatar} />
                       <div className="label-sm" style={{ marginTop: '0.2rem' }}>
-                        {b.blockedPhone} · заблокирован {new Date(b.createdAt).toLocaleDateString('ru-RU')}
+                        {t('blocked.line', { phone: b.blockedPhone, date: f.date(b.createdAt) })}
                       </div>
                     </div>
                     <Button
                       size="sm"
                       variant="outline"
                       style={{ flexShrink: 0 }}
-                      onClick={() => handleUnblock(b.blockedUserId, b.blockedFirstName || 'этого пользователя')}
+                      onClick={() => handleUnblock(b.blockedUserId, b.blockedFirstName || t('page.somebody'))}
                     >
-                      Разблокировать
+                      {t('blocked.unblock')}
                     </Button>
                   </div>
                 </Card>
@@ -823,7 +827,7 @@ export default function CirclesPage() {
       {/* ---------------- Чипы-фильтры групп ---------------- */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-4)', flexWrap: 'wrap' }}>
         <Chip tone="accent" selected={activeGroup === null} onClick={() => setActiveGroup(null)}>
-          Все
+          {t('groups.all')}
         </Chip>
 
         {groups.map((g) => (
@@ -834,10 +838,10 @@ export default function CirclesPage() {
               selected={activeGroup === g.id}
               onClick={() => setActiveGroup(g.id)}
               onRemove={() => confirm(
-                { title: `Удалить группу «${g.name}»?`, message: 'Люди останутся в окружении — исчезнет только сама группа и её настройки видимости.', confirmLabel: 'Удалить', danger: true },
+                { title: t('confirm.deleteGroup.title', { name: g.name }), message: t('confirm.deleteGroup.message'), confirmLabel: tc('actions.delete'), danger: true },
                 async () => { await handleDeleteGroup(g.id); },
               )}
-              removeLabel={`Удалить группу «${g.name}»`}
+              removeLabel={t('groups.deleteLabel', { name: g.name })}
               // Цвет группы — ДАННЫЕ (человек выбрал его сам), поэтому приходит
               // не тоном, а подменой переменных тона у выбранного чипа.
               style={activeGroup === g.id && g.color ? { '--tone-bg': g.color, '--tone-border': g.color } as React.CSSProperties : undefined}
@@ -851,7 +855,7 @@ export default function CirclesPage() {
             {activeGroup === g.id && (
               <IconButton
                 icon="edit"
-                label={`Настроить группу «${g.name}»`}
+                label={t('groups.settingsLabel', { name: g.name })}
                 size={32}
                 round={false}
                 variant="outline"
@@ -862,7 +866,7 @@ export default function CirclesPage() {
         ))}
 
         <Button size="sm" variant="outline" icon="add" onClick={() => setShowCreateGroup((v) => !v)}>
-          Группа
+          {t('groups.new')}
         </Button>
       </div>
 
@@ -873,10 +877,10 @@ export default function CirclesPage() {
             <div style={{ display: 'flex', gap: 'var(--spacing-3)', alignItems: 'flex-end' }}>
               <GlyphField value={groupIcon} onChange={setGroupIcon} suggest={groupName} size={38} />
               <Input
-                label="Название группы"
+                label={t('groupModal.name')}
                 value={groupName}
                 onChange={(e) => setGroupName(e.target.value)}
-                placeholder="Семья, Родственники…"
+                placeholder={t('groupModal.namePlaceholder')}
                 autoFocus
                 wrapClassName="group-name-field"
               />
@@ -887,25 +891,28 @@ export default function CirclesPage() {
             {/* Заготовки — из общего пакета (`DEFAULT_CIRCLE_PRESETS`): локальная
                 копия успела разъехаться с ним и по составу, и по цветам, и не
                 несла значков. */}
-            <div role="group" aria-label="Готовые названия групп" style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
-              {DEFAULT_CIRCLE_PRESETS.map((t) => (
-                <Chip
-                  key={t.name}
-                  size="sm"
-                  emoji={t.icon}
-                  onClick={() => { setGroupName(t.name); setGroupColor(t.color); setGroupIcon(t.icon); }}
-                  style={{ '--tone-bg': t.color, '--tone-border': t.color } as React.CSSProperties}
-                >
-                  {t.name}
-                </Chip>
-              ))}
+            <div role="group" aria-label={t('groups.presetsAria')} style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
+              {DEFAULT_CIRCLE_PRESETS.map((preset) => {
+                const presetName = t(`groupPreset.${preset.key}`);
+                return (
+                  <Chip
+                    key={preset.key}
+                    size="sm"
+                    emoji={preset.icon}
+                    onClick={() => { setGroupName(presetName); setGroupColor(preset.color); setGroupIcon(preset.icon); }}
+                    style={{ '--tone-bg': preset.color, '--tone-border': preset.color } as React.CSSProperties}
+                  >
+                    {presetName}
+                  </Chip>
+                );
+              })}
             </div>
 
             <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
               <Button type="submit" size="sm" variant="primary" tone="success" disabled={!groupName.trim()} loading={creatingGroup}>
-                Создать
+                {tc('actions.create')}
               </Button>
-              <Button type="button" size="sm" variant="ghost" onClick={() => setShowCreateGroup(false)}>Отмена</Button>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setShowCreateGroup(false)}>{tc('actions.cancel')}</Button>
             </div>
           </form>
         </Card>
@@ -924,20 +931,20 @@ export default function CirclesPage() {
       {(baseList.length > 0 || search.length > 0) && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-3)', marginBottom: 'var(--spacing-4)', flexWrap: 'wrap' }}>
           <SearchField
-            aria-label="Поиск по окружению: имя, роль или номер"
-            placeholder="Имя, роль, номер…"
+            aria-label={t('grid.searchAria')}
+            placeholder={t('grid.searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onClear={() => setSearch('')}
             width={280}
           />
           <SegmentedControl
-            aria-label="Порядок людей"
+            aria-label={t('grid.sortAria')}
             value={sort}
             onChange={setSort}
             items={[
-              { key: 'recent', label: 'Недавние' },
-              { key: 'name', label: 'По имени' },
+              { key: 'recent', label: t('grid.sortRecent') },
+              { key: 'name', label: t('grid.sortName') },
             ]}
           />
         </div>
@@ -947,10 +954,10 @@ export default function CirclesPage() {
       {gridFailed ? (
         <Alert
           tone="danger"
-          title="Не удалось загрузить"
-          action={<Button size="sm" variant="outline" icon="replay" onClick={retryGrid}>Повторить</Button>}
+          title={t('grid.loadFailed')}
+          action={<Button size="sm" variant="outline" icon="replay" onClick={retryGrid}>{tc('actions.retry')}</Button>}
         >
-          {activeGroup ? 'Состав группы не загрузился.' : 'Список окружения не загрузился.'} Проверьте связь и попробуйте ещё раз.
+          {activeGroup ? t('grid.loadFailedGroup') : t('grid.loadFailedAll')}{t('grid.loadFailedHint')}
         </Alert>
       ) : gridBusy ? (
         <ContactsGridSkeleton />
@@ -959,18 +966,18 @@ export default function CirclesPage() {
           {search ? (
             <EmptyState
               icon="search"
-              title="Никого не нашли"
+              title={t('grid.nobodyFound')}
               description={
                 contactsQ.hasNextPage && !activeGroup
-                  ? 'Поиск идёт по уже загруженным людям — возможно, нужный человек ниже по списку.'
-                  : 'Попробуйте другое имя, роль или номер.'
+                  ? t('grid.searchPartial')
+                  : t('grid.searchOther')
               }
               action={
                 <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', justifyContent: 'center' }}>
-                  <Button size="sm" variant="outline" onClick={() => setSearch('')}>Очистить поиск</Button>
+                  <Button size="sm" variant="outline" onClick={() => setSearch('')}>{t('grid.clearSearch')}</Button>
                   {contactsQ.hasNextPage && !activeGroup && (
                     <Button size="sm" variant="outline" loading={contactsQ.isFetchingNextPage} onClick={() => void contactsQ.fetchNextPage()}>
-                      Загрузить ещё
+                      {t('grid.loadMore')}
                     </Button>
                   )}
                 </div>
@@ -979,15 +986,15 @@ export default function CirclesPage() {
           ) : activeGroup ? (
             <EmptyState
               icon="people"
-              title="В этой группе пока никого"
-              description="Откройте карточку человека в окружении и добавьте его в эту группу."
+              title={t('grid.groupEmpty')}
+              description={t('grid.groupEmptyHint')}
             />
           ) : (
             <EmptyState
               icon="circle"
-              title="Пока никого в окружении"
-              description="Добавьте человека по номеру телефона — он подтвердит связь, и вы увидите друг друга."
-              action={<Button variant="primary" tone="success" icon="add" onClick={() => setShowInvite(true)}>Добавить</Button>}
+              title={t('grid.circleEmpty')}
+              description={t('grid.circleEmptyHint')}
+              action={<Button variant="primary" tone="success" icon="add" onClick={() => setShowInvite(true)}>{t('page.add')}</Button>}
             />
           )}
         </Card>
@@ -1019,7 +1026,7 @@ export default function CirclesPage() {
                 loading={contactsQ.isFetchingNextPage}
                 onClick={() => void contactsQ.fetchNextPage()}
               >
-                Показать ещё
+                {t('grid.showMore')}
               </Button>
             </div>
           )}

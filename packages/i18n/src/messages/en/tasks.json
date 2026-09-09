@@ -1,0 +1,218 @@
+{
+  "breadcrumb": "Tasks",
+  "card": {
+    "myRole": "Your role",
+    "reward": "Reward",
+    "status": "Status"
+  },
+  "create": {
+    "allDay": "all day",
+    "assignTo": "Assign to",
+    "attachFile": "Attach a file",
+    "attachments": "Attachments",
+    "circle": "A group from your Circle",
+    "circleHint": "Everyone in «{name}» becomes a Co-assignee, each with their own status and review.",
+    "circlePlaceholder": "Pick a Group…",
+    "coExecutors": "Co-assignees (they help)",
+    "coExecutorsPlaceholder": "Add co-assignees…",
+    "descriptionPlaceholder": "Description (optional)",
+    "due": "Due date",
+    "executor": "Assignee (one person is responsible)",
+    "executorPlaceholder": "Pick an assignee…",
+    "failed": "Could not create the task",
+    "mode": {
+      "group": "A group",
+      "person": "A person",
+      "self": "Myself"
+    },
+    "noCircles": "Create a group on the «My Circle» page first",
+    "observers": "Observers (they see progress and the chat)",
+    "observersPlaceholder": "Add observers…",
+    "open": "New task",
+    "priority": "Priority",
+    "recurrence": "Repeat",
+    "reminder": "Reminder",
+    "reward": "Reward in coins",
+    "rewardEach": "Reward in coins (to each)",
+    "rewardHint": "The coins are frozen in your wallet when the task is created and paid out when the work is accepted.",
+    "rewardTotal": "{amount} to each · {total} in total",
+    "submit": "Create the task",
+    "submitting": "Creating…",
+    "title": "New task",
+    "titlePlaceholder": "What needs to be done?",
+    "withTime": "with time"
+  },
+  "detail": {
+    "accept": "Accept",
+    "attachments": "Attachments",
+    "backToList": "To the tasks",
+    "cancel": "Cancel the task",
+    "chat": "Task chat",
+    "chatFailed": "Could not load the task chat",
+    "chatLoading": "Loading the chat…",
+    "circleExecutor": "Assignee: Group «{name}»",
+    "deleteConfirm": {
+      "message": "The task and its chat will disappear for every participant. This cannot be undone.",
+      "title": "Delete the task?"
+    },
+    "due": "Due date",
+    "forward": "Forward to a chat",
+    "markDone": "Done",
+    "noAccess": "You have no access to this task",
+    "noParticipants": "A personal task — no other participants",
+    "notFound": "The task was not found",
+    "notes": "Notes",
+    "observers": "Observers:",
+    "participants": "Participants",
+    "priorityChip": "{priority} priority",
+    "progress": "Progress",
+    "recurrence": "Repeat",
+    "return": "Return",
+    "reward": "Reward",
+    "rewardEach": "Reward (to each)",
+    "submit": "Submit for review",
+    "submittedWaiting": "Submitted — waiting for the Assigner to accept it",
+    "take": "Take into work"
+  },
+  "inbox": {
+    "actionFailed": "It did not work — try again",
+    "added": "added {date}",
+    "assign": "Assign",
+    "assignPlaceholder": "Assign to…",
+    "complete": "Complete",
+    "due": "Due date",
+    "sorted": "Sorted",
+    "sortedHint": "Take it out of the Inbox and keep it as a task without a due date"
+  },
+  "list": {
+    "all": "All",
+    "createFailed": "Could not create the task",
+    "empty": "Nothing here",
+    "filterPriority": "Priority",
+    "filterRole": "My role",
+    "filterStatus": "Status",
+    "loadFailed": "Could not load the tasks",
+    "nothingFound": "Nothing found",
+    "nothingFoundHint": "Try another query or other filters",
+    "quickAddPlaceholder": "New task…",
+    "searchAria": "Search tasks",
+    "searchPlaceholder": "Search by title and description…"
+  },
+  "participantStatus": {
+    "accepted": "Accepted",
+    "pending": "Not started",
+    "returned": "Returned",
+    "submitted": "In review"
+  },
+  "priority": {
+    "high": "High",
+    "low": "Low",
+    "medium": "Medium",
+    "urgent": "Urgent"
+  },
+  "quickAction": {
+    "description": "Assign a task from this chat",
+    "label": "Create a task"
+  },
+  "quickAdd": {
+    "placeholder": "A quick task for yourself… (Enter)",
+    "submit": "To Inbox"
+  },
+  "recurrence": {
+    "daily": "Daily",
+    "monthly": "Monthly",
+    "none": "Do not repeat",
+    "on": "on",
+    "weekdays": "On weekdays",
+    "weekly": "Weekly",
+    "yearly": "Yearly"
+  },
+  "reminder": {
+    "day1": "1 day before",
+    "hour1": "1 hour before",
+    "min10": "10 minutes before",
+    "min30": "30 minutes before",
+    "none": "No reminder"
+  },
+  "role": {
+    "co_executor": "Co-assignee",
+    "creator": "Assigner",
+    "executor": "Assignee",
+    "observer": "Observer"
+  },
+  "row": {
+    "circle": "Group «{name}»",
+    "noDueDate": "No due date",
+    "perPerson": "/person",
+    "progress": "{accepted} of {total} accepted",
+    "self": "Myself"
+  },
+  "sections": {
+    "all": {
+      "description": "The full list with search and filters: status, priority, my role.",
+      "empty": "No tasks yet",
+      "emptyHint": "Press «+ New task» or jot down a quick thought in the Inbox",
+      "title": "All tasks"
+    },
+    "assigned": {
+      "description": "Tasks where you are the Assignee or a Co-assignee — including the finished ones.",
+      "empty": "Nothing has been assigned to you yet",
+      "emptyHint": "When someone from your Circle assigns you a task it will show up here",
+      "title": "Assigned to me"
+    },
+    "delegated": {
+      "description": "Every task where you are the Assigner — to yourself and to others.",
+      "empty": "You have not assigned any tasks yet",
+      "emptyHint": "Press «+ New task» — for yourself, a person or a Group",
+      "title": "Assigned by me"
+    },
+    "done": {
+      "description": "The logbook: everything brought to «Done». Cancelled ones live in «All tasks».",
+      "empty": "Nothing has been completed yet",
+      "emptyHint": "Closed tasks will pile up here — it is nice to look back",
+      "title": "Completed"
+    },
+    "inbox": {
+      "description": "Quick notes to yourself. Sort them out: set a due date, assign to someone or mark as sorted.",
+      "empty": "The Inbox is empty",
+      "emptyHint": "Got an idea? Write it down in one line above — details can wait",
+      "title": "Inbox"
+    },
+    "overdue": {
+      "description": "The due date has passed while the task is still open. Agree on a new date or close it.",
+      "empty": "No overdue tasks",
+      "emptyHint": "Great discipline — keep it up",
+      "title": "Overdue"
+    },
+    "overview": {
+      "description": "Assign tasks to yourself and to people from your Circle",
+      "title": "Overview"
+    },
+    "review": {
+      "description": "Assignees submitted their work and are waiting for you. Open a task — «Accept» or «Return».",
+      "empty": "Nobody is waiting for your review",
+      "emptyHint": "When someone submits work on your task it will show up here",
+      "title": "In review"
+    },
+    "today": {
+      "description": "Tasks due today. Everything burning from the past is in «Overdue».",
+      "empty": "No tasks for today",
+      "emptyHint": "The day is free — or take a look at «Upcoming»",
+      "emptyHintOverview": "Plan something — tasks due today will show up here",
+      "title": "Today"
+    },
+    "upcoming": {
+      "description": "Everything due after today — the nearest on top.",
+      "empty": "Nothing planned yet",
+      "emptyHint": "Tasks due in the future will show up here",
+      "title": "Upcoming"
+    }
+  },
+  "status": {
+    "cancelled": "Cancelled",
+    "done": "Done",
+    "in_progress": "In progress",
+    "on_review": "In review",
+    "todo": "To do"
+  }
+}

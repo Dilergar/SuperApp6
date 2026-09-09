@@ -1,11 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { CallSession, Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import type { WebhookEvent } from 'livekit-server-sdk';
@@ -20,6 +13,8 @@ import {
   type CallSessionStatus,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { CallsLivekitClient } from './calls-livekit.client';
 import { CallsRefRegistry, CallsRefResolver } from './calls-ref.registry';
@@ -49,6 +44,7 @@ export class CallsService {
     private readonly registry: CallsRefRegistry,
     private readonly recording: CallsRecordingService,
     private readonly jobs: JobsService,
+    private readonly i18n: I18nService,
   ) {}
 
   getStatus(): CallsStatusDto {
@@ -104,7 +100,7 @@ export class CallsService {
       take: cap + 1,
     });
     if (sessions.length > cap) {
-      this.logger.warn(`listActiveRefIds(${refType}): >${cap} активных сессий — выборка усечена`);
+      this.logger.warn(`listActiveRefIds(${refType}): more than ${cap} active sessions — the selection is truncated`);
     }
     return sessions.slice(0, cap).map((s) => s.refId);
   }
@@ -127,9 +123,9 @@ export class CallsService {
   async issueToken(userId: string, input: CallTokenInput): Promise<CallTokenDto> {
     this.assertEnabled();
     const resolver = this.registry.get(input.refType);
-    if (!resolver) throw new BadRequestException(`Неизвестный тип звонка: ${input.refType}`);
+    if (!resolver) throw badRequest('calls.unknownType', { type: input.refType });
     if (!(await resolver.canJoin(userId, input.refId))) {
-      throw new ForbiddenException('Нет доступа к этому звонку');
+      throw forbidden('calls.noAccess');
     }
 
     const session = await this.ensureActiveSession(userId, input.refType, input.refId, resolver);
@@ -144,14 +140,14 @@ export class CallsService {
       select: { status: true },
     });
     if (fresh?.status !== 'active') {
-      throw new ConflictException('Звонок уже завершён');
+      throw conflict('calls.alreadyEnded');
     }
 
     const user = await this.db.user.findUnique({
       where: { id: userId },
       select: { firstName: true, lastName: true },
     });
-    const name = [user?.firstName, user?.lastName].filter(Boolean).join(' ') || 'Участник';
+    const name = [user?.firstName, user?.lastName].filter(Boolean).join(' ') || this.i18n.translate('common.labels.someone');
 
     const token = await this.livekit.mintToken({
       identity: userId,
@@ -172,10 +168,10 @@ export class CallsService {
   /** Завершить созвон для всех (модератор): комната удаляется — участники получают disconnect */
   async endSession(userId: string, sessionId: string): Promise<void> {
     const session = await this.db.callSession.findUnique({ where: { id: sessionId } });
-    if (!session) throw new NotFoundException('Сессия звонка не найдена');
+    if (!session) throw notFound('calls.sessionNotFound');
     const resolver = this.registry.get(session.refType);
     if (!resolver || !(await resolver.canModerate(userId, session.refId))) {
-      throw new ForbiddenException('Завершать звонок может только модератор');
+      throw forbidden('calls.moderatorOnly');
     }
     await this.endSessionInternal(session, 'moderator', userId);
   }
@@ -219,7 +215,7 @@ export class CallsService {
     if (!roomName) return;
     const session = await this.db.callSession.findUnique({ where: { roomName } });
     if (!session) {
-      this.logger.warn(`вебхук ${evt.event} для незнакомой комнаты ${roomName} — игнор`);
+      this.logger.warn(`the ${evt.event} webhook came for an unknown room ${roomName} — ignoring`);
       return;
     }
     switch (evt.event) {
@@ -297,7 +293,7 @@ export class CallsService {
       liveNames = await this.livekit.listActiveRoomNames();
     } catch (err) {
       this.logger.warn(
-        `reconcile: LiveKit недоступен, прогон пропущен (${err instanceof Error ? err.message : err})`,
+        `reconcile: LiveKit is unavailable, the pass is skipped (${err instanceof Error ? err.message : err})`,
       );
       return 0;
     }
@@ -314,18 +310,18 @@ export class CallsService {
 
   private assertEnabled(): void {
     if (!this.livekit.enabled) {
-      throw new BadRequestException('Звонки не подключены (LIVEKIT_URL не задан)');
+      throw badRequest('calls.notConfigured');
     }
   }
 
   private async requireModeratedSession(userId: string, sessionId: string): Promise<CallSession> {
     const session = await this.db.callSession.findUnique({ where: { id: sessionId } });
     if (!session || session.status !== 'active') {
-      throw new NotFoundException('Активная сессия звонка не найдена');
+      throw notFound('calls.activeSessionNotFound');
     }
     const resolver = this.registry.get(session.refType);
     if (!resolver || !(await resolver.canModerate(userId, session.refId))) {
-      throw new ForbiddenException('Действие доступно только модератору звонка');
+      throw forbidden('calls.moderatorActionOnly');
     }
     return session;
   }

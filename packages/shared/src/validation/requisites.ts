@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { signBasisInputSchema } from './counterparty';
 import { ORG_FORMS, TAX_REGIMES, REQUISITE_LIMITS } from '../constants/requisites';
 import {
   isCardExpiryAlive,
@@ -23,29 +24,29 @@ const noHtml = (s: string) => !/[<>]/.test(s);
 export const iinSchema = z
   .string()
   .trim()
-  .refine(isValidIinOrBin, 'ИИН: 12 цифр, проверьте номер — не сходится контрольная сумма');
+  .refine(isValidIinOrBin, 'validation.requisites.iin');
 
 export const binSchema = z
   .string()
   .trim()
-  .refine(isValidIinOrBin, 'БИН: 12 цифр, проверьте номер — не сходится контрольная сумма');
+  .refine(isValidIinOrBin, 'validation.requisites.bin');
 
 export const kzIbanSchema = z
   .string()
   .trim()
   .transform(normalizeIban)
-  .refine(isValidKzIban, 'IBAN: формат KZ + 18 знаков, проверьте номер счёта');
+  .refine(isValidKzIban, 'validation.requisites.iban');
 
 export const bikSchema = z
   .string()
   .trim()
   .transform((s) => s.toUpperCase())
-  .refine(isValidBik, 'БИК: 8 знаков, например CASPKZKA');
+  .refine(isValidBik, 'validation.requisites.bik');
 
-export const kbeSchema = z.string().trim().refine(isValidKbe, 'КБе — две цифры, например 17 или 19');
+export const kbeSchema = z.string().trim().refine(isValidKbe, 'validation.requisites.kbe');
 
-const orgFormValues = ORG_FORMS.map((f) => f.value) as [string, ...string[]];
-const taxRegimeValues = TAX_REGIMES.map((r) => r.value) as [string, ...string[]];
+const orgFormValues = [...ORG_FORMS] as [string, ...string[]];
+const taxRegimeValues = [...TAX_REGIMES] as [string, ...string[]];
 
 /**
  * PUT /workspaces/:id/requisites — реквизиты организации (upsert целиком).
@@ -60,7 +61,7 @@ export const workspaceRequisitesSchema = z
       .trim()
       .min(1)
       .max(REQUISITE_LIMITS.legalNameMaxLength)
-      .refine(noHtml, 'Недопустимые символы')
+      .refine(noHtml, 'validation.requisites.badCharacters')
       .nullable()
       .optional(),
     bin: binSchema.nullable().optional(),
@@ -69,26 +70,24 @@ export const workspaceRequisitesSchema = z
       .trim()
       .min(1)
       .max(REQUISITE_LIMITS.addressMaxLength)
-      .refine(noHtml, 'Недопустимые символы')
+      .refine(noHtml, 'validation.requisites.badCharacters')
       .nullable()
       .optional(),
     kbe: kbeSchema.nullable().optional(),
     vatPayer: z.boolean().optional(),
-    vatSeries: z.string().trim().max(20).refine(noHtml, 'Недопустимые символы').nullable().optional(),
-    vatNumber: z.string().trim().max(20).refine(noHtml, 'Недопустимые символы').nullable().optional(),
+    vatSeries: z.string().trim().max(20).refine(noHtml, 'validation.requisites.badCharacters').nullable().optional(),
+    vatNumber: z.string().trim().max(20).refine(noHtml, 'validation.requisites.badCharacters').nullable().optional(),
     vatDate: z.coerce.date().nullable().optional(),
     /** Директор — выбор из СОТРУДНИКОВ организации (валидируется сервером) */
     directorUserId: z.string().uuid().nullable().optional(),
-    signBasis: z
-      .string()
-      .trim()
-      .max(REQUISITE_LIMITS.signBasisMaxLength)
-      .refine(noHtml, 'Недопустимые символы')
-      .nullable()
-      .optional(),
+    /**
+     * Основание подписи — СТРУКТУРОЙ (тот же вход, что у контрагента): печатная
+     * фраза собирается на выходе, в языке той бумаги, куда она попадает.
+     */
+    signBasis: signBasisInputSchema.nullable().optional(),
   })
   .strict()
-  .refine((v) => Object.keys(v).length > 0, 'Нечего менять');
+  .refine((v) => Object.keys(v).length > 0, 'validation.requisites.nothingToUpdate');
 
 /** POST /workspaces/:id/requisites/accounts */
 export const createBankAccountSchema = z
@@ -97,9 +96,9 @@ export const createBankAccountSchema = z
     bankName: z
       .string()
       .trim()
-      .min(1, 'Укажите банк')
+      .min(1, 'validation.requisites.bankRequired')
       .max(REQUISITE_LIMITS.bankNameMaxLength)
-      .refine(noHtml, 'Недопустимые символы'),
+      .refine(noHtml, 'validation.requisites.badCharacters'),
     bik: bikSchema,
     isPrimary: z.boolean().optional(),
   })
@@ -114,13 +113,13 @@ export const updateBankAccountSchema = z
       .trim()
       .min(1)
       .max(REQUISITE_LIMITS.bankNameMaxLength)
-      .refine(noHtml, 'Недопустимые символы')
+      .refine(noHtml, 'validation.requisites.badCharacters')
       .optional(),
     bik: bikSchema.optional(),
     isPrimary: z.boolean().optional(),
   })
   .strict()
-  .refine((v) => Object.keys(v).length > 0, 'Нечего менять');
+  .refine((v) => Object.keys(v).length > 0, 'validation.requisites.nothingToUpdate');
 
 // ============================================================
 // Человек: реквизитные поля анкеты (вливаются в updateProfileSchema)
@@ -133,7 +132,7 @@ export const userRequisiteFieldsSchema = {
     .trim()
     .min(1)
     .max(REQUISITE_LIMITS.addressMaxLength)
-    .refine(noHtml, 'Недопустимые символы')
+    .refine(noHtml, 'validation.requisites.badCharacters')
     .nullable()
     .optional(),
   idDocNumber: z
@@ -141,7 +140,7 @@ export const userRequisiteFieldsSchema = {
     .trim()
     .min(1)
     .max(REQUISITE_LIMITS.idDocNumberMaxLength)
-    .refine((s) => /^[0-9A-Za-z№ -]+$/.test(s), 'Только цифры и буквы')
+    .refine((s) => /^[0-9A-Za-z№ -]+$/.test(s), 'validation.requisites.idDocChars')
     .nullable()
     .optional(),
   idDocIssuedBy: z
@@ -149,7 +148,7 @@ export const userRequisiteFieldsSchema = {
     .trim()
     .min(1)
     .max(REQUISITE_LIMITS.idDocIssuedByMaxLength)
-    .refine(noHtml, 'Недопустимые символы')
+    .refine(noHtml, 'validation.requisites.badCharacters')
     .nullable()
     .optional(),
   idDocIssuedAt: z.coerce.date().nullable().optional(),
@@ -165,22 +164,22 @@ export const createPaymentCardSchema = z
     pan: z
       .string()
       .transform(normalizeCardPan)
-      .refine(isValidCardPan, 'Проверьте номер карты — не сходится контрольная сумма'),
+      .refine(isValidCardPan, 'validation.requisites.cardPan'),
     /** IBAN карт-счёта (Kaspi показывает его в реквизитах карты) */
     iban: kzIbanSchema.nullable().optional(),
     holderName: z
       .string()
       .trim()
-      .min(1, 'Имя как на карте')
+      .min(1, 'validation.requisites.holderName')
       .max(REQUISITE_LIMITS.holderNameMaxLength)
-      .refine((s) => !/[<>]/.test(s), 'Недопустимые символы'),
+      .refine((s) => !/[<>]/.test(s), 'validation.requisites.badCharacters'),
     expMonth: z.coerce.number().int().min(1).max(12),
     expYear: z.coerce.number().int().min(2000).max(2100),
     isPrimary: z.boolean().optional(),
   })
   .strict()
   .refine((v) => isCardExpiryAlive(v.expMonth, v.expYear), {
-    message: 'Срок действия карты уже истёк',
+    message: 'validation.requisites.cardExpired',
     path: ['expYear'],
   });
 
@@ -193,14 +192,14 @@ export const updatePaymentCardSchema = z
       .trim()
       .min(1)
       .max(REQUISITE_LIMITS.holderNameMaxLength)
-      .refine((s) => !/[<>]/.test(s), 'Недопустимые символы')
+      .refine((s) => !/[<>]/.test(s), 'validation.requisites.badCharacters')
       .optional(),
     expMonth: z.coerce.number().int().min(1).max(12).optional(),
     expYear: z.coerce.number().int().min(2000).max(2100).optional(),
     isPrimary: z.boolean().optional(),
   })
   .strict()
-  .refine((v) => Object.keys(v).length > 0, 'Нечего менять');
+  .refine((v) => Object.keys(v).length > 0, 'validation.requisites.nothingToUpdate');
 
 export type WorkspaceRequisitesInput = z.infer<typeof workspaceRequisitesSchema>;
 export type CreateBankAccountInput = z.infer<typeof createBankAccountSchema>;

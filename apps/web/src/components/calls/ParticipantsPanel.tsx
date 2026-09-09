@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Track } from 'livekit-client';
 import { useParticipants } from '@livekit/components-react';
 import { useConfirm } from '@/components/ui';
@@ -23,13 +24,19 @@ export function ParticipantsPanel({
   moderator: boolean;
   currentUserId: string;
 }) {
+  const t = useTranslations('calls');
   const participants = useParticipants();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirm, confirmUI] = useConfirm();
 
   const kick = (identity: string, name: string) => {
     confirm(
-      { title: `Исключить ${name} из звонка?`, message: 'Человек выйдет из комнаты и сможет вернуться только по новой ссылке.', confirmLabel: 'Исключить', danger: true },
+      {
+        title: t('panel.kickTitle', { name }),
+        message: t('panel.kickMessage'),
+        confirmLabel: t('panel.kickConfirm'),
+        danger: true,
+      },
       () => kickNow(identity),
     );
   };
@@ -39,7 +46,7 @@ export function ParticipantsPanel({
     try {
       await kickCallParticipant(sessionId, identity);
     } catch {
-      toastError('Не удалось исключить участника');
+      toastError(t('panel.kickFailed'));
     } finally {
       setBusyId(null);
     }
@@ -53,7 +60,7 @@ export function ParticipantsPanel({
     try {
       await muteCallTrack(sessionId, identity, sid, true);
     } catch {
-      toastError('Не удалось выключить микрофон участнику');
+      toastError(t('panel.muteFailed'));
     } finally {
       setBusyId(null);
     }
@@ -77,10 +84,10 @@ export function ParticipantsPanel({
               background: 'var(--surface-container)',
             }}
           >
-            <PersonChip size="S" userId={p.identity} firstName={p.name || 'Участник'} />
+            <PersonChip size="S" userId={p.identity} firstName={p.name || t('tile.participant')} />
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
               <ConnectionQualityBadge participant={p} />
-              <span title={micOn ? 'Микрофон включён' : 'Микрофон выключен'} style={{ fontSize: '0.85rem', opacity: micOn ? 1 : 0.6 }}>
+              <span title={micOn ? t('panel.micOn') : t('panel.micOff')} style={{ fontSize: '0.85rem', opacity: micOn ? 1 : 0.6 }}>
                 {micOn ? '🎤' : '🔇'}
               </span>
               {moderator && !me && (
@@ -89,16 +96,16 @@ export function ParticipantsPanel({
                     <button
                       onClick={() => void muteMic(p.identity)}
                       disabled={busyId === p.identity}
-                      title="Выключить микрофон участнику"
+                      title={t('panel.mute')}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem' }}
                     >
                       🤫
                     </button>
                   )}
                   <button
-                    onClick={() => void kick(p.identity, p.name || 'участника')}
+                    onClick={() => void kick(p.identity, p.name || t('panel.thisPerson'))}
                     disabled={busyId === p.identity}
-                    title="Исключить из звонка"
+                    title={t('panel.kick')}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--primary)', fontWeight: 700, fontSize: '0.85rem' }}
                   >
                     ✕
@@ -109,7 +116,7 @@ export function ParticipantsPanel({
           </div>
         );
       })}
-      {participants.length === 0 && <p className="label-sm">Пока никого</p>}
+      {participants.length === 0 && <p className="label-sm">{t('panel.empty')}</p>}
       {confirmUI}
     </div>
   );

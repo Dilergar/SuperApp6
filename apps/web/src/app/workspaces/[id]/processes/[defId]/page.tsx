@@ -34,10 +34,10 @@ import {
   processNodeTypesKey,
   workspaceMembersKey,
 } from '@/lib/queries';
+import { useTranslations } from 'next-intl';
+import { useFormatters } from '@/lib/format';
 import {
-  PROCESS_CREDENTIAL_TYPE_LABELS,
-  PROCESS_NODE_CATEGORY_LABELS,
-  PROCESS_VERSION_STATUS_LABELS,
+  PROCESS_CREDENTIAL_TYPES,
   type ProcessDocument,
   type ProcessFormField,
   type ProcessNodeField,
@@ -63,11 +63,16 @@ import {
   type PNode,
 } from '../process-lib';
 
+/**
+ * Текст отказа из конверта API — он приходит УЖЕ переведённым в языке запроса.
+ * Пусто (сеть легла, чужая форма) — общую фразу подставляет вызывающий: словаря
+ * у модульной функции нет.
+ */
 function errText(e: unknown): string {
   const r = e as { response?: { data?: { message?: string; errors?: { message: string }[] } } };
   const data = r.response?.data;
   if (data?.errors?.length) return data.errors.map((x) => x.message).join(' · ');
-  return data?.message ?? 'Что-то пошло не так';
+  return data?.message ?? '';
 }
 
 /**
@@ -94,6 +99,8 @@ const SELF_LABELED_FIELDS = new Set<ProcessNodeField['kind']>([
 ]);
 
 export default function ProcessEditorPage() {
+  const t = useTranslations('processes');
+  const tc = useTranslations('common');
   const { isReady } = useRequireAuth();
   const { id: wsId, defId } = useParams<{ id: string; defId: string }>();
   const router = useRouter();
@@ -319,10 +326,10 @@ export default function ProcessEditorPage() {
       hydratedKey.current = `${defId}:${res.version}`;
       void qc.invalidateQueries({ queryKey: processKey(wsId, defId) });
       void qc.invalidateQueries({ queryKey: processesKey(wsId) });
-      flash('ok', res.issues.length === 0 ? 'Сохранено — ошибок нет' : `Сохранено · проблем: ${res.issues.length}`);
+      flash('ok', res.issues.length === 0 ? t('editor.savedClean') : t('editor.savedWithIssues', { count: res.issues.length }));
     },
     onMutate: () => ({ seq: editSeq.current }),
-    onError: (e) => flash('err', errText(e)),
+    onError: (e) => flash('err', errText(e) || tc('state.error')),
   });
 
   const publishMut = useMutation({
@@ -343,7 +350,7 @@ export default function ProcessEditorPage() {
       setPendingWarnings(null);
       void qc.invalidateQueries({ queryKey: processKey(wsId, defId) });
       void qc.invalidateQueries({ queryKey: processesKey(wsId) });
-      flash('ok', 'Опубликовано — процесс можно запускать');
+      flash('ok', t('editor.published'));
     },
     onError: (e) => {
       void qc.invalidateQueries({ queryKey: processKey(wsId, defId) });
@@ -353,7 +360,7 @@ export default function ProcessEditorPage() {
         setPendingWarnings(warnings);
         return;
       }
-      flash('err', errText(e));
+      flash('err', errText(e) || tc('state.error'));
     },
   });
 
@@ -364,7 +371,7 @@ export default function ProcessEditorPage() {
       void qc.invalidateQueries({ queryKey: processKey(wsId, defId) });
       void qc.invalidateQueries({ queryKey: processesKey(wsId) });
     },
-    onError: (e) => flash('err', errText(e)),
+    onError: (e) => flash('err', errText(e) || tc('state.error')),
   });
 
   const archiveMut = useMutation({
@@ -373,7 +380,7 @@ export default function ProcessEditorPage() {
       void qc.invalidateQueries({ queryKey: processesKey(wsId) });
       router.push(`/workspaces/${wsId}/processes`);
     },
-    onError: (e) => flash('err', errText(e)),
+    onError: (e) => flash('err', errText(e) || tc('state.error')),
   });
 
   const [startOpen, setStartOpen] = useState(false);
@@ -393,7 +400,12 @@ export default function ProcessEditorPage() {
     const go = () => router.push(`/workspaces/${wsId}/processes`);
     if (!dirty) { go(); return; }
     confirm(
-      { title: 'Уйти без сохранения?', message: 'Несохранённые изменения канваса будут потеряны.', confirmLabel: 'Уйти', danger: true },
+      {
+        title: t('editor.leaveTitle'),
+        message: t('editor.leaveText'),
+        confirmLabel: t('editor.leaveConfirm'),
+        danger: true,
+      },
       go,
     );
   }, [dirty, router, wsId, confirm]);
@@ -417,13 +429,13 @@ export default function ProcessEditorPage() {
   const selectNode = useCallback((id: string) => { setSelectedId(id); setSettingsOpen(false); }, []);
 
   if (!isReady || detailQ.isLoading) {
-    return <CenteredMsg text="Загрузка…" />;
+    return <CenteredMsg text={tc('state.loading')} />;
   }
   if (detailQ.isError || !detail) {
     return (
       <CenteredMsg
-        text={errText(detailQ.error) || 'Не удалось открыть процесс'}
-        action={{ label: 'К списку', onClick: () => router.push(`/workspaces/${wsId}/processes`) }}
+        text={errText(detailQ.error) || t('editor.openFailed')}
+        action={{ label: t('editor.toList'), onClick: () => router.push(`/workspaces/${wsId}/processes`) }}
       />
     );
   }
@@ -438,13 +450,19 @@ export default function ProcessEditorPage() {
     <div className="canvas-layer">
       {/* Тулбар — светлый блок с несущим 1px-бордером снизу, как топбар каркаса */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap', padding: '0.5rem var(--spacing-5)', background: 'var(--block)', borderBottom: '1px solid var(--border)' }}>
-        <Button variant="ghost" size="sm" icon="arrowLeft" onClick={leave}>Процессы</Button>
+        <Button variant="ghost" size="sm" icon="arrowLeft" onClick={leave}>
+              {t('title')}
+            </Button>
         <strong className="title-md">{detail.name}</strong>
         <Chip size="sm" tone="neutral">
-          v{detail.editableVersion} · {PROCESS_VERSION_STATUS_LABELS[detail.editableVersionStatus]}
-          {detail.publishedVersion && detail.publishedVersion !== detail.editableVersion ? ` · запуск v${detail.publishedVersion}` : ''}
+          v{detail.editableVersion} · {t(`versionStatus.${detail.editableVersionStatus}`)}
+          {detail.publishedVersion && detail.publishedVersion !== detail.editableVersion ? ` · ${t('editor.runsOn', { version: detail.publishedVersion })}` : ''}
         </Chip>
-        {dirty && <Chip size="sm" tone="warning" icon="pending">не сохранено</Chip>}
+        {dirty && (
+              <Chip size="sm" tone="warning" icon="pending">
+                {t('editor.unsaved')}
+              </Chip>
+            )}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.375rem', alignItems: 'center' }}>
           <Button
             variant={settingsOpen ? 'matte' : 'ghost'}
@@ -452,9 +470,9 @@ export default function ProcessEditorPage() {
             size="sm"
             icon="settings"
             onClick={() => { setSettingsOpen((v) => !v); setSelectedId(null); }}
-            title="Настройки процесса: имя, видимость, креды, архив"
+            title={t('editor.settingsHint')}
           >
-            Настройки
+            {t('editor.settings')}
           </Button>
           {canEdit && (
             <>
@@ -462,10 +480,10 @@ export default function ProcessEditorPage() {
                 variant="ghost"
                 size="sm"
                 icon="processes"
-                title="Авто-раскладка"
+                title={t('editor.autoLayout')}
                 onClick={() => { setNodes((ns) => autoLayout(ns, edges)); markDirty(); }}
               >
-                Разложить
+                {t('editor.layout')}
               </Button>
               <Button
                 variant="outline"
@@ -475,15 +493,17 @@ export default function ProcessEditorPage() {
                 loading={saveMut.isPending}
                 onClick={onSave}
               >
-                {dirty ? 'Сохранить (Ctrl+S)' : 'Сохранено'}
+                {dirty ? t('editor.save') : t('editor.saved')}
               </Button>
               <Button variant="primary" tone="success" size="sm" icon="uploadCloud" loading={publishMut.isPending} onClick={() => publishMut.mutate(undefined)}>
-                Опубликовать
+                {t('editor.publish')}
               </Button>
             </>
           )}
           {detail.canStart && (
-            <Button variant="primary" size="sm" icon="play" onClick={() => setStartOpen(true)}>Запустить</Button>
+            <Button variant="primary" size="sm" icon="play" onClick={() => setStartOpen(true)}>
+                {t('editor.start')}
+              </Button>
           )}
         </div>
       </div>
@@ -506,11 +526,11 @@ export default function ProcessEditorPage() {
                 icon="refresh"
                 onClick={() => { hydratedKey.current = null; setDirty(false); setConflict(false); void detailQ.refetch(); }}
               >
-                Загрузить заново
+                {t('editor.reload')}
               </Button>
             }
           >
-            Процесс изменён в другом месте.
+            {t('editor.changedElsewhere')}
           </Alert>
         </div>
       )}
@@ -544,11 +564,11 @@ export default function ProcessEditorPage() {
             <button
               className="ppalette-head title-sm"
               aria-expanded={paletteOpen}
-              aria-label={paletteOpen ? 'Свернуть палитру нод' : 'Развернуть палитру нод'}
+              aria-label={paletteOpen ? t('editor.paletteCollapse') : t('editor.paletteExpand')}
               onClick={() => setPaletteOpen((v) => !v)}
             >
               <Icon name={paletteOpen ? 'caretLeft' : 'caretRight'} size={16} />
-              {paletteOpen && <span>Ноды</span>}
+              {paletteOpen && <span>{t('editor.nodes')}</span>}
             </button>
             {paletteOpen && (
               <div className="ppalette-body">
@@ -556,20 +576,20 @@ export default function ProcessEditorPage() {
                   const tone = categoryTone(cat);
                   return (
                     <div key={cat} className="ppalette-group">
-                      <div className="ppalette-group-label label-caps">{PROCESS_NODE_CATEGORY_LABELS[cat]}</div>
-                      {nodeTypes.filter((t) => t.category === cat).map((t) => (
+                      <div className="ppalette-group-label label-caps">{t(`category.${cat}`)}</div>
+                      {nodeTypes.filter((nt) => nt.category === cat).map((nt) => (
                         <button
-                          key={t.type}
+                          key={nt.type}
                           className="ppalette-item"
                           draggable
-                          onDragStart={(e) => { e.dataTransfer.setData('application/superapp-process-node', t.type); e.dataTransfer.effectAllowed = 'move'; }}
-                          onClick={() => addNodeCentered(t)}
-                          title={`${t.description}\n(перетащите на холст или кликните)`}
+                          onDragStart={(e) => { e.dataTransfer.setData('application/superapp-process-node', nt.type); e.dataTransfer.effectAllowed = 'move'; }}
+                          onClick={() => addNodeCentered(nt)}
+                          title={`${nt.description}\n${t('editor.dragHint')}`}
                         >
                           <span className="pnode-chip" style={{ background: tone.bg, borderColor: tone.border, color: tone.fg }}>
-                            <Icon name={nodeIcon(t)} size={15} />
+                            <Icon name={nodeIcon(nt)} size={15} />
                           </span>
-                          <span className="ppalette-item-title">{t.title}</span>
+                          <span className="ppalette-item-title">{nt.title}</span>
                         </button>
                       ))}
                     </div>
@@ -577,7 +597,7 @@ export default function ProcessEditorPage() {
                 })}
                 {nodes.length <= 2 && (
                   <p className="label-sm" style={{ marginTop: 'var(--spacing-3)', padding: '0 0.375rem' }}>
-                    Перетащите ноду на холст. Соедините точки-порты. Из порта в пустоту — быстрый выбор следующей ноды.
+                    {t('editor.paletteHelp')}
                   </p>
                 )}
               </div>
@@ -597,7 +617,12 @@ export default function ProcessEditorPage() {
                 onClose={() => setSettingsOpen(false)}
                 onMeta={(data) => metaMut.mutate(data)}
                 onArchive={() => confirm(
-                  { title: 'Архивировать процесс?', message: 'Он исчезнет из списка. Запущенные экземпляры блокируют архивацию.', confirmLabel: 'Архивировать', danger: true },
+                  {
+        title: t('editor.archiveTitle'),
+        message: t('editor.archiveText'),
+        confirmLabel: t('editor.archiveConfirm'),
+        danger: true,
+      },
                   () => archiveMut.mutate(),
                 )}
               />
@@ -624,7 +649,7 @@ export default function ProcessEditorPage() {
           <div className="pfloat pissues">
             <div className="title-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.3rem' }}>
               <Icon name="warning" size={16} style={{ color: 'var(--warning-icon)' }} />
-              Мешает публикации · {issues.length}
+              {t('editor.blocksPublish', { count: issues.length })}
             </div>
             {issues.map((iss, i) => (
               <button key={i} className="pissue" onClick={() => iss.nodeId && selectNode(iss.nodeId)}>
@@ -632,7 +657,7 @@ export default function ProcessEditorPage() {
                 {iss.message}
               </button>
             ))}
-            {dirty && <p className="label-sm" style={{ margin: '0.25rem 0 0', padding: '0 0.375rem' }}>Сохраните, чтобы перепроверить.</p>}
+            {dirty && <p className="label-sm" style={{ margin: '0.25rem 0 0', padding: '0 0.375rem' }}>{t('editor.saveToRecheck')}</p>}
           </div>
         )}
 
@@ -644,7 +669,7 @@ export default function ProcessEditorPage() {
               className="pfloat ppicker"
               style={{ left: Math.min(picker.x, window.innerWidth - 230), top: Math.min(picker.y, window.innerHeight - 290) }}
             >
-              <div className="label-caps" style={{ padding: '0.25rem 0.5rem 0.375rem' }}>Добавить и связать</div>
+              <div className="label-caps" style={{ padding: '0.25rem 0.5rem 0.375rem' }}>{t('editor.addAndLink')}</div>
               {addableTypes.map((t) => {
                 const tone = categoryTone(t.category);
                 return (
@@ -675,13 +700,13 @@ export default function ProcessEditorPage() {
         <Modal
           open
           onClose={() => setPendingWarnings(null)}
-          title="Маршрут расходится с правилами кадрового учёта"
-          subtitle="Публикацию это не запрещает — но принятое решение записывается в журнал организации"
+          title={t('editor.hrWarnTitle')}
+          subtitle={t('editor.hrWarnSubtitle')}
           size="md"
           footer={
             <>
               <Button variant="ghost" onClick={() => setPendingWarnings(null)}>
-                Вернуться и поправить
+                {t('editor.hrWarnBack')}
               </Button>
               <Button
                 variant="primary"
@@ -690,7 +715,7 @@ export default function ProcessEditorPage() {
                 loading={publishMut.isPending}
                 onClick={() => publishMut.mutate(pendingWarnings.map((w) => w.ruleKey))}
               >
-                Понимаю, публикую
+                {t('editor.hrWarnAccept')}
               </Button>
             </>
           }
@@ -745,8 +770,10 @@ function NodePanel({
   onClose: () => void;
   onDelete?: () => void;
 }) {
-  const t = node.data.typeDto;
-  const tone = categoryTone(t.category);
+  const tp = useTranslations('processes');
+  const tc = useTranslations('common');
+  const nt = node.data.typeDto;
+  const tone = categoryTone(nt.category);
   const cfg = node.data.config ?? {};
   const setCfg = (key: string, value: unknown) => onChange({ config: { ...cfg, [key]: value } });
   const visible = (f: ProcessNodeField) => !f.showIf || f.showIf.in.includes(String(cfg[f.showIf.field] ?? ''));
@@ -755,26 +782,26 @@ function NodePanel({
     <>
       <div className="ppanel-head">
         <span className="pnode-chip" style={{ background: tone.bg, borderColor: tone.border, color: tone.fg }}>
-          <Icon name={nodeIcon(t)} size={15} />
+          <Icon name={nodeIcon(nt)} size={15} />
         </span>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div className="title-sm">{t.title}</div>
-          {t.trigger && <div className="label-caps" style={{ color: 'var(--warning)' }}>Триггер запуска</div>}
+          <div className="title-sm">{nt.title}</div>
+          {nt.trigger && <div className="label-caps" style={{ color: 'var(--warning)' }}>{tp('editor.triggerBadge')}</div>}
         </div>
-        <IconButton icon="close" label="Закрыть настройки ноды" size={28} onClick={onClose} />
+        <IconButton icon="close" label={tp('editor.closeNode')} size={28} onClick={onClose} />
       </div>
 
       <div className="ppanel-body ui-stack" style={{ gap: 'var(--spacing-4)' }}>
-        <p className="body-sm" style={{ margin: 0 }}>{t.description}</p>
+        <p className="body-sm" style={{ margin: 0 }}>{nt.description}</p>
 
         <Input
-          label="Подпись на холсте"
+          label={tp('editor.nodeLabel')}
           value={node.data.label ?? ''}
           disabled={readOnly}
           onChange={(e) => onChange({ label: e.target.value })}
         />
 
-      {t.fields.filter(visible).map((f) => (
+      {nt.fields.filter(visible).map((f) => (
         // Поля кита подписывают себя сами (label связан с контролом через htmlFor).
         // Обёртка-Field нужна только тем, у кого своей подписи нет: группе флажков
         // и пикерам сущностей — иначе подпись задвоится.
@@ -840,16 +867,16 @@ function NodePanel({
             </div>
           )}
           {f.kind === 'member' && (
-            <EntitySelector value={cfg[f.key] ? [{ type: 'user', id: String(cfg[f.key]) }] : []} onChange={(next) => setCfg(f.key, next[0]?.id)} multi={false} options={memberOptions} placeholder="Выберите сотрудника…" />
+            <EntitySelector value={cfg[f.key] ? [{ type: 'user', id: String(cfg[f.key]) }] : []} onChange={(next) => setCfg(f.key, next[0]?.id)} multi={false} options={memberOptions} placeholder={tp('editor.pickMember')} />
           )}
           {f.kind === 'department' && (
-            <EntitySelector value={cfg[f.key] ? [{ type: 'department', id: String(cfg[f.key]) }] : []} onChange={(next) => setCfg(f.key, next[0]?.id)} multi={false} types={['department']} context={{ workspaceId: wsId }} placeholder="Выберите отдел…" />
+            <EntitySelector value={cfg[f.key] ? [{ type: 'department', id: String(cfg[f.key]) }] : []} onChange={(next) => setCfg(f.key, next[0]?.id)} multi={false} types={['department']} context={{ workspaceId: wsId }} placeholder={tp('editor.pickDepartment')} />
           )}
           {f.kind === 'position' && (
-            <EntitySelector value={cfg[f.key] ? [{ type: 'position', id: String(cfg[f.key]) }] : []} onChange={(next) => setCfg(f.key, next[0]?.id)} multi={false} types={['position']} context={{ workspaceId: wsId }} placeholder="Выберите должность…" />
+            <EntitySelector value={cfg[f.key] ? [{ type: 'position', id: String(cfg[f.key]) }] : []} onChange={(next) => setCfg(f.key, next[0]?.id)} multi={false} types={['position']} context={{ workspaceId: wsId }} placeholder={tp('editor.pickPosition')} />
           )}
           {f.kind === 'branch' && (
-            <EntitySelector value={cfg[f.key] ? [{ type: 'branch', id: String(cfg[f.key]) }] : []} onChange={(next) => setCfg(f.key, next[0]?.id)} multi={false} types={['branch']} context={{ workspaceId: wsId }} placeholder="Выберите филиал…" />
+            <EntitySelector value={cfg[f.key] ? [{ type: 'branch', id: String(cfg[f.key]) }] : []} onChange={(next) => setCfg(f.key, next[0]?.id)} multi={false} types={['branch']} context={{ workspaceId: wsId }} placeholder={tp('editor.pickBranch')} />
           )}
           {f.kind === 'credential' && (
             <CredentialField wsId={wsId} label={f.label} hint={f.help} value={cfg[f.key] ? String(cfg[f.key]) : ''} disabled={readOnly} onChange={(v) => setCfg(f.key, v || undefined)} />
@@ -869,13 +896,13 @@ function NodePanel({
       ))}
 
       {/* Веб-хук / Telegram: публичный URL (появляется после публикации) */}
-      {(t.type === 'trigger.webhook' || t.type === 'trigger.telegram') && (
+      {(nt.type === 'trigger.webhook' || nt.type === 'trigger.telegram') && (
         <Field
-          label={t.type === 'trigger.telegram' ? 'Адрес вебхука бота' : 'URL вебхука'}
+          label={nt.type === 'trigger.telegram' ? tp('editor.botWebhookUrl') : tp('editor.webhookUrl')}
           hint={
-            t.type === 'trigger.telegram'
-              ? 'После публикации бот подключается автоматически (нужен публичный API-адрес). На localhost задайте этот адрес боту вручную через setWebhook.'
-              : 'Внешняя система (Kaspi, 1С, сайт…) вызывает этот адрес методом POST — процесс запускается. Тело запроса попадает в анкету.'
+            nt.type === 'trigger.telegram'
+              ? tp('editor.botWebhookHint')
+              : tp('editor.webhookHint')
           }
         >
           {triggerInfo?.webhookUrl ? (
@@ -884,53 +911,58 @@ function NodePanel({
                 <Input
                   value={triggerInfo.webhookUrl}
                   readOnly
-                  aria-label="URL вебхука"
+                  aria-label={tp('editor.webhookUrl')}
                   onFocus={(e) => e.currentTarget.select()}
                   style={{ fontSize: '0.6875rem' }}
                 />
               </div>
               <IconButton
                 icon="copy"
-                label="Копировать адрес"
+                label={tp('editor.copyUrl')}
                 variant="outline"
                 size={34}
                 onClick={() => navigator.clipboard?.writeText(triggerInfo.webhookUrl!)}
               />
             </div>
           ) : (
-            <p className="body-sm" style={{ margin: 0 }}>URL появится после публикации процесса.</p>
+            <p className="body-sm" style={{ margin: 0 }}>{tp('editor.webhookAfterPublish')}</p>
           )}
         </Field>
       )}
 
       {/* Telegram-триггер: какие переменные доступны дальше + как ответить */}
-      {t.type === 'trigger.telegram' && (
+      {nt.type === 'trigger.telegram' && (
         <div className="ppanel-note">
-          <div className="label-caps" style={{ marginBottom: '0.3rem' }}>Доступно следующим нодам</div>
+          <div className="label-caps" style={{ marginBottom: '0.3rem' }}>{tp('editor.availableToNodes')}</div>
           <div className="body-sm" style={{ lineHeight: 1.9 }}>
-            <code>{'{{form.text}}'}</code> — текст · <code>{'{{form.chatId}}'}</code> — чат · <code>{'{{form.fromName}}'}</code> — имя
+            <code>{'{{form.text}}'}</code> — {tp('editor.tgText')} · <code>{'{{form.chatId}}'}</code> —{' '}
+            {tp('editor.tgChat')} · <code>{'{{form.fromName}}'}</code> — {tp('editor.tgName')}
           </div>
           <p className="label-sm" style={{ margin: '0.4rem 0 0' }}>
-            Чтобы ответить: добавьте ноду «Telegram» (тот же кред-токен), Chat ID = <code>{'{{form.chatId}}'}</code>, Текст = ответ AI-Агента.
+            {tp('editor.tgReply')} <code>{'{{form.chatId}}'}</code>
           </p>
         </div>
       )}
 
       {/* Запуск вручную: анкета, которую инициатор заполняет при старте (модель Form Trigger n8n) */}
-      {t.type === 'start' && (
+      {nt.type === 'start' && (
         <div className="ppanel-note">
           <div className="title-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
             <Icon name="list" size={15} style={{ color: 'var(--muted)' }} />
-            Анкета запуска
+            {tp('editor.startForm')}
           </div>
-          <p className="label-sm" style={{ margin: '0.25rem 0 0.625rem' }}>Поля, которые инициатор заполняет при нажатии «Запустить». Доступны нодам как {'{{form.ключ}}'}.</p>
+          <p className="label-sm" style={{ margin: '0.25rem 0 0.625rem' }}>
+            {tp('editor.startFormHint')}
+          </p>
           <FormPanel form={form} readOnly={readOnly} onChange={onFormChange} />
         </div>
       )}
 
         {!readOnly && onDelete && (
           <div>
-            <Button variant="ghost" tone="danger" size="sm" icon="delete" onClick={onDelete}>Удалить ноду</Button>
+            <Button variant="ghost" tone="danger" size="sm" icon="delete" onClick={onDelete}>
+            {tp('editor.deleteNode')}
+          </Button>
           </div>
         )}
       </div>
@@ -942,15 +974,11 @@ function NodePanel({
 // Анкета процесса
 // ---------------------------------------------------------------
 
-const FORM_TYPES: { value: ProcessFormField['type']; label: string }[] = [
-  { value: 'text', label: 'Текст' },
-  { value: 'number', label: 'Число' },
-  { value: 'boolean', label: 'Да/Нет' },
-  { value: 'date', label: 'Дата' },
-  { value: 'select', label: 'Список' },
-];
+/** Виды полей анкеты: реестр несёт ЗНАЧЕНИЕ, слова — каталог (`processes.form.type.*`). */
+const FORM_TYPES: ProcessFormField['type'][] = ['text', 'number', 'boolean', 'date', 'select'];
 
 function FormPanel({ form, readOnly, onChange }: { form: ProcessFormField[]; readOnly: boolean; onChange: (form: ProcessFormField[]) => void }) {
+  const t = useTranslations('processes');
   const setField = (i: number, patch: Partial<ProcessFormField>) => onChange(form.map((f, idx) => (idx === i ? { ...f, ...patch } : f)));
   const keyCounts = useMemo(() => {
     const m = new Map<string, number>();
@@ -967,37 +995,37 @@ function FormPanel({ form, readOnly, onChange }: { form: ProcessFormField[]; rea
         >
           <div style={{ display: 'flex', gap: '0.4rem' }}>
             <div style={{ flex: 2, minWidth: 0 }}>
-              <Input value={f.label} placeholder="Название поля" disabled={readOnly} aria-label="Название поля" onChange={(e) => setField(i, { label: e.target.value })} />
+              <Input value={f.label} placeholder={t('form.fieldName')} disabled={readOnly} aria-label={t('form.fieldName')} onChange={(e) => setField(i, { label: e.target.value })} />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <Input value={f.key} placeholder="ключ" disabled={readOnly} aria-label="Ключ поля" onChange={(e) => setField(i, { key: e.target.value.replace(/[^a-zA-Z0-9_-]/g, '_') })} />
+              <Input value={f.key} placeholder={t('form.fieldKey')} disabled={readOnly} aria-label={t('form.fieldKeyLabel')} onChange={(e) => setField(i, { key: e.target.value.replace(/[^a-zA-Z0-9_-]/g, '_') })} />
             </div>
           </div>
           {(keyCounts.get(f.key) ?? 0) > 1 && (
-            <p className="label-sm" style={{ margin: 0, color: 'var(--danger)' }}>Ключ «{f.key}» повторяется</p>
+            <p className="label-sm" style={{ margin: 0, color: 'var(--danger)' }}>{t('form.duplicateKey', { key: f.key })}</p>
           )}
           <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: 120 }}>
               <Select
-                aria-label="Тип поля"
+                aria-label={t('form.fieldType')}
                 value={f.type}
                 disabled={readOnly}
                 width="100%"
                 onChange={(v) => setField(i, { type: v as ProcessFormField['type'] })}
-                options={FORM_TYPES.map((t) => ({ value: t.value, label: t.label }))}
+                options={FORM_TYPES.map((v) => ({ value: v, label: t(`form.type.${v}`) }))}
               />
             </div>
-            <Checkbox checked={!!f.required} disabled={readOnly} label="обяз." onChange={(next) => setField(i, { required: next })} />
+            <Checkbox checked={!!f.required} disabled={readOnly} label={t('form.required')} onChange={(next) => setField(i, { required: next })} />
             {!readOnly && (
-              <IconButton icon="close" label="Убрать поле" size={28} onClick={() => onChange(form.filter((_, idx) => idx !== i))} />
+              <IconButton icon="close" label={t('form.removeField')} size={28} onClick={() => onChange(form.filter((_, idx) => idx !== i))} />
             )}
           </div>
           {f.type === 'select' && (
             <Input
               value={(f.options ?? []).join(', ')}
-              placeholder="Варианты через запятую"
+              placeholder={t('form.optionsPlaceholder')}
               disabled={readOnly}
-              aria-label="Варианты"
+              aria-label={t('form.options')}
               onChange={(e) => setField(i, { options: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })}
             />
           )}
@@ -1005,7 +1033,7 @@ function FormPanel({ form, readOnly, onChange }: { form: ProcessFormField[]; rea
       ))}
       {!readOnly && (
         <Button variant="ghost" size="sm" icon="add" onClick={() => onChange([...form, { key: `field_${form.length + 1}`, label: '', type: 'text' }])}>
-          Поле анкеты
+          {t('form.addField')}
         </Button>
       )}
     </div>
@@ -1031,6 +1059,8 @@ function ProcessPanel({
   onMeta: (data: { name?: string; description?: string | null; visibility?: 'team' | 'admins' }) => void;
   onArchive: () => void;
 }) {
+  const t = useTranslations('processes');
+  const f = useFormatters();
   const [name, setName] = useState(detail.name);
   const [description, setDescription] = useState(detail.description ?? '');
   useEffect(() => { setName(detail.name); setDescription(detail.description ?? ''); }, [detail.name, detail.description]);
@@ -1038,20 +1068,20 @@ function ProcessPanel({
     <>
       <div className="ppanel-head">
         <Icon name="settings" size={17} style={{ color: 'var(--on-surface-variant)' }} />
-        <span className="title-sm" style={{ flex: 1 }}>Настройки процесса</span>
-        <IconButton icon="close" label="Закрыть настройки" size={28} onClick={onClose} />
+        <span className="title-sm" style={{ flex: 1 }}>{t('settings.title')}</span>
+        <IconButton icon="close" label={t('settings.close')} size={28} onClick={onClose} />
       </div>
 
       <div className="ppanel-body ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         <Input
-          label="Название"
+          label={t('settings.name')}
           value={name}
           disabled={readOnly}
           onChange={(e) => setName(e.target.value)}
           onBlur={() => name.trim() && name !== detail.name && onMeta({ name: name.trim() })}
         />
         <Textarea
-          label="Описание"
+          label={t('settings.description')}
           value={description}
           disabled={readOnly}
           style={{ minHeight: '3.6rem', resize: 'vertical' }}
@@ -1059,39 +1089,41 @@ function ProcessPanel({
           onBlur={() => description !== (detail.description ?? '') && onMeta({ description: description || null })}
         />
         <Select
-          label="Кому виден"
-          hint="«Только админы» — процессы для разработчиков/руководства"
+          label={t('settings.visibility')}
+          hint={t('settings.visibilityHint')}
           value={detail.visibility}
           disabled={readOnly}
           width="100%"
           onChange={(v) => onMeta({ visibility: v as 'team' | 'admins' })}
           options={[
-            { value: 'team', label: 'Вся команда', icon: 'people' },
-            { value: 'admins', label: 'Только админы', icon: 'lock' },
+            { value: 'team', label: t('visibility.team'), icon: 'people' },
+            { value: 'admins', label: t('visibility.admins'), icon: 'lock' },
           ]}
         />
 
         <div>
-          <div className="label-caps" style={{ marginBottom: '0.375rem' }}>Версии</div>
+          <div className="label-caps" style={{ marginBottom: '0.375rem' }}>{t('settings.versions')}</div>
           <div className="ui-stack" style={{ gap: '0.25rem' }}>
             {detail.versions.map((v) => (
               <div key={v.version} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <Chip size="sm" tone={v.status === 'published' ? 'success' : 'neutral'}>v{v.version}</Chip>
-                <span className="body-sm">{PROCESS_VERSION_STATUS_LABELS[v.status] ?? v.status}</span>
+                <span className="body-sm">{t(`versionStatus.${v.status}`)}</span>
                 {v.publishedAt && (
-                  <span className="label-sm" style={{ marginLeft: 'auto' }}>{new Date(v.publishedAt).toLocaleDateString('ru-RU')}</span>
+                  <span className="label-sm" style={{ marginLeft: 'auto' }}>{f.date(v.publishedAt)}</span>
                 )}
               </div>
             ))}
           </div>
-          <p className="label-sm" style={{ margin: '0.375rem 0 0' }}>Запущенные процессы доживают на своей версии — правки им не мешают.</p>
+          <p className="label-sm" style={{ margin: '0.375rem 0 0' }}>{t('settings.versionsHint')}</p>
         </div>
 
         {!readOnly && <CredentialsSection wsId={wsId} />}
 
         {!readOnly && (
           <div>
-            <Button variant="ghost" tone="danger" size="sm" icon="archive" onClick={onArchive}>Архивировать процесс</Button>
+            <Button variant="ghost" tone="danger" size="sm" icon="archive" onClick={onArchive}>
+              {t('settings.archive')}
+            </Button>
           </div>
         )}
       </div>
@@ -1104,6 +1136,8 @@ function ProcessPanel({
 // ---------------------------------------------------------------
 
 function CredentialsSection({ wsId }: { wsId: string }) {
+  const t = useTranslations('processes');
+  const tc = useTranslations('common');
   const qc = useQueryClient();
   const { data: creds } = useQuery({ queryKey: processCredentialsKey(wsId), queryFn: () => fetchProcessCredentials(wsId), staleTime: 30_000 });
   const [adding, setAdding] = useState(false);
@@ -1113,14 +1147,14 @@ function CredentialsSection({ wsId }: { wsId: string }) {
   const addMut = useMutation({
     mutationFn: async () => apiPost(`/workspaces/${wsId}/processes/credentials`, form),
     onSuccess: () => { setAdding(false); setForm({ name: '', type: 'bearer' }); setErr(null); inval(); },
-    onError: (e) => setErr(errText(e)),
+    onError: (e) => setErr(errText(e) || tc('state.error')),
   });
   const delMut = useMutation({ mutationFn: async (id: string) => apiDelete(`/workspaces/${wsId}/processes/credentials/${id}`), onSuccess: inval });
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   return (
     <div className="ui-stack" style={{ gap: '0.375rem' }}>
-      <div className="label-caps">Креды для HTTP-нод</div>
+      <div className="label-caps">{t('creds.title')}</div>
       {(creds ?? []).map((c) => (
         <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', minWidth: 0 }}>
@@ -1128,45 +1162,49 @@ function CredentialsSection({ wsId }: { wsId: string }) {
             <span className="body-sm">{c.name}</span>
             <span className="label-sm">· {c.type}</span>
           </span>
-          <IconButton icon="close" label={`Удалить кред ${c.name}`} size={26} iconSize={12} onClick={() => delMut.mutate(c.id)} />
+          <IconButton icon="close" label={t('creds.delete', { name: c.name })} size={26} iconSize={12} onClick={() => delMut.mutate(c.id)} />
         </div>
       ))}
       {adding ? (
         <div className="ui-stack" style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '0.625rem', gap: '0.4rem' }}>
-          <Input placeholder="Название" aria-label="Название кредов" value={form.name} onChange={(e) => set('name', e.target.value)} />
+          <Input placeholder={t('settings.name')} aria-label={t('creds.nameLabel')} value={form.name} onChange={(e) => set('name', e.target.value)} />
           <Select
-            aria-label="Тип кредов"
+            aria-label={t('creds.typeLabel')}
             value={form.type}
             width="100%"
             onChange={(v) => set('type', v)}
-            options={Object.entries(PROCESS_CREDENTIAL_TYPE_LABELS).map(([v, l]) => ({ value: v, label: l, icon: 'key' as const }))}
+            options={PROCESS_CREDENTIAL_TYPES.map((v) => ({ value: v, label: t(`credentialType.${v}`), icon: 'key' as const }))}
           />
           {form.type === 'bearer' && (
-            <Input placeholder="Токен" aria-label="Токен" value={form.token ?? ''} onChange={(e) => set('token', e.target.value)} />
+            <Input placeholder={t('creds.token')} aria-label={t('creds.token')} value={form.token ?? ''} onChange={(e) => set('token', e.target.value)} />
           )}
           {form.type === 'basic' && (
             <>
-              <Input placeholder="Логин" aria-label="Логин" value={form.username ?? ''} onChange={(e) => set('username', e.target.value)} />
-              <Input type="password" placeholder="Пароль" aria-label="Пароль" value={form.password ?? ''} onChange={(e) => set('password', e.target.value)} />
+              <Input placeholder={t('creds.login')} aria-label={t('creds.login')} value={form.username ?? ''} onChange={(e) => set('username', e.target.value)} />
+              <Input type="password" placeholder={t('creds.password')} aria-label={t('creds.password')} value={form.password ?? ''} onChange={(e) => set('password', e.target.value)} />
             </>
           )}
           {form.type === 'header' && (
             <>
-              <Input placeholder="Имя заголовка (напр. X-Auth-Token)" aria-label="Имя заголовка" value={form.headerName ?? ''} onChange={(e) => set('headerName', e.target.value)} />
-              <Input placeholder="Значение" aria-label="Значение заголовка" value={form.headerValue ?? ''} onChange={(e) => set('headerValue', e.target.value)} />
+              <Input placeholder={t('creds.headerNamePlaceholder')} aria-label={t('creds.headerName')} value={form.headerName ?? ''} onChange={(e) => set('headerName', e.target.value)} />
+              <Input placeholder={t('creds.headerValue')} aria-label={t('creds.headerValue')} value={form.headerValue ?? ''} onChange={(e) => set('headerValue', e.target.value)} />
             </>
           )}
           {err && <Alert tone="danger" onClose={() => setErr(null)}>{err}</Alert>}
           <div style={{ display: 'flex', gap: '0.4rem' }}>
             <Button variant="primary" tone="success" size="sm" icon="save" disabled={!form.name} loading={addMut.isPending} onClick={() => addMut.mutate()}>
-              Сохранить
+              {tc('actions.save')}
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setAdding(false)}>Отмена</Button>
+            <Button variant="ghost" size="sm" onClick={() => setAdding(false)}>
+              {tc('actions.cancel')}
+            </Button>
           </div>
         </div>
       ) : (
         <div>
-          <Button variant="ghost" size="sm" icon="add" onClick={() => setAdding(true)}>Креды</Button>
+          <Button variant="ghost" size="sm" icon="add" onClick={() => setAdding(true)}>
+          {t('creds.add')}
+        </Button>
         </div>
       )}
     </div>
@@ -1174,18 +1212,19 @@ function CredentialsSection({ wsId }: { wsId: string }) {
 }
 
 function CredentialField({ wsId, label, hint, value, disabled, onChange }: { wsId: string; label?: string; hint?: string; value: string; disabled: boolean; onChange: (v: string) => void }) {
+  const t = useTranslations('processes');
   const { data: creds } = useQuery({ queryKey: processCredentialsKey(wsId), queryFn: () => fetchProcessCredentials(wsId), staleTime: 30_000 });
   return (
     <Select
       label={label}
       hint={hint}
-      aria-label={label ?? 'Креды'}
+      aria-label={label ?? t('creds.short')}
       value={value}
       disabled={disabled}
       width="100%"
       onChange={onChange}
       options={[
-        { value: '', label: 'Без кредов', icon: 'key' },
+        { value: '', label: t('creds.none'), icon: 'key' },
         ...(creds ?? []).map((c) => ({ value: c.id, label: c.name, hint: c.type, icon: 'key' as const })),
       ]}
     />
@@ -1197,6 +1236,8 @@ function CredentialField({ wsId, label, hint, value, disabled, onChange }: { wsI
 // ---------------------------------------------------------------
 
 function StartModal({ wsId, defId, name, form, onClose, onStarted }: { wsId: string; defId: string; name: string; form: ProcessFormField[]; onClose: () => void; onStarted: (instanceId: string) => void }) {
+  const t = useTranslations('processes');
+  const tc = useTranslations('common');
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1207,19 +1248,21 @@ function StartModal({ wsId, defId, name, form, onClose, onStarted }: { wsId: str
         input: values,
       });
       onStarted(started.id);
-    } catch (e) { setError(errText(e)); setBusy(false); }
+    } catch (e) { setError(errText(e) || tc('state.error')); setBusy(false); }
   };
   return (
     <Modal
       open
       onClose={onClose}
-      title={`Запустить «${name}»`}
-      subtitle={form.length === 0 ? 'Анкета не требуется — процесс стартует сразу' : 'Значения анкеты уйдут в первый шаг'}
+      title={t('start.title', { name })}
+      subtitle={form.length === 0 ? t('start.noForm') : t('start.withForm')}
       size="sm"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Отмена</Button>
-          <Button variant="primary" icon="play" loading={busy} onClick={start}>Запустить</Button>
+          <Button variant="ghost" onClick={onClose}>{tc('actions.cancel')}</Button>
+          <Button variant="primary" icon="play" loading={busy} onClick={start}>
+              {t('editor.start')}
+            </Button>
         </>
       }
     >
@@ -1248,7 +1291,7 @@ function StartModal({ wsId, defId, name, form, onClose, onStarted }: { wsId: str
                 label={f.label}
                 value={typeof values[f.key] === 'string' ? (values[f.key] as string) : ''}
                 width="100%"
-                placeholder="Выберите…"
+                placeholder={tc('actions.select')}
                 onChange={(val) => setValues((v) => ({ ...v, [f.key]: val }))}
                 options={(f.options ?? []).map((o) => ({ value: o, label: o }))}
               />

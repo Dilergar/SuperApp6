@@ -6,6 +6,7 @@
 
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import type { FinAccountDto, FinTransactionDto } from '@superapp/shared';
 import { financeTransactionsKey, fetchFinanceTransactions } from '@/lib/queries';
@@ -17,6 +18,7 @@ import { useFinanceBook } from '../finance-shell';
 
 export default function FinanceFeedPage() {
   const { bookId, accounts, categories, people, canEdit, meId, meName, invalidate } = useFinanceBook();
+  const t = useTranslations('finance');
   const search = useSearchParams();
 
   // ?account= — дип-линк «операции этого счёта» (со страницы «Счета»)
@@ -51,10 +53,16 @@ export default function FinanceFeedPage() {
   return (
     <>
       <PageHeader
-        breadcrumb="Финансы"
-        title="Лента"
-        description="Каждая запись — пара счетов: откуда ушло и куда пришло"
-        chip={accountFilter ? <Chip tone="accent" icon="filter">{accountById.get(accountFilter)?.name ?? 'фильтр'}</Chip> : undefined}
+        breadcrumb={t('breadcrumb')}
+        title={t('feed.title')}
+        description={t('feed.description')}
+        chip={
+          accountFilter ? (
+            <Chip tone="accent" icon="filter">
+              {accountById.get(accountFilter)?.name ?? t('feed.filter')}
+            </Chip>
+          ) : undefined
+        }
       />
 
       {/* Фильтр по счёту — чипы с балансами (эмодзи счёта выбирает человек) */}
@@ -70,7 +78,7 @@ export default function FinanceFeedPage() {
                 emoji={a.icon}
                 icon={a.icon ? undefined : 'card'}
                 onClick={() => setAccountFilter((cur) => (cur === a.id ? null : a.id))}
-                title={active ? 'Убрать фильтр' : `Показать операции: ${a.name}`}
+                title={active ? t('feed.clearFilter') : t('feed.showFor', { name: a.name })}
               >
                 {a.name}
                 <span className="label-sm" style={{ fontWeight: 500 }}>{formatMoney(a.balance, a.currencyCode)}</span>
@@ -124,7 +132,7 @@ export default function FinanceFeedPage() {
         <ShareCardModal
           refType="fin_transaction"
           refId={shareTxId}
-          title="Отправить операцию в чат"
+          title={t('feed.shareToChat')}
           onClose={() => setShareTxId(null)}
         />
       )}

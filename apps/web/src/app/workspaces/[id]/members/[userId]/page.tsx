@@ -12,7 +12,9 @@
 // ============================================================
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
+import { useRoleLabel } from '../members-lib';
 import { useQuery } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { apiGet, apiErrorMessage } from '@/lib/api';
@@ -40,9 +42,8 @@ import { PersonAvatar } from '@/app/messenger/messenger-ui';
 import { ChronicleFeed } from '@/components/chatter/ChronicleFeed';
 import { SubmitDocumentModal } from '../../documents/SubmitDocumentModal';
 import {
-  DOC_STATUS_LABELS,
+  
   ORG_LIMITS,
-  WORKSPACE_ROLES,
   type ChatterPageDto,
   type HrActionKind,
   type OffsetPage,
@@ -60,6 +61,10 @@ import { isTopOfStructure } from '../org/org-lib';
 type Tab = 'overview' | 'employment' | 'requisites' | 'documents' | 'chronicle';
 
 export default function MemberCardPage() {
+  const t = useTranslations('staff');
+  const tc = useTranslations('common');
+  const tdoc = useTranslations('documents');
+  const roleLabel = useRoleLabel();
   const { isReady, user } = useRequireAuth();
   const { id: workspaceId, userId } = useParams<{ id: string; userId: string }>();
   const [tab, setTab] = useState<Tab>('overview');
@@ -107,9 +112,9 @@ export default function MemberCardPage() {
     return (
       <EmptyState
         icon="warningCircle"
-        title="Карточка не загрузилась"
-        description="Человек не в организации либо нет доступа."
-        action={<Button variant="matte" href={`/workspaces/${workspaceId}/members`} icon="arrowLeft">К сотрудникам</Button>}
+        title={t('card.loadFailed')}
+        description={t('card.loadFailedHint')}
+        action={<Button variant="matte" href={`/workspaces/${workspaceId}/members`} icon="arrowLeft">{t('card.toEmployees')}</Button>}
       />
     );
   }
@@ -121,41 +126,41 @@ export default function MemberCardPage() {
   const member = membersQ.data ?? null;
 
   const tabs: TabItem<Tab>[] = [
-    { key: 'overview', label: 'Обзор', icon: 'dashboard' },
-    ...(card.canSeeEmployment ? [{ key: 'employment' as Tab, label: 'Трудовые данные', icon: 'file' as const }] : []),
-    { key: 'requisites', label: 'Реквизиты', icon: 'card' },
-    { key: 'documents', label: 'Документы', icon: 'list', count: card.documentsCount || undefined },
-    ...(card.canSeeEmployment ? [{ key: 'chronicle' as Tab, label: 'Хроника', icon: 'journal' as const }] : []),
+    { key: 'overview', label: t('card.tabOverview'), icon: 'dashboard' },
+    ...(card.canSeeEmployment ? [{ key: 'employment' as Tab, label: t('card.tabEmployment'), icon: 'file' as const }] : []),
+    { key: 'requisites', label: t('requisites.title'), icon: 'card' },
+    { key: 'documents', label: t('card.tabDocuments'), icon: 'list', count: card.documentsCount || undefined },
+    ...(card.canSeeEmployment ? [{ key: 'chronicle' as Tab, label: t('card.tabChronicle'), icon: 'journal' as const }] : []),
   ];
 
   return (
     <>
       <PageHeader
-        breadcrumb="Сотрудники"
+        breadcrumb={t('breadcrumb')}
         title={fullName}
-        description={card.assignments.map((a) => a.positionName).join(', ') || 'Без должности'}
+        description={card.assignments.map((a) => a.positionName).join(', ') || t('card.noPosition')}
         chip={
           card.role ? (
-            <Chip tone="accent" icon="staff">{WORKSPACE_ROLES[card.role as WorkspaceRole]?.name ?? card.role}</Chip>
+            <Chip tone="accent" icon="staff">{roleLabel(card.role)}</Chip>
           ) : (
-            <Chip tone="neutral" icon="signOut">Не в организации</Chip>
+            <Chip tone="neutral" icon="signOut">{t('card.notInOrg')}</Chip>
           )
         }
         actions={
           card.canManage && card.role ? (
             <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
               {!hasLive && (
-                <Button variant="primary" icon="userAdd" onClick={() => setActionKind('hire')}>Оформить приём</Button>
+                <Button variant="primary" icon="userAdd" onClick={() => setActionKind('hire')}>{t('card.draftHire')}</Button>
               )}
               {hasLive && (
                 <>
-                  <Button variant="matte" icon="refresh" onClick={() => setActionKind('transfer')}>Перевести</Button>
-                  <Button variant="matte" icon="coins" onClick={() => setActionKind('salary_change')}>Оклад</Button>
-                  <Button variant="matte" icon="sun" onClick={() => setActionKind('leave')}>Отпуск</Button>
+                  <Button variant="matte" icon="refresh" onClick={() => setActionKind('transfer')}>{t('card.transfer')}</Button>
+                  <Button variant="matte" icon="coins" onClick={() => setActionKind('salary_change')}>{t('card.salary')}</Button>
+                  <Button variant="matte" icon="sun" onClick={() => setActionKind('leave')}>{t('card.leave')}</Button>
                   {/* Здесь — увольнение ПО ТК (приказ, ЕСУТД, расчёт). Исключение из
                       организации живёт в ростере и называется иначе: одна подпись на
                       два разных последствия путала. */}
-                  <Button variant="matte" tone="danger" icon="signOut" onClick={() => setActionKind('dismissal')}>Оформить увольнение</Button>
+                  <Button variant="matte" tone="danger" icon="signOut" onClick={() => setActionKind('dismissal')}>{t('card.draftDismissal')}</Button>
                 </>
               )}
             </div>
@@ -166,24 +171,26 @@ export default function MemberCardPage() {
       {card.mismatch.mismatch && (
         <div style={{ marginBottom: 'var(--gap-grid)' }}>
           <Alert tone="warning">
-            Расхождение факт/договор: фактически — <b>{card.mismatch.factPositionName ?? '—'}</b>
-            {card.mismatch.factBranchName ? ` (${card.mismatch.factBranchName})` : ''}, по договору —{' '}
-            <b>{card.mismatch.legalPositionName ?? '—'}</b>
-            {card.mismatch.legalBranchName ? ` (${card.mismatch.legalBranchName})` : ''}. Это плашка, не ошибка:
-            выровняйте переводом (галочка «обновить фактическое назначение») или правкой трудовой карточки.
+            {t.rich('card.mismatch', {
+              b: (chunks) => <b>{chunks}</b>,
+              fact: card.mismatch.factPositionName ?? tc('labels.dash'),
+              factBranch: card.mismatch.factBranchName ? t('card.branchSuffix', { name: card.mismatch.factBranchName }) : '',
+              legal: card.mismatch.legalPositionName ?? tc('labels.dash'),
+              legalBranch: card.mismatch.legalBranchName ? t('card.branchSuffix', { name: card.mismatch.legalBranchName }) : '',
+            })}
           </Alert>
         </div>
       )}
 
       <div style={{ marginBottom: 'var(--gap-grid)' }}>
-        <SegmentedControl aria-label="Разделы карточки" items={tabs} value={tab} onChange={setTab} />
+        <SegmentedControl aria-label={t('card.tabsAria')} items={tabs} value={tab} onChange={setTab} />
       </div>
 
       {tab === 'overview' && (
         <BentoGrid>
           {/* Сетка бенто — 12 колонок: карточка без span занимает ОДНУ; три блока по 4 + действия во всю ширину */}
           <Card span={4}>
-            <CardHeader title="Человек" />
+            <CardHeader title={t('card.person')} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
               <PersonChip
                 size="M"
@@ -193,13 +200,13 @@ export default function MemberCardPage() {
                 avatar={card.user.avatar}
                 role={card.assignments[0]?.positionName ?? null}
               />
-              {card.user.phone && <div className="meta">Телефон: {card.user.phone}</div>}
+              {card.user.phone && <div className="meta">{t('card.phone', { value: card.user.phone })}</div>}
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 <Button variant="matte" size="sm" icon="file" onClick={() => setTab('documents')}>
-                  Документы · {card.documentsCount}
+                  {t('card.documentsCount', { n: card.documentsCount })}
                 </Button>
                 {card.canManage && (
-                  <Button variant="matte" size="sm" icon="filePlus" onClick={() => setDocOpen(true)}>Оформить документ</Button>
+                  <Button variant="matte" size="sm" icon="filePlus" onClick={() => setDocOpen(true)}>{t('member.draftDocument')}</Button>
                 )}
                 {card.canManage && (
                   <Button
@@ -211,7 +218,7 @@ export default function MemberCardPage() {
                       setZipBusy(true);
                       try {
                         const blob = await fetchPersonalFileZip(workspaceId, card.user.id);
-                        saveHrBlob(blob, `Личное дело — ${fullName}.zip`);
+                        saveHrBlob(blob, t('card.personalFileName', { name: fullName }));
                       } catch (err) {
                         toastError(apiErrorMessage(err));
                       } finally {
@@ -219,7 +226,7 @@ export default function MemberCardPage() {
                       }
                     }}
                   >
-                    {zipBusy ? 'Собираем…' : 'Личное дело (ZIP)'}
+                    {zipBusy ? t('card.zipBusy') : t('card.personalFileZip')}
                   </Button>
                 )}
               </div>
@@ -237,9 +244,9 @@ export default function MemberCardPage() {
           />
 
           <Card span={4}>
-            <CardHeader title="Как работает (факт)" subtitle="Назначения из «Сотрудников»; основное место помечено" />
+            <CardHeader title={t('card.factTitle')} subtitle={t('card.factSubtitle')} />
             {card.assignments.length === 0 ? (
-              <EmptyState icon="position" title="Назначений нет" description="Человек вне структуры — назначьте должность в ростере." />
+              <EmptyState icon="position" title={t('card.noAssignments')} description={t('card.noAssignmentsHint')} />
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
                 {card.assignments.map((a) => {
@@ -249,8 +256,8 @@ export default function MemberCardPage() {
                       <Chip tone="accent" icon="position">{a.positionName}</Chip>
                       {a.departmentName && <Chip tone="neutral" icon="department">{a.departmentName}</Chip>}
                       {a.branchName && <Chip tone="neutral" icon="branch">{a.branchName}</Chip>}
-                      {isPrimary && <Chip tone="accent" icon="star">Основное</Chip>}
-                      <Chip tone={a.status === 'certified' ? 'success' : 'waiting'}>{a.status === 'certified' ? 'Аттестован' : 'Стажируется'}</Chip>
+                      {isPrimary && <Chip tone="accent" icon="star">{t('member.primary')}</Chip>}
+                      <Chip tone={a.status === 'certified' ? 'success' : 'waiting'}>{t(`assignmentStatus.${a.status}`)}</Chip>
                     </div>
                   );
                 })}
@@ -258,8 +265,9 @@ export default function MemberCardPage() {
             )}
             {card.canSeeEmployment && e && (
               <div className="meta" style={{ marginTop: 'var(--spacing-3)' }}>
-                По договору: {e.legalPositionName ?? '—'}
-                {e.legalBranchName ? ` · ${e.legalBranchName}` : ''}
+                {t('card.byContract', {
+                  value: `${e.legalPositionName ?? tc('labels.dash')}${e.legalBranchName ? ` · ${e.legalBranchName}` : ''}`,
+                })}
               </div>
             )}
           </Card>
@@ -277,18 +285,18 @@ export default function MemberCardPage() {
           <LoadingBlock />
         ) : (
           <Card>
-            <CardHeader title="Контакты и реквизиты" subtitle="Что открыто вам по «Видимости в Компаниях»; управляющим — комплект для договоров и выплат" />
+            <CardHeader title={t('card.contactsTitle')} subtitle={t('card.contactsSubtitle')} />
             <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
               <div className="ui-stack" style={{ gap: '0.25rem' }}>
-                {card.user.phone && <div className="meta">Телефон: {card.user.phone}</div>}
-                {member?.card?.email && <div className="meta">E-mail: {member.card.email}</div>}
-                {member?.card?.city && <div className="meta">Город: {member.card.city}</div>}
-                {member?.card?.bio && <div className="meta">О себе: {member.card.bio}</div>}
+                {card.user.phone && <div className="meta">{t('card.phone', { value: card.user.phone })}</div>}
+                {member?.card?.email && <div className="meta">{t('card.email', { value: member.card.email })}</div>}
+                {member?.card?.city && <div className="meta">{t('card.city', { value: member.card.city })}</div>}
+                {member?.card?.bio && <div className="meta">{t('card.bio', { value: member.card.bio })}</div>}
               </div>
               {member?.requisites ? (
-                <MemberRequisitesBlock req={member.requisites} title="Для договоров и выплат" />
+                <MemberRequisitesBlock req={member.requisites} title={t('requisites.forContracts')} />
               ) : (
-                <EmptyState icon="lock" title="Реквизиты закрыты" description="Их видят управляющие и те, кому человек открыл поля сам." />
+                <EmptyState icon="lock" title={t('card.requisitesLocked')} description={t('card.requisitesLockedHint')} />
               )}
             </div>
           </Card>
@@ -300,16 +308,16 @@ export default function MemberCardPage() {
         ) : (
           <Card>
             <CardHeader
-              title="Документы о человеке"
-              subtitle="Видимость решает вид документа; полный реестр — в Документообороте"
+              title={t('card.documentsTitle')}
+              subtitle={t('card.documentsSubtitle')}
               actions={
                 <Button variant="ghost" size="sm" icon="list" href={`/workspaces/${workspaceId}/documents?subject=${userId}`}>
-                  В реестре
+                  {t('card.inRegister')}
                 </Button>
               }
             />
             {!documentsQ.data || documentsQ.data.items.length === 0 ? (
-              <EmptyState icon="file" title="Документов не видно" description="Либо их нет, либо вид документа закрыт для вас." />
+              <EmptyState icon="file" title={t('card.documentsEmpty')} description={t('card.documentsEmptyHint')} />
             ) : (
               <div className="ui-stack" style={{ gap: '0.375rem' }}>
                 {documentsQ.data.items.map((d) => (
@@ -326,7 +334,7 @@ export default function MemberCardPage() {
                       <span className="title-sm">{d.title}</span>
                       <span className="label-sm" style={{ display: 'block' }}>{d.docTypeName}{d.number ? ` · № ${d.number}` : ''}</span>
                     </span>
-                    <Chip size="sm" tone="neutral">{DOC_STATUS_LABELS[d.status] ?? d.status}</Chip>
+                    <Chip size="sm" tone="neutral">{tdoc(`status.${d.status}`)}</Chip>
                   </a>
                 ))}
               </div>
@@ -339,8 +347,8 @@ export default function MemberCardPage() {
           <LoadingBlock />
         ) : (
           <Card>
-            <CardHeader title="Хроника" subtitle="Кадровые события: кто, что, когда" />
-            <ChronicleFeed entries={chronicleQ.data?.items ?? []} actors={chronicleQ.data?.actors ?? {}} emptyText="Кадровых событий пока нет" />
+            <CardHeader title={t('card.chronicleTitle')} subtitle={t('card.chronicleSubtitle')} />
+            <ChronicleFeed entries={chronicleQ.data?.items ?? []} actors={chronicleQ.data?.actors ?? {}} emptyText={t('card.chronicleEmpty')} />
           </Card>
         ))}
 
@@ -362,21 +370,24 @@ function PersonFromLite({ id, people, role, size = 'S' }: { id: string; people: 
 }
 
 function ManagerLine({ m, people, self }: { m: OrgManagerDto; people: Record<string, OrgPersonLite>; self: string }) {
+  const t = useTranslations('staff');
   if (isTopOfStructure(m, self)) {
-    return <Chip tone="neutral" icon="crown">Вершина структуры — руководителя нет</Chip>;
+    return <Chip tone="neutral" icon="crown">{t('card.topOfStructure')}</Chip>;
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         {m.userIds.map((uid) => (
-          <PersonFromLite key={uid} id={uid} people={people} role={m.positionName ?? 'Владелец организации'} size="M" />
+          <PersonFromLite key={uid} id={uid} people={people} role={m.positionName ?? t('card.orgOwner')} size="M" />
         ))}
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         {m.viaDeputy && (
-          <Chip size="sm" tone="waiting" icon="refresh">{m.deputyUntil ? `замещает до ${dmy(m.deputyUntil)}` : 'замещает'}</Chip>
+          <Chip size="sm" tone="waiting" icon="refresh">
+            {m.deputyUntil ? t('card.deputisingUntil', { date: dmy(m.deputyUntil) }) : t('card.deputising')}
+          </Chip>
         )}
-        {m.reason === 'owner_fallback' && <Chip size="sm" tone="neutral" icon="info">руководитель не найден → владелец организации</Chip>}
+        {m.reason === 'owner_fallback' && <Chip size="sm" tone="neutral" icon="info">{t('managerReason.owner_fallback')}</Chip>}
       </div>
     </div>
   );
@@ -395,16 +406,18 @@ function PlaceInStructureCard({
   onRetry: () => void;
   inOrg: boolean;
 }) {
+  const t = useTranslations('staff');
+  const tc = useTranslations('common');
   const orgHref = `/workspaces/${workspaceId}/members/org?focus=user:${userId}`;
   return (
     <Card span={4}>
       <CardHeader
-        title="Место в структуре"
-        subtitle="По факту назначений: руководитель, команда, цепочка"
-        actions={<Button variant="ghost" size="sm" icon="department" href={orgHref}>На схеме</Button>}
+        title={t('card.placeTitle')}
+        subtitle={t('card.placeSubtitle')}
+        actions={<Button variant="ghost" size="sm" icon="department" href={orgHref}>{t('card.onChart')}</Button>}
       />
       {!inOrg ? (
-        <EmptyState icon="signOut" title="Не в организации" />
+        <EmptyState icon="signOut" title={t('card.notInOrg')} />
       ) : pending ? (
         <LoadingBlock />
       ) : failed || !line ? (
@@ -412,23 +425,23 @@ function PlaceInStructureCard({
         // повторы, а `!line` после падения истинно — «загружается» навсегда.
         <EmptyState
           icon="warningCircle"
-          title="Место в структуре не загрузилось"
-          description="Данные оргструктуры недоступны — попробуйте ещё раз."
-          action={<Button variant="matte" icon="refresh" onClick={onRetry}>Повторить</Button>}
+          title={t('card.placeFailed')}
+          description={t('card.placeFailedHint')}
+          action={<Button variant="matte" icon="refresh" onClick={onRetry}>{tc('actions.retry')}</Button>}
         />
       ) : line.assignments.length === 0 ? (
-        <EmptyState icon="position" title="Вне структуры" description="Назначений нет — руководитель не определён." />
+        <EmptyState icon="position" title={t('card.outsideStructure')} description={t('card.outsideStructureHint')} />
       ) : (
         <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
           <div>
-            <div className="label-caps" style={{ marginBottom: 'var(--spacing-2)' }}>Мой руководитель</div>
+            <div className="label-caps" style={{ marginBottom: 'var(--spacing-2)' }}>{t('card.myManager')}</div>
             <ManagerLine m={line.manager} people={line.people} self={userId} />
           </div>
 
           <div>
-            <div className="label-caps" style={{ marginBottom: 'var(--spacing-2)' }}>Моя команда · {line.team.count}</div>
+            <div className="label-caps" style={{ marginBottom: 'var(--spacing-2)' }}>{t('card.myTeam', { n: line.team.count })}</div>
             {line.team.count === 0 ? (
-              <p className="label-sm" style={{ margin: 0 }}>Подчинённых нет</p>
+              <p className="label-sm" style={{ margin: 0 }}>{t('card.noSubordinates')}</p>
             ) : (
               <a href={orgHref} style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--spacing-2)', color: 'inherit', textDecoration: 'none' }}>
                 <AvatarStack
@@ -445,13 +458,13 @@ function PlaceInStructureCard({
 
           {line.chain.length > 1 && (
             <div>
-              <div className="label-caps" style={{ marginBottom: 'var(--spacing-2)' }}>Цепочка вверх</div>
+              <div className="label-caps" style={{ marginBottom: 'var(--spacing-2)' }}>{t('card.chainUp')}</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                 {line.chain.map((s, i) => (
                   <span key={s.positionId} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     {i > 0 && <span className="label-sm">→</span>}
                     <Chip size="sm" tone={s.userIds.length ? 'neutral' : 'warning'} icon="position">
-                      {s.positionName}{s.userIds.length === 0 ? ' · вакансия' : ''}
+                      {s.positionName}{s.userIds.length === 0 ? t('card.vacancySuffix') : ''}
                     </Chip>
                   </span>
                 ))}
@@ -461,7 +474,7 @@ function PlaceInStructureCard({
 
           {line.others.length > 0 && (
             <div>
-              <div className="label-caps" style={{ marginBottom: 'var(--spacing-2)' }}>Также</div>
+              <div className="label-caps" style={{ marginBottom: 'var(--spacing-2)' }}>{t('card.also')}</div>
               <div className="ui-stack" style={{ gap: 'var(--spacing-2)' }}>
                 {line.others.map((o) => {
                   const a = line.assignments.find((x) => x.assignmentId === o.assignmentId);
@@ -470,7 +483,7 @@ function PlaceInStructureCard({
                       <Chip size="sm" tone="neutral" icon="position">{a?.positionName ?? '…'} · {a?.branchName ?? ''}</Chip>
                       <span className="label-sm">→</span>
                       {o.manager.userIds.map((uid) => (
-                        <PersonFromLite key={uid} id={uid} people={line.people} role={o.manager.positionName ?? 'Владелец'} size="XS" />
+                        <PersonFromLite key={uid} id={uid} people={line.people} role={o.manager.positionName ?? t('card.owner')} size="XS" />
                       ))}
                     </div>
                   );

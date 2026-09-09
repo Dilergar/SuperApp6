@@ -71,23 +71,23 @@ export class ShareLinksTokenService {
   }
 
   verify(token: string | undefined | null): ShareSessionVerdict {
-    if (!token) return { ok: false, reason: 'нет пропуска' };
+    if (!token) return { ok: false, reason: 'no pass' };
     const parts = token.split('.');
-    if (parts.length !== 3 || parts[0] !== 'v1') return { ok: false, reason: 'формат' };
+    if (parts.length !== 3 || parts[0] !== 'v1') return { ok: false, reason: 'format' };
     const body = `${parts[0]}.${parts[1]}`;
     const expected = Buffer.from(this.sign(body), 'utf8');
     const got = Buffer.from(parts[2], 'utf8');
     if (expected.length !== got.length || !timingSafeEqual(expected, got)) {
-      return { ok: false, reason: 'подпись' };
+      return { ok: false, reason: 'signature' };
     }
     let payload: ShareSessionPayload;
     try {
       payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as ShareSessionPayload;
     } catch {
-      return { ok: false, reason: 'нечитаемая нагрузка' };
+      return { ok: false, reason: 'unreadable payload' };
     }
-    if (!payload?.l) return { ok: false, reason: 'нагрузка' };
-    if (!Number.isFinite(payload.x) || payload.x <= Date.now()) return { ok: false, reason: 'истёк' };
+    if (!payload?.l) return { ok: false, reason: 'payload' };
+    if (!Number.isFinite(payload.x) || payload.x <= Date.now()) return { ok: false, reason: 'expired' };
     return { ok: true, payload };
   }
 }

@@ -1,15 +1,10 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import {
   ASSET_STATUSES,
   HOLDING_KINDS,
   OBJECTS_ERROR_CODES,
+  SOURCE_LOCALE,
   type AssetCardDto,
   type AssetDto,
   type AssetModelDto,
@@ -33,12 +28,13 @@ import {
 import { DatabaseService } from '../../shared/database/database.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { FilesService } from '../../core/files/files.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
+import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
 import { ObjectsService } from './objects.service';
 
 type Tx = Prisma.TransactionClient;
 
-const STATUS_LABEL = new Map<string, string>(ASSET_STATUSES.map((s) => [s.value, s.label]));
-const HOLDING_LABEL = new Map<string, string>(HOLDING_KINDS.map((h) => [h.value, h.label]));
+const ASSET_STATUS_VALUES: readonly string[] = ASSET_STATUSES.map((s) => s.value);
 
 export const ASSET_REF_TYPE = 'asset';
 export const ASSET_MODEL_REF_TYPE = 'asset_model';
@@ -69,6 +65,7 @@ export class AssetsService {
     private readonly chatter: ChatterService,
     private readonly files: FilesService,
     private readonly objects: ObjectsService,
+    private readonly i18n: I18nService,
   ) {}
 
   // ============================================================
@@ -81,7 +78,7 @@ export class AssetsService {
     q: { kind?: string; search?: string; archived?: boolean },
   ): Promise<AssetModelDto[]> {
     const scope = await this.objects.scopeOf(userId, workspaceId);
-    if (!scope.role || scope.role === 'contractor') throw new NotFoundException('Организация не найдена');
+    if (!scope.role || scope.role === 'contractor') throw notFound('workspace.notFound');
     const rows = await this.db.assetModel.findMany({
       where: {
         workspaceId,
@@ -121,7 +118,7 @@ export class AssetsService {
       })
       .catch((e: unknown) => {
         if ((e as { code?: string })?.code === 'P2002') {
-          throw new ConflictException('Модель с таким названием уже есть');
+          throw conflict('objects.modelDuplicate');
         }
         throw e as Error;
       });
@@ -136,7 +133,7 @@ export class AssetsService {
   ): Promise<AssetModelDto> {
     await this.assertAnyManage(userId, workspaceId);
     const found = await this.db.assetModel.findFirst({ where: { id: modelId, workspaceId } });
-    if (!found) throw new NotFoundException('Модель не найдена');
+    if (!found) throw notFound('objects.modelNotFound');
     const row = await this.db.assetModel.update({
       where: { id: modelId },
       data: {
@@ -155,13 +152,10 @@ export class AssetsService {
   async removeModel(userId: string, workspaceId: string, modelId: string): Promise<void> {
     await this.assertAnyManage(userId, workspaceId);
     const found = await this.db.assetModel.findFirst({ where: { id: modelId, workspaceId } });
-    if (!found) throw new NotFoundException('Модель не найдена');
+    if (!found) throw notFound('objects.modelNotFound');
     const used = await this.db.asset.count({ where: { modelId } });
     if (used > 0) {
-      throw new ConflictException({
-        message: 'По этой модели есть оборудование — сначала спишите или перенесите его',
-        details: { code: OBJECTS_ERROR_CODES.assetModelInUse },
-      });
+      throw conflict('objects.modelInUse', undefined, { code: OBJECTS_ERROR_CODES.assetModelInUse });
     }
     await this.db.assetModel.delete({ where: { id: modelId } });
   }
@@ -296,7 +290,7 @@ export class AssetsService {
     const { caps } = await this.objects.getOrThrow(userId, workspaceId, branchId);
     this.objects.assertManage(caps);
     if ((dto.purchasePrice !== undefined && dto.purchasePrice !== null) && !caps.payrollView) {
-      throw new ForbiddenException('Цену покупки заполняет тот, кто видит деньги объекта');
+      throw forbidden('objects.priceNeedsPayroll');
     }
     await this.assertRefsOwned(workspaceId, dto);
 
@@ -307,7 +301,7 @@ export class AssetsService {
         const model = dto.modelId
           ? await tx.assetModel.findFirst({ where: { id: dto.modelId, workspaceId } })
           : await this.upsertModel(tx, workspaceId, userId, dto.newModel!);
-        if (!model) throw new BadRequestException('Модель не найдена в этой организации');
+        if (!model) throw badRequest('objects.modelNotInOrg');
 
         const asset = await tx.asset.create({
           data: {
@@ -371,7 +365,7 @@ export class AssetsService {
     this.objects.assertManage(caps);
     // Цена — денежное поле: без права его не только не видно, но и не изменить.
     if ((dto.purchasePrice !== undefined || dto.currency !== undefined) && !caps.payrollView) {
-      throw new ForbiddenException('Цену покупки заполняет тот, кто видит деньги объекта');
+      throw forbidden('objects.priceNeedsPayroll');
     }
     const updated = await this.db
       .$transaction(async (tx) => {
@@ -404,8 +398,7 @@ export class AssetsService {
             workspaceId,
             actorId: userId,
             typeKey: 'asset.updated',
-            changes: [{ field: 'name', label: 'Название', from: asset.name, to: dto.name }],
-            payload: { fieldLabel: 'Название' },
+            changes: [{ field: 'name', label: this.fieldLabel('name'), from: asset.name, to: dto.name }],
           });
         }
         return row;
@@ -425,8 +418,8 @@ export class AssetsService {
     }
     if (dto.parentAssetId) {
       const parent = await this.db.asset.findFirst({ where: { id: dto.parentAssetId, workspaceId } });
-      if (!parent) throw new BadRequestException('Родительское оборудование не найдено');
-      if (dto.parentAssetId === assetId) throw new BadRequestException('Нельзя вложить актив сам в себя');
+      if (!parent) throw badRequest('objects.parentAssetNotFound');
+      if (dto.parentAssetId === assetId) throw badRequest('objects.assetSelfNesting');
     }
 
     const updated = await this.db.$transaction(async (tx) => {
@@ -461,7 +454,7 @@ export class AssetsService {
         changes: [
           {
             field: 'branchId',
-            label: 'Место',
+            label: this.fieldLabel('branchId'),
             from: asset.branch?.name ?? null,
             to: row.branch?.name ?? null,
           },
@@ -510,7 +503,7 @@ export class AssetsService {
         workspaceId,
         actorId: userId,
         typeKey: 'asset.custodian_set',
-        changes: [{ field: 'custodian', label: 'Ответственный', from: fromName, to: toName }],
+        changes: [{ field: 'custodian', label: this.fieldLabel('custodian'), from: fromName, to: toName }],
       });
       return row;
     });
@@ -525,7 +518,7 @@ export class AssetsService {
   ): Promise<AssetDto> {
     const { asset, caps } = await this.assetOrThrow(userId, workspaceId, assetId);
     this.objects.assertManage(caps);
-    if (!caps.payrollView) throw new ForbiddenException('Владение и баланс меняет тот, кто видит деньги объекта');
+    if (!caps.payrollView) throw forbidden('objects.holdingNeedsPayroll');
     await this.assertRefsOwned(workspaceId, dto);
     const updated = await this.db.$transaction(async (tx) => {
       const row = await tx.asset.update({
@@ -559,9 +552,9 @@ export class AssetsService {
         changes: [
           {
             field: 'holdingKind',
-            label: 'Владение',
-            from: HOLDING_LABEL.get(asset.holdingKind) ?? asset.holdingKind,
-            to: HOLDING_LABEL.get(dto.holdingKind) ?? dto.holdingKind,
+            label: this.fieldLabel('holdingKind'),
+            from: this.dictLabel('holdingKind', HOLDING_KINDS, asset.holdingKind),
+            to: this.dictLabel('holdingKind', HOLDING_KINDS, dto.holdingKind),
           },
         ],
       });
@@ -610,9 +603,9 @@ export class AssetsService {
         changes: [
           {
             field: 'status',
-            label: 'Состояние',
-            from: STATUS_LABEL.get(asset.status) ?? asset.status,
-            to: STATUS_LABEL.get(dto.status) ?? dto.status,
+            label: this.fieldLabel('status'),
+            from: this.dictLabel('assetStatus', ASSET_STATUS_VALUES, asset.status),
+            to: this.dictLabel('assetStatus', ASSET_STATUS_VALUES, dto.status),
           },
         ],
       });
@@ -634,7 +627,7 @@ export class AssetsService {
     const { caps } = await this.assetOrThrow(userId, workspaceId, assetId);
     this.objects.assertManage(caps);
     if (dto.cost && !caps.payrollView) {
-      throw new ForbiddenException('Стоимость ремонта заполняет тот, кто видит деньги объекта');
+      throw forbidden('objects.serviceCostNeedsPayroll');
     }
     await this.assertRefsOwned(workspaceId, dto);
     const row = await this.db.$transaction(async (tx) => {
@@ -680,9 +673,9 @@ export class AssetsService {
     const { caps } = await this.assetOrThrow(userId, workspaceId, assetId);
     this.objects.assertManage(caps);
     const found = await this.db.assetServiceRecord.findFirst({ where: { id: recordId, assetId, workspaceId } });
-    if (!found) throw new NotFoundException('Запись обслуживания не найдена');
+    if (!found) throw notFound('objects.serviceRecordNotFound');
     if (dto.cost !== undefined && !caps.payrollView) {
-      throw new ForbiddenException('Стоимость ремонта заполняет тот, кто видит деньги объекта');
+      throw forbidden('objects.serviceCostNeedsPayroll');
     }
     await this.assertRefsOwned(workspaceId, dto);
     const row = await this.db.assetServiceRecord.update({
@@ -747,13 +740,13 @@ export class AssetsService {
       where: { id: modelId, workspaceId },
       select: { id: true },
     });
-    if (!found) throw new NotFoundException('Модель не найдена');
+    if (!found) throw notFound('objects.modelNotFound');
     if (needManage) {
       await this.assertAnyManage(userId, workspaceId);
       return;
     }
     const scope = await this.objects.scopeOf(userId, workspaceId);
-    if (!scope.role || scope.role === 'contractor') throw new NotFoundException('Организация не найдена');
+    if (!scope.role || scope.role === 'contractor') throw notFound('workspace.notFound');
   }
 
   async listFiles(userId: string, workspaceId: string, assetId: string): Promise<FileDto[]> {
@@ -784,10 +777,10 @@ export class AssetsService {
       where: { id: assetId, workspaceId },
       include: this.assetInclude(),
     });
-    if (!asset) throw new NotFoundException('Оборудование не найдено');
+    if (!asset) throw notFound('objects.assetNotFound');
     const scope = await this.objects.scopeOf(userId, workspaceId);
     const caps = this.objects.capsFor(scope, asset.branch);
-    if (!caps.view) throw new NotFoundException('Оборудование не найдено');
+    if (!caps.view) throw notFound('objects.assetNotFound');
     return { asset, caps };
   }
 
@@ -897,7 +890,7 @@ export class AssetsService {
     const label = (branchId: string | null, userId: string | null, value: string | null): string | null => {
       if (branchId) return branchName.get(branchId) ?? null;
       if (userId) return nameOf.get(userId) ?? null;
-      if (value) return STATUS_LABEL.get(value) ?? HOLDING_LABEL.get(value) ?? value;
+      if (value) return this.valueLabel(value);
       return null;
     };
     return {
@@ -1018,7 +1011,8 @@ export class AssetsService {
       where: { id: { in: list } },
       select: { id: true, firstName: true, lastName: true },
     });
-    return new Map(users.map((u) => [u.id, [u.lastName, u.firstName].filter(Boolean).join(' ') || 'Сотрудник']));
+    const someone = this.i18n.translate('common.labels.someone');
+    return new Map(users.map((u) => [u.id, [u.lastName, u.firstName].filter(Boolean).join(' ') || someone]));
   }
 
   /**
@@ -1041,14 +1035,14 @@ export class AssetsService {
     },
   ): Promise<void> {
     const checks: Promise<void>[] = [];
-    const need = async (found: Promise<unknown>, message: string): Promise<void> => {
-      if (!(await found)) throw new BadRequestException(message);
+    const need = async (found: Promise<unknown>, code: string): Promise<void> => {
+      if (!(await found)) throw badRequest(code);
     };
     if (refs.balanceLegalEntityId) {
       checks.push(
         need(
           this.db.legalEntity.findFirst({ where: { id: refs.balanceLegalEntityId, workspaceId }, select: { id: true } }),
-          'Юрлицо не найдено в этой организации',
+          'objects.legalEntityNotInOrg',
         ),
       );
     }
@@ -1057,7 +1051,7 @@ export class AssetsService {
       checks.push(
         need(
           this.db.counterparty.findFirst({ where: { id, workspaceId }, select: { id: true } }),
-          'Контрагент не найден в этой организации',
+          'objects.counterpartyNotInOrg',
         ),
       );
     }
@@ -1065,7 +1059,7 @@ export class AssetsService {
       checks.push(
         need(
           this.db.asset.findFirst({ where: { id: refs.parentAssetId, workspaceId }, select: { id: true } }),
-          'Родительское оборудование не найдено',
+          'objects.parentAssetNotFound',
         ),
       );
     }
@@ -1077,11 +1071,31 @@ export class AssetsService {
             where: { userId: id, context: 'workspace', tenantId: workspaceId, isActive: true },
             select: { id: true },
           }),
-          'Человек не работает в этой организации',
+          'objects.personNotInOrg',
         ),
       );
     }
     await Promise.all(checks);
+  }
+
+  /** Подпись изменённого поля для хроники (снимок в языке ИСТОЧНИКА). */
+  private fieldLabel(field: string): string {
+    return this.i18n.translateFor(SOURCE_LOCALE, `chatter.fields.asset.${field}`);
+  }
+
+  /**
+   * Значение журнала перемещений (статус или владение) — слово в языке ЗАПРОСА:
+   * в БД лежит машинное значение, текст собирается на выходе.
+   */
+  private valueLabel(value: string): string {
+    if (ASSET_STATUS_VALUES.includes(value)) return this.i18n.translate(`objects.assetStatus.${value}`);
+    if ((HOLDING_KINDS as readonly string[]).includes(value)) return this.i18n.translate(`objects.holdingKind.${value}`);
+    return value;
+  }
+
+  /** Слово словаря из каталога; незнакомое значение остаётся как есть. */
+  private dictLabel(dict: string, known: readonly string[], value: string): string {
+    return known.includes(value) ? this.i18n.translateFor(SOURCE_LOCALE, `objects.${dict}.${value}`) : value;
   }
 
   private async userName(userId: string | null): Promise<string | null> {
@@ -1098,20 +1112,19 @@ export class AssetsService {
     const scope = await this.objects.scopeOf(userId, workspaceId);
     if (scope.full) return;
     const granted = this.objects.grantedIds(scope) ?? [];
-    if (granted.length === 0) throw new NotFoundException('Организация не найдена');
+    if (granted.length === 0) throw notFound('workspace.notFound');
     const branches = await this.db.staffBranch.findMany({
       where: { workspaceId },
       select: { id: true, ancestorIds: true },
     });
     const canAny = branches.some((b) => this.objects.capsFor(scope, b).manage);
-    if (!canAny) throw new ForbiddenException('Справочник моделей ведёт управляющий объектом');
+    if (!canAny) throw forbidden('objects.modelsManageOnly');
   }
 
   private rethrowInventory(e: unknown): never {
     if ((e as { code?: string })?.code === 'P2002') {
-      throw new ConflictException({
-        message: 'Инвентарный номер уже занят',
-        details: { code: OBJECTS_ERROR_CODES.assetInventoryDuplicate },
+      throw conflict('objects.inventoryDuplicate', undefined, {
+        code: OBJECTS_ERROR_CODES.assetInventoryDuplicate,
       });
     }
     throw e as Error;

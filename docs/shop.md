@@ -14,6 +14,23 @@
 - **Wishlist**: `WishItem` (без цены), шеринг как витрина; «Добавить в витрину» → лот в МОЁМ магазине с sourceWishItemId (+авто-шер витрины владельцу хотелки); лот продан/собран → хотелка авто-«исполнено».
 - **B2B-магазин**: лоты в компанийной валюте, витрины сотрудникам, покупки в казну; «с задачей» в магазине компании заблокировано.
 
+## Слова (i18n)
+
+Сервис переведён: **ни одной строки для человека в коде** — ни на сервере, ни в вебе.
+
+- **Словарей слов в коде НЕТ.** Статус заказа и вид лота собираются по ЗНАЧЕНИЮ:
+  `shop.orderStatus.<status>`, `shop.itemType.<itemType>` — один и тот же ключ читают
+  rich-карточка сервера и обе витрины веба. `LISTING_ITEM_TYPE_LABELS` из
+  `@superapp/shared` удалён: строка в пакете провода = один язык сразу у трёх клиентов.
+- **`listingAvailability` отдаёт КЛЮЧ, а не слово** (`reasonKey: shop.unavailable.*`):
+  функция чистая, её зовут и карточка, и формы, хуков у неё нет.
+- **Задача выдачи** (`shop.task.deliver`) рождается на языке подтверждающего заказ —
+  это обычный заголовок задачи, при чтении он не переводится.
+- **Штук в витрине — ICU-plural** (`shop.page.listingCount`), а не `pluralRu`:
+  русское склонение в коде работало бы только для одного языка.
+- Отказы — фабрики `shared/errors/api-error.ts` (`errors.shop.*`), Swagger — по-английски.
+- Веб-неймспейс кладёт `app/shop/layout.tsx` (`<ServiceMessages ns={['shop','circles']}>`).
+
 ## API (кратко)
 
 `GET /shop` · `/accessible` · `/of/:ownerId` · `/currencies` · showcases CRUD + shares + listings · listings CRUD (+images) · staff · `POST /listings/:id/buy|contribute` · orders (list/incoming/:id + confirm/reject/cancel/refund/withdraw) · wishes CRUD + fulfill/copy + shares · wishlists accessible/of.

@@ -7,9 +7,10 @@ import { useParams } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { useApprovalsCount } from '@/lib/hooks/useApprovalsCount';
 import { apiGet } from '@/lib/api';
+import { useTranslations } from 'next-intl';
+import { useFormatters } from '@/lib/format';
+import { useRoleLabel } from './members/members-lib';
 import {
-  APPROVAL_INBOX_TITLE,
-  WORKSPACE_ROLES,
   WORKSPACE_ROLE_RANK,
   type Workspace,
   type WorkspaceRole,
@@ -27,12 +28,12 @@ const DecisionStack = dynamic(
   { ssr: false },
 );
 
-// Единый источник лейблов ролей — shared (Стажёр/Подрядчик уже включены).
-const ROLE_LABELS: Record<string, string> = Object.fromEntries(
-  (Object.keys(WORKSPACE_ROLES) as WorkspaceRole[]).map((k) => [k, WORKSPACE_ROLES[k].name]),
-);
+// Имя ступени пропуска даёт каталог (`useRoleLabel`): реестр WORKSPACE_ROLES
+// несёт права, а не слова.
 
 interface ServiceCard {
+  /** Ключ плитки — он же ключ каталога и React-ключ списка */
+  key: string;
   title: string;
   desc: string;
   icon: IconName;
@@ -45,6 +46,10 @@ interface ServiceCard {
  * members, and future org-scoped services are reached from here.
  */
 export default function WorkspaceHome() {
+  const t = useTranslations('workspaces');
+  const ta = useTranslations('approvals');
+  const f = useFormatters();
+  const roleLabel = useRoleLabel();
   const { isReady } = useRequireAuth();
   const { id } = useParams<{ id: string }>();
   const [ws, setWs] = useState<Workspace | null>(null);
@@ -67,13 +72,13 @@ export default function WorkspaceHome() {
   if (!ws) {
     return (
       <>
-        <PageHeader breadcrumb="Организация" title="Организация" />
+        <PageHeader breadcrumb={t('orgFallback')} title={t('orgFallback')} />
         <BentoGrid>
           <Card span={12}>
             <EmptyState
               icon="workspace"
-              title="Организация не открылась"
-              description="Возможно, у вас нет доступа или её больше нет. Обновите страницу."
+              title={t('notOpened.title')}
+              description={t('notOpened.descriptionGone')}
             />
           </Card>
         </BentoGrid>
@@ -83,35 +88,42 @@ export default function WorkspaceHome() {
 
   const rank = ws.myRole ? WORKSPACE_ROLE_RANK[ws.myRole as WorkspaceRole] ?? 0 : 0;
 
+  // Плитка знает свой КЛЮЧ, слова к нему даёт каталог (`workspaces.home.service.*`).
+  const card = (key: string, icon: IconName, href?: string): ServiceCard => ({
+    key,
+    title: t(`home.service.${key}.title`),
+    desc: t(`home.service.${key}.desc`),
+    icon,
+    href,
+  });
+
   const services: ServiceCard[] = [
-    { title: 'Сотрудники', desc: 'Ростер, должности, отделы, филиалы', icon: 'staff', href: `/workspaces/${id}/members` },
-    { title: 'Документооборот', desc: 'Заявления, приказы, договоры с контрагентами', icon: 'file', href: `/workspaces/${id}/documents` },
-    { title: 'Контрагенты', desc: 'Справочник внешних сторон: реквизиты, контакты, документы', icon: 'workspace', href: `/workspaces/${id}/counterparties` },
-    { title: 'Процессы', desc: 'Конструктор бизнес-процессов на канвасе', icon: 'processes', href: `/workspaces/${id}/processes` },
-    { title: 'Виртуальный офис', desc: 'Видеовстречи и собрания организации', icon: 'office', href: `/workspaces/${id}/office` },
-    ...(ws.myRole === 'owner'
-      ? [{ title: 'Кошелёк компании', desc: 'Валюта, казна, начисления', icon: 'coins' as IconName, href: `/workspaces/${id}/wallet` }]
-      : []),
+    card('members', 'staff', `/workspaces/${id}/members`),
+    card('documents', 'file', `/workspaces/${id}/documents`),
+    card('counterparties', 'workspace', `/workspaces/${id}/counterparties`),
+    card('processes', 'processes', `/workspaces/${id}/processes`),
+    card('office', 'office', `/workspaces/${id}/office`),
+    ...(ws.myRole === 'owner' ? [card('wallet', 'coins', `/workspaces/${id}/wallet`)] : []),
     ...(rank >= WORKSPACE_ROLE_RANK.manager
       ? [
           // КЭДО: сводный экран «что горит сегодня» — ЕСУТД, вручения, расчёты
-          { title: 'Кадровые сроки', desc: 'ЕСУТД, вручения, расчёты, испытательные', icon: 'clock' as IconName, href: `/workspaces/${id}/members?tab=deadlines` },
-          { title: 'Журнал организации', desc: 'Хроника: найм, роли, должности, задачи', icon: 'journal' as IconName, href: `/workspaces/${id}/journal` },
+          card('deadlines', 'clock', `/workspaces/${id}/members?tab=deadlines`),
+          card('journal', 'journal', `/workspaces/${id}/journal`),
           // Раздать наружу может Менеджер+, значит и закрыть чужое вправе он —
           // иначе ссылки уволенного оставались бы без хозяина.
-          { title: 'Ссылки наружу', desc: 'Что команда раздала людям без аккаунта', icon: 'link' as IconName, href: `/workspaces/${id}/links` },
+          card('links', 'link', `/workspaces/${id}/links`),
         ]
       : []),
-    { title: 'Задачи организации', desc: 'Рабочие задачи отдельным сервисом', icon: 'tasks' },
-    { title: 'Календарь организации', desc: 'Общие смены, брони и события', icon: 'calendar' },
+    card('tasks', 'tasks'),
+    card('calendar', 'calendar'),
   ];
 
-  const created = new Date(ws.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
+  const created = f.date(ws.createdAt, 'long');
 
   return (
     <>
       <PageHeader
-        breadcrumb="Организация"
+        breadcrumb={t('orgFallback')}
         title={
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
             <span
@@ -133,20 +145,20 @@ export default function WorkspaceHome() {
             {ws.name}
           </span>
         }
-        chip={ws.myRole ? <Chip tone="accent" icon="user">{ROLE_LABELS[ws.myRole] ?? ws.myRole}</Chip> : undefined}
+        chip={ws.myRole ? <Chip tone="accent" icon="user">{roleLabel(ws.myRole)}</Chip> : undefined}
         actions={
           // «Подать заявление» — на главной организации, а не на личной: здесь
           // контекст однозначен. На личной Главной пришлось бы сперва спрашивать,
           // в какую из организаций человек подаёт.
           <Button icon="add" onClick={() => setSubmitOpen(true)}>
-            Подать заявление
+            {t('home.submitDocument')}
           </Button>
         }
       />
 
       <BentoGrid>
         {/* ---------- Показатели ---------- */}
-        <StatTile span={approvalsCount > 0 ? 3 : 4} label="Сотрудников" value={ws.membersCount} icon="staff" tone="accent" href={`/workspaces/${id}/members`} />
+        <StatTile span={approvalsCount > 0 ? 3 : 4} label={t('home.stat.members')} value={ws.membersCount} icon="staff" tone="accent" href={`/workspaces/${id}/members`} />
         {/* Плитка решений появляется, ТОЛЬКО когда что-то действительно ждёт:
             строка «0» на главной — шум, а главная отвечает на один вопрос —
             «что требует меня прямо сейчас». Не ссылка: стопка разбирается
@@ -154,19 +166,19 @@ export default function WorkspaceHome() {
         {approvalsCount > 0 && (
           <StatTile
             span={3}
-            label={APPROVAL_INBOX_TITLE}
+            label={ta('inboxTitle')}
             value={approvalsCount}
             icon="checkCircle"
             tone="accent"
             onClick={() => setStackOpen(true)}
           />
         )}
-        <StatTile span={approvalsCount > 0 ? 3 : 4} label="Задач" value={ws.tasksCount ?? 0} icon="tasks" tone={ws.tasksCount ? 'success' : 'neutral'} />
-        <StatTile span={approvalsCount > 0 ? 3 : 4} label="Создана" value={created} icon="calendar" tone="neutral" />
+        <StatTile span={approvalsCount > 0 ? 3 : 4} label={t('home.stat.tasks')} value={ws.tasksCount ?? 0} icon="tasks" tone={ws.tasksCount ? 'success' : 'neutral'} />
+        <StatTile span={approvalsCount > 0 ? 3 : 4} label={t('home.stat.created')} value={created} icon="calendar" tone="neutral" />
 
         {/* ---------- Сервисы организации ---------- */}
         <Card span={12}>
-          <CardHeader title="Сервисы" subtitle="Всё рабочее — внутри одной организации" />
+          <CardHeader title={t('home.services.title')} subtitle={t('home.services.subtitle')} />
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--gap-grid)' }}>
             {services.map((s) => {
               const soon = !s.href;
@@ -184,18 +196,18 @@ export default function WorkspaceHome() {
                   </span>
                   <div className="title-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
                     {s.title}
-                    {soon && <Chip size="sm" tone="neutral">скоро</Chip>}
+                    {soon && <Chip size="sm" tone="neutral">{t('home.soon')}</Chip>}
                   </div>
                   <p className="label-sm" style={{ margin: '0.25rem 0 0' }}>{s.desc}</p>
                 </>
               );
               return s.href ? (
-                <Card key={s.title} small hoverable>
+                <Card key={s.key} small hoverable>
                   {/* next/link: сырой <a> перезагружал всё приложение целиком */}
                   <Link href={s.href} style={{ color: 'inherit', display: 'block' }}>{inner}</Link>
                 </Card>
               ) : (
-                <Card key={s.title} small style={{ opacity: 0.6 }}>{inner}</Card>
+                <Card key={s.key} small style={{ opacity: 0.6 }}>{inner}</Card>
               );
             })}
           </div>

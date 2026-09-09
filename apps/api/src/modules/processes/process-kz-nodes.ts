@@ -8,10 +8,7 @@ import { assertPublicUrlShallow, credentialKey, fetchJson, loadCredentialSecret 
 // Все ноды auto, выходы success/error (сбой не роняет процесс).
 // ============================================================
 
-const SUCCESS_ERR = [
-  { key: 'success', label: 'Успех' },
-  { key: 'error', label: 'Ошибка' },
-];
+const SUCCESS_ERR = [{ key: 'success' }, { key: 'error' }];
 
 /** Унифицированный финал: успех/ошибка по HTTP-результату. */
 function done(ok: boolean, output: Record<string, unknown>): NodeRunResult {
@@ -53,19 +50,16 @@ async function sendTelegram(
 export const telegramNode: ProcessNodeProvider = {
   descriptor: {
     type: 'kz.telegram',
-    title: 'Telegram',
-    description:
-      'Отправляет сообщение через Telegram-бота (токен @BotFather в кредах). В потоке шлёт заданный текст; если подключить выход «как инструмент» к AI-Агенту — агент сам решает, когда писать, и придумывает текст. Подстановки {{form.x}}/{{steps.x}}.',
     category: 'integration',
     icon: 'telegram',
     tier: 'standard',
     io: true, // внешний API → вне инстанс-лока (P3)
     // success/error — поток; astool — подключение к AI-Агенту как инструмент (n8n: один узел = действие И инструмент).
-    outputs: [...SUCCESS_ERR, { key: 'astool', label: 'как инструмент', type: 'ai_tool' }],
+    outputs: [...SUCCESS_ERR, { key: 'astool', type: 'ai_tool' }],
     fields: [
-      { key: 'credentialId', label: 'Токен бота (кред)', kind: 'credential', required: true },
-      { key: 'chatId', label: 'Chat ID / @канал', kind: 'text', required: true, placeholder: '{{form.chatId}}, 123456789 или @mychannel' },
-      { key: 'text', label: 'Текст', kind: 'textarea', help: 'Для обычной ноды — обязательно. Если нода подключена к агенту как инструмент, текст придумывает агент.' },
+      { key: 'credentialId', kind: 'credential', required: true },
+      { key: 'chatId', kind: 'text', required: true },
+      { key: 'text', kind: 'textarea' }
     ],
     configSchema: z.object({
       credentialId: z.string().uuid(),
@@ -75,19 +69,19 @@ export const telegramNode: ProcessNodeProvider = {
     auto: true,
     tool: {
       name: 'send_telegram',
-      description: 'Отправить сообщение в Telegram-чат (chat id задан в ноде; текст придумывает агент).',
-      schema: { type: 'object', properties: { text: { type: 'string', description: 'Текст сообщения' } }, required: ['text'] },
+      description: 'Send a message to a Telegram chat (the chat id is set on the node; the agent writes the text).',
+      schema: { type: 'object', properties: { text: { type: 'string', description: 'The message text' } }, required: ['text'] },
       async execute(ctx, input) {
         const cfg = ctx.config as { credentialId: string; chatId: string };
         const res = await sendTelegram(ctx, cfg.credentialId, ctx.render(cfg.chatId), String(input.text ?? ''));
-        return res.ok ? 'Сообщение отправлено' : `Ошибка Telegram ${res.status}`;
+        return res.ok ? 'The message was sent' : `Telegram error ${res.status}`;
       },
     },
   },
   async run(ctx) {
     const cfg = ctx.config as { credentialId: string; chatId: string; text?: string };
     const text = cfg.text ? ctx.render(cfg.text) : '';
-    if (!text) return fail('Заполните текст сообщения (или подключите ноду к агенту как инструмент)');
+    if (!text) return fail('the message text is empty (or connect the node to an agent as a tool)');
     try {
       const res = await sendTelegram(ctx, cfg.credentialId, ctx.render(cfg.chatId), text);
       return done(res.ok, { status: res.status, body: res.body });
@@ -103,18 +97,16 @@ export const telegramNode: ProcessNodeProvider = {
 export const whatsappNode: ProcessNodeProvider = {
   descriptor: {
     type: 'kz.whatsapp',
-    title: 'WhatsApp',
-    description: 'Отправляет сообщение через WhatsApp Cloud API (access-токен в кредах; шаблоны — вне 24ч-окна). Подстановки.',
     category: 'integration',
     icon: 'whatsapp',
     tier: 'standard',
     io: true, // внешний API → вне инстанс-лока (P3)
     outputs: SUCCESS_ERR,
     fields: [
-      { key: 'credentialId', label: 'Access-токен (кред)', kind: 'credential', required: true },
-      { key: 'phoneNumberId', label: 'Phone Number ID', kind: 'text', required: true },
-      { key: 'to', label: 'Кому (телефон)', kind: 'text', required: true, placeholder: '77001234567' },
-      { key: 'text', label: 'Текст', kind: 'textarea', required: true },
+      { key: 'credentialId', kind: 'credential', required: true },
+      { key: 'phoneNumberId', kind: 'text', required: true },
+      { key: 'to', kind: 'text', required: true },
+      { key: 'text', kind: 'textarea', required: true }
     ],
     configSchema: z.object({
       credentialId: z.string().uuid(),
@@ -147,18 +139,16 @@ export const whatsappNode: ProcessNodeProvider = {
 export const smsNode: ProcessNodeProvider = {
   descriptor: {
     type: 'kz.sms',
-    title: 'SMS (Mobizon)',
-    description: 'Отправляет SMS через Mobizon.kz (apiKey в кредах). Альфа-имя отправителя регистрируется заранее.',
     category: 'integration',
     icon: 'sms',
     tier: 'standard',
     io: true, // внешний API → вне инстанс-лока (P3)
     outputs: SUCCESS_ERR,
     fields: [
-      { key: 'credentialId', label: 'API-ключ Mobizon (кред)', kind: 'credential', required: true },
-      { key: 'recipient', label: 'Получатель (телефон)', kind: 'text', required: true, placeholder: '7700...' },
-      { key: 'text', label: 'Текст', kind: 'textarea', required: true },
-      { key: 'from', label: 'Альфа-имя (необяз.)', kind: 'text' },
+      { key: 'credentialId', kind: 'credential', required: true },
+      { key: 'recipient', kind: 'text', required: true },
+      { key: 'text', kind: 'textarea', required: true },
+      { key: 'from', kind: 'text' }
     ],
     configSchema: z.object({
       credentialId: z.string().uuid(),
@@ -191,27 +181,20 @@ const KASPI_BASE = 'https://kaspi.kz/shop/api/v2';
 export const kaspiNode: ProcessNodeProvider = {
   descriptor: {
     type: 'kz.kaspi',
-    title: 'Kaspi Магазин',
-    description: 'Заказы Kaspi Магазина: получить новые / принять / завершить (токен из кабинета продавца). Вебхуков у Kaspi нет — опрашивайте по расписанию.',
     category: 'integration',
     icon: 'cart',
     tier: 'standard',
     io: true, // внешний API → вне инстанс-лока (P3)
     outputs: SUCCESS_ERR,
     fields: [
-      { key: 'credentialId', label: 'X-Auth-Token (кред)', kind: 'credential', required: true },
+      { key: 'credentialId', kind: 'credential', required: true },
       {
         key: 'operation',
-        label: 'Операция',
         kind: 'select',
         required: true,
-        options: [
-          { value: 'new_orders', label: 'Получить новые заказы' },
-          { value: 'accept', label: 'Принять заказ' },
-          { value: 'complete', label: 'Завершить заказ' },
-        ],
+        options: ['new_orders', 'accept', 'complete']
       },
-      { key: 'orderId', label: 'ID заказа', kind: 'text', showIf: { field: 'operation', in: ['accept', 'complete'] } },
+      { key: 'orderId', kind: 'text', showIf: { field: 'operation', in: ['accept', 'complete'] } }
     ],
     configSchema: z
       .object({
@@ -219,7 +202,7 @@ export const kaspiNode: ProcessNodeProvider = {
         operation: z.enum(['new_orders', 'accept', 'complete']),
         orderId: z.string().max(120).optional(),
       })
-      .refine((c) => c.operation === 'new_orders' || !!c.orderId, { message: 'Укажите ID заказа', path: ['orderId'] }),
+      .refine((c) => c.operation === 'new_orders' || !!c.orderId, { message: 'processes.validation.orderIdRequired', path: ['orderId'] }),
     auto: true,
   },
   async run(ctx) {
@@ -249,29 +232,23 @@ export const kaspiNode: ProcessNodeProvider = {
 export const odataNode: ProcessNodeProvider = {
   descriptor: {
     type: 'kz.odata',
-    title: '1С (OData)',
-    description: 'Запрос к опубликованной базе 1С через стандартный OData (Basic-auth в кредах). База должна быть доступна публично.',
     category: 'integration',
     icon: 'database',
     tier: 'standard',
     io: true, // внешний API → вне инстанс-лока (P3)
     outputs: SUCCESS_ERR,
     fields: [
-      { key: 'credentialId', label: 'Логин/пароль 1С (basic-кред)', kind: 'credential', required: true },
-      { key: 'baseUrl', label: 'OData base URL', kind: 'text', required: true, placeholder: 'https://1c.company.kz/base/odata/standard.odata' },
-      { key: 'entity', label: 'Объект', kind: 'text', required: true, placeholder: 'Catalog_Номенклатура' },
+      { key: 'credentialId', kind: 'credential', required: true },
+      { key: 'baseUrl', kind: 'text', required: true },
+      { key: 'entity', kind: 'text', required: true },
       {
         key: 'operation',
-        label: 'Операция',
         kind: 'select',
         required: true,
-        options: [
-          { value: 'list', label: 'Прочитать (список)' },
-          { value: 'create', label: 'Создать' },
-        ],
+        options: ['list', 'create']
       },
-      { key: 'filter', label: 'Фильтр ($filter)', kind: 'text', showIf: { field: 'operation', in: ['list'] }, placeholder: "Description eq 'Хлеб'" },
-      { key: 'body', label: 'Данные (JSON)', kind: 'textarea', showIf: { field: 'operation', in: ['create'] } },
+      { key: 'filter', kind: 'text', showIf: { field: 'operation', in: ['list'] } },
+      { key: 'body', kind: 'textarea', showIf: { field: 'operation', in: ['create'] } }
     ],
     configSchema: z.object({
       credentialId: z.string().uuid(),

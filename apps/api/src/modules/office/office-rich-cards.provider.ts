@@ -1,5 +1,6 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import type { RichCardPayload } from '@superapp/shared';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { RichCardRegistry } from '../../core/rich-cards/rich-cards.registry';
 import type { RichCardDeps } from '../../core/rich-cards/rich-card.types';
 import { OFFICE_CALL_REF_TYPE, isOfficeTeamRole } from './office.service';
@@ -13,7 +14,10 @@ import { OFFICE_CALL_REF_TYPE, isOfficeTeamRole } from './office.service';
  */
 @Injectable()
 export class OfficeRichCardsProvider implements OnModuleInit {
-  constructor(private readonly registry: RichCardRegistry) {}
+  constructor(
+    private readonly registry: RichCardRegistry,
+    private readonly i18n: I18nService,
+  ) {}
 
   onModuleInit() {
     this.registry.registerRenderer('office_room', (deps, viewerId, refId) =>
@@ -48,9 +52,12 @@ export class OfficeRichCardsProvider implements OnModuleInit {
       if (!isTeam) return null;
     }
 
-    let status = 'Встреча';
+    // Ни одной строки для человека в файле: карточку видят коллеги с разными
+    // языками, поэтому статус собирается ПРИ ЧТЕНИИ в языке зрителя.
+    const t = this.i18n.t;
+    let status = t('office.card.meeting');
     if (room.status === 'ended') {
-      status = 'Завершена';
+      status = t('office.card.ended');
     } else {
       const session = await deps.db.callSession.findFirst({
         where: { refType: OFFICE_CALL_REF_TYPE, refId, status: 'active' },
@@ -60,7 +67,7 @@ export class OfficeRichCardsProvider implements OnModuleInit {
         const count = await deps.db.callSessionParticipant.count({
           where: { sessionId: session.id, leftAt: null },
         });
-        status = `Идёт сейчас · ${count}`;
+        status = t('office.card.live', { n: count });
       }
     }
 

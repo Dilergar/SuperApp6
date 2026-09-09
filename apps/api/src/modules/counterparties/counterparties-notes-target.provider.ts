@@ -1,5 +1,6 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { listCounterpartiesSchema } from '@superapp/shared';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { DatabaseService } from '../../shared/database/database.service';
 import { NoteTargetRegistry } from '../notes/notes-targets.registry';
 import { CounterpartiesService } from './counterparties.service';
@@ -11,6 +12,7 @@ export class CounterpartiesNotesTargetProvider implements OnModuleInit {
     private readonly registry: NoteTargetRegistry,
     private readonly db: DatabaseService,
     private readonly counterparties: CounterpartiesService,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -27,7 +29,7 @@ export class CounterpartiesNotesTargetProvider implements OnModuleInit {
           targetType: 'counterparty' as const,
           id: c.id,
           title: c.name,
-          subtitle: c.bin ? `БИН/ИИН ${c.bin}` : c.legalName ?? null,
+          subtitle: c.bin ? `${this.i18n.translate('counterparties.idLabel.either')} ${c.bin}` : c.legalName ?? null,
         }));
       },
     });

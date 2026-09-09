@@ -1,14 +1,5 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Inject,
-  Injectable,
-  Logger,
-  NotFoundException,
-  OnModuleInit,
-  PayloadTooLargeException,
-} from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ApiError, badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
 import * as fs from 'fs';
 import * as nodePath from 'path';
 import { Prisma } from '@prisma/client';
@@ -91,7 +82,7 @@ export class FilesService implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
-    this.logger.log(`Files engine: драйвер "${this.driver.name}"`);
+    this.logger.log(`Files engine: driver "${this.driver.name}"`);
   }
 
   // ============================================================
@@ -104,32 +95,27 @@ export class FilesService implements OnModuleInit {
     // квоту и не подлежат уборке: иначе любой клиент, подставив profile в тело
     // запроса, получил бы бесконечное вечное хранилище.
     if (isEvidenceProfile(dto.profile)) {
-      throw new BadRequestException('Этот профиль загрузки служебный');
+      throw badRequest('files.serviceProfile');
     }
     const spec = this.profileSpec(dto.profile);
 
     const ext = fileExtension(dto.name);
     if (ext && EXEC_EXT_BLACKLIST.includes(ext)) {
-      throw new BadRequestException('Исполняемые файлы запрещены');
+      throw badRequest('files.executablesForbidden');
     }
     const mime = dto.mime.toLowerCase();
     if (spec.allowedMime && !spec.allowedMime.includes(mime)) {
-      throw new BadRequestException('Такой тип файла не разрешён для этого профиля');
+      throw badRequest('files.typeNotAllowed');
     }
     if (dto.size > spec.maxSize) {
-      throw new BadRequestException(
-        `Файл слишком большой: лимит профиля ${Math.floor(spec.maxSize / (1024 * 1024))} МБ`,
-      );
+      throw badRequest('files.tooLarge', { mb: Math.floor(spec.maxSize / (1024 * 1024)) });
     }
     // Драйвер без multipart (local) физически умеет принять байты только одним запросом,
     // поэтому щедрый профиль (Диск — 2 ГБ) на нём упирается в потолок такого запроса.
     // Без этой проверки init выдал бы transport:'api', а multer оборвал бы загрузку
     // молча на 200 МБ — «загрузилось и пропало».
     if (!this.driver.supportsMultipart && dto.size > FILE_LIMITS.apiSingleRequestMax) {
-      throw new BadRequestException(
-        `Файл больше ${Math.floor(FILE_LIMITS.apiSingleRequestMax / (1024 * 1024))} МБ: ` +
-          'это хранилище принимает такие файлы только частями (нужен S3-совместимый драйвер)',
-      );
+      throw badRequest('files.partsOnly', { mb: Math.floor(FILE_LIMITS.apiSingleRequestMax / (1024 * 1024)) });
     }
 
     // Владелец: по умолчанию сам пользователь; организация — по членству (не Подрядчик)
@@ -137,7 +123,7 @@ export class FilesService implements OnModuleInit {
     let ownerId = userId;
     if (dto.ownerWorkspaceId) {
       if (!(await this.isWorkspaceMember(userId, dto.ownerWorkspaceId))) {
-        throw new ForbiddenException('Вы не состоите в этой организации');
+        throw forbidden('files.notInWorkspace');
       }
       ownerType = 'workspace';
       ownerId = dto.ownerWorkspaceId;
@@ -191,22 +177,22 @@ export class FilesService implements OnModuleInit {
     let tmpConsumed = false;
     try {
       const row = await this.db.fileObject.findUnique({ where: { id: fileId } });
-      if (!row || row.status === 'deleted') throw new NotFoundException('Файл не найден');
-      if (row.uploaderId !== userId) throw new ForbiddenException('Загрузку завершает только её автор');
-      if (row.status !== 'uploading') throw new ConflictException('Файл уже завершён');
-      if (row.uploadId) throw new BadRequestException('Этот файл ждёт multipart-загрузку по частям');
+      if (!row || row.status === 'deleted') throw notFound('files.notFound');
+      if (row.uploaderId !== userId) throw forbidden('files.uploaderOnlyComplete');
+      if (row.status !== 'uploading') throw conflict('files.alreadyComplete');
+      if (row.uploadId) throw badRequest('files.awaitsMultipart');
 
       const spec = this.profileSpec(row.profile);
       if (tmp.size > spec.maxSize) {
-        await this.markFailed(fileId, 'превышен лимит размера');
-        throw new PayloadTooLargeException('Файл больше лимита профиля');
+        await this.markFailed(fileId, 'the size limit was exceeded');
+        throw new ApiError(HttpStatus.PAYLOAD_TOO_LARGE, { code: 'files.tooLargeForProfile' });
       }
 
       const detected = await fileTypeFromFile(tmp.path).catch(() => undefined);
       const sniffError = this.validateMagicBytes(row.mime, detected?.mime);
       if (sniffError) {
         await this.markFailed(fileId, sniffError);
-        throw new BadRequestException(sniffError);
+        throw badRequest(sniffError);
       }
 
       const sha256 = await this.sha256File(tmp.path);
@@ -226,10 +212,10 @@ export class FilesService implements OnModuleInit {
   /** Транспорт "multipart": presigned-ссылки на части (только s3-драйвер) */
   async createParts(userId: string, fileId: string, partNumbers: number[]): Promise<FilePartUrl[]> {
     const row = await this.db.fileObject.findUnique({ where: { id: fileId } });
-    if (!row || row.status === 'deleted') throw new NotFoundException('Файл не найден');
-    if (row.uploaderId !== userId) throw new ForbiddenException('Загрузку продолжает только её автор');
+    if (!row || row.status === 'deleted') throw notFound('files.notFound');
+    if (row.uploaderId !== userId) throw forbidden('files.uploaderOnlyContinue');
     if (row.status !== 'uploading' || !row.uploadId) {
-      throw new BadRequestException('Файл не в режиме multipart-загрузки');
+      throw badRequest('files.notMultipart');
     }
     return Promise.all(
       partNumbers.map(async (partNumber) => ({
@@ -241,10 +227,10 @@ export class FilesService implements OnModuleInit {
 
   async complete(userId: string, fileId: string, dto: CompleteFileInput): Promise<FileDto> {
     const row = await this.db.fileObject.findUnique({ where: { id: fileId } });
-    if (!row || row.status === 'deleted') throw new NotFoundException('Файл не найден');
-    if (row.uploaderId !== userId) throw new ForbiddenException('Загрузку завершает только её автор');
-    if (row.status === 'ready') throw new ConflictException('Файл уже завершён');
-    if (row.status !== 'uploading') throw new ConflictException('Загрузка не активна');
+    if (!row || row.status === 'deleted') throw notFound('files.notFound');
+    if (row.uploaderId !== userId) throw forbidden('files.uploaderOnlyComplete');
+    if (row.status === 'ready') throw conflict('files.alreadyComplete');
+    if (row.status !== 'uploading') throw conflict('files.uploadNotActive');
 
     const spec = this.profileSpec(row.profile);
     let finalSize: bigint;
@@ -252,14 +238,14 @@ export class FilesService implements OnModuleInit {
 
     if (row.uploadId) {
       // multipart: собрать объект, проверить размер и сигнатуру
-      if (!dto.parts?.length) throw new BadRequestException('Не переданы части multipart-загрузки');
+      if (!dto.parts?.length) throw badRequest('files.noParts');
       await this.driver.completeMultipart(row.storageKey, row.uploadId, dto.parts);
       const size = await this.driver.size(row.storageKey);
-      if (size == null) throw new BadRequestException('Хранилище не подтвердило объект');
+      if (size == null) throw badRequest('files.storageNoConfirm');
       if (size > spec.maxSize) {
         await this.driver.delete(row.storageKey).catch(() => undefined);
-        await this.markFailed(fileId, 'превышен лимит размера');
-        throw new PayloadTooLargeException('Файл больше лимита профиля');
+        await this.markFailed(fileId, 'the size limit was exceeded');
+        throw new ApiError(HttpStatus.PAYLOAD_TOO_LARGE, { code: 'files.tooLargeForProfile' });
       }
       finalSize = BigInt(size);
       const head = await this.readHead(row.storageKey, 4100);
@@ -268,35 +254,35 @@ export class FilesService implements OnModuleInit {
       if (sniffError) {
         await this.driver.delete(row.storageKey).catch(() => undefined);
         await this.markFailed(fileId, sniffError);
-        throw new BadRequestException(sniffError);
+        throw badRequest(sniffError);
       }
       // sha256 всего объекта для multipart не считаем в запросе (v1); клиент мог прислать свой
       sha256 = dto.sha256 ?? sha256;
     } else {
       // api: байты должен был принести putContent (sha256 проставлен там)
-      if (!row.sha256) throw new BadRequestException('Байты файла ещё не загружены');
+      if (!row.sha256) throw badRequest('files.bytesMissing');
       if (dto.sha256 && dto.sha256.toLowerCase() !== row.sha256.toLowerCase()) {
-        throw new BadRequestException('Контрольная сумма не совпала — файл повреждён при передаче');
+        throw badRequest('files.checksumMismatch');
       }
       const size = await this.driver.size(row.storageKey);
-      if (size == null) throw new BadRequestException('Объект не найден в хранилище');
+      if (size == null) throw badRequest('files.objectMissing');
       finalSize = BigInt(size);
     }
 
     // Пустой объект «ready» неотдаваем (range 0>=0 → 416) и бессмыслен — режем здесь.
     if (finalSize <= BigInt(0)) {
       await this.driver.delete(row.storageKey).catch(() => undefined);
-      await this.markFailed(fileId, 'пустой файл');
-      throw new BadRequestException('Файл пустой');
+      await this.markFailed(fileId, 'the file is empty');
+      throw badRequest('files.empty');
     }
     // Квота проверяется по ФАКТИЧЕСКОМУ размеру: init считал заявленный (клиент мог
     // соврать size=1 и залить 200 МБ). Байты ещё НЕ в fileQuotaUsage — учёт ниже в tx.
     if (await this.overQuota(row.ownerType as FileOwnerType, row.ownerId, Number(finalSize))) {
       await this.driver.delete(row.storageKey).catch(() => undefined);
-      await this.markFailed(fileId, 'превышена квота хранилища');
-      throw new BadRequestException(
-        `Недостаточно места в хранилище (лимит ${(FILE_QUOTAS[row.ownerType as FileOwnerType] / (1024 * 1024 * 1024)).toFixed(0)} ГБ)`,
-      );
+      await this.markFailed(fileId, 'the storage quota was exceeded');
+      throw badRequest('files.quotaExceeded', {
+        gb: (FILE_QUOTAS[row.ownerType as FileOwnerType] / (1024 * 1024 * 1024)).toFixed(0),
+      });
     }
 
     const needsPipeline = spec.makeVariants && ['image', 'video', 'audio'].includes(row.kind);
@@ -327,7 +313,7 @@ export class FilesService implements OnModuleInit {
       await this.scanHook.enqueue(tx, fileId);
       return true;
     });
-    if (!claimed) throw new ConflictException('Файл уже завершён');
+    if (!claimed) throw conflict('files.alreadyComplete');
 
     const fresh = await this.getRowWithVariants(fileId);
     const payload = this.eventPayload(fresh.row);
@@ -338,17 +324,17 @@ export class FilesService implements OnModuleInit {
 
   async abort(userId: string, fileId: string): Promise<void> {
     const row = await this.db.fileObject.findUnique({ where: { id: fileId } });
-    if (!row || row.status === 'deleted') throw new NotFoundException('Файл не найден');
-    if (row.uploaderId !== userId) throw new ForbiddenException('Загрузку отменяет только её автор');
-    if (row.status !== 'uploading') throw new ConflictException('Загрузка уже завершена');
+    if (!row || row.status === 'deleted') throw notFound('files.notFound');
+    if (row.uploaderId !== userId) throw forbidden('files.uploaderOnlyCancel');
+    if (row.status !== 'uploading') throw conflict('files.uploadAlreadyDone');
 
     // Клеймим статус ПЕРЕД удалением байтов: иначе конкурентный complete() успеет
     // объявить файл ready, а abort уже снёс его байты (TOCTOU → «ready» без объекта).
     const claimed = await this.db.fileObject.updateMany({
       where: { id: fileId, status: 'uploading' },
-      data: { status: 'failed', error: 'отменена пользователем', uploadId: null },
+      data: { status: 'failed', error: 'cancelled by the user', uploadId: null },
     });
-    if (claimed.count !== 1) throw new ConflictException('Загрузка уже завершена');
+    if (claimed.count !== 1) throw conflict('files.uploadAlreadyDone');
     if (row.uploadId) await this.driver.abortMultipart(row.storageKey, row.uploadId);
     await this.driver.delete(row.storageKey).catch(() => undefined);
   }
@@ -379,23 +365,24 @@ export class FilesService implements OnModuleInit {
   }): Promise<FileDto> {
     const ownerType: FileOwnerType = opts.ownerType ?? 'user';
     const ownerId = ownerType === 'user' ? (opts.ownerId ?? opts.ownerUserId) : opts.ownerId ?? '';
-    if (!ownerId) throw new BadRequestException('Не указан владелец файла');
+    if (!ownerId) throw badRequest('files.ownerMissing');
     const spec = this.profileSpec(opts.profile);
     const ext = fileExtension(opts.name);
     if (ext && EXEC_EXT_BLACKLIST.includes(ext)) {
-      throw new BadRequestException('Исполняемые файлы запрещены');
+      throw badRequest('files.executablesForbidden');
     }
     const mime = opts.mime.toLowerCase();
     if (spec.allowedMime && !spec.allowedMime.includes(mime)) {
-      throw new BadRequestException('Такой тип файла не разрешён для этого профиля');
+      throw badRequest('files.typeNotAllowed');
     }
 
     const stat = await fs.promises.stat(opts.path);
-    if (stat.size <= 0) throw new BadRequestException('Файл пустой');
+    if (stat.size <= 0) throw badRequest('files.empty');
     if (stat.size > spec.maxSize) {
-      throw new PayloadTooLargeException(
-        `Файл слишком большой: лимит профиля ${Math.floor(spec.maxSize / (1024 * 1024))} МБ`,
-      );
+      throw new ApiError(HttpStatus.PAYLOAD_TOO_LARGE, {
+        code: 'files.tooLarge',
+        params: { mb: Math.floor(spec.maxSize / (1024 * 1024)) },
+      });
     }
     // Доказательства подписания места «не занимают»: человек их не выбирал и удалить
     // не может, а срок хранения у них — срок хранения документа. Списать это на его
@@ -406,7 +393,7 @@ export class FilesService implements OnModuleInit {
 
     const detected = await fileTypeFromFile(opts.path).catch(() => undefined);
     const sniffError = this.validateMagicBytes(mime, detected?.mime);
-    if (sniffError) throw new BadRequestException(sniffError);
+    if (sniffError) throw badRequest(sniffError);
     const sha256 = await this.sha256File(opts.path);
 
     // putFromFile ПОТРЕБЛЯЕТ вход (rename) — работаем с копией, исходник не трогаем
@@ -495,20 +482,21 @@ export class FilesService implements OnModuleInit {
     profile?: string;
   }): Promise<FileDto> {
     const src = await this.db.fileObject.findUnique({ where: { id: opts.fileId } });
-    if (!src || src.status !== 'ready') throw new NotFoundException('Файл не найден');
-    if (src.scanStatus === 'infected') throw new ForbiddenException('Файл заражён');
+    if (!src || src.status !== 'ready') throw notFound('files.notFound');
+    if (src.scanStatus === 'infected') throw forbidden('files.infected');
 
     const ownerType: FileOwnerType = opts.ownerType ?? 'user';
     const ownerId = ownerType === 'user' ? (opts.ownerId ?? opts.actorId) : (opts.ownerId ?? '');
-    if (!ownerId) throw new BadRequestException('Не указан владелец копии');
+    if (!ownerId) throw badRequest('files.copyOwnerMissing');
 
     const profile = opts.profile ?? src.profile;
     const spec = this.profileSpec(profile);
     const size = Number(src.size);
     if (size > spec.maxSize) {
-      throw new PayloadTooLargeException(
-        `Файл слишком большой: лимит профиля ${Math.floor(spec.maxSize / (1024 * 1024))} МБ`,
-      );
+      throw new ApiError(HttpStatus.PAYLOAD_TOO_LARGE, {
+        code: 'files.tooLarge',
+        params: { mb: Math.floor(spec.maxSize / (1024 * 1024)) },
+      });
     }
     await this.assertQuota(ownerType, ownerId, size);
 
@@ -596,27 +584,28 @@ export class FilesService implements OnModuleInit {
     let consumed = false;
     try {
       const row = await this.db.fileObject.findUnique({ where: { id: opts.fileId } });
-      if (!row || row.status !== 'ready') throw new NotFoundException('Файл не найден или не готов');
+      if (!row || row.status !== 'ready') throw notFound('files.notFoundOrNotReady');
       // Публичные раздаются вечной ссылкой с Cache-Control: immutable — заменённые байты
       // жили бы в кэшах браузеров и CDN сколь угодно долго. Документом может стать
       // только приватный файл.
-      if (row.visibility !== 'private') throw new BadRequestException('Публичный файл нельзя редактировать');
-      if (row.scanStatus === 'infected') throw new ForbiddenException('Файл помечен как заражённый');
+      if (row.visibility !== 'private') throw badRequest('files.publicNotEditable');
+      if (row.scanStatus === 'infected') throw forbidden('files.markedInfected');
 
       const spec = this.profileSpec(row.profile);
       const stat = await fs.promises.stat(opts.sourcePath);
-      if (stat.size <= 0) throw new BadRequestException('Пустое содержимое');
+      if (stat.size <= 0) throw badRequest('files.emptyContent');
       if (stat.size > spec.maxSize) {
-        throw new PayloadTooLargeException(
-          `Файл слишком большой: лимит профиля ${Math.floor(spec.maxSize / (1024 * 1024))} МБ`,
-        );
+        throw new ApiError(HttpStatus.PAYLOAD_TOO_LARGE, {
+          code: 'files.tooLarge',
+          params: { mb: Math.floor(spec.maxSize / (1024 * 1024)) },
+        });
       }
 
       // Формат не меняется: тот же MIME и та же сигнатура (редактор сохраняет документ
       // в родном формате). Сюда же упрётся попытка подсунуть под видом правки чужой тип.
       const detected = await fileTypeFromFile(opts.sourcePath).catch(() => undefined);
       const sniffError = this.validateMagicBytes(row.mime, detected?.mime);
-      if (sniffError) throw new BadRequestException(sniffError);
+      if (sniffError) throw badRequest(sniffError);
 
       const sha256 = await this.sha256File(opts.sourcePath);
       const delta = stat.size - Number(row.size);
@@ -675,7 +664,7 @@ export class FilesService implements OnModuleInit {
       }
       if (!swapped) {
         await this.driver.delete(newKey).catch(() => undefined);
-        throw new ConflictException('Файл изменён параллельно — повторите сохранение');
+        throw conflict('files.changedConcurrently');
       }
 
       // После коммита прибираем старые байты и протухшие производные. Best-effort:
@@ -721,7 +710,7 @@ export class FilesService implements OnModuleInit {
     });
     if (!row || row.status !== 'ready') {
       await fs.promises.unlink(opts.sourcePath).catch(() => undefined);
-      throw new NotFoundException('Файл не найден или не готов');
+      throw notFound('files.notFoundOrNotReady');
     }
     const stat = await fs.promises.stat(opts.sourcePath);
     const dir = nodePath.posix.dirname(row.storageKey.split(nodePath.sep).join('/'));
@@ -758,15 +747,15 @@ export class FilesService implements OnModuleInit {
 
   async getMeta(viewerId: string, fileId: string): Promise<FileDto> {
     const { row, variants } = await this.getRowWithVariants(fileId);
-    if (row.status === 'deleted') throw new NotFoundException('Файл не найден');
+    if (row.status === 'deleted') throw notFound('files.notFound');
     await this.assertCanView(viewerId, row);
     return this.serializeFile(row, variants);
   }
 
   async getDownloadUrl(viewerId: string, fileId: string, variantKind?: string): Promise<FileDownloadUrl> {
     const { row, variants } = await this.getRowWithVariants(fileId);
-    if (row.status !== 'ready') throw new NotFoundException('Файл не найден или ещё не готов');
-    if (row.scanStatus === 'infected') throw new ForbiddenException('Файл помечен как заражённый');
+    if (row.status !== 'ready') throw notFound('files.notReadyYet');
+    if (row.scanStatus === 'infected') throw forbidden('files.markedInfected');
     await this.assertCanView(viewerId, row);
 
     const { key, mime, name } = this.targetForVariant(row, this.pickVariant(variants, variantKind));
@@ -797,8 +786,8 @@ export class FilesService implements OnModuleInit {
    */
   async buildSystemDownloadUrl(fileId: string, variantKind?: string): Promise<FileDownloadUrl> {
     const { row, variants } = await this.getRowWithVariants(fileId);
-    if (row.status !== 'ready') throw new NotFoundException('Файл не найден или ещё не готов');
-    if (row.scanStatus === 'infected') throw new ForbiddenException('Файл помечен как заражённый');
+    if (row.status !== 'ready') throw notFound('files.notReadyYet');
+    if (row.scanStatus === 'infected') throw forbidden('files.markedInfected');
 
     const { key, mime, name } = this.targetForVariant(row, this.pickVariant(variants, variantKind));
     const presigned = await this.driver.presignedGet(key, FILE_LIMITS.urlTtlSec, {
@@ -818,8 +807,8 @@ export class FilesService implements OnModuleInit {
     range?: { start: number; end?: number },
   ): Promise<{ result: StorageStreamResult; mime: string; name: string }> {
     const { row, variants } = await this.getRowWithVariants(fileId);
-    if (row.status !== 'ready') throw new NotFoundException('Файл не найден');
-    if (row.scanStatus === 'infected') throw new ForbiddenException('Файл помечен как заражённый');
+    if (row.status !== 'ready') throw notFound('files.notFound');
+    if (row.scanStatus === 'infected') throw forbidden('files.markedInfected');
 
     const { key, mime, name } = this.targetForVariant(row, this.pickVariant(variants, variantKind));
     const result = await this.driver.getStream(key, range);
@@ -836,14 +825,14 @@ export class FilesService implements OnModuleInit {
   > {
     const row = await this.db.fileObject.findUnique({ where: { publicToken: token } });
     if (!row || row.status !== 'ready' || row.visibility !== 'public') {
-      throw new NotFoundException('Файл не найден');
+      throw notFound('files.notFound');
     }
-    if (row.scanStatus === 'infected') throw new ForbiddenException('Файл помечен как заражённый');
+    if (row.scanStatus === 'infected') throw forbidden('files.markedInfected');
 
     const variant = variantKind
       ? await this.db.fileVariant.findUnique({ where: { fileId_kind: { fileId: row.id, kind: variantKind } } })
       : null;
-    if (variantKind && !variant) throw new NotFoundException('Вариант файла не найден');
+    if (variantKind && !variant) throw notFound('files.variantNotFound');
     const { key, mime, name } = this.targetForVariant(row, variant);
 
     // Драйвер сам решает, умеет ли отдавать байты напрямую (публичный CDN-URL /
@@ -907,14 +896,14 @@ export class FilesService implements OnModuleInit {
     opts: { system?: boolean } = {},
   ): Promise<void> {
     const row = await this.db.fileObject.findUnique({ where: { id: fileId } });
-    if (!row || row.status !== 'ready') throw new NotFoundException('Файл не найден');
+    if (!row || row.status !== 'ready') throw notFound('files.notFound');
     const owns = row.uploaderId === actorId || (row.ownerType === 'user' && row.ownerId === actorId);
-    if (!opts.system && !owns) throw new ForbiddenException('Привязать можно только свой файл');
+    if (!opts.system && !owns) throw forbidden('files.ownFileOnly');
     const resolver = this.registry.get(refType);
-    if (!resolver) throw new BadRequestException(`Неизвестный тип привязки: ${refType}`);
+    if (!resolver) throw badRequest('files.unknownRefType', { refType });
     this.assertProfileAllowed(refType, [row.profile]);
     if (!(await resolver.canAttach(actorId, refId))) {
-      throw new ForbiddenException('Нет прав прикреплять файлы к этой сущности');
+      throw forbidden('files.noAttachRight');
     }
     let created = true;
     await this.db.fileLink
@@ -933,7 +922,7 @@ export class FilesService implements OnModuleInit {
     const allowed = this.registry.options(refType)?.allowedProfiles;
     if (!allowed) return;
     const bad = profiles.find((p) => !allowed.includes(p));
-    if (bad) throw new BadRequestException(`Файл профиля «${bad}» нельзя прикрепить сюда`);
+    if (bad) throw badRequest('files.profileNotAllowedHere', { profile: bad });
   }
 
   /**
@@ -956,7 +945,7 @@ export class FilesService implements OnModuleInit {
       select: { id: true, profile: true },
     });
     if (rows.length !== new Set(fileIds).size) {
-      throw new BadRequestException('Не все файлы готовы или принадлежат вам');
+      throw badRequest('files.notAllReady');
     }
     this.assertProfileAllowed(refType, rows.map((r) => r.profile));
     await tx.fileLink.createMany({
@@ -986,7 +975,7 @@ export class FilesService implements OnModuleInit {
       where: { id: opts.fileId },
       select: { status: true, profile: true },
     });
-    if (!file || file.status !== 'ready') throw new NotFoundException('Файл не найден или не готов');
+    if (!file || file.status !== 'ready') throw notFound('files.notFoundOrNotReady');
     this.assertProfileAllowed(opts.refType, [file.profile]);
     await tx.fileLink.createMany({
       data: [
@@ -1110,7 +1099,7 @@ export class FilesService implements OnModuleInit {
       include: { variants: true },
     });
     if (rows.length !== unique.length) {
-      throw new BadRequestException('Не все файлы готовы или принадлежат вам');
+      throw badRequest('files.notAllReady');
     }
     const byId = new Map(
       rows.map((r) => {
@@ -1164,7 +1153,7 @@ export class FilesService implements OnModuleInit {
       (row && row.uploaderId === actorId) ||
       (row && row.ownerType === 'user' && row.ownerId === actorId) ||
       (resolver ? await resolver.canAttach(actorId, refId) : false);
-    if (!allowed) throw new ForbiddenException('Нет прав отвязать файл');
+    if (!allowed) throw forbidden('files.noUnlinkRight');
     const deleted = await this.db.fileLink.deleteMany({ where: { id: link.id } });
     return deleted.count > 0;
   }
@@ -1224,7 +1213,7 @@ export class FilesService implements OnModuleInit {
         // Не смогли — файл просто остаётся жить: лучше лишние байты, чем снесённый
         // документ, чью сущность не удалось привести в согласованное состояние.
         this.logger.warn(
-          `onOrphaned ${anchor.refType}:${anchor.refId} упал: ${err instanceof Error ? err.message : err}`,
+          `onOrphaned ${anchor.refType}:${anchor.refId} failed: ${err instanceof Error ? err.message : err}`,
         );
       }
     }
@@ -1238,14 +1227,14 @@ export class FilesService implements OnModuleInit {
 
   async softDelete(userId: string, fileId: string): Promise<void> {
     const row = await this.db.fileObject.findUnique({ where: { id: fileId } });
-    if (!row || row.status === 'deleted') throw new NotFoundException('Файл не найден');
+    if (!row || row.status === 'deleted') throw notFound('files.notFound');
     // Доказательства подписания (core/sign) не удаляет НИКТО — в том числе тот, кто
     // их «загрузил». Загрузившим движок записывает самого подписанта, то есть ровно
     // того, у кого есть мотив отказаться от своей подписи; без этой стены он сносил
     // бы контейнер CMS и замороженную копию обычной ручкой, а крон ретеншна через
     // неделю стирал бы и байты — доказывать подпись стало бы нечем.
     if (isEvidenceProfile(row.profile)) {
-      throw new ForbiddenException('Доказательства подписания удалить нельзя — они хранятся вместе с документом');
+      throw forbidden('files.signProofUndeletable');
     }
     // Производные файлы под управлением сервиса (штампованная копия подписи):
     // системная уборка их трогает, руками — нельзя. Загрузившим у штампа числится
@@ -1253,20 +1242,19 @@ export class FilesService implements OnModuleInit {
     // который смотрят `SignRequest.stampedFileId`, узел реестра на Диске и кнопка
     // «Скачать документ со штампами» у контрагента.
     if (isSystemManagedProfile(row.profile)) {
-      throw new ForbiddenException('Этот файл создан системой и удаляется вместе с документом');
+      throw forbidden('files.systemFile');
     }
     // КЭДО: место вправе ЗАПРЕТИТЬ удаление (подписанный кадровый документ, личный
     // архив сотрудника) — спрашиваем предикат у каждой привязки, а не полагаемся
     // на то, что «до такого файла руками не доберутся».
     if (await this.deletionBlocked(fileId)) {
-      throw new ForbiddenException({
-        message: 'Подписанный кадровый документ не удаляется — он хранится вместе с личным делом',
-        details: { code: HR_ERROR_CODES.signedDocProtected },
-      });
+      // Ключ каталога + СВОЙ машинный код КЭДО: фразу подберёт фильтр в языке
+      // запроса, а `details.code` остаётся тем, по которому ветвятся клиенты.
+      throw forbidden('files.hrSigned', undefined, { code: HR_ERROR_CODES.signedDocProtected });
     }
     const isOwner =
       row.uploaderId === userId || (row.ownerType === 'user' && row.ownerId === userId);
-    if (!isOwner) throw new ForbiddenException('Удалить файл может владелец или загрузивший');
+    if (!isOwner) throw forbidden('files.deleteByOwner');
     await this.doSoftDelete(row);
   }
 
@@ -1325,7 +1313,7 @@ export class FilesService implements OnModuleInit {
         where: { id: row.id, status: prevStatus },
         data: { status: 'deleted', deletedAt: new Date(), uploadId: null },
       });
-      if (res.count !== 1) throw new ConflictException('Файл уже изменён — повторите');
+      if (res.count !== 1) throw conflict('files.alreadyChanged');
       // Симметрия с ingestLocalFile: доказательства подписания квоту не занимали,
       // значит и списывать при удалении нечего — иначе владелец «худеет» на байты,
       // которые ему никогда не начисляли, и учёт врёт до ночной сверки.
@@ -1370,20 +1358,20 @@ export class FilesService implements OnModuleInit {
   /**
    * Прибрать «ready»-файлы без единой привязки старше грейса (safety net уборки сирот:
    * забытые загрузки, окна краша между unlink и reap). Только ПРИВАТНЫЕ — публичные
-   * (аватар/лого/фото товара) живут ссылкой, не FileLink, и零-link для них норма.
+   * (аватар/лого/фото товара) живут ссылкой, не FileLink, и ноль привязок для них норма.
    * Возвращает число прибранных.
    */
   async sweepOrphanReady(graceMs: number): Promise<number> {
     const cutoff = new Date(Date.now() - graceMs);
+    // Доказательства подписания (core/sign) реап НЕ ТРОГАЕТ никогда: их срок хранения
+    // равен сроку хранения самого документа (приказ № 279-НК — до 75 лет), а привязка
+    // у них появляется отдельным шагом. «Час без привязки» не повод стирать то, что
+    // доказывает подпись, — отсюда фильтр по EVIDENCE_FILE_PROFILES ниже.
     const rows = await this.db.$queryRaw<{ id: string }[]>`
       SELECT fo."id" FROM "file_objects" fo
       WHERE fo."status" = 'ready'
         AND fo."visibility" = 'private'
         AND fo."created_at" < ${cutoff}
-        -- Доказательства подписания (core/sign) реап НЕ ТРОГАЕТ никогда: их срок
-        -- хранения равен сроку хранения самого документа (приказ № 279-НК — до 75
-        -- лет), а привязка у них появляется отдельным шагом. «Час без привязки» не
-        -- повод стирать то, что доказывает подпись.
         AND fo."profile" <> ALL(${EVIDENCE_FILE_PROFILES}::text[])
         AND NOT EXISTS (SELECT 1 FROM "file_links" fl WHERE fl."file_id" = fo."id")
       LIMIT 200`;
@@ -1436,7 +1424,7 @@ export class FilesService implements OnModuleInit {
 
   private async assertCanView(viewerId: string, row: FileRow): Promise<void> {
     if (await this.canView(viewerId, row)) return;
-    throw new ForbiddenException('Нет доступа к файлу');
+    throw forbidden('files.noAccess');
   }
 
   /**
@@ -1467,7 +1455,7 @@ export class FilesService implements OnModuleInit {
         ? await resolver.canEditContent(userId, refId)
         : await resolver.canAttach(userId, refId);
     } catch (err) {
-      this.logger.warn(`resolver ${refType}.canEditContent упал: ${err instanceof Error ? err.message : err}`);
+      this.logger.warn(`resolver ${refType}.canEditContent failed: ${err instanceof Error ? err.message : err}`);
       return false;
     }
   }
@@ -1517,7 +1505,7 @@ export class FilesService implements OnModuleInit {
       try {
         if (await resolver.canView(viewerId, link.refId)) return true;
       } catch (err) {
-        this.logger.warn(`resolver ${link.refType} упал: ${err instanceof Error ? err.message : err}`);
+        this.logger.warn(`resolver ${link.refType} failed: ${err instanceof Error ? err.message : err}`);
       }
     }
     return false;
@@ -1549,7 +1537,7 @@ export class FilesService implements OnModuleInit {
   private async assertQuota(ownerType: FileOwnerType, ownerId: string, addBytes: number): Promise<void> {
     if (await this.overQuota(ownerType, ownerId, addBytes)) {
       const limitGb = (FILE_QUOTAS[ownerType] / (1024 * 1024 * 1024)).toFixed(0);
-      throw new BadRequestException(`Недостаточно места в хранилище (лимит ${limitGb} ГБ)`);
+      throw badRequest('files.quotaExceeded', { gb: limitGb });
     }
   }
 
@@ -1576,33 +1564,33 @@ export class FilesService implements OnModuleInit {
     const declared = declaredMime.toLowerCase();
     const detected = detectedMime?.toLowerCase();
 
-    if (detected && EXEC_SNIFF_MIME.has(detected)) return 'Исполняемые файлы запрещены';
+    if (detected && EXEC_SNIFF_MIME.has(detected)) return 'files.executablesForbidden';
 
     const family = (m: string) => m.split('/')[0];
     if (family(declared) === 'image' || family(declared) === 'video') {
-      if (!detected) return 'Содержимое не похоже на заявленный тип файла';
-      if (family(detected) !== family(declared)) return 'Содержимое не соответствует заявленному типу';
+      if (!detected) return 'files.sniffNotDeclared';
+      if (family(detected) !== family(declared)) return 'files.sniffTypeMismatch';
       return null;
     }
     if (family(declared) === 'audio') {
-      if (!detected) return 'Содержимое не похоже на аудио';
+      if (!detected) return 'files.sniffNotAudio';
       if (family(detected) !== 'audio' && !AUDIO_CONTAINER_MIME.has(detected)) {
-        return 'Содержимое не соответствует заявленному аудио';
+        return 'files.sniffAudioMismatch';
       }
       return null;
     }
     if (declared === 'application/pdf') {
-      return detected === 'application/pdf' ? null : 'Содержимое не является PDF';
+      return detected === 'application/pdf' ? null : 'files.sniffNotPdf';
     }
     if (family(declared) === 'text') {
       // у настоящего текста нет бинарной сигнатуры
-      return detected ? 'Содержимое не соответствует заявленному текстовому типу' : null;
+      return detected ? 'files.sniffNotText' : null;
     }
     if (declared.startsWith('application/vnd.openxmlformats') || declared === 'application/msword'
       || declared === 'application/vnd.ms-excel' || declared === 'application/vnd.ms-powerpoint') {
       if (detected && detected !== declared && !OFFICE_SNIFF_OK.has(detected)
         && !detected.startsWith('application/vnd.openxmlformats')) {
-        return 'Содержимое не соответствует документу Office';
+        return 'files.sniffNotOffice';
       }
       return null;
     }
@@ -1635,7 +1623,7 @@ export class FilesService implements OnModuleInit {
       where: { id: fileId },
       include: { variants: true },
     });
-    if (!row) throw new NotFoundException('Файл не найден');
+    if (!row) throw notFound('files.notFound');
     const { variants, ...rest } = row;
     return { row: rest as FileRow, variants: variants as VariantRow[] };
   }
@@ -1670,7 +1658,7 @@ export class FilesService implements OnModuleInit {
   private pickVariant(variants: VariantRow[], variantKind?: string | null): VariantRow | null {
     if (!variantKind) return null;
     const v = variants.find((x) => x.kind === variantKind);
-    if (!v) throw new NotFoundException('Вариант файла не найден');
+    if (!v) throw notFound('files.variantNotFound');
     return v;
   }
 

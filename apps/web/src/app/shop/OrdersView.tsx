@@ -6,6 +6,7 @@
 // ============================================================
 
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { apiErrorMessage, apiGet, apiPost } from '@/lib/api';
 import { getOrderChat } from '@/lib/messenger-api';
@@ -14,11 +15,13 @@ import {
   BentoGrid, Button, Card, CardHeader, Chip, EmptyState, Icon, LoadingBlock,
 } from '@/components/ui';
 import { glyphToText, type Order } from '@superapp/shared';
-import { ORDER_STATUS_LABELS, ORDER_STATUS_TONE, fmtAmount, fmtPrices, progressLines } from './shop-lib';
+import { ORDER_STATUS_TONE, fmtAmount, fmtPrices, progressLines } from './shop-lib';
 
 type OrderAction = 'confirm' | 'reject' | 'cancel' | 'refund' | 'withdraw';
 
 export function OrdersView({ onError }: { onError: (m: string) => void }) {
+  const t = useTranslations('shop');
+  const common = useTranslations('common');
   const router = useRouter();
   const [incoming, setIncoming] = useState<Order[]>([]);
   const [mine, setMine] = useState<Order[]>([]);
@@ -87,9 +90,9 @@ export function OrdersView({ onError }: { onError: (m: string) => void }) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
           <Chip size="sm" tone={ORDER_STATUS_TONE[o.status] ?? 'neutral'}>
-            {ORDER_STATUS_LABELS[o.status] ?? o.status}
+            {t(`orderStatus.${o.status}`)}
           </Chip>
-          {kind === 'incoming' && o.crowdfunding && <Chip size="sm" tone="neutral">инициатор</Chip>}
+          {kind === 'incoming' && o.crowdfunding && <Chip size="sm" tone="neutral">{t('orders.initiator')}</Chip>}
         </div>
       </div>
 
@@ -105,26 +108,26 @@ export function OrdersView({ onError }: { onError: (m: string) => void }) {
       <span style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap', alignItems: 'center' }}>
         {kind === 'incoming' && o.status === 'pending' && (
           <>
-            <Button variant="primary" tone="success" size="sm" icon="check" onClick={() => act(o.id, 'confirm')}>Подтвердить</Button>
-            <Button variant="matte" tone="danger" size="sm" icon="close" onClick={() => act(o.id, 'reject')}>Отклонить</Button>
+            <Button variant="primary" tone="success" size="sm" icon="check" onClick={() => act(o.id, 'confirm')}>{t('action.confirm')}</Button>
+            <Button variant="matte" tone="danger" size="sm" icon="close" onClick={() => act(o.id, 'reject')}>{t('action.reject')}</Button>
           </>
         )}
         {kind === 'incoming' && o.crowdfunding && o.status === 'funding' && (
-          <Button variant="ghost" size="sm" tone="danger" icon="close" onClick={() => act(o.id, 'reject')}>Отменить сбор</Button>
+          <Button variant="ghost" size="sm" tone="danger" icon="close" onClick={() => act(o.id, 'reject')}>{t('orders.cancelCampaign')}</Button>
         )}
         {kind === 'incoming' && o.status === 'confirmed' && (
-          <Button variant="ghost" size="sm" tone="danger" icon="undo" onClick={() => act(o.id, 'refund')}>Вернуть</Button>
+          <Button variant="ghost" size="sm" tone="danger" icon="undo" onClick={() => act(o.id, 'refund')}>{t('action.refund')}</Button>
         )}
         {kind === 'mine' && o.crowdfunding && o.status === 'funding' && (
-          <Button variant="matte" tone="danger" size="sm" icon="undo" onClick={() => act(o.id, 'withdraw')}>Отозвать</Button>
+          <Button variant="matte" tone="danger" size="sm" icon="undo" onClick={() => act(o.id, 'withdraw')}>{t('orders.withdraw')}</Button>
         )}
         {kind === 'mine' && !o.crowdfunding && o.status === 'pending' && (
-          <Button variant="ghost" size="sm" icon="close" onClick={() => act(o.id, 'cancel')}>Отменить</Button>
+          <Button variant="ghost" size="sm" icon="close" onClick={() => act(o.id, 'cancel')}>{common('actions.cancel')}</Button>
         )}
         {kind === 'mine' && o.status === 'confirmed' && o.withTask && (
-          <Button variant="outline" size="sm" iconRight="caretRight" href="/tasks">Принять в Задачнике</Button>
+          <Button variant="outline" size="sm" iconRight="caretRight" href="/tasks">{t('orders.acceptInTasks')}</Button>
         )}
-        <Button variant="ghost" size="sm" icon="messenger" onClick={() => discuss(o.id)}>Обсудить</Button>
+        <Button variant="ghost" size="sm" icon="messenger" onClick={() => discuss(o.id)}>{t('orders.discuss')}</Button>
       </span>
     </div>
   );
@@ -135,11 +138,11 @@ export function OrdersView({ onError }: { onError: (m: string) => void }) {
     <BentoGrid>
       <Card span={12}>
         <CardHeader
-          title="Заказы на мои витрины"
-          subtitle="Подтверждение списывает коины из эскроу, отклонение — возвращает"
+          title={t('orders.incomingTitle')}
+          subtitle={t('orders.incomingSubtitle')}
         />
         {incoming.length === 0 ? (
-          <EmptyState icon="receipt" title="Пока нет заказов" description="Заказы на ваши товары появятся здесь." />
+          <EmptyState icon="receipt" title={t('orders.incomingEmpty')} description={t('orders.incomingEmptyHint')} />
         ) : (
           <div className="density-compact ui-stack" style={{ gap: '0.375rem' }}>
             {incoming.map((o) => row(o, 'incoming'))}
@@ -148,9 +151,9 @@ export function OrdersView({ onError }: { onError: (m: string) => void }) {
       </Card>
 
       <Card span={12}>
-        <CardHeader title="Мои покупки" subtitle="Пока продавец не подтвердил — коины заморожены, а не списаны" />
+        <CardHeader title={t('orders.mineTitle')} subtitle={t('orders.mineSubtitle')} />
         {mine.length === 0 ? (
-          <EmptyState icon="shop" title="Вы ещё ничего не покупали" description="Витрины друзей — на вкладке «Магазины»." />
+          <EmptyState icon="shop" title={t('orders.mineEmpty')} description={t('orders.mineEmptyHint')} />
         ) : (
           <div className="density-compact ui-stack" style={{ gap: '0.375rem' }}>
             {mine.map((o) => row(o, 'mine'))}

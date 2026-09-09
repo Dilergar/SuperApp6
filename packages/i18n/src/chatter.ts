@@ -1,4 +1,6 @@
 import type { Translator, TranslationValues } from './translator';
+import { resolveLabelKeys } from './label-keys';
+import { resolveIsoValues } from './iso-values';
 import { createFormatters, type Formatters } from './format';
 import type { Locale } from '@superapp/shared';
 
@@ -14,6 +16,9 @@ import type { Locale } from '@superapp/shared';
 // display-строками на момент записи и работают фолбэком для типов, чьи подписи
 // ещё не переехали в каталог. `changes[].raw` — сырые значения: если они есть,
 // дата и число форматируются профилем региона зрителя, а не тем, что запеклось.
+//
+// То же и для дат ВНУТРИ фразы: продюсер кладёт `<имя>Iso`, рендер подставляет
+// отформатированное значение под именем без суффикса (`resolveIsoValues`).
 // ============================================================
 
 export type ChatterRawKind = 'text' | 'date' | 'datetime' | 'number';
@@ -96,6 +101,13 @@ export function renderChatter(
   }
   vars.actorName = entry.actorName?.trim() || t('common.labels.someone');
 
+  // Подпись изменённого поля берётся из каталога по refType и полю — той же
+  // ступенью, что у `chatterFieldLabel`. Снимок `payload.fieldLabel` кладут
+  // только типы, чей словарь ещё не переехал: он сильнее и не перебивается.
+  if (vars.fieldLabel === undefined && first) {
+    vars.fieldLabel = chatterFieldLabel(t, entry.refType, first);
+  }
+
   // Условная презентация — В РЕНДЕРЕ, а не в payload: филиал показываем только
   // когда он есть, и формат можно менять без миграции вечных записей.
   if (vars.branchClause === undefined) {
@@ -112,5 +124,7 @@ export function renderChatter(
     if (typeof v === 'object') continue;
     values[k] = v as string | number | boolean;
   }
-  return t(key, values);
+  // Порядок: сначала машинные даты (`<имя>Iso` → «1 сентября 2026»), потом ключи
+  // каталога — подпись может опираться на уже развёрнутую дату, но не наоборот.
+  return t(key, resolveLabelKeys(t, resolveIsoValues(fmt, values)));
 }

@@ -10,6 +10,7 @@
 // ============================================================
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import type { FinAccountDto } from '@superapp/shared';
 import { apiDelete, apiErrorMessage, apiPatch, apiPost } from '@/lib/api';
 import {
@@ -39,6 +40,8 @@ export function CategoriesPanel({
   bookId: string | null;
   canEdit: boolean;
 }) {
+  const t = useTranslations('finance');
+  const common = useTranslations('common');
   const [kind, setKind] = useState<Kind>('expense');
   const [editor, setEditor] = useState<Editor | null>(null);
   const [removing, setRemoving] = useState<FinAccountDto | null>(null);
@@ -83,12 +86,12 @@ export function CategoriesPanel({
         }}
       >
         <SegmentedControl
-          aria-label="Вид категорий"
+          aria-label={t('categories.kindLabel')}
           value={kind}
           onChange={(k) => setKind(k)}
           items={[
-            { key: 'expense', label: 'Расходы', icon: 'trendDown' },
-            { key: 'income', label: 'Доходы', icon: 'trendUp' },
+            { key: 'expense', label: t('categories.expense'), icon: 'trendDown' },
+            { key: 'income', label: t('categories.income'), icon: 'trendUp' },
           ]}
         />
         {canEdit && (
@@ -99,7 +102,7 @@ export function CategoriesPanel({
             icon="add"
             onClick={() => setEditor({ mode: 'create', parentId: null })}
           >
-            Категория
+            {t('categories.addShort')}
           </Button>
         )}
       </div>
@@ -124,7 +127,7 @@ export function CategoriesPanel({
                     <span style={{ display: 'flex', gap: '0.125rem', flex: 'none' }}>
                       <IconButton
                         icon="edit"
-                        label={`Изменить «${root.name}»`}
+                        label={t('categories.editOf', { name: root.name })}
                         size={30}
                         onClick={() => setEditor({ mode: 'edit', category: root, hasChildren: kids.length > 0 })}
                       />
@@ -136,8 +139,8 @@ export function CategoriesPanel({
                         disabled={kids.length > 0}
                         label={
                           kids.length > 0
-                            ? `Сначала удалите подкатегории «${root.name}»`
-                            : `Удалить «${root.name}»`
+                            ? t('categories.deleteChildrenFirst', { name: root.name })
+                            : t('categories.deleteOf', { name: root.name })
                         }
                         onClick={() => setRemoving(root)}
                       />
@@ -152,10 +155,10 @@ export function CategoriesPanel({
                         key={child.id}
                         size="sm"
                         emoji={child.icon}
-                        title={canEdit ? `Изменить «${child.name}»` : undefined}
+                        title={canEdit ? t('categories.editOf', { name: child.name }) : undefined}
                         onClick={canEdit ? () => setEditor({ mode: 'edit', category: child, hasChildren: false }) : undefined}
                         onRemove={canEdit ? () => setRemoving(child) : undefined}
-                        removeLabel={`Удалить «${child.name}»`}
+                        removeLabel={t('categories.deleteOf', { name: child.name })}
                       >
                         {child.name}
                       </Chip>
@@ -165,10 +168,10 @@ export function CategoriesPanel({
                         size="sm"
                         tone="accent"
                         icon="add"
-                        title={`Добавить подкатегорию в «${root.name}»`}
+                        title={t('categories.addChildTo', { name: root.name })}
                         onClick={() => setEditor({ mode: 'create', parentId: root.id })}
                       >
-                        Подкатегория
+                        {t('categories.child')}
                       </Chip>
                     )}
                   </div>
@@ -182,12 +185,12 @@ export function CategoriesPanel({
           <Card span={12}>
             <EmptyState
               icon={fallbackIcon}
-              title={kind === 'expense' ? 'Категорий расходов нет' : 'Категорий доходов нет'}
-              description="Базовое дерево создаётся вместе с книгой — добавьте свои по ходу."
+              title={t(kind === 'expense' ? 'categories.emptyExpense' : 'categories.emptyIncome')}
+              description={t('categories.emptyDescription')}
               action={
                 canEdit ? (
                   <Button variant="primary" tone="success" icon="add" onClick={() => setEditor({ mode: 'create', parentId: null })}>
-                    Добавить категорию
+                    {t('categories.add')}
                   </Button>
                 ) : undefined
               }
@@ -214,9 +217,9 @@ export function CategoriesPanel({
         open={!!removing}
         onClose={() => setRemoving(null)}
         onConfirm={remove}
-        title={removing ? `Удалить «${removing.name}»?` : 'Удалить категорию?'}
-        message="Если по категории есть операции — она уйдёт в архив, история сохранится."
-        confirmLabel="Удалить"
+        title={removing ? t('categories.confirmDeleteOf', { name: removing.name }) : t('categories.confirmDelete')}
+        message={t('categories.confirmDeleteMessage')}
+        confirmLabel={common('actions.delete')}
         danger
         loading={busy}
       />
@@ -240,6 +243,8 @@ function CategoryModal({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const t = useTranslations('finance');
+  const common = useTranslations('common');
   const editing = editor.mode === 'edit' ? editor.category : null;
   const [name, setName] = useState(editing?.name ?? '');
   const [icon, setIcon] = useState(editing?.icon ?? '');
@@ -256,7 +261,7 @@ function CategoryModal({
 
   const submit = async () => {
     const trimmed = name.trim();
-    if (!trimmed || busy) { setError('Укажите название'); return; }
+    if (!trimmed || busy) { setError(t('categories.nameRequired')); return; }
     setBusy(true);
     setError(null);
     try {
@@ -289,21 +294,21 @@ function CategoryModal({
   };
 
   const title = editing
-    ? `Изменить «${editing.name}»`
+    ? t('categories.editOf', { name: editing.name })
     : parentName
-      ? 'Новая подкатегория'
-      : kind === 'expense' ? 'Новая категория расходов' : 'Новая категория доходов';
+      ? t('categories.newChild')
+      : t(kind === 'expense' ? 'categories.newExpense' : 'categories.newIncome');
 
   return (
     <Modal
       open
       onClose={onClose}
       title={title}
-      subtitle={!editing && parentName ? `Внутри «${parentName}»` : undefined}
+      subtitle={!editing && parentName ? t('categories.inside', { name: parentName }) : undefined}
       size="sm"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Отмена</Button>
+          <Button variant="ghost" onClick={onClose}>{common('actions.cancel')}</Button>
           <Button
             variant="primary"
             tone="success"
@@ -311,7 +316,7 @@ function CategoryModal({
             onClick={submit}
             loading={busy}
           >
-            {editing ? 'Сохранить' : 'Создать'}
+            {common(editing ? 'actions.save' : 'actions.create')}
           </Button>
         </>
       }
@@ -319,22 +324,28 @@ function CategoryModal({
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 'var(--spacing-3)', alignItems: 'start' }}>
-          <Input label="Название" placeholder="Продукты" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          <Input
+            label={common('labels.name')}
+            placeholder={t('categories.namePlaceholder')}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+          />
           {/* Подсказка выборщику — уже введённое название: «Питомцы» сразу
               показывает животных, искать заново не приходится. */}
           <GlyphField value={icon} onChange={(v) => setIcon(v ?? '')} suggest={name} />
         </div>
         <Select
-          label="Родитель"
+          label={t('categories.parent')}
           value={lockedParent ? '' : parentId}
           onChange={setParentId}
           disabled={lockedParent}
-          hint={lockedParent ? 'У категории есть подкатегории — перенести её нельзя' : undefined}
+          hint={lockedParent ? t('categories.parentLocked') : undefined}
           options={[
-            { value: '', label: 'Без родителя (корневая)', icon: 'folder' },
+            { value: '', label: t('categories.noParent'), icon: 'folder' },
             ...roots
               .filter((r) => r.id !== editing?.id)
-              .map((r) => ({ value: r.id, label: `Внутри «${r.name}»`, emoji: r.icon })),
+              .map((r) => ({ value: r.id, label: t('categories.inside', { name: r.name }), emoji: r.icon })),
           ]}
         />
       </div>

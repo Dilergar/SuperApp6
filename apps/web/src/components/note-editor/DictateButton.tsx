@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { NOTE_LIMITS, NOTE_STT_LANGUAGE_STORAGE_KEY, VOICE_LANGUAGES, VOICE_LANGUAGE_LABELS, type VoiceLanguage } from '@superapp/shared';
+import { useTranslations } from 'next-intl';
+import { NOTE_LIMITS, NOTE_STT_LANGUAGE_STORAGE_KEY, VOICE_LANGUAGES, VOICE_LANGUAGE_ENDONYMS, type VoiceLanguage } from '@superapp/shared';
 import { IconButton, Menu } from '@/components/ui';
 import { useVoiceRecorder } from '@/lib/hooks/useVoiceRecorder';
 import { voiceStatusKey } from '@/lib/queries';
@@ -18,6 +19,10 @@ import { toastError } from '@/lib/toast';
 // ============================================================
 
 export function DictateButton({ onText, compact }: { onText: (text: string) => void; compact?: boolean }) {
+  const t = useTranslations('notes');
+  const tc = useTranslations('common');
+  // Самоназвания языков не переводятся; «Авто» — режим, и слово ему даёт каталог.
+  const langName = (l: VoiceLanguage): string => (l === 'auto' ? tc('language.auto') : VOICE_LANGUAGE_ENDONYMS[l]);
   const status = useQuery({ queryKey: voiceStatusKey, queryFn: getVoiceStatus, staleTime: 10 * 60 * 1000 });
   const rec = useVoiceRecorder();
   const [busy, setBusy] = useState(false);
@@ -53,7 +58,7 @@ export function DictateButton({ onText, compact }: { onText: (text: string) => v
       const res = await sttSync(file, lang === 'auto' ? undefined : lang);
       const text = res.text.trim();
       if (text) onText(text);
-      else toastError('Речь не распознана — попробуйте ещё раз');
+      else toastError(t('dictate.failed'));
     } catch (e) {
       toastError(apiErrorMessage(e));
     } finally {
@@ -68,7 +73,7 @@ export function DictateButton({ onText, compact }: { onText: (text: string) => v
     }
     const ok = await rec.start();
     if (!ok) {
-      toastError(rec.state === 'denied' ? 'Нет доступа к микрофону' : 'Запись в этом браузере не поддерживается');
+      toastError(t(rec.state === 'denied' ? 'dictate.noMic' : 'dictate.unsupported'));
       return;
     }
     autoStop.current = setTimeout(() => void stopAndTranscribe(), NOTE_LIMITS.dictationMaxSeconds * 1000);
@@ -90,7 +95,7 @@ export function DictateButton({ onText, compact }: { onText: (text: string) => v
     <span className={`ne-dictate${recording ? ' ne-dictate--on' : ''}`}>
       <IconButton
         icon={recording ? 'stop' : 'mic'}
-        label={recording ? `Остановить запись (${mmss})` : busy ? 'Распознаём…' : 'Надиктовать текст'}
+        label={recording ? t('dictate.stop', { time: mmss }) : busy ? t('dictate.busy') : t('dictate.start')}
         size={30}
         iconSize={16}
         disabled={busy}
@@ -105,12 +110,12 @@ export function DictateButton({ onText, compact }: { onText: (text: string) => v
       )}
       {!compact && !recording && (
         <Menu
-          label="Язык диктовки"
+          label={t('dictate.language')}
           align="end"
-          items={VOICE_LANGUAGES.map((l) => ({ key: l, label: `${VOICE_LANGUAGE_LABELS[l]}${l === lang ? ' ✓' : ''}`, onClick: () => pickLang(l) }))}
+          items={VOICE_LANGUAGES.map((l) => ({ key: l, label: `${langName(l)}${l === lang ? ' ✓' : ''}`, onClick: () => pickLang(l) }))}
           trigger={({ ref, onClick, ...aria }) => (
-            <button ref={ref} type="button" onClick={onClick} {...aria} className="ne-dictate-lang label-sm" aria-label={`Язык диктовки: ${VOICE_LANGUAGE_LABELS[lang]}`}>
-              {lang === 'auto' ? 'Авто' : lang.toUpperCase()}
+            <button ref={ref} type="button" onClick={onClick} {...aria} className="ne-dictate-lang label-sm" aria-label={t('dictate.languageOf', { name: langName(lang) })}>
+              {lang === 'auto' ? tc('language.auto') : lang.toUpperCase()}
             </button>
           )}
         />

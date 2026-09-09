@@ -1,12 +1,11 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { Chip, Divider, Icon } from '@/components/ui';
-import { WORKSPACE_ROLES, type Workspace, type WorkspaceRole } from '@superapp/shared';
+import type { Workspace } from '@superapp/shared';
 
-// Единый источник лейблов ролей — shared (Стажёр/Подрядчик уже включены).
-const ROLE_LABELS: Record<string, string> = Object.fromEntries(
-  (Object.keys(WORKSPACE_ROLES) as WorkspaceRole[]).map((k) => [k, WORKSPACE_ROLES[k].name]),
-);
+// Имя ступени пропуска — из каталога (`common.role.workspace.<role>`): реестр
+// `WORKSPACE_ROLES` несёт права, а не слова.
 
 /** Логотип организации или запасная иконка в матовом квадрате. */
 function CompanyLogo({ logo, size }: { logo?: string | null; size: number }) {
@@ -58,6 +57,12 @@ export function CompanyCard({
   /** Compact tile for the "Организации" grid (logo + name + meta line). */
   compact?: boolean;
 }) {
+  const t = useTranslations('workspaces');
+  const tc = useTranslations('common');
+  const roleChip = ws.myRole ? (
+    <Chip size="sm" tone="accent" icon="user">{tc(`role.workspace.${ws.myRole}`)}</Chip>
+  ) : null;
+
   if (compact) {
     const meta = [ws.industry, ws.city].filter(Boolean) as string[];
     return (
@@ -67,22 +72,22 @@ export function CompanyCard({
           <span style={{ minWidth: 0 }}>
             <span className="title-sm" style={{ display: 'block' }}>{ws.name}</span>
             <span className="label-sm">
-              {meta.length > 0 ? `${meta.join(' · ')} · ` : ''}{ws.membersCount} чел.
+              {meta.length > 0 ? `${meta.join(' · ')} · ` : ''}{t('card.membersShort', { n: ws.membersCount })}
             </span>
           </span>
         </div>
-        {ws.myRole && <Chip size="sm" tone="accent" icon="user">{ROLE_LABELS[ws.myRole] ?? ws.myRole}</Chip>}
+        {roleChip}
       </div>
     );
   }
 
   const fields: [string, string][] = (
     [
-      ['Отрасль', ws.industry],
-      ['Город', ws.city],
-      ['Сайт', ws.website],
-      ['Email', ws.contactEmail],
-      ['Телефон', ws.contactPhone],
+      [t('card.industry'), ws.industry],
+      [t('card.city'), ws.city],
+      [t('card.website'), ws.website],
+      [t('card.email'), ws.contactEmail],
+      [t('card.phone'), ws.contactPhone],
     ] as [string, string | null][]
   ).filter((f): f is [string, string] => !!f[1]);
 
@@ -101,11 +106,7 @@ export function CompanyCard({
         <CompanyLogo logo={ws.logo} size={56} />
         <div style={{ minWidth: 0 }}>
           <div className="title-md">{ws.name}</div>
-          {ws.myRole && (
-            <div style={{ marginTop: '0.25rem' }}>
-              <Chip size="sm" tone="accent" icon="user">{ROLE_LABELS[ws.myRole] ?? ws.myRole}</Chip>
-            </div>
-          )}
+          {roleChip && <div style={{ marginTop: '0.25rem' }}>{roleChip}</div>}
         </div>
       </div>
 
@@ -125,7 +126,7 @@ export function CompanyCard({
             ))}
             {showMembers && (
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--spacing-3)' }}>
-                <span className="label-caps">Сотрудников</span>
+                <span className="label-caps">{t('card.members')}</span>
                 <span className="body-sm">{ws.membersCount}</span>
               </div>
             )}

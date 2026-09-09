@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import type { CalendarShiftItem } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import {
   CalendarLayersRegistry,
   type CalendarLayerResult,
@@ -17,6 +18,7 @@ export class ObjectsCalendarProvider implements OnModuleInit {
   constructor(
     private readonly db: DatabaseService,
     private readonly layers: CalendarLayersRegistry,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -59,7 +61,12 @@ export class ObjectsCalendarProvider implements OnModuleInit {
     );
     return {
       items,
-      summary: rows.length ? `Смен: ${rows.length} · ${Math.round(totalMin / 60)} ч` : null,
+      summary: rows.length
+        ? this.i18n.translate('calendar.layer.shiftsSummary', {
+            n: rows.length,
+            hours: Math.round(totalMin / 60),
+          })
+        : null,
     };
   }
 }

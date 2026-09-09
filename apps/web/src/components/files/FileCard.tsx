@@ -2,7 +2,8 @@
 
 import type { FileDto } from '@superapp/shared';
 import { useFileDisplayUrl } from '../../lib/hooks/useFileUrl';
-import { fileIcon, formatDuration, hasVariant, humanSize } from './files-ui';
+import { fileIcon, formatDuration, hasVariant } from './files-ui';
+import { useBytes } from '../../lib/format';
 
 interface FileCardProps {
   file: FileDto;
@@ -16,6 +17,7 @@ interface FileCardProps {
  * изображений/видео, крупная иконка для остального.
  */
 export function FileCard({ file, onOpen, actions }: FileCardProps) {
+  const humanSize = useBytes();
   const previewVariant =
     file.kind === 'image' ? ('thumb' as const) : file.kind === 'video' ? ('poster' as const) : undefined;
   const showPreview = !!previewVariant && (file.kind === 'image' || hasVariant(file, 'poster'));

@@ -17,29 +17,29 @@ import { queryBoolean } from './query';
 // ============================================================
 
 const noHtml = (s: string) => !/[<>]/.test(s);
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД');
-const text = (max: number) => z.string().trim().max(max).refine(noHtml, 'Недопустимые символы');
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'validation.objects.isoDate');
+const text = (max: number) => z.string().trim().max(max).refine(noHtml, 'validation.objects.badCharacters');
 const objectName = z
   .string()
   .trim()
-  .min(1, 'Укажите название')
+  .min(1, 'validation.objects.nameRequired')
   .max(OBJECT_LIMITS.nameMaxLength)
-  .refine(noHtml, 'Недопустимые символы');
+  .refine(noHtml, 'validation.objects.badCharacters');
 
 const kindEnum = z.enum(OBJECT_KINDS.map((k) => k.value) as [string, ...string[]]);
 const rateTypeEnum = z.enum(RATE_TYPES.map((r) => r.value) as [string, ...string[]]);
 const outcomeEnum = z.enum(ATTENDANCE_OUTCOMES.map((o) => o.value) as [string, ...string[]]);
 const assetStatusEnum = z.enum(ASSET_STATUSES.map((s) => s.value) as [string, ...string[]]);
-const holdingEnum = z.enum(HOLDING_KINDS.map((h) => h.value) as [string, ...string[]]);
+const holdingEnum = z.enum([...HOLDING_KINDS] as [string, ...string[]]);
 const assetKindEnum = z.enum(ASSET_KINDS.map((k) => k.value) as [string, ...string[]]);
-const serviceKindEnum = z.enum(ASSET_SERVICE_KINDS.map((k) => k.value) as [string, ...string[]]);
-const serviceStatusEnum = z.enum(ASSET_SERVICE_STATUSES.map((s) => s.value) as [string, ...string[]]);
+const serviceKindEnum = z.enum([...ASSET_SERVICE_KINDS] as [string, ...string[]]);
+const serviceStatusEnum = z.enum([...ASSET_SERVICE_STATUSES] as [string, ...string[]]);
 
 /** Деньги приходят ЦЕЛЫМИ ТИЫНАМИ строкой (BigInt на проводе — только строкой) */
 const moneySchema = z
   .string()
   .trim()
-  .regex(/^\d{1,15}$/, 'Сумма — целое число тиынов строкой');
+  .regex(/^\d{1,15}$/, 'validation.objects.money');
 
 /** Часовой пояс IANA: проверяем существование, а не формат (Intl — правда платформы) */
 const timeZoneSchema = z
@@ -54,7 +54,7 @@ const timeZoneSchema = z
     } catch {
       return false;
     }
-  }, 'Неизвестный часовой пояс');
+  }, 'validation.objects.timeZone');
 
 export const scheduleSettingsSchema = z
   .object({
@@ -98,7 +98,7 @@ export const updateObjectSchema = z
     scheduleSettings: scheduleSettingsSchema.optional(),
   })
   .strict()
-  .refine((v) => Object.keys(v).length > 0, 'Нечего менять');
+  .refine((v) => Object.keys(v).length > 0, 'validation.objects.nothingToUpdate');
 
 export const moveObjectSchema = z
   .object({ parentId: z.string().uuid().nullable() })
@@ -138,7 +138,7 @@ export const updateStaffingPositionSchema = z
     sortOrder: z.number().int().min(0).optional(),
   })
   .strict()
-  .refine((v) => Object.keys(v).length > 0, 'Нечего менять');
+  .refine((v) => Object.keys(v).length > 0, 'validation.objects.nothingToUpdate');
 
 export const assignToStaffingSchema = z
   .object({
@@ -157,10 +157,10 @@ export const updateStaffingAssignmentSchema = z
     rateShare: z.number().min(0.05).max(2).optional(),
   })
   .strict()
-  .refine((v) => Object.keys(v).length > 0, 'Нечего менять')
+  .refine((v) => Object.keys(v).length > 0, 'validation.objects.nothingToUpdate')
   .refine(
     (v) => !v.startsOn || !v.endsOn || v.endsOn >= v.startsOn,
-    { message: 'Дата окончания раньше начала', path: ['endsOn'] },
+    { message: 'validation.objects.endBeforeStart', path: ['endsOn'] },
   );
 
 export const closeAssignmentSchema = z.object({ endsOn: isoDate }).strict();
@@ -168,14 +168,14 @@ export const closeAssignmentSchema = z.object({ endsOn: isoDate }).strict();
 export const setRateSchema = rateInputSchema;
 
 export const staffingQuerySchema = z
-  .object({ period: z.string().regex(/^\d{4}-\d{2}$/, 'Период в формате ГГГГ-ММ').optional() })
+  .object({ period: z.string().regex(/^\d{4}-\d{2}$/, 'validation.objects.monthPeriod').optional() })
   .strict();
 
 // ---------- Смены ----------
 
 export const shiftTemplateSchema = z
   .object({
-    name: text(60).pipe(z.string().min(1, 'Укажите название')),
+    name: text(60).pipe(z.string().min(1, 'validation.objects.nameRequired')),
     startMin: z.number().int().min(0).max(24 * 60 - 1),
     // Потолок ТЕХНИЧЕСКИЙ (сутки). Доменный — `scheduleSettings.maxShiftMin` объекта,
     // и проверяет его сервис: иначе объект «сутки через трое» не смог бы поставить
@@ -193,11 +193,11 @@ export const shiftTemplateSchema = z
 export const updateShiftTemplateSchema = shiftTemplateSchema
   .partial()
   .strict()
-  .refine((v) => Object.keys(v).length > 0, 'Нечего менять');
+  .refine((v) => Object.keys(v).length > 0, 'validation.objects.nothingToUpdate');
 
 export const shiftPatternSchema = z
   .object({
-    name: text(60).pipe(z.string().min(1, 'Укажите название')),
+    name: text(60).pipe(z.string().min(1, 'validation.objects.nameRequired')),
     assignmentId: z.string().uuid().nullable().optional(),
     staffingPositionId: z.string().uuid().nullable().optional(),
     anchorDate: isoDate,
@@ -209,11 +209,11 @@ export const shiftPatternSchema = z
   })
   .strict()
   .refine((v) => !!v.assignmentId !== !!v.staffingPositionId, {
-    message: 'Укажите ровно одно: человека или штатную единицу',
+    message: 'validation.objects.pickPersonOrUnit',
     path: ['assignmentId'],
   })
   .refine((v) => !v.activeTo || v.activeTo >= v.activeFrom, {
-    message: 'Окончание раньше начала',
+    message: 'validation.objects.endBeforeStart',
     path: ['activeTo'],
   });
 
@@ -249,12 +249,12 @@ export const updateShiftSchema = z
     force: z.boolean().optional(),
   })
   .strict()
-  .refine((v) => Object.keys(v).length > 0, 'Нечего менять');
+  .refine((v) => Object.keys(v).length > 0, 'validation.objects.nothingToUpdate');
 
 export const publishShiftsSchema = z
   .object({ from: isoDate, to: isoDate })
   .strict()
-  .refine((v) => v.to >= v.from, { message: 'Конец периода раньше начала', path: ['to'] });
+  .refine((v) => v.to >= v.from, { message: 'validation.objects.periodEnd', path: ['to'] });
 
 export const shiftsQuerySchema = z
   .object({
@@ -262,11 +262,11 @@ export const shiftsQuerySchema = z
     to: isoDate,
   })
   .strict()
-  .refine((v) => v.to >= v.from, { message: 'Конец периода раньше начала', path: ['to'] })
+  .refine((v) => v.to >= v.from, { message: 'validation.objects.periodEnd', path: ['to'] })
   // Окно ограничено: без потолка `?from=2020-01-01&to=2030-01-01` тянет ВСЕ смены
   // объекта со связями и без лимита.
   .refine((v) => (Date.parse(v.to) - Date.parse(v.from)) / 86_400_000 <= OBJECT_LIMITS.maxBoardDays, {
-    message: `Период сетки — не больше ${OBJECT_LIMITS.maxBoardDays} дней`,
+    message: 'validation.objects.boardPeriodTooLong',
     path: ['to'],
   });
 
@@ -291,7 +291,7 @@ const attendanceFactShape = z
 const spanOrder = {
   check: (v: { actualStartAt?: string | null; actualEndAt?: string | null }) =>
     !v.actualStartAt || !v.actualEndAt || v.actualEndAt >= v.actualStartAt,
-  opts: { message: 'Фактическое окончание раньше начала', path: ['actualEndAt'] as const },
+  opts: { message: 'validation.objects.actualEndBeforeStart', path: ['actualEndAt'] as const },
 };
 
 export const markAttendanceSchema = attendanceFactShape.refine(spanOrder.check, {
@@ -317,9 +317,9 @@ export const gateEventSchema = z
 export const attendanceQuerySchema = z
   .object({ from: isoDate, to: isoDate })
   .strict()
-  .refine((v) => v.to >= v.from, { message: 'Конец периода раньше начала', path: ['to'] })
+  .refine((v) => v.to >= v.from, { message: 'validation.objects.periodEnd', path: ['to'] })
   .refine((v) => (Date.parse(v.to) - Date.parse(v.from)) / 86_400_000 <= OBJECT_LIMITS.maxBoardDays, {
-    message: `Период табеля — не больше ${OBJECT_LIMITS.maxBoardDays} дней`,
+    message: 'validation.objects.timesheetPeriodTooLong',
     path: ['to'],
   });
 
@@ -328,7 +328,7 @@ export const updateAttendanceSchema = attendanceFactShape
   .partial()
   .extend({ localDate: isoDate.optional() })
   .strict()
-  .refine((v) => Object.keys(v).length > 0, 'Нечего менять')
+  .refine((v) => Object.keys(v).length > 0, 'validation.objects.nothingToUpdate')
   .refine(spanOrder.check, { message: spanOrder.opts.message, path: ['actualEndAt'] });
 
 /** Внеплановый выход (смены в плане не было) */
@@ -345,7 +345,7 @@ export const unplannedAttendanceSchema = attendanceFactShape
 export const assetModelSchema = z
   .object({
     kind: assetKindEnum.default('equipment'),
-    name: text(120).pipe(z.string().min(1, 'Укажите название модели')),
+    name: text(120).pipe(z.string().min(1, 'validation.objects.modelNameRequired')),
     manufacturer: text(120).nullable().optional(),
     category: text(80).nullable().optional(),
     glyph: text(60).nullable().optional(),
@@ -355,7 +355,7 @@ export const assetModelSchema = z
 export const updateAssetModelSchema = assetModelSchema
   .partial()
   .strict()
-  .refine((v) => Object.keys(v).length > 0, 'Нечего менять');
+  .refine((v) => Object.keys(v).length > 0, 'validation.objects.nothingToUpdate');
 
 export const assetModelsQuerySchema = z
   .object({
@@ -371,13 +371,13 @@ export const createAssetSchema = z
     modelId: z.string().uuid().optional(),
     newModel: z
       .object({
-        name: text(120).pipe(z.string().min(1, 'Укажите модель')),
+        name: text(120).pipe(z.string().min(1, 'validation.objects.modelRequired')),
         manufacturer: text(120).nullable().optional(),
         kind: assetKindEnum.optional(),
       })
       .strict()
       .optional(),
-    name: text(120).pipe(z.string().min(1, 'Укажите название')),
+    name: text(120).pipe(z.string().min(1, 'validation.objects.nameRequired')),
     inventoryNumber: text(60).nullable().optional(),
     serialNumber: text(80).nullable().optional(),
     parentAssetId: z.string().uuid().nullable().optional(),
@@ -396,7 +396,7 @@ export const createAssetSchema = z
   })
   .strict()
   .refine((v) => !!v.modelId !== !!v.newModel, {
-    message: 'Выберите модель или создайте новую',
+    message: 'validation.objects.pickOrCreateModel',
     path: ['modelId'],
   });
 
@@ -416,7 +416,7 @@ export const updateAssetSchema = z
     // на выдачу не влиял — поле принималось и не значило ничего.
   })
   .strict()
-  .refine((v) => Object.keys(v).length > 0, 'Нечего менять');
+  .refine((v) => Object.keys(v).length > 0, 'validation.objects.nothingToUpdate');
 
 export const moveAssetSchema = z
   .object({
@@ -426,7 +426,7 @@ export const moveAssetSchema = z
     reason: text(200).nullable().optional(),
   })
   .strict()
-  .refine((v) => v.branchId !== undefined || v.parentAssetId !== undefined, 'Укажите новое место');
+  .refine((v) => v.branchId !== undefined || v.parentAssetId !== undefined, 'validation.objects.newPlaceRequired');
 
 export const setAssetCustodianSchema = z
   .object({
@@ -455,7 +455,7 @@ export const assetServiceSchema = z
   .object({
     kind: serviceKindEnum.default('repair'),
     status: serviceStatusEnum.optional(),
-    title: text(160).pipe(z.string().min(1, 'Укажите, что делали')),
+    title: text(160).pipe(z.string().min(1, 'validation.objects.serviceTitleRequired')),
     description: text(2000).nullable().optional(),
     scheduledOn: isoDate.nullable().optional(),
     startedAt: z.string().datetime().nullable().optional(),
@@ -471,7 +471,7 @@ export const assetServiceSchema = z
 export const updateAssetServiceSchema = assetServiceSchema
   .partial()
   .strict()
-  .refine((v) => Object.keys(v).length > 0, 'Нечего менять');
+  .refine((v) => Object.keys(v).length > 0, 'validation.objects.nothingToUpdate');
 
 export const assetsQuerySchema = z
   .object({

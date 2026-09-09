@@ -130,7 +130,7 @@ export class JobsWorker implements OnApplicationBootstrap, OnModuleDestroy {
     try {
       if (!def) {
         // Теоретический случай: claim фильтрует по зарегистрированным типам.
-        throw new JobDiscardError(`нет обработчика для типа "${job.type}"`);
+        throw new JobDiscardError(`no handler for type "${job.type}"`);
       }
       await this.jobs.setLease(job.id, job.attempts, def.leaseMs);
       await def.handler(job.payload, {

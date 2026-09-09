@@ -6,6 +6,14 @@ import { I18nService } from '../../shared/i18n/i18n.service';
 import { CalendarService } from './calendar.service';
 
 /** RSVP → ключ каталога. Реестр называет смысл, каталог даёт слово. */
+/** Тон чипа ответа — смысл, а не цвет: веб рисует его своими токенами. */
+const RSVP_TONE: Record<string, 'accent' | 'success' | 'danger' | 'warning' | 'neutral'> = {
+  pending: 'warning',
+  accepted: 'success',
+  declined: 'danger',
+  tentative: 'warning',
+};
+
 const RSVP_KEYS: Record<string, string> = {
   pending: 'richCards.event.rsvp.pending',
   accepted: 'richCards.event.rsvp.accepted',
@@ -104,6 +112,7 @@ export class CalendarRichCardsProvider implements OnModuleInit {
       fields,
       progress: null,
       status: statusLabel,
+      statusTone: isOrganizer ? 'accent' : RSVP_TONE[myRsvp] ?? 'neutral',
       actions,
       href: '/calendar',
     };

@@ -22,7 +22,7 @@ import { FileChip } from '../../../components/files/FileChip';
 import { ImageLightbox } from '../../../components/files/ImageLightbox';
 import { VideoPlayer } from '../../../components/files/VideoPlayer';
 import { AudioPlayer } from '../../../components/files/AudioPlayer';
-import { humanSize } from '../../../components/files/files-ui';
+import { useBytes } from '../../../lib/format';
 
 const PROFILES = ['generic', 'avatar', 'listing_image', 'chat_attachment', 'voice_message', 'document'];
 
@@ -33,6 +33,7 @@ export default function DevFilesPage() {
 
 function DevFilesInner() {
   useRequireAuth();
+  const humanSize = useBytes();
   const queryClient = useQueryClient();
   const [profile, setProfile] = useState('generic');
   const [files, setFiles] = useState<FileDto[]>([]);

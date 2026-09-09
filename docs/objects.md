@@ -71,6 +71,32 @@ payroll_viewer: union(THIS, computed('manager'))    // управленческ�
 - **Архив каскадом ≠ «закрыт своим решением».** Каскад ставит поддереву ОДИН момент `archivedAt`; возврат родителя поднимает только строки с этим моментом. Возврат ребёнка при архивном родителе — 409.
 - **Удаляется только ПУСТОЙ объект.** Дети, люди, штатка, смены и оборудование держат его (везде FK `Restrict`, а `P2003` в общий фильтр не разобран — без прикладной проверки был бы 500 вместо 409 `object_in_use`).
 
+## Слова (i18n)
+
+Сервис переведён: **ни одной строки для человека в коде** — ни на сервере, ни в вебе.
+
+- **Словари `constants/objects.ts` слов НЕ хранят.** `OBJECT_KINDS` несёт значение и значок,
+  `RATE_TYPES`/`ATTENDANCE_OUTCOMES`/`ASSET_STATUSES` — значение и тон, `HOLDING_KINDS`,
+  `SHIFT_STATUSES`, `ASSET_SERVICE_KINDS`, `ASSET_SERVICE_STATUSES` — просто кортежи строк.
+  Слово даёт каталог по СОГЛАШЕНИЮ от значения: `objects.kind.<value>`,
+  `objects.rateType.<value>` (+ `objects.rateTypeShort.<value>`), `objects.attendanceOutcome.<value>`,
+  `objects.assetStatus.<value>`, `objects.holdingKind.<value>`, `objects.assetKind.<value>`,
+  `objects.assetServiceKind.<value>`. Строка в реестре = один язык навсегда и сразу у трёх клиентов.
+- **Отказы — фабрики `shared/errors/api-error.ts`** с сохранением машинного кода:
+  `conflict('objects.hasChildren', undefined, { code: OBJECTS_ERROR_CODES.objectHasChildren })`.
+  `details.code` (snake_case) остаётся тем же — по нему ветвятся клиенты и сьюты;
+  фразу собирает фильтр в языке запроса из `errors.objects.*`.
+- **Хроника: снимок — в языке ИСТОЧНИКА, слово — ключом.** Подписи изменённых полей берутся
+  `translateFor(SOURCE_LOCALE, 'chatter.fields.branch|asset|staffing.<поле>')`, а слова, которые
+  ложатся в вечный payload, кладутся ключом с суффиксом `Key` (`outcomeLabelKey`, `rateLabelKey`,
+  `archiveVerbKey`, `unitLabelKey`) — их переводит `resolveLabelKeys` при чтении.
+- **Причина обхода правила (`force`) живёт дважды**: в отказе — переводом в языке запроса, в
+  записи `shift.forced` — снимком в языке источника; оба собираются из ОДНОГО ключа
+  (`assertForce(force, caps, code, reasonKey, params)`).
+- **Форматы — не язык.** Деньги — `lib/objects-money.ts` (чистые: правила региона), даты — `lib/dates.ts`,
+  часы смены и «7,5 ч» — хук `useHoursLabel()`, месяц периода — `useMonthLabel()`, имя дня недели
+  сетки — `f.weekday()` от полудня UTC (полночь уезжала бы на сутки западнее Гринвича).
+
 ## Ловушки
 
 - **`btree_gist`, имена индексов до 63 символов, партиальные уникумы** — ловушки БД сервиса собраны в [objects_staffing.md](objects_staffing.md).
@@ -78,6 +104,9 @@ payroll_viewer: union(THIS, computed('manager'))    // управленческ�
 - **BigInt на проводе — только строкой**; агрегаты плана затрат считаются в `bigint`.
 - **Один RQ-ключ = одна форма кэша**: список оборудования — infinite-запрос (`objectAssetsKey`), карточка — свой `assetKey`.
 - **Статические пути до `:id`**: `objects/tree|mine`, `staffing/positions`, `shifts/publish`, `legal-entities/lite`.
+- **Ключ словаря собирается на лету** (шаблон `objects.kind.<значение>`), поэтому `check:i18n` его не
+  видит: пропущенную ветку каталога ловят рантайм-`onError` и браузерная проверка «0 ошибок консоли».
+  Проверять КАЖДЫЙ словарь глазами — в списке, в форме и в карточке.
 
 ## Веб
 

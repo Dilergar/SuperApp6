@@ -32,13 +32,26 @@ const MSG = path.join(I18N, 'src', 'messages');
 /** Порог «неймспейс пора делить» — он целиком едет в браузер на своих страницах. */
 const NAMESPACE_SIZE_WARN = 40 * 1024;
 
+/**
+ * СЕРВЕРНЫЕ неймспейсы: их не просит ни один layout веба, и на клиент они не едут
+ * вовсе — слово собирает сервер и отдаёт на провод готовой строкой. Размер им не
+ * порок: это память сервера, а не байты человека (docs/i18n.md, правило страницы).
+ */
+const SERVER_ONLY_NAMESPACES = new Set(['errors', 'templates']);
+
 /** Где искать употребление ключей (проверка 6). */
 const CODE_ROOTS = [
   path.join(ROOT, 'apps', 'web', 'src'),
   path.join(ROOT, 'apps', 'api', 'src'),
+  // Мобильный клиент берёт ТЕ ЖЕ каталоги; без него его ключи выглядели бы мёртвыми,
+  // а предупреждение «ключ не встречается в коде» перестало бы что-то значить.
+  path.join(ROOT, 'apps', 'mobile', 'app'),
+  path.join(ROOT, 'apps', 'mobile', 'src'),
   // Пакеты тоже зовут ключи: renderChatter собирает ` + '`chatter.type.${typeKey}`' + `.
   path.join(ROOT, 'packages', 'i18n', 'src'),
   path.join(ROOT, 'packages', 'shared', 'src'),
+  // Сиды тоже кладут КЛЮЧИ (имена скинов карточек — платформенный контент).
+  path.join(ROOT, 'apps', 'api', 'scripts'),
 ];
 const CODE_EXT = new Set(['.ts', '.tsx', '.cjs', '.mjs']);
 
@@ -136,7 +149,7 @@ for (const locale of LOCALES) {
     const entry = catalogs[locale]?.[ns];
     if (!entry) continue;
     flat[locale][ns] = flatten(entry.tree, '', new Map(), `messages/${locale}/${ns}.json`);
-    if (entry.size > NAMESPACE_SIZE_WARN) {
+    if (entry.size > NAMESPACE_SIZE_WARN && !SERVER_ONLY_NAMESPACES.has(ns)) {
       warn(
         `messages/${locale}/${ns}.json — ${Math.round(entry.size / 1024)} КБ. ` +
           `Неймспейс целиком уезжает в браузер на своих страницах: пора делить.`,
@@ -322,6 +335,64 @@ for (const ns of NAMESPACES) {
         unused.slice(0, Number(process.env.I18N_UNUSED_LIMIT ?? 30)).join('\n    ') +
         (unused.length > Number(process.env.I18N_UNUSED_LIMIT ?? 30) ? '\n    …' : ''),
     );
+  }
+}
+
+// ---------- 7. ключ, которого нет в каталоге (ошибка) ----------
+//
+// Зеркало проверки 6. Та ловит МЁРТВЫЙ ключ (лежит в каталоге, никто не просит),
+// эта — ПРОПУЩЕННЫЙ (код просит, каталога нет). Пропущенный дороже: мёртвый ключ
+// просто занимает место, а пропущенный человек ВИДИТ на экране машинным именем
+// («circles.peopleCount» вместо «2 человека»), и узнаём мы об этом, только когда
+// кто-то откроет ровно эту страницу и посмотрит в консоль.
+//
+// Проверяются ТОЛЬКО буквальные ключи: собранный на лету (`t(`level.${x}.short`)`)
+// заранее не разрешить — его стерегут рантайм-`onError` и предупреждение 6.
+{
+  const known = (ns, key) => flat[SOURCE_LOCALE]?.[ns]?.has(key) === true;
+
+  const codeFiles = [];
+  const walkCode = (dir) => {
+    if (!fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walkCode(full);
+      else if (CODE_EXT.has(path.extname(entry.name))) codeFiles.push(full);
+    }
+  };
+  for (const root of CODE_ROOTS) walkCode(root);
+
+  for (const file of codeFiles) {
+    const src = fs.readFileSync(file, 'utf8');
+    const at = (index) =>
+      `${path.relative(ROOT, file).split(path.sep).join('/')}:${src.slice(0, index).split('\n').length}`;
+
+    // --- веб и серверные компоненты: имя переводчика связано с неймспейсом ---
+    //
+    // Связка действует от СВОЕГО объявления до следующего объявления того же
+    // имени: `const tr = useTranslations(…)` пишется заново в каждом компоненте
+    // файла, и неймспейсы у них разные. Взять последнее объявление на весь файл
+    // значило бы приписать ключи чужому каталогу и получить десятки ложных тревог.
+    const decls = [
+      ...src.matchAll(/const\s+(\w+)\s*=\s*(?:await\s+)?(?:useTranslations|getTranslations)\(\s*'([^']+)'\s*\)/g),
+    ].map((m) => ({ at: m.index, name: m[1], ns: m[2] }));
+
+    if (decls.length > 0) {
+      for (const call of src.matchAll(/\b(\w+)(?:\.rich)?\(\s*'([A-Za-z0-9_.]+)'/g)) {
+        let ns = null;
+        for (const d of decls) if (d.name === call[1] && d.at < call.index) ns = d.ns;
+        if (ns === null) continue; // это не переводчик, а обычный вызов
+        if (!NAMESPACES.includes(ns)) err(`неймспейс «${ns}» не объявлен — ${at(call.index)}`);
+        else if (!known(ns, call[2])) err(`код просит ключ, которого нет: ${ns}.${call[2]} — ${at(call.index)}`);
+      }
+    }
+
+    // --- API: фабрики отказов называют ключ ветки `errors` ---
+    for (const call of src.matchAll(
+      /\b(?:notFound|forbidden|badRequest|conflict|tooMany|unprocessable|unauthorized)\(\s*'([A-Za-z0-9_.]+)'/g,
+    )) {
+      if (!known('errors', call[1])) err(`код просит ключ, которого нет: errors.${call[1]} — ${at(call.index)}`);
+    }
   }
 }
 

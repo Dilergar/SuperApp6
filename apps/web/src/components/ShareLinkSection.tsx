@@ -9,17 +9,14 @@
 // ============================================================
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  SHARE_LINK_LIMITS,
-  SHARE_LINK_STATUS_LABELS,
-  type ShareLinkDto,
-  type ShareLinkStatus,
-} from '@superapp/shared';
+import { SHARE_LINK_LIMITS, type ShareLinkDto, type ShareLinkStatus } from '@superapp/shared';
 import { Button, Chip, Icon, Input, LoadingBlock, Select, Toggle, useConfirm } from '@/components/ui';
 import type { Tone } from '@/components/ui/tones';
 import { apiErrorMessage } from '@/lib/api';
 import { toastError } from '@/lib/toast';
+import { useFormatters } from '@/lib/format';
 import { shareLinkVisitsKey, shareLinksKey } from '@/lib/queries';
 import {
   createShareLink,
@@ -37,18 +34,24 @@ const STATUS_TONE: Record<ShareLinkStatus, Tone> = {
   exhausted: 'neutral',
 };
 
-const EXPIRY_OPTIONS = [
-  { value: '', label: 'Бессрочно' },
-  { value: '7', label: '7 дней' },
-  { value: '30', label: '30 дней' },
-  { value: '90', label: '90 дней' },
-];
+/** Значения сроков; слова к ним собирает `useExpiryOptions` в языке зрителя. */
+const EXPIRY_DAYS = [7, 30, 90] as const;
+
+function useExpiryOptions(): { value: string; label: string }[] {
+  const t = useTranslations('share');
+  return [
+    { value: '', label: t('expiry.never') },
+    ...EXPIRY_DAYS.map((n) => ({ value: String(n), label: t('expiry.days', { n }) })),
+  ];
+}
 
 function inDays(days: number): string {
   return new Date(Date.now() + days * 86_400_000).toISOString();
 }
 
 export function ShareLinkSection({ refType, refId }: { refType: string; refId: string }) {
+  const t = useTranslations('share');
+  const expiryOptions = useExpiryOptions();
   const qc = useQueryClient();
   const [confirm, confirmUI] = useConfirm();
   const [label, setLabel] = useState('');
@@ -115,7 +118,7 @@ export function ShareLinkSection({ refType, refId }: { refType: string; refId: s
       setCopied(link.id);
       setTimeout(() => setCopied((c) => (c === link.id ? null : c)), 2000);
     } catch {
-      toastError('Не удалось скопировать — выделите адрес вручную');
+      toastError(t('copyFailed'));
     }
   };
 
@@ -129,7 +132,7 @@ export function ShareLinkSection({ refType, refId }: { refType: string; refId: s
   return (
     <div>
       <p className="body-sm" style={{ margin: '0 0 var(--spacing-4)', color: 'var(--on-surface-variant)' }}>
-        По ссылке смогут открыть и скачать даже те, у кого нет аккаунта SuperApp6.
+        {t('section.intro')}
       </p>
 
       {isPending && <LoadingBlock />}
@@ -151,9 +154,9 @@ export function ShareLinkSection({ refType, refId }: { refType: string; refId: s
           onRevoke={() =>
             confirm(
               {
-                title: 'Отозвать ссылку?',
-                message: 'Открыть её больше не получится. Уже скачанные файлы это не вернёт.',
-                confirmLabel: 'Отозвать',
+                title: t('revoke.title'),
+                message: t('revoke.message'),
+                confirmLabel: t('revoke.confirm'),
                 danger: true,
               },
               () => revoke.mutateAsync(link.id).then(() => undefined),
@@ -174,20 +177,20 @@ export function ShareLinkSection({ refType, refId }: { refType: string; refId: s
         }}
       >
         <Input
-          label="Для кого (необязательно)"
-          placeholder="Например: подрядчик Асхат"
+          label={t('form.label')}
+          placeholder={t('form.labelPlaceholder')}
           value={label}
           maxLength={SHARE_LINK_LIMITS.maxLabelLength}
           onChange={(e) => setLabel(e.target.value)}
         />
         <div style={{ display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 160px' }}>
-            <Select label="Срок действия" value={expiry} options={EXPIRY_OPTIONS} onChange={setExpiry} />
+            <Select label={t('form.expiry')} value={expiry} options={expiryOptions} onChange={setExpiry} />
           </div>
           <div style={{ flex: '1 1 160px' }}>
             <Input
-              label="Лимит открытий"
-              placeholder="без лимита"
+              label={t('form.maxOpens')}
+              placeholder={t('form.maxOpensPlaceholder')}
               inputMode="numeric"
               value={maxOpens}
               onChange={(e) => setMaxOpens(e.target.value.replace(/\D/g, ''))}
@@ -198,36 +201,30 @@ export function ShareLinkSection({ refType, refId }: { refType: string; refId: s
         <Toggle
           checked={allowDownload}
           onChange={setAllowDownload}
-          label="Разрешить скачивание"
+          label={t('form.allowDownload')}
           // Обещать больше нельзя честно: если гость видит файл, байты уже у него в
           // браузере. Настройка убирает кнопки и отдаёт уменьшенную копию вместо
           // оригинала — так же осторожно её описывают Google Drive и Dropbox.
-          description={
-            allowDownload ? undefined : 'Гость увидит уменьшенную копию, но не скачает оригинал'
-          }
+          description={allowDownload ? undefined : t('form.allowDownloadOff')}
         />
-        <Toggle checked={notifyOnOpen} onChange={setNotifyOnOpen} label="Уведомлять об открытиях" />
+        <Toggle checked={notifyOnOpen} onChange={setNotifyOnOpen} label={t('form.notifyOnOpen')} />
         <Toggle
           checked={requireIdentity}
           onChange={setRequireIdentity}
-          label="Запрашивать подтверждение номера"
+          label={t('form.requireIdentity')}
           // Обещание точное: имя вводится гостем и не проверяется, подтверждается НОМЕР.
-          description={
-            requireIdentity
-              ? 'Гость назовёт имя и подтвердит номер SMS-кодом — в журнале будет видно, кто открывал'
-              : undefined
-          }
+          description={requireIdentity ? t('form.requireIdentityOn') : undefined}
         />
-        <Toggle checked={withPassword} onChange={setWithPassword} label="Защитить паролем" />
+        <Toggle checked={withPassword} onChange={setWithPassword} label={t('form.withPassword')} />
         {withPassword && (
           <Input
-            label="Пароль"
+            label={t('form.password')}
             type="password"
             value={password}
             autoComplete="new-password"
             minLength={SHARE_LINK_LIMITS.passwordMinLength}
             onChange={(e) => setPassword(e.target.value)}
-            hint={`Минимум ${SHARE_LINK_LIMITS.passwordMinLength} символа — передайте его отдельно от ссылки`}
+            hint={t('form.passwordHint', { min: SHARE_LINK_LIMITS.passwordMinLength })}
           />
         )}
 
@@ -239,7 +236,7 @@ export function ShareLinkSection({ refType, refId }: { refType: string; refId: s
             disabled={withPassword && password.length < SHARE_LINK_LIMITS.passwordMinLength}
             onClick={() => create.mutate()}
           >
-            Создать ссылку
+            {t('form.create')}
           </Button>
         </div>
       </div>
@@ -247,8 +244,9 @@ export function ShareLinkSection({ refType, refId }: { refType: string; refId: s
       {past.length > 0 && (
         <details style={{ marginTop: 'var(--spacing-5)' }}>
           <summary className="label-sm" style={{ cursor: 'pointer', color: 'var(--on-surface-variant)' }}>
-            Недействующие ссылки ({past.length}
-            {hiddenPast > 0 ? ` из ${past.length + hiddenPast}` : ''})
+            {hiddenPast > 0
+              ? t('past.summaryOf', { n: past.length, total: past.length + hiddenPast })
+              : t('past.summary', { n: past.length })}
           </summary>
           <div style={{ marginTop: 'var(--spacing-3)' }}>
             {past.map((link) => (
@@ -263,7 +261,7 @@ export function ShareLinkSection({ refType, refId }: { refType: string; refId: s
             ))}
             {hiddenPast > 0 && (
               <p className="meta" style={{ margin: '0.5rem 0 0' }}>
-                Показаны последние {past.length} — раньше было ещё {hiddenPast}.
+                {t('past.hidden', { n: past.length, hidden: hiddenPast })}
               </p>
             )}
           </div>
@@ -296,6 +294,8 @@ function LinkRow({
   onEdited?: () => void;
   onRevoke?: () => void;
 }) {
+  const t = useTranslations('share');
+  const f = useFormatters();
   const dead = link.status !== 'active';
   return (
     <div
@@ -308,32 +308,32 @@ function LinkRow({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
-        <Chip tone={STATUS_TONE[link.status]}>{SHARE_LINK_STATUS_LABELS[link.status]}</Chip>
+        <Chip tone={STATUS_TONE[link.status]}>{t(`status.${link.status}`)}</Chip>
         {link.label && <span className="label-md">{link.label}</span>}
         {link.hasPassword && (
           <span className="meta" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <Icon name="lock" size={13} /> с паролем
+            <Icon name="lock" size={13} /> {t('row.withPassword')}
           </span>
         )}
         {link.requireIdentity && (
           <span className="meta" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <Icon name="user" size={13} /> по номеру
+            <Icon name="user" size={13} /> {t('row.byNumber')}
           </span>
         )}
         <span style={{ flex: 1 }} />
         {onCopy && (
           <Button size="sm" variant="ghost" icon={copied ? 'check' : 'copy'} onClick={onCopy}>
-            {copied ? 'Скопировано' : 'Копировать'}
+            {copied ? t('row.copied') : t('row.copy')}
           </Button>
         )}
         {onToggleEdit && (
           <Button size="sm" variant="ghost" icon="edit" onClick={onToggleEdit}>
-            {editing ? 'Свернуть' : 'Настроить'}
+            {editing ? t('row.collapse') : t('row.settings')}
           </Button>
         )}
         {onRevoke && (
           <Button size="sm" variant="ghost" tone="danger" onClick={onRevoke}>
-            Отозвать
+            {t('revoke.confirm')}
           </Button>
         )}
       </div>
@@ -351,15 +351,14 @@ function LinkRow({
           onClick={onToggleVisits}
           style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline' }}
         >
-          Открытий: {link.openCount}
-          {link.maxOpens ? ` из ${link.maxOpens}` : ''}
+          {link.maxOpens
+            ? t('row.opensOf', { n: link.openCount, max: link.maxOpens })
+            : t('row.opens', { n: link.openCount })}
         </button>
         {link.lastOpenedAt && (
-          <span className="meta">последнее — {new Date(link.lastOpenedAt).toLocaleString('ru-RU')}</span>
+          <span className="meta">{t('row.lastOpened', { when: f.dateTime(link.lastOpenedAt) })}</span>
         )}
-        {link.expiresAt && (
-          <span className="meta">до {new Date(link.expiresAt).toLocaleDateString('ru-RU')}</span>
-        )}
+        {link.expiresAt && <span className="meta">{t('row.until', { date: f.date(link.expiresAt) })}</span>}
       </div>
 
       {editing && onEdited && <EditLinkForm link={link} onDone={onEdited} />}
@@ -380,6 +379,9 @@ function LinkRow({
  * знать не можем, в базе лежит хэш.
  */
 function EditLinkForm({ link, onDone }: { link: ShareLinkDto; onDone: () => void }) {
+  const t = useTranslations('share');
+  const f = useFormatters();
+  const baseExpiryOptions = useExpiryOptions();
   const [label, setLabel] = useState(link.label ?? '');
   const [expiry, setExpiry] = useState(link.expiresAt ? 'keep' : '');
   const [maxOpens, setMaxOpens] = useState(link.maxOpens ? String(link.maxOpens) : '');
@@ -391,11 +393,8 @@ function EditLinkForm({ link, onDone }: { link: ShareLinkDto; onDone: () => void
   const [confirm, confirmUI] = useConfirm();
 
   const expiryOptions = link.expiresAt
-    ? [
-        { value: 'keep', label: `Оставить (до ${new Date(link.expiresAt).toLocaleDateString('ru-RU')})` },
-        ...EXPIRY_OPTIONS,
-      ]
-    : EXPIRY_OPTIONS;
+    ? [{ value: 'keep', label: t('expiry.keep', { date: f.date(link.expiresAt) }) }, ...baseExpiryOptions]
+    : baseExpiryOptions;
 
   const save = useMutation({
     mutationFn: () =>
@@ -434,15 +433,20 @@ function EditLinkForm({ link, onDone }: { link: ShareLinkDto; onDone: () => void
         gap: 'var(--spacing-3)',
       }}
     >
-      <Input label="Для кого" value={label} maxLength={SHARE_LINK_LIMITS.maxLabelLength} onChange={(e) => setLabel(e.target.value)} />
+      <Input
+        label={t('form.labelShort')}
+        value={label}
+        maxLength={SHARE_LINK_LIMITS.maxLabelLength}
+        onChange={(e) => setLabel(e.target.value)}
+      />
       <div style={{ display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
         <div style={{ flex: '1 1 160px' }}>
-          <Select label="Срок действия" value={expiry} options={expiryOptions} onChange={setExpiry} />
+          <Select label={t('form.expiry')} value={expiry} options={expiryOptions} onChange={setExpiry} />
         </div>
         <div style={{ flex: '1 1 160px' }}>
           <Input
-            label="Лимит открытий"
-            placeholder="без лимита"
+            label={t('form.maxOpens')}
+            placeholder={t('form.maxOpensPlaceholder')}
             inputMode="numeric"
             value={maxOpens}
             onChange={(e) => setMaxOpens(e.target.value.replace(/\D/g, ''))}
@@ -453,41 +457,41 @@ function EditLinkForm({ link, onDone }: { link: ShareLinkDto; onDone: () => void
       <Toggle
         checked={allowDownload}
         onChange={setAllowDownload}
-        label="Разрешить скачивание"
-        description={allowDownload ? undefined : 'Гость увидит уменьшенную копию, но не скачает оригинал'}
+        label={t('form.allowDownload')}
+        description={allowDownload ? undefined : t('form.allowDownloadOff')}
       />
-      <Toggle checked={notifyOnOpen} onChange={setNotifyOnOpen} label="Уведомлять об открытиях" />
+      <Toggle checked={notifyOnOpen} onChange={setNotifyOnOpen} label={t('form.notifyOnOpen')} />
       <Toggle
         checked={requireIdentity}
         onChange={setRequireIdentity}
-        label="Запрашивать подтверждение номера"
+        label={t('form.requireIdentity')}
         description={
           requireIdentity && !link.requireIdentity
-            ? 'Уже открытые анонимные сессии закроются — дальше только с подтверждением номера'
+            ? t('form.requireIdentityTurnOn')
             : requireIdentity
-              ? 'Гость называет имя и подтверждает номер SMS-кодом'
+              ? t('form.requireIdentityKept')
               : undefined
         }
       />
 
       <Select
-        label="Пароль"
+        label={t('form.password')}
         value={pwdAction}
         options={[
-          { value: 'keep', label: link.hasPassword ? 'Оставить прежний' : 'Без пароля' },
-          { value: 'set', label: link.hasPassword ? 'Задать новый' : 'Поставить пароль' },
-          ...(link.hasPassword ? [{ value: 'clear', label: 'Снять пароль' }] : []),
+          { value: 'keep', label: link.hasPassword ? t('form.passwordKeep') : t('form.passwordNone') },
+          { value: 'set', label: link.hasPassword ? t('form.passwordSetNew') : t('form.passwordSet') },
+          ...(link.hasPassword ? [{ value: 'clear', label: t('form.passwordClear') }] : []),
         ]}
         onChange={(v) => setPwdAction(v as 'keep' | 'clear' | 'set')}
       />
       {pwdAction === 'set' && (
         <Input
-          label="Новый пароль"
+          label={t('form.newPassword')}
           type="password"
           value={password}
           autoComplete="new-password"
           onChange={(e) => setPassword(e.target.value)}
-          hint={`Минимум ${SHARE_LINK_LIMITS.passwordMinLength} символов — передайте его отдельно от ссылки`}
+          hint={t('form.passwordHint', { min: SHARE_LINK_LIMITS.passwordMinLength })}
         />
       )}
 
@@ -499,7 +503,7 @@ function EditLinkForm({ link, onDone }: { link: ShareLinkDto; onDone: () => void
           disabled={pwdAction === 'set' && password.length < SHARE_LINK_LIMITS.passwordMinLength}
           onClick={() => save.mutate()}
         >
-          Сохранить
+          {t('edit.save')}
         </Button>
         <Button
           size="sm"
@@ -509,19 +513,18 @@ function EditLinkForm({ link, onDone }: { link: ShareLinkDto; onDone: () => void
           onClick={() =>
             confirm(
               {
-                title: 'Сменить адрес ссылки?',
-                message:
-                  'Прежний адрес перестанет работать сразу — у всех, кому вы его отправляли. Настройки, пароль и журнал открытий сохранятся; новый адрес нужно будет разослать заново.',
-                confirmLabel: 'Сменить адрес',
+                title: t('edit.rotateTitle'),
+                message: t('edit.rotateMessage'),
+                confirmLabel: t('edit.rotate'),
               },
               () => rotate.mutateAsync().then(() => undefined),
             )
           }
         >
-          Сменить адрес
+          {t('edit.rotate')}
         </Button>
         {link.tokenRotatedAt && (
-          <span className="meta">адрес менялся {new Date(link.tokenRotatedAt).toLocaleDateString('ru-RU')}</span>
+          <span className="meta">{t('edit.rotatedAt', { date: f.date(link.tokenRotatedAt) })}</span>
         )}
       </div>
       {confirmUI}
@@ -530,6 +533,8 @@ function EditLinkForm({ link, onDone }: { link: ShareLinkDto; onDone: () => void
 }
 
 function VisitsList({ linkId }: { linkId: string }) {
+  const t = useTranslations('share');
+  const f = useFormatters();
   const { data, isPending } = useQuery({
     queryKey: shareLinkVisitsKey(linkId),
     queryFn: () => fetchShareLinkVisits(linkId),
@@ -540,7 +545,7 @@ function VisitsList({ linkId }: { linkId: string }) {
   if (!visits.length) {
     return (
       <p className="meta" style={{ margin: '0.5rem 0 0' }}>
-        Ссылку ещё не открывали.
+        {t('visits.empty')}
       </p>
     );
   }
@@ -549,7 +554,7 @@ function VisitsList({ linkId }: { linkId: string }) {
     <ul style={{ margin: '0.5rem 0 0', padding: 0, listStyle: 'none' }}>
       {visits.map((v) => (
         <li key={v.id} className="meta" style={{ display: 'flex', gap: 'var(--spacing-3)', padding: '2px 0', flexWrap: 'wrap' }}>
-          <span>{new Date(v.openedAt).toLocaleString('ru-RU')}</span>
+          <span>{f.dateTime(v.openedAt)}</span>
           {/* Кто открывал — у ссылок с подтверждением номера; имя вводит сам гость */}
           {v.guestName && (
             <span>

@@ -29,7 +29,7 @@ export class LocalStorageDriver implements StorageDriver {
     const resolved = path.resolve(this.root, key);
     // Ключи генерирует движок, но пояс безопасности не помешает
     if (!resolved.startsWith(this.root + path.sep) && resolved !== this.root) {
-      throw new Error(`Недопустимый ключ хранилища: ${key}`);
+      throw new Error(`Invalid storage key: ${key}`);
     }
     return resolved;
   }
@@ -67,7 +67,7 @@ export class LocalStorageDriver implements StorageDriver {
     const start = range?.start ?? 0;
     const end = Math.min(range?.end ?? size - 1, size - 1);
     if (start < 0 || start > end || start >= size) {
-      throw new RangeError(`Диапазон вне объекта (size=${size}, start=${start}, end=${end})`);
+      throw new RangeError(`The range is outside the object (size=${size}, start=${start}, end=${end})`);
     }
     return { stream: fs.createReadStream(file, { start, end }), size, start, end };
   }
@@ -103,15 +103,15 @@ export class LocalStorageDriver implements StorageDriver {
   }
 
   async createMultipart(): Promise<string> {
-    throw new Error('Multipart-загрузка не поддерживается local-драйвером');
+    throw new Error('The multipart upload is not supported by the local driver');
   }
 
   async presignPart(): Promise<string> {
-    throw new Error('Multipart-загрузка не поддерживается local-драйвером');
+    throw new Error('The multipart upload is not supported by the local driver');
   }
 
   async completeMultipart(_key: string, _uploadId: string, _parts: MultipartPart[]): Promise<void> {
-    throw new Error('Multipart-загрузка не поддерживается local-драйвером');
+    throw new Error('The multipart upload is not supported by the local driver');
   }
 
   async abortMultipart(): Promise<void> {

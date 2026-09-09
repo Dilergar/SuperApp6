@@ -1,5 +1,6 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { unauthorized } from '../errors/api-error';
 import { DatabaseService } from '../database/database.service';
 import { RedisService } from '../redis/redis.service';
 import type { JwtPayload } from '../decorators/current-user.decorator';
@@ -49,7 +50,7 @@ export class SessionValidatorService {
       const cached = await this.redis.get(key);
       if (cached !== null) {
         if (Number(cached) !== tokenEpoch) {
-          throw new UnauthorizedException('Сессия завершена, войдите снова');
+          throw unauthorized('auth.sessionExpired');
         }
         return payload;
       }
@@ -68,7 +69,7 @@ export class SessionValidatorService {
     // Block both permanently-anonymized and grace-window (pending) accounts —
     // a pending account is "gone" until the user logs in again to restore it.
     if (!user || user.deletedAt || user.deletionScheduledAt) {
-      throw new UnauthorizedException('Пользователь не найден');
+      throw unauthorized('auth.userNotFound');
     }
 
     try {
@@ -79,7 +80,7 @@ export class SessionValidatorService {
 
     // Токен из прошлого поколения — отозван (смена пароля/номера, выход везде).
     if (user.tokenEpoch !== tokenEpoch) {
-      throw new UnauthorizedException('Сессия завершена, войдите снова');
+      throw unauthorized('auth.sessionExpired');
     }
 
     return payload;
@@ -95,9 +96,9 @@ export class SessionValidatorService {
     try {
       payload = this.jwt.verify<JwtPayload>(raw, { secret: process.env.JWT_SECRET });
     } catch {
-      throw new UnauthorizedException('Недействительный токен');
+      throw unauthorized('auth.invalidToken');
     }
-    if (!payload?.sub) throw new UnauthorizedException('Недействительный токен');
+    if (!payload?.sub) throw unauthorized('auth.invalidToken');
     return this.assertAlive(payload);
   }
 

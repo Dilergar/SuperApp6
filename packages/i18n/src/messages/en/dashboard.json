@@ -1,0 +1,60 @@
+{
+  "breadcrumb": "Home",
+  "counters": {
+    "circle": "In the Circle: {n}",
+    "workspaces": "Organizations: {n}"
+  },
+  "greeting": {
+    "day": "Good afternoon",
+    "evening": "Good evening",
+    "line": "{greeting}, {name}",
+    "morning": "Good morning",
+    "night": "Good night"
+  },
+  "invites": {
+    "circle": "Circle",
+    "subtitle": "People want to add you to their Circle",
+    "title": "Invitations"
+  },
+  "month": {
+    "burn": "Spent out of the income",
+    "empty": "No records yet",
+    "emptyHint": "Add the first operation — and the month will show up here.",
+    "expenses": "Expenses",
+    "finance": "Finance",
+    "income": "Income: {amount}",
+    "title": "The month"
+  },
+  "roles": {
+    "none": "none",
+    "title": "Roles"
+  },
+  "servicesTitle": "Services",
+  "soon": "Soon",
+  "subscription": {
+    "aria": "Subscription",
+    "none": "No plan connected",
+    "trial": " · trial"
+  },
+  "tiles": {
+    "notifications": "Notifications",
+    "overdue": "Overdue",
+    "tasksToday": "Tasks today",
+    "unread": "Unread"
+  },
+  "today": {
+    "allTasks": "All tasks",
+    "empty": "No tasks for today",
+    "emptyHint": "A free day — or everything is already done.",
+    "high": "High",
+    "newTask": "New task",
+    "onReview": "{n} awaiting your review",
+    "title": "Today",
+    "urgent": "Urgent"
+  },
+  "unread": {
+    "dialog": "Chat",
+    "messenger": "Messenger",
+    "title": "Unread"
+  }
+}

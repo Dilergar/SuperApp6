@@ -1,8 +1,9 @@
-import { Controller, ForbiddenException, Get, NotFoundException, Query, Req } from '@nestjs/common';
+import { Controller, Get, Query, Req } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { SIGN_REQUEST_REF_TYPE } from '@superapp/shared';
+import { forbidden, notFound } from '../../shared/errors/api-error';
 import { DatabaseService } from '../../shared/database/database.service';
 import { Public } from '../../shared/decorators/public.decorator';
 import { ShareLinksGuestService } from '../share-links/share-links-guest.service';
@@ -42,7 +43,7 @@ export class SignGuestController {
   @Get('package')
   // Неаутентифицированная и дорогая ручка (ZIP собирается на лету) — свой потолок
   @Throttle({ long: { limit: 5, ttl: 60000 } })
-  @ApiOperation({ summary: '[Гость] Скачать штампованную копию или экспортный пакет' })
+  @ApiOperation({ summary: '[Guest] Download the stamped copy or the export package' })
   async download(
     @Query('session') session: string,
     @Query('kind') kind: string,
@@ -51,13 +52,13 @@ export class SignGuestController {
     // Пропуск подтверждает живую ссылку и личность; отзыв ссылки гасит его сразу.
     const access = await this.guest.authorizeGuest(session, SIGN_REQUEST_REF_TYPE);
     const request = await this.db.signRequest.findUnique({ where: { id: access.link.refId } });
-    if (!request) throw new NotFoundException('Заявка на подпись не найдена');
+    if (!request) throw notFound('sign.requestNotFound');
     if (request.status !== 'completed') {
-      throw new ForbiddenException('Выгрузка доступна после завершения подписания');
+      throw forbidden('sign.downloadAfterCompletion');
     }
 
     if (kind === 'zip') {
-      if (!access.guest) throw new ForbiddenException('Подтвердите номер телефона');
+      if (!access.guest) throw forbidden('shareLink.identityRequired');
       const actor: SignActor = {
         type: 'guest',
         guestId: access.guest.id,
@@ -72,7 +73,7 @@ export class SignGuestController {
     // По умолчанию — штампованная копия (kind=stamped)
     if (!request.stampedFileId) {
       // Джоб штампа ещё собирает копию — гостевая страница поллит stamped.ready
-      throw new NotFoundException('Итоговый документ ещё готовится — попробуйте через минуту');
+      throw notFound('sign.stampedNotReady');
     }
     // БУФЕРОМ, а не pipe: без @Res() Nest завершает ответ, как только обработчик
     // вернулся, — асинхронный pipe обрывался на 200 с пустым телом. Штамп —

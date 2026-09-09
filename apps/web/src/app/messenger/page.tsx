@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -14,7 +15,7 @@ import type {
   RichCardPayload,
   PresenceInfo,
 } from '@superapp/shared';
-import { attachmentPreviewText } from '@superapp/shared';
+import { attachmentPreviewKind } from '@superapp/shared';
 import {
   callsStatusKey,
   messengerChatDetailKey,
@@ -66,6 +67,7 @@ export default function MessengerPage() {
 }
 
 function MessengerInner() {
+  const t = useTranslations('messenger');
   const { isReady, user } = useRequireAuth();
   const currentUserId = user?.id ?? '';
   const router = useRouter();
@@ -333,9 +335,10 @@ function MessengerInner() {
         // рефетче) — формулировки общие с API, из @superapp/shared
         let attachmentFallback: string | null = null;
         if (msg.type === 'attachment') {
-          attachmentFallback = attachmentPreviewText(
+          const kind = attachmentPreviewKind(
             (msg.payload as { files?: Array<{ kind?: string; profile?: string }> } | null)?.files,
           );
+          attachmentFallback = t(`attachmentPreview.${kind.key}`, { n: kind.count });
         }
         const updated: ChatSummary = {
           ...chat,
@@ -358,7 +361,7 @@ function MessengerInner() {
         return updated.pinned ? [updated, ...pinned, ...unpinned] : [...pinned, updated, ...unpinned];
       });
     },
-    [queryClient],
+    [queryClient, t],
   );
 
   // Patch the inbox preview only when the changed message is the chat's last one.
@@ -797,7 +800,7 @@ function MessengerInner() {
         upsertMessageInCache(activeChatId, saved);
         bumpInboxPreview(activeChatId, saved);
       } catch (e) {
-        console.error('Не удалось отправить вложения', e);
+        console.error('Failed to send the attachments', e);
       }
     },
     [activeChatId, upsertMessageInCache, bumpInboxPreview],
@@ -885,7 +888,7 @@ function MessengerInner() {
     if (!ids || ids.size === 0) return [];
     return Array.from(ids).map((uid) => {
       const p = activeDetail.participants.find((x) => x.userId === uid);
-      return p?.name ?? 'кто-то';
+      return p?.name ?? t('someone');
     });
   }, [activeChatId, activeDetail, typing]);
 
@@ -903,7 +906,7 @@ function MessengerInner() {
       <div className="" style={{ paddingBottom: 'var(--spacing-8)' }}>
         {!(isMobile && activeChatId) && (
           <h1 className="title-lg" style={{ marginBottom: 'var(--spacing-6)', paddingLeft: 'var(--spacing-2)' }}>
-            Мессенджер
+            {t('breadcrumb')}
           </h1>
         )}
 
@@ -1031,6 +1034,8 @@ function MessengerInner() {
 // ============================================================
 
 function EmptyConversation({ loading }: { loading: boolean }) {
+  const t = useTranslations('messenger');
+  const tc = useTranslations('common');
   return (
     <div
       style={{
@@ -1046,7 +1051,7 @@ function EmptyConversation({ loading }: { loading: boolean }) {
       }}
     >
       {loading ? (
-        <p className="label-md">Загрузка...</p>
+        <p className="label-md">{tc('state.loading')}</p>
       ) : (
         <>
           <div
@@ -1059,9 +1064,9 @@ function EmptyConversation({ loading }: { loading: boolean }) {
               opacity: 0.6,
             }}
           />
-          <p className="title-md" style={{ marginBottom: 'var(--spacing-1)' }}>Выберите чат</p>
+          <p className="title-md" style={{ marginBottom: 'var(--spacing-1)' }}>{t('page.pickChat')}</p>
           <p className="label-sm" style={{ opacity: 0.7, maxWidth: '20rem' }}>
-            Откройте диалог слева или начните новый с кем-то из вашего окружения
+            {t('page.pickChatHint')}
           </p>
         </>
       )}
@@ -1070,9 +1075,10 @@ function EmptyConversation({ loading }: { loading: boolean }) {
 }
 
 function FullScreenLoading() {
+  const tc = useTranslations('common');
   return (
     <div className="min-h-screen flex items-center justify-center">
-      <p className="label-md" style={{ fontSize: '1rem' }}>Загрузка...</p>
+      <p className="label-md" style={{ fontSize: '1rem' }}>{tc('state.loading')}</p>
     </div>
   );
 }

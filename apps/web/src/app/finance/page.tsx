@@ -7,6 +7,7 @@
 // ============================================================
 
 import { useMemo } from 'react';
+import { useTranslations } from 'next-intl';
 import { useQuery } from '@tanstack/react-query';
 import type { FinAccountDto } from '@superapp/shared';
 import {
@@ -22,17 +23,21 @@ import {
 import {
   BentoGrid, Button, Card, CardHeader, EmptyState, PageHeader, StatTile,
 } from '@/components/ui';
-import { WEEKDAYS_SHORT, useDayLabel, formatMoney, localToday } from './finance-lib';
+import { weekdaysShortIso, useDayLabel, formatMoney, localToday } from './finance-lib';
 import { txPresentation } from './finance-feed';
 import { BudgetBar, FinList, FinRow, Money, MoneyStack, budgetProgress } from './finance-ui';
 import { useFinanceBook } from './finance-shell';
+import { useFormatters } from '@/lib/format';
 
 export default function FinanceOverviewPage() {
   const { bookId, accounts, categories, canEdit, withBook } = useFinanceBook();
+  const t = useTranslations('finance');
+  const f = useFormatters();
   const dayLabel = useDayLabel();
 
   const period = localToday().slice(0, 7);
-  const monthName = new Date(`${period}-01T00:00:00`).toLocaleDateString('ru-RU', { month: 'long' });
+  const monthName = f.month(`${period}-01`);
+  const weekdays = useMemo(() => weekdaysShortIso(f), [f]);
 
   const { data: report } = useQuery({
     queryKey: financeMonthReportKey(period, bookId),
@@ -81,7 +86,7 @@ export default function FinanceOverviewPage() {
         key: `debt-${d.accountId}`,
         icon: d.icon ?? 'card',
         title: d.name,
-        when: `до ${d.dueDay}-го`,
+        when: t('overview.byDay', { day: d.dueDay }),
         days: untilMonthday(d.dueDay),
         amount: Math.min(d.monthly, d.remaining),
         code: d.currencyCode,
@@ -92,32 +97,32 @@ export default function FinanceOverviewPage() {
       if (r.interval === 'monthly') {
         const day = r.dayOfMonth ?? 1;
         items.push({
-          key: `rec-${r.id}`, icon: 'refresh', title: r.title, when: `каждое ${day}-е`,
+          key: `rec-${r.id}`, icon: 'refresh', title: r.title, when: t('recurring.everyMonthDay', { day }),
           days: untilMonthday(day), amount: r.amount, code: r.currencyCode, href: '/finance/recurring',
         });
       } else {
         const wd = r.weekday ?? 1;
         items.push({
-          key: `rec-${r.id}`, icon: 'refresh', title: r.title, when: `по ${WEEKDAYS_SHORT[wd - 1]}`,
+          key: `rec-${r.id}`, icon: 'refresh', title: r.title, when: t('recurring.everyWeekday', { weekday: weekdays[wd - 1] }),
           days: (wd - jsWeekday + 7) % 7, amount: r.amount, code: r.currencyCode, href: '/finance/recurring',
         });
       }
     }
     return items.sort((a, b) => a.days - b.days).slice(0, 6);
-  }, [debts, recurring]);
+  }, [debts, recurring, t, weekdays]);
 
   // Лимиты месяца — топ по «съеденности»
   const budgets = useMemo(() => {
     return (report?.budgets ?? [])
       .map((b) => ({
         ...b,
-        name: accountById.get(b.categoryAccountId)?.name ?? 'Категория',
+        name: accountById.get(b.categoryAccountId)?.name ?? t('card.category'),
         icon: accountById.get(b.categoryAccountId)?.icon ?? null,
         pct: budgetProgress(b.spent, b.amount).pct,
       }))
       .sort((a, b) => b.pct - a.pct)
       .slice(0, 5);
-  }, [report, accountById]);
+  }, [report, accountById, t]);
 
   const recentTx = (recent?.items ?? []).slice(0, 6);
   const expense = report?.totalExpense ?? [];
@@ -126,13 +131,13 @@ export default function FinanceOverviewPage() {
   return (
     <>
       <PageHeader
-        breadcrumb="Финансы"
-        title="Обзор"
-        description="Картина месяца одним экраном: остатки, лимиты и ближайшие платежи"
+        breadcrumb={t('breadcrumb')}
+        title={t('overview.title')}
+        description={t('overview.description')}
         actions={
           canEdit ? (
             <Button variant="primary" tone="success" icon="add" href={withBook('/finance/feed')}>
-              Записать
+              {t('feed.recordTitle')}
             </Button>
           ) : undefined
         }
@@ -142,7 +147,7 @@ export default function FinanceOverviewPage() {
         {/* ---------- Ряд показателей ---------- */}
         <StatTile
           span={4}
-          label="На счетах"
+          label={t('accounts.totalLabel')}
           value={<MoneyStack sums={totals} />}
           icon="savings"
           tone="accent"
@@ -150,7 +155,7 @@ export default function FinanceOverviewPage() {
         />
         <StatTile
           span={4}
-          label={`Расходы · ${monthName}`}
+          label={`${t('categories.expense')} · ${monthName}`}
           value={<MoneyStack sums={expense} sign="−" tone="danger" />}
           icon="trendDown"
           tone={expense.length ? 'danger' : 'neutral'}
@@ -158,7 +163,7 @@ export default function FinanceOverviewPage() {
         />
         <StatTile
           span={4}
-          label={`Доходы · ${monthName}`}
+          label={`${t('categories.income')} · ${monthName}`}
           value={<MoneyStack sums={income} sign="+" tone="success" />}
           icon="trendUp"
           tone={income.length ? 'success' : 'neutral'}
@@ -168,8 +173,12 @@ export default function FinanceOverviewPage() {
         {/* ---------- Ближайшие платежи ---------- */}
         <Card span={6}>
           <CardHeader
-            title="Ближайшие платежи"
-            actions={<Button variant="ghost" size="sm" href={withBook('/finance/debts')} iconRight="caretRight">Долги</Button>}
+            title={t('overview.upcoming')}
+            actions={
+              <Button variant="ghost" size="sm" href={withBook('/finance/debts')} iconRight="caretRight">
+                {t('debts.title')}
+              </Button>
+            }
           />
           {upcoming.length > 0 ? (
             <FinList>
@@ -188,11 +197,13 @@ export default function FinanceOverviewPage() {
           ) : (
             <EmptyState
               icon="calendarCheck"
-              title="Платежей не намечается"
-              description="Рассрочки и подписки появятся здесь — из «Долгов» и «Повторов»."
+              title={t('overview.noUpcoming')}
+              description={t('overview.noUpcomingHint')}
               action={
                 canEdit ? (
-                  <Button variant="matte" size="sm" icon="debt" href={withBook('/finance/debts')}>Добавить долг</Button>
+                  <Button variant="matte" size="sm" icon="debt" href={withBook('/finance/debts')}>
+                    {t('debts.add')}
+                  </Button>
                 ) : undefined
               }
             />
@@ -202,8 +213,12 @@ export default function FinanceOverviewPage() {
         {/* ---------- Лимиты месяца ---------- */}
         <Card span={6}>
           <CardHeader
-            title="Лимиты месяца"
-            actions={<Button variant="ghost" size="sm" href={withBook('/finance/reports')} iconRight="caretRight">Отчёты</Button>}
+            title={t('overview.budgets')}
+            actions={
+              <Button variant="ghost" size="sm" href={withBook('/finance/reports')} iconRight="caretRight">
+                {t('reports.title')}
+              </Button>
+            }
           />
           {budgets.length > 0 ? (
             <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
@@ -214,7 +229,10 @@ export default function FinanceOverviewPage() {
                     <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.375rem' }}>
                       <span className="title-sm">{b.name}</span>
                       <span className="label-sm" style={{ color: over ? 'var(--danger)' : undefined, fontWeight: over ? 700 : undefined }}>
-                        {formatMoney(b.spent, b.currencyCode)} из {formatMoney(b.amount, b.currencyCode)}
+                        {t('report.spentOf', {
+                          spent: formatMoney(b.spent, b.currencyCode),
+                          limit: formatMoney(b.amount, b.currencyCode),
+                        })}
                       </span>
                     </div>
                     <BudgetBar spent={b.spent} amount={b.amount} />
@@ -225,11 +243,13 @@ export default function FinanceOverviewPage() {
           ) : (
             <EmptyState
               icon="target"
-              title="Лимитов пока нет"
-              description={canEdit ? 'Задайте лимит категории в «Отчётах» — предупредим при 80% и 100%.' : 'Владелец книги ещё не задал лимиты.'}
+              title={t('overview.noBudgets')}
+              description={t(canEdit ? 'overview.noBudgetsHint' : 'overview.noBudgetsViewer')}
               action={
                 canEdit ? (
-                  <Button variant="matte" size="sm" icon="chart" href={withBook('/finance/reports')}>Открыть отчёты</Button>
+                  <Button variant="matte" size="sm" icon="chart" href={withBook('/finance/reports')}>
+                    {t('overview.openReports')}
+                  </Button>
                 ) : undefined
               }
             />
@@ -239,14 +259,18 @@ export default function FinanceOverviewPage() {
         {/* ---------- Последние операции ---------- */}
         <Card span={12}>
           <CardHeader
-            title="Последние операции"
-            actions={<Button variant="ghost" size="sm" href={withBook('/finance/feed')} iconRight="caretRight">Вся лента</Button>}
+            title={t('overview.recent')}
+            actions={
+              <Button variant="ghost" size="sm" href={withBook('/finance/feed')} iconRight="caretRight">
+                {t('overview.wholeFeed')}
+              </Button>
+            }
           />
           {recentTx.length > 0 ? (
             <div className="density-compact">
               <FinList>
                 {recentTx.map((tx) => {
-                  const p = txPresentation(tx, accountById);
+                  const p = txPresentation(tx, accountById, t);
                   return (
                     <FinRow
                       key={tx.id}
@@ -265,11 +289,13 @@ export default function FinanceOverviewPage() {
           ) : (
             <EmptyState
               icon="receipt"
-              title="Пока пусто"
-              description="Запишите первую трату — и лента месяца оживёт."
+              title={t('coins.feedEmptyTitle')}
+              description={t('overview.emptyFeedHint')}
               action={
                 canEdit ? (
-                  <Button variant="primary" tone="success" icon="add" href={withBook('/finance/feed')}>Записать</Button>
+                  <Button variant="primary" tone="success" icon="add" href={withBook('/finance/feed')}>
+                    {t('feed.recordTitle')}
+                  </Button>
                 ) : undefined
               }
             />

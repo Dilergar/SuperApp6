@@ -4,19 +4,11 @@ import * as path from 'node:path';
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 import * as fontkitNs from '@pdf-lib/fontkit';
 import * as QRCode from 'qrcode';
-import {
-  SIGN_FILE_PROFILES,
-  SIGN_LEVEL_LABELS,
-  SIGN_METHOD_LABELS,
-  SIGN_REQUEST_REF_TYPE,
-  maskIin,
-  maskPhone,
-  signCheckUrl,
-  type SignLevel,
-  type SignMethod,
-} from '@superapp/shared';
+import { SIGN_FILE_PROFILES, SIGN_REQUEST_REF_TYPE, maskIin, maskPhone, signCheckUrl } from '@superapp/shared';
+import type { Formatters, Locale, Translator } from '@superapp/i18n';
 import type { SignAct as PrismaSignAct, SignRequest as PrismaSignRequest } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { FilesService } from '../files/files.service';
 import { JobDiscardError } from '../jobs/jobs.registry';
 import { withTempFile } from '../../shared/fs/temp-file.util';
@@ -49,7 +41,19 @@ export class SignStampService {
   constructor(
     private readonly db: DatabaseService,
     private readonly files: FilesService,
+    private readonly i18n: I18nService,
   ) {}
+
+  /**
+   * Язык штампа — язык ОТПРАВИТЕЛЯ заявки (`User.locale` автора). У джоба
+   * запроса нет, а штамп ложится в базу файлом и идёт в бумажный оборот
+   * владельца документа: его языком он и говорит. Копия при этом объявлена
+   * пересобираемой витриной, поэтому смена языка автора здесь не катастрофа —
+   * доказательства (CMS, замороженная копия, протокол) от неё не зависят.
+   */
+  private words(locale: Locale): { t: Translator; f: Formatters } {
+    return { t: this.i18n.forLocale(locale), f: this.i18n.format(locale) };
+  }
 
   /**
    * Собрать штампованную копию заявки. Идемпотентно по `stampedFileId`; не-PDF
@@ -60,14 +64,14 @@ export class SignStampService {
       where: { id: requestId },
       include: { acts: { orderBy: { createdAt: 'asc' } } },
     });
-    if (!request) throw new JobDiscardError('заявка на подпись удалена');
+    if (!request) throw new JobDiscardError('the signing request is gone');
     if (request.status !== 'completed') return; // заявку успели закрыть иначе — штамповать нечего
     if (request.stampedFileId) {
       if (await this.fileAlive(request.stampedFileId)) return; // уже собрано (повтор джоба)
       // Файл забрала уборка (или он умер вместе с местом): указатель врёт —
       // `stamped.ready` обещает копию, которой нет. Обнуляем и пересобираем: штамп
       // и заявлен как пересобираемая витрина, а не как доказательство.
-      this.logger.warn(`заявка ${requestId}: штампованная копия исчезла — пересобираем`);
+      this.logger.warn(`request ${requestId}: the stamped copy is gone — rebuilding it`);
       await this.db.signRequest.updateMany({
         where: { id: request.id, stampedFileId: request.stampedFileId },
         data: { stampedFileId: null, stampedSha256: null },
@@ -78,11 +82,11 @@ export class SignStampService {
       where: { id: request.subjectFileId },
       select: { mime: true, name: true },
     });
-    if (!subject) throw new JobDiscardError('замороженная копия предмета исчезла');
+    if (!subject) throw new JobDiscardError('the frozen copy of the subject is gone');
     if (subject.mime !== PDF_MIME) {
       // Штампуется только PDF: предмет другого формата — не ошибка конвейера,
       // а свойство потребителя (дев-полигон морозит текст).
-      this.logger.log(`заявка ${requestId}: предмет ${subject.mime} — штамп не собирается`);
+      this.logger.log(`request ${requestId}: the subject is ${subject.mime} — no stamp is built`);
       return;
     }
 
@@ -96,18 +100,19 @@ export class SignStampService {
     try {
       pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
     } catch (e) {
-      throw new JobDiscardError(`PDF предмета не открывается: ${(e as Error).message}`);
+      throw new JobDiscardError(`the subject PDF cannot be opened: ${(e as Error).message}`);
     }
     pdf.registerFontkit(fontkit);
     const regular = await pdf.embedFont(fonts.regular, { subset: true });
     const bold = await pdf.embedFont(fonts.bold, { subset: true });
 
     const webUrl = (process.env.WEB_URL || 'http://localhost:3000').replace(/\/+$/, '');
-    this.stampPages(pdf, regular, request, signed, webUrl);
-    await this.appendSignaturesSheet(pdf, regular, bold, request, signed, webUrl);
+    const words = this.words(await this.i18n.localeOf(request.createdById));
+    this.stampPages(pdf, regular, request, signed, webUrl, words);
+    await this.appendSignaturesSheet(pdf, regular, bold, request, signed, webUrl, words);
 
     const out = Buffer.from(await pdf.save());
-    const name = `${request.refTitle} (подписано).pdf`.replace(/[\\/:*?"<>|]/g, '-');
+    const name = `${words.t('sign.stamp.fileName', { title: request.refTitle })}.pdf`.replace(/[\\/:*?"<>|]/g, '-');
     const file = await withTempFile(name, out, (filePath) =>
       this.files.ingestLocalFile({
         path: filePath,
@@ -155,13 +160,14 @@ export class SignStampService {
     request: PrismaSignRequest,
     signed: PrismaSignAct[],
     webUrl: string,
+    { t }: { t: Translator },
   ): void {
     const names = signed.map((a) => a.signerName).join(', ');
-    const line1 = this.fit(font, 6.5, `Документ подписан электронной подписью — ${names}`, 540);
+    const line1 = this.fit(font, 6.5, t('sign.stamp.band', { signers: names }), 540);
     const line2 = this.fit(
       font,
       6.5,
-      `SuperApp6 · SHA-256: ${request.subjectSha256} · Проверка: ${webUrl}/check`,
+      t('sign.stamp.bandCheck', { sha256: request.subjectSha256, url: `${webUrl}/check` }),
       540,
     );
     for (const page of pdf.getPages()) {
@@ -196,7 +202,9 @@ export class SignStampService {
     request: PrismaSignRequest,
     signed: PrismaSignAct[],
     webUrl: string,
+    { t, f }: { t: Translator; f: Formatters },
   ): Promise<void> {
+    const dash = t('common.labels.dash');
     const margin = 48;
     let page = pdf.addPage([A4.w, A4.h]);
     let y = A4.h - margin;
@@ -216,9 +224,9 @@ export class SignStampService {
       y -= opts.dy ?? size + 5;
     };
 
-    text('Лист подписей', { size: 16, font: bold, dy: 24 });
-    text(`Документ: ${request.refTitle}`, { size: 10.5 });
-    text('Отпечаток подписанного документа (SHA-256):', { size: 8.5, color: rgb(0.25, 0.25, 0.25) });
+    text(t('sign.stamp.sheetTitle'), { size: 16, font: bold, dy: 24 });
+    text(t('sign.stamp.document', { title: request.refTitle }), { size: 10.5 });
+    text(t('sign.stamp.fingerprint'), { size: 8.5, color: rgb(0.25, 0.25, 0.25) });
     text(request.subjectSha256, { size: 8.5, dy: 18 });
 
     for (const act of signed) {
@@ -238,29 +246,39 @@ export class SignStampService {
       const qrSize = 68;
 
       text(act.signerName, { size: 11, font: bold });
-      const method = act.method ? SIGN_METHOD_LABELS[act.method as SignMethod]?.title : null;
-      text(
-        `${SIGN_LEVEL_LABELS[act.level as SignLevel].full}${method ? ` · ${method}` : ''}`,
-        { size: 8.5, color: rgb(0.2, 0.2, 0.2) },
-      );
+      const method = act.method ? t(`sign.method.${act.method}.title`) : null;
+      text(`${t(`sign.level.${act.level}.full`)}${method ? ` · ${method}` : ''}`, {
+        size: 8.5,
+        color: rgb(0.2, 0.2, 0.2),
+      });
       if (act.certSubjectIin) {
-        text(`ИИН: ${maskIin(act.certSubjectIin)}${act.certSubjectBin ? ` · БИН: ${act.certSubjectBin}` : ''}`, {
-          size: 8.5,
-        });
         text(
-          `Сертификат: ${act.certSerial ?? '—'} · Издатель: ${act.certIssuerCn ?? '—'}`,
+          `${t('sign.stamp.iin', { iin: maskIin(act.certSubjectIin) ?? dash })}${
+            act.certSubjectBin ? ` · ${t('sign.stamp.bin', { bin: act.certSubjectBin })}` : ''
+          }`,
+          { size: 8.5 },
+        );
+        text(
+          t('sign.stamp.certLine', { serial: act.certSerial ?? dash, issuer: act.certIssuerCn ?? dash }),
           { size: 8.5, color: rgb(0.2, 0.2, 0.2) },
         );
         text(
-          `Цепочка: ${act.chainValid ? 'подтверждена' : 'НЕ подтверждена'} · OCSP на момент подписания: ${act.ocspStatus ?? '—'}`,
+          t('sign.stamp.chainLine', {
+            chain: t(act.chainValid ? 'sign.protocol.chainOk' : 'sign.protocol.chainBad'),
+            ocsp: act.ocspStatus ?? dash,
+          }),
           { size: 8.5, color: rgb(0.2, 0.2, 0.2) },
         );
       } else {
-        text(`Простая электронная подпись — код подтверждён на номер ${maskPhone(act.signerPhone ?? '') || '—'}`, {
-          size: 8.5,
-        });
+        text(t('sign.stamp.pepLine', { phone: maskPhone(act.signerPhone ?? '') || dash }), { size: 8.5 });
       }
-      text(`Время подписания: ${this.fmt(act.tspAt ?? act.signedAt)}`, { size: 8.5 });
+      const signedAt = act.tspAt ?? act.signedAt;
+      text(
+        t('sign.stamp.signedAt', {
+          at: signedAt ? f.dateTime(signedAt, 'short', { seconds: true }) : dash,
+        }),
+        { size: 8.5 },
+      );
 
       // QR справа от блока — ведёт на публичную проверку ИМЕННО этого акта
       page.drawImage(qrImage, {
@@ -285,14 +303,11 @@ export class SignStampService {
       page = pdf.addPage([A4.w, A4.h]);
       y = A4.h - margin;
     }
-    text(
-      `Проверка подписи: ${webUrl}/check — файл не покидает браузер, сверяется только его отпечаток (ст. 61 Цифрового кодекса РК).`,
-      { size: 8, color: rgb(0.3, 0.3, 0.3) },
-    );
-    text(
-      'Это штампованная копия для чтения и печати. Юридические доказательства — контейнеры подписи в экспортном пакете.',
-      { size: 8, color: rgb(0.3, 0.3, 0.3) },
-    );
+    text(t('sign.stamp.footerCheck', { url: `${webUrl}/check` }), {
+      size: 8,
+      color: rgb(0.3, 0.3, 0.3),
+    });
+    text(t('sign.stamp.footerNotice'), { size: 8, color: rgb(0.3, 0.3, 0.3) });
   }
 
   // ============================================================
@@ -308,15 +323,6 @@ export class SignStampService {
       out = out.slice(0, -1);
     }
     return `${out}…`;
-  }
-
-  private fmt(d: Date | null): string {
-    if (!d) return '—';
-    return new Intl.DateTimeFormat('ru-RU', {
-      dateStyle: 'short',
-      timeStyle: 'medium',
-      timeZone: process.env.APP_TIMEZONE || 'Asia/Almaty',
-    }).format(d);
   }
 
   /** Файл ещё жив (не прибран уборкой) — иначе указатель на него врёт */
@@ -359,6 +365,6 @@ export class SignStampService {
       }
     }
     // Без кириллического шрифта штамп выйдет кракозябрами — честный отказ без ретраев
-    throw new JobDiscardError('шрифты PT Serif (infra/pdf-fonts) не найдены — штамп не собрать');
+    throw new JobDiscardError('the PT Serif fonts (infra/pdf-fonts) are missing — the stamp cannot be built');
   }
 }

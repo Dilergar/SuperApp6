@@ -7,9 +7,10 @@ export const OFFICE_ROOM_KINDS = ['meeting', 'channel'] as const;
 export const OFFICE_ROOM_STATUSES = ['active', 'ended'] as const;
 export const OFFICE_ROOM_ROLES = ['host', 'participant'] as const;
 
-export const OFFICE_ROOM_ROLE_LABELS: Record<(typeof OFFICE_ROOM_ROLES)[number], string> = {
-  host: 'Организатор',
-  participant: 'Участник',
+/** Ключи каталога: слово подбирает тот, кто рисует его человеку (язык зрителя). */
+export const OFFICE_ROOM_ROLE_LABEL_KEYS: Record<(typeof OFFICE_ROOM_ROLES)[number], string> = {
+  host: 'office.role.host',
+  participant: 'office.role.participant',
 };
 
 export const OFFICE_LIMITS = {

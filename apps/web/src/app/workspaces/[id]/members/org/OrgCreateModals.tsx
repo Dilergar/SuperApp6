@@ -6,6 +6,7 @@
 // ============================================================
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useMutation } from '@tanstack/react-query';
 import type { OrgChartDto } from '@superapp/shared';
 import { Button, GlyphField, Input, Modal, Select } from '@/components/ui';
@@ -36,6 +37,8 @@ export function CreateDepartmentModal({
 }: {
   workspaceId: string; chart: OrgChartDto; open: boolean; onClose: () => void; onCreated: (sel: OrgSelection) => void;
 }) {
+  const t = useTranslations('staff');
+  const tc = useTranslations('common');
   const refresh = useOrgRefresh(workspaceId);
   const { options: deptChoices, canRoot, fallback } = useDeptChoices(chart);
   const [name, setName] = useState('');
@@ -51,29 +54,29 @@ export function CreateDepartmentModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="Новый отдел"
+      title={t('org.newDepartment')}
       size="sm"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Отмена</Button>
-          <Button variant="primary" tone="success" icon="add" disabled={!name.trim()} loading={create.isPending} onClick={() => create.mutate()}>Создать</Button>
+          <Button variant="ghost" onClick={onClose}>{tc('actions.cancel')}</Button>
+          <Button variant="primary" tone="success" icon="add" disabled={!name.trim()} loading={create.isPending} onClick={() => create.mutate()}>{tc('actions.create')}</Button>
         </>
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
-        <Input label="Название" value={name} onChange={(e) => setName(e.target.value)} placeholder="Финансовый отдел" maxLength={100} required autoFocus />
+        <Input label={tc('labels.name')} value={name} onChange={(e) => setName(e.target.value)} placeholder={t('org.departmentPlaceholder')} maxLength={100} required autoFocus />
         <Select
-          label="Родительский отдел"
+          label={t('org.parentDepartment')}
           value={parentId}
           onChange={setParentId}
-          options={canRoot ? [{ value: NONE, label: 'Без родителя (верхний уровень)' }, ...deptChoices] : deptChoices}
+          options={canRoot ? [{ value: NONE, label: t('org.noParent') }, ...deptChoices] : deptChoices}
         />
         {!canRoot && (
-          <p className="label-sm" style={{ margin: '-0.5rem 0 0' }}>Отдел верхнего уровня заводит Менеджер и выше — вам доступны подотделы своей ветки.</p>
+          <p className="label-sm" style={{ margin: '-0.5rem 0 0' }}>{t('org.topLevelHint')}</p>
         )}
         <div>
-          <div className="ui-field-label label-caps" style={{ marginBottom: '0.375rem' }}>Руководитель (должность, необязательно)</div>
-          <EntitySelector value={head} onChange={setHead} types={['position']} multi={false} options={positionOptions} placeholder="Кто руководит отделом…" context={{ workspaceId }} />
+          <div className="ui-field-label label-caps" style={{ marginBottom: '0.375rem' }}>{t('org.headOptional')}</div>
+          <EntitySelector value={head} onChange={setHead} types={['position']} multi={false} options={positionOptions} placeholder={t('org.whoLeadsDepartment')} context={{ workspaceId }} />
         </div>
       </div>
     </Modal>
@@ -86,6 +89,8 @@ export function CreatePositionModal({
   workspaceId: string; chart: OrgChartDto; open: boolean; onClose: () => void; onCreated: (sel: OrgSelection) => void;
   defaultDepartmentId?: string | null;
 }) {
+  const t = useTranslations('staff');
+  const tc = useTranslations('common');
   const refresh = useOrgRefresh(workspaceId);
   const { options: deptChoices, canRoot, fallback } = useDeptChoices(chart);
   const [name, setName] = useState('');
@@ -103,12 +108,12 @@ export function CreatePositionModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="Новая должность"
+      title={t('org.newPosition')}
       size="sm"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Отмена</Button>
-          <Button variant="primary" tone="success" icon="add" disabled={!name.trim()} loading={create.isPending} onClick={() => create.mutate()}>Создать</Button>
+          <Button variant="ghost" onClick={onClose}>{tc('actions.cancel')}</Button>
+          <Button variant="primary" tone="success" icon="add" disabled={!name.trim()} loading={create.isPending} onClick={() => create.mutate()}>{tc('actions.create')}</Button>
         </>
       }
     >
@@ -116,21 +121,21 @@ export function CreatePositionModal({
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end' }}>
           <GlyphField value={glyph} onChange={setGlyph} suggest={name} size={40} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <Input label="Название" value={name} onChange={(e) => setName(e.target.value)} placeholder="Менеджер по продажам" maxLength={100} required autoFocus />
+            <Input label={tc('labels.name')} value={name} onChange={(e) => setName(e.target.value)} placeholder={t('org.positionPlaceholder')} maxLength={100} required autoFocus />
           </div>
         </div>
         <Select
-          label="Отдел"
+          label={t('term.department')}
           value={deptId}
           onChange={setDeptId}
-          options={canRoot ? [{ value: NONE, label: 'Без отдела' }, ...deptChoices] : deptChoices}
+          options={canRoot ? [{ value: NONE, label: t('org.noDepartment') }, ...deptChoices] : deptChoices}
         />
         {!canRoot && (
-          <p className="label-sm" style={{ margin: '-0.5rem 0 0' }}>Должность вне отделов заводит Менеджер и выше — выберите отдел своей ветки.</p>
+          <p className="label-sm" style={{ margin: '-0.5rem 0 0' }}>{t('org.positionTopLevelHint')}</p>
         )}
         <div>
-          <div className="ui-field-label label-caps" style={{ marginBottom: '0.375rem' }}>Подчиняется (необязательно)</div>
-          <EntitySelector value={reportsTo} onChange={setReportsTo} types={['position']} multi={false} options={positionOptions} placeholder="По структуре — руководитель отдела или объекта" context={{ workspaceId }} />
+          <div className="ui-field-label label-caps" style={{ marginBottom: '0.375rem' }}>{t('org.reportsToOptional')}</div>
+          <EntitySelector value={reportsTo} onChange={setReportsTo} types={['position']} multi={false} options={positionOptions} placeholder={t('org.reportsToPlaceholder')} context={{ workspaceId }} />
         </div>
       </div>
     </Modal>

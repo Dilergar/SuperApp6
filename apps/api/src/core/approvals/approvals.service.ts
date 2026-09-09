@@ -1,11 +1,4 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  Logger,
-  NotFoundException,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   approvalHref,
@@ -13,8 +6,8 @@ import {
   APPROVAL_KIND_DECISIONS,
   APPROVAL_LIMITS,
   APPROVAL_DECISIONS_NEEDING_COMMENT,
-  APPROVAL_REQUEST_STATUS_LABELS,
-  APPROVAL_STEP_KIND_LABELS,
+  APPROVAL_STEP_KIND_META,
+  SOURCE_LOCALE,
   SIGN_APPROVAL_NEEDS_SIGNATURE,
   INBOX_SOURCE_KEYS,
   TEAM_WORKSPACE_ROLES,
@@ -36,6 +29,8 @@ import {
   type InboxCountDto,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
+import { ApiError, badRequest, forbidden, notFound, type ErrorParams } from '../../shared/errors/api-error';
 import { AccessService } from '../access/access.service';
 import { AudiencesService } from '../audiences/audiences.service';
 import { JobsService } from '../jobs/jobs.service';
@@ -53,9 +48,12 @@ type Tx = Prisma.TransactionClient;
 /** Контекст роли в организации (роли живут в UserRole — единый источник) */
 const WS_CONTEXT = 'workspace';
 
-/** Ошибка движка с машинным кодом в `details.code` — клиент ветвится по нему, не по тексту */
-function coded(message: string, code: string): BadRequestException {
-  return new BadRequestException({ message, details: { code } });
+/**
+ * Ошибка движка: слова берёт КАТАЛОГ по ключу, а машинный код остаётся прежним
+ * и уезжает в `details.code` — клиент ветвится по нему, не по тексту.
+ */
+function coded(key: string, code: string, params?: ErrorParams): ApiError {
+  return badRequest(key, params, { code });
 }
 
 /**
@@ -81,7 +79,25 @@ export class ApprovalsService implements OnModuleInit {
     private readonly jobs: JobsService,
     private readonly notifications: NotificationsService,
     private readonly audiences: AudiencesService,
+    private readonly i18n: I18nService,
   ) {}
+
+  /**
+   * Слово в языке ИСТОЧНИКА — для снимков, которые ложатся в БД (плейсхолдеры
+   * уведомлений): их перерисовывает адресат, но фолбэк обязан быть читаемым.
+   */
+  private src(key: string): string {
+    return this.i18n.translateFor(SOURCE_LOCALE, key);
+  }
+
+  /** Подписи вида шага в нужном языке (по умолчанию — язык запроса). */
+  private kindLabels(kind: ApprovalStepKind, locale?: typeof SOURCE_LOCALE) {
+    const t = (part: string) =>
+      locale
+        ? this.i18n.translateFor(locale, `approvals.kind.${kind}.${part}`)
+        : this.i18n.translate(`approvals.kind.${kind}.${part}`);
+    return { action: t('action'), waiting: t('waiting'), done: t('done') };
+  }
 
   /**
    * Движок регистрирует СЕБЯ первым источником стопки. Дальше рядом встанут очереди
@@ -90,7 +106,7 @@ export class ApprovalsService implements OnModuleInit {
    */
   onModuleInit(): void {
     this.registry.registerSource(INBOX_SOURCE_KEYS.approval, {
-      label: 'Согласования',
+      labelKey: 'approvals.sourceLabel',
       count: (userId, scope) => this.countPending(userId, scope),
       list: (userId, limit, scope) => this.listPending(userId, limit, scope),
     });
@@ -111,10 +127,10 @@ export class ApprovalsService implements OnModuleInit {
     origin?: { type: string; ref: string },
   ): Promise<ApprovalRequestDto> {
     const provider = this.registry.get(dto.refType);
-    if (!provider) throw new NotFoundException(`Тип «${dto.refType}» не зарегистрирован в согласованиях`);
+    if (!provider) throw notFound('approval.refTypeNotRegistered', { type: dto.refType });
 
     const ctx = await provider.describeForCreate(userId, dto.refId);
-    if (!ctx) throw new NotFoundException('Объект не найден');
+    if (!ctx) throw notFound('approval.subjectNotFound');
 
     // Группы очерёдности нормализуем в 0,1,2…: автор маршрута мог расставить 10/20/30,
     // и «следующая группа» должна находиться по порядку, а не по арифметике его чисел.
@@ -146,7 +162,7 @@ export class ApprovalsService implements OnModuleInit {
     // Позвать адресатов ПЕРВОЙ группы. Только после коммита: уведомление не имеет
     // права ни уронить создание заявки, ни уйти по откатившейся транзакции.
     await this.announce(requestId).catch((err) =>
-      this.logger.error(`оповещение по заявке ${requestId}: ${(err as Error).message}`),
+      this.logger.error(`Notifying about request ${requestId} failed: ${(err as Error).message}`),
     );
 
     return this.get(userId, requestId);
@@ -189,7 +205,9 @@ export class ApprovalsService implements OnModuleInit {
             requestId: request.id,
             order: step.order,
             kind: step.kind,
-            title: step.title ?? APPROVAL_STEP_KIND_LABELS[step.kind].action,
+            // Заголовок шага ложится В БД: если маршрут его не назвал, пишем
+            // подпись вида шага в языке ИСТОЧНИКА.
+            title: step.title ?? this.src(`approvals.kind.${step.kind}.action`),
             assigneeType: step.assigneeType,
             assigneeId: step.assigneeId,
             assigneeLabel: await this.labelOf(step.assigneeType, step.assigneeId, ctx.workspaceId),
@@ -238,10 +256,7 @@ export class ApprovalsService implements OnModuleInit {
       // шага — понятным текстом (его решение откатывается вместе с транзакцией,
       // и маршрут остаётся согласованным).
       if (awaiting.length === 0) {
-        throw coded(
-          `Шаг «${step.title}» никому не адресован: адресат пуст или не существует — исправьте маршрут`,
-          APPROVAL_ERROR_CODES.emptyAssignees,
-        );
+        throw coded('approval.emptyAssignees', APPROVAL_ERROR_CODES.emptyAssignees, { title: step.title });
       }
       const deadlineAt = step.dueHours ? new Date(now.getTime() + step.dueHours * 3_600_000) : null;
 
@@ -354,7 +369,11 @@ export class ApprovalsService implements OnModuleInit {
               .send(tx, {
                 type: 'approval.unassigned',
                 to: [{ userId: step.request.createdById }],
-                payload: { refTitle: step.request.refTitle, stepTitle: step.title, assigneeLabel: step.assigneeLabel ?? 'адресату' },
+                payload: {
+                  refTitle: step.request.refTitle,
+                  stepTitle: step.title,
+                  assigneeLabel: step.assigneeLabel ?? this.src('approvals.toAssignee'),
+                },
                 ref: { type: 'approval_request', id: step.requestId },
                 workspaceId: step.request.workspaceId,
                 reason: 'owner',
@@ -384,7 +403,7 @@ export class ApprovalsService implements OnModuleInit {
         // Ошибка одного шага (например, следующая группа разворачивается в никого)
         // не должна остановить каскад увольнения: транзакция шага откатилась,
         // остальное продолжаем. Заявку в тупике закроют отменой.
-        this.logger.warn(`releaseUserFromWorkspaceSteps: шаг ${id} — ${(e as Error).message}`);
+        this.logger.warn(`releaseUserFromWorkspaceSteps: step ${id} — ${(e as Error).message}`);
       }
     }
 
@@ -396,7 +415,7 @@ export class ApprovalsService implements OnModuleInit {
       if (!source.releaseUser) continue;
       await source
         .releaseUser(userId, workspaceId)
-        .catch((e) => this.logger.warn(`releaseUser источника ${key}: ${(e as Error).message}`));
+        .catch((e) => this.logger.warn(`releaseUser of source ${key}: ${(e as Error).message}`));
     }
   }
 
@@ -430,10 +449,9 @@ export class ApprovalsService implements OnModuleInit {
       { max: APPROVAL_LIMITS.maxSnapshotSize + 1, onOverflow: 'truncate', allowedKinds: APPROVAL_ASSIGNEE_TYPES },
     );
     if (ids.length > APPROVAL_LIMITS.maxSnapshotSize) {
-      throw coded(
-        `Адресатов больше потолка (${APPROVAL_LIMITS.maxSnapshotSize}): у шага «каждый» состав фиксируется поимённо. Для массовых ознакомлений используйте кампании КЭДО`,
-        APPROVAL_ERROR_CODES.snapshotTooBig,
-      );
+      throw coded('approval.snapshotTooBig', APPROVAL_ERROR_CODES.snapshotTooBig, {
+        max: APPROVAL_LIMITS.maxSnapshotSize,
+      });
     }
     return ids;
   }
@@ -473,51 +491,41 @@ export class ApprovalsService implements OnModuleInit {
       where: { id: stepId },
       include: { request: true },
     });
-    if (!step) throw new NotFoundException('Шаг не найден');
+    if (!step) throw notFound('approval.stepNotFound');
     if (step.request.status !== 'pending' || step.status !== 'active') {
-      throw coded('Решение по этому шагу уже не требуется', APPROVAL_ERROR_CODES.stepNotActive);
+      throw coded('approval.stepNotActive', APPROVAL_ERROR_CODES.stepNotActive);
     }
 
     // Адресность решает СНИМОК, а не текущее членство: он и есть зафиксированный
     // список тех, кого спросили.
     if (!step.awaitingUserIds.includes(userId)) {
-      throw new ForbiddenException({
-        message: 'Решение выносит адресат шага',
-        details: { code: APPROVAL_ERROR_CODES.notAssignee },
-      });
+      throw forbidden('approval.notAssignee', undefined, { code: APPROVAL_ERROR_CODES.notAssignee });
     }
 
     // Снимок фиксируется при активации и про увольнение ничего не знает: без этой
     // сверки человек, уволенный в тот же день, открывал уведомление и подписывал
     // приказ бывшего работодателя — документ, который через сервис уже не откроет.
     if (step.request.workspaceId && !(await this.isTeamMember(this.db, userId, step.request.workspaceId))) {
-      throw new ForbiddenException({
-        message: 'Вы больше не работаете в этой организации',
-        details: { code: APPROVAL_ERROR_CODES.notAssignee },
-      });
+      throw forbidden('approval.notEmployed', undefined, { code: APPROVAL_ERROR_CODES.notAssignee });
     }
 
     const allowed = APPROVAL_KIND_DECISIONS[step.kind as ApprovalStepKind] ?? [];
     if (!allowed.includes(dto.decision)) {
-      throw coded(
-        `На шаге «${APPROVAL_STEP_KIND_LABELS[step.kind as ApprovalStepKind].waiting}» такой исход недоступен`,
-        APPROVAL_ERROR_CODES.decisionNotAllowed,
-      );
+      throw coded('approval.decisionNotAllowed', APPROVAL_ERROR_CODES.decisionNotAllowed, {
+        waiting: this.i18n.translate(`approvals.kind.${step.kind}.waiting`),
+      });
     }
 
     const comment = dto.comment?.trim() || null;
     if (APPROVAL_DECISIONS_NEEDING_COMMENT.includes(dto.decision) && !comment) {
-      throw coded('Укажите причину', APPROVAL_ERROR_CODES.commentRequired);
+      throw coded('approval.commentRequired', APPROVAL_ERROR_CODES.commentRequired);
     }
 
     // Шаг требует НАСТОЯЩЕЙ подписи — обычный клик его не закрывает никогда.
     // Проверка стоит ЗДЕСЬ, а не в интерфейсе: кнопку можно не нажимать, а
     // HTTP-запрос отправить, и тогда приказ оказался бы «подписан» нажатием.
     if (step.requiredSignatureKind) {
-      throw coded(
-        'Этот шаг закрывается электронной подписью, а не нажатием кнопки',
-        SIGN_APPROVAL_NEEDS_SIGNATURE,
-      );
+      throw coded('approval.needsSignature', SIGN_APPROVAL_NEEDS_SIGNATURE);
     }
 
     // Отпечаток предмета берём У ПОТРЕБИТЕЛЯ и пишем в решение: без него подпись
@@ -544,7 +552,7 @@ export class ApprovalsService implements OnModuleInit {
     );
 
     await this.announce(step.requestId).catch((err) =>
-      this.logger.error(`оповещение по заявке ${step.requestId}: ${(err as Error).message}`),
+      this.logger.error(`Notifying about request ${step.requestId} failed: ${(err as Error).message}`),
     );
 
     // Решение записано — потребителю, для которого оно юридический факт
@@ -590,15 +598,12 @@ export class ApprovalsService implements OnModuleInit {
     },
   ): Promise<void> {
     const step = await tx.approvalStep.findUnique({ where: { id: stepId }, include: { request: true } });
-    if (!step) throw new NotFoundException('Шаг не найден');
+    if (!step) throw notFound('approval.stepNotFound');
     if (step.request.status !== 'pending' || step.status !== 'active') {
-      throw coded('Решение по этому шагу уже не требуется', APPROVAL_ERROR_CODES.stepNotActive);
+      throw coded('approval.stepNotActive', APPROVAL_ERROR_CODES.stepNotActive);
     }
     if (!step.awaitingUserIds.includes(userId)) {
-      throw new ForbiddenException({
-        message: 'Решение выносит адресат шага',
-        details: { code: APPROVAL_ERROR_CODES.notAssignee },
-      });
+      throw forbidden('approval.notAssignee', undefined, { code: APPROVAL_ERROR_CODES.notAssignee });
     }
     // Та же сверка, что и на обычном пути решения, и по той же причине: снимок
     // адресатов про увольнение ничего не знает. Проверить членство ОДИН РАЗ при
@@ -606,28 +611,21 @@ export class ApprovalsService implements OnModuleInit {
     // подпись живёт до 30 суток, и уволенный за это время сотрудник закрывал бы
     // шаг бывшего работодателя своей подписью, обратившись к ручкам акта напрямую.
     if (step.request.workspaceId && !(await this.isTeamMember(tx, userId, step.request.workspaceId))) {
-      throw new ForbiddenException({
-        message: 'Вы больше не работаете в этой организации',
-        details: { code: APPROVAL_ERROR_CODES.notAssignee },
-      });
+      throw forbidden('approval.notEmployed', undefined, { code: APPROVAL_ERROR_CODES.notAssignee });
     }
     // Исход должен быть допустим для ВИДА шага — инвариант общий с обычным путём:
     // от ознакомления отказа не предусмотрено, и подпись не может внести его в обход.
     const allowed = APPROVAL_KIND_DECISIONS[step.kind as ApprovalStepKind] ?? [];
     if (!allowed.includes(input.decision)) {
-      throw coded(
-        `На шаге «${APPROVAL_STEP_KIND_LABELS[step.kind as ApprovalStepKind].waiting}» такой исход недоступен`,
-        APPROVAL_ERROR_CODES.decisionNotAllowed,
-      );
+      throw coded('approval.decisionNotAllowed', APPROVAL_ERROR_CODES.decisionNotAllowed, {
+        waiting: this.i18n.translate(`approvals.kind.${step.kind}.waiting`),
+      });
     }
     // Требование шага — минимальная планка. `ecp` строго сильнее `sms` (ст. 49 ЦК),
     // поэтому квалифицированная подпись закрывает и тот шаг, где хватало простой;
     // наоборот — нет, и это ровно та ошибка, ради которой поле и заведено.
     if (step.requiredSignatureKind === 'ecp' && input.signatureKind !== 'ecp') {
-      throw coded(
-        'Этот шаг закрывается только квалифицированной электронной подписью',
-        SIGN_APPROVAL_NEEDS_SIGNATURE,
-      );
+      throw coded('approval.needsQes', SIGN_APPROVAL_NEEDS_SIGNATURE);
     }
 
     await this.applyDecision(tx, step, userId, {
@@ -681,24 +679,18 @@ export class ApprovalsService implements OnModuleInit {
     deadlineAt: Date | null;
   }> {
     const step = await this.db.approvalStep.findUnique({ where: { id: stepId }, include: { request: true } });
-    if (!step) throw new NotFoundException('Шаг не найден');
+    if (!step) throw notFound('approval.stepNotFound');
     if (step.request.status !== 'pending' || step.status !== 'active') {
-      throw coded('Решение по этому шагу уже не требуется', APPROVAL_ERROR_CODES.stepNotActive);
+      throw coded('approval.stepNotActive', APPROVAL_ERROR_CODES.stepNotActive);
     }
     if (!step.awaitingUserIds.includes(userId)) {
-      throw new ForbiddenException({
-        message: 'Подписывает адресат шага',
-        details: { code: APPROVAL_ERROR_CODES.notAssignee },
-      });
+      throw forbidden('approval.signerOnly', undefined, { code: APPROVAL_ERROR_CODES.notAssignee });
     }
     if (step.request.workspaceId && !(await this.isTeamMember(this.db, userId, step.request.workspaceId))) {
-      throw new ForbiddenException({
-        message: 'Вы больше не работаете в этой организации',
-        details: { code: APPROVAL_ERROR_CODES.notAssignee },
-      });
+      throw forbidden('approval.notEmployed', undefined, { code: APPROVAL_ERROR_CODES.notAssignee });
     }
     if (!step.requiredSignatureKind) {
-      throw coded('Этот шаг закрывается обычным решением, а не подписью', APPROVAL_ERROR_CODES.decisionNotAllowed);
+      throw coded('approval.notSignatureStep', APPROVAL_ERROR_CODES.decisionNotAllowed);
     }
     return {
       stepId: step.id,
@@ -781,7 +773,7 @@ export class ApprovalsService implements OnModuleInit {
       // Уникальный индекс (step, user) — единственная защита от двойного клика и
       // гонки: проверка в приложении здесь принципиально ненадёжна.
       if ((err as Prisma.PrismaClientKnownRequestError)?.code === 'P2002') {
-        throw coded('Вы уже вынесли решение по этому шагу', APPROVAL_ERROR_CODES.alreadyDecided);
+        throw coded('approval.alreadyDecided', APPROVAL_ERROR_CODES.alreadyDecided);
       }
       throw err;
     }
@@ -898,7 +890,7 @@ export class ApprovalsService implements OnModuleInit {
         to: [{ userId: request.createdById }],
         payload: {
           refTitle: request.refTitle,
-          outcomeLabel: APPROVAL_REQUEST_STATUS_LABELS[request.status as keyof typeof APPROVAL_REQUEST_STATUS_LABELS],
+          outcomeLabel: this.src(`approvals.status.${request.status}`),
           comment: last ? ((await this.lastComment(last.id)) ?? '') : '',
         },
         ref: { type: 'approval_request', id: request.id },
@@ -925,7 +917,6 @@ export class ApprovalsService implements OnModuleInit {
     workspaceId: string | null,
     step: { id: string; kind: string; title: string; awaitingUserIds: string[]; assigneeLabel: string | null; requestId: string },
   ): Promise<void> {
-    const labels = APPROVAL_STEP_KIND_LABELS[step.kind as ApprovalStepKind];
     const actionUrl = this.hrefFor(workspaceId, step.requestId);
 
     if (step.awaitingUserIds.length === 0) {
@@ -938,7 +929,11 @@ export class ApprovalsService implements OnModuleInit {
           .send(null, {
             type: 'approval.unassigned',
             to: [{ userId: request.createdById }],
-            payload: { refTitle, stepTitle: step.title, assigneeLabel: step.assigneeLabel ?? 'выбранной группе' },
+            payload: {
+            refTitle,
+            stepTitle: step.title,
+            assigneeLabel: step.assigneeLabel ?? this.src('approvals.toSelectedGroup'),
+          },
             ref: { type: 'approval_request', id: step.requestId },
             workspaceId,
             reason: 'owner',
@@ -955,7 +950,14 @@ export class ApprovalsService implements OnModuleInit {
       .send(null, {
         type: 'approval.requested',
         to: step.awaitingUserIds.map((uid) => ({ userId: uid })),
-        payload: { refTitle, stepTitle: step.title, actionLabel: labels.action },
+        // Глагол вида шага — КЛЮЧ, а не слово: уведомление живёт годами и
+        // рисуется в языке ЧИТАТЕЛЯ (`resolveLabelKeys` развернёт `actionLabel`).
+        // Снимок словом застыл бы в языке того, кто завёл заявку.
+        payload: {
+          refTitle,
+          stepTitle: step.title,
+          actionLabelKey: `approvals.kind.${step.kind}.action`,
+        },
         ref: { type: 'approval_request', id: step.requestId },
         workspaceId,
         reason: 'requested',
@@ -981,8 +983,8 @@ export class ApprovalsService implements OnModuleInit {
 
   async cancel(userId: string, requestId: string): Promise<void> {
     const request = await this.db.approvalRequest.findUnique({ where: { id: requestId } });
-    if (!request) throw new NotFoundException('Заявка не найдена');
-    if (request.createdById !== userId) throw new ForbiddenException('Отменить может только автор заявки');
+    if (!request) throw notFound('approval.requestNotFound');
+    if (request.createdById !== userId) throw forbidden('approval.cancelAuthorOnly');
     if (request.status !== 'pending') return;
     // Отзыв автором — ведущего БУДИМ: шаг маршрута, который ждал это решение, иначе
     // остаётся активным навсегда (решать его уже некому), а вместе с ним висит и
@@ -1091,14 +1093,14 @@ export class ApprovalsService implements OnModuleInit {
 
     const now = Date.now();
     return steps.map((step) => {
-      const labels = APPROVAL_STEP_KIND_LABELS[step.kind as ApprovalStepKind];
+      const labels = this.kindLabels(step.kind as ApprovalStepKind);
       const allowed = APPROVAL_KIND_DECISIONS[step.kind as ApprovalStepKind] ?? [];
       return {
         sourceKey: INBOX_SOURCE_KEYS.approval,
         id: step.id,
         title: step.request.refTitle,
         subtitle: step.title,
-        icon: step.request.refIcon ?? labels.icon,
+        icon: step.request.refIcon ?? APPROVAL_STEP_KIND_META[step.kind as ApprovalStepKind].icon,
         href: this.hrefFor(step.request.workspaceId, step.requestId),
         stepKind: step.kind as ApprovalStepKind,
         signRequirement: (step.requiredSignatureKind as ApprovalSignatureRequirement | null) ?? null,
@@ -1107,12 +1109,7 @@ export class ApprovalsService implements OnModuleInit {
         // «Согласовать» одним нажатием здесь было бы обманом.
         actions: (step.requiredSignatureKind ? [] : allowed).map((decision) => ({
           key: decision,
-          label:
-            decision === 'approved'
-              ? labels.action
-              : decision === 'rejected'
-                ? 'Отклонить'
-                : 'На доработку',
+          label: decision === 'approved' ? labels.action : this.i18n.translate(`approvals.decision.${decision}`),
           tone: decision === 'approved' ? 'primary' : decision === 'rejected' ? 'danger' : 'default',
           commentRequired: APPROVAL_DECISIONS_NEEDING_COMMENT.includes(decision),
         })),
@@ -1141,7 +1138,7 @@ export class ApprovalsService implements OnModuleInit {
         } catch (err) {
           // Упавший источник не имеет права обнулить всю стопку: остальные строки
           // человек увидит, а сбой попадёт в лог.
-          this.logger.error(`источник стопки "${key}": ${(err as Error).message}`);
+          this.logger.error(`Inbox source "${key}" failed: ${(err as Error).message}`);
           return { key, items: [] as InboxItemDto[] };
         }
       }),
@@ -1196,7 +1193,7 @@ export class ApprovalsService implements OnModuleInit {
         },
       },
     });
-    if (!request) throw new NotFoundException('Заявка не найдена');
+    if (!request) throw notFound('approval.requestNotFound');
 
     const participates =
       request.createdById === userId ||
@@ -1204,7 +1201,7 @@ export class ApprovalsService implements OnModuleInit {
 
     if (!participates) {
       const canView = await this.registry.get(request.refType)?.canView?.(userId, request.refId);
-      if (!canView) throw new NotFoundException('Заявка не найдена');
+      if (!canView) throw notFound('approval.requestNotFound');
     }
 
     const provider = this.registry.get(request.refType);
@@ -1297,10 +1294,14 @@ export class ApprovalsService implements OnModuleInit {
       const groups = [...new Set(r.steps.map((s) => s.order))];
       const stageLabel =
         r.status !== 'pending'
-          ? APPROVAL_REQUEST_STATUS_LABELS[r.status as keyof typeof APPROVAL_REQUEST_STATUS_LABELS]
+          ? this.i18n.translate(`approvals.status.${r.status}`)
           : active
-            ? `Шаг ${groups.indexOf(active.order) + 1} из ${groups.length} · ${APPROVAL_STEP_KIND_LABELS[active.kind as ApprovalStepKind].waiting}`
-            : 'Ждёт решения';
+            ? this.i18n.translate('approvals.summary.stepOf', {
+                index: groups.indexOf(active.order) + 1,
+                total: groups.length,
+                waiting: this.i18n.translate(`approvals.kind.${active.kind}.waiting`),
+              })
+            : this.i18n.translate('approvals.status.pending');
 
       return {
         id: r.id,

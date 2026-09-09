@@ -1,5 +1,3 @@
-import type { ListingItemType } from '../types/shop';
-
 export const SHOP_LIMITS = {
   maxShowcases: 50,
   maxListingsPerShowcase: 500,
@@ -14,8 +12,3 @@ export const SHOP_LIMITS = {
   maxWishItems: 200, // max items in a user's wishlist (P8)
   maxListingImages: 10, // фото в галерее лота (движок файлов, профиль listing_image)
 } as const;
-
-export const LISTING_ITEM_TYPE_LABELS: Record<ListingItemType, string> = {
-  material: 'Материальный',
-  nonmaterial: 'Нематериальный',
-};

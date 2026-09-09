@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
+import { badRequest } from '../../shared/errors/api-error';
 import { UsersService } from './users.service';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
 import { updateProfileSchema, changePasswordSchema, changePhoneSchema, maskLastName } from '@superapp/shared';
@@ -12,14 +13,14 @@ export class UsersController {
   constructor(private usersService: UsersService) {}
 
   @Get('me')
-  @ApiOperation({ summary: 'Получить профиль текущего пользователя' })
+  @ApiOperation({ summary: 'The current user profile' })
   async getProfile(@CurrentUser() user: JwtPayload) {
     const profile = await this.usersService.getProfile(user.sub);
     return { success: true, data: profile };
   }
 
   @Patch('me')
-  @ApiOperation({ summary: 'Обновить профиль' })
+  @ApiOperation({ summary: 'Update the profile' })
   async updateProfile(
     @CurrentUser() user: JwtPayload,
     @Body() body: unknown,
@@ -30,7 +31,7 @@ export class UsersController {
   }
 
   @Get('me/sessions')
-  @ApiOperation({ summary: 'Получить активные сессии' })
+  @ApiOperation({ summary: 'The active sessions' })
   async getSessions(@CurrentUser() user: JwtPayload) {
     const sessions = await this.usersService.getSessions(user.sub, user.sid);
     return { success: true, data: sessions };
@@ -38,7 +39,7 @@ export class UsersController {
 
   @Delete('me/sessions/:id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Завершить сессию' })
+  @ApiOperation({ summary: 'End a session' })
   async deleteSession(
     @CurrentUser() user: JwtPayload,
     @Param('id') sessionId: string,
@@ -50,7 +51,7 @@ export class UsersController {
   @Post('me/change-password')
   @HttpCode(HttpStatus.OK)
   @Throttle({ long: { limit: 5, ttl: 900000 } })
-  @ApiOperation({ summary: 'Сменить пароль (текущий пароль + SMS-код; другие сессии отзываются)' })
+  @ApiOperation({ summary: 'Change the password (the current password plus an SMS code; other sessions are revoked)' })
   async changePassword(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
     const data = changePasswordSchema.parse(body);
     const result = await this.usersService.changePassword(user.sub, data);
@@ -60,7 +61,7 @@ export class UsersController {
   @Post('me/change-phone')
   @HttpCode(HttpStatus.OK)
   @Throttle({ long: { limit: 5, ttl: 900000 } })
-  @ApiOperation({ summary: 'Сменить номер (пароль + SMS-код на старый + SMS-код на новый)' })
+  @ApiOperation({ summary: 'Change the phone number (password plus an SMS code to the old and to the new one)' })
   async changePhone(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
     const data = changePhoneSchema.parse(body);
     const result = await this.usersService.changePhone(user.sub, data);
@@ -71,14 +72,14 @@ export class UsersController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      'Запланировать удаление аккаунта (30 дней на восстановление через вход) — требует пароль',
+      'Schedule the account deletion (30 days to restore it by signing in) — requires the password',
   })
   async deleteAccount(
     @CurrentUser() user: JwtPayload,
     @Body() body: { password?: string },
   ) {
     if (!body?.password || typeof body.password !== 'string') {
-      throw new BadRequestException('Требуется текущий пароль для подтверждения');
+      throw badRequest('auth.passwordRequired');
     }
     return this.usersService.scheduleDeletion(user.sub, body.password);
   }
@@ -87,7 +88,7 @@ export class UsersController {
   // Dedicated cap: this endpoint answers "is this phone registered?" — without
   // its own limit an authed user could enumerate the user base at 200/min.
   @Throttle({ long: { limit: 30, ttl: 60 * 60 * 1000 } })
-  @ApiOperation({ summary: 'Найти пользователя по номеру телефона' })
+  @ApiOperation({ summary: 'Find a user by phone number' })
   async lookupByPhone(@Query('phone') phone: string) {
     if (!phone) return { success: true, data: null };
     const user = await this.usersService.findByPhone(phone);

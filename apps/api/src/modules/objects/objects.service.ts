@@ -1,10 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import {
   DEFAULT_SCHEDULE_SETTINGS,
@@ -13,6 +7,7 @@ import {
   OBJECTS_FULL_SCOPE_ROLES,
   OBJECTS_PAYROLL_FULL_ROLES,
   OBJECT_LIMITS,
+  SOURCE_LOCALE,
   WORKSPACE_ROLE_RANK,
   type CreateObjectInput,
   type ObjectCapsDto,
@@ -26,6 +21,8 @@ import {
   type LegalEntityLiteDto,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
+import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
 import { RolesService } from '../../core/roles/roles.service';
 import { AccessService } from '../../core/access/access.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
@@ -102,6 +99,7 @@ export class ObjectsService {
     private readonly files: FilesService,
     private readonly staff: StaffService,
     private readonly legal: LegalEntitiesService,
+    private readonly i18n: I18nService,
   ) {}
 
   // ============================================================
@@ -183,18 +181,18 @@ export class ObjectsService {
   ): Promise<{ branch: BranchRow; caps: ObjectCapsDto; scope: ObjectsScope }> {
     const sc = scope ?? (await this.scopeOf(userId, workspaceId));
     const branch = await this.db.staffBranch.findFirst({ where: { id: branchId, workspaceId } });
-    if (!branch) throw new NotFoundException('Объект не найден');
+    if (!branch) throw notFound('objects.notFound');
     const caps = this.capsFor(sc, branch);
-    if (!caps.view) throw new NotFoundException('Объект не найден');
+    if (!caps.view) throw notFound('objects.notFound');
     return { branch, caps, scope: sc };
   }
 
   assertManage(caps: ObjectCapsDto): void {
-    if (!caps.manage) throw new ForbiddenException('Это может только управляющий объектом');
+    if (!caps.manage) throw forbidden('objects.manageOnly');
   }
 
   assertSchedule(caps: ObjectCapsDto): void {
-    if (!caps.scheduleManage) throw new ForbiddenException('График ведёт управляющий объектом');
+    if (!caps.scheduleManage) throw forbidden('objects.scheduleManageOnly');
   }
 
   // ============================================================
@@ -232,7 +230,7 @@ export class ObjectsService {
    */
   async tree(userId: string, workspaceId: string, includeArchived: boolean): Promise<ObjectTreeDto> {
     const scope = await this.scopeOf(userId, workspaceId);
-    if (!scope.role || scope.role === 'contractor') throw new NotFoundException('Организация не найдена');
+    if (!scope.role || scope.role === 'contractor') throw notFound('workspace.notFound');
 
     const all = await this.db.staffBranch.findMany({
       where: { workspaceId, ...(includeArchived ? {} : { archivedAt: null }) },
@@ -320,7 +318,7 @@ export class ObjectsService {
     canCreate: boolean;
   }> {
     const scope = await this.scopeOf(userId, workspaceId);
-    if (!scope.role || scope.role === 'contractor') throw new NotFoundException('Организация не найдена');
+    if (!scope.role || scope.role === 'contractor') throw notFound('workspace.notFound');
     return {
       kinds: OBJECT_KINDS,
       limits: OBJECT_LIMITS,
@@ -340,7 +338,7 @@ export class ObjectsService {
   /** Мои объекты — те, где я работаю (быстрый вход сотрудника). */
   async mine(userId: string, workspaceId: string): Promise<ObjectNodeDto[]> {
     const scope = await this.scopeOf(userId, workspaceId);
-    if (!scope.role || scope.role === 'contractor') throw new NotFoundException('Организация не найдена');
+    if (!scope.role || scope.role === 'contractor') throw notFound('workspace.notFound');
     const assignments = await this.db.staffAssignment.findMany({
       // «Где я работаю» — про СЕЙЧАС: истёкшее назначение объект в списке не держит.
       where: { workspaceId, userId, ...activeAssignmentWhere() },
@@ -398,7 +396,8 @@ export class ObjectsService {
       { userId: string; userName: string; positionName: string | null; assignmentId: string }
     >();
     for (const r of rows) {
-      const name = [r.user?.lastName, r.user?.firstName].filter(Boolean).join(' ') || 'Сотрудник';
+      const name =
+        [r.user?.lastName, r.user?.firstName].filter(Boolean).join(' ') || this.i18n.translate('common.labels.someone');
       const prev = byUser.get(r.userId);
       if (prev) {
         // Несколько должностей в объекте — перечисляем через запятую; назначением
@@ -432,24 +431,22 @@ export class ObjectsService {
       this.assertManage(found.caps);
       parent = found.branch;
       if (parent.archivedAt) {
-        throw new ConflictException({
-          message: 'Родитель в архиве — верните его или выберите другой',
-          details: { code: OBJECTS_ERROR_CODES.objectArchived },
-        });
+        throw conflict('objects.parentArchived', undefined, { code: OBJECTS_ERROR_CODES.objectArchived });
       }
       if (parent.depth + 1 >= OBJECT_LIMITS.maxDepth) {
-        throw new ConflictException({
-          message: `Глубина дерева объектов — не больше ${OBJECT_LIMITS.maxDepth}`,
-          details: { code: OBJECTS_ERROR_CODES.objectTooDeep },
-        });
+        throw conflict(
+          'objects.tooDeep',
+          { max: OBJECT_LIMITS.maxDepth },
+          { code: OBJECTS_ERROR_CODES.objectTooDeep },
+        );
       }
     } else if (!scope.full) {
-      throw new ForbiddenException('Объект верхнего уровня заводит владелец или админ');
+      throw forbidden('objects.topLevelAdminOnly');
     }
 
     const count = await this.db.staffBranch.count({ where: { workspaceId } });
     if (count >= OBJECT_LIMITS.maxObjectsPerWorkspace) {
-      throw new BadRequestException(`Лимит объектов: ${OBJECT_LIMITS.maxObjectsPerWorkspace}`);
+      throw badRequest('objects.limitReached', { max: OBJECT_LIMITS.maxObjectsPerWorkspace });
     }
     if (dto.headPositionId) await this.assertPosition(workspaceId, dto.headPositionId);
     const legalEntityId = dto.legalEntityId
@@ -545,7 +542,7 @@ export class ObjectsService {
             workspaceId,
             actorId: userId,
             typeKey: 'branch.head_set',
-            changes: [{ field: 'headPositionId', label: 'Управляющая должность', from, to }],
+            changes: [{ field: 'headPositionId', label: this.fieldLabel('headPositionId'), from, to }],
           });
         }
         if (legalChanged) {
@@ -559,7 +556,7 @@ export class ObjectsService {
             workspaceId,
             actorId: userId,
             typeKey: 'branch.legal_entity_set',
-            changes: [{ field: 'legalEntityId', label: 'Юрлицо', from, to }],
+            changes: [{ field: 'legalEntityId', label: this.fieldLabel('legalEntityId'), from, to }],
           });
         }
         const scalarChanges = this.scalarChanges(branch, dto);
@@ -571,6 +568,8 @@ export class ObjectsService {
             actorId: userId,
             typeKey: 'branch.updated',
             changes: scalarChanges,
+            // Правок может быть несколько, а render-at-read берёт подпись только у
+            // первой — поэтому список полей кладётся снимком (язык ИСТОЧНИКА).
             payload: { fieldLabel: scalarChanges.map((c) => c.label).join(', ') },
           });
         }
@@ -599,10 +598,7 @@ export class ObjectsService {
     let parent: BranchRow | null = null;
     if (parentId) {
       if (parentId === branchId) {
-        throw new ConflictException({
-          message: 'Объект не может быть вложен сам в себя',
-          details: { code: OBJECTS_ERROR_CODES.objectCycle },
-        });
+        throw conflict('objects.selfNesting', undefined, { code: OBJECTS_ERROR_CODES.objectCycle });
       }
       const found = await this.getOrThrow(userId, workspaceId, parentId, scope);
       this.assertManage(found.caps);
@@ -610,19 +606,13 @@ export class ObjectsService {
       // Живой узел внутри закрытого — то же недопустимое состояние, что и при
       // создании (там проверка есть); в дереве он ещё и всплывает на верхний уровень.
       if (parent.archivedAt && !branch.archivedAt) {
-        throw new ConflictException({
-          message: 'Родитель в архиве — верните его или выберите другой',
-          details: { code: OBJECTS_ERROR_CODES.objectArchived },
-        });
+        throw conflict('objects.parentArchived', undefined, { code: OBJECTS_ERROR_CODES.objectArchived });
       }
       if (parent.ancestorIds.includes(branchId)) {
-        throw new ConflictException({
-          message: 'Нельзя перенести объект внутрь его же потомка',
-          details: { code: OBJECTS_ERROR_CODES.objectCycle },
-        });
+        throw conflict('objects.descendantNesting', undefined, { code: OBJECTS_ERROR_CODES.objectCycle });
       }
     } else if (!scope.full) {
-      throw new ForbiddenException('Поднять объект на верхний уровень может владелец или админ');
+      throw forbidden('objects.topLevelMoveAdminOnly');
     }
 
     const subtree = await this.db.staffBranch.findMany({
@@ -632,14 +622,13 @@ export class ObjectsService {
     const newBase = parent ? [...parent.ancestorIds, parent.id] : [];
     const deepest = Math.max(...subtree.map((n) => n.depth)) - branch.depth;
     if (newBase.length + deepest + 1 > OBJECT_LIMITS.maxDepth) {
-      throw new ConflictException({
-        message: `Глубина дерева объектов — не больше ${OBJECT_LIMITS.maxDepth}`,
-        details: { code: OBJECTS_ERROR_CODES.objectTooDeep },
-      });
+      throw conflict('objects.tooDeep', { max: OBJECT_LIMITS.maxDepth }, { code: OBJECTS_ERROR_CODES.objectTooDeep });
     }
 
-    const fromLabel = branch.parentId ? (await this.branchName(this.db, branch.parentId)) : 'Верхний уровень';
-    const toLabel = parent ? parent.name : 'Верхний уровень';
+    // Снимок «откуда → куда» ложится в БД: пишем его в языке ИСТОЧНИКА.
+    const topLevel = this.i18n.translateFor(SOURCE_LOCALE, 'objects.topLevel');
+    const fromLabel = branch.parentId ? await this.branchName(this.db, branch.parentId) : topLevel;
+    const toLabel = parent ? parent.name : topLevel;
 
     const updated = await this.db.$transaction(async (tx) => {
       for (const node of subtree) {
@@ -661,7 +650,7 @@ export class ObjectsService {
         workspaceId,
         actorId: userId,
         typeKey: 'branch.moved',
-        changes: [{ field: 'parentId', label: 'Родитель', from: fromLabel, to: toLabel }],
+        changes: [{ field: 'parentId', label: this.fieldLabel('parentId'), from: fromLabel, to: toLabel }],
       });
       return tx.staffBranch.findUniqueOrThrow({ where: { id: branchId } });
     });
@@ -677,10 +666,7 @@ export class ObjectsService {
     const { branch, caps, scope } = await this.getOrThrow(userId, workspaceId, branchId);
     this.assertManage(caps);
     if (!restore && branch.isDefault) {
-      throw new ConflictException({
-        message: 'Основной объект в архив не отправляется — сначала сделайте основным другой',
-        details: { code: OBJECTS_ERROR_CODES.objectInUse },
-      });
+      throw conflict('objects.defaultArchive', undefined, { code: OBJECTS_ERROR_CODES.objectInUse });
     }
     // Возврат из архива не должен «оживлять» то, что закрывали ОТДЕЛЬНО и раньше.
     // Каскад ставит всем узлам поддерева ОДИН И ТОТ ЖЕ момент — по нему и отличаем
@@ -694,10 +680,7 @@ export class ObjectsService {
         ? await this.db.staffBranch.findFirst({ where: { id: branch.parentId, workspaceId } })
         : null;
       if (parent?.archivedAt) {
-        throw new ConflictException({
-          message: 'Сначала верните из архива родительский объект',
-          details: { code: OBJECTS_ERROR_CODES.objectArchived },
-        });
+        throw conflict('objects.parentArchivedRestore', undefined, { code: OBJECTS_ERROR_CODES.objectArchived });
       }
     }
     const stamp = branch.archivedAt;
@@ -721,7 +704,10 @@ export class ObjectsService {
         workspaceId,
         actorId: userId,
         typeKey: 'branch.archived',
-        payload: { archiveVerb: restore ? 'вернул(а) из архива' : 'отправил(а) в архив', name: branch.name },
+        payload: {
+          archiveVerbKey: restore ? 'objects.archiveVerb.restored' : 'objects.archiveVerb.archived',
+          name: branch.name,
+        },
       });
       return tx.staffBranch.findUniqueOrThrow({ where: { id: branchId } });
     });
@@ -736,12 +722,9 @@ export class ObjectsService {
    */
   async makeDefault(userId: string, workspaceId: string, branchId: string): Promise<ObjectNodeDto> {
     const { branch, scope } = await this.getOrThrow(userId, workspaceId, branchId);
-    if (!scope.full) throw new ForbiddenException('Основной объект назначает владелец или админ');
+    if (!scope.full) throw forbidden('objects.defaultAdminOnly');
     if (branch.archivedAt) {
-      throw new ConflictException({
-        message: 'Архивный объект основным не делают',
-        details: { code: OBJECTS_ERROR_CODES.objectArchived },
-      });
+      throw conflict('objects.archivedNotDefault', undefined, { code: OBJECTS_ERROR_CODES.objectArchived });
     }
     if (branch.isDefault) {
       const [same] = await this.serializeMany(workspaceId, [branch], scope);
@@ -758,8 +741,14 @@ export class ObjectsService {
         workspaceId,
         actorId: userId,
         typeKey: 'branch.updated',
-        changes: [{ field: 'isDefault', label: 'Основной объект', from: 'нет', to: 'да' }],
-        payload: { fieldLabel: 'Основной объект' },
+        changes: [
+          {
+            field: 'isDefault',
+            label: this.fieldLabel('isDefault'),
+            from: this.i18n.translateFor(SOURCE_LOCALE, 'common.actions.no'),
+            to: this.i18n.translateFor(SOURCE_LOCALE, 'common.actions.yes'),
+          },
+        ],
       });
       return row;
     });
@@ -772,17 +761,11 @@ export class ObjectsService {
     const { branch, caps } = await this.getOrThrow(userId, workspaceId, branchId);
     this.assertManage(caps);
     if (branch.isDefault) {
-      throw new ConflictException({
-        message: 'Основной объект удалить нельзя: сначала сделайте основным другой',
-        details: { code: OBJECTS_ERROR_CODES.objectInUse },
-      });
+      throw conflict('objects.defaultDelete', undefined, { code: OBJECTS_ERROR_CODES.objectInUse });
     }
     const children = await this.db.staffBranch.count({ where: { parentId: branchId } });
     if (children > 0) {
-      throw new ConflictException({
-        message: 'Внутри есть вложенные объекты — перенесите их',
-        details: { code: OBJECTS_ERROR_CODES.objectHasChildren },
-      });
+      throw conflict('objects.hasChildren', undefined, { code: OBJECTS_ERROR_CODES.objectHasChildren });
     }
     // Удаляем только ПУСТОЙ узел. Внешние ключи штатки, смен и оборудования стоят
     // на Restrict: без этих проверок Prisma отдаёт P2003, а он в общем фильтре не
@@ -794,28 +777,16 @@ export class ObjectsService {
       this.db.asset.count({ where: { branchId } }),
     ]);
     if (used > 0) {
-      throw new ConflictException({
-        message: 'Сначала переведите сотрудников из этого объекта',
-        details: { code: OBJECTS_ERROR_CODES.objectInUse },
-      });
+      throw conflict('objects.hasStaff', undefined, { code: OBJECTS_ERROR_CODES.objectInUse });
     }
     if (staffing > 0) {
-      throw new ConflictException({
-        message: 'В объекте есть штатные единицы — уберите их из штатного расписания',
-        details: { code: OBJECTS_ERROR_CODES.objectInUse },
-      });
+      throw conflict('objects.hasStaffing', undefined, { code: OBJECTS_ERROR_CODES.objectInUse });
     }
     if (shifts > 0) {
-      throw new ConflictException({
-        message: 'В объекте есть смены — историю графика удалить нельзя, отправьте объект в архив',
-        details: { code: OBJECTS_ERROR_CODES.objectInUse },
-      });
+      throw conflict('objects.hasShifts', undefined, { code: OBJECTS_ERROR_CODES.objectInUse });
     }
     if (assets > 0) {
-      throw new ConflictException({
-        message: 'В объекте есть оборудование — переместите его в другой объект',
-        details: { code: OBJECTS_ERROR_CODES.objectInUse },
-      });
+      throw conflict('objects.hasAssets', undefined, { code: OBJECTS_ERROR_CODES.objectInUse });
     }
     await this.db.$transaction(async (tx) => {
       await tx.staffBranch.delete({ where: { id: branchId } });
@@ -825,7 +796,7 @@ export class ObjectsService {
         workspaceId,
         actorId: userId,
         typeKey: 'staff.unit_deleted',
-        payload: { unitLabel: 'объект', unitName: branch.name },
+        payload: { unitLabelKey: 'staff.unitLabel.branch', unitName: branch.name },
       });
     });
     await this.staff.afterStructureChanged(workspaceId);
@@ -1010,11 +981,11 @@ export class ObjectsService {
     dto: UpdateObjectInput,
   ): { field: string; label: string; from: string | null; to: string | null }[] {
     const spec: [keyof UpdateObjectInput, string, (b: BranchRow) => string | null][] = [
-      ['name', 'Название', (b) => b.name],
-      ['kind', 'Вид', (b) => b.kind],
-      ['address', 'Адрес', (b) => b.address],
-      ['timeZone', 'Часовой пояс', (b) => b.timeZone],
-      ['note', 'Заметка', (b) => b.note],
+      ['name', this.fieldLabel('name'), (b) => b.name],
+      ['kind', this.fieldLabel('kind'), (b) => b.kind],
+      ['address', this.fieldLabel('address'), (b) => b.address],
+      ['timeZone', this.fieldLabel('timeZone'), (b) => b.timeZone],
+      ['note', this.fieldLabel('note'), (b) => b.note],
     ];
     // ВСЕ изменённые поля, а не первое: поменяли имя и адрес — в ленте обязаны
     // остаться оба, иначе хроника молча теряет половину правки.
@@ -1027,6 +998,14 @@ export class ObjectsService {
       if (from !== to) out.push({ field: key as string, label, from, to });
     }
     return out;
+  }
+
+  /**
+   * Подпись изменённого поля для хроники. Снимок ложится в БД, поэтому берётся в
+   * языке ИСТОЧНИКА — из того же каталога, которым лента рисует живую подпись.
+   */
+  private fieldLabel(field: string): string {
+    return this.i18n.translateFor(SOURCE_LOCALE, `chatter.fields.branch.${field}`);
   }
 
   private async positionName(tx: Tx, id: string | null): Promise<string | null> {
@@ -1048,12 +1027,12 @@ export class ObjectsService {
 
   private async assertPosition(workspaceId: string, positionId: string): Promise<void> {
     const found = await this.db.staffPosition.count({ where: { id: positionId, workspaceId } });
-    if (!found) throw new BadRequestException('Должность не найдена в этой организации');
+    if (!found) throw badRequest('objects.positionNotFound');
   }
 
   private rethrowName(e: unknown): never {
     if ((e as { code?: string })?.code === 'P2002') {
-      throw new ConflictException('Объект с таким названием уже есть');
+      throw conflict('objects.nameDuplicate');
     }
     throw e as Error;
   }

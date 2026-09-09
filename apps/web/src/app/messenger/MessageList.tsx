@@ -14,7 +14,8 @@ import {
 import { Virtuoso, type Components, type VirtuosoHandle } from 'react-virtuoso';
 import type { ChatMessage, QuickActionDescriptor, RichCardPayload } from '@superapp/shared';
 import { PersonChip } from '../circles/PersonCard';
-import { StatusTicks, formatBubbleTime } from './messenger-ui';
+import { useTranslations } from 'next-intl';
+import { StatusTicks, useBubbleTime } from './messenger-ui';
 import { AttachmentContent } from './AttachmentContent';
 import { RichCardWidget } from './RichCardWidget';
 import { renderMessageContent } from './mention-render';
@@ -65,6 +66,8 @@ export interface MessageListHandle {
 interface ListContext {
   hasMore: boolean;
   loadingMore: boolean;
+  /** «Загрузка…» на языке зрителя: шапка — не компонент, хук в ней не вызвать. */
+  loadingLabel: string;
 }
 
 export const MessageList = forwardRef<MessageListHandle, {
@@ -295,12 +298,17 @@ export const MessageList = forwardRef<MessageListHandle, {
     () => ({ Footer: ListFooter, Header: ListHeader }),
     [],
   );
-  const context = useMemo<ListContext>(() => ({ hasMore, loadingMore }), [hasMore, loadingMore]);
+  const t = useTranslations('messenger');
+  const tc = useTranslations('common');
+  const context = useMemo<ListContext>(
+    () => ({ hasMore, loadingMore, loadingLabel: tc('state.loading') }),
+    [hasMore, loadingMore, tc],
+  );
 
   if (loadingMessages && messages.length === 0) {
     return (
       <div style={{ flex: 1, minHeight: 0, padding: 'var(--spacing-5)' }}>
-        <p className="label-sm" style={{ padding: 'var(--spacing-4)', textAlign: 'center' }}>Загрузка...</p>
+        <p className="label-sm" style={{ padding: 'var(--spacing-4)', textAlign: 'center' }}>{tc('state.loading')}</p>
       </div>
     );
   }
@@ -319,9 +327,9 @@ export const MessageList = forwardRef<MessageListHandle, {
           textAlign: 'center',
         }}
       >
-        <p className="label-md">Пока нет сообщений</p>
+        <p className="label-md">{t('messages.empty')}</p>
         <p className="label-sm" style={{ marginTop: 'var(--spacing-1)', opacity: 0.7 }}>
-          Напишите первое сообщение ниже
+          {t('messages.emptyHint')}
         </p>
       </div>
     );
@@ -368,7 +376,7 @@ const ListHeader: Components<ChatMessage, ListContext>['Header'] = ({ context })
     {context?.hasMore && (
       <div style={{ alignItems: 'center', display: 'flex', height: 28, justifyContent: 'center' }}>
         {context.loadingMore && (
-          <span className="label-sm" style={{ fontSize: '0.75rem', opacity: 0.75 }}>Загрузка...</span>
+          <span className="label-sm" style={{ fontSize: '0.75rem', opacity: 0.75 }}>{context.loadingLabel}</span>
         )}
       </div>
     )}
@@ -435,6 +443,9 @@ const MessageBubble = memo(function MessageBubble({
   /** Open a message-scope quick-action modal prefilled with this message's text. */
   onMessageAction: (kind: 'task' | 'schedule' | 'note', text: string) => void;
 }) {
+  const t = useTranslations('messenger');
+  const tc = useTranslations('common');
+  const bubbleTime = useBubbleTime();
   const [editing, setEditing] = useState(false);
   const [editDraft, setEditDraft] = useState(message.content ?? '');
   // Кнопка «⋯» больше не завязана на mouse-state: она ВСЕГДА в DOM (Tab до неё
@@ -531,8 +542,8 @@ const MessageBubble = memo(function MessageBubble({
           <div ref={menuRef} className={`msg-actions${menuOpen ? ' msg-actions--open' : ''}`} style={{ position: 'relative', flexShrink: 0, order: mine ? 0 : 2, zIndex: menuOpen ? 2 : undefined }}>
             <button
               onClick={() => setMenuOpen((v) => !v)}
-              title="Действия с сообщением"
-              aria-label="Действия с сообщением"
+              title={t('messages.actions')}
+              aria-label={t('messages.actions')}
               aria-expanded={menuOpen}
               style={iconBtnStyle}
             >
@@ -558,7 +569,7 @@ const MessageBubble = memo(function MessageBubble({
               >
                 <CornerMenuItem
                   icon="↩"
-                  label="Ответить"
+                  label={t('messages.reply')}
                   onClick={() => {
                     setMenuOpen(false);
                     onReply(message);
@@ -584,7 +595,7 @@ const MessageBubble = memo(function MessageBubble({
                   <>
                     <CornerMenuItem
                       icon="edit"
-                      label={message.type === 'attachment' ? 'Изменить подпись' : 'Редактировать'}
+                      label={message.type === 'attachment' ? t('messages.editCaption') : t('messages.edit')}
                       onClick={() => {
                         setMenuOpen(false);
                         setEditDraft(message.content ?? '');
@@ -593,12 +604,12 @@ const MessageBubble = memo(function MessageBubble({
                     />
                     <CornerMenuItem
                       icon="delete"
-                      label="Удалить"
+                      label={tc('actions.delete')}
                       danger
                       onClick={() => {
                         setMenuOpen(false);
                         confirmDelete(
-                          { title: 'Удалить сообщение?', message: 'Оно исчезнет у всех участников чата.', confirmLabel: 'Удалить', danger: true },
+                          { title: t('messages.deleteConfirm.title'), message: t('messages.deleteConfirm.message'), confirmLabel: tc('actions.delete'), danger: true },
                           () => onDelete(message.id),
                         );
                       }}
@@ -666,7 +677,7 @@ const MessageBubble = memo(function MessageBubble({
                     color: mine ? 'rgba(255,255,255,0.9)' : 'var(--secondary)',
                   }}
                 >
-                  {message.replyTo.authorName ?? 'Сообщение'}
+                  {message.replyTo.authorName ?? t('messageFallback')}
                 </span>
                 <span
                   style={{
@@ -681,13 +692,13 @@ const MessageBubble = memo(function MessageBubble({
                     color: mine ? 'var(--on-primary)' : 'var(--on-surface)',
                   }}
                 >
-                  {message.replyTo.deleted ? 'Сообщение удалено' : message.replyTo.text ?? ''}
+                  {message.replyTo.deleted ? t('messages.deleted') : message.replyTo.text ?? ''}
                 </span>
               </span>
             </button>
           )}
           {deleted ? (
-            <span style={{ fontStyle: 'italic', fontSize: '0.85rem' }}>Сообщение удалено</span>
+            <span style={{ fontStyle: 'italic', fontSize: '0.85rem' }}>{t('messages.deleted')}</span>
           ) : editing ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)', minWidth: '12rem' }}>
               <textarea
@@ -714,8 +725,8 @@ const MessageBubble = memo(function MessageBubble({
                 }}
               />
               <div style={{ display: 'flex', gap: 'var(--spacing-2)', justifyContent: 'flex-end' }}>
-                <button onClick={() => setEditing(false)} style={miniBtnGhost}>Отмена</button>
-                <button onClick={saveEdit} style={miniBtnSolid}>Сохранить</button>
+                <button onClick={() => setEditing(false)} style={miniBtnGhost}>{tc('actions.cancel')}</button>
+                <button onClick={saveEdit} style={miniBtnSolid}>{tc('actions.save')}</button>
               </div>
             </div>
           ) : message.type === 'attachment' ? (
@@ -747,11 +758,11 @@ const MessageBubble = memo(function MessageBubble({
           }}
         >
           <span className="label-sm" style={{ fontSize: '0.66rem', opacity: 0.7 }}>
-            {formatBubbleTime(message.createdAt)}
+            {bubbleTime(message.createdAt)}
           </span>
           {edited && (
             <span className="label-sm" style={{ fontSize: '0.66rem', opacity: 0.6, fontStyle: 'italic' }}>
-              (изменено)
+              {t('messages.edited')}
             </span>
           )}
           {mine && !deleted && <StatusTicks status={message.status} />}

@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  BadRequestException,
-  NotFoundException,
-  ConflictException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { WALLET_LIMITS } from '@superapp/shared';
 import type {
@@ -18,6 +13,8 @@ import type {
   CursorPage,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
+import { badRequest, conflict, notFound } from '../../shared/errors/api-error';
 import { LedgerService } from './ledger.service';
 
 type CurrencyRow = Prisma.CurrencyGetPayload<object>;
@@ -33,6 +30,7 @@ export class CurrencyService {
   constructor(
     private readonly db: DatabaseService,
     private readonly ledger: LedgerService,
+    private readonly i18n: I18nService,
   ) {}
 
   // ============================================================
@@ -47,7 +45,7 @@ export class CurrencyService {
   async createCurrency(userId: string, data: CreateCurrencyInput): Promise<CurrencyDto> {
     const existing = await this.activeCurrencyOf('user', userId);
     if (existing) {
-      throw new ConflictException('У вас уже есть валюта. Можно изменить её или удалить.');
+      throw conflict('wallet.currencyExists');
     }
     try {
       const row = await this.db.currency.create({
@@ -62,7 +60,7 @@ export class CurrencyService {
       return this.toDto(row, userId);
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        throw new ConflictException('У вас уже есть валюта.');
+        throw conflict('wallet.currencyExistsShort');
       }
       throw err;
     }
@@ -71,14 +69,12 @@ export class CurrencyService {
   /** Rename / re-icon — at most once per 3 months. Retroactive (everything references the id). */
   async renameCurrency(userId: string, data: UpdateCurrencyInput): Promise<CurrencyDto> {
     const row = await this.activeCurrencyOf('user', userId);
-    if (!row) throw new NotFoundException('У вас ещё нет валюты');
+    if (!row) throw notFound('wallet.noCurrency');
 
     if (row.lastRenamedAt) {
       const nextAt = this.renameNextAt(row.lastRenamedAt);
       if (nextAt && nextAt.getTime() > Date.now()) {
-        throw new BadRequestException(
-          `Менять валюту можно раз в 3 месяца. Следующее изменение — после ${nextAt.toLocaleDateString('ru-RU')}`,
-        );
+        throw badRequest('wallet.renameCooldown', { date: this.i18n.format().date(nextAt) });
       }
     }
 
@@ -101,7 +97,7 @@ export class CurrencyService {
    */
   async deleteCurrency(userId: string): Promise<void> {
     const row = await this.activeCurrencyOf('user', userId);
-    if (!row) throw new NotFoundException('У вас ещё нет валюты');
+    if (!row) throw notFound('wallet.noCurrency');
 
     await this.db.$transaction(async (tx) => {
       const activeHolds = await tx.escrowHold.findMany({
@@ -138,7 +134,7 @@ export class CurrencyService {
   /** Manually emit coins of one's own currency onto one's own balance (capped at 10M in hand). */
   async mint(userId: string, amount: number): Promise<WalletEntry> {
     const row = await this.activeCurrencyOf('user', userId);
-    if (!row) throw new BadRequestException('Сначала создайте свою валюту');
+    if (!row) throw badRequest('wallet.createCurrencyFirst');
     await this.ledger.mint({ currencyId: row.id, ownerId: userId, amount });
     return this.walletEntry(row, userId, true);
   }
@@ -146,9 +142,9 @@ export class CurrencyService {
   /** Holder burns a FOREIGN currency from their balance (irreversible). Own currency is deleted instead. */
   async burn(userId: string, currencyId: string, amount: number): Promise<WalletEntry> {
     const currency = await this.db.currency.findUnique({ where: { id: currencyId } });
-    if (!currency || currency.status !== 'active') throw new NotFoundException('Валюта не найдена');
+    if (!currency || currency.status !== 'active') throw notFound('wallet.currencyNotFound');
     if (currency.issuerType === 'user' && currency.issuerId === userId) {
-      throw new BadRequestException('Свою валюту нельзя сжечь — её можно удалить целиком');
+      throw badRequest('wallet.cannotBurnOwn');
     }
     await this.ledger.burn({ currencyId, ownerId: userId, amount });
     return this.walletEntry(currency, userId, false);
@@ -298,25 +294,25 @@ export class CurrencyService {
   }
 
   async createCompanyCurrency(workspaceId: string, data: CreateCurrencyInput): Promise<CurrencyDto> {
-    if (await this.activeCurrencyOf('workspace', workspaceId)) throw new ConflictException('У компании уже есть валюта.');
+    if (await this.activeCurrencyOf('workspace', workspaceId)) throw conflict('wallet.companyCurrencyExists');
     try {
       const row = await this.db.currency.create({
         data: { issuerType: 'workspace', issuerId: workspaceId, name: data.name.trim(), icon: data.icon, scale: 0 },
       });
       return this.toCompanyDto(row);
     } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') throw new ConflictException('У компании уже есть валюта.');
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') throw conflict('wallet.companyCurrencyExists');
       throw err;
     }
   }
 
   async renameCompanyCurrency(workspaceId: string, data: UpdateCurrencyInput): Promise<CurrencyDto> {
     const row = await this.activeCurrencyOf('workspace', workspaceId);
-    if (!row) throw new NotFoundException('У компании ещё нет валюты');
+    if (!row) throw notFound('wallet.companyNoCurrency');
     if (row.lastRenamedAt) {
       const nextAt = this.renameNextAt(row.lastRenamedAt);
       if (nextAt && nextAt.getTime() > Date.now()) {
-        throw new BadRequestException(`Менять валюту можно раз в 3 месяца. Следующее изменение — после ${nextAt.toLocaleDateString('ru-RU')}`);
+        throw badRequest('wallet.renameCooldown', { date: this.i18n.format().date(nextAt) });
       }
     }
     const updated = await this.db.currency.update({
@@ -328,7 +324,7 @@ export class CurrencyService {
 
   async deleteCompanyCurrency(workspaceId: string): Promise<void> {
     const row = await this.activeCurrencyOf('workspace', workspaceId);
-    if (!row) throw new NotFoundException('У компании ещё нет валюты');
+    if (!row) throw notFound('wallet.companyNoCurrency');
     await this.db.$transaction(async (tx) => {
       const activeHolds = await tx.escrowHold.findMany({ where: { currencyId: row.id, status: 'active' } });
       for (const h of activeHolds) {
@@ -347,7 +343,7 @@ export class CurrencyService {
   /** Mint company coins into the company TREASURY (workspace account). Capped at 10M "in hand". */
   async mintToTreasury(workspaceId: string, amount: number): Promise<WalletEntry> {
     const row = await this.activeCurrencyOf('workspace', workspaceId);
-    if (!row) throw new BadRequestException('Сначала создайте валюту компании');
+    if (!row) throw badRequest('wallet.createCompanyCurrencyFirst');
     await this.ledger.mint({ currencyId: row.id, ownerType: 'workspace', ownerId: workspaceId, amount });
     return this.companyEntry(row, workspaceId);
   }
@@ -361,7 +357,7 @@ export class CurrencyService {
   /** Pay an employee from the treasury (treasury → user) — a posted transfer; treasury can't go negative. */
   async payEmployee(workspaceId: string, userId: string, amount: number): Promise<WalletEntry> {
     const row = await this.activeCurrencyOf('workspace', workspaceId);
-    if (!row) throw new BadRequestException('Сначала создайте валюту компании');
+    if (!row) throw badRequest('wallet.createCompanyCurrencyFirst');
     await this.db.$transaction(async (tx) => {
       const treasury = await this.ledger.getOrCreateHolderAccount(tx, row.id, 'workspace', workspaceId);
       const employee = await this.ledger.getOrCreateHolderAccount(tx, row.id, 'user', userId);

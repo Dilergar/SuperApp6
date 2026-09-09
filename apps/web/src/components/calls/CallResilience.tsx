@@ -17,6 +17,7 @@ import {
   type RemoteTrackPublication,
 } from 'livekit-client';
 import { useConnectionQualityIndicator, useRoomContext } from '@livekit/components-react';
+import { useTranslations } from 'next-intl';
 
 /**
  * Устойчивость к слабой сети (кит движка core/calls, общий для офиса и мессенджера):
@@ -40,7 +41,7 @@ const CallEconomyContext = createContext<CallEconomyState | null>(null);
 
 export function useCallEconomy(): CallEconomyState {
   const ctx = useContext(CallEconomyContext);
-  if (!ctx) throw new Error('useCallEconomy: вне CallResilienceProvider');
+  if (!ctx) throw new Error('useCallEconomy is used outside CallResilienceProvider');
   return ctx;
 }
 
@@ -75,6 +76,7 @@ export function CallResilienceProvider({
   reconnecting: boolean;
   children: ReactNode;
 }) {
+  const t = useTranslations('calls');
   const room = useRoomContext();
   const [audioOnly, setAudioOnlyState] = useState(false);
   const [source, setSource] = useState<'manual' | 'auto' | null>(null);
@@ -126,15 +128,15 @@ export function CallResilienceProvider({
       return;
     }
     if (localQuality === ConnectionQuality.Poor) {
-      const t = setTimeout(enable, AUTO_POOR_DELAY_MS);
-      return () => clearTimeout(t); // качество улучшилось раньше — таймер снят
+      const timer = setTimeout(enable, AUTO_POOR_DELAY_MS);
+      return () => clearTimeout(timer); // качество улучшилось раньше — таймер снят
     }
   }, [localQuality, apply]);
 
   useEffect(() => {
     if (!autoNotice) return;
-    const t = setTimeout(() => setAutoNotice(false), AUTO_NOTICE_MS);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setAutoNotice(false), AUTO_NOTICE_MS);
+    return () => clearTimeout(timer);
   }, [autoNotice]);
 
   // Страховки: новая камера при активном режиме тоже отписывается; после reconnect —
@@ -161,9 +163,9 @@ export function CallResilienceProvider({
     <CallEconomyContext.Provider value={{ audioOnly, source, setAudioOnly }}>
       {/* Максимум один доп. баннер; Reconnecting-баннер шелла приоритетнее */}
       {autoNotice ? (
-        <Banner>📶 Слабая сеть — включён режим «только звук» (видео вернёте кнопкой 🎧)</Banner>
+        <Banner>{t('resilience.autoAudioOnly')}</Banner>
       ) : qualityBad && !reconnecting && !audioOnly ? (
-        <Banner>📶 Слабая сеть — качество может снижаться</Banner>
+        <Banner>{t('resilience.weakNetwork')}</Banner>
       ) : null}
       {children}
     </CallEconomyContext.Provider>
@@ -175,11 +177,12 @@ export function CallResilienceProvider({
  * (Excellent/Good не спамим). Общий для MediaTile и ParticipantsPanel.
  */
 export function ConnectionQualityBadge({ participant }: { participant: Participant }) {
+  const t = useTranslations('calls');
   const { quality } = useConnectionQualityIndicator({ participant });
   if (quality !== ConnectionQuality.Poor && quality !== ConnectionQuality.Lost) return null;
   return (
     <span
-      title={quality === ConnectionQuality.Lost ? 'Связь потеряна' : 'Слабая сеть у участника'}
+      title={quality === ConnectionQuality.Lost ? t('resilience.qualityLost') : t('resilience.qualityPoor')}
       style={{ fontSize: '0.8rem' }}
     >
       📶

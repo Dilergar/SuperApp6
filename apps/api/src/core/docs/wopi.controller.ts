@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Controller,
   Get,
   Headers,
@@ -16,6 +15,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import * as fs from 'fs';
 import { Public } from '../../shared/decorators/public.decorator';
+import { badRequest } from '../../shared/errors/api-error';
 import { sendStorageStream } from '../files/files-http.util';
 import { DocsService, WopiLockConflict, WopiTimestampConflict } from './docs.service';
 import type { WopiRawBody } from './wopi-raw-body.middleware';
@@ -82,7 +82,7 @@ export class WopiController {
     const body = (req as Request & { wopiBody?: WopiRawBody }).wopiBody;
     try {
       const ctx = await this.docs.authorizeWopi(id, token);
-      if (!body?.path) throw new BadRequestException('Пустое тело запроса');
+      if (!body?.path) throw badRequest('docs.emptyBody');
 
       const saved = await this.docs.putFile(ctx, {
         bodyPath: body.path,

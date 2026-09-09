@@ -1,6 +1,6 @@
 'use client';
 
-import { pluralRu } from '@superapp/shared';
+import { useTranslations } from 'next-intl';
 
 import { Glyph } from '@/components/ui';
 import { SIZE_CONFIG, type CardSize } from './card-skin';
@@ -27,6 +27,8 @@ export function GroupChip({ size, icon, name, color, count }: {
   color?: string | null;
   count?: number;
 }) {
+  // `common`: чип сущности рисуется в пикерах ВСЕХ сервисов.
+  const t = useTranslations('common');
   const cfg = SIZE_CONFIG[size];
   const av = cfg.avatar;
   const square = (
@@ -61,7 +63,7 @@ export function GroupChip({ size, icon, name, color, count }: {
               держатели. Пишем словом и склоняем (общий `pluralRu`). */}
           {cfg.showRole && count != null && (
             <div style={{ color: 'var(--on-surface-variant)', fontSize: cfg.metaSize }}>
-              {count} {pluralRu(count, ['человек', 'человека', 'человек'])}
+              {t('person.peopleCount', { n: count })}
             </div>
           )}
         </div>

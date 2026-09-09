@@ -9,6 +9,7 @@ import {
   type CalendarTaskItem,
   type CalendarFinanceItem,
 } from '@superapp/shared';
+import type { Formatters } from '@superapp/i18n/format';
 import { TONE_BASE } from '@/components/ui';
 
 export type CalendarView = 'month' | 'week' | 'day' | 'agenda' | 'year';
@@ -76,37 +77,38 @@ export function rangeForView(view: CalendarView, anchor: Date): { from: Date; to
   return { from, to: endOfDay(addDays(from, 30)) };
 }
 
-export function viewLabel(view: CalendarView, anchor: Date): string {
-  if (view === 'month') {
-    return cap(anchor.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' }));
-  }
+/**
+ * Заголовок периода. Форматтеры приходят СНАРУЖИ (`useFormatters()`), а подпись
+ * повестки — ключом каталога: `toLocaleDateString('ru-RU')` зашивал бы и язык,
+ * и страну навсегда, а «Ближайшие 30 дней» — один язык навсегда.
+ */
+export function viewLabel(
+  view: CalendarView,
+  anchor: Date,
+  f: Formatters,
+  agendaLabel: string,
+): string {
+  if (view === 'month') return cap(f.date(anchor, 'monthYear'));
   if (view === 'week') {
     const s = startOfWeek(anchor);
     const e = addDays(s, 6);
-    const sM = s.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
-    const eM = e.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
-    return `${sM} – ${eM}`;
+    return `${f.date(s, 'dayMonth')} – ${f.date(e, 'dayMonth')}`;
   }
-  if (view === 'day') {
-    return cap(anchor.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' }));
-  }
-  if (view === 'year') {
-    return String(anchor.getFullYear());
-  }
-  return 'Ближайшие 30 дней';
+  if (view === 'day') return cap(f.date(anchor, 'weekday'));
+  if (view === 'year') return String(anchor.getFullYear());
+  return agendaLabel;
 }
 
 export const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-export const fmtTime = (iso: string) =>
-  new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-
-export const fmtDayHeader = (d: Date) => ({
-  weekday: cap(d.toLocaleDateString('ru-RU', { weekday: 'short' })),
+/** Шапка колонки дня: «чт» + число. Имя дня — от языка зрителя. */
+export const fmtDayHeader = (d: Date, f: Formatters) => ({
+  weekday: cap(f.weekday(d, 'short')),
   day: d.getDate(),
 });
 
-export const WEEKDAYS_SHORT = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+/** Семь имён дней с первого дня недели региона — вместо своего массива. */
+export const weekdaysShort = (f: Formatters): string[] => f.weekdayNames('short').map(cap);
 
 /** Номер ISO-недели (колонка «№» месяца и мини-месяц). */
 export function isoWeek(d: Date): number {

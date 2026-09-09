@@ -3,7 +3,9 @@ import { promises as fsp } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { buffer as streamToBuffer } from 'node:stream/consumers';
-import { ORG_DOCUMENT_REF_TYPE, driveNameKey, expandDocFormValues } from '@superapp/shared';
+import { ORG_DOCUMENT_REF_TYPE, SOURCE_LOCALE, driveNameKey, documentTagBag, expandDocFormValues } from '@superapp/shared';
+import { coerceLocale, type Locale } from '@superapp/i18n';
+import { DEFAULT_DOCUMENT_LANGUAGE, documentWords } from '../../shared/i18n/document-words';
 import type { BuilderDoc } from '@superapp/shared';
 import type { OrgDocument } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
@@ -19,6 +21,7 @@ import { TemplateCompileError, TemplateDataError } from '../../core/templates/te
 import { DriveService } from '../drive/drive.service';
 import { AccessService } from '../../core/access/access.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { DocumentsService } from './documents.service';
 import { withTempFile } from '../../shared/fs/temp-file.util';
 import {
@@ -56,6 +59,7 @@ export class DocumentsJobs implements OnModuleInit {
     private readonly access: AccessService,
     private readonly chatter: ChatterService,
     private readonly documents: DocumentsService,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -113,7 +117,7 @@ export class DocumentsJobs implements OnModuleInit {
    */
   private async generate(documentId: string, rerun: boolean): Promise<void> {
     const doc = await this.db.orgDocument.findUnique({ where: { id: documentId } });
-    if (!doc) throw new JobDiscardError('документ удалён');
+    if (!doc) throw new JobDiscardError('the document is deleted');
     const snap = this.contentSnapshot(doc);
     // Блочный документ (по builder-шаблону или свободный): файл = сам PDF
     if (doc.builderDoc) await this.generateBuilder(doc, snap);
@@ -122,7 +126,7 @@ export class DocumentsJobs implements OnModuleInit {
   }
 
   private async generateDocx(doc: OrgDocument, snap: string): Promise<void> {
-    if (!doc.templateId) throw new JobDiscardError('документ без шаблона — собирать нечего');
+    if (!doc.templateId) throw new JobDiscardError('the document has no template — nothing to build');
     // Ушедший на маршрут документ ПЕРЕсобирать нельзя: под руками согласующего
     // содержимое меняться не должно (ровно то, ради чего его и замораживают).
     //
@@ -132,7 +136,7 @@ export class DocumentsJobs implements OnModuleInit {
     if (doc.fileId && doc.status !== 'draft' && doc.status !== 'rejected') return;
 
     const tpl = await this.db.docTemplate.findUnique({ where: { id: doc.templateId } });
-    if (!tpl?.fileId) throw new JobDiscardError('у шаблона нет бланка');
+    if (!tpl?.fileId) throw new JobDiscardError('the template has no form file');
 
     const { result } = await this.files.openRawStream(tpl.fileId, null);
     const blank = await streamToBuffer(result.stream);
@@ -142,6 +146,8 @@ export class DocumentsJobs implements OnModuleInit {
       const rendered = await this.templates.renderForContext(
         blank,
         {
+          // Значения групп печатаются ВНУТРИ бумаги — в её языке, а не зрителя
+          language: this.languageOf(doc),
           workspaceId: doc.workspaceId,
           subjectUserId: doc.subjectUserId ?? undefined,
           actorUserId: doc.createdById,
@@ -156,13 +162,13 @@ export class DocumentsJobs implements OnModuleInit {
         // Мягкий режим: недостающее поле остаётся ВИДИМЫМ тегом в черновике. Иначе
         // сборка падала бы у каждого, кто ещё не дозаполнил анкету, и человек видел
         // бы пустую карточку вместо документа с подсказкой, чего не хватает.
-        { strict: false },
+        { strict: false, print: this.templates.printFor(this.languageOf(doc)) },
       );
       bytes = rendered.bytes;
     } catch (e) {
       if (e instanceof TemplateCompileError || e instanceof TemplateDataError) {
         // Битый бланк чинит автор шаблона — ретраить нечего.
-        throw new JobDiscardError(`шаблон не собирается: ${e.message}`);
+        throw new JobDiscardError(`the template does not build: ${e.message}`);
       }
       throw e;
     }
@@ -191,7 +197,7 @@ export class DocumentsJobs implements OnModuleInit {
         data: { pdfFileId: null },
       });
       await this.documents.requestPdf(doc.id).catch((e) => {
-        this.logger.warn(`перезаказ отпечатка ${doc.id}: ${(e as Error).message}`);
+        this.logger.warn(`re-requesting the PDF imprint ${doc.id}: ${(e as Error).message}`);
       });
       return;
     }
@@ -217,7 +223,7 @@ export class DocumentsJobs implements OnModuleInit {
         .createFromFile(doc.createdById, { fileId: file.id, title: doc.title })
         .then((d) => d.id)
         .catch((e) => {
-          this.logger.warn(`оживление документа ${doc.id}: ${(e as Error).message}`);
+          this.logger.warn(`reviving the document ${doc.id}: ${(e as Error).message}`);
           return null;
         });
     }
@@ -314,25 +320,31 @@ export class DocumentsJobs implements OnModuleInit {
     });
   }
 
+  /** Язык БУМАГИ — снимок документа; сломанное значение не рушит сборку */
+  private languageOf(doc: { language: string }): Locale {
+    return coerceLocale(doc.language, DEFAULT_DOCUMENT_LANGUAGE);
+  }
+
   /**
-   * Значения формы подачи под группой «Документ» + сами поля россыпью.
-   * Периоды дат {from,to} разворачиваются в «X С»/«X По»/«X Дней» — теги
+   * Значения формы подачи под группой «Document» + сами поля россыпью.
+   * Периоды дат {from,to} разворачиваются в «X From»/«X To»/«X Days» — теги
    * шаблонов остаются плоскими двухчастными, глубоких путей в синтаксисе нет.
+   * Сам «X» — печатная строка периода в языке БУМАГИ.
    */
   private documentValues(doc: {
     title: string;
     number: string | null;
     createdAt: Date;
     fields: unknown;
+    language: string;
   }): Record<string, unknown> {
     const fields = (doc.fields ?? {}) as Record<string, unknown>;
+    const w = documentWords(this.i18n, this.languageOf(doc));
     return {
-      ...expandDocFormValues(fields),
-      Документ: {
-        Название: doc.title,
-        Номер: doc.number ?? '',
-        Дата: doc.createdAt,
-      },
+      ...expandDocFormValues(fields, (from, to) =>
+        from === to ? w.date(from) : w.t('templates.print.dateRange', { from: w.date(from), to: w.date(to) }),
+      ),
+      ...documentTagBag({ title: doc.title, number: doc.number, date: doc.createdAt }),
     };
   }
 
@@ -349,7 +361,7 @@ export class DocumentsJobs implements OnModuleInit {
   private async generateBuilder(doc: OrgDocument, snap: string): Promise<void> {
     if (!this.pdfRender.enabled) {
       // Карточка остаётся без файла, submit честно заблокирован (он требует fileId)
-      throw new JobDiscardError('PDF-рендер выключен (GOTENBERG_URL не задан)');
+      throw new JobDiscardError('the PDF renderer is off (GOTENBERG_URL is not set)');
     }
     // Тот же гейт, что у docx-пути: ушедшее на маршрут не пересобирается
     if (doc.fileId && doc.status !== 'draft' && doc.status !== 'rejected') return;
@@ -407,11 +419,14 @@ export class DocumentsJobs implements OnModuleInit {
     createdAt: Date;
     builderDoc: unknown;
     fields: unknown;
+    language: string;
   }): Promise<Buffer> {
     const builderDoc = doc.builderDoc as BuilderDoc;
+    const language = this.languageOf(doc);
     const values = {
       ...this.documentValues(doc),
       ...(await this.templates.resolveContextValues({
+        language,
         workspaceId: doc.workspaceId,
         subjectUserId: doc.subjectUserId ?? undefined,
         actorUserId: doc.createdById,
@@ -428,8 +443,9 @@ export class DocumentsJobs implements OnModuleInit {
       strict: false,
       title: doc.title,
       assets: { logoDataUri },
+      print: this.templates.printFor(language),
     });
-    return this.pdfRender.htmlToPdf(html, { footer: builderDoc.page?.footer ?? 'pageNumbers' });
+    return this.pdfRender.htmlToPdf(html, { footer: builderDoc.page?.footer ?? 'pageNumbers', language });
   }
 
   // ============================================================
@@ -442,12 +458,12 @@ export class DocumentsJobs implements OnModuleInit {
    */
   private async snapshotPdf(documentId: string): Promise<void> {
     const doc = await this.db.orgDocument.findUnique({ where: { id: documentId } });
-    if (!doc) throw new JobDiscardError('документ удалён');
+    if (!doc) throw new JobDiscardError('the document is deleted');
 
     // Блочный документ: файл и есть PDF — пересобираем из ТЕКУЩИХ блоков (свежий
     // отпечаток того, что уйдёт на решение) и отмечаем его отпечатком.
     if (doc.builderDoc) {
-      if (!this.pdfRender.enabled) throw new JobDiscardError('PDF-рендер выключен (GOTENBERG_URL не задан)');
+      if (!this.pdfRender.enabled) throw new JobDiscardError('the PDF renderer is off (GOTENBERG_URL is not set)');
       const snap = this.contentSnapshot(doc);
       const bytes = await this.renderBuilderPdf(doc);
       const name = `${doc.title}.pdf`.replace(/[\\/:*?"<>|]/g, '-');
@@ -498,21 +514,21 @@ export class DocumentsJobs implements OnModuleInit {
       return;
     }
 
-    if (!doc.documentId) throw new JobDiscardError('у документа нет живого файла — PDF снимать не с чего');
-    if (!this.docs.enabled) throw new JobDiscardError('редактор документов выключен');
+    if (!doc.documentId) throw new JobDiscardError('the document has no live file — there is nothing to take a PDF from');
+    if (!this.docs.enabled) throw new JobDiscardError('the document editor is off');
 
     const { ready } = await this.rendition.request(doc.documentId, 'pdf');
     // Не готово — это НЕ ошибка: конвертация идёт своим джобом. Просим движок
     // повторить нас позже обычным ретраем.
-    if (!ready) throw new Error('PDF ещё конвертируется');
+    if (!ready) throw new Error('the PDF is still being converted');
 
     const live = await this.db.document.findUnique({
       where: { id: doc.documentId },
       select: { fileId: true },
     });
-    if (!live) throw new JobDiscardError('живой документ исчез');
+    if (!live) throw new JobDiscardError('the live document is gone');
     const variant = await this.files.getVariant(live.fileId, 'pdf');
-    if (!variant) throw new Error('PDF-вариант ещё не записан');
+    if (!variant) throw new Error('the PDF variant is not written yet');
 
     await this.db.orgDocument.update({
       where: { id: doc.id },
@@ -531,13 +547,13 @@ export class DocumentsJobs implements OnModuleInit {
    */
   private async fileToDrive(documentId: string, ctx?: { attempt: number; maxAttempts: number }): Promise<void> {
     const doc = await this.db.orgDocument.findUnique({ where: { id: documentId } });
-    if (!doc) throw new JobDiscardError('документ удалён');
-    if (!doc.fileId) throw new JobDiscardError('у документа нет файла');
+    if (!doc) throw new JobDiscardError('the document is deleted');
+    if (!doc.fileId) throw new JobDiscardError('the document has no file');
     if (doc.registryNodeId && (doc.personalNodeId || !(await this.wantsPersonal(doc.docTypeId)))) return;
 
     const type = await this.db.docType.findUniqueOrThrow({ where: { id: doc.docTypeId } });
     const space = await this.drive.getOrCreateSpace('workspace', doc.workspaceId);
-    if (!space.rootId) throw new JobDiscardError('у диска организации нет корня');
+    if (!space.rootId) throw new JobDiscardError('the drive of the organization has no root');
 
     // ВНЕШНИЙ контур: в реестр подшивается ШТАМПОВАННАЯ копия (полосы + «Лист
     // подписей») — это тот экземпляр, который печатают и рассылают. Штамп собирает
@@ -566,7 +582,7 @@ export class DocumentsJobs implements OnModuleInit {
         stamped = true;
         pinIsPdf = true;
       } else if (request && ctx && ctx.attempt < ctx.maxAttempts) {
-        throw new Error('штампованная копия ещё собирается');
+        throw new Error('the stamped copy is still being built');
       } else if (doc.pdfFileId) {
         fileToPin = doc.pdfFileId;
         pinIsPdf = true;
@@ -640,9 +656,14 @@ export class DocumentsJobs implements OnModuleInit {
         refId: doc.id,
         workspaceId: doc.workspaceId,
         typeKey: 'org_document.filed',
+        // Место подшивки — СЛОВО продукта: в вечную запись кладём ключ каталога,
+        // иначе хроника застынет в языке того, кто нажал кнопку.
         payload: {
           title: doc.title,
-          placeLabel: personalNodeId ? `реестр «${type.name}» и личное дело` : `реестр «${type.name}»`,
+          placeLabelKey: personalNodeId
+            ? 'documents.filedPlace.registryAndPersonal'
+            : 'documents.filedPlace.registry',
+          typeName: type.name,
         },
       })
       .catch(() => undefined);
@@ -716,7 +737,10 @@ export class DocumentsJobs implements OnModuleInit {
       where: { id: subjectUserId },
       select: { firstName: true, lastName: true },
     });
-    const label = [person?.lastName, person?.firstName].filter(Boolean).join(' ') || 'Сотрудник';
+    // Имя папки ЛОЖИТСЯ в базу и переживает смену языка зрителя — язык источника
+    const label =
+      [person?.lastName, person?.firstName].filter(Boolean).join(' ') ||
+      this.i18n.translateFor(SOURCE_LOCALE, 'documents.personalFolderFallback');
 
     // Имя занято ЧУЖИМ делом (у папки уже есть личный доступ другого человека) —
     // берём имя с меткой, а не подселяем двоих в одну папку.
@@ -766,7 +790,8 @@ export class DocumentsJobs implements OnModuleInit {
     // PDF, у ЗАГРУЖЕННОГО PDF отпечаток совпадает с файлом, остальное — .docx бланка.
     const isPdf =
       opts.pdf ?? (!!doc.builderDoc || (!!doc.pdfFileId && doc.pdfFileId === doc.fileId));
-    const suffix = opts.stamped ? ' (подписано)' : '';
+    // Имя файла — тоже снимок в БД (см. правило языка источника)
+    const suffix = opts.stamped ? ` ${this.i18n.translateFor(SOURCE_LOCALE, 'documents.fileStampedSuffix')}` : '';
     return `${base}${suffix}.${isPdf ? 'pdf' : 'docx'}`.replace(/[\\/:*?"<>|]/g, '-');
   }
 }

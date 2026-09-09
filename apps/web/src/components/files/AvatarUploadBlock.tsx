@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { IMAGE_MIME } from '@superapp/shared';
 import { getFileMeta, uploadFile } from '../../lib/files-api';
 import { hasVariant } from './files-ui';
@@ -31,9 +32,10 @@ export function AvatarUploadBlock({
   fallback,
   shape = 'circle',
   ownerWorkspaceId,
-  label = 'Фото',
+  label,
   onSaved,
 }: AvatarUploadBlockProps) {
+  const t = useTranslations('common');
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -61,11 +63,13 @@ export function AvatarUploadBlock({
         }
         await sleep(700);
       }
-      if (!url) throw new Error('Файл не получил публичную ссылку');
+      if (!url) throw new Error('The uploaded file got no public URL');
       await onSaved(url);
     } catch (err) {
       const e = err as { response?: { data?: { message?: string } }; message?: string };
-      setError(e?.response?.data?.message ?? e?.message ?? 'Ошибка загрузки');
+      // Только фраза СЕРВЕРА (она уже переведена) либо своя из каталога: `e.message`
+      // — это или «Network Error» axios, или наш машинный текст для разработчика.
+      setError(e?.response?.data?.message ?? t('files.uploadFailed'));
     } finally {
       setBusy(false);
       setProgress(0);
@@ -87,16 +91,16 @@ export function AvatarUploadBlock({
 
   return (
     <div>
-      {label && (
+      {label !== '' && (
         <label className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-1)' }}>
-          {label}
+          {label ?? t('files.photo')}
         </label>
       )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-4)' }}>
         <div
           onClick={pick}
           role="button"
-          aria-label="Загрузить фото"
+          aria-label={t('files.uploadPhotoAria')}
           style={{
             width: 84,
             height: 84,
@@ -139,7 +143,7 @@ export function AvatarUploadBlock({
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
           <button type="button" className="btn-secondary" onClick={pick} disabled={busy} style={{ fontSize: '0.8rem' }}>
-            {current ? 'Заменить' : 'Загрузить'}
+            {current ? t('files.replace') : t('files.upload')}
           </button>
           {current && (
             <button
@@ -156,7 +160,7 @@ export function AvatarUploadBlock({
                 padding: 0,
               }}
             >
-              Удалить
+              {t('actions.delete')}
             </button>
           )}
         </div>

@@ -12,9 +12,9 @@
 // ============================================================
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  SHARE_LINK_STATUS_LABELS,
   shareLinkStatus,
   type ShareLinkActorLite,
   type ShareLinkMineDto,
@@ -26,6 +26,7 @@ import { Button, Card, Checkbox, Chip, EmptyState, Icon, LoadingBlock, useConfir
 import type { Tone } from '@/components/ui/tones';
 import { PersonChip } from '@/app/circles/PersonCard';
 import { apiErrorMessage } from '@/lib/api';
+import { useFormatters } from '@/lib/format';
 import { toastError } from '@/lib/toast';
 
 export type ShareLinksFilter = 'active' | 'inactive' | 'all';
@@ -47,11 +48,8 @@ export interface ShareLinksSource {
   showAuthors?: boolean;
 }
 
-const FILTERS: { key: ShareLinksFilter; label: string }[] = [
-  { key: 'active', label: 'Действуют' },
-  { key: 'inactive', label: 'Недействующие' },
-  { key: 'all', label: 'Все' },
-];
+/** Порядок и коды фильтров; слово к каждому даёт каталог (`share.filter.*`). */
+const FILTERS: ShareLinksFilter[] = ['active', 'inactive', 'all'];
 
 const STATUS_TONE: Record<string, Tone> = {
   active: 'success',
@@ -71,6 +69,7 @@ export function ShareLinksBrowser({
   emptyDescription: string;
   source: ShareLinksSource;
 }) {
+  const t = useTranslations('share');
   const qc = useQueryClient();
   const [confirm, confirmUI] = useConfirm();
   const [filter, setFilter] = useState<ShareLinksFilter>('active');
@@ -135,9 +134,9 @@ export function ShareLinksBrowser({
       {stats && <StatsBlock stats={stats} />}
 
       <div style={{ display: 'flex', gap: 'var(--spacing-3)', alignItems: 'center', flexWrap: 'wrap' }}>
-        {FILTERS.map((f) => (
-          <Chip key={f.key} selected={filter === f.key} onClick={() => setFilter(f.key)}>
-            {f.label}
+        {FILTERS.map((key) => (
+          <Chip key={key} selected={filter === key} onClick={() => setFilter(key)}>
+            {t(`filter.${key}`)}
           </Chip>
         ))}
         <span style={{ flex: 1 }} />
@@ -150,23 +149,23 @@ export function ShareLinksBrowser({
             onClick={() =>
               confirm(
                 {
-                  title: `Отозвать ссылки: ${pickedAlive.length}?`,
-                  message: 'Открыть их больше не получится. Уже скачанные файлы это не вернёт.',
-                  confirmLabel: 'Отозвать',
+                  title: t('revoke.manyTitle', { n: pickedAlive.length }),
+                  message: t('revoke.message'),
+                  confirmLabel: t('revoke.confirm'),
                   danger: true,
                 },
                 () => revoke.mutateAsync(pickedAlive).then(() => undefined),
               )
             }
           >
-            Отозвать выбранные ({pickedAlive.length})
+            {t('revoke.picked', { n: pickedAlive.length })}
           </Button>
         )}
       </div>
 
       {isPending && <LoadingBlock />}
       {!isPending && links.length === 0 && (
-        <EmptyState icon="link" title="Ссылок пока нет" description={emptyDescription} />
+        <EmptyState icon="link" title={t('browser.emptyTitle')} description={emptyDescription} />
       )}
 
       {links.map((link) => (
@@ -184,7 +183,7 @@ export function ShareLinksBrowser({
       {hasNextPage && (
         <div>
           <Button variant="ghost" loading={isFetchingNextPage} onClick={() => void fetchNextPage()}>
-            Показать ещё
+            {t('browser.showMore')}
           </Button>
         </div>
       )}
@@ -199,14 +198,16 @@ export function ShareLinksBrowser({
  * человеку нужно «что происходит сейчас», а не «сколько было за всю жизнь».
  */
 function StatsBlock({ stats }: { stats: ShareLinkStatsDto }) {
+  const t = useTranslations('share');
+  const f = useFormatters();
   const peak = useMemo(() => Math.max(1, ...stats.daily.map((d) => d.opens)), [stats.daily]);
 
   return (
     <Card>
       <div style={{ display: 'flex', gap: 'var(--spacing-6)', flexWrap: 'wrap' }}>
-        <Metric value={stats.activeLinks} label="действующих ссылок" />
-        <Metric value={stats.sharedObjects} label="объектов роздано" />
-        <Metric value={stats.opensInPeriod} label={`открытий за ${stats.periodDays} дней`} />
+        <Metric value={stats.activeLinks} label={t('stats.activeLinks')} />
+        <Metric value={stats.sharedObjects} label={t('stats.sharedObjects')} />
+        <Metric value={stats.opensInPeriod} label={t('stats.opensInPeriod', { n: stats.periodDays })} />
       </div>
 
       {stats.opensInPeriod > 0 && (
@@ -219,12 +220,12 @@ function StatsBlock({ stats }: { stats: ShareLinkStatsDto }) {
             marginTop: 'var(--spacing-5)',
           }}
           role="img"
-          aria-label={`Открытия по дням за ${stats.periodDays} дней, всего ${stats.opensInPeriod}`}
+          aria-label={t('stats.chartAria', { n: stats.periodDays, total: stats.opensInPeriod })}
         >
           {stats.daily.map((d) => (
             <div
               key={d.date}
-              title={`${new Date(d.date).toLocaleDateString('ru-RU')} — ${d.opens}`}
+              title={t('stats.barTitle', { date: f.date(d.date), n: d.opens })}
               style={{
                 flex: 1,
                 // Ноль тоже рисуем полоской в пиксель: пустое место в ряду читается как
@@ -265,6 +266,8 @@ function LinkCard({
   onPick: () => void;
   onRevoke: (ids: string[]) => Promise<void>;
 }) {
+  const t = useTranslations('share');
+  const f = useFormatters();
   const status = shareLinkStatus(link);
   const alive = status === 'active';
 
@@ -275,7 +278,7 @@ function LinkCard({
           <Checkbox
             checked={picked}
             onChange={onPick}
-            aria-label={`Выбрать ссылку на «${link.ref?.title ?? 'объект'}»`}
+            aria-label={t('row.pickAria', { title: link.ref?.title ?? t('row.someObject') })}
           />
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -284,21 +287,21 @@ function LinkCard({
             <span className="label-md" style={{ wordBreak: 'break-word' }}>
               {/* Объект мог исчезнуть — строку показываем всё равно: это история раздачи,
                   и отозвать такую ссылку человек тоже должен уметь. */}
-              {link.ref?.title ?? 'Объект удалён'}
+              {link.ref?.title ?? t('row.objectDeleted')}
             </span>
-            <Chip tone={STATUS_TONE[status] ?? 'neutral'}>{SHARE_LINK_STATUS_LABELS[status]}</Chip>
-            {link.label && <span className="meta">для: {link.label}</span>}
+            <Chip tone={STATUS_TONE[status] ?? 'neutral'}>{t(`status.${status}`)}</Chip>
+            {link.label && <span className="meta">{t('row.forWhom', { label: link.label })}</span>}
             {link.hasPassword && (
               <span className="meta" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                <Icon name="lock" size={12} /> с паролем
+                <Icon name="lock" size={12} /> {t('row.withPassword')}
               </span>
             )}
             {link.requireIdentity && (
               <span className="meta" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                <Icon name="user" size={12} /> по номеру
+                <Icon name="user" size={12} /> {t('row.byNumber')}
               </span>
             )}
-            {!link.allowDownload && <span className="meta">без скачивания</span>}
+            {!link.allowDownload && <span className="meta">{t('row.noDownload')}</span>}
           </div>
 
           {/* Кто раздал — главный вопрос организационного списка, и ответ на него
@@ -314,21 +317,22 @@ function LinkCard({
                   avatar={author.avatar}
                 />
               ) : (
-                <span className="meta">автор недоступен</span>
+                <span className="meta">{t('row.authorUnavailable')}</span>
               )}
             </div>
           )}
 
           <div style={{ display: 'flex', gap: 'var(--spacing-3)', marginTop: '0.5rem', flexWrap: 'wrap' }}>
             <span className="meta">
-              открытий: {link.openCount}
-              {link.maxOpens ? ` из ${link.maxOpens}` : ''}
+              {link.maxOpens
+                ? t('row.opensOf', { n: link.openCount, max: link.maxOpens })
+                : t('row.opens', { n: link.openCount })}
             </span>
             {link.lastOpenedAt && (
-              <span className="meta">последнее — {new Date(link.lastOpenedAt).toLocaleString('ru-RU')}</span>
+              <span className="meta">{t('row.lastOpened', { when: f.dateTime(link.lastOpenedAt) })}</span>
             )}
-            {link.expiresAt && <span className="meta">до {new Date(link.expiresAt).toLocaleDateString('ru-RU')}</span>}
-            <span className="meta">создана {new Date(link.createdAt).toLocaleDateString('ru-RU')}</span>
+            {link.expiresAt && <span className="meta">{t('row.until', { date: f.date(link.expiresAt) })}</span>}
+            <span className="meta">{t('row.createdAt', { date: f.date(link.createdAt) })}</span>
           </div>
         </div>
 
@@ -346,6 +350,7 @@ function LinkCard({
 }
 
 function CopyButton({ url }: { url: string }) {
+  const t = useTranslations('share');
   const [copied, setCopied] = useState(false);
   return (
     <Button
@@ -358,11 +363,11 @@ function CopyButton({ url }: { url: string }) {
           setCopied(true);
           setTimeout(() => setCopied(false), 2000);
         } catch {
-          toastError('Не удалось скопировать — выделите адрес вручную');
+          toastError(t('copyFailed'));
         }
       }}
     >
-      {copied ? 'Скопировано' : 'Копировать'}
+      {copied ? t('row.copied') : t('row.copy')}
     </Button>
   );
 }
@@ -374,6 +379,7 @@ function RevokeButton({
   link: ShareLinkMineDto;
   onRevoke: (ids: string[]) => Promise<void>;
 }) {
+  const t = useTranslations('share');
   const [confirm, confirmUI] = useConfirm();
   const [busy, setBusy] = useState(false);
 
@@ -387,9 +393,9 @@ function RevokeButton({
         onClick={() =>
           confirm(
             {
-              title: 'Отозвать ссылку?',
-              message: 'Открыть её больше не получится. Уже скачанные файлы это не вернёт.',
-              confirmLabel: 'Отозвать',
+              title: t('revoke.title'),
+              message: t('revoke.message'),
+              confirmLabel: t('revoke.confirm'),
               danger: true,
             },
             async () => {
@@ -403,7 +409,7 @@ function RevokeButton({
           )
         }
       >
-        Отозвать
+        {t('revoke.confirm')}
       </Button>
       {confirmUI}
     </>

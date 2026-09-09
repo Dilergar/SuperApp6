@@ -8,6 +8,7 @@
 
 import { useState } from 'react';
 import { useParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ASSET_SERVICE_KINDS,
@@ -39,14 +40,17 @@ import { ChronicleFeed } from '@/components/chatter/ChronicleFeed';
 import { EntitySelector } from '@/components/EntitySelector';
 import { apiDelete, apiErrorMessage, apiGet, apiPost } from '@/lib/api';
 import { toastError } from '@/lib/toast';
+import { dmyOrDash } from '@/lib/dates';
+import { useFormatters } from '@/lib/format';
+import { moneyTiyn } from '@/lib/objects-money';
 import { assetChatterKey, assetFilesKey, assetKey, objectAssetsKey } from '@/lib/queries';
 import { assetsApi, fetchAssetCard } from '../../../objects-api';
 
 type TabKey = 'data' | 'files' | 'moves' | 'service' | 'history';
 
 const STATUS_META = new Map(ASSET_STATUSES.map((s) => [s.value, s]));
-const HOLDING_LABEL = new Map(HOLDING_KINDS.map((h) => [h.value, h.label]));
-const SERVICE_LABEL = new Map(ASSET_SERVICE_KINDS.map((k) => [k.value, k.label]));
+const HOLDING_KNOWN = new Set<string>(HOLDING_KINDS);
+const SERVICE_KNOWN = new Set<string>(ASSET_SERVICE_KINDS);
 
 /**
  * Списание уводит актив из ЖИВЫХ списков (сервер ставит `archivedAt`), поэтому оно
@@ -59,11 +63,13 @@ const LIVE_STATUSES = ASSET_STATUSES.filter(
 );
 
 function money(v: string | null | undefined, currency = 'KZT'): string {
-  if (!v) return '—';
-  return `${(Number(v) / 100).toLocaleString('ru-RU')} ${currency === 'KZT' ? '₸' : currency}`;
+  return v ? moneyTiyn(v, currency) : '—';
 }
 
 export default function AssetCardPage() {
+  const t = useTranslations('objects');
+  const tc = useTranslations('common');
+  const f = useFormatters();
   const { isReady } = useRequireAuth();
   const { id, objectId, assetId } = useParams<{ id: string; objectId: string; assetId: string }>();
   const qc = useQueryClient();
@@ -155,15 +161,11 @@ export default function AssetCardPage() {
       <Card>
         <EmptyState
           icon="blocked"
-          title="Оборудование не открылось"
-          description={
-            error
-              ? apiErrorMessage(error)
-              : 'Единица удалена или у вас нет доступа к её объекту.'
-          }
+          title={t('assets.notOpened')}
+          description={error ? apiErrorMessage(error) : t('assets.notOpenedHint')}
           action={
             <Button variant="primary" icon="arrowLeft" href={`/workspaces/${id}/objects/${objectId}/assets`}>
-              К оборудованию объекта
+              {t('assets.backToList')}
             </Button>
           }
         />
@@ -178,11 +180,11 @@ export default function AssetCardPage() {
   const retired = (RETIRE_STATUSES as readonly string[]).includes(a.status);
 
   const tabs: TabItem<TabKey>[] = [
-    { key: 'data', label: 'Данные', icon: 'file' },
-    { key: 'files', label: 'Документы', icon: 'docs', count: files?.length },
-    { key: 'moves', label: 'Перемещения', icon: 'truck', count: card.moves.length },
-    { key: 'service', label: 'Обслуживание', icon: 'wrench', count: card.services.length },
-    { key: 'history', label: 'Хроника', icon: 'journal' },
+    { key: 'data', label: t('assets.tabData'), icon: 'file' },
+    { key: 'files', label: t('models.files'), icon: 'docs', count: files?.length },
+    { key: 'moves', label: t('assets.tabMoves'), icon: 'truck', count: card.moves.length },
+    { key: 'service', label: t('assets.tabService'), icon: 'wrench', count: card.services.length },
+    { key: 'history', label: t('tabs.history'), icon: 'journal' },
   ];
 
   return (
@@ -190,20 +192,25 @@ export default function AssetCardPage() {
       <PageHeader
         breadcrumb={a.branchName}
         title={a.name}
-        chip={<Chip tone={(meta?.tone ?? 'neutral') as 'success' | 'warning' | 'neutral'}>{meta?.label ?? a.status}</Chip>}
-        description={[a.modelName, a.inventoryNumber ? `инв. ${a.inventoryNumber}` : null].filter(Boolean).join(' · ')}
+        chip={
+          <Chip tone={(meta?.tone ?? 'neutral') as 'success' | 'warning' | 'neutral'}>
+            {meta ? t(`assetStatus.${a.status}`) : a.status}
+          </Chip>
+        }
+        description={[a.modelName, a.inventoryNumber ? t('assets.inventoryShort', { number: a.inventoryNumber }) : null]
+          .filter(Boolean)
+          .join(' · ')}
         actions={
           caps.manage ? (
             <>
               <Select
-                aria-label="Состояние"
+                aria-label={t('assets.condition')}
                 value={a.status}
                 onChange={(v) => setStatus.mutate(v)}
-                options={
-                  retired
-                    ? ASSET_STATUSES.map((s) => ({ value: s.value, label: s.label }))
-                    : LIVE_STATUSES.map((s) => ({ value: s.value, label: s.label }))
-                }
+                options={(retired ? ASSET_STATUSES : LIVE_STATUSES).map((s) => ({
+                  value: s.value,
+                  label: t(`assetStatus.${s.value}`),
+                }))}
               />
               {!retired && (
                 <Button
@@ -215,16 +222,16 @@ export default function AssetCardPage() {
                   onClick={() =>
                     confirm(
                       {
-                        title: 'Списать оборудование?',
-                        message: `«${a.name}» уйдёт из живых списков объекта: карточка, журналы и расходы сохранятся, но в перечне оборудования единица больше не появится. Инвентарный номер освободится.`,
-                        confirmLabel: 'Списать',
+                        title: t('assets.retireTitle'),
+                        message: t('assets.retireMessage', { name: a.name }),
+                        confirmLabel: t('assets.retire'),
                         danger: true,
                       },
                       () => setStatus.mutateAsync('written_off').then(() => undefined),
                     )
                   }
                 >
-                  Списать
+                  {t('assets.retire')}
                 </Button>
               )}
             </>
@@ -233,59 +240,61 @@ export default function AssetCardPage() {
       />
 
       <div style={{ marginBottom: 'var(--spacing-6)' }}>
-        <Tabs items={tabs} value={tab} onChange={setTab} aria-label="Разделы оборудования" />
+        <Tabs items={tabs} value={tab} onChange={setTab} aria-label={t('assets.tabsAria')} />
       </div>
 
       {tab === 'data' && (
         <Card>
-          <CardHeader title="Данные" />
+          <CardHeader title={t('assets.tabData')} />
           <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
-            <Row label="Модель" value={[a.modelName, a.manufacturer].filter(Boolean).join(' · ')} />
-            <Row label="Серийный номер" value={a.serialNumber ?? '—'} />
-            <Row label="Объект" value={a.branchName} />
-            <Row label="Где именно" value={a.locationNote ?? '—'} />
+            <Row label={t('models.one')} value={[a.modelName, a.manufacturer].filter(Boolean).join(' · ')} />
+            <Row label={t('assets.serialNumber')} value={a.serialNumber ?? '—'} />
+            <Row label={t('entity')} value={a.branchName} />
+            <Row label={t('assets.locationNote')} value={a.locationNote ?? '—'} />
             <div style={{ display: 'flex', gap: 'var(--spacing-3)', alignItems: 'center', fontSize: '0.85rem' }}>
-              <span style={{ color: 'var(--on-surface-variant)', minWidth: 190 }}>Ответственный</span>
+              <span style={{ color: 'var(--on-surface-variant)', minWidth: 190 }}>{t('assets.custodian')}</span>
               {a.custodianUserId && a.custodianName ? (
                 <PersonChip size="S" userId={a.custodianUserId} firstName={a.custodianName} />
               ) : (
                 <span style={{ fontWeight: 500 }}>—</span>
               )}
             </div>
-            <Row label="В составе" value={a.parentAssetName ?? '—'} />
-            <Row label="Куплено" value={a.purchasedOn ?? '—'} />
-            <Row label="Введено в работу" value={a.commissionedOn ?? '—'} />
-            <Row label="Гарантия до" value={a.warrantyUntil ?? '—'} />
+            <Row label={t('assets.partOf')} value={a.parentAssetName ?? '—'} />
+            <Row label={t('assets.purchasedOn')} value={dmyOrDash(a.purchasedOn)} />
+            <Row label={t('assets.commissionedOn')} value={dmyOrDash(a.commissionedOn)} />
+            <Row label={t('assets.warrantyUntil')} value={dmyOrDash(a.warrantyUntil)} />
             {caps.payrollView && (
               <>
                 <div style={{ display: 'flex', gap: 'var(--spacing-3)', alignItems: 'center', fontSize: '0.85rem' }}>
-                  <span style={{ color: 'var(--on-surface-variant)', minWidth: 190 }}>Владение</span>
+                  <span style={{ color: 'var(--on-surface-variant)', minWidth: 190 }}>{t('assets.holding')}</span>
                   {caps.manage ? (
                     <Select
                       value={a.holdingKind ?? 'owned'}
                       onChange={(v) => setHolding.mutate(v)}
-                      options={HOLDING_KINDS.map((h) => ({ value: h.value, label: h.label }))}
+                      options={HOLDING_KINDS.map((h) => ({ value: h, label: t(`holdingKind.${h}`) }))}
                     />
                   ) : (
-                    <span style={{ fontWeight: 500 }}>{HOLDING_LABEL.get(a.holdingKind ?? 'owned') ?? '—'}</span>
+                    <span style={{ fontWeight: 500 }}>
+                      {HOLDING_KNOWN.has(a.holdingKind ?? 'owned') ? t(`holdingKind.${a.holdingKind ?? 'owned'}`) : '—'}
+                    </span>
                   )}
                 </div>
-                <Row label="На балансе" value={a.balanceLegalEntityName ?? '—'} />
-                <Row label="Владелец/арендодатель" value={a.holdingCounterpartyName ?? '—'} />
-                <Row label="Цена покупки" value={money(a.purchasePrice, a.currency)} />
+                <Row label={t('assets.balanceEntity')} value={a.balanceLegalEntityName ?? '—'} />
+                <Row label={t('assets.holdingParty')} value={a.holdingCounterpartyName ?? '—'} />
+                <Row label={t('assets.purchasePrice')} value={money(a.purchasePrice, a.currency)} />
                 {/* TCO считает СЕРВЕР (`serviceCost`): клиентская сумма врала, как
                     только журнал не помещался в отданную страницу. */}
-                <Row label="Расходы на обслуживание" value={money(a.serviceCost, a.currency)} />
+                <Row label={t('assets.serviceCost')} value={money(a.serviceCost, a.currency)} />
               </>
             )}
-            {a.note && <Row label="Заметка" value={a.note} />}
+            {a.note && <Row label={t('form.note')} value={a.note} />}
           </div>
 
           {caps.manage && (
             <div className="ui-stack" style={{ gap: 'var(--spacing-3)', marginTop: 'var(--spacing-6)' }}>
               <div className="grid md:grid-cols-3" style={{ gap: 'var(--spacing-3)' }}>
                 <Input
-                  label="Название"
+                  label={tc('labels.name')}
                   defaultValue={a.name}
                   onBlur={(e) => {
                     const v = e.target.value.trim();
@@ -293,7 +302,7 @@ export default function AssetCardPage() {
                   }}
                 />
                 <Input
-                  label="Инвентарный номер"
+                  label={t('assets.inventoryNumber')}
                   defaultValue={a.inventoryNumber ?? ''}
                   onBlur={(e) => {
                     const v = e.target.value.trim() || null;
@@ -301,7 +310,7 @@ export default function AssetCardPage() {
                   }}
                 />
                 <Input
-                  label="Серийный номер"
+                  label={t('assets.serialNumber')}
                   defaultValue={a.serialNumber ?? ''}
                   onBlur={(e) => {
                     const v = e.target.value.trim() || null;
@@ -309,15 +318,15 @@ export default function AssetCardPage() {
                   }}
                 />
               </div>
-              <span className="label-sm" style={{ fontWeight: 600 }}>Ответственный</span>
+              <span className="label-sm" style={{ fontWeight: 600 }}>{t('assets.custodian')}</span>
               <EntitySelector
                 types={['user']}
                 context={{ workspaceId: id }}
                 value={a.custodianUserId ? [{ type: 'user', id: a.custodianUserId }] : []}
                 onChange={(next) => setCustodian.mutate(next[next.length - 1]?.id ?? null)}
-                placeholder="Не назначен"
+                placeholder={t('assets.custodianEmpty')}
               />
-              <span className="label-sm" style={{ fontWeight: 600 }}>Переместить в объект</span>
+              <span className="label-sm" style={{ fontWeight: 600 }}>{t('assets.moveToSite')}</span>
               <EntitySelector
                 types={['branch']}
                 context={{ workspaceId: id }}
@@ -326,7 +335,7 @@ export default function AssetCardPage() {
                   const target = next[next.length - 1]?.id;
                   if (target && target !== a.branchId) moveAsset.mutate(target);
                 }}
-                placeholder="Объект"
+                placeholder={t('entity')}
               />
             </div>
           )}
@@ -335,7 +344,7 @@ export default function AssetCardPage() {
 
       {tab === 'files' && (
         <Card>
-          <CardHeader title="Фото и документы" subtitle="Фото единицы, паспорт, чеки ремонтов" />
+          <CardHeader title={t('card.files')} subtitle={t('assets.filesHint')} />
           {/* Два профиля: `asset_photo` принимает ТОЛЬКО картинки, `document` — только
               документы. Оба разрешены движком для типа `asset`, поэтому карточка
               берёт и фото, и PDF-паспорт. */}
@@ -352,19 +361,19 @@ export default function AssetCardPage() {
 
       {tab === 'moves' && (
         <Card>
-          <CardHeader title="Перемещения" subtitle="Журнал: место, ответственный, владение, состояние" />
+          <CardHeader title={t('assets.tabMoves')} subtitle={t('assets.movesHint')} />
           {card.moves.length === 0 ? (
-            <EmptyState icon="truck" title="Движений не было" />
+            <EmptyState icon="truck" title={t('assets.movesEmpty')} />
           ) : (
             <div className="ui-stack" style={{ gap: 'var(--spacing-2)' }}>
               {card.moves.map((m) => (
                 <div key={m.id} style={{ display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap', alignItems: 'center' }}>
-                  <Chip tone="neutral">{MOVE_LABEL[m.kind] ?? m.kind}</Chip>
+                  <Chip tone="neutral">{MOVE_KEYS[m.kind] ? t(MOVE_KEYS[m.kind]) : m.kind}</Chip>
                   <span className="label-sm">
                     {[m.fromLabel ?? '—', m.toLabel ?? '—'].join(' → ')}
                   </span>
                   <span className="label-sm" style={{ opacity: 0.6 }}>
-                    {new Date(m.movedAt).toLocaleString('ru-RU')} · {m.movedByName ?? ''}
+                    {f.dateTime(m.movedAt)} · {m.movedByName ?? ''}
                   </span>
                   {m.reason && <span className="label-sm" style={{ opacity: 0.7 }}>{m.reason}</span>}
                 </div>
@@ -386,14 +395,14 @@ export default function AssetCardPage() {
 
       {tab === 'history' && (
         <Card>
-          <CardHeader title="Хроника" subtitle="Перемещения, ответственный, владение, состояние и ремонты" />
+          <CardHeader title={t('tabs.history')} subtitle={t('assets.historyHint')} />
           {chatterPending ? (
             <LoadingBlock />
           ) : (
             <ChronicleFeed
               entries={chatter?.items ?? []}
               actors={chatter?.actors ?? {}}
-              emptyText="Пока пусто — события единицы появятся здесь"
+              emptyText={t('assets.historyEmpty')}
             />
           )}
         </Card>
@@ -403,11 +412,12 @@ export default function AssetCardPage() {
   );
 }
 
-const MOVE_LABEL: Record<string, string> = {
-  placement: 'Место',
-  custodian: 'Ответственный',
-  holding: 'Владение',
-  status: 'Состояние',
+/** Вид записи журнала перемещений → ключ каталога (реестр слов не хранит). */
+const MOVE_KEYS: Record<string, string> = {
+  placement: 'assets.movePlacement',
+  custodian: 'assets.custodian',
+  holding: 'assets.holding',
+  status: 'assets.condition',
 };
 
 function ServiceTab({
@@ -424,6 +434,8 @@ function ServiceTab({
   /** Отметить запланированную работу выполненной */
   onClose: (recordId: string) => void;
 }) {
+  const t = useTranslations('objects');
+  const f = useFormatters();
   const [kind, setKind] = useState('repair');
   const [title, setTitle] = useState('');
   const [cost, setCost] = useState('');
@@ -433,7 +445,7 @@ function ServiceTab({
     mutationFn: async () => {
       const clean = cost.replace(/\s/g, '').replace(',', '.');
       const tiyn = clean ? String(Math.round(Number(clean) * 100)) : null;
-      if (clean && !Number.isFinite(Number(clean))) throw new Error('Стоимость — это число');
+      if (clean && !Number.isFinite(Number(clean))) throw new Error(t('assets.costIsNumber'));
       return assetsApi.logService(workspaceId, assetId, {
         kind,
         title: title.trim(),
@@ -452,22 +464,22 @@ function ServiceTab({
 
   return (
     <Card>
-      <CardHeader title="Обслуживание" subtitle="Ремонты и осмотры; сумма расходов — на вкладке «Данные»" />
+      <CardHeader title={t('assets.tabService')} subtitle={t('assets.serviceHint')} />
       {card.services.length === 0 ? (
-        <EmptyState icon="wrench" title="Записей нет" description="Запишите ремонт или плановое обслуживание." />
+        <EmptyState icon="wrench" title={t('assets.serviceEmpty')} description={t('assets.serviceEmptyHint')} />
       ) : (
         <div className="ui-stack" style={{ gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-4)' }}>
           {card.services.map((r) => (
             <div key={r.id} style={{ display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap', alignItems: 'center' }}>
-              <Chip tone="neutral">{SERVICE_LABEL.get(r.kind) ?? r.kind}</Chip>
+              <Chip tone="neutral">{SERVICE_KNOWN.has(r.kind) ? t(`assetServiceKind.${r.kind}`) : r.kind}</Chip>
               <span style={{ fontWeight: 600 }}>{r.title}</span>
               {card.caps.payrollView && r.cost && <span className="label-sm">{money(r.cost, r.currency)}</span>}
               <span className="label-sm" style={{ opacity: 0.6 }}>
-                {new Date(r.createdAt).toLocaleDateString('ru-RU')}
+                {f.date(r.createdAt)}
               </span>
               {card.caps.manage && r.status !== 'done' && r.status !== 'cancelled' && (
                 <Button size="sm" variant="ghost" onClick={() => onClose(r.id)}>
-                  Выполнено
+                  {t('assetServiceStatus.done')}
                 </Button>
               )}
             </div>
@@ -479,20 +491,31 @@ function ServiceTab({
         <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
           <div className="grid md:grid-cols-3" style={{ gap: 'var(--spacing-3)' }}>
             <Select
-              label="Вид"
+              label={t('assets.serviceKind')}
               value={kind}
               onChange={setKind}
-              options={ASSET_SERVICE_KINDS.map((k) => ({ value: k.value, label: k.label }))}
+              options={ASSET_SERVICE_KINDS.map((k) => ({ value: k, label: t(`assetServiceKind.${k}`) }))}
             />
-            <Input label="Что делали" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <Input label={t('assets.serviceTitle')} value={title} onChange={(e) => setTitle(e.target.value)} />
             {card.caps.payrollView && (
-              <Input label="Стоимость" placeholder="35 000" inputMode="decimal" value={cost} onChange={(e) => setCost(e.target.value)} />
+              <Input
+                label={t('assets.serviceCostField')}
+                placeholder="35 000"
+                inputMode="decimal"
+                value={cost}
+                onChange={(e) => setCost(e.target.value)}
+              />
             )}
           </div>
-          <Textarea label="Подробности" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
+          <Textarea
+            label={t('assets.serviceDetails')}
+            rows={2}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <Button variant="primary" loading={log.isPending} disabled={!title.trim()} onClick={() => log.mutate()}>
-              Записать
+              {t('attendance.record')}
             </Button>
           </div>
         </div>

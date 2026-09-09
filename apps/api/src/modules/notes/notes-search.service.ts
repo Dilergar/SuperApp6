@@ -1,10 +1,18 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { NOTE_REF_TYPE, WORKSPACE_ROLE_RANK, noteSnippet, type SearchResultItem, type WorkspaceRole } from '@superapp/shared';
+import {
+  NOTE_REF_TYPE,
+  SOURCE_LOCALE,
+  WORKSPACE_ROLE_RANK,
+  noteSnippet,
+  type SearchResultItem,
+  type WorkspaceRole,
+} from '@superapp/shared';
 import { SearchRegistry } from '../../core/search/search.registry';
 import { SearchProjectionService } from '../../core/search/search-projection.service';
 import type { SearchProviderOpts, SearchProviderResult } from '../../core/search/search.types';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { NotesAccessService } from './notes-access.service';
 import { noteUrl } from './notes-dto';
 
@@ -34,12 +42,13 @@ export class NotesSearchService implements OnModuleInit {
     private readonly registry: SearchRegistry,
     private readonly projection: SearchProjectionService,
     private readonly acl: NotesAccessService,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
     this.registry.register({
       type: NOTE_REF_TYPE,
-      label: 'Заметки',
+      labelKey: 'notes.breadcrumb',
       search: (viewerId, query, opts) => this.search(viewerId, query, opts),
     });
   }
@@ -68,12 +77,15 @@ export class NotesSearchService implements OnModuleInit {
         sourceId: note.id,
         url: noteUrl(note, note.id),
         itemCreatedAt: note.updatedAt,
-        title: note.title || note.plainText.split('\n')[0]?.slice(0, 80) || 'Без названия',
+        title:
+          note.title ||
+          note.plainText.split('\n')[0]?.slice(0, 80) ||
+          this.i18n.translateFor(SOURCE_LOCALE, 'notes.untitled'),
         body: note.plainText.slice(0, 20_000),
         workspaceId: note.ownerType === 'workspace' ? note.ownerId : null,
       });
     } catch (err) {
-      this.logger.warn(`индексация заметки ${note.id}: ${err instanceof Error ? err.message : err}`);
+      this.logger.warn(`Indexing note ${note.id}: ${err instanceof Error ? err.message : err}`);
     }
   }
 
@@ -139,8 +151,8 @@ export class NotesSearchService implements OnModuleInit {
     const items: SearchResultItem[] = hits.map((h) => ({
       type: NOTE_REF_TYPE,
       id: h.id,
-      title: h.title || h.plainText.split('\n')[0]?.slice(0, 80) || 'Без названия',
-      snippet: noteSnippet(h.plainText, h.title) || 'Заметка',
+      title: h.title || h.plainText.split('\n')[0]?.slice(0, 80) || this.i18n.translate('notes.untitled'),
+      snippet: noteSnippet(h.plainText, h.title) || this.i18n.translate('notes.noteWord'),
       url: noteUrl(h, h.id),
       chatId: null,
       messageId: null,

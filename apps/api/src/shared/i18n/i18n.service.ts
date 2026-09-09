@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
   createFormatters,
+  formatBytes,
   REGION_PROFILE_KZ,
   createT,
   negotiateLocale,
@@ -66,6 +67,20 @@ export class I18nService {
   /** Перевод в языке запроса. Ключ — полный: `errors.db.notFound`. */
   translate(key: string, values?: TranslationValues): string {
     return this.t(key, values);
+  }
+
+  /**
+   * Размер файла словами языка и правилами региона («1,4 МБ» / «1.4 MB»).
+   * Единицы живут в каталоге, поэтому свой `${(b/1024).toFixed(1)} КБ` в сервисе
+   * был бы сразу и языком, и регионом.
+   */
+  bytes(value: number, locale: Locale = this.locale): string {
+    const t = this.forLocale(locale);
+    return formatBytes(
+      value,
+      { locale },
+      { b: t('common.units.b'), kb: t('common.units.kb'), mb: t('common.units.mb'), gb: t('common.units.gb') },
+    );
   }
 
   /** Перевод в заданном языке (фон: push/SMS в `User.locale` адресата). */

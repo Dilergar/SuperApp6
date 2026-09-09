@@ -274,7 +274,10 @@ export class EscrowService {
     const cached = cache.get(currencyId);
     if (cached !== undefined) return cached;
     const c = await tx.currency.findUnique({ where: { id: currencyId }, select: { name: true } });
-    const name = c?.name ?? 'монеты';
+    // Валюта исчезла (гонка с её удалением) — в payload уведомления кладём
+    // прочерк, а не слово: имя валюты пишет человек, и заменить его словом
+    // одного языка значило бы заморозить язык в вечной записи.
+    const name = c?.name ?? '—';
     cache.set(currencyId, name);
     return name;
   }

@@ -5,6 +5,7 @@
 // SearchField (пилюля из топбара).
 // ============================================================
 import { useId, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from 'react';
+import { useTranslations } from 'next-intl';
 import { Icon, type IconName } from './Icon';
 import { cx } from './tones';
 
@@ -117,6 +118,7 @@ export interface SearchFieldProps extends Omit<InputHTMLAttributes<HTMLInputElem
 }
 
 export function SearchField({ onClear, width = 240, className, style, value, ...rest }: SearchFieldProps) {
+  const t = useTranslations('common');
   const hasValue = value !== undefined && value !== null && String(value).length > 0;
   return (
     <div style={{ position: 'relative', width, ...style }}>
@@ -130,7 +132,7 @@ export function SearchField({ onClear, width = 240, className, style, value, ...
         // Подпись у поиска всегда одна — сама иконка лупы, а её скринридер не читает.
         // Дефолт здесь чинит все места разом (в топбаре поиск на КАЖДОЙ странице);
         // конкретное место может уточнить своим aria-label через ...rest.
-        aria-label="Поиск"
+        aria-label={t('actions.search')}
         className={cx('ui-input', 'ui-input--pill', 'ui-input--with-icon', className)}
         value={value}
         style={hasValue && onClear ? { paddingRight: '2.25rem' } : undefined}
@@ -140,7 +142,7 @@ export function SearchField({ onClear, width = 240, className, style, value, ...
         <button
           type="button"
           onClick={onClear}
-          aria-label="Очистить"
+          aria-label={t('a11y.clear')}
           className="ui-iconbtn"
           style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', width: 24, height: 24, borderRadius: 'var(--radius-pill)' }}
         >

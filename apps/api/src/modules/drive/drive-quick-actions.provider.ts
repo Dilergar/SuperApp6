@@ -19,17 +19,17 @@ export class DriveQuickActionsProvider implements OnModuleInit {
   onModuleInit(): void {
     this.quickActions.register({
       key: 'drive.attach',
-      label: 'Прикрепить с Диска',
+      labelKey: 'drive.quickAction.attach.label',
       icon: '🗂️',
       scopes: ['composer'],
-      description: 'Отправить файл, который уже лежит на вашем Диске',
+      descriptionKey: 'drive.quickAction.attach.description',
     });
     this.quickActions.register({
       key: 'drive.save',
-      label: 'Сохранить на Диск',
+      labelKey: 'drive.quickAction.save.label',
       icon: '📥',
       scopes: ['message'],
-      description: 'Положить вложение к себе на Диск',
+      descriptionKey: 'drive.quickAction.save.description',
     });
   }
 }

@@ -5,6 +5,7 @@ import { RedisService } from '../../shared/redis/redis.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { DatabaseService } from '../../shared/database/database.service';
 import { ContactsService } from '../contacts/contacts.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { PRESENCE } from '@superapp/shared';
 import type { PresenceInfo, ContextualStatus } from '@superapp/shared';
 import type { CalendarService } from '../calendar/calendar.service';
@@ -43,6 +44,7 @@ export class PresenceService {
     private readonly db: DatabaseService,
     private readonly contacts: ContactsService,
     private readonly moduleRef: ModuleRef,
+    private readonly i18n: I18nService,
   ) {}
 
   // ============================================================
@@ -261,9 +263,9 @@ export class PresenceService {
     if (level === 'none') return null;
     const hhmm = this.formatHHMM(new Date(snap.endTime));
     if (level === 'detailed') {
-      return { label: `На ${snap.title} до ${hhmm}`, level: 'detailed' };
+      return { label: this.i18n.translate('messenger.presence.atUntil', { title: snap.title, time: hhmm }), level: 'detailed' };
     }
-    return { label: `Занят до ${hhmm}`, level: 'busy' };
+    return { label: this.i18n.translate('messenger.presence.busyUntil', { time: hhmm }), level: 'busy' };
   }
 
   /** The target's current event, cached in Redis (CONTEXT_TTL). 'none' is cached too. */

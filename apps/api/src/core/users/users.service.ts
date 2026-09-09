@@ -6,6 +6,8 @@ import {
   OnModuleInit,
   UnauthorizedException,
 } from '@nestjs/common';
+import { forbidden, notFound, unauthorized } from '../../shared/errors/api-error';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import * as bcrypt from 'bcrypt';
 import { createHash, randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
@@ -23,6 +25,7 @@ import { ContactsService } from '../../modules/contacts/contacts.service';
 import { WorkspacesService } from '../../modules/workspaces/workspaces.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import {
+  SOURCE_LOCALE,
   maskPhone,
   resolveCardVisibility,
   type CardVisibility,
@@ -60,6 +63,7 @@ export class UsersService implements OnModuleInit {
     private contacts: ContactsService,
     private workspaces: WorkspacesService,
     private notifications: NotificationsService,
+    private i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -136,7 +140,7 @@ export class UsersService implements OnModuleInit {
     });
 
     if (!user) {
-      throw new NotFoundException('Пользователь не найден');
+      throw notFound('auth.userNotFound');
     }
 
     const { _count, subscription, cardVisibility, companyCardVisibility, dateOfBirth, phoneVerifiedAt, idDocIssuedAt, ...rest } = user;
@@ -298,11 +302,11 @@ export class UsersService implements OnModuleInit {
   async scheduleDeletion(userId: string, password: string) {
     const user = await this.db.user.findUnique({ where: { id: userId } });
     if (!user || user.deletedAt) {
-      throw new NotFoundException('Аккаунт не найден');
+      throw notFound('auth.accountNotFound');
     }
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) {
-      throw new UnauthorizedException('Неверный пароль');
+      throw unauthorized('auth.wrongPassword');
     }
     await this.db.user.update({
       where: { id: userId },
@@ -331,9 +335,9 @@ export class UsersService implements OnModuleInit {
       where: { id: userId },
       select: { password: true, deletedAt: true },
     });
-    if (!user || user.deletedAt) throw new NotFoundException('Аккаунт не найден');
+    if (!user || user.deletedAt) throw notFound('auth.accountNotFound');
     const ok = await bcrypt.compare(input.currentPassword, user.password);
-    if (!ok) throw new UnauthorizedException('Неверный текущий пароль');
+    if (!ok) throw unauthorized('auth.wrongCurrentPassword');
 
     const hashedPassword = await bcrypt.hash(input.newPassword, 12); // CPU — до транзакции
     const keepToken = input.currentRefreshToken ? this.hashRefreshToken(input.currentRefreshToken) : null;
@@ -365,7 +369,7 @@ export class UsersService implements OnModuleInit {
     // читается как «не сменился» и провоцирует повтор с уже негодным пропуском.
     this.notifications
       .send(null, { type: 'auth.password.changed', to: [{ userId }], reason: 'system', actionUrl: '/profile/security' })
-      .catch((err) => this.logger.error(`Уведомление о смене пароля не создано: ${err.message}`));
+      .catch((err) => this.logger.error(`The password-change notification was not created: ${err.message}`));
     return { changed: true };
   }
 
@@ -381,9 +385,9 @@ export class UsersService implements OnModuleInit {
       where: { id: userId },
       select: { phone: true, password: true, deletedAt: true },
     });
-    if (!user || user.deletedAt) throw new NotFoundException('Аккаунт не найден');
+    if (!user || user.deletedAt) throw notFound('auth.accountNotFound');
     const ok = await bcrypt.compare(input.password, user.password);
-    if (!ok) throw new UnauthorizedException('Неверный пароль');
+    if (!ok) throw unauthorized('auth.wrongPassword');
 
     const keepToken = input.currentRefreshToken ? this.hashRefreshToken(input.currentRefreshToken) : null;
 
@@ -434,7 +438,7 @@ export class UsersService implements OnModuleInit {
         reason: 'system',
         actionUrl: '/profile/security',
       })
-      .catch((err) => this.logger.error(`Уведомление о смене номера не создано: ${err.message}`));
+      .catch((err) => this.logger.error(`The phone-change notification was not created: ${err.message}`));
     return { changed: true, phone: input.newPhone };
   }
 
@@ -449,10 +453,10 @@ export class UsersService implements OnModuleInit {
     const phone = String(payload.phone);
     const user = await this.db.user.findUnique({ where: { id: userId }, select: { phone: true, deletedAt: true } });
     if (!user || user.deletedAt) {
-      throw new JobDiscardError(`Аккаунт ${userId} удалён — активировать приглашения некому`);
+      throw new JobDiscardError(`Account ${userId} is deleted — there is nobody to activate the invitations for`);
     }
     if (user.phone !== phone) {
-      throw new JobDiscardError(`Номер аккаунта ${userId} уже другой — джоб устарел`);
+      throw new JobDiscardError(`The phone number of account ${userId} is already different — the job is stale`);
     }
     await this.contacts.activatePendingInvitationsForNewUser(userId, phone);
     await this.workspaces.activatePendingWorkspaceInvitationsForNewUser(userId, phone);
@@ -589,7 +593,8 @@ export class UsersService implements OnModuleInit {
       await tx.user.update({
         where: { id: userId },
         data: {
-          firstName: 'Удалённый пользователь',
+          // Имя ложится В БД — снимок в языке ИСТОЧНИКА (зритель перерисует его при чтении).
+          firstName: this.i18n.translateFor(SOURCE_LOCALE, 'common.labels.deletedUser'),
           lastName: null,
           phone: `deleted:${userId}`, // frees the real number for re-registration
           phoneVerifiedAt: null, // подтверждение принадлежало освобождённому номеру
@@ -674,8 +679,8 @@ export class UsersService implements OnModuleInit {
       where: { id: sessionId },
       select: { userId: true },
     });
-    if (!session) throw new NotFoundException('Сессия не найдена');
-    if (session.userId !== userId) throw new ForbiddenException('Это не ваша сессия');
+    if (!session) throw notFound('auth.sessionNotFound');
+    if (session.userId !== userId) throw forbidden('auth.notYourSession');
     await this.db.session.delete({ where: { id: sessionId } });
   }
 }

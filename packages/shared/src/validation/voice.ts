@@ -11,9 +11,9 @@ const sourceKeys = VOICE_RECORDING_SOURCES as unknown as [string, ...string[]];
 const titleSchema = z
   .string()
   .trim()
-  .min(1, 'Название обязательно')
-  .max(255, 'Слишком длинное название')
-  .refine((v) => !/[<>]/.test(v), 'Название содержит недопустимые символы');
+  .min(1, 'validation.voice.titleRequired')
+  .max(255, 'validation.voice.titleTooLong')
+  .refine((v) => !/[<>]/.test(v), 'validation.voice.badCharacters');
 
 /** POST /voice/transcripts — запросить расшифровку файла (идемпотентно по fileId) */
 export const requestTranscriptSchema = z

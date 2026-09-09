@@ -118,14 +118,14 @@ export function assertPublicUrlShallow(raw: string): URL {
   try {
     u = new URL(raw);
   } catch {
-    throw new Error('Некорректный URL');
+    throw new Error('Invalid URL');
   }
-  if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('Разрешены только http/https');
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('Only http/https are allowed');
   const host = u.hostname.toLowerCase();
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal') || host.endsWith('.local')) {
-    throw new Error('Запрещён адрес внутренней сети');
+    throw new Error('An internal-network address is forbidden');
   }
-  if (literalHostIsPrivate(u.hostname) === true) throw new Error('Запрещён адрес внутренней сети');
+  if (literalHostIsPrivate(u.hostname) === true) throw new Error('An internal-network address is forbidden');
   return u;
 }
 
@@ -136,9 +136,9 @@ async function assertResolvedPublic(hostname: string): Promise<void> {
   try {
     addrs = await dnsPromises.lookup(hostname, { all: true });
   } catch {
-    throw new Error('Не удалось разрешить имя хоста');
+    throw new Error('The host name could not be resolved');
   }
-  if (addrs.length === 0) throw new Error('Имя хоста не разрешается');
+  if (addrs.length === 0) throw new Error('The host name does not resolve');
   for (const a of addrs) {
     const priv =
       a.family === 6
@@ -147,7 +147,7 @@ async function assertResolvedPublic(hostname: string): Promise<void> {
             const n = parseLooseIpv4(a.address);
             return n === null ? true : isPrivateIpv4Num(n);
           })();
-    if (priv) throw new Error('Хост указывает во внутреннюю сеть');
+    if (priv) throw new Error('The host points into the internal network');
   }
 }
 
@@ -188,7 +188,7 @@ export async function safeFetch(
       if (!isRedirect) return res;
       const loc = res.headers.get('location');
       if (!loc) return res; // редирект без Location — отдаём как есть
-      if (hop >= maxRedirects) throw new Error('Слишком много редиректов');
+      if (hop >= maxRedirects) throw new Error('Too many redirects');
       const prevHost = url.host;
       const next = assertPublicUrlShallow(new URL(loc, url).toString());
       await assertResolvedPublic(next.hostname);

@@ -31,7 +31,8 @@ export function checkTagsAgainstRegistry(
       if (!extra.has(tag.path)) {
         issues.push({
           code: 'unknown_field',
-          message: `Коллекция повтора «${tag.path}» не найдена среди полей формы шаблона`,
+          messageKey: 'templates.unknownCollection',
+          params: { path: tag.path },
           tag: tag.raw,
           part: tag.part,
         });
@@ -47,7 +48,8 @@ export function checkTagsAgainstRegistry(
       if (!isKnownFormatter(f.key, f.arg)) {
         issues.push({
           code: 'unknown_formatter',
-          message: `Неизвестный форматтер «${f.key}${f.arg ? ':' + f.arg : ''}» в теге ${tag.raw}`,
+          messageKey: 'templates.unknownFormatter',
+          params: { formatter: `${f.key}${f.arg ? ':' + f.arg : ''}`, tag: tag.raw },
           tag: tag.raw,
           part: tag.part,
         });
@@ -57,12 +59,13 @@ export function checkTagsAgainstRegistry(
     if (extra.has(tag.path)) continue;
     const dot = tag.path.indexOf('.');
     if (dot < 0) {
-      // Голый путь: внутри повтора — поле элемента (не проверяем), {№} — номер строки
+      // Голый путь: внутри повтора — поле элемента (не проверяем), {No} — номер строки
       if (depth > 0) continue;
       if (tag.path === TEMPLATE_INDEX_TAG) {
         issues.push({
           code: 'unknown_field',
-          message: `{${TEMPLATE_INDEX_TAG}} работает только внутри повтора {#…}…{/…}`,
+          messageKey: 'templates.indexOutsideRepeat',
+          params: { tag: `{${TEMPLATE_INDEX_TAG}}` },
           tag: tag.raw,
           part: tag.part,
         });
@@ -70,7 +73,10 @@ export function checkTagsAgainstRegistry(
       }
       issues.push({
         code: 'unknown_field',
-        message: `Поле «${tag.path}» не найдено — укажите группу («Организация.…», «Сотрудник.…») или добавьте поле в форму шаблона`,
+        messageKey: 'templates.fieldWithoutGroup',
+        // Примеры групп берём у самого реестра: список групп растёт (Счёт, Договор…),
+        // и зашитая в фразу пара имён устарела бы молча.
+        params: { path: tag.path, groups: [...registry.prefixes()].slice(0, 2).join(', ') },
         tag: tag.raw,
         part: tag.part,
       });
@@ -80,7 +86,8 @@ export function checkTagsAgainstRegistry(
     if (!registry.hasPrefix(prefix)) {
       issues.push({
         code: 'unknown_field',
-        message: `Группа «${prefix}» не существует (тег ${tag.raw}) — проверьте написание`,
+        messageKey: 'templates.unknownGroup',
+        params: { prefix, tag: tag.raw },
         tag: tag.raw,
         part: tag.part,
       });
@@ -89,7 +96,8 @@ export function checkTagsAgainstRegistry(
     if (!registry.isKnownPath(tag.path)) {
       issues.push({
         code: 'unknown_field',
-        message: `В группе «${prefix}» нет поля «${tag.path.slice(dot + 1)}» (тег ${tag.raw})`,
+        messageKey: 'templates.unknownFieldInGroup',
+        params: { prefix, field: tag.path.slice(dot + 1), tag: tag.raw },
         tag: tag.raw,
         part: tag.part,
       });

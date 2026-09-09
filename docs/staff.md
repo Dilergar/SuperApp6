@@ -41,11 +41,30 @@ StaffAssignment — ФАКТ («как работает»); юридически
 | Процессы | `human.approval.assigneeMode` + `initiator_manager` / `subject_manager` / `branch_head`; `human.task` + `initiator_manager` — [processes.md](processes.md) |
 | Библиотека бланков | заявления: шаг «Согласование руководителя» = `subject_manager` — [hr_kedo.md](hr_kedo.md) |
 | Шаблоны | группа «Сотрудник»: `Руководитель`, `Руководитель Должность`, `Руководитель объекта`, `Руководитель объекта Должность` — [templates_engine.md](templates_engine.md) |
-| Хроника | `staff.unit_created` / `staff.unit_deleted` (появление и исчезновение отдела/должности/объекта — `unitLabel` в payload), `staff.head_set`, `staff.branch_head_set`, `staff.reports_to_set`, `staff.position_moved`, `staff.deputy_opened/closed`, `staff.primary_changed`, `staff.default_branch_changed` (журнал, `chatPost:false`). Пишется `log(tx)` В ТРАНЗАКЦИИ мутации — запись живёт ровно тогда, когда живёт правка; уведомления держателям идут ПОСЛЕ коммита |
-| Уведомления | `staff.head.assigned` (держателям руководящей должности), `staff.deputy.assigned` (заму) |
+| Хроника | `staff.unit_created` / `staff.unit_deleted` (появление и исчезновение единицы — `unitLabelKey` + `unitName` в payload), `staff.head_set`, `staff.branch_head_set`, `staff.reports_to_set`, `staff.position_moved`, `staff.deputy_opened/closed`, `staff.primary_changed`, `staff.default_branch_changed` (журнал, `chatPost:false`). Пишется `log(tx)` В ТРАНЗАКЦИИ мутации — запись живёт ровно тогда, когда живёт правка; уведомления держателям идут ПОСЛЕ коммита |
+| Уведомления | `staff.head.assigned` (держателям руководящей должности — ПО ОДНОМУ на единицу: одна должность ведёт несколько отделов), `staff.deputy.assigned` (заму) |
 | Поиск | живой провайдер `org_unit`: отдел/должность → `/members/org?focus=` |
 
 TemplateFieldRegistry: группа «Сотрудник» (анкета + должность/отдел/объект + руководитель) — см. [templates_engine.md](templates_engine.md).
+
+## Слова вечных записей — ключом, не текстом
+
+Вид единицы, кого поставили заместителем и период замещения — это СЛОВА продукта, а
+не данные, поэтому в вечный payload они кладутся ключом каталога (`<имя>Key`,
+[i18n.md](i18n.md)):
+
+| Что | Ключ в payload | Каталог |
+|---|---|---|
+| отдел / должность / объект | `unitLabelKey` + `unitName` | `staff.unitLabel.*` |
+| чем руководит (уведомление) | `unitLabelKey` + `unitName` | `staff.headUnit.*` |
+| заместитель-должность | `deputyLabelKey` + `deputyPositionName` | `staff.deputyTarget.position` |
+| период замещения | `periodLabelKey` + `startsOn`/`endsOn` | `staff.deputyPeriod.*` (хроника) · `staff.deputyNotice.*` (уведомление) |
+
+Заместитель-ЧЕЛОВЕК кладётся именем (`deputyLabel`) — имя не переводится.
+«Пусто» в `changes[].from/to` (нет отдела, руководитель не назначен) пишется `null`:
+прочерк рисует зритель из своего каталога, иначе «не назначен» застыло бы в языке
+того, кто нажал кнопку. Подпись поля (`changes[].label`) — снимок в `SOURCE_LOCALE`
+из `chatter.fields.workspace.*`.
 
 ## Проверка
 

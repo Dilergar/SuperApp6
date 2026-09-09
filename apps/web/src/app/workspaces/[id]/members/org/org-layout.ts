@@ -20,7 +20,6 @@
 
 import type { Edge, MarkerType, Node } from '@xyflow/react';
 import type { OrgChartDepartmentDto, OrgChartDto, OrgChartPositionDto } from '@superapp/shared';
-import { dm } from '@/lib/dates';
 
 export const ORG_NODE_W = 240;
 export const ORG_NODE_H = 116;
@@ -68,12 +67,24 @@ export interface OrgFrameRect {
   h: number;
 }
 
+/**
+ * Слова, которые нужны раскладке (подписи узлов для скринридера, подпись периода
+ * на пунктире замещения). Раскладка — ЧИСТАЯ функция и языка не знает: их
+ * собирает единственный React-владелец (`useOrgLayoutLabels` в `org-lib`).
+ */
+export interface OrgLayoutLabels {
+  deptAria: (name: string, count: number) => string;
+  positionAria: (name: string, count: number, vacant: boolean) => string;
+  deputyPeriod: (startsOn?: string | null, endsOn?: string | null) => string;
+}
+
 export interface OrgLayoutInput {
   chart: OrgChartDto;
   view: OrgViewMode;
   focus: OrgFocusMode;
   /** Рисовать рамки отделов (выключается на очень больших схемах) */
   frames: boolean;
+  labels: OrgLayoutLabels;
 }
 
 export interface OrgLayout {
@@ -91,17 +102,9 @@ interface Rect { x: number; y: number; w: number; h: number }
 const intersects = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
 const byOrder = (a: { sortOrder: number; name: string }, b: { sortOrder: number; name: string }) =>
-  a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'ru');
+  a.sortOrder - b.sortOrder || a.name.localeCompare(b.name);
 
-/** Подпись периода замещения на пунктире: «01.09–15.09», «с 01.09», «до 15.09», «запасной» */
-export function deputyPeriodLabel(startsOn?: string | null, endsOn?: string | null): string {
-  if (startsOn && endsOn) return `${dm(startsOn)}–${dm(endsOn)}`;
-  if (startsOn) return `с ${dm(startsOn)}`;
-  if (endsOn) return `до ${dm(endsOn)}`;
-  return 'запасной';
-}
-
-export function layoutOrg({ chart, view, focus, frames: wantFrames }: OrgLayoutInput): OrgLayout {
+export function layoutOrg({ chart, view, focus, frames: wantFrames, labels }: OrgLayoutInput): OrgLayout {
   const posById = new Map(chart.positions.map((p) => [p.id, p]));
   const depById = new Map(chart.departments.map((d) => [d.id, d]));
   const depRank = new Map<string, number>();
@@ -319,7 +322,7 @@ export function layoutOrg({ chart, view, focus, frames: wantFrames }: OrgLayoutI
       className: 'ogroup-wrap',
       // Узлы React Flow фокусируемы: без подписи скринридер читал «group» и сырой
       // текст внутри. `ariaLabel` кладётся на обёртку узла самим React Flow.
-      ariaLabel: `Отдел «${d.name}», должностей: ${(membersOf.get(f.departmentId) ?? []).length}`,
+      ariaLabel: labels.deptAria(d.name, (membersOf.get(f.departmentId) ?? []).length),
       data: { department: d, positionsCount: (membersOf.get(f.departmentId) ?? []).length },
     });
   }
@@ -340,9 +343,7 @@ export function layoutOrg({ chart, view, focus, frames: wantFrames }: OrgLayoutI
       width: ORG_NODE_W,
       height: ORG_NODE_H,
       zIndex: 1,
-      ariaLabel: p.vacant
-        ? `Должность «${p.name}», вакансия`
-        : `Должность «${p.name}», держателей: ${p.holders.length}`,
+      ariaLabel: labels.positionAria(p.name, p.holders.length, p.vacant),
       data: {
         position: p,
         departmentName: p.departmentId ? depById.get(p.departmentId)?.name ?? null : null,
@@ -385,7 +386,7 @@ export function layoutOrg({ chart, view, focus, frames: wantFrames }: OrgLayoutI
         targetHandle: fromLeft ? 'tl' : 'tr',
         type: 'default',
         style: { stroke: 'var(--warning-base)', strokeWidth: 1.75, strokeDasharray: '6 4' },
-        label: deputyPeriodLabel(e.startsOn, e.endsOn),
+        label: labels.deputyPeriod(e.startsOn, e.endsOn),
         labelStyle: { fontSize: 10.5, fontWeight: 700, fill: 'var(--warning)' },
         labelBgStyle: { fill: 'var(--block)', fillOpacity: 0.95 },
         labelBgPadding: [6, 3] as [number, number],

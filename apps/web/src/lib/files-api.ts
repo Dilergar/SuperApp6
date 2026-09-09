@@ -69,7 +69,7 @@ async function uploadPart(
     onUploadProgress: (e) => opts.onLoaded?.(e.loaded),
   });
   const etag = String(res.headers['etag'] ?? '').replace(/"/g, '');
-  if (!etag) throw new Error('Хранилище не вернуло ETag части');
+  if (!etag) throw new Error('The storage returned no ETag for the part');
   return etag;
 }
 
@@ -133,7 +133,7 @@ export async function uploadFile(file: File, profile: string, opts: UploadOption
     let uploadedBefore = 0;
     for (const n of numbers) {
       const url = byNumber.get(n);
-      if (!url) throw new Error(`Нет ссылки на часть ${n}`);
+      if (!url) throw new Error(`No upload URL for part ${n}`);
       const start = (n - 1) * partSize;
       const chunk = file.slice(start, Math.min(start + partSize, file.size));
       const done = uploadedBefore;

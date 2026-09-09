@@ -45,10 +45,11 @@ export const DRIVE_SORT_DIRS = ['asc', 'desc'] as const;
 
 /**
  * Системные папки пространства: создаются лениво, не удаляются и не переносятся.
- * Ключ живёт в колонке `systemKey`, название — здесь (переименование не ломает поиск папки).
+ * Ключ живёт в колонке `systemKey`, СЛОВО даёт каталог (`drive.systemFolder.<ключ>`):
+ * имя в БД — снимок языка источника, а зритель видит его в своём (`displayName`).
  */
 export const DRIVE_SYSTEM_FOLDERS = {
-  chat_uploads: { name: 'Файлы из переписки', icon: 'chats' },
+  chat_uploads: { icon: 'chats' },
   // Сервис «Документы»: подписанный документ ложится ДВУМЯ узлами — в реестр вида и
   // в личное дело сотрудника. Файл при этом ОДИН, байты не дублируются.
   // ЗАКРЫТАЯ по той же причине, что личные дела: корень диска организации раздаёт
@@ -57,10 +58,10 @@ export const DRIVE_SYSTEM_FOLDERS = {
   // получая в реестре документов честный 403 — и правил бы их, потому что на корне
   // у него роль «правит». Доступ внутрь выдаётся явно: управляющим — на папку,
   // команде — на подпапку вида, объявленного открытым.
-  documents: { name: 'Документы организации', icon: 'fileText', restricted: true },
+  documents: { icon: 'fileText', restricted: true },
   // ЗАКРЫТАЯ по умолчанию: корень диска организации раздаёт доступ всей команде, и
   // без обрыва наследования личные дела читал бы любой Стажёр.
-  personal_files: { name: 'Личные дела', icon: 'folderUser', restricted: true },
+  personal_files: { icon: 'folderUser', restricted: true },
 } as const;
 
 export type DriveSystemFolderKey = keyof typeof DRIVE_SYSTEM_FOLDERS;

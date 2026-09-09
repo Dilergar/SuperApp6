@@ -1,7 +1,8 @@
-import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { QUICK_ACTION_SCOPES, type QuickActionScope } from '@superapp/shared';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { badRequest } from '../../shared/errors/api-error';
 import { QuickActionsService } from './quick-actions.service';
 
 /**
@@ -15,13 +16,13 @@ export class QuickActionsController {
   constructor(private readonly quickActions: QuickActionsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Доступные быстрые действия для чата (＋-меню / меню сообщения)' })
+  @ApiOperation({ summary: 'Quick actions available in a chat (the ＋-menu / a message menu)' })
   async list(
     @CurrentUser() user: JwtPayload,
     @Query('chatId') chatId?: string,
     @Query('scope') scope?: string,
   ) {
-    if (!chatId) throw new BadRequestException('chatId обязателен');
+    if (!chatId) throw badRequest('request.chatIdRequired');
     const s: QuickActionScope = QUICK_ACTION_SCOPES.includes(scope as QuickActionScope)
       ? (scope as QuickActionScope)
       : 'composer';

@@ -2,9 +2,11 @@
 
 import { useMemo } from 'react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import type { CursorPage, FinCoinFeedItemDto, WalletEntry } from '@superapp/shared';
 import { apiGet } from '@/lib/api';
+import { useFormatters } from '@/lib/format';
 import { formatWalletAmount } from '@/lib/wallet-format';
 import {
   BentoGrid, Button, Card, CardHeader, EmptyState, Glyph, StatTile, type IconName, type Tone,
@@ -41,6 +43,8 @@ const KIND_GLYPH: Record<string, { icon: IconName; tone: Tone }> = {
  * балансы кошелька + авто-лента (награды задач, покупки, казна) из леджера. Read-only.
  */
 export function CoinsView() {
+  const t = useTranslations('finance');
+  const f = useFormatters();
   const { data: wallet = [] } = useQuery({ queryKey: walletSummaryKey, queryFn: fetchWalletSummary });
   const feed = useInfiniteQuery({
     queryKey: coinFeedKey,
@@ -70,9 +74,9 @@ export function CoinsView() {
         <Card span={12}>
           <EmptyState
             icon="coins"
-            title="Кошелёк пока пуст"
-            description="Награда за первую выполненную задачу появится здесь сама."
-            action={<Button variant="matte" icon="tasks" href="/tasks">К задачам</Button>}
+            title={t('coins.walletEmptyTitle')}
+            description={t('coins.walletEmptyDescription')}
+            action={<Button variant="matte" icon="tasks" href="/tasks">{t('coins.toTasks')}</Button>}
           />
         </Card>
       )}
@@ -80,7 +84,7 @@ export function CoinsView() {
       {rest.length > 0 && (
         <Card span={12} small>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
-            <span className="label-caps">Ещё валюты</span>
+            <span className="label-caps">{t('coins.moreCurrencies')}</span>
             {rest.map((w) => (
               <span key={w.currencyId} className="title-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
                 <Glyph value={w.icon} size={15} />
@@ -94,9 +98,13 @@ export function CoinsView() {
 
       <Card span={12}>
         <CardHeader
-          title="Лента экосистемы"
-          subtitle="Награды за задачи, покупки в магазинах и выплаты казны попадают сюда сами"
-          actions={<Button variant="ghost" size="sm" href="/profile/wallet" iconRight="caretRight">Кошелёк</Button>}
+          title={t('coins.feedTitle')}
+          subtitle={t('coins.feedSubtitle')}
+          actions={
+            <Button variant="ghost" size="sm" href="/profile/wallet" iconRight="caretRight">
+              {t('coins.wallet')}
+            </Button>
+          }
         />
 
         {items.length > 0 ? (
@@ -125,7 +133,7 @@ export function CoinsView() {
                         )}
                       </>
                     }
-                    subtitle={new Date(it.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
+                    subtitle={f.date(it.createdAt, 'dayMonthLong')}
                     right={
                       <span
                         style={{
@@ -146,15 +154,15 @@ export function CoinsView() {
         ) : (
           <EmptyState
             icon="coins"
-            title="Пока пусто"
-            description="Получите первую награду за задачу — событие появится в ленте."
+            title={t('coins.feedEmptyTitle')}
+            description={t('coins.feedEmptyDescription')}
           />
         )}
 
         {feed.hasNextPage && (
           <div style={{ textAlign: 'center', marginTop: 'var(--spacing-5)' }}>
             <Button variant="matte" size="sm" onClick={() => feed.fetchNextPage()} loading={feed.isFetchingNextPage}>
-              Показать ещё
+              {t('coins.loadMore')}
             </Button>
           </div>
         )}

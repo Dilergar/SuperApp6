@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { NOTE_RELATED_TARGET_TYPES, NOTE_TARGET_LABELS, type NoteRelatedRefInput, type NoteRelatedTargetType, type NoteSpaceRef, type NoteTargetSearchItemDto } from '@superapp/shared';
+import { useTranslations } from 'next-intl';
+import { NOTE_RELATED_TARGET_TYPES, type NoteRelatedRefInput, type NoteRelatedTargetType, type NoteSpaceRef, type NoteTargetSearchItemDto } from '@superapp/shared';
 import { EmptyState, Icon, LoadingBlock, Modal, SearchField, SegmentedControl, type IconName } from '@/components/ui';
 import { apiErrorMessage } from '@/lib/api';
 import { searchNoteTargets } from '@/lib/notes-api';
@@ -16,6 +17,7 @@ import { toastError } from '@/lib/toast';
 const ICONS: Record<NoteRelatedTargetType, IconName> = { task: 'tasks', counterparty: 'workspace', branch: 'storefront', document: 'file' };
 
 export function NoteRelatedPicker({ open, onClose, scope, onPick }: { open: boolean; onClose: () => void; scope: NoteSpaceRef; onPick: (ref: NoteRelatedRefInput, title: string) => void | Promise<void> }) {
+  const t = useTranslations('notes');
   const types = scope.workspaceId ? [...NOTE_RELATED_TARGET_TYPES] : (['task'] as NoteRelatedTargetType[]);
   const [type, setType] = useState<NoteRelatedTargetType>('task');
   const [q, setQ] = useState('');
@@ -45,16 +47,16 @@ export function NoteRelatedPicker({ open, onClose, scope, onPick }: { open: bool
   }, [open, type, q, scope]);
 
   return (
-    <Modal open={open} onClose={onClose} title="Привязать заметку" size="md">
+    <Modal open={open} onClose={onClose} title={t('related.title')} size="md">
       <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
         {types.length > 1 && (
-          <SegmentedControl aria-label="Тип сущности" value={type} onChange={(v) => setType(v as NoteRelatedTargetType)} items={types.map((t) => ({ key: t, label: NOTE_TARGET_LABELS[t], icon: ICONS[t] }))} />
+          <SegmentedControl aria-label={t('related.typeAria')} value={type} onChange={(v) => setType(v as NoteRelatedTargetType)} items={types.map((k) => ({ key: k, label: t(`target.${k}`), icon: ICONS[k] }))} />
         )}
-        <SearchField value={q} onChange={(e) => setQ(e.target.value)} onClear={() => setQ('')} placeholder={`Найти: ${NOTE_TARGET_LABELS[type].toLowerCase()}…`} width="100%" />
+        <SearchField value={q} onChange={(e) => setQ(e.target.value)} onClear={() => setQ('')} placeholder={t('related.searchPlaceholder', { type: t(`target.${type}`).toLowerCase() })} width="100%" />
         {busy && !items ? (
           <LoadingBlock />
         ) : !items?.length ? (
-          <EmptyState icon={ICONS[type]} title="Ничего не найдено" description={q ? 'Попробуйте другое слово' : 'Начните вводить название'} />
+          <EmptyState icon={ICONS[type]} title={t('related.nothingFound')} description={q ? t('board.searchHint') : t('related.startTyping')} />
         ) : (
           <div style={{ display: 'grid', gap: 'var(--spacing-1)', maxHeight: 360, overflowY: 'auto' }}>
             {items.map((it) => (

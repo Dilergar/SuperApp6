@@ -9,6 +9,7 @@
 
 import { useCallback, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DriveNodeDto } from '@superapp/shared';
 import { DRIVE_LIMITS } from '@superapp/shared';
@@ -33,11 +34,13 @@ import {
 import { DriveBrowser } from '../../../drive/_components/DriveBrowser';
 import { DriveNodeList } from '../../../drive/_components/DriveNodeList';
 import { PhotoTimeline } from '../../../drive/_components/PhotoTimeline';
-import { humanSize } from '../../../drive/_components/drive-ui';
+import { useBytes } from '@/lib/format';
 
 type Tab = 'files' | 'photos' | 'trash';
 
 export default function WorkspaceDrivePage() {
+  const t = useTranslations('drive');
+  const humanSize = useBytes();
   const { id: workspaceId } = useParams<{ id: string }>();
   const { isReady } = useRequireAuth();
   const qc = useQueryClient();
@@ -67,7 +70,7 @@ export default function WorkspaceDrivePage() {
 
   const refresh = useCallback(() => void qc.invalidateQueries({ queryKey: driveRootKey }), [qc]);
 
-  const rootName = overview?.space.title ?? 'Диск организации';
+  const rootName = overview?.space.title ?? t('rootNameOrg');
   const breadcrumbs = folderId
     ? [
         { id: null as string | null, name: rootName },
@@ -93,7 +96,7 @@ export default function WorkspaceDrivePage() {
           void restoreDriveNodes([node.id]).then(refresh).catch((e) => toastError(apiErrorMessage(e)))
         }
       >
-        Восстановить
+        {t('page.restore')}
       </Button>
       <Button
         variant="matte"
@@ -102,9 +105,9 @@ export default function WorkspaceDrivePage() {
         onClick={() =>
           confirm(
             {
-              title: `Удалить «${node.name}» навсегда?`,
-              message: 'Файл перестанет открываться везде, где на него ссылались, включая вложения в чатах.',
-              confirmLabel: 'Удалить навсегда',
+              title: t('page.purgeConfirm.title', { name: node.name }),
+              message: t('page.purgeConfirm.message'),
+              confirmLabel: t('page.purge'),
               danger: true,
             },
             async () => {
@@ -114,19 +117,19 @@ export default function WorkspaceDrivePage() {
           )
         }
       >
-        Удалить навсегда
+        {t('page.purge')}
       </Button>
     </>
   );
 
   return (
     <>
-      <PageHeader breadcrumb="Организация" title={rootName} />
+      <PageHeader breadcrumb={t('orgBreadcrumb')} title={rootName} />
       <Tabs
         items={[
-          { key: 'files', label: 'Файлы', icon: 'folder' },
-          { key: 'photos', label: 'Фото', icon: 'image' },
-          { key: 'trash', label: 'Корзина', icon: 'delete' },
+          { key: 'files', label: t('tab.files'), icon: 'folder' },
+          { key: 'photos', label: t('page.photos'), icon: 'image' },
+          { key: 'trash', label: t('page.trash'), icon: 'delete' },
         ]}
         value={tab}
         onChange={(v) => setTab(v as Tab)}
@@ -147,16 +150,13 @@ export default function WorkspaceDrivePage() {
         {tab === 'trash' && (
           <>
             <div style={{ marginBottom: 12 }}>
-            <Alert tone="neutral">
-              Объекты хранятся {DRIVE_LIMITS.trashRetentionDays} дней и всё это время занимают место
-              организации.
-            </Alert>
+            <Alert tone="neutral">{t('org.trashHint', { days: DRIVE_LIMITS.trashRetentionDays })}</Alert>
             </div>
             <DriveNodeList
               nodes={trash?.items}
               loading={trashPending}
               emptyIcon="delete"
-              emptyTitle="Корзина пуста"
+              emptyTitle={t('page.trashEmpty')}
               renderActions={trashActions}
             />
           </>
@@ -165,10 +165,8 @@ export default function WorkspaceDrivePage() {
 
       <Card small style={{ marginTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
-          <span className="label-caps">Занято места организацией</span>
-          <span className="label-sm">
-            {humanSize(used)} из {humanSize(limit)}
-          </span>
+          <span className="label-caps">{t('org.usedSpace')}</span>
+          <span className="label-sm">{t('page.usedOf', { used: humanSize(used), limit: humanSize(limit) })}</span>
         </div>
         <TickBar value={pct} tone={pct > 90 ? 'danger' : pct > 70 ? 'warning' : 'accent'} />
       </Card>

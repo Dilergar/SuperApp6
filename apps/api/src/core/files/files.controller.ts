@@ -18,6 +18,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { badRequest, forbidden } from '../../shared/errors/api-error';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { diskStorage } from 'multer';
@@ -62,7 +63,7 @@ export class FilesController {
 
   @Post()
   @Throttle({ long: { limit: 30, ttl: 60000 } })
-  @ApiOperation({ summary: 'Начать загрузку (Slack v2: init → байты → complete). Возвращает транспорт api|multipart' })
+  @ApiOperation({ summary: 'Start an upload (Slack v2: init → bytes → complete). Returns the transport api|multipart' })
   async init(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const dto = initFileSchema.parse(body);
     const data = await this.files.init(user.sub, dto);
@@ -70,7 +71,7 @@ export class FilesController {
   }
 
   @Get('usage')
-  @ApiOperation({ summary: 'Занятое место и лимит хранилища текущего пользователя' })
+  @ApiOperation({ summary: 'The space used and the storage limit of the current user' })
   async usage(@CurrentUser() user: JwtPayload) {
     const data = await this.files.getUsage(user.sub);
     return { success: true, data };
@@ -83,7 +84,7 @@ export class FilesController {
   @Public()
   @SkipThrottle()
   @Get('raw/:id')
-  @ApiOperation({ summary: 'Отдача байтов по HMAC-подписанной ссылке (выдаёт GET /files/:id/download)' })
+  @ApiOperation({ summary: 'Serving the bytes over an HMAC-signed link (issued by GET /files/:id/download)' })
   async raw(
     @Param('id') id: string,
     @Query('variant') variant: string | undefined,
@@ -94,7 +95,7 @@ export class FilesController {
   ) {
     const variantKind = variant || null;
     if (!sig || !exp || !this.urls.verify(id, variantKind, Number(exp), sig)) {
-      throw new ForbiddenException('Ссылка недействительна или истекла');
+      throw forbidden('files.linkInvalid');
     }
     await serveStream(req, res, async (range) => {
       const { result, mime, name } = await this.files.openRawStream(id, variantKind, range);
@@ -123,19 +124,19 @@ export class FilesController {
     }),
   )
   @ApiConsumes('multipart/form-data')
-  @ApiOperation({ summary: 'Загрузить байты одним запросом (транспорт api, ≤25 МБ на s3 / ≤200 МБ на local)' })
+  @ApiOperation({ summary: 'Upload the bytes in a single request (the api transport, ≤25 MB on s3 / ≤200 MB on local)' })
   async putContent(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
     @UploadedFile() file?: Express.Multer.File,
   ) {
-    if (!file) throw new BadRequestException('Нет файла: ожидается multipart/form-data с полем "file"');
+    if (!file) throw badRequest('files.noFile');
     const data = await this.files.putContent(user.sub, id, { path: file.path, size: file.size });
     return { success: true, data };
   }
 
   @Post(':id/parts')
-  @ApiOperation({ summary: 'Presigned-ссылки на части multipart-загрузки (файлы >25 МБ, s3-драйвер)' })
+  @ApiOperation({ summary: 'Presigned links for the multipart upload parts (files over 25 MB, the s3 driver)' })
   async createParts(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -148,7 +149,7 @@ export class FilesController {
 
   @Post(':id/complete')
   @Throttle({ long: { limit: 60, ttl: 60000 } })
-  @ApiOperation({ summary: 'Завершить загрузку: верификация, квота, события, медиа-конвейер' })
+  @ApiOperation({ summary: 'Complete the upload: verification, quota, events, the media pipeline' })
   async complete(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -161,14 +162,14 @@ export class FilesController {
 
   @Post(':id/abort')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Отменить незавершённую загрузку' })
+  @ApiOperation({ summary: 'Cancel an unfinished upload' })
   async abort(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     await this.files.abort(user.sub, id);
     return { success: true, data: { ok: true } };
   }
 
   @Get(':id/download')
-  @ApiOperation({ summary: 'Ссылка на скачивание: presigned GET (s3) или HMAC-ссылка (local); ?variant=thumb|medium|poster' })
+  @ApiOperation({ summary: 'A download link: a presigned GET (s3) or an HMAC link (local); ?variant=thumb|medium|poster' })
   async download(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -180,14 +181,14 @@ export class FilesController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Метаданные файла (с вариантами); доступ — владелец/загрузивший/по привязкам' })
+  @ApiOperation({ summary: 'The file metadata (with its variants); access — the owner, the uploader or a link' })
   async meta(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const data = await this.files.getMeta(user.sub, id);
     return { success: true, data };
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Удалить файл (soft-delete; физически — кроном после ретеншна)' })
+  @ApiOperation({ summary: 'Delete a file (soft delete; physically by the cron after the retention)' })
   async remove(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     await this.files.softDelete(user.sub, id);
     return { success: true, data: { ok: true } };

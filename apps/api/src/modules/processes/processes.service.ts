@@ -1,12 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  Logger,
-  NotFoundException,
-  OnModuleInit,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import {
   PROCESS_LIMITS,
   SURFACE_NODE_TYPES,
@@ -28,7 +20,10 @@ import {
 } from '@superapp/shared';
 import { randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
+import { SOURCE_LOCALE } from '@superapp/i18n';
+import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { encryptSecret, decryptSecret } from './process-crypto';
@@ -44,7 +39,7 @@ import { KZ_PROCESS_NODES } from './process-kz-nodes';
 import { ACTION_PROCESS_NODES } from './process-action-nodes';
 import { DOCUMENT_PROCESS_NODES } from './process-document-nodes';
 import { HR_PROCESS_NODES } from './process-hr-nodes';
-import type { CompiledPlan } from './process-node.types';
+import type { CompiledPlan, RawIssue } from './process-node.types';
 
 const WS_CONTEXT = 'workspace';
 
@@ -77,8 +72,10 @@ type InstanceStepRow = Prisma.ProcessStepRunGetPayload<{ select: typeof INSTANCE
 /** Стартовый документ нового процесса: триггер «Запуск вручную» → Конец (публикуется из коробки). */
 const DEFAULT_DOCUMENT: ProcessDocument = {
   nodes: [
-    { id: 'start', type: 'start', label: 'Запуск вручную', config: {}, position: { x: 60, y: 220 } },
-    { id: 'end', type: 'end', label: 'Конец', config: {}, position: { x: 620, y: 220 } },
+    // Подпись ноды — данные АВТОРА: пустая означает «взять название типа», и
+    // тогда канвас нарисует его в языке зрителя, а не в языке создателя.
+    { id: 'start', type: 'start', label: '', config: {}, position: { x: 60, y: 220 } },
+    { id: 'end', type: 'end', label: '', config: {}, position: { x: 620, y: 220 } },
   ],
   edges: [{ id: 'e_start_end', from: 'start', fromPort: 'main', to: 'end' }],
   form: [],
@@ -134,7 +131,21 @@ export class ProcessesService implements OnModuleInit {
     private engine: ProcessEngineService,
     private approvals: ApprovalsService,
     private chatter: ChatterService,
+    private i18n: I18nService,
   ) {}
+
+  /**
+   * Замечания компилятора и правил приходят КЛЮЧАМИ каталога с подстановками —
+   * слова добавляются здесь, в языке запроса, ровно перед выдачей наружу.
+   */
+  private renderIssues(issues: RawIssue[]): ProcessValidationIssue[] {
+    return issues.map(({ params, ...issue }) => ({
+      ...issue,
+      message: this.i18n.has(issue.message)
+        ? this.i18n.translate(issue.message, params)
+        : issue.message,
+    }));
+  }
 
   onModuleInit(): void {
     for (const provider of [
@@ -164,18 +175,14 @@ export class ProcessesService implements OnModuleInit {
 
   private async assertTeamMember(userId: string, workspaceId: string): Promise<WorkspaceRole> {
     const role = await this.getRoleOf(userId, workspaceId);
-    if (!role) throw new ForbiddenException('Нет доступа к этой организации');
+    if (!role) throw forbidden('workspace.noAccess');
     // БЕЛЫЙ список командных ролей (Стажёр+), а не «всё, кроме Подрядчика»: fail-closed —
     // новая роль лестницы по чёрному списку молча получила бы чтение и ЗАПУСК процессов.
     // Ранговые гейты выше (assertManage — Менеджер+) считаются рангами и не затронуты.
     if (!(TEAM_WORKSPACE_ROLES as readonly string[]).includes(role)) {
       // Персональная формулировка — только Подрядчику (единственная существующая
       // не-командная роль); любая будущая получает нейтральный отказ, а не проход.
-      throw new ForbiddenException(
-        role === 'contractor'
-          ? 'Подрядчику доступны только его задачи'
-          : 'Нет доступа к этой организации',
-      );
+      throw forbidden(role === 'contractor' ? 'processes.contractorScope' : 'workspace.noAccess');
     }
     return role;
   }
@@ -183,7 +190,7 @@ export class ProcessesService implements OnModuleInit {
   private async assertManage(userId: string, workspaceId: string): Promise<WorkspaceRole> {
     const role = await this.assertTeamMember(userId, workspaceId);
     if ((WORKSPACE_ROLE_RANK[role] ?? 0) < WORKSPACE_ROLE_RANK.manager) {
-      throw new ForbiddenException('Недостаточно прав (нужен Менеджер или выше)');
+      throw forbidden('processes.managerRequired');
     }
     return role;
   }
@@ -196,7 +203,7 @@ export class ProcessesService implements OnModuleInit {
   /** Стена «только админы» действует и на ПРАВКУ: менеджер не видит → не редактирует/не публикует. */
   private assertDefVisible(role: WorkspaceRole, def: { visibility: string }): void {
     if (!this.canSeeDefinition(role, def.visibility)) {
-      throw new ForbiddenException('Процесс доступен только администраторам');
+      throw forbidden('processes.adminsOnly');
     }
   }
 
@@ -312,7 +319,7 @@ export class ProcessesService implements OnModuleInit {
       select: { id: true, version: true, status: true, publishedAt: true },
     });
     const latestMeta = versionsMeta[0];
-    if (!latestMeta) throw new NotFoundException('У процесса нет версий');
+    if (!latestMeta) throw notFound('processes.noVersions');
     const latest = await this.db.processVersion.findUnique({
       where: { id: latestMeta.id },
       select: { document: true },
@@ -378,7 +385,7 @@ export class ProcessesService implements OnModuleInit {
         status: v.status as ProcessDefinitionDetailDto['versions'][number]['status'],
         publishedAt: v.publishedAt?.toISOString() ?? null,
       })),
-      issues,
+      issues: this.renderIssues(issues),
       surface: def.surface,
       canEdit,
       canStart: !!def.currentVersionId,
@@ -422,7 +429,7 @@ export class ProcessesService implements OnModuleInit {
         where: { definitionId },
         orderBy: { version: 'desc' },
       });
-      if (!latest) throw new NotFoundException('У процесса нет версий');
+      if (!latest) throw notFound('processes.noVersions');
       if (latest.status === 'draft') {
         await tx.processVersion.update({
           where: { id: latest.id },
@@ -445,7 +452,7 @@ export class ProcessesService implements OnModuleInit {
     const { issues } = compileProcessDocument(document, this.registry);
     const def = await this.loadDefinition(workspaceId, definitionId);
     issues.push(...checkSurfaceRules(def.surface, document));
-    return { version: saved, issues };
+    return { version: saved, issues: this.renderIssues(issues) };
   }
 
   async validateDefinition(
@@ -473,7 +480,7 @@ export class ProcessesService implements OnModuleInit {
       latest.document as unknown as ProcessDocument,
       rank >= WORKSPACE_ROLE_RANK.manager ? rank : null,
     );
-    return { issues: [...issues, ...memberIssues] };
+    return { issues: this.renderIssues([...issues, ...memberIssues]) };
   }
 
   /** Публикация: компиляция без ошибок + исполнители — действующие члены команды. */
@@ -488,7 +495,7 @@ export class ProcessesService implements OnModuleInit {
     this.assertDefVisible(role, def);
     const latest = await this.latestVersion(definitionId);
     if (latest.status !== 'draft') {
-      throw new BadRequestException('Нет черновика для публикации — внесите изменения');
+      throw badRequest('processes.noDraft');
     }
     const document = latest.document as unknown as ProcessDocument;
     const { plan, issues } = compileProcessDocument(document, this.registry);
@@ -503,8 +510,11 @@ export class ProcessesService implements OnModuleInit {
     const errors = all.filter((i) => (i.severity ?? 'error') === 'error');
     if (!plan || errors.length > 0) {
       throw new BadRequestException({
-        message: 'Процесс не готов к публикации',
-        errors: errors.map((i) => ({ field: i.nodeId ?? i.edgeId ?? 'document', message: i.message })),
+        message: this.i18n.translate('errors.processes.notReadyToPublish'),
+        errors: this.renderIssues(errors).map((i) => ({
+          field: i.nodeId ?? i.edgeId ?? 'document',
+          message: i.message,
+        })),
       });
     }
 
@@ -514,10 +524,14 @@ export class ProcessesService implements OnModuleInit {
     const warnings = all.filter((i) => i.severity === 'warning');
     const unaccepted = warnings.filter((w) => !w.ruleKey || !acceptWarnings.includes(w.ruleKey));
     if (unaccepted.length > 0) {
+      const shown = this.renderIssues(unaccepted);
       throw new BadRequestException({
-        message: 'Маршрут нарушает правила кадрового учёта — подтвердите публикацию',
-        details: { code: 'process_warnings_unaccepted', warnings: unaccepted.map((w) => ({ ruleKey: w.ruleKey, message: w.message })) },
-        errors: unaccepted.map((w) => ({ field: w.ruleKey ?? 'document', message: w.message })),
+        message: this.i18n.translate('errors.processes.warningsUnaccepted'),
+        details: {
+          code: 'process_warnings_unaccepted',
+          warnings: shown.map((w) => ({ ruleKey: w.ruleKey, message: w.message })),
+        },
+        errors: shown.map((w) => ({ field: w.ruleKey ?? 'document', message: w.message })),
       });
     }
 
@@ -578,7 +592,7 @@ export class ProcessesService implements OnModuleInit {
       where: { definitionId, status: 'running' },
     });
     if (running > 0) {
-      throw new ConflictException(`Есть запущенные процессы (${running}) — сначала дождитесь или отмените их`);
+      throw conflict('processes.hasRunning', { count: running });
     }
     await this.db.$transaction(async (tx) => {
       await tx.processDefinition.update({ where: { id: definitionId }, data: { status: 'archived' } });
@@ -603,14 +617,14 @@ export class ProcessesService implements OnModuleInit {
     const role = await this.assertTeamMember(userId, workspaceId);
     const def = await this.loadDefinition(workspaceId, definitionId);
     if (!this.canSeeDefinition(role, def.visibility)) {
-      throw new ForbiddenException('Процесс доступен только администраторам');
+      throw forbidden('processes.adminsOnly');
     }
     if (!def.currentVersionId) {
-      throw new BadRequestException('Процесс ещё не опубликован');
+      throw badRequest('processes.notPublished');
     }
     const version = await this.db.processVersion.findUnique({ where: { id: def.currentVersionId } });
     if (!version || version.status !== 'published' || !version.compiled) {
-      throw new BadRequestException('Опубликованная версия не найдена');
+      throw badRequest('processes.publishedVersionMissing');
     }
     const plan = version.compiled as unknown as CompiledPlan;
     const variables = this.validateFormInput(plan.form, input);
@@ -684,7 +698,7 @@ export class ProcessesService implements OnModuleInit {
       },
     });
     if (!instance || instance.workspaceId !== workspaceId) {
-      throw new NotFoundException('Процесс не найден');
+      throw notFound('processes.notFound');
     }
     const managerAllowed = this.assertInstanceAccess(role, instance.definition.visibility, instance.startedById, instance.steps, userId);
 
@@ -724,7 +738,7 @@ export class ProcessesService implements OnModuleInit {
       },
     });
     if (!instance || instance.workspaceId !== workspaceId) {
-      throw new NotFoundException('Процесс не найден');
+      throw notFound('processes.notFound');
     }
     const managerAllowed = this.assertInstanceAccess(role, instance.definition.visibility, instance.startedById, instance.steps, userId);
     const view = await this.stepViewContext(instance.steps, instance.startedById, userId);
@@ -756,7 +770,7 @@ export class ProcessesService implements OnModuleInit {
     // Участник видит свой процесс всегда; менеджеру admins-процессы закрыты.
     const managerAllowed = isManager && (isAdmin || visibility !== 'admins');
     if (!managerAllowed && !participates) {
-      throw new ForbiddenException('Нет доступа к этому процессу');
+      throw forbidden('processes.noProcessAccess');
     }
     return managerAllowed;
   }
@@ -841,17 +855,17 @@ export class ProcessesService implements OnModuleInit {
       include: { definition: { select: { visibility: true } } },
     });
     if (!instance || instance.workspaceId !== workspaceId) {
-      throw new NotFoundException('Процесс не найден');
+      throw notFound('processes.notFound');
     }
     const rank = WORKSPACE_ROLE_RANK[role] ?? 0;
     const managerAllowed =
       rank >= WORKSPACE_ROLE_RANK.manager &&
       (rank >= WORKSPACE_ROLE_RANK.admin || instance.definition.visibility !== 'admins');
     if (!managerAllowed && instance.startedById !== userId) {
-      throw new ForbiddenException('Отменить может инициатор или менеджер');
+      throw forbidden('processes.cancelForbidden');
     }
     const ok = await this.engine.cancelInstance(instanceId, userId);
-    if (!ok) throw new BadRequestException('Процесс уже завершён');
+    if (!ok) throw badRequest('processes.alreadyFinished');
   }
 
   /**
@@ -899,7 +913,7 @@ export class ProcessesService implements OnModuleInit {
     const running = await this.db.processInstance.count({ where: { workspaceId: def.workspaceId, status: 'running' } });
     if (running >= PROCESS_LIMITS.maxRunningInstancesPerWorkspace) {
       this.runawayLogger.warn(
-        `startInstanceProgrammatic: воркспейс ${def.workspaceId} на потолке бегущих инстансов (${running}) — авто-запуск ${definitionId} пропущен`,
+        `startInstanceProgrammatic: workspace ${def.workspaceId} is at the running-instance ceiling (${running}) — the auto-start of ${definitionId} is skipped`,
       );
       return null;
     }
@@ -940,11 +954,11 @@ export class ProcessesService implements OnModuleInit {
     depth: number,
   ): Promise<string | null> {
     if (depth > PROCESS_LIMITS.maxSubprocessDepth) {
-      throw new BadRequestException('Слишком глубокая вложенность под-процессов');
+      throw badRequest('processes.tooDeep');
     }
     const def = await this.db.processDefinition.findUnique({ where: { id: definitionId }, select: { workspaceId: true } });
     if (!def || def.workspaceId !== callerWorkspaceId) {
-      throw new BadRequestException('Под-процесс не найден в этой организации');
+      throw badRequest('processes.subprocessNotFound');
     }
     return this.startInstanceProgrammatic(definitionId, actorUserId, { ...variables, _subprocessDepth: depth }, 'event');
   }
@@ -1064,7 +1078,7 @@ export class ProcessesService implements OnModuleInit {
     workspaceId: string,
     definitionId: string,
     document: ProcessDocument,
-  ): Promise<ProcessValidationIssue[]> {
+  ): Promise<RawIssue[]> {
     const wanted = document.nodes
       .filter((n) => n.type === 'trigger.document')
       .map((n) => String(((n.config ?? {}) as { templateId?: string }).templateId ?? ''))
@@ -1081,12 +1095,12 @@ export class ProcessesService implements OnModuleInit {
       .filter((n) => n.templateId);
     if (!wanted.length && !generateNodes.length) return [];
 
-    const issues: ProcessValidationIssue[] = [];
+    const issues: RawIssue[] = [];
     const dup = wanted.filter((id, i) => wanted.indexOf(id) !== i);
     for (const id of new Set(dup)) {
       issues.push({
         severity: 'error',
-        message: 'Два триггера на один и тот же шаблон в одном маршруте — оставьте один',
+        message: 'processes.issue.duplicateTemplateTrigger',
         nodeId: undefined,
       });
     }
@@ -1103,7 +1117,8 @@ export class ProcessesService implements OnModuleInit {
       if (wanted.includes(tpl.id)) {
         issues.push({
           severity: 'error',
-          message: `Шаблон «${tpl.name}» — для документов с контрагентами: они отправляются контрагенту с карточки, а маршрут для них появится вместе с нодой отправки`,
+          message: 'processes.issue.externalTemplateTrigger',
+          params: { name: tpl.name },
         });
       }
       // «Сформировать документ» по external-шаблону породил бы документ в статусе
@@ -1112,7 +1127,8 @@ export class ProcessesService implements OnModuleInit {
       for (const g of generateNodes.filter((n) => n.templateId === tpl.id)) {
         issues.push({
           severity: 'error',
-          message: `Шаблон «${tpl.name}» — для документов с контрагентами: нода «Сформировать документ» не может создать его на маршруте — такие документы отправляются контрагенту с карточки`,
+          message: 'processes.issue.externalTemplateGenerate',
+          params: { name: tpl.name },
           nodeId: g.nodeId,
         });
       }
@@ -1135,7 +1151,8 @@ export class ProcessesService implements OnModuleInit {
       if (templateId && wanted.includes(templateId)) {
         issues.push({
           severity: 'error',
-          message: `У этого шаблона уже есть опубликованный маршрут — «${t.definition.name}». Снимите его с публикации или выберите другой шаблон`,
+          message: 'processes.issue.templateRouteTaken',
+          params: { name: t.definition.name },
         });
       }
     }
@@ -1218,7 +1235,7 @@ export class ProcessesService implements OnModuleInit {
   async claimStep(userId: string, workspaceId: string, instanceId: string, stepId: string): Promise<{ taskId: string }> {
     await this.assertTeamMember(userId, workspaceId);
     const instance = await this.db.processInstance.findUnique({ where: { id: instanceId }, select: { workspaceId: true } });
-    if (!instance || instance.workspaceId !== workspaceId) throw new NotFoundException('Процесс не найден');
+    if (!instance || instance.workspaceId !== workspaceId) throw notFound('processes.notFound');
     const taskId = await this.engine.claimQueueStep(userId, instanceId, stepId);
     return { taskId };
   }
@@ -1241,14 +1258,14 @@ export class ProcessesService implements OnModuleInit {
   ): Promise<void> {
     await this.assertTeamMember(userId, workspaceId);
     const instance = await this.db.processInstance.findUnique({ where: { id: instanceId }, select: { workspaceId: true } });
-    if (!instance || instance.workspaceId !== workspaceId) throw new NotFoundException('Процесс не найден');
+    if (!instance || instance.workspaceId !== workspaceId) throw notFound('processes.notFound');
 
     const request = await this.db.approvalRequest.findFirst({
       where: { originType: PROCESS_ORIGIN_TYPE, originRef: `${instanceId}:${stepId}`, status: 'pending' },
       select: { steps: { where: { status: 'active' }, select: { id: true }, take: 1 } },
     });
     const approvalStepId = request?.steps[0]?.id;
-    if (!approvalStepId) throw new BadRequestException('Решение по этому шагу уже не требуется');
+    if (!approvalStepId) throw badRequest('processes.decisionNotNeeded');
 
     await this.approvals.decide(userId, approvalStepId, { decision, comment });
   }
@@ -1257,7 +1274,7 @@ export class ProcessesService implements OnModuleInit {
   async reassignStep(userId: string, workspaceId: string, instanceId: string, stepId: string, newUserId: string): Promise<void> {
     await this.assertManage(userId, workspaceId);
     const instance = await this.db.processInstance.findUnique({ where: { id: instanceId }, select: { workspaceId: true } });
-    if (!instance || instance.workspaceId !== workspaceId) throw new NotFoundException('Процесс не найден');
+    if (!instance || instance.workspaceId !== workspaceId) throw notFound('processes.notFound');
     await this.engine.reassignStep(instanceId, stepId, newUserId);
   }
 
@@ -1379,7 +1396,7 @@ export class ProcessesService implements OnModuleInit {
   private async loadDefinition(workspaceId: string, definitionId: string) {
     const def = await this.db.processDefinition.findUnique({ where: { id: definitionId } });
     if (!def || def.workspaceId !== workspaceId || def.status === 'archived') {
-      throw new NotFoundException('Процесс не найден');
+      throw notFound('processes.notFound');
     }
     return def;
   }
@@ -1389,7 +1406,7 @@ export class ProcessesService implements OnModuleInit {
       where: { definitionId },
       orderBy: { version: 'desc' },
     });
-    if (!latest) throw new NotFoundException('У процесса нет версий');
+    if (!latest) throw notFound('processes.noVersions');
     return latest;
   }
 
@@ -1412,7 +1429,7 @@ export class ProcessesService implements OnModuleInit {
     workspaceId: string,
     document: ProcessDocument,
     actorRank: number | null,
-  ): Promise<ProcessValidationIssue[]> {
+  ): Promise<RawIssue[]> {
     const wanted = new Map<string, string>(); // userId → nodeId (членство: все ссылки на людей)
     const runAs = new Map<string, string>(); // userId → nodeId (ТОЛЬКО «от имени»)
     for (const n of document.nodes) {
@@ -1449,10 +1466,10 @@ export class ProcessesService implements OnModuleInit {
       const rank = WORKSPACE_ROLE_RANK[r.role as WorkspaceRole] ?? 0;
       if (rank > (rankOf.get(r.userId) ?? 0)) rankOf.set(r.userId, rank);
     }
-    const issues: ProcessValidationIssue[] = [];
+    const issues: RawIssue[] = [];
     for (const [userId, nodeId] of wanted) {
       if (!rankOf.has(userId)) {
-        issues.push({ nodeId, message: 'Выбранный человек не является сотрудником организации' });
+        issues.push({ nodeId, message: 'processes.issue.notAMember' });
       }
     }
     if (actorRank === null) return issues;
@@ -1462,9 +1479,7 @@ export class ProcessesService implements OnModuleInit {
       if (rank !== undefined && rank > actorRank) {
         issues.push({
           nodeId,
-          message:
-            'Запускать «от имени» можно только сотрудника не выше вашей роли — ' +
-            'иначе процесс одолжил бы чужие права',
+          message: 'processes.issue.runAsRankTooHigh',
         });
       }
     }
@@ -1490,7 +1505,7 @@ export class ProcessesService implements OnModuleInit {
         const n = Number(raw);
         if (!Number.isNaN(n)) variables[f.key] = n;
       } else if (f.type === 'boolean') {
-        variables[f.key] = raw === true || raw === 'true' || raw === 'да';
+        variables[f.key] = raw === true || raw === 'true';
       } else {
         variables[f.key] = String(raw);
       }
@@ -1587,7 +1602,7 @@ export class ProcessesService implements OnModuleInit {
         return Number.isNaN(n) ? undefined : n;
       }
       case 'boolean':
-        return raw === true || raw === 'true' || raw === 'да';
+        return raw === true || raw === 'true';
       case 'date': {
         const d = new Date(String(raw));
         return Number.isNaN(d.getTime()) ? undefined : d.toISOString().slice(0, 10);
@@ -1615,49 +1630,51 @@ export class ProcessesService implements OnModuleInit {
       const raw = input[f.key];
       const empty = raw === null || raw === undefined || raw === '';
       if (empty) {
-        if (f.required) errors.push({ field: f.key, message: `«${f.label}» обязательно` });
+        if (f.required) errors.push({ field: f.key, message: this.i18n.translate('errors.processes.form.required', { field: f.label }) });
         continue;
       }
       // Только примитивы: массив/объект в Number()/String() дают тихий мусор ([]→0, {}→'[object Object]').
       if (typeof raw === 'object') {
-        errors.push({ field: f.key, message: `«${f.label}»: недопустимое значение` });
+        errors.push({ field: f.key, message: this.i18n.translate('errors.processes.form.badValue', { field: f.label }) });
         continue;
       }
       switch (f.type) {
         case 'number': {
           const num = Number(raw);
-          if (Number.isNaN(num)) errors.push({ field: f.key, message: `«${f.label}» — число` });
+          if (Number.isNaN(num))
+        errors.push({ field: f.key, message: this.i18n.translate('errors.processes.form.number', { field: f.label }) });
           else values[f.key] = num;
           break;
         }
         case 'boolean':
-          values[f.key] = raw === true || raw === 'true' || raw === 'да';
+          values[f.key] = raw === true || raw === 'true';
           break;
         case 'date': {
           const d = new Date(String(raw));
           if (Number.isNaN(d.getTime()))
-            errors.push({ field: f.key, message: `«${f.label}» — дата` });
+            errors.push({ field: f.key, message: this.i18n.translate('errors.processes.form.date', { field: f.label }) });
           else values[f.key] = d.toISOString().slice(0, 10);
           break;
         }
         case 'select': {
           const v = String(raw);
           if (!f.options?.includes(v))
-            errors.push({ field: f.key, message: `«${f.label}»: недопустимый вариант` });
+            errors.push({ field: f.key, message: this.i18n.translate('errors.processes.form.badOption', { field: f.label }) });
           else values[f.key] = v;
           break;
         }
         default: {
           const s = String(raw);
-          if (s.length > 500) errors.push({ field: f.key, message: `«${f.label}» слишком длинное` });
+          if (s.length > 500)
+        errors.push({ field: f.key, message: this.i18n.translate('errors.processes.form.tooLong', { field: f.label }) });
           else if (/[<>]/.test(s))
-            errors.push({ field: f.key, message: `«${f.label}»: недопустимые символы` });
+            errors.push({ field: f.key, message: this.i18n.translate('errors.processes.form.badCharacters', { field: f.label }) });
           else values[f.key] = s;
         }
       }
     }
     if (errors.length > 0) {
-      throw new BadRequestException({ message: 'Проверьте анкету процесса', errors });
+      throw new BadRequestException({ message: this.i18n.translate('errors.processes.form.failed'), errors });
     }
     return values;
   }
@@ -1668,7 +1685,10 @@ export class ProcessesService implements OnModuleInit {
       where: { id: userId },
       select: { firstName: true, lastName: true },
     });
-    return u ? [u.firstName, u.lastName].filter(Boolean).join(' ') : 'Пользователь';
+    // Имя ложится снимком в журнал публикации — язык ИСТОЧНИКА.
+    return u
+      ? [u.firstName, u.lastName].filter(Boolean).join(' ')
+      : this.i18n.translateFor(SOURCE_LOCALE, 'common.labels.someone');
   }
 
   private async userMinis(ids: string[]): Promise<Map<string, ProcessUserMini>> {

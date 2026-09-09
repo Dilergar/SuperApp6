@@ -24,9 +24,9 @@ async function assertUtcSession(
     const tz = rows[0]?.tz;
     if (tz && tz !== 'UTC') {
       logger.warn(
-        `Часовой пояс сессии БД = "${tz}", а не UTC. Колонки времени — timestamp без пояса; ` +
-          `сырой SQL со временем разъедется на смещение пояса. Почините сервер БД ` +
-          `(timezone=UTC в postgresql.conf) или добавьте в DATABASE_URL "?options=-c%20timezone%3DUTC".`,
+        `The database session time zone is "${tz}", not UTC. Time columns are timestamps without a zone; ` +
+          `raw SQL over time would drift by the zone offset. Fix the database server ` +
+          `(timezone=UTC in postgresql.conf) or add "?options=-c%20timezone%3DUTC" to DATABASE_URL.`,
       );
     }
   } catch {

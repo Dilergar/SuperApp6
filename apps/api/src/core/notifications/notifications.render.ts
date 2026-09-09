@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { Locale } from '@superapp/i18n';
+import { resolveIsoValues, resolveLabelKeys, type Locale } from '@superapp/i18n';
 import { notificationDef } from '@superapp/shared';
 import { I18nService } from '../../shared/i18n/i18n.service';
 
@@ -34,7 +34,14 @@ export class NotificationsRenderer {
       };
     }
     const n = opts.collapseCount ?? 1;
-    const values = { ...toValues(payload), n };
+    // `<имя>Key` в payload — КЛЮЧ каталога, а не слово: вид кадрового действия,
+    // способ вручения и прочие слова продукта не вправе застыть в языке того,
+    // кто нажал кнопку (docs/i18n.md, render-at-read). `<имя>Iso` — та же идея для
+    // машинной даты: «2026-09» превращается в «сентябрь 2026» правилами зрителя.
+    const values = resolveLabelKeys(
+      this.i18n.forLocale(locale),
+      resolveIsoValues(this.i18n.format(locale), { ...toValues(payload), n }),
+    );
     const titleKey = `notifications.${type}.title`;
     const bodyKey = `notifications.${type}.body`;
     const collapsedKey = `notifications.${type}.collapsed`;

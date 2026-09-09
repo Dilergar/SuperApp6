@@ -1,0 +1,456 @@
+{
+  "actionKind": {
+    "dismissal": "Dismissal",
+    "hire": "Hiring",
+    "leave": "Leave",
+    "salary_change": "Salary change",
+    "transfer": "Transfer"
+  },
+  "actionStatus": {
+    "applied": "Applied",
+    "cancelled": "Cancelled",
+    "draft": "Draft",
+    "failed": "Not applied",
+    "in_progress": "Being drawn up",
+    "scheduled": "Takes effect later"
+  },
+  "actions": {
+    "cancelConfirmLabel": "Cancel the action",
+    "cancelConfirmManager": "The action that is not applied and its documents that are not issued will be cancelled.",
+    "cancelConfirmOwn": "The withdrawal of an application is unconditional for the whole notice period (Labour Code of the RK, art. 56 (4)). An order that is not issued yet will be cancelled; about an issued one the HR officer gets a task to issue a counter-order.",
+    "cancelConfirmTitle": "Cancel the action?",
+    "emptyDescription": "A hiring, a transfer, a leave and a dismissal will appear here.",
+    "emptyTitle": "There have been no actions yet",
+    "rowTitle": "{kind} · from {from}{toSuffix}",
+    "rowUntil": " to {to}",
+    "signedOf": "Signed {signed} of {total}",
+    "subtitle": "The action comes first — the document follows it",
+    "title": "HR actions",
+    "withdraw": "Withdraw the application"
+  },
+  "batch": {
+    "action": "Action",
+    "alsoRemoveHint": "When the order is applied, the membership is removed too — for every one in the batch.",
+    "audience": "Audience",
+    "audiencePlaceholder": "People, positions, departments, sites or the whole organization",
+    "cap": "The cap is {max} people per run",
+    "done": "The batch is created. The orders go along their routes — the progress is visible in the actions of the people.",
+    "groundHint": "One ground for the whole batch — it is printed in every order and goes to ESUTD.",
+    "newPosition": "The new position (one for the whole batch)",
+    "open": "Bulk action",
+    "perPersonHint": "An OWN order is created and a route is started for every person («an order per person is legally correct»). One unsuitable person does not break the batch — they stay on the progress screen with a reason.",
+    "progressOf": "{created} of {total}",
+    "progressTitle": "A bulk operation",
+    "running": "The orders are being created and sent to their routes…",
+    "salaryOptional": "Salary, ₸ per month (optional)",
+    "salaryRequired": "The new salary, ₸ per month (for everyone in the batch)",
+    "st54Warning": "A dismissal on the employer’s initiative: art. 54 of the Labour Code of the RK is checked at the moment of the application for EVERY person — whoever is on leave gets «Not applied» with a reason. Sick leaves are unknown to the system.",
+    "start": "Start",
+    "stat": "{status}: {n}",
+    "syncFactHint": "Otherwise a legal transfer creates a «fact ≠ contract» mismatch for every one of them.",
+    "title": "A bulk HR action"
+  },
+  "campaign": {
+    "ackBannerTitle": "This document is sent to you to read",
+    "ackHintClick": "The click records the moment and the fingerprint of the document — that is what art. 23 (2) 6) of the Labour Code of the RK requires.",
+    "ackHintSms": "The fact of the acknowledgement in this campaign is confirmed with a code from an SMS (stronger evidence).",
+    "ackRecorded": "The acknowledgement is recorded",
+    "acknowledged": "I have read it",
+    "confirmBySms": "Confirm with a code from an SMS"
+  },
+  "campaignFixMode": {
+    "click": "A mark in the system (a click)",
+    "sms": "A code from an SMS (stronger evidence)"
+  },
+  "campaignMode": {
+    "one_off": "One-off",
+    "standing": "A standing rule"
+  },
+  "campaignStatus": {
+    "active": "Under way",
+    "cancelled": "Cancelled",
+    "done": "Finished"
+  },
+  "campaignTargetStatus": {
+    "acknowledged": "Has read it",
+    "pending": "Has not read it",
+    "sms_failed": "The SMS was not delivered"
+  },
+  "cancelTask": {
+    "description": "The action «{kind}» is cancelled{withdrawn, select, yes { by a withdrawal of the application (Labour Code of the RK, art. 56 (4))} other {}}, but the order is already issued (signed or registered) — what is issued is cancelled only by a counter-order. The card of the employee: {href}",
+    "title": "Issue a counter-order: {kind} — {name}"
+  },
+  "contractType": {
+    "fixed_term": "For a fixed term",
+    "indefinite": "Indefinite",
+    "seasonal": "Seasonal work",
+    "task_based": "For the time of the work"
+  },
+  "daysLeft": {
+    "overdue": "Overdue",
+    "today": "Today",
+    "until": "until {date}",
+    "workDays": "{days, plural, one {# working day} other {# working days}}"
+  },
+  "deadline": {
+    "campaignSubtitle": "{pending} of {total} have not read it yet",
+    "campaignTitle": "Acknowledgement: «{title}»",
+    "contractExhaustedTitle": "The fixed-term contract has been renewed by silence twice — it counts as indefinite",
+    "contractSubtitle": "Notify on the last working day, otherwise it renews by itself (Labour Code of the RK, art. 30 (1) 2))",
+    "contractTitle": "The fixed-term contract is ending",
+    "deliverySubtitle": "Hand it over within 3 working days (Labour Code of the RK, art. 61 (3))",
+    "probationSubtitle": "If not notified before it ends, the employee is deemed to have passed it (Labour Code of the RK, art. 37)",
+    "probationTitle": "The probation period is ending",
+    "settlementSubtitle": "The settlement — 3 working days (art. 113 (4), a penalty of 1.25× of the base rate); the document — on the day of the termination (art. 62)",
+    "settlementTitle": "The final settlement and the document on the work activity"
+  },
+  "deadlines": {
+    "burning": "Burning: {count}",
+    "description": "ESUTD, hand-overs, settlements, probation periods, fixed-term contracts, acknowledgements",
+    "emptyDescription": "The ESUTD deadlines, the hand-overs and the settlements are under control.",
+    "emptyTitle": "Nothing is burning",
+    "loadFailed": "The deadlines did not load",
+    "lockedDescription": "HR deadlines are visible to a Manager and higher.",
+    "lockedTitle": "A section for managers",
+    "registryFile": "HR register",
+    "registryZip": "Register (ZIP)",
+    "title": "HR deadlines",
+    "toPeople": "To the people",
+    "zipBusy": "Collecting…"
+  },
+  "delivery": {
+    "doneAt": "Handed over on {date} · {method}{trackSuffix}",
+    "doneChip": "Handed over",
+    "fix": "Record the hand-over",
+    "fixShort": "Record",
+    "hintManager": "The act is handed over within 3 working days from the day it is issued — in person or by a registered letter with a return receipt (Labour Code of the RK, art. 61 (3))",
+    "hintPaper": "The employee has no QES: the signature of the employee is replaced by printing the copy («Download PDF») and by recording the hand-over",
+    "method": "Method",
+    "title": "Hand-over to the employee",
+    "trackNumber": "The track number of the letter",
+    "trackSuffix": " · track {track}"
+  },
+  "deliveryChronicle": {
+    "method": "{methodName} — «{title}»",
+    "track": " · track {track}"
+  },
+  "deliveryMethod": {
+    "in_person": "In person against a signature",
+    "refusal_act": "Refused — an act is drawn up",
+    "registered_mail": "A registered letter with a return receipt"
+  },
+  "deliveryMode": {
+    "electronic": "Electronically",
+    "hybrid": "Electronically and on paper",
+    "paper": "On paper"
+  },
+  "documentCountSuffix": " ({docCount, plural, one {# document} other {# documents}})",
+  "employment": {
+    "contract": "Contract",
+    "contractEnd": "End of the contract",
+    "contractNumberPrefix": "No. {number} · ",
+    "contractValue": "{numberPrefix}{type}",
+    "create": "Create",
+    "createTitle": "Create an employment record",
+    "docFlow": "Document flow",
+    "emptyDescription": "Draw up a hiring with an HR action — or create the record by hand if the person is already working.",
+    "emptyTitle": "There is no employment record",
+    "legalBranch": "Site under the contract",
+    "legalEntity": "Legal entity",
+    "legalPosition": "Position under the contract",
+    "lockedDescription": "It is visible to the managers and to the employee themselves.",
+    "lockedTitle": "The employment record is closed",
+    "personnelNumber": "Personnel number",
+    "probationUntil": "Probation period until",
+    "salary": "Salary",
+    "silentExtensions": "renewed by silence ×{count} — it counts as indefinite (Labour Code of the RK, art. 30)",
+    "subtitle": "The legal plan: what was agreed",
+    "title": "Employment record",
+    "workRate": "Rate",
+    "workSchedule": "Work schedule"
+  },
+  "employmentStatus": {
+    "active": "Working",
+    "draft": "Being drawn up",
+    "terminated": "Dismissed"
+  },
+  "esutd": {
+    "article": {
+      "amendment": "Rules No. 353, item 8 — 15 calendar days",
+      "contract": "Rules No. 353, item 7 — 5 working days",
+      "termination": "Rules No. 353, item 12 — 3 working days"
+    },
+    "copied": "Copied",
+    "copyData": "Copy the data",
+    "correctionRow": "{kind} · filed {submittedAt}{numberSuffix} · a correction without a fine until {until}",
+    "correctionSubtitle": "30 working days to correct wrongly entered data without a fine",
+    "correctionTitle": "ESUTD: the correction window",
+    "dueBy": "Deadline: {date}",
+    "externalNumber": "The ESUTD registration number (if there is one)",
+    "externalNumberHint": "The number from the enbek.kz cabinet is the evidence of the filing; it may be left empty.",
+    "field": {
+      "contractDate": "Date of the contract",
+      "contractEndAt": "End date (fixed-term)",
+      "contractNumber": "Number of the contract",
+      "contractType": "Kind of the contract",
+      "dismissalGround": "Ground of the termination",
+      "employeeIin": "IIN of the employee",
+      "employeeName": "Full name of the employee",
+      "employer": "Employer",
+      "employerBin": "BIN of the employer",
+      "firedAt": "Date of the termination",
+      "hiredAt": "Date the work starts",
+      "kind": "Kind of the data",
+      "position": "Position"
+    },
+    "markSubmitted": "Mark as filed",
+    "notRequired": "Not required",
+    "notRequiredConfirmMessage": "The row will close without filing the data to ESUTD. If the data was in fact subject to a filing, this is a breach of art. 98 (1-1) of the Administrative Code of the RK.",
+    "notRequiredConfirmTitle": "Is the filing not required?",
+    "numberSuffix": " (No. {number})",
+    "payloadSubtitle": "By the list of Rules No. 353 — paste it into the enbek.kz form",
+    "payloadTitle": "The data for ESUTD",
+    "pendingTitle": "ESUTD: not filed",
+    "queueFailed": "The ESUTD queue did not load — the filing deadlines are not visible on this screen right now.",
+    "submitConfirm": "I confirm: it is filed",
+    "submitHint": "The mark records that the data is filed through the enbek.kz cabinet. The correction window without a fine is 30 working days.",
+    "submitTitle": "Mark as filed to ESUTD",
+    "submitWarnTermination": "Termination of a contract: after it is sent you CANNOT correct the data yourself — only through the state labour authority on request (Rules No. 353, item 13). Check the data with the «Copy the data» button before the mark."
+  },
+  "esutdFinesNote": "The fine for a missing or untrue filing (Administrative Code, art. 98 (1-1)): officials 30/60 MCI, small business 60/80, medium 80/100, large 150/200 MCI",
+  "esutdKind": {
+    "amendment": "Amendment of a contract",
+    "contract": "Conclusion of a contract",
+    "termination": "Termination of a contract"
+  },
+  "export": {
+    "capWarning": "ATTENTION: {n, plural, one {# file} other {# files}} did not fit — the export cap of {size} is reached. Narrow the period or the kind.",
+    "fileFailed": "the file is not exported: {reason}",
+    "manifestFile": "inventory",
+    "manifestTitle": "Inventory of the export",
+    "numberSuffix": " No. {number}",
+    "personalFile": "Personal file — {name}",
+    "protocol": "signing log",
+    "protocolFailed": "the signing log is not exported: {reason}",
+    "registry": "Register of documents",
+    "row": "{n}. {docType} · «{title}»{numberSuffix} · status: {status} · created {created}",
+    "skipped": "the file is not exported: the export cap is reached",
+    "skippedNarrow": "the file is not exported: the export cap is reached — narrow the period or the kind"
+  },
+  "factSync": "Synchronisation of the actual assignment",
+  "fail": {
+    "legality": "the legality check",
+    "st54Leave": "Labour Code of the RK, art. 54: a dismissal on the employer’s initiative during a leave is forbidden (by the data of the system the employee is on leave; the exceptions are sub-items 1), 18), 20), 23) of item 1 of art. 52 and item 1-1). Sick leaves are unknown to the system — check them by hand"
+  },
+  "form": {
+    "alsoRemove": "And remove from the organization in SuperApp6",
+    "alsoRemoveHint": "When the order is applied, the membership in the organization is removed too («both at once»). Switched off — only the legal dismissal.",
+    "audienceRequired": "Pick the audience",
+    "banException": "The ground is an exception of art. 54",
+    "banExceptionHint": "I confirm: the ground is among the exceptions (sub-items 1), 18), 20), 23) of item 1 of art. 52 or item 1-1).",
+    "banExceptionHintSingle": "I confirm: the ground is among the exceptions (sub-items 1), 18), 20), 23) of item 1 of art. 52 or item 1-1) — do not block the application during a leave.",
+    "branch": "Site",
+    "createOrder": "Create the order",
+    "dateRequired": "Name the date",
+    "effectiveAt": "Takes effect on",
+    "effectiveAtRequired": "Name the date it takes effect",
+    "effectiveTo": "Until",
+    "ground": "Ground (an article of the Labour Code of the RK)",
+    "groundHint": "The ground is printed in the order and goes to ESUTD — there is no pre-filling on purpose.",
+    "groundRequired": "Pick the ground of the termination (an article of the Labour Code of the RK)",
+    "hirePackage": "The hiring package (together with the order)",
+    "leaveEndRequired": "Name the end date of the leave",
+    "leaveFrom": "Leave from",
+    "leaveTo": "Leave until",
+    "loading": "Loading…",
+    "newBranch": "The new site",
+    "newPosition": "The new position",
+    "newSalaryMonthly": "The new salary, ₸ per month",
+    "noBranch": "Without a site",
+    "noProbation": "without a probation period",
+    "paperMode": "Hybrid mode (without a QES)",
+    "paperModeHint": "The employee has no QES — the signature of the employee is replaced by a printed set and by recording the hand-over. An employee cannot be obliged to obtain a QES.",
+    "periodEnd": "A leave cannot end earlier than it starts",
+    "pickGround": "Pick a ground",
+    "pickPosition": "Pick a position",
+    "pickTemplate": "Pick a template",
+    "positionRequired": "Pick the new position",
+    "rateNumber": "The rate is a number, for example 1 or 0.5",
+    "salaryMonthly": "Salary, ₸ per month",
+    "salaryNow": "Now: {amount}",
+    "salaryNumber": "The salary is a number, for example 250 000",
+    "salaryRequired": "Name the new salary",
+    "st54Warning": "The check of art. 54 of the Labour Code of the RK is repeated at the moment of the application: leaves — by the data of the system, sick leaves are unknown to the system — check them by hand.",
+    "syncFact": "Update the actual assignment",
+    "syncFactHint": "Otherwise a legal transfer creates a «fact ≠ contract» mismatch by itself.",
+    "template": "The order template",
+    "templateHint": "The template must have a published route with the node «Apply the HR action» — otherwise the start refuses honestly. The ready-made forms are in the library (Documents → Templates).",
+    "templateNoRouteSuffix": " — no route!",
+    "templateRequired": "Pick the order template",
+    "until": "until"
+  },
+  "ground": {
+    "other": "Another ground of the Labour Code of the RK",
+    "st50": "Agreement of the parties (Labour Code of the RK, art. 50)",
+    "st51": "Expiry of the contract (Labour Code of the RK, art. 51)",
+    "st52_other": "Another ground of art. 52 of the Labour Code of the RK (the employer’s initiative)",
+    "st52_p1_1": "Liquidation of the employer (Labour Code of the RK, art. 52 (1) 1))",
+    "st52_p1_18": "Breach of duties by a head or a deputy causing material damage (Labour Code of the RK, art. 52 (1) 18))",
+    "st52_p1_1_1": "Ground of item 1-1 of art. 52 of the Labour Code of the RK (heads in the quasi-public sector)",
+    "st52_p1_2": "Reduction of the headcount or of the staff (Labour Code of the RK, art. 52 (1) 2))",
+    "st52_p1_20": "Absence for more than two months in a row because of a temporary disability (Labour Code of the RK, art. 52 (1) 20))",
+    "st52_p1_23": "Early termination of the powers of the head of the executive body (Labour Code of the RK, art. 52 (1) 23))",
+    "st52_p1_3": "Fall of the volume of production (Labour Code of the RK, art. 52 (1) 3))",
+    "st56": "The employee’s initiative (Labour Code of the RK, art. 56)",
+    "st58": "The employee refuses to go on working (Labour Code of the RK, art. 58)"
+  },
+  "library": {
+    "collapse": "Collapse",
+    "expand": "Open ({installed} of {total} installed)",
+    "install": "Install",
+    "installAndPublish": "Install and publish",
+    "installTitle": "Install: {title}",
+    "installed": "Installed",
+    "installedToast": "«{title}» is installed: the kind, the template and the route are published",
+    "item": {
+      "conditions_change_notice": {
+        "description": "Art. 46 p. 2 of the Labour Code of the RK: 15 calendar days ahead, and since 08.06.2026 in writing only (on paper or as an electronic document with a QES). The employer signs with a QES, the employee reads it.",
+        "docType": "Notices",
+        "field": {
+          "ChangeDate": "The date of the change of the conditions",
+          "WhatChanges": "What changes"
+        },
+        "template": "Notice of a change of the working conditions",
+        "title": "Notice of a change of the working conditions"
+      },
+      "cybersecurity_policy": {
+        "description": "Since 25.08.2026 the employer must acquaint the employees with the cybersecurity requirements. A ready internal act: install it and start an acknowledgement campaign for the whole organization.",
+        "docType": "Internal acts",
+        "template": "Cybersecurity requirements",
+        "title": "Acquaintance with the cybersecurity requirements"
+      },
+      "dismissal_order": {
+        "description": "The act of the termination (art. 61 of the Labour Code of the RK): it is handed over within 3 working days in person or by a registered letter — the type turns the mandatory hand-over mode on. The final pay is due within 3 working days (art. 113 p. 4).",
+        "docType": "Termination orders",
+        "template": "Termination order",
+        "title": "Order of the termination of the employment contract"
+      },
+      "employment_contract": {
+        "description": "An open-ended employment contract under art. 28 of the Labour Code of the RK with a clause on the electronic document flow. The data comes from the employment record and the profile of the employee; both parties sign with a QES.",
+        "docType": "Employment contracts",
+        "template": "Employment contract",
+        "title": "Employment contract"
+      },
+      "hire_order": {
+        "description": "An order under art. 33 of the Labour Code of the RK. The head signs it with a QES and the employee reads it in the system; on application an employment record is created.",
+        "docType": "Hiring orders",
+        "template": "Hiring order",
+        "title": "Order of hiring"
+      },
+      "leave_application": {
+        "description": "The employee submits it themselves («Submit an application»); the manager approves it, and the order is created by the HR action «Leave».",
+        "docType": "Applications",
+        "field": {
+          "LeavePeriod": "The period of the leave"
+        },
+        "template": "Leave application",
+        "title": "Leave application"
+      },
+      "leave_order": {
+        "description": "A paid annual leave (art. 88–92 of the Labour Code of the RK). The counter reminds of the payment 3 working days before it starts (art. 92 p. 4).",
+        "docType": "Leave orders",
+        "template": "Leave order",
+        "title": "Order of a leave"
+      },
+      "pd_consent": {
+        "description": "Art. 8 of the law of the RK «On personal data». Copies of the identity document are NOT attached (the personal data rules forbid it since 12.07.2026 — the requisite fields are enough).",
+        "docType": "Consents to personal data",
+        "template": "Consent to personal data",
+        "title": "Consent to the processing of personal data"
+      },
+      "resignation_application": {
+        "description": "At the initiative of the employee (art. 56 of the Labour Code of the RK): the notice is at least 1 month, and the withdrawal of the application is unconditional for the whole notice period (art. 56 p. 4).",
+        "docType": "Resignation applications",
+        "field": {
+          "DismissalDate": "The desired date of the dismissal"
+        },
+        "template": "Resignation application",
+        "title": "Resignation application"
+      },
+      "salary_order": {
+        "description": "A change of the pay is a change of the terms of the employment contract: unless it is by agreement of the parties, remember the written notice 15 calendar days ahead (art. 46 p. 2 of the Labour Code of the RK).",
+        "docType": "Orders of a pay change",
+        "template": "Order of a salary change",
+        "title": "Order of a salary change"
+      },
+      "transfer_order": {
+        "description": "A transfer to another position or another site (art. 38 of the Labour Code of the RK). On application the employment record is updated, and the system offers to sync the actual assignment.",
+        "docType": "Transfer orders",
+        "template": "Transfer order",
+        "title": "Transfer order"
+      }
+    },
+    "noSignature": "No signature",
+    "routeDescription": "Installed from the library of HR forms («{title}»)",
+    "routeName": "Route: {title}",
+    "signerByPerson": "A particular person",
+    "signerByPosition": "A position (whoever holds it now)",
+    "signerLabel": "Who signs on behalf of the organization",
+    "signerMode": "The kind of the signer",
+    "signerPersonHint": "Pick an employee",
+    "signerPositionHint": "For example, the Director",
+    "signerRequired": "Name the signer of the organization",
+    "step": {
+      "ackTitle": "Read and confirm: {name}",
+      "approveTitle": "Approve: {name}",
+      "done": "Done",
+      "employerSign": "Signature of the employer",
+      "managerApproval": "Approval by the manager",
+      "refused": "Refused",
+      "signTitle": "Sign: {name}",
+      "subjectAck": "Acknowledgement by the employee",
+      "subjectSign": "Signature of the employee"
+    },
+    "subtitle": "An employment contract, orders, applications, a consent to personal data, notices — with ready-made routes and a built-in signature level (Labour Code of the RK, art. 33: HR documents need a QES)",
+    "title": "The library of the HR forms of the RK",
+    "update": "Update",
+    "wizardHint": "The wizard creates a document kind, a published builder template and a PUBLISHED route. The signer is asked once and is put into the step «Sign»."
+  },
+  "orderNumberSuffix": " (order {number})",
+  "personalDoc": {
+    "organizationFallback": "The organization"
+  },
+  "personalDocKind": {
+    "acknowledged": "Acknowledged",
+    "delivered": "Handed over",
+    "signed": "Signed by me"
+  },
+  "personalDocs": {
+    "checkSignature": "Check the signature",
+    "description": "A personal archive of HR documents: the access has no time limit — it survives a dismissal and the closing of the company",
+    "emptyDescription": "Everything you sign, everything you read and everything the employers hand over to you will appear here — forever.",
+    "emptyTitle": "Empty so far",
+    "filter": "The filter of the archive",
+    "loadFailed": "The archive did not load",
+    "noQesBody": "A key of the National Certification Authority of the RK is issued remotely: egov.kz → «Get a QES» (a video verification) — or in the eGov Mobile app (the section «Digital documents → QES»). Documents can be signed from a phone by a QR code through eGov Mobile — a separate key on a computer is not required.",
+    "noQesTitle": "No QES?",
+    "openInWorkspace": "Open in the organization",
+    "tail": "The last {limit} records of the archive are shown — the earlier ones are available on request in the organization.",
+    "title": "My documents",
+    "workspaceClosed": "the organization is closed — the file is kept"
+  },
+  "section": {
+    "campaigns": "Acknowledgements",
+    "contractEnds": "Fixed-term contracts",
+    "count": "{count} in total",
+    "deliveries": "Hand-overs (3 working days, Labour Code of the RK, art. 61 (3))",
+    "probations": "Probation periods",
+    "settlements": "Settlements and documents on a dismissal"
+  },
+  "signBinWarning": "the employer act «{title}» is signed with a certificate of an individual (no BIN of a legal entity) — an employer act probably needs the certificate of an employee of the legal entity",
+  "st54ExceptionsNote": "The exceptions of art. 54 — sub-items 1), 18), 20), 23) of item 1 of art. 52 and item 1-1 — are chosen as a ground from the list. For a ground outside the list («other») mark the exception by hand.",
+  "withdrawn": {
+    "orderIssued": "The order is already issued — issue a counter-order."
+  },
+  "withdrawnSuffix": " (the application is withdrawn, Labour Code of the RK, art. 56 (4))"
+}

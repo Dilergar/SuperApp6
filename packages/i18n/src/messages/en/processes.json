@@ -1,0 +1,1036 @@
+{
+  "analytics": {
+    "avgCycle": "The average time of a process",
+    "byStep": "The time by step",
+    "byStepHint": "Where the process stands the longest",
+    "colAvg": "Average",
+    "colMax": "Maximum",
+    "colStep": "Step",
+    "colTimes": "Times",
+    "finished": "Processes finished",
+    "needProcess": "Create a process first",
+    "needProcessText": "The analytics appears after the first runs.",
+    "noSteps": "There are no finished steps",
+    "noStepsText": "Start a process and walk it through — the stopwatch of the departments will start counting."
+  },
+  "category": {
+    "ai": "AI",
+    "flow": "Logic",
+    "integration": "Integrations",
+    "people": "People",
+    "service": "Services",
+    "trigger": "Start triggers"
+  },
+  "common": {
+    "onError": {
+      "help": "What to do if the step failed: stop the process (the default), continue, or go down the «Error» branch.",
+      "label": "On error",
+      "option": {
+        "continue": "Continue (ignore the error)",
+        "errorOutput": "Go down the «Error» branch",
+        "stop": "Stop the process"
+      }
+    },
+    "retryMaxTries": {
+      "help": "How many times to repeat a failed external call before applying «On error».",
+      "label": "Retries on failure (0–5)"
+    },
+    "retryWaitMs": {
+      "label": "Pause between the retries, ms"
+    }
+  },
+  "create": {
+    "action": "New process",
+    "nameLabel": "The name of the process",
+    "namePlaceholder": "For example: Replacing the equipment",
+    "subtitle": "The canvas opens next: a trigger, the steps, an end",
+    "title": "New process"
+  },
+  "credentialType": {
+    "basic": "A login and a password (Basic)",
+    "bearer": "A bearer token",
+    "header": "A header (a token in a header)"
+  },
+  "creds": {
+    "add": "Credentials",
+    "delete": "Delete the credential {name}",
+    "headerName": "The header name",
+    "headerNamePlaceholder": "The header name (e.g. X-Auth-Token)",
+    "headerValue": "The header value",
+    "login": "Login",
+    "nameLabel": "The name of the credential",
+    "none": "Without credentials",
+    "password": "Password",
+    "short": "Credentials",
+    "title": "The credentials for the HTTP nodes",
+    "token": "Token",
+    "typeLabel": "The type of the credential"
+  },
+  "defaults": {
+    "processName": "A process",
+    "taskTitle": "A process task"
+  },
+  "duration": {
+    "day": "d",
+    "hour": "h",
+    "min": "min",
+    "sec": "s"
+  },
+  "editor": {
+    "addAndLink": "Add and link",
+    "archiveConfirm": "Archive",
+    "archiveText": "It will disappear from the list. The running instances block the archiving.",
+    "archiveTitle": "Archive the process?",
+    "autoLayout": "Auto-layout",
+    "availableToNodes": "Available to the next nodes",
+    "blocksPublish": "Blocks the publication · {count}",
+    "botWebhookHint": "After the publication the bot connects automatically (a public API address is needed). On localhost set this address on the bot by hand through setWebhook.",
+    "botWebhookUrl": "The webhook address of the bot",
+    "changedElsewhere": "The process was changed elsewhere.",
+    "closeNode": "Close the node settings",
+    "copyUrl": "Copy the address",
+    "deleteNode": "Delete the node",
+    "dragHint": "(drag it onto the canvas or click)",
+    "hrWarnAccept": "I understand, publish it",
+    "hrWarnBack": "Go back and fix it",
+    "hrWarnSubtitle": "It does not forbid the publication — but the decision taken is written into the log of the organization",
+    "hrWarnTitle": "The route diverges from the rules of the HR record-keeping",
+    "layout": "Lay out",
+    "leaveConfirm": "Leave",
+    "leaveText": "The unsaved changes of the canvas will be lost.",
+    "leaveTitle": "Leave without saving?",
+    "nodeLabel": "The label on the canvas",
+    "nodes": "Nodes",
+    "openFailed": "Could not open the process",
+    "paletteCollapse": "Collapse the node palette",
+    "paletteExpand": "Expand the node palette",
+    "paletteHelp": "Drag a node onto the canvas. Connect the port dots. Dragging from a port into the empty space offers a quick choice of the next node.",
+    "pickBranch": "Pick a branch…",
+    "pickDepartment": "Pick a department…",
+    "pickMember": "Pick an employee…",
+    "pickPosition": "Pick a position…",
+    "publish": "Publish",
+    "published": "Published — the process can be started",
+    "reload": "Load again",
+    "runsOn": "runs on v{version}",
+    "save": "Save (Ctrl+S)",
+    "saveToRecheck": "Save it to re-check.",
+    "saved": "Saved",
+    "savedClean": "Saved — there are no errors",
+    "savedWithIssues": "Saved · issues: {count}",
+    "settings": "Settings",
+    "settingsHint": "The settings of the process: the name, the visibility, the credentials, the archive",
+    "start": "Start",
+    "startForm": "The start form",
+    "startFormHint": "The fields the initiator fills in when pressing «Start». They are available to the nodes as form substitutions.",
+    "tgChat": "the chat",
+    "tgName": "the name",
+    "tgReply": "To answer: add a «Telegram» node (the same credential token), set Chat ID to the value of",
+    "tgText": "the text",
+    "toList": "To the list",
+    "triggerBadge": "A start trigger",
+    "unsaved": "not saved",
+    "webhookAfterPublish": "The URL appears after the process is published.",
+    "webhookHint": "An external system (Kaspi, 1C, a website…) calls this address with a POST and the process starts. The request body becomes the form values.",
+    "webhookUrl": "The webhook URL"
+  },
+  "empty": {
+    "canEdit": "Create the first one: draw a chain of tasks and approvals on the canvas.",
+    "readOnly": "Once the managers create processes, they will appear here.",
+    "title": "There are no processes yet"
+  },
+  "field": {
+    "baseUrl": {
+      "label": "Base URL",
+      "placeholder": "https://…"
+    },
+    "branchId": {
+      "label": "Branch"
+    },
+    "credentialId": {
+      "label": "Credential (from the safe)"
+    },
+    "departmentId": {
+      "label": "Department"
+    },
+    "description": {
+      "label": "Description"
+    },
+    "dueInHours": {
+      "label": "Due in (hours from the step)",
+      "placeholder": "24"
+    },
+    "maxTokens": {
+      "label": "The answer token limit",
+      "placeholder": "1024"
+    },
+    "message": {
+      "label": "Text"
+    },
+    "model": {
+      "label": "Model",
+      "placeholder": "claude-sonnet-5 / gpt-4o"
+    },
+    "positionId": {
+      "label": "Position"
+    },
+    "provider": {
+      "label": "Provider",
+      "option": {
+        "anthropic": "Anthropic (Claude)",
+        "openai": "OpenAI",
+        "openai-compatible": "OpenAI-compatible (your own URL)"
+      }
+    },
+    "runAsUserId": {
+      "help": "On whose behalf the process runs when it starts automatically (it creates the tasks and sends the notifications).",
+      "label": "On behalf of"
+    },
+    "systemPrompt": {
+      "label": "System prompt"
+    },
+    "temperature": {
+      "label": "Temperature (0–2)",
+      "placeholder": "0.7"
+    },
+    "text": {
+      "label": "Text"
+    },
+    "title": {
+      "label": "Title"
+    },
+    "userId": {
+      "label": "Employee"
+    },
+    "userPrompt": {
+      "label": "Request"
+    }
+  },
+  "form": {
+    "addField": "A form field",
+    "duplicateKey": "The key «{key}» is repeated",
+    "fieldKey": "key",
+    "fieldKeyLabel": "The field key",
+    "fieldName": "The field name",
+    "fieldType": "The field type",
+    "options": "The options",
+    "optionsPlaceholder": "The options, comma-separated",
+    "removeField": "Remove the field",
+    "required": "req.",
+    "type": {
+      "boolean": "Yes/No",
+      "date": "Date",
+      "number": "Number",
+      "select": "A list",
+      "text": "Text"
+    }
+  },
+  "inbox": {
+    "emptyText": "The department tasks you can take and the approvals will appear here.",
+    "emptyTitle": "The inbox is empty",
+    "kindApprove": "An approval",
+    "kindTask": "A department task",
+    "subtitle": "The queued tasks of your department and the approvals on you",
+    "take": "Take"
+  },
+  "input": {
+    "ai_memory": "Memory",
+    "ai_model": "Model",
+    "ai_output": "Parser",
+    "ai_tool": "Tools"
+  },
+  "instance": {
+    "approve": "Approve",
+    "branch": "the «{branch}» branch",
+    "cancelConfirm": "Cancel the process",
+    "cancelDeny": "Let it run",
+    "cancelText": "The open step tasks will be cancelled and the process will close as cancelled.",
+    "cancelTitle": "Cancel the process?",
+    "decisionApproved": "approved",
+    "decisionRejected": "declined",
+    "due": "due {at}",
+    "form": "The process form",
+    "formEmpty": "The form is empty",
+    "formHint": "The values the process was started with",
+    "inDepartmentQueue": "In the department queue",
+    "lasted": "Lasted {duration}",
+    "notFound": "The process was not found",
+    "notFoundText": "It may have been deleted, or you have no access.",
+    "overdueStep": "overdue",
+    "reason": "The reason",
+    "reasonPlaceholder": "What exactly to fix",
+    "reassign": "Reassign the step",
+    "reassignAction": "Reassign",
+    "reassignHint": "The reward for the task is re-frozen onto the new assignee",
+    "reassignPlaceholder": "Pick a new assignee…",
+    "reject": "Decline",
+    "return": "Send back",
+    "running": "Running for {duration}",
+    "startedBy": "Started by",
+    "steps": "Steps",
+    "stepsHint": "How long each step took and who carried it",
+    "taskWord": "task",
+    "title": "A process run",
+    "toProcesses": "To the processes"
+  },
+  "instanceStatus": {
+    "cancelled": "Cancelled",
+    "done": "Finished",
+    "error": "Error",
+    "running": "Running"
+  },
+  "issue": {
+    "agentCycle": "«{node}»: a cycle of agent tools (the agents refer to each other in a circle)",
+    "agentNeedsModel": "«{node}»: connect a Model",
+    "agentOneMemory": "«{node}»: only one Memory is allowed",
+    "agentOneModel": "«{node}»: only one Model is allowed",
+    "duplicateFormKey": "The form field «{key}» is duplicated",
+    "duplicateNodeId": "The node id «{id}» is duplicated",
+    "duplicateTemplateTrigger": "Two triggers on the very same template in one route — leave one",
+    "edgeFromMissing": "An edge out of a node that does not exist («{id}»)",
+    "edgeIntoTrigger": "Edges cannot lead into a start trigger (it has no input)",
+    "edgeToMissing": "An edge into a node that does not exist («{id}»)",
+    "externalTemplateGenerate": "The template «{name}» is for the documents with counterparties: the «Generate a document» node cannot create one on a route — such documents are sent to the counterparty from the card",
+    "externalTemplateTrigger": "The template «{name}» is for the documents with counterparties: they are sent to the counterparty from the card, and a route for them will appear together with a sending node",
+    "forkNeedsBranches": "«{node}»: a fork must have at least two branches",
+    "inputMissing": "The node «{node}» has no input «{port}»",
+    "joinNeedsBranches": "«{node}»: a join must take at least two branches",
+    "noEnd": "There is no «End» node",
+    "noTrigger": "There is no start trigger — add, for example, a «Manual start»",
+    "nodeProblem": "{node}: {problem}",
+    "notAMember": "The chosen person is not an employee of the organization",
+    "outputDangling": "The node «{node}»: the output «{port}» leads nowhere",
+    "outputMissing": "The node «{node}» has no output «{port}»",
+    "outputTaken": "The output «{port}» of the node «{node}» already has an edge — several branches are only allowed on a «Fork»",
+    "portMismatch": "Incompatible ports: «{from}» → «{to}»",
+    "runAsRankTooHigh": "«On behalf of» can only name an employee whose role is not above yours — otherwise the process would borrow somebody else’s rights",
+    "selectWithoutOptions": "The form field «{field}»: the list has no options",
+    "selfEdge": "An edge of a node onto itself is not allowed",
+    "subNodeDetached": "«{node}» is not connected to an agent",
+    "subNodeTaken": "A sub-node is already connected to the input «{port}» of the node «{node}»",
+    "templateRouteTaken": "This template already has a published route — «{name}». Unpublish it or choose another template",
+    "unknownNodeType": "Unknown node type «{type}»",
+    "unreachable": "The node «{node}» is unreachable from a start trigger"
+  },
+  "journal": {
+    "emptyText": "Start a process — it will appear here with the timing by step.",
+    "emptyTitle": "There are no started processes yet",
+    "now": "now: {steps}",
+    "subtitle": "Who started it, where the token is now and how long it has been running",
+    "title": "The log of the runs"
+  },
+  "node": {
+    "action": {
+      "richcard": {
+        "description": "Performs an action on an order, a task, an event or a listing (confirm an order, accept or take a task, RSVP…) on behalf of the initiator. The rights are re-checked. The object id comes from the form or from a previous step.",
+        "field": {
+          "actionKey": {
+            "label": "Action"
+          },
+          "payload": {
+            "label": "Extra parameters (JSON, optional)"
+          },
+          "refId": {
+            "label": "The object id",
+            "placeholder": "'{{'form.orderId'}}' / '{{'steps.x.id'}}'"
+          },
+          "refType": {
+            "label": "The object type"
+          }
+        },
+        "title": "A card action"
+      }
+    },
+    "ai": {
+      "agent": {
+        "description": "The orchestrating brain: a Model (mandatory), a Memory (optional) and Tools (as many as you like) connect to the ports below. The agent decides by itself which tools to call. It can be connected to another agent as a tool.",
+        "field": {
+          "maxIterations": {
+            "label": "Max agent steps",
+            "placeholder": "5"
+          },
+          "systemPrompt": {
+            "label": "System prompt (the role)",
+            "placeholder": "You are a supply dispatcher…"
+          },
+          "toolDescription": {
+            "label": "Description (when the agent is a tool)",
+            "placeholder": "Why another agent should call this one"
+          },
+          "userPrompt": {
+            "label": "The task",
+            "placeholder": "Handle the order '{{'form.orderId'}}'"
+          }
+        },
+        "title": "AI agent"
+      },
+      "generate": {
+        "description": "A plain request to an AI over the API (Claude or GPT). Its own prompt and model on every node. Substitutions '{{'form.x'}}' and '{{'steps.x'}}' are supported. The result lands in output.text.",
+        "field": {
+          "systemPrompt": {
+            "placeholder": "You are an assistant…"
+          },
+          "userPrompt": {
+            "placeholder": "Shorten: '{{'steps.fetch.body'}}'"
+          }
+        },
+        "title": "AI"
+      },
+      "memory": {
+        "description": "The memory of the agent by a session key: it remembers the context between the runs of the process with the same key (the client id from the form, for example).",
+        "field": {
+          "sessionKey": {
+            "label": "The session key",
+            "placeholder": "'{{'form.clientId'}}' (empty means the run id)"
+          },
+          "window": {
+            "label": "How many turns to remember",
+            "placeholder": "10"
+          }
+        },
+        "title": "Memory"
+      },
+      "model": {
+        "description": "An AI model (Claude or GPT) — it connects to an agent. One model can be connected to several agents.",
+        "title": "Model"
+      },
+      "parser": {
+        "description": "Connects to an agent and makes it return a strict JSON with the fields you need. The result lands in output.data (the fields are available as '{{'steps.agent.data.field'}}').",
+        "field": {
+          "fields": {
+            "label": "The JSON fields (one «key: description» per line)",
+            "placeholder": "decision: approve or reject\nreason: a short reason\namount: a number"
+          }
+        },
+        "title": "Structured answer"
+      }
+    },
+    "condition": {
+      "description": "Splits the flow in two by a form field: the «Yes» branch and the «No» branch.",
+      "field": {
+        "field": {
+          "label": "A form field"
+        },
+        "op": {
+          "label": "Condition"
+        },
+        "value": {
+          "label": "Value"
+        }
+      },
+      "title": "If"
+    },
+    "data": {
+      "set": {
+        "description": "Computes new fields by expressions over the form values and the results of the previous steps.",
+        "field": {
+          "assignments": {
+            "label": "Fields (name = expression, one per line)",
+            "placeholder": "total = item.sum * 1.12\nname = upper(item.name)"
+          }
+        },
+        "title": "Set data"
+      }
+    },
+    "delay": {
+      "description": "Holds the process for the given time and continues by itself.",
+      "field": {
+        "amount": {
+          "label": "How long to wait",
+          "placeholder": "1"
+        },
+        "unit": {
+          "label": "Unit"
+        }
+      },
+      "title": "Pause"
+    },
+    "doc": {
+      "file": {
+        "description": "Puts the document on the Drive of the organization: into the registry of its own kind and, if the kind is set up that way, into the personal file of the employee. There is one file — it is simply visible in two places.",
+        "title": "File it away"
+      },
+      "generate": {
+        "description": "Creates a new document by a template on the basis of the current one (an order out of an application). The data of the organization and of the employee is filled in by itself.",
+        "field": {
+          "templateId": {
+            "label": "The template of the new document"
+          },
+          "title": {
+            "label": "Title",
+            "placeholder": "An order granting a leave"
+          }
+        },
+        "title": "Generate a document"
+      },
+      "register": {
+        "description": "Gives the document a number by the format of its kind and enters it into the registration book. The number is issued here and not at the creation: the drafts do not eat the numbering.",
+        "title": "Registration"
+      }
+    },
+    "end": {
+      "description": "The end of a branch. The process finishes when all its branches have reached an end.",
+      "title": "End"
+    },
+    "finance": {
+      "record": {
+        "description": "Records an expense or an income in the Finance book of the ORGANIZATION (management accounting; the book is created by itself). The amount is in tenge and supports the substitutions '{{'form.amount'}}' and '{{'steps.x.y'}}'.",
+        "field": {
+          "amount": {
+            "label": "Amount (₸)",
+            "placeholder": "12500 or '{{'form.amount'}}'"
+          },
+          "categoryName": {
+            "label": "Category (by name)"
+          },
+          "kind": {
+            "label": "Kind",
+            "option": {
+              "expense": "An expense",
+              "income": "An income"
+            }
+          },
+          "note": {
+            "label": "Note"
+          }
+        },
+        "title": "Finance: record an entry"
+      }
+    },
+    "hr": {
+      "apply": {
+        "description": "Applies the HR action of the order: on the date it takes effect, but not earlier than the signature. A date in the future makes the action wait for it; the legality check (art. 54 of the Labour Code of Kazakhstan) is repeated at the moment it is applied.",
+        "title": "Apply the HR action"
+      },
+      "esutd": {
+        "description": "Queues the submission to ESUTD (erdo.enbek.kz) with a deadline by the working calendar: a conclusion within 5 working days, an amendment within 15 calendar days, a termination within 3 working days (Rules № 353). Usually the application of the action queues it by itself; the node is for the routes where the submission is needed separately.",
+        "field": {
+          "kind": {
+            "label": "The kind of the data",
+            "option": {
+              "amendment": "Amending a contract",
+              "contract": "Concluding a contract",
+              "termination": "Terminating a contract"
+            }
+          }
+        },
+        "title": "Submit to ESUTD"
+      }
+    },
+    "human": {
+      "approval": {
+        "description": "Sends the item to a person for an approval, a signature or an acknowledgement. The decision is taken in the shared decision stack — from a notification, from the home screen or on the card itself.",
+        "field": {
+          "assigneeMode": {
+            "help": "The relative recipients (a manager…) are taken from the org structure at the moment of the step; no manager found means the owner of the organization.",
+            "label": "Who decides",
+            "option": {
+              "branch": "A branch",
+              "branch_head": "The head of the site of the initiator",
+              "department": "A department",
+              "initiator": "The initiator of the process",
+              "initiator_manager": "The manager of the initiator",
+              "member": "An employee",
+              "position": "A position (whoever holds it now)",
+              "subject": "The party of the document (the employee named in the order)",
+              "subject_manager": "The manager of the party of the document"
+            }
+          },
+          "assigneeUserId": {
+            "label": "Who"
+          },
+          "dueInHours": {
+            "label": "Decision due in (hours)"
+          },
+          "kind": {
+            "help": "An acknowledgement has a single outcome: it cannot be refused.",
+            "label": "What is required",
+            "option": {
+              "acknowledgement": "Acknowledge",
+              "approval": "Approve",
+              "signature": "Sign"
+            }
+          },
+          "rule": {
+            "help": "The composition is frozen as a snapshot at the moment the step reaches the people.",
+            "label": "How many answers are needed",
+            "option": {
+              "all": "Every one",
+              "any": "Any of them"
+            }
+          },
+          "signatureLevel": {
+            "help": "HR documents are signed with a QES under art. 33 of the Labour Code of Kazakhstan. The level is usually taken from the kind of the document.",
+            "label": "What to sign with",
+            "option": {
+              "ecp": "With a QES (an NCA key)",
+              "none": "A button click is enough",
+              "pep": "With a simple signature (an SMS code)"
+            }
+          },
+          "title": {
+            "label": "What is decided",
+            "placeholder": "Buying a washing machine for '{{'form.budget'}}' ₸"
+          }
+        },
+        "title": "A decision by a person"
+      },
+      "task": {
+        "description": "Creates a task in Tasks (with the chat and the reminders) and waits for it to be accepted. In the «Department» mode the task goes into a queue and any member of the department can take it. Substitutions '{{'form.field'}}' are supported.",
+        "field": {
+          "assigneeMode": {
+            "help": "The manager is taken from the org structure at the moment of the step; if no manager is found, the owner of the organization is used.",
+            "label": "Assignee",
+            "option": {
+              "department": "A department (a queue)",
+              "initiator": "The initiator of the process",
+              "initiator_manager": "The manager of the initiator",
+              "member": "An employee"
+            }
+          },
+          "assigneeUserId": {
+            "label": "Who"
+          },
+          "description": {
+            "placeholder": "What has to be done (the assignee sees it)"
+          },
+          "title": {
+            "label": "The task title",
+            "placeholder": "Find a washing machine under '{{'form.budget'}}' ₸"
+          }
+        },
+        "title": "A task for a person"
+      }
+    },
+    "kz": {
+      "kaspi": {
+        "description": "The orders of the Kaspi Shop: fetch the new ones, accept, complete (the token comes from the seller cabinet). Kaspi has no webhooks — poll it on a schedule.",
+        "field": {
+          "credentialId": {
+            "label": "X-Auth-Token (a credential)"
+          },
+          "operation": {
+            "label": "Operation",
+            "option": {
+              "accept": "Accept an order",
+              "complete": "Complete an order",
+              "new_orders": "Fetch the new orders"
+            }
+          },
+          "orderId": {
+            "label": "The order id"
+          }
+        },
+        "title": "Kaspi Shop"
+      },
+      "odata": {
+        "description": "A request to a published 1C database over the standard OData (the basic auth lives in a credential). The database must be reachable publicly.",
+        "field": {
+          "baseUrl": {
+            "label": "The OData base address"
+          },
+          "body": {
+            "label": "Data (JSON)"
+          },
+          "credentialId": {
+            "label": "The 1C login and password (a basic credential)"
+          },
+          "entity": {
+            "label": "The object",
+            "placeholder": "Catalog_Goods"
+          },
+          "filter": {
+            "label": "Filter ($filter)"
+          },
+          "operation": {
+            "label": "Operation",
+            "option": {
+              "create": "Create",
+              "list": "Read (a list)"
+            }
+          }
+        },
+        "title": "1C (OData)"
+      },
+      "sms": {
+        "description": "Sends an SMS through Mobizon.kz (the apiKey lives in a credential). The alphanumeric sender name is registered in advance.",
+        "field": {
+          "credentialId": {
+            "label": "The Mobizon API key (a credential)"
+          },
+          "from": {
+            "label": "The sender name (optional)"
+          },
+          "recipient": {
+            "label": "Recipient (a phone)",
+            "placeholder": "7700…"
+          }
+        },
+        "title": "SMS (Mobizon)"
+      },
+      "telegram": {
+        "description": "Sends a message through a Telegram bot (the @BotFather token lives in a credential). In the flow it sends the given text; connect the «as a tool» output to an AI agent and the agent decides when to write and what to write. Substitutions '{{'form.x'}}' and '{{'steps.x'}}' are supported.",
+        "field": {
+          "chatId": {
+            "label": "Chat id / @channel",
+            "placeholder": "'{{'form.chatId'}}', 123456789 or @mychannel"
+          },
+          "credentialId": {
+            "label": "The bot token (a credential)"
+          },
+          "text": {
+            "help": "Mandatory for a plain node. If the node is connected to an agent as a tool, the agent writes the text."
+          }
+        },
+        "title": "Telegram"
+      },
+      "whatsapp": {
+        "description": "Sends a message through the WhatsApp Cloud API (the access token lives in a credential; templates are needed outside the 24-hour window). Substitutions are supported.",
+        "field": {
+          "credentialId": {
+            "label": "The access token (a credential)"
+          },
+          "phoneNumberId": {
+            "label": "Phone number ID"
+          },
+          "to": {
+            "label": "To (a phone)",
+            "placeholder": "77001234567"
+          }
+        },
+        "title": "WhatsApp"
+      }
+    },
+    "loop": {
+      "each": {
+        "description": "Goes through the items of a list one by one: the «Each» output runs for every item, and the «Done» output runs once at the end.",
+        "field": {
+          "maxIterations": {
+            "label": "At most items",
+            "placeholder": "500"
+          },
+          "source": {
+            "help": "A link to an array: the result of a previous step or a form field.",
+            "label": "The list (where from)",
+            "placeholder": "'{{'steps.kaspi.body.data'}}' / '{{'form.list'}}'"
+          }
+        },
+        "title": "Loop over a list"
+      }
+    },
+    "notify": {
+      "description": "Sends a notification to the initiator or to a chosen employee. Substitutions are supported; it can be connected to an AI agent as a tool.",
+      "field": {
+        "title": {
+          "help": "Mandatory for a plain node. As a tool of an agent the text is written by the agent (it goes to the initiator)."
+        },
+        "to": {
+          "label": "To whom",
+          "option": {
+            "initiator": "To the initiator of the process",
+            "member": "To an employee"
+          }
+        },
+        "userId": {
+          "label": "Who"
+        }
+      },
+      "title": "Notify"
+    },
+    "parallel": {
+      "join": {
+        "description": "Waits for all the incoming branches and continues as one flow.",
+        "title": "Join"
+      },
+      "split": {
+        "description": "Splits the flow into several branches that run in parallel.",
+        "title": "Fork"
+      }
+    },
+    "process": {
+      "start": {
+        "description": "Starts another published process of this organization as a sub-process (on behalf of the initiator). There is a depth guard against recursion. The form values are passed as JSON.",
+        "field": {
+          "definitionId": {
+            "label": "The process (the definition id)",
+            "placeholder": "the id of a published process"
+          },
+          "input": {
+            "label": "The form of the sub-process (JSON, optional)"
+          }
+        },
+        "title": "Start a process"
+      }
+    },
+    "service": {
+      "http": {
+        "description": "Calls an external API (Kaspi, 1C, any REST). It supports the substitutions '{{'form.field'}}' in the URL and the body, the headers and the credentials from the safe. The answer is available to the next steps.",
+        "field": {
+          "body": {
+            "label": "The request body"
+          },
+          "headers": {
+            "label": "Headers (JSON)"
+          },
+          "method": {
+            "label": "Method",
+            "option": {
+              "DELETE": "DELETE",
+              "GET": "GET",
+              "PATCH": "PATCH",
+              "POST": "POST",
+              "PUT": "PUT"
+            }
+          },
+          "url": {
+            "help": "Mandatory for a plain node. As a tool of an agent the URL is filled in by the agent (a GET, a read).",
+            "label": "URL",
+            "placeholder": "https://api.example.kz/orders?since='{{'form.date'}}'"
+          }
+        },
+        "title": "HTTP request"
+      },
+      "message": {
+        "description": "Sends a message to a chat or a direct message to an employee on behalf of the initiator (who must have access to the chat). Substitutions '{{'form.x'}}' and '{{'steps.x'}}' are supported; it can be connected to an AI agent as a tool.",
+        "field": {
+          "chatId": {
+            "label": "The chat id"
+          },
+          "text": {
+            "help": "Mandatory for a plain node. As a tool of an agent the text is written by the agent."
+          },
+          "to": {
+            "label": "Where to",
+            "option": {
+              "chat": "To a chat by its id",
+              "member": "A direct message to an employee"
+            }
+          }
+        },
+        "title": "A chat message"
+      }
+    },
+    "staff": {
+      "assign": {
+        "description": "Assigns a position (and a branch) to an employee on behalf of the initiator — the initiator must be a Manager or above. For example, to grant a position automatically on hiring.",
+        "field": {
+          "branchId": {
+            "label": "Branch (optional)"
+          }
+        },
+        "title": "Assign a position"
+      }
+    },
+    "start": {
+      "description": "A start by the «Start» button: the initiator fills the form and starts the process. It is the entry point — you can delete it if the process only starts automatically.",
+      "title": "Manual start"
+    },
+    "trigger": {
+      "document": {
+        "description": "Starts the route when an employee submits a document by the chosen template. The fields of the submission form are available as '{{'form.field'}}'.",
+        "field": {
+          "templateId": {
+            "help": "One template — one route. The publication will not let a second published route onto the same template.",
+            "label": "The document template"
+          }
+        },
+        "title": "A document was submitted"
+      },
+      "event": {
+        "description": "Starts the process on a platform event: an employee was hired, a position was assigned, a task was completed or created, and so on.",
+        "field": {
+          "condField": {
+            "help": "Start only if this field of the event satisfies the condition.",
+            "label": "Condition: the event field (optional)",
+            "placeholder": "e.g. taskTitle"
+          },
+          "condOp": {
+            "label": "Condition: the operator"
+          },
+          "condValue": {
+            "label": "Condition: the value"
+          },
+          "eventType": {
+            "label": "Event"
+          }
+        },
+        "title": "A SuperApp event"
+      },
+      "schedule": {
+        "description": "Starts the process automatically every N hours or days. The form is not filled in (the default values are used).",
+        "field": {
+          "everyUnit": {
+            "label": "Unit"
+          },
+          "everyValue": {
+            "label": "Every",
+            "placeholder": "1"
+          }
+        },
+        "title": "On a schedule"
+      },
+      "telegram": {
+        "description": "Starts the process when someone writes to the bot in Telegram. Available to the nodes: the text as '{{'form.text'}}', the chat as '{{'form.chatId'}}', the name as '{{'form.fromName'}}'. The answer goes through the Telegram node.",
+        "field": {
+          "credentialId": {
+            "help": "A bearer credential with the token from @BotFather. After the publication the webhook of the bot sets itself up (a public API address is needed; on localhost set it by hand).",
+            "label": "The bot token (a credential)"
+          }
+        },
+        "title": "Telegram: incoming"
+      },
+      "webhook": {
+        "description": "An external system (Kaspi, 1C, a website…) calls a public URL and the process starts. The URL appears in this panel after the publication; the request body becomes the form values.",
+        "title": "Webhook"
+      }
+    },
+    "workspaces": {
+      "role": {
+        "description": "Changes the role of an employee in the organization on behalf of the initiator — the initiator must be an Admin or above (the owner and the contractor cannot be assigned).",
+        "field": {
+          "role": {
+            "label": "The new role",
+            "option": {
+              "admin": "Admin",
+              "manager": "Manager",
+              "staff": "Employee",
+              "trainee": "Trainee"
+            }
+          }
+        },
+        "title": "Change the role of an employee"
+      }
+    }
+  },
+  "option": {
+    "contains": "contains",
+    "days": "days",
+    "empty": "is empty",
+    "eq": "=",
+    "finance": {
+      "transaction": {
+        "created": "An entry was recorded in Finance"
+      }
+    },
+    "gt": ">",
+    "gte": "≥",
+    "hours": "hours",
+    "lt": "<",
+    "lte": "≤",
+    "minutes": "minutes",
+    "ne": "≠",
+    "not_empty": "is not empty",
+    "shop": {
+      "order": {
+        "confirmed": "An order was confirmed",
+        "funded": "A crowdfunding was collected",
+        "placed": "An order was placed"
+      }
+    },
+    "task": {
+      "completed": "A task was completed",
+      "created": "A task was created"
+    },
+    "workspace": {
+      "invitation": {
+        "accepted": "A new employee was accepted"
+      },
+      "member": {
+        "removed": "An employee was dismissed"
+      },
+      "position": {
+        "assigned": "A position was assigned",
+        "certified": "An employee was certified"
+      }
+    }
+  },
+  "output": {
+    "approved": "Approved",
+    "astool": "as a tool",
+    "done": "Done",
+    "error": "Error",
+    "false": "No",
+    "loop": "Each",
+    "main": "",
+    "memory": "",
+    "model": "",
+    "parser": "",
+    "rejected": "Declined",
+    "returned": "Sent back",
+    "success": "Success",
+    "true": "Yes"
+  },
+  "overdue": "overdue",
+  "processWord": "process",
+  "publishedChip": "Published",
+  "rule": {
+    "hr": {
+      "acknowledgeRequired": "The employee must be acquainted with the order: add a «A decision by a person» step of the «Acknowledge» kind",
+      "ecpRequired": "An HR document is signed with a QES (art. 33 of the Labour Code of Kazakhstan): in the «Sign» step choose «What to sign with → QES», otherwise the signature is a button click",
+      "orderRequired": "Under the HR record-keeping of Kazakhstan the ground is an order: add «Generate a document», otherwise only the application stays in the file",
+      "personalFileRequired": "A signed document is worth filing into the personal file: add a «File it away» step",
+      "registerRequired": "The order needs a number: add a «Registration» step, otherwise the document will not enter the registration book",
+      "signatureRequired": "The order must be signed by the head: add a «A decision by a person» step of the «Sign» kind"
+    }
+  },
+  "runningChip": "running: {count}",
+  "sections": "The sections of Processes",
+  "settings": {
+    "archive": "Archive the process",
+    "close": "Close the settings",
+    "description": "Description",
+    "name": "Name",
+    "title": "The settings of the process",
+    "versions": "Versions",
+    "versionsHint": "The running processes live out their own version — the edits do not disturb them.",
+    "visibility": "Who sees it",
+    "visibilityHint": "«Admins only» is for the processes of the developers and the management"
+  },
+  "start": {
+    "noForm": "No form is needed — the process starts right away",
+    "title": "Start «{name}»",
+    "withForm": "The form values go into the first step"
+  },
+  "stepStatus": {
+    "active": "In progress",
+    "cancelled": "Cancelled",
+    "done": "Done",
+    "error": "Error"
+  },
+  "subtitle": "A builder of business processes: tasks for departments, approvals, automation",
+  "tab": {
+    "analytics": "Analytics",
+    "defs": "Processes",
+    "inbox": "Inbox",
+    "journal": "Log"
+  },
+  "title": "Processes",
+  "validation": {
+    "approverRequired": "Choose an approver",
+    "assigneeRequired": "Choose an employee as the assignee",
+    "badCharacters": "The characters are not allowed",
+    "botTokenRequired": "Choose a credential with the bot token",
+    "branchRequired": "Choose a branch",
+    "chatIdRequired": "Give the chat id",
+    "departmentRequired": "Choose a department",
+    "eventRequired": "Choose an event",
+    "formFieldRequired": "Choose a form field",
+    "formFieldUnknown": "There is no such form field",
+    "memberRequired": "Choose an employee",
+    "orderIdRequired": "Give the order id",
+    "positionRequired": "Choose a position",
+    "recipientRequired": "Choose a recipient",
+    "required": "The field is required",
+    "runAsRequired": "Choose on whose behalf the process runs",
+    "subjectMissing": "The step is addressed to the party of the document, but the run has none: this route is started by submitting a document with an employee as a party"
+  },
+  "versionStatus": {
+    "draft": "Draft",
+    "published": "Published",
+    "superseded": "Archived"
+  },
+  "visibility": {
+    "admins": "Admins only",
+    "team": "The whole team"
+  }
+}

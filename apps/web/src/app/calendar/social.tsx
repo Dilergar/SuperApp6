@@ -1,6 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslations } from 'next-intl';
+import type { Formatters } from '@superapp/i18n/format';
+import { useFormatters } from '@/lib/format';
 import { apiDelete, apiErrorMessage, apiGet, apiPost } from '@/lib/api';
 import { EntitySelector } from '@/components/EntitySelector';
 import { PersonChip } from '../circles/PersonCard';
@@ -8,7 +11,6 @@ import {
   Alert, Button, Chip, EmptyState, Field, IconButton, Input, Modal,
 } from '@/components/ui';
 import {
-  CALENDAR_ACCESS_LEVEL_META,
   SMART_MATCH_DURATIONS,
   type Contact,
   type CalendarShare,
@@ -22,6 +24,8 @@ import {
 // ============================================================
 
 export function SharePanel({ contacts, onClose }: { contacts: Contact[]; onClose: (changed: boolean) => void }) {
+  const t = useTranslations('calendar');
+  const tc = useTranslations('common');
   const [shares, setShares] = useState<CalendarShare[]>([]);
   const [changed, setChanged] = useState(false);
   const [pickId, setPickId] = useState<string>('');
@@ -68,15 +72,15 @@ export function SharePanel({ contacts, onClose }: { contacts: Contact[]; onClose
     <Modal
       open
       onClose={() => onClose(changed)}
-      title="Доступ к моему календарю"
-      subtitle="По умолчанию календарь приватный. Здесь — персональный доступ; по Группам — в настройках Группы на «Моё окружение»"
+      title={t('share.title')}
+      subtitle={t('share.subtitle')}
       size="md"
-      footer={<Button variant="ghost" onClick={() => onClose(changed)}>Готово</Button>}
+      footer={<Button variant="ghost" onClick={() => onClose(changed)}>{tc('actions.ready')}</Button>}
     >
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
 
-        <Field label="Открыть человеку">
+        <Field label={t('share.toPerson')}>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
             <div style={{ flex: 1, minWidth: 200 }}>
               <EntitySelector
@@ -85,24 +89,24 @@ export function SharePanel({ contacts, onClose }: { contacts: Contact[]; onClose
                 options={available.map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole }))}
                 value={pickId ? [{ type: 'user', id: pickId }] : []}
                 onChange={(p) => setPickId(p[0]?.id ?? '')}
-                placeholder="Выберите человека…"
+                placeholder={t('share.pickPerson')}
               />
             </div>
             <div style={{ display: 'flex', gap: '0.25rem' }}>
               {(['busy', 'detailed'] as const).map((l) => (
                 <Chip key={l} size="sm" tone="accent" selected={level === l} onClick={() => setLevel(l)}>
-                  {CALENDAR_ACCESS_LEVEL_META[l].label}
+                  {t(`access.${l}`)}
                 </Chip>
               ))}
             </div>
             <Button variant="primary" size="sm" icon="check" disabled={!pickId} loading={busy} onClick={add}>
-              Дать доступ
+              {t('share.grant')}
             </Button>
           </div>
         </Field>
 
         {shares.length === 0 ? (
-          <EmptyState icon="lock" title="Пока никому не открыт" description="Выберите человека выше — он увидит занятость или детали." />
+          <EmptyState icon="lock" title={t('share.emptyTitle')} description={t('share.emptyHint')} />
         ) : (
           <div className="ui-stack" style={{ gap: '0.375rem' }}>
             {shares.map((s) => (
@@ -116,9 +120,9 @@ export function SharePanel({ contacts, onClose }: { contacts: Contact[]; onClose
                 <PersonChip size="M" userId={s.sharedWithUserId} firstName={s.firstName} lastName={s.lastName ?? null} />
                 <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <Chip size="sm" tone={s.accessLevel === 'detailed' ? 'accent' : 'neutral'}>
-                    {CALENDAR_ACCESS_LEVEL_META[s.accessLevel].label}
+                    {t(`access.${s.accessLevel}`)}
                   </Chip>
-                  <IconButton icon="close" label="Закрыть доступ" size={28} onClick={() => remove(s.sharedWithUserId)} />
+                  <IconButton icon="close" label={t('share.revoke')} size={28} onClick={() => remove(s.sharedWithUserId)} />
                 </span>
               </div>
             ))}
@@ -140,6 +144,9 @@ export function SmartMatchDialog({
   onClose: () => void;
   onPick: (start: string, userIds: string[]) => void;
 }) {
+  const t = useTranslations('calendar');
+  const tc = useTranslations('common');
+  const f = useFormatters();
   const [sel, setSel] = useState<string[]>([]);
   const [duration, setDuration] = useState(60);
   const [days, setDays] = useState(7);
@@ -150,7 +157,7 @@ export function SmartMatchDialog({
   const [error, setError] = useState('');
 
   const search = async () => {
-    if (!sel.length) { setError('Выберите хотя бы одного человека'); return; }
+    if (!sel.length) { setError(t('smart.pickSomeone')); return; }
     setBusy(true); setError('');
     const now = new Date();
     const from = new Date(now.getTime() + 5 * 60_000); // a few minutes ahead
@@ -175,14 +182,14 @@ export function SmartMatchDialog({
     <Modal
       open
       onClose={onClose}
-      title="Подобрать общее время"
-      subtitle="Среди тех, кто открыл вам календарь. Чужая занятость не раскрывается — только свободные окна"
+      title={t('smart.title')}
+      subtitle={t('smart.subtitle')}
       size="md"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Закрыть</Button>
+          <Button variant="ghost" onClick={onClose}>{tc('actions.close')}</Button>
           {sources.length > 0 && (
-            <Button variant="primary" icon="search" loading={busy} onClick={search}>Найти окна</Button>
+            <Button variant="primary" icon="search" loading={busy} onClick={search}>{t('smart.find')}</Button>
           )}
         </>
       }
@@ -190,46 +197,46 @@ export function SmartMatchDialog({
       {sources.length === 0 ? (
         <EmptyState
           icon="people"
-          title="Некого подбирать"
-          description="Пока никто не открыл вам свой календарь — попросите доступ или откройте свой первым."
+          title={t('smart.nobodyTitle')}
+          description={t('smart.nobodyHint')}
         />
       ) : (
         <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
           {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
 
-          <Field label="С кем">
+          <Field label={t('smart.withWhom')}>
             <EntitySelector
               types={['user']}
               multi
               options={sources.map((s) => ({ type: 'user', id: s.userId, title: `${s.firstName} ${s.lastName ?? ''}`.trim(), firstName: s.firstName, lastName: s.lastName }))}
               value={sel.map((id) => ({ type: 'user', id }))}
               onChange={(p) => setSel(p.map((x) => x.id))}
-              placeholder="Выберите людей…"
+              placeholder={t('smart.pickPeople')}
             />
           </Field>
 
           <div style={{ display: 'flex', gap: 'var(--spacing-6)', flexWrap: 'wrap' }}>
-            <Field label="Длительность">
+            <Field label={t('smart.duration')}>
               <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
                 {SMART_MATCH_DURATIONS.map((d) => (
                   <Chip key={d.min} size="sm" tone="accent" selected={duration === d.min} onClick={() => setDuration(d.min)}>
-                    {d.label}
+                    {t(`duration.${d.key}`)}
                   </Chip>
                 ))}
               </div>
             </Field>
-            <Field label="Период">
+            <Field label={t('smart.period')}>
               <div style={{ display: 'flex', gap: '0.25rem' }}>
                 {[7, 14, 30].map((d) => (
                   <Chip key={d} size="sm" tone="accent" selected={days === d} onClick={() => setDays(d)}>
-                    {d} дн.
+                    {t('smart.days', { n: d })}
                   </Chip>
                 ))}
               </div>
             </Field>
           </div>
 
-          <Field label="Рабочие часы">
+          <Field label={t('smart.workingHours')}>
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
               <div style={{ width: 80 }}>
                 <Input
@@ -238,7 +245,7 @@ export function SmartMatchDialog({
                   max={23}
                   value={fromHour}
                   onChange={(e) => setFromHour(Math.min(23, Math.max(0, +e.target.value)))}
-                  aria-label="С какого часа"
+                  aria-label={t('smart.fromHour')}
                 />
               </div>
               <span className="label-sm">—</span>
@@ -249,7 +256,7 @@ export function SmartMatchDialog({
                   max={24}
                   value={toHour}
                   onChange={(e) => setToHour(Math.min(24, Math.max(1, +e.target.value)))}
-                  aria-label="До какого часа"
+                  aria-label={t('smart.toHour')}
                 />
               </div>
             </div>
@@ -257,9 +264,9 @@ export function SmartMatchDialog({
 
           {slots && (
             slots.length === 0 ? (
-              <Alert tone="neutral" icon="info">Свободных окон не нашлось — попробуйте другой период или часы.</Alert>
+              <Alert tone="neutral" icon="info">{t('smart.nothingFound')}</Alert>
             ) : (
-              <Field label="Свободные окна">
+              <Field label={t('smart.freeWindows')}>
                 <div className="ui-stack" style={{ gap: '0.25rem' }}>
                   {slots.slice(0, 20).map((s) => (
                     <button
@@ -273,8 +280,8 @@ export function SmartMatchDialog({
                         cursor: 'pointer', textAlign: 'left', color: 'var(--on-surface)',
                       }}
                     >
-                      <span className="title-sm">{slotLabel(s.start)}</span>
-                      <span className="label-sm" style={{ color: 'var(--primary-dim)' }}>выбрать</span>
+                      <span className="title-sm">{slotLabel(s.start, f)}</span>
+                      <span className="label-sm" style={{ color: 'var(--primary-dim)' }}>{t('smart.pick')}</span>
                     </button>
                   ))}
                 </div>
@@ -287,7 +294,7 @@ export function SmartMatchDialog({
   );
 }
 
-function slotLabel(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }) + ', ' + d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+/** «чт, 3 сентября, 14:35» — день недели от языка, порядок от региона. */
+function slotLabel(iso: string, f: Formatters): string {
+  return `${f.weekday(iso, 'short')}, ${f.dateTime(iso, 'dayMonthLong')}`;
 }

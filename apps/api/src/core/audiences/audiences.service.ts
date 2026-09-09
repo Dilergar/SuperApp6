@@ -1,6 +1,6 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import {
-  AUDIENCE_ANCHOR_LABELS,
+  AUDIENCE_ANCHOR_KEYS,
   AUDIENCE_ERROR_CODES,
   AUDIENCE_KIND_DEFS,
   TEAM_WORKSPACE_ROLES,
@@ -12,6 +12,8 @@ import {
   type AudienceRef,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { badRequest, type ErrorParams } from '../../shared/errors/api-error';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { principalSubjectRelation } from '../access/access-schema';
 import type { SubjectRef } from '../access/access.types';
 import { fullName } from '../../shared/utils/user-name';
@@ -39,7 +41,11 @@ export interface ResolveOptions {
   allowedKinds?: readonly AudienceKind[];
 }
 
-const coded = (message: string, code: string) => new BadRequestException({ message, details: { code } });
+/**
+ * Отказ движка: слова берёт каталог по ключу, а машинный код остаётся прежним —
+ * клиенты движка ветвятся по `details.code`, а не по фразе.
+ */
+const coded = (key: string, code: string, params?: ErrorParams) => badRequest(key, params, { code });
 
 /**
  * core/audiences — 16-й движок: единый словарь и разворот АДРЕСАТОВ в людей.
@@ -60,7 +66,18 @@ export class AudiencesService {
   constructor(
     private readonly db: DatabaseService,
     private readonly registry: AudiencesRegistry,
+    private readonly i18n: I18nService,
   ) {}
+
+  /** Подпись вида адресата в языке зрителя */
+  private kindLabel(kind: AudienceKind): string {
+    return this.i18n.translate(`common.audience.kind.${kind}`);
+  }
+
+  /** Подпись якоря («инициатора», «меня») в языке зрителя */
+  private anchorLabel(anchor: AudienceAnchor): string {
+    return this.i18n.translate(`common.audience.anchor.${AUDIENCE_ANCHOR_KEYS[anchor]}`);
+  }
 
   /** Развернуть список адресатов в уникальных живых людей (порядок — первого появления) */
   async resolve(refs: AudienceRef[], ctx: AudienceContext, opts: ResolveOptions): Promise<string[]> {
@@ -68,7 +85,9 @@ export class AudiencesService {
     const limit = opts.max + 1;
     for (const ref of refs) {
       if (opts.allowedKinds && !opts.allowedKinds.includes(ref.type)) {
-        throw coded(`Адресат вида «${ref.type}» здесь недопустим`, AUDIENCE_ERROR_CODES.kindNotAllowed);
+        throw coded('audiences.kindNotAllowed', AUDIENCE_ERROR_CODES.kindNotAllowed, {
+          kind: this.kindLabel(ref.type),
+        });
       }
       const ids = await this.resolveOne(ref, ctx, limit);
       for (const id of ids) {
@@ -80,10 +99,7 @@ export class AudiencesService {
     let ids = [...out];
     if (ids.length > opts.max) {
       if (opts.onOverflow === 'throw') {
-        throw coded(
-          `Адресатов больше потолка (${opts.max}) — сузьте аудиторию или используйте массовый инструмент`,
-          AUDIENCE_ERROR_CODES.overflow,
-        );
+        throw coded('audiences.overflow', AUDIENCE_ERROR_CODES.overflow, { max: opts.max });
       }
       ids = ids.slice(0, opts.max);
     }
@@ -127,7 +143,7 @@ export class AudiencesService {
       }
       default: {
         const resolver = this.registry.get(ref.type);
-        if (!resolver) throw new Error(`audiences: вид «${ref.type}» никем не зарегистрирован`);
+        if (!resolver) throw new Error(`audiences: kind "${ref.type}" is registered by nobody`);
         return resolver.resolve(id, ctx, limit);
       }
     }
@@ -137,44 +153,43 @@ export class AudiencesService {
   async label(ref: AudienceRef, ctx: AudienceContext): Promise<string> {
     const def = AUDIENCE_KIND_DEFS[ref.type];
     const anchor = isAudienceAnchor(ref.id) ? ref.id : null;
+    const t = (key: string, params?: Record<string, string>) => this.i18n.translate(key, params);
     if (def.relative) {
-      const who = anchor
-        ? AUDIENCE_ANCHOR_LABELS[anchor]
-        : await this.userName(ref.id);
+      const who = anchor ? this.anchorLabel(anchor) : await this.userName(ref.id);
       switch (ref.type) {
         case 'manager_of':
-          return anchor ? `Руководитель ${who}` : `Руководитель: ${who}`;
+          return t(anchor ? 'common.audience.label.managerOfAnchor' : 'common.audience.label.managerOf', { who });
         case 'subordinates_of':
-          return anchor ? `Команда ${who}` : `Команда: ${who}`;
+          return t(anchor ? 'common.audience.label.teamOfAnchor' : 'common.audience.label.teamOf', { who });
         case 'branch_head_of': {
           const custom = await this.registry.get(ref.type)?.label?.(ref.id, ctx);
           if (custom) return custom;
-          return anchor ? `Руководитель объекта ${who}` : `Руководитель объекта: ${who}`;
+          return t(anchor ? 'common.audience.label.siteHeadOfAnchor' : 'common.audience.label.siteHeadOf', { who });
         }
         default:
-          return def.label;
+          return this.kindLabel(ref.type);
       }
     }
     switch (ref.type) {
       case 'user':
-        return anchor ? AUDIENCE_ANCHOR_LABELS[anchor] : await this.userName(ref.id);
+        return anchor ? this.anchorLabel(anchor) : await this.userName(ref.id);
       case 'workspace':
-        return 'вся команда';
+        return t('common.audience.label.wholeTeam');
       case 'department': {
         const row = await this.db.staffDepartment.findUnique({ where: { id: ref.id }, select: { name: true } });
-        return row ? `Отдел «${row.name}»` : def.label;
+        return row ? t('common.audience.label.department', { name: row.name }) : this.kindLabel(ref.type);
       }
       case 'position': {
         const row = await this.db.staffPosition.findUnique({ where: { id: ref.id }, select: { name: true } });
-        return row ? `Должность «${row.name}»` : def.label;
+        return row ? t('common.audience.label.position', { name: row.name }) : this.kindLabel(ref.type);
       }
       case 'branch': {
         const row = await this.db.staffBranch.findUnique({ where: { id: ref.id }, select: { name: true } });
-        return row ? `Объект «${row.name}»` : def.label;
+        return row ? t('common.audience.label.branch', { name: row.name }) : this.kindLabel(ref.type);
       }
       default: {
         const custom = await this.registry.get(ref.type)?.label?.(ref.id, ctx);
-        return custom ?? def.label;
+        return custom ?? this.kindLabel(ref.type);
       }
     }
   }
@@ -216,7 +231,9 @@ export class AudiencesService {
   principalsFor(refs: AudienceRef[]): SubjectRef[] {
     return refs.map((ref) => {
       if (!AUDIENCE_KIND_DEFS[ref.type].grantable || isAudienceAnchor(ref.id)) {
-        throw coded(`Адресат вида «${ref.type}» не может быть получателем доступа`, AUDIENCE_ERROR_CODES.kindNotAllowed);
+        throw coded('audiences.notGrantable', AUDIENCE_ERROR_CODES.kindNotAllowed, {
+          kind: this.kindLabel(ref.type),
+        });
       }
       return { subjectType: ref.type, subjectId: ref.id, subjectRelation: principalSubjectRelation(ref.type) };
     });
@@ -228,10 +245,9 @@ export class AudiencesService {
     if (!isAudienceAnchor(ref.id)) return ref.id;
     const value = this.anchorValue(ref.id, ctx);
     if (!value) {
-      throw coded(
-        `Адресат «${AUDIENCE_KIND_DEFS[ref.type].label} ${AUDIENCE_ANCHOR_LABELS[ref.id]}» здесь неизвестен: у вызова нет такого контекста`,
-        AUDIENCE_ERROR_CODES.anchorUnavailable,
-      );
+      throw coded('audiences.anchorUnavailable', AUDIENCE_ERROR_CODES.anchorUnavailable, {
+        label: `${this.kindLabel(ref.type)} ${this.anchorLabel(ref.id)}`,
+      });
     }
     return value;
   }

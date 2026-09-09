@@ -13,8 +13,9 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import type { ApprovalMineDto } from '@superapp/shared';
-import { APPROVAL_REQUEST_STATUS_LABELS } from '@superapp/shared';
+import { useFormatters } from '@/lib/format';
 import { Button, Chip, EmptyState, Icon, LoadingBlock, SegmentedControl } from '@/components/ui';
 import { PersonChip } from '@/app/circles/PersonCard';
 import { myApprovalsKey, approvalsRootKey, type ApprovalScope } from '@/lib/queries';
@@ -34,6 +35,7 @@ const STATUS_TONE: Record<string, 'accent' | 'success' | 'danger' | 'warning' | 
 };
 
 export function MyApprovalsList({ scope }: { scope?: ApprovalScope }) {
+  const t = useTranslations('approvals');
   const qc = useQueryClient();
   const [bucket, setBucket] = useState<Bucket>('active');
   // Отзыв необратим, поэтому спрашиваем — но НЕ вложенной модалкой: список живёт
@@ -63,12 +65,12 @@ export function MyApprovalsList({ scope }: { scope?: ApprovalScope }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
       <SegmentedControl
-        aria-label="Какие заявки показать"
+        aria-label={t('mine.tabsAria')}
         value={bucket}
         onChange={setBucket}
         items={[
-          { key: 'active', label: 'В работе' },
-          { key: 'archived', label: 'Завершённые' },
+          { key: 'active', label: t('mine.active') },
+          { key: 'archived', label: t('mine.archived') },
         ]}
       />
 
@@ -77,12 +79,8 @@ export function MyApprovalsList({ scope }: { scope?: ApprovalScope }) {
       ) : items.length === 0 ? (
         <EmptyState
           icon="send"
-          title={archived ? 'Завершённых заявок нет' : 'Вы ничего не отправляли'}
-          description={
-            archived
-              ? 'Сюда попадают согласованные, отклонённые и отменённые заявки.'
-              : 'Отправьте документ на маршрут — и увидите здесь, у кого он сейчас.'
-          }
+          title={archived ? t('mine.emptyArchived') : t('mine.emptyActive')}
+          description={archived ? t('mine.emptyArchivedHint') : t('mine.emptyActiveHint')}
         />
       ) : (
         <div style={{ display: 'grid', gap: 'var(--spacing-2)' }}>
@@ -118,6 +116,8 @@ function Row({
   onArm: () => void;
   onCancel: () => void;
 }) {
+  const t = useTranslations('approvals');
+  const f = useFormatters();
   const waiting = item.awaitingUserIds.slice(0, 3);
 
   return (
@@ -142,18 +142,13 @@ function Row({
           {item.status === 'pending'
             ? item.stageLabel
             : item.finishedAt
-              ? new Date(item.finishedAt).toLocaleString('ru-RU', {
-                  day: 'numeric',
-                  month: 'long',
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })
+              ? f.dateTime(item.finishedAt, 'dayMonthLong')
               : item.stageLabel}
         </div>
 
         {waiting.length > 0 && item.status === 'pending' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.4rem', flexWrap: 'wrap' }}>
-            <span className="meta">Ждём:</span>
+            <span className="meta">{t('waitingFor')}</span>
             {/* Человек — карточкой, а не строкой имени (Принцип 2) */}
             {waiting.map((uid) =>
               actors[uid] ? (
@@ -179,16 +174,16 @@ function Row({
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
         {item.overdue && (
           <Chip size="sm" tone="danger">
-            Просрочено
+            {t('overdue')}
           </Chip>
         )}
         {item.status !== 'pending' && (
           <Chip size="sm" tone={STATUS_TONE[item.status] ?? 'neutral'}>
-            {APPROVAL_REQUEST_STATUS_LABELS[item.status]}
+            {t(`status.${item.status}`)}
           </Chip>
         )}
         {item.href && (
-          <Button variant="ghost" size="sm" href={item.href} icon="eye" aria-label="Открыть предмет заявки" />
+          <Button variant="ghost" size="sm" href={item.href} icon="eye" aria-label={t('mine.openSubject')} />
         )}
         {item.status === 'pending' && (
           <Button
@@ -198,7 +193,7 @@ function Row({
             loading={busy}
             onClick={armed ? onCancel : onArm}
           >
-            {armed ? 'Точно отозвать?' : 'Отозвать'}
+            {armed ? t('mine.cancelArmed') : t('mine.cancel')}
           </Button>
         )}
       </div>

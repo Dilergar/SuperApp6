@@ -37,42 +37,39 @@ const fail = (message: string): NodeRunResult => ({ kind: 'complete', outputKey:
 // 1. Действие с карточкой (core/rich-cards execute) — ~13 действий, права перепроверяются
 // ------------------------------------------------------------
 const RICH_ACTION_OPTIONS = [
-  { value: 'order.confirm', label: 'Заказ: подтвердить' },
-  { value: 'order.reject', label: 'Заказ: отклонить' },
-  { value: 'order.cancel', label: 'Заказ: отменить' },
-  { value: 'order.refund', label: 'Заказ: вернуть' },
-  { value: 'task.accept', label: 'Задача: принять' },
-  { value: 'task.return', label: 'Задача: вернуть' },
-  { value: 'task.take', label: 'Задача: взять в работу' },
-  { value: 'event.rsvp_accept', label: 'Событие: пойду' },
-  { value: 'event.rsvp_decline', label: 'Событие: не пойду' },
-  { value: 'event.rsvp_tentative', label: 'Событие: возможно' },
-  { value: 'listing.buy', label: 'Лот: купить' },
-  { value: 'crowdfunding.contribute', label: 'Краудфандинг: вложиться' },
-  { value: 'crowdfunding.withdraw', label: 'Краудфандинг: отозвать вклад' },
+  'order.confirm',
+  'order.reject',
+  'order.cancel',
+  'order.refund',
+  'task.accept',
+  'task.return',
+  'task.take',
+  'event.rsvp_accept',
+  'event.rsvp_decline',
+  'event.rsvp_tentative',
+  'listing.buy',
+  'crowdfunding.contribute',
+  'crowdfunding.withdraw',
 ];
 
 export const richCardActionNode: ProcessNodeProvider = {
   descriptor: {
     type: 'action.richcard',
-    title: 'Действие с карточкой',
-    description:
-      'Выполняет действие над заказом/задачей/событием/лотом (подтвердить заказ, принять/взять задачу, RSVP…) от имени инициатора. Права перепроверяются. ID объекта — из анкеты/прошлого шага.',
     category: 'service',
     icon: 'bolt',
     tier: 'standard',
     io: true,
     outputs: [
-      { key: 'success', label: 'Успех' },
-      { key: 'error', label: 'Ошибка' },
+      { key: 'success' },
+      { key: 'error' }
     ],
     fields: [
-      { key: 'actionKey', label: 'Действие', kind: 'select', required: true, options: RICH_ACTION_OPTIONS },
+      { key: 'actionKey', kind: 'select', required: true, options: RICH_ACTION_OPTIONS },
       // Только типы с ДЕЙСТВИЯМИ (fin_transaction/fin_month — снимки без кнопок, их сюда
       // нельзя): держим options и configSchema.enum в синхроне из одного источника.
-      { key: 'refType', label: 'Тип объекта', kind: 'select', required: true, options: ACTIONABLE_REF_TYPES.map((t) => ({ value: t, label: t })) },
-      { key: 'refId', label: 'ID объекта', kind: 'text', required: true, placeholder: '{{form.orderId}} / {{steps.x.id}}' },
-      { key: 'payload', label: 'Доп. параметры (JSON, необяз.)', kind: 'textarea', placeholder: '{"amounts":[...]}' },
+      { key: 'refType', kind: 'select', required: true, options: ACTIONABLE_REF_TYPES },
+      { key: 'refId', kind: 'text', required: true },
+      { key: 'payload', kind: 'textarea' }
     ],
     configSchema: z.object({
       actionKey: z.string().min(1).max(60),
@@ -85,14 +82,14 @@ export const richCardActionNode: ProcessNodeProvider = {
   async run(ctx) {
     const cfg = ctx.config as { actionKey: string; refType: string; refId: string; payload?: string };
     const refId = ctx.render(cfg.refId).trim();
-    if (!refId) return fail('Не указан ID объекта');
+    if (!refId) return fail('the object id is missing');
     let payload: Record<string, unknown> | undefined;
     if (cfg.payload) {
       try {
         const p = JSON.parse(ctx.render(cfg.payload));
         if (p && typeof p === 'object') payload = p as Record<string, unknown>;
       } catch {
-        return fail('Доп. параметры должны быть JSON');
+        return fail('the extra parameters must be JSON');
       }
     }
     try {
@@ -113,34 +110,31 @@ async function sendMessageImpl(ctx: NodeRunContext, text: string): Promise<void>
   const messenger = ctx.deps.getService<MessengerLike>(DI_TOKENS.MessengerService);
   let chatId = cfg.chatId ? ctx.render(cfg.chatId).trim() : '';
   if (cfg.to === 'member') {
-    if (!cfg.userId) throw new Error('Не выбран получатель');
+    if (!cfg.userId) throw new Error('no recipient is chosen');
     const dm = await messenger.openDm(ctx.startedById, cfg.userId);
     chatId = dm.id;
   }
-  if (!chatId) throw new Error('Не указан чат');
+  if (!chatId) throw new Error('the chat is not set');
   await messenger.sendMessage(ctx.startedById, chatId, text);
 }
 
 export const messageSendNode: ProcessNodeProvider = {
   descriptor: {
     type: 'service.message',
-    title: 'Сообщение в чат',
-    description:
-      'Отправляет сообщение в чат или в личку сотруднику от имени инициатора (он должен иметь доступ к чату). Подстановки {{form.x}}/{{steps.x}}. Можно подключить к AI-Агенту как инструмент.',
     category: 'service',
     icon: 'messenger',
     tier: 'standard',
     io: true,
     outputs: [
-      { key: 'success', label: 'Успех' },
-      { key: 'error', label: 'Ошибка' },
-      { key: 'astool', label: 'как инструмент', type: 'ai_tool' },
+      { key: 'success' },
+      { key: 'error' },
+      { key: 'astool', type: 'ai_tool' }
     ],
     fields: [
-      { key: 'to', label: 'Куда', kind: 'select', required: true, options: [{ value: 'member', label: 'Личка сотруднику' }, { value: 'chat', label: 'В чат по ID' }] },
-      { key: 'userId', label: 'Сотрудник', kind: 'member', showIf: { field: 'to', in: ['member'] } },
-      { key: 'chatId', label: 'ID чата', kind: 'text', showIf: { field: 'to', in: ['chat'] }, placeholder: '{{steps.x.chatId}}' },
-      { key: 'text', label: 'Текст', kind: 'textarea', help: 'Для обычной ноды — обязательно. Как инструмент агента — текст придумывает агент.' },
+      { key: 'to', kind: 'select', required: true, options: ['member', 'chat'] },
+      { key: 'userId', kind: 'member', showIf: { field: 'to', in: ['member'] } },
+      { key: 'chatId', kind: 'text', showIf: { field: 'to', in: ['chat'] } },
+      { key: 'text', kind: 'textarea' }
     ],
     configSchema: z
       .object({
@@ -149,23 +143,24 @@ export const messageSendNode: ProcessNodeProvider = {
         chatId: z.string().max(200).optional(),
         text: z.string().max(4000).optional(),
       })
-      .refine((c) => c.to !== 'member' || !!c.userId, { message: 'Выберите сотрудника', path: ['userId'] })
-      .refine((c) => c.to !== 'chat' || !!c.chatId, { message: 'Укажите ID чата', path: ['chatId'] }),
+      .refine((c) => c.to !== 'member' || !!c.userId, { message: 'processes.validation.memberRequired', path: ['userId'] })
+      .refine((c) => c.to !== 'chat' || !!c.chatId, { message: 'processes.validation.chatIdRequired', path: ['chatId'] }),
     auto: true,
     tool: {
       name: 'send_message',
-      description: 'Отправить сообщение в чат/личку (получатель задан в ноде; текст придумывает агент).',
-      schema: { type: 'object', properties: { text: { type: 'string', description: 'Текст сообщения' } }, required: ['text'] },
+      // Описание инструмента читает МОДЕЛЬ — оно остаётся английским.
+      description: 'Send a message to a chat or a direct message (the recipient is set on the node; the agent writes the text).',
+      schema: { type: 'object', properties: { text: { type: 'string', description: 'The message text' } }, required: ['text'] },
       async execute(ctx, input) {
         await sendMessageImpl(ctx, String(input.text ?? ''));
-        return 'Сообщение отправлено';
+        return 'The message was sent';
       },
     },
   },
   async run(ctx) {
     const cfg = ctx.config as { text?: string };
     const text = cfg.text ? ctx.render(cfg.text) : '';
-    if (!text) return fail('Заполните текст (или подключите ноду к агенту как инструмент)');
+    if (!text) return fail('the text is empty (or connect the node to an agent as a tool)');
     try {
       await sendMessageImpl(ctx, text);
       return { kind: 'complete', outputKey: 'success', output: {} };
@@ -181,20 +176,18 @@ export const messageSendNode: ProcessNodeProvider = {
 export const staffAssignNode: ProcessNodeProvider = {
   descriptor: {
     type: 'staff.assign',
-    title: 'Назначить должность',
-    description: 'Назначает сотруднику должность (и филиал) от имени инициатора — инициатор должен быть Менеджер+. Напр.: при найме автоматически выдать должность.',
     category: 'people',
     icon: 'position',
     tier: 'standard',
     io: true,
     outputs: [
-      { key: 'success', label: 'Успех' },
-      { key: 'error', label: 'Ошибка' },
+      { key: 'success' },
+      { key: 'error' }
     ],
     fields: [
-      { key: 'userId', label: 'Сотрудник', kind: 'member', required: true },
-      { key: 'positionId', label: 'Должность', kind: 'position', required: true },
-      { key: 'branchId', label: 'Филиал (необяз.)', kind: 'branch' },
+      { key: 'userId', kind: 'member', required: true },
+      { key: 'positionId', kind: 'position', required: true },
+      { key: 'branchId', kind: 'branch' }
     ],
     configSchema: z.object({
       userId: z.string().uuid(),
@@ -221,30 +214,22 @@ export const staffAssignNode: ProcessNodeProvider = {
 export const roleChangeNode: ProcessNodeProvider = {
   descriptor: {
     type: 'workspaces.role',
-    title: 'Сменить роль сотрудника',
-    description: 'Меняет роль сотрудника в организации от имени инициатора — инициатор должен быть Админ+ (владельца/подрядчика назначить нельзя).',
     category: 'people',
     icon: 'sliders',
     tier: 'standard',
     io: true,
     outputs: [
-      { key: 'success', label: 'Успех' },
-      { key: 'error', label: 'Ошибка' },
+      { key: 'success' },
+      { key: 'error' }
     ],
     fields: [
-      { key: 'userId', label: 'Сотрудник', kind: 'member', required: true },
+      { key: 'userId', kind: 'member', required: true },
       {
         key: 'role',
-        label: 'Новая роль',
         kind: 'select',
         required: true,
-        options: [
-          { value: 'trainee', label: 'Стажёр' },
-          { value: 'staff', label: 'Сотрудник' },
-          { value: 'manager', label: 'Менеджер' },
-          { value: 'admin', label: 'Админ' },
-        ],
-      },
+        options: ['trainee', 'staff', 'manager', 'admin']
+      }
     ],
     configSchema: z.object({ userId: z.string().uuid(), role: z.enum(['trainee', 'staff', 'manager', 'admin']) }),
     auto: true,
@@ -267,19 +252,17 @@ export const roleChangeNode: ProcessNodeProvider = {
 export const startSubprocessNode: ProcessNodeProvider = {
   descriptor: {
     type: 'process.start',
-    title: 'Запустить процесс',
-    description: 'Запускает другой опубликованный процесс этой организации как под-процесс (от имени инициатора). Есть защита от рекурсии по глубине. Анкету передайте JSON-ом.',
     category: 'service',
     icon: 'processes',
     tier: 'standard',
     io: true,
     outputs: [
-      { key: 'success', label: 'Успех' },
-      { key: 'error', label: 'Ошибка' },
+      { key: 'success' },
+      { key: 'error' }
     ],
     fields: [
-      { key: 'definitionId', label: 'Процесс (ID определения)', kind: 'text', required: true, placeholder: 'id опубликованного процесса' },
-      { key: 'input', label: 'Анкета под-процесса (JSON, необяз.)', kind: 'textarea', placeholder: '{"budget": {{form.budget}}}' },
+      { key: 'definitionId', kind: 'text', required: true },
+      { key: 'input', kind: 'textarea' }
     ],
     configSchema: z.object({ definitionId: z.string().uuid(), input: z.string().max(8000).optional() }),
     auto: true,
@@ -292,7 +275,7 @@ export const startSubprocessNode: ProcessNodeProvider = {
         const p = JSON.parse(ctx.render(cfg.input));
         if (p && typeof p === 'object') input = p as Record<string, unknown>;
       } catch {
-        return fail('Анкета должна быть JSON');
+        return fail('the form values must be JSON');
       }
     }
     const depth = Number((ctx.variables as Record<string, unknown>)._subprocessDepth ?? 0) || 0;
@@ -319,31 +302,24 @@ interface FinancesLike {
 export const financeRecordNode: ProcessNodeProvider = {
   descriptor: {
     type: 'finance.record',
-    title: 'Финансы: записать операцию',
-    description:
-      'Записывает расход или доход в книгу «Финансы» ОРГАНИЗАЦИИ (управленческий учёт; книга создаётся сама). Сумма в тенге, поддерживает подстановки {{form.amount}} / {{steps.x.…}}. Категория ищется по имени и создаётся при первом использовании.',
     category: 'service',
     icon: 'receipt',
     tier: 'standard',
     io: true,
     outputs: [
-      { key: 'success', label: 'Успех' },
-      { key: 'error', label: 'Ошибка' },
+      { key: 'success' },
+      { key: 'error' }
     ],
     fields: [
       {
         key: 'kind',
-        label: 'Тип',
         kind: 'select',
         required: true,
-        options: [
-          { value: 'expense', label: 'Расход' },
-          { value: 'income', label: 'Доход' },
-        ],
+        options: ['expense', 'income']
       },
-      { key: 'amount', label: 'Сумма (₸)', kind: 'text', required: true, placeholder: '12500 или {{form.amount}}' },
-      { key: 'categoryName', label: 'Категория (по имени)', kind: 'text', required: true, placeholder: 'Закупки / Продажи / {{form.category}}' },
-      { key: 'note', label: 'Заметка', kind: 'textarea', placeholder: '{{form.comment}}' },
+      { key: 'amount', kind: 'text', required: true },
+      { key: 'categoryName', kind: 'text', required: true },
+      { key: 'note', kind: 'textarea' }
     ],
     configSchema: z.object({
       kind: z.enum(['expense', 'income']),
@@ -357,7 +333,7 @@ export const financeRecordNode: ProcessNodeProvider = {
     const cfg = ctx.config as { kind: 'expense' | 'income'; amount: string; categoryName: string; note?: string };
     const raw = ctx.render(cfg.amount).replace(/\s/g, '').replace(',', '.');
     const tenge = Number(raw);
-    if (!Number.isFinite(tenge) || tenge <= 0) return fail(`Сумма не распозналась: «${raw}»`);
+    if (!Number.isFinite(tenge) || tenge <= 0) return fail(`the amount could not be read: «${raw}»`);
     try {
       const finances = ctx.deps.getService<FinancesLike>(DI_TOKENS.FinancesService);
       const result = await finances.recordOperationForBook(ctx.workspaceId, {

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import type { DocumentOpenDto } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { apiErrorMessage } from '@/lib/api';
@@ -24,6 +25,8 @@ const FRAME_NAME = 'sa6-docs-frame';
  *     «пользователь закрыл». Сюда же встанет будущая кнопка «Подписать ЭЦП».
  */
 export default function DocumentEditor() {
+  const t = useTranslations('docs');
+  const tc = useTranslations('common');
   const { isReady, user } = useRequireAuth();
   const authLoading = !isReady;
   const params = useParams<{ id: string }>();
@@ -195,7 +198,7 @@ export default function DocumentEditor() {
     },
   });
 
-  if (authLoading) return <p className="label-md" style={{ padding: 'var(--spacing-4)' }}>Загрузка…</p>;
+  if (authLoading) return <p className="label-md" style={{ padding: 'var(--spacing-4)' }}>{tc('state.loading')}</p>;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: 'var(--surface)' }}>
@@ -211,7 +214,7 @@ export default function DocumentEditor() {
         <button
           type="button"
           onClick={closeDocument}
-          title="Закрыть документ"
+          title={t('closeDocument')}
           style={{
             fontSize: '0.85rem',
             fontWeight: 600,
@@ -226,7 +229,7 @@ export default function DocumentEditor() {
             whiteSpace: 'nowrap',
           }}
         >
-          ✕ Закрыть
+          ✕ {tc('actions.close')}
         </button>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div
@@ -234,21 +237,21 @@ export default function DocumentEditor() {
             style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             title={doc?.title}
           >
-            {doc?.title ?? 'Документ'}
+            {doc?.title ?? t('documentFallback')}
           </div>
           <div className="label-sm" style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)' }}>
             {session?.mode === 'view'
-              ? 'Только просмотр'
+              ? t('viewOnly')
               : modified
-                ? 'Есть несохранённые правки'
-                : 'Правки сохраняются автоматически · Версия будет создана после закрытия документа'}
+                ? t('unsaved')
+                : t('autosave')}
           </div>
         </div>
         {canSwitchToEdit && (
           <button
             type="button"
             onClick={switchToEdit}
-            title="Перейти в режим правки: изменения увидят все, кому доступен файл"
+            title={t('switchToEditHint')}
             style={{
               padding: '0.35rem 0.8rem',
               borderRadius: 'var(--radius-sketch)',
@@ -262,7 +265,7 @@ export default function DocumentEditor() {
               whiteSpace: 'nowrap',
             }}
           >
-            ✏️ Редактировать
+            ✏️ {tc('actions.edit')}
           </button>
         )}
         {/* Наружу документ раздаёт ТОЛЬКО владелец: право правки часто приходит «от
@@ -272,7 +275,7 @@ export default function DocumentEditor() {
           <button
             type="button"
             onClick={() => setShareOpen(true)}
-            title="Поделиться ссылкой с тем, у кого нет аккаунта"
+            title={t('shareHint')}
             style={{
               padding: '0.35rem 0.8rem',
               borderRadius: 'var(--radius-sketch)',
@@ -284,13 +287,13 @@ export default function DocumentEditor() {
               whiteSpace: 'nowrap',
             }}
           >
-            🔗 Поделиться
+            🔗 {t('share')}
           </button>
         )}
         <button
           type="button"
           onClick={() => setHistoryOpen((v) => !v)}
-          title="Версии документа и кто его правил"
+          title={t('historyHint')}
           style={{
             padding: '0.35rem 0.8rem',
             borderRadius: 'var(--radius-sketch)',
@@ -302,7 +305,7 @@ export default function DocumentEditor() {
             whiteSpace: 'nowrap',
           }}
         >
-          🕘 История
+          🕘 {t('history')}
         </button>
         {session?.mode === 'edit' && (
           <button
@@ -318,9 +321,9 @@ export default function DocumentEditor() {
               fontSize: '0.8rem',
               fontWeight: 600,
             }}
-            title="Зафиксировать текущее содержимое отдельной версией"
+            title={t('saveVersionHint')}
           >
-            {saveVersion.isSuccess && !saveVersion.isPending ? 'Версия сохранена' : 'Сохранить версию'}
+            {saveVersion.isSuccess && !saveVersion.isPending ? t('versionSaved') : t('saveVersion')}
           </button>
         )}
       </header>
@@ -365,14 +368,14 @@ export default function DocumentEditor() {
         <iframe
           key={session ? `${session.mode}:${session.accessTokenTtl}` : 'idle'}
           name={FRAME_NAME}
-          title={doc?.title ?? 'Документ'}
+          title={doc?.title ?? t('documentFallback')}
           allow="clipboard-read; clipboard-write; fullscreen"
           style={{ flex: 1, width: '100%', border: 'none', background: 'var(--surface)' }}
         />
         {historyOpen && (
           <DocumentHistory
             documentId={documentId}
-            title={doc?.title ?? 'Документ'}
+            title={doc?.title ?? t('documentFallback')}
             place={place}
             canEdit={doc?.access === 'edit'}
             onClose={() => setHistoryOpen(false)}
@@ -388,10 +391,9 @@ export default function DocumentEditor() {
       </div>
 
       {shareOpen && (
-        <Modal open onClose={() => setShareOpen(false)} title="Поделиться документом" size="md">
+        <Modal open onClose={() => setShareOpen(false)} title={t('shareTitle')} size="md">
           <p className="body-sm" style={{ margin: '0 0 var(--spacing-4)', color: 'var(--on-surface-variant)' }}>
-            Гость увидит документ в виде PDF — читаемую копию текущего содержимого. Править и
-            открывать исходник по ссылке нельзя.
+            {t('shareNote')}
           </p>
           <ShareLinkSection refType="document" refId={documentId} />
         </Modal>

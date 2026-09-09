@@ -22,7 +22,7 @@ export class TasksController {
   constructor(private tasksService: TasksService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Список задач (смарт-фильтры, роли, пагинация)' })
+  @ApiOperation({ summary: 'List tasks (smart filters, roles, pagination)' })
   async getTasks(
     @CurrentUser() user: JwtPayload,
     @Query('smartList') smartList?: string,
@@ -56,7 +56,7 @@ export class TasksController {
   }
 
   @Post()
-  @ApiOperation({ summary: 'Создать задачу (роли, группа, дедлайн, награда)' })
+  @ApiOperation({ summary: 'Create a task (roles, group, due date, reward)' })
   async createTask(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const data = createTaskSchema.parse(body);
     const task = await this.tasksService.createTask(user.sub, data);
@@ -66,14 +66,14 @@ export class TasksController {
   // Статический сегмент обязан быть объявлен ДО @Get(':id') — иначе Nest отдаст
   // getTask('stats') → 404.
   @Get('stats')
-  @ApiOperation({ summary: 'Счётчики смарт-листов (бейджи сайдбара и «Обзор»)' })
+  @ApiOperation({ summary: 'Smart-list counters (sidebar badges and the Overview)' })
   async getStats(@CurrentUser() user: JwtPayload) {
     const stats = await this.tasksService.getStats(user.sub);
     return { success: true, data: stats };
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Задача с участниками, подзадачами и прогрессом' })
+  @ApiOperation({ summary: 'A task with its participants, subtasks and progress' })
   async getTask(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const task = await this.tasksService.getTask(user.sub, id);
     return { success: true, data: task };
@@ -82,13 +82,13 @@ export class TasksController {
   // ---- Вложения задачи (движок файлов) ----
 
   @Get(':id/attachments')
-  @ApiOperation({ summary: 'Файлы, прикреплённые к задаче' })
+  @ApiOperation({ summary: 'Files attached to the task' })
   async listAttachments(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     return { success: true, data: await this.tasksService.listAttachments(user.sub, id) };
   }
 
   @Post(':id/attachments')
-  @ApiOperation({ summary: 'Прикрепить файл к задаче (файл уже загружен движком)' })
+  @ApiOperation({ summary: 'Attach a file to the task (the file is already uploaded by the engine)' })
   async attachFile(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { fileId } = attachTaskFileSchema.parse(body);
     return { success: true, data: await this.tasksService.attachFile(user.sub, id, fileId) };
@@ -96,14 +96,14 @@ export class TasksController {
 
   @Delete(':id/attachments/:fileId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Убрать вложение из задачи' })
+  @ApiOperation({ summary: 'Detach a file from the task' })
   async removeAttachment(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Param('fileId') fileId: string) {
     await this.tasksService.removeAttachment(user.sub, id, fileId);
     return { success: true };
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Обновить задачу (поля, роли — только Постановщик)' })
+  @ApiOperation({ summary: 'Update a task (fields and roles — assigner only)' })
   async updateTask(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -116,7 +116,7 @@ export class TasksController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Удалить задачу (только Постановщик)' })
+  @ApiOperation({ summary: 'Delete a task (assigner only)' })
   async deleteTask(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     await this.tasksService.deleteTask(user.sub, id);
     return { success: true };
@@ -126,7 +126,7 @@ export class TasksController {
 
   @Post(':id/submit')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Сдать свою работу (Исполнитель/Соисполнитель). Самозадача — закрывается сразу' })
+  @ApiOperation({ summary: 'Submit your own work (assignee / co-assignee). A self-task closes right away' })
   async submit(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const task = await this.tasksService.submitWork(user.sub, id);
     return { success: true, data: task };
@@ -134,7 +134,7 @@ export class TasksController {
 
   @Post(':id/accept')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Принять работу участника (Постановщик)' })
+  @ApiOperation({ summary: 'Accept a participant’s work (assigner)' })
   async accept(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -147,7 +147,7 @@ export class TasksController {
 
   @Post(':id/return')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Вернуть работу участника в работу (Постановщик)' })
+  @ApiOperation({ summary: 'Return a participant’s work for rework (assigner)' })
   async returnWork(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,

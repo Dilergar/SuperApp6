@@ -68,10 +68,10 @@ export class S3StorageDriver implements StorageDriver {
       try {
         await this.client.send(new CreateBucketCommand({ Bucket: this.bucket }));
         this.bucketEnsured = true;
-        this.logger.log(`Создан бакет "${this.bucket}"`);
+        this.logger.log(`The bucket "${this.bucket}" was created`);
       } catch (err) {
         this.logger.warn(
-          `Бакет "${this.bucket}" недоступен и не создался: ${err instanceof Error ? err.message : err}`,
+          `The bucket "${this.bucket}" is unavailable and was not created: ${err instanceof Error ? err.message : err}`,
         );
       }
     }
@@ -113,7 +113,7 @@ export class S3StorageDriver implements StorageDriver {
       new GetObjectCommand({ Bucket: this.bucket, Key: key, Range: rangeHeader }),
     );
     const body = res.Body as Readable;
-    if (!body) throw new Error(`Пустое тело объекта ${key}`);
+    if (!body) throw new Error(`Empty body of object ${key}`);
     if (range) {
       // ContentRange: "bytes start-end/total"
       const m = /bytes\s+(\d+)-(\d+)\/(\d+)/.exec(res.ContentRange ?? '');
@@ -167,7 +167,7 @@ export class S3StorageDriver implements StorageDriver {
     const res = await this.client.send(
       new CreateMultipartUploadCommand({ Bucket: this.bucket, Key: key, ContentType: mime }),
     );
-    if (!res.UploadId) throw new Error('S3 не вернул UploadId');
+    if (!res.UploadId) throw new Error('S3 returned no UploadId');
     return res.UploadId;
   }
 

@@ -1,10 +1,6 @@
-import {
-  Injectable,
-  NotFoundException,
-  ForbiddenException,
-  BadRequestException,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
+import { SOURCE_LOCALE } from '@superapp/shared';
+import { badRequest, forbidden, notFound } from '../../shared/errors/api-error';
 import { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { fullName } from '../../shared/utils/user-name';
@@ -22,8 +18,8 @@ import { CallsRefRegistry } from '../../core/calls/calls-ref.registry';
 import { DriveRoutingRegistry } from '../drive/drive-routing.registry';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { NotificationsRenderer } from '../../core/notifications/notifications.render';
-import { renderChatter, type ChatterEntryLike } from '@superapp/i18n';
-import { MESSENGER_LIMITS, OFFICE_ROOM_ROLE_LABELS, attachmentPreviewText } from '@superapp/shared';
+import { renderChatter, resolveLabelKeys, type ChatterEntryLike } from '@superapp/i18n';
+import { MESSENGER_LIMITS, OFFICE_ROOM_ROLE_LABEL_KEYS, attachmentPreviewKind } from '@superapp/shared';
 import type {
   CallActiveDto,
   ChatCallStatePayload,
@@ -67,24 +63,26 @@ const MESSAGE_REPLY_INCLUDE = {
 } satisfies Prisma.MessageInclude;
 
 // Task role → Russian label shown next to an author's name in a task (context) chat.
-const TASK_ROLE_LABELS: Record<string, string> = {
-  creator: 'Постановщик',
-  executor: 'Исполнитель',
-  co_executor: 'Соисполнитель',
-  observer: 'Наблюдатель',
+// Роль автора рядом с именем в контекстном чате: КЛЮЧ каталога, слово
+// подставляется при чтении в языке зрителя.
+const TASK_ROLE_LABEL_KEYS: Record<string, string> = {
+  creator: 'tasks.role.creator',
+  executor: 'tasks.role.executor',
+  co_executor: 'tasks.role.co_executor',
+  observer: 'tasks.role.observer',
 };
 
 // Order role → Russian label shown next to an author's name in an order (context) chat.
-const ORDER_ROLE_LABELS: Record<string, string> = {
-  buyer: 'Покупатель',
-  seller: 'Продавец',
-  contributor: 'Вкладчик',
+const ORDER_ROLE_LABEL_KEYS: Record<string, string> = {
+  buyer: 'shop.role.buyer',
+  seller: 'shop.role.seller',
+  contributor: 'shop.role.contributor',
 };
 
 // Event role → Russian label shown next to an author's name in an event (context) chat.
-const EVENT_ROLE_LABELS: Record<string, string> = {
-  organizer: 'Организатор',
-  attendee: 'Участник',
+const EVENT_ROLE_LABEL_KEYS: Record<string, string> = {
+  organizer: 'calendar.role.organizer',
+  attendee: 'calendar.role.attendee',
 };
 
 /**
@@ -97,6 +95,16 @@ const EVENT_ROLE_LABELS: Record<string, string> = {
  * ChatMember rows carry per-user state (cursors, mute, pin, visibleFromSeq) and
  * drive the inbox list.
  */
+/**
+ * Структура плашки, которую ставит СЕРВИС: ключ типа записи хроники
+ * (`chatter.type.<typeKey>`) и значения ICU. Готового текста здесь нет намеренно —
+ * он собирается при чтении в языке зрителя (правило render-at-read, docs/i18n.md).
+ */
+export interface SystemPlaque {
+  typeKey: string;
+  values?: Record<string, string | number>;
+}
+
 @Injectable()
 export class MessengerService implements OnModuleInit {
   constructor(
@@ -116,6 +124,11 @@ export class MessengerService implements OnModuleInit {
     private i18n: I18nService,
     private notificationsRenderer: NotificationsRenderer,
   ) {}
+
+  /** Снимок для БД — в языке ИСТОЧНИКА (зритель перерисует его при чтении). */
+  private src(key: string, params?: Record<string, string>): string {
+    return this.i18n.translateFor(SOURCE_LOCALE, key, params);
+  }
 
   onModuleInit(): void {
     // Ф9 (вложения): доступ к файлу наследуется от сообщения → чата (модель
@@ -303,7 +316,7 @@ export class MessengerService implements OnModuleInit {
         chatType: chat.type as ChatCallStatePayload['chatType'],
         // DM живёт без title (имя пира зависит от зрителя) — модалке входящего
         // хватает имени звонящего
-        chatTitle: chat.title ?? startedByName ?? 'Звонок',
+        chatTitle: chat.title ?? startedByName ?? this.i18n.translate('messenger.callFallback'),
         startedByName,
         active,
       },
@@ -386,7 +399,7 @@ export class MessengerService implements OnModuleInit {
   // DM lifecycle
   // ============================================================
   async openDm(userId: string, peerId: string): Promise<ChatDetail> {
-    if (peerId === userId) throw new BadRequestException('Нельзя начать диалог с самим собой');
+    if (peerId === userId) throw badRequest('chat.selfDm');
     // DM is personal communication: unlike work artifacts (tasks/events/group
     // chats), it respects personal blocks even in a workspace context.
     await this.assertInEnvironment(userId, peerId, { alwaysCheckBlocks: true });
@@ -429,7 +442,7 @@ export class MessengerService implements OnModuleInit {
         }
       }
     }
-    if (!chat) throw new NotFoundException('Чат не найден');
+    if (!chat) throw notFound('chat.notFound');
     return this.getChatDetail(userId, chat.id);
   }
 
@@ -448,7 +461,7 @@ export class MessengerService implements OnModuleInit {
     await this.contacts.assertReachable(
       userId,
       [otherId],
-      'Этого человека нет в вашем окружении',
+      'contacts.notInCircle',
       opts,
     );
   }
@@ -458,7 +471,7 @@ export class MessengerService implements OnModuleInit {
   // ============================================================
   private async assertAccess(userId: string, chatId: string): Promise<void> {
     const ok = await this.access.can(this.user(userId), 'chat.view', chatId);
-    if (!ok) throw new ForbiddenException('Нет доступа к чату');
+    if (!ok) throw forbidden('chat.noAccess');
   }
 
   /**
@@ -478,19 +491,19 @@ export class MessengerService implements OnModuleInit {
       where: { id: chatId },
       select: { id: true, type: true, lastSeq: true, title: true },
     });
-    if (!chat) throw new NotFoundException('Чат не найден');
-    if (chat.type !== 'group') throw new BadRequestException('Операция доступна только для групп');
+    if (!chat) throw notFound('chat.notFound');
+    if (chat.type !== 'group') throw badRequest('chat.notGroup');
 
     const me = await this.db.chatMember.findUnique({
       where: { chatId_userId: { chatId, userId } },
       select: { role: true, leftAt: true },
     });
-    if (!me || me.leftAt) throw new ForbiddenException('Нет доступа к чату');
+    if (!me || me.leftAt) throw forbidden('chat.noAccess');
     const role = me.role as ChatMemberRole;
     if (opts?.ownerOnly) {
-      if (role !== 'owner') throw new ForbiddenException('Только владелец может это сделать');
+      if (role !== 'owner') throw forbidden('chat.ownerOnly');
     } else if (role !== 'owner' && role !== 'admin') {
-      throw new ForbiddenException('Недостаточно прав');
+      throw forbidden('chat.notEnoughRights');
     }
     return { chat, role };
   }
@@ -522,11 +535,10 @@ export class MessengerService implements OnModuleInit {
     ]);
 
     const creator = await this.db.user.findUnique({ where: { id: userId }, select: USER_LITE });
-    await this.postSystemMessage(
-      chat.id,
-      'group.created',
-      `${fullName(creator)} создал(а) группу «${name}»`,
-    );
+    await this.postStructuredSystemMessage(chat.id, 'group.created', {
+      actorName: fullName(creator),
+      name,
+    });
 
     return this.getChatDetail(userId, chat.id);
   }
@@ -536,11 +548,10 @@ export class MessengerService implements OnModuleInit {
     await this.db.chat.update({ where: { id: chatId }, data: { title } });
 
     const actor = await this.db.user.findUnique({ where: { id: userId }, select: USER_LITE });
-    await this.postSystemMessage(
-      chatId,
-      'group.renamed',
-      `${fullName(actor)} переименовал(а) группу в «${title}»`,
-    );
+    await this.postStructuredSystemMessage(chatId, 'group.renamed', {
+      actorName: fullName(actor),
+      title,
+    });
     return this.getChatDetail(userId, chatId);
   }
 
@@ -576,11 +587,9 @@ export class MessengerService implements OnModuleInit {
     if (added.length > 0) {
       const names = await this.namesOf(added);
       for (const id of added) {
-        await this.postSystemMessage(
-          chatId,
-          'group.member_added',
-          `${names.get(id) ?? 'Участник'} добавлен(а) в группу`,
-        );
+        await this.postStructuredSystemMessage(chatId, 'group.member_added', {
+          name: names.get(id) ?? this.src('messenger.participantFallback'),
+        });
       }
     }
     return this.getChatDetail(userId, chatId);
@@ -592,19 +601,17 @@ export class MessengerService implements OnModuleInit {
       where: { chatId_userId: { chatId, userId: targetId } },
       select: { id: true, role: true },
     });
-    if (!target) throw new NotFoundException('Участник не найден');
-    if (target.role === 'owner') throw new BadRequestException('Нельзя удалить владельца группы');
+    if (!target) throw notFound('chat.memberNotFound');
+    if (target.role === 'owner') throw badRequest('chat.cannotRemoveOwner');
 
     await this.db.chatMember.delete({ where: { id: target.id } });
     // Instant Hard Revoke: drop the membership tuple.
     await this.access.revoke(this.memberTuple(chatId, targetId));
 
     const names = await this.namesOf([targetId]);
-    await this.postSystemMessage(
-      chatId,
-      'group.member_removed',
-      `${names.get(targetId) ?? 'Участник'} удалён(а) из группы`,
-    );
+    await this.postStructuredSystemMessage(chatId, 'group.member_removed', {
+      name: names.get(targetId) ?? this.src('messenger.participantFallback'),
+    });
     return this.getChatDetail(userId, chatId);
   }
 
@@ -613,27 +620,25 @@ export class MessengerService implements OnModuleInit {
       where: { id: chatId },
       select: { type: true },
     });
-    if (!chat) throw new NotFoundException('Чат не найден');
-    if (chat.type !== 'group') throw new BadRequestException('Операция доступна только для групп');
+    if (!chat) throw notFound('chat.notFound');
+    if (chat.type !== 'group') throw badRequest('chat.notGroup');
 
     const me = await this.db.chatMember.findUnique({
       where: { chatId_userId: { chatId, userId } },
       select: { id: true, role: true },
     });
-    if (!me) throw new ForbiddenException('Вы не состоите в этой группе');
+    if (!me) throw forbidden('chat.notInGroup');
     if (me.role === 'owner') {
-      throw new BadRequestException('Передайте права или удалите группу');
+      throw badRequest('chat.transferOrDelete');
     }
 
     await this.db.chatMember.delete({ where: { id: me.id } });
     await this.access.revoke(this.memberTuple(chatId, userId));
 
     const actor = await this.db.user.findUnique({ where: { id: userId }, select: USER_LITE });
-    await this.postSystemMessage(
-      chatId,
-      'group.member_left',
-      `${fullName(actor)} покинул(а) группу`,
-    );
+    await this.postStructuredSystemMessage(chatId, 'group.member_left', {
+      actorName: fullName(actor),
+    });
   }
 
   async setAdmin(
@@ -647,8 +652,8 @@ export class MessengerService implements OnModuleInit {
       where: { chatId_userId: { chatId, userId: targetId } },
       select: { id: true, role: true },
     });
-    if (!target) throw new NotFoundException('Участник не найден');
-    if (target.role === 'owner') throw new BadRequestException('Владелец не может быть изменён');
+    if (!target) throw notFound('chat.memberNotFound');
+    if (target.role === 'owner') throw badRequest('chat.ownerImmutable');
 
     await this.db.chatMember.update({
       where: { id: target.id },
@@ -657,11 +662,9 @@ export class MessengerService implements OnModuleInit {
 
     if (makeAdmin) {
       const names = await this.namesOf([targetId]);
-      await this.postSystemMessage(
-        chatId,
-        'group.admin_granted',
-        `${names.get(targetId) ?? 'Участник'} назначен(а) администратором`,
-      );
+      await this.postStructuredSystemMessage(chatId, 'group.admin_granted', {
+        name: names.get(targetId) ?? this.src('messenger.participantFallback'),
+      });
     }
     return this.getChatDetail(userId, chatId);
   }
@@ -709,7 +712,7 @@ export class MessengerService implements OnModuleInit {
         participants: { select: { userId: true, role: true } },
       },
     });
-    if (!task) throw new NotFoundException('Задача не найдена');
+    if (!task) throw notFound('task.notFound');
 
     // Engine: usersets bind chat membership to the task's roles (creator always + each
     // distinct participant role present). Materialized ChatMember rows mirror the same set.
@@ -771,7 +774,7 @@ export class MessengerService implements OnModuleInit {
   /** Public: open the task's chat (verifying the user can view the task). */
   async getTaskChat(userId: string, taskId: string): Promise<ChatDetail> {
     const canView = await this.access.can(this.user(userId), 'task.view', taskId);
-    if (!canView) throw new ForbiddenException('Нет доступа к задаче');
+    if (!canView) throw forbidden('chat.taskNoAccess');
     const chat = await this.getOrCreateTaskChat(taskId);
     return this.getChatDetail(userId, chat.id);
   }
@@ -894,7 +897,7 @@ export class MessengerService implements OnModuleInit {
         contributions: { select: { contributorId: true } },
       },
     });
-    if (!order) throw new NotFoundException('Заказ не найден');
+    if (!order) throw notFound('chat.orderNotFound');
 
     // Usersets: buyer + seller always; contributor only if any contributions exist.
     const contributorIds = [...new Set(order.contributions.map((c) => c.contributorId))];
@@ -950,7 +953,7 @@ export class MessengerService implements OnModuleInit {
     // Ensure the order's role tuples exist NOW (don't depend on the async shop.order.* listener).
     await this.accessProjection.resyncOrderRoles(orderId);
     const canView = await this.access.can(this.user(userId), 'order.view', orderId);
-    if (!canView) throw new ForbiddenException('Нет доступа к заказу');
+    if (!canView) throw forbidden('chat.orderNoAccess');
     const chat = await this.getOrCreateOrderChat(orderId);
     return this.getChatDetail(userId, chat.id);
   }
@@ -1047,7 +1050,7 @@ export class MessengerService implements OnModuleInit {
       where: { id: eventId },
       select: { title: true, userId: true, participants: { select: { userId: true } } },
     });
-    if (!event) throw new NotFoundException('Событие не найдено');
+    if (!event) throw notFound('calendar.eventNotFound');
 
     const attendeeIds = [...new Set(event.participants.map((p) => p.userId))].filter(
       (id) => id !== event.userId,
@@ -1104,7 +1107,7 @@ export class MessengerService implements OnModuleInit {
     // Ensure the event's role tuples exist NOW (don't depend on the async calendar.event.* listener).
     await this.accessProjection.resyncEventRoles(eventId);
     const canView = await this.access.can(this.user(userId), 'event.view', eventId);
-    if (!canView) throw new ForbiddenException('Нет доступа к событию');
+    if (!canView) throw forbidden('chat.eventNoAccess');
     const chat = await this.getOrCreateEventChat(eventId);
     return this.getChatDetail(userId, chat.id);
   }
@@ -1198,7 +1201,7 @@ export class MessengerService implements OnModuleInit {
       where: { id: roomId },
       select: { name: true, participants: { select: { userId: true } } },
     });
-    if (!room) throw new NotFoundException('Встреча не найдена');
+    if (!room) throw notFound('chat.roomNotFound');
 
     const memberUserIds = new Set<string>(room.participants.map((p) => p.userId));
 
@@ -1249,7 +1252,7 @@ export class MessengerService implements OnModuleInit {
     // Ensure the room's role tuples exist NOW (don't depend on the async office.* listener).
     await this.accessProjection.resyncOfficeRoomRoles(roomId);
     const canView = await this.access.can(this.user(userId), 'office_room.view', roomId);
-    if (!canView) throw new ForbiddenException('Нет доступа к встрече');
+    if (!canView) throw forbidden('chat.roomNoAccess');
     const chat = await this.getOrCreateOfficeRoomChat(roomId);
     return this.getChatDetail(userId, chat.id);
   }
@@ -1313,19 +1316,50 @@ export class MessengerService implements OnModuleInit {
   async postOfficeRoomSystemMessage(
     roomId: string,
     eventType: SystemMessageEvent | string,
-    text: string,
+    plaque: SystemPlaque,
   ): Promise<void> {
     const chat = await this.getOrCreateOfficeRoomChat(roomId);
-    await this.postSystemMessage(chat.id, eventType, text);
+    await this.postPlaque(chat.id, eventType, plaque);
   }
 
   /** Public: плашка прямо в чат по id (итоги звонков — ChatCallsListener). */
   async postChatSystemMessage(
     chatId: string,
     eventType: SystemMessageEvent | string,
-    text: string,
+    plaque: SystemPlaque,
   ): Promise<void> {
-    await this.postSystemMessage(chatId, eventType, text);
+    await this.postPlaque(chatId, eventType, plaque);
+  }
+
+  /**
+   * Плашка, которую ставит СЕРВИС (офис, звонки, офисный документ), а не движок
+   * хроники. Продюсер называет ТИП и значения — текст собирается при чтении в
+   * языке зрителя (`systemText`), а в БД ложится снимок языка источника.
+   *
+   * Ключ типа едет отдельным полем: имя СОБЫТИЯ шины (`office.room.created`) не
+   * совпадает с ключом записи хроники (`office.room_created`), а `eventType` в
+   * payload читают клиенты — менять его нельзя.
+   */
+  private async postPlaque(
+    chatId: string,
+    eventType: SystemMessageEvent | string,
+    plaque: SystemPlaque,
+  ): Promise<void> {
+    const values = plaque.values ?? {};
+    const actorName =
+      typeof values.actorName === 'string' && values.actorName.trim() ? values.actorName : null;
+    const src = this.i18n.forLocale(SOURCE_LOCALE);
+    const snapshotValues = actorName
+      ? values
+      : { ...values, actorName: src('common.labels.someone') };
+    const snapshot = src(
+      `chatter.type.${plaque.typeKey}`,
+      resolveLabelKeys(src, snapshotValues),
+    );
+    await this.postSystemMessage(chatId, eventType, snapshot, {
+      chatterTypeKey: plaque.typeKey,
+      chatter: { refType: 'chat', actorName, payload: values },
+    });
   }
 
   /**
@@ -1414,6 +1448,24 @@ export class MessengerService implements OnModuleInit {
   // ============================================================
   // System messages
   // ============================================================
+  /**
+   * Системная плашка группы. Текст собирается ПРИ ЧТЕНИИ в языке зрителя
+   * (`systemText` → `renderChatter` по ключу `chatter.type.<eventType>`), а
+   * `text` остаётся СНИМКОМ в языке источника — фолбэком для типа, которого
+   * однажды не станет в каталоге. Готовая русская строка в БД означала бы, что
+   * казахоязычный участник навсегда читает плашку по-русски.
+   */
+  private async postStructuredSystemMessage(
+    chatId: string,
+    eventType: SystemMessageEvent,
+    payload: Record<string, string>,
+  ): Promise<void> {
+    const snapshot = this.i18n.translateFor(SOURCE_LOCALE, `chatter.type.${eventType}`, payload);
+    await this.postSystemMessage(chatId, eventType, snapshot, {
+      chatter: { refType: 'chat', actorName: payload.actorName ?? null, payload },
+    });
+  }
+
   private async postSystemMessage(
     chatId: string,
     eventType: SystemMessageEvent | string,
@@ -1518,7 +1570,7 @@ export class MessengerService implements OnModuleInit {
       return {
         id: chat.id,
         type: chat.type as ChatSummary['type'],
-        title: peer ? fullName(peer) : chat.title ?? 'Чат',
+        title: peer ? fullName(peer) : chat.title ?? this.i18n.translate('messenger.chatFallback'),
         avatar: peer?.avatar ?? null,
         peerUserId: peer?.id ?? null,
         parentType: (chat.parentType as ChatSummary['parentType']) ?? null,
@@ -1575,7 +1627,7 @@ export class MessengerService implements OnModuleInit {
       where: { id: chatId },
       include: { members: { include: { user: { select: USER_LITE } } } },
     });
-    if (!chat) throw new NotFoundException('Чат не найден');
+    if (!chat) throw notFound('chat.notFound');
 
     const activeMembers = chat.members.filter((m) => !m.leftAt);
     const me = chat.members.find((m) => m.userId === userId);
@@ -1613,7 +1665,7 @@ export class MessengerService implements OnModuleInit {
     return {
       id: chat.id,
       type: chat.type as ChatDetail['type'],
-      title: peer ? fullName(peer) : chat.title ?? 'Чат',
+      title: peer ? fullName(peer) : chat.title ?? this.i18n.translate('messenger.chatFallback'),
       avatar: peer?.avatar ?? null,
       peerUserId: peer?.id ?? null,
       parentType: (chat.parentType as ChatDetail['parentType']) ?? null,
@@ -1745,7 +1797,7 @@ export class MessengerService implements OnModuleInit {
       select: { chatId: true },
     });
     if (!parent || parent.chatId !== chatId) {
-      throw new BadRequestException('Можно цитировать только сообщение из этого чата');
+      throw badRequest('chat.quoteSameChat');
     }
   }
 
@@ -1933,15 +1985,15 @@ export class MessengerService implements OnModuleInit {
 
   async editMessage(userId: string, messageId: string, content: string): Promise<ChatMessage> {
     const msg = await this.db.message.findUnique({ where: { id: messageId } });
-    if (!msg) throw new NotFoundException('Сообщение не найдено');
+    if (!msg) throw notFound('chat.messageNotFound');
     // Access first: a user removed from the chat (Hard Revoke) loses edit rights even
     // on their own old messages. Authorship alone is not enough.
     await this.assertAccess(userId, msg.chatId);
-    if (msg.authorId !== userId) throw new ForbiddenException('Можно редактировать только свои сообщения');
-    if (msg.deletedAt) throw new BadRequestException('Сообщение удалено');
+    if (msg.authorId !== userId) throw forbidden('chat.editOwnOnly');
+    if (msg.deletedAt) throw badRequest('chat.messageDeleted');
     // attachment: редактируется только подпись (она и живёт в content — К-1)
     if (msg.type !== 'text' && msg.type !== 'attachment') {
-      throw new BadRequestException('Это сообщение нельзя редактировать');
+      throw badRequest('chat.messageNotEditable');
     }
 
     const updated = await this.db.message.update({
@@ -1987,10 +2039,10 @@ export class MessengerService implements OnModuleInit {
 
   async deleteMessage(userId: string, messageId: string): Promise<void> {
     const msg = await this.db.message.findUnique({ where: { id: messageId } });
-    if (!msg) throw new NotFoundException('Сообщение не найдено');
+    if (!msg) throw notFound('chat.messageNotFound');
     // Access first (see editMessage): removal from the chat revokes delete rights too.
     await this.assertAccess(userId, msg.chatId);
-    if (msg.authorId !== userId) throw new ForbiddenException('Можно удалять только свои сообщения');
+    if (msg.authorId !== userId) throw forbidden('chat.deleteOwnOnly');
     if (msg.deletedAt) return;
 
     const updated = await this.db.message.update({
@@ -2108,11 +2160,12 @@ export class MessengerService implements OnModuleInit {
       select: { creatorId: true, participants: { select: { userId: true, role: true } } },
     });
     if (!task) return map;
-    map.set(task.creatorId, TASK_ROLE_LABELS.creator);
+    map.set(task.creatorId, this.i18n.translate(TASK_ROLE_LABEL_KEYS.creator));
     for (const p of task.participants) {
       // Creator label wins if the creator is also a participant.
       if (map.has(p.userId)) continue;
-      map.set(p.userId, TASK_ROLE_LABELS[p.role] ?? null);
+      const key = TASK_ROLE_LABEL_KEYS[p.role];
+      map.set(p.userId, key ? this.i18n.translate(key) : null);
     }
     return map;
   }
@@ -2126,16 +2179,16 @@ export class MessengerService implements OnModuleInit {
     });
     if (!order) return map;
     // Seller label wins, then buyer, then contributor (a person may hold several roles).
-    map.set(order.sellerId, ORDER_ROLE_LABELS.seller);
-    if (!map.has(order.buyerId)) map.set(order.buyerId, ORDER_ROLE_LABELS.buyer);
+    map.set(order.sellerId, this.i18n.translate(ORDER_ROLE_LABEL_KEYS.seller));
+    if (!map.has(order.buyerId)) map.set(order.buyerId, this.i18n.translate(ORDER_ROLE_LABEL_KEYS.buyer));
     for (const c of order.contributions) {
       if (map.has(c.contributorId)) continue;
-      map.set(c.contributorId, ORDER_ROLE_LABELS.contributor);
+      map.set(c.contributorId, this.i18n.translate(ORDER_ROLE_LABEL_KEYS.contributor));
     }
     return map;
   }
 
-  /** userId → Russian event-role label, for an event (context) chat. */
+  /** userId → event-role label in the VIEWER’s language, for an event chat. */
   private async eventRoleLabels(eventId: string): Promise<Map<string, string | null>> {
     const map = new Map<string, string | null>();
     const event = await this.db.calendarEvent.findUnique({
@@ -2143,10 +2196,10 @@ export class MessengerService implements OnModuleInit {
       select: { userId: true, participants: { select: { userId: true } } },
     });
     if (!event) return map;
-    map.set(event.userId, EVENT_ROLE_LABELS.organizer);
+    map.set(event.userId, this.i18n.translate(EVENT_ROLE_LABEL_KEYS.organizer));
     for (const p of event.participants) {
       if (map.has(p.userId)) continue;
-      map.set(p.userId, EVENT_ROLE_LABELS.attendee);
+      map.set(p.userId, this.i18n.translate(EVENT_ROLE_LABEL_KEYS.attendee));
     }
     return map;
   }
@@ -2160,7 +2213,10 @@ export class MessengerService implements OnModuleInit {
     if (!room) return map;
     for (const p of room.participants) {
       if (map.has(p.userId)) continue;
-      map.set(p.userId, OFFICE_ROOM_ROLE_LABELS[p.role === 'host' ? 'host' : 'participant']);
+      map.set(
+        p.userId,
+        this.i18n.translate(OFFICE_ROOM_ROLE_LABEL_KEYS[p.role === 'host' ? 'host' : 'participant']),
+      );
     }
     return map;
   }
@@ -2215,16 +2271,19 @@ export class MessengerService implements OnModuleInit {
       return snapshot;
     }
     const source = p.chatter as ChatterEntryLike | undefined;
-    if (!typeKey || !source) return snapshot;
+    // Плашки сервисов кладут ключ типа отдельным полем: имя события шины
+    // (`office.room.created`) не равно ключу записи хроники (`office.room_created`).
+    const key = typeof p.chatterTypeKey === 'string' ? p.chatterTypeKey : typeKey;
+    if (!key || !source) return snapshot;
     const locale = this.i18n.locale;
     const rendered = renderChatter(
       this.i18n.forLocale(locale),
-      typeKey,
+      key,
       source,
       this.i18n.format(locale),
     );
     // renderChatter возвращает сам typeKey, если типа нет в каталоге — снимок честнее.
-    return rendered === typeKey ? snapshot : rendered;
+    return rendered === key ? snapshot : rendered;
   }
 
   private toMessage(
@@ -2276,7 +2335,7 @@ export class MessengerService implements OnModuleInit {
     else if (rt.type === 'text') text = rt.content ?? '';
     else if (rt.type === 'attachment') text = rt.content || this.attachmentPreviewText(rt.payload);
     else if (rt.type === 'system') text = this.systemText(rt.payload) ?? this.i18n.translate('messenger.systemPlaque.unknown');
-    else text = (rt.payload?.title as string) ?? 'Карточка';
+    else text = (rt.payload?.title as string) ?? this.i18n.translate('messenger.cardFallback');
     return {
       id: rt.id,
       authorName: rt.author ? fullName(rt.author) : null,
@@ -2285,19 +2344,25 @@ export class MessengerService implements OnModuleInit {
     };
   }
 
-  /** Превью attachment-сообщения без подписи — формулировки в @superapp/shared (одна точка с веб-фолбэком) */
+  /**
+   * Превью attachment-сообщения без подписи. ЧТО показать решает общая функция
+   * (одна точка с веб-фолбэком), слово даёт каталог в языке запроса.
+   */
   private attachmentPreviewText(payload: unknown): string {
-    return attachmentPreviewText((payload as { files?: Array<{ kind?: string; profile?: string }> } | null)?.files);
+    const kind = attachmentPreviewKind(
+      (payload as { files?: Array<{ kind?: string; profile?: string }> } | null)?.files,
+    );
+    return this.i18n.translate(`messenger.attachmentPreview.${kind.key}`, { n: kind.count });
   }
 
   private toPreview(r: any): MessagePreview {
     const deleted = !!r.deletedAt;
     let text: string | null;
-    if (deleted) text = 'Сообщение удалено';
+    if (deleted) text = this.i18n.translate('messenger.messageDeleted');
     else if (r.type === 'text') text = r.content ?? '';
     else if (r.type === 'attachment') text = r.content || this.attachmentPreviewText(r.payload);
     else if (r.type === 'system') text = this.systemText(r.payload) ?? this.i18n.translate('messenger.systemPlaque.unknown');
-    else text = (r.payload?.title as string) ?? 'Карточка';
+    else text = (r.payload?.title as string) ?? this.i18n.translate('messenger.cardFallback');
     return {
       id: r.id,
       seq: r.seq,

@@ -30,15 +30,22 @@ async function svcRecord(wsId, actorId) {
   try {
     const { buildScopedPrismaClient } = require('../dist/shared/database/database.service');
     const { WorkspaceContextService } = require('../dist/shared/context/workspace-context.service');
+    const { I18nService } = require('../dist/shared/i18n/i18n.service');
     const { FinancesService } = require('../dist/modules/finances/finances.service');
-    const db2 = buildScopedPrismaClient(new WorkspaceContextService());
+    const ctx2 = new WorkspaceContextService();
+    const db2 = buildScopedPrismaClient(ctx2);
     await db2.$connect();
+    // Слова сервису нужны настоящие (имена засева, «Касса», формат сумм) —
+    // поэтому здесь НАСТОЯЩИЙ I18nService, а не заглушка: вне запроса он
+    // отдаёт язык по умолчанию.
     const s = new FinancesService(
       db2,
       { assertReachable: async () => undefined },
-      { notify: async () => ({}) },
+      { send: async () => ({}) },
       { can: async () => false, listObjects: async () => [], grant: async () => undefined, revoke: async () => undefined },
       { emit: () => undefined },
+      { register: () => undefined },
+      new I18nService(ctx2, db2),
     );
     await s.recordOperationForBook(wsId, { kind: 'expense', amount: 1250000, categoryName: 'Закупки', note: 'e2e', actorUserId: actorId });
     await db2.$disconnect();
@@ -335,16 +342,20 @@ async function main() {
     // ===== Ф5: крон-механика (реальный сервис из dist, клейм + дедуп) =====
     const { buildScopedPrismaClient } = require('../dist/shared/database/database.service');
     const { WorkspaceContextService } = require('../dist/shared/context/workspace-context.service');
+    const { I18nService } = require('../dist/shared/i18n/i18n.service');
     const { FinancesService } = require('../dist/modules/finances/finances.service');
-    const sdb = buildScopedPrismaClient(new WorkspaceContextService());
+    const sctx = new WorkspaceContextService();
+    const sdb = buildScopedPrismaClient(sctx);
     await sdb.$connect();
     const notified = [];
     const svc = new FinancesService(
       sdb,
       { assertReachable: async () => undefined },
-      { notify: async (uid, type, payload) => { notified.push({ uid, type, payload }); return {}; } },
+      { send: async (_tx, req) => { notified.push({ type: req?.type, payload: req?.payload }); return {}; } },
       { can: async () => false, listObjects: async () => [], grant: async () => undefined, revoke: async () => undefined },
       { emit: () => undefined },
+      { register: () => undefined },
+      new I18nService(sctx, sdb),
     );
     const cronStart = new Date();
     await sdb.finRecurringRule.update({ where: { id: recId }, data: { nextRunAt: new Date(Date.now() - 3600_000) } });
@@ -558,8 +569,16 @@ async function main() {
     const pd = await call('POST', `/finance/debts/${pdId}/pay`, t1, { fromAccountId: cashA.id, amount: 99000000 }); // переплата
     check('review2: payDebt капит платёж остатком и закрывает', pd.ok && pd.json?.data?.remaining === 0 && !!pd.json?.data?.closedAt, JSON.stringify({ r: pd.json?.data?.remaining, c: !!pd.json?.data?.closedAt }));
     await new Promise((r) => setTimeout(r, 600));
-    const pdNotif = await prisma.notification.findFirst({ where: { userId: u1, type: 'finance.debt.paid', createdAt: { gte: startPd } } });
-    check('review2: полное погашение → finance.debt.paid (не чужой шаблон)', !!pdNotif);
+    const pdEvent = await prisma.notificationEvent.findFirst({
+      where: { type: 'finance.debt.paid', createdAt: { gte: startPd } },
+      orderBy: { createdAt: 'desc' },
+    });
+    // Строка ленты СХЛОПЫВАЕТСЯ по ref: у неё остаётся createdAt первой такой
+    // записи, а свежесть несёт sortAt — поэтому ищем по событию, а не по времени.
+    const pdNotif = pdEvent
+      ? await prisma.notification.findFirst({ where: { userId: u1, eventId: pdEvent.id } })
+      : null;
+    check('review2: полное погашение → finance.debt.paid (не чужой шаблон)', !!pdNotif, JSON.stringify({ ev: !!pdEvent }));
     // баланс наличных списан ровно на остаток (1 000 000), не на 99М
     const ovPd = (await call('GET', '/finance', t1)).json?.data;
     const debtLiab = ovPd.accounts.find((a) => a.id === pdId);

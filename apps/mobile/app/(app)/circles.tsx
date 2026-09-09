@@ -4,11 +4,17 @@ import {
   TextInput, Alert, Modal,
 } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslations } from 'use-intl';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/lib/api';
-import { CIRCLE_ROLE_SUGGESTIONS } from '@superapp/shared';
+// Подсказки ролей — КЛЮЧИ каталога (`circles.rolePreset.*`), а не список слов:
+// прежний общий `CIRCLE_ROLE_SUGGESTIONS` из shared был русской строкой навсегда
+// и уже удалён — экран остался с мёртвым импортом.
+const ROLE_PRESETS = ['mother', 'father', 'wife', 'husband', 'brother', 'sister', 'friend', 'colleague'] as const;
 
 export default function CirclesScreen() {
+  const t = useTranslations('circles');
+  const tc = useTranslations('common');
   const queryClient = useQueryClient();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newCircleName, setNewCircleName] = useState('');
@@ -31,7 +37,7 @@ export default function CirclesScreen() {
       setShowCreateModal(false);
       setNewCircleName('');
     },
-    onError: () => Alert.alert('Ошибка', 'Не удалось создать окружение'),
+    onError: () => Alert.alert(tc('state.error'), t('groups.createFailed')),
   });
 
   const circles = data || [];
@@ -50,7 +56,7 @@ export default function CirclesScreen() {
             <View style={styles.circleInfo}>
               <Text style={styles.circleName}>{item.name}</Text>
               <Text style={styles.circleCount}>
-                {item._count?.members || 0} участников
+                {tc('person.peopleCount', { n: item._count?.members || 0 })}
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color="#666" />
@@ -60,20 +66,20 @@ export default function CirclesScreen() {
           <View style={styles.empty}>
             <Ionicons name="people-outline" size={48} color="#333" />
             <Text style={styles.emptyText}>
-              {isLoading ? 'Загрузка...' : 'Создайте первое окружение'}
+              {isLoading ? tc('state.loading') : t('groups.emptyTitle')}
             </Text>
             <Text style={styles.emptyHint}>
-              Например: Семья, Друзья, Коллеги
+              {t('groups.emptyHint')}
             </Text>
           </View>
         }
         ListFooterComponent={
           <View style={styles.suggestionsBlock}>
-            <Text style={styles.suggestLabel}>Доступные роли:</Text>
+            <Text style={styles.suggestLabel}>{t('rolePreset.title')}</Text>
             <View style={styles.roleSuggestions}>
-              {CIRCLE_ROLE_SUGGESTIONS.map((role) => (
+              {ROLE_PRESETS.map((role) => (
                 <View key={role} style={styles.roleChip}>
-                  <Text style={styles.roleChipText}>{role}</Text>
+                  <Text style={styles.roleChipText}>{t(`rolePreset.${role}`)}</Text>
                 </View>
               ))}
             </View>
@@ -93,10 +99,10 @@ export default function CirclesScreen() {
       <Modal visible={showCreateModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Новое окружение</Text>
+            <Text style={styles.modalTitle}>{t('groups.createTitle')}</Text>
             <TextInput
               style={styles.modalInput}
-              placeholder="Название (например: Семья)"
+              placeholder={t('groups.namePlaceholder')}
               placeholderTextColor="#666"
               value={newCircleName}
               onChangeText={setNewCircleName}
@@ -107,7 +113,7 @@ export default function CirclesScreen() {
                 style={styles.modalCancel}
                 onPress={() => setShowCreateModal(false)}
               >
-                <Text style={styles.modalCancelText}>Отмена</Text>
+                <Text style={styles.modalCancelText}>{tc('actions.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.modalCreate}
@@ -115,7 +121,7 @@ export default function CirclesScreen() {
                   if (newCircleName.trim()) createCircle.mutate(newCircleName.trim());
                 }}
               >
-                <Text style={styles.modalCreateText}>Создать</Text>
+                <Text style={styles.modalCreateText}>{tc('actions.create')}</Text>
               </TouchableOpacity>
             </View>
           </View>

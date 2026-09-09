@@ -29,7 +29,7 @@ export class CallsCron {
     await this.redis.withLock('cron:calls-reconcile', 60_000, async () => {
       try {
         const closed = await this.calls.reconcileStale();
-        if (closed > 0) this.logger.log(`закрыто потерянных сессий: ${closed}`);
+        if (closed > 0) this.logger.log(`Lost sessions closed: ${closed}`);
       } catch (err) {
         this.logger.warn(`reconcile: ${err instanceof Error ? err.message : err}`);
       }

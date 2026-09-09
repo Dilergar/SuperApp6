@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import type { MentionCandidate } from '@superapp/shared';
 import { mentionToken } from '@superapp/shared';
 import { getMentionable } from '@/lib/messenger-api';
@@ -109,6 +110,7 @@ export function MentionInput({
   placeholder?: string;
   maxLength?: number;
 }) {
+  const t = useTranslations('messenger');
   const editorRef = useRef<HTMLDivElement | null>(null);
   // The string we last emitted upward — lets us tell self-edits (skip rebuild,
   // keep the caret) from external `value` changes (rebuild the DOM).
@@ -339,7 +341,7 @@ export function MentionInput({
             className="label-sm"
             style={{ fontSize: '0.66rem', opacity: 0.6, padding: '0.1rem 0.4rem 0.35rem' }}
           >
-            Упомянуть участника
+            {t('messages.mention')}
           </div>
           {candidates.map((c, i) => (
             <button
@@ -397,7 +399,7 @@ export function MentionInput({
         contentEditable
         role="textbox"
         aria-multiline
-        aria-label={placeholder ?? 'Сообщение'}
+        aria-label={placeholder ?? t('messageFallback')}
         suppressContentEditableWarning
         onInput={handleInput}
         onKeyDown={handleKeyDown}

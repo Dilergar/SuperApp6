@@ -1,17 +1,19 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { PageHeader } from '@/components/ui';
 import { TaskListSection } from '../TaskListSection';
 
 export default function TasksAssignedPage() {
+  const t = useTranslations('tasks');
   return (
     <>
-      <PageHeader breadcrumb="Задачи" title="Мне поставили" description="Задачи, где вы Исполнитель или Соисполнитель — включая уже завершённые." />
+      <PageHeader breadcrumb={t('breadcrumb')} title={t('sections.assigned.title')} description={t('sections.assigned.description')} />
       <TaskListSection
         filter={{ smartList: 'assigned_to_me' }}
         enableSearch
-        emptyText="Вам пока ничего не поручали"
-        emptyHint="Когда кто-то из окружения поставит вам задачу — она появится здесь"
+        emptyText={t('sections.assigned.empty')}
+        emptyHint={t('sections.assigned.emptyHint')}
       />
     </>
   );

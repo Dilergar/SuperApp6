@@ -6,6 +6,7 @@
 // ============================================================
 
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
 import { EntitySelector } from '@/components/EntitySelector';
 import { PersonChip } from '../circles/PersonCard';
@@ -32,12 +33,16 @@ export interface PriceLine {
   amount: string;
 }
 
-const currencyOptions = (currencies: AccessibleCurrencyDto[], allowed: (c: AccessibleCurrencyDto) => boolean): SelectOption[] =>
+const currencyOptions = (
+  currencies: AccessibleCurrencyDto[],
+  allowed: (c: AccessibleCurrencyDto) => boolean,
+  ownHint: string,
+): SelectOption[] =>
   currencies.filter(allowed).map((c) => ({
     value: c.id,
     label: c.name,
     emoji: c.icon,
-    hint: c.isOwn ? 'своя' : c.issuerName,
+    hint: c.isOwn ? ownHint : c.issuerName,
   }));
 
 /** Редактор кросс-валютной цены: строка = валюта + сумма (до SHOP_LIMITS.maxPriceLines). */
@@ -45,13 +50,15 @@ export function PriceLinesEditor({
   currencies,
   lines,
   onChange,
-  label = 'Цена',
+  label,
 }: {
   currencies: AccessibleCurrencyDto[];
   lines: PriceLine[];
   onChange: (next: PriceLine[]) => void;
+  /** Своя подпись поля; по умолчанию — «Цена» из каталога. */
   label?: string;
 }) {
+  const t = useTranslations('shop');
   const usedElsewhere = (idx: number) => new Set(lines.filter((_, i) => i !== idx).map((l) => l.currencyId));
   const setLine = (idx: number, patch: Partial<PriceLine>) =>
     onChange(lines.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
@@ -66,13 +73,13 @@ export function PriceLinesEditor({
   if (currencies.length === 0) {
     return (
       <Alert tone="warning" icon="coins">
-        Нет доступных валют. Создайте свою в «Кошельке» — тогда сможете назначить цену.
+        {t('price.noCurrencies')}
       </Alert>
     );
   }
 
   return (
-    <Field label={label} hint="Можно назначить цену в нескольких валютах — покупатель платит по всем">
+    <Field label={label ?? t('card.price')} hint={t('price.hint')}>
       <div className="ui-stack" style={{ gap: '0.375rem' }}>
         {lines.map((line, idx) => {
           const used = usedElsewhere(idx);
@@ -84,27 +91,27 @@ export function PriceLinesEditor({
                   min={1}
                   value={line.amount}
                   onChange={(e) => setLine(idx, { amount: e.target.value })}
-                  aria-label="Сумма"
+                  aria-label={t('card.amount')}
                 />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <Select
-                  aria-label="Валюта"
+                  aria-label={t('price.currency')}
                   value={line.currencyId}
                   onChange={(v) => setLine(idx, { currencyId: v })}
-                  options={currencyOptions(currencies, (c) => c.id === line.currencyId || !used.has(c.id))}
+                  options={currencyOptions(currencies, (c) => c.id === line.currencyId || !used.has(c.id), t('price.own'))}
                   width="100%"
                 />
               </div>
               {lines.length > 1 && (
-                <IconButton icon="close" label="Убрать валюту" size={30} onClick={() => removeLine(idx)} />
+                <IconButton icon="close" label={t('price.removeCurrency')} size={30} onClick={() => removeLine(idx)} />
               )}
             </div>
           );
         })}
         {canAdd && (
           <Button variant="ghost" size="sm" icon="add" onClick={addLine} style={{ alignSelf: 'flex-start' }}>
-            Ещё валюта
+            {t('price.addCurrency')}
           </Button>
         )}
       </div>
@@ -125,6 +132,8 @@ export function ContributeModal({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const t = useTranslations('shop');
+  const common = useTranslations('common');
   const mine = listing.campaign?.myContribution ?? [];
   const alreadyIn = mine.length > 0;
   const [amounts, setAmounts] = useState<Record<string, string>>({});
@@ -135,7 +144,7 @@ export function ContributeModal({
     const contributions = listing.prices
       .map((p) => ({ currencyId: p.currencyId, amount: parseInt(amounts[p.currencyId] || '0', 10) }))
       .filter((c) => Number.isInteger(c.amount) && c.amount > 0);
-    if (contributions.length === 0) { setError('Введите сумму хотя бы по одной валюте'); return; }
+    if (contributions.length === 0) { setError(t('contribute.amountRequired')); return; }
     setBusy(true);
     setError(null);
     try {
@@ -172,19 +181,23 @@ export function ContributeModal({
     <Modal
       open
       onClose={onClose}
-      title={`Скинуться: ${listing.title}`}
-      subtitle="Всё или ничего: пока цель не собрана, вклады заморожены и возвращаются при отмене"
+      title={t('contribute.title', { title: listing.title })}
+      subtitle={t('contribute.subtitle')}
       size="sm"
       footer={
         alreadyIn ? (
           <>
-            <Button variant="ghost" onClick={onClose}>Закрыть</Button>
-            <Button variant="primary" tone="danger" icon="undo" loading={busy} onClick={withdraw}>Отозвать вклад</Button>
+            <Button variant="ghost" onClick={onClose}>{common('actions.close')}</Button>
+            <Button variant="primary" tone="danger" icon="undo" loading={busy} onClick={withdraw}>
+              {t('action.withdrawPledge')}
+            </Button>
           </>
         ) : (
           <>
-            <Button variant="ghost" onClick={onClose}>Отмена</Button>
-            <Button variant="primary" tone="success" icon="target" loading={busy} onClick={pledge}>Скинуться</Button>
+            <Button variant="ghost" onClick={onClose}>{common('actions.cancel')}</Button>
+            <Button variant="primary" tone="success" icon="target" loading={busy} onClick={pledge}>
+              {t('action.chipIn')}
+            </Button>
           </>
         )
       }
@@ -195,7 +208,7 @@ export function ContributeModal({
 
         {alreadyIn ? (
           <Alert tone="success" icon="checkCircle">
-            Вы уже вложили <b>{mineText}</b>. Чтобы изменить — сначала отзовите вклад.
+            {t.rich('contribute.alreadyPledged', { amount: mineText, b: (c) => <b>{c}</b> })}
           </Alert>
         ) : (
           <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
@@ -205,7 +218,7 @@ export function ContributeModal({
                 <Input
                   key={l.currencyId}
                   label={`${glyphPrefix(l.currencyIcon)}${l.currencyName}`}
-                  hint={`осталось ${fmtAmount(remaining, l.scale)}`}
+                  hint={t('contribute.remaining', { amount: fmtAmount(remaining, l.scale) })}
                   type="number"
                   min={0}
                   max={remaining}
@@ -237,6 +250,8 @@ export function ListingForm({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('shop');
+  const common = useTranslations('common');
   const [title, setTitle] = useState(init?.title ?? '');
   const [icon, setIcon] = useState(init?.icon ?? '🎁');
   const [description, setDescription] = useState(init?.description ?? '');
@@ -272,15 +287,15 @@ export function ListingForm({
   }, []);
 
   const save = async () => {
-    if (!title.trim()) { setError('Введите название'); return; }
-    if (lines.length === 0) { setError('Создайте свою валюту в «Кошельке», чтобы назначить цену'); return; }
+    if (!title.trim()) { setError(t('page.nameRequired')); return; }
+    if (lines.length === 0) { setError(t('form.needCurrency')); return; }
     const prices = lines.map((l) => ({ currencyId: l.currencyId, amount: parseInt(l.amount, 10) }));
     if (prices.some((p) => !p.currencyId || !Number.isInteger(p.amount) || p.amount < 1)) {
-      setError('Каждая цена — валюта и целое число ≥ 1');
+      setError(t('form.priceShape'));
       return;
     }
     if (new Set(prices.map((p) => p.currencyId)).size !== prices.length) {
-      setError('Валюта повторяется — выберите разные');
+      setError(t('form.duplicateCurrency'));
       return;
     }
     // Лимиты/время/скидка (Фаза 7). Дни → срок от «сейчас»; пустые дни при правке = не менять.
@@ -291,7 +306,7 @@ export function ListingForm({
       const d = parseInt(limitedDays, 10);
       if (d > 0) availableUntil = daysFromNow(d);
       else if (init?.availableUntil) availableUntil = undefined; // оставить как было
-      else { setError('Укажите срок «ограниченного времени» в днях'); return; }
+      else { setError(t('form.limitedDaysRequired')); return; }
     }
     const pct = parseInt(discountPct, 10);
     let discountPercent: number | null | undefined;
@@ -302,7 +317,7 @@ export function ListingForm({
       const dd = parseInt(discountDays, 10);
       if (dd > 0) discountUntil = daysFromNow(dd);
       else if (init?.discountUntil) discountUntil = undefined; // оставить как было
-      else { setError('Укажите срок скидки в днях'); return; }
+      else { setError(t('form.discountDaysRequired')); return; }
     }
     setBusy(true);
     setError(null);
@@ -329,13 +344,13 @@ export function ListingForm({
     <Modal
       open
       onClose={onClose}
-      title={init ? 'Изменить товар' : 'Новый товар'}
+      title={t(init ? 'form.editTitle' : 'form.newTitle')}
       size="md"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Отмена</Button>
+          <Button variant="ghost" onClick={onClose}>{common('actions.cancel')}</Button>
           <Button variant="primary" tone="success" icon={init ? 'save' : 'add'} loading={busy} onClick={save}>
-            {init ? 'Сохранить' : 'Создать'}
+            {common(init ? 'actions.save' : 'actions.create')}
           </Button>
         </>
       }
@@ -345,14 +360,20 @@ export function ListingForm({
 
         <div style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', gap: 'var(--spacing-3)', alignItems: 'start' }}>
           <GlyphField value={icon} onChange={(v) => setIcon(v ?? '')} suggest={title} />
-          <Input label="Название" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Что продаёте?" autoFocus />
+          <Input
+            label={common('labels.name')}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder={t('form.titlePlaceholder')}
+            autoFocus
+          />
         </div>
 
         <Textarea
-          label="Описание"
+          label={common('labels.description')}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="Необязательно"
+          placeholder={common('labels.optional')}
           style={{ minHeight: 64 }}
         />
 
@@ -361,17 +382,17 @@ export function ListingForm({
           <ListingPhotosSection listingId={init.id} onError={setError} />
         ) : (
           <Alert tone="neutral" icon="image">
-            Фото добавляются после создания товара — откройте его через «Изменить».
+            {t('form.photosAfterCreate')}
           </Alert>
         )}
 
         <Select
-          label="Тип"
+          label={common('labels.type')}
           value={itemType}
           onChange={(v) => setItemType(v as Listing['itemType'])}
           options={[
-            { value: 'material', label: 'Материальный', icon: 'gift' },
-            { value: 'nonmaterial', label: 'Нематериальный', icon: 'spark' },
+            { value: 'material', label: t('itemType.material'), icon: 'gift' },
+            { value: 'nonmaterial', label: t('itemType.nonmaterial'), icon: 'spark' },
           ]}
         />
 
@@ -382,8 +403,8 @@ export function ListingForm({
         {/* Лимиты / время / FOMO-скидка (Фаза 7) */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 'var(--spacing-3)', alignItems: 'end' }}>
           <Input
-            label="Запас, штук"
-            hint="Пусто — без лимита"
+            label={t('form.stock')}
+            hint={t('form.stockHint')}
             type="number"
             min={1}
             value={stock}
@@ -392,16 +413,16 @@ export function ListingForm({
           />
           {limited && (
             <Input
-              label="Ограничение, дней"
+              label={t('form.limitDays')}
               type="number"
               min={1}
               value={limitedDays}
               onChange={(e) => setLimitedDays(e.target.value)}
-              placeholder={init?.availableUntil ? 'без изменений' : '7'}
+              placeholder={init?.availableUntil ? t('form.unchanged') : '7'}
             />
           )}
           <Input
-            label="FOMO-скидка, %"
+            label={t('form.fomoDiscount')}
             type="number"
             min={0}
             max={99}
@@ -411,25 +432,25 @@ export function ListingForm({
           />
           {parseInt(discountPct, 10) > 0 && (
             <Input
-              label="Скидка, дней"
+              label={t('form.discountDays')}
               type="number"
               min={1}
               value={discountDays}
               onChange={(e) => setDiscountDays(e.target.value)}
-              placeholder={init?.discountUntil ? 'без изменений' : '3'}
+              placeholder={init?.discountUntil ? t('form.unchanged') : '3'}
             />
           )}
         </div>
 
         <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
-          <Checkbox checked={limited} onChange={setLimited} label="Ограниченное время" />
-          <Checkbox checked={withTask} onChange={setWithTask} label="С задачей — исполнение оформится задачей в Задачнике" />
+          <Checkbox checked={limited} onChange={setLimited} label={t('form.limitedTime')} />
+          <Checkbox checked={withTask} onChange={setWithTask} label={t('form.withTask')} />
           {withTask && (
             <div style={{ width: 160 }}>
-              <Input label="Дней на исполнение" type="number" min={1} value={taskDays} onChange={(e) => setTaskDays(e.target.value)} />
+              <Input label={t('form.taskDays')} type="number" min={1} value={taskDays} onChange={(e) => setTaskDays(e.target.value)} />
             </div>
           )}
-          <Checkbox checked={crowdfunding} onChange={setCrowdfunding} label="Краудфандинг — скидываются несколько человек" />
+          <Checkbox checked={crowdfunding} onChange={setCrowdfunding} label={t('form.crowdfunding')} />
         </div>
       </div>
     </Modal>
@@ -449,6 +470,8 @@ export function SharePanel({
   onClose: () => void;
   onChanged: () => void;
 }) {
+  const t = useTranslations('shop');
+  const common = useTranslations('common');
   const [shares, setShares] = useState(showcase.shares ?? []);
   const [error, setError] = useState<string | null>(null);
   const has = (type: 'user' | 'circle', id: string) => shares.some((s) => s.principalType === type && s.principalId === id);
@@ -472,10 +495,10 @@ export function SharePanel({
     <Modal
       open
       onClose={onClose}
-      title={`Доступ к «${showcase.name}»`}
-      subtitle="Кому видна эта витрина — люди и Группы из вашего окружения"
+      title={t('showcaseShare.title', { name: showcase.name })}
+      subtitle={t('showcaseShare.subtitle')}
       size="sm"
-      footer={<Button variant="ghost" onClick={onClose}>Готово</Button>}
+      footer={<Button variant="ghost" onClick={onClose}>{common('actions.done')}</Button>}
     >
       <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
@@ -489,7 +512,7 @@ export function SharePanel({
             for (const p of next) if (!cur.has(`${p.type}:${p.id}`)) toggle(p.type as 'user' | 'circle', p.id);
             for (const s of shares) if (!nxt.has(`${s.principalType}:${s.principalId}`)) toggle(s.principalType as 'user' | 'circle', s.principalId);
           }}
-          placeholder="Добавьте людей или Группы…"
+          placeholder={t('wish.sharePlaceholder')}
         />
       </div>
     </Modal>
@@ -509,6 +532,8 @@ export function StaffPanel({
   showcases: Showcase[];
   onClose: () => void;
 }) {
+  const t = useTranslations('shop');
+  const common = useTranslations('common');
   const [staff, setStaff] = useState<ShopStaffDto[]>([]);
   const [userId, setUserId] = useState('');
   const [scope, setScope] = useState<'shop' | 'showcase'>('shop');
@@ -521,8 +546,8 @@ export function StaffPanel({
   useEffect(load, []);
 
   const assign = async () => {
-    if (!userId) { setError('Выберите человека'); return; }
-    if (scope === 'showcase' && !showcaseId) { setError('Выберите витрину'); return; }
+    if (!userId) { setError(t('staff.pickPerson')); return; }
+    if (scope === 'showcase' && !showcaseId) { setError(t('staff.pickShowcase')); return; }
     setError(null);
     try {
       await apiPost('/shop/staff', { userId, scope, ...(scope === 'showcase' ? { showcaseId } : {}) });
@@ -545,17 +570,17 @@ export function StaffPanel({
     <Modal
       open
       onClose={onClose}
-      title="Сотрудники магазина"
-      subtitle="Сотрудник управляет товарами и заказами — как владелец"
+      title={t('staff.title')}
+      subtitle={t('staff.subtitle')}
       size="md"
-      footer={<Button variant="ghost" onClick={onClose}>Готово</Button>}
+      footer={<Button variant="ghost" onClick={onClose}>{common('actions.done')}</Button>}
     >
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
 
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div style={{ flex: 1, minWidth: 190 }}>
-            <Field label="Человек">
+            <Field label={t('staff.person')}>
               <EntitySelector
                 types={['user']}
                 multi={false}
@@ -569,37 +594,37 @@ export function StaffPanel({
                 }))}
                 value={userId ? [{ type: 'user', id: userId }] : []}
                 onChange={(p) => setUserId(p[0]?.id ?? '')}
-                placeholder="Из окружения…"
+                placeholder={t('staff.fromCircle')}
               />
             </Field>
           </div>
           <Select
-            label="Область"
+            label={t('staff.scope')}
             value={scope}
             onChange={(v) => setScope(v as 'shop' | 'showcase')}
             width={180}
             options={[
-              { value: 'shop', label: 'Весь магазин', icon: 'shop' },
-              { value: 'showcase', label: 'Одна витрина', icon: 'folder' },
+              { value: 'shop', label: t('staff.scopeShop'), icon: 'shop' },
+              { value: 'showcase', label: t('staff.scopeShowcase'), icon: 'folder' },
             ]}
           />
           {scope === 'showcase' && (
             <Select
-              label="Витрина"
+              label={t('page.showcase')}
               value={showcaseId}
               onChange={setShowcaseId}
               width={190}
-              placeholder="Выберите…"
+              placeholder={t('staff.pickPlaceholder')}
               options={showcases.map((s) => ({ value: s.id, label: s.name, emoji: s.icon }))}
             />
           )}
-          <Button variant="primary" tone="success" icon="userAdd" onClick={assign}>Назначить</Button>
+          <Button variant="primary" tone="success" icon="userAdd" onClick={assign}>{t('staff.assign')}</Button>
         </div>
 
         <Divider style={{ margin: 0 }} />
 
         {staff.length === 0 ? (
-          <EmptyState icon="people" title="Сотрудников нет" description="Назначьте того, кто будет вести витрины вместе с вами." />
+          <EmptyState icon="people" title={t('staff.empty')} description={t('staff.emptyHint')} />
         ) : (
           <div className="ui-stack" style={{ gap: '0.375rem' }}>
             {staff.map((s, i) => (
@@ -614,9 +639,9 @@ export function StaffPanel({
                   <PersonChip size="S" userId={s.userId} firstName={s.name} />
                 </span>
                 <Chip size="sm" tone="neutral" icon={s.scope === 'shop' ? 'shop' : 'folder'}>
-                  {s.scope === 'shop' ? 'весь магазин' : s.showcaseName ?? 'витрина'}
+                  {s.scope === 'shop' ? t('staff.scopeShopShort') : s.showcaseName ?? t('staff.scopeShowcaseShort')}
                 </Chip>
-                <Button variant="ghost" size="sm" tone="danger" icon="close" onClick={() => revoke(s)}>Снять</Button>
+                <Button variant="ghost" size="sm" tone="danger" icon="close" onClick={() => revoke(s)}>{t('staff.revoke')}</Button>
               </div>
             ))}
           </div>

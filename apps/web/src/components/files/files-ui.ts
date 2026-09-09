@@ -19,17 +19,9 @@ export function fileIcon(kindOrMime: string): string {
   }
 }
 
-export function humanSize(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return '—';
-  if (bytes < 1024) return `${bytes} Б`;
-  const units = ['КБ', 'МБ', 'ГБ'];
-  let v = bytes / 1024;
-  for (const u of units) {
-    if (v < 1024) return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${u}`;
-    v /= 1024;
-  }
-  return `${v.toFixed(1)} ТБ`;
-}
+// Размера файла здесь НЕТ намеренно: единицы принадлежат языку, а разделители —
+// региону. Одна точка на весь веб — хук `useBytes()` (`lib/format.ts`) поверх
+// `formatBytes` платформы; своя копия была и языком, и регионом сразу.
 
 /** m:ss, часовые записи — h:mm:ss (Диктофон пишет до часа и дольше) */
 export function formatDuration(ms: number | undefined | null): string | null {

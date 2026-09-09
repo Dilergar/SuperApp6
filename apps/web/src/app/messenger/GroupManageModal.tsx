@@ -2,6 +2,7 @@
 
 import { CloseChip, Icon, Input, ModalShell, useConfirm } from '@/components/ui';
 import { useState, useEffect } from 'react';
+import { useTranslations } from 'next-intl';
 import type { ChatDetail, ChatMemberRole, ChatParticipantInfo } from '@superapp/shared';
 import { MESSENGER_LIMITS } from '@superapp/shared';
 import { PersonAvatar } from './messenger-ui';
@@ -9,11 +10,12 @@ import { useContacts } from './ContactPicker';
 import { EntitySelector } from '@/components/EntitySelector';
 import { loadEntities, type EntityOption, type Principal } from '@/lib/entities';
 
-const CHAT_ROLE_LABELS: Record<ChatMemberRole, string> = {
-  owner: 'Владелец',
-  admin: 'Админ',
-  member: 'Участник',
-  bot: 'Бот',
+/** Роль в группе называет СМЫСЛ; слово даёт каталог. */
+const CHAT_ROLE_LABEL_KEYS: Record<ChatMemberRole, string> = {
+  owner: 'group.roleOwner',
+  admin: 'group.roleAdmin',
+  member: 'group.roleMember',
+  bot: 'group.roleBot',
 };
 
 type Pane = 'list' | 'add';
@@ -45,6 +47,8 @@ export function GroupManageModal({
   onLeave: () => Promise<void>;
   onDelete: () => Promise<void>;
 }) {
+  const t = useTranslations('messenger');
+  const tc = useTranslations('common');
   const isOwner = detail.myRole === 'owner';
   const canManage = detail.myRole === 'owner' || detail.myRole === 'admin';
 
@@ -130,10 +134,10 @@ export function GroupManageModal({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--spacing-4)' }}>
           <div style={{ minWidth: 0 }}>
             <h3 className="title-md" style={{ marginBottom: '0.1rem' }}>
-              {pane === 'add' ? 'Добавить участников' : 'Управление группой'}
+              {pane === 'add' ? t('group.addTitle') : t('group.manageTitle')}
             </h3>
             <p className="label-sm" style={{ fontSize: '0.75rem', opacity: 0.7 }}>
-              {detail.participants.length} участник(ов)
+              {t('chat.participants', { n: detail.participants.length })}
             </p>
           </div>
           <CloseChip onClick={onClose} />
@@ -142,7 +146,7 @@ export function GroupManageModal({
         {pane === 'add' ? (
           <>
             {loading ? (
-              <p className="label-sm" style={{ padding: 'var(--spacing-3)' }}>Загрузка...</p>
+              <p className="label-sm" style={{ padding: 'var(--spacing-3)' }}>{tc('state.loading')}</p>
             ) : error ? (
               <div className="alert-neutral-inline" style={{ padding: 'var(--spacing-3) var(--spacing-4)', color: 'var(--primary)', fontSize: '0.85rem' }}>{error}</div>
             ) : (
@@ -152,12 +156,12 @@ export function GroupManageModal({
                 options={addOptions}
                 value={toAdd.map((id) => ({ type: 'user', id }))}
                 onChange={handleAddSelect}
-                placeholder="Добавить людей или Группу…"
+                placeholder={t('group.addPlaceholder')}
               />
             )}
             <div style={{ display: 'flex', gap: 'var(--spacing-2)', marginTop: 'var(--spacing-4)', justifyContent: 'flex-end' }}>
               <button onClick={() => { setPane('list'); setToAdd([]); }} className="btn-ghost-inline">
-                Назад
+                {t('group.back')}
               </button>
               <button
                 onClick={addSelected}
@@ -165,7 +169,7 @@ export function GroupManageModal({
                 className="btn-success"
                 style={{ fontSize: '0.85rem', padding: '0.45rem 1rem', opacity: toAdd.length ? 1 : 0.5 }}
               >
-                Добавить{toAdd.length ? ` (${toAdd.length})` : ''}
+                {toAdd.length ? t('group.addCount', { n: toAdd.length }) : t('group.add')}
               </button>
             </div>
           </>
@@ -173,11 +177,11 @@ export function GroupManageModal({
           <>
             {/* Name + rename */}
             <div style={{ marginBottom: 'var(--spacing-4)' }}>
-              <label className="label-md" style={{ marginBottom: 'var(--spacing-2)' }}>Название</label>
+              <label className="label-md" style={{ marginBottom: 'var(--spacing-2)' }}>{t('group.name')}</label>
               {editingName ? (
                 <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
                   <Input
-                    aria-label="Название группы"
+                    aria-label={t('group.nameAria')}
                     value={nameDraft}
                     onChange={(e) => setNameDraft(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') { setEditingName(false); setNameDraft(detail.title); } }}
@@ -186,14 +190,14 @@ export function GroupManageModal({
                     wrapClassName="group-name-field"
                     style={{ fontSize: '0.9rem' }}
                   />
-                  <button onClick={saveName} disabled={busy} className="btn-success" style={{ fontSize: '0.8rem', padding: '0.4rem 0.9rem' }}>Сохранить</button>
+                  <button onClick={saveName} disabled={busy} className="btn-success" style={{ fontSize: '0.8rem', padding: '0.4rem 0.9rem' }}>{tc('actions.save')}</button>
                 </div>
               ) : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
                   <span className="title-md" style={{ fontSize: '1.05rem' }}>{detail.title}</span>
                   {canManage && (
                     <button onClick={() => { setNameDraft(detail.title); setEditingName(true); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--secondary)', fontSize: '0.78rem', fontWeight: 600 }}>
-                      <Icon name="edit" size={14} /> Переименовать
+                      <Icon name="edit" size={14} /> {t('group.rename')}
                     </button>
                   )}
                 </div>
@@ -202,10 +206,10 @@ export function GroupManageModal({
 
             {/* Participants */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-2)' }}>
-              <label className="label-md">Участники</label>
+              <label className="label-md">{t('group.participants')}</label>
               {canManage && (
                 <button onClick={() => setPane('add')} className="btn-success" style={{ fontSize: '0.78rem', padding: '0.3rem 0.8rem' }}>
-                  + Добавить
+                  + {t('group.add')}
                 </button>
               )}
             </div>
@@ -230,24 +234,24 @@ export function GroupManageModal({
               {isOwner ? (
                 <button
                   onClick={() => confirm(
-                    { title: 'Удалить группу для всех?', message: 'Чат и вся переписка исчезнут у каждого участника. Отменить это нельзя.', confirmLabel: 'Удалить группу', danger: true },
+                    { title: t('group.deleteConfirm.title'), message: t('group.deleteConfirm.message'), confirmLabel: t('group.delete'), danger: true },
                     () => run(onDelete),
                   )}
                   disabled={busy}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: '0.85rem', fontWeight: 600 }}
                 >
-                  Удалить группу
+                  {t('group.delete')}
                 </button>
               ) : (
                 <button
                   onClick={() => confirm(
-                    { title: 'Покинуть группу?', message: 'Вы перестанете получать сообщения этой группы.', confirmLabel: 'Покинуть', danger: true },
+                    { title: t('group.leaveConfirm.title'), message: t('group.leaveConfirm.message'), confirmLabel: t('group.leave'), danger: true },
                     () => run(onLeave),
                   )}
                   disabled={busy}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: '0.85rem', fontWeight: 600 }}
                 >
-                  Покинуть группу
+                  {t('group.leave')}
                 </button>
               )}
             </div>
@@ -276,6 +280,7 @@ function ParticipantRow({
   onRemove: () => void;
   onSetAdmin: (admin: boolean) => void;
 }) {
+  const t = useTranslations('messenger');
   const isTargetOwner = p.role === 'owner';
   // Owner can toggle admin on non-owner members. Owner/admin can remove non-owners (and not themselves here).
   const canToggleAdmin = viewerIsOwner && !isTargetOwner && !isMe;
@@ -296,11 +301,11 @@ function ParticipantRow({
       <PersonAvatar userId={p.userId} name={p.name} avatar={p.avatar} size="sm" />
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--on-surface)' }}>
-          {p.name}{isMe && <span style={{ opacity: 0.55, fontWeight: 500 }}> (вы)</span>}
+          {p.name}{isMe && <span style={{ opacity: 0.55, fontWeight: 500 }}>{t('group.you')}</span>}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', marginTop: '0.05rem' }}>
           <span className="label-sm" style={{ fontSize: '0.7rem', color: isTargetOwner ? 'var(--tertiary)' : p.role === 'admin' ? 'var(--secondary)' : 'var(--on-surface-variant)', fontWeight: 600 }}>
-            {CHAT_ROLE_LABELS[p.role]}
+            {t(CHAT_ROLE_LABEL_KEYS[p.role])}
           </span>
           {p.roleTag && (
             <span className="label-sm" style={{ fontSize: '0.7rem', opacity: 0.7 }}>· {p.roleTag}</span>
@@ -314,17 +319,17 @@ function ParticipantRow({
           disabled={busy}
           style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--secondary)', fontSize: '0.72rem', fontWeight: 600, flexShrink: 0 }}
         >
-          {p.role === 'admin' ? 'Снять админа' : 'Сделать админом'}
+          {p.role === 'admin' ? t('group.demote') : t('group.promote')}
         </button>
       )}
       {canRemove && (
         <button
           onClick={() => confirm(
-            { title: `Убрать ${p.name} из группы?`, message: 'Человек потеряет доступ к чату и его истории.', confirmLabel: 'Убрать', danger: true },
+            { title: t('group.removeConfirm.title', { name: p.name }), message: t('group.removeConfirm.message'), confirmLabel: t('group.remove'), danger: true },
             onRemove,
           )}
           disabled={busy}
-          title="Убрать"
+          title={t('group.remove')}
           style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: '0.95rem', flexShrink: 0, opacity: 0.7 }}
         ><Icon name="close" size={15} /></button>
       )}

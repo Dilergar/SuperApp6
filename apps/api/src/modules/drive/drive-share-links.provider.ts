@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import {
   DRIVE_NODE_REF_TYPE,
   type FileKind,
@@ -14,6 +14,7 @@ import {
   type ShareRefContext,
 } from '../../core/share-links/share-links.registry';
 import { DatabaseService } from '../../shared/database/database.service';
+import { forbidden } from '../../shared/errors/api-error';
 import { DriveService, type NodeRow } from './drive.service';
 
 /**
@@ -54,9 +55,7 @@ export class DriveShareLinksProvider implements ShareLinkProvider, OnModuleInit 
         .then(() => true)
         .catch(() => false);
       if (!visible) return null;
-      throw new ForbiddenException(
-        'Раздавать доступ по ссылке наружу может тот, кто управляет доступом к объекту',
-      );
+      throw forbidden('drive.shareLinkManagerOnly');
     }
     // requireNode проверяет ПРАВА, но не состояние: узел в корзине права не теряет
     // (иначе его нельзя было бы восстановить). Раздавать наружу удалённое — нельзя.

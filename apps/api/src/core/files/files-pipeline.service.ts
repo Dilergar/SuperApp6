@@ -195,7 +195,7 @@ export class FilesPipelineService implements OnModuleInit, OnApplicationBootstra
             pipeline: 'unsupported',
             pipelineError: msg.slice(0, 300),
           });
-          throw new JobDiscardError(`файл ${fileId}: медиа не декодируется (${msg.slice(0, 120)})`);
+          throw new JobDiscardError(`file ${fileId}: the media does not decode (${msg.slice(0, 120)})`);
         }
         throw err;
       }
@@ -351,7 +351,7 @@ export class FilesPipelineService implements OnModuleInit, OnApplicationBootstra
   ): Promise<Record<string, unknown>> {
     const bins = ffBinaries();
     if (!bins) {
-      this.logger.warn('ffmpeg/ffprobe недоступны — пропускаю обработку видео');
+      this.logger.warn('ffmpeg/ffprobe are unavailable — skipping the video processing');
       return {};
     }
     const probe = await ffprobeFormat(bins.ffprobe, source);
@@ -381,7 +381,7 @@ export class FilesPipelineService implements OnModuleInit, OnApplicationBootstra
   private async processAudio(spec: FileProfileSpec, source: string): Promise<Record<string, unknown>> {
     const bins = ffBinaries();
     if (!bins) {
-      this.logger.warn('ffprobe недоступен — пропускаю длительность аудио');
+      this.logger.warn('ffprobe is unavailable — skipping the audio duration');
       return {};
     }
     const probe = await ffprobeFormat(bins.ffprobe, source);

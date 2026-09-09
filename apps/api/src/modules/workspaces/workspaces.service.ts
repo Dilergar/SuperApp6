@@ -1,15 +1,10 @@
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  ForbiddenException,
-  BadRequestException,
-  ConflictException,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { DI_TOKENS } from '../../shared/di-tokens';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
+import { DEFAULT_DOCUMENT_LANGUAGE } from '../../shared/i18n/document-words';
+import { coerceLocale, type Locale } from '@superapp/i18n';
 import { LegalEntitiesService } from './legal-entities.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
@@ -22,19 +17,22 @@ import { ChatterRefRegistry } from '../../core/chatter/chatter-ref.registry';
 import { ApprovalsService } from '../../core/approvals/approvals.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { fullName } from '../../shared/utils/user-name';
+import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
 import {
   WORKSPACE_ERROR_CODES,
   WORKSPACE_LIMITS,
   WORKSPACE_ARCHIVE_WARN_DAYS,
   workspacePurgeAt,
   daysUntilPurge,
-  pluralDays,
-  formatTaskDeadline,
-  WORKSPACE_ROLES,
+  APP_TIMEZONE,
+  SOURCE_LOCALE,
   WORKSPACE_ROLE_RANK,
   WORKSPACE_HIRE_ROLE,
   REQUISITE_LIMITS,
   REQUISITE_VISIBILITY_EXTRAS,
+  composeSignBasis,
+  signBasisColumnsOf,
+  signBasisPartsOf,
   type MemberRequisites,
   type WorkspaceRequisitesDto,
   type WorkspaceRequisitesInput,
@@ -99,7 +97,16 @@ export class WorkspacesService implements OnModuleInit {
     private approvals: ApprovalsService,
     private legal: LegalEntitiesService,
     private moduleRef: ModuleRef,
+    private i18n: I18nService,
   ) {}
+
+  /**
+   * Имя ступени пропуска в языке ИСТОЧНИКА — для снимков, которые ложатся в БД
+   * (хроника, плейсхолдер уведомления). Живое слово зритель берёт из каталога.
+   */
+  private roleName(role: string): string {
+    return this.i18n.translateFor(SOURCE_LOCALE, `common.role.workspace.${role}`);
+  }
 
   onModuleInit(): void {
     // Хроника организации (core/chatter): HR-события чувствительны — чтение хроники
@@ -149,9 +156,9 @@ export class WorkspacesService implements OnModuleInit {
       where: { ownerId: userId, isActive: true },
     });
     if (owned >= WORKSPACE_LIMITS.maxWorkspacesOwnedPerUser) {
-      throw new BadRequestException(
-        `Лимит организаций: ${WORKSPACE_LIMITS.maxWorkspacesOwnedPerUser}`,
-      );
+      throw badRequest('workspace.limitReached', {
+        max: WORKSPACE_LIMITS.maxWorkspacesOwnedPerUser,
+      });
     }
 
     const ws = await this.db.$transaction(async (tx) => {
@@ -181,7 +188,13 @@ export class WorkspacesService implements OnModuleInit {
       // Головное юрлицо — сторона будущих договоров и владелец счетов. Заводится
       // вместе с организацией: «реквизиты организации» = его реквизиты.
       await tx.legalEntity.create({
-        data: { workspaceId: w.id, name: data.name, isHead: true },
+        data: {
+          workspaceId: w.id,
+          name: data.name,
+          isHead: true,
+          // Основание подписи — структурой; слово к ней подбирается на выходе
+          ...this.legal.defaultSignBasis(),
+        },
       });
       return w;
     });
@@ -227,7 +240,7 @@ export class WorkspacesService implements OnModuleInit {
       where: { id: workspaceId },
       include: { _count: { select: { members: true, tasks: true } } },
     });
-    if (!ws) throw new NotFoundException('Организация не найдена');
+    if (!ws) throw notFound('workspace.notFound');
     return this.serializeWorkspace(ws, ws._count.members, myRole, ws._count.tasks);
   }
 
@@ -244,6 +257,8 @@ export class WorkspacesService implements OnModuleInit {
       contactEmail?: string | null;
       contactPhone?: string | null;
       cardVisibility?: Partial<WorkspaceCardVisibility>;
+      /** Язык БУМАГ организации (умолчание для новых бланков) */
+      documentLanguage?: Locale;
     },
   ): Promise<Workspace> {
     const role = await this.assertCanManage(userId, workspaceId);
@@ -263,6 +278,7 @@ export class WorkspacesService implements OnModuleInit {
         ...(data.website !== undefined ? { website: data.website } : {}),
         ...(data.contactEmail !== undefined ? { contactEmail: data.contactEmail } : {}),
         ...(data.contactPhone !== undefined ? { contactPhone: data.contactPhone } : {}),
+        ...(data.documentLanguage !== undefined ? { documentLanguage: data.documentLanguage } : {}),
         // Store the FULL resolved visibility map (merged over defaults) for predictable reads.
         ...(data.cardVisibility !== undefined
           ? {
@@ -317,7 +333,7 @@ export class WorkspacesService implements OnModuleInit {
     if (dto.directorUserId) {
       const role = await this.getMyRoleOf(dto.directorUserId, workspaceId);
       if (!role || role === 'contractor') {
-        throw new BadRequestException('Директор выбирается из сотрудников организации');
+        throw badRequest('workspace.directorNotMember');
       }
     }
 
@@ -332,12 +348,13 @@ export class WorkspacesService implements OnModuleInit {
       'vatSeries',
       'vatNumber',
       'directorUserId',
-      'signBasis',
     ] as const) {
       if (dto[key] !== undefined) data[key] = dto[key];
     }
     if (dto.vatPayer !== undefined) data.vatPayer = dto.vatPayer;
     if (dto.vatDate !== undefined) data.vatDate = dto.vatDate;
+    // Основание подписи хранится структурой (см. LegalEntitiesService)
+    if (dto.signBasis !== undefined) Object.assign(data, signBasisColumnsOf(dto.signBasis));
 
     // Старая ручка правит ГОЛОВНОЕ юрлицо — прочие редактируются через /legal-entities.
     const head = await this.legal.ensureHeadLegalEntity(workspaceId);
@@ -355,7 +372,7 @@ export class WorkspacesService implements OnModuleInit {
     await this.db.$transaction(async (tx) => {
       const count = await tx.workspaceBankAccount.count({ where: { legalEntityId: head.id } });
       if (count >= REQUISITE_LIMITS.maxBankAccountsPerWorkspace) {
-        throw new BadRequestException('Слишком много счетов — удалите ненужный');
+        throw badRequest('workspace.tooManyBankAccounts');
       }
       // Первый счёт — основной сам; явный isPrimary снимает флаг с прочих.
       const makePrimary = dto.isPrimary || count === 0;
@@ -391,7 +408,7 @@ export class WorkspacesService implements OnModuleInit {
       const acc = await tx.workspaceBankAccount.findFirst({
         where: { id: accountId, legalEntityId: head.id },
       });
-      if (!acc) throw new NotFoundException('Счёт не найден');
+      if (!acc) throw notFound('workspace.bankAccountNotFound');
       if (dto.isPrimary) {
         await tx.workspaceBankAccount.updateMany({
           where: { legalEntityId: head.id, isPrimary: true },
@@ -422,7 +439,7 @@ export class WorkspacesService implements OnModuleInit {
       const acc = await tx.workspaceBankAccount.findFirst({
         where: { id: accountId, legalEntityId: head.id },
       });
-      if (!acc) throw new NotFoundException('Счёт не найден');
+      if (!acc) throw notFound('workspace.bankAccountNotFound');
       await tx.workspaceBankAccount.delete({ where: { id: acc.id } });
       // Основной удалили — роль переходит старейшему из оставшихся: «основной» не
       // должен пропадать, пока есть хоть один счёт (на него смотрят документы).
@@ -477,7 +494,15 @@ export class WorkspacesService implements OnModuleInit {
       vatDate: req?.vatDate ? req.vatDate.toISOString().slice(0, 10) : null,
       directorUserId: req?.directorUserId ?? null,
       directorName: director ? fullName(director) : null,
-      signBasis: req?.signBasis ?? null,
+      // Фраза — для экрана, в языке зрителя; хранится структура
+      signBasis: req
+        ? composeSignBasis(
+            signBasisPartsOf(req),
+            (key, values) => this.i18n.translate(`counterparties.${key}`, values),
+            (iso) => this.i18n.format().date(iso),
+          )
+        : null,
+      signBasisParts: req ? signBasisPartsOf(req) : null,
       bankAccounts: accounts.map((a) => ({
         id: a.id,
         iban: a.iban,
@@ -533,9 +558,9 @@ export class WorkspacesService implements OnModuleInit {
       where: { ownerId: userId, isActive: true },
     });
     if (owned >= WORKSPACE_LIMITS.maxWorkspacesOwnedPerUser) {
-      throw new BadRequestException(
-        `Лимит организаций: ${WORKSPACE_LIMITS.maxWorkspacesOwnedPerUser}. Освободите место, чтобы восстановить`,
-      );
+      throw badRequest('workspace.limitReachedRestore', {
+        max: WORKSPACE_LIMITS.maxWorkspacesOwnedPerUser,
+      });
     }
     await this.db.workspace.update({
       where: { id: workspaceId },
@@ -630,7 +655,7 @@ export class WorkspacesService implements OnModuleInit {
 
     await this.roles.invalidateUserCache(ws.ownerId);
     await this.redis.invalidateUserProfile(ws.ownerId);
-    this.logger.log(`Организация ${workspaceId} удалена по ретеншну архива`);
+    this.logger.log(`Workspace ${workspaceId} purged by the archive retention`);
   }
 
   /**
@@ -673,8 +698,7 @@ export class WorkspacesService implements OnModuleInit {
             workspaceId: w.id,
             workspaceName: w.name,
             days: daysLeft,
-            daysWord: pluralDays(daysLeft),
-            purgeDate: formatTaskDeadline(purgeAt, true),
+            purgeDate: this.i18n.format(SOURCE_LOCALE, APP_TIMEZONE).date(purgeAt),
           },
           ref: { type: 'workspace', id: w.id },
           reason: 'owner',
@@ -726,11 +750,11 @@ export class WorkspacesService implements OnModuleInit {
   ): Promise<void> {
     await this.assertOwner(userId, workspaceId);
     if (toUserId === userId) {
-      throw new BadRequestException('Вы уже владелец');
+      throw badRequest('workspace.alreadyOwner');
     }
     const targetRole = await this.getMyRole(toUserId, workspaceId);
     if (!targetRole) {
-      throw new BadRequestException('Новый владелец должен быть участником организации');
+      throw badRequest('workspace.newOwnerNotMember');
     }
 
     const [actorName, targetName] = await Promise.all([
@@ -873,7 +897,7 @@ export class WorkspacesService implements OnModuleInit {
         },
       },
     });
-    if (!row) throw new NotFoundException('Этот человек не в организации');
+    if (!row) throw notFound('staff.notInWorkspace');
     const roleRow = await this.db.userRole.findFirst({
       where: { userId: targetUserId, context: WS_CONTEXT, tenantId: workspaceId, isActive: true },
       select: { role: true },
@@ -1006,20 +1030,20 @@ export class WorkspacesService implements OnModuleInit {
     const ws = await this.getWorkspaceOrThrow(workspaceId);
 
     if (targetUserId === ws.ownerId) {
-      throw new BadRequestException('Нельзя изменить роль владельца (используйте передачу прав)');
+      throw badRequest('workspace.ownerRoleImmutable');
     }
     const targetRole = await this.getMyRole(targetUserId, workspaceId);
-    if (!targetRole) throw new NotFoundException('Этот человек не в организации');
+    if (!targetRole) throw notFound('staff.notInWorkspace');
 
     if (data.role === 'owner' || data.role === 'contractor') {
-      throw new BadRequestException('Эту роль нельзя назначить вручную');
+      throw badRequest('workspace.roleNotAssignable');
     }
     if (actorRole !== 'owner') {
       if (data.role === 'admin') {
-        throw new ForbiddenException('Назначать Админов может только Владелец');
+        throw forbidden('workspace.adminGrantOwnerOnly');
       }
       if (targetRole === 'admin') {
-        throw new ForbiddenException('Менять роль Админа может только Владелец');
+        throw forbidden('workspace.adminChangeOwnerOnly');
       }
     }
 
@@ -1037,9 +1061,9 @@ export class WorkspacesService implements OnModuleInit {
         changes: [
           {
             field: 'role',
-            label: 'Роль',
-            from: WORKSPACE_ROLES[targetRole]?.name ?? targetRole,
-            to: WORKSPACE_ROLES[data.role]?.name ?? data.role,
+            label: this.i18n.translateFor(SOURCE_LOCALE, 'chatter.fields.staff.role'),
+            from: this.roleName(targetRole),
+            to: this.roleName(data.role),
           },
         ],
         payload: { targetUserId, targetName: await this.userName(targetUserId) },
@@ -1047,7 +1071,11 @@ export class WorkspacesService implements OnModuleInit {
       await this.notifications.send(null, {
         type: 'workspace.role.changed',
         to: [{ userId: targetUserId }],
-        payload: { workspaceId, workspaceName: ws.name, role: WORKSPACE_ROLES[data.role]?.name ?? data.role },
+        payload: {
+          workspaceId,
+          workspaceName: ws.name,
+          roleKey: `common.role.workspace.${data.role}`,
+        },
         workspaceId,
         actorId: userId,
         actionUrl: `/workspaces/${workspaceId}`,
@@ -1078,21 +1106,22 @@ export class WorkspacesService implements OnModuleInit {
     const actorRole = await this.assertCanManage(userId, workspaceId);
     const ws = await this.getWorkspaceOrThrow(workspaceId);
     if (targetUserId === ws.ownerId) {
-      throw new BadRequestException('Нельзя удалить владельца организации');
+      throw badRequest('workspace.ownerNotRemovable');
     }
     const targetRole = await this.getMyRole(targetUserId, workspaceId);
-    if (!targetRole) throw new NotFoundException('Этот человек не в организации');
+    if (!targetRole) throw notFound('staff.notInWorkspace');
     if (targetRole === 'admin' && actorRole !== 'owner') {
-      throw new ForbiddenException('Уволить Админа может только Владелец');
+      throw forbidden('workspace.adminRemoveOwnerOnly');
     }
     // Исключение из организации ≠ увольнение по ТК: договор живёт в КЭДО и после
     // ухода продолжал тикать сроками (ЕСУТД, испытательный, конец договора) по
     // человеку, которого в организации уже нет. Живой договор закрывается кадровым
     // действием «Увольнение» (там же есть галочка «снять и членство»).
     if (await this.activeEmploymentOf(workspaceId, targetUserId)) {
-      throw new ConflictException({
-        message: 'У человека действующий трудовой договор. Оформите увольнение по ТК в его карточке — там же можно снять членство в организации',
-        details: { code: WORKSPACE_ERROR_CODES.employmentActive },
+      // Машинный код остаётся прежним (клиент и сьюта ветвятся по нему), а фразу
+      // подбирает фильтр в языке запроса.
+      throw conflict('workspace.employmentActive', undefined, {
+        code: WORKSPACE_ERROR_CODES.employmentActive,
       });
     }
 
@@ -1134,9 +1163,9 @@ export class WorkspacesService implements OnModuleInit {
   async leaveWorkspace(userId: string, workspaceId: string): Promise<void> {
     const ws = await this.getWorkspaceOrThrow(workspaceId);
     const myRole = await this.getMyRole(userId, workspaceId);
-    if (!myRole) throw new NotFoundException('Вы не состоите в этой организации');
+    if (!myRole) throw notFound('workspace.notMember');
     if (userId === ws.ownerId) {
-      throw new BadRequestException('Владелец не может выйти — сначала передайте права');
+      throw badRequest('workspace.ownerCannotLeave');
     }
     await this.revokeAllWorkspaceRoles(userId, workspaceId);
     await this.staff.removeAllAssignmentsForUser(workspaceId, userId, userId);
@@ -1186,37 +1215,38 @@ export class WorkspacesService implements OnModuleInit {
       select: { id: true, deletedAt: true },
     });
     if (target && target.id === userId) {
-      throw new BadRequestException('Нельзя пригласить самого себя');
+      throw badRequest('workspace.cannotInviteSelf');
     }
     if (target) {
       const existing = await this.db.workspaceMember.findUnique({
         where: { workspaceId_userId: { workspaceId, userId: target.id } },
         select: { id: true },
       });
-      if (existing) throw new ConflictException('Этот человек уже в организации');
+      if (existing) throw conflict('workspace.alreadyMember');
     }
 
     const pending = await this.db.workspaceInvitation.findFirst({
       where: { workspaceId, toPhone: data.phone, status: 'pending' },
       select: { id: true },
     });
-    if (pending) throw new ConflictException('Приглашение на этот номер уже отправлено');
+    if (pending) throw conflict('workspace.invitationPending');
 
     const pendingCount = await this.db.workspaceInvitation.count({
       where: { workspaceId, status: 'pending' },
     });
     if (pendingCount >= WORKSPACE_LIMITS.maxPendingInvitationsPerWorkspace) {
-      throw new BadRequestException('Достигнут лимит одновременных приглашений');
+      throw badRequest('workspace.invitationLimit');
     }
     // Потолок состава был объявлен в shared и НЕ применялся нигде: организация росла
     // без границы, а ростер отдаётся одним куском. Проверяем на входе (тут) и на
     // принятии (там — авторитетно, в транзакции).
     const membersCount = await this.db.workspaceMember.count({ where: { workspaceId } });
     if (membersCount >= WORKSPACE_LIMITS.maxMembersPerWorkspace) {
-      throw new ConflictException({
-        message: `Достигнут потолок состава организации: ${WORKSPACE_LIMITS.maxMembersPerWorkspace}`,
-        details: { code: WORKSPACE_ERROR_CODES.memberLimit },
-      });
+      throw conflict(
+        'workspace.memberLimit',
+        { max: WORKSPACE_LIMITS.maxMembersPerWorkspace },
+        { code: WORKSPACE_ERROR_CODES.memberLimit },
+      );
     }
 
     // Должность/филиалы — из справочников ЭТОЙ организации.
@@ -1225,14 +1255,14 @@ export class WorkspacesService implements OnModuleInit {
         where: { id: data.positionId, workspaceId },
         select: { id: true },
       });
-      if (!pos) throw new NotFoundException('Должность не найдена');
+      if (!pos) throw notFound('staff.positionNotFound');
     }
     const branchIds = [...new Set(data.branchIds ?? [])];
     if (branchIds.length) {
       const found = await this.db.staffBranch.count({
         where: { id: { in: branchIds }, workspaceId },
       });
-      if (found !== branchIds.length) throw new NotFoundException('Филиал не найден');
+      if (found !== branchIds.length) throw notFound('staff.branchNotFound');
     }
 
     const expiresAt = new Date(
@@ -1283,7 +1313,7 @@ export class WorkspacesService implements OnModuleInit {
       refId: workspaceId,
       workspaceId,
       actorId: userId,
-      actorName: inviter ? this.fullName(inviter) : 'Пользователь',
+      actorName: fullName(inviter),
       typeKey: 'staff.invited',
       payload: {
         targetUserId: target?.id ?? null,
@@ -1313,10 +1343,10 @@ export class WorkspacesService implements OnModuleInit {
       where: { id: invitationId },
     });
     if (!inv || inv.workspaceId !== workspaceId) {
-      throw new NotFoundException('Приглашение не найдено');
+      throw notFound('workspace.invitationNotFound');
     }
     if (inv.status !== 'pending') {
-      throw new BadRequestException('Приглашение уже обработано');
+      throw badRequest('workspace.invitationHandled');
     }
     await this.db.workspaceInvitation.update({
       where: { id: invitationId },
@@ -1344,16 +1374,16 @@ export class WorkspacesService implements OnModuleInit {
       include: { workspace: { select: { id: true, name: true, isActive: true } } },
     });
     if (!inv || inv.toUserId !== userId) {
-      throw new NotFoundException('Приглашение не найдено');
+      throw notFound('workspace.invitationNotFound');
     }
     if (inv.status !== 'pending') {
-      throw new BadRequestException('Приглашение уже обработано');
+      throw badRequest('workspace.invitationHandled');
     }
     if (inv.expiresAt <= new Date()) {
-      throw new BadRequestException('Срок приглашения истёк');
+      throw badRequest('workspace.invitationExpired');
     }
     if (!inv.workspace.isActive) {
-      throw new BadRequestException('Организация неактивна');
+      throw badRequest('workspace.inactive');
     }
 
     const me = await this.db.user.findUnique({
@@ -1370,7 +1400,7 @@ export class WorkspacesService implements OnModuleInit {
         data: { status: 'accepted', respondedAt: new Date() },
       });
       if (flipped.count === 0) {
-        throw new BadRequestException('Приглашение уже обработано');
+        throw badRequest('workspace.invitationHandled');
       }
 
       // Потолок состава: считаем В ТРАНЗАКЦИИ — иначе пачка одновременных принятий
@@ -1379,10 +1409,11 @@ export class WorkspacesService implements OnModuleInit {
       if (already === 0) {
         const total = await tx.workspaceMember.count({ where: { workspaceId: inv.workspaceId } });
         if (total >= WORKSPACE_LIMITS.maxMembersPerWorkspace) {
-          throw new ConflictException({
-            message: `В организации уже максимум участников (${WORKSPACE_LIMITS.maxMembersPerWorkspace})`,
-            details: { code: WORKSPACE_ERROR_CODES.memberLimit },
-          });
+          throw conflict(
+            'workspace.memberLimit',
+            { max: WORKSPACE_LIMITS.maxMembersPerWorkspace },
+            { code: WORKSPACE_ERROR_CODES.memberLimit },
+          );
         }
       }
       await tx.workspaceMember.upsert({
@@ -1405,7 +1436,7 @@ export class WorkspacesService implements OnModuleInit {
         refId: inv.workspaceId,
         workspaceId: inv.workspaceId,
         actorId: userId,
-        actorName: me ? this.fullName(me) : 'Пользователь',
+        actorName: fullName(me),
         typeKey: 'staff.hired',
       });
 
@@ -1467,10 +1498,10 @@ export class WorkspacesService implements OnModuleInit {
       include: { workspace: { select: { name: true } } },
     });
     if (!inv || inv.toUserId !== userId) {
-      throw new NotFoundException('Приглашение не найдено');
+      throw notFound('workspace.invitationNotFound');
     }
     if (inv.status !== 'pending') {
-      throw new BadRequestException('Приглашение уже обработано');
+      throw badRequest('workspace.invitationHandled');
     }
     await this.db.workspaceInvitation.update({
       where: { id: invitationId },
@@ -1541,7 +1572,7 @@ export class WorkspacesService implements OnModuleInit {
 
   private async getWorkspaceOrThrow(workspaceId: string) {
     const ws = await this.db.workspace.findUnique({ where: { id: workspaceId } });
-    if (!ws) throw new NotFoundException('Организация не найдена');
+    if (!ws) throw notFound('workspace.notFound');
     return ws;
   }
 
@@ -1562,14 +1593,14 @@ export class WorkspacesService implements OnModuleInit {
     workspaceId: string,
   ): Promise<WorkspaceRole> {
     const role = await this.getMyRole(userId, workspaceId);
-    if (!role) throw new ForbiddenException('Нет доступа к этой организации');
+    if (!role) throw forbidden('workspace.noAccess');
     return role;
   }
 
   private async assertCanManage(userId: string, workspaceId: string) {
     const role = await this.assertMember(userId, workspaceId);
     if (role !== 'owner' && role !== 'admin') {
-      throw new ForbiddenException('Недостаточно прав');
+      throw forbidden('workspace.manageForbidden');
     }
     return role;
   }
@@ -1578,7 +1609,7 @@ export class WorkspacesService implements OnModuleInit {
   private async assertTeamMember(userId: string, workspaceId: string) {
     const role = await this.assertMember(userId, workspaceId);
     if (role === 'contractor') {
-      throw new ForbiddenException('Подрядчику доступны только его задачи');
+      throw forbidden('staff.contractorTasksOnly');
     }
     return role;
   }
@@ -1597,7 +1628,7 @@ export class WorkspacesService implements OnModuleInit {
   private async assertStaffManage(userId: string, workspaceId: string) {
     const role = await this.assertTeamMember(userId, workspaceId);
     if (ROLE_RANK[role] < ROLE_RANK.manager) {
-      throw new ForbiddenException('Недостаточно прав (нужен Менеджер или выше)');
+      throw forbidden('staff.managerRequired');
     }
     return role;
   }
@@ -1605,7 +1636,7 @@ export class WorkspacesService implements OnModuleInit {
   private async assertOwner(userId: string, workspaceId: string) {
     const ws = await this.getWorkspaceOrThrow(workspaceId);
     if (ws.ownerId !== userId) {
-      throw new ForbiddenException('Только владелец может выполнить это действие');
+      throw forbidden('workspace.ownerOnly');
     }
     return ws;
   }
@@ -1681,6 +1712,7 @@ export class WorkspacesService implements OnModuleInit {
       website: string | null;
       contactEmail: string | null;
       contactPhone: string | null;
+      documentLanguage: string;
       cardVisibility: Prisma.JsonValue | null;
       ownerId: string;
       isActive: boolean;
@@ -1719,8 +1751,10 @@ export class WorkspacesService implements OnModuleInit {
       website: show('website', ws.website),
       contactEmail: show('contactEmail', ws.contactEmail),
       contactPhone: show('contactPhone', ws.contactPhone),
-      // Only managers get the editable visibility map.
+      // Только управляющим — карта видимости на правку.
       ...(canSeeAll ? { cardVisibility: vis } : {}),
+      // Язык бумаг видят все: по нему клиент понимает, на каком языке будет документ
+      documentLanguage: coerceLocale(ws.documentLanguage, DEFAULT_DOCUMENT_LANGUAGE),
       ownerId: ws.ownerId,
       membersCount,
       ...(tasksCount !== undefined ? { tasksCount } : {}),

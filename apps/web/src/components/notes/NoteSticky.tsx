@@ -1,6 +1,7 @@
 'use client';
 
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { NOTE_LIMITS, type NoteBoardItemDto, type NoteDetailDto, type NoteDoc, type NoteSpaceRef } from '@superapp/shared';
 import { IconButton, Menu, useConfirm } from '@/components/ui';
 import { uploadFile } from '@/lib/files-api';
@@ -53,6 +54,7 @@ const DRAG_EDGE = 48;
 const DRAG_STEP = 14;
 
 function NoteStickyInner({ item, scope, boardRef, tags, autoFocus, autoPos, boardWidth, mobile, readOnly, onMove, onResize, onFront, onCollapse, onColor, onOpenNote, onTagClick }: Props) {
+  const t = useTranslations('notes');
   const qc = useQueryClient();
   const [confirm, confirmUi] = useConfirm();
   const [shareOpen, setShareOpen] = useState(false);
@@ -219,7 +221,7 @@ function NoteStickyInner({ item, scope, boardRef, tags, autoFocus, autoPos, boar
     [scope.workspaceId],
   );
 
-  const title = item.note.title || firstLine(doc) || 'Без названия';
+  const title = item.note.title || firstLine(doc) || t('untitled');
   const canEdit = item.note.access !== 'viewer' && !readOnly;
   const canManage = item.note.access === 'manager' || item.note.access === 'owner';
   const refetch = () => void qc.invalidateQueries({ queryKey: notesRootKey });
@@ -252,41 +254,44 @@ function NoteStickyInner({ item, scope, boardRef, tags, autoFocus, autoPos, boar
       style={style}
       data-note-id={item.noteId}
       onPointerDown={() => onFront(item.noteId)}
-      aria-label={`Заметка на доске: ${title}`}
+      aria-label={t('sticky.aria', { title })}
     >
       <header className="note-sticky-head" onPointerDown={onHeadPointerDown}>
         <span className="note-sticky-title" title={title}>{title}</span>
-        {save.saving && <span className="note-sticky-saving" aria-label="Сохраняем" />}
+        {save.saving && <span className="note-sticky-saving" aria-label={t('sticky.saving')} />}
         {canEdit && <NoteColorMenu value={item.note.color} onChange={(c) => onColor(item.noteId, c)} size={24} />}
-        <IconButton icon={item.collapsed ? 'arrowsOut' : 'minus'} label={item.collapsed ? 'Развернуть' : 'Свернуть в полоску'} size={24} iconSize={14} onClick={() => onCollapse(item.noteId, !item.collapsed)} />
-        {onOpenNote && <IconButton icon="external" label="Открыть в Заметках" size={24} iconSize={14} onClick={() => onOpenNote(item.noteId)} />}
+        <IconButton icon={item.collapsed ? 'arrowsOut' : 'minus'} label={t(item.collapsed ? 'sticky.expand' : 'sticky.collapse')} size={24} iconSize={14} onClick={() => onCollapse(item.noteId, !item.collapsed)} />
+        {onOpenNote && <IconButton icon="external" label={t('sticky.openInNotes')} size={24} iconSize={14} onClick={() => onOpenNote(item.noteId)} />}
         {/* Действия заметки — здесь: отдельной панели редактора у страницы нет */}
         <Menu
-          label="Действия с заметкой"
+          label={t('sticky.actions')}
           align="end"
           items={
             readOnly
               ? [
-                  { key: 'restore', label: 'Восстановить', icon: 'restore', onClick: () => void run(() => restoreNote(item.noteId)) },
+                  { key: 'restore', label: t('sticky.restore'), icon: 'restore', onClick: () => void run(() => restoreNote(item.noteId)) },
                   {
                     key: 'purge',
-                    label: 'Удалить навсегда',
+                    label: t('sticky.purge'),
                     icon: 'delete',
                     danger: true,
                     separatorBefore: true,
                     onClick: () =>
-                      confirm({ title: 'Удалить навсегда?', message: 'Заметку нельзя будет восстановить', danger: true }, () => run(() => purgeNote(item.noteId))),
+                      confirm(
+                        { title: t('sticky.purgeConfirm.title'), message: t('sticky.purgeConfirm.message'), danger: true },
+                        () => run(() => purgeNote(item.noteId)),
+                      ),
                   },
                 ]
               : [
-                  { key: 'share', label: 'Доступ', icon: 'share', onClick: () => setShareOpen(true) },
-                  { key: 'history', label: 'История версий', icon: 'restore', onClick: () => setHistoryOpen(true) },
-                  { key: 'related', label: 'Привязать к…', icon: 'link', onClick: () => setRelatedOpen(true), disabled: !canEdit },
+                  { key: 'share', label: t('sticky.share'), icon: 'share', onClick: () => setShareOpen(true) },
+                  { key: 'history', label: t('sticky.history'), icon: 'restore', onClick: () => setHistoryOpen(true) },
+                  { key: 'related', label: t('sticky.related'), icon: 'link', onClick: () => setRelatedOpen(true), disabled: !canEdit },
                   ...(canManage
                     ? [
                         {
                           key: 'trash',
-                          label: 'В корзину',
+                          label: t('sticky.toTrash'),
                           icon: 'delete' as const,
                           danger: true,
                           separatorBefore: true,
@@ -297,7 +302,7 @@ function NoteStickyInner({ item, scope, boardRef, tags, autoFocus, autoPos, boar
                 ]
           }
           trigger={({ ref, onClick, ...aria }) => (
-            <IconButton ref={ref} icon="more" label="Действия с заметкой" size={24} iconSize={14} onClick={onClick} {...aria} />
+            <IconButton ref={ref} icon="more" label={t('sticky.actions')} size={24} iconSize={14} onClick={onClick} {...aria} />
           )}
         />
       </header>
@@ -310,7 +315,7 @@ function NoteStickyInner({ item, scope, boardRef, tags, autoFocus, autoPos, boar
               onChange={onDocChange}
               compact
               readOnly={!canEdit}
-              placeholder="Стикер…"
+              placeholder={t('sticky.placeholder')}
               autoFocus={autoFocus}
               scope={scope}
               noteId={item.noteId}

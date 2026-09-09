@@ -23,20 +23,20 @@ export class DocsController {
   constructor(private readonly docs: DocsService) {}
 
   @Get('status')
-  @ApiOperation({ summary: 'Статус движка документов (веб прячет кнопки, когда выключен)' })
+  @ApiOperation({ summary: 'The documents engine status (the web hides its buttons when it is off)' })
   status() {
     return { success: true, data: this.docs.getStatus() };
   }
 
   @Post('from-file')
-  @ApiOperation({ summary: 'Оживить загруженный файл в документ (явный акт человека)' })
+  @ApiOperation({ summary: 'Turn an uploaded file into a document (an explicit human act)' })
   async fromFile(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const dto = documentFromFileSchema.parse(body);
     return { success: true, data: await this.docs.createFromFile(user.sub, dto) };
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Документ (права зрителя считаются с учётом места, откуда пришёл)' })
+  @ApiOperation({ summary: 'The document (the viewer rights account for the place they came from)' })
   async get(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -48,7 +48,7 @@ export class DocsController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Переименовать / перевести в «только чтение» (владелец)' })
+  @ApiOperation({ summary: 'Rename it / switch it to read-only (the owner)' })
   async update(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -59,14 +59,14 @@ export class DocsController {
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Закрыть документ навсегда (владелец): правка и история вех' })
+  @ApiOperation({ summary: 'Close the document for good (the owner): editing and the milestone history' })
   async remove(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     await this.docs.archiveByUser(user.sub, id);
     return { success: true };
   }
 
   @Get(':id/versions')
-  @ApiOperation({ summary: 'Вехи документа (неизменяемые снимки)' })
+  @ApiOperation({ summary: 'The document milestones (immutable snapshots)' })
   async versions(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -78,7 +78,7 @@ export class DocsController {
   }
 
   @Post(':id/versions')
-  @ApiOperation({ summary: '«Сохранить версию» вручную (pre_sign — отпечаток под ЭЦП)' })
+  @ApiOperation({ summary: '“Save a version” manually (pre_sign — the imprint under an ECP signature)' })
   async createVersion(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -91,7 +91,7 @@ export class DocsController {
   }
 
   @Post(':id/versions/:versionId/restore')
-  @ApiOperation({ summary: 'Вернуть веху как текущее содержимое (право — как на правку)' })
+  @ApiOperation({ summary: 'Restore a milestone as the current content (the right is the editing right)' })
   async restoreVersion(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -105,7 +105,7 @@ export class DocsController {
   }
 
   @Post(':id/rendition')
-  @ApiOperation({ summary: 'Заказать производную: PDF-отпечаток (печать/ЭЦП) или текст для ИИ' })
+  @ApiOperation({ summary: 'Order a rendition: the PDF imprint (printing / ECP) or the text for AI' })
   async rendition(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -117,7 +117,7 @@ export class DocsController {
   }
 
   @Post(':id/open')
-  @ApiOperation({ summary: 'Запуск редактора: адрес iframe + токен для form POST' })
+  @ApiOperation({ summary: 'Launching the editor: the iframe address plus the token for the form POST' })
   async open(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,

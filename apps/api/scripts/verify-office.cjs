@@ -79,7 +79,7 @@ async function main() {
     check('создатель = host', room.json?.data?.myRole === 'host', `myRole=${room.json?.data?.myRole}`);
 
     const unnamed = await call('POST', O('/rooms'), t1, {});
-    check('встреча без имени → «Встреча ДД.ММ ЧЧ:ММ»', /^Встреча \d{2}\.\d{2} \d{2}:\d{2}$/.test(unnamed.json?.data?.name ?? ''), unnamed.json?.data?.name);
+    check('встреча без имени → «<слово> ДД.ММ ЧЧ:ММ»', /^\S+ \d{2}\.\d{2} \d{2}:\d{2}$/.test(unnamed.json?.data?.name ?? ''), unnamed.json?.data?.name);
 
     const list1 = await call('GET', O(''), t1);
     check('список встреч у создателя', list1.ok && (list1.json?.data ?? []).length >= 2, `n=${(list1.json?.data ?? []).length}`);

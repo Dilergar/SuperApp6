@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useParams, useRouter } from 'next/navigation';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
@@ -15,6 +16,7 @@ import {
   workspaceMembersKey,
 } from '@/lib/queries';
 import { getCallsStatus } from '@/lib/calls-api';
+import { useFormatters } from '@/lib/format';
 import { EntitySelector } from '@/components/EntitySelector';
 import type { EntityOption, Principal } from '@/lib/entities';
 import { PersonAvatar } from '@/app/messenger/messenger-ui';
@@ -39,6 +41,10 @@ import {
  * live-присутствия Discord-фазы.
  */
 export default function OfficePage() {
+  const t = useTranslations('office');
+  const tws = useTranslations('workspaces');
+  const tc = useTranslations('common');
+  const f = useFormatters();
   const { isReady, user } = useRequireAuth();
   const { id: wsId } = useParams<{ id: string }>();
   const router = useRouter();
@@ -107,13 +113,13 @@ export default function OfficePage() {
   if (!myRole || isContractor) {
     return (
       <>
-        <PageHeader breadcrumb={wsQ.data?.name ?? 'Организация'} title="Виртуальный офис" />
+        <PageHeader breadcrumb={wsQ.data?.name ?? tws('orgFallback')} title={t('title')} />
         <BentoGrid>
           <Card span={12}>
             <EmptyState
               icon="lock"
-              title="Нет доступа к Виртуальному офису"
-              description="Встречи организации открыты её команде."
+              title={t('noAccess.title')}
+              description={t('noAccess.description')}
             />
           </Card>
         </BentoGrid>
@@ -124,15 +130,15 @@ export default function OfficePage() {
   const canManage = (room: OfficeRoomDto) =>
     room.myRole === 'host' || myRank >= WORKSPACE_ROLE_RANK.manager;
 
-  const meetingWhen = (iso: string) =>
-    new Date(iso).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  // Дата и время — правилами региона зрителя, месяц — словом его языка.
+  const meetingWhen = (iso: string) => `${f.date(iso, 'dayMonthLong')}, ${f.time(iso)}`;
 
   return (
     <>
       <PageHeader
-        breadcrumb={wsQ.data?.name ?? 'Организация'}
-        title="Виртуальный офис"
-        description="Видеовстречи и собрания — устойчивы даже на слабом интернете"
+        breadcrumb={wsQ.data?.name ?? tws('orgFallback')}
+        title={t('title')}
+        description={t('description')}
         actions={
           <Button
             variant="primary"
@@ -142,15 +148,15 @@ export default function OfficePage() {
             disabled={!callsEnabled}
             onClick={() => createMut.mutate()}
           >
-            Новая встреча
+            {t('newMeeting')}
           </Button>
         }
       />
 
       {!callsEnabled && (
         <div style={{ marginBottom: 'var(--gap-grid)' }}>
-          <Alert tone="warning" title="Звонки не подключены">
-            Поднимите LiveKit (docker compose --profile calls up -d) и задайте LIVEKIT_* в apps/api/.env
+          <Alert tone="warning" title={t('callsOff.title')}>
+            {t('callsOff.body')}
           </Alert>
         </div>
       )}
@@ -166,7 +172,7 @@ export default function OfficePage() {
           <Card key={room.id} span={6}>
             <CardHeader
               title={room.name}
-              actions={<Chip tone="success" icon="record">в эфире</Chip>}
+              actions={<Chip tone="success" icon="record">{t('onAir')}</Chip>}
             />
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', marginBottom: 'var(--spacing-4)' }}>
               <AvatarStack
@@ -183,18 +189,18 @@ export default function OfficePage() {
                   />
                 ))}
               </AvatarStack>
-              <span className="label-sm">{room.live?.participantCount ?? 0} в звонке</span>
+              <span className="label-sm">{t('inCall', { n: room.live?.participantCount ?? 0 })}</span>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
               <Button variant="primary" size="sm" icon="video" href={`/workspaces/${wsId}/office/${room.id}`}>
-                Присоединиться
+                {t('actions.join')}
               </Button>
               <Button variant="matte" tone="accent" size="sm" icon="userAdd" onClick={() => setInviteFor(room)}>
-                Пригласить
+                {t('actions.invite')}
               </Button>
               {canManage(room) && (
                 <Button variant="ghost" size="sm" tone="danger" icon="callEnd" onClick={() => setEndFor(room)}>
-                  Завершить
+                  {t('actions.end')}
                 </Button>
               )}
             </div>
@@ -204,19 +210,19 @@ export default function OfficePage() {
         {/* ---------- Встречи (ссылки живут) ---------- */}
         <Card span={12}>
           <CardHeader
-            title="Встречи"
-            subtitle="Ссылка работает для всех сотрудников, пока встречу не завершили"
+            title={t('rooms.title')}
+            subtitle={t('rooms.subtitle')}
           />
           {roomsQ.isLoading ? (
             <LoadingBlock />
           ) : idleRooms.length === 0 && liveRooms.length === 0 ? (
             <EmptyState
               icon="video"
-              title="Пока нет встреч"
-              description="Создайте первую — ссылка сразу заработает для всех сотрудников."
+              title={t('rooms.emptyTitle')}
+              description={t('rooms.emptyDescription')}
               action={
                 <Button variant="primary" tone="success" icon="video" disabled={!callsEnabled} onClick={() => createMut.mutate()}>
-                  Новая встреча
+                  {t('newMeeting')}
                 </Button>
               }
             />
@@ -242,14 +248,14 @@ export default function OfficePage() {
                   </div>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flex: 'none', flexWrap: 'wrap' }}>
                     <Button variant="outline" size="sm" icon="external" href={`/workspaces/${wsId}/office/${room.id}`}>
-                      Открыть
+                      {t('actions.open')}
                     </Button>
                     <Button variant="matte" tone="accent" size="sm" icon="userAdd" onClick={() => setInviteFor(room)}>
-                      Пригласить
+                      {t('actions.invite')}
                     </Button>
                     {canManage(room) && (
                       <Button variant="ghost" size="sm" tone="danger" icon="close" onClick={() => setEndFor(room)}>
-                        Завершить
+                        {t('actions.end')}
                       </Button>
                     )}
                   </div>
@@ -262,7 +268,7 @@ export default function OfficePage() {
         {/* ---------- История: завершённые встречи (дом протоколов) ---------- */}
         {history.length > 0 && (
           <Card span={12}>
-            <CardHeader title="История" subtitle="Чат завершённой встречи остаётся — там же будут протоколы" />
+            <CardHeader title={t('history.title')} subtitle={t('history.subtitle')} />
             <div className="density-compact ui-stack" style={{ gap: '0.375rem' }}>
               {history.map((room) => (
                 <div
@@ -280,12 +286,12 @@ export default function OfficePage() {
                         <PersonChip size="S" userId={room.createdBy.id} firstName={room.createdBy.firstName} avatar={room.createdBy.avatar} />
                       )}
                       <span className="label-sm">
-                        Завершена{room.endedAt ? ` ${meetingWhen(room.endedAt)}` : ''}
+                        {room.endedAt ? t('endedAt', { when: meetingWhen(room.endedAt) }) : t('ended')}
                       </span>
                     </div>
                   </div>
                   <Button variant="outline" size="sm" icon="messenger" href={`/workspaces/${wsId}/office/${room.id}`}>
-                    Чат и история
+                    {t('actions.chatAndHistory')}
                   </Button>
                 </div>
               ))}
@@ -300,7 +306,7 @@ export default function OfficePage() {
                     loading={historyQ.isFetchingNextPage}
                     onClick={() => void historyQ.fetchNextPage()}
                   >
-                    Показать ещё
+                    {t('showMore')}
                   </Button>
                 </div>
               </>
@@ -322,13 +328,9 @@ export default function OfficePage() {
         open={!!endFor}
         onClose={() => setEndFor(null)}
         onConfirm={() => { if (endFor) endMut.mutate(endFor.id); }}
-        title={endFor ? `Завершить «${endFor.name}»?` : 'Завершить встречу?'}
-        message={
-          endFor?.live
-            ? 'Звонок закончится для всех участников, ссылка перестанет работать. Чат встречи останется.'
-            : 'Ссылка перестанет работать. Чат встречи останется.'
-        }
-        confirmLabel="Завершить"
+        title={endFor ? t('endConfirm.titleNamed', { name: endFor.name }) : t('endConfirm.title')}
+        message={endFor?.live ? t('endConfirm.messageLive') : t('endConfirm.message')}
+        confirmLabel={t('actions.end')}
         danger
         loading={endMut.isPending}
       />
@@ -348,6 +350,8 @@ function InviteModal({
   currentUserId: string;
   onClose: () => void;
 }) {
+  const t = useTranslations('office');
+  const tc = useTranslations('common');
   const [selected, setSelected] = useState<Principal[]>([]);
   const [error, setError] = useState('');
   const membersQ = useQuery({
@@ -385,12 +389,12 @@ function InviteModal({
     <Modal
       open
       onClose={onClose}
-      title="Пригласить на встречу"
-      subtitle={`«${room.name}» — коллеги получат уведомление со ссылкой`}
+      title={t('inviteModal.title')}
+      subtitle={t('inviteModal.subtitle', { name: room.name })}
       size="sm"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Отмена</Button>
+          <Button variant="ghost" onClick={onClose}>{tc('actions.cancel')}</Button>
           <Button
             variant="primary"
             tone="success"
@@ -399,7 +403,7 @@ function InviteModal({
             loading={inviteMut.isPending}
             onClick={() => inviteMut.mutate()}
           >
-            Пригласить
+            {t('actions.invite')}
           </Button>
         </>
       }
@@ -410,7 +414,7 @@ function InviteModal({
           value={selected}
           onChange={setSelected}
           options={memberOptions}
-          placeholder="Выберите сотрудников…"
+          placeholder={t('inviteModal.placeholder')}
         />
       </div>
     </Modal>

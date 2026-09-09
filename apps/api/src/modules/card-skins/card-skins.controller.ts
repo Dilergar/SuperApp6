@@ -14,58 +14,58 @@ export class CardSkinsController {
   constructor(private readonly skins: CardSkinsService) {}
 
   @Get('catalog')
-  @ApiOperation({ summary: 'Каталог скинов карточки (с флагами доступности/владения)' })
+  @ApiOperation({ summary: 'Card skin catalogue (with availability and ownership flags)' })
   async catalog(@CurrentUser() user: JwtPayload) {
     return { success: true, data: await this.skins.listCatalog(user.sub) };
   }
 
   @Get('wallet')
-  @ApiOperation({ summary: 'Баланс платформенной валюты (для покупки скинов)' })
+  @ApiOperation({ summary: 'Platform currency balance (used to buy skins)' })
   async wallet(@CurrentUser() user: JwtPayload) {
     return { success: true, data: await this.skins.getWallet(user.sub) };
   }
 
   @Post('wallet/topup')
-  @ApiOperation({ summary: 'ТЕСТ: пополнить платформенную валюту (реальная оплата — позже)' })
+  @ApiOperation({ summary: 'TEST: top up the platform currency (real payment comes later)' })
   async topup(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const { amount } = topUpSkinWalletSchema.parse(body);
     return { success: true, data: await this.skins.topUp(user.sub, amount) };
   }
 
   @Post(':skinId/buy')
-  @ApiOperation({ summary: 'Купить скин (списывает валюту, выдаёт экземпляр с серийником)' })
+  @ApiOperation({ summary: 'Buy a skin (charges the currency, mints an instance with a serial number)' })
   async buy(@CurrentUser() user: JwtPayload, @Param('skinId') skinId: string) {
     return { success: true, data: await this.skins.buy(user.sub, skinId) };
   }
 
   @Get('inventory')
-  @ApiOperation({ summary: 'Мои скины (экземпляры)' })
+  @ApiOperation({ summary: 'My skins (instances)' })
   async inventory(@CurrentUser() user: JwtPayload) {
     return { success: true, data: await this.skins.listInventory(user.sub) };
   }
 
   @Get('equip')
-  @ApiOperation({ summary: 'Текущее надевание (дефолт + по группам + флаг премиума)' })
+  @ApiOperation({ summary: 'What is equipped now (default + per group + the premium flag)' })
   async equip(@CurrentUser() user: JwtPayload) {
     return { success: true, data: await this.skins.getEquipState(user.sub) };
   }
 
   @Put('equip/default')
-  @ApiOperation({ summary: 'Надеть скин по умолчанию (или null — снять)' })
+  @ApiOperation({ summary: 'Equip the default skin (null takes it off)' })
   async equipDefault(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const { instanceId } = equipDefaultSkinSchema.parse(body);
     return { success: true, data: await this.skins.equipDefault(user.sub, instanceId) };
   }
 
   @Put('equip/group')
-  @ApiOperation({ summary: 'Надеть скин на группу (премиум; или null — снять)' })
+  @ApiOperation({ summary: 'Equip a skin for a group (premium; null takes it off)' })
   async equipGroup(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const { circleId, instanceId } = equipGroupSkinSchema.parse(body);
     return { success: true, data: await this.skins.equipForGroup(user.sub, circleId, instanceId) };
   }
 
   @Get('resolve')
-  @ApiOperation({ summary: 'Скины, которые видит зритель на карточках указанных людей' })
+  @ApiOperation({ summary: 'Skins the viewer sees on the cards of the given people' })
   async resolve(@CurrentUser() user: JwtPayload, @Query('userIds') userIds?: string) {
     const ids = (userIds ?? '').split(',').map((s) => s.trim()).filter(Boolean);
     return { success: true, data: await this.skins.resolveSkinsForViewer(user.sub, ids) };

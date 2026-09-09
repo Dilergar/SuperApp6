@@ -16,11 +16,25 @@ import { apiGet } from '@/lib/api';
 import { workspaceKey, workspaceMembersKey, workspaceStaffKey, orgRootKey } from '@/lib/queries';
 import { invalidateEntities } from '@/lib/entities';
 import { Alert, Chip, Field, Icon, IconButton, PageHeader } from '@/components/ui';
-import { WORKSPACE_ROLES, type StaffDirectory, type Workspace, type WorkspaceMember, type WorkspaceRole } from '@superapp/shared';
+import { useFormatters } from '@/lib/format';
+import { useTranslations } from 'next-intl';
+import type { StaffDirectory, Workspace, WorkspaceMember } from '@superapp/shared';
 
-export const roleLabel = (r: string): string => WORKSPACE_ROLES[r as WorkspaceRole]?.name ?? r;
+/**
+ * Имя ступени пропуска на языке зрителя. Реестр `WORKSPACE_ROLES` несёт ПРАВА,
+ * слово даёт каталог (`common.role.workspace.<role>`); неизвестное значение
+ * (роль из будущей миграции) показываем как есть, а не ключом.
+ */
+export function useRoleLabel(): (role: string) => string {
+  const tc = useTranslations('common');
+  return (role: string) => {
+    const key = `role.workspace.${role}`;
+    const label = tc(key);
+    return label.endsWith(key) ? role : label;
+  };
+}
 
-/** «Санжар Намыс» → ['Санжар', 'Намыс'] — PersonChip ждёт имя и фамилию раздельно. */
+/** Полное имя → пара «имя, фамилия»: PersonChip ждёт их раздельно. */
 export const splitName = (full: string): [string, string | null] => {
   const parts = (full || '?').trim().split(/\s+/);
   return [parts[0] ?? '?', parts.slice(1).join(' ') || null];
@@ -130,13 +144,14 @@ export function MembersHeader({
   onCloseError?: () => void;
   children?: ReactNode;
 }) {
+  const t = useTranslations('staff');
   return (
     <>
       <PageHeader
         breadcrumb={ws.name}
         title={title}
         description={description}
-        chip={<Chip tone="accent" icon="people">{ws.membersCount} чел.</Chip>}
+        chip={<Chip tone="accent" icon="people">{t('peopleCount', { n: ws.membersCount })}</Chip>}
         actions={actions}
       />
       {error && (
@@ -167,6 +182,7 @@ export function DirectoryRow({
   onRemove?: () => void;
   onClick?: () => void;
 }) {
+  const t = useTranslations('staff');
   return (
     <div
       role={onClick ? 'button' : undefined}
@@ -186,7 +202,7 @@ export function DirectoryRow({
         {subtitle && <span className="label-sm" style={{ display: 'block', marginTop: '0.125rem' }}>{subtitle}</span>}
       </span>
       {chips}
-      {onRemove && <IconButton icon="delete" label={`Удалить «${title}»`} size={30} onClick={(e) => { e.stopPropagation(); onRemove(); }} />}
+      {onRemove && <IconButton icon="delete" label={t('deleteEntity', { name: title })} size={30} onClick={(e) => { e.stopPropagation(); onRemove(); }} />}
     </div>
   );
 }
@@ -236,22 +252,30 @@ export function ChipPickerBlock({
  * переписывать: данные приезжают с ростером ТОЛЬКО управляющим либо по флагам
  * «Видимости в Компаниях» самого человека).
  */
-export function MemberRequisitesBlock({ req, title = 'Реквизиты' }: { req: NonNullable<WorkspaceMember['requisites']>; title?: string }) {
+export function MemberRequisitesBlock({ req, title }: { req: NonNullable<WorkspaceMember['requisites']>; title?: string }) {
+  const t = useTranslations('staff');
+  const f = useFormatters();
   const rows: Array<{ label: string; value: string | null }> = [
-    { label: 'ИИН', value: req.iin },
+    { label: t('requisites.iin'), value: req.iin },
     {
-      label: 'Дата рождения',
-      value: req.dateOfBirth ? new Date(req.dateOfBirth).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : null,
+      label: t('requisites.dateOfBirth'),
+      value: req.dateOfBirth ? f.date(req.dateOfBirth, 'long') : null,
     },
-    { label: 'Адрес проживания', value: req.residentialAddress },
+    { label: t('requisites.address'), value: req.residentialAddress },
     {
-      label: 'Удостоверение',
+      label: t('requisites.idDoc'),
       value: req.idDocNumber
-        ? `№ ${req.idDocNumber}${req.idDocIssuedBy ? `, ${req.idDocIssuedBy}` : ''}${req.idDocIssuedAt ? `, от ${new Date(req.idDocIssuedAt).toLocaleDateString('ru-RU')}` : ''}`
+        ? [
+            t('requisites.idDocNumber', { number: req.idDocNumber }),
+            req.idDocIssuedBy,
+            req.idDocIssuedAt ? t('requisites.idDocIssuedAt', { date: f.date(req.idDocIssuedAt) }) : null,
+          ]
+            .filter(Boolean)
+            .join(', ')
         : null,
     },
     {
-      label: 'Карта для выплат',
+      label: t('requisites.paymentCard'),
       value: req.paymentCard
         ? `${req.paymentCard.pan.replace(/(\d{4})(?=\d)/g, '$1 ')} · ${req.paymentCard.holderName}${req.paymentCard.iban ? ` · ${req.paymentCard.iban}` : ''}`
         : null,
@@ -260,7 +284,7 @@ export function MemberRequisitesBlock({ req, title = 'Реквизиты' }: { r
   if (!rows.length) return null;
   return (
     <div>
-      <div className="label-caps" style={{ marginBottom: 'var(--spacing-2)' }}>{title}</div>
+      <div className="label-caps" style={{ marginBottom: 'var(--spacing-2)' }}>{title ?? t('requisites.title')}</div>
       <div className="ui-stack" style={{ gap: '0.25rem' }}>
         {rows.map((r) => (
           <div key={r.label} style={{ display: 'flex', gap: 'var(--spacing-3)', fontSize: '0.85rem', lineHeight: 1.6, flexWrap: 'wrap' }}>
@@ -269,9 +293,7 @@ export function MemberRequisitesBlock({ req, title = 'Реквизиты' }: { r
           </div>
         ))}
       </div>
-      <p className="label-sm" style={{ margin: 'var(--spacing-2) 0 0', opacity: 0.6 }}>
-        Данные для договоров и выплат. Сотрудник видит их в своей анкете; коллегам они не показываются.
-      </p>
+      <p className="label-sm" style={{ margin: 'var(--spacing-2) 0 0', opacity: 0.6 }}>{t('requisites.note')}</p>
     </div>
   );
 }

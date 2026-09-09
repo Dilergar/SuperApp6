@@ -1,9 +1,24 @@
-import type { CounterpartyKind } from '../constants/counterparties';
+import type { CounterpartyKind, SignBasisKind, SignBasisParts } from '../constants/counterparties';
 
 // ============================================================
 // Сервис «Контрагенты» — DTO. Каждый тип стоит на ОБЕИХ сторонах провода
 // (правило «Контракт API ↔ клиенты»).
 // ============================================================
+
+/**
+ * Основание подписи НА ПРОВОДЕ — структура, а не готовая фраза: так она и
+ * ХРАНИТСЯ. Печатное словосочетание собирается на выходе (`composeSignBasis`):
+ * в языке зрителя на экране и в языке БЛАНКА внутри документа.
+ */
+export interface SignBasisInput {
+  kind: SignBasisKind;
+  /** Номер документа-основания («5», «12-к») — только у видов с `needsDetail` */
+  number?: string;
+  /** YYYY-MM-DD — дата документа-основания */
+  date?: string;
+  /** Своя формулировка целиком (`kind: 'custom'`) */
+  text?: string;
+}
 
 /** Контактное лицо контрагента: кому уходит документ на подпись */
 export interface CounterpartyContactDto {
@@ -51,7 +66,14 @@ export interface CounterpartyDto {
   vatDate: string | null;
   /** Руководитель — ТЕКСТ (человек вне платформы, user_id у него нет) */
   directorName: string | null;
+  /**
+   * Печатная строка для шапки договора («Устава», «Приказа № 12-к от 15.01.2026»)
+   * — СОБРАННАЯ на выходе, в языке зрителя: на экране карточки её читает человек.
+   * В документ она попадает не отсюда, а из группы полей шаблона, где язык свой.
+   */
   signBasis: string | null;
+  /** Она же полями формы — так она и хранится */
+  signBasisParts: SignBasisParts | null;
   phone: string | null;
   email: string | null;
   comment: string | null;

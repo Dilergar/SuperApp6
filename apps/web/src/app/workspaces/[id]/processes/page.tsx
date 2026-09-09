@@ -21,9 +21,8 @@ import {
   processReportKey,
   workspaceKey,
 } from '@/lib/queries';
+import { useTranslations } from 'next-intl';
 import {
-  PROCESS_INSTANCE_STATUS_LABELS,
-  PROCESS_VERSION_STATUS_LABELS,
   WORKSPACE_ROLE_RANK,
   type ProcessDefinitionDto,
   type ProcessInboxItem,
@@ -37,10 +36,15 @@ import {
   Modal, PageHeader, StatTile, SegmentedControl, type TabItem,
 } from '@/components/ui';
 import { humanizeDuration, INSTANCE_STATUS_TONE } from './process-lib';
+import { useDurationUnits } from './use-duration-units';
+import { useFormatters } from '@/lib/format';
 
 type Tab = 'defs' | 'inbox' | 'journal' | 'analytics';
 
 export default function ProcessesPage() {
+  const t = useTranslations('processes');
+  const tc = useTranslations('common');
+  const tw = useTranslations('workspaces');
   const { isReady } = useRequireAuth();
   const { id: wsId } = useParams<{ id: string }>();
   const router = useRouter();
@@ -95,29 +99,29 @@ export default function ProcessesPage() {
   if (!isReady) return <LoadingBlock />;
 
   const tabs: TabItem<Tab>[] = [
-    { key: 'defs', label: 'Процессы', icon: 'processes', count: defs?.length ?? 0 },
-    { key: 'inbox', label: 'Входящие', icon: 'empty', count: inbox?.length ?? 0 },
-    { key: 'journal', label: 'Журнал', icon: 'journal', count: running },
-    ...(canEdit ? [{ key: 'analytics' as Tab, label: 'Аналитика', icon: 'chart' as const }] : []),
+    { key: 'defs', label: t('tab.defs'), icon: 'processes', count: defs?.length ?? 0 },
+    { key: 'inbox', label: t('tab.inbox'), icon: 'empty', count: inbox?.length ?? 0 },
+    { key: 'journal', label: t('tab.journal'), icon: 'journal', count: running },
+    ...(canEdit ? [{ key: 'analytics' as Tab, label: t('tab.analytics'), icon: 'chart' as const }] : []),
   ];
 
   return (
     <>
       <PageHeader
-        breadcrumb={ws?.name ?? 'Организация'}
-        title="Процессы"
-        description="Конструктор бизнес-процессов: задачи отделам, согласования, автоматизация"
+        breadcrumb={ws?.name ?? tw('breadcrumb')}
+        title={t('title')}
+        description={t('subtitle')}
         actions={
           canEdit && tab === 'defs' ? (
             <Button variant="primary" tone="success" icon="add" onClick={() => { setCreateError(null); setCreating(true); }}>
-              Новый процесс
+              {t('create.action')}
             </Button>
           ) : undefined
         }
       />
 
       <div style={{ marginBottom: 'var(--gap-grid)' }}>
-        <SegmentedControl aria-label="Разделы Процессов" items={tabs} value={tab} onChange={setTab} />
+        <SegmentedControl aria-label={t('sections')} items={tabs} value={tab} onChange={setTab} />
       </div>
 
       {tab === 'defs' && (
@@ -128,15 +132,17 @@ export default function ProcessesPage() {
             <Card span={12}>
               <EmptyState
                 icon="processes"
-                title="Процессов пока нет"
+                title={t('empty.title')}
                 description={
                   canEdit
-                    ? 'Создайте первый: нарисуйте цепочку задач и согласований на канвасе.'
-                    : 'Когда менеджеры создадут процессы, они появятся здесь.'
+                    ? t('empty.canEdit')
+                    : t('empty.readOnly')
                 }
                 action={
                   canEdit ? (
-                    <Button variant="primary" tone="success" icon="add" onClick={() => setCreating(true)}>Новый процесс</Button>
+                    <Button variant="primary" tone="success" icon="add" onClick={() => setCreating(true)}>
+                    {t('create.action')}
+                  </Button>
                   ) : undefined
                 }
               />
@@ -151,17 +157,17 @@ export default function ProcessesPage() {
                     subtitle={d.description || undefined}
                     actions={
                       <Chip size="sm" tone={d.hasPublished ? 'success' : 'neutral'}>
-                        {d.hasPublished ? 'Опубликован' : PROCESS_VERSION_STATUS_LABELS[d.latestVersionStatus]}
+                        {d.hasPublished ? t('publishedChip') : t(`versionStatus.${d.latestVersionStatus}`)}
                       </Chip>
                     }
                   />
                   <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap', alignItems: 'center' }}>
                     <Chip size="sm" tone="neutral">v{d.latestVersion}</Chip>
                     {d.runningCount > 0 && (
-                      <Chip size="sm" tone="warning" icon="inProgress">идёт: {d.runningCount}</Chip>
+                      <Chip size="sm" tone="warning" icon="inProgress">{t('runningChip', { count: d.runningCount })}</Chip>
                     )}
                     {d.visibility === 'admins' && (
-                      <Chip size="sm" tone="neutral" icon="lock">только админы</Chip>
+                      <Chip size="sm" tone="neutral" icon="lock">{t('visibility.admins')}</Chip>
                     )}
                   </div>
                 </Link>
@@ -179,12 +185,12 @@ export default function ProcessesPage() {
         <Modal
           open
           onClose={() => setCreating(false)}
-          title="Новый процесс"
-          subtitle="Дальше откроется канвас: триггер → шаги → конец"
+          title={t('create.title')}
+          subtitle={t('create.subtitle')}
           size="sm"
           footer={
             <>
-              <Button variant="ghost" onClick={() => setCreating(false)}>Отмена</Button>
+              <Button variant="ghost" onClick={() => setCreating(false)}>{tc('actions.cancel')}</Button>
               <Button
                 variant="primary"
                 tone="success"
@@ -193,7 +199,7 @@ export default function ProcessesPage() {
                 loading={createMut.isPending}
                 onClick={() => createMut.mutate(newName.trim())}
               >
-                Создать
+                {tc('actions.create')}
               </Button>
             </>
           }
@@ -201,10 +207,10 @@ export default function ProcessesPage() {
           <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
             {createError && <Alert tone="danger" onClose={() => setCreateError(null)}>{createError}</Alert>}
             <Input
-              label="Название процесса"
+              label={t('create.nameLabel')}
               value={newName}
               autoFocus
-              placeholder="Например: Замена техники"
+              placeholder={t('create.namePlaceholder')}
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && newName.trim() && !createMut.isPending) createMut.mutate(newName.trim()); }}
             />
@@ -216,6 +222,7 @@ export default function ProcessesPage() {
 }
 
 function InboxList({ wsId, items }: { wsId: string; items: ProcessInboxItem[] }) {
+  const t = useTranslations('processes');
   const qc = useQueryClient();
   const router = useRouter();
   const [err, setErr] = useState<string | null>(null);
@@ -243,9 +250,9 @@ function InboxList({ wsId, items }: { wsId: string; items: ProcessInboxItem[] })
       )}
 
       <Card span={12}>
-        <CardHeader title="Входящие" subtitle="Задачи вашего отдела в очереди и согласования на вас" />
+        <CardHeader title={t('tab.inbox')} subtitle={t('inbox.subtitle')} />
         {items.length === 0 ? (
-          <EmptyState icon="empty" title="Входящих нет" description="Здесь появятся задачи отдела, которые можно забрать, и согласования." />
+          <EmptyState icon="empty" title={t('inbox.emptyTitle')} description={t('inbox.emptyText')} />
         ) : (
           <div className="ui-stack" style={{ gap: '0.5rem' }}>
             {items.map((it) => (
@@ -258,7 +265,7 @@ function InboxList({ wsId, items }: { wsId: string; items: ProcessInboxItem[] })
                 }}
               >
                 <Chip size="sm" tone={it.kind === 'approve' ? 'success' : 'warning'}>
-                  {it.kind === 'approve' ? 'Одобрение' : 'Задача отдела'}
+                  {it.kind === 'approve' ? t('inbox.kindApprove') : t('inbox.kindTask')}
                 </Chip>
                 <div style={{ flex: '1 1 14rem', minWidth: 0 }}>
                   <div className="title-sm">{it.title}</div>
@@ -267,18 +274,18 @@ function InboxList({ wsId, items }: { wsId: string; items: ProcessInboxItem[] })
                   </div>
                   {it.detail && <div className="label-sm">{it.detail}</div>}
                 </div>
-                {it.overdue && <Chip size="sm" tone="danger" icon="overdue">просрочено</Chip>}
+                {it.overdue && <Chip size="sm" tone="danger" icon="overdue">{t('overdue')}</Chip>}
                 <PersonChip size="S" userId={it.startedBy.id} firstName={it.startedBy.firstName} lastName={it.startedBy.lastName} />
                 {/* Только «Забрать»: решения переехали в общую стопку «Ждут решения»,
                     и рисовать здесь вторые кнопки решения значило бы держать две
                     расходящиеся правды о том, кто вправе решать. */}
                 {it.kind === 'claim' && (
                   <Button variant="primary" tone="success" size="sm" icon="download" loading={claimMut.isPending} onClick={() => claimMut.mutate(it)}>
-                    Забрать
+                    {t('inbox.take')}
                   </Button>
                 )}
                 <Button variant="ghost" size="sm" iconRight="caretRight" href={`/workspaces/${wsId}/processes/instances/${it.instanceId}`}>
-                  процесс
+                  {t('processWord')}
                 </Button>
               </div>
             ))}
@@ -290,6 +297,8 @@ function InboxList({ wsId, items }: { wsId: string; items: ProcessInboxItem[] })
 }
 
 function Analytics({ wsId, defs }: { wsId: string; defs: ProcessDefinitionDto[] }) {
+  const t = useTranslations('processes');
+  const units = useDurationUnits();
   const [selected, setSelected] = useState<string | null>(defs[0]?.id ?? null);
   const { data: report, isLoading } = useQuery({
     queryKey: processReportKey(wsId, selected ?? ''),
@@ -301,7 +310,7 @@ function Analytics({ wsId, defs }: { wsId: string; defs: ProcessDefinitionDto[] 
     return (
       <BentoGrid>
         <Card span={12}>
-          <EmptyState icon="chart" title="Сначала создайте процесс" description="Аналитика появится после первых запусков." />
+          <EmptyState icon="chart" title={t('analytics.needProcess')} description={t('analytics.needProcessText')} />
         </Card>
       </BentoGrid>
     );
@@ -322,25 +331,25 @@ function Analytics({ wsId, defs }: { wsId: string; defs: ProcessDefinitionDto[] 
       ) : report.rows.length === 0 ? (
         <BentoGrid>
           <Card span={12}>
-            <EmptyState icon="clock" title="Нет завершённых шагов" description="Запустите и пройдите процесс — «секундомер отделов» начнёт считать." />
+            <EmptyState icon="clock" title={t('analytics.noSteps')} description={t('analytics.noStepsText')} />
           </Card>
         </BentoGrid>
       ) : (
         <BentoGrid>
-          <StatTile span={6} label="Завершено процессов" value={report.finishedInstances} icon="checkCircle" tone="success" />
-          <StatTile span={6} label="Среднее время процесса" value={humanizeDuration(report.avgCycleMs)} icon="clock" tone="accent" />
+          <StatTile span={6} label={t('analytics.finished')} value={report.finishedInstances} icon="checkCircle" tone="success" />
+          <StatTile span={6} label={t('analytics.avgCycle')} value={humanizeDuration(report.avgCycleMs, units)} icon="clock" tone="accent" />
 
           <Card span={12}>
-            <CardHeader title="Время по шагам" subtitle="Где процесс стоит дольше всего" />
+            <CardHeader title={t('analytics.byStep')} subtitle={t('analytics.byStepHint')} />
             <div className="density-compact">
               <div
                 className="label-caps"
                 style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.6fr)', gap: '0.5rem', padding: '0 0.75rem 0.5rem' }}
               >
-                <span>Шаг</span>
-                <span style={{ textAlign: 'right' }}>Среднее</span>
-                <span style={{ textAlign: 'right' }}>Максимум</span>
-                <span style={{ textAlign: 'right' }}>Раз</span>
+                <span>{t('analytics.colStep')}</span>
+                <span style={{ textAlign: 'right' }}>{t('analytics.colAvg')}</span>
+                <span style={{ textAlign: 'right' }}>{t('analytics.colMax')}</span>
+                <span style={{ textAlign: 'right' }}>{t('analytics.colTimes')}</span>
               </div>
               <div className="ui-stack" style={{ gap: '0.25rem' }}>
                 {report.rows.map((r) => (
@@ -356,8 +365,8 @@ function Analytics({ wsId, defs }: { wsId: string; defs: ProcessDefinitionDto[] 
                       {r.label}
                       {r.departmentName && <span className="label-sm"> · {r.departmentName}</span>}
                     </span>
-                    <span className="title-sm" style={{ textAlign: 'right' }}>{humanizeDuration(r.avgMs)}</span>
-                    <span className="body-sm" style={{ textAlign: 'right' }}>{humanizeDuration(r.maxMs)}</span>
+                    <span className="title-sm" style={{ textAlign: 'right' }}>{humanizeDuration(r.avgMs, units)}</span>
+                    <span className="body-sm" style={{ textAlign: 'right' }}>{humanizeDuration(r.maxMs, units)}</span>
                     <span className="body-sm" style={{ textAlign: 'right' }}>{r.count}</span>
                   </div>
                 ))}
@@ -371,12 +380,15 @@ function Analytics({ wsId, defs }: { wsId: string; defs: ProcessDefinitionDto[] 
 }
 
 function JournalTable({ wsId, instances }: { wsId: string; instances: ProcessInstanceDto[] }) {
+  const t = useTranslations('processes');
+  const f = useFormatters();
+  const units = useDurationUnits();
   return (
     <BentoGrid>
       <Card span={12}>
-        <CardHeader title="Журнал запусков" subtitle="Кто запустил, где сейчас токен и сколько идёт" />
+        <CardHeader title={t('journal.title')} subtitle={t('journal.subtitle')} />
         {instances.length === 0 ? (
-          <EmptyState icon="journal" title="Запущенных процессов пока нет" description="Запустите процесс — он появится здесь с таймингом по шагам." />
+          <EmptyState icon="journal" title={t('journal.emptyTitle')} description={t('journal.emptyText')} />
         ) : (
           <div className="density-compact ui-stack" style={{ gap: '0.375rem' }}>
             {instances.map((inst) => (
@@ -390,14 +402,14 @@ function JournalTable({ wsId, instances }: { wsId: string; instances: ProcessIns
                 }}
               >
                 <Chip size="sm" tone={INSTANCE_STATUS_TONE[inst.status] ?? 'neutral'} title={inst.error ?? undefined}>
-                  {PROCESS_INSTANCE_STATUS_LABELS[inst.status]}
+                  {t(`instanceStatus.${inst.status}`)}
                 </Chip>
                 <div style={{ flex: '1 1 14rem', minWidth: 0 }}>
                   <div className="title-sm">
                     {inst.definitionName} <span className="label-sm">v{inst.version}</span>
                   </div>
                   {inst.currentSteps.length > 0 && (
-                    <div className="label-sm">сейчас: {inst.currentSteps.join(', ')}</div>
+                    <div className="label-sm">{t('journal.now', { steps: inst.currentSteps.join(', ') })}</div>
                   )}
                   {inst.error && (
                     <div className="label-sm" style={{ color: 'var(--danger)' }}>{inst.error}</div>
@@ -405,10 +417,12 @@ function JournalTable({ wsId, instances }: { wsId: string; instances: ProcessIns
                 </div>
                 <PersonChip size="S" userId={inst.startedBy.id} firstName={inst.startedBy.firstName} lastName={inst.startedBy.lastName} />
                 <div className="label-sm" style={{ textAlign: 'right' }}>
-                  <div>{new Date(inst.startedAt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+                  <div>{f.dateTime(inst.startedAt, 'dayMonthLong')}</div>
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
                     <Icon name="clock" size={12} />
-                    {inst.finishedAt ? humanizeDuration(inst.durationMs) : humanizeDuration(Date.now() - new Date(inst.startedAt).getTime())}
+                    {inst.finishedAt
+                      ? humanizeDuration(inst.durationMs, units)
+                      : humanizeDuration(Date.now() - new Date(inst.startedAt).getTime(), units)}
                   </div>
                 </div>
               </a>

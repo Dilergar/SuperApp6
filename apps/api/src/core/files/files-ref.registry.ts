@@ -151,7 +151,7 @@ export class FilesRefRegistry {
         await observer.onLinked(tx, event);
       } catch (err) {
         this.logger.warn(
-          `наблюдатель привязок "${key}" упал на ${event.refType}:${event.refId}: ` +
+          `the link watcher "${key}" failed on ${event.refType}:${event.refId}: ` +
             `${err instanceof Error ? err.message : String(err)}`,
         );
       }

@@ -1,9 +1,17 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { DRIVE_LIMITS, DRIVE_NODE_REF_TYPE, WORKSPACE_ROLE_RANK, driveNameKey } from '@superapp/shared';
+import {
+  DRIVE_LIMITS,
+  DRIVE_NODE_REF_TYPE,
+  SOURCE_LOCALE,
+  WORKSPACE_ROLE_RANK,
+  driveNameKey,
+} from '@superapp/shared';
 import { FilesService } from '../../core/files/files.service';
 import { ShareLinksService } from '../../core/share-links/share-links.service';
 import { DatabaseService } from '../../shared/database/database.service';
+import { badRequest, forbidden, notFound } from '../../shared/errors/api-error';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { DriveAccessService } from './drive-access.service';
 import { DriveJobs } from './drive.jobs';
 import { DriveSearchService } from './drive-search.service';
@@ -31,6 +39,7 @@ export class DriveTreeService {
     private readonly jobs: DriveJobs,
     private readonly search: DriveSearchService,
     private readonly shareLinks: ShareLinksService,
+    private readonly i18n: I18nService,
   ) {}
 
   // ============================================================
@@ -52,13 +61,13 @@ export class DriveTreeService {
    */
   async move(userId: string, ids: string[], targetParentId?: string): Promise<number> {
     const nodes = await this.db.driveNode.findMany({ where: { id: { in: ids }, trashedAt: null } });
-    if (!nodes.length) throw new NotFoundException('Объекты не найдены');
+    if (!nodes.length) throw notFound('drive.nodesNotFound');
     const spaceId = nodes[0].spaceId;
     if (nodes.some((n) => n.spaceId !== spaceId)) {
-      throw new BadRequestException('Все объекты должны быть с одного диска');
+      throw badRequest('drive.sameSpace');
     }
     if (nodes.some((n) => n.systemKey)) {
-      throw new BadRequestException('Системную папку переносить нельзя');
+      throw badRequest('drive.systemFolderMove');
     }
 
     const space = await this.db.driveSpace.findUniqueOrThrow({ where: { id: spaceId } });
@@ -67,16 +76,16 @@ export class DriveTreeService {
     for (const n of nodes) this.acl.assertAccess(this.acl.nodeAccess(n, spaceAccess, grants), 'editor');
 
     const parentId = targetParentId ?? space.rootId;
-    if (!parentId) throw new NotFoundException('Диск не найден');
+    if (!parentId) throw notFound('drive.spaceNotFound');
 
     const movedIds: string[] = [];
     const result = await this.db.$transaction(async (tx) => {
       await this.lockSpace(tx, spaceId);
 
       const target = await tx.driveNode.findUnique({ where: { id: parentId } });
-      if (!target || target.trashedAt) throw new NotFoundException('Папка назначения не найдена');
-      if (target.kind !== 'folder') throw new BadRequestException('Переносить можно только в папку');
-      if (target.spaceId !== spaceId) throw new BadRequestException('Папка назначения на другом диске');
+      if (!target || target.trashedAt) throw notFound('drive.targetNotFound');
+      if (target.kind !== 'folder') throw badRequest('drive.targetNotFolder');
+      if (target.spaceId !== spaceId) throw badRequest('drive.targetOtherSpace');
       this.acl.assertAccess(this.acl.nodeAccess(target, spaceAccess, grants), 'editor');
 
       let moved = 0;
@@ -85,11 +94,11 @@ export class DriveTreeService {
         const node = await tx.driveNode.findUnique({ where: { id } });
         if (!node || node.trashedAt || node.spaceId !== spaceId) continue;
         if (node.parentId === parentId) continue;
-        if (!node.parentId) throw new BadRequestException('Корень переносить нельзя');
+        if (!node.parentId) throw badRequest('drive.rootMove');
 
         // Цикл: нельзя положить папку внутрь себя или своего потомка.
         if (target.id === node.id || target.ancestorIds.includes(node.id)) {
-          throw new BadRequestException('Нельзя переместить папку внутрь самой себя');
+          throw badRequest('drive.folderIntoItself');
         }
 
         const newAnc = [...target.ancestorIds, target.id];
@@ -97,7 +106,7 @@ export class DriveTreeService {
         const delta = newDepth - node.depth;
         const subtreeMax = await this.subtreeMaxDepth(tx, node.id, node.depth);
         if (subtreeMax + delta > DRIVE_LIMITS.maxDepth) {
-          throw new BadRequestException(`Слишком глубокая вложенность (максимум ${DRIVE_LIMITS.maxDepth})`);
+          throw badRequest('drive.tooDeep', { max: DRIVE_LIMITS.maxDepth });
         }
 
         const oldAnc = node.ancestorIds;
@@ -171,13 +180,13 @@ export class DriveTreeService {
   ): Promise<{ copied: number; queued: number }> {
     const { space, access, grants } = await this.drive.resolveSpace(userId, ref);
     const parentId = ref.parentId ?? space.rootId;
-    if (!parentId) throw new NotFoundException('Диск не найден');
+    if (!parentId) throw notFound('drive.spaceNotFound');
     const target = await this.drive.loadNode(parentId);
     this.drive.assertSameSpace(target, space.id);
     this.acl.assertAccess(this.acl.nodeAccess(target, access, grants), 'editor');
 
     const sources = await this.db.driveNode.findMany({ where: { id: { in: ids }, trashedAt: null } });
-    if (!sources.length) throw new NotFoundException('Объекты не найдены');
+    if (!sources.length) throw notFound('drive.nodesNotFound');
 
     let copied = 0;
     let queued = 0;
@@ -188,7 +197,7 @@ export class DriveTreeService {
       const srcAccess = this.acl.nodeAccess(source, await this.acl.spaceAccess(userId, srcSpace), grants);
       this.acl.assertAccess(srcAccess, 'viewer');
       if (source.id === target.id || target.ancestorIds.includes(source.id)) {
-        throw new BadRequestException('Нельзя скопировать папку внутрь самой себя');
+        throw badRequest('drive.copyIntoItself');
       }
 
       if (source.kind === 'folder') {
@@ -251,8 +260,8 @@ export class DriveTreeService {
   async trash(userId: string, ids: string[]): Promise<number> {
     const nodes = await this.db.driveNode.findMany({ where: { id: { in: ids }, trashedAt: null } });
     if (!nodes.length) return 0;
-    if (nodes.some((n) => n.systemKey)) throw new BadRequestException('Системную папку удалить нельзя');
-    if (nodes.some((n) => !n.parentId)) throw new BadRequestException('Корень диска удалить нельзя');
+    if (nodes.some((n) => n.systemKey)) throw badRequest('drive.systemFolderDelete');
+    if (nodes.some((n) => !n.parentId)) throw badRequest('drive.rootDelete');
 
     const grants = await this.acl.grantsFor(userId);
     const spaces = new Map<string, Awaited<ReturnType<typeof this.acl.spaceAccess>>>();
@@ -304,7 +313,7 @@ export class DriveTreeService {
     const nodes = await this.db.driveNode.findMany({
       where: { id: { in: ids }, trashedAt: { not: null }, trashedRootId: null },
     });
-    if (!nodes.length) throw new NotFoundException('В корзине ничего не найдено');
+    if (!nodes.length) throw notFound('drive.trashEmpty');
 
     const grants = await this.acl.grantsFor(userId);
     let restored = 0;
@@ -321,7 +330,12 @@ export class DriveTreeService {
         const alive = parent && !parent.trashedAt ? parent : null;
         const home = alive ?? (await tx.driveNode.findUniqueOrThrow({ where: { id: space.rootId as string } }));
 
-        const name = await this.drive.freeName(tx, home.id, node.name, 'восстановлен');
+        const name = await this.drive.freeName(
+          tx,
+          home.id,
+          node.name,
+          this.i18n.translateFor(SOURCE_LOCALE, 'drive.restoredSuffix'),
+        );
         const newAnc = [...home.ancestorIds, home.id];
         const delta = newAnc.length - node.depth;
         await tx.driveNode.update({
@@ -379,8 +393,8 @@ export class DriveTreeService {
     if (userId) {
       const grants = await this.acl.grantsFor(userId);
       for (const n of roots) {
-        if (n.systemKey) throw new BadRequestException('Системную папку удалить нельзя');
-        if (!n.parentId) throw new BadRequestException('Корень диска удалить нельзя');
+        if (n.systemKey) throw badRequest('drive.systemFolderDelete');
+        if (!n.parentId) throw badRequest('drive.rootDelete');
         const space = await this.db.driveSpace.findUniqueOrThrow({ where: { id: n.spaceId } });
         const access = this.acl.nodeAccess(n, await this.acl.spaceAccess(userId, space), grants);
         this.acl.assertAccess(access, 'editor');
@@ -393,9 +407,7 @@ export class DriveTreeService {
         if (space.ownerType === 'workspace') {
           const rank = await this.acl.workspaceRank(userId, space.ownerId);
           if (rank < WORKSPACE_ROLE_RANK.manager) {
-            throw new ForbiddenException(
-              'Удалить навсегда файлы организации может только управляющий — остальные удаляют в корзину',
-            );
+            throw forbidden('drive.purgeManagerOnly');
           }
         }
       }
@@ -429,7 +441,7 @@ export class DriveTreeService {
         // должна оставить дерево наполовину удалённым: логируем и идём дальше, ночная
         // сверка движка приберёт байты по своим правилам.
         await this.files.systemDeleteFile(fileId).catch((err: unknown) => {
-          this.logger.warn(`не удалось удалить файл ${fileId}: ${err instanceof Error ? err.message : err}`);
+          this.logger.warn(`Could not delete file ${fileId}: ${err instanceof Error ? err.message : err}`);
         });
       }
       // Каскад по parent_id снял бы потомков и сам, но явное удаление по списку

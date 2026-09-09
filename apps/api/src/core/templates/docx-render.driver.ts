@@ -6,11 +6,12 @@ import {
   TemplateDataError,
   type TemplateExtractResult,
   type TemplateRenderDriver,
+  type TemplatePrint,
   type TemplateRenderOptions,
   type TemplateRenderResult,
   type TemplateValues,
 } from './template.types';
-import { applyFormatterChain, TemplateFormatError, type TemplateLanguage } from './template-formatters';
+import { applyFormatterChain, TemplateFormatError } from './template-formatters';
 
 /**
  * СОБСТВЕННЫЙ драйвер рендера .docx (решение пользователя 2026-08-03: готовые
@@ -19,7 +20,7 @@ import { applyFormatterChain, TemplateFormatError, type TemplateLanguage } from 
  *
  * Как устроен .docx: ZIP с XML-частями; текст лежит в узлах `<w:t>` внутри
  * прогонов `<w:r>`. Главная беда формата — Word РВЁТ набранный тег
- * `{Организация.БИН}` на несколько прогонов (проверка орфографии, правки,
+ * `{Organization.Bin}` на несколько прогонов (проверка орфографии, правки,
  * смена форматирования посреди слова), поэтому наивная замена тег не находит.
  *
  * Подход (алгоритм по образцу MIT-кода docxtemplater, реализация своя):
@@ -34,7 +35,7 @@ import { applyFormatterChain, TemplateFormatError, type TemplateLanguage } from 
  *     Всё прочее в файле — стили, картинки, нумерация — не трогается байт-в-байт.
  *  5. Повтор {#X}…{/X} работает на СТРОКЕ ТАБЛИЦЫ: находим объемлющий <w:tr>,
  *     клонируем строку на каждый элемент коллекции, теги внутри резолвятся в
- *     скоупе элемента ({Поле}, {№}), затем — обычная подстановка.
+ *     скоупе элемента ({Field}, {No}), затем — обычная подстановка.
  *
  * Ошибки — ТОЛЬКО громкие (главный урок проверки кандидатов): битый шаблон →
  * TemplateCompileError со списком, нет данных → TemplateDataError со списком
@@ -186,7 +187,8 @@ function lexPart(xml: string, partLabel: string): LexedPart {
     if (ch === '}') {
       issues.push({
         code: 'stray_close',
-        message: `«}» без открывающей скобки: …${snippet(virtual, i)}…`,
+        messageKey: 'templates.strayClose',
+        params: { snippet: snippet(virtual, i) },
         part: partLabel,
       });
       i++;
@@ -202,9 +204,8 @@ function lexPart(xml: string, partLabel: string): LexedPart {
       const broken = j < virtual.length && virtual[j] === SENTINEL;
       issues.push({
         code: broken ? 'tag_broken_by_break' : 'unclosed_tag',
-        message: broken
-          ? `Тег разорван концом абзаца или переносом строки: …${snippet(virtual, i)}… — тег должен целиком стоять в одном абзаце`
-          : `Незакрытый тег: …${snippet(virtual, i)}…`,
+        messageKey: broken ? 'templates.tagBrokenByBreak' : 'templates.unclosedTag',
+        params: { snippet: snippet(virtual, i) },
         part: partLabel,
       });
       i = virtual[j] === '{' ? j : j + 1;
@@ -214,7 +215,7 @@ function lexPart(xml: string, partLabel: string): LexedPart {
     const raw = `{${rawInner}}`;
     const inner = decodeEntities(rawInner).trim();
     if (!inner) {
-      issues.push({ code: 'empty_tag', message: 'Пустой тег {}', tag: raw, part: partLabel });
+      issues.push({ code: 'empty_tag', messageKey: 'templates.emptyTag', tag: raw, part: partLabel });
     } else if (inner.startsWith('#')) {
       tags.push({
         kind: 'repeat_open',
@@ -242,7 +243,13 @@ function lexPart(xml: string, partLabel: string): LexedPart {
         return { key: key.trim(), ...(arg !== undefined ? { arg } : {}) };
       });
       if (!path) {
-        issues.push({ code: 'empty_tag', message: `Тег без имени поля: ${raw}`, tag: raw, part: partLabel });
+        issues.push({
+          code: 'empty_tag',
+          messageKey: 'templates.tagWithoutField',
+          params: { tag: raw },
+          tag: raw,
+          part: partLabel,
+        });
       } else {
         tags.push({ kind: 'field', path, formatters, raw, vStart: i, vEnd: j + 1 });
       }
@@ -307,7 +314,7 @@ function makeResolver(values: TemplateValues): ResolveFn {
   return (path) => lookupPath(values, path.split('.'));
 }
 
-/** Скоуп элемента повтора: сначала поля элемента и {№}, затем общий скоуп */
+/** Скоуп элемента повтора: сначала поля элемента и {No}, затем общий скоуп */
 function makeItemResolver(item: unknown, index: number, parent: ResolveFn): ResolveFn {
   return (path) => {
     if (path === TEMPLATE_INDEX_TAG) return index + 1;
@@ -381,8 +388,8 @@ function substituteFields(
   partLabel: string,
   resolve: ResolveFn,
   blankRepeatMarkers: boolean,
-  /** Язык БЛАНКА — доезжает до форматтеров «дата:долгая» и «прописью». */
-  language: TemplateLanguage,
+  /** Язык БЛАНКА и его слова — доезжают до форматтеров «date:long» и «words». */
+  print: TemplatePrint,
 ): SubstituteOutcome {
   const part = lexPart(xml, partLabel);
   const edits: NodeEdit[] = [];
@@ -406,16 +413,25 @@ function substituteFields(
     }
     let rendered: string;
     try {
-      rendered = applyFormatterChain(value, tag.formatters, tag.path, language);
+      rendered = applyFormatterChain(value, tag.formatters, tag.path, print);
     } catch (e) {
       if (e instanceof TemplateFormatError) {
-        missing.push(e.message);
+        // Значение не легло в формат — тег остаётся в списке недостающих ПУТЁМ,
+        // а не фразой: язык замечания подбирается на выходе (templateIssueText).
+        missing.push(tag.path);
+        issues.push({ code: 'unknown_formatter', messageKey: e.messageKey, params: e.params, tag: tag.path });
         continue;
       }
       throw e;
     }
     if (rendered.length > TEMPLATE_LIMITS.maxValueLength) {
-      missing.push(`«${tag.path}»: значение длиннее ${TEMPLATE_LIMITS.maxValueLength} символов`);
+      missing.push(tag.path);
+      issues.push({
+        code: 'bad_structure',
+        messageKey: 'templates.valueTooLong',
+        params: { tag: tag.path, limit: TEMPLATE_LIMITS.maxValueLength },
+        tag: tag.path,
+      });
       continue;
     }
     edits.push(...tagEdits(part, tag, valueToInnerXml(rendered)));
@@ -442,14 +458,14 @@ class DocxRenderDriver implements TemplateRenderDriver {
       return {
         entries: {},
         parts: [],
-        issues: [{ code: 'bad_structure', message: 'Файл не читается как .docx (повреждённый ZIP)' }],
+        issues: [{ code: 'bad_structure', messageKey: 'templates.brokenZip' }],
       };
     }
     if (!entries['word/document.xml']) {
       return {
         entries,
         parts: [],
-        issues: [{ code: 'bad_structure', message: 'В файле нет word/document.xml — это не документ Word' }],
+        issues: [{ code: 'bad_structure', messageKey: 'templates.notWordDocument' }],
       };
     }
     const decoder = new TextDecoder('utf-8');
@@ -495,7 +511,8 @@ class DocxRenderDriver implements TemplateRenderDriver {
         if (open) {
           issues.push({
             code: 'repeat_nested',
-            message: `Повтор ${t.raw} начат до закрытия ${open.raw} — вложенные повторы не поддерживаются`,
+            messageKey: 'templates.repeatNested',
+            params: { tag: t.raw, open: open.raw },
             tag: t.raw,
             part: partLabel,
           });
@@ -507,7 +524,8 @@ class DocxRenderDriver implements TemplateRenderDriver {
       if (!open) {
         issues.push({
           code: 'repeat_without_open',
-          message: `${t.raw} без открывающего {#…}`,
+          messageKey: 'templates.repeatWithoutOpen',
+          params: { tag: t.raw },
           tag: t.raw,
           part: partLabel,
         });
@@ -516,7 +534,8 @@ class DocxRenderDriver implements TemplateRenderDriver {
       if (t.path && t.path !== open.path) {
         issues.push({
           code: 'repeat_without_open',
-          message: `${t.raw} не совпадает с открывающим {#${open.path}}`,
+          messageKey: 'templates.repeatMismatch',
+          params: { tag: t.raw, open: open.raw },
           tag: t.raw,
           part: partLabel,
         });
@@ -528,21 +547,24 @@ class DocxRenderDriver implements TemplateRenderDriver {
       if (!openRow) {
         issues.push({
           code: 'repeat_outside_table',
-          message: `Повтор {#${open.path}} должен стоять в строке таблицы («Повторять строку»)`,
+          messageKey: 'templates.repeatOutsideTable',
+          params: { open: open.raw },
           tag: open.raw,
           part: partLabel,
         });
       } else if (!closeRow || closeRow.start !== openRow.start) {
         issues.push({
           code: 'repeat_cross_row',
-          message: `{#${open.path}} и ${t.raw} должны стоять в ОДНОЙ строке таблицы`,
+          messageKey: 'templates.repeatCrossRow',
+          params: { open: open.raw, close: t.raw },
           tag: open.raw,
           part: partLabel,
         });
       } else if (pairs.some((p) => p.row.start === openRow.start)) {
         issues.push({
           code: 'bad_structure',
-          message: `В одной строке таблицы два повтора — оставьте один ({#${open.path}})`,
+          messageKey: 'templates.repeatTwiceInRow',
+          params: { open: open.raw },
           tag: open.raw,
           part: partLabel,
         });
@@ -554,7 +576,8 @@ class DocxRenderDriver implements TemplateRenderDriver {
     if (open) {
       issues.push({
         code: 'repeat_unclosed',
-        message: `Повтор {#${open.path}} не закрыт — добавьте {/${open.path}} в ту же строку таблицы`,
+        messageKey: 'templates.repeatUnclosed',
+        params: { open: open.raw, close: `{/${open.path}}` },
         tag: open.raw,
         part: partLabel,
       });
@@ -562,12 +585,12 @@ class DocxRenderDriver implements TemplateRenderDriver {
     return pairs;
   }
 
-  render(template: Buffer, values: TemplateValues, opts?: TemplateRenderOptions): TemplateRenderResult {
-    const strict = opts?.strict !== false;
-    const language: TemplateLanguage = opts?.language ?? 'ru';
+  render(template: Buffer, values: TemplateValues, opts: TemplateRenderOptions): TemplateRenderResult {
+    const strict = opts.strict !== false;
+    const print = opts.print;
     if (template.length > TEMPLATE_LIMITS.maxTemplateBytes) {
       throw new TemplateCompileError([
-        { code: 'bad_structure', message: 'Шаблон больше допустимого размера' },
+        { code: 'bad_structure', messageKey: 'templates.templateTooBig' },
       ]);
     }
     const { entries, parts, issues: zipIssues } = this.unzipParts(template);
@@ -601,18 +624,18 @@ class DocxRenderDriver implements TemplateRenderDriver {
           continue;
         }
         if (!Array.isArray(collection)) {
-          missing.push(`«${pair.open.path}»: ожидался список строк`);
+          missing.push(`${pair.open.path}: a list of rows was expected`); // диагностика лога
           continue;
         }
         if (collection.length > TEMPLATE_LIMITS.maxRepeatItems) {
-          missing.push(`«${pair.open.path}»: больше ${TEMPLATE_LIMITS.maxRepeatItems} строк`);
+          missing.push(`${pair.open.path}: more than ${TEMPLATE_LIMITS.maxRepeatItems} rows`);
           continue;
         }
         const rowXml = xml.slice(pair.row.start, pair.row.end);
         const renderedRows: string[] = [];
         for (let idx = 0; idx < collection.length; idx++) {
           const itemResolve = makeItemResolver(collection[idx], idx, resolveGlobal);
-          const sub = substituteFields(rowXml, p.label, itemResolve, true, language);
+          const sub = substituteFields(rowXml, p.label, itemResolve, true, print);
           // Структурных ошибок внутри строки быть не может — часть уже проверена целиком
           missing.push(...sub.missing.map((path) => `${pair.open.path}[${idx + 1}].${path}`));
           replaced += sub.replaced;
@@ -625,7 +648,7 @@ class DocxRenderDriver implements TemplateRenderDriver {
 
       // Проход 3 — обычные поля (оставшиеся маркеры сорванных повторов затираются:
       // их отсутствие данных уже сосчитано выше)
-      const out = substituteFields(xml, p.label, resolveGlobal, true, language);
+      const out = substituteFields(xml, p.label, resolveGlobal, true, print);
       missing.push(...out.missing);
       replaced += out.replaced;
       entries[p.name] = encoder.encode(out.xml);

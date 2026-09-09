@@ -36,7 +36,7 @@ export class NotesCron {
         folders += purged;
         if (purged < NOTE_LIMITS.purgeBatch) break;
       }
-      if (notes || folders) this.logger.log(`корзина Заметок: удалено навсегда ${notes} заметок и ${folders} папок`);
+      if (notes || folders) this.logger.log(`Notes trash: ${notes} notes and ${folders} folders deleted for good`);
     });
   }
 }

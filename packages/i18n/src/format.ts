@@ -20,6 +20,11 @@ export interface FormatContext {
   timeZone?: string;
 }
 
+/** Точность времени: секунда нужна доказательствам, а не ленте */
+export interface TimeOptions {
+  seconds?: boolean;
+}
+
 export type DateStyle =
   /** 03.09.2026 — числовая дата в правилах региона */
   | 'short'
@@ -160,22 +165,35 @@ export function formatDate(
 }
 
 /** `14:35` — 24 часа всегда (в РК 12-часовые сутки не используются). */
-export function formatTime(value: Date | string | number, ctx: FormatContext): string {
+/**
+ * `14:35`, а с `{ seconds: true }` — `14:35:07`. Секунда нужна там, где время
+ * само по себе доказательство: протокол подписания, журнал доступа.
+ */
+export function formatTime(
+  value: Date | string | number,
+  ctx: FormatContext,
+  opts: TimeOptions = {},
+): string {
   const date = toDate(value);
   if (Number.isNaN(date.getTime())) return '';
-  const p = datePartsOf(date, ctx, { hour: '2-digit', minute: '2-digit' });
-  return `${p.hour}:${p.minute}`;
+  const p = datePartsOf(date, ctx, {
+    hour: '2-digit',
+    minute: '2-digit',
+    ...(opts.seconds ? { second: '2-digit' } : {}),
+  });
+  return opts.seconds ? `${p.hour}:${p.minute}:${p.second}` : `${p.hour}:${p.minute}`;
 }
 
-/** `03.09.2026, 14:35` */
+/** `03.09.2026, 14:35` (с `{ seconds: true }` — `03.09.2026, 14:35:07`) */
 export function formatDateTime(
   value: Date | string | number,
   ctx: FormatContext,
   style: DateStyle = 'short',
+  opts: TimeOptions = {},
 ): string {
   const date = toDate(value);
   if (Number.isNaN(date.getTime())) return '';
-  return `${formatDate(date, ctx, style)}, ${formatTime(date, ctx)}`;
+  return `${formatDate(date, ctx, style)}, ${formatTime(date, ctx, opts)}`;
 }
 
 /** `14:35 – 15:20`; если дни разные — обе даты целиком. */
@@ -194,11 +212,57 @@ export function formatTimeRange(
     : `${formatDateTime(a, ctx)} – ${formatDateTime(b, ctx)}`;
 }
 
+/**
+ * Имя дня недели ОТДЕЛЬНО от даты: «чт» над колонкой сетки, «четверг» в шапке.
+ * Слово принадлежит ЯЗЫКУ, а не региону, — поэтому берётся у Intl напрямую.
+ */
+export function formatWeekday(
+  value: Date | string | number,
+  ctx: FormatContext,
+  style: 'short' | 'long' = 'short',
+): string {
+  const date = toDate(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return dtf(ctx.locale, {
+    weekday: style,
+    ...(ctx.timeZone ? { timeZone: ctx.timeZone } : {}),
+  }).format(date);
+}
+
+/**
+ * Семь имён дней недели, начиная с первого дня НЕДЕЛИ РЕГИОНА (в РК —
+ * понедельник). Шапку сетки нельзя писать массивом в коде: `['Пн','Вт',…]` —
+ * это один язык навсегда, а порядок дней принадлежит региону, не языку.
+ */
+export function weekdayNames(ctx: FormatContext, style: 'short' | 'long' = 'short'): string[] {
+  const profile = regionProfileFor(ctx.locale);
+  // 2024-01-01 — понедельник; сдвигаемся от него на первый день недели профиля.
+  const monday = Date.UTC(2024, 0, 1);
+  const shift = (profile.firstDayOfWeek + 6) % 7;
+  return Array.from({ length: 7 }, (_, i) =>
+    dtf(ctx.locale, { weekday: style, timeZone: 'UTC' }).format(
+      new Date(monday + ((shift + i) % 7) * 86_400_000),
+    ),
+  );
+}
+
+/** Месяц прописью без числа и года — заголовок мини-месяца и года. */
+export function formatMonth(value: Date | string | number, ctx: FormatContext): string {
+  const date = toDate(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return dtf(ctx.locale, {
+    month: 'long',
+    ...(ctx.timeZone ? { timeZone: ctx.timeZone } : {}),
+  }).format(date);
+}
+
 /** Локальный `YYYY-MM-DD` в поясе контекста — ключ группировки лент по дню зрителя. */
 export function formatDayKey(value: Date | string | number, ctx: FormatContext): string {
   const date = toDate(value);
   if (Number.isNaN(date.getTime())) return '';
-  // en-CA даёт ISO-порядок во всех рантаймах — это технический ключ, не текст.
+  // en-CA даёт ISO-порядок во всех рантаймах — это ТЕХНИЧЕСКИЙ КЛЮЧ, а не текст для
+  // человека: он никогда не показывается и обязан быть одинаковым во всех языках
+  // (страж знает этот тег машинным, см. scripts/eslint-rules/no-cyrillic-literal.cjs).
   return new Intl.DateTimeFormat('en-CA', ctx.timeZone ? { timeZone: ctx.timeZone } : {}).format(date);
 }
 
@@ -268,10 +332,16 @@ export interface Formatters {
   timeZone?: string;
   region: RegionProfile;
   date(value: Date | string | number, style?: DateStyle): string;
-  time(value: Date | string | number): string;
-  dateTime(value: Date | string | number, style?: DateStyle): string;
+  time(value: Date | string | number, opts?: TimeOptions): string;
+  dateTime(value: Date | string | number, style?: DateStyle, opts?: TimeOptions): string;
   timeRange(from: Date | string | number, to: Date | string | number): string;
   dayKey(value: Date | string | number): string;
+  /** Имя дня недели без даты («чт» / «четверг») */
+  weekday(value: Date | string | number, style?: 'short' | 'long'): string;
+  /** Семь имён дней недели с первого дня недели региона */
+  weekdayNames(style?: 'short' | 'long'): string[];
+  /** Месяц прописью без числа и года */
+  month(value: Date | string | number): string;
   number(value: number, options?: NumberOptions): string;
   money(minor: number, opts?: { scale?: number; symbol?: string | null }): string;
 }
@@ -283,10 +353,13 @@ export function createFormatters(locale: Locale, timeZone?: string): Formatters 
     timeZone,
     region: regionProfileFor(locale),
     date: (v, style) => formatDate(v, ctx, style),
-    time: (v) => formatTime(v, ctx),
-    dateTime: (v, style) => formatDateTime(v, ctx, style),
+    time: (v, o) => formatTime(v, ctx, o),
+    dateTime: (v, style, o) => formatDateTime(v, ctx, style, o),
     timeRange: (a, b) => formatTimeRange(a, b, ctx),
     dayKey: (v) => formatDayKey(v, ctx),
+    weekday: (v, style) => formatWeekday(v, ctx, style),
+    weekdayNames: (style) => weekdayNames(ctx, style),
+    month: (v) => formatMonth(v, ctx),
     number: (v, o) => formatNumber(v, ctx, o),
     money: (v, o) => formatMoney(v, ctx, o),
   };

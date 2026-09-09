@@ -15,6 +15,7 @@ import type {
   BuilderTextStyles,
 } from '@superapp/shared';
 import { DOC_BUILDER_VERSION } from '@superapp/shared';
+import { builderLabels } from './labels';
 
 /* Блоки редактора ходят через unknown-разбор: их форма — деталь библиотеки */
 type BnInline = Record<string, unknown>;
@@ -257,7 +258,7 @@ export function bnToBuilderBlocks(blocks: unknown): BuilderBlock[] {
           id,
           type: 'signature',
           props: {
-            role: String(props.role ?? 'Подпись'),
+            role: String(props.role || builderLabels().signatureRole),
             nameSource,
             ...(props.customName ? { customName: String(props.customName) } : {}),
             ...(props.stamp === true ? { stamp: true } : {}),

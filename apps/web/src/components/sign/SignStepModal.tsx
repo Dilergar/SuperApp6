@@ -10,12 +10,27 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import { Alert, Modal, Spinner } from '@/components/ui';
+import { LazyNamespace } from '@/i18n/LazyNamespace';
 import { apiErrorMessage } from '@/lib/api';
 import { openSignForStep } from './sign-api';
 import { SignFlowModal } from './SignFlowModal';
 
-export function SignStepModal({
+/**
+ * Словарь подписи доезжает ОТДЕЛЬНЫМ чанком: мостик открывается из стопки
+ * «Ждут решения», которая живёт в каркасе, то есть на ЛЮБОЙ странице. Класть
+ * каталог подписи в корневой провайдер значило бы возить его повсюду.
+ */
+export function SignStepModal(props: { stepId: string; onClose: () => void; onSigned?: () => void }) {
+  return (
+    <LazyNamespace ns="sign">
+      <SignStepModalBody {...props} />
+    </LazyNamespace>
+  );
+}
+
+function SignStepModalBody({
   stepId,
   onClose,
   onSigned,
@@ -24,6 +39,7 @@ export function SignStepModal({
   onClose: () => void;
   onSigned?: () => void;
 }) {
+  const t = useTranslations('sign');
   // Ручка идемпотентна (партиальный уникум «одна живая заявка на шаг»), поэтому
   // повтор при рефетче безопасен — второй заявки не появится.
   const open = useQuery({
@@ -35,7 +51,7 @@ export function SignStepModal({
 
   if (open.isPending) {
     return (
-      <Modal open onClose={onClose} title="Подписание документа" size="sm">
+      <Modal open onClose={onClose} title={t('flow.title')} size="sm">
         <div style={{ textAlign: 'center', padding: 'var(--spacing-5)' }}>
           <Spinner />
         </div>
@@ -45,7 +61,7 @@ export function SignStepModal({
 
   if (open.isError || !open.data) {
     return (
-      <Modal open onClose={onClose} title="Подписание документа" size="sm">
+      <Modal open onClose={onClose} title={t('flow.title')} size="sm">
         <Alert tone="danger">{apiErrorMessage(open.error)}</Alert>
       </Modal>
     );

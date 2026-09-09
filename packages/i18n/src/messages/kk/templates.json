@@ -1,0 +1,345 @@
+{
+  "fields": {
+    "counterparty": {
+      "actualAddress": {
+        "example": "Астана қ., Абай д-лы, 1",
+        "label": "Нақты мекенжайы"
+      },
+      "bank": {
+        "example": "«Kaspi Bank» АҚ",
+        "label": "Банк"
+      },
+      "bik": {
+        "example": "CASPKZKA",
+        "label": "БСК"
+      },
+      "bin": {
+        "example": "123456789012",
+        "label": "БСН (заңды тұлға)"
+      },
+      "binOrIin": {
+        "example": "123456789012",
+        "label": "БСН немесе ЖСН (Р-1 бағаны)"
+      },
+      "director": {
+        "example": "Иванов Иван",
+        "label": "Басшы (Т.А.Ә.)"
+      },
+      "ground": {
+        "example": "Жарғы",
+        "label": "Қол қою негіздемесі"
+      },
+      "iik": {
+        "example": "KZ86125KZT5004100100",
+        "label": "ЖСК (негізгі шоттың IBAN)"
+      },
+      "iin": {
+        "example": "850101300123",
+        "label": "ЖСН (ЖК, жеке тұлға)"
+      },
+      "kbe": {
+        "example": "17",
+        "label": "КБе"
+      },
+      "label": "Контрагент",
+      "legalAddress": {
+        "example": "Астана қ., Абай д-лы, 1",
+        "label": "Заңды мекенжайы"
+      },
+      "legalName": {
+        "example": "«Ромашка» ЖШС",
+        "label": "Заңды атауы"
+      },
+      "name": {
+        "example": "Ромашка",
+        "label": "Атауы (жұмыс атауы)"
+      },
+      "orgForm": {
+        "example": "ЖШС",
+        "label": "Ұйымдық-құқықтық нысаны"
+      },
+      "signer": {
+        "example": "Иванов Иван",
+        "label": "Қол қоюшы (байланыс тұлғасы)"
+      },
+      "signerPhone": {
+        "example": "+7 777 123 45 67",
+        "label": "Қол қоюшының телефоны"
+      },
+      "signerPosition": {
+        "example": "Директор",
+        "label": "Қол қоюшының лауазымы"
+      },
+      "taxRegime": {
+        "example": "Оңайлатылған декларация",
+        "label": "Салық режимі"
+      },
+      "vatCertificate": {
+        "example": "60001 сериясы, № 0031205, 01.01.2026",
+        "label": "ҚҚС куәлігі"
+      }
+    },
+    "document": {
+      "date": {
+        "example": "03.08.2026",
+        "label": "Құжаттың күні"
+      },
+      "label": "Құжат",
+      "number": {
+        "example": "БҰЙ-2026-007",
+        "label": "Тіркеу нөмірі"
+      },
+      "title": {
+        "example": "Демалысқа өтініш",
+        "label": "Құжаттың атауы"
+      }
+    },
+    "employee": {
+      "address": {
+        "example": "Алматы қ., Самал-2 ы.а., 33-үй",
+        "label": "Тұрғылықты мекенжайы"
+      },
+      "birthDate": {
+        "example": "31.12.1990",
+        "label": "Туған күні"
+      },
+      "branch": {
+        "example": "Абайдағы филиал",
+        "label": "Нысан (филиал)"
+      },
+      "branchHead": {
+        "example": "Сейтжанов Ерлан",
+        "label": "Нысан басшысы (Т.А.Ә.)"
+      },
+      "branchHeadPosition": {
+        "example": "Нүкте басқарушысы",
+        "label": "Нысан басшысының лауазымы"
+      },
+      "department": {
+        "example": "Сату бөлімі",
+        "label": "Бөлім"
+      },
+      "firstName": {
+        "example": "Асқар",
+        "label": "Аты"
+      },
+      "fullName": {
+        "example": "Ахметов Асқар Болатұлы",
+        "label": "Т.А.Ә. (тегі, аты, әкесінің аты)"
+      },
+      "idDocument": {
+        "example": "№ 038000000, ҚР ІІМ 01.02.2020 берген",
+        "label": "Жеке куәлік (бір жолмен)"
+      },
+      "idIssuedAt": {
+        "example": "01.02.2020",
+        "label": "Берілген күні"
+      },
+      "idIssuedBy": {
+        "example": "ҚР ІІМ",
+        "label": "Кім берген"
+      },
+      "idNumber": {
+        "example": "038000000",
+        "label": "Куәліктің нөмірі"
+      },
+      "iin": {
+        "example": "901231300123",
+        "label": "ЖСН"
+      },
+      "label": "Қызметкер",
+      "lastName": {
+        "example": "Ахметов",
+        "label": "Тегі"
+      },
+      "manager": {
+        "example": "Иванова Айгүл Серікқызы",
+        "label": "Басшы (Т.А.Ә.)"
+      },
+      "managerPosition": {
+        "example": "Сату бөлімінің басшысы",
+        "label": "Басшының лауазымы"
+      },
+      "middleName": {
+        "example": "Болатұлы",
+        "label": "Әкесінің аты"
+      },
+      "phone": {
+        "example": "+7 700 123 45 67",
+        "label": "Телефон"
+      },
+      "position": {
+        "example": "Зал менеджері",
+        "label": "Лауазымы"
+      }
+    },
+    "employment_contract": {
+      "branch": {
+        "example": "Абайдағы филиал",
+        "label": "Жұмыс орны (филиал)"
+      },
+      "date": {
+        "example": "01.09.2026",
+        "label": "Шарттың күні"
+      },
+      "endDate": {
+        "example": "30.09.2026",
+        "label": "Тоқтатылған күні"
+      },
+      "label": "Еңбек шарты",
+      "number": {
+        "example": "ЕШ-2026-014",
+        "label": "Шарттың нөмірі"
+      },
+      "personnelNumber": {
+        "example": "0042",
+        "label": "Табельдік нөмірі"
+      },
+      "position": {
+        "example": "Зал менеджері",
+        "label": "Шарт бойынша лауазымы"
+      },
+      "probationUntil": {
+        "example": "01.12.2026",
+        "label": "Сынақ мерзімі (қай күнге дейін)"
+      },
+      "rate": {
+        "example": "1",
+        "label": "Мөлшерлеме"
+      },
+      "salary": {
+        "example": "250 000",
+        "label": "Айлықақы, теңге"
+      },
+      "schedule": {
+        "example": "5/2, 09:00–18:00",
+        "label": "Жұмыс режимі"
+      },
+      "startDate": {
+        "example": "01.09.2026",
+        "label": "Жұмысты бастау күні"
+      },
+      "term": {
+        "example": "мерзімсіз",
+        "label": "Шарттың мерзімі"
+      }
+    },
+    "hr_action": {
+      "days": {
+        "example": "14",
+        "label": "Күн саны (күнтізбелік, демалыс)"
+      },
+      "effectiveFrom": {
+        "example": "01.09.2026",
+        "label": "Күшіне ену күні"
+      },
+      "effectiveTo": {
+        "example": "14.09.2026",
+        "label": "Аяқталу күні (демалыс)"
+      },
+      "ground": {
+        "example": "ҚР ЕК 56-бабы",
+        "label": "Тоқтату негіздемесі (ҚР ЕК бабы)"
+      },
+      "kind": {
+        "example": "Ауыстыру",
+        "label": "Әрекеттің түрі"
+      },
+      "label": "Кадрлық әрекет",
+      "newBranch": {
+        "example": "Абайдағы филиал",
+        "label": "Жаңа филиал"
+      },
+      "newPosition": {
+        "example": "Аға менеджер",
+        "label": "Жаңа лауазым"
+      },
+      "salary": {
+        "example": "300 000",
+        "label": "Жаңа айлықақы, теңге"
+      }
+    },
+    "hr_signer": {
+      "fullName": {
+        "example": "Ахметов Асқар Болатұлы",
+        "label": "Қол қоюшының Т.А.Ә."
+      },
+      "label": "Қол қоюшы (маршруттан)",
+      "position": {
+        "example": "Директор",
+        "label": "Қол қоюшының лауазымы"
+      }
+    },
+    "workspace": {
+      "bank": {
+        "example": "«Қазақстан Халық Банкі» АҚ",
+        "label": "Банк"
+      },
+      "bik": {
+        "example": "HSBKKZKX",
+        "label": "БСК"
+      },
+      "bin": {
+        "example": "123456789012",
+        "label": "БСН"
+      },
+      "director": {
+        "example": "Ахметов Асқар",
+        "label": "Директор (Т.А.Ә.)"
+      },
+      "ground": {
+        "example": "Жарғы",
+        "label": "Қол қою негіздемесі"
+      },
+      "iik": {
+        "example": "KZ86125KZT5004100100",
+        "label": "ЖСК (негізгі шоттың IBAN)"
+      },
+      "kbe": {
+        "example": "17",
+        "label": "КБе"
+      },
+      "label": "Ұйым",
+      "legalAddress": {
+        "example": "Алматы қ., Абай к-сі, 1",
+        "label": "Заңды мекенжайы"
+      },
+      "legalName": {
+        "example": "«Ромашка» ЖШС",
+        "label": "Заңды атауы"
+      },
+      "name": {
+        "example": "Ромашка",
+        "label": "Атауы (бренд)"
+      },
+      "orgForm": {
+        "example": "ЖШС",
+        "label": "Ұйымдық-құқықтық нысаны"
+      },
+      "vatCertificate": {
+        "example": "60001 сериясы, № 0031205, 01.01.2026",
+        "label": "ҚҚС куәлігі"
+      }
+    }
+  },
+  "print": {
+    "badFormat": "қате пішім",
+    "bik": "БСК {value}",
+    "bin": "БСН {value}",
+    "dateBlank": "«___» ____________ ____ ж.",
+    "dateRange": "{from} бастап {to} дейін",
+    "docMeta": "{date} № {number}",
+    "documentFallback": "Құжат",
+    "iik": "ЖСК {value}",
+    "no": "Жоқ",
+    "number": "№ {value}",
+    "numberBlank": "_______",
+    "pageOf": "{total} беттің {page}-беті",
+    "signerPositionDefault": "Директор",
+    "stamp": "М.О.",
+    "vatDate": "{value} берілген",
+    "vatNumber": "№ {value}",
+    "vatSeries": "{value} сериясы",
+    "yes": "Иә"
+  }
+}

@@ -9,6 +9,7 @@
 // ============================================================
 
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import type { ShareDocGuestView } from '@superapp/shared';
 import { Button } from '@/components/ui/Button';
 import { Icon } from '@/components/ui/Icon';
@@ -31,16 +32,17 @@ export function ShareDocView({
   /** Перезапросить содержимое: отпечаток считается фоном, о готовности узнаём опросом */
   onRefresh: () => void;
 }) {
+  const t = useTranslations('share');
   const [tries, setTries] = useState(0);
   const gaveUp = tries >= POLL_STEPS_MS.length;
 
   useEffect(() => {
     if (view.state !== 'preparing' || gaveUp) return;
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       setTries((n) => n + 1);
       onRefresh();
     }, POLL_STEPS_MS[tries]);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   }, [view.state, tries, gaveUp, onRefresh]);
 
   // Документ подготовился (или его правят заново) — счётчик начинается сначала.
@@ -53,7 +55,7 @@ export function ShareDocView({
       <div style={{ textAlign: 'center', padding: 'var(--spacing-6) 0' }}>
         <Icon name="warningCircle" size={28} style={{ color: 'var(--on-surface-variant)' }} />
         <p className="body-sm" style={{ margin: '0.5rem 0 0' }}>
-          Просмотр документа сейчас недоступен. Попробуйте открыть ссылку позже.
+          {t('guest.doc.unavailable')}
         </p>
       </div>
     );
@@ -65,7 +67,7 @@ export function ShareDocView({
         <div style={{ textAlign: 'center', padding: 'var(--spacing-6) 0' }}>
           <Icon name="warningCircle" size={28} style={{ color: 'var(--on-surface-variant)' }} />
           <p className="body-sm" style={{ margin: '0.5rem 0 var(--spacing-4)' }}>
-            Документ готовится дольше обычного.
+            {t('guest.doc.slow')}
           </p>
           <Button
             onClick={() => {
@@ -73,7 +75,7 @@ export function ShareDocView({
               onRefresh();
             }}
           >
-            Проверить снова
+            {t('guest.doc.checkAgain')}
           </Button>
         </div>
       );
@@ -82,7 +84,7 @@ export function ShareDocView({
       <div style={{ textAlign: 'center', padding: 'var(--spacing-6) 0' }}>
         <Spinner />
         <p className="body-sm" style={{ margin: 'var(--spacing-4) 0 0' }}>
-          Готовим документ к просмотру…
+          {t('guest.doc.preparing')}
         </p>
       </div>
     );
@@ -108,7 +110,7 @@ export function ShareDocView({
       {view.allowDownload && (
         <div style={{ marginTop: 'var(--spacing-4)', display: 'flex', gap: 'var(--spacing-3)' }}>
           <Button icon="download" href={view.pdf.url}>
-            Скачать PDF
+            {t('guest.doc.downloadPdf')}
           </Button>
         </div>
       )}

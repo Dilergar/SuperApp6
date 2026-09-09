@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useQuery } from '@tanstack/react-query';
 import type { FileDto, VoiceStatusDto } from '@superapp/shared';
 import { useFileDisplayUrl } from '@/lib/hooks/useFileUrl';
@@ -27,6 +28,7 @@ export function VoiceMessageBubble({
   /** Готовая ссылка из view attachment-payload — не дергаем GET /files/:id/download */
   directUrl?: string | null;
 }) {
+  const t = useTranslations('messenger');
   // Битая/протухшая direct-ссылка (onError у <audio>) → фолбэк на подписанную через хук
   const [directBroken, setDirectBroken] = useState(false);
   const useDirect = !!directUrl && !directBroken;
@@ -147,8 +149,8 @@ export function VoiceMessageBubble({
         <button
           onClick={toggle}
           disabled={!url}
-          title={playing ? 'Пауза' : 'Слушать'}
-          aria-label={playing ? 'Пауза' : 'Слушать'}
+          title={playing ? t('voice.pause') : t('voice.play')}
+          aria-label={playing ? t('voice.pause') : t('voice.play')}
           style={{
             flexShrink: 0,
             width: '2.3rem',
@@ -169,8 +171,8 @@ export function VoiceMessageBubble({
         <Waveform bars={waveform} progress={progress} onSeek={seekTo} />
         <button
           onClick={cycleSpeed}
-          title="Скорость воспроизведения"
-          aria-label="Скорость воспроизведения"
+          title={t('voice.speed')}
+          aria-label={t('voice.speed')}
           style={{
             flexShrink: 0,
             border: 'none',
@@ -206,6 +208,7 @@ function Waveform({
   progress: number;
   onSeek: (fraction: number) => void;
 }) {
+  const t = useTranslations('messenger');
   const ref = useRef<HTMLDivElement | null>(null);
   const playedCount = Math.round(progress * bars.length);
   return (
@@ -217,7 +220,7 @@ function Waveform({
         onSeek((e.clientX - rect.left) / rect.width);
       }}
       role="slider"
-      aria-label="Позиция воспроизведения"
+      aria-label={t('voice.position')}
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(progress * 100)}
@@ -265,6 +268,7 @@ function Waveform({
  * ошибка (запроса или джоба) → «Повторить»; готово → текст.
  */
 export function TranscriptBlock({ fileId }: { fileId: string }) {
+  const t = useTranslations('messenger');
   const [requested, setRequested] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
 
@@ -288,24 +292,24 @@ export function TranscriptBlock({ fileId }: { fileId: string }) {
   if (requestError || transcript?.status === 'error') {
     return (
       <button onClick={request} style={linkBtnStyle} title={transcript?.error ?? requestError ?? undefined}>
-        Не удалось · Повторить
+        {t('voice.retry')}
       </button>
     );
   }
   if (!requested && !transcript) {
     return (
-      <button onClick={request} style={linkBtnStyle} title="Расшифровать голосовое в текст">
-        Расшифровать
+      <button onClick={request} style={linkBtnStyle} title={t('voice.transcribeHint')}>
+        {t('voice.transcribe')}
       </button>
     );
   }
   if (!transcript || transcript.status === 'queued' || transcript.status === 'processing') {
-    return <span style={{ fontSize: '0.68rem', color: 'var(--on-surface-variant)' }}>Расшифровываю…</span>;
+    return <span style={{ fontSize: '0.68rem', color: 'var(--on-surface-variant)' }}>{t('voice.transcribing')}</span>;
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', minWidth: 0, flex: 1 }}>
       <button onClick={() => setCollapsed(!collapsed)} style={{ ...linkBtnStyle, alignSelf: 'flex-start' }}>
-        {collapsed ? 'Показать текст' : 'Скрыть текст'}
+        {collapsed ? t('voice.showText') : t('voice.hideText')}
       </button>
       {!collapsed && (
         <div
@@ -318,7 +322,7 @@ export function TranscriptBlock({ fileId }: { fileId: string }) {
             overflowWrap: 'anywhere',
           }}
         >
-          {transcript.text || '(пусто)'}
+          {transcript.text || t('voice.emptyTranscript')}
         </div>
       )}
     </div>

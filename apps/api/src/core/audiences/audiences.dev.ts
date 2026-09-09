@@ -29,7 +29,7 @@ export class AudiencesDevController {
   constructor(private readonly audiences: AudiencesService) {}
 
   @Post('resolve')
-  @ApiOperation({ summary: 'DEV: развернуть адресатов в людей + подписи' })
+  @ApiOperation({ summary: 'DEV: expand the audiences into people plus labels' })
   async resolve(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
     const dto = devResolveSchema.parse(body);
     const ctx = {

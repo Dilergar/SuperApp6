@@ -1,4 +1,7 @@
-import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { badRequest, notFound } from '../../shared/errors/api-error';
+import { SOURCE_LOCALE } from '@superapp/shared';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import * as crypto from 'crypto';
 import { google, calendar_v3 } from 'googleapis';
 import { CalendarEvent as CalEventRow, GoogleConnection } from '@prisma/client';
@@ -16,7 +19,8 @@ const SCOPES = [
 ];
 const NEW_CALENDAR = '__new__';
 const SYNC_CAL_NAME = 'SuperApp6';
-const TASKS_CAL_NAME = 'SuperApp6 · Задачи';
+/** Имя календаря задач в Google — создаётся ОДИН раз, в языке источника. */
+const TASKS_CAL_NAME_KEY = 'calendar.google.tasksCalendarName';
 
 /**
  * Google Calendar two-way sync (Phase 4). OAuth connect + incremental sync engine.
@@ -35,6 +39,7 @@ export class GoogleCalendarService {
   constructor(
     private db: DatabaseService,
     private events: EventBusService,
+    private i18n: I18nService,
   ) {}
 
   isConfigured(): boolean {
@@ -43,7 +48,7 @@ export class GoogleCalendarService {
 
   private assertConfigured(): void {
     if (!this.isConfigured()) {
-      throw new BadRequestException('Google-интеграция не настроена (нет OAuth-кредов в .env)');
+      throw badRequest('google.notConfigured');
     }
   }
 
@@ -65,7 +70,7 @@ export class GoogleCalendarService {
   async handleCallback(code: string, state: string): Promise<string> {
     this.assertConfigured();
     const userId = this.verifyState(state);
-    if (!userId) throw new BadRequestException('Недействительный state');
+    if (!userId) throw badRequest('google.badState');
 
     const o = this.oauth();
     const { tokens } = await o.getToken(code);
@@ -152,7 +157,7 @@ export class GoogleCalendarService {
       .filter((i) => i.id)
       .map((i) => ({
         id: i.id!,
-        summary: i.summary ?? '(без названия)',
+        summary: i.summary ?? this.i18n.translate('calendar.google.untitled'),
         primary: !!i.primary,
         accessRole: i.accessRole ?? 'reader',
       }));
@@ -448,14 +453,14 @@ export class GoogleCalendarService {
 
   private async requireConn(userId: string): Promise<GoogleConnection> {
     const c = await this.db.googleConnection.findUnique({ where: { userId } });
-    if (!c) throw new NotFoundException('Google не подключён');
+    if (!c) throw notFound('google.notConnected');
     return c;
   }
 
   private async ensureCalendars(c: GoogleConnection): Promise<void> {
     const data: { syncCalendarId?: string; tasksCalendarId?: string } = {};
     if (!c.syncCalendarId) data.syncCalendarId = await this.createCalendar(c, SYNC_CAL_NAME);
-    if (!c.tasksCalendarId) data.tasksCalendarId = await this.createCalendar(c, TASKS_CAL_NAME);
+    if (!c.tasksCalendarId) data.tasksCalendarId = await this.createCalendar(c, this.i18n.translateFor(SOURCE_LOCALE, TASKS_CAL_NAME_KEY));
     if (Object.keys(data).length) {
       await this.db.googleConnection.update({ where: { userId: c.userId }, data });
       Object.assign(c, data);
@@ -512,7 +517,7 @@ export class GoogleCalendarService {
     if (allDay && endRaw) end = new Date(+new Date(endRaw) - 86400000); // exclusive → inclusive
     const rrule = (g.recurrence ?? []).find((r) => r.startsWith('RRULE:'))?.replace(/^RRULE:/, '') ?? null;
     return {
-      title: g.summary ?? '(без названия)',
+      title: g.summary ?? this.i18n.translate('calendar.google.untitled'),
       description: g.description ?? null,
       location: g.location ?? null,
       startTime: start,

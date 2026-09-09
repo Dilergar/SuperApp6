@@ -13,7 +13,8 @@
  */
 
 import { useEffect, useState } from 'react';
-import { SIGN_LEVEL_LABELS, SIGN_METHOD_LABELS, type ShareSignGuestView } from '@superapp/shared';
+import { useLocale, useTranslations } from 'next-intl';
+import type { ShareSignGuestView } from '@superapp/shared';
 import { Alert, Button, Checkbox, Icon } from '@/components/ui';
 import { CodeInput } from '@/components/verify/CodeInput';
 import { NcaLayerError, signWithNcaLayer } from '@/components/sign/ncalayer';
@@ -42,21 +43,11 @@ function initialScreen(view: ShareSignGuestView): Screen {
   return view.status === 'completed' ? 'done' : 'closed';
 }
 
-/** Почему сбор закрыт — словами для того, кого ждали, а не статусом движка */
-const CLOSED_TEXT: Record<string, { title: string; hint: string }> = {
-  expired: {
-    title: 'Срок подписания истёк',
-    hint: 'Документ вернулся к отправителю. Если он всё ещё актуален — вам пришлют новую ссылку.',
-  },
-  declined: {
-    title: 'Подписание отменено',
-    hint: 'Одна из сторон отказалась подписывать документ. Отправитель об этом знает.',
-  },
-  cancelled: {
-    title: 'Отправитель отозвал документ',
-    hint: 'Сбор подписей прекращён. Если документ доработают — вам пришлют новую ссылку.',
-  },
-};
+/**
+ * Почему сбор закрыт — словами для того, кого ждали, а не статусом движка.
+ * Реестр несёт ветку каталога (`sign.guest.closed.<статус>`), а не фразу.
+ */
+const CLOSED_KEYS = new Set(['expired', 'declined', 'cancelled']);
 
 export function ShareSignView({
   view,
@@ -69,6 +60,9 @@ export function ShareSignView({
   session: string;
   onRefresh: () => void;
 }) {
+  const t = useTranslations('sign');
+  const tc = useTranslations('common');
+  const locale = useLocale();
   const [screen, setScreen] = useState<Screen>(() => initialScreen(view));
   const [consent, setConsent] = useState(false);
   const [pdConsent, setPdConsent] = useState(false);
@@ -85,7 +79,7 @@ export function ShareSignView({
     try {
       return await shareAction<T>(token, session, key, body);
     } catch (e) {
-      setError(messageOf(e));
+      setError(messageOf(e, t));
       return null;
     } finally {
       setBusy(false);
@@ -120,7 +114,7 @@ export function ShareSignView({
       const bytes = new Uint8Array(await (await fetch(view.subject.url)).arrayBuffer());
       let binary = '';
       for (const b of bytes) binary += String.fromCharCode(b);
-      const cms = await signWithNcaLayer({ dataBase64: btoa(binary) });
+      const cms = await signWithNcaLayer({ dataBase64: btoa(binary), locale });
       const res = await shareAction<{ status: string }>(token, session, 'sign.cms', {
         cms,
         consentAccepted: true,
@@ -131,7 +125,7 @@ export function ShareSignView({
         onRefresh();
       }
     } catch (e) {
-      if (!(e instanceof NcaLayerError && e.cancelled)) setError(messageOf(e));
+      if (!(e instanceof NcaLayerError && e.cancelled)) setError(messageOf(e, t));
     } finally {
       setBusy(false);
     }
@@ -155,9 +149,9 @@ export function ShareSignView({
           borderRadius: 'var(--radius-panel)',
         }}
       >
-        <div className="body-sm">{SIGN_LEVEL_LABELS[view.level].full}</div>
+        <div className="body-sm">{t(`level.${view.level}.full`)}</div>
         <div className="body-xs" style={{ wordBreak: 'break-all', opacity: 0.7 }}>
-          Отпечаток SHA-256: {view.subject.sha256}
+          {t('fingerprint', { sha256: view.subject.sha256 })}
         </div>
       </div>
 
@@ -172,16 +166,16 @@ export function ShareSignView({
         {/* Страховка iOS-Safari: PDF в iframe там почти не скроллится — контрагент
             чаще всего открывает ссылку из WhatsApp на телефоне */}
         <Button variant="outline" href={view.subject.url} icon="arrowRight">
-          Открыть документ в новой вкладке
+          {t('guest.openInNewTab')}
         </Button>
         <Button variant="outline" href={view.subject.url} icon="download">
-          Скачать документ
+          {t('guest.downloadDocument')}
         </Button>
       </div>
 
       {view.signed.length > 0 && (
         <div className="body-sm">
-          Уже подписали: {view.signed.map((s) => s.name).join(', ')}
+          {t('guest.alreadySigned', { names: view.signed.map((x) => x.name).join(', ') })}
         </div>
       )}
 
@@ -189,7 +183,7 @@ export function ShareSignView({
 
       {screen === 'read' && (
         <Button variant="primary" icon="signature" onClick={() => setScreen('consent')}>
-          Перейти к подписанию
+          {t('guest.goToSigning')}
         </Button>
       )}
 
@@ -199,13 +193,13 @@ export function ShareSignView({
           <Checkbox
             checked={consent}
             onChange={setConsent}
-            label="Я прочитал(а) документ и согласен(на) подписать его электронной подписью"
+            label={t('guest.consentSign')}
           />
           <ConsentBox text={view.pdConsentText} />
           <Checkbox
             checked={pdConsent}
             onChange={setPdConsent}
-            label="Согласен(на) на обработку персональных данных"
+            label={t('flow.consentPd')}
           />
           <div style={{ display: 'grid', gap: 'var(--spacing-2)' }}>
             {view.methods.map((m) => (
@@ -218,8 +212,8 @@ export function ShareSignView({
                 style={{ justifyContent: 'flex-start', height: 'auto', paddingBlock: 'var(--spacing-3)' }}
               >
                 <span style={{ display: 'grid', textAlign: 'left', gap: 2 }}>
-                  <b>{SIGN_METHOD_LABELS[m].title}</b>
-                  <span className="body-xs">{SIGN_METHOD_LABELS[m].hint}</span>
+                  <b>{t(`method.${m}.title`)}</b>
+                  <span className="body-xs">{t(`method.${m}.hint`)}</span>
                 </span>
               </Button>
             ))}
@@ -230,12 +224,12 @@ export function ShareSignView({
       {screen === 'code' && (
         <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
           <p className="body-sm" style={{ margin: 0 }}>
-            Код отправлен на подтверждённый вами номер. Ввод кода = подпись документа.
+            {t('guest.codeSent')}
           </p>
           <CodeInput value={code} onChange={setCode} onComplete={confirmPep} error={!!error} disabled={busy} />
           {devCode && (
             <Alert tone="accent">
-              [dev] код: <b>{devCode}</b>
+              {t('flow.devCode')} <b>{devCode}</b>
             </Alert>
           )}
         </div>
@@ -246,14 +240,14 @@ export function ShareSignView({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={qrData.qrDataUrl}
-            alt="QR для подписания в eGov Mobile"
+            alt={t('flow.qrAlt')}
             style={{ width: 220, height: 220, background: '#fff', borderRadius: 12, padding: 8 }}
           />
           <p className="body-sm" style={{ margin: 0, textAlign: 'center' }}>
-            Отсканируйте код в приложении <b>eGov Mobile</b>. После подписания обновите страницу.
+            {t('guest.qrHint')}
           </p>
           <Button variant="ghost" onClick={onRefresh}>
-            Обновить
+            {t('guest.refresh')}
           </Button>
         </div>
       )}
@@ -266,14 +260,18 @@ export function ShareSignView({
         <div style={{ display: 'grid', gap: 'var(--spacing-2)', justifyItems: 'center' }}>
           <Icon name="clock" size={44} />
           <p className="title-sm" style={{ margin: 0 }}>
-            {CLOSED_TEXT[view.status]?.title ?? 'Подписание закрыто'}
+            {CLOSED_KEYS.has(view.status)
+              ? t(`guest.closed.${view.status}.title`)
+              : t('guest.closed.other.title')}
           </p>
           <p className="body-sm" style={{ margin: 0, textAlign: 'center', opacity: 0.8 }}>
-            {CLOSED_TEXT[view.status]?.hint ?? 'Сбор подписей по этому документу прекращён.'}
+            {CLOSED_KEYS.has(view.status)
+              ? t(`guest.closed.${view.status}.hint`)
+              : t('guest.closed.other.hint')}
           </p>
           {view.signed.length > 0 && (
             <div className="body-sm" style={{ textAlign: 'center', opacity: 0.7 }}>
-              Успели подписать: {view.signed.map((s) => s.name).join(', ')}
+              {t('guest.managedToSign', { names: view.signed.map((x) => x.name).join(', ') })}
             </div>
           )}
         </div>
@@ -282,14 +280,14 @@ export function ShareSignView({
       {screen === 'declined' && (
         <div style={{ display: 'grid', gap: 'var(--spacing-2)', justifyItems: 'center' }}>
           <Icon name="close" size={44} />
-          <p className="title-sm" style={{ margin: 0 }}>Вы отказались подписывать</p>
+          <p className="title-sm" style={{ margin: 0 }}>{t('guest.youDeclined')}</p>
           {view.myAct?.declineReason && (
             <p className="body-sm" style={{ margin: 0, textAlign: 'center' }}>
-              Причина: {view.myAct.declineReason}
+              {t('block.reason', { reason: view.myAct.declineReason })}
             </p>
           )}
           <p className="body-sm" style={{ margin: 0, textAlign: 'center', opacity: 0.7 }}>
-            Отправитель получил уведомление. Если документ пришлют доработанным — придёт новая ссылка.
+            {t('guest.declinedNote')}
           </p>
         </div>
       )}
@@ -311,6 +309,7 @@ function DoneScreen({
   session: string;
   onRefresh: () => void;
 }) {
+  const t = useTranslations('sign');
   const completed = view.status === 'completed';
   const stampedReady = view.stamped?.ready ?? false;
 
@@ -331,16 +330,20 @@ function DoneScreen({
     <div style={{ display: 'grid', gap: 'var(--spacing-3)', justifyItems: 'center' }}>
       <Icon name="sealCheck" size={44} />
       <p className="title-sm" style={{ margin: 0 }}>
-        {completed ? 'Подписано всеми сторонами' : view.myAct?.status === 'signed' ? 'Ваша подпись поставлена' : 'Документ подписан'}
+        {completed
+          ? t('guest.done.allSigned')
+          : view.myAct?.status === 'signed'
+            ? t('guest.done.yourSignature')
+            : t('guest.done.signed')}
       </p>
       {!completed && (
         <p className="body-sm" style={{ margin: 0, textAlign: 'center', opacity: 0.8 }}>
-          Ждём подпись другой стороны — итоговый документ появится здесь же.
+          {t('guest.done.waiting')}
         </p>
       )}
       {view.signed.length > 0 && (
         <div className="body-sm" style={{ textAlign: 'center' }}>
-          Подписали: {view.signed.map((s) => s.name).join(', ')}
+          {t('guest.done.signers', { names: view.signed.map((x) => x.name).join(', ') })}
         </div>
       )}
 
@@ -349,26 +352,26 @@ function DoneScreen({
           <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', justifyContent: 'center' }}>
             {/* Обычные <a>-ссылки: файл отдаёт API по гостевому пропуску в адресе */}
             <Button variant="primary" icon="download" href={shareSignPackageUrl(session, 'stamped')}>
-              Скачать документ со штампами
+              {t('guest.done.downloadStamped')}
             </Button>
             <Button variant="outline" icon="download" href={shareSignPackageUrl(session, 'zip')}>
-              Скачать пакет с подписями
+              {t('guest.done.downloadPackage')}
             </Button>
           </div>
         ) : (
           <div style={{ display: 'grid', gap: 'var(--spacing-2)', justifyItems: 'center' }}>
             <p className="body-sm" style={{ margin: 0, opacity: 0.8 }}>
-              Готовим итоговый документ со штампами…
+              {t('guest.done.preparing')}
             </p>
             {polls >= 10 && (
               <Button variant="ghost" size="sm" icon="refresh" onClick={onRefresh}>
-                Проверить снова
+                {t('guest.done.checkAgain')}
               </Button>
             )}
           </div>
         ))}
       <p className="body-xs" style={{ margin: 0, textAlign: 'center', opacity: 0.6 }}>
-        Подпись проверяется на открытой странице /check — файл при проверке не покидает браузер.
+        {t('guest.done.checkNote')}
       </p>
     </div>
   );
@@ -392,9 +395,14 @@ function ConsentBox({ text }: { text: string }) {
   );
 }
 
-/** Сообщение об ошибке гостевого действия — без раскрытия внутренностей */
-function messageOf(err: unknown): string {
-  if (err instanceof NcaLayerError) return err.message;
+/**
+ * Сообщение об ошибке гостевого действия — без раскрытия внутренностей.
+ * Отказ API приходит уже переведённым (`message` в языке запроса), а отказ
+ * NCALayer несёт ключ каталога: переводчик передаётся сюда параметром — модуль
+ * не React и хука не имеет.
+ */
+function messageOf(err: unknown, t: (key: string) => string): string {
+  if (err instanceof NcaLayerError) return t(err.key);
   const response = (err as { response?: { data?: { message?: string } } }).response;
-  return response?.data?.message ?? 'Не удалось выполнить действие. Попробуйте ещё раз';
+  return response?.data?.message ?? t('guest.actionFailed');
 }

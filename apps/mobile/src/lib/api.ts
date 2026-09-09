@@ -1,5 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY, createApiClient, type TokenStorage } from '@superapp/api-client';
+import { currentLocale } from '../i18n/locale';
 
 // Mobile-АДАПТЕР транспорта. Сам транспорт — общий пакет `@superapp/api-client`:
 // вторая рукописная копия уже успела разъехаться с вебом (не перечитывала хранилище
@@ -18,6 +19,10 @@ const secureStorage: TokenStorage = {
 const client = createApiClient({
   baseURL: API_URL,
   storage: secureStorage,
+  // Язык зрителя уезжает заголовком выбора: отказы, уведомления и хроника
+  // приходят на нём же. Без этого сервер угадывал бы по `Accept-Language`
+  // устройства — а он у нативного клиента вообще не тот, что выбрал человек.
+  getLocale: currentLocale,
   // Навигацию на экран входа делает стор авторизации, подписанный на этот колбэк.
   onAuthFailure: () => {
     onAuthFailureHandler?.();

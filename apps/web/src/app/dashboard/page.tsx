@@ -16,8 +16,9 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useMemo, useState } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import type { Task } from '@superapp/shared';
-import { APPROVAL_INBOX_TITLE } from '@superapp/shared';
+import { useFormatters } from '@/lib/format';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { useNotificationCounts } from '@/lib/hooks/useNotificationCounts';
 import { useApprovalsCount } from '@/lib/hooks/useApprovalsCount';
@@ -46,12 +47,13 @@ import {
 /** Личная Главная спрашивает движок решений только про личное (см. ApprovalScope) */
 const PERSONAL_SCOPE = { personal: true } as const;
 
-function greeting(): string {
+/** Время суток → КЛЮЧ приветствия; слово подставляет каталог. */
+function greetingKey(): string {
   const h = new Date().getHours();
-  if (h < 6) return 'Доброй ночи';
-  if (h < 12) return 'Доброе утро';
-  if (h < 18) return 'Добрый день';
-  return 'Добрый вечер';
+  if (h < 6) return 'greeting.night';
+  if (h < 12) return 'greeting.morning';
+  if (h < 18) return 'greeting.day';
+  return 'greeting.evening';
 }
 
 /** Текущий месяц в формате периода отчёта финансов (YYYY-MM). */
@@ -61,6 +63,9 @@ function currentPeriod(): string {
 }
 
 export default function DashboardPage() {
+  const t = useTranslations('dashboard');
+  const ta = useTranslations('approvals');
+  const f = useFormatters();
   const { isReady, user: profile } = useRequireAuth();
   const period = useMemo(currentPeriod, []);
 
@@ -115,26 +120,26 @@ export default function DashboardPage() {
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 'var(--spacing-4)', flexWrap: 'wrap', marginBottom: 'var(--spacing-6)' }}>
         <div>
           <div className="label-caps" style={{ marginBottom: '0.375rem' }}>
-            {new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })}
+            {f.date(new Date(), 'weekday')}
           </div>
           <h1 className="title-lg" style={{ margin: 0 }}>
-            {greeting()}, {profile.firstName}
+            {t('greeting.line', { greeting: t(greetingKey()), name: profile.firstName })}
           </h1>
         </div>
 
         {/* Тариф — в шапке справа: это статус аккаунта, а не рабочий показатель.
             Клик уводит в раздел подписки профиля. */}
-        <Link href="/profile/subscription" style={{ display: 'inline-flex' }} aria-label="Подписка">
+        <Link href="/profile/subscription" style={{ display: 'inline-flex' }} aria-label={t('subscription.aria')}>
           {profile.activeSubscription ? (
             <Chip
               tone={profile.activeSubscription.status === 'trial' ? 'warning' : 'success'}
               icon="crown"
             >
               {profile.activeSubscription.plan}
-              {profile.activeSubscription.status === 'trial' ? ' · пробный' : ''}
+              {profile.activeSubscription.status === 'trial' ? t('subscription.trial') : ''}
             </Chip>
           ) : (
-            <Chip tone="neutral" icon="crown">Тариф не подключён</Chip>
+            <Chip tone="neutral" icon="crown">{t('subscription.none')}</Chip>
           )}
         </Link>
       </div>
@@ -143,15 +148,15 @@ export default function DashboardPage() {
         {/* ---------- Ряд показателей ---------- */}
         {/* Ноль — это тоже ответ («на сегодня чисто»), поэтому показываем число,
             а прочерк оставляем только на время загрузки. */}
-        <StatTile span={3} label="Задачи сегодня" value={stats?.today ?? '—'} icon="sun" tone="accent" href="/tasks/today" />
-        <StatTile span={3} label="Просрочено" value={stats?.overdue ?? '—'} icon="overdue" tone={stats?.overdue ? 'danger' : 'neutral'} href="/tasks/overdue" />
+        <StatTile span={3} label={t('tiles.tasksToday')} value={stats?.today ?? '—'} icon="sun" tone="accent" href="/tasks/today" />
+        <StatTile span={3} label={t('tiles.overdue')} value={stats?.overdue ?? '—'} icon="overdue" tone={stats?.overdue ? 'danger' : 'neutral'} href="/tasks/overdue" />
         {/* Плитка решений занимает место «Непрочитанных», только когда что-то
             действительно ждёт: пустая строка «0» на Главной — это шум, а Главная
             отвечает ровно на один вопрос — «что требует меня прямо сейчас». */}
         {approvalsCount > 0 ? (
           <StatTile
             span={3}
-            label={APPROVAL_INBOX_TITLE}
+            label={ta('inboxTitle')}
             value={approvalsCount}
             icon="checkCircle"
             tone="accent"
@@ -159,44 +164,44 @@ export default function DashboardPage() {
             onClick={() => setStackOpen(true)}
           />
         ) : (
-          <StatTile span={3} label="Непрочитанных" value={unreadTotal} icon="messenger" tone={unreadTotal ? 'success' : 'neutral'} href="/messenger" />
+          <StatTile span={3} label={t('tiles.unread')} value={unreadTotal} icon="messenger" tone={unreadTotal ? 'success' : 'neutral'} href="/messenger" />
         )}
-        <StatTile span={3} label="Уведомления" value={notifCounts.unseen} icon="bell" tone={notifCounts.unseen ? 'accent' : 'neutral'} href="/notifications" />
+        <StatTile span={3} label={t('tiles.notifications')} value={notifCounts.unseen} icon="bell" tone={notifCounts.unseen ? 'accent' : 'neutral'} href="/notifications" />
 
         {/* ---------- Сегодня ---------- */}
         <Card span={8}>
           <CardHeader
-            title="Сегодня"
-            subtitle={stats?.onReview ? `${stats.onReview} на проверке у вас` : undefined}
-            actions={<Button variant="ghost" size="sm" href="/tasks/today" iconRight="caretRight">Все задачи</Button>}
+            title={t('today.title')}
+            subtitle={stats?.onReview ? t('today.onReview', { n: stats.onReview }) : undefined}
+            actions={<Button variant="ghost" size="sm" href="/tasks/today" iconRight="caretRight">{t('today.allTasks')}</Button>}
           />
           {todayTasks?.items?.length ? (
             <div className="ui-stack" style={{ gap: '0.375rem' }}>
-              {todayTasks.items.slice(0, 5).map((t: Task) => (
+              {todayTasks.items.slice(0, 5).map((task: Task) => (
                 <Link
-                  key={t.id}
-                  href={`/tasks/${t.id}`}
+                  key={task.id}
+                  href={`/tasks/${task.id}`}
                   style={{
                     display: 'flex', alignItems: 'center', gap: '0.625rem',
                     padding: '0.625rem 0.75rem', borderRadius: 'var(--radius-md)',
                     color: 'var(--on-surface)', border: '1px solid var(--divider)',
                   }}
                 >
-                  <Icon name={t.status === 'done' ? 'checkCircle' : 'tasks'} size={17} style={{ color: 'var(--muted)' }} />
+                  <Icon name={task.status === 'done' ? 'checkCircle' : 'tasks'} size={17} style={{ color: 'var(--muted)' }} />
                   <span className="title-sm" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {t.title}
+                    {task.title}
                   </span>
-                  {t.priority === 'urgent' && <Chip size="sm" tone="danger">Срочно</Chip>}
-                  {t.priority === 'high' && <Chip size="sm" tone="warning">Высокий</Chip>}
+                  {task.priority === 'urgent' && <Chip size="sm" tone="danger">{t('today.urgent')}</Chip>}
+                  {task.priority === 'high' && <Chip size="sm" tone="warning">{t('today.high')}</Chip>}
                 </Link>
               ))}
             </div>
           ) : (
             <EmptyState
               icon="sun"
-              title="На сегодня задач нет"
-              description="Свободный день — или всё уже сделано."
-              action={<Button variant="primary" tone="success" icon="add" href="/tasks/inbox">Новая задача</Button>}
+              title={t('today.empty')}
+              description={t('today.emptyHint')}
+              action={<Button variant="primary" tone="success" icon="add" href="/tasks/inbox">{t('today.newTask')}</Button>}
             />
           )}
         </Card>
@@ -204,24 +209,24 @@ export default function DashboardPage() {
         {/* ---------- Деньги ---------- */}
         <Card span={4}>
           <CardHeader
-            title="Месяц"
-            actions={<Button variant="ghost" size="sm" href="/finance" iconRight="caretRight">Финансы</Button>}
+            title={t('month.title')}
+            actions={<Button variant="ghost" size="sm" href="/finance" iconRight="caretRight">{t('month.finance')}</Button>}
           />
           {expense || income ? (
             <>
-              <div className="label-caps">Расходы</div>
+              <div className="label-caps">{t('month.expenses')}</div>
               <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.75rem', fontWeight: 800, letterSpacing: '-0.02em' }}>
                 {expense ? formatMoney(expense.amount, expense.currencyCode) : '—'}
               </div>
               {income && (
                 <div className="body-sm" style={{ marginTop: '0.25rem' }}>
-                  Доходы: {formatMoney(income.amount, income.currencyCode)}
+                  {t('month.income', { amount: formatMoney(income.amount, income.currencyCode) })}
                 </div>
               )}
               {burn !== null && (
                 <div style={{ marginTop: 'var(--spacing-4)' }}>
                   <TickBar
-                    label="Израсходовано от дохода"
+                    label={t('month.burn')}
                     value={burn}
                     showValue
                     tone={burn > 90 ? 'danger' : burn > 70 ? 'warning' : 'success'}
@@ -230,14 +235,14 @@ export default function DashboardPage() {
               )}
             </>
           ) : (
-            <EmptyState icon="finance" title="Пока нет записей" description="Заведите первую операцию — и месяц появится здесь." />
+            <EmptyState icon="finance" title={t('month.empty')} description={t('month.emptyHint')} />
           )}
         </Card>
 
         {/* ---------- Непрочитанное ---------- */}
         {unreadChats.length > 0 && (
           <Card span={6}>
-            <CardHeader title="Непрочитанные" actions={<Button variant="ghost" size="sm" href="/messenger" iconRight="caretRight">Мессенджер</Button>} />
+            <CardHeader title={t('unread.title')} actions={<Button variant="ghost" size="sm" href="/messenger" iconRight="caretRight">{t('unread.messenger')}</Button>} />
             <div className="ui-stack" style={{ gap: '0.375rem' }}>
               {unreadChats.slice(0, 4).map((c) => (
                 <Link
@@ -247,7 +252,7 @@ export default function DashboardPage() {
                 >
                   <Icon name="messenger" size={17} style={{ color: 'var(--muted)' }} />
                   <span className="title-sm" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {c.title || 'Диалог'}
+                    {c.title || t('unread.dialog')}
                   </span>
                   <Chip size="sm" tone="accent">{c.unreadCount}</Chip>
                 </Link>
@@ -260,9 +265,9 @@ export default function DashboardPage() {
         {invites.length > 0 && (
           <Card span={unreadChats.length > 0 ? 6 : 12}>
             <CardHeader
-              title="Приглашения"
-              subtitle="Люди хотят добавить вас в своё окружение"
-              actions={<Button variant="ghost" size="sm" href="/circles" iconRight="caretRight">Окружение</Button>}
+              title={t('invites.title')}
+              subtitle={t('invites.subtitle')}
+              actions={<Button variant="ghost" size="sm" href="/circles" iconRight="caretRight">{t('invites.circle')}</Button>}
             />
             {/* Принцип 2: человек — всегда карточкой, не голым текстом
                 (от этого зависит видимость платных скинов) */}
@@ -292,20 +297,20 @@ export default function DashboardPage() {
              Тариф отсюда переехал в шапку экрана. */}
         <Card span={12} small>
           <Link href="/profile/roles" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', color: 'inherit' }}>
-            <span className="label-caps">Роли</span>
+            <span className="label-caps">{t('roles.title')}</span>
             {profile.roles.slice(0, 4).map((r, i) => (
               <Chip key={i} size="sm" tone="neutral">{r.role}</Chip>
             ))}
             {profile.roles.length > 4 && <Chip size="sm" tone="neutral">+{profile.roles.length - 4}</Chip>}
-            {profile.roles.length === 0 && <Chip size="sm" tone="neutral">нет</Chip>}
+            {profile.roles.length === 0 && <Chip size="sm" tone="neutral">{t('roles.none')}</Chip>}
             <Icon name="caretRight" size={14} style={{ marginLeft: 'auto', color: 'var(--label)' }} />
           </Link>
           <Divider style={{ margin: 'var(--spacing-3) 0' }} />
           <div style={{ display: 'flex', gap: 'var(--spacing-6)', flexWrap: 'wrap' }} className="meta">
             {/* Именно contactsCount: circlesCount — это число ГРУПП, а подпись
                 обещает людей (в «Моём окружении» их считают иначе). */}
-            <span>В окружении: {profile.contactsCount ?? 0}</span>
-            <span>Организаций: {profile.workspacesCount ?? 0}</span>
+            <span>{t('counters.circle', { n: profile.contactsCount ?? 0 })}</span>
+            <span>{t('counters.workspaces', { n: profile.workspacesCount ?? 0 })}</span>
           </div>
         </Card>
       </BentoGrid>

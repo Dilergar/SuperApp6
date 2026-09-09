@@ -46,6 +46,9 @@ interface SkinsSectionProps {
 export function SkinsSection({ profile }: SkinsSectionProps) {
   const t = useTranslations('profile');
   const common = useTranslations('common');
+  // Ступени редкости живут в неймспейсе «Окружения» — там же, где карточка,
+  // которую они украшают; layout профиля кладёт его в провайдер.
+  const tCircles = useTranslations('circles');
   // Числа — через форматтеры платформы (разделители профиля региона).
   const { number: fmt } = useFormatters();
   // Данные — в общем кэше React Query: повторный заход в секцию рисуется из
@@ -185,7 +188,7 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
               <SkinSwatch skin={s} />
               <div style={{ textAlign: 'center' }}>
                 <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '0.9rem' }}>{s.name}</div>
-                <div style={{ fontSize: '0.66rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: r.color }}>{r.label}</div>
+                <div style={{ fontSize: '0.66rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: r.color }}>{tCircles(`rarity.${s.rarity}`)}</div>
               </div>
               <div className="label-sm" style={{ fontSize: '0.78rem' }}>
                 {s.priceAmount > 0 ? <>{wallet?.icon} {fmt(s.priceAmount)}</> : t('skins.free')}
@@ -225,7 +228,7 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
                     {i.serial !== null && <span className="label-sm" style={{ marginLeft: 6, fontSize: '0.7rem' }}>#{i.serial}</span>}
                   </div>
                   <div style={{ fontSize: '0.66rem', fontWeight: 700, textTransform: 'uppercase', color: RARITY_META[i.skin.rarity].color }}>
-                    {RARITY_META[i.skin.rarity].label}
+                    {tCircles(`rarity.${i.skin.rarity}`)}
                   </div>
                 </div>
                 {isDefault ? (

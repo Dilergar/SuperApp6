@@ -1,4 +1,5 @@
 import { Controller, Get, NotFoundException, Post, Body, Query, Req, HttpCode, HttpStatus } from '@nestjs/common';
+import { notFound } from '../../shared/errors/api-error';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
@@ -27,7 +28,7 @@ export class VerifyController {
 
   @Public()
   @Get('status')
-  @ApiOperation({ summary: 'Режим движка подтверждений (веб адаптирует формы)' })
+  @ApiOperation({ summary: 'The verification engine mode (the web adapts its forms)' })
   status() {
     return { success: true, data: this.verify.status() };
   }
@@ -37,12 +38,12 @@ export class VerifyController {
   @HttpCode(HttpStatus.OK)
   // SMS = деньги: грубая сетка NestJS-троттлера поверх точных внутренних лимитов движка.
   @Throttle({ long: { limit: 15, ttl: 900000 } })
-  @ApiOperation({ summary: 'Запустить подтверждение номера (регистрация / сброс пароля)' })
+  @ApiOperation({ summary: 'Start a phone confirmation (sign-up / password reset)' })
   async start(@Body() body: unknown, @Req() req: Request) {
     const data = verifyStartSchema.parse(body);
     if (data.purpose !== 'register' && data.purpose !== 'password_reset') {
       // step-up цели доступны только залогиненным через /verify/step-up
-      throw new NotFoundException('Недоступная цель подтверждения');
+      throw notFound('verify.badTarget');
     }
     const result = await this.verify.startPublic(data.phone, data.purpose, clientIp(req));
     return { success: true, data: result };
@@ -51,7 +52,7 @@ export class VerifyController {
   @Post('step-up')
   @HttpCode(HttpStatus.OK)
   @Throttle({ long: { limit: 15, ttl: 900000 } })
-  @ApiOperation({ summary: 'Запустить подтверждение для действия в аккаунте (смена пароля/номера)' })
+  @ApiOperation({ summary: 'Start a confirmation for an account action (password or phone change)' })
   async stepUp(@CurrentUser() user: JwtPayload, @Body() body: unknown, @Req() req: Request) {
     const data = verifyStepUpSchema.parse(body);
     // Пароль проверяет сервис ДО отправки SMS: иначе неверный пароль выяснялся бы
@@ -64,7 +65,7 @@ export class VerifyController {
   @Post('check')
   @HttpCode(HttpStatus.OK)
   @Throttle({ long: { limit: 60, ttl: 900000 } })
-  @ApiOperation({ summary: 'Проверить код из SMS → одноразовый verifyToken' })
+  @ApiOperation({ summary: 'Check the code from the SMS → a one-time verifyToken' })
   async check(@Body() body: unknown, @Req() req: Request) {
     const data = verifyCheckSchema.parse(body);
     const result = await this.verify.check(data.challengeId, data.code, clientIp(req));
@@ -74,7 +75,7 @@ export class VerifyController {
   /** Dev-полигон (прецедент /jobs/stats): код цепочки для verify-скриптов и ручной проверки фронта. */
   @Public()
   @Get('dev/last-code')
-  @ApiOperation({ summary: '[dev] Код цепочки (только NODE_ENV=development/test)' })
+  @ApiOperation({ summary: '[dev] The chain code (NODE_ENV=development/test only)' })
   async devLastCode(@Query('challengeId') challengeId: string) {
     if (!this.verify.isDevEnv) throw new NotFoundException();
     if (!challengeId) throw new NotFoundException();

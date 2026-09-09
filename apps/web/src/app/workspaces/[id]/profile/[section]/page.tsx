@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useTranslations } from 'next-intl';
 import { useParams, useRouter } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
@@ -12,9 +13,17 @@ import { EntitySelector } from '@/components/EntitySelector';
 import { AvatarUploadBlock } from '@/components/files/AvatarUploadBlock';
 import {
   Alert, BentoGrid, Button, Card, CardHeader, ConfirmDialog, Divider, Input, LoadingBlock,
-  PageHeader, SegmentedControl, StatTile, Textarea, Toggle,
+  PageHeader, SegmentedControl, Select, StatTile, Textarea, Toggle,
 } from '@/components/ui';
-import { resolveWorkspaceCardVisibility } from '@superapp/shared';
+import {
+  LOCALE_DISPLAY_ORDER,
+  LOCALE_NAMES,
+  WORKSPACE_LIMITS,
+  resolveWorkspaceCardVisibility,
+  type Locale,
+} from '@superapp/shared';
+import { REGION_PROFILE_KZ } from '@superapp/i18n/config';
+import { useFormatters } from '@/lib/format';
 import type {
   Workspace,
   WorkspaceMember,
@@ -24,26 +33,18 @@ import type {
 const KNOWN = ['card', 'anketa', 'stats', 'subscription', 'settings', 'notifications', 'security'] as const;
 type Section = (typeof KNOWN)[number];
 
-const SECTION_TITLE: Record<Section, string> = {
-  card: 'Карточка компании',
-  anketa: 'Анкета компании',
-  stats: 'Статистика',
-  subscription: 'Подписка',
-  settings: 'Настройки',
-  notifications: 'Уведомления',
-  security: 'Безопасность',
-};
-
-const VIS_FIELDS: { key: keyof WorkspaceCardVisibility; label: string }[] = [
-  { key: 'description', label: 'Описание' },
-  { key: 'industry', label: 'Отрасль' },
-  { key: 'city', label: 'Город' },
-  { key: 'website', label: 'Сайт' },
-  { key: 'contactEmail', label: 'Email' },
-  { key: 'contactPhone', label: 'Телефон' },
-  // Реквизиты по умолчанию видны: они печатаются на каждом счёте, сотрудникам
-  // они нужны для работы с клиентами. Owner/admin видят и правят всегда.
-  { key: 'requisites', label: 'Реквизиты' },
+// Состав тумблеров видимости; подпись каждому даёт каталог
+// (`workspaces.profile.visibility.*`). Реквизиты по умолчанию видны: они
+// печатаются на каждом счёте, сотрудникам они нужны для работы с клиентами.
+// Owner/admin видят и правят всегда.
+const VIS_FIELDS: (keyof WorkspaceCardVisibility)[] = [
+  'description',
+  'industry',
+  'city',
+  'website',
+  'contactEmail',
+  'contactPhone',
+  'requisites',
 ];
 
 const emptyForm = {
@@ -55,9 +56,14 @@ const emptyForm = {
   website: '',
   contactEmail: '',
   contactPhone: '',
+  // Язык БУМАГ организации: до загрузки анкеты своего значения нет — умолчание
+  // принадлежит рынку, а не клиенту, и приезжает вместе с организацией
+  documentLanguage: REGION_PROFILE_KZ.defaultLocale,
 };
 
 export default function WorkspaceSectionPage() {
+  const t = useTranslations('workspaces');
+  const f = useFormatters();
   const { isReady } = useRequireAuth();
   const router = useRouter();
   const { id, section } = useParams<{ id: string; section: string }>();
@@ -93,6 +99,7 @@ export default function WorkspaceSectionPage() {
         website: w.website ?? '',
         contactEmail: w.contactEmail ?? '',
         contactPhone: w.contactPhone ?? '',
+        documentLanguage: w.documentLanguage,
       });
       setVis(resolveWorkspaceCardVisibility(w.cardVisibility ?? null));
     } catch (e) {
@@ -152,8 +159,9 @@ export default function WorkspaceSectionPage() {
         website: form.website.trim() || null,
         contactEmail: form.contactEmail.trim() || null,
         contactPhone: form.contactPhone.trim() || null,
+        documentLanguage: form.documentLanguage,
       });
-      setSuccess('Анкета сохранена');
+      setSuccess(t('profile.anketa.saved'));
       await fetchWs();
     } catch (e) {
       setError(apiErrorMessage(e));
@@ -214,16 +222,16 @@ export default function WorkspaceSectionPage() {
     <>
       <PageHeader
         breadcrumb={ws.name}
-        title={SECTION_TITLE[section as Section]}
+        title={t(`profile.sectionTitle.${section as Section}`)}
         actions={
           section === 'card' && canManage ? (
             <SegmentedControl
-              aria-label="Чьими глазами смотреть карточку"
+              aria-label={t('profile.viewAs.aria')}
               value={asMember ? 'member' : 'owner'}
               onChange={(v) => setAsMember(v === 'member')}
               items={[
-                { key: 'owner', label: 'Как видите вы' },
-                { key: 'member', label: 'Как видят сотрудники' },
+                { key: 'owner', label: t('profile.viewAs.owner') },
+                { key: 'member', label: t('profile.viewAs.member') },
               ]}
             />
           ) : undefined
@@ -255,40 +263,49 @@ export default function WorkspaceSectionPage() {
       {section === 'anketa' && canManage && (
         <BentoGrid>
           <Card span={7}>
-            <CardHeader title="Данные компании" subtitle="Название и логотип видны всем сотрудникам всегда" />
+            <CardHeader title={t('profile.anketa.title')} subtitle={t('profile.anketa.subtitle')} />
             <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
-              <Input label="Название" value={form.name} maxLength={100} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              <Input label={t('profile.anketa.name')} value={form.name} maxLength={100} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               {/* Лого через движок файлов (профиль 'avatar', владелец — организация).
                   Сохраняется сразу; старые внешние URL продолжают работать. */}
               <AvatarUploadBlock
                 current={form.logo || null}
                 fallback="🏢"
                 shape="square"
-                label="Логотип"
+                label={t('profile.anketa.logo')}
                 ownerWorkspaceId={id}
                 onSaved={async (url) => {
                   await apiPatch(`/workspaces/${id}`, { logo: url });
                   setForm((f) => ({ ...f, logo: url ?? '' }));
-                  setSuccess(url ? 'Логотип обновлён' : 'Логотип удалён');
+                  setSuccess(url ? t('profile.anketa.logoUpdated') : t('profile.anketa.logoRemoved'));
                   await fetchWs();
                 }}
               />
               <Textarea
-                label="О компании"
+                label={t('profile.anketa.about')}
                 value={form.description}
                 maxLength={1000}
                 rows={3}
                 style={{ resize: 'vertical' }}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
               />
-              <Input label="Отрасль" value={form.industry} maxLength={100} onChange={(e) => setForm({ ...form, industry: e.target.value })} />
-              <Input label="Город" value={form.city} maxLength={100} onChange={(e) => setForm({ ...form, city: e.target.value })} />
-              <Input label="Сайт" value={form.website} maxLength={200} placeholder="https://…" icon="globe" onChange={(e) => setForm({ ...form, website: e.target.value })} />
-              <Input label="Email" value={form.contactEmail} maxLength={200} icon="mail" onChange={(e) => setForm({ ...form, contactEmail: e.target.value })} />
-              <Input label="Телефон" value={form.contactPhone} maxLength={20} icon="call" onChange={(e) => setForm({ ...form, contactPhone: e.target.value })} />
+              <Input label={t('profile.anketa.industry')} value={form.industry} maxLength={100} onChange={(e) => setForm({ ...form, industry: e.target.value })} />
+              <Input label={t('profile.anketa.city')} value={form.city} maxLength={100} onChange={(e) => setForm({ ...form, city: e.target.value })} />
+              <Input label={t('profile.anketa.website')} value={form.website} maxLength={200} placeholder="https://…" icon="globe" onChange={(e) => setForm({ ...form, website: e.target.value })} />
+              <Input label={t('profile.anketa.email')} value={form.contactEmail} maxLength={200} icon="mail" onChange={(e) => setForm({ ...form, contactEmail: e.target.value })} />
+              <Input label={t('profile.anketa.phone')} value={form.contactPhone} maxLength={20} icon="call" onChange={(e) => setForm({ ...form, contactPhone: e.target.value })} />
+              {/* Язык БУМАГ организации — не интерфейса: на нём печатаются договоры,
+                  приказы и счета. У отдельного бланка язык можно переопределить. */}
+              <Select
+                label={t('requisites.documentLanguage')}
+                value={form.documentLanguage}
+                onChange={(v) => setForm({ ...form, documentLanguage: v as Locale })}
+                options={LOCALE_DISPLAY_ORDER.map((l) => ({ value: l, label: LOCALE_NAMES[l] }))}
+                hint={t('requisites.documentLanguageHint')}
+              />
               <div>
                 <Button variant="primary" tone="success" icon="save" loading={saving} onClick={saveAnketa}>
-                  Сохранить анкету
+                  {t('profile.anketa.save')}
                 </Button>
               </div>
             </div>
@@ -296,12 +313,17 @@ export default function WorkspaceSectionPage() {
 
           <Card span={5}>
             <CardHeader
-              title="Видимость для сотрудников"
-              subtitle="Что сотрудники видят в карточке компании. Название и логотип видны всегда"
+              title={t('profile.visibility.title')}
+              subtitle={t('profile.visibility.subtitle')}
             />
             <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
-              {VIS_FIELDS.map((f) => (
-                <Toggle key={f.key} checked={!!vis[f.key]} label={f.label} onChange={(v) => toggleVis(f.key, v)} />
+              {VIS_FIELDS.map((key) => (
+                <Toggle
+                  key={key}
+                  checked={!!vis[key]}
+                  label={t(`profile.visibility.${key}`)}
+                  onChange={(v) => toggleVis(key, v)}
+                />
               ))}
             </div>
           </Card>
@@ -314,12 +336,12 @@ export default function WorkspaceSectionPage() {
       {/* ---------- Статистика ---------- */}
       {section === 'stats' && (
         <BentoGrid>
-          <StatTile span={4} label="Сотрудников" value={ws.membersCount} icon="staff" tone="accent" href={`/workspaces/${id}/members`} />
-          <StatTile span={4} label="Задач" value={ws.tasksCount ?? 0} icon="tasks" tone={ws.tasksCount ? 'success' : 'neutral'} />
+          <StatTile span={4} label={t('home.stat.members')} value={ws.membersCount} icon="staff" tone="accent" href={`/workspaces/${id}/members`} />
+          <StatTile span={4} label={t('home.stat.tasks')} value={ws.tasksCount ?? 0} icon="tasks" tone={ws.tasksCount ? 'success' : 'neutral'} />
           <StatTile
             span={4}
-            label="Создана"
-            value={new Date(ws.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
+            label={t('home.stat.created')}
+            value={f.date(ws.createdAt, 'long')}
             icon="calendar"
             tone="neutral"
           />
@@ -330,9 +352,9 @@ export default function WorkspaceSectionPage() {
       {section === 'subscription' && (
         <BentoGrid>
           <Card span={7}>
-            <CardHeader title="Текущий план организации" subtitle="Платные планы для организаций появятся позже" />
-            <div className="title-lg" style={{ marginBottom: 'var(--spacing-4)' }}>Бесплатный</div>
-            <Button variant="primary" icon="crown" disabled>Улучшить (скоро)</Button>
+            <CardHeader title={t('profile.subscription.title')} subtitle={t('profile.subscription.subtitle')} />
+            <div className="title-lg" style={{ marginBottom: 'var(--spacing-4)' }}>{t('profile.subscription.free')}</div>
+            <Button variant="primary" icon="crown" disabled>{t('profile.subscription.upgrade')}</Button>
           </Card>
         </BentoGrid>
       )}
@@ -341,8 +363,8 @@ export default function WorkspaceSectionPage() {
       {section === 'settings' && canManage && (
         <BentoGrid>
           <Card span={7}>
-            <CardHeader title="Общие настройки" subtitle="Дополнительные настройки организации появятся позже" />
-            <Input label="Часовой пояс" value="Asia/Almaty" disabled />
+            <CardHeader title={t('profile.settings.title')} subtitle={t('profile.settings.subtitle')} />
+            <Input label={t('profile.settings.timezone')} value="Asia/Almaty" disabled />
           </Card>
         </BentoGrid>
       )}
@@ -356,8 +378,8 @@ export default function WorkspaceSectionPage() {
           <BentoGrid>
             <Card span={7}>
               <CardHeader
-                title="Передать владение"
-                subtitle="Новый владелец получит полные права, вы станете администратором"
+                title={t('profile.security.transfer.title')}
+                subtitle={t('profile.security.transfer.subtitle')}
               />
               <div style={{ display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap', alignItems: 'center' }}>
                 <div style={{ flex: 1, minWidth: 220 }}>
@@ -366,20 +388,20 @@ export default function WorkspaceSectionPage() {
                     options={members.filter((m) => m.role !== 'owner').map((m) => ({ type: 'user', id: m.userId, title: m.userName, firstName: m.userName }))}
                     value={transferTo ? [{ type: 'user', id: transferTo }] : []}
                     onChange={(next) => setTransferTo(next[next.length - 1]?.id ?? '')}
-                    placeholder="Выберите сотрудника…"
+                    placeholder={t('profile.security.transfer.pick')}
                   />
                 </div>
                 <Button variant="outline" icon="crown" disabled={!transferTo || busy} onClick={() => setConfirm('transfer')}>
-                  Передать
+                  {t('profile.security.transfer.action')}
                 </Button>
               </div>
             </Card>
 
             <Card span={5}>
-              <CardHeader title="Опасная зона" subtitle="Деактивация скроет организацию. Данные сохраняются" />
+              <CardHeader title={t('profile.security.danger.title')} subtitle={t('profile.security.danger.subtitle')} />
               <Divider style={{ margin: '0 0 var(--spacing-4)' }} />
               <Button variant="primary" tone="danger" icon="archive" disabled={busy} onClick={() => setConfirm('deactivate')}>
-                Деактивировать организацию
+                {t('profile.security.deactivate')}
               </Button>
             </Card>
           </BentoGrid>
@@ -388,13 +410,25 @@ export default function WorkspaceSectionPage() {
             open={!!confirm}
             onClose={() => !busy && setConfirm(null)}
             onConfirm={confirm === 'transfer' ? doTransfer : doDeactivate}
-            title={confirm === 'transfer' ? 'Передать владение?' : 'Деактивировать организацию?'}
+            title={
+              confirm === 'transfer'
+                ? t('profile.security.transfer.confirmTitle')
+                : t('profile.security.deactivateConfirmTitle')
+            }
             message={
               confirm === 'transfer'
-                ? 'Вы передадите права владельца другому сотруднику. Вернуть их сможет только он.'
-                : 'Организация уйдёт в архив на 90 дней — вернуть её можно из блока «Архив» на главной. После этого она удаляется навсегда.'
+                ? t('profile.security.transfer.confirmMessage')
+                : // Срок берётся из константы платформы: «90 дней» в тексте разъезжались бы
+                  // с ретеншном при первой же его правке.
+                  t('profile.security.deactivateConfirmMessage', {
+                    n: WORKSPACE_LIMITS.archiveRetentionDays,
+                  })
             }
-            confirmLabel={confirm === 'transfer' ? 'Передать' : 'Деактивировать'}
+            confirmLabel={
+              confirm === 'transfer'
+                ? t('profile.security.transfer.action')
+                : t('profile.security.deactivate')
+            }
             danger
             loading={busy}
           />

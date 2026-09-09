@@ -35,6 +35,7 @@
 
 ```ts
 SignRegistry.register(refType, { resolveSubject, canRequestSign, canView?, describeForVerify?, onActFinished?, onRequestExpired?, checkGuestCert? })
+// checkGuestCert → { ok:false, reason:{ key:'sign.counterpartyBinMismatch', params:{ name } } } — КЛЮЧ каталога, не фраза
 SignService.createRequest(userId, input, opts?)  // opts: suppressOutcomeNotify, guestSigner, neverExpires, noInitialActs
 SignService.systemEnsureActs(...)                // акты адресатам пачкой (кампании); кап подписантов —
                                                  // SIGN_SIGNERS_MAX=500 в Zod-схеме (validation/sign.ts)
@@ -54,6 +55,22 @@ SignService.summaryForRef(userId, refType, refId, { viewAuthorized? })
 ## Артефакты
 
 «Протокол подписания» — PDF (Gotenberg) с отпечатком, подписантами, лентой событий, QR на проверку · **экспортный ZIP** (document/ + signatures/*.cms|ocsp|tsp + protocol.pdf + manifest.json) · **штампованная копия** (джоб `sign.stamp`: pdf-lib + PT Serif — полосы + «Лист подписей» с QR; публичная проверка находит штамп по его собственному отпечатку, `matchedBy: 'stamped_copy'`).
+
+## Язык артефактов
+
+Слова движка живут в каталоге `sign.*` (уровни, способы, статусы актов, события протокола, тексты согласий), отказы — в `errors.sign.*`; машинные коды `SIGN_ERROR_CODES` в `details.code` не менялись, и клиенты по-прежнему ветвятся по ним. Реестры shared несут только СМЫСЛ: `SIGN_METHOD_ICONS`, `SIGN_LEVEL_TONE`.
+
+| Артефакт | Язык | Почему |
+|---|---|---|
+| Отказ ручки, экран подписания, `/check` | ЗАПРОСА | обычное правило платформы |
+| Соглашение сторон и согласие на ПД | ЗАПРОСА подписанта | в акт снимается ровно та строка, которую человек ПРОЧИТАЛ (`SIGN_CONSENT_VERSION` меняется вместе с текстом — в том числе при переводе) |
+| Протокол подписания и экспортный пакет | ЗАПРОСА | собираются на лету тому, кто их попросил |
+| Штампованная копия (джоб `sign.stamp`) | `User.locale` АВТОРА заявки | у джоба запроса нет, а копия ложится файлом в базу и идёт в бумажный оборот владельца документа; штамп заявлен пересобираемой витриной, поэтому смена языка автора доказательств не трогает |
+| `signerName`-фолбэк, попавший в акт | `SOURCE_LOCALE` | снимок в БД переживает смену языка зрителя |
+| Причина в `SignActEvent.payload.reason` | английский литерал | это ДОКАЗАТЕЛЬСТВО (вердикт верификатора), а не текст для экрана; человеку уходит переведённый отказ с тем же кодом |
+| Надпись процедуры в eGov Mobile | `User.locale` подписанта | окно чужого приложения, но читает его наш человек |
+
+Время в протоколе и на «Листе подписей» — `formatters.dateTime(v, 'short', { seconds: true })`: для суда важен ПОРЯДОК событий, поэтому секунда обязательна.
 
 ## Публичная проверка (ст. 61)
 

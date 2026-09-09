@@ -6,21 +6,21 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RATE_TYPES, type StaffRateDto } from '@superapp/shared';
 import { Button, Chip, DatePicker, Divider, Input, Modal, Select } from '@/components/ui';
 import { apiErrorMessage } from '@/lib/api';
 import { toastError } from '@/lib/toast';
 import { dmy } from '@/lib/dates';
+import { moneyTiyn } from '@/lib/objects-money';
 import { dateToIso, isoToDate, todayIn } from '@/lib/objects-time';
 import { assignmentRatesKey } from '@/lib/queries';
 import { staffingApi } from '../objects-api';
 
-const RATE_OPTIONS = RATE_TYPES.filter((r) => !('reserved' in r && r.reserved)).map((r) => ({
-  value: r.value,
-  label: r.label,
-}));
-const RATE_LABEL = new Map(RATE_TYPES.map((r) => [r.value, r.label]));
+/** Типы ставок, которые предлагаются человеку (`revenue_share` зарезервирован). */
+const RATE_VALUES = RATE_TYPES.filter((r) => !('reserved' in r && r.reserved)).map((r) => r.value);
+const RATE_KNOWN = new Set<string>(RATE_TYPES.map((r) => r.value));
 
 function tengeToTiyn(v: string): string | null {
   const clean = v.replace(/\s/g, '').replace(',', '.');
@@ -28,10 +28,6 @@ function tengeToTiyn(v: string): string | null {
   const n = Number(clean);
   if (!Number.isFinite(n) || n < 0) return null;
   return String(Math.round(n * 100));
-}
-
-function money(amount: string, currency = 'KZT'): string {
-  return `${(Number(amount) / 100).toLocaleString('ru-RU')} ${currency === 'KZT' ? '₸' : currency}`;
 }
 
 export function RateHistory({
@@ -64,6 +60,9 @@ export function RateHistory({
   onClose: () => void;
   onSaved?: () => void;
 }) {
+  const t = useTranslations('objects');
+  const tc = useTranslations('common');
+  const rateOptions = RATE_VALUES.map((value) => ({ value, label: t(`rateType.${value}`) }));
   const qc = useQueryClient();
   const [rateType, setRateType] = useState('monthly');
   const [amount, setAmount] = useState('');
@@ -96,7 +95,7 @@ export function RateHistory({
   const save = useMutation({
     mutationFn: async () => {
       const tiyn = tengeToTiyn(amount);
-      if (tiyn === null) throw new Error('Ставка — это число, например 250 000');
+      if (tiyn === null) throw new Error(t('staffing.rateIsNumber'));
       return staffingApi.setActualRate(workspaceId, assignmentId, {
         rateType,
         amount: tiyn,
@@ -112,24 +111,30 @@ export function RateHistory({
   });
 
   return (
-    <Modal open={open} onClose={onClose} title={`${showMoney ? 'Ставки' : 'Период работы'} — ${userName}`}>
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`${showMoney ? t('rates.title') : t('rates.periodTitle')} — ${userName}`}
+    >
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {showMoney && (
         <div className="ui-stack" style={{ gap: 'var(--spacing-2)' }}>
           {(rates ?? []).length === 0 ? (
-            <span className="label-sm">Ставок пока нет</span>
+            <span className="label-sm">{t('rates.empty')}</span>
           ) : (
             (rates as StaffRateDto[]).map((r) => (
               <div
                 key={r.id}
                 style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}
               >
-                <span style={{ fontWeight: 600 }}>{money(r.amount, r.currency)}</span>
-                <span className="label-sm">{RATE_LABEL.get(r.rateType) ?? r.rateType}</span>
+                <span style={{ fontWeight: 600 }}>{moneyTiyn(r.amount, r.currency)}</span>
+                <span className="label-sm">{RATE_KNOWN.has(r.rateType) ? t(`rateType.${r.rateType}`) : r.rateType}</span>
                 <span className="label-sm" style={{ opacity: 0.7 }}>
-                  {r.effectiveTo ? `${dmy(r.effectiveFrom)} — ${dmy(r.effectiveTo)}` : `с ${dmy(r.effectiveFrom)}`}
+                  {r.effectiveTo
+                    ? `${dmy(r.effectiveFrom)} — ${dmy(r.effectiveTo)}`
+                    : t('rates.since', { date: dmy(r.effectiveFrom) })}
                 </span>
-                {!r.effectiveTo && <Chip tone="success">Действует</Chip>}
+                {!r.effectiveTo && <Chip tone="success">{t('rates.live')}</Chip>}
               </div>
             ))
           )}
@@ -140,32 +145,41 @@ export function RateHistory({
 
         {showMoney && (
         <div className="grid md:grid-cols-3" style={{ gap: 'var(--spacing-3)', alignItems: 'end' }}>
-          <Select label="Тип" value={rateType} onChange={setRateType} options={RATE_OPTIONS} />
+          <Select label={tc('labels.type')} value={rateType} onChange={setRateType} options={rateOptions} />
           <Input
-            label="Сумма"
+            label={t('rates.amount')}
             placeholder="250 000"
             inputMode="decimal"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
           />
-          <DatePicker label="С даты" value={isoToDate(from)} onChange={(d) => setFrom(dateToIso(d))} />
+          <DatePicker label={t('staffing.fromDate')} value={isoToDate(from)} onChange={(d) => setFrom(dateToIso(d))} />
         </div>
         )}
         <Divider />
 
         <div className="grid md:grid-cols-3" style={{ gap: 'var(--spacing-3)', alignItems: 'end' }}>
-          <DatePicker label="Работает с" value={isoToDate(startsOn)} onChange={(d) => setStartsOn(dateToIso(d))} />
           <DatePicker
-            label="По"
+            label={t('rates.worksFrom')}
+            value={isoToDate(startsOn)}
+            onChange={(d) => setStartsOn(dateToIso(d))}
+          />
+          <DatePicker
+            label={t('rates.worksTo')}
             value={isoToDate(endsOn)}
-            hint="Очистите дату, чтобы вернуть человека в работу"
+            hint={t('rates.worksToHint')}
             onChange={(d) => setEndsOn(dateToIso(d))}
           />
-          <Input label="Доля ставки" inputMode="decimal" value={share} onChange={(e) => setShare(e.target.value)} />
+          <Input
+            label={t('staffing.rateShare')}
+            inputMode="decimal"
+            value={share}
+            onChange={(e) => setShare(e.target.value)}
+          />
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <Button size="sm" variant="outline" loading={savePeriod.isPending} onClick={() => savePeriod.mutate()}>
-            Сохранить период
+            {t('rates.savePeriod')}
           </Button>
         </div>
 
@@ -174,7 +188,7 @@ export function RateHistory({
           {/* Официальный оклад меняется ПРИКАЗОМ — отсюда только ссылка в КЭДО */}
           <Link href={`/workspaces/${workspaceId}/members/${userId}`} style={{ textDecoration: 'none' }}>
             <Button variant="ghost" size="sm">
-              Изменить официальный оклад
+              {t('rates.changeSalary')}
             </Button>
           </Link>
           <Button
@@ -183,7 +197,7 @@ export function RateHistory({
             disabled={!amount.trim()}
             onClick={() => save.mutate()}
           >
-            Новая ставка
+            {t('rates.newRate')}
           </Button>
         </div>
         )}

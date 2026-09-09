@@ -66,7 +66,7 @@ export class VoiceSttClient {
 
   async transcribe(input: SttInput): Promise<SttResult> {
     if (this.mockMode) return this.mockTranscribe(input);
-    if (!process.env.VOICE_STT_URL) throw new Error('STT не сконфигурирован (VOICE_STT_URL)');
+    if (!process.env.VOICE_STT_URL) throw new Error('STT is not configured (VOICE_STT_URL)');
     return this.openAiCompatTranscribe(input);
   }
 
@@ -110,7 +110,7 @@ export class VoiceSttClient {
     } catch (err) {
       // AbortSignal.timeout режет fetch DOMException'ом 'TimeoutError' (не 'AbortError')
       if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
-        throw new Error(`STT-таймаут (${Math.round(input.timeoutMs / 1000)}с)`);
+        throw new Error(`STT timed out (${Math.round(input.timeoutMs / 1000)}s)`);
       }
       throw err;
     }
@@ -146,8 +146,8 @@ export class VoiceSttClient {
   private async mockTranscribe(input: SttInput): Promise<SttResult> {
     await new Promise((r) => setTimeout(r, 300));
     const segments: VoiceSegment[] = [
-      { start: 0, end: 2.4, text: 'Привет, это тестовая расшифровка голосового движка.', speaker: 'SPEAKER_00' },
-      { start: 2.4, end: 5.1, text: 'Отлично слышно, встречаемся завтра в десять.', speaker: 'SPEAKER_01' },
+      { start: 0, end: 2.4, text: 'Hello, this is a test transcript of the voice engine.', speaker: 'SPEAKER_00' },
+      { start: 2.4, end: 5.1, text: 'You come through clearly, see you tomorrow at ten.', speaker: 'SPEAKER_01' },
     ];
     return {
       text: segments.map((s) => s.text).join(' '),

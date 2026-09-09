@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import type { NoteFolderDto, NoteSidebarDto, NoteSpaceRef } from '@superapp/shared';
 import { Icon, IconButton } from '@/components/ui';
 import type { NotesListFilter } from '@/lib/notes-api';
@@ -55,21 +56,22 @@ interface ListProps {
  * только раскрытые узлы, а большая папка не тянет всё разом. Тот же компонент рисует
  * результаты поиска над деревом.
  */
-export function NotesTreeList({ scope, scopeKey, filter, sel, depth = 0, activeNoteId, onSelectNote, emptyText = 'Заметок нет' }: ListProps) {
+export function NotesTreeList({ scope, scopeKey, filter, sel, depth = 0, activeNoteId, onSelectNote, emptyText }: ListProps) {
+  const t = useTranslations('notes');
   const list = useInfiniteQuery(notesListInfinite(scope, scopeKey, filter));
   const items = useMemo(() => list.data?.pages.flatMap((p) => p.items) ?? [], [list.data]);
   const indent = { paddingLeft: depth * 12 + 18 };
   if (list.isPending) {
     return (
       <div className="notes-tree-notes" style={indent}>
-        <span className="notes-tree-muted">Загружаем…</span>
+        <span className="notes-tree-muted">{t('tree.loading')}</span>
       </div>
     );
   }
   if (!items.length) {
     return (
       <div className="notes-tree-notes" style={indent}>
-        <span className="notes-tree-muted">{emptyText}</span>
+        <span className="notes-tree-muted">{emptyText ?? t('tree.empty')}</span>
       </div>
     );
   }
@@ -82,17 +84,17 @@ export function NotesTreeList({ scope, scopeKey, filter, sel, depth = 0, activeN
           className="notes-tree-note"
           aria-current={activeNoteId === n.id}
           onClick={() => onSelectNote(n.id, sel)}
-          title={n.title || 'Без названия'}
+          title={n.title || t('untitled')}
         >
           <span className="notes-tree-dot" style={n.color ? ({ ['--note-color' as string]: n.color } as React.CSSProperties) : undefined} aria-hidden />
-          <span className="notes-tree-label">{n.title || 'Без названия'}</span>
+          <span className="notes-tree-label">{n.title || t('untitled')}</span>
           {n.pinnedAt && <Icon name="pin" size={12} />}
           {n.shared && <Icon name="share" size={12} />}
         </button>
       ))}
       {list.hasNextPage && (
         <button type="button" className="notes-tree-note notes-tree-more" onClick={() => void list.fetchNextPage()} disabled={list.isFetchingNextPage}>
-          <span className="notes-tree-label">{list.isFetchingNextPage ? 'Загружаем…' : 'Ещё…'}</span>
+          <span className="notes-tree-label">{list.isFetchingNextPage ? t('tree.loading') : t('tree.more')}</span>
         </button>
       )}
     </div>
@@ -115,6 +117,7 @@ interface Props {
 }
 
 export function NotesFolderTree({ scope, scopeKey, sidebar, selected, onSelect, boardsOnly, activeNoteId, onSelectNote, onCreateFolder, onFolderMenu }: Props) {
+  const t = useTranslations('notes');
   const folders = sidebar?.folders ?? [];
   const shared = sidebar?.sharedFolders ?? [];
   const withNotes = !boardsOnly && !!onSelectNote;
@@ -168,7 +171,7 @@ export function NotesFolderTree({ scope, scopeKey, sidebar, selected, onSelect, 
     <button
       type="button"
       className="notes-tree-caret"
-      aria-label={isOpen ? `Свернуть «${label}»` : `Развернуть «${label}»`}
+      aria-label={isOpen ? t('tree.collapse', { name: label }) : t('tree.expand', { name: label })}
       aria-expanded={isOpen}
       onClick={() => toggle(sel)}
     >
@@ -224,7 +227,7 @@ export function NotesFolderTree({ scope, scopeKey, sidebar, selected, onSelect, 
             {f.notesCount > 0 && <span className="notes-tree-count">{f.notesCount}</span>}
           </button>
           {onFolderMenu && (
-            <IconButton icon="more" label={`Действия с папкой «${f.name}»`} size={24} iconSize={14} onClick={(e) => onFolderMenu(f, e.currentTarget)} />
+            <IconButton icon="more" label={t('tree.folderActions', { name: f.name })} size={24} iconSize={14} onClick={(e) => onFolderMenu(f, e.currentTarget)} />
           )}
         </div>
         {isOpen && kids.map((k) => renderFolder(k, depth + 1))}
@@ -237,26 +240,26 @@ export function NotesFolderTree({ scope, scopeKey, sidebar, selected, onSelect, 
   const roots = folders.filter((f) => f.parentId === null || !known.has(f.parentId));
 
   return (
-    <nav className="notes-tree" aria-label="Папки заметок">
-      {section('root', 'file', 'Без папки', sidebar?.rootNotesCount)}
+    <nav className="notes-tree" aria-label={t('tree.foldersAria')}>
+      {section('root', 'file', t('section.root'), sidebar?.rootNotesCount)}
       {!boardsOnly && (
         <>
-          {section('pinned', 'pin', 'Закреплённые', undefined, 'Закреплённых нет')}
-          {(sidebar?.sharedNotesCount ?? 0) > 0 && section('shared', 'share', 'Поделились со мной', sidebar?.sharedNotesCount)}
+          {section('pinned', 'pin', t('section.pinned'), undefined, t('tree.pinnedEmpty'))}
+          {(sidebar?.sharedNotesCount ?? 0) > 0 && section('shared', 'share', t('section.shared'), sidebar?.sharedNotesCount)}
         </>
       )}
 
       <div className="notes-tree-section">
-        <span className="label-sm">Папки</span>
-        {onCreateFolder && <IconButton icon="folderPlus" label="Новая папка" size={24} iconSize={14} onClick={() => onCreateFolder(null)} />}
+        <span className="label-sm">{t('tree.folders')}</span>
+        {onCreateFolder && <IconButton icon="folderPlus" label={t('tree.newFolder')} size={24} iconSize={14} onClick={() => onCreateFolder(null)} />}
       </div>
-      {roots.length === 0 && <div className="notes-tree-muted">Папок пока нет</div>}
+      {roots.length === 0 && <div className="notes-tree-muted">{t('tree.noFolders')}</div>}
       {roots.map((f) => renderFolder(f, 0))}
 
       {shared.length > 0 && (
         <>
           <div className="notes-tree-section">
-            <span className="label-sm">Открытые мне</span>
+            <span className="label-sm">{t('tree.sharedFolders')}</span>
           </div>
           {shared.map((f) => renderFolder(f, 0))}
         </>
@@ -265,21 +268,21 @@ export function NotesFolderTree({ scope, scopeKey, sidebar, selected, onSelect, 
       {!boardsOnly && (sidebar?.tags.length ?? 0) > 0 && (
         <>
           <div className="notes-tree-section">
-            <span className="label-sm">Теги</span>
+            <span className="label-sm">{t('tree.tags')}</span>
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, padding: '0 0.5rem' }}>
-            {sidebar!.tags.slice(0, 40).map((t) => (
+            {sidebar!.tags.slice(0, 40).map((tag) => (
               <button
-                key={t.name}
+                key={tag.name}
                 type="button"
                 className="notes-tree-item"
                 style={{ width: 'auto', padding: '0.2rem 0.5rem' }}
-                aria-current={selected === `tag:${t.name}`}
-                onClick={() => onSelect(`tag:${t.name}`)}
+                aria-current={selected === `tag:${tag.name}`}
+                onClick={() => onSelect(`tag:${tag.name}`)}
               >
                 <Icon name="hash" size={12} />
-                <span className="notes-tree-label">{t.name}</span>
-                <span className="notes-tree-count">{t.count}</span>
+                <span className="notes-tree-label">{tag.name}</span>
+                <span className="notes-tree-count">{tag.count}</span>
               </button>
             ))}
           </div>
@@ -290,7 +293,7 @@ export function NotesFolderTree({ scope, scopeKey, sidebar, selected, onSelect, 
       {!boardsOnly && (
         <>
           <div className="notes-tree-section" />
-          {section('trash', 'delete', 'Корзина', sidebar?.trashCount, 'Корзина пуста')}
+          {section('trash', 'delete', t('section.trash'), sidebar?.trashCount, t('tree.trashEmpty'))}
         </>
       )}
     </nav>

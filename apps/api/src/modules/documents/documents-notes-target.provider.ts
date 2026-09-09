@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { listOrgDocumentsSchema } from '@superapp/shared';
 import { NoteTargetRegistry } from '../notes/notes-targets.registry';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { DocumentsService } from './documents.service';
 
 /** Карточка документа как цель привязки заметки; право решает DocumentsService.get */
@@ -9,7 +10,13 @@ export class DocumentsNotesTargetProvider implements OnModuleInit {
   constructor(
     private readonly registry: NoteTargetRegistry,
     private readonly documents: DocumentsService,
+    private readonly i18n: I18nService,
   ) {}
+
+  /** «№» — знак русской типографики: номер приклеивается словом каталога */
+  private number(value: string): string {
+    return this.i18n.translate('documents.numberLabel', { number: value });
+  }
 
   onModuleInit(): void {
     this.registry.register('document', {
@@ -25,7 +32,7 @@ export class DocumentsNotesTargetProvider implements OnModuleInit {
         try {
           const d = await this.documents.get(viewerId, id);
           return {
-            title: d.number ? `${d.title} · № ${d.number}` : d.title,
+            title: d.number ? `${d.title} · ${this.number(d.number)}` : d.title,
             url: `/workspaces/${d.workspaceId}/documents/${d.id}`,
             workspaceId: d.workspaceId,
           };
@@ -41,7 +48,7 @@ export class DocumentsNotesTargetProvider implements OnModuleInit {
             targetType: 'document' as const,
             id: d.id,
             title: d.title,
-            subtitle: d.number ? `№ ${d.number}` : null,
+            subtitle: d.number ? this.number(d.number) : null,
           }));
         } catch {
           return [];

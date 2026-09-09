@@ -5,12 +5,14 @@
 // Менеджер+ (бейдж сайдбара ведёт сюда).
 
 import { useParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { Button, EmptyState, LoadingBlock } from '@/components/ui';
 import { DeadlinesTab } from '../DeadlinesTab';
 import { MembersHeader, membersSectionHref, useLegacyMembersTabRedirect, useMembersBase } from '../members-lib';
 
 export default function MembersDeadlinesPage() {
   const { id: workspaceId } = useParams<{ id: string }>();
+  const t = useTranslations('hr');
   useLegacyMembersTabRedirect(workspaceId);
   const { isReady, ws, wsQ, canStaff } = useMembersBase(workspaceId);
 
@@ -19,15 +21,19 @@ export default function MembersDeadlinesPage() {
     return (
       <EmptyState
         icon="lock"
-        title="Раздел управляющих"
-        description="Кадровые сроки видят Менеджер и выше."
-        action={<Button variant="matte" icon="arrowLeft" href={membersSectionHref(workspaceId, 'people')}>К людям</Button>}
+        title={t('deadlines.lockedTitle')}
+        description={t('deadlines.lockedDescription')}
+        action={
+          <Button variant="matte" icon="arrowLeft" href={membersSectionHref(workspaceId, 'people')}>
+            {t('deadlines.toPeople')}
+          </Button>
+        }
       />
     );
   }
 
   return (
-    <MembersHeader ws={ws} title="Кадровые сроки" description="ЕСУТД, вручения, расчёты, испытательные, срочные договоры, ознакомления">
+    <MembersHeader ws={ws} title={t('deadlines.title')} description={t('deadlines.description')}>
       <DeadlinesTab workspaceId={workspaceId} />
     </MembersHeader>
   );

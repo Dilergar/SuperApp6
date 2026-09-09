@@ -234,7 +234,7 @@ async function main() {
       legalName: 'ТОО «Ромашка-ЭДО»',
       bin: cpBin,
       directorName: 'Асель Директор',
-      signBasis: 'Устава',
+      signBasis: { kind: 'ustav' },
     })
   ).json?.data;
   const contact = (
@@ -248,7 +248,7 @@ async function main() {
 
   // Группа полей «Контрагент» в реестре шаблонов (дев-резолв)
   const fieldGroups = (await call('GET', '/templates/field-groups', owner.token)).json?.data?.groups ?? [];
-  check('группа «Контрагент» в реестре полей', fieldGroups.some((g) => g.tagPrefix === 'Контрагент'));
+  check('группа «Контрагент» в реестре полей', fieldGroups.some((g) => g.tagPrefix === 'Counterparty'));
   const resolved = (
     await call('POST', '/templates/dev/resolve', owner.token, {
       workspaceId: ws.id,
@@ -258,8 +258,8 @@ async function main() {
   ).json?.data?.values;
   check(
     'резолв «Контрагент»: БИН и подписант',
-    resolved?.['Контрагент']?.['БИН'] === cpBin && resolved?.['Контрагент']?.['Подписант'] === 'Асель Подписант',
-    JSON.stringify(resolved?.['Контрагент'] ?? null),
+    resolved?.['Counterparty']?.['Bin'] === cpBin && resolved?.['Counterparty']?.['Signer'] === 'Асель Подписант',
+    JSON.stringify(resolved?.['Counterparty'] ?? null),
   );
 
   // --- Виды: ПЭП (дефолт) и ЭЦП ---
@@ -655,8 +655,8 @@ async function main() {
   // Документ D: ИЗ ШАБЛОНА с тегами {Контрагент.*} — сквозная сборка бланка
   // ============================================================
   const bankD = buildDocx([
-    'Договор с {Контрагент.Название} (БИН {Контрагент.БИН})',
-    'Подписант: {Контрагент.Подписант}, {Контрагент.Подписант Должность}',
+    'Договор с {Counterparty.Name} (БИН {Counterparty.Bin})',
+    'Подписант: {Counterparty.Signer}, {Counterparty.SignerPosition}',
   ]);
   const bankDId = await uploadDocx(owner.token, `blank-d-${rnd}.docx`, bankD);
   const tplD = (

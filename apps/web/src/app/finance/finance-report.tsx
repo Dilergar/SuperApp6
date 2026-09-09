@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { FinAccountDto, FinBudgetDto, FinMonthReportDto } from '@superapp/shared';
 import { apiErrorMessage, apiPut } from '@/lib/api';
@@ -20,6 +21,8 @@ import { formatMoney, localToday, parseMoneyInput } from './finance-lib';
 import { BudgetBar, FinGlyph, FinList, FinRow, Money, MoneyStack, budgetProgress } from './finance-ui';
 import { PersonChip } from '../circles/PersonCard';
 import { ShareCardModal } from '../messenger/ShareCardModal';
+import { useFormatters } from '@/lib/format';
+import type { Formatters } from '@superapp/i18n/format';
 
 const shiftPeriod = (period: string, delta: number): string => {
   const [y, m] = period.split('-').map(Number);
@@ -27,8 +30,9 @@ const shiftPeriod = (period: string, delta: number): string => {
   return d.toISOString().slice(0, 7);
 };
 
-const periodLabel = (period: string): string => {
-  const label = new Date(`${period}-01T00:00:00`).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
+/** «Сентябрь 2026» — месяц и год словами ЯЗЫКА зрителя, порядок частей — от региона. */
+const periodLabel = (period: string, f: Formatters): string => {
+  const label = f.date(`${period}-01`, 'monthYear');
   return label.charAt(0).toUpperCase() + label.slice(1);
 };
 
@@ -47,6 +51,8 @@ export function ReportView({
   canEdit: boolean;
 }) {
   const qc = useQueryClient();
+  const t = useTranslations('finance');
+  const f = useFormatters();
   const [period, setPeriod] = useState(localToday().slice(0, 7));
   const [shareMonth, setShareMonth] = useState(false);
   const [budgetFor, setBudgetFor] = useState<{ category: FinAccountDto; budget?: FinBudgetDto } | null>(null);
@@ -117,19 +123,19 @@ export function ReportView({
       {/* ---------- Переключатель месяца ---------- */}
       <Card small style={{ marginBottom: 'var(--gap-grid)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-3)' }}>
-          <IconButton icon="caretLeft" label="Предыдущий месяц" onClick={() => setPeriod((p) => shiftPeriod(p, -1))} />
+          <IconButton icon="caretLeft" label={t('report.prevMonth')} onClick={() => setPeriod((p) => shiftPeriod(p, -1))} />
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
-            <span className="title-md">{periodLabel(period)}</span>
+            <span className="title-md">{periodLabel(period, f)}</span>
             {bookId && (
               <IconButton
                 icon="messenger"
-                label="Отправить итоги месяца в чат"
+                label={t('report.shareMonth')}
                 size={30}
                 onClick={() => setShareMonth(true)}
               />
             )}
           </div>
-          <IconButton icon="caretRight" label="Следующий месяц" onClick={() => setPeriod((p) => shiftPeriod(p, 1))} />
+          <IconButton icon="caretRight" label={t('report.nextMonth')} onClick={() => setPeriod((p) => shiftPeriod(p, 1))} />
         </div>
       </Card>
 
@@ -137,7 +143,7 @@ export function ReportView({
         <ShareCardModal
           refType="fin_month"
           refId={`${bookId}:${period}`}
-          title="Отправить итоги месяца в чат"
+          title={t('report.shareMonth')}
           onClose={() => setShareMonth(false)}
         />
       )}
@@ -146,14 +152,14 @@ export function ReportView({
         {/* ---------- Итоги месяца ---------- */}
         <StatTile
           span={debtPayments.length > 0 ? 4 : 6}
-          label="Расходы"
+          label={t('categories.expense')}
           value={<MoneyStack sums={report?.totalExpense ?? []} sign="−" tone="danger" />}
           icon="trendDown"
           tone={(report?.totalExpense?.length ?? 0) > 0 ? 'danger' : 'neutral'}
         />
         <StatTile
           span={debtPayments.length > 0 ? 4 : 6}
-          label="Доходы"
+          label={t('categories.income')}
           value={<MoneyStack sums={report?.totalIncome ?? []} sign="+" tone="success" />}
           icon="trendUp"
           tone={(report?.totalIncome?.length ?? 0) > 0 ? 'success' : 'neutral'}
@@ -161,7 +167,7 @@ export function ReportView({
         {debtPayments.length > 0 && (
           <StatTile
             span={4}
-            label="Платежи по долгам"
+            label={t('card.debtPayments')}
             value={<MoneyStack sums={debtPayments} />}
             icon="debt"
             tone="accent"
@@ -170,7 +176,7 @@ export function ReportView({
 
         {/* ---------- Расходы по категориям ---------- */}
         <Card span={7}>
-          <CardHeader title="Расходы по категориям" subtitle="Лимит родителя считает и подкатегории" />
+          <CardHeader title={t('report.expenseByCategory')} subtitle={t('report.expenseByCategoryHint')} />
           {expenseRoots.length > 0 ? (
             <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
               {expenseRoots.map((root) => (
@@ -189,13 +195,13 @@ export function ReportView({
               ))}
             </div>
           ) : (
-            <EmptyState icon="receipt" title="Нет категорий расходов" description="Дерево категорий живёт в разделе «Категории»." />
+            <EmptyState icon="receipt" title={t('report.noExpenseCategories')} description={t('report.noExpenseCategoriesHint')} />
           )}
         </Card>
 
         {/* ---------- Доходы ---------- */}
         <Card span={5}>
-          <CardHeader title="Доходы" />
+          <CardHeader title={t('categories.income')} />
           {incomeRows.length > 0 ? (
             <FinList>
               {incomeRows.map(({ cat, sums }) => (
@@ -216,7 +222,7 @@ export function ReportView({
               ))}
             </FinList>
           ) : (
-            <EmptyState icon="coins" title="Доходов не записано" description="В этом месяце поступлений нет." />
+            <EmptyState icon="coins" title={t('report.noIncome')} description={t('report.noIncomeHint')} />
           )}
         </Card>
 
@@ -225,7 +231,7 @@ export function ReportView({
 
         {/* ---------- Тренд ---------- */}
         <Card span={12}>
-          <CardHeader title="Динамика, 6 месяцев" subtitle="Длина штриховой шкалы сравнима внутри одной валюты" />
+          <CardHeader title={t('report.trendTitle')} subtitle={t('report.trendSubtitle')} />
           <TrendBars trend={trend ?? []} />
         </Card>
       </BentoGrid>
@@ -245,6 +251,7 @@ export function ReportView({
 }
 
 function PeopleReportSection({ period, queryBookId }: { period: string; queryBookId: string | null }) {
+  const t = useTranslations('finance');
   const [y, m] = period.split('-').map(Number);
   const from = `${period}-01`;
   const to = `${period}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`;
@@ -256,8 +263,8 @@ function PeopleReportSection({ period, queryBookId }: { period: string; queryBoo
   return (
     <Card span={12}>
       <CardHeader
-        title="По людям"
-        subtitle="Сколько потратили «на кого» и получили «от кого» — видно только тем, у кого есть доступ к книге"
+        title={t('report.byPeople')}
+        subtitle={t('report.byPeopleSubtitle')}
       />
       <FinList>
         {rows.map((r) => (
@@ -398,11 +405,13 @@ function BudgetLine({
   onEdit: (category: FinAccountDto, budget?: FinBudgetDto) => void;
   small?: boolean;
 }) {
+  const t = useTranslations('finance');
+  const common = useTranslations('common');
   if (!budget) {
     if (!canEdit) return null;
     return (
       <div style={{ marginTop: '0.25rem' }}>
-        <Button variant="ghost" size="sm" icon="target" onClick={() => onEdit(category)}>Задать лимит</Button>
+        <Button variant="ghost" size="sm" icon="target" onClick={() => onEdit(category)}>{t('report.setBudget')}</Button>
       </div>
     );
   }
@@ -414,10 +423,13 @@ function BudgetLine({
       <BudgetBar spent={budget.spent} amount={budget.amount} small={small} />
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.5rem', marginTop: '0.25rem' }}>
         <span className="label-sm" style={{ color: over ? 'var(--danger)' : undefined, fontWeight: over ? 700 : undefined }}>
-          {formatMoney(budget.spent, budget.currencyCode)} из {formatMoney(budget.amount, budget.currencyCode)} · {Math.min(150, pct)}%
+          {t('report.spentOf', {
+            spent: formatMoney(budget.spent, budget.currencyCode),
+            limit: formatMoney(budget.amount, budget.currencyCode),
+          })} · {Math.min(150, pct)}%
         </span>
         {canEdit && (
-          <Button variant="ghost" size="sm" icon="edit" onClick={() => onEdit(category, budget)}>Изменить</Button>
+          <Button variant="ghost" size="sm" icon="edit" onClick={() => onEdit(category, budget)}>{common('actions.edit')}</Button>
         )}
       </div>
     </div>
@@ -439,6 +451,8 @@ function BudgetModal({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const t = useTranslations('finance');
+  const common = useTranslations('common');
   const [value, setValue] = useState(budget ? String(budget.amount / 100) : '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -465,17 +479,19 @@ function BudgetModal({
     <Modal
       open
       onClose={onClose}
-      title={`Лимит: ${category.name}`}
-      subtitle="Предупредим при 80% и 100% от лимита"
+      title={t('report.budgetOf', { name: category.name })}
+      subtitle={t('report.budgetSubtitle')}
       size="sm"
       footer={
         <>
           {budget && (
-            <Button variant="primary" tone="danger" icon="delete" onClick={() => save(null)} loading={busy}>Убрать</Button>
+            <Button variant="primary" tone="danger" icon="delete" onClick={() => save(null)} loading={busy}>
+              {common('actions.remove')}
+            </Button>
           )}
-          <Button variant="ghost" onClick={onClose}>Отмена</Button>
+          <Button variant="ghost" onClick={onClose}>{common('actions.cancel')}</Button>
           <Button variant="primary" tone="success" icon="save" onClick={() => save(parseMoneyInput(value))} loading={busy}>
-            Сохранить
+            {common('actions.save')}
           </Button>
         </>
       }
@@ -483,7 +499,7 @@ function BudgetModal({
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
         <Input
-          label="Лимит на месяц"
+          label={t('report.budgetField')}
           inputMode="decimal"
           placeholder="150 000"
           value={value}
@@ -492,7 +508,7 @@ function BudgetModal({
         />
         {budget && (
           <div className="label-sm">
-            Уже израсходовано: {formatMoney(budget.spent, budget.currencyCode)}
+            {t('report.alreadySpent', { amount: formatMoney(budget.spent, budget.currencyCode) })}
           </div>
         )}
       </div>
@@ -505,6 +521,8 @@ function TrendBars({
 }: {
   trend: Array<{ period: string; expense: Array<{ currencyCode: string; amount: number }>; income: Array<{ currencyCode: string; amount: number }> }>;
 }) {
+  const t = useTranslations('finance');
+  const f = useFormatters();
   const currencies = useMemo(() => {
     const set = new Set<string>();
     for (const p of trend) {
@@ -515,7 +533,7 @@ function TrendBars({
   }, [trend]);
 
   if (currencies.length === 0) {
-    return <EmptyState icon="chart" title="Пока нет данных" description="Динамика появится со вторым месяцем записей." />;
+    return <EmptyState icon="chart" title={t('report.noTrend')} description={t('report.noTrendHint')} />;
   }
 
   return (
@@ -535,13 +553,13 @@ function TrendBars({
               {trend.map((p) => {
                 const exp = p.expense.find((e) => e.currencyCode === code)?.amount ?? 0;
                 const inc = p.income.find((i) => i.currencyCode === code)?.amount ?? 0;
-                const month = new Date(`${p.period}-01T00:00:00`).toLocaleDateString('ru-RU', { month: 'long' });
+                const month = f.month(`${p.period}-01`);
                 return (
                   <div key={p.period} style={{ display: 'grid', gridTemplateColumns: '5.5rem minmax(0, 1fr)', gap: 'var(--spacing-3)', alignItems: 'center' }}>
                     <span className="label-sm" style={{ textTransform: 'capitalize' }}>{month}</span>
                     {exp === 0 && inc === 0 ? (
                       /* Пустой месяц: две шкалы по нулям читались бы как «данные есть» */
-                      <span className="label-sm" style={{ color: 'var(--muted)' }}>записей нет</span>
+                      <span className="label-sm" style={{ color: 'var(--muted)' }}>{t('report.noRecords')}</span>
                     ) : (
                       <div className="ui-stack" style={{ gap: '0.375rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
@@ -550,7 +568,7 @@ function TrendBars({
                             tone="danger"
                             height={9}
                             style={{ flex: 1 }}
-                            aria-label={`Расходы за ${month}`}
+                            aria-label={t('report.expenseFor', { month })}
                           />
                           <Money minor={exp} code={code} sign="−" tone="danger" size="0.75rem" bold={600} />
                         </div>
@@ -560,7 +578,7 @@ function TrendBars({
                             tone="success"
                             height={9}
                             style={{ flex: 1 }}
-                            aria-label={`Доходы за ${month}`}
+                            aria-label={t('report.incomeFor', { month })}
                           />
                           <Money minor={inc} code={code} sign="+" tone="success" size="0.75rem" bold={600} />
                         </div>
@@ -574,7 +592,7 @@ function TrendBars({
         );
       })}
       <Divider style={{ margin: 0 }} />
-      <div className="meta">Красные штрихи — расходы, зелёные — доходы</div>
+      <div className="meta">{t('report.trendLegend')}</div>
     </div>
   );
 }

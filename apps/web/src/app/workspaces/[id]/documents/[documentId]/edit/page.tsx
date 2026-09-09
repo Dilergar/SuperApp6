@@ -7,6 +7,7 @@
 // ============================================================
 
 import { useEffect, useMemo } from 'react';
+import { useTranslations } from 'next-intl';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { emptyBuilderDoc, isDocDateRangeValue, type BuilderDoc, type DocFormFieldDto } from '@superapp/shared';
@@ -17,6 +18,7 @@ import { BuilderEditorLazy } from '@/components/doc-builder/BuilderEditorLazy';
 import { documentsApi, fetchOrgDocument, fetchTemplateFieldGroups } from '../../documents-api';
 
 export default function EditOrgDocumentPage() {
+  const tr = useTranslations('documents');
   const { isReady } = useRequireAuth();
   const { id, documentId } = useParams<{ id: string; documentId: string }>();
   const router = useRouter();
@@ -55,23 +57,20 @@ export default function EditOrgDocumentPage() {
 
   if (!isReady || docQuery.isPending) return <LoadingBlock />;
 
+
   if (!doc || !doc.builderDoc || !doc.can?.edit) {
     return (
       <>
-        <PageHeader breadcrumb="Документооборот" title="Правка недоступна" />
+        <PageHeader breadcrumb={tr('page.title')} title={tr('edit.unavailable')} />
         <BentoGrid>
           <Card span={12}>
             <EmptyState
               icon="blocked"
-              title={doc && !doc.can?.edit ? 'Документ на маршруте — правка закрыта' : 'Документ не открылся'}
-              description={
-                doc && !doc.builderDoc
-                  ? 'У этого документа тело правится в редакторе файла, а не в конструкторе.'
-                  : undefined
-              }
+              title={tr(doc && !doc.can?.edit ? 'edit.closed' : 'card.failedTitle')}
+              description={doc && !doc.builderDoc ? tr('edit.bodyInEditor') : undefined}
               action={
                 <Button variant="matte" icon="arrowLeft" href={`/workspaces/${id}/documents/${documentId}`}>
-                  К карточке документа
+                  {tr('edit.toCard')}
                 </Button>
               }
             />
@@ -84,11 +83,11 @@ export default function EditOrgDocumentPage() {
   return (
     <>
       <PageHeader
-        breadcrumb={`Документооборот · ${doc.docTypeName}`}
+        breadcrumb={`${tr('page.title')} · ${doc.docTypeName}`}
         title={doc.title}
         actions={
           <Button variant="ghost" icon="arrowLeft" href={`/workspaces/${id}/documents/${documentId}`}>
-            К карточке
+            {tr('edit.toCardShort')}
           </Button>
         }
       />
@@ -106,9 +105,7 @@ export default function EditOrgDocumentPage() {
             // Свои поля — только у СВОБОДНОГО документа: у документа по шаблону
             // форма принадлежит шаблону, и править её надо там (сервер это и требует)
             formHint={
-              doc.templateId
-                ? 'Эти поля пришли из шаблона. Значения заполняются на карточке документа.'
-                : 'Заведите поле — дату выберете календарём, а в тексте встанет значение. Заполняется на карточке документа.'
+              tr(doc.templateId ? 'edit.formHintTemplate' : 'edit.formHintFree')
             }
             onAddFormField={
               doc.templateId

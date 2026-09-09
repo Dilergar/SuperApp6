@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { FinShareRole } from '@superapp/shared';
 import { apiDelete, apiErrorMessage, apiPost } from '@/lib/api';
@@ -12,15 +13,17 @@ import {
 import { PersonChip } from '../circles/PersonCard';
 import { GroupChip } from '../circles/EntityChip';
 
-const ROLE_OPTIONS = [
-  { value: 'editor' as FinShareRole, label: 'ведёт вместе' },
-  { value: 'viewer' as FinShareRole, label: 'смотрит' },
-];
+const ROLE_VALUES: FinShareRole[] = ['editor', 'viewer'];
 
 /** Модалка «Доступ к книге» — только для владельца.
  *  (Переключатель книг живёт над содержимым раздела — FinanceBookCard в finance-shell.tsx.) */
 export function AccessModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
+  const t = useTranslations('finance');
+  const common = useTranslations('common');
+  // Подпись роли собирается по ЗНАЧЕНИЮ (`finance.role.<role>`) — те же слова,
+  // что сервер кладёт в уведомление о шеринге.
+  const roleOptions = ROLE_VALUES.map((value) => ({ value, label: t(`role.${value}`) }));
   const { data: shares = [] } = useQuery({ queryKey: financeSharesKey(), queryFn: () => fetchFinanceShares() });
   const [role, setRole] = useState<FinShareRole>('editor');
   const [busy, setBusy] = useState(false);
@@ -62,20 +65,20 @@ export function AccessModal({ onClose }: { onClose: () => void }) {
     <Modal
       open
       onClose={onClose}
-      title="Доступ к моим финансам"
-      subtitle="«Смотрит» — видит всё; «ведёт вместе» — записывает и правит. Разрыв связи в Окружении отзывает доступ сам"
+      title={t('access.title')}
+      subtitle={t('access.subtitle')}
       size="md"
-      footer={<Button variant="ghost" onClick={onClose}>Готово</Button>}
+      footer={<Button variant="ghost" onClick={onClose}>{common('actions.done')}</Button>}
     >
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
 
-        <Field label="Роль для новых">
+        <Field label={t('access.roleForNew')}>
           <SegmentedControl
-            aria-label="Роль для новых"
+            aria-label={t('access.roleForNew')}
             value={role}
             onChange={setRole}
-            items={ROLE_OPTIONS.map((r) => ({ key: r.value, label: r.label }))}
+            items={roleOptions.map((r) => ({ key: r.value, label: r.label }))}
           />
         </Field>
 
@@ -84,7 +87,7 @@ export function AccessModal({ onClose }: { onClose: () => void }) {
           onChange={(next) => next[0] && add(next[0])}
           types={['user', 'circle']}
           multi={false}
-          placeholder="Человек или Группа…"
+          placeholder={t('access.pickPlaceholder')}
         />
 
         <Divider style={{ margin: 0 }} />
@@ -97,21 +100,21 @@ export function AccessModal({ onClose }: { onClose: () => void }) {
                 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}
               >
                 {s.principalType === 'user' ? (
-                  <PersonChip size="S" userId={s.principalId} firstName={s.name ?? 'Пользователь'} avatar={s.avatar} />
+                  <PersonChip size="S" userId={s.principalId} firstName={s.name ?? common('labels.someone')} avatar={s.avatar} />
                 ) : (
-                  <GroupChip size="S" name={s.name ?? 'Группа'} />
+                  <GroupChip size="S" name={s.name ?? t('access.group')} />
                 )}
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
                   <Select
-                    aria-label="Роль"
+                    aria-label={t('access.role')}
                     value={s.role}
                     onChange={(v) => changeRole(s.principalType, s.principalId, v as FinShareRole)}
-                    options={ROLE_OPTIONS.map((r) => ({ value: r.value, label: r.label }))}
+                    options={roleOptions}
                     width={170}
                   />
                   <IconButton
                     icon="close"
-                    label="Отозвать доступ"
+                    label={t('access.revoke')}
                     size={30}
                     onClick={() => remove(s.principalType, s.principalId)}
                   />
@@ -122,8 +125,8 @@ export function AccessModal({ onClose }: { onClose: () => void }) {
         ) : (
           <EmptyState
             icon="lock"
-            title="Пока никому не открыто"
-            description="Выберите человека или Группу выше — книга станет видна им целиком."
+            title={t('access.emptyTitle')}
+            description={t('access.emptyDescription')}
           />
         )}
       </div>

@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { NOTE_HOTKEYS, type NoteFolderDto, type NoteSpaceRef } from '@superapp/shared';
+import { useTranslations } from 'next-intl';
+import { NOTE_HOTKEYS, NOTE_LIMITS, type NoteFolderDto, type NoteSpaceRef } from '@superapp/shared';
 import { Button, Icon, Input, LoadingBlock, Modal, SearchField, useConfirm } from '@/components/ui';
 import { NotesBoard } from '@/components/notes/NotesBoard';
 import { NotesFolderTree, NotesTreeList, selectionFolderId, type NotesSelection } from '@/components/notes/NotesFolderTree';
@@ -26,6 +27,7 @@ import '@/components/notes/notes.css';
 // ============================================================
 
 export function NotesWorkspace({ scope }: { scope: NoteSpaceRef }) {
+  const t = useTranslations('notes');
   const { isReady: ready } = useRequireAuth();
   const router = useRouter();
   const pathname = usePathname();
@@ -117,18 +119,18 @@ export function NotesWorkspace({ scope }: { scope: NoteSpaceRef }) {
   if (!ready) return <LoadingBlock />;
 
   const sectionTitle = searching
-    ? `Поиск: «${searchQ}»`
+    ? t('section.search', { q: searchQ })
     : selection === 'root'
-      ? 'Без папки'
+      ? t('section.root')
       : selection === 'pinned'
-        ? 'Закреплённые'
+        ? t('section.pinned')
         : selection === 'shared'
-          ? 'Поделились со мной'
+          ? t('section.shared')
           : selection === 'trash'
-            ? 'Корзина'
+            ? t('section.trash')
             : selection.startsWith('tag:')
               ? `#${selection.slice(4)}`
-              : ([...(sidebar.data?.folders ?? []), ...(sidebar.data?.sharedFolders ?? [])].find((f) => f.id === selection.slice(7))?.name ?? 'Папка');
+              : ([...(sidebar.data?.folders ?? []), ...(sidebar.data?.sharedFolders ?? [])].find((f) => f.id === selection.slice(7))?.name ?? t('section.folder'));
 
   const selectNote = (id: string, sel?: NotesSelection) => {
     navigate({ ...(sel ? { selection: sel } : {}), note: id });
@@ -139,13 +141,13 @@ export function NotesWorkspace({ scope }: { scope: NoteSpaceRef }) {
   return (
     <div className="canvas-layer notes-canvas">
       <div className="notes-ws">
-        <aside className="notes-ws-side" hidden={mobile && mobilePane !== 'side'} aria-label="Проводник заметок">
+        <aside className="notes-ws-side" hidden={mobile && mobilePane !== 'side'} aria-label={t('tree.aria')}>
           <div className="notes-side-head">
-            <SearchField value={q} onChange={(e) => setQ(e.target.value)} onClear={() => setQ('')} placeholder="Поиск по заметкам…" width="100%" />
+            <SearchField value={q} onChange={(e) => setQ(e.target.value)} onClear={() => setQ('')} placeholder={t('tree.searchPlaceholder')} width="100%" />
           </div>
           <div className="notes-side-body">
             {searching ? (
-              <NotesTreeList scope={scope} scopeKey={scopeKey} filter={{ q: searchQ }} sel={selection} activeNoteId={noteId} onSelectNote={(id) => selectNote(id)} emptyText="Ничего не найдено" />
+              <NotesTreeList scope={scope} scopeKey={scopeKey} filter={{ q: searchQ }} sel={selection} activeNoteId={noteId} onSelectNote={(id) => selectNote(id)} emptyText={t('tree.nothingFound')} />
             ) : (
               <NotesFolderTree
                 scope={scope}
@@ -165,14 +167,14 @@ export function NotesWorkspace({ scope }: { scope: NoteSpaceRef }) {
           </div>
         </aside>
 
-        <section className="notes-ws-board" hidden={mobile && mobilePane !== 'board'} aria-label={`Доска: ${sectionTitle}`}>
+        <section className="notes-ws-board" hidden={mobile && mobilePane !== 'board'} aria-label={t('ws.boardAria', { title: sectionTitle })}>
           <div className="notes-board-head">
             <button type="button" className="notes-tree-item notes-mobile-only" style={{ width: 'auto' }} onClick={() => setMobilePane('side')}>
-              <Icon name="arrowLeft" size={14} /> Папки
+              <Icon name="arrowLeft" size={14} /> {t('ws.backToFolders')}
             </button>
             <span className="title-sm">{sectionTitle}</span>
             <span className="label-sm" style={{ marginLeft: 'auto', color: 'var(--on-surface-variant)' }}>
-              {NOTE_HOTKEYS.toggleBoard} — доска на любой странице
+              {t('ws.hotkeyHint', { keys: NOTE_HOTKEYS.toggleBoard })}
             </span>
           </div>
           <NotesBoard
@@ -191,7 +193,7 @@ export function NotesWorkspace({ scope }: { scope: NoteSpaceRef }) {
 
       {folderModal && (
         <FolderNameModal
-          title={folderModal.mode === 'create' ? 'Новая папка' : 'Переименовать папку'}
+          title={t(folderModal.mode === 'create' ? 'folder.create' : 'folder.rename')}
           initial={folderModal.mode === 'rename' ? folderModal.folder.name : ''}
           busy={folderMutation.isPending}
           onClose={() => setFolderModal(null)}
@@ -211,8 +213,14 @@ export function NotesWorkspace({ scope }: { scope: NoteSpaceRef }) {
           onShare={() => setFolderShare(folderMenu.folder)}
           onToRoot={folderMenu.folder.parentId ? () => folderMutation.mutate({ mode: 'move', id: folderMenu.folder.id, parentId: null }) : undefined}
           onTrash={() =>
-            confirm({ title: `Удалить папку «${folderMenu.folder.name}»?`, message: 'Папка и заметки внутри уедут в корзину на 30 дней', danger: true }, () =>
-              folderMutation.mutateAsync({ mode: 'trash', id: folderMenu.folder.id }).then(() => undefined),
+            confirm(
+              {
+                title: t('folder.deleteConfirm.title', { name: folderMenu.folder.name }),
+                message: t('folder.deleteConfirm.message', { days: NOTE_LIMITS.trashRetentionDays }),
+                danger: true,
+              },
+              () =>
+                folderMutation.mutateAsync({ mode: 'trash', id: folderMenu.folder.id }).then(() => undefined),
             )
           }
         />
@@ -232,6 +240,8 @@ export function NotesWorkspace({ scope }: { scope: NoteSpaceRef }) {
 }
 
 function FolderNameModal({ title, initial, busy, onClose, onSubmit }: { title: string; initial: string; busy: boolean; onClose: () => void; onSubmit: (name: string) => void }) {
+  const t = useTranslations('notes');
+  const tc = useTranslations('common');
   const [name, setName] = useState(initial);
   return (
     <Modal
@@ -241,8 +251,10 @@ function FolderNameModal({ title, initial, busy, onClose, onSubmit }: { title: s
       size="sm"
       footer={
         <>
-          <Button variant="matte" onClick={onClose}>Отмена</Button>
-          <Button onClick={() => name.trim() && onSubmit(name.trim())} loading={busy} disabled={!name.trim()}>Готово</Button>
+          <Button variant="matte" onClick={onClose}>{tc('actions.cancel')}</Button>
+          <Button onClick={() => name.trim() && onSubmit(name.trim())} loading={busy} disabled={!name.trim()}>
+            {tc('actions.done')}
+          </Button>
         </>
       }
     >
@@ -252,7 +264,7 @@ function FolderNameModal({ title, initial, busy, onClose, onSubmit }: { title: s
           if (name.trim()) onSubmit(name.trim());
         }}
       >
-        <Input label="Название" value={name} onChange={(e) => setName(e.target.value)} autoFocus maxLength={120} placeholder="Например, Клиенты" />
+        <Input label={tc('labels.name')} value={name} onChange={(e) => setName(e.target.value)} autoFocus maxLength={NOTE_LIMITS.maxFolderNameLength} placeholder={t('folder.namePlaceholder')} />
       </form>
     </Modal>
   );
@@ -282,6 +294,8 @@ function FolderActionsMenu({
   // Меню кита открывается кликом по своему триггеру; здесь якорь уже нажат — рисуем меню
   // сразу поверх той же точки (портал через Menu с невидимым триггером неудобен), поэтому
   // используем простой слой действий у якоря.
+  const t = useTranslations('notes');
+  const tc = useTranslations('common');
   const rect = anchor.getBoundingClientRect();
   const canManage = folder.access === 'manager' || folder.access === 'owner';
   useEffect(() => {
@@ -314,7 +328,7 @@ function FolderActionsMenu({
     <div
       className="notes-folder-menu card-elevated"
       role="menu"
-      aria-label={`Папка «${folder.name}»`}
+      aria-label={t('folder.aria', { name: folder.name })}
       style={{
         position: 'fixed',
         top: Math.min(rect.bottom + 4, window.innerHeight - 260),
@@ -326,18 +340,18 @@ function FolderActionsMenu({
         minWidth: 220,
       }}
     >
-      {item('Новая подпапка', 'folderPlus', onSubfolder)}
-      {canManage && item('Переименовать', 'edit', onRename)}
+      {item(t('folder.menu.subfolder'), 'folderPlus', onSubfolder)}
+      {canManage && item(tc('actions.rename'), 'edit', onRename)}
       {canManage && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.35rem 0.5rem' }}>
-          <span className="label-sm">Цвет</span>
+          <span className="label-sm">{t('color.label')}</span>
           <NoteColorMenu value={folder.color} onChange={onColor} size={26} />
         </div>
       )}
-      {item('Доступ', 'share', onShare)}
-      {canManage && onToRoot && item('Вынести в корень', 'arrowUp', onToRoot)}
+      {item(t('folder.menu.share'), 'share', onShare)}
+      {canManage && onToRoot && item(t('folder.menu.toRoot'), 'arrowUp', onToRoot)}
       {canManage && <span className="ui-menu-sep" />}
-      {canManage && item('В корзину', 'delete', onTrash, true)}
+      {canManage && item(t('folder.menu.trash'), 'delete', onTrash, true)}
     </div>
   );
 }

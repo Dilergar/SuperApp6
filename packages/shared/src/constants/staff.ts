@@ -10,7 +10,5 @@ export const STAFF_LIMITS = {
   maxAssignmentsPerMember: 20,
 } as const;
 
-export const STAFF_ASSIGNMENT_STATUS_LABELS: Record<'training' | 'certified', string> = {
-  training: 'Стажируется',
-  certified: 'Аттестован',
-} as const;
+// Статус назначения (`training` | `certified`) слова не несёт: его даёт каталог —
+// `staff.assignmentStatus.<статус>`.

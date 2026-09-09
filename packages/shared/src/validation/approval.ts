@@ -25,15 +25,15 @@ const refType = z.string().trim().min(1).max(64);
 const title = z
   .string()
   .trim()
-  .min(1, 'Укажите, что решаем')
+  .min(1, 'validation.approval.titleRequired')
   .max(APPROVAL_LIMITS.maxTitleLength)
-  .refine((s) => !/[<>]/.test(s), 'Недопустимые символы');
+  .refine((s) => !/[<>]/.test(s), 'validation.approval.badCharacters');
 
 const comment = z
   .string()
   .trim()
   .max(APPROVAL_LIMITS.maxCommentLength)
-  .refine((s) => !/[<>]/.test(s), 'Недопустимые символы');
+  .refine((s) => !/[<>]/.test(s), 'validation.approval.badCharacters');
 
 /** Один шаг маршрута. Правило «каждый» имеет смысл только у должности и отдела. */
 export const approvalStepInputSchema = z
@@ -63,7 +63,7 @@ export const approvalStepInputSchema = z
   })
   .strict()
   .refine((s) => s.assigneeType !== 'user' || (s.rule ?? 'any') === 'any', {
-    message: 'Правило «каждый» применимо к должности или отделу, а не к одному человеку',
+    message: 'validation.approval.everyRule',
     path: ['rule'],
   })
   .refine(
@@ -71,7 +71,7 @@ export const approvalStepInputSchema = z
       isAudienceAnchor(s.assigneeId)
         ? AUDIENCE_KIND_DEFS[s.assigneeType].relative || s.assigneeType === 'user'
         : z.string().uuid().safeParse(s.assigneeId).success,
-    { message: 'Адресат: идентификатор либо якорь у относительного адресата', path: ['assigneeId'] },
+    { message: 'validation.approval.assigneeRef', path: ['assigneeId'] },
   );
 
 /**

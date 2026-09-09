@@ -11,6 +11,7 @@ import {
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
+import { badRequest } from '../../shared/errors/api-error';
 import { diskStorage } from 'multer';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -35,14 +36,14 @@ export class VoiceController {
   constructor(private readonly voice: VoiceService) {}
 
   @Get('status')
-  @ApiOperation({ summary: 'Статус движка: включён ли STT, есть ли диаризация (веб прячет кнопки)' })
+  @ApiOperation({ summary: 'Engine status: is STT on, is diarization available (the web hides its buttons)' })
   status() {
     return { success: true, data: this.voice.getStatus() };
   }
 
   @Post('transcripts')
   @Throttle({ long: { limit: 30, ttl: 60000 } })
-  @ApiOperation({ summary: 'Запросить расшифровку аудио-файла (идемпотентно: 1 файл = 1 транскрипт навсегда)' })
+  @ApiOperation({ summary: 'Request the transcription of an audio file (idempotent: 1 file = 1 transcript forever)' })
   async request(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const dto = requestTranscriptSchema.parse(body);
     const data = await this.voice.requestTranscript(user.sub, dto);
@@ -50,7 +51,7 @@ export class VoiceController {
   }
 
   @Get('transcripts/:fileId')
-  @ApiOperation({ summary: 'Статус/результат расшифровки (веб поллит, пока queued|processing)' })
+  @ApiOperation({ summary: 'The transcription status or result (the web polls while queued|processing)' })
   async get(@CurrentUser() user: JwtPayload, @Param('fileId') fileId: string) {
     const data = await this.voice.getTranscript(user.sub, fileId);
     return { success: true, data };
@@ -72,13 +73,13 @@ export class VoiceController {
     }),
   )
   @ApiConsumes('multipart/form-data')
-  @ApiOperation({ summary: 'Синхронная расшифровка короткого аудио (≤25МБ): команды AI/терминала' })
+  @ApiOperation({ summary: 'Synchronous transcription of short audio (≤25 MB): AI and terminal commands' })
   async stt(
     @CurrentUser() _user: JwtPayload,
     @Body() body: Record<string, unknown>,
     @UploadedFile() file?: Express.Multer.File,
   ) {
-    if (!file) throw new BadRequestException('Нет файла: ожидается multipart/form-data с полем "file"');
+    if (!file) throw badRequest('voice.noFile');
     try {
       const { language } = voiceSyncSttSchema.parse(body ?? {});
       const data = await this.voice.transcribeSync(

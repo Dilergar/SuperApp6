@@ -21,7 +21,7 @@ export class PublicFilesController {
   @Public()
   @SkipThrottle()
   @Get(':token')
-  @ApiOperation({ summary: 'Публичный файл по вечному токену; ?variant=thumb|medium|poster' })
+  @ApiOperation({ summary: 'A public file by its permanent token; ?variant=thumb|medium|poster' })
   async serve(
     @Param('token') token: string,
     @Query('variant') variant: string | undefined,

@@ -1,9 +1,10 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import { Prisma, type ShareLink, type ShareLinkGuest } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import {
   APP_TIMEZONE,
   SHARE_LINK_ERROR_CODES,
+  SOURCE_LOCALE,
   SHARE_LINK_LIMITS,
   maskPhone,
   type ShareGuestIdentityStartDto,
@@ -12,7 +13,10 @@ import {
   type ShareLinkErrorCode,
 } from '@superapp/shared';
 import { NotificationsService } from '../notifications/notifications.service';
+import { formatDayKey } from '@superapp/i18n';
 import { DatabaseService } from '../../shared/database/database.service';
+import { ApiError } from '../../shared/errors/api-error';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { utcTs } from '../../shared/database/sql-time';
 import { VerifyService } from '../verify/verify.service';
 import { ShareLinksRegistry } from './share-links.registry';
@@ -40,13 +44,17 @@ export interface GuestAccess {
  * ветвился по нему, а не по русскому тексту. Функция модуля, а не метод класса, — так
  * компилятор видит `never` и сам сужает типы после вызова.
  */
+/**
+ * Отказ гостю: `key` — ключ каталога (слово подберёт фильтр в языке запроса), а
+ * `code` остаётся машинным — гостевая страница ветвится по нему, а не по фразе.
+ */
 function deny(
   code: ShareLinkErrorCode,
-  message: string,
+  key: string,
   status: HttpStatus,
   extra?: Record<string, unknown>,
 ): never {
-  throw new HttpException({ message, details: { code, ...extra } }, status);
+  throw new ApiError(status, { code: key, details: { code, ...extra } });
 }
 
 /**
@@ -71,6 +79,7 @@ export class ShareLinksGuestService {
     private readonly tokens: ShareLinksTokenService,
     private readonly notifications: NotificationsService,
     private readonly verify: VerifyService,
+    private readonly i18n: I18nService,
   ) {}
 
   /** Шаг 1: жива ли ссылка, нужен ли пароль и предстоит ли подтверждение номера */
@@ -105,7 +114,7 @@ export class ShareLinksGuestService {
     if (!link.requireIdentity) {
       // Ссылка кода не просит — эта ручка для неё не существует (не даём превращать
       // произвольную ссылку в источник SMS-трафика).
-      deny(SHARE_LINK_ERROR_CODES.sessionInvalid, 'Ссылка не требует подтверждения номера', HttpStatus.FORBIDDEN);
+      deny(SHARE_LINK_ERROR_CODES.sessionInvalid, 'shareLink.noIdentityNeeded', HttpStatus.FORBIDDEN);
     }
     if (link.passwordHash) await this.verifyPassword(link, dto.password);
 
@@ -134,7 +143,7 @@ export class ShareLinksGuestService {
     if (link.requireIdentity && (!dto.verifyToken || !dto.guestName)) {
       deny(
         SHARE_LINK_ERROR_CODES.identityRequired,
-        'Ссылка требует подтверждение номера',
+        'shareLink.identityRequired',
         HttpStatus.FORBIDDEN,
       );
     }
@@ -215,22 +224,22 @@ export class ShareLinksGuestService {
     if (!verdict.ok || !verdict.payload) {
       deny(
         SHARE_LINK_ERROR_CODES.sessionInvalid,
-        'Сессия просмотра истекла — откройте ссылку заново',
+        'shareLink.sessionExpired',
         HttpStatus.FORBIDDEN,
       );
     }
     const link = await this.db.shareLink.findUnique({ where: { id: verdict.payload.l } });
-    if (!link) deny(SHARE_LINK_ERROR_CODES.notFound, 'Ссылка не найдена', HttpStatus.NOT_FOUND);
+    if (!link) deny(SHARE_LINK_ERROR_CODES.notFound, 'shareLink.notFound', HttpStatus.NOT_FOUND);
     this.assertLive(link);
     this.assertEpoch(link, verdict.payload);
     if (expectedRefType && link.refType !== expectedRefType) {
-      deny(SHARE_LINK_ERROR_CODES.sessionInvalid, 'Сессия не подходит к этому разделу', HttpStatus.FORBIDDEN);
+      deny(SHARE_LINK_ERROR_CODES.sessionInvalid, 'shareLink.sessionMismatchSection', HttpStatus.FORBIDDEN);
     }
     // Пропуск старше включения тумблера личности не бывает: включение бампает
     // sessionEpoch, поэтому «ссылка требует личность, а в пропуске её нет» —
     // это подделка, а не легальная старая сессия.
     if (link.requireIdentity && !verdict.payload.g) {
-      deny(SHARE_LINK_ERROR_CODES.identityRequired, 'Ссылка требует подтверждение номера', HttpStatus.FORBIDDEN);
+      deny(SHARE_LINK_ERROR_CODES.identityRequired, 'shareLink.identityRequired', HttpStatus.FORBIDDEN);
     }
     const guest = verdict.payload.g
       ? await this.db.shareLinkGuest.findUnique({ where: { id: verdict.payload.g } })
@@ -259,23 +268,23 @@ export class ShareLinksGuestService {
   ): Promise<unknown> {
     const verdict = this.tokens.verify(sessionToken);
     if (!verdict.ok || !verdict.payload) {
-      deny(SHARE_LINK_ERROR_CODES.sessionInvalid, 'Сессия просмотра истекла — откройте ссылку заново', HttpStatus.FORBIDDEN);
+      deny(SHARE_LINK_ERROR_CODES.sessionInvalid, 'shareLink.sessionExpired', HttpStatus.FORBIDDEN);
     }
     const link = await this.loadByToken(token);
     if (verdict.payload.l !== link.id) {
-      deny(SHARE_LINK_ERROR_CODES.sessionInvalid, 'Сессия не подходит к этой ссылке', HttpStatus.FORBIDDEN);
+      deny(SHARE_LINK_ERROR_CODES.sessionInvalid, 'shareLink.sessionMismatch', HttpStatus.FORBIDDEN);
     }
     this.assertLive(link);
     this.assertEpoch(link, verdict.payload);
     if (link.requireIdentity && !verdict.payload.g) {
-      deny(SHARE_LINK_ERROR_CODES.identityRequired, 'Ссылка требует подтверждение номера', HttpStatus.FORBIDDEN);
+      deny(SHARE_LINK_ERROR_CODES.identityRequired, 'shareLink.identityRequired', HttpStatus.FORBIDDEN);
     }
 
     const provider = this.registry.get(link.refType);
     const handler = provider?.actions?.[key];
     // Неизвестное действие — 404, а не 403: существование чужих возможностей
     // постороннему не подтверждаем (тот же приём, что у скоупа гостевых папок).
-    if (!handler) deny(SHARE_LINK_ERROR_CODES.notFound, 'Действие недоступно', HttpStatus.NOT_FOUND);
+    if (!handler) deny(SHARE_LINK_ERROR_CODES.notFound, 'shareLink.actionUnavailable', HttpStatus.NOT_FOUND);
 
     const guest = verdict.payload.g
       ? await this.db.shareLinkGuest.findUnique({ where: { id: verdict.payload.g } })
@@ -301,14 +310,14 @@ export class ShareLinksGuestService {
     if (!verdict.ok || !verdict.payload) {
       deny(
         SHARE_LINK_ERROR_CODES.sessionInvalid,
-        'Сессия просмотра истекла — откройте ссылку заново',
+        'shareLink.sessionExpired',
         HttpStatus.FORBIDDEN,
       );
     }
     const link = await this.loadByToken(token);
     // Пропуск, выданный на ссылку А, не должен работать по адресу ссылки Б.
     if (verdict.payload.l !== link.id) {
-      deny(SHARE_LINK_ERROR_CODES.sessionInvalid, 'Сессия не подходит к этой ссылке', HttpStatus.FORBIDDEN);
+      deny(SHARE_LINK_ERROR_CODES.sessionInvalid, 'shareLink.sessionMismatch', HttpStatus.FORBIDDEN);
     }
     this.assertLive(link);
     this.assertEpoch(link, verdict.payload);
@@ -337,7 +346,7 @@ export class ShareLinksGuestService {
     guest: { id: string; name: string; phone: string } | null = null,
   ): Promise<unknown> {
     const provider = this.registry.get(link.refType);
-    if (!provider) deny(SHARE_LINK_ERROR_CODES.refGone, 'Содержимое недоступно', HttpStatus.GONE);
+    if (!provider) deny(SHARE_LINK_ERROR_CODES.refGone, 'shareLink.contentUnavailable', HttpStatus.GONE);
 
     const view = await provider.resolveGuestView({
       linkId: link.id,
@@ -348,7 +357,7 @@ export class ShareLinksGuestService {
       guest,
     });
     if (view === null || view === undefined) {
-      deny(SHARE_LINK_ERROR_CODES.refGone, 'Объект больше недоступен', HttpStatus.GONE);
+      deny(SHARE_LINK_ERROR_CODES.refGone, 'shareLink.itemGone', HttpStatus.GONE);
     }
     return view;
   }
@@ -370,13 +379,13 @@ export class ShareLinksGuestService {
    * бесплатным насосом для пула потоков (хэш стоит сотни миллисекунд, потоков четыре).
    */
   private async verifyPassword(link: ShareLink, password: string | undefined): Promise<void> {
-    if (!password) deny(SHARE_LINK_ERROR_CODES.passwordRequired, 'Нужен пароль', HttpStatus.FORBIDDEN);
+    if (!password) deny(SHARE_LINK_ERROR_CODES.passwordRequired, 'shareLink.passwordRequired', HttpStatus.FORBIDDEN);
 
     const lockedForMs = link.pwdLockedUntil ? link.pwdLockedUntil.getTime() - Date.now() : 0;
     if (lockedForMs > 0) {
       deny(
         SHARE_LINK_ERROR_CODES.passwordLocked,
-        'Слишком много неверных попыток — попробуйте позже',
+        'shareLink.tooManyTries',
         HttpStatus.FORBIDDEN,
         { retryInSec: Math.ceil(lockedForMs / 1000) },
       );
@@ -404,7 +413,7 @@ export class ShareLinksGuestService {
     });
     const left = SHARE_LINK_LIMITS.passwordMaxAttempts - after.pwdFailedAttempts;
     if (left > 0) {
-      deny(SHARE_LINK_ERROR_CODES.passwordWrong, 'Неверный пароль', HttpStatus.FORBIDDEN, {
+      deny(SHARE_LINK_ERROR_CODES.passwordWrong, 'shareLink.wrongPassword', HttpStatus.FORBIDDEN, {
         attemptsLeft: left,
       });
     }
@@ -418,7 +427,7 @@ export class ShareLinksGuestService {
     });
     deny(
       SHARE_LINK_ERROR_CODES.passwordLocked,
-      'Слишком много неверных попыток — попробуйте позже',
+      'shareLink.tooManyTries',
       HttpStatus.FORBIDDEN,
       { retryInSec: SHARE_LINK_LIMITS.passwordLockMinutes * 60 },
     );
@@ -428,7 +437,7 @@ export class ShareLinksGuestService {
     const link = token ? await this.db.shareLink.findUnique({ where: { token } }) : null;
     // 404 именно «не найдена»: токен 192-битный, перебирать нечего, а честный ответ
     // экономит человеку время («ссылка битая», а не «что-то пошло не так»).
-    if (!link) deny(SHARE_LINK_ERROR_CODES.notFound, 'Ссылка не найдена', HttpStatus.NOT_FOUND);
+    if (!link) deny(SHARE_LINK_ERROR_CODES.notFound, 'shareLink.notFound', HttpStatus.NOT_FOUND);
     return link;
   }
 
@@ -436,7 +445,7 @@ export class ShareLinksGuestService {
   private assertUsable(link: ShareLink): void {
     this.assertLive(link);
     if (link.maxOpens !== null && link.openCount >= link.maxOpens) {
-      deny(SHARE_LINK_ERROR_CODES.exhausted, 'Лимит открытий ссылки исчерпан', HttpStatus.GONE);
+      deny(SHARE_LINK_ERROR_CODES.exhausted, 'shareLink.exhausted', HttpStatus.GONE);
     }
   }
 
@@ -481,7 +490,7 @@ export class ShareLinksGuestService {
         payload: {
           // Название — из СНИМКА на строке: в момент раздачи объект назывался так, и
           // ходить за свежим именем к потребителю на каждое открытие незачем.
-          targetName: link.refTitle ?? 'объект',
+          targetName: link.refTitle ?? this.i18n.translateFor(SOURCE_LOCALE, 'common.labels.item'),
           labelSuffix: link.label ? ` («${link.label}»)` : '',
           // Кто открыл — когда ссылка требовала подтверждение номера. Пустая строка у
           // анонимных: шаблонизатор реестра условий не умеет.
@@ -511,7 +520,7 @@ export class ShareLinksGuestService {
     if ((payload.e ?? 0) !== link.sessionEpoch) {
       deny(
         SHARE_LINK_ERROR_CODES.sessionInvalid,
-        'Адрес ссылки изменился — откройте её заново по новому адресу',
+        'shareLink.addressChanged',
         HttpStatus.FORBIDDEN,
       );
     }
@@ -519,9 +528,9 @@ export class ShareLinksGuestService {
 
   /** Ссылка не отозвана и не истекла (проверяется на каждом запросе гостя) */
   private assertLive(link: ShareLink): void {
-    if (link.revokedAt) deny(SHARE_LINK_ERROR_CODES.revoked, 'Ссылку отозвали', HttpStatus.GONE);
+    if (link.revokedAt) deny(SHARE_LINK_ERROR_CODES.revoked, 'shareLink.revoked', HttpStatus.GONE);
     if (link.expiresAt && link.expiresAt.getTime() <= Date.now()) {
-      deny(SHARE_LINK_ERROR_CODES.expired, 'Срок действия ссылки истёк', HttpStatus.GONE);
+      deny(SHARE_LINK_ERROR_CODES.expired, 'shareLink.expired', HttpStatus.GONE);
     }
   }
 
@@ -546,7 +555,7 @@ export class ShareLinksGuestService {
     // Дата — строкой с явным ::date: ни одна сторона сравнения не зависит от пояса
     // сессии Postgres, а «сегодня» считается в APP_TIMEZONE, чтобы тишина
     // предохранителя снималась утром у человека, а не среди ночи.
-    const today = now.toLocaleDateString('en-CA', { timeZone: APP_TIMEZONE });
+    const today = formatDayKey(now, { locale: SOURCE_LOCALE, timeZone: APP_TIMEZONE });
 
     // Счётчик уведомлений ведём ЗДЕСЬ же, а не отдельным «прочитали и записали»:
     // предохранитель существует ради вирусной ссылки, а её открывают параллельно —
@@ -571,7 +580,7 @@ export class ShareLinksGuestService {
       // видит чужой коммит и внутри нашей транзакции.
       const fresh = await tx.shareLink.findUnique({ where: { id: link.id } });
       if (fresh) this.assertUsable(fresh);
-      deny(SHARE_LINK_ERROR_CODES.exhausted, 'Лимит открытий ссылки исчерпан', HttpStatus.GONE);
+      deny(SHARE_LINK_ERROR_CODES.exhausted, 'shareLink.exhausted', HttpStatus.GONE);
     }
     await tx.shareLinkVisit.create({
       data: {

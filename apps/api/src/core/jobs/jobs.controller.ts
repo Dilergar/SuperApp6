@@ -42,7 +42,7 @@ export class JobsController {
   }
 
   @Get('stats')
-  @ApiOperation({ summary: 'Счётчики движка джобов + последние dead-letter (только development)' })
+  @ApiOperation({ summary: 'Jobs engine counters plus the latest dead letters (development only)' })
   async stats() {
     this.assertDev();
     return { success: true, data: await this.jobs.stats() };
@@ -56,7 +56,7 @@ export class JobsController {
    * (чаще это выключенная фича — см. JobsService.listUnhandled).
    */
   @Post('dev/purge-unhandled')
-  @ApiOperation({ summary: 'Похоронить живые джобы типа без обработчика (только development)' })
+  @ApiOperation({ summary: 'Bury the live jobs of a type that has no handler (development only)' })
   async devPurgeUnhandled(@Body() body: unknown) {
     this.assertDev();
     const { type } = z.object({ type: z.string().min(1).max(100) }).strict().parse(body ?? {});
@@ -64,7 +64,7 @@ export class JobsController {
   }
 
   @Post('dev/enqueue')
-  @ApiOperation({ summary: 'Дев-полигон: поставить тест-джоб (в транзакции; rollback=true — откатить её)' })
+  @ApiOperation({ summary: 'Dev sandbox: enqueue a test job (inside a transaction; rollback=true rolls it back)' })
   async devEnqueue(@Body() body: unknown) {
     this.assertDev();
     const input = devEnqueueSchema.parse(body ?? {});
@@ -91,7 +91,7 @@ export class JobsController {
   }
 
   @Get('dev/by-key')
-  @ApiOperation({ summary: 'Дев-полигон: состояние тест-джоба по uniqueKey (последняя строка)' })
+  @ApiOperation({ summary: 'Dev sandbox: the state of a test job by uniqueKey (the latest row)' })
   async devByKey(@Query() query: Record<string, unknown>) {
     this.assertDev();
     const { uniqueKey } = devKeySchema.parse(query ?? {});
@@ -116,7 +116,7 @@ export class JobsController {
   }
 
   @Post('dev/cancel')
-  @ApiOperation({ summary: 'Дев-полигон: отменить живой тест-джоб по uniqueKey' })
+  @ApiOperation({ summary: 'Dev sandbox: cancel a live test job by uniqueKey' })
   async devCancel(@Body() body: unknown) {
     this.assertDev();
     const { uniqueKey } = devKeySchema.parse(body ?? {});
@@ -125,7 +125,7 @@ export class JobsController {
   }
 
   @Post('dev/expire-lease')
-  @ApiOperation({ summary: 'Дев-полигон: протушить аренду executing-джоба (сценарий краха для reaper)' })
+  @ApiOperation({ summary: 'Dev sandbox: expire the lease of an executing job (a crash scenario for the reaper)' })
   async devExpireLease(@Body() body: unknown) {
     this.assertDev();
     const { uniqueKey } = devKeySchema.parse(body ?? {});
@@ -137,7 +137,7 @@ export class JobsController {
   }
 
   @Post('dev/reap')
-  @ApiOperation({ summary: 'Дев-полигон: прогнать reaper немедленно' })
+  @ApiOperation({ summary: 'Dev sandbox: run the reaper right now' })
   async devReap() {
     this.assertDev();
     await this.jobs.reapExpired();

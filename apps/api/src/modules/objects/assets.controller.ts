@@ -41,7 +41,7 @@ export class AssetsController {
   // ---- Справочник моделей ----
 
   @Get('asset-models')
-  @ApiOperation({ summary: 'Модели оборудования организации' })
+  @ApiOperation({ summary: 'Equipment models of the organization' })
   async models(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -53,7 +53,7 @@ export class AssetsController {
   }
 
   @Post('asset-models')
-  @ApiOperation({ summary: 'Добавить модель' })
+  @ApiOperation({ summary: 'Add a model' })
   async createModel(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -65,7 +65,7 @@ export class AssetsController {
   }
 
   @Patch('asset-models/:modelId')
-  @ApiOperation({ summary: 'Изменить модель' })
+  @ApiOperation({ summary: 'Change a model' })
   async updateModel(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -79,7 +79,7 @@ export class AssetsController {
 
   @Delete('asset-models/:modelId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Удалить модель (есть экземпляры — 409)' })
+  @ApiOperation({ summary: 'Delete a model (there are items — 409)' })
   async removeModel(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -93,7 +93,7 @@ export class AssetsController {
   // кофемашин сети (обещание канона: docs/objects_assets.md). Статические пути
   // объявлены после `asset-models/:modelId`, но с собственным сегментом `files`.
   @Get('asset-models/:modelId/files')
-  @ApiOperation({ summary: 'Файлы модели: инструкция, паспорт' })
+  @ApiOperation({ summary: 'Files of a model: a manual, a data sheet' })
   async modelFiles(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -104,7 +104,7 @@ export class AssetsController {
   }
 
   @Post('asset-models/:modelId/files')
-  @ApiOperation({ summary: 'Приложить файл к модели' })
+  @ApiOperation({ summary: 'Attach a file to a model' })
   async attachModelFile(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -118,7 +118,7 @@ export class AssetsController {
 
   @Delete('asset-models/:modelId/files/:fileId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Отвязать файл модели' })
+  @ApiOperation({ summary: 'Detach a file from a model' })
   async detachModelFile(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -132,7 +132,7 @@ export class AssetsController {
   // ---- Экземпляры ----
 
   @Get('objects/:objectId/assets')
-  @ApiOperation({ summary: 'Оборудование объекта (курсорная страница)' })
+  @ApiOperation({ summary: 'Equipment of the site (a cursor page)' })
   async list(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -145,7 +145,7 @@ export class AssetsController {
   }
 
   @Post('objects/:objectId/assets')
-  @ApiOperation({ summary: 'Добавить оборудование (модель можно создать на лету)' })
+  @ApiOperation({ summary: 'Add a piece of equipment (a model can be created on the fly)' })
   async create(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -158,7 +158,7 @@ export class AssetsController {
   }
 
   @Get('assets/:assetId')
-  @ApiOperation({ summary: 'Карточка: данные + журналы' })
+  @ApiOperation({ summary: 'The card: data + the logs' })
   async card(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -169,7 +169,7 @@ export class AssetsController {
   }
 
   @Patch('assets/:assetId')
-  @ApiOperation({ summary: 'Изменить карточку' })
+  @ApiOperation({ summary: 'Change the card' })
   async update(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -183,7 +183,7 @@ export class AssetsController {
 
   @Post('assets/:assetId/move')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Переместить (пишет журнал в той же транзакции)' })
+  @ApiOperation({ summary: 'Move it (writes the log in the same transaction)' })
   async move(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -197,7 +197,7 @@ export class AssetsController {
 
   @Post('assets/:assetId/custodian')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Сменить ответственного (запись журнала)' })
+  @ApiOperation({ summary: 'Change the person in charge (a log record)' })
   async custodian(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -211,7 +211,7 @@ export class AssetsController {
 
   @Post('assets/:assetId/holding')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Владение и баланс (нужно право на деньги объекта)' })
+  @ApiOperation({ summary: 'Ownership and the balance (the right to the money of the site is needed)' })
   async holding(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -225,7 +225,7 @@ export class AssetsController {
 
   @Post('assets/:assetId/status')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Состояние: в работе / ремонт / списано' })
+  @ApiOperation({ summary: 'The condition: in service / under repair / written off' })
   async status(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -238,7 +238,7 @@ export class AssetsController {
   }
 
   @Post('assets/:assetId/service')
-  @ApiOperation({ summary: 'Записать обслуживание/ремонт' })
+  @ApiOperation({ summary: 'Log maintenance or a repair' })
   async logService(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -251,7 +251,7 @@ export class AssetsController {
   }
 
   @Patch('assets/:assetId/service/:recId')
-  @ApiOperation({ summary: 'Изменить запись обслуживания' })
+  @ApiOperation({ summary: 'Change a maintenance record' })
   async updateService(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -265,7 +265,7 @@ export class AssetsController {
   }
 
   @Get('assets/:assetId/files')
-  @ApiOperation({ summary: 'Фото и документы оборудования' })
+  @ApiOperation({ summary: 'Photos and documents of a piece of equipment' })
   async files(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -276,7 +276,7 @@ export class AssetsController {
   }
 
   @Post('assets/:assetId/files')
-  @ApiOperation({ summary: 'Приложить файл' })
+  @ApiOperation({ summary: 'Attach a file' })
   async attach(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -290,7 +290,7 @@ export class AssetsController {
 
   @Delete('assets/:assetId/files/:fileId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Отвязать файл' })
+  @ApiOperation({ summary: 'Detach a file' })
   async detach(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,

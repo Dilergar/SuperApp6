@@ -21,13 +21,15 @@ const safeText = (max: number, min = 1) =>
     .trim()
     .min(min)
     .max(max)
-    .refine((v) => !/[<>]/.test(v), { message: 'Символы < и > запрещены' });
+    .refine((v) => !/[<>]/.test(v), { message: 'validation.hr.badCharacters' });
 
 /** Кадровые даты — КАЛЕНДАРНЫЕ (YYYY-MM-DD), без часовых поясов */
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД');
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'validation.hr.isoDate');
 
-const kindEnum = z.enum(HR_ACTION_KINDS.map((k) => k.value) as [string, ...string[]]);
-const contractTypeEnum = z.enum(CONTRACT_TYPES.map((c) => c.value) as [string, ...string[]]);
+// Перечисления держим ШИРОКИМИ (`string`): вид действия приезжает и из строки БД
+// (исполнение пачки), а сузив тип здесь, мы получили бы касты у каждого зова.
+const kindEnum = z.enum([...HR_ACTION_KINDS] as [string, ...string[]]);
+const contractTypeEnum = z.enum([...CONTRACT_TYPES] as [string, ...string[]]);
 const groundEnum = z.enum(DISMISSAL_GROUNDS.map((g) => g.value) as [string, ...string[]]);
 
 /** Оклад приходит ЦЕЛЫМИ ТИЫНАМИ (снимок в BigInt-колонку) */
@@ -99,7 +101,7 @@ export const hrActionParamsSchema = z
 
 /** Период действия не может кончаться раньше, чем начался (отпуск «с 20-го по 5-е») */
 const periodOk = (v: { effectiveAt: string; effectiveTo?: string }) => !v.effectiveTo || v.effectiveTo >= v.effectiveAt;
-const periodMessage = { message: 'Дата окончания не может быть раньше даты начала', path: ['effectiveTo'] };
+const periodMessage = { message: 'validation.hr.periodEnd', path: ['effectiveTo'] };
 
 export const createHrActionSchema = z.object({
   kind: kindEnum,
@@ -119,9 +121,7 @@ export const createHrActionSchema = z.object({
 
 export const createHrBatchSchema = z.object({
   /** Массовый приём не поддерживается — у приёма индивидуальный пакет */
-  kind: z.enum(
-    HR_ACTION_KINDS.map((k) => k.value).filter((v) => v !== 'hire') as [string, ...string[]],
-  ),
+  kind: z.enum(HR_ACTION_KINDS.filter((v) => v !== 'hire') as unknown as [string, ...string[]]),
   /** Адресаты — словарь core/audiences (в т.ч. относительные: руководитель/команда/руководитель объекта) */
   audience: audienceListSchema(CAMPAIGN_AUDIENCE_KINDS, 50),
   effectiveAt: isoDate,
@@ -140,14 +140,14 @@ export const esutdMarkSubmittedSchema = z.object({
 // ---------- Вручение ----------
 
 export const docDeliverySchema = z.object({
-  method: z.enum(DOC_DELIVERY_METHODS.map((m) => m.value) as [string, ...string[]]),
+  method: z.enum([...DOC_DELIVERY_METHODS] as [string, ...string[]]),
   trackNumber: safeText(60).optional(),
   /** Момент вручения; пусто — сейчас */
   deliveredAt: z.string().datetime().optional(),
 });
 
 export const docDeliveryModeSchema = z.object({
-  deliveryMode: z.enum(DOC_DELIVERY_MODES.map((m) => m.value) as [string, ...string[]]),
+  deliveryMode: z.enum([...DOC_DELIVERY_MODES] as [string, ...string[]]),
 });
 
 // ---------- Кампании ознакомления ----------
@@ -155,8 +155,8 @@ export const docDeliveryModeSchema = z.object({
 export const createCampaignSchema = z.object({
   orgDocumentId: z.string().uuid(),
   title: safeText(200).optional(),
-  mode: z.enum(CAMPAIGN_MODES.map((m) => m.value) as [string, ...string[]]).optional(),
-  fixMode: z.enum(CAMPAIGN_FIX_MODES.map((m) => m.value) as [string, ...string[]]).optional(),
+  mode: z.enum([...CAMPAIGN_MODES] as [string, ...string[]]).optional(),
+  fixMode: z.enum([...CAMPAIGN_FIX_MODES] as [string, ...string[]]).optional(),
   /** Адресаты — словарь core/audiences (в т.ч. относительные: руководитель/команда/руководитель объекта) */
   audience: audienceListSchema(CAMPAIGN_AUDIENCE_KINDS, 50),
   dueAt: isoDate.optional(),
@@ -176,7 +176,7 @@ export const hrLibraryInstallSchema = z
     signerPositionId: z.string().uuid().optional(),
   })
   .refine((v) => !!v.signerUserId || !!v.signerPositionId, {
-    message: 'Укажите подписанта: человека или должность',
+    message: 'validation.hr.signerRequired',
   });
 
 export type UpsertEmploymentInput = z.infer<typeof upsertEmploymentSchema>;

@@ -35,7 +35,7 @@ export class MessengerController {
   ) {}
 
   @Get('presence')
-  @ApiOperation({ summary: 'Присутствие (онлайн/был(а)/контекст) для набора пользователей' })
+  @ApiOperation({ summary: 'Presence (online / last seen / context) for a set of people' })
   async getPresence(
     @CurrentUser() user: JwtPayload,
     @Query('userIds') userIds?: string,
@@ -50,39 +50,39 @@ export class MessengerController {
   }
 
   @Get('chats')
-  @ApiOperation({ summary: 'Мои чаты (инбокс)' })
+  @ApiOperation({ summary: 'My chats (the inbox)' })
   async listChats(@CurrentUser() user: JwtPayload) {
     return { success: true, data: await this.messenger.listChats(user.sub) };
   }
 
   @Get('calls/active')
-  @ApiOperation({ summary: 'Живые звонки моих чатов (watcher входящих: загрузка/reconnect)' })
+  @ApiOperation({ summary: 'Live calls in my chats (incoming watcher: load / reconnect)' })
   async myActiveCalls(@CurrentUser() user: JwtPayload) {
     return { success: true, data: { items: await this.messenger.listMyActiveCalls(user.sub) } };
   }
 
   @Post('chats/dm')
-  @ApiOperation({ summary: 'Открыть/создать личный диалог' })
+  @ApiOperation({ summary: 'Open or create a direct chat' })
   async openDm(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const { userId } = openDmSchema.parse(body);
     return { success: true, data: await this.messenger.openDm(user.sub, userId) };
   }
 
   @Post('chats/group')
-  @ApiOperation({ summary: 'Создать групповой чат' })
+  @ApiOperation({ summary: 'Create a group chat' })
   async createGroup(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const { name, memberIds } = createGroupSchema.parse(body);
     return { success: true, data: await this.messenger.createGroup(user.sub, name, memberIds) };
   }
 
   @Get('chats/:id')
-  @ApiOperation({ summary: 'Детали чата + участники' })
+  @ApiOperation({ summary: 'Chat details and participants' })
   async getChat(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     return { success: true, data: await this.messenger.getChatDetail(user.sub, id) };
   }
 
   @Patch('chats/:id')
-  @ApiOperation({ summary: 'Переименовать группу' })
+  @ApiOperation({ summary: 'Rename a group' })
   async rename(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -93,14 +93,14 @@ export class MessengerController {
   }
 
   @Delete('chats/:id')
-  @ApiOperation({ summary: 'Удалить группу (только владелец)' })
+  @ApiOperation({ summary: 'Delete a group (owner only)' })
   async deleteGroup(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     await this.messenger.deleteGroup(user.sub, id);
     return { success: true };
   }
 
   @Post('chats/:id/members')
-  @ApiOperation({ summary: 'Добавить участников в группу' })
+  @ApiOperation({ summary: 'Add participants to a group' })
   async addMembers(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -111,7 +111,7 @@ export class MessengerController {
   }
 
   @Delete('chats/:id/members/:userId')
-  @ApiOperation({ summary: 'Убрать участника (себя — выйти)' })
+  @ApiOperation({ summary: 'Remove a participant (yourself — leave)' })
   async removeMember(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -125,14 +125,14 @@ export class MessengerController {
   }
 
   @Post('chats/:id/leave')
-  @ApiOperation({ summary: 'Выйти из группы' })
+  @ApiOperation({ summary: 'Leave a group' })
   async leave(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     await this.messenger.leaveGroup(user.sub, id);
     return { success: true };
   }
 
   @Post('chats/:id/admins/:userId')
-  @ApiOperation({ summary: 'Назначить/снять администратора (только владелец)' })
+  @ApiOperation({ summary: 'Grant or revoke an administrator (owner only)' })
   async setAdmin(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -144,7 +144,7 @@ export class MessengerController {
   }
 
   @Get('chats/:id/messages')
-  @ApiOperation({ summary: 'Сообщения чата (пагинация по seq)' })
+  @ApiOperation({ summary: 'Chat messages (paginated by seq)' })
   async getMessages(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -155,7 +155,7 @@ export class MessengerController {
   }
 
   @Get('chats/:id/mentionable')
-  @ApiOperation({ summary: 'Кого можно упомянуть в этом чате (для @-пикера)' })
+  @ApiOperation({ summary: 'Who can be mentioned in this chat (for the @-picker)' })
   async mentionable(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -165,7 +165,7 @@ export class MessengerController {
   }
 
   @Post('chats/:id/messages')
-  @ApiOperation({ summary: 'Отправить сообщение' })
+  @ApiOperation({ summary: 'Send a message' })
   async send(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -176,7 +176,7 @@ export class MessengerController {
   }
 
   @Post('chats/:id/messages/attachments')
-  @ApiOperation({ summary: 'Отправить вложения (альбом до 10 файлов движка + подпись)' })
+  @ApiOperation({ summary: 'Send attachments (an album of up to 10 engine files + a caption)' })
   async sendAttachments(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -191,13 +191,13 @@ export class MessengerController {
 
   // ---- Scheduled messages ("Напомнить", Phase 7) ----
   @Get('chats/:id/scheduled')
-  @ApiOperation({ summary: 'Мои запланированные сообщения в чате' })
+  @ApiOperation({ summary: 'My scheduled messages in the chat' })
   async listScheduled(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     return { success: true, data: await this.scheduled.listForChat(user.sub, id) };
   }
 
   @Post('chats/:id/scheduled')
-  @ApiOperation({ summary: 'Запланировать сообщение (отложенное)' })
+  @ApiOperation({ summary: 'Schedule a message' })
   async schedule(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -208,7 +208,7 @@ export class MessengerController {
   }
 
   @Patch('scheduled/:schedId')
-  @ApiOperation({ summary: 'Изменить запланированное сообщение' })
+  @ApiOperation({ summary: 'Update a scheduled message' })
   async updateScheduled(
     @CurrentUser() user: JwtPayload,
     @Param('schedId') schedId: string,
@@ -219,14 +219,14 @@ export class MessengerController {
   }
 
   @Delete('scheduled/:schedId')
-  @ApiOperation({ summary: 'Отменить запланированное сообщение' })
+  @ApiOperation({ summary: 'Cancel a scheduled message' })
   async cancelScheduled(@CurrentUser() user: JwtPayload, @Param('schedId') schedId: string) {
     await this.scheduled.cancel(user.sub, schedId);
     return { success: true };
   }
 
   @Post('chats/:id/read')
-  @ApiOperation({ summary: 'Отметить прочитанным до seq' })
+  @ApiOperation({ summary: 'Mark read up to a seq' })
   async read(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -238,31 +238,31 @@ export class MessengerController {
   }
 
   @Get('tasks/:taskId/chat')
-  @ApiOperation({ summary: 'Чат задачи (контекстный)' })
+  @ApiOperation({ summary: 'The task chat (context chat)' })
   async getTaskChat(@CurrentUser() user: JwtPayload, @Param('taskId') taskId: string) {
     return { success: true, data: await this.messenger.getTaskChat(user.sub, taskId) };
   }
 
   @Get('orders/:orderId/chat')
-  @ApiOperation({ summary: 'Чат заказа (контекстный)' })
+  @ApiOperation({ summary: 'The order chat (context chat)' })
   async getOrderChat(@CurrentUser() user: JwtPayload, @Param('orderId') orderId: string) {
     return { success: true, data: await this.messenger.getOrderChat(user.sub, orderId) };
   }
 
   @Get('events/:eventId/chat')
-  @ApiOperation({ summary: 'Чат события (контекстный)' })
+  @ApiOperation({ summary: 'The event chat (context chat)' })
   async getEventChat(@CurrentUser() user: JwtPayload, @Param('eventId') eventId: string) {
     return { success: true, data: await this.messenger.getEventChat(user.sub, eventId) };
   }
 
   @Get('office-rooms/:roomId/chat')
-  @ApiOperation({ summary: 'Чат встречи Виртуального офиса (контекстный)' })
+  @ApiOperation({ summary: 'The Virtual Office meeting chat (context chat)' })
   async getOfficeRoomChat(@CurrentUser() user: JwtPayload, @Param('roomId') roomId: string) {
     return { success: true, data: await this.messenger.getOfficeRoomChat(user.sub, roomId) };
   }
 
   @Patch('messages/:id')
-  @ApiOperation({ summary: 'Редактировать своё сообщение' })
+  @ApiOperation({ summary: 'Edit my message' })
   async edit(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -273,7 +273,7 @@ export class MessengerController {
   }
 
   @Delete('messages/:id')
-  @ApiOperation({ summary: 'Удалить своё сообщение' })
+  @ApiOperation({ summary: 'Delete my message' })
   async remove(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     await this.messenger.deleteMessage(user.sub, id);
     return { success: true };

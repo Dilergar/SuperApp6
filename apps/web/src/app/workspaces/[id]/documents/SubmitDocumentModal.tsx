@@ -10,6 +10,7 @@
 // ============================================================
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { isDocDateRangeValue, type AvailableTemplateDto, type DocFormFieldDto } from '@superapp/shared';
@@ -92,6 +93,8 @@ export function SubmitDocumentModal({
     onError: (e) => toastError(apiErrorMessage(e)),
   });
 
+  const tr = useTranslations('documents');
+  const tc = useTranslations('common');
   const missing = (template?.fields ?? []).filter((f) => f.required && !formFieldFilled(f, values[f.key]));
 
   return (
@@ -101,14 +104,14 @@ export function SubmitDocumentModal({
         reset();
         onClose();
       }}
-      title={subjectName ? `Документ: ${subjectName}` : 'Подать заявление'}
-      subtitle={template ? template.name : subjectName ? 'Выберите, что оформить' : 'Выберите, что подать'}
+      title={subjectName ? tr('submit.forPerson', { name: subjectName }) : tr('page.submit')}
+      subtitle={template ? template.name : tr(subjectName ? 'submit.pickForPerson' : 'submit.pick')}
       size="md"
       footer={
         template ? (
           <>
             <Button variant="ghost" onClick={() => setTemplateId(null)}>
-              Назад
+              {tc('actions.back')}
             </Button>
             <Button
               icon="check"
@@ -116,7 +119,7 @@ export function SubmitDocumentModal({
               disabled={missing.length > 0}
               onClick={() => create.mutate()}
             >
-              Создать документ
+              {tr('upload.create')}
             </Button>
           </>
         ) : null
@@ -133,22 +136,22 @@ export function SubmitDocumentModal({
           tone="danger"
           action={
             <Button variant="ghost" size="sm" icon="refresh" onClick={() => templatesQuery.refetch()}>
-              Повторить
+              {tc('actions.retry')}
             </Button>
           }
         >
-          Не удалось загрузить список — проверьте связь и попробуйте снова
+          {tr('submit.loadFailed')}
         </Alert>
       ) : available.length === 0 ? (
         category === 'external' ? (
           <EmptyState
             icon="workspace"
-            title="Шаблонов для контрагентов пока нет"
-            description="Менеджер+ заводит вид категории «С контрагентами» и его шаблон. Готовый договор можно загрузить файлом прямо сейчас."
+            title={tr('submit.noExternalTemplates')}
+            description={tr('submit.noExternalTemplatesText')}
             action={
               onNoTemplates ? (
                 <Button variant="matte" icon="upload" onClick={onNoTemplates}>
-                  Загрузить готовый файл
+                  {tr('page.createUpload')}
                 </Button>
               ) : undefined
             }
@@ -156,8 +159,8 @@ export function SubmitDocumentModal({
         ) : (
           <EmptyState
             icon="file"
-            title="Пока нечего подавать"
-            description="Шаблоны заявлений настраивает управляющий: он же решает, кому какой доступен."
+            title={tr('submit.nothingToSubmit')}
+            description={tr('submit.nothingToSubmitText')}
           />
         )
       ) : (
@@ -178,6 +181,7 @@ function TemplateOption({
   template: AvailableTemplateDto;
   onPick: () => void;
 }) {
+  const tr = useTranslations('documents');
   return (
     <Card hoverable onClick={onPick} small>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
@@ -188,7 +192,7 @@ function TemplateOption({
           </div>
         </div>
         <Button variant="matte" size="sm" icon="arrowRight" onClick={onPick}>
-          Заполнить
+          {tr('submit.fill')}
         </Button>
       </div>
     </Card>
@@ -207,12 +211,10 @@ export function FormFields({
   onChange: (next: DocFormValues) => void;
   disabled?: boolean;
 }) {
+  const tr = useTranslations('documents');
+  const tc = useTranslations('common');
   if (!fields.length) {
-    return (
-      <p style={{ color: 'var(--text-muted)' }}>
-        У этого шаблона нет полей — документ соберётся по данным организации и сотрудника.
-      </p>
-    );
+    return <p style={{ color: 'var(--text-muted)' }}>{tr('submit.noFields')}</p>;
   }
   const set = (key: string, value: unknown) => onChange({ ...values, [key]: value });
   const str = (v: unknown) => (typeof v === 'string' ? v : '');
@@ -229,7 +231,7 @@ export function FormFields({
               value={str(values[f.key]) || null}
               onChange={(v) => set(f.key, v)}
               options={(f.options ?? []).map((o) => ({ value: o.value, label: o.label }))}
-              placeholder={f.placeholder ?? 'Выберите'}
+              placeholder={f.placeholder ?? tc('actions.select')}
               disabled={disabled}
             />
           );
@@ -310,6 +312,7 @@ function DateRangeField({
   onChange: (v: { from: string; to: string } | null) => void;
   disabled?: boolean;
 }) {
+  const tr = useTranslations('documents');
   const from = value ? isoToDate(value.from) : null;
   const to = value ? isoToDate(value.to) : null;
   const singleDay = !!value && value.from === value.to;
@@ -330,7 +333,7 @@ function DateRangeField({
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 'var(--spacing-3)', marginBottom: 'var(--spacing-2)' }}>
         <span className="label-sm" style={{ fontWeight: 600 }}>{label}</span>
         <Toggle
-          label="Один день"
+          label={tr('submit.oneDay')}
           checked={single}
           disabled={disabled}
           onChange={(v) => {
@@ -341,7 +344,7 @@ function DateRangeField({
       </div>
       <div style={{ display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
         <DatePicker
-          label={single ? 'Дата' : 'С'}
+          label={tr(single ? 'fieldKind.date' : 'submit.rangeFrom')}
           value={from}
           onChange={(d) => apply(d, to, single)}
           disabled={disabled}
@@ -349,7 +352,7 @@ function DateRangeField({
         />
         {!single && (
           <DatePicker
-            label="По"
+            label={tr('submit.rangeTo')}
             value={to}
             onChange={(d) => apply(from, d, false)}
             min={from ?? undefined}

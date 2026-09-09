@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import type { ChatCallStatePayload } from '@superapp/shared';
 import { endCallSession, getMyActiveChatCalls } from '@/lib/calls-api';
@@ -18,6 +19,7 @@ import { PersonAvatar } from '@/app/messenger/messenger-ui';
  * локальный таймер. Холодная загрузка и reconnect — GET /messenger/calls/active.
  */
 export function IncomingCallWatcher({ meId }: { meId: string }) {
+  const t = useTranslations('calls');
   const router = useRouter();
   const [incoming, setIncoming] = useState<ChatCallStatePayload | null>(null);
   const incomingRef = useRef(incoming);
@@ -152,17 +154,17 @@ export function IncomingCallWatcher({ meId }: { meId: string }) {
           boxShadow: '0 12px 40px color-mix(in srgb, var(--on-surface) 25%, transparent)',
         }}
       >
-        <PersonAvatar userId={active.startedById} name={startedByName ?? 'Входящий звонок'} size="lg" />
+        <PersonAvatar userId={active.startedById} name={startedByName ?? t('incoming.title')} size="lg" />
         <div style={{ textAlign: 'center' }}>
-          <div className="title-lg" style={{ fontSize: '1.05rem' }}>{startedByName ?? 'Входящий звонок'}</div>
-          <div className="label-md" style={{ color: 'var(--on-surface-variant)' }}>📞 Входящий звонок…</div>
+          <div className="title-lg" style={{ fontSize: '1.05rem' }}>{startedByName ?? t('incoming.title')}</div>
+          <div className="label-md" style={{ color: 'var(--on-surface-variant)' }}>{t('incoming.subtitle')}</div>
         </div>
         <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
           <button className="btn-success" style={{ padding: '0.6rem 1.4rem' }} onClick={accept}>
-            Принять
+            {t('incoming.accept')}
           </button>
           <button className="btn-danger-soft" style={{ padding: '0.6rem 1.4rem' }} onClick={decline}>
-            Отклонить
+            {t('incoming.decline')}
           </button>
         </div>
       </div>

@@ -1,7 +1,8 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { WALLET_LIMITS } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { badRequest, notFound } from '../../shared/errors/api-error';
 
 type Tx = Prisma.TransactionClient;
 
@@ -101,7 +102,7 @@ export class LedgerService {
       const rows = await tx.$queryRaw<Array<{ balance: bigint; held: bigint; allow_negative: boolean }>>(
         Prisma.sql`SELECT balance, held, allow_negative FROM accounts WHERE id = ${id} FOR UPDATE`,
       );
-      if (rows.length === 0) throw new NotFoundException('Счёт не найден');
+      if (rows.length === 0) throw notFound('wallet.accountNotFound');
       map.set(id, { id, balance: rows[0].balance, held: rows[0].held, allowNegative: rows[0].allow_negative });
     }
     return map;
@@ -113,7 +114,7 @@ export class LedgerService {
 
   private toBig(amount: number): bigint {
     if (!Number.isInteger(amount) || amount <= 0) {
-      throw new BadRequestException('Сумма должна быть целым числом больше 0');
+      throw badRequest('wallet.amountPositiveInt');
     }
     return BigInt(amount);
   }
@@ -174,9 +175,7 @@ export class LedgerService {
       const i = locks.get(issuance.id)!;
       const u = locks.get(user.id)!;
       if (u.balance + amount > BigInt(WALLET_LIMITS.maxInHand)) {
-        throw new BadRequestException(
-          `Лимит эмиссии: «на руках» не может быть больше ${WALLET_LIMITS.maxInHand} монет`,
-        );
+        throw badRequest('wallet.mintCap', { max: WALLET_LIMITS.maxInHand });
       }
       await this.append(t, {
         currencyId: input.currencyId,
@@ -201,7 +200,7 @@ export class LedgerService {
       const h = locks.get(holder.id)!;
       const i = locks.get(issuance.id)!;
       if (h.balance - h.held - amount < 0n) {
-        throw new BadRequestException('Недостаточно монет для сжигания');
+        throw badRequest('wallet.burnInsufficient');
       }
       await this.append(t, {
         currencyId: input.currencyId,
@@ -233,7 +232,7 @@ export class LedgerService {
     },
   ): Promise<bigint | null> {
     if (input.fromAccountId === input.toAccountId) {
-      throw new BadRequestException('Нельзя перевести самому себе');
+      throw badRequest('wallet.selfTransfer');
     }
     const amount = this.toBig(input.amount);
     if (input.idempotencyKey) {
@@ -244,7 +243,7 @@ export class LedgerService {
     const from = locks.get(input.fromAccountId)!;
     const to = locks.get(input.toAccountId)!;
     if (!from.allowNegative && from.balance - from.held - amount < 0n) {
-      throw new BadRequestException('Недостаточно средств');
+      throw badRequest('wallet.insufficientFunds');
     }
     const id = await this.append(tx, {
       currencyId: input.currencyId,
@@ -288,7 +287,7 @@ export class LedgerService {
     const locks = await this.lock(tx, [input.payerAccountId]);
     const payer = locks.get(input.payerAccountId)!;
     if (!payer.allowNegative && payer.balance - payer.held - amount < 0n) {
-      throw new BadRequestException('Недостаточно средств на балансе валюты');
+      throw badRequest('wallet.insufficientCurrencyBalance');
     }
     const id = await this.append(tx, {
       currencyId: input.currencyId,

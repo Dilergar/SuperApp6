@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   createCounterpartyBankAccountSchema,
@@ -9,6 +9,7 @@ import {
   updateCounterpartyContactSchema,
   updateCounterpartySchema,
 } from '@superapp/shared';
+import { badRequest } from '../../shared/errors/api-error';
 import { CurrentUser, type JwtPayload } from '../../shared/decorators/current-user.decorator';
 import { CounterpartiesService } from './counterparties.service';
 
@@ -24,21 +25,21 @@ export class CounterpartiesController {
   // ВАЖНО: статический путь ДО ':counterpartyId' — иначе Nest ищет контрагента
   // с идентификатором «lookup» (та же ловушка, что в approvals и share-links).
   @Get('lookup')
-  @ApiOperation({ summary: 'Найти живого контрагента по БИН/ИИН (дедуп в форме)' })
+  @ApiOperation({ summary: 'Find a live counterparty by its BIN / IIN (deduplication in the form)' })
   async lookup(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
     @Query('bin') bin: string,
   ) {
     if (!bin || !isValidIinOrBin(bin.trim())) {
-      throw new BadRequestException('БИН/ИИН — 12 цифр с контрольной суммой');
+      throw badRequest('counterparties.idFormat');
     }
     const data = await this.counterparties.lookup(user.sub, workspaceId, bin.trim());
     return { success: true, data };
   }
 
   @Get()
-  @ApiOperation({ summary: 'Справочник контрагентов (поиск, вид, архив; keyset)' })
+  @ApiOperation({ summary: 'The directory of counterparties (search, kind, archive; keyset)' })
   async list(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -50,7 +51,7 @@ export class CounterpartiesController {
   }
 
   @Post()
-  @ApiOperation({ summary: 'Добавить контрагента (Менеджер+)' })
+  @ApiOperation({ summary: 'Add a counterparty (Manager and above)' })
   async create(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -62,7 +63,7 @@ export class CounterpartiesController {
   }
 
   @Get(':counterpartyId')
-  @ApiOperation({ summary: 'Карточка контрагента' })
+  @ApiOperation({ summary: 'The card of a counterparty' })
   async get(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -73,7 +74,7 @@ export class CounterpartiesController {
   }
 
   @Patch(':counterpartyId')
-  @ApiOperation({ summary: 'Изменить карточку (Менеджер+)' })
+  @ApiOperation({ summary: 'Update the card (Manager and above)' })
   async update(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -86,7 +87,7 @@ export class CounterpartiesController {
   }
 
   @Delete(':counterpartyId')
-  @ApiOperation({ summary: 'Убрать в архив (Менеджер+; документы в работе блокируют)' })
+  @ApiOperation({ summary: 'Move to the archive (Manager and above; documents under way block it)' })
   async archive(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -97,7 +98,7 @@ export class CounterpartiesController {
   }
 
   @Post(':counterpartyId/restore')
-  @ApiOperation({ summary: 'Вернуть из архива (Менеджер+; занятый БИН/ИИН → 409)' })
+  @ApiOperation({ summary: 'Restore from the archive (Manager and above; a taken BIN / IIN gives 409)' })
   async restore(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -110,7 +111,7 @@ export class CounterpartiesController {
   // ---- Контактные лица ----
 
   @Post(':counterpartyId/contacts')
-  @ApiOperation({ summary: 'Добавить контактное лицо (Менеджер+)' })
+  @ApiOperation({ summary: 'Add a contact person (Manager and above)' })
   async addContact(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -123,7 +124,7 @@ export class CounterpartiesController {
   }
 
   @Patch(':counterpartyId/contacts/:contactId')
-  @ApiOperation({ summary: 'Изменить контактное лицо (Менеджер+)' })
+  @ApiOperation({ summary: 'Update a contact person (Manager and above)' })
   async updateContact(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -137,7 +138,7 @@ export class CounterpartiesController {
   }
 
   @Delete(':counterpartyId/contacts/:contactId')
-  @ApiOperation({ summary: 'Убрать контактное лицо (в архив: на него ссылаются документы)' })
+  @ApiOperation({ summary: 'Remove a contact person (to the archive: documents refer to them)' })
   async removeContact(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -151,7 +152,7 @@ export class CounterpartiesController {
   // ---- Банковские счета ----
 
   @Post(':counterpartyId/accounts')
-  @ApiOperation({ summary: 'Добавить счёт (первый — основной сам; Менеджер+)' })
+  @ApiOperation({ summary: 'Add a bank account (the first one becomes the primary; Manager and above)' })
   async addAccount(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -164,7 +165,7 @@ export class CounterpartiesController {
   }
 
   @Post(':counterpartyId/accounts/:accountId/set-primary')
-  @ApiOperation({ summary: 'Сделать счёт основным (Менеджер+)' })
+  @ApiOperation({ summary: 'Make a bank account the primary one (Manager and above)' })
   async setPrimary(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -176,7 +177,7 @@ export class CounterpartiesController {
   }
 
   @Delete(':counterpartyId/accounts/:accountId')
-  @ApiOperation({ summary: 'Удалить счёт (основной передаёт роль старейшему)' })
+  @ApiOperation({ summary: 'Delete a bank account (the primary one hands the role to the oldest)' })
   async removeAccount(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,

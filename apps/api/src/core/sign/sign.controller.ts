@@ -36,32 +36,32 @@ export class SignController {
 
   @Public()
   @Get('status')
-  @ApiOperation({ summary: 'Режим движка подписи (веб прячет недоступные способы)' })
+  @ApiOperation({ summary: 'Signing engine mode (the web hides the methods that are off)' })
   status() {
     return { success: true, data: this.sign.status() };
   }
 
   @Post('requests/for-step/:stepId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Открыть подписание шага маршрута (лениво и идемпотентно)' })
+  @ApiOperation({ summary: 'Open the signing of a route step (lazily and idempotently)' })
   async forStep(@CurrentUser() user: JwtPayload, @Param('stepId') stepId: string) {
     return { success: true, data: await this.sign.ensureForStep(actorOf(user), stepId) };
   }
 
   @Get('requests/:id')
-  @ApiOperation({ summary: 'Экран подписания: заявка, замороженный документ, мой акт' })
+  @ApiOperation({ summary: 'The signing screen: the request, the frozen document, my act' })
   async flow(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     return { success: true, data: await this.sign.getFlow(actorOf(user), id) };
   }
 
   @Get('acts/:actId/state')
-  @ApiOperation({ summary: 'Короткое состояние акта (поллинг во время подписания по QR)' })
+  @ApiOperation({ summary: 'Short act state (polled while signing over QR)' })
   async actState(@CurrentUser() user: JwtPayload, @Param('actId') actId: string) {
     return { success: true, data: await this.sign.myActState(actorOf(user), actId) };
   }
 
   @Get('acts/:actId/events')
-  @ApiOperation({ summary: 'Протокол подписания (append-only)' })
+  @ApiOperation({ summary: 'The signing log (append-only)' })
   async events(@CurrentUser() user: JwtPayload, @Param('actId') actId: string) {
     return { success: true, data: await this.sign.events(actorOf(user), actId) };
   }
@@ -72,7 +72,7 @@ export class SignController {
   @HttpCode(HttpStatus.OK)
   // SMS = деньги: грубая сетка поверх точных лимитов core/verify.
   @Throttle({ long: { limit: 15, ttl: 900000 } })
-  @ApiOperation({ summary: 'ПЭП, шаг 1: принять соглашение и получить код' })
+  @ApiOperation({ summary: 'SES, step 1: accept the agreement and get a code' })
   async pepStart(
     @CurrentUser() user: JwtPayload,
     @Param('actId') actId: string,
@@ -86,7 +86,7 @@ export class SignController {
   @Post('acts/:actId/pep/confirm')
   @HttpCode(HttpStatus.OK)
   @Throttle({ long: { limit: 60, ttl: 900000 } })
-  @ApiOperation({ summary: 'ПЭП, шаг 2: код из SMS → подпись' })
+  @ApiOperation({ summary: 'SES, step 2: the SMS code turns into a signature' })
   async pepConfirm(
     @CurrentUser() user: JwtPayload,
     @Param('actId') actId: string,
@@ -101,7 +101,7 @@ export class SignController {
 
   @Post('acts/:actId/cms')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'ЭЦП через NCALayer: готовый контейнер из браузера' })
+  @ApiOperation({ summary: 'QES via NCALayer: a ready container from the browser' })
   async cms(
     @CurrentUser() user: JwtPayload,
     @Param('actId') actId: string,
@@ -115,7 +115,7 @@ export class SignController {
 
   @Post('acts/:actId/qr/start')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'ЭЦП через eGov Mobile: одноразовый QR' })
+  @ApiOperation({ summary: 'QES via eGov Mobile: a single-use QR code' })
   async qrStart(
     @CurrentUser() user: JwtPayload,
     @Param('actId') actId: string,
@@ -130,7 +130,7 @@ export class SignController {
 
   @Post('acts/:actId/decline')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Отказ от подписи (причина обязательна)' })
+  @ApiOperation({ summary: 'Decline to sign (the reason is mandatory)' })
   async decline(
     @CurrentUser() user: JwtPayload,
     @Param('actId') actId: string,
@@ -144,7 +144,7 @@ export class SignController {
   // ---- Артефакты (ст. 62 ЦК: документ обязан жить вне системы) ----
 
   @Get('requests/:id/protocol')
-  @ApiOperation({ summary: 'Протокол подписания — PDF' })
+  @ApiOperation({ summary: 'The signing log as a PDF' })
   async protocolPdf(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Req() req: Request) {
     const { buffer, fileName } = await this.protocol.buildProtocol(actorOf(user), id);
     sendBinary(req, buffer, fileName, 'application/pdf');
@@ -152,7 +152,7 @@ export class SignController {
   }
 
   @Get('requests/:id/export')
-  @ApiOperation({ summary: 'Экспортный пакет: документ + подписи + квитанции + протокол' })
+  @ApiOperation({ summary: 'The export package: the document, the signatures, the receipts and the log' })
   async exportZip(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Req() req: Request) {
     const { buffer, fileName } = await this.protocol.buildExport(actorOf(user), id);
     sendBinary(req, buffer, fileName, 'application/zip');
@@ -166,7 +166,7 @@ export class SignController {
   // Неаутентифицированная и не бесплатная ручка: перебор отпечатков ничего не
   // даёт (256 бит), но и молотить базу ею не позволим.
   @Throttle({ long: { limit: 60, ttl: 60000 } })
-  @ApiOperation({ summary: 'Открытая проверка подписи по отпечатку файла или ссылке' })
+  @ApiOperation({ summary: 'Open signature check by a file fingerprint or by a link' })
   async check(@Query() query: unknown) {
     const q = signCheckQuerySchema.parse(query);
     return { success: true, data: await this.sign.check(q) };
@@ -192,7 +192,7 @@ export class SignQrBridgeController {
   @Public()
   @Get('data/:dataToken')
   @Throttle({ long: { limit: 30, ttl: 60000 } })
-  @ApiOperation({ summary: '[eGov Mobile] Забрать данные на подпись (одноразово)' })
+  @ApiOperation({ summary: '[eGov Mobile] Fetch the data to sign (single-use)' })
   async data(@Param('dataToken') dataToken: string) {
     return { success: true, data: await this.qr.claimData(dataToken) };
   }
@@ -201,7 +201,7 @@ export class SignQrBridgeController {
   @Post('submit/:signToken')
   @HttpCode(HttpStatus.OK)
   @Throttle({ long: { limit: 30, ttl: 60000 } })
-  @ApiOperation({ summary: '[eGov Mobile] Положить контейнер подписи (одноразово)' })
+  @ApiOperation({ summary: '[eGov Mobile] Put back the signature container (single-use)' })
   async submit(@Param('signToken') signToken: string, @Body() body: unknown, @Req() req: Request) {
     // Схема и разбирает диалект моста (имя поля между версиями разное), и держит
     // потолок размера: ручка публичная, и без него в base64-декод уходила бы строка

@@ -18,6 +18,7 @@
 
 import { useMemo, useState, type ReactNode } from 'react';
 import { useParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RATE_TYPES, type StaffingRowDto } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
@@ -46,26 +47,19 @@ import { PersonChip } from '@/app/circles/PersonCard';
 import { apiErrorMessage } from '@/lib/api';
 import { toastError } from '@/lib/toast';
 import { dm } from '@/lib/dates';
-import { FALLBACK_TZ, monthIn, monthLabel, todayIn } from '@/lib/objects-time';
+import { useMonthLabel } from '@/lib/format';
+import { moneyTiyn } from '@/lib/objects-money';
+import { FALLBACK_TZ, monthIn, todayIn } from '@/lib/objects-time';
 import { objectKey, objectStaffingKey } from '@/lib/queries';
 import { fetchObject, fetchStaffing, staffingApi } from '../../objects-api';
 import { AssignPanel } from '../../_components/AssignPanel';
 import { UnitForm } from '../../_components/UnitForm';
 import { RateHistory } from '../../_components/RateHistory';
 
-const RATE_SHORT = new Map(RATE_TYPES.map((r) => [r.value, r.short]));
+const RATE_KNOWN = new Set<string>(RATE_TYPES.map((r) => r.value));
 
 function money(amount: string | null | undefined, currency = 'KZT'): string {
-  if (!amount) return '—';
-  const n = Number(amount) / 100;
-  return `${n.toLocaleString('ru-RU')} ${currency === 'KZT' ? '₸' : currency}`;
-}
-
-/** «250 000 ₸ · мес.» — сумма и вид ставки одной строкой */
-function rate(r: { amount: string; currency: string; rateType: string } | null | undefined): string | null {
-  if (!r) return null;
-  const short = RATE_SHORT.get(r.rateType as Parameters<typeof RATE_SHORT.get>[0]);
-  return short ? `${money(r.amount, r.currency)} · ${short}` : money(r.amount, r.currency);
+  return amount ? moneyTiyn(amount, currency) : '—';
 }
 
 /** Сдвиг периода `YYYY-MM` — арифметика на строке, «сейчас» здесь ни при чём */
@@ -75,20 +69,14 @@ function shiftMonth(period: string, delta: number): string {
   return d.toISOString().slice(0, 7);
 }
 
-/** 1 строка · 2 строки · 5 строк */
-function rowsWord(n: number): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return `${n} строка`;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${n} строки`;
-  return `${n} строк`;
-}
-
 type RowFilter = 'all' | 'vacant' | 'unregistered';
 
 const NOWRAP = { whiteSpace: 'nowrap' } as const;
 
 export default function StaffingPage() {
+  const t = useTranslations('objects');
+  const tc = useTranslations('common');
+  const monthLabel = useMonthLabel();
   const { isReady } = useRequireAuth();
   const isMobile = useIsMobile();
   const { id, objectId } = useParams<{ id: string; objectId: string }>();
@@ -147,6 +135,13 @@ export default function StaffingPage() {
     onError: (e) => toastError(apiErrorMessage(e)),
   });
 
+  /** «250 000 ₸ · мес.» — сумма и вид ставки одной строкой (слово — из каталога). */
+  const rate = (r: { amount: string; currency: string; rateType: string } | null | undefined): string | null => {
+    if (!r) return null;
+    const value = money(r.amount, r.currency);
+    return RATE_KNOWN.has(r.rateType) ? `${value} · ${t(`rateTypeShort.${r.rateType}`)}` : value;
+  };
+
   const caps = data?.caps;
   const showMoney = !!caps?.payrollView;
   const canManage = !!caps?.manage;
@@ -155,32 +150,53 @@ export default function StaffingPage() {
   // Колонка действий есть только у того, кто может действовать: пустой трек
   // справа читался бы как недогруженная таблица.
   const columns: TableColumn[] = useMemo(() => {
-    const base: TableColumn[] = [{ key: 'who', label: 'Кто', width: 'minmax(250px,1fr)' }];
-    if (showMoney) base.push({ key: 'employment', label: 'Как оформлен', width: 'max-content', hideOnMobile: true });
+    const base: TableColumn[] = [{ key: 'who', label: t('attendance.who'), width: 'minmax(250px,1fr)' }];
+    if (showMoney) {
+      base.push({ key: 'employment', label: t('staffing.colEmployment'), width: 'max-content', hideOnMobile: true });
+    }
     base.push(
-      { key: 'schedule', label: 'График', width: 'max-content', hideOnMobile: true },
-      { key: 'shifts', label: 'Смены', title: 'Запланировано / отработано за период', width: 'max-content', align: 'end', hideOnMobile: true },
+      { key: 'schedule', label: t('staffing.colSchedule'), width: 'max-content', hideOnMobile: true },
+      {
+        key: 'shifts',
+        label: t('tabs.shiftsShort'),
+        title: t('staffing.colShiftsHint'),
+        width: 'max-content',
+        align: 'end',
+        hideOnMobile: true,
+      },
     );
     if (showMoney) {
       base.push(
-        { key: 'official', label: 'Оклад офиц.', width: 'max-content', align: 'end', hideOnMobile: true },
-        { key: 'actual', label: 'Оклад факт.', width: 'max-content', align: 'end', hideOnMobile: true },
+        { key: 'official', label: t('staffing.colOfficial'), width: 'max-content', align: 'end', hideOnMobile: true },
+        { key: 'actual', label: t('staffing.colActual'), width: 'max-content', align: 'end', hideOnMobile: true },
       );
     }
     if (canManage) base.push({ key: 'actions', label: '', width: 'max-content', align: 'end' });
     return base;
-  }, [showMoney, canManage]);
+  }, [showMoney, canManage, t]);
 
   // На 375 px переключатель месяца и «+ Позиция» едут ПОД шапку (иначе заголовок
   // сжимается в столбик из отдельных букв).
   const periodControls = (
     <>
-      <Button size="sm" variant="ghost" icon="arrowLeft" aria-label="Предыдущий месяц" onClick={() => setPickedPeriod(shiftMonth(period, -1))} />
+      <Button
+        size="sm"
+        variant="ghost"
+        icon="arrowLeft"
+        aria-label={tc('calendar.prevMonth')}
+        onClick={() => setPickedPeriod(shiftMonth(period, -1))}
+      />
       <Chip tone="neutral">{monthLabel(period)}</Chip>
-      <Button size="sm" variant="ghost" icon="arrowRight" aria-label="Следующий месяц" onClick={() => setPickedPeriod(shiftMonth(period, 1))} />
+      <Button
+        size="sm"
+        variant="ghost"
+        icon="arrowRight"
+        aria-label={tc('calendar.nextMonth')}
+        onClick={() => setPickedPeriod(shiftMonth(period, 1))}
+      />
       {canManage && (
         <Button size="sm" variant="outline" icon="add" onClick={() => setAddingUnit(true)}>
-          Позиция
+          {t('staffing.unitShort')}
         </Button>
       )}
     </>
@@ -232,20 +248,20 @@ export default function StaffingPage() {
             {row.glyph && <Glyph value={row.glyph} size={18} />}
             <span style={{ fontWeight: 700, fontSize: '0.875rem', ...NOWRAP }}>{row.positionName}</span>
           </span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }} title="Занято ставок из числа по штату">
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }} title={t('staffing.filledHint')}>
             <TickBar
               value={row.headcount ? (row.filled / row.headcount) * 100 : 0}
               tone={row.filled >= row.headcount ? 'success' : 'warning'}
               height={6}
               style={{ width: 96 }}
-              aria-label={`Укомплектованность: ${row.filled} из ${row.headcount}`}
+              aria-label={t('staffing.filledAria', { filled: row.filled, total: row.headcount })}
             />
             <span className="label-sm" style={NOWRAP}>{`${row.filled} / ${row.headcount}`}</span>
           </span>
           {showMoney && row.plannedRate && (
-            <span className="label-sm" style={NOWRAP}>{`план ${rate(row.plannedRate)}`}</span>
+            <span className="label-sm" style={NOWRAP}>{t('staffing.plannedShort', { value: rate(row.plannedRate) ?? '' })}</span>
           )}
-          {isCollapsed && <span className="label-sm" style={NOWRAP}>{rowsWord(unitRows.length)}</span>}
+          {isCollapsed && <span className="label-sm" style={NOWRAP}>{t('staffing.rowsCount', { n: unitRows.length })}</span>}
           {row.note && (
             <span
               className="label-sm"
@@ -258,22 +274,22 @@ export default function StaffingPage() {
           {canManage && (
             <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
               <Button size="sm" variant="ghost" onClick={() => setEditingUnit(row)}>
-                Править
+                {tc('actions.edit')}
               </Button>
               <RowMenu
-                label={`Действия с позицией «${row.positionName}»`}
+                label={t('staffing.unitActions', { name: row.positionName })}
                 items={[
                   {
                     key: 'remove',
-                    label: 'Убрать позицию из штатки',
+                    label: t('staffing.removeUnit'),
                     icon: 'delete',
                     danger: true,
                     onClick: () =>
                       confirm(
                         {
-                          title: 'Убрать позицию из штатки?',
-                          message: `«${row.positionName}» перестанет учитываться в плане затрат.`,
-                          confirmLabel: 'Убрать',
+                          title: t('staffing.removeUnitTitle'),
+                          message: t('staffing.removeUnitMessage', { name: row.positionName }),
+                          confirmLabel: tc('actions.remove'),
                           danger: true,
                         },
                         () => removeUnit.mutateAsync(row.staffingPositionId).then(() => undefined),
@@ -293,7 +309,9 @@ export default function StaffingPage() {
     const closed = !!a && !a.active;
     const shifts = row.shifts;
     const shiftsText = a
-      ? `${shifts.planned} / ${shifts.worked + shifts.late}${shifts.absent > 0 ? ` · ${shifts.absent} невыход` : ''}`
+      ? `${shifts.planned} / ${shifts.worked + shifts.late}${
+          shifts.absent > 0 ? ` · ${t('staffing.absentCount', { n: shifts.absent })}` : ''
+        }`
       : '—';
 
     body.push(
@@ -307,12 +325,18 @@ export default function StaffingPage() {
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', ...NOWRAP }}>
               <PersonChip size="S" userId={a.userId} firstName={a.userName} />
               {/* Закрытое назначение выглядело работающим — теперь у него свой чип */}
-              {closed && <Chip tone="neutral">{a.endsOn ? `до ${dm(a.endsOn)}` : 'не действует'}</Chip>}
+              {closed && (
+                <Chip tone="neutral">
+                  {a.endsOn ? t('staffing.until', { date: dm(a.endsOn) }) : t('staffing.notActive')}
+                </Chip>
+              )}
             </span>
           ) : (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Chip tone="neutral">Вакантно</Chip>
-              {row.vacantSince && <span className="label-sm" style={NOWRAP}>{`с ${dm(row.vacantSince)}`}</span>}
+              <Chip tone="neutral">{t('staffing.vacant')}</Chip>
+              {row.vacantSince && (
+                <span className="label-sm" style={NOWRAP}>{t('rates.since', { date: dm(row.vacantSince) })}</span>
+              )}
             </span>
           )}
         </TableCell>
@@ -322,7 +346,7 @@ export default function StaffingPage() {
         <TableCell hideOnMobile>
           <span className="label-sm">{row.schedule?.label ?? '—'}</span>
         </TableCell>
-        <TableCell align="end" hideOnMobile title="Смены за период: запланировано / отработано">
+        <TableCell align="end" hideOnMobile title={t('staffing.colShiftsHint')}>
           <span className="label-sm">{shiftsText}</span>
         </TableCell>
         {showMoney && (
@@ -335,7 +359,7 @@ export default function StaffingPage() {
                 {a
                   ? (rate(row.actualRate) ?? '—')
                   : row.plannedRate
-                    ? `${money(row.plannedRate.amount, row.plannedRate.currency)} · план`
+                    ? `${money(row.plannedRate.amount, row.plannedRate.currency)} · ${t('staffing.planned')}`
                     : '—'}
               </span>
             </TableCell>
@@ -350,22 +374,25 @@ export default function StaffingPage() {
                       назначения, а ошибочно закрытое назначение чинится только
                       там. Ставки внутри всё равно скрыты сервером. */}
                   <Button size="sm" variant="ghost" onClick={() => setRatesFor(row)}>
-                    {showMoney ? 'Ставки' : 'Период'}
+                    {showMoney ? t('rates.title') : t('rates.periodShort')}
                   </Button>
                   {!closed && (
                     <RowMenu
-                      label={`Действия с назначением: ${a.userName}`}
+                      label={t('staffing.assignmentActions', { name: a.userName })}
                       items={[
                         {
                           key: 'close',
-                          label: 'Закрыть назначение',
+                          label: t('staffing.closeAssignment'),
                           icon: 'close',
                           onClick: () =>
                             confirm(
                               {
-                                title: 'Закрыть назначение?',
-                                message: `${a.userName} перестанет числиться на позиции «${row.positionName}» с сегодняшнего дня. История сохранится.`,
-                                confirmLabel: 'Закрыть',
+                                title: t('staffing.closeAssignmentTitle'),
+                                message: t('staffing.closeAssignmentMessage', {
+                                  name: a.userName,
+                                  position: row.positionName,
+                                }),
+                                confirmLabel: tc('actions.close'),
                               },
                               () => closeAssignment.mutateAsync(a.id).then(() => undefined),
                             ),
@@ -376,7 +403,7 @@ export default function StaffingPage() {
                 </>
               ) : (
                 <Button size="sm" variant="outline" onClick={() => setAssignFor(row)}>
-                  Назначить
+                  {t('staffing.assign')}
                 </Button>
               )}
             </span>
@@ -390,7 +417,7 @@ export default function StaffingPage() {
     rowIndex += 1;
     body.push(
       <TableGroupRow key="empty-filter" rowIndex={rowIndex}>
-        <span className="label-sm">По этому фильтру строк нет</span>
+        <span className="label-sm">{t('staffing.filterEmpty')}</span>
       </TableGroupRow>,
     );
   }
@@ -399,8 +426,8 @@ export default function StaffingPage() {
     <>
       <Card>
         <CardHeader
-          title="Штатное расписание"
-          subtitle="Должности объекта, люди и вакансии. Ставки версионируются по датам"
+          title={t('tabs.staffing')}
+          subtitle={t('staffing.subtitle')}
           actions={isMobile ? undefined : periodControls}
         />
         {isMobile && (
@@ -414,12 +441,12 @@ export default function StaffingPage() {
         ) : rows.length === 0 ? (
           <EmptyState
             icon="staff"
-            title="Штат пока не расписан"
-            description="Добавьте позицию — «по штату 3 бариста». Вакансии сразу попадут в план затрат."
+            title={t('staffing.empty')}
+            description={t('staffing.emptyHint')}
             action={
               canManage ? (
                 <Button variant="primary" icon="add" onClick={() => setAddingUnit(true)}>
-                  Добавить позицию
+                  {t('staffing.addUnit')}
                 </Button>
               ) : undefined
             }
@@ -428,14 +455,14 @@ export default function StaffingPage() {
           <>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: 'var(--spacing-3)' }}>
               <Chip tone="accent" selected={filter === 'all'} onClick={() => setFilter('all')}>
-                Все
+                {tc('labels.all')}
               </Chip>
               <Chip tone="accent" selected={filter === 'vacant'} onClick={() => setFilter('vacant')}>
-                {`Вакансии · ${vacantCount}`}
+                {`${t('staffing.vacancies')} · ${vacantCount}`}
               </Chip>
               {showMoney && (
                 <Chip tone="accent" selected={filter === 'unregistered'} onClick={() => setFilter('unregistered')}>
-                  {`Не оформлены · ${unregisteredCount}`}
+                  {`${t('staffing.unregistered')} · ${unregisteredCount}`}
                 </Chip>
               )}
             </div>
@@ -447,7 +474,11 @@ export default function StaffingPage() {
                 <TableHeader />
                 {body}
                 <TableRow footer rowIndex={rowIndex + 1}>
-                  <TableCell>{`Итого · по штату ${totalHeadcount} · занято ${totalFilled}`}</TableCell>
+                  <TableCell>
+                    {`${tc('labels.total')} · ${t('staffing.headcount')} ${totalHeadcount} · ${t(
+                      'staffing.filledShort',
+                    )} ${totalFilled}`}
+                  </TableCell>
                   {showMoney && <TableCell hideOnMobile />}
                   <TableCell hideOnMobile />
                   <TableCell align="end" hideOnMobile />
@@ -455,7 +486,11 @@ export default function StaffingPage() {
                     <>
                       <TableCell align="end" hideOnMobile />
                       <TableCell align="end" hideOnMobile>
-                        {data?.totals ? `план затрат ${money(data.totals.plannedCost, data.totals.currency)}` : null}
+                        {data?.totals
+                          ? t('staffing.plannedCost', {
+                              value: money(data.totals.plannedCost, data.totals.currency),
+                            })
+                          : null}
                       </TableCell>
                     </>
                   )}
@@ -538,9 +573,16 @@ function RowMenu({ items, label }: { items: MenuAction[]; label: string }) {
 }
 
 function EmploymentChip({ row }: { row: StaffingRowDto }) {
+  const t = useTranslations('objects');
   const e = row.employment;
-  if (!e) return <Chip tone="warning">Не оформлен</Chip>;
-  if (e.status === 'draft') return <Chip tone="neutral">Черновик</Chip>;
-  if (e.status === 'terminated') return <Chip tone="danger">Уволен</Chip>;
-  return <Chip tone="success">{e.legalEntityName ? `Оформлен · ${e.legalEntityName}` : 'Оформлен'}</Chip>;
+  if (!e) return <Chip tone="warning">{t('staffing.employment.none')}</Chip>;
+  if (e.status === 'draft') return <Chip tone="neutral">{t('staffing.employment.draft')}</Chip>;
+  if (e.status === 'terminated') return <Chip tone="danger">{t('staffing.employment.terminated')}</Chip>;
+  return (
+    <Chip tone="success">
+      {e.legalEntityName
+        ? `${t('staffing.employment.live')} · ${e.legalEntityName}`
+        : t('staffing.employment.live')}
+    </Chip>
+  );
 }

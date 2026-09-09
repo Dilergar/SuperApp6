@@ -4,6 +4,8 @@ import {
   TextInput, Alert,
 } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslations } from 'use-intl';
+import { useFormatters } from '../../src/i18n/formatters';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/lib/api';
 
@@ -22,6 +24,9 @@ const PRIORITY_ICONS: Record<string, { icon: string; color: string }> = {
 };
 
 export default function TasksScreen() {
+  const t = useTranslations('tasks');
+  const tc = useTranslations('common');
+  const f = useFormatters();
   const queryClient = useQueryClient();
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [filter, setFilter] = useState<string | null>(null);
@@ -45,7 +50,7 @@ export default function TasksScreen() {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       setNewTaskTitle('');
     },
-    onError: () => Alert.alert('Ошибка', 'Не удалось создать задачу'),
+    onError: () => Alert.alert(tc('state.error'), t('list.createFailed')),
   });
 
   const toggleStatus = useMutation({
@@ -58,10 +63,10 @@ export default function TasksScreen() {
 
   const tasks = data?.data || [];
   const filters = [
-    { key: null, label: 'Все' },
-    { key: 'todo', label: 'К выполнению' },
-    { key: 'in_progress', label: 'В работе' },
-    { key: 'done', label: 'Готово' },
+    { key: null, label: t('list.all') },
+    { key: 'todo', label: t('status.todo') },
+    { key: 'in_progress', label: t('status.in_progress') },
+    { key: 'done', label: t('status.done') },
   ];
 
   return (
@@ -70,7 +75,7 @@ export default function TasksScreen() {
       <View style={styles.addRow}>
         <TextInput
           style={styles.addInput}
-          placeholder="Новая задача..."
+          placeholder={t('list.quickAddPlaceholder')}
           placeholderTextColor="#666"
           value={newTaskTitle}
           onChangeText={setNewTaskTitle}
@@ -133,7 +138,7 @@ export default function TasksScreen() {
                 )}
                 {item.dueDate && (
                   <Text style={styles.taskDue}>
-                    {new Date(item.dueDate).toLocaleDateString('ru-RU')}
+                    {f.date(item.dueDate)}
                   </Text>
                 )}
                 {item.coinReward > 0 && (
@@ -160,7 +165,7 @@ export default function TasksScreen() {
           <View style={styles.empty}>
             <Ionicons name="checkbox-outline" size={48} color="#333" />
             <Text style={styles.emptyText}>
-              {isLoading ? 'Загрузка...' : 'Нет задач'}
+              {isLoading ? tc('state.loading') : t('list.empty')}
             </Text>
           </View>
         }

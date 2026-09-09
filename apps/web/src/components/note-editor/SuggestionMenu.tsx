@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslations } from 'next-intl';
 import type { Command } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
 import type { NoteSpaceRef } from '@superapp/shared';
@@ -33,20 +34,22 @@ export interface SuggestionController {
   onKeyDown(e: KeyboardEvent): boolean;
 }
 
-const SLASH_ITEMS: SuggestionItem[] = [
-  { kind: 'slash', id: 'h1', title: 'Заголовок 1', icon: 'headingOne', command: cmd.setBlock('heading1') },
-  { kind: 'slash', id: 'h2', title: 'Заголовок 2', icon: 'headingTwo', command: cmd.setBlock('heading2') },
-  { kind: 'slash', id: 'h3', title: 'Заголовок 3', icon: 'headingThree', command: cmd.setBlock('heading3') },
-  { kind: 'slash', id: 'bullet', title: 'Список', icon: 'listBullets', command: cmd.toggleList('bullet') },
-  { kind: 'slash', id: 'ordered', title: 'Нумерованный список', icon: 'listNumbers', command: cmd.toggleList('ordered') },
-  { kind: 'slash', id: 'task', title: 'Чекбоксы', icon: 'tasks', command: cmd.toggleList('task') },
-  { kind: 'slash', id: 'quote', title: 'Цитата', icon: 'quotes', command: cmd.toggleBlockquote },
-  { kind: 'slash', id: 'code', title: 'Блок кода', icon: 'code', command: cmd.setBlock('codeBlock') },
-  { kind: 'slash', id: 'table', title: 'Таблица', icon: 'table', command: cmd.insertTable(3, 3) },
-  { kind: 'slash', id: 'hr', title: 'Разделитель', icon: 'minus', command: cmd.insertHorizontalRule },
+// Реестр команды «/» называет ДЕЙСТВИЕ ключом каталога; слово ему даёт каталог в
+// языке зрителя — по нему же идёт и фильтрация набранного после «/».
+const SLASH_ITEMS: Array<Omit<SuggestionItem, 'title'> & { titleKey: string }> = [
+  { kind: 'slash', id: 'h1', titleKey: 'editor.heading1', icon: 'headingOne', command: cmd.setBlock('heading1') },
+  { kind: 'slash', id: 'h2', titleKey: 'editor.heading2', icon: 'headingTwo', command: cmd.setBlock('heading2') },
+  { kind: 'slash', id: 'h3', titleKey: 'editor.heading3', icon: 'headingThree', command: cmd.setBlock('heading3') },
+  { kind: 'slash', id: 'bullet', titleKey: 'editor.bullet', icon: 'listBullets', command: cmd.toggleList('bullet') },
+  { kind: 'slash', id: 'ordered', titleKey: 'editor.ordered', icon: 'listNumbers', command: cmd.toggleList('ordered') },
+  { kind: 'slash', id: 'task', titleKey: 'editor.task', icon: 'tasks', command: cmd.toggleList('task') },
+  { kind: 'slash', id: 'quote', titleKey: 'editor.quote', icon: 'quotes', command: cmd.toggleBlockquote },
+  { kind: 'slash', id: 'code', titleKey: 'editor.codeBlock', icon: 'code', command: cmd.setBlock('codeBlock') },
+  { kind: 'slash', id: 'table', titleKey: 'editor.table', icon: 'table', command: cmd.insertTable(3, 3) },
+  { kind: 'slash', id: 'hr', titleKey: 'editor.divider', icon: 'minus', command: cmd.insertHorizontalRule },
   // Картинку вставляет не команда, а файловый пикер (NoteEditor ловит id 'image');
   // команда здесь — заглушка-нет-опа, чтобы пункт не притворялся другим действием.
-  { kind: 'slash', id: 'image', title: 'Картинка', icon: 'image', command: () => false },
+  { kind: 'slash', id: 'image', titleKey: 'editor.image', icon: 'image', command: () => false },
 ];
 
 interface Props {
@@ -62,6 +65,7 @@ interface Props {
 }
 
 export function SuggestionMenu({ match, view, scope, noteId, tags, canUpload, onPick, onClose, controllerRef }: Props) {
+  const t = useTranslations('notes');
   const [items, setItems] = useState<SuggestionItem[]>([]);
   const [index, setIndex] = useState(0);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -89,12 +93,18 @@ export function SuggestionMenu({ match, view, scope, noteId, tags, canUpload, on
       setIndex(0);
     };
     if (match.kind === 'slash') {
-      apply(SLASH_ITEMS.filter((it) => (it.id !== 'image' || canUpload) && (!q || it.title.toLowerCase().includes(q))));
+      apply(
+        SLASH_ITEMS.map<SuggestionItem>((it) => ({ ...it, title: t(it.titleKey) })).filter(
+          (it) => (it.id !== 'image' || canUpload) && (!q || it.title.toLowerCase().includes(q)),
+        ),
+      );
       return;
     }
     if (match.kind === 'tag') {
-      const list = tags.filter((t) => !q || t.includes(q)).map<SuggestionItem>((t) => ({ kind: 'tag', id: t, title: `#${t}`, icon: 'hash' }));
-      if (q && !tags.includes(q)) list.unshift({ kind: 'tag', id: q, title: `#${q}`, subtitle: 'новый тег', icon: 'hash' });
+      const list = tags
+        .filter((tag) => !q || tag.includes(q))
+        .map<SuggestionItem>((tag) => ({ kind: 'tag', id: tag, title: `#${tag}`, icon: 'hash' }));
+      if (q && !tags.includes(q)) list.unshift({ kind: 'tag', id: q, title: `#${q}`, subtitle: t('editor.newTag'), icon: 'hash' });
       apply(list);
       return;
     }
@@ -162,14 +172,14 @@ export function SuggestionMenu({ match, view, scope, noteId, tags, canUpload, on
 
   const empty = useMemo(() => {
     if (items.length) return null;
-    if (match.kind === 'mention') return 'Никого не найдено';
-    if (match.kind === 'wikilink') return q ? 'Заметок не найдено' : 'Начните вводить название заметки';
+    if (match.kind === 'mention') return t('editor.nobodyFound');
+    if (match.kind === 'wikilink') return q ? t('editor.notesNotFound') : t('editor.wikilinkHint');
     return null;
-  }, [items.length, match.kind, q]);
+  }, [items.length, match.kind, q, t]);
 
   if (!pos || (!items.length && !empty)) return null;
   return createPortal(
-    <div className="ne-suggest card-elevated" style={{ top: pos.top, left: pos.left }} role="listbox" aria-label="Подсказки">
+    <div className="ne-suggest card-elevated" style={{ top: pos.top, left: pos.left }} role="listbox" aria-label={t('editor.suggestAria')}>
       {items.map((it, i) => (
         <button
           key={`${it.kind}:${it.id}`}

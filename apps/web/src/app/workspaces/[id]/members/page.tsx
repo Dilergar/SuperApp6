@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
@@ -25,7 +26,7 @@ import {
   type ContactUserCard,
   type ChatDetail,
 } from '@superapp/shared';
-import { MemberRequisitesBlock, MembersHeader, roleLabel, splitName, useLegacyMembersTabRedirect, useMembersBase } from './members-lib';
+import { MemberRequisitesBlock, MembersHeader, splitName, useLegacyMembersTabRedirect, useMembersBase, useRoleLabel } from './members-lib';
 
 /**
  * Сервис «Сотрудники» (B2B), раздел «Люди»: ростер L-карточками (как «Моё
@@ -36,6 +37,7 @@ import { MemberRequisitesBlock, MembersHeader, roleLabel, splitName, useLegacyMe
  * (область считает СЕРВЕР — 403 приходит текстом); роли/увольнение — Админ+.
  */
 export default function WorkspaceStaffPage() {
+  const t = useTranslations('staff');
   const router = useRouter();
   const { id: workspaceId } = useParams<{ id: string }>();
   useLegacyMembersTabRedirect(workspaceId);
@@ -63,8 +65,8 @@ export default function WorkspaceStaffPage() {
   return (
     <MembersHeader
       ws={ws}
-      title="Сотрудники"
-      description="Ростер организации: карточки людей, должности, объекты"
+      title={t('people.title')}
+      description={t('people.description')}
       error={error}
       onCloseError={() => setError('')}
       // Матовая, а не призрачная: кнопка стоит на ФОНЕ СТРАНИЦЫ, а призрачная
@@ -72,7 +74,7 @@ export default function WorkspaceStaffPage() {
       actions={
         myRole && myRole !== 'owner' ? (
           <Button variant="matte" tone="danger" icon="signOut" onClick={() => setLeaving(true)}>
-            Выйти из организации
+            {t('people.leave')}
           </Button>
         ) : undefined
       }
@@ -95,9 +97,9 @@ export default function WorkspaceStaffPage() {
         open={leaving}
         onClose={() => setLeaving(false)}
         onConfirm={leave}
-        title="Выйти из организации?"
-        message="Ваши назначения снимутся, доступ к рабочим данным закроется. Вернуться можно только по новому приглашению."
-        confirmLabel="Выйти"
+        title={t('people.leaveTitle')}
+        message={t('people.leaveMessage')}
+        confirmLabel={t('people.leaveConfirm')}
         danger
       />
     </MembersHeader>
@@ -124,6 +126,8 @@ function PeopleSection({
   onError: (m: string) => void;
   refreshStaff: () => void;
 }) {
+  const t = useTranslations('staff');
+  const roleLabel = useRoleLabel();
   const router = useRouter();
   const [fDep, setFDep] = useState('');
   const [fPos, setFPos] = useState('');
@@ -236,36 +240,39 @@ function PeopleSection({
       <BentoGrid>
         <Card span={12} small>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-            <SearchField value={q} onChange={(e) => setQ(e.target.value)} onClear={() => setQ('')} placeholder="Поиск по имени…" width={200} aria-label="Поиск по имени" />
-            <Select aria-label="Отдел" value={fDep} onChange={setFDep} width={170}
-              options={[{ value: '', label: 'Все отделы', icon: 'department' }, ...dir.departments.map((d) => ({ value: d.id, label: d.name }))]} />
-            <Select aria-label="Должность" value={fPos} onChange={setFPos} width={180}
-              options={[{ value: '', label: 'Все должности', icon: 'position' }, ...dir.positions.map((p) => ({ value: p.id, label: p.name }))]} />
-            <Select aria-label="Объект" value={fBr} onChange={setFBr} width={180}
-              options={[{ value: '', label: 'Все объекты', icon: 'branch' }, ...dir.branches.map((b) => ({ value: b.id, label: b.name }))]} />
-            <Select aria-label="Роль" value={fRole} onChange={setFRole} width={160}
-              options={[{ value: '', label: 'Все роли', icon: 'user' }, ...(['owner', 'admin', 'manager', 'staff', 'trainee'] as const).map((r) => ({ value: r, label: roleLabel(r) }))]} />
+            <SearchField value={q} onChange={(e) => setQ(e.target.value)} onClear={() => setQ('')} placeholder={t('people.searchPlaceholder')} width={200} aria-label={t('people.searchAria')} />
+            <Select aria-label={t('term.department')} value={fDep} onChange={setFDep} width={170}
+              options={[{ value: '', label: t('people.allDepartments'), icon: 'department' }, ...dir.departments.map((d) => ({ value: d.id, label: d.name }))]} />
+            <Select aria-label={t('term.position')} value={fPos} onChange={setFPos} width={180}
+              options={[{ value: '', label: t('people.allPositions'), icon: 'position' }, ...dir.positions.map((p) => ({ value: p.id, label: p.name }))]} />
+            <Select aria-label={t('term.branch')} value={fBr} onChange={setFBr} width={180}
+              options={[{ value: '', label: t('people.allBranches'), icon: 'branch' }, ...dir.branches.map((b) => ({ value: b.id, label: b.name }))]} />
+            <Select aria-label={t('term.role')} value={fRole} onChange={setFRole} width={160}
+              options={[{ value: '', label: t('people.allRoles'), icon: 'user' }, ...(['owner', 'admin', 'manager', 'staff', 'trainee'] as const).map((r) => ({ value: r, label: roleLabel(r) }))]} />
             {canStaff && (
-              <Select aria-label="Кадры" value={fHr} onChange={setFHr} width={200}
+              <Select aria-label={t('term.hr')} value={fHr} onChange={setFHr} width={200}
                 options={[
-                  { value: '', label: 'Кадры: все', icon: 'file' },
-                  { value: 'no_position', label: 'Без назначения (вне структуры)' },
-                  { value: 'no_contract', label: 'Нет трудовой карточки' },
-                  { value: 'mismatch', label: 'Расхождение факт/договор' },
+                  { value: '', label: t('people.hrAll'), icon: 'file' },
+                  { value: 'no_position', label: t('people.hrNoPosition') },
+                  { value: 'no_contract', label: t('people.hrNoContract') },
+                  { value: 'mismatch', label: t('people.hrMismatch') },
                 ]} />
             )}
-            {hasFilter && <Button variant="ghost" size="sm" icon="close" onClick={clearFilters}>Сбросить</Button>}
+            {hasFilter && <Button variant="ghost" size="sm" icon="close" onClick={clearFilters}>{t('people.reset')}</Button>}
           </div>
         </Card>
 
         <Card span={12}>
-          <CardHeader title="Команда" subtitle={hasFilter ? `Найдено: ${filtered.length} из ${team.length}` : `${team.length} чел.`} />
+          <CardHeader
+            title={t('people.team')}
+            subtitle={hasFilter ? t('people.found', { n: filtered.length, total: team.length }) : t('peopleCount', { n: team.length })}
+          />
           {filtered.length === 0 ? (
             <EmptyState
               icon="people"
-              title={hasFilter ? 'Никого не найдено' : 'В команде пока никого'}
-              description={hasFilter ? 'Смягчите фильтры или сбросьте их.' : 'Наймите первого сотрудника в разделе «Приглашения».'}
-              action={hasFilter ? <Button variant="matte" icon="close" onClick={clearFilters}>Сбросить фильтры</Button> : undefined}
+              title={hasFilter ? t('people.nothingFound') : t('people.empty')}
+              description={hasFilter ? t('people.nothingFoundHint') : t('people.emptyHint')}
+              action={hasFilter ? <Button variant="matte" icon="close" onClick={clearFilters}>{t('people.resetFilters')}</Button> : undefined}
             />
           ) : (
             renderGrid(filtered)
@@ -274,7 +281,7 @@ function PeopleSection({
 
         {canManage && contractors.length > 0 && (
           <Card span={12}>
-            <CardHeader title="Подрядчики" subtitle="Внешние исполнители: видят только свои задачи. Назначаются сервисами (Тайный гость, UGC), не вручную" />
+            <CardHeader title={t('people.contractors')} subtitle={t('people.contractorsSubtitle')} />
             {renderGrid(contractors)}
           </Card>
         )}
@@ -325,6 +332,9 @@ function MemberModal({
   refreshStaff: () => void;
   onSendDocument: () => void;
 }) {
+  const t = useTranslations('staff');
+  const tc = useTranslations('common');
+  const roleLabel = useRoleLabel();
   const qc = useQueryClient();
   // Реквизиты приезжают ПО ОДНОМУ человеку и только когда его открыли: в списке
   // их нет (расшифровка карт всей организации на каждый заход — слишком дорого
@@ -424,34 +434,34 @@ function MemberModal({
       onClose={onClose}
       title={<PersonChip size="M" userId={member.userId} firstName={fn} lastName={ln} avatar={member.userAvatar} role={roleLabel(member.role)} />}
       size="md"
-      footer={<Button variant="primary" tone="success" icon="save" loading={busy} onClick={() => void saveAll()}>Сохранить</Button>}
+      footer={<Button variant="primary" tone="success" icon="save" loading={busy} onClick={() => void saveAll()}>{tc('actions.save')}</Button>}
     >
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {localError && <Alert tone="danger" onClose={() => setLocalError('')}>{localError}</Alert>}
 
         {isContractor ? (
-          <Alert tone="neutral" icon="info" title="Подрядчик">
-            Доступ только к своим задачам. Роль и должности не назначаются — ими управляет выдавший сервис.
+          <Alert tone="neutral" icon="info" title={t('member.contractorTitle')}>
+            {t('member.contractorBody')}
           </Alert>
         ) : (
           <>
             {canChangeRole && (
-              <Field label="Роль в организации">
+              <Field label={t('member.role')}>
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <Select aria-label="Роль в организации" value={newRole} onChange={(v) => setNewRole(v as WorkspaceRole)} width={190}
+                  <Select aria-label={t('member.role')} value={newRole} onChange={(v) => setNewRole(v as WorkspaceRole)} width={190}
                     options={assignable.map((r) => ({ value: r, label: roleLabel(r) }))} />
-                  <Button variant="matte" tone="accent" size="sm" icon="check" disabled={newRole === member.role} loading={busy} onClick={changeRole}>Сменить</Button>
+                  <Button variant="matte" tone="accent" size="sm" icon="check" disabled={newRole === member.role} loading={busy} onClick={changeRole}>{t('member.changeRole')}</Button>
                 </div>
               </Field>
             )}
             {canManage && !canChangeRole && !isSelf && !isOwnerRow && member.role === 'admin' && (
-              <Alert tone="neutral" icon="lock">Роль Админа меняет только Владелец</Alert>
+              <Alert tone="neutral" icon="lock">{t('member.adminRoleOwnerOnly')}</Alert>
             )}
 
             <div>
-              <div className="label-caps" style={{ marginBottom: 'var(--spacing-2)' }}>Должности</div>
+              <div className="label-caps" style={{ marginBottom: 'var(--spacing-2)' }}>{t('member.positions')}</div>
               {assignments.length === 0 ? (
-                <p className="label-sm" style={{ margin: '0 0 var(--spacing-3)' }}>Должностей пока нет — человек вне структуры</p>
+                <p className="label-sm" style={{ margin: '0 0 var(--spacing-3)' }}>{t('member.noPositions')}</p>
               ) : (
                 <div className="ui-stack" style={{ gap: '0.375rem', marginBottom: 'var(--spacing-3)' }}>
                   {assignments.map((a) => (
@@ -469,12 +479,12 @@ function MemberModal({
                       </span>
                       <Chip size="sm" icon="branch">{a.branchName}</Chip>
                       {a.isPrimary ? (
-                        <Chip size="sm" tone="accent" icon="star">Основное</Chip>
+                        <Chip size="sm" tone="accent" icon="star">{t('member.primary')}</Chip>
                       ) : canStaff ? (
-                        <Button variant="ghost" size="sm" disabled={busy} onClick={() => makePrimary(a)}>Сделать основным</Button>
+                        <Button variant="ghost" size="sm" disabled={busy} onClick={() => makePrimary(a)}>{t('member.makePrimary')}</Button>
                       ) : null}
                       {canStaff && (
-                        <IconButton icon="close" label="Снять назначение" size={26} iconSize={13} disabled={busy} onClick={() => unassign(a)} />
+                        <IconButton icon="close" label={t('member.unassign')} size={26} iconSize={13} disabled={busy} onClick={() => unassign(a)} />
                       )}
                     </div>
                   ))}
@@ -483,19 +493,19 @@ function MemberModal({
               {canStaff && (
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
                   <div style={{ minWidth: 200, flex: 1 }}>
-                    <EntitySelector value={pickPos} onChange={setPickPos} types={['position']} multi={false} placeholder="Должность из справочника…" context={{ workspaceId }} />
+                    <EntitySelector value={pickPos} onChange={setPickPos} types={['position']} multi={false} placeholder={t('member.pickPosition')} context={{ workspaceId }} />
                   </div>
                   <Select
-                    aria-label="Объект"
+                    aria-label={t('term.branch')}
                     value={pickBranch}
                     onChange={setPickBranch}
                     width={190}
                     options={[
-                      { value: '', label: defaultBranch ? `Основной: ${defaultBranch.name}` : 'Основной объект', icon: 'home' as const },
+                      { value: '', label: defaultBranch ? t('member.defaultBranchNamed', { name: defaultBranch.name }) : t('member.defaultBranch'), icon: 'home' as const },
                       ...dir.branches.filter((b) => !b.isDefault).map((b) => ({ value: b.id, label: b.name, icon: 'branch' as const })),
                     ]}
                   />
-                  <Button variant="primary" tone="success" size="sm" icon="add" disabled={!pickPos[0]} loading={busy} onClick={assign}>Назначить</Button>
+                  <Button variant="primary" tone="success" size="sm" icon="add" disabled={!pickPos[0]} loading={busy} onClick={assign}>{t('member.assign')}</Button>
                 </div>
               )}
             </div>
@@ -503,9 +513,9 @@ function MemberModal({
             {requisites && <MemberRequisitesBlock req={requisites} />}
 
             <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
-              <Button variant="matte" size="sm" icon="file" onClick={onSendDocument}>Оформить документ</Button>
-              <Button variant="ghost" size="sm" icon="list" href={`/workspaces/${workspaceId}/documents?subject=${member.userId}`}>Его документы</Button>
-              <Button variant="ghost" size="sm" icon="department" href={`/workspaces/${workspaceId}/members/org?focus=user:${member.userId}`}>В структуре</Button>
+              <Button variant="matte" size="sm" icon="file" onClick={onSendDocument}>{t('member.draftDocument')}</Button>
+              <Button variant="ghost" size="sm" icon="list" href={`/workspaces/${workspaceId}/documents?subject=${member.userId}`}>{t('member.theirDocuments')}</Button>
+              <Button variant="ghost" size="sm" icon="department" href={`/workspaces/${workspaceId}/members/org?focus=user:${member.userId}`}>{t('member.inStructure')}</Button>
             </div>
 
             {/* Опасное — отдельным блоком, а не сплошной красной кнопкой вплотную к
@@ -513,17 +523,14 @@ function MemberModal({
                 кадровое увольнение по ТК в карточке) стояли под одной подписью. */}
             {canFire && (
               <div style={{ borderTop: '1px solid var(--divider)', paddingTop: 'var(--spacing-3)', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
-                <div className="label-caps">Уход из организации</div>
-                <p className="label-sm" style={{ margin: 0 }}>
-                  Исключение закрывает доступ к рабочим данным. Трудовой договор этим не прекращается —
-                  для увольнения по ТК откройте карточку сотрудника.
-                </p>
+                <div className="label-caps">{t('member.leaveBlock')}</div>
+                <p className="label-sm" style={{ margin: 0 }}>{t('member.leaveNote')}</p>
                 <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
                   <Button variant="matte" tone="danger" size="sm" icon="signOut" disabled={busy} onClick={() => setFiring(true)}>
-                    Исключить из организации
+                    {t('member.exclude')}
                   </Button>
                   <Button variant="ghost" size="sm" icon="file" href={`/workspaces/${workspaceId}/members/${member.userId}`}>
-                    Оформить увольнение по ТК
+                    {t('member.dismissByCode')}
                   </Button>
                 </div>
               </div>
@@ -536,9 +543,9 @@ function MemberModal({
         open={firing}
         onClose={() => setFiring(false)}
         onConfirm={fire}
-        title={`Исключить «${member.userName}» из организации?`}
-        message="Назначения снимутся, доступ к рабочим данным закроется. Задачи и переписка сохранятся, трудовой договор — тоже: его прекращают кадровым действием в карточке сотрудника."
-        confirmLabel="Исключить"
+        title={t('member.excludeTitle', { name: member.userName })}
+        message={t('member.excludeMessage')}
+        confirmLabel={t('member.excludeConfirm')}
         danger
         loading={busy}
       />

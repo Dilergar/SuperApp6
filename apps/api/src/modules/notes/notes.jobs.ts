@@ -33,7 +33,7 @@ export class NotesJobs implements OnModuleInit {
   private async project(payload: Record<string, unknown>): Promise<void> {
     const noteId = typeof payload.noteId === 'string' ? payload.noteId : null;
     const contentHash = typeof payload.contentHash === 'string' ? payload.contentHash : null;
-    if (!noteId || !contentHash) throw new JobDiscardError('notes.project: нет noteId/contentHash');
+    if (!noteId || !contentHash) throw new JobDiscardError('notes.project: no noteId/contentHash');
     const version = typeof payload.version === 'number' ? payload.version : null;
 
     const note = await this.db.note.findUnique({
@@ -57,7 +57,7 @@ export class NotesJobs implements OnModuleInit {
     // после коммита best-effort, а этот джоб — гарантия, что витрина всё же сойдётся).
     if (!note) {
       await this.search.remove(noteId);
-      throw new JobDiscardError('заметка удалена');
+      throw new JobDiscardError('The note is deleted');
     }
     if (version !== null && note.version > version) return; // работа устарела, следующий джоб уже стоит
     if (note.deletedAt) {
@@ -91,7 +91,7 @@ export class NotesJobs implements OnModuleInit {
         })),
       });
     });
-    this.logger.debug(`заметка ${noteId}: ${drafts.length} чанков`);
+    this.logger.debug(`Note ${noteId}: ${drafts.length} chunks`);
   }
 
   /**
@@ -105,14 +105,16 @@ export class NotesJobs implements OnModuleInit {
     space: { ownerType: string; ownerId: string };
     links: Array<{ targetType: string; targetId: string }>;
   }): Promise<string> {
-    let where = 'личные заметки';
+    // Префикс читает не человек, а модель поиска/RAG: он пишется на языке ИСТОЧНИКА
+    // и живёт рядом с эмбеддингом, поэтому здесь литералы, а не каталог.
+    let where = 'personal notes';
     if (note.space.ownerType === 'workspace') {
       const ws = await this.db.workspace.findUnique({ where: { id: note.space.ownerId }, select: { name: true } });
-      where = ws ? `организация «${ws.name}»` : 'организация';
+      where = ws ? `organization «${ws.name}»` : 'organization';
     }
-    const parts = [`Заметка «${note.title || 'Без названия'}»`, where];
-    if (note.tags.length) parts.push(`теги: ${note.tags.map((t) => `#${t}`).join(' ')}`);
-    if (note.links.length) parts.push(`привязано: ${note.links.map((l) => `${l.targetType}:${l.targetId}`).join(', ')}`);
+    const parts = [`Note «${note.title || 'Untitled'}»`, where];
+    if (note.tags.length) parts.push(`tags: ${note.tags.map((t) => `#${t}`).join(' ')}`);
+    if (note.links.length) parts.push(`linked to: ${note.links.map((l) => `${l.targetType}:${l.targetId}`).join(', ')}`);
     parts.push(note.updatedAt.toISOString().slice(0, 10));
     return parts.join(' · ');
   }

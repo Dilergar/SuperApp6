@@ -9,10 +9,11 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   Badge, Button, Card, Chip, Input, SegmentedControl, Skeleton,
 } from '@/components/ui';
+import { useTranslations } from 'next-intl';
 import { EntitySelector } from '@/components/EntitySelector';
 import type { EntityOption, Principal } from '@/lib/entities';
 import { apiPatch } from '@/lib/api';
-import { ROLE_PRESETS, pluralDays } from '@superapp/shared';
+import { ROLE_PRESET_KEYS } from '@superapp/shared';
 import type {
   CalendarAccessLevel,
   CardVisibility,
@@ -84,15 +85,19 @@ export function RolePicker({
   value: string;
   onChange: (v: string) => void;
 }) {
+  const t = useTranslations('circles');
   const [showCustom, setShowCustom] = useState(false);
-  const isCustom = showCustom || (value !== '' && !ROLE_PRESETS.includes(value));
+  // Подсказки — слова каталога, а сама роль связи остаётся ДАННЫМИ: «своим»
+  // считаем всё, чего нет среди переведённых подсказок текущего языка.
+  const presets = ROLE_PRESET_KEYS.map((key) => t(`rolePreset.${key}`));
+  const isCustom = showCustom || (value !== '' && !presets.includes(value));
 
   return (
     <div role="group" aria-label={label}>
       <Card small>
         <div className="ui-field-label">{label}</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)', marginTop: 'var(--spacing-2)' }}>
-          {ROLE_PRESETS.map((preset) => (
+          {presets.map((preset) => (
             <Chip
               key={preset}
               size="sm"
@@ -104,15 +109,15 @@ export function RolePicker({
             </Chip>
           ))}
           <Chip size="sm" tone="accent" icon="edit" selected={isCustom} onClick={() => { setShowCustom(true); onChange(''); }}>
-            Свой вариант
+            {t('rolePreset.custom')}
           </Chip>
         </div>
         {isCustom && (
           <Input
-            aria-label={`${label}: свой вариант`}
+            aria-label={t('rolePreset.customAria', { label })}
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            placeholder="Введите свой вариант…"
+            placeholder={t('rolePreset.customPlaceholder')}
             autoFocus
             wrapClassName="mt-3"
           />
@@ -139,8 +144,9 @@ export function RolePicker({
  * показывать то, из чего человек выбирает).
  */
 export function ColorPalette({ value, onChange }: { value: string; onChange: (c: string) => void }) {
+  const t = useTranslations('circles');
   return (
-    <div role="group" aria-label="Цвет группы" style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)' }}>
+    <div role="group" aria-label={t('color.groupAria')} style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)' }}>
       {GROUP_COLORS.map((c) => (
         <Chip
           key={c.value}
@@ -151,7 +157,7 @@ export function ColorPalette({ value, onChange }: { value: string; onChange: (c:
           onClick={() => onChange(c.value)}
           style={{ '--tone-bg': c.value, '--tone-border': c.value } as CSSProperties}
         >
-          {c.name}
+          {t(`color.${c.key}`)}
         </Chip>
       ))}
     </div>
@@ -176,6 +182,7 @@ export function GroupSelectField({
   value: string[];
   onChange: (ids: string[]) => void;
 }) {
+  const t = useTranslations('circles');
   const options: EntityOption[] = useMemo(
     () => groups.map((g) => ({
       type: 'circle', id: g.id, title: g.name, icon: g.icon, color: g.color, count: g.membersCount,
@@ -197,7 +204,7 @@ export function GroupSelectField({
         options={options}
         value={principals}
         onChange={(next) => onChange(next.filter((p) => p.type === 'circle').map((p) => p.id))}
-        placeholder="Начните вводить название группы…"
+        placeholder={t('groupModal.selectPlaceholder')}
       />
       {hint && <div className="ui-field-hint">{hint}</div>}
     </div>
@@ -207,14 +214,6 @@ export function GroupSelectField({
 // ============================================================
 // Карточка приглашения
 // ============================================================
-
-const STATUS_LABEL: Record<InvitationStatus, string> = {
-  pending: 'Ожидает ответа',
-  accepted: 'Принято',
-  rejected: 'Отклонено',
-  cancelled: 'Отменено',
-  expired: 'Истекло',
-};
 
 // «Ожидает ответа» — жёлтое ожидание (мяч на чужой стороне), «Принято» —
 // зелёное. Отказ/отмена/истечение НЕ красные: красный в системе занят опасным
@@ -253,6 +252,7 @@ export function InvitationCard({
   registered = true, message, expiresAt, canResend, busy,
   onAccept, onReject, onCancel, onBlock, onResend,
 }: InvitationCardProps) {
+  const t = useTranslations('circles');
   const isIncoming = direction === 'incoming';
   const left = daysUntil(expiresAt);
   const expiringSoon = left <= INVITATION_EXPIRY_WARN_DAYS;
@@ -263,21 +263,21 @@ export function InvitationCard({
         <PersonAvatar userId={theirUserId} name={theirName} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="title-sm">{theirName}</div>
-          <div className="label-sm">{theirPhone}{!registered && ' — не зарегистрирован'}</div>
+          <div className="label-sm">{theirPhone}{!registered && t('invite.notRegistered')}</div>
         </div>
         {/* Направление — матовый чип, а не синее слово: синий в системе означает
             действие, и «Исходящее» читалось как ссылка. Оба направления
             нейтральные — это сторона, а не «хорошо»/«плохо». */}
         <Chip size="sm" tone="neutral" icon={isIncoming ? 'arrowLeft' : 'arrowRight'}>
-          {isIncoming ? 'Входящее' : 'Исходящее'}
+          {isIncoming ? t('invite.incoming') : t('invite.outgoing')}
         </Chip>
       </div>
 
       <div style={{ display: 'flex', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-3)', flexWrap: 'wrap' }}>
         {/* Роль — метка, поэтому чип. Раньше она была покрашенным словом без
             подложки, то есть по форме читалась как кнопка. */}
-        {myRole && <Chip size="sm" tone="accent">Я: {myRole}</Chip>}
-        {theirRole && <Chip size="sm" tone="accent">{theirName}: {theirRole}</Chip>}
+        {myRole && <Chip size="sm" tone="accent">{t('invite.myRoleChip', { role: myRole })}</Chip>}
+        {theirRole && <Chip size="sm" tone="accent">{t('invite.theirRoleChip', { name: theirName, role: theirRole })}</Chip>}
       </div>
 
       {message && (
@@ -289,27 +289,27 @@ export function InvitationCard({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
         {status === 'pending' ? (
           <Chip size="sm" tone={expiringSoon ? 'warning' : 'neutral'} icon="clock">
-            {left <= 0 ? 'Истекает сегодня' : `Истекает через ${pluralDays(left)}`}
+            {left <= 0 ? t('invite.expiresToday') : t('invite.expiresIn', { days: t('daysLeft', { n: left }) })}
           </Chip>
         ) : (
-          <Chip size="sm" tone={STATUS_TONE[status]}>{STATUS_LABEL[status]}</Chip>
+          <Chip size="sm" tone={STATUS_TONE[status]}>{t(`invite.status.${status}`)}</Chip>
         )}
 
         <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
-          {isIncoming && onAccept && <Button size="sm" variant="primary" tone="success" onClick={onAccept}>Принять</Button>}
-          {isIncoming && onReject && <Button size="sm" variant="matte" tone="danger" onClick={onReject}>Отклонить</Button>}
+          {isIncoming && onAccept && <Button size="sm" variant="primary" tone="success" onClick={onAccept}>{t('invite.accept')}</Button>}
+          {isIncoming && onReject && <Button size="sm" variant="matte" tone="danger" onClick={onReject}>{t('invite.reject')}</Button>}
           {isIncoming && onBlock && (
             <Button size="sm" variant="outline" onClick={onBlock}
-              title="Заблокировать — приглашения и сообщения от этого человека станут невозможны">
-              Заблокировать
+              title={t('invite.blockHint')}>
+              {t('invite.block')}
             </Button>
           )}
           {!isIncoming && status === 'pending' && onCancel && (
-            <Button size="sm" variant="matte" tone="danger" onClick={onCancel}>Отменить</Button>
+            <Button size="sm" variant="matte" tone="danger" onClick={onCancel}>{t('invite.cancel')}</Button>
           )}
           {!isIncoming && canResend && onResend && (
             <Button size="sm" variant="outline" icon="replay" loading={busy} onClick={onResend}>
-              Отправить повторно
+              {t('invite.resend')}
             </Button>
           )}
         </div>
@@ -322,11 +322,8 @@ export function InvitationCard({
 // Видимость карточки для Группы
 // ============================================================
 
-const CAL_LEVELS: { key: CalendarAccessLevel; label: string }[] = [
-  { key: 'none', label: 'Нет' },
-  { key: 'busy', label: 'Занят' },
-  { key: 'detailed', label: 'Детально' },
-];
+/** Ступени доступа к календарю; слова — `circles.calAccess.<key>`. */
+const CAL_LEVEL_KEYS: CalendarAccessLevel[] = ['none', 'busy', 'detailed'];
 
 export function GroupVisibilityEditor({
   group, onSaved,
@@ -334,6 +331,7 @@ export function GroupVisibilityEditor({
   group: Circle;
   onSaved: (c: Circle) => void;
 }) {
+  const t = useTranslations('circles');
   const [vis, setVis] = useState<CardVisibility>(group.cardVisibility);
   const [cal, setCal] = useState<CalendarAccessLevel>(group.calendarVisibility ?? 'none');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -354,7 +352,7 @@ export function GroupVisibilityEditor({
       const updated = await apiPatch<Circle>(`/circles/${group.id}`, { calendarVisibility: lvl });
       savedCal.current = lvl;
       onSaved(updated);
-    }, 'Доступ к календарю сохранён');
+    }, t('groupVis.calendarSaved'));
     if (!ok) setCal(prev);
   };
 
@@ -368,7 +366,7 @@ export function GroupVisibilityEditor({
           const updated = await apiPatch<Circle>(`/circles/${group.id}`, { cardVisibility: next });
           savedVis.current = next;
           onSaved(updated);
-        }, 'Видимость группы сохранена');
+        }, t('groupVis.saved'));
         if (!ok) setVis(savedVis.current);
       })();
     }, 600);
@@ -376,41 +374,42 @@ export function GroupVisibilityEditor({
 
   return (
     <Card small style={{ marginBottom: 'var(--spacing-5)' }}>
-      <div className="title-sm">Что видят люди из группы «{group.name}»</div>
+      <div className="title-sm">{t('groupVis.title', { name: group.name })}</div>
       <p className="label-sm" style={{ margin: 'var(--spacing-1) 0 var(--spacing-3)' }}>
-        Имя, фамилия, телефон и роль видны всегда. Изменения сохраняются сами.
+        {t('groupVis.hint')}
       </p>
       {/* Чипы-переключатели кита: выбранный = поле видно группе, невыбранный =
           скрыто. Состояние несут форма и иконка глаза, `aria-pressed` кит
           выставляет сам — сокращений «вид./скр.» в подписи больше нет. */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)' }}>
-        {VIS_FIELDS.map((f) => {
-          const on = vis[f.key];
+        {VIS_FIELDS.map((field) => {
+          const on = vis[field];
+          const label = t(`visField.${field}`);
           return (
             <Chip
-              key={f.key}
+              key={field}
               tone="accent"
               icon={on ? 'eye' : 'eyeOff'}
               selected={on}
-              onClick={() => toggle(f.key, !on)}
-              title={on ? `${f.label}: видно людям из группы` : `${f.label}: скрыто от людей из группы`}
+              onClick={() => toggle(field, !on)}
+              title={on ? t('groupVis.fieldShown', { label }) : t('groupVis.fieldHidden', { label })}
             >
-              {f.label}
+              {label}
             </Chip>
           );
         })}
       </div>
 
       <div style={{ marginTop: 'var(--spacing-4)' }}>
-        <div className="title-sm" style={{ fontSize: '0.9rem' }}>Доступ к моему календарю</div>
+        <div className="title-sm" style={{ fontSize: '0.9rem' }}>{t('groupVis.calendarTitle')}</div>
         <p className="label-sm" style={{ margin: 'var(--spacing-1) 0 var(--spacing-2)' }}>
-          «Занят» — видят только занятость, «Детально» — события целиком.
+          {t('groupVis.calendarHint')}
         </p>
         <SegmentedControl
-          aria-label="Доступ к моему календарю для этой группы"
+          aria-label={t('groupVis.calendarAria')}
           value={cal}
           onChange={setCalLevel}
-          items={CAL_LEVELS}
+          items={CAL_LEVEL_KEYS.map((key) => ({ key, label: t(`calAccess.${key}`) }))}
         />
       </div>
     </Card>

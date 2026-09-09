@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import type { UserPaymentCard } from '@prisma/client';
 import {
   REQUISITE_LIMITS,
@@ -8,6 +8,7 @@ import {
   type UserPaymentCardDto,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { badRequest, notFound } from '../../shared/errors/api-error';
 import { decryptField, encryptField } from '../../shared/crypto/secret-field';
 
 /** Контекст шифрования: свой на класс полей — расшифровка кредов Процессов карты не открывает */
@@ -44,7 +45,7 @@ export class PaymentCardsService {
     const row = await this.db.$transaction(async (tx) => {
       const count = await tx.userPaymentCard.count({ where: { userId } });
       if (count >= REQUISITE_LIMITS.maxCardsPerUser) {
-        throw new BadRequestException(`Не больше ${REQUISITE_LIMITS.maxCardsPerUser} карт — удалите ненужную`);
+        throw badRequest('wallet.tooManyCards', { max: REQUISITE_LIMITS.maxCardsPerUser });
       }
       // Первая карта становится основной сама; явный isPrimary снимает флаг с прочих.
       const makePrimary = dto.isPrimary || count === 0;
@@ -71,7 +72,7 @@ export class PaymentCardsService {
   async update(userId: string, cardId: string, dto: UpdatePaymentCardInput): Promise<UserPaymentCardDto> {
     const row = await this.db.$transaction(async (tx) => {
       const card = await tx.userPaymentCard.findFirst({ where: { id: cardId, userId } });
-      if (!card) throw new NotFoundException('Карта не найдена');
+      if (!card) throw notFound('wallet.cardNotFound');
       if (dto.isPrimary) {
         await tx.userPaymentCard.updateMany({ where: { userId, isPrimary: true }, data: { isPrimary: false } });
       }
@@ -94,7 +95,7 @@ export class PaymentCardsService {
   async remove(userId: string, cardId: string): Promise<void> {
     await this.db.$transaction(async (tx) => {
       const card = await tx.userPaymentCard.findFirst({ where: { id: cardId, userId } });
-      if (!card) throw new NotFoundException('Карта не найдена');
+      if (!card) throw notFound('wallet.cardNotFound');
       await tx.userPaymentCard.delete({ where: { id: card.id } });
       // Основную удалили — роль переходит старейшей из оставшихся: «основная» не должна
       // пропадать, пока есть хоть одна карта (на неё смотрят реквизиты у работодателя).
@@ -130,7 +131,7 @@ export class PaymentCardsService {
       } catch (err) {
         // Смена JWT_SECRET делает старые поля нечитаемыми (задокументированная цена
         // производного ключа) — строка просто выпадает из выдачи, не роняя ростер.
-        this.logger.warn(`карта ${r.id}: не расшифровалась (${err instanceof Error ? err.message : err})`);
+        this.logger.warn(`card ${r.id}: failed to decrypt (${err instanceof Error ? err.message : err})`);
       }
     }
     return out;

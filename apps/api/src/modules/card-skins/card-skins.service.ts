@@ -1,9 +1,6 @@
-import {
-  Injectable,
-  BadRequestException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { badRequest, forbidden, notFound } from '../../shared/errors/api-error';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { Prisma } from '@prisma/client';
 import {
   PLATFORM_CURRENCY,
@@ -39,7 +36,20 @@ export class CardSkinsService {
   constructor(
     private readonly db: DatabaseService,
     private readonly ledger: LedgerService,
+    private readonly i18n: I18nService,
   ) {}
+
+  /**
+   * Имя и описание скина — платформенный КОНТЕНТ: сид кладёт в БД КЛЮЧ каталога,
+   * а слово собирается ЗДЕСЬ, в языке запроса. Значение, которого каталог не знает
+   * (скин, заведённый руками), печатается как есть — так же читаются и старые строки.
+   */
+  private phrase(value: string): string;
+  private phrase(value: string | null): string | null;
+  private phrase(value: string | null): string | null {
+    if (!value) return value;
+    return this.i18n.has(value) ? this.i18n.translate(value) : value;
+  }
 
   // ============================================================
   // Platform currency + wallet
@@ -50,7 +60,14 @@ export class CardSkinsService {
     const existing = await client.currency.findFirst({
       where: { issuerType: PLATFORM_CURRENCY.issuerType, issuerId: PLATFORM_CURRENCY.issuerId, status: 'active' },
     });
-    if (existing) return existing;
+    // Самолечение имени: платформенную валюту никто не переименовывает руками
+    // (владельца-человека у неё нет), поэтому строка, заведённая старой версией,
+    // обязана догнать текущее имя источника — иначе она навсегда осталась бы в
+    // языке той сборки, что создала её первой.
+    if (existing) {
+      if (existing.name === PLATFORM_CURRENCY.name) return existing;
+      return client.currency.update({ where: { id: existing.id }, data: { name: PLATFORM_CURRENCY.name } });
+    }
     try {
       return await client.currency.create({
         data: {
@@ -167,14 +184,14 @@ export class CardSkinsService {
 
   private async explainUnavailable(tx: Tx, skinId: string): Promise<never> {
     const s = await tx.cardSkin.findUnique({ where: { id: skinId } });
-    if (!s || s.status !== 'active') throw new NotFoundException('Скин недоступен');
+    if (!s || s.status !== 'active') throw notFound('cardSkin.unavailable');
     const now = new Date();
-    if (s.availableFrom && s.availableFrom > now) throw new BadRequestException('Продажи скина ещё не начались');
-    if (s.availableUntil && s.availableUntil < now) throw new BadRequestException('Продажи скина завершены');
+    if (s.availableFrom && s.availableFrom > now) throw badRequest('cardSkin.salesNotStarted');
+    if (s.availableUntil && s.availableUntil < now) throw badRequest('cardSkin.salesClosed');
     if (s.supply !== null && s.minted >= s.supply) {
-      throw new BadRequestException('Скин распродан — теперь только через обмен');
+      throw badRequest('cardSkin.soldOut');
     }
-    throw new BadRequestException('Скин недоступен');
+    throw badRequest('cardSkin.unavailable');
   }
 
   // ============================================================
@@ -255,10 +272,10 @@ export class CardSkinsService {
   async equipForGroup(userId: string, circleId: string, instanceId: string | null): Promise<CardSkinEquipState> {
     const user = await this.db.user.findUnique({ where: { id: userId }, select: { premiumUntil: true } });
     if (!this.isPremium(user?.premiumUntil ?? null)) {
-      throw new ForbiddenException('Разные скины на группы доступны на премиум-тарифе');
+      throw forbidden('cardSkin.groupSkinsPremium');
     }
     const circle = await this.db.circle.findUnique({ where: { id: circleId }, select: { ownerId: true } });
-    if (!circle || circle.ownerId !== userId) throw new NotFoundException('Группа не найдена');
+    if (!circle || circle.ownerId !== userId) throw notFound('contacts.circleNotFound');
     if (instanceId) await this.assertOwnsInstance(userId, instanceId);
     await this.db.circle.update({ where: { id: circleId }, data: { equippedSkinInstanceId: instanceId } });
     return this.getEquipState(userId);
@@ -266,7 +283,7 @@ export class CardSkinsService {
 
   private async assertOwnsInstance(userId: string, instanceId: string): Promise<void> {
     const inst = await this.db.cardSkinInstance.findUnique({ where: { id: instanceId }, select: { ownerId: true } });
-    if (!inst || inst.ownerId !== userId) throw new ForbiddenException('Это не ваш скин');
+    if (!inst || inst.ownerId !== userId) throw forbidden('cardSkin.notYours');
   }
 
   private isPremium(premiumUntil: Date | null): boolean {
@@ -377,7 +394,7 @@ export class CardSkinsService {
   }): CardSkinRender {
     return {
       id: skin.id,
-      name: skin.name,
+      name: this.phrase(skin.name),
       rarity: skin.rarity as SkinRarity,
       tokens: skin.tokens as unknown as CardSkinTokens,
       frameUrl: skin.frameUrl,
@@ -398,7 +415,7 @@ export class CardSkinsService {
       serial: instance.serial,
       acquiredVia: instance.acquiredVia,
       createdAt: instance.createdAt.toISOString(),
-      skin: { ...this.skinToRender(instance.skin), description: instance.skin.description },
+      skin: { ...this.skinToRender(instance.skin), description: this.phrase(instance.skin.description) },
     };
   }
 
@@ -418,7 +435,7 @@ export class CardSkinsService {
       (!s.availableUntil || s.availableUntil.getTime() >= now);
     return {
       ...this.skinToRender(s),
-      description: s.description,
+      description: this.phrase(s.description),
       priceAmount: Number(s.priceAmount),
       supply: s.supply,
       minted: s.minted,

@@ -2,6 +2,8 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { AccessProjectionService } from '../../core/access/access-projection.service';
 import { DatabaseService } from '../../shared/database/database.service';
+import { SOURCE_LOCALE } from '@superapp/shared';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { MessengerService } from './messenger.service';
 
 /**
@@ -26,7 +28,13 @@ export class CalendarSystemListener implements OnModuleInit {
     private readonly projection: AccessProjectionService,
     private readonly db: DatabaseService,
     private readonly messenger: MessengerService,
+    private readonly i18n: I18nService,
   ) {}
+
+  /** Снимок плашки в языке источника (перерисовывается при чтении). */
+  private src(key: string, params?: Record<string, string>): string {
+    return this.i18n.translateFor(SOURCE_LOCALE, key, params);
+  }
 
   onModuleInit() {
     this.events.onPattern('calendar.event.*').subscribe((e) => {
@@ -48,39 +56,39 @@ export class CalendarSystemListener implements OnModuleInit {
       await this.projection.resyncEventRoles(eventId);
 
       if (type === 'calendar.event.created') {
-        const who = (p.byName ?? (await this.nameOf(p.byUserId)))?.trim() || 'Кто-то';
+        const who = (p.byName ?? (await this.nameOf(p.byUserId)))?.trim() || this.src('messenger.somebody');
         await this.messenger.postEventSystemMessage(
           eventId,
           type,
-          `${who} создал(а) событие`,
+          this.src('chatter.type.calendar.event_created', { actorName: who }),
         );
         return;
       }
 
       if (type === 'calendar.event.invited') {
-        const who = (p.byName ?? (await this.nameOf(p.byUserId)))?.trim() || 'Кто-то';
+        const who = (p.byName ?? (await this.nameOf(p.byUserId)))?.trim() || this.src('messenger.somebody');
         await this.messenger.syncEventChatMembers(eventId);
         await this.messenger.postEventSystemMessage(
           eventId,
           type,
-          `${who} пригласил(а) участников`,
+          this.src('chatter.type.calendar.event_invited', { actorName: who }),
         );
         return;
       }
 
       if (type === 'calendar.event.participant_removed') {
-        const name = (await this.nameOf(p.removedUserId))?.trim() || 'Участник';
+        const name = (await this.nameOf(p.removedUserId))?.trim() || this.src('messenger.participantFallback');
         await this.messenger.syncEventChatMembers(eventId);
         // Plaque only if a chat already exists (don't create one just to announce a removal).
         if (await this.chatExists(eventId)) {
-          await this.messenger.postEventSystemMessage(eventId, type, `${name} больше не участник`);
+          await this.messenger.postEventSystemMessage(eventId, type, this.src('chatter.type.calendar.event_left', { name }));
         }
         return;
       }
 
       if (type === 'calendar.event.updated') {
         if (!(await this.chatExists(eventId))) return;
-        await this.messenger.postEventSystemMessage(eventId, type, 'Событие обновлено');
+        await this.messenger.postEventSystemMessage(eventId, type, this.src('chatter.type.calendar.event_updated'));
         return;
       }
       // calendar.event.rsvp and others: tuples already resynced; no plaque.

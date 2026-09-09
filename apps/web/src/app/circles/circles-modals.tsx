@@ -5,6 +5,7 @@
 // ============================================================
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Button, GlyphField, Input, Modal } from '@/components/ui';
 import { apiPatch, apiPost } from '@/lib/api';
 import type { AcceptInvitationInput, Circle, IncomingInvitation } from '@superapp/shared';
@@ -24,6 +25,8 @@ export function GroupEditModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('circles');
+  const tc = useTranslations('common');
   const [name, setName] = useState(group.name);
   const [icon, setIcon] = useState<string | null>(group.icon);
   const [color, setColor] = useState<string>(group.color ?? GROUP_COLORS[0].value);
@@ -49,7 +52,7 @@ export function GroupEditModal({
           circles: next.map((g, i) => ({ id: g.id, sortOrder: i })),
         });
       }
-    }, 'Группа обновлена');
+    }, t('groupModal.saved'));
     setSaving(false);
     if (ok) {
       onSaved();
@@ -61,14 +64,14 @@ export function GroupEditModal({
     <Modal
       open
       onClose={onClose}
-      title={`Настройки группы «${group.name}»`}
-      subtitle="Название, значок, цвет и место в списке фильтров"
+      title={t('groupModal.title', { name: group.name })}
+      subtitle={t('groupModal.subtitle')}
       size="md"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Отмена</Button>
+          <Button variant="ghost" onClick={onClose}>{tc('actions.cancel')}</Button>
           <Button variant="primary" tone="success" loading={saving} disabled={!name.trim()} onClick={() => void save()}>
-            Сохранить
+            {tc('actions.save')}
           </Button>
         </>
       }
@@ -77,22 +80,22 @@ export function GroupEditModal({
         <div style={{ display: 'flex', gap: 'var(--spacing-3)', alignItems: 'flex-end' }}>
           <GlyphField value={icon} onChange={setIcon} suggest={name} size={44} />
           <Input
-            label="Название группы"
+            label={t('groupModal.name')}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Семья, Родственники…"
+            placeholder={t('groupModal.namePlaceholder')}
             autoFocus
             wrapClassName="flex-1"
           />
         </div>
 
         <div>
-          <div className="ui-field-label">Цвет</div>
+          <div className="ui-field-label">{t('groupModal.colour')}</div>
           <ColorPalette value={color} onChange={setColor} />
         </div>
 
         <div>
-          <div className="ui-field-label">Место в списке</div>
+          <div className="ui-field-label">{t('groupModal.place')}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
             <Button
               size="sm"
@@ -101,7 +104,7 @@ export function GroupEditModal({
               disabled={index === 0}
               onClick={() => setIndex((i) => Math.max(0, i - 1))}
             >
-              Выше
+              {t('groupModal.up')}
             </Button>
             <Button
               size="sm"
@@ -110,10 +113,10 @@ export function GroupEditModal({
               disabled={index >= ordered.length - 1}
               onClick={() => setIndex((i) => Math.min(ordered.length - 1, i + 1))}
             >
-              Ниже
+              {t('groupModal.down')}
             </Button>
             <span className="label-sm" aria-live="polite">
-              {index + 1} из {ordered.length}
+              {t('groupModal.position', { index: index + 1, total: ordered.length })}
             </span>
           </div>
         </div>
@@ -144,7 +147,9 @@ export function AcceptInvitationModal({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const senderName = invitation.from?.firstName || 'Отправитель';
+  const t = useTranslations('circles');
+  const tc = useTranslations('common');
+  const senderName = invitation.from?.firstName || t('acceptModal.sender');
   const [myRole, setMyRole] = useState(invitation.proposedRoleForSender ?? '');
   const [theirRole, setTheirRole] = useState(invitation.proposedRoleForRecipient ?? '');
   const [circleIds, setCircleIds] = useState<string[]>([]);
@@ -160,7 +165,7 @@ export function AcceptInvitationModal({
       if (theirRole.trim()) payload.theirRole = theirRole.trim();
       if (circleIds.length > 0) payload.autoAddToCircleIds = circleIds;
       await apiPost(`/contacts/invitations/${invitation.id}/accept`, payload);
-    }, 'Приглашение принято');
+    }, t('acceptModal.accepted'));
     setBusy(false);
     if (ok) {
       onDone();
@@ -172,14 +177,14 @@ export function AcceptInvitationModal({
     <Modal
       open
       onClose={onClose}
-      title={`Принять приглашение от ${senderName}`}
-      subtitle="Роль — это подпись на карточке человека. Её можно изменить и позже."
+      title={t('acceptModal.title', { name: senderName })}
+      subtitle={t('acceptModal.subtitle')}
       size="lg"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Отмена</Button>
+          <Button variant="ghost" onClick={onClose}>{tc('actions.cancel')}</Button>
           <Button variant="primary" tone="success" loading={busy} onClick={() => void accept()}>
-            Принять
+            {t('invite.accept')}
           </Button>
         </>
       }
@@ -187,20 +192,20 @@ export function AcceptInvitationModal({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
         <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)' }}>
           <RolePicker
-            label={`Как я называю ${senderName}`}
+            label={t('acceptModal.myRoleFor', { name: senderName })}
             value={myRole}
             onChange={setMyRole}
           />
           <RolePicker
-            label={`Как ${senderName} называет меня`}
+            label={t('acceptModal.theirRoleFor', { name: senderName })}
             value={theirRole}
             onChange={setTheirRole}
           />
         </div>
 
         <GroupSelectField
-          label="Сразу добавить в мои группы"
-          hint="Необязательно — человека всегда можно разложить по группам позже."
+          label={t('acceptModal.addToGroups')}
+          hint={t('acceptModal.addToGroupsHint')}
           groups={groups}
           value={circleIds}
           onChange={setCircleIds}

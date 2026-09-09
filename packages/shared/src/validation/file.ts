@@ -13,14 +13,14 @@ export const initFileSchema = z.object({
   name: z
     .string()
     .trim()
-    .min(1, 'Имя файла обязательно')
-    .max(FILE_LIMITS.maxNameLength, 'Слишком длинное имя файла')
-    .refine((v) => !/[<>]/.test(v), 'Имя файла содержит недопустимые символы'),
+    .min(1, 'validation.file.nameRequired')
+    .max(FILE_LIMITS.maxNameLength, 'validation.file.nameTooLong')
+    .refine((v) => !/[<>]/.test(v), 'validation.file.badCharacters'),
   size: z
     .number()
     .int()
-    .positive('Размер должен быть больше нуля')
-    .max(FILE_LIMITS.hardMaxSize, 'Файл слишком большой'),
+    .positive('validation.file.sizePositive')
+    .max(FILE_LIMITS.hardMaxSize, 'validation.file.tooBig'),
   mime: z.string().trim().min(3).max(150),
   /** Владелец-организация (B2B); по умолчанию владелец — сам пользователь */
   ownerWorkspaceId: z.string().uuid().optional(),
@@ -38,7 +38,7 @@ export const createPartsSchema = z.object({
 export const completeFileSchema = z.object({
   sha256: z
     .string()
-    .regex(/^[a-f0-9]{64}$/i, 'sha256 — 64 hex-символа')
+    .regex(/^[a-f0-9]{64}$/i, 'validation.file.sha256')
     .optional(),
   /** multipart: подтверждения частей от хранилища */
   parts: z

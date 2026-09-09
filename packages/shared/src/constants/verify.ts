@@ -114,10 +114,6 @@ export const SMS_OUTBOUND_LIMITS = {
   perTargetCooldownSec: 60,
 } as const;
 
-/**
- * Текст SMS контрагенту со ссылкой на подписание. Без персональных данных
- * (только название организации-отправителя): SMS — открытый канал.
- */
-export function buildSignLinkSmsText(orgName: string, url: string): string {
-  return `${orgName} отправила вам документ на подпись: ${url}`;
-}
+// Текст SMS контрагенту со ссылкой на подписание собирает СЕРВЕР
+// (`documents.external.signSms` в языке бланка): адресат — человек без аккаунта,
+// его языка платформа не знает, а SMS уходит вслед за бумагой.

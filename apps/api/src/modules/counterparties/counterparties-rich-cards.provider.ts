@@ -1,13 +1,13 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import {
-  COUNTERPARTY_KIND_LABELS,
   COUNTERPARTY_REF_TYPE,
   ORG_FORMS,
-  counterpartyIdLabel,
+  counterpartyIdKey,
   type CounterpartyKind,
   type RichCardPayload,
 } from '@superapp/shared';
 import { RichCardRegistry } from '../../core/rich-cards/rich-cards.registry';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import type { RichCardDeps } from '../../core/rich-cards/rich-card.types';
 
 /**
@@ -21,7 +21,10 @@ import type { RichCardDeps } from '../../core/rich-cards/rich-card.types';
  */
 @Injectable()
 export class CounterpartiesRichCardsProvider implements OnModuleInit {
-  constructor(private readonly registry: RichCardRegistry) {}
+  constructor(
+    private readonly registry: RichCardRegistry,
+    private readonly i18n: I18nService,
+  ) {}
 
   onModuleInit(): void {
     this.registry.registerRenderer(COUNTERPARTY_REF_TYPE, (deps, viewerId, refId) =>
@@ -51,8 +54,14 @@ export class CounterpartiesRichCardsProvider implements OnModuleInit {
     });
     if (!membership) return null;
 
+    const t = (key: string) => this.i18n.translate(key);
     const kind = row.kind as CounterpartyKind;
-    const orgFormLabel = row.orgForm ? (ORG_FORMS.find((f) => f.value === row.orgForm)?.label ?? row.orgForm) : null;
+    // Карточка читается в языке ЗАПРОСА: и вид, и орг-форма — слова каталога
+    const orgFormLabel =
+      row.orgForm && ORG_FORMS.includes(row.orgForm as (typeof ORG_FORMS)[number])
+        ? t(`workspaces.orgForm.${row.orgForm}`)
+        : row.orgForm;
+    const kindLabel = t(`counterparties.kind.${kind}`);
     const contact = row.contacts[0] ?? null;
 
     return {
@@ -60,18 +69,23 @@ export class CounterpartiesRichCardsProvider implements OnModuleInit {
       cardType: COUNTERPARTY_REF_TYPE,
       ref: { type: COUNTERPARTY_REF_TYPE, id: refId },
       title: row.name,
-      subtitle: row.legalName ?? orgFormLabel ?? COUNTERPARTY_KIND_LABELS[kind],
+      subtitle: row.legalName ?? orgFormLabel ?? kindLabel,
       icon: '🏢',
       imageUrl: null,
       fields: [
-        ...(row.bin ? [{ label: counterpartyIdLabel(kind), value: row.bin }] : []),
+        ...(row.bin ? [{ label: t(`counterparties.idLabel.${counterpartyIdKey(kind)}`), value: row.bin }] : []),
         ...(contact
-          ? [{ label: 'Подписант', value: [contact.name, contact.position].filter(Boolean).join(' · ') }]
+          ? [
+              {
+                label: t('counterparties.card.signer'),
+                value: [contact.name, contact.position].filter(Boolean).join(' · '),
+              },
+            ]
           : []),
-        ...(row.phone ? [{ label: 'Телефон', value: row.phone }] : []),
+        ...(row.phone ? [{ label: t('counterparties.card.phone'), value: row.phone }] : []),
       ],
       progress: null,
-      status: row.archivedAt ? 'В архиве' : (orgFormLabel ?? COUNTERPARTY_KIND_LABELS[kind]),
+      status: row.archivedAt ? t('counterparties.card.archived') : (orgFormLabel ?? kindLabel),
       actions: [],
       href: `/workspaces/${row.workspaceId}/counterparties?open=${row.id}`,
     };

@@ -59,7 +59,7 @@ export class NotesController {
   // ============================================================
 
   @Get('sidebar')
-  @ApiOperation({ summary: 'Дерево папок, теги, счётчики пространства' })
+  @ApiOperation({ summary: 'The folder tree, the tags and the space counters' })
   async sidebar(@CurrentUser() user: JwtPayload, @Query() query: Record<string, unknown>) {
     const q = noteSidebarQuerySchema.parse(query);
     const data: NoteSidebarDto = await this.notes.sidebar(user.sub, q);
@@ -67,7 +67,7 @@ export class NotesController {
   }
 
   @Post('folders')
-  @ApiOperation({ summary: 'Создать папку' })
+  @ApiOperation({ summary: 'Create a folder' })
   async createFolder(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
     const dto = createNoteFolderSchema.parse(body);
     const scope = await this.acl.scopeFor(user.sub, { workspaceId: dto.workspaceId });
@@ -77,7 +77,7 @@ export class NotesController {
   }
 
   @Patch('folders/:folderId')
-  @ApiOperation({ summary: 'Переименовать / перекрасить / перенести папку' })
+  @ApiOperation({ summary: 'Rename / recolor / move a folder' })
   async updateFolder(@CurrentUser() user: JwtPayload, @Param('folderId') folderId: string, @Body() body: unknown) {
     const dto = updateNoteFolderSchema.parse(body);
     const scope = await this.acl.scopeForSpaceId(user.sub, await this.spaceOfFolder(folderId));
@@ -87,7 +87,7 @@ export class NotesController {
   }
 
   @Post('folders/:folderId/trash')
-  @ApiOperation({ summary: 'Папку с содержимым — в корзину' })
+  @ApiOperation({ summary: 'The folder with its content — to the trash' })
   async trashFolder(@CurrentUser() user: JwtPayload, @Param('folderId') folderId: string) {
     const scope = await this.acl.scopeForSpaceId(user.sub, await this.spaceOfFolder(folderId));
     const data = await this.folders.trash(scope, folderId);
@@ -95,7 +95,7 @@ export class NotesController {
   }
 
   @Post('folders/:folderId/restore')
-  @ApiOperation({ summary: 'Восстановить папку из корзины' })
+  @ApiOperation({ summary: 'Restore a folder from the trash' })
   async restoreFolder(@CurrentUser() user: JwtPayload, @Param('folderId') folderId: string) {
     const scope = await this.acl.scopeForSpaceId(user.sub, await this.spaceOfFolder(folderId));
     const data = await this.folders.restore(scope, folderId);
@@ -103,14 +103,14 @@ export class NotesController {
   }
 
   @Get('folders/:folderId/shares')
-  @ApiOperation({ summary: 'Кому открыта папка (с унаследованными)' })
+  @ApiOperation({ summary: 'Who the folder is open to (inherited included)' })
   async folderShares(@CurrentUser() user: JwtPayload, @Param('folderId') folderId: string) {
     const data: NoteShareDto[] = await this.share.listFolderShares(user.sub, folderId);
     return { success: true, data };
   }
 
   @Post('folders/:folderId/shares')
-  @ApiOperation({ summary: 'Открыть папку человеку / Группе / отделу / должности / объекту / всей организации' })
+  @ApiOperation({ summary: 'Open the folder to a person / Group / department / position / site / the whole organization' })
   async shareFolder(@CurrentUser() user: JwtPayload, @Param('folderId') folderId: string, @Body() body: unknown) {
     const dto = noteShareSchema.parse(body);
     const data: NoteShareDto[] = await this.share.shareFolder(user.sub, folderId, dto);
@@ -118,7 +118,7 @@ export class NotesController {
   }
 
   @Delete('folders/:folderId/shares/:principalType/:principalId')
-  @ApiOperation({ summary: 'Закрыть папку получателю' })
+  @ApiOperation({ summary: 'Close the folder for a recipient' })
   async unshareFolder(
     @CurrentUser() user: JwtPayload,
     @Param('folderId') folderId: string,
@@ -134,7 +134,7 @@ export class NotesController {
   // ============================================================
 
   @Get('board')
-  @ApiOperation({ summary: 'Доска выбранного раздела: его заметки + моя раскладка' })
+  @ApiOperation({ summary: 'The board of the selected section: its notes plus my layout' })
   async getBoard(@CurrentUser() user: JwtPayload, @Query() query: Record<string, unknown>) {
     const q = noteBoardQuerySchema.parse(query);
     const data: NoteBoardDto = await this.board.board(user.sub, q);
@@ -142,7 +142,7 @@ export class NotesController {
   }
 
   @Put('board/:noteId')
-  @ApiOperation({ summary: 'Запомнить положение карточки на моей доске' })
+  @ApiOperation({ summary: 'Remember the card position on my board' })
   async putBoard(@CurrentUser() user: JwtPayload, @Param('noteId') noteId: string, @Body() body: unknown) {
     const dto = noteBoardPutSchema.parse(body ?? {});
     const data: NoteBoardItemDto = await this.board.put(user.sub, noteId, dto);
@@ -154,7 +154,7 @@ export class NotesController {
   // ============================================================
 
   @Get('wikilink-candidates')
-  @ApiOperation({ summary: 'Кандидаты для [[вики-ссылки]]' })
+  @ApiOperation({ summary: 'Candidates for a [[wikilink]]' })
   async wikilinkCandidates(@CurrentUser() user: JwtPayload, @Query() query: Record<string, unknown>) {
     const q = noteWikilinkCandidatesQuerySchema.parse(query);
     const scope = await this.acl.scopeFor(user.sub, { workspaceId: q.workspaceId });
@@ -163,7 +163,7 @@ export class NotesController {
   }
 
   @Get('targets/search')
-  @ApiOperation({ summary: 'Пикер «Привязать к…»: задачи / контрагенты / объекты / документы' })
+  @ApiOperation({ summary: 'The “Link to…” picker: tasks / counterparties / sites / documents' })
   async searchTargets(@CurrentUser() user: JwtPayload, @Query() query: Record<string, unknown>) {
     const q = noteTargetSearchQuerySchema.parse(query);
     const scope = await this.acl.scopeFor(user.sub, { workspaceId: q.workspaceId });
@@ -172,7 +172,7 @@ export class NotesController {
   }
 
   @Get('by-target/:targetType/:targetId')
-  @ApiOperation({ summary: 'Заметки, привязанные к сущности (панель на карточке)' })
+  @ApiOperation({ summary: 'The notes linked to an entity (the panel on its card)' })
   async byTarget(@CurrentUser() user: JwtPayload, @Param('targetType') targetType: string, @Param('targetId') targetId: string) {
     const data: NotesByTargetDto = await this.notes.listByTarget(user.sub, targetType, targetId);
     return { success: true, data };
@@ -183,7 +183,7 @@ export class NotesController {
   // ============================================================
 
   @Get()
-  @ApiOperation({ summary: 'Список заметок пространства (папка / тег / поиск / корзина; keyset)' })
+  @ApiOperation({ summary: 'The notes of a space (folder / tag / search / trash; keyset)' })
   async list(@CurrentUser() user: JwtPayload, @Query() query: Record<string, unknown>) {
     const q = noteListQuerySchema.parse(query);
     const data: CursorPage<NoteListItemDto> = await this.notes.list(user.sub, q);
@@ -191,7 +191,7 @@ export class NotesController {
   }
 
   @Post()
-  @ApiOperation({ summary: 'Создать заметку (документом или Markdown)' })
+  @ApiOperation({ summary: 'Create a note (as a document or as Markdown)' })
   async create(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
     const dto = createNoteSchema.parse(body);
     const data: NoteDetailDto = await this.notes.create(user.sub, dto);
@@ -199,7 +199,7 @@ export class NotesController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Карточка заметки' })
+  @ApiOperation({ summary: 'The note card' })
   async get(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const data: NoteDetailDto = await this.notes.get(user.sub, id);
     return { success: true, data };
@@ -207,14 +207,14 @@ export class NotesController {
 
   @Get(':id/markdown')
   @Header('Content-Type', 'text/markdown; charset=utf-8')
-  @ApiOperation({ summary: 'Заметка как Markdown (экспорт / ИИ-чтение)' })
+  @ApiOperation({ summary: 'The note as Markdown (export / AI reading)' })
   async markdown(@CurrentUser() user: JwtPayload, @Param('id') id: string): Promise<string> {
     const { note } = await this.notes.requireNote(user.sub, id, 'viewer');
     return note.contentMd;
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Сохранить заметку (оптимистическая версия; 409 при конфликте)' })
+  @ApiOperation({ summary: 'Save the note (optimistic version; 409 on a conflict)' })
   async update(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() body: unknown) {
     const dto = updateNoteSchema.parse(body);
     const data: NoteSaveResultDto = await this.notes.update(user.sub, id, dto);
@@ -222,21 +222,21 @@ export class NotesController {
   }
 
   @Post(':id/trash')
-  @ApiOperation({ summary: 'В корзину' })
+  @ApiOperation({ summary: 'To the trash' })
   async trash(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     await this.notes.trash(user.sub, id);
     return { success: true, data: { ok: true } };
   }
 
   @Post(':id/restore')
-  @ApiOperation({ summary: 'Восстановить из корзины' })
+  @ApiOperation({ summary: 'Restore from the trash' })
   async restore(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const data: NoteDetailDto = await this.notes.restore(user.sub, id);
     return { success: true, data };
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Удалить навсегда (только из корзины)' })
+  @ApiOperation({ summary: 'Delete for good (from the trash only)' })
   async purge(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     await this.notes.purge(user.sub, id);
     return { success: true, data: { ok: true } };
@@ -245,21 +245,21 @@ export class NotesController {
   // ---- история версий
 
   @Get(':id/revisions')
-  @ApiOperation({ summary: 'История версий заметки (снимки сохранений)' })
+  @ApiOperation({ summary: 'The note version history (the saved snapshots)' })
   async revisions(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const data: NoteRevisionDto[] = await this.notes.revisions(user.sub, id);
     return { success: true, data };
   }
 
   @Get(':id/revisions/:version')
-  @ApiOperation({ summary: 'Содержимое версии (предпросмотр перед откатом)' })
+  @ApiOperation({ summary: 'The content of a version (a preview before the rollback)' })
   async revision(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Param('version') version: string) {
     const data: NoteDoc = await this.notes.revision(user.sub, id, noteVersionParam.parse(version));
     return { success: true, data };
   }
 
   @Post(':id/revisions/:version/restore')
-  @ApiOperation({ summary: 'Откатить заметку к версии (новой версией, история не переписывается)' })
+  @ApiOperation({ summary: 'Roll the note back to a version (as a new version; the history is not rewritten)' })
   async restoreRevision(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Param('version') version: string) {
     const data: NoteSaveResultDto = await this.notes.restoreRevision(user.sub, id, noteVersionParam.parse(version));
     return { success: true, data };
@@ -268,14 +268,14 @@ export class NotesController {
   // ---- доступ
 
   @Get(':id/shares')
-  @ApiOperation({ summary: 'Кому открыта заметка (с унаследованными от папок)' })
+  @ApiOperation({ summary: 'Who the note is open to (folder-inherited included)' })
   async shares(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const data: NoteShareDto[] = await this.share.listNoteShares(user.sub, id);
     return { success: true, data };
   }
 
   @Post(':id/shares')
-  @ApiOperation({ summary: 'Поделиться заметкой' })
+  @ApiOperation({ summary: 'Share the note' })
   async shareNote(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() body: unknown) {
     const dto = noteShareSchema.parse(body);
     const data: NoteShareDto[] = await this.share.shareNote(user.sub, id, dto);
@@ -283,14 +283,14 @@ export class NotesController {
   }
 
   @Post(':id/shares/mentioned')
-  @ApiOperation({ summary: 'Дать «читать» всем упомянутым без доступа' })
+  @ApiOperation({ summary: 'Grant “reads” to every mentioned person without access' })
   async shareMentioned(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const data: NoteShareDto[] = await this.share.shareWithMentioned(user.sub, id);
     return { success: true, data };
   }
 
   @Delete(':id/shares/:principalType/:principalId')
-  @ApiOperation({ summary: 'Закрыть доступ получателю' })
+  @ApiOperation({ summary: 'Close the access for a recipient' })
   async unshareNote(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -304,7 +304,7 @@ export class NotesController {
   // ---- привязки
 
   @Post(':id/related')
-  @ApiOperation({ summary: 'Привязать заметку к задаче / контрагенту / объекту / документу' })
+  @ApiOperation({ summary: 'Link the note to a task / counterparty / site / document' })
   async addRelated(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() body: unknown) {
     const dto = noteRelatedRefSchema.parse(body);
     const data: NoteDetailDto = await this.notes.addRelated(user.sub, id, dto.targetType, dto.targetId);
@@ -312,7 +312,7 @@ export class NotesController {
   }
 
   @Delete(':id/related/:targetType/:targetId')
-  @ApiOperation({ summary: 'Отвязать заметку от сущности' })
+  @ApiOperation({ summary: 'Unlink the note from an entity' })
   async removeRelated(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,

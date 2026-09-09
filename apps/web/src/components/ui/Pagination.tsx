@@ -5,6 +5,7 @@
 // Стрелки клампятся по границам; строка «Страница X из N» справа.
 // На узких ширинах ряд переносится (flex-wrap), а не обрезается.
 // ============================================================
+import { useTranslations } from 'next-intl';
 import { Icon } from './Icon';
 import { cx } from './tones';
 
@@ -36,6 +37,7 @@ function buildPages(page: number, count: number, win: number): Array<number | '�
 }
 
 export function Pagination({ page, pageCount, onChange, window: win = 1, showSummary = true, className }: PaginationProps) {
+  const t = useTranslations('common');
   if (pageCount <= 1) return null;
   const go = (p: number) => onChange(clamp(p, 1, pageCount));
   const pages = buildPages(page, pageCount, win);
@@ -43,7 +45,7 @@ export function Pagination({ page, pageCount, onChange, window: win = 1, showSum
   return (
     <nav
       className={cx(className)}
-      aria-label="Постраничная навигация"
+      aria-label={t('pagination.aria')}
       style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', flexWrap: 'wrap' }}
     >
       <button
@@ -51,7 +53,7 @@ export function Pagination({ page, pageCount, onChange, window: win = 1, showSum
         className="ui-page-btn ui-page-btn--outline"
         onClick={() => go(page - 1)}
         disabled={page <= 1}
-        aria-label="Предыдущая страница"
+        aria-label={t('pagination.prev')}
       >
         <Icon name="caretLeft" size={15} />
       </button>
@@ -65,7 +67,7 @@ export function Pagination({ page, pageCount, onChange, window: win = 1, showSum
             type="button"
             className="ui-page-btn"
             aria-current={p === page ? 'page' : undefined}
-            aria-label={`Страница ${p}`}
+            aria-label={t('pagination.page', { n: p })}
             onClick={() => go(p)}
           >
             {p}
@@ -78,14 +80,14 @@ export function Pagination({ page, pageCount, onChange, window: win = 1, showSum
         className="ui-page-btn ui-page-btn--outline"
         onClick={() => go(page + 1)}
         disabled={page >= pageCount}
-        aria-label="Следующая страница"
+        aria-label={t('pagination.next')}
       >
         <Icon name="caretRight" size={15} />
       </button>
 
       {showSummary && (
         <span className="meta" style={{ marginLeft: 'auto', paddingLeft: '0.75rem' }}>
-          Страница {page} из {pageCount}
+          {t('pagination.summary', { page, total: pageCount })}
         </span>
       )}
     </nav>

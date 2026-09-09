@@ -10,15 +10,18 @@
 /** Пояс по умолчанию, если объект ещё не загружен (совпадает с APP_TIMEZONE). */
 export const FALLBACK_TZ = 'Asia/Almaty';
 
-/** Часовые пояса Казахстана — для выбора в форме объекта (ввод руками = опечатки). */
+/**
+ * Часовые пояса Казахстана — для выбора в форме объекта (ввод руками = опечатки).
+ * Список называет ЗОНУ, слово даёт каталог: `objects.timeZone.<ключ>`.
+ */
 export const KZ_TIME_ZONES = [
-  { value: 'Asia/Almaty', label: 'Алматы, Астана (UTC+5)' },
-  { value: 'Asia/Aqtobe', label: 'Актобе (UTC+5)' },
-  { value: 'Asia/Qostanay', label: 'Костанай (UTC+5)' },
-  { value: 'Asia/Qyzylorda', label: 'Кызылорда (UTC+5)' },
-  { value: 'Asia/Aqtau', label: 'Актау (UTC+5)' },
-  { value: 'Asia/Atyrau', label: 'Атырау (UTC+5)' },
-  { value: 'Asia/Oral', label: 'Уральск (UTC+5)' },
+  { value: 'Asia/Almaty', key: 'almaty' },
+  { value: 'Asia/Aqtobe', key: 'aqtobe' },
+  { value: 'Asia/Qostanay', key: 'qostanay' },
+  { value: 'Asia/Qyzylorda', key: 'qyzylorda' },
+  { value: 'Asia/Aqtau', key: 'aqtau' },
+  { value: 'Asia/Atyrau', key: 'atyrau' },
+  { value: 'Asia/Oral', key: 'oral' },
 ] as const;
 
 function parts(iso: string | Date, timeZone: string): Record<string, string> {
@@ -93,23 +96,6 @@ export function dateToIso(d: Date | null): string | undefined {
 
 export function isoToDate(v?: string | null): Date | null {
   return v ? new Date(`${v}T00:00:00`) : null;
-}
-
-const MONTHS = [
-  'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
-  'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
-];
-
-/** «2026-09» → «Сентябрь 2026» (в интерфейсе период читают, а не парсят). */
-export function monthLabel(period: string): string {
-  const [y, m] = period.split('-').map(Number);
-  return `${MONTHS[(m ?? 1) - 1] ?? period} ${y}`;
-}
-
-/** «480» минут → «8 ч», «450» → «7,5 ч» (округление до часа врало на полсмены). */
-export function hoursLabel(minutes: number): string {
-  const h = minutes / 60;
-  return `${Number.isInteger(h) ? h : h.toFixed(1).replace('.', ',')} ч`;
 }
 
 /** Цвет-данные шаблона + прозрачность: `${color}22` на нехекс-значении ломает CSS. */

@@ -13,14 +13,14 @@
 import { Alert, EmptyState, LoadingBlock, Pagination, SearchField } from '@/components/ui';
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import { fetchTasks, tasksListKey } from '@/lib/queries';
 import { Chip, TaskRow } from './tasks-ui';
 import {
-  TASK_CREATOR_LABEL,
   TASK_PRIORITY_META,
-  TASK_ROLE_LABELS,
   TASK_STATUS_META,
   TASK_LIMITS,
+  VIEWER_TASK_ROLES,
   type Task,
   type TaskFilter,
   type TaskPriority,
@@ -28,18 +28,11 @@ import {
   type ViewerTaskRole,
 } from '@superapp/shared';
 
-const ROLE_OPTIONS: Array<{ key: ViewerTaskRole; label: string }> = [
-  { key: 'creator', label: TASK_CREATOR_LABEL },
-  { key: 'executor', label: TASK_ROLE_LABELS.executor },
-  { key: 'co_executor', label: TASK_ROLE_LABELS.co_executor },
-  { key: 'observer', label: TASK_ROLE_LABELS.observer },
-];
-
 const PRIORITY_CHIP_TONE = { low: 'neutral', medium: 'accent', high: 'warning', urgent: 'danger' } as const;
 
 export function TaskListSection({
   filter,
-  emptyText = 'Здесь пусто',
+  emptyText,
   emptyHint,
   enableSearch = false,
   enableFilters = false,
@@ -58,6 +51,7 @@ export function TaskListSection({
   /** Кастомная строка (Входящие рисуют свою — с действиями «уточнить»). */
   renderRow?: (task: Task) => React.ReactNode;
 }) {
+  const t = useTranslations('tasks');
   const [searchText, setSearchText] = useState('');
   const [search, setSearch] = useState('');
   const [statusSel, setStatusSel] = useState<TaskStatus[]>([]);
@@ -119,8 +113,8 @@ export function TaskListSection({
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             onClear={() => setSearchText('')}
-            placeholder="Поиск по названию и описанию…"
-            aria-label="Поиск задач"
+            placeholder={t('list.searchPlaceholder')}
+            aria-label={t('list.searchAria')}
             width="100%"
           />
         </div>
@@ -129,26 +123,26 @@ export function TaskListSection({
       {enableFilters && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-4)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
-            <span className="label-sm" style={{ minWidth: 74 }}>Статус</span>
+            <span className="label-sm" style={{ minWidth: 74 }}>{t('list.filterStatus')}</span>
             {(Object.keys(TASK_STATUS_META) as TaskStatus[]).map((s) => (
               <Chip key={s} active={statusSel.includes(s)} onClick={() => toggleStatus(s)}>
-                {TASK_STATUS_META[s].label}
+                {t(`status.${s}`)}
               </Chip>
             ))}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
-            <span className="label-sm" style={{ minWidth: 74 }}>Приоритет</span>
+            <span className="label-sm" style={{ minWidth: 74 }}>{t('list.filterPriority')}</span>
             {(Object.keys(TASK_PRIORITY_META) as TaskPriority[]).map((p) => (
               <Chip key={p} active={prioritySel.includes(p)} tone={PRIORITY_CHIP_TONE[p]} onClick={() => togglePriority(p)}>
-                {TASK_PRIORITY_META[p].label}
+                {t(`priority.${p}`)}
               </Chip>
             ))}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
-            <span className="label-sm" style={{ minWidth: 74 }}>Моя роль</span>
-            {ROLE_OPTIONS.map((r) => (
-              <Chip key={r.key} active={roleSel === r.key} onClick={() => toggleRole(r.key)}>
-                {r.label}
+            <span className="label-sm" style={{ minWidth: 74 }}>{t('list.filterRole')}</span>
+            {VIEWER_TASK_ROLES.map((r) => (
+              <Chip key={r} active={roleSel === r} onClick={() => toggleRole(r)}>
+                {t(`role.${r}`)}
               </Chip>
             ))}
           </div>
@@ -158,12 +152,12 @@ export function TaskListSection({
       {q.isLoading ? (
         <LoadingBlock />
       ) : q.isError ? (
-        <Alert tone="danger">Не удалось загрузить задачи</Alert>
+        <Alert tone="danger">{t('list.loadFailed')}</Alert>
       ) : items.length === 0 ? (
         <EmptyState
           icon={hasActiveFilters ? 'search' : 'tasks'}
-          title={hasActiveFilters ? 'Ничего не найдено' : emptyText}
-          description={hasActiveFilters ? 'Попробуйте изменить запрос или фильтры' : emptyHint}
+          title={hasActiveFilters ? t('list.nothingFound') : emptyText ?? t('list.empty')}
+          description={hasActiveFilters ? t('list.nothingFoundHint') : emptyHint}
         />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)', opacity: q.isFetching ? 0.75 : 1, transition: 'opacity 0.15s ease' }}>

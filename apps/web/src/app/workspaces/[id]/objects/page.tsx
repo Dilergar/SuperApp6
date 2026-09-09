@@ -8,6 +8,7 @@
 
 import { useState } from 'react';
 import { useParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { useQuery } from '@tanstack/react-query';
 import type { ObjectNodeDto } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
@@ -18,6 +19,7 @@ import { ObjectTree } from './_components/ObjectTree';
 import { ObjectForm } from './_components/ObjectForm';
 
 export default function ObjectsPage() {
+  const t = useTranslations('objects');
   const { isReady } = useRequireAuth();
   const { id } = useParams<{ id: string }>();
   const [showArchived, setShowArchived] = useState(false);
@@ -43,17 +45,17 @@ export default function ObjectsPage() {
   return (
     <>
       <PageHeader
-        title="Объекты"
-        description="Площадки, здания, этажи и склады организации. Внутри объекта — штат, график смен и оборудование."
+        title={t('breadcrumb')}
+        description={t('page.description')}
         actions={
           <>
-            <Toggle checked={showArchived} onChange={setShowArchived} label="Архив" />
+            <Toggle checked={showArchived} onChange={setShowArchived} label={t('page.archive')} />
             <Button variant="ghost" icon="toolbox" href={`/workspaces/${id}/objects/models`}>
-              Модели оборудования
+              {t('models.breadcrumb')}
             </Button>
             {canCreate && (
               <Button variant="primary" icon="add" onClick={() => openCreate(null)}>
-                Объект
+                {t('entity')}
               </Button>
             )}
           </>
@@ -66,16 +68,12 @@ export default function ObjectsPage() {
         ) : nodes.length === 0 ? (
           <EmptyState
             icon="storefront"
-            title={showArchived ? 'В архиве пусто' : 'Объектов пока нет'}
-            description={
-              canCreate
-                ? 'Добавьте первый объект — точку, склад или офис. Внутрь можно вкладывать здания, этажи и зоны.'
-                : 'Вас пока не назначили ни на один объект.'
-            }
+            title={showArchived ? t('page.emptyArchive') : t('page.empty')}
+            description={canCreate ? t('page.emptyHintManage') : t('page.emptyHint')}
             action={
               canCreate ? (
                 <Button variant="primary" icon="add" onClick={() => openCreate(null)}>
-                  Добавить объект
+                  {t('page.addFirst')}
                 </Button>
               ) : undefined
             }

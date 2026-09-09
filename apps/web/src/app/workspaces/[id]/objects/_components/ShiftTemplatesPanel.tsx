@@ -7,12 +7,13 @@
 // замораживает своё время (objects_shifts.md), правка влияет только на будущие.
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ShiftTemplateDto } from '@superapp/shared';
 import { Button, Card, Chip, Divider, EmptyState, Input, Modal, useConfirm } from '@/components/ui';
 import { apiErrorMessage } from '@/lib/api';
 import { toastError } from '@/lib/toast';
-import { hoursLabel } from '@/lib/objects-time';
+import { useHoursLabel } from '@/lib/format';
 import { shiftTemplatesKey } from '@/lib/queries';
 import { fetchShiftTemplates, shiftsApi } from '../objects-api';
 
@@ -44,6 +45,9 @@ export function ShiftTemplatesPanel({
   onClose: () => void;
   onSaved?: () => void;
 }) {
+  const tr = useTranslations('objects');
+  const tc = useTranslations('common');
+  const hoursLabel = useHoursLabel();
   const qc = useQueryClient();
   const [confirm, confirmUI] = useConfirm();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -87,9 +91,9 @@ export function ShiftTemplatesPanel({
   /** Общая проверка полей формы (создание и правка спорят об одном и том же) */
   const readForm = () => {
     const startMin = minutesOf(start);
-    if (startMin === null) throw new Error('Начало — в формате 09:00');
+    if (startMin === null) throw new Error(tr('shifts.startFormat'));
     const durationMin = Number(duration);
-    if (!Number.isFinite(durationMin) || durationMin < 15) throw new Error('Длительность — минуты, минимум 15');
+    if (!Number.isFinite(durationMin) || durationMin < 15) throw new Error(tr('shifts.durationFormat'));
     return { name: name.trim(), startMin, durationMin, breakMin: Number(breakMin) || 0, color };
   };
 
@@ -125,14 +129,14 @@ export function ShiftTemplatesPanel({
   const busy = create.isPending || update.isPending;
 
   return (
-    <Modal open={open} onClose={onClose} title="Шаблоны смен">
+    <Modal open={open} onClose={onClose} title={tr('templates.title')}>
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         <div className="ui-stack" style={{ gap: 'var(--spacing-2)' }}>
           {list.length === 0 ? (
             <EmptyState
               icon="clock"
-              title="Шаблонов пока нет"
-              description="Шаблон — это «Утро 09–17»: время и цвет, из которых собираются смены и ротации. Заведите первый в форме ниже."
+              title={tr('templates.empty')}
+              description={tr('templates.emptyHint')}
             />
           ) : (
             list.map((t) => (
@@ -151,18 +155,18 @@ export function ShiftTemplatesPanel({
                 {/* Длительность — точная: 450 минут это «7,5 ч», а не «8 ч» */}
                 <span className="label-sm">{`${hhmm(t.startMin)} · ${hoursLabel(t.durationMin)}`}</span>
                 {t.branchId === null && (
-                  <Chip tone="neutral" title="Общий шаблон организации — правит владелец или админ">
-                    общий
+                  <Chip tone="neutral" title={tr('templates.sharedHint')}>
+                    {tr('templates.shared')}
                   </Chip>
                 )}
-                {editingId === t.id && <Chip tone="accent">правим</Chip>}
+                {editingId === t.id && <Chip tone="accent">{tr('templates.editing')}</Chip>}
                 {/* Право приходит с сервера полем `canManage`: общий шаблон организации
                     правят только владелец и админ — интерфейс больше не предлагает
                     действие, которое сервер отвергнет. */}
                 {t.canManage && (
                   <>
                     <Button size="sm" variant="ghost" icon="edit" onClick={() => startEdit(t)}>
-                      Править
+                      {tc('actions.edit')}
                     </Button>
                     <Button
                       size="sm"
@@ -171,15 +175,15 @@ export function ShiftTemplatesPanel({
                       onClick={() =>
                         confirm(
                           {
-                            title: 'Убрать шаблон?',
-                            message: `«${t.name}» перестанет предлагаться. Уже поставленные смены не изменятся.`,
-                            confirmLabel: 'Убрать',
+                            title: tr('templates.removeTitle'),
+                            message: tr('templates.removeMessage', { name: t.name }),
+                            confirmLabel: tc('actions.remove'),
                           },
                           () => remove.mutateAsync(t.id).then(() => undefined),
                         )
                       }
                     >
-                      Убрать
+                      {tc('actions.remove')}
                     </Button>
                   </>
                 )}
@@ -192,22 +196,37 @@ export function ShiftTemplatesPanel({
 
         <Card>
           <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-3)' }}>
-            <Input label="Название" placeholder="Утро" value={name} onChange={(e) => setName(e.target.value)} />
-            <Input label="Начало" placeholder="09:00" value={start} onChange={(e) => setStart(e.target.value)} />
             <Input
-              label="Длительность, мин"
+              label={tc('labels.name')}
+              placeholder={tr('templates.namePlaceholder')}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+            <Input
+              label={tr('shifts.start')}
+              placeholder="09:00"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+            />
+            <Input
+              label={tr('shifts.durationMin')}
               inputMode="numeric"
               value={duration}
               hint={Number(duration) > 0 ? hoursLabel(Number(duration)) : undefined}
               onChange={(e) => setDuration(e.target.value)}
             />
-            <Input label="Перерыв, мин" inputMode="numeric" value={breakMin} onChange={(e) => setBreakMin(e.target.value)} />
-            <Input label="Цвет" type="color" value={color} onChange={(e) => setColor(e.target.value)} />
+            <Input
+              label={tr('shifts.breakMin')}
+              inputMode="numeric"
+              value={breakMin}
+              onChange={(e) => setBreakMin(e.target.value)}
+            />
+            <Input label={tr('templates.color')} type="color" value={color} onChange={(e) => setColor(e.target.value)} />
           </div>
           <div style={{ marginTop: 'var(--spacing-3)', display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end' }}>
             {editingId && (
               <Button variant="ghost" onClick={resetForm}>
-                Отмена правки
+                {tr('templates.cancelEdit')}
               </Button>
             )}
             <Button
@@ -216,7 +235,7 @@ export function ShiftTemplatesPanel({
               disabled={!name.trim()}
               onClick={() => (editingId ? update.mutate() : create.mutate())}
             >
-              {editingId ? 'Сохранить шаблон' : 'Добавить шаблон'}
+              {editingId ? tr('templates.save') : tr('templates.add')}
             </Button>
           </div>
         </Card>

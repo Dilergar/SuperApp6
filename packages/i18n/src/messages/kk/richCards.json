@@ -1,16 +1,27 @@
 {
-  "unavailable": "Карточка қолжетімсіз",
   "deleted": "Жазба жойылды",
   "event": {
-    "when": "Қашан",
-    "where": "Қайда",
-    "yourStatus": "Сіздің жауабыңыз",
     "organizer": "Ұйымдастырушы",
     "rsvp": {
-      "pending": "Жауап берген жоқ",
       "accepted": "Барамын",
       "declined": "Бармаймын",
+      "pending": "Жауап берген жоқ",
       "tentative": "Мүмкін"
-    }
-  }
+    },
+    "when": "Қашан",
+    "where": "Қайда",
+    "yourStatus": "Сіздің жауабыңыз"
+  },
+  "shift": {
+    "open": "Ашық",
+    "openStatus": "Ашық ауысым",
+    "take": "Аламын",
+    "taken": "Бос емес",
+    "template": "Ауысым"
+  },
+  "site": {
+    "people": "Адам",
+    "timeZone": "Уақыт белдеуі"
+  },
+  "unavailable": "Карточка қолжетімсіз"
 }

@@ -1,7 +1,9 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { ESUTD_KINDS, HR_DEADLINE_RULE_MAP, HR_LIMITS, hrMemberHref } from '@superapp/shared';
+import { HR_DEADLINE_RULE_MAP, HR_LIMITS, hrMemberHref } from '@superapp/shared';
+import { SOURCE_LOCALE } from '@superapp/i18n';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { JobsRegistry } from '../../core/jobs/jobs.registry';
 import { NotificationsService } from '../../core/notifications/notifications.service';
 import { RedisService } from '../../shared/redis/redis.service';
@@ -26,8 +28,14 @@ export class HrJobs implements OnModuleInit {
     private readonly redis: RedisService,
     private readonly actions: HrActionsService,
     private readonly calendar: HrCalendarService,
+    private readonly i18n: I18nService,
   ) {}
 
+  /**
+   * Календарная дата в тексте уведомления. Формат — ПРАВИЛА РЕГИОНА, а не языка
+   * (03.09.2026 у всех троих), поэтому язык здесь любой; своё
+   * `split('-').reverse()` было бы зашитым региональным форматом.
+   */
   onModuleInit(): void {
     // Применение идемпотентно (статус-клейм в applyAction) — at-least-once безопасен.
     // Ошибка проверки законности — НЕ throw: applyAction сам пишет failed.
@@ -77,7 +85,7 @@ export class HrJobs implements OnModuleInit {
 
   private async nameOf(userId: string): Promise<string> {
     const u = await this.db.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true } });
-    return u ? fullName(u) : 'Сотрудник';
+    return u ? fullName(u) : this.i18n.translateFor(SOURCE_LOCALE, 'common.labels.someone');
   }
 
   /** ЕСУТД: осталось ≤ 2 рабочих дней (или просрочено) — управляющим */
@@ -93,7 +101,7 @@ export class HrJobs implements OnModuleInit {
       const left = await this.calendar.workDaysLeft(today, due);
       if (left === null || left > 2) continue;
       const managers = await this.managersOf(r.workspaceId);
-      const kindLabel = ESUTD_KINDS.find((k) => k.value === r.kind)?.label ?? r.kind;
+
       // Остаток срока едет ЧИСЛОМ и признаком состояния, а не собранной фразой: фраза
       // застыла бы в одном языке (в каталоге получалось «осталось просрочено (4 раб. дн.)»,
       // а у английского читателя — русский кусок внутри английской строки). Слова —
@@ -103,7 +111,15 @@ export class HrJobs implements OnModuleInit {
         .send(null, {
           type: 'hr.esutd.due_soon',
           to: managers.map((uid) => ({ userId: uid })),
-          payload: { kindLabel, targetName: await this.nameOf(r.userId), state, days: Math.abs(left), workspaceId: r.workspaceId },
+          payload: {
+            // Не слово, а КЛЮЧ каталога: вид сведений переводится при чтении,
+            // иначе он застыл бы в языке того, кто засеял очередь.
+            kindLabelKey: `hr.esutdKind.${r.kind}`,
+            targetName: await this.nameOf(r.userId),
+            state,
+            days: Math.abs(left),
+            workspaceId: r.workspaceId,
+          },
           ref: { type: 'esutd_submission', id: r.id },
           workspaceId: r.workspaceId,
           reason: 'manager',
@@ -171,18 +187,20 @@ export class HrJobs implements OnModuleInit {
       select: { id: true, workspaceId: true, userId: true, probationUntil: true },
     });
     for (const r of rows) {
-      const until = r.probationUntil!.toISOString().slice(0, 10).split('-').reverse().join('.');
+      const untilIso = r.probationUntil!.toISOString().slice(0, 10);
       await this.notifications
         .send(null, {
           type: 'hr.probation.ending',
           to: (await this.managersOf(r.workspaceId)).map((uid) => ({ userId: uid })),
-          payload: { targetName: await this.nameOf(r.userId), until, workspaceId: r.workspaceId },
+          // Дата уезжает МАШИННОЙ: рубеж читает руководитель, а формат и слова
+          // месяца принадлежат ему, а не тому, в чьём языке крон её записал.
+          payload: { targetName: await this.nameOf(r.userId), untilIso, workspaceId: r.workspaceId },
           ref: { type: 'employment', id: r.id },
           workspaceId: r.workspaceId,
           reason: 'manager',
           actionUrl: hrMemberHref(r.workspaceId, r.userId),
           // Ключ с датой рубежа: перенесли испытание — предупреждение придёт заново
-          idempotencyKey: `hrprob:${r.id}:${until}`,
+          idempotencyKey: `hrprob:${r.id}:${untilIso}`,
         })
         .catch(() => undefined);
     }
@@ -202,17 +220,19 @@ export class HrJobs implements OnModuleInit {
       select: { id: true, workspaceId: true, userId: true, contractEndAt: true },
     });
     for (const r of rows) {
-      const until = r.contractEndAt!.toISOString().slice(0, 10).split('-').reverse().join('.');
+      const untilIso = r.contractEndAt!.toISOString().slice(0, 10);
       await this.notifications
         .send(null, {
           type: 'hr.contract.expiring',
           to: (await this.managersOf(r.workspaceId)).map((uid) => ({ userId: uid })),
-          payload: { targetName: await this.nameOf(r.userId), until, workspaceId: r.workspaceId },
+          // Дата уезжает МАШИННОЙ: рубеж читает руководитель, а формат и слова
+          // месяца принадлежат ему, а не тому, в чьём языке крон её записал.
+          payload: { targetName: await this.nameOf(r.userId), untilIso, workspaceId: r.workspaceId },
           ref: { type: 'employment', id: r.id },
           workspaceId: r.workspaceId,
           reason: 'manager',
           actionUrl: hrMemberHref(r.workspaceId, r.userId),
-          idempotencyKey: `hrcontr:${r.id}:${until}`,
+          idempotencyKey: `hrcontr:${r.id}:${untilIso}`,
         })
         .catch(() => undefined);
     }

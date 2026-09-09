@@ -19,12 +19,8 @@ export const ORG_DOCUMENT_REF_TYPE = 'org_document';
  * такие виды в v1 не ходят вовсе (путь прямой: черновик → «Отправить контрагенту»),
  * поэтому surface у категории нет — нарисованный маршрут было бы нечем запустить.
  */
-export const DOC_CATEGORIES = [
-  { value: 'hr', label: 'Кадры', surface: 'documents.hr' },
-  { value: 'general', label: 'Общие', surface: 'documents.general' },
-  { value: 'external', label: 'С контрагентами' },
-] as const;
-export type DocCategory = (typeof DOC_CATEGORIES)[number]['value'];
+export const DOC_CATEGORIES = ['hr', 'general', 'external'] as const;
+export type DocCategory = (typeof DOC_CATEGORIES)[number];
 
 /** Профиль редактора маршрутов; у `external` его НЕТ (маршруты для него — не в v1) */
 export const DOC_CATEGORY_SURFACE: Partial<Record<DocCategory, string>> = {
@@ -36,12 +32,8 @@ export const DOC_CATEGORY_SURFACE: Partial<Record<DocCategory, string>> = {
  * Кто видит документы этого вида. Автор, сторона и участники маршрута видят ВСЕГДА —
  * настройка добавляет зрителей сверх них, а не отнимает у них.
  */
-export const DOC_VISIBILITIES = [
-  { value: 'managers', label: 'Только управляющие' },
-  { value: 'department', label: 'Отдел сотрудника' },
-  { value: 'team', label: 'Вся команда' },
-] as const;
-export type DocVisibility = (typeof DOC_VISIBILITIES)[number]['value'];
+export const DOC_VISIBILITIES = ['managers', 'department', 'team'] as const;
+export type DocVisibility = (typeof DOC_VISIBILITIES)[number];
 
 /**
  * Чем подписывается документ ЭТОГО вида (core/sign).
@@ -51,12 +43,8 @@ export type DocVisibility = (typeof DOC_VISIBILITIES)[number]['value'];
  * способ однажды забыть. `none` — «подписи не требуется»: акт приёмки внутри
  * компании законно закрывается согласованием.
  */
-export const DOC_SIGNATURE_LEVELS = [
-  { value: 'none', label: 'Без электронной подписи' },
-  { value: 'pep', label: 'Простая подпись (код из SMS)' },
-  { value: 'ecp', label: 'ЭЦП (ключ НУЦ РК)' },
-] as const;
-export type DocSignatureLevel = (typeof DOC_SIGNATURE_LEVELS)[number]['value'];
+export const DOC_SIGNATURE_LEVELS = ['none', 'pep', 'ecp'] as const;
+export type DocSignatureLevel = (typeof DOC_SIGNATURE_LEVELS)[number];
 
 /**
  * Жизненный путь документа. Отдельные `signed` и `registered` — не бюрократия:
@@ -64,24 +52,19 @@ export type DocSignatureLevel = (typeof DOC_SIGNATURE_LEVELS)[number]['value'];
  * события с разными датами.
  */
 export const DOC_STATUSES = [
-  { value: 'draft', label: 'Черновик' },
-  { value: 'in_review', label: 'На маршруте' },
+  'draft',
+  'in_review',
   // Внешний этап (категория «С контрагентами»): документ у второй стороны
-  { value: 'sent', label: 'У контрагента' },
-  { value: 'rejected', label: 'Отклонён' },
-  { value: 'declined_external', label: 'Контрагент отказал' },
-  { value: 'signed', label: 'Подписан' },
-  { value: 'registered', label: 'Зарегистрирован' },
-  { value: 'active', label: 'Действует' },
-  { value: 'cancelled', label: 'Отменён' },
-  { value: 'archived', label: 'В архиве' },
+  'sent',
+  'rejected',
+  'declined_external',
+  'signed',
+  'registered',
+  'active',
+  'cancelled',
+  'archived',
 ] as const;
-export type DocStatus = (typeof DOC_STATUSES)[number]['value'];
-
-export const DOC_STATUS_LABELS = DOC_STATUSES.reduce(
-  (acc, s) => ({ ...acc, [s.value]: s.label }),
-  {} as Record<DocStatus, string>,
-);
+export type DocStatus = (typeof DOC_STATUSES)[number];
 
 /** Статусы, в которых документ ещё правится автором (после отправки правка закрыта) */
 export const DOC_EDITABLE_STATUSES: readonly DocStatus[] = ['draft', 'rejected'];
@@ -113,15 +96,8 @@ export const DOC_EXTERNAL_DEFAULT_TTL_DAYS = 30;
 export const DOC_EXTERNAL_MAX_INTERNAL_SIGNERS = 10;
 
 /** Виды полей формы подачи (то, что заполняет сотрудник перед отправкой) */
-export const DOC_FIELD_KINDS = [
-  { value: 'text', label: 'Строка' },
-  { value: 'textarea', label: 'Текст' },
-  { value: 'number', label: 'Число' },
-  { value: 'date', label: 'Дата' },
-  { value: 'daterange', label: 'Период дат' },
-  { value: 'select', label: 'Выбор из списка' },
-] as const;
-export type DocFieldKind = (typeof DOC_FIELD_KINDS)[number]['value'];
+export const DOC_FIELD_KINDS = ['text', 'textarea', 'number', 'date', 'daterange', 'select'] as const;
+export type DocFieldKind = (typeof DOC_FIELD_KINDS)[number];
 
 /** Значение поля «Период дат»: один день = from === to (в форме — тумблер «один день») */
 export interface DocDateRangeValue {
@@ -145,45 +121,9 @@ export function docDateRangeDays(v: DocDateRangeValue): number {
   return diff + 1;
 }
 
-/**
- * Разворот значений формы для подстановки в шаблон: период {from,to} превращается
- * в плоские ключи «X С» / «X По» / «X Дней» + сам «X» строкой «с … по …» (один
- * день — просто дата). Теги остаются двухчастными «Форма.Поле» — глубоких путей
- * в синтаксисе шаблонов нет намеренно.
- */
-export function expandDocFormValues(fields: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  const dot = (s: string) => s.split('-').reverse().join('.');
-  for (const [key, value] of Object.entries(fields)) {
-    if (!isDocDateRangeValue(value)) {
-      out[key] = value;
-      continue;
-    }
-    const days = docDateRangeDays(value);
-    out[`${key} С`] = value.from;
-    out[`${key} По`] = value.to;
-    out[`${key} Дней`] = days;
-    out[key] = value.from === value.to ? dot(value.from) : `с ${dot(value.from)} по ${dot(value.to)}`;
-  }
-  return out;
-}
-
-/**
- * Формат номера. Плейсхолдеры русские, чтобы кадровик писал их как на бумаге:
- * «ПР-{ГГГГ}-{NNN}» → «ПР-2026-007». Сколько букв N, столько знаков в серии.
- */
-export const DEFAULT_DOC_NUMBER_FORMAT = '{ГГГГ}-{NNN}';
-
-/** Собрать номер по формату вида. Чистая функция: одна и та же и на сервере, и в превью формы. */
-export function formatDocNumber(format: string | null | undefined, seq: number, at: Date): string {
-  const src = format && format.trim() ? format : DEFAULT_DOC_NUMBER_FORMAT;
-  const year = at.getFullYear();
-  return src
-    .replace(/\{ГГГГ\}/g, String(year))
-    .replace(/\{ГГ\}/g, String(year).slice(-2))
-    .replace(/\{ММ\}/g, String(at.getMonth() + 1).padStart(2, '0'))
-    .replace(/\{(N+)\}/g, (_, ns: string) => String(seq).padStart(ns.length, '0'));
-}
+// Разворот значений формы в теги шаблона, группа тегов «Документ» и формат
+// номера — это СИНТАКСИС бланка, а не интерфейс: они живут в `doc-template-dsl.ts`
+// и переезжают на другие языки вместе с бланками (docs/i18n_migration.md).
 
 /**
  * Кому выдаётся бланк. Тот же список, что в `docTemplateGrantSchema`: у снятия

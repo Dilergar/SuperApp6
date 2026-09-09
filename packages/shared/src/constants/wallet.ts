@@ -35,11 +35,3 @@ export const WALLET_LIMITS = {
   renameCooldownDays: 90,
   historyPageSize: 30,
 } as const;
-
-export const LEDGER_ENTRY_LABELS: Record<LedgerEntryType, string> = {
-  mint: 'Выпуск',
-  transfer: 'Перевод',
-  reversal: 'Возврат',
-  burn: 'Сжигание',
-  currency_deleted: 'Валюта удалена',
-};

@@ -7,9 +7,12 @@ import { driveNodeKey } from '@/lib/queries';
 import { fetchDriveNode } from '@/lib/drive-api';
 import { useDrive } from './drive-shell';
 import { DriveBrowser } from './_components/DriveBrowser';
-import { humanSize } from './_components/drive-ui';
+import { useTranslations } from 'next-intl';
+import { useBytes } from '@/lib/format';
 
 export default function DriveHomePage() {
+  const t = useTranslations('drive');
+  const humanSize = useBytes();
   const { ref, overview, canEdit, invalidate } = useDrive();
   const [folderId, setFolderId] = useState<string | null>(null);
 
@@ -20,7 +23,7 @@ export default function DriveHomePage() {
     enabled: !!folderId,
   });
 
-  const rootName = overview?.space.title ?? 'Мой диск';
+  const rootName = overview?.space.title ?? t('rootName');
   const breadcrumbs = folderId
     ? [
         { id: null as string | null, name: rootName },
@@ -37,7 +40,7 @@ export default function DriveHomePage() {
 
   return (
     <>
-      <PageHeader breadcrumb="Диск" title={rootName} />
+      <PageHeader breadcrumb={t('breadcrumb')} title={rootName} />
       <Card>
         <DriveBrowser
           driveRef={ref}
@@ -50,9 +53,9 @@ export default function DriveHomePage() {
       </Card>
       <Card small style={{ marginTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
-          <span className="label-caps">Занято места</span>
+          <span className="label-caps">{t('page.usedSpace')}</span>
           <span className="label-sm">
-            {humanSize(used)} из {humanSize(limit)}
+            {t('page.usedOf', { used: humanSize(used), limit: humanSize(limit) })}
           </span>
         </div>
         {/* Прогресс в системе только штриховой */}

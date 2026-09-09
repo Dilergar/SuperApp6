@@ -43,20 +43,24 @@ export class OfficeSystemListener implements OnModuleInit {
       await this.projection.resyncOfficeRoomRoles(roomId); // идемпотентная подстраховка
 
       if (type === 'office.room.created') {
-        const who = (await this.nameOf(p.byUserId)) ?? 'Кто-то';
-        await this.messenger.postOfficeRoomSystemMessage(roomId, type, `${who} создал(а) встречу`);
+        await this.messenger.postOfficeRoomSystemMessage(roomId, type, {
+          typeKey: 'office.room_created',
+          values: { actorName: (await this.nameOf(p.byUserId)) ?? '' },
+        });
         return;
       }
       if (type === 'office.room.invited') {
         await this.messenger.syncOfficeRoomChatMembers(roomId);
-        const who = (await this.nameOf(p.byUserId)) ?? 'Кто-то';
-        await this.messenger.postOfficeRoomSystemMessage(roomId, type, `${who} пригласил(а) участников`);
+        await this.messenger.postOfficeRoomSystemMessage(roomId, type, {
+          typeKey: 'office.room_invited',
+          values: { actorName: (await this.nameOf(p.byUserId)) ?? '' },
+        });
         return;
       }
       if (type === 'office.room.ended') {
         // Плашка только в существующий чат — не создаём чат ради объявления о конце
         if (!(await this.chatExists(roomId))) return;
-        await this.messenger.postOfficeRoomSystemMessage(roomId, type, 'Встреча завершена');
+        await this.messenger.postOfficeRoomSystemMessage(roomId, type, { typeKey: 'office.room_finished' });
         return;
       }
     } catch (err) {
@@ -72,12 +76,12 @@ export class OfficeSystemListener implements OnModuleInit {
       const roomId = p.refId;
       if (type === 'call.session.started') {
         await this.projection.resyncOfficeRoomRoles(roomId);
-        await this.messenger.postOfficeRoomSystemMessage(roomId, type, 'Звонок начался');
+        await this.messenger.postOfficeRoomSystemMessage(roomId, type, { typeKey: 'office.call_started' });
         return;
       }
       if (type === 'call.session.ended') {
         if (!(await this.chatExists(roomId))) return;
-        await this.messenger.postOfficeRoomSystemMessage(roomId, type, 'Звонок завершён');
+        await this.messenger.postOfficeRoomSystemMessage(roomId, type, { typeKey: 'office.call_ended' });
         return;
       }
     } catch (err) {

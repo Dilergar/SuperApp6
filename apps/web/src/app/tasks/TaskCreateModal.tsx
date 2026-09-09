@@ -9,6 +9,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import { apiPost } from '@/lib/api';
 import { contactsKey, circlesKey, fetchAllContacts, fetchCircles } from '@/lib/queries';
 import { EntitySelector } from '@/components/EntitySelector';
@@ -33,6 +34,7 @@ import {
 const PRIORITY_CHIP_TONE = { low: 'neutral', medium: 'accent', high: 'warning', urgent: 'danger' } as const;
 
 export function TaskCreateModal({ onClose, onCreated }: { onClose: () => void; onCreated?: (task: Task) => void }) {
+  const t = useTranslations('tasks');
   const queryClient = useQueryClient();
   const [error, setError] = useState('');
 
@@ -49,7 +51,7 @@ export function TaskCreateModal({ onClose, onCreated }: { onClose: () => void; o
       return true;
     } catch (err: unknown) {
       const a = err as { response?: { data?: { message?: string } } };
-      setError(a.response?.data?.message || 'Ошибка создания задачи');
+      setError(a.response?.data?.message || t('create.failed'));
       return false;
     }
   };
@@ -57,7 +59,7 @@ export function TaskCreateModal({ onClose, onCreated }: { onClose: () => void; o
   // Модалка кита: role="dialog", Esc, ловушка фокуса, блокировка прокрутки —
   // раньше это было самодельное окно без всего перечисленного.
   return (
-    <Modal open onClose={onClose} title="Новая задача" size="lg">
+    <Modal open onClose={onClose} title={t('create.title')} size="lg">
       {error && <div style={{ marginBottom: 'var(--spacing-4)' }}><Alert tone="danger">{error}</Alert></div>}
       <TaskCreateForm
         contacts={contactsQ.data ?? []}
@@ -83,6 +85,8 @@ function TaskCreateForm({
   onCreate: (payload: Record<string, unknown>) => Promise<boolean>;
   onCancel: () => void;
 }) {
+  const t = useTranslations('tasks');
+  const tc = useTranslations('common');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<Task['priority']>('medium');
@@ -171,46 +175,46 @@ function TaskCreateForm({
       <Input
         value={title}
         onChange={(e) => setTitle(e.target.value)}
-        placeholder="Что нужно сделать?"
+        placeholder={t('create.titlePlaceholder')}
         autoFocus
         wrapClassName="tcm-field"
       />
       <Textarea
         value={description}
         onChange={(e) => setDescription(e.target.value)}
-        placeholder="Описание (необязательно)"
+        placeholder={t('create.descriptionPlaceholder')}
         rows={2}
         wrapClassName="tcm-field"
       />
 
       {/* Assignment mode */}
-      <label className="ui-field-label">Кому</label>
+      <label className="ui-field-label">{t('create.assignTo')}</label>
       <div style={{ display: 'flex', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-3)', flexWrap: 'wrap' }}>
-        {([['self', 'Себе'], ['person', 'Человеку'], ['group', 'Группе']] as [AssignMode, string][]).map(([m, lbl]) => (
-          <Chip key={m} active={mode === m} onClick={() => setMode(m)}>{lbl}</Chip>
+        {(['self', 'person', 'group'] as AssignMode[]).map((m) => (
+          <Chip key={m} active={mode === m} onClick={() => setMode(m)}>{t(`create.mode.${m}`)}</Chip>
         ))}
       </div>
 
       {mode === 'person' && (
         <div style={{ marginBottom: 'var(--spacing-4)' }}>
-          <label className="ui-field-label">Исполнитель (1 ответственный)</label>
+          <label className="ui-field-label">{t('create.executor')}</label>
           <EntitySelector
             types={['user']}
             multi={false}
             options={contacts.map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole }))}
             value={executorId ? [{ type: 'user', id: executorId }] : []}
             onChange={(p) => setExecutorId(p[0]?.id ?? null)}
-            placeholder="Выберите исполнителя…"
+            placeholder={t('create.executorPlaceholder')}
           />
           <div style={{ marginTop: 'var(--spacing-3)' }}>
-            <label className="ui-field-label">Соисполнители (помогают)</label>
+            <label className="ui-field-label">{t('create.coExecutors')}</label>
             <EntitySelector
               types={['user']}
               multi
               options={contacts.filter((c) => c.them.id !== executorId).map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole }))}
               value={coExecutorIds.map((id) => ({ type: 'user', id }))}
               onChange={(p) => setCoExecutorIds(p.map((x) => x.id))}
-              placeholder="Добавьте соисполнителей…"
+              placeholder={t('create.coExecutorsPlaceholder')}
             />
           </div>
         </div>
@@ -218,21 +222,21 @@ function TaskCreateForm({
 
       {mode === 'group' && (
         <div style={{ marginBottom: 'var(--spacing-4)' }}>
-          <label className="ui-field-label">Группа из окружения</label>
+          <label className="ui-field-label">{t('create.circle')}</label>
           {circles.length === 0 ? (
-            <p className="label-sm">Сначала создайте группу на странице «Моё окружение»</p>
+            <p className="label-sm">{t('create.noCircles')}</p>
           ) : (
             <EntitySelector
               types={['circle']}
               multi={false}
               value={circleId ? [{ type: 'circle', id: circleId }] : []}
               onChange={(p) => setCircleId(p[0]?.id ?? null)}
-              placeholder="Выберите Группу…"
+              placeholder={t('create.circlePlaceholder')}
             />
           )}
           {selectedCircle && (
             <p className="label-sm" style={{ marginTop: 'var(--spacing-2)', color: 'var(--secondary)' }}>
-              Все из «{selectedCircle.name}» станут Соисполнителями, у каждого свой статус и приёмка.
+              {t('create.circleHint', { name: selectedCircle.name })}
             </p>
           )}
         </div>
@@ -240,14 +244,14 @@ function TaskCreateForm({
 
       {mode !== 'self' && (
         <div style={{ marginBottom: 'var(--spacing-4)' }}>
-          <label className="ui-field-label">Наблюдатели (видят прогресс и чат)</label>
+          <label className="ui-field-label">{t('create.observers')}</label>
           <EntitySelector
             types={['user']}
             multi
             options={contacts.filter((c) => c.them.id !== executorId && !coExecutorIds.includes(c.them.id)).map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole }))}
             value={observerIds.map((id) => ({ type: 'user', id }))}
             onChange={(p) => setObserverIds(p.map((x) => x.id))}
-            placeholder="Добавьте наблюдателей…"
+            placeholder={t('create.observersPlaceholder')}
           />
         </div>
       )}
@@ -256,9 +260,9 @@ function TaskCreateForm({
       <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)', marginBottom: 'var(--spacing-4)' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-            <span className="ui-field-label">Дедлайн</span>
+            <span className="ui-field-label">{t('create.due')}</span>
             <Button type="button" size="sm" variant="ghost" icon={allDay ? 'clock' : 'calendar'} onClick={() => { setAllDay(!allDay); setDueDate(''); }}>
-              {allDay ? 'со временем' : 'весь день'}
+              {allDay ? t('create.withTime') : t('create.allDay')}
             </Button>
           </div>
           <Input
@@ -268,11 +272,11 @@ function TaskCreateForm({
           />
         </div>
         <div>
-          <label className="ui-field-label">Приоритет</label>
+          <label className="ui-field-label">{t('create.priority')}</label>
           <div style={{ display: 'flex', gap: 'var(--spacing-1)', flexWrap: 'wrap' }}>
             {(Object.keys(TASK_PRIORITY_META) as Task['priority'][]).map((p) => (
               <Chip key={p} active={priority === p} tone={PRIORITY_CHIP_TONE[p]} onClick={() => setPriority(p)}>
-                {TASK_PRIORITY_META[p].label}
+                {t(`priority.${p}`)}
               </Chip>
             ))}
           </div>
@@ -281,22 +285,22 @@ function TaskCreateForm({
 
       <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)', marginBottom: 'var(--spacing-4)' }}>
         <div>
-          <label className="ui-field-label">Напоминание</label>
+          <label className="ui-field-label">{t('create.reminder')}</label>
           <Select
             value={reminderMin === null ? '' : String(reminderMin)}
             onChange={(v) => setReminderMin(v === '' ? null : Number(v))}
             disabled={!dueDate}
-            aria-label="Напоминание"
-            options={TASK_REMINDER_PRESETS.map((r) => ({ value: r.minutesBefore === null || r.minutesBefore === undefined ? '' : String(r.minutesBefore), label: r.label }))}
+            aria-label={t('create.reminder')}
+            options={TASK_REMINDER_PRESETS.map((r) => ({ value: r.minutesBefore === null || r.minutesBefore === undefined ? '' : String(r.minutesBefore), label: t(`reminder.${r.key}`) }))}
           />
         </div>
         <div>
-          <label className="ui-field-label">Повтор</label>
+          <label className="ui-field-label">{t('create.recurrence')}</label>
           <Select
             value={recurrence ?? ''}
             onChange={(v) => setRecurrence(v === '' ? null : v)}
-            aria-label="Повтор"
-            options={TASK_RECURRENCE_PRESETS.map((r) => ({ value: r.rule ?? '', label: r.label }))}
+            aria-label={t('create.recurrence')}
+            options={TASK_RECURRENCE_PRESETS.map((r) => ({ value: r.rule ?? '', label: t(`recurrence.${r.key}`) }))}
           />
         </div>
       </div>
@@ -304,7 +308,7 @@ function TaskCreateForm({
       {/* Reward */}
       <div style={{ marginBottom: 'var(--spacing-5)' }}>
         <label className="ui-field-label">
-          Награда коинами {mode === 'group' && selectedCircle ? '(каждому)' : ''}
+          {mode === 'group' && selectedCircle ? t('create.rewardEach') : t('create.reward')}
         </label>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
           <Input
@@ -317,18 +321,18 @@ function TaskCreateForm({
           />
           {mode === 'group' && selectedCircle && coinReward > 0 && (
             <span className="label-sm" style={{ color: 'var(--tertiary)' }}>
-              Каждому по {coinReward} · итого {coinReward * selectedCircle.membersCount}
+              {t('create.rewardTotal', { amount: coinReward, total: coinReward * selectedCircle.membersCount })}
             </span>
           )}
         </div>
         <p className="label-sm" style={{ marginTop: 'var(--spacing-1)', opacity: 0.7 }}>
-          Коины замораживаются из вашего кошелька при создании и выплачиваются при приёмке работы.
+          {t('create.rewardHint')}
         </p>
       </div>
 
       {/* Вложения (движок файлов) */}
       <div style={{ marginBottom: 'var(--spacing-5)' }}>
-        <label className="ui-field-label">Вложения</label>
+        <label className="ui-field-label">{t('create.attachments')}</label>
         {attachments.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-2)' }}>
             {attachments.map((f) => (
@@ -341,7 +345,7 @@ function TaskCreateForm({
           paste
           multiple
           compact
-          label="Прикрепить файл"
+          label={t('create.attachFile')}
           maxSizeMb={Math.round(FILE_PROFILES.chat_attachment.maxSize / (1024 * 1024))}
         />
         <UploadProgressList items={attachUploader.items.filter((i) => i.status !== 'done')} onCancel={attachUploader.cancel} onRemove={attachUploader.remove} />
@@ -349,10 +353,10 @@ function TaskCreateForm({
 
       <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
         <Button type="submit" variant="primary" tone="success" icon="add" disabled={!canSubmit}>
-          {submitting ? 'Создание...' : 'Создать задачу'}
+          {submitting ? t('create.submitting') : t('create.submit')}
         </Button>
         <Button type="button" variant="ghost" onClick={onCancel}>
-          Отмена
+          {tc('actions.cancel')}
         </Button>
       </div>
     </form>

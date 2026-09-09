@@ -73,12 +73,6 @@ export const PORT_COLORS: Record<string, string> = {
   ai_tool: 'var(--warning-base)', // янтарный — Инструменты
   ai_output: 'var(--success-base)', // зелёный — Парсер (структурированный ответ)
 };
-export const PORT_LABELS: Record<string, string> = {
-  ai_model: 'Модель',
-  ai_memory: 'Память',
-  ai_tool: 'Инструменты',
-  ai_output: 'Парсер',
-};
 export function portType(out: { type?: ProcessPortType }): string {
   return out.type ?? 'main';
 }
@@ -270,17 +264,30 @@ export function autoLayout(nodes: PNode[], edges: Edge[]): PNode[] {
   });
 }
 
-/** Человекочитаемая длительность («2 дн 4 ч», «3 мин», «12 с»). */
-export function humanizeDuration(ms: number | null): string {
-  if (ms === null || ms < 0) return '—';
+/**
+ * Человекочитаемая длительность («2 дн 4 ч», «3 мин», «12 с»).
+ *
+ * Сокращения единиц приходят СНАРУЖИ (как у `formatBytes`): своё «мин» в коде
+ * было бы русским навсегда, а хука каталога у чистой функции нет.
+ */
+export interface DurationUnits {
+  sec: string;
+  min: string;
+  hour: string;
+  day: string;
+  dash: string;
+}
+
+export function humanizeDuration(ms: number | null, u: DurationUnits): string {
+  if (ms === null || ms < 0) return u.dash;
   const s = Math.round(ms / 1000);
-  if (s < 60) return `${s} с`;
+  if (s < 60) return `${s} ${u.sec}`;
   const m = Math.floor(s / 60);
-  if (m < 60) return `${m} мин`;
+  if (m < 60) return `${m} ${u.min}`;
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h} ч ${m % 60 > 0 ? `${m % 60} мин` : ''}`.trim();
+  if (h < 24) return `${h} ${u.hour} ${m % 60 > 0 ? `${m % 60} ${u.min}` : ''}`.trim();
   const d = Math.floor(h / 24);
-  return `${d} дн ${h % 24 > 0 ? `${h % 24} ч` : ''}`.trim();
+  return `${d} ${u.day} ${h % 24 > 0 ? `${h % 24} ${u.hour}` : ''}`.trim();
 }
 
 /** Свободный семантический id для новой ноды данного типа. */

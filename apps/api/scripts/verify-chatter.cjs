@@ -130,9 +130,15 @@ async function main() {
     page = r.json?.data;
     const byKey = (k) => (page?.items ?? []).find((e) => e.typeKey === k);
     const dl = byKey('task.deadline_changed');
-    check('deadline_changed: from=«без срока»', dl?.changes?.[0]?.from === 'без срока', `got: ${dl?.changes?.[0]?.from}`);
+    // Снимок «срока не было» пишется в языке ИСТОЧНИКА, а машинная правда — в raw:
+    // именно её лента переформатирует под язык и пояс читателя.
+    check(
+      'deadline_changed: срока не было (raw.from = null, снимок непустой)',
+      dl?.changes?.[0]?.raw?.from === null && !!dl?.changes?.[0]?.from,
+      `got: raw=${dl?.changes?.[0]?.raw?.from} snapshot=${dl?.changes?.[0]?.from}`,
+    );
     // Формат детерминирован в APP_TIMEZONE: дата (+ время у не-allDay задач).
-    check('deadline_changed: to=дата(+время)', /^\d{2}\.\d{2}\.\d{4}( \d{2}:\d{2})?$/.test(dl?.changes?.[0]?.to ?? ''), `got: ${dl?.changes?.[0]?.to}`);
+    check('deadline_changed: to=дата(+время)', /^\d{2}\.\d{2}\.\d{4}(, \d{2}:\d{2})?$/.test(dl?.changes?.[0]?.to ?? ''), `got: ${dl?.changes?.[0]?.to}`);
     const pr = byKey('task.priority_changed');
     check('priority_changed есть + from/to', !!pr && !!pr.changes?.[0]?.from && !!pr.changes?.[0]?.to);
     const tt = byKey('task.title_changed');
@@ -196,7 +202,8 @@ async function main() {
     let pb = (await http('GET', `/chatter/task/${taskB}`, { token: t1.token })).json?.data?.items ?? [];
     const addedT3 = pb.filter((e) => e.typeKey === 'task.participant_added' && e.payload?.targetUserId === t3.id);
     check('participant_added для t3 (реальное добавление, ровно 1)', addedT3.length === 1, `count ${addedT3.length}`);
-    check('роль=Наблюдатель', addedT3[0]?.payload?.roleLabel === 'Наблюдатель', `got ${addedT3[0]?.payload?.roleLabel}`);
+    // Реестр называет СМЫСЛ: в payload машинная роль, слово подбирает каталог
+    check('роль=observer', addedT3[0]?.payload?.role === 'observer', `got ${addedT3[0]?.payload?.role}`);
     // Повторное добавление уже существующего t2 (Исполнитель) как соисполнителя → applyRoleEdits
     // сделает no-op/смену роли, но плашки «добавил(а)» быть НЕ должно (иначе хроника лжёт).
     rb = await http('PATCH', `/tasks/${taskB}`, { token: t1.token, body: { addCoExecutorIds: [t2.id] } });
@@ -252,8 +259,13 @@ async function main() {
     check('журнал: staff.hired', jKeys.includes('staff.hired'));
     check('журнал: staff.role_changed', jKeys.includes('staff.role_changed'));
     const roleEntry = (jr?.items ?? []).find((e) => e.typeKey === 'staff.role_changed');
-    check('role_changed: чипы «Стажёр → Менеджер»',
-      roleEntry?.changes?.[0]?.from === 'Стажёр' && roleEntry?.changes?.[0]?.to === 'Менеджер',
+    // Слова ролей живут в каталоге (паритет стережёт check:i18n) — сьюта проверяет
+    // ПОВЕДЕНИЕ: смена роли попала в хронику полем `role` двумя разными чипами.
+    check('role_changed: чипы двух разных ролей',
+      roleEntry?.changes?.[0]?.field === 'role' &&
+        !!roleEntry?.changes?.[0]?.from &&
+        !!roleEntry?.changes?.[0]?.to &&
+        roleEntry.changes[0].from !== roleEntry.changes[0].to,
       `got: ${roleEntry?.changes?.[0]?.from} → ${roleEntry?.changes?.[0]?.to}`);
     check('журнал: actors несёт владельца', !!jr?.actors?.[t1.id]);
 

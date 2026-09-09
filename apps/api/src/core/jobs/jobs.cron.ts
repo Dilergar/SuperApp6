@@ -46,7 +46,7 @@ export class JobsCron {
     try {
       await fn();
     } catch (err) {
-      this.logger.warn(`${name} (без лока) failed: ${String((err as Error)?.message ?? err)}`);
+      this.logger.warn(`${name} (no lock) failed: ${String((err as Error)?.message ?? err)}`);
     }
   }
 

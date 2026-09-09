@@ -3,12 +3,17 @@
 // прогресс краудфандинга, состояние доступности лота.
 // ============================================================
 
+import { formatWalletAmount } from '@/lib/wallet-format';
 import { glyphToText, type ContributionLine, type Contact, type Listing, type ListingPriceDto } from '@superapp/shared';
 import type { Tone } from '@/components/ui';
 
-/** Минимальные единицы → «12 500» по масштабу валюты. */
-export const fmtAmount = (amount: number, scale: number) =>
-  (scale > 0 ? amount / 10 ** scale : amount).toLocaleString('ru-RU');
+/**
+ * Минимальные единицы → «12 500» по масштабу валюты.
+ *
+ * Разделители — из профиля РЕГИОНА (одна точка правды — `formatWalletAmount`),
+ * а не из языка: суммы коинов пишутся одинаково и для того, кто выбрал English.
+ */
+export const fmtAmount = (amount: number, scale: number) => formatWalletAmount(amount, scale);
 
 /**
  * Кросс-валютная цена как «100 🍎 + 50 🪙» (значок валюты — данные эмитента).
@@ -38,8 +43,11 @@ export interface ListingAvailability {
   closed: boolean;
   /** Можно купить/скинуться прямо сейчас. */
   sellable: boolean;
-  /** Почему нельзя — короткой подписью. */
-  reason: string;
+  /**
+   * Почему нельзя — КЛЮЧ каталога (`shop.unavailable.*`), а не слово: функция
+   * чистая, её зовут и карточка, и формы, и хуков у неё нет.
+   */
+  reasonKey: string;
 }
 
 /** Одно место правды про «продаётся ли лот сейчас» — карточка и формы читают его. */
@@ -54,20 +62,15 @@ export function listingAvailability(l: Listing, now = Date.now()): ListingAvaila
   const notYet = !!l.availableFrom && now < new Date(l.availableFrom).getTime();
   const closed = !!l.availableUntil && now > new Date(l.availableUntil).getTime();
   const sellable = l.status === 'active' && !soldOut && !notYet && !closed;
-  const reason = soldOut ? 'Распродано' : closed ? 'Закрыто' : notYet ? 'Скоро' : 'Недоступно';
-  return { discountActive, effPrices, remaining, soldOut, notYet, closed, sellable, reason };
+  const reasonKey = soldOut
+    ? 'unavailable.soldOut'
+    : closed
+      ? 'unavailable.closed'
+      : notYet
+        ? 'unavailable.soon'
+        : 'unavailable.generic';
+  return { discountActive, effPrices, remaining, soldOut, notYet, closed, sellable, reasonKey };
 }
-
-/** Подписи статусов заказа — одна карта на «Заказы» и rich-карточки. */
-export const ORDER_STATUS_LABELS: Record<string, string> = {
-  funding: 'Идёт сбор',
-  pending: 'Ждёт подтверждения',
-  confirmed: 'В работе',
-  settled: 'Завершён',
-  rejected: 'Отклонён',
-  cancelled: 'Отменён',
-  refunded: 'Возвращён',
-};
 
 export const ORDER_STATUS_TONE: Record<string, Tone> = {
   // «Идёт сбор» и «Ждёт подтверждения» — ожидание, а не предупреждение.

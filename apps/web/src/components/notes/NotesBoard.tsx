@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { NOTE_HOTKEYS, type NoteBoardDto, type NoteBoardItemDto, type NoteSpaceRef } from '@superapp/shared';
+import { useTranslations } from 'next-intl';
+import { NOTE_HOTKEYS, NOTE_LIMITS, type NoteBoardDto, type NoteBoardItemDto, type NoteSpaceRef } from '@superapp/shared';
 import { EmptyState, Icon, Spinner } from '@/components/ui';
 import { apiErrorMessage } from '@/lib/api';
 import { createNote, fetchNotesBoard, putBoardItem, updateNote, type NotesListFilter } from '@/lib/notes-api';
@@ -46,6 +47,7 @@ interface Props {
 }
 
 export function NotesBoard({ scope, scopeKey, selection, q, onOpenNote, onTagClick, focusNoteId, createNonce, focusNonce, pathname, search, className }: Props) {
+  const t = useTranslations('notes');
   const qc = useQueryClient();
   const boardRef = useRef<HTMLDivElement | null>(null);
   // Скроллер и ХОЛСТ — разные узлы: min-height сетки на скроллере отключал бы прокрутку
@@ -257,8 +259,14 @@ export function NotesBoard({ scope, scopeKey, selection, q, onOpenNote, onTagCli
         <div className="notes-board-hint">
           <EmptyState
             icon={searching ? 'search' : readOnlySection ? 'delete' : 'notes'}
-            title={searching ? 'Ничего не найдено' : readOnlySection ? 'Корзина пуста' : 'Здесь пока пусто'}
-            description={searching ? 'Попробуйте другое слово' : readOnlySection ? 'Удалённые заметки хранятся 30 дней' : 'Возьмите чистый лист из стопки в левом верхнем углу'}
+            title={searching ? t('tree.nothingFound') : readOnlySection ? t('tree.trashEmpty') : t('board.emptyTitle')}
+            description={
+              searching
+                ? t('board.searchHint')
+                : readOnlySection
+                  ? t('board.trashHint', { days: NOTE_LIMITS.trashRetentionDays })
+                  : t('board.emptyHint')
+            }
           />
         </div>
       )}
@@ -291,8 +299,8 @@ export function NotesBoard({ scope, scopeKey, selection, q, onOpenNote, onTagCli
           className="notes-pack"
           onClick={() => void create()}
           disabled={creating}
-          aria-label={`Новая заметка (${NOTE_HOTKEYS.newNote})`}
-          title={`Новая заметка (${NOTE_HOTKEYS.newNote})`}
+          aria-label={t('board.newNote', { keys: NOTE_HOTKEYS.newNote })}
+          title={t('board.newNote', { keys: NOTE_HOTKEYS.newNote })}
         >
           <span className="notes-pack-sheet" aria-hidden />
           <span className="notes-pack-sheet" aria-hidden />

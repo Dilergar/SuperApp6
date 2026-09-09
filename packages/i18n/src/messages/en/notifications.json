@@ -1,707 +1,707 @@
 {
-  "contact": {
-    "invitation": {
-      "received": {
-        "title": "{fromName} wants to add you as a contact",
-        "body": "{message}",
-        "label": "Contact request"
-      },
-      "accepted": {
-        "title": "{byName} accepted your invitation",
-        "label": "Request accepted"
-      },
-      "rejected": {
-        "title": "{byName} declined your invitation",
-        "label": "Request declined"
-      },
-      "cancelled": {
-        "title": "Invitation cancelled",
-        "label": "Request cancelled"
-      },
-      "expired": {
-        "title": "The invitation for {toPhone} has expired",
-        "body": "You can send it again",
-        "label": "Request expired"
-      }
-    },
-    "linked": {
-      "title": "{otherName} is now in your contacts",
-      "label": "New contact"
-    },
-    "removed": {
-      "title": "Contact removed",
-      "label": "Contact removed"
-    }
-  },
-  "task": {
-    "assigned": {
-      "title": "A task was assigned to you: {taskTitle}",
-      "label": "Task assigned to me"
-    },
-    "completed": {
-      "title": "Task completed: {taskTitle}",
-      "label": "Task completed"
-    },
+  "approval": {
     "due_soon": {
-      "title": "Deadline is near: {taskTitle}",
-      "label": "Deadline is near"
-    },
-    "submitted": {
-      "title": "{byName} submitted a task for review: {taskTitle}",
-      "label": "Work submitted for review"
-    },
-    "accepted": {
-      "title": "Task accepted: {taskTitle}",
-      "label": "Work accepted"
-    },
-    "returned": {
-      "title": "Task sent back for rework: {taskTitle}",
-      "label": "Work returned"
+      "body": "{stepTitle} — until {deadlineLabel}",
+      "label": "Decision deadline is near",
+      "title": "Deadline is near: «{refTitle}»"
     },
     "overdue": {
-      "title": "Task overdue: {taskTitle}",
-      "label": "Task overdue"
-    }
-  },
-  "wallet": {
-    "coins": {
-      "received": {
-        "title": "You earned {amount} {currencyName}",
-        "body": "For the task «{taskTitle}»",
-        "label": "Coins received"
-      }
-    }
-  },
-  "calendar": {
-    "event": {
-      "invited": {
-        "title": "Event invitation: {eventTitle}",
-        "label": "Event invitation"
-      },
-      "reminder": {
-        "title": "Reminder: {eventTitle}",
-        "label": "Event reminder"
-      },
-      "rsvp": {
-        "title": "{byName}: {rsvpLabel} — {eventTitle}",
-        "collapsed": "{n, plural, one {# reply} other {# replies}} — {eventTitle}",
-        "label": "Reply to invitation"
-      },
-      "updated": {
-        "title": "Event changed: {eventTitle}",
-        "label": "Event changed"
-      },
-      "cancelled": {
-        "title": "Event cancelled: {eventTitle}",
-        "label": "Event cancelled"
-      }
+      "body": "{stepTitle}",
+      "label": "Decision overdue",
+      "title": "The decision on «{refTitle}» is overdue"
     },
-    "resource": {
-      "requested": {
-        "title": "Request for «{resourceName}»: {eventTitle}",
-        "label": "Resource booking request"
-      },
-      "confirmed": {
-        "title": "Booking confirmed: {resourceName}",
-        "label": "Booking confirmed"
-      },
-      "rejected": {
-        "title": "Booking declined: {resourceName}",
-        "label": "Booking declined"
-      }
-    }
-  },
-  "workspace": {
-    "invitation": {
-      "received": {
-        "title": "{workspaceName} invites you to work",
-        "body": "{message}",
-        "label": "Invitation to an organization"
-      },
-      "accepted": {
-        "title": "{byName} accepted the invitation to {workspaceName}",
-        "label": "Invitation accepted"
-      },
-      "rejected": {
-        "title": "{byName} declined the invitation to {workspaceName}",
-        "label": "Invitation declined"
-      }
+    "requested": {
+      "body": "{stepTitle}",
+      "label": "My decision is awaited",
+      "title": "{actionLabel}: «{refTitle}»"
     },
-    "member": {
-      "removed": {
-        "title": "You were removed from {workspaceName}",
-        "label": "Removed from an organization"
-      }
+    "resolved": {
+      "body": "{comment}",
+      "label": "My request was resolved",
+      "title": "{outcomeLabel}: «{refTitle}»"
     },
-    "role": {
-      "changed": {
-        "title": "Your role in {workspaceName} changed: {role}",
-        "label": "Role changed"
-      }
-    },
-    "position": {
-      "assigned": {
-        "title": "You were given a position in {workspaceName}: {positionName}",
-        "body": "{branchName}",
-        "label": "Position assigned"
-      },
-      "certified": {
-        "title": "You are certified for {positionName} in {workspaceName}",
-        "label": "Certified"
-      }
-    },
-    "archive": {
-      "expiring": {
-        "title": "The organization «{workspaceName}» will be deleted in {daysWord}",
-        "body": "It is archived. Restore it if you did not mean to delete it — after {purgeDate} it cannot be brought back.",
-        "label": "Organization archive expiring"
-      }
-    }
-  },
-  "objects": {
-    "shifts": {
-      "published": {
-        "title": "Schedule published: {branchName}",
-        "body": "{periodLabel} — shifts: {count}",
-        "label": "Schedule published"
-      }
-    },
-    "shift": {
-      "changed": {
-        "title": "Shift changed: {dateLabel}",
-        "collapsed": "{n, plural, one {# of your shifts changed} other {# of your shifts changed}}",
-        "label": "Shift changed"
-      },
-      "taken": {
-        "title": "An open shift was taken: {dateLabel}",
-        "label": "Open shift taken"
-      }
-    }
-  },
-  "staff": {
-    "head": {
-      "assigned": {
-        "title": "You now lead {unitLabel} in {workspaceName}",
-        "body": "The position «{positionName}» is now a managing one — approvals and requests from your reports will come to you.",
-        "label": "Appointed head"
-      }
-    },
-    "deputy": {
-      "assigned": {
-        "title": "You are a deputy for «{positionName}» in {workspaceName}",
-        "body": "{periodLabel}",
-        "label": "Appointed deputy"
-      }
-    }
-  },
-  "shop": {
-    "order": {
-      "placed": {
-        "title": "New order: {title}",
-        "label": "New order"
-      },
-      "confirmed": {
-        "title": "Order confirmed: {title}",
-        "label": "Order confirmed"
-      },
-      "rejected": {
-        "title": "Order declined: {title}",
-        "label": "Order declined"
-      },
-      "cancelled": {
-        "title": "The buyer cancelled the order: {title}",
-        "label": "Order cancelled"
-      },
-      "funded": {
-        "title": "Collected in full: {title} — please confirm",
-        "label": "Campaign funded"
-      }
-    }
-  },
-  "mention": {
-    "received": {
-      "title": "{mentionerName} mentioned you",
-      "body": "{snippet}",
-      "label": "Mention"
+    "unassigned": {
+      "body": "{stepTitle} — «{assigneeLabel}» has no employees",
+      "label": "No one to decide",
+      "title": "Nobody can decide: «{refTitle}»"
     }
   },
   "auth": {
     "password": {
       "changed": {
-        "title": "Password changed",
         "body": "If this was not you — change the password right away and end the other sessions.",
-        "label": "Password changed"
+        "label": "Password changed",
+        "title": "Password changed"
       }
     },
     "phone": {
       "changed": {
-        "title": "Phone number changed",
         "body": "New sign-in number: {newPhoneMasked}. If this was not you — contact us.",
-        "label": "Phone number changed"
+        "label": "Phone number changed",
+        "title": "Phone number changed"
       }
     }
   },
-  "files": {
-    "scan": {
-      "infected": {
-        "title": "The file «{name}» is infected and blocked",
-        "label": "Infected file blocked"
-      }
-    }
-  },
-  "voice": {
-    "transcript": {
-      "ready": {
-        "title": "The transcript of «{title}» is ready",
-        "label": "Transcript ready"
+  "calendar": {
+    "event": {
+      "cancelled": {
+        "label": "Event cancelled",
+        "title": "Event cancelled: {eventTitle}"
       },
-      "failed": {
-        "title": "Could not transcribe «{title}»",
-        "label": "Transcript failed"
+      "invited": {
+        "label": "Event invitation",
+        "title": "Event invitation: {eventTitle}"
+      },
+      "reminder": {
+        "label": "Event reminder",
+        "title": "Reminder: {eventTitle}"
+      },
+      "rsvp": {
+        "collapsed": "{n, plural, one {# reply} other {# replies}} — {eventTitle}",
+        "label": "Reply to invitation",
+        "title": "{byName}: {rsvp, select, accepted {Going} declined {Not going} tentative {Maybe} other {No answer}} — {eventTitle}"
+      },
+      "updated": {
+        "label": "Event changed",
+        "title": "Event changed: {eventTitle}"
+      }
+    },
+    "resource": {
+      "confirmed": {
+        "label": "Booking confirmed",
+        "title": "Booking confirmed: {resourceName}"
+      },
+      "rejected": {
+        "label": "Booking declined",
+        "title": "Booking declined: {resourceName}"
+      },
+      "requested": {
+        "label": "Resource booking request",
+        "title": "Request for «{resourceName}»: {eventTitle}"
       }
     }
   },
   "call": {
     "missed": {
-      "title": "Missed call from {fromName}",
       "collapsed": "{fromName}: {n, plural, one {# missed call} other {# missed calls}}",
-      "label": "Missed call"
+      "label": "Missed call",
+      "title": "Missed call from {fromName}"
     },
     "recording": {
+      "failed": {
+        "label": "Call recording failed",
+        "title": "Could not record the call"
+      },
       "ready": {
-        "title": "The recording of «{title}» is in the call log",
-        "label": "Call recording ready"
+        "label": "Call recording ready",
+        "title": "The recording of «{title}» is in the call log"
+      }
+    }
+  },
+  "channel": {
+    "chat": "Chat",
+    "email": "Email",
+    "inapp": "In app",
+    "push": "Push",
+    "sms": "SMS"
+  },
+  "chat": {
+    "prefix": "Notification: {title}"
+  },
+  "contact": {
+    "invitation": {
+      "accepted": {
+        "label": "Request accepted",
+        "title": "{byName} accepted your invitation"
+      },
+      "cancelled": {
+        "label": "Request cancelled",
+        "title": "Invitation cancelled"
+      },
+      "expired": {
+        "body": "You can send it again",
+        "label": "Request expired",
+        "title": "The invitation for {toPhone} has expired"
+      },
+      "received": {
+        "body": "{message}",
+        "label": "Contact request",
+        "title": "{fromName} wants to add you as a contact"
+      },
+      "rejected": {
+        "label": "Request declined",
+        "title": "{byName} declined your invitation"
+      }
+    },
+    "linked": {
+      "label": "New contact",
+      "title": "{otherName} is now in your contacts"
+    },
+    "removed": {
+      "label": "Contact removed",
+      "title": "Contact removed"
+    }
+  },
+  "document": {
+    "counterparty_declined": {
+      "body": "{reasonLabel}",
+      "label": "Counterparty declined",
+      "title": "The counterparty refused: «{title}»"
+    },
+    "counterparty_signed": {
+      "body": "{signerLabel}",
+      "label": "Counterparty signed",
+      "title": "The counterparty signed: «{title}»"
+    },
+    "external_expired": {
+      "body": "The document returned to draft — send it again",
+      "label": "External signing expired",
+      "title": "The signing deadline has passed: «{title}»"
+    },
+    "internal_declined": {
+      "body": "{signerLabel}{reasonLabel}",
+      "label": "Our signer declined",
+      "title": "A signer refused: «{title}»"
+    },
+    "resolved": {
+      "body": "{numberLabel}",
+      "label": "Document route finished",
+      "title": "{outcomeLabel}: «{title}»"
+    }
+  },
+  "drive": {
+    "shared": {
+      "body": "«{nodeName}» — {role, select, viewer {views} editor {edits} manager {manages access} other {{role}}}",
+      "label": "Access on Drive",
+      "title": "{ownerName} gave you access"
+    }
+  },
+  "files": {
+    "scan": {
+      "infected": {
+        "label": "Infected file blocked",
+        "title": "The file «{name}» is infected and blocked"
+      }
+    }
+  },
+  "finance": {
+    "book": {
+      "shared": {
+        "body": "Role: {roleLabel}",
+        "label": "Finance book shared with me",
+        "title": "{ownerName} gave you access to their finances"
+      }
+    },
+    "budget": {
+      "exceeded": {
+        "body": "{spent} of {limit} for {period}",
+        "label": "Budget exceeded",
+        "title": "The limit for «{categoryName}» is exceeded"
+      },
+      "warning": {
+        "body": "{spent} of {limit} for {period}",
+        "label": "Budget almost spent",
+        "title": "The limit for «{categoryName}» is almost used up"
+      }
+    },
+    "debt": {
+      "paid": {
+        "body": "{amount}",
+        "label": "Debt paid off",
+        "title": "The debt «{debtName}» is fully paid 🎉"
+      },
+      "payment_due": {
+        "body": "{amount} — confirm the payment in Finance",
+        "label": "Debt payment due",
+        "title": "Payment for «{debtName}» is due today"
+      }
+    },
+    "recurring": {
+      "due": {
+        "body": "{amount}",
+        "label": "Recurring operation awaits confirmation",
+        "title": "Confirm the operation «{title}»"
+      },
+      "recorded": {
+        "body": "{amount}",
+        "label": "Recurring operation recorded",
+        "title": "Recorded: {title}"
+      }
+    }
+  },
+  "hr": {
+    "action": {
+      "applied": {
+        "body": "{targetName} · from {effectiveAt}",
+        "label": "HR action applied",
+        "title": "{kindLabel}: applied"
       },
       "failed": {
-        "title": "Could not record the call",
-        "label": "Call recording failed"
+        "body": "{reason}",
+        "label": "HR action failed",
+        "title": "{kindLabel}: not applied"
+      },
+      "withdrawn": {
+        "body": "The withdrawal is unconditional for the whole notice period (Labour Code of the RK, art. 56 (4)). {note}",
+        "label": "Application withdrawn",
+        "title": "{targetName} withdrew the request"
+      }
+    },
+    "campaign": {
+      "assigned": {
+        "body": "{workspaceName}",
+        "label": "Document to acknowledge",
+        "title": "Please read: «{title}»"
+      },
+      "done": {
+        "body": "{acknowledged} of {total} have read it",
+        "label": "Acknowledgement campaign finished",
+        "title": "The campaign is finished: «{title}»"
+      },
+      "reminder": {
+        "label": "Acknowledgement reminder",
+        "title": "A document is waiting to be read: «{title}»"
+      }
+    },
+    "contract": {
+      "expiring": {
+        "body": "{targetName} · until {until}. Notify on the last working day, otherwise it renews automatically (Labour Code of the RK, art. 30)",
+        "label": "Contract expiring",
+        "title": "The fixed-term contract is ending"
+      }
+    },
+    "delivery": {
+      "due": {
+        "body": "Hand it over within 3 working days from the date of issue (Labour Code of the RK, art. 61 (3))",
+        "label": "Act awaits delivery",
+        "title": "An act is waiting to be handed over: «{title}»"
+      }
+    },
+    "esutd": {
+      "due_soon": {
+        "body": "{kindLabel} · {targetName} · {state, select, overdue {overdue by {days, plural, one {# working day} other {# working days}}} today {due today} left {{days, plural, one {# working day} other {# working days}} left} other {{daysLeft} left}}",
+        "label": "ESUTD deadline",
+        "title": "ESUTD: the filing deadline is near"
+      }
+    },
+    "probation": {
+      "ending": {
+        "body": "{targetName} · until {until}. If not notified before it ends, the employee is deemed to have passed (Labour Code of the RK, art. 37)",
+        "label": "Probation ending",
+        "title": "The probation period is ending"
+      }
+    }
+  },
+  "mention": {
+    "received": {
+      "body": "{snippet}",
+      "label": "Mention",
+      "title": "{mentionerName} mentioned you"
+    }
+  },
+  "messenger": {
+    "scheduled": {
+      "sent": {
+        "body": "{snippet}",
+        "label": "Scheduled message sent",
+        "title": "The reminder was sent"
+      }
+    }
+  },
+  "meta": {
+    "actorsMore": "{name} and {n, plural, one {# other} other {# others}}",
+    "collapsed": "{n, plural, one {and # more} other {and # more}}"
+  },
+  "note": {
+    "shared": {
+      "body": "«{noteName}» — {role, select, viewer {reads} editor {edits} manager {manages access} other {{role}}}",
+      "label": "Access to a note",
+      "title": "{ownerName} shared a note"
+    }
+  },
+  "objects": {
+    "shift": {
+      "changed": {
+        "collapsed": "{n, plural, one {# of your shifts changed} other {# of your shifts changed}}",
+        "label": "Shift changed",
+        "title": "Shift changed: {dateLabel}"
+      },
+      "taken": {
+        "label": "Open shift taken",
+        "title": "An open shift was taken: {dateLabel}"
+      }
+    },
+    "shifts": {
+      "published": {
+        "body": "{periodLabel} — shifts: {count}",
+        "label": "Schedule published",
+        "title": "Schedule published: {branchName}"
       }
     }
   },
   "office": {
     "meeting": {
       "invited": {
-        "title": "{byName} invites you to the meeting «{roomName}»",
-        "label": "Meeting invitation"
+        "label": "Meeting invitation",
+        "title": "{byName} invites you to the meeting «{roomName}»"
       }
     }
-  },
-  "process": {
-    "finished": {
-      "title": "The process «{processName}» has finished",
-      "label": "Process finished"
-    },
-    "failed": {
-      "title": "The process «{processName}» stopped with an error",
-      "body": "{error}",
-      "label": "Process failed"
-    },
-    "step": {
-      "notify": {
-        "title": "{title}",
-        "body": "{message}",
-        "label": "Notification from a process"
-      },
-      "overdue": {
-        "title": "Step overdue: {title}",
-        "body": "Process «{processName}»",
-        "label": "Process step overdue"
-      }
-    },
-    "approval": {
-      "requested": {
-        "title": "Your decision is needed: {title}",
-        "body": "Process «{processName}»",
-        "label": "Approval in a process"
-      }
-    },
-    "task": {
-      "queued": {
-        "title": "New department task: {title}",
-        "body": "{departmentName} · process «{processName}»",
-        "label": "Task in the department queue"
-      }
-    }
-  },
-  "finance": {
-    "budget": {
-      "warning": {
-        "title": "The limit for «{categoryName}» is almost used up",
-        "body": "{spent} of {limit} for {periodLabel}",
-        "label": "Budget almost spent"
-      },
-      "exceeded": {
-        "title": "The limit for «{categoryName}» is exceeded",
-        "body": "{spent} of {limit} for {periodLabel}",
-        "label": "Budget exceeded"
-      }
-    },
-    "debt": {
-      "payment_due": {
-        "title": "Payment for «{debtName}» is due today",
-        "body": "{amount} — confirm the payment in Finance",
-        "label": "Debt payment due"
-      },
-      "paid": {
-        "title": "The debt «{debtName}» is fully paid 🎉",
-        "body": "{amount}",
-        "label": "Debt paid off"
-      }
-    },
-    "recurring": {
-      "due": {
-        "title": "Confirm the operation «{title}»",
-        "body": "{amount}",
-        "label": "Recurring operation awaits confirmation"
-      },
-      "recorded": {
-        "title": "Recorded: {title}",
-        "body": "{amount}",
-        "label": "Recurring operation recorded"
-      }
-    },
-    "book": {
-      "shared": {
-        "title": "{ownerName} gave you access to their finances",
-        "body": "Role: {roleLabel}",
-        "label": "Finance book shared with me"
-      }
-    }
-  },
-  "drive": {
-    "shared": {
-      "title": "{ownerName} gave you access",
-      "body": "«{nodeName}» — {roleLabel}",
-      "label": "Access on Drive"
-    }
-  },
-  "note": {
-    "shared": {
-      "title": "{ownerName} shared a note",
-      "body": "«{noteName}» — {roleLabel}",
-      "label": "Access to a note"
-    }
-  },
-  "share": {
-    "link": {
-      "opened": {
-        "title": "The link was opened",
-        "body": "«{targetName}»{labelSuffix}{guestSuffix}",
-        "collapsed": "The link was opened {n, plural, one {# time} other {# times}}",
-        "label": "External link opened"
-      }
-    }
-  },
-  "document": {
-    "resolved": {
-      "title": "{outcomeLabel}: «{title}»",
-      "body": "{numberLabel}",
-      "label": "Document route finished"
-    },
-    "counterparty_signed": {
-      "title": "The counterparty signed: «{title}»",
-      "body": "{signerLabel}",
-      "label": "Counterparty signed"
-    },
-    "counterparty_declined": {
-      "title": "The counterparty refused: «{title}»",
-      "body": "{reasonLabel}",
-      "label": "Counterparty declined"
-    },
-    "internal_declined": {
-      "title": "A signer refused: «{title}»",
-      "body": "{signerLabel}{reasonLabel}",
-      "label": "Our signer declined"
-    },
-    "external_expired": {
-      "title": "The signing deadline has passed: «{title}»",
-      "body": "The document returned to draft — send it again",
-      "label": "External signing expired"
-    }
-  },
-  "approval": {
-    "requested": {
-      "title": "{actionLabel}: «{refTitle}»",
-      "body": "{stepTitle}",
-      "label": "My decision is awaited"
-    },
-    "due_soon": {
-      "title": "Deadline is near: «{refTitle}»",
-      "body": "{stepTitle} — until {deadlineLabel}",
-      "label": "Decision deadline is near"
-    },
-    "overdue": {
-      "title": "The decision on «{refTitle}» is overdue",
-      "body": "{stepTitle}",
-      "label": "Decision overdue"
-    },
-    "resolved": {
-      "title": "{outcomeLabel}: «{refTitle}»",
-      "body": "{comment}",
-      "label": "My request was resolved"
-    },
-    "unassigned": {
-      "title": "Nobody can decide: «{refTitle}»",
-      "body": "{stepTitle} — «{assigneeLabel}» has no employees",
-      "label": "No one to decide"
-    }
-  },
-  "sign": {
-    "requested": {
-      "title": "Please sign: «{refTitle}»",
-      "body": "{levelLabel}",
-      "label": "Signature requested"
-    },
-    "completed": {
-      "title": "The document is signed: «{refTitle}»",
-      "body": "{signersLabel}",
-      "label": "Document signed"
-    },
-    "declined": {
-      "title": "Signing refused: «{refTitle}»",
-      "body": "{reason}",
-      "label": "Signing declined"
-    }
-  },
-  "hr": {
-    "action": {
-      "applied": {
-        "title": "{kindLabel}: applied",
-        "body": "{targetName} · from {effectiveAt}",
-        "label": "HR action applied"
-      },
-      "failed": {
-        "title": "{kindLabel}: not applied",
-        "body": "{reason}",
-        "label": "HR action failed"
-      },
-      "withdrawn": {
-        "title": "{targetName} withdrew the request",
-        "body": "The withdrawal is unconditional for the whole notice period (Labour Code of the RK, art. 56 (4)). {note}",
-        "label": "Application withdrawn"
-      }
-    },
-    "esutd": {
-      "due_soon": {
-        "title": "ESUTD: the filing deadline is near",
-        "body": "{kindLabel} · {targetName} · {state, select, overdue {overdue by {days, plural, one {# working day} other {# working days}}} today {due today} left {{days, plural, one {# working day} other {# working days}} left} other {{daysLeft} left}}",
-        "label": "ESUTD deadline"
-      }
-    },
-    "campaign": {
-      "assigned": {
-        "title": "Please read: «{title}»",
-        "body": "{workspaceName}",
-        "label": "Document to acknowledge"
-      },
-      "reminder": {
-        "title": "A document is waiting to be read: «{title}»",
-        "label": "Acknowledgement reminder"
-      },
-      "done": {
-        "title": "The campaign is finished: «{title}»",
-        "body": "{acknowledged} of {total} have read it",
-        "label": "Acknowledgement campaign finished"
-      }
-    },
-    "delivery": {
-      "due": {
-        "title": "An act is waiting to be handed over: «{title}»",
-        "body": "Hand it over within 3 working days from the date of issue (Labour Code of the RK, art. 61 (3))",
-        "label": "Act awaits delivery"
-      }
-    },
-    "probation": {
-      "ending": {
-        "title": "The probation period is ending",
-        "body": "{targetName} · until {until}. If not notified before it ends, the employee is deemed to have passed (Labour Code of the RK, art. 37)",
-        "label": "Probation ending"
-      }
-    },
-    "contract": {
-      "expiring": {
-        "title": "The fixed-term contract is ending",
-        "body": "{targetName} · until {until}. Notify on the last working day, otherwise it renews automatically (Labour Code of the RK, art. 30)",
-        "label": "Contract expiring"
-      }
-    }
-  },
-  "messenger": {
-    "scheduled": {
-      "sent": {
-        "title": "The reminder was sent",
-        "body": "{snippet}",
-        "label": "Scheduled message sent"
-      }
-    }
-  },
-  "system": {
-    "welcome": {
-      "title": "Welcome to SuperApp6!",
-      "label": "Welcome"
-    },
-    "announcement": {
-      "title": "{title}",
-      "label": "Announcement"
-    }
-  },
-  "service": {
-    "tasks": "Tasks",
-    "calendar": "Calendar",
-    "messenger": "Messenger",
-    "contacts": "My circle",
-    "shop": "Shop",
-    "wallet": "Wallet",
-    "finances": "Finance",
-    "recorder": "Recorder",
-    "drive": "Drive",
-    "notes": "Notes",
-    "share": "External links",
-    "workspaces": "Organizations",
-    "staff": "Org chart",
-    "objects": "Sites",
-    "documents": "Documents",
-    "approvals": "Decisions",
-    "sign": "E-signature",
-    "hr": "HR (KEDO)",
-    "processes": "Processes",
-    "office": "Virtual office",
-    "security": "Account security",
-    "system": "Platform"
-  },
-  "channel": {
-    "inapp": "In app",
-    "push": "Push",
-    "sms": "SMS",
-    "email": "Email",
-    "chat": "Chat"
-  },
-  "priority": {
-    "critical": "Always",
-    "high": "Addressed to me",
-    "normal": "Progress",
-    "low": "For information"
-  },
-  "meta": {
-    "collapsed": "{n, plural, one {and # more} other {and # more}}",
-    "actorsMore": "{name} and {n, plural, one {# other} other {# others}}"
-  },
-  "push": {
-    "summaryTitle": "{n, plural, one {# new notification} other {# new notifications}}",
-    "summaryBody": "{first}"
-  },
-  "sms": {
-    "text": "SuperApp6: {title}"
-  },
-  "chat": {
-    "prefix": "Notification: {title}"
   },
   "page": {
-    "title": "Notifications",
+    "allContexts": "Everywhere",
+    "allServices": "All services",
     "breadcrumb": "Platform",
     "description": "One feed for everything: personal and every organization",
-    "settingsLink": "Notification settings",
     "filters": {
       "context": "Context",
       "service": "Service",
       "state": "Show"
     },
-    "allContexts": "Everywhere",
-    "allServices": "All services",
+    "settingsLink": "Notification settings",
     "state": {
       "all": "All",
-      "unread": "Unread",
+      "archived": "Done",
       "mentions": "Mentions",
       "saved": "Saved",
       "snoozed": "Snoozed",
-      "archived": "Done"
-    }
-  },
-  "settings": {
-    "title": "Notifications",
-    "description": "What arrives and how — for the personal space and each organization separately",
-    "quiet": {
-      "title": "Quiet hours",
-      "description": "Push and SMS wait until the morning; in-app notifications still arrive. Critical ones break through.",
-      "enable": "Do not disturb at night",
-      "from": "From",
-      "to": "Until",
-      "weekends": "And all day on weekends",
-      "timezone": "By your time ({tz})",
-      "activeNow": "Quiet now",
-      "save": "Save",
-      "saved": "Quiet hours saved"
+      "unread": "Unread"
     },
-    "devices": {
-      "title": "Devices",
-      "description": "Where push notifications go",
-      "browser": "Notifications in this browser",
-      "browserHint": "Arrive even when the tab is closed",
-      "blocked": "Notifications are blocked in the browser settings",
-      "unsupported": "This browser does not support push notifications",
-      "empty": "No devices yet",
-      "remove": "Remove",
-      "lastSeen": "Last seen {time}",
-      "disabled": "Disabled",
-      "platform": {
-        "web": "Browser",
-        "ios": "iPhone",
-        "android": "Android"
-      }
-    },
-    "contexts": {
-      "title": "What arrives",
-      "description": "Each organization has its own set; personal is separate",
-      "personal": "Personal"
-    },
-    "matrix": {
-      "service": "Service",
-      "inapp": "In app",
-      "push": "Push",
-      "expand": "Show types",
-      "collapse": "Hide types",
-      "locked": "Required",
-      "lockedHint": "Required by the organization — cannot be turned off",
-      "empty": "No settings for this context yet"
-    },
-    "sms": {
-      "title": "SMS for important",
-      "description": "Only for critical notifications and only to a Kazakhstan number. Paid by the organization or the platform."
-    },
-    "always": {
-      "title": "Always arrive",
-      "description": "These cannot be turned off: security, legal deadlines, signatures",
-      "show": "Show list",
-      "hide": "Hide list"
-    },
-    "copy": {
-      "button": "Apply to all my organizations",
-      "confirmTitle": "Apply to all organizations?",
-      "confirmMessage": "The settings of this organization will be copied to the others. Their current settings will be replaced.",
-      "done": "Applied to {n, plural, one {# organization} other {# organizations}}",
-      "none": "You have no other organizations"
-    }
+    "title": "Notifications"
   },
   "policy": {
-    "title": "Notification policy",
+    "confirmMessage": "Employees will not be able to turn off the locked notifications.",
+    "confirmTitle": "Make notifications required?",
     "description": "Defaults for employees and what they cannot turn off. Personal settings override defaults but not locks.",
     "legend": {
-      "default_on": "On by default — the employee may turn it off",
       "default_off": "Off by default — the employee may turn it on",
+      "default_on": "On by default — the employee may turn it off",
       "locked_on": "Required — cannot be turned off"
     },
     "mode": {
-      "registry": "Platform default",
-      "default_on": "On",
       "default_off": "Off",
-      "locked_on": "Required"
+      "default_on": "On",
+      "locked_on": "Required",
+      "registry": "Platform default"
     },
+    "noAccess": "The policy is managed by the organization administrator",
+    "notLockable": "Cannot be required",
     "reset": "Reset to platform default",
     "save": "Save policy",
     "saved": "Policy saved",
-    "confirmTitle": "Make notifications required?",
-    "confirmMessage": "Employees will not be able to turn off the locked notifications.",
-    "notLockable": "Cannot be required",
-    "noAccess": "The policy is managed by the organization administrator"
+    "title": "Notification policy"
+  },
+  "priority": {
+    "critical": "Always",
+    "high": "Addressed to me",
+    "low": "For information",
+    "normal": "Progress"
+  },
+  "process": {
+    "approval": {
+      "requested": {
+        "body": "Process «{processName}»",
+        "label": "Approval in a process",
+        "title": "Your decision is needed: {title}"
+      }
+    },
+    "failed": {
+      "body": "{error}",
+      "label": "Process failed",
+      "title": "The process «{processName}» stopped with an error"
+    },
+    "finished": {
+      "label": "Process finished",
+      "title": "The process «{processName}» has finished"
+    },
+    "step": {
+      "notify": {
+        "body": "{message}",
+        "label": "Notification from a process",
+        "title": "{title}"
+      },
+      "overdue": {
+        "body": "Process «{processName}»",
+        "label": "Process step overdue",
+        "title": "Step overdue: {title}"
+      }
+    },
+    "task": {
+      "queued": {
+        "body": "{departmentName} · process «{processName}»",
+        "label": "Task in the department queue",
+        "title": "New department task: {title}"
+      }
+    }
+  },
+  "push": {
+    "summaryBody": "{first}",
+    "summaryTitle": "{n, plural, one {# new notification} other {# new notifications}}"
+  },
+  "service": {
+    "approvals": "Decisions",
+    "calendar": "Calendar",
+    "contacts": "My circle",
+    "documents": "Documents",
+    "drive": "Drive",
+    "finances": "Finance",
+    "hr": "HR (KEDO)",
+    "messenger": "Messenger",
+    "notes": "Notes",
+    "objects": "Sites",
+    "office": "Virtual office",
+    "processes": "Processes",
+    "recorder": "Recorder",
+    "security": "Account security",
+    "share": "External links",
+    "shop": "Shop",
+    "sign": "E-signature",
+    "staff": "Org chart",
+    "system": "Platform",
+    "tasks": "Tasks",
+    "wallet": "Wallet",
+    "workspaces": "Organizations"
+  },
+  "settings": {
+    "always": {
+      "description": "These cannot be turned off: security, legal deadlines, signatures",
+      "hide": "Hide list",
+      "show": "Show list",
+      "title": "Always arrive"
+    },
+    "contexts": {
+      "description": "Each organization has its own set; personal is separate",
+      "personal": "Personal",
+      "title": "What arrives"
+    },
+    "copy": {
+      "button": "Apply to all my organizations",
+      "confirmMessage": "The settings of this organization will be copied to the others. Their current settings will be replaced.",
+      "confirmTitle": "Apply to all organizations?",
+      "done": "Applied to {n, plural, one {# organization} other {# organizations}}",
+      "none": "You have no other organizations"
+    },
+    "description": "What arrives and how — for the personal space and each organization separately",
+    "devices": {
+      "blocked": "Notifications are blocked in the browser settings",
+      "browser": "Notifications in this browser",
+      "browserHint": "Arrive even when the tab is closed",
+      "description": "Where push notifications go",
+      "disabled": "Disabled",
+      "empty": "No devices yet",
+      "lastSeen": "Last seen {time}",
+      "platform": {
+        "android": "Android",
+        "ios": "iPhone",
+        "web": "Browser"
+      },
+      "remove": "Remove",
+      "title": "Devices",
+      "unsupported": "This browser does not support push notifications"
+    },
+    "matrix": {
+      "collapse": "Hide types",
+      "empty": "No settings for this context yet",
+      "expand": "Show types",
+      "inapp": "In app",
+      "locked": "Required",
+      "lockedHint": "Required by the organization — cannot be turned off",
+      "push": "Push",
+      "service": "Service"
+    },
+    "quiet": {
+      "activeNow": "Quiet now",
+      "description": "Push and SMS wait until the morning; in-app notifications still arrive. Critical ones break through.",
+      "enable": "Do not disturb at night",
+      "from": "From",
+      "save": "Save",
+      "saved": "Quiet hours saved",
+      "timezone": "By your time ({tz})",
+      "title": "Quiet hours",
+      "to": "Until",
+      "weekends": "And all day on weekends"
+    },
+    "sms": {
+      "description": "Only for critical notifications and only to a Kazakhstan number. Paid by the organization or the platform.",
+      "title": "SMS for important"
+    },
+    "title": "Notifications"
+  },
+  "share": {
+    "link": {
+      "opened": {
+        "body": "«{targetName}»{labelSuffix}{guestSuffix}",
+        "collapsed": "The link was opened {n, plural, one {# time} other {# times}}",
+        "label": "External link opened",
+        "title": "The link was opened"
+      }
+    }
+  },
+  "shop": {
+    "order": {
+      "cancelled": {
+        "label": "Order cancelled",
+        "title": "The buyer cancelled the order: {title}"
+      },
+      "confirmed": {
+        "label": "Order confirmed",
+        "title": "Order confirmed: {title}"
+      },
+      "funded": {
+        "label": "Campaign funded",
+        "title": "Collected in full: {title} — please confirm"
+      },
+      "placed": {
+        "label": "New order",
+        "title": "New order: {title}"
+      },
+      "rejected": {
+        "label": "Order declined",
+        "title": "Order declined: {title}"
+      }
+    }
+  },
+  "sign": {
+    "completed": {
+      "body": "{signersLabel}",
+      "label": "Document signed",
+      "title": "The document is signed: «{refTitle}»"
+    },
+    "declined": {
+      "body": "{reason}",
+      "label": "Signing declined",
+      "title": "Signing refused: «{refTitle}»"
+    },
+    "requested": {
+      "body": "{level, select, ecp {Qualified electronic signature} other {Simple electronic signature}}",
+      "label": "Signature requested",
+      "title": "Please sign: «{refTitle}»"
+    }
+  },
+  "sms": {
+    "text": "SuperApp6: {title}"
+  },
+  "staff": {
+    "deputy": {
+      "assigned": {
+        "body": "{periodLabel}",
+        "label": "Appointed deputy",
+        "title": "You are a deputy for «{positionName}» in {workspaceName}"
+      }
+    },
+    "head": {
+      "assigned": {
+        "body": "The position «{positionName}» is now a managing one — approvals and requests from your reports will come to you.",
+        "label": "Appointed head",
+        "title": "You now lead {unitLabel} in {workspaceName}"
+      }
+    }
+  },
+  "system": {
+    "announcement": {
+      "label": "Announcement",
+      "title": "{title}"
+    },
+    "welcome": {
+      "label": "Welcome",
+      "title": "Welcome to SuperApp6!"
+    }
+  },
+  "task": {
+    "accepted": {
+      "label": "Work accepted",
+      "title": "Task accepted: {taskTitle}"
+    },
+    "assigned": {
+      "label": "Task assigned to me",
+      "title": "A task was assigned to you: {taskTitle}"
+    },
+    "completed": {
+      "label": "Task completed",
+      "title": "Task completed: {taskTitle}"
+    },
+    "due_soon": {
+      "label": "Deadline is near",
+      "title": "Deadline is near: {taskTitle}"
+    },
+    "overdue": {
+      "label": "Task overdue",
+      "title": "Task overdue: {taskTitle}"
+    },
+    "returned": {
+      "label": "Work returned",
+      "title": "Task sent back for rework: {taskTitle}"
+    },
+    "submitted": {
+      "label": "Work submitted for review",
+      "title": "{byName} submitted a task for review: {taskTitle}"
+    }
+  },
+  "voice": {
+    "transcript": {
+      "failed": {
+        "label": "Transcript failed",
+        "title": "Could not transcribe «{title}»"
+      },
+      "ready": {
+        "label": "Transcript ready",
+        "title": "The transcript of «{title}» is ready"
+      }
+    }
+  },
+  "wallet": {
+    "coins": {
+      "received": {
+        "body": "For the task «{taskTitle}»",
+        "label": "Coins received",
+        "title": "You earned {amount} {currencyName}"
+      }
+    }
+  },
+  "workspace": {
+    "archive": {
+      "expiring": {
+        "body": "It is archived. Restore it if you did not mean to delete it — after {purgeDate} it cannot be brought back.",
+        "label": "Organization archive expiring",
+        "title": "The organization «{workspaceName}» will be deleted in {days, plural, one {# day} other {# days}}"
+      }
+    },
+    "invitation": {
+      "accepted": {
+        "label": "Invitation accepted",
+        "title": "{byName} accepted the invitation to {workspaceName}"
+      },
+      "received": {
+        "body": "{message}",
+        "label": "Invitation to an organization",
+        "title": "{workspaceName} invites you to work"
+      },
+      "rejected": {
+        "label": "Invitation declined",
+        "title": "{byName} declined the invitation to {workspaceName}"
+      }
+    },
+    "member": {
+      "removed": {
+        "label": "Removed from an organization",
+        "title": "You were removed from {workspaceName}"
+      }
+    },
+    "position": {
+      "assigned": {
+        "body": "{branchName}",
+        "label": "Position assigned",
+        "title": "You were given a position in {workspaceName}: {positionName}"
+      },
+      "certified": {
+        "label": "Certified",
+        "title": "You are certified for {positionName} in {workspaceName}"
+      }
+    },
+    "role": {
+      "changed": {
+        "label": "Role changed",
+        "title": "Your role in {workspaceName} changed: {role}"
+      }
+    }
   }
 }

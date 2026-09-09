@@ -1,17 +1,10 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  Logger,
-  NotFoundException,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   DRIVE_LIMITS,
   DRIVE_NODE_REF_TYPE,
   DRIVE_SYSTEM_FOLDERS,
+  SOURCE_LOCALE,
   WORKSPACE_ROLE_RANK,
   driveNameKey,
   driveNameWithSuffix,
@@ -37,6 +30,8 @@ import { FilesRefRegistry } from '../../core/files/files-ref.registry';
 import { JobsService } from '../../core/jobs/jobs.service';
 import { ShareLinksService } from '../../core/share-links/share-links.service';
 import { DatabaseService } from '../../shared/database/database.service';
+import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { DriveAccessService, type DriveGrants } from './drive-access.service';
 import { DRIVE_PHOTO_JOB, DRIVE_ROLLUP_JOB } from './drive.constants';
 import { DriveSearchService } from './drive-search.service';
@@ -86,7 +81,28 @@ export class DriveService implements OnModuleInit {
     private readonly acl: DriveAccessService,
     private readonly search: DriveSearchService,
     private readonly shareLinks: ShareLinksService,
+    private readonly i18n: I18nService,
   ) {}
+
+  /**
+   * Имя, которое ЛОЖИТСЯ в БД, — в языке источника: строка живёт годами и переживает
+   * смену языка зрителя, поэтому при чтении её перерисовывает `displayName`.
+   */
+  private src(key: string): string {
+    return this.i18n.translateFor(SOURCE_LOCALE, key);
+  }
+
+  /**
+   * Имя узла для ЧТЕНИЯ. Корень и системные папки названы платформой, а не человеком:
+   * их слово даёт каталог в языке зрителя. Всё остальное набрал человек — его не трогаем.
+   */
+  displayName(row: { name: string; parentId: string | null; systemKey: string | null }): string {
+    if (row.systemKey && row.systemKey in DRIVE_SYSTEM_FOLDERS) {
+      return this.i18n.translate(`drive.systemFolder.${row.systemKey}`);
+    }
+    if (!row.parentId) return this.i18n.translate('drive.rootName');
+    return row.name;
+  }
 
   onModuleInit(): void {
     // Доступ к файлу наследуется от узла Диска. canEditContent объявлен ЯВНО: без него
@@ -128,6 +144,7 @@ export class DriveService implements OnModuleInit {
     if (existing) return existing;
 
     try {
+      const rootName = this.src(ownerType === 'user' ? 'drive.rootName' : 'drive.rootNameOrg');
       return await this.db.$transaction(async (tx) => {
         const space = await tx.driveSpace.create({ data: { kind, ownerType, ownerId } });
         const root = await tx.driveNode.create({
@@ -135,8 +152,8 @@ export class DriveService implements OnModuleInit {
             spaceId: space.id,
             kind: 'folder',
             parentId: null,
-            name: ownerType === 'user' ? 'Мой диск' : 'Диск организации',
-            nameKey: driveNameKey(ownerType === 'user' ? 'Мой диск' : 'Диск организации'),
+            name: rootName,
+            nameKey: driveNameKey(rootName),
             createdById: ownerType === 'user' ? ownerId : 'system',
             depth: 0,
             sortRank: 0,
@@ -178,7 +195,7 @@ export class DriveService implements OnModuleInit {
     let space: DriveSpaceRow;
     if (ref.spaceId) {
       const found = await this.db.driveSpace.findUnique({ where: { id: ref.spaceId } });
-      if (!found) throw new NotFoundException('Диск не найден');
+      if (!found) throw notFound('drive.spaceNotFound');
       space = found;
     } else if (ref.parentId) {
       // Папка сама называет своё пространство. Без этого «открыть чужую расшаренную
@@ -188,13 +205,13 @@ export class DriveService implements OnModuleInit {
         where: { id: ref.parentId },
         select: { spaceId: true },
       });
-      if (!parent) throw new NotFoundException('Папка не найдена');
+      if (!parent) throw notFound('drive.folderNotFound');
       space = await this.loadSpace(parent.spaceId);
     } else if (ref.workspaceId) {
       // Диск организации доступен только команде — Подрядчик отсекается рангом.
       const rank = await this.acl.workspaceRank(userId, ref.workspaceId);
       if (rank < WORKSPACE_ROLE_RANK.trainee) {
-        throw new ForbiddenException('Вы не состоите в этой организации');
+        throw forbidden('drive.notInWorkspace');
       }
       space = await this.getOrCreateSpace('workspace', ref.workspaceId);
     } else {
@@ -208,10 +225,10 @@ export class DriveService implements OnModuleInit {
       const anyGrantHere = grants.viewer.length
         ? await this.db.driveNode.count({ where: { spaceId: space.id, id: { in: grants.viewer } } })
         : 0;
-      if (!anyGrantHere) throw new ForbiddenException('Нет доступа к этому диску');
+      if (!anyGrantHere) throw forbidden('drive.noSpaceAccess');
     }
     if (need === 'edit' && access !== 'owner' && !grants.editor.length) {
-      throw new ForbiddenException('Нет прав на изменение');
+      throw forbidden('drive.noEditRights');
     }
     return { space, access, grants };
   }
@@ -253,16 +270,20 @@ export class DriveService implements OnModuleInit {
   }
 
   async serializeSpace(space: DriveSpaceRow, access: DriveAccess | null): Promise<DriveSpaceDto> {
-    let title = 'Мой диск';
+    let title = this.i18n.translate('drive.rootName');
     if (space.ownerType === 'workspace') {
       const ws = await this.db.workspace.findUnique({ where: { id: space.ownerId }, select: { name: true } });
-      title = ws ? `Диск · ${ws.name}` : 'Диск организации';
+      title = ws ? this.i18n.translate('drive.spaceTitle', { name: ws.name }) : this.i18n.translate('drive.rootNameOrg');
     } else {
       const owner = await this.db.user.findUnique({
         where: { id: space.ownerId },
         select: { firstName: true, lastName: true },
       });
-      title = owner ? `Диск · ${owner.firstName}${owner.lastName ? ` ${owner.lastName}` : ''}` : 'Мой диск';
+      title = owner
+        ? this.i18n.translate('drive.spaceTitle', {
+            name: `${owner.firstName}${owner.lastName ? ` ${owner.lastName}` : ''}`,
+          })
+        : this.i18n.translate('drive.rootName');
     }
     return {
       id: space.id,
@@ -281,13 +302,13 @@ export class DriveService implements OnModuleInit {
 
   async loadNode(nodeId: string): Promise<NodeRow> {
     const node = await this.db.driveNode.findUnique({ where: { id: nodeId } });
-    if (!node) throw new NotFoundException('Объект не найден');
+    if (!node) throw notFound('drive.nodeNotFound');
     return node;
   }
 
   async loadSpace(spaceId: string): Promise<DriveSpaceRow> {
     const space = await this.db.driveSpace.findUnique({ where: { id: spaceId } });
-    if (!space) throw new NotFoundException('Диск не найден');
+    if (!space) throw notFound('drive.spaceNotFound');
     return space;
   }
 
@@ -349,11 +370,11 @@ export class DriveService implements OnModuleInit {
   async listNodes(userId: string, q: DriveListQuery): Promise<DriveListPageDto> {
     const { space, access, grants } = await this.resolveSpace(userId, q);
     const parentId = q.parentId ?? space.rootId;
-    if (!parentId) throw new NotFoundException('Диск не найден');
+    if (!parentId) throw notFound('drive.spaceNotFound');
 
     const parent = await this.loadNode(parentId);
-    if (parent.spaceId !== space.id) throw new BadRequestException('Папка из другого диска');
-    if (parent.trashedAt) throw new NotFoundException('Папка удалена');
+    if (parent.spaceId !== space.id) throw badRequest('drive.folderOtherSpace');
+    if (parent.trashedAt) throw notFound('drive.folderTrashed');
     const parentAccess = this.acl.nodeAccess(parent, access, grants);
     this.acl.assertAccess(parentAccess, 'viewer');
 
@@ -510,7 +531,7 @@ export class DriveService implements OnModuleInit {
         spaceId: row.spaceId,
         kind: row.kind as DriveNodeDto['kind'],
         parentId: row.parentId,
-        name: row.name,
+        name: this.displayName(row),
         createdById: row.createdById,
         depth: row.depth,
         systemKey: row.systemKey,
@@ -531,9 +552,11 @@ export class DriveService implements OnModuleInit {
     if (!node.ancestorIds.length) return [];
     const rows = await this.db.driveNode.findMany({
       where: { id: { in: node.ancestorIds } },
-      select: { id: true, name: true, systemKey: true },
+      select: { id: true, name: true, systemKey: true, parentId: true },
     });
-    const byId = new Map(rows.map((r) => [r.id, r]));
+    const byId = new Map<string, DriveBreadcrumbDto>(
+      rows.map((r) => [r.id, { id: r.id, name: this.displayName(r), systemKey: r.systemKey }]),
+    );
     return node.ancestorIds.map((id) => byId.get(id)).filter((r): r is DriveBreadcrumbDto => !!r);
   }
 
@@ -550,18 +573,18 @@ export class DriveService implements OnModuleInit {
       });
       if (!clash) return candidate;
     }
-    throw new ConflictException('Слишком много объектов с таким именем');
+    throw conflict('drive.nameTaken');
   }
 
   async createFolder(userId: string, q: { spaceId?: string; workspaceId?: string; parentId?: string; name: string }): Promise<DriveNodeDto> {
     const { space, access, grants } = await this.resolveSpace(userId, q);
     const parentId = q.parentId ?? space.rootId;
-    if (!parentId) throw new NotFoundException('Диск не найден');
+    if (!parentId) throw notFound('drive.spaceNotFound');
     const parent = await this.loadNode(parentId);
     this.assertSameSpace(parent, space.id);
     this.acl.assertAccess(this.acl.nodeAccess(parent, access, grants), 'editor');
     if (parent.depth + 1 > DRIVE_LIMITS.maxDepth) {
-      throw new BadRequestException(`Слишком глубокая вложенность (максимум ${DRIVE_LIMITS.maxDepth})`);
+      throw badRequest('drive.tooDeep', { max: DRIVE_LIMITS.maxDepth });
     }
 
     const created = await this.db.$transaction(async (tx) => {
@@ -598,7 +621,7 @@ export class DriveService implements OnModuleInit {
   ): Promise<DriveNodeDto> {
     const { space, access, grants } = await this.resolveSpace(userId, q);
     const parentId = q.parentId ?? space.rootId;
-    if (!parentId) throw new NotFoundException('Диск не найден');
+    if (!parentId) throw notFound('drive.spaceNotFound');
     const parent = await this.loadNode(parentId);
     this.assertSameSpace(parent, space.id);
     this.acl.assertAccess(this.acl.nodeAccess(parent, access, grants), 'editor');
@@ -645,21 +668,21 @@ export class DriveService implements OnModuleInit {
       where: { id: opts.fileId },
       select: { id: true, name: true, size: true, status: true, kind: true, uploaderId: true, ownerType: true, ownerId: true },
     });
-    if (!file || file.status !== 'ready') throw new NotFoundException('Файл не найден или не готов');
+    if (!file || file.status !== 'ready') throw notFound('drive.fileNotReady');
     if (opts.depth > DRIVE_LIMITS.maxDepth) {
-      throw new BadRequestException(`Слишком глубокая вложенность (максимум ${DRIVE_LIMITS.maxDepth})`);
+      throw badRequest('drive.tooDeep', { max: DRIVE_LIMITS.maxDepth });
     }
 
     // «Свой» — загрузил сам либо владею как личным файлом. Копии, сделанные Диском
     // (перенос между дисками, снимок версии), тоже свои: uploaderId у них — актор.
     const mine = file.uploaderId === userId || (file.ownerType === 'user' && file.ownerId === userId);
     if (!mine) {
-      if (!(await this.files.canViewFile(userId, file.id))) throw new NotFoundException('Файл не найден');
+      if (!(await this.files.canViewFile(userId, file.id))) throw notFound('drive.fileNotFound');
       // Копия делает драйвер (на стороне хранилища), и она обязана идти ВНЕ чужой
       // транзакции: сетевой вызов внутри неё держал бы замки всё время загрузки.
       // Автоматические пути (укладка из переписки) сюда не попадают — там файл всегда
       // свой, — поэтому tx здесь означает ошибку вызывающего, а не рабочий случай.
-      if (opts.tx) throw new ForbiddenException('Чужой файл нельзя положить этой операцией');
+      if (opts.tx) throw forbidden('drive.foreignFile');
       const space = await this.loadSpace(opts.spaceId);
       const copy = await this.files.copyFile({
         fileId: file.id,
@@ -699,7 +722,7 @@ export class DriveService implements OnModuleInit {
       // Замок строки сериализует нас с soft-delete движка: кто первый, того и правда.
       const locked = await tx.$queryRaw<Array<{ status: string }>>`
         SELECT "status" FROM "file_objects" WHERE "id" = ${file.id} FOR UPDATE`;
-      if (locked[0]?.status !== 'ready') throw new NotFoundException('Файл больше недоступен');
+      if (locked[0]?.status !== 'ready') throw notFound('drive.fileGone');
 
       const name = await this.freeName(tx, opts.parentId, opts.name ?? file.name);
       const node = await tx.driveNode.create({
@@ -756,8 +779,8 @@ export class DriveService implements OnModuleInit {
 
   async rename(userId: string, nodeId: string, name: string): Promise<DriveNodeDto> {
     const { node } = await this.requireNode(userId, nodeId, 'editor');
-    if (!node.parentId) throw new BadRequestException('Корень диска переименовать нельзя');
-    if (node.systemKey) throw new BadRequestException('Системную папку переименовать нельзя');
+    if (!node.parentId) throw badRequest('drive.rootRename');
+    if (node.systemKey) throw badRequest('drive.systemFolderRename');
     const updated = await this.db.$transaction(async (tx) => {
       const free = await this.freeName(tx, node.parentId as string, name);
       return tx.driveNode.update({
@@ -850,9 +873,9 @@ export class DriveService implements OnModuleInit {
     if (existing) return existing;
 
     const space = await client.driveSpace.findUniqueOrThrow({ where: { id: spaceId } });
-    if (!space.rootId) throw new NotFoundException('У диска нет корня');
+    if (!space.rootId) throw notFound('drive.noRoot');
     const root = await client.driveNode.findUniqueOrThrow({ where: { id: space.rootId } });
-    const wanted = DRIVE_SYSTEM_FOLDERS[key].name;
+    const wanted = this.src(`drive.systemFolder.${key}`);
 
     const create = async (c: Tx): Promise<NodeRow> => {
       const name = await this.freeName(c, root.id, wanted);
@@ -917,7 +940,7 @@ export class DriveService implements OnModuleInit {
 
     const parent = await client.driveNode.findUniqueOrThrow({ where: { id: parentId } });
     if (parent.depth + 1 > DRIVE_LIMITS.maxDepth) {
-      throw new BadRequestException(`Слишком глубокая вложенность (максимум ${DRIVE_LIMITS.maxDepth})`);
+      throw badRequest('drive.tooDeep', { max: DRIVE_LIMITS.maxDepth });
     }
     const create = (c: Tx): Promise<NodeRow> =>
       c.driveNode.create({
@@ -955,7 +978,7 @@ export class DriveService implements OnModuleInit {
   // ============================================================
 
   assertSameSpace(node: { spaceId: string }, spaceId: string): void {
-    if (node.spaceId !== spaceId) throw new BadRequestException('Объект из другого диска');
+    if (node.spaceId !== spaceId) throw badRequest('drive.otherSpace');
   }
 
   /**

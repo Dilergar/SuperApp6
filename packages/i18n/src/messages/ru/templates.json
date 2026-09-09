@@ -1,0 +1,345 @@
+{
+  "fields": {
+    "counterparty": {
+      "actualAddress": {
+        "example": "г. Астана, пр. Абая, 1",
+        "label": "Фактический адрес"
+      },
+      "bank": {
+        "example": "АО «Kaspi Bank»",
+        "label": "Банк"
+      },
+      "bik": {
+        "example": "CASPKZKA",
+        "label": "БИК"
+      },
+      "bin": {
+        "example": "123456789012",
+        "label": "БИН (юрлицо)"
+      },
+      "binOrIin": {
+        "example": "123456789012",
+        "label": "БИН или ИИН (графа Р-1)"
+      },
+      "director": {
+        "example": "Иванов Иван",
+        "label": "Руководитель (ФИО)"
+      },
+      "ground": {
+        "example": "Устава",
+        "label": "Основание подписи"
+      },
+      "iik": {
+        "example": "KZ86125KZT5004100100",
+        "label": "ИИК (IBAN основного счёта)"
+      },
+      "iin": {
+        "example": "850101300123",
+        "label": "ИИН (ИП, физлицо)"
+      },
+      "kbe": {
+        "example": "17",
+        "label": "КБе"
+      },
+      "label": "Контрагент",
+      "legalAddress": {
+        "example": "г. Астана, пр. Абая, 1",
+        "label": "Юридический адрес"
+      },
+      "legalName": {
+        "example": "ТОО «Ромашка»",
+        "label": "Юридическое наименование"
+      },
+      "name": {
+        "example": "Ромашка",
+        "label": "Название (рабочее имя)"
+      },
+      "orgForm": {
+        "example": "ТОО",
+        "label": "Организационно-правовая форма"
+      },
+      "signer": {
+        "example": "Иванов Иван",
+        "label": "Подписант (контактное лицо)"
+      },
+      "signerPhone": {
+        "example": "+7 777 123 45 67",
+        "label": "Телефон подписанта"
+      },
+      "signerPosition": {
+        "example": "Директор",
+        "label": "Должность подписанта"
+      },
+      "taxRegime": {
+        "example": "Упрощённая декларация",
+        "label": "Налоговый режим"
+      },
+      "vatCertificate": {
+        "example": "серия 60001 № 0031205 от 01.01.2026",
+        "label": "Свидетельство НДС"
+      }
+    },
+    "document": {
+      "date": {
+        "example": "03.08.2026",
+        "label": "Дата документа"
+      },
+      "label": "Документ",
+      "number": {
+        "example": "ПР-2026-007",
+        "label": "Регистрационный номер"
+      },
+      "title": {
+        "example": "Заявление на отпуск",
+        "label": "Название документа"
+      }
+    },
+    "employee": {
+      "address": {
+        "example": "г. Алматы, мкр. Самал-2, д. 33",
+        "label": "Адрес проживания"
+      },
+      "birthDate": {
+        "example": "31.12.1990",
+        "label": "Дата рождения"
+      },
+      "branch": {
+        "example": "Филиал на Абая",
+        "label": "Объект (филиал)"
+      },
+      "branchHead": {
+        "example": "Сейтжанов Ерлан",
+        "label": "Руководитель объекта (ФИО)"
+      },
+      "branchHeadPosition": {
+        "example": "Управляющий точкой",
+        "label": "Должность руководителя объекта"
+      },
+      "department": {
+        "example": "Отдел продаж",
+        "label": "Отдел"
+      },
+      "firstName": {
+        "example": "Аскар",
+        "label": "Имя"
+      },
+      "fullName": {
+        "example": "Ахметов Аскар Болатұлы",
+        "label": "ФИО (фамилия, имя, отчество)"
+      },
+      "idDocument": {
+        "example": "№ 038000000 выдано МВД РК 01.02.2020",
+        "label": "Удостоверение (строкой)"
+      },
+      "idIssuedAt": {
+        "example": "01.02.2020",
+        "label": "Дата выдачи"
+      },
+      "idIssuedBy": {
+        "example": "МВД РК",
+        "label": "Кем выдано"
+      },
+      "idNumber": {
+        "example": "038000000",
+        "label": "Номер удостоверения"
+      },
+      "iin": {
+        "example": "901231300123",
+        "label": "ИИН"
+      },
+      "label": "Сотрудник",
+      "lastName": {
+        "example": "Ахметов",
+        "label": "Фамилия"
+      },
+      "manager": {
+        "example": "Иванова Айгуль Сериковна",
+        "label": "Руководитель (ФИО)"
+      },
+      "managerPosition": {
+        "example": "Руководитель отдела продаж",
+        "label": "Должность руководителя"
+      },
+      "middleName": {
+        "example": "Болатұлы",
+        "label": "Отчество"
+      },
+      "phone": {
+        "example": "+7 700 123 45 67",
+        "label": "Телефон"
+      },
+      "position": {
+        "example": "Менеджер зала",
+        "label": "Должность"
+      }
+    },
+    "employment_contract": {
+      "branch": {
+        "example": "Филиал на Абая",
+        "label": "Место работы (филиал)"
+      },
+      "date": {
+        "example": "01.09.2026",
+        "label": "Дата договора"
+      },
+      "endDate": {
+        "example": "30.09.2026",
+        "label": "Дата прекращения"
+      },
+      "label": "Трудовой договор",
+      "number": {
+        "example": "ТД-2026-014",
+        "label": "Номер договора"
+      },
+      "personnelNumber": {
+        "example": "0042",
+        "label": "Табельный номер"
+      },
+      "position": {
+        "example": "Менеджер зала",
+        "label": "Должность по договору"
+      },
+      "probationUntil": {
+        "example": "01.12.2026",
+        "label": "Испытательный срок (до даты)"
+      },
+      "rate": {
+        "example": "1",
+        "label": "Ставка"
+      },
+      "salary": {
+        "example": "250 000",
+        "label": "Оклад, тенге"
+      },
+      "schedule": {
+        "example": "5/2, 09:00–18:00",
+        "label": "Режим работы"
+      },
+      "startDate": {
+        "example": "01.09.2026",
+        "label": "Дата начала работы"
+      },
+      "term": {
+        "example": "на неопределённый срок",
+        "label": "Срок договора"
+      }
+    },
+    "hr_action": {
+      "days": {
+        "example": "14",
+        "label": "Дней (календарных, отпуск)"
+      },
+      "effectiveFrom": {
+        "example": "01.09.2026",
+        "label": "Дата вступления в силу"
+      },
+      "effectiveTo": {
+        "example": "14.09.2026",
+        "label": "Дата окончания (отпуск)"
+      },
+      "ground": {
+        "example": "ст. 56 ТК РК",
+        "label": "Основание прекращения (статья ТК РК)"
+      },
+      "kind": {
+        "example": "Перевод",
+        "label": "Вид действия"
+      },
+      "label": "Кадровое действие",
+      "newBranch": {
+        "example": "Филиал на Абая",
+        "label": "Новый филиал"
+      },
+      "newPosition": {
+        "example": "Старший менеджер",
+        "label": "Новая должность"
+      },
+      "salary": {
+        "example": "300 000",
+        "label": "Новый оклад, тенге"
+      }
+    },
+    "hr_signer": {
+      "fullName": {
+        "example": "Ахметов Аскар Болатұлы",
+        "label": "ФИО подписанта"
+      },
+      "label": "Подписант (из маршрута)",
+      "position": {
+        "example": "Директор",
+        "label": "Должность подписанта"
+      }
+    },
+    "workspace": {
+      "bank": {
+        "example": "АО «Народный Банк Казахстана»",
+        "label": "Банк"
+      },
+      "bik": {
+        "example": "HSBKKZKX",
+        "label": "БИК"
+      },
+      "bin": {
+        "example": "123456789012",
+        "label": "БИН"
+      },
+      "director": {
+        "example": "Ахметов Аскар",
+        "label": "Директор (ФИО)"
+      },
+      "ground": {
+        "example": "Устава",
+        "label": "Основание подписи"
+      },
+      "iik": {
+        "example": "KZ86125KZT5004100100",
+        "label": "ИИК (IBAN основного счёта)"
+      },
+      "kbe": {
+        "example": "17",
+        "label": "КБе"
+      },
+      "label": "Организация",
+      "legalAddress": {
+        "example": "г. Алматы, ул. Абая, 1",
+        "label": "Юридический адрес"
+      },
+      "legalName": {
+        "example": "ТОО «Ромашка»",
+        "label": "Юридическое наименование"
+      },
+      "name": {
+        "example": "Ромашка",
+        "label": "Название (бренд)"
+      },
+      "orgForm": {
+        "example": "ТОО",
+        "label": "Организационно-правовая форма"
+      },
+      "vatCertificate": {
+        "example": "серия 60001 № 0031205 от 01.01.2026",
+        "label": "Свидетельство НДС"
+      }
+    }
+  },
+  "print": {
+    "badFormat": "неверный формат",
+    "bik": "БИК {value}",
+    "bin": "БИН {value}",
+    "dateBlank": "«___» ____________ ____ г.",
+    "dateRange": "с {from} по {to}",
+    "docMeta": "№ {number} от {date}",
+    "documentFallback": "Документ",
+    "iik": "ИИК {value}",
+    "no": "Нет",
+    "number": "№ {value}",
+    "numberBlank": "_______",
+    "pageOf": "стр. {page} из {total}",
+    "signerPositionDefault": "Директор",
+    "stamp": "М.П.",
+    "vatDate": "от {value}",
+    "vatNumber": "№ {value}",
+    "vatSeries": "серия {value}",
+    "yes": "Да"
+  }
+}

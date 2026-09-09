@@ -9,6 +9,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import {
   CAMPAIGN_FIX_MODES,
   CAMPAIGN_MODES,
@@ -55,6 +56,8 @@ const dateToIso = (d: Date | null): string | undefined =>
   d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : undefined;
 
 export function CampaignsTab({ workspaceId }: { workspaceId: string }) {
+  const tr = useTranslations('documents');
+  const tc = useTranslations('common');
   const qc = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -75,7 +78,7 @@ export function CampaignsTab({ workspaceId }: { workspaceId: string }) {
   const sweep = useMutation({
     mutationFn: (id: string) => sweepCampaign(workspaceId, id),
     onSuccess: () => {
-      toast('Догоняем аудиторию — новые задания появятся в течение минуты', 'success');
+      toast(tr('campaigns.sweepStarted'), 'success');
       void qc.invalidateQueries({ queryKey: hrCampaignsKey(workspaceId) });
     },
     onError: (e) => toastError(apiErrorMessage(e)),
@@ -85,7 +88,7 @@ export function CampaignsTab({ workspaceId }: { workspaceId: string }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-grid)', marginTop: 'var(--gap-grid)' }}>
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
         <Button icon="add" onClick={() => setCreateOpen(true)}>
-          Запустить ознакомление
+          {tr('campaigns.start')}
         </Button>
       </div>
 
@@ -94,15 +97,15 @@ export function CampaignsTab({ workspaceId }: { workspaceId: string }) {
       ) : listQ.isError ? (
         <EmptyState
           icon="warningCircle"
-          title="Кампании не загрузились"
-          description="Вкладка доступна Менеджеру и выше."
-          action={<Button variant="matte" icon="refresh" onClick={() => listQ.refetch()}>Повторить</Button>}
+          title={tr('campaigns.loadFailed')}
+          description={tr('campaigns.loadFailedHint')}
+          action={<Button variant="matte" icon="refresh" onClick={() => listQ.refetch()}>{tc('actions.retry')}</Button>}
         />
       ) : (listQ.data?.items ?? []).length === 0 ? (
         <EmptyState
           icon="eye"
-          title="Кампаний пока нет"
-          description="Ознакомьте команду с локальным актом: с 25.08.2026 обязательны требования кибербезопасности — готовый бланк лежит в библиотеке (Шаблоны)."
+          title={tr('campaigns.emptyTitle')}
+          description={tr('campaigns.emptyText')}
         />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
@@ -119,9 +122,9 @@ export function CampaignsTab({ workspaceId }: { workspaceId: string }) {
                   ? () =>
                       confirm(
                         {
-                          title: 'Отменить кампанию?',
-                          message: 'Уже собранные отметки об ознакомлении останутся; новые собираться не будут.',
-                          confirmLabel: 'Отменить',
+                          title: tr('campaigns.cancelTitle'),
+                          message: tr('campaigns.cancelText'),
+                          confirmLabel: tc('actions.cancel'),
                           danger: true,
                         },
                         async () => {
@@ -162,6 +165,10 @@ function CampaignRow({
   onSweep?: () => void;
   onCancel?: () => void;
 }) {
+  // Справочники кампании общие с КЭДО — слово берём из его неймспейса
+  const thr = useTranslations('hr');
+  const tr = useTranslations('documents');
+  const tc = useTranslations('common');
   const pct = c.total ? Math.round((c.counts.acknowledged / c.total) * 100) : 0;
   return (
     <Card>
@@ -170,27 +177,29 @@ function CampaignRow({
           <div style={{ fontWeight: 700 }}>{c.title}</div>
           <div className="meta" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
             <Chip tone={c.status === 'active' ? 'accent' : c.status === 'done' ? 'success' : 'neutral'}>
-              {c.status === 'active' ? 'Идёт' : c.status === 'done' ? 'Завершена' : 'Отменена'}
+              {thr(`campaignStatus.${c.status}`)}
             </Chip>
-            <Chip tone="neutral">{c.fixMode === 'sms' ? 'Код из SMS' : 'Отметка кликом'}</Chip>
-            {c.mode === 'standing' && <Chip tone="warning">Постоянное правило</Chip>}
-            {c.counts.sms_failed > 0 && <Chip tone="danger">SMS не доставлена: {c.counts.sms_failed}</Chip>}
+            <Chip tone="neutral">{thr(`campaignFixMode.${c.fixMode}`)}</Chip>
+            {c.mode === 'standing' && <Chip tone="warning">{thr('campaignMode.standing')}</Chip>}
+            {c.counts.sms_failed > 0 && (
+              <Chip tone="danger">{tr('campaigns.smsFailedCount', { count: c.counts.sms_failed })}</Chip>
+            )}
           </div>
         </div>
         <div style={{ width: 220 }}>
-          <TickBar value={pct} label={`${c.counts.acknowledged} из ${c.total}`} showValue />
+          <TickBar value={pct} label={tr('campaigns.progress', { done: c.counts.acknowledged, total: c.total })} showValue />
         </div>
         {onSweep && (
           <Button variant="matte" size="sm" icon="refresh" onClick={onSweep}>
-            Догнать сейчас
+            {tr('campaigns.sweep')}
           </Button>
         )}
         <Button variant="matte" size="sm" icon="eye" onClick={onOpen}>
-          Кто не ознакомился
+          {tr('campaigns.whoPending')}
         </Button>
         {onCancel && (
           <Button variant="ghost" size="sm" tone="danger" onClick={onCancel}>
-            Отменить
+            {tc('actions.cancel')}
           </Button>
         )}
       </div>
@@ -221,14 +230,20 @@ function CampaignDetailModal({
     },
     onError: (e) => toastError(apiErrorMessage(e)),
   });
+  const thr = useTranslations('hr');
+  const tr = useTranslations('documents');
   const d = detailQ.data;
   return (
-    <Modal open onClose={onClose} title={d?.title ?? 'Кампания'} subtitle="Аналитика до конкретного человека" size="md">
+    <Modal open onClose={onClose} title={d?.title ?? tr('campaigns.one')} subtitle={tr('campaigns.detailSubtitle')} size="md">
       {detailQ.isPending || !d ? (
         <LoadingBlock />
       ) : (
         <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
-          <TickBar value={d.total ? Math.round((d.counts.acknowledged / d.total) * 100) : 0} label={`${d.counts.acknowledged} из ${d.total}`} showValue />
+          <TickBar
+            value={d.total ? Math.round((d.counts.acknowledged / d.total) * 100) : 0}
+            label={tr('campaigns.progress', { done: d.counts.acknowledged, total: d.total })}
+            showValue
+          />
           {(['pending', 'sms_failed', 'acknowledged'] as const).map((status) => {
             const all = d.targets.filter((t) => t.status === status);
             // Кампания бывает на 5000 человек — столько карточек вешают вкладку.
@@ -238,7 +253,7 @@ function CampaignDetailModal({
             return (
               <div key={status}>
                 <div className="label-md" style={{ fontWeight: 700, marginBottom: 6 }}>
-                  {status === 'pending' ? 'Не ознакомились' : status === 'sms_failed' ? 'SMS не доставлена' : 'Ознакомились'} · {all.length}
+                  {thr(`campaignTargetStatus.${status}`)} · {all.length}
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
                   {rows.map((t) => {
@@ -254,7 +269,7 @@ function CampaignDetailModal({
                             tone="danger"
                             disabled={smsFailed.isPending}
                             onClick={() => smsFailed.mutate(t.userId)}
-                            title="Отметить: SMS не доставлена (отдельный исход, не «не ознакомился»)"
+                            title={tr('campaigns.markSmsFailed')}
                           >
                             SMS ✕
                           </Button>
@@ -263,7 +278,7 @@ function CampaignDetailModal({
                     );
                   })}
                   {all.length > rows.length && (
-                    <span className="meta">и ещё {all.length - rows.length} — весь список в выгрузке реестра</span>
+                    <span className="meta">{tr('campaigns.andMore', { count: all.length - rows.length })}</span>
                   )}
                 </div>
               </div>
@@ -284,6 +299,10 @@ function CreateCampaignModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  // Справочники режимов кампании общие с КЭДО — слово берём из его неймспейса
+  const thr = useTranslations('hr');
+  const tr = useTranslations('documents');
+  const tc = useTranslations('common');
   const [documentId, setDocumentId] = useState('');
   const [audience, setAudience] = useState<Principal[]>([]);
   const [mode, setMode] = useState('one_off');
@@ -306,8 +325,8 @@ function CreateCampaignModal({
 
   const create = useMutation({
     mutationFn: () => {
-      if (!documentId) throw new Error('Выберите документ');
-      if (!audience.length) throw new Error('Выберите аудиторию');
+      if (!documentId) throw new Error(tr('campaigns.pickDocument'));
+      if (!audience.length) throw new Error(tr('campaigns.pickAudience'));
       const dto: CreateCampaignInput = {
         orgDocumentId: documentId,
         mode: mode as CreateCampaignInput['mode'],
@@ -322,56 +341,64 @@ function CreateCampaignModal({
   });
 
   return (
-    <Modal open onClose={onClose} title="Запустить ознакомление" subtitle={`Потолок — ${HR_LIMITS.campaignMaxTargets} адресатов`} size="md">
+    <Modal
+      open
+      onClose={onClose}
+      title={tr('campaigns.start')}
+      subtitle={tr('campaigns.cap', { max: HR_LIMITS.campaignMaxTargets })}
+      size="md"
+    >
       <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
         <Select
-          label="Документ (ЛНА, приказ, инструкция)"
+          label={tr('campaigns.documentLabel')}
           value={documentId}
           onChange={setDocumentId}
           options={docs.map((doc) => ({ value: doc.id, label: doc.number ? `${doc.title} № ${doc.number}` : doc.title }))}
-          placeholder={docsQ.isPending ? 'Загружаем…' : docs.length ? 'Выберите документ' : 'Изданных документов пока нет'}
-          hint="Знакомить можно с изданным документом (подписан/зарегистрирован). Предмет замораживается ОДИН раз на всю кампанию: у каждого адресата — ровно те байты, с которыми он знакомился."
+          placeholder={
+            docsQ.isPending
+              ? tc('state.loading')
+              : docs.length
+                ? tr('campaigns.pickDocument')
+                : tr('campaigns.noIssuedDocs')
+          }
+          hint={tr('campaigns.documentHint')}
         />
         <div>
-          <div className="label-md" style={{ marginBottom: 6 }}>Аудитория (подрядчики исключены)</div>
+          <div className="label-md" style={{ marginBottom: 6 }}>{tr('campaigns.audience')}</div>
           <EntitySelector
             types={['user', 'position', 'department', 'branch', 'workspace']}
             value={audience}
             onChange={setAudience}
             context={{ workspaceId }}
-            placeholder="Люди, должности, отделы, филиалы или вся организация"
+            placeholder={tr('campaigns.audiencePlaceholder')}
           />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--spacing-3)' }}>
           <Select
-            label="Режим"
+            label={tr('campaigns.mode')}
             value={mode}
             onChange={setMode}
-            options={CAMPAIGN_MODES.map((m) => ({ value: m.value, label: m.label }))}
-            hint="Постоянное правило догоняет принятых позже само"
+            options={CAMPAIGN_MODES.map((m) => ({ value: m, label: thr(`campaignMode.${m}`) }))}
+            hint={tr('campaigns.modeHint')}
           />
           <Select
-            label="Фиксация"
+            label={tr('campaigns.fixMode')}
             value={fixMode}
             onChange={setFixMode}
-            options={CAMPAIGN_FIX_MODES.map((m) => ({ value: m.value, label: m.label }))}
+            options={CAMPAIGN_FIX_MODES.map((m) => ({ value: m, label: thr(`campaignFixMode.${m}`) }))}
           />
         </div>
         {fixMode === 'sms' ? (
-          <Alert tone="warning">
-            SMS-код — усиленное доказательство для критичных ЛНА (охрана труда, дисциплина). Каждая отправка стоит денег
-            организации (~8–10 ₸ × адресат).
-          </Alert>
+          <Alert tone="warning">{tr('campaigns.smsCostHint')}</Alert>
         ) : (
-          <Alert tone="accent">
-            Отметка кликом законна (ст. 23 п. 2 пп. 6 ТК РК: «посредством электронной почты и иных ИКТ») и бесплатна.
-            Фиксируются момент и отпечаток документа.
-          </Alert>
+          <Alert tone="accent">{tr('campaigns.clickHint')}</Alert>
         )}
-        <DatePicker label="Срок ознакомления (необязательно)" value={isoToDate(dueAt)} onChange={(d) => setDueAt(dateToIso(d))} />
+        <DatePicker label={tr('campaigns.dueAt')} value={isoToDate(dueAt)} onChange={(d) => setDueAt(dateToIso(d))} />
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--spacing-2)' }}>
-          <Button variant="ghost" onClick={onClose}>Отмена</Button>
-          <Button variant="primary" loading={create.isPending} onClick={() => create.mutate()}>Запустить</Button>
+          <Button variant="ghost" onClick={onClose}>{tc('actions.cancel')}</Button>
+          <Button variant="primary" loading={create.isPending} onClick={() => create.mutate()}>
+            {tr('campaigns.launch')}
+          </Button>
         </div>
       </div>
     </Modal>

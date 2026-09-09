@@ -80,7 +80,7 @@ const VISA_TEST_PAN = '4111111111111111'; // классический Luhn-ва�
 
 async function main() {
   const { token: t1, userId: u1 } = await login(P1);
-  const { token: t2 } = await login(P2);
+  const { token: t2, userId: u2 } = await login(P2);
   const { userId: u3 } = await login(P3);
   const stamp = Date.now();
   const cleanup = { wsId: null, cardIds: [] };
@@ -117,7 +117,7 @@ async function main() {
       vatPayer: true,
       vatSeries: '60001',
       vatNumber: '1234567',
-      signBasis: 'Устава',
+      signBasis: { kind: 'ustav' },
     });
     check('реквизиты сохранены', setReq.ok && setReq.json.data.bin === bin, `status ${setReq.status}`);
 
@@ -215,11 +215,15 @@ async function main() {
     if (c2.ok) cleanup.cardIds.push(c2.json.data.id);
 
     // ============================================================
-    // 6. Ростер: manager+ видит реквизиты всегда, коллега — по тумблерам
+    // 6. Карточка сотрудника: manager+ видит реквизиты всегда, коллега — по тумблерам.
+    // Комплект отдаёт ручка ОДНОГО сотрудника: в СПИСКЕ реквизитов и карт нет
+    // намеренно (расшифровка каждой карты не должна уезжать в браузер на ростер).
     // ============================================================
     const roster1 = await call('GET', `/workspaces/${wsId}/members`, t1); // владелец = manager+
-    const rowU2 = (roster1.json?.data ?? []).find((m) => m.card?.phone === P2 || m.userName.includes('')) ?? null;
-    const u2row = (roster1.json?.data ?? []).find((m) => m.requisites?.iin === iin2) ?? rowU2;
+    const listRow = (roster1.json?.data ?? []).find((m) => m.userId === u2) ?? null;
+    check('в СПИСКЕ реквизитов и карт нет (сетка лиц)', !!listRow && !listRow.requisites, JSON.stringify(listRow?.requisites ?? null));
+    const u2card = await call('GET', `/workspaces/${wsId}/members/${u2}`, t1);
+    const u2row = u2card.json?.data ?? null;
     check('управляющий видит ИИН сотрудника (нередактируемый уровень)', u2row?.requisites?.iin === iin2, JSON.stringify(u2row?.requisites ?? null));
     check('управляющий видит основную карту полностью', u2row?.requisites?.paymentCard?.pan === VISA_TEST_PAN, u2row?.requisites?.paymentCard?.pan);
     check('управляющему приехал и IBAN карт-счёта', u2row?.requisites?.paymentCard?.iban === cardIban);
@@ -227,16 +231,16 @@ async function main() {
 
     // Коллега (u2 — стажёр) смотрит на владельца u1: у того реквизиты не заполнены и
     // тумблеры выключены → блока нет вовсе.
-    const roster2 = await call('GET', `/workspaces/${wsId}/members`, t2);
-    const u1row = (roster2.json?.data ?? []).find((m) => m.userId === u1);
+    const u1card = await call('GET', `/workspaces/${wsId}/members/${u1}`, t2);
+    const u1row = u1card.json?.data ?? null;
     check('рядовому реквизиты коллег не видны (тумблеры выключены)', !u1row?.requisites?.iin && !u1row?.requisites?.paymentCard, JSON.stringify(u1row?.requisites ?? null));
 
     // u2 включает коллегам ТОЛЬКО ИИН → u1 (manager+) и так видел; проверяем именно
     // рядового зрителя: наймём третьего? Дешевле проверить обратное — u2 видит своего
     // же коллегу-владельца ПОСЛЕ того, как тот включит тумблер.
     await call('PATCH', '/users/me', t1, { iin: makeIinOrBin(), companyCardVisibility: { extras: { iin: true } } });
-    const roster3 = await call('GET', `/workspaces/${wsId}/members`, t2);
-    const u1row2 = (roster3.json?.data ?? []).find((m) => m.userId === u1);
+    const u1card2 = await call('GET', `/workspaces/${wsId}/members/${u1}`, t2);
+    const u1row2 = u1card2.json?.data ?? null;
     check('тумблер «ИИН коллегам» открывает поле рядовому', !!u1row2?.requisites?.iin, JSON.stringify(u1row2?.requisites ?? null));
     check('карта при этом рядовому НЕ видна (свой тумблер выключен)', !u1row2?.requisites?.paymentCard);
 

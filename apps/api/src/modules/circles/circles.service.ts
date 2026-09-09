@@ -1,10 +1,5 @@
-import {
-  Injectable,
-  NotFoundException,
-  ForbiddenException,
-  BadRequestException,
-  ConflictException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { ContactsService } from '../contacts/contacts.service';
@@ -65,9 +60,9 @@ export class CirclesService {
         },
       },
     });
-    if (!circle) throw new NotFoundException('Группа не найдена');
+    if (!circle) throw notFound('contacts.circleNotFound');
     if (circle.ownerId !== ownerId) {
-      throw new ForbiddenException('Нет доступа к этой группе');
+      throw forbidden('contacts.circleNoAccess');
     }
 
     // Resolve only THIS group's membership links to full Contact cards via
@@ -97,9 +92,7 @@ export class CirclesService {
       );
       const existingCount = await tx.circle.count({ where: { ownerId } });
       if (existingCount >= CONTACT_LIMITS.maxCirclesPerUser) {
-        throw new BadRequestException(
-          `Лимит групп: ${CONTACT_LIMITS.maxCirclesPerUser}`,
-        );
+        throw badRequest('contacts.circleLimit', { max: CONTACT_LIMITS.maxCirclesPerUser });
       }
 
       const sortOrder =
@@ -146,7 +139,7 @@ export class CirclesService {
         >(
           Prisma.sql`SELECT card_visibility, calendar_visibility FROM circles WHERE id = ${circleId} FOR UPDATE`,
         );
-        if (locked.length === 0) throw new NotFoundException('Группа не найдена');
+        if (locked.length === 0) throw notFound('contacts.circleNotFound');
         const current = locked[0];
 
         const updateData: Prisma.CircleUpdateInput = { ...rest };
@@ -230,7 +223,7 @@ export class CirclesService {
       select: { id: true },
     });
     if (owned.length !== ids.length) {
-      throw new ForbiddenException('Одна из групп не принадлежит вам');
+      throw forbidden('contacts.circleNotYours');
     }
 
     await this.db.$transaction(
@@ -255,9 +248,9 @@ export class CirclesService {
       where: { id: contactLinkId },
       select: { id: true, userAId: true, userBId: true },
     });
-    if (!link) throw new NotFoundException('Контакт не найден');
+    if (!link) throw notFound('contacts.notFound');
     if (link.userAId !== ownerId && link.userBId !== ownerId) {
-      throw new ForbiddenException('Это не ваш контакт');
+      throw forbidden('contacts.notYourContact');
     }
 
     try {
@@ -270,9 +263,7 @@ export class CirclesService {
         );
         const currentCount = await tx.circleMembership.count({ where: { circleId } });
         if (currentCount >= CONTACT_LIMITS.maxMembersPerCircle) {
-          throw new BadRequestException(
-            `Лимит участников в группе: ${CONTACT_LIMITS.maxMembersPerCircle}`,
-          );
+          throw badRequest('contacts.circleMemberLimit', { max: CONTACT_LIMITS.maxMembersPerCircle });
         }
         await tx.circleMembership.create({
           data: { circleId, contactLinkId },
@@ -285,7 +276,7 @@ export class CirclesService {
         'code' in err &&
         (err as { code?: string }).code === 'P2002'
       ) {
-        throw new ConflictException('Контакт уже в этой группе');
+        throw conflict('contacts.alreadyInCircle');
       }
       throw err;
     }
@@ -302,7 +293,7 @@ export class CirclesService {
       where: { circleId, contactLinkId },
     });
     if (result.count === 0) {
-      throw new NotFoundException('Контакт не найден в этой группе');
+      throw notFound('contacts.notInThisCircle');
     }
     // Phase 1: remove the mirrored membership edge (best-effort).
     const link = await this.db.contactLink.findUnique({
@@ -321,9 +312,9 @@ export class CirclesService {
 
   private async assertOwned(ownerId: string, circleId: string) {
     const circle = await this.db.circle.findUnique({ where: { id: circleId } });
-    if (!circle) throw new NotFoundException('Группа не найдена');
+    if (!circle) throw notFound('contacts.circleNotFound');
     if (circle.ownerId !== ownerId) {
-      throw new ForbiddenException('Нет доступа к этой группе');
+      throw forbidden('contacts.circleNoAccess');
     }
     return circle;
   }

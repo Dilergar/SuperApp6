@@ -2,11 +2,11 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import {
   approvalHref,
   APPROVAL_LIMITS,
-  APPROVAL_STEP_KIND_LABELS,
-  formatTaskDeadline,
-  type ApprovalStepKind,
+  APP_TIMEZONE,
+  SOURCE_LOCALE,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ApprovalsRegistry } from './approvals.registry';
@@ -44,6 +44,7 @@ export class ApprovalsJobs implements OnModuleInit {
     private readonly notifications: NotificationsService,
     private readonly approvals: ApprovalsService,
     private readonly audiences: AudiencesService,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -88,7 +89,7 @@ export class ApprovalsJobs implements OnModuleInit {
       stepTitle: step.title,
       // Время в APP_TIMEZONE, а не в поясе сервера: «до 05.08 18:00» должно
       // значить одно и то же и в проде на UTC, и на машине разработчика.
-      deadlineLabel: formatTaskDeadline(step.deadlineAt, false),
+      deadlineLabel: this.i18n.format(SOURCE_LOCALE, APP_TIMEZONE).dateTime(step.deadlineAt),
     };
     const actionUrl = this.hrefFor(step.request.workspaceId, step.requestId);
 
@@ -136,10 +137,15 @@ export class ApprovalsJobs implements OnModuleInit {
     });
     if (marked.count === 0) return; // соседний инстанс успел первым
 
-    const labels = APPROVAL_STEP_KIND_LABELS[step.kind as ApprovalStepKind];
     const actionUrl = this.hrefFor(step.request.workspaceId, step.requestId);
 
-    const payload = { refTitle: step.request.refTitle, stepTitle: step.title, actionLabel: labels.action };
+    // Глагол вида шага уезжает КЛЮЧОМ: уведомление перерисовывается при чтении в
+    // языке адресата, а снимок словом застыл бы в языке источника навсегда.
+    const payload = {
+      refTitle: step.request.refTitle,
+      stepTitle: step.title,
+      actionLabelKey: `approvals.kind.${step.kind}.action`,
+    };
     // Автор узнаёт вместе с адресатами: просрочка — это его проблема, а не их.
     // И ВВЕРХ: руководитель каждого просрочившего (оргструктура; вершина → владелец) —
     // эскалация идёт по вертикали, а не только «по кругу». Провал разворота не роняет
@@ -152,7 +158,7 @@ export class ApprovalsJobs implements OnModuleInit {
             { max: 200, onOverflow: 'truncate' },
           )
           .catch((e) => {
-            this.logger.warn(`эскалация ${stepId}: руководители не развернулись — ${(e as Error).message}`);
+            this.logger.warn(`Escalation ${stepId}: managers did not resolve — ${(e as Error).message}`);
             return [] as string[];
           })
       : [];
@@ -193,7 +199,7 @@ export class ApprovalsJobs implements OnModuleInit {
       // Ретраи не помогут: провайдер регистрируется на старте модуля, и если его
       // нет сейчас — не будет и через час. Хороним сразу (движок логирует это
       // предупреждением, а не инцидентом), но громко: это дефект сборки.
-      throw new JobDiscardError(`нет провайдера origin "${request.originType}" — заявка ${requestId} осталась без побудки`);
+      throw new JobDiscardError(`No origin provider "${request.originType}" — request ${requestId} was left without a wake-up`);
     }
 
     await origin.onResolved(request.originRef, outcome);

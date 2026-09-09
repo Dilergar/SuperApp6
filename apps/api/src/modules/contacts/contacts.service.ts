@@ -1,11 +1,5 @@
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  ForbiddenException,
-  ConflictException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
 import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../../core/notifications/notifications.service';
@@ -146,9 +140,9 @@ export class ContactsService {
         memberships: { select: this.membershipSelect() },
       },
     });
-    if (!link) throw new NotFoundException('Контакт не найден');
+    if (!link) throw notFound('contacts.notFound');
     if (link.userAId !== userId && link.userBId !== userId) {
-      throw new ForbiddenException('Нет доступа к этому контакту');
+      throw forbidden('contacts.noAccess');
     }
     return this.mapLinkToContact(link, userId);
   }
@@ -234,13 +228,13 @@ export class ContactsService {
   async assertReachable(
     ownerId: string,
     ids: string[],
-    notLinkedMessage = 'Это действие доступно только для людей из вашего окружения',
+    notLinkedCode = 'contacts.notLinked',
     opts: { alwaysCheckBlocks?: boolean; personalOnly?: boolean } = {},
   ): Promise<void> {
     // Fail-closed: пустая строка / не-строка среди id раньше просто отфильтровывалась,
     // и вызывающий с невалидированным вводом получал НОЛЬ проверок вместо отказа.
     if (ids.some((id) => typeof id !== 'string' || id.trim() === '')) {
-      throw new BadRequestException('Некорректный идентификатор пользователя');
+      throw badRequest('contacts.invalidUserId');
     }
     const others = [...new Set(ids)].filter((id) => id && id !== ownerId);
     if (others.length === 0) return;
@@ -263,12 +257,10 @@ export class ContactsService {
       });
       const teamSet = new Set(teamRows.map((r) => r.userId));
       if (!teamSet.has(ownerId)) {
-        throw new ForbiddenException('Подрядчику доступны только его задачи');
+        throw forbidden('contacts.contractorOwnTasks');
       }
       if (others.some((id) => !teamSet.has(id))) {
-        throw new ForbiddenException(
-          'Это действие доступно только для сотрудников организации',
-        );
+        throw forbidden('contacts.staffOnly');
       }
       if (opts.alwaysCheckBlocks) await this.assertNotBlocked(ownerId, others);
       return;
@@ -285,7 +277,7 @@ export class ContactsService {
     });
     const linked = new Set(links.map((l) => (l.userAId === ownerId ? l.userBId : l.userAId)));
     if (others.some((id) => !linked.has(id))) {
-      throw new ForbiddenException(notLinkedMessage);
+      throw forbidden(notLinkedCode);
     }
 
     await this.assertNotBlocked(ownerId, others);
@@ -304,7 +296,7 @@ export class ContactsService {
     });
     if (blocked) {
       // Deliberately neutral — never reveal who blocked whom.
-      throw new ForbiddenException('Действие недоступно для этого пользователя');
+      throw forbidden('contacts.actionUnavailable');
     }
   }
 
@@ -471,7 +463,7 @@ export class ContactsService {
   async resolveCircleMemberIds(
     ownerId: string,
     circleId: string,
-    opts: { gate?: boolean; notLinkedMessage?: string } = {},
+    opts: { gate?: boolean; notLinkedCode?: string } = {},
   ): Promise<string[]> {
     const circle = await this.db.circle.findUnique({
       where: { id: circleId },
@@ -483,7 +475,7 @@ export class ContactsService {
       },
     });
     if (!circle || circle.ownerId !== ownerId) {
-      throw new ForbiddenException('Группа не найдена');
+      throw forbidden('contacts.circleNotFound');
     }
     const ids = [
       ...new Set(
@@ -495,7 +487,7 @@ export class ContactsService {
       ),
     ];
     if (ids.length > 0 && opts.gate !== false) {
-      await this.assertReachable(ownerId, ids, opts.notLinkedMessage);
+      await this.assertReachable(ownerId, ids, opts.notLinkedCode);
     }
     return ids;
   }
@@ -506,9 +498,9 @@ export class ContactsService {
     data: { myRole?: string | null },
   ) {
     const link = await this.db.contactLink.findUnique({ where: { id: linkId } });
-    if (!link) throw new NotFoundException('Контакт не найден');
+    if (!link) throw notFound('contacts.notFound');
     const side = this.sideFor(userId, link);
-    if (!side) throw new ForbiddenException('Нет доступа к этому контакту');
+    if (!side) throw forbidden('contacts.noAccess');
 
     const patch: Prisma.ContactLinkUpdateInput = {};
     if (data.myRole !== undefined) {
@@ -536,9 +528,9 @@ export class ContactsService {
       where: { id: linkId },
       include: { memberships: { select: this.membershipSelect() } },
     });
-    if (!link) throw new NotFoundException('Контакт не найден');
+    if (!link) throw notFound('contacts.notFound');
     if (link.userAId !== userId && link.userBId !== userId) {
-      throw new ForbiddenException('Нет доступа к этому контакту');
+      throw forbidden('contacts.noAccess');
     }
 
     await this.db.contactLink.delete({ where: { id: linkId } });
@@ -581,10 +573,10 @@ export class ContactsService {
       where: { id: fromUserId },
       select: { id: true, phone: true, firstName: true, lastName: true },
     });
-    if (!sender) throw new NotFoundException('Отправитель не найден');
+    if (!sender) throw notFound('contacts.senderNotFound');
 
     if (sender.phone === data.toPhone) {
-      throw new BadRequestException('Нельзя пригласить самого себя');
+      throw badRequest('contacts.selfInvite');
     }
 
     // Группы, в которые отправитель просит положить контакт при принятии.
@@ -609,15 +601,15 @@ export class ContactsService {
     // Аккаунт удалён или ждёт удаления — приглашать некого: строка сожгла бы
     // слот из 30/24ч и 24-часовой кулдаун на того, кто физически не ответит.
     if (recipient?.deletedAt) {
-      throw new NotFoundException('Пользователь не найден');
+      throw notFound('contacts.userNotFound');
     }
     if (recipient?.deletionScheduledAt) {
-      throw new ConflictException('Этот аккаунт удаляется — приглашение недоступно');
+      throw conflict('contacts.accountDeleting');
     }
     // Страховка на случай, если нормализация номеров когда-нибудь разойдётся со
     // сравнением строк выше: связь с самим собой сломала бы канон userA < userB.
     if (recipient && recipient.id === fromUserId) {
-      throw new BadRequestException('Нельзя пригласить самого себя');
+      throw badRequest('contacts.selfInvite');
     }
 
     // If recipient exists, check blocks and existing link/invitation.
@@ -631,7 +623,7 @@ export class ContactsService {
         },
       });
       if (block) {
-        throw new ForbiddenException('Невозможно отправить приглашение этому пользователю');
+        throw forbidden('contacts.inviteForbidden');
       }
 
       const [a, b] = canonical(fromUserId, recipient.id);
@@ -639,7 +631,7 @@ export class ContactsService {
         where: { userAId_userBId: { userAId: a, userBId: b } },
       });
       if (existingLink) {
-        throw new ConflictException('Этот пользователь уже в вашем окружении');
+        throw conflict('contacts.alreadyLinked');
       }
 
       const existingPending = await this.db.contactInvitation.findFirst({
@@ -652,7 +644,7 @@ export class ContactsService {
         },
       });
       if (existingPending) {
-        throw new ConflictException('Уже есть активное приглашение между вами');
+        throw conflict('contacts.inviteActive');
       }
     } else {
       // External invitation: still check for existing pending to same phone.
@@ -664,7 +656,7 @@ export class ContactsService {
         },
       });
       if (existingPendingToPhone) {
-        throw new ConflictException('Вы уже приглашали этого пользователя');
+        throw conflict('contacts.alreadyInvited');
       }
     }
 
@@ -681,9 +673,7 @@ export class ContactsService {
       },
     });
     if (recentRejected) {
-      throw new BadRequestException(
-        `Повторная отправка возможна через ${CONTACT_LIMITS.resendCooldownHours} часов`,
-      );
+      throw badRequest('contacts.resendCooldown', { hours: CONTACT_LIMITS.resendCooldownHours });
     }
 
     // Throttle: max invitations per 24h.
@@ -692,9 +682,7 @@ export class ContactsService {
       where: { fromUserId, createdAt: { gte: since24h } },
     });
     if (sentIn24h >= CONTACT_LIMITS.maxInvitationsPer24h) {
-      throw new BadRequestException(
-        `Превышен лимит приглашений: ${CONTACT_LIMITS.maxInvitationsPer24h} в 24 часа`,
-      );
+      throw badRequest('contacts.invitesPerDay', { max: CONTACT_LIMITS.maxInvitationsPer24h });
     }
 
     // Max pending outgoing.
@@ -702,9 +690,7 @@ export class ContactsService {
       where: { fromUserId, status: 'pending' },
     });
     if (pendingOutgoing >= CONTACT_LIMITS.maxPendingOutgoingInvitations) {
-      throw new BadRequestException(
-        `Превышен лимит активных приглашений: ${CONTACT_LIMITS.maxPendingOutgoingInvitations}`,
-      );
+      throw badRequest('contacts.pendingLimit', { max: CONTACT_LIMITS.maxPendingOutgoingInvitations });
     }
 
     const expiresAt = new Date(
@@ -732,7 +718,7 @@ export class ContactsService {
       // 10 одновременных POST (глобальный троттлер разрешает 10/сек) проходили
       // их все и создавали 10 приглашений на один номер. Теперь гонку ловит БД.
       if (isUniqueViolation(err)) {
-        throw new ConflictException('Вы уже приглашали этого пользователя');
+        throw conflict('contacts.alreadyInvited');
       }
       throw err;
     }
@@ -777,12 +763,12 @@ export class ContactsService {
         fromUser: { select: { id: true, firstName: true, lastName: true } },
       },
     });
-    if (!invitation) throw new NotFoundException('Приглашение не найдено');
+    if (!invitation) throw notFound('contacts.inviteNotFound');
     if (invitation.toUserId !== userId) {
-      throw new ForbiddenException('Это приглашение не для вас');
+      throw forbidden('contacts.inviteNotYours');
     }
     if (invitation.status !== 'pending') {
-      throw new ConflictException('Приглашение уже обработано');
+      throw conflict('contacts.inviteHandled');
     }
     if (invitation.expiresAt < new Date()) {
       await this.db.contactInvitation.update({
@@ -791,7 +777,7 @@ export class ContactsService {
         // reject, cancel); без него строка выбивалась из общей формы.
         data: { status: 'expired', respondedAt: new Date() },
       });
-      throw new ConflictException('Приглашение истекло');
+      throw conflict('contacts.inviteExpired');
     }
 
     // Block check — either side may have blocked after invitation was sent.
@@ -804,7 +790,7 @@ export class ContactsService {
       },
     });
     if (block) {
-      throw new ForbiddenException('Принятие приглашения заблокировано');
+      throw forbidden('contacts.acceptBlocked');
     }
 
     // Resolve roles. Sender's view of recipient = proposedRoleForRecipient
@@ -847,7 +833,7 @@ export class ContactsService {
           select: { id: true },
         });
         if (blockedNow) {
-          throw new ForbiddenException('Принятие приглашения заблокировано');
+          throw forbidden('contacts.acceptBlocked');
         }
 
         const created = await tx.contactLink.create({
@@ -978,12 +964,12 @@ export class ContactsService {
     const invitation = await this.db.contactInvitation.findUnique({
       where: { id: invitationId },
     });
-    if (!invitation) throw new NotFoundException('Приглашение не найдено');
+    if (!invitation) throw notFound('contacts.inviteNotFound');
     if (invitation.toUserId !== userId) {
-      throw new ForbiddenException('Это приглашение не для вас');
+      throw forbidden('contacts.inviteNotYours');
     }
     if (invitation.status !== 'pending') {
-      throw new ConflictException('Приглашение уже обработано');
+      throw conflict('contacts.inviteHandled');
     }
 
     await this.db.contactInvitation.update({
@@ -1013,12 +999,12 @@ export class ContactsService {
     const invitation = await this.db.contactInvitation.findUnique({
       where: { id: invitationId },
     });
-    if (!invitation) throw new NotFoundException('Приглашение не найдено');
+    if (!invitation) throw notFound('contacts.inviteNotFound');
     if (invitation.fromUserId !== userId) {
-      throw new ForbiddenException('Отменить может только отправитель');
+      throw forbidden('contacts.cancelSenderOnly');
     }
     if (invitation.status !== 'pending') {
-      throw new ConflictException('Приглашение уже обработано');
+      throw conflict('contacts.inviteHandled');
     }
 
     await this.db.contactInvitation.update({
@@ -1041,23 +1027,22 @@ export class ContactsService {
     const invitation = await this.db.contactInvitation.findUnique({
       where: { id: invitationId },
     });
-    if (!invitation) throw new NotFoundException('Приглашение не найдено');
+    if (!invitation) throw notFound('contacts.inviteNotFound');
     if (invitation.fromUserId !== userId) {
-      throw new ForbiddenException('Повторить может только отправитель');
+      throw forbidden('contacts.resendSenderOnly');
     }
     if (invitation.status === 'pending') {
-      throw new ConflictException('Это приглашение ещё активно');
+      throw conflict('contacts.inviteStillActive');
     }
     if (invitation.status === 'accepted') {
-      throw new ConflictException('Приглашение уже принято');
+      throw conflict('contacts.inviteAlreadyAccepted');
     }
 
     const cooldownSince = new Date(
       Date.now() - CONTACT_LIMITS.resendCooldownHours * 60 * 60 * 1000,
     );
     if (invitation.updatedAt > cooldownSince) {
-      const hours = CONTACT_LIMITS.resendCooldownHours;
-      throw new BadRequestException(`Повторная отправка возможна через ${hours} часов`);
+      throw badRequest('contacts.resendCooldown', { hours: CONTACT_LIMITS.resendCooldownHours });
     }
 
     // Simply create a new invitation with the same details.
@@ -1250,7 +1235,7 @@ export class ContactsService {
 
   async blockUser(userId: string, targetUserId: string) {
     if (userId === targetUserId) {
-      throw new BadRequestException('Нельзя заблокировать самого себя');
+      throw badRequest('contacts.blockSelf');
     }
     const [blocker, target] = await Promise.all([
       this.db.user.findUnique({ where: { id: userId }, select: { phone: true } }),
@@ -1259,7 +1244,7 @@ export class ContactsService {
         select: { id: true, phone: true },
       }),
     ]);
-    if (!target) throw new NotFoundException('Пользователь не найден');
+    if (!target) throw notFound('contacts.userNotFound');
 
     // Блокировка ИДЕМПОТЕНТНА, но не «пуста»: раньше при уже существующей записи
     // метод выходил первой строкой и не делал НИЧЕГО — ни удаления связи, ни
@@ -1415,7 +1400,7 @@ export class ContactsService {
       select: { id: true },
     });
     if (owned.length !== wanted.length) {
-      throw new ForbiddenException('Одна из групп не принадлежит вам');
+      throw forbidden('contacts.circleNotYours');
     }
     return owned.map((c) => c.id);
   }
@@ -1455,7 +1440,7 @@ export class ContactsService {
     });
     if (!existing) {
       // Связь исчезла между падением и этим запросом (удалили/заблокировали).
-      throw new ConflictException('Связь уже существует');
+      throw conflict('contacts.linkExists');
     }
     await this.db.contactInvitation.updateMany({
       where: { id: invitationId, status: 'pending' },
@@ -1562,7 +1547,7 @@ export class ContactsService {
   ): Contact {
     const side = this.sideFor(requestingUserId, link);
     if (!side) {
-      throw new ForbiddenException('Нет доступа к этому контакту');
+      throw forbidden('contacts.noAccess');
     }
     const them = side === 'A' ? link.userB : link.userA;
     const myRole = side === 'A' ? link.roleAForB : link.roleBForA;

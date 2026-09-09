@@ -37,14 +37,14 @@ export class DocumentsController {
   // ---- Виды документов (Менеджер+) ----
 
   @Get('doc-types')
-  @ApiOperation({ summary: 'Виды документов организации' })
+  @ApiOperation({ summary: 'The document types of the organization' })
   async listTypes(@CurrentUser() user: JwtPayload, @Param('workspaceId') workspaceId: string) {
     const data = await this.documents.listTypes(user.sub, workspaceId);
     return { success: true, data };
   }
 
   @Post('doc-types')
-  @ApiOperation({ summary: 'Создать вид документа (Менеджер+)' })
+  @ApiOperation({ summary: 'Create a document type (Manager and above)' })
   async createType(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -56,7 +56,7 @@ export class DocumentsController {
   }
 
   @Patch('doc-types/:typeId')
-  @ApiOperation({ summary: 'Изменить вид документа (Менеджер+)' })
+  @ApiOperation({ summary: 'Update a document type (Manager and above)' })
   async updateType(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -69,7 +69,7 @@ export class DocumentsController {
   }
 
   @Delete('doc-types/:typeId')
-  @ApiOperation({ summary: 'Убрать вид в архив (Менеджер+)' })
+  @ApiOperation({ summary: 'Move a document type to the archive (Manager and above)' })
   async archiveType(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -82,14 +82,14 @@ export class DocumentsController {
   // ---- Шаблоны (Менеджер+) ----
 
   @Get('templates')
-  @ApiOperation({ summary: 'Шаблоны организации (Менеджер+)' })
+  @ApiOperation({ summary: 'The templates of the organization (Manager and above)' })
   async listTemplates(@CurrentUser() user: JwtPayload, @Param('workspaceId') workspaceId: string) {
     const data = await this.documents.listTemplates(user.sub, workspaceId);
     return { success: true, data };
   }
 
   @Post('templates')
-  @ApiOperation({ summary: 'Создать шаблон: бланк + форма подачи (Менеджер+)' })
+  @ApiOperation({ summary: 'Create a template: the form file plus the submission form (Manager and above)' })
   async createTemplate(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -101,7 +101,7 @@ export class DocumentsController {
   }
 
   @Patch('templates/:templateId')
-  @ApiOperation({ summary: 'Изменить шаблон (Менеджер+)' })
+  @ApiOperation({ summary: 'Update a template (Manager and above)' })
   async updateTemplate(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -114,7 +114,7 @@ export class DocumentsController {
   }
 
   @Post('templates/:templateId/publish')
-  @ApiOperation({ summary: 'Опубликовать шаблон — с этого момента по нему можно подавать' })
+  @ApiOperation({ summary: 'Publish a template — from this moment it accepts submissions' })
   async publishTemplate(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -125,7 +125,7 @@ export class DocumentsController {
   }
 
   @Post('templates/:templateId/preview')
-  @ApiOperation({ summary: 'PDF-превью блочного шаблона «Пример с данными» (Менеджер+)' })
+  @ApiOperation({ summary: 'A PDF preview of a block template with sample data (Manager and above)' })
   async previewTemplate(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -142,7 +142,7 @@ export class DocumentsController {
   }
 
   @Get('templates/:templateId/grants')
-  @ApiOperation({ summary: 'Кому доступен шаблон (Менеджер+)' })
+  @ApiOperation({ summary: 'Who the template is granted to (Manager and above)' })
   async listGrants(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -153,7 +153,7 @@ export class DocumentsController {
   }
 
   @Post('templates/:templateId/grants')
-  @ApiOperation({ summary: 'Выдать шаблон человеку, отделу, должности или филиалу' })
+  @ApiOperation({ summary: 'Grant a template to a person, a department, a position or a site' })
   async addGrant(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -166,7 +166,7 @@ export class DocumentsController {
   }
 
   @Delete('templates/:templateId/grants/:principalType/:principalId')
-  @ApiOperation({ summary: 'Убрать доступность шаблона' })
+  @ApiOperation({ summary: 'Withdraw a grant of a template' })
   async removeGrant(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -183,7 +183,7 @@ export class DocumentsController {
   // идентификатором «available-templates» (та же ловушка, что в гостевых ссылках).
 
   @Get('available-templates')
-  @ApiOperation({ summary: 'Что я могу подать («Подать заявление»)' })
+  @ApiOperation({ summary: 'What I can submit («Submit an application»)' })
   async availableTemplates(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -193,7 +193,7 @@ export class DocumentsController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Реестр документов: вид, статус, сотрудник, период' })
+  @ApiOperation({ summary: 'The registry of documents: type, status, employee, period' })
   async list(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -205,7 +205,7 @@ export class DocumentsController {
   }
 
   @Post()
-  @ApiOperation({ summary: 'Создать документ по шаблону' })
+  @ApiOperation({ summary: 'Create a document from a template' })
   async create(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -217,7 +217,7 @@ export class DocumentsController {
   }
 
   @Post('free')
-  @ApiOperation({ summary: 'Создать свободный документ с нуля (блочный конструктор)' })
+  @ApiOperation({ summary: 'Create a free document from scratch (the block builder)' })
   async createFree(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -229,7 +229,7 @@ export class DocumentsController {
   }
 
   @Post('upload')
-  @ApiOperation({ summary: 'Создать документ из готового файла (PDF или .docx)' })
+  @ApiOperation({ summary: 'Create a document from a ready file (PDF or .docx)' })
   async createUploaded(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -241,14 +241,14 @@ export class DocumentsController {
   }
 
   @Get(':documentId')
-  @ApiOperation({ summary: 'Карточка документа' })
+  @ApiOperation({ summary: 'The card of a document' })
   async get(@CurrentUser() user: JwtPayload, @Param('documentId') documentId: string) {
     const data = await this.documents.get(user.sub, documentId);
     return { success: true, data };
   }
 
   @Post(':documentId/preview')
-  @ApiOperation({ summary: 'PDF-превью блочного документа (текущие или присланные блоки)' })
+  @ApiOperation({ summary: 'A PDF preview of a block document (the current or the sent blocks)' })
   async previewDocument(
     @CurrentUser() user: JwtPayload,
     @Param('documentId') documentId: string,
@@ -263,7 +263,7 @@ export class DocumentsController {
   }
 
   @Patch(':documentId')
-  @ApiOperation({ summary: 'Изменить черновик (после отправки правка закрыта)' })
+  @ApiOperation({ summary: 'Update a draft (after it is sent the editing is closed)' })
   async update(
     @CurrentUser() user: JwtPayload,
     @Param('documentId') documentId: string,
@@ -275,28 +275,28 @@ export class DocumentsController {
   }
 
   @Post(':documentId/submit')
-  @ApiOperation({ summary: 'Отправить на маршрут: правка закрывается, снимается PDF' })
+  @ApiOperation({ summary: 'Send along the route: the editing closes, a PDF is taken' })
   async submit(@CurrentUser() user: JwtPayload, @Param('documentId') documentId: string) {
     const data = await this.documents.submit(user.sub, documentId);
     return { success: true, data };
   }
 
   @Post(':documentId/withdraw')
-  @ApiOperation({ summary: 'Вернуть с маршрута в черновик (пока по нему не начали решать)' })
+  @ApiOperation({ summary: 'Return from the route to a draft (while nobody has decided yet)' })
   async withdraw(@CurrentUser() user: JwtPayload, @Param('documentId') documentId: string) {
     const data = await this.documents.withdraw(user.sub, documentId);
     return { success: true, data };
   }
 
   @Post(':documentId/cancel')
-  @ApiOperation({ summary: 'Отменить документ (автор или Менеджер+)' })
+  @ApiOperation({ summary: 'Cancel a document (the author or a Manager and above)' })
   async cancel(@CurrentUser() user: JwtPayload, @Param('documentId') documentId: string) {
     const data = await this.documents.cancel(user.sub, documentId);
     return { success: true, data };
   }
 
   @Post(':documentId/assign-number')
-  @ApiOperation({ summary: 'Присвоить номер черновику (внешний контур: номер печатается до отправки)' })
+  @ApiOperation({ summary: 'Assign a number to a draft (the external circuit: the number is printed before sending)' })
   async assignNumber(@CurrentUser() user: JwtPayload, @Param('documentId') documentId: string) {
     const data = await this.documents.assignNumber(user.sub, documentId);
     return { success: true, data };
@@ -305,7 +305,7 @@ export class DocumentsController {
   // ---- Внешний этап (категория «С контрагентами») ----
 
   @Post(':documentId/send-external')
-  @ApiOperation({ summary: 'Отправить контрагенту: заморозка, заявка подписи, гостевая ссылка, SMS' })
+  @ApiOperation({ summary: 'Send to a counterparty: freezing, a signing request, a guest link, an SMS' })
   async sendExternal(
     @CurrentUser() user: JwtPayload,
     @Param('documentId') documentId: string,
@@ -317,28 +317,28 @@ export class DocumentsController {
   }
 
   @Post(':documentId/revoke-external')
-  @ApiOperation({ summary: 'Отозвать отправку контрагенту (ссылка гаснет, документ в черновик)' })
+  @ApiOperation({ summary: 'Withdraw the sending to a counterparty (the link goes dark, the document goes back to a draft)' })
   async revokeExternal(@CurrentUser() user: JwtPayload, @Param('documentId') documentId: string) {
     const data = await this.documents.revokeExternal(user.sub, documentId);
     return { success: true, data };
   }
 
   @Post(':documentId/return-to-draft')
-  @ApiOperation({ summary: 'Вернуть в черновик после отказа контрагента' })
+  @ApiOperation({ summary: 'Return to a draft after the refusal of a counterparty' })
   async returnToDraft(@CurrentUser() user: JwtPayload, @Param('documentId') documentId: string) {
     const data = await this.documents.returnToDraft(user.sub, documentId);
     return { success: true, data };
   }
 
   @Post(':documentId/external/sms')
-  @ApiOperation({ summary: 'Перепослать SMS со ссылкой контрагенту (кулдаун 60с)' })
+  @ApiOperation({ summary: 'Resend the SMS with the link to the counterparty (a 60 s cooldown)' })
   async resendExternalSms(@CurrentUser() user: JwtPayload, @Param('documentId') documentId: string) {
     await this.documents.resendExternalSms(user.sub, documentId);
     return { success: true, data: { sent: true } };
   }
 
   @Post(':documentId/pdf')
-  @ApiOperation({ summary: 'Заказать PDF-отпечаток текущего содержимого' })
+  @ApiOperation({ summary: 'Request a PDF imprint of the current content' })
   async pdf(@CurrentUser() user: JwtPayload, @Param('documentId') documentId: string) {
     // Право смотреть документ = право заказать его отпечаток (тот же предикат).
     await this.documents.get(user.sub, documentId);
@@ -349,7 +349,7 @@ export class DocumentsController {
   // ---- КЭДО: вручение (специальный режим — ст. 61 п. 3 / ст. 65 ТК РК) ----
 
   @Post(':documentId/delivery')
-  @ApiOperation({ summary: 'Зафиксировать вручение: лично / отказ актом / заказное письмо (Менеджер+)' })
+  @ApiOperation({ summary: 'Record the hand-over: in person / a refusal act / a registered letter (Manager and above)' })
   async fixDelivery(
     @CurrentUser() user: JwtPayload,
     @Param('documentId') documentId: string,
@@ -361,7 +361,7 @@ export class DocumentsController {
   }
 
   @Post(':documentId/delivery-mode')
-  @ApiOperation({ summary: 'Режим доставки (гибрид): электронно / бумага / оба (Менеджер+)' })
+  @ApiOperation({ summary: 'The delivery mode (hybrid): electronic / paper / both (Manager and above)' })
   async setDeliveryMode(
     @CurrentUser() user: JwtPayload,
     @Param('documentId') documentId: string,

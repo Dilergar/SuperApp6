@@ -7,7 +7,8 @@
 // это Chip, а не цветной текст.
 // ============================================================
 
-import { DOC_STATUS_LABELS, type DocStatus } from '@superapp/shared';
+import { useTranslations } from 'next-intl';
+import type { DocStatus } from '@superapp/shared';
 import { Chip } from '@/components/ui';
 import type { Tone } from '@/components/ui';
 
@@ -30,9 +31,10 @@ const STATUS_TONE: Record<DocStatus, Tone> = {
 };
 
 export function DocStatusChip({ status }: { status: DocStatus }) {
+  const tr = useTranslations('documents');
   return (
     <Chip tone={STATUS_TONE[status] ?? 'neutral'} size="sm">
-      {DOC_STATUS_LABELS[status] ?? status}
+      {tr(`status.${status}`)}
     </Chip>
   );
 }

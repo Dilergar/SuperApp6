@@ -2,6 +2,7 @@
 
 import { Icon } from '@/components/ui';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import type { AttachmentFileRef, AttachmentFileView, AttachmentsPayload, FileDto } from '@superapp/shared';
 import { isVoiceNoteProfile } from '@superapp/shared';
 import { useFileDisplayUrl, useFileMeta } from '@/lib/hooks/useFileUrl';
@@ -85,6 +86,7 @@ function MediaTile({
   single: boolean;
   onOpenImage: (file: FileDto) => void;
 }) {
+  const t = useTranslations('messenger');
   // Битая view-ссылка (onError) → фолбэк на старый путь хуков
   const [viewBroken, setViewBroken] = useState(false);
   const view = !viewBroken && isViewFresh(fileRef.view) ? fileRef.view : undefined;
@@ -124,7 +126,7 @@ function MediaTile({
     // Настоящая кнопка, не div: открытие фото/видео обязано работать с клавиатуры
     <button
       type="button"
-      aria-label={fileRef.kind === 'video' ? `Воспроизвести видео: ${fileRef.name}` : `Открыть фото: ${fileRef.name}`}
+      aria-label={fileRef.kind === 'video' ? t('files.playVideo', { name: fileRef.name }) : t('files.openPhoto', { name: fileRef.name })}
       onClick={() => {
         if (meta) {
           if (fileRef.kind === 'image') onOpenImage(meta);

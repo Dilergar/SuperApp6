@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import type { Contact } from '@superapp/shared';
 import { contactsKey, fetchAllContacts } from '@/lib/queries';
 import { EntitySelector } from '@/components/EntitySelector';
@@ -18,12 +19,16 @@ import type { Principal } from '@/lib/entities';
  * своим состоянием загрузки и своим `catch`). Форма строки — shared `Contact`:
  * локальное сужение `Contact` теряло половину полей человека.
  */
+/**
+ * Люди окружения для пикеров. `error` — КЛЮЧ каталога, а не фраза: хук зовут и
+ * из мест без провайдера неймспейса, а показывает ошибку всегда компонент.
+ */
 export function useContacts(): { contacts: Contact[]; loading: boolean; error: string } {
   const { data, isPending, isError } = useQuery({ queryKey: contactsKey, queryFn: fetchAllContacts });
   return {
     contacts: data ?? [],
     loading: isPending,
-    error: isError ? 'Не удалось загрузить окружение' : '',
+    error: isError ? 'picker.loadFailed' : '',
   };
 }
 
@@ -36,7 +41,7 @@ export function ContactPicker({
   excludeUserIds = [],
   onPick,
   onToggle,
-  emptyHint = 'Поиск по имени…',
+  emptyHint,
 }: {
   contacts: Contact[];
   loading: boolean;
@@ -48,6 +53,8 @@ export function ContactPicker({
   onToggle?: (userId: string) => void;
   emptyHint?: string;
 }) {
+  const t = useTranslations('messenger');
+  const tc = useTranslations('common');
   const options = contacts
     .filter((c) => !excludeUserIds.includes(c.them.id))
     .map((c) => ({
@@ -73,13 +80,13 @@ export function ContactPicker({
     for (const id of selected) if (!nxt.has(id)) { onToggle?.(id); return; }
   };
 
-  if (loading) return <p className="label-sm" style={{ padding: 'var(--spacing-3)' }}>Загрузка...</p>;
+  if (loading) return <p className="label-sm" style={{ padding: 'var(--spacing-3)' }}>{tc('state.loading')}</p>;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
       {error && (
         <div className="alert-neutral-inline" style={{ padding: 'var(--spacing-3) var(--spacing-4)', color: 'var(--primary)', fontSize: '0.85rem', marginBottom: 'var(--spacing-2)' }}>
-          {error}
+          {t(error)}
         </div>
       )}
       <EntitySelector

@@ -29,8 +29,11 @@ export interface SearchProviderResult {
  */
 export interface SearchProvider {
   type: SearchSourceType;
-  /** Display label for the grouped result bucket (Чаты / Люди / Сообщения). */
-  label: string;
+  /**
+   * Ключ каталога для заголовка группы выдачи. Реестр называет СМЫСЛ, слово ему
+   * даёт каталог: заголовок читает человек, и он обязан быть на его языке.
+   */
+  labelKey: string;
   search(viewerId: string, query: string, opts: SearchProviderOpts): Promise<SearchProviderResult>;
   /** Optional bounded repair for the reconcile cron (e.g. re-index recent items). */
   reconcile?(): Promise<number>;

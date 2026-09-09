@@ -1,27 +1,18 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  Logger,
-  NotFoundException,
-  ServiceUnavailableException,
-} from '@nestjs/common';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { Prisma, type SignAct as PrismaSignAct, type SignRequest as PrismaSignRequest } from '@prisma/client';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomBytes } from 'node:crypto';
 import { buffer as streamToBuffer } from 'node:stream/consumers';
 import {
   SIGN_ACT_REF_TYPE,
+  SOURCE_LOCALE,
   SIGN_CONSENT_VERSION,
   SIGN_ERROR_CODES,
   SIGN_FILE_PROFILES,
-  SIGN_LEVEL_LABELS,
   SIGN_LIMITS,
   SIGN_METHODS,
   SIGN_METHOD_LEVEL,
   SIGN_REQUEST_REF_TYPE,
-  buildSignPdConsentText,
-  buildSignPepConsentText,
   maskIin,
   maskPhone,
   signCheckUrl,
@@ -46,7 +37,9 @@ import {
   type SignSubjectViewDto,
   type SignSummaryDto,
 } from '@superapp/shared';
+import { ApiError, badRequest, forbidden, notFound, type ErrorParams } from '../../shared/errors/api-error';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { withTempFile } from '../../shared/fs/temp-file.util';
 import { FilesService } from '../files/files.service';
 import { JobsService } from '../jobs/jobs.service';
@@ -70,9 +63,12 @@ export interface SignCtx {
   userAgent?: string | null;
 }
 
-/** Ошибка движка с машинным кодом в `details.code` */
-function coded(message: string, code: string): BadRequestException {
-  return new BadRequestException({ message, details: { code } });
+/**
+ * Отказ движка: слова берёт каталог по ключу, а машинный код остаётся прежним —
+ * клиенты подписи ветвятся по `details.code`, а не по фразе.
+ */
+function coded(key: string, code: string, params?: ErrorParams): ApiError {
+  return badRequest(key, params, { code });
 }
 
 /**
@@ -108,6 +104,7 @@ export class SignService {
     private readonly qrBridge: SignQrBridgeService,
     private readonly jobs: JobsService,
     private readonly approvals: ApprovalsService,
+    private readonly i18n: I18nService,
   ) {}
 
   // ============================================================
@@ -203,20 +200,18 @@ export class SignService {
     } = {},
   ): Promise<SignRequestDto> {
     const provider = this.registry.get(input.refType);
-    if (!provider) throw new NotFoundException(`Тип «${input.refType}» не зарегистрирован в подписи`);
+    if (!provider) throw notFound('sign.refTypeUnknown', { refType: input.refType });
     if (!opts.authorizedBy && !(await provider.canRequestSign(actorId, input.refId))) {
-      throw new ForbiddenException('Нельзя отправить этот объект на подпись');
+      throw forbidden('sign.cannotRequest');
     }
 
     const subject = await provider.resolveSubject(input.refId);
-    if (!subject) throw coded('Нечего подписывать: документ не готов', SIGN_ERROR_CODES.subjectGone);
+    if (!subject) throw coded('sign.subjectNotReady', SIGN_ERROR_CODES.subjectGone);
 
     const methods = this.methodsForLevel(input.level, input.methods);
     if (methods.length === 0) {
       throw coded(
-        input.level === 'ecp'
-          ? 'Подписание ЭЦП сейчас недоступно: не настроена проверка сертификатов'
-          : 'Подписание сейчас недоступно',
+        input.level === 'ecp' ? 'sign.ecpUnavailable' : 'sign.unavailable',
         SIGN_ERROR_CODES.methodDisabled,
       );
     }
@@ -304,7 +299,7 @@ export class SignService {
    * подписали бы формально разные документы.
    */
   async ensureForStep(actor: SignActor, stepId: string): Promise<SignFlowDto> {
-    if (actor.type !== 'user') throw new ForbiddenException('Шаг маршрута подписывает сотрудник');
+    if (actor.type !== 'user') throw forbidden('sign.stepStaffOnly');
     // Адресность, активность шага и требование уровня решает движок решений —
     // второго толкования этих правил в движке подписи быть не должно.
     const step = await this.approvals.stepForSignature(actor.userId, stepId);
@@ -378,12 +373,12 @@ export class SignService {
     // `undefined`, Prisma убрала бы условие целиком — и «своим» актом оказался бы
     // первый попавшийся акт заявки, то есть ЧУЖОЙ.
     if (actor.type !== 'guest') {
-      throw new ForbiddenException('Этот путь подписания — только для внешнего подписанта');
+      throw forbidden('sign.guestPathOnly');
     }
     const request = await this.db.signRequest.findUnique({ where: { id: requestId } });
-    if (!request) throw new NotFoundException('Заявка на подпись не найдена');
+    if (!request) throw notFound('sign.requestNotFound');
     if (request.status !== 'pending') {
-      throw coded('Подписание закрыто', SIGN_ERROR_CODES.requestClosed);
+      throw coded('sign.requestClosed', SIGN_ERROR_CODES.requestClosed);
     }
     const existing = await this.db.signAct.findFirst({
       where: {
@@ -483,7 +478,7 @@ export class SignService {
   ): Promise<{ fileId: string; sha256: string }> {
     const { result, mime, name } = await this.files.openRawStream(subject.fileId, subject.variant ?? null);
     const bytes = await streamToBuffer(result.stream);
-    if (bytes.length === 0) throw coded('Документ пуст — подписывать нечего', SIGN_ERROR_CODES.subjectGone);
+    if (bytes.length === 0) throw coded('sign.subjectEmpty', SIGN_ERROR_CODES.subjectGone);
 
     const file = await withTempFile(name, bytes, (filePath) =>
       this.files.ingestLocalFile({
@@ -539,8 +534,11 @@ export class SignService {
       where: { id: userId },
       select: { firstName: true, lastName: true, middleName: true },
     });
-    if (!u) return 'Пользователь';
-    return [u.lastName, u.firstName, u.middleName].filter(Boolean).join(' ') || 'Пользователь';
+    // Имя подписанта ЛОЖИТСЯ в акт и живёт там вечно — фолбэк пишем в языке
+    // ИСТОЧНИКА, как всякий снимок в БД.
+    const unknown = this.i18n.translateFor(SOURCE_LOCALE, 'common.labels.someone');
+    if (!u) return unknown;
+    return [u.lastName, u.firstName, u.middleName].filter(Boolean).join(' ') || unknown;
   }
 
   // ============================================================
@@ -552,11 +550,11 @@ export class SignService {
       where: { id: requestId },
       include: { acts: { orderBy: { createdAt: 'asc' } } },
     });
-    if (!request) throw new NotFoundException('Заявка на подпись не найдена');
+    if (!request) throw notFound('sign.requestNotFound');
 
     const myAct = request.acts.find((a) => this.isMine(a, actor)) ?? null;
     if (!myAct && !(await this.canViewRequest(actor, request))) {
-      throw new NotFoundException('Заявка на подпись не найдена');
+      throw notFound('sign.requestNotFound');
     }
 
     const subject = await this.subjectView(request);
@@ -576,9 +574,9 @@ export class SignService {
       subject,
       myAct: myAct ? this.serializeAct(myAct) : null,
       canSign,
-      consentText: canSign ? buildSignPepConsentText({ docTitle: request.refTitle, orgName }) : null,
+      consentText: canSign ? this.pepConsentText(request.refTitle, orgName) : null,
       consentVersion: canSign ? SIGN_CONSENT_VERSION : null,
-      pdConsentText: canSign && actor.type === 'guest' ? buildSignPdConsentText({ orgName }) : null,
+      pdConsentText: canSign && actor.type === 'guest' ? this.pdConsentText(orgName) : null,
     };
   }
 
@@ -611,8 +609,8 @@ export class SignService {
     const seen = this.canViewGuard.getStore();
     if (seen?.has(key)) {
       this.logger.error(
-        `canView('${request.refType}') замкнул кольцо на ${request.refId}: ` +
-          `резолвер потребителя зовёт sign обратно — нужен viewAuthorized у summaryForRef`,
+        `canView('${request.refType}') looped back on ${request.refId}: ` +
+          'the consumer resolver calls sign again — summaryForRef needs viewAuthorized',
       );
       return false;
     }
@@ -633,7 +631,7 @@ export class SignService {
       where: { id: request.subjectFileId },
       select: { name: true, mime: true, size: true },
     });
-    if (!file) throw coded('Замороженная копия документа исчезла', SIGN_ERROR_CODES.subjectGone);
+    if (!file) throw coded('sign.frozenCopyGone', SIGN_ERROR_CODES.subjectGone);
     // Системная ссылка: доступ мы уже проверили сами (акт мой либо потребитель
     // подтвердил право видеть) — контракт `buildSystemDownloadUrl`.
     const url = await this.files.buildSystemDownloadUrl(request.subjectFileId);
@@ -671,13 +669,10 @@ export class SignService {
 
     const phone = await this.signerPhone(actor);
     const orgName = request.workspaceId ? await this.orgName(request.workspaceId) : null;
-    const consentText = buildSignPepConsentText({ docTitle: request.refTitle, orgName });
+    const consentText = this.pepConsentText(request.refTitle, orgName);
 
     if (actor.type === 'guest' && !dto.pdConsentAccepted) {
-      throw coded(
-        'Нужно согласие на обработку персональных данных',
-        SIGN_ERROR_CODES.consentRequired,
-      );
+      throw coded('sign.pdConsentRequired', SIGN_ERROR_CODES.consentRequired);
     }
 
     // Соглашение фиксируем ДО SMS и отдельным событием протокола: ст. 8 ЗоПД
@@ -696,13 +691,12 @@ export class SignService {
       await this.logEvent(tx, act.id, 'consent', ctx, {
         version: SIGN_CONSENT_VERSION,
         pdConsent: actor.type === 'guest' ? true : undefined,
-        pdConsentText:
-          actor.type === 'guest' ? buildSignPdConsentText({ orgName }).slice(0, 4000) : undefined,
+        pdConsentText: actor.type === 'guest' ? this.pdConsentText(orgName).slice(0, 4000) : undefined,
       });
       return true;
     });
     if (!consentWritten) {
-      throw coded('Ваша подпись уже закрыта', SIGN_ERROR_CODES.alreadySigned);
+      throw coded('sign.actClosed', SIGN_ERROR_CODES.alreadySigned);
     }
 
     const started = await this.verify.startForSign(phone, actor.type === 'user' ? actor.userId : null, ctx.ip ?? undefined);
@@ -732,7 +726,7 @@ export class SignService {
     const { act, request } = await this.loadOwnAct(actor, actId);
     this.assertMethodAllowed(request, 'pep_otp');
     if (!act.consentText) {
-      throw coded('Сначала примите соглашение о подписании', SIGN_ERROR_CODES.consentRequired);
+      throw coded('sign.consentFirst', SIGN_ERROR_CODES.consentRequired);
     }
     // Код обязан быть из цепочки, заведённой ПОД ЭТУ подпись: ПЭП равнозначна
     // собственноручной именно как «код под конкретный документ» (ст. 46 п. 4 ЦК).
@@ -740,10 +734,7 @@ export class SignService {
     // — подтвердить одну подпись кодом, полученным под другой документ, ничего не
     // стоило, и доказать «под чем именно» был код, стало бы нечем.
     if (!act.verifyChallengeId || act.verifyChallengeId !== dto.challengeId) {
-      throw coded(
-        'Этот код выдан под другое подписание — запросите код заново',
-        SIGN_ERROR_CODES.otpMismatch,
-      );
+      throw coded('sign.otpMismatch', SIGN_ERROR_CODES.otpMismatch);
     }
 
     const phone = await this.signerPhone(actor);
@@ -785,7 +776,7 @@ export class SignService {
     await this.logEvent(this.db, actId, 'consent', ctx, {
       version: SIGN_CONSENT_VERSION,
       pdConsent: true,
-      pdConsentText: buildSignPdConsentText({ orgName }).slice(0, 4000),
+      pdConsentText: this.pdConsentText(orgName).slice(0, 4000),
     });
   }
 
@@ -801,7 +792,7 @@ export class SignService {
   private async signerPhone(actor: SignActor): Promise<string> {
     if (actor.type === 'guest') return actor.phone;
     const user = await this.db.user.findUnique({ where: { id: actor.userId }, select: { phone: true } });
-    if (!user) throw new NotFoundException('Пользователь не найден');
+    if (!user) throw notFound('contacts.userNotFound');
     return user.phone;
   }
 
@@ -832,15 +823,15 @@ export class SignService {
     if (!this.verifier.ecpAccepted) {
       // Fail-closed строже, чем у SMS: непроверенная подпись — это не «чуть
       // хуже», это выдача за ЭЦП того, чем она не является.
-      throw new ServiceUnavailableException({
-        message: 'Проверка ЭЦП недоступна — подпись принять нельзя',
+      throw new ApiError(HttpStatus.SERVICE_UNAVAILABLE, {
+        code: 'sign.verifierUnavailable',
         details: { code: SIGN_ERROR_CODES.verifierUnavailable },
       });
     }
 
     const cms = Buffer.from(cmsBase64, 'base64');
     if (cms.length === 0 || cms.length > SIGN_LIMITS.maxCmsBytes) {
-      throw coded('Контейнер подписи повреждён или слишком велик', SIGN_ERROR_CODES.cmsInvalid);
+      throw coded('sign.cmsInvalid', SIGN_ERROR_CODES.cmsInvalid);
     }
     await this.logEvent(this.db, act.id, 'cms_received', ctx, { bytes: cms.length, method });
 
@@ -855,15 +846,21 @@ export class SignService {
     });
 
     if (!verdict.valid) {
-      await this.failAttempt(act.id, SIGN_ERROR_CODES.cmsInvalid, verdict.reason ?? 'подпись недействительна', ctx);
-      throw coded(verdict.reason ?? 'Подпись недействительна', SIGN_ERROR_CODES.cmsInvalid);
+      // Причина от верификатора — ДОКАЗАТЕЛЬСТВО в append-only протоколе, а не
+      // фраза для экрана: она английская и техническая, человеку же уходит
+      // переведённый отказ с тем же машинным кодом.
+      await this.failAttempt(act.id, SIGN_ERROR_CODES.cmsInvalid, verdict.reason ?? 'signature is invalid', ctx);
+      throw coded('sign.signatureInvalid', SIGN_ERROR_CODES.cmsInvalid);
     }
     if (!verdict.chainValid || verdict.ocsp?.status === 'revoked') {
-      const reason = !verdict.chainValid
-        ? 'сертификат не проходит проверку до корня НУЦ'
-        : 'сертификат отозван';
-      await this.failAttempt(act.id, SIGN_ERROR_CODES.chainInvalid, reason, ctx);
-      throw coded(`Подпись не принята: ${reason}`, SIGN_ERROR_CODES.chainInvalid);
+      const chainBroken = !verdict.chainValid;
+      await this.failAttempt(
+        act.id,
+        SIGN_ERROR_CODES.chainInvalid,
+        chainBroken ? 'the certificate chain does not reach the NCA root' : 'the certificate is revoked',
+        ctx,
+      );
+      throw coded(chainBroken ? 'sign.chainInvalid' : 'sign.certRevoked', SIGN_ERROR_CODES.chainInvalid);
     }
     // ОТСУТСТВИЕ вердикта OCSP — это не «сертификат в порядке», а «мы не проверили».
     // Приказ № 1187 требует статуса НА МОМЕНТ ПОДПИСАНИЯ, и молча заморозить в акте
@@ -872,13 +869,10 @@ export class SignService {
     // ничего. Отказ временный — человек повторяет попытку, когда ответчик ответит.
     if (verdict.ocsp?.status !== 'good') {
       const reason = verdict.ocsp
-        ? `ответчик OCSP вернул статус «${verdict.ocsp.status}»`
-        : 'ответчик OCSP не дал вердикта';
+        ? `the OCSP responder returned the status «${verdict.ocsp.status}»`
+        : 'the OCSP responder gave no verdict';
       await this.failAttempt(act.id, SIGN_ERROR_CODES.ocspUnavailable, reason, ctx);
-      throw coded(
-        'Не удалось подтвердить, что сертификат не отозван. Повторите попытку позже',
-        SIGN_ERROR_CODES.ocspUnavailable,
-      );
+      throw coded('sign.ocspUnavailable', SIGN_ERROR_CODES.ocspUnavailable);
     }
 
     await this.assertIdentityMatches(actor, verdict.cert.iin, act.id, ctx);
@@ -889,9 +883,11 @@ export class SignService {
         .get(request.refType)
         ?.checkGuestCert?.(request.refId, { iin: verdict.cert.iin, bin: verdict.cert.bin });
       if (guestCheck && !guestCheck.ok) {
-        const reason = guestCheck.reason ?? 'сертификат не совпадает с данными контрагента';
-        await this.failAttempt(act.id, SIGN_ERROR_CODES.counterpartyMismatch, reason, ctx);
-        throw coded(`Подпись не принята: ${reason}`, SIGN_ERROR_CODES.counterpartyMismatch);
+        // Потребитель называет ПРИЧИНУ ключом каталога: слова у контрагентской
+        // сверки те же три языка, что и везде, а в протокол ложится ключ.
+        const key = guestCheck.reason?.key ?? 'sign.counterpartyMismatch';
+        await this.failAttempt(act.id, SIGN_ERROR_CODES.counterpartyMismatch, key, ctx);
+        throw coded(key, SIGN_ERROR_CODES.counterpartyMismatch, guestCheck.reason?.params);
       }
     }
 
@@ -957,13 +953,10 @@ export class SignService {
     await this.failAttempt(
       actId,
       SIGN_ERROR_CODES.iinMismatch,
-      `ИИН сертификата (${maskIin(certIin)}) не совпадает с ИИН аккаунта`,
+      `the certificate IIN (${maskIin(certIin)}) does not match the account IIN`,
       ctx,
     );
-    throw coded(
-      'Ключ ЭЦП принадлежит другому человеку: ИИН сертификата не совпадает с ИИН вашего аккаунта',
-      SIGN_ERROR_CODES.iinMismatch,
-    );
+    throw coded('sign.iinMismatch', SIGN_ERROR_CODES.iinMismatch);
   }
 
   private async readSubjectBytes(fileId: string): Promise<Buffer> {
@@ -980,7 +973,7 @@ export class SignService {
     mime: string,
   ): Promise<{ id: string }> {
     if (bytes.length > SIGN_LIMITS.maxReceiptBytes && !name.endsWith('.cms')) {
-      throw coded('Квитанция слишком велика', SIGN_ERROR_CODES.cmsInvalid);
+      throw coded('sign.receiptTooBig', SIGN_ERROR_CODES.cmsInvalid);
     }
     const ownerUserId = actor.type === 'user' ? actor.userId : request.createdById;
     return withTempFile(name, bytes, (filePath) =>
@@ -1020,7 +1013,7 @@ export class SignService {
       });
       if (won.count === 0) {
         // Гонка с подписью/отказом/кроном: заявка уже закрыта — отзыв опоздал.
-        throw coded('Заявка уже закрыта', SIGN_ERROR_CODES.requestClosed);
+        throw coded('sign.requestAlreadyClosed', SIGN_ERROR_CODES.requestClosed);
       }
       const acts = await tx.signAct.findMany({ where: { requestId }, select: { id: true } });
       for (const act of acts) {
@@ -1036,14 +1029,14 @@ export class SignService {
   async decline(actor: SignActor, actId: string, dto: SignDeclineInput, ctx: SignCtx): Promise<SignActStateDto> {
     const { act } = await this.loadOwnAct(actor, actId);
     const reason = dto.reason.trim();
-    if (!reason) throw coded('Укажите причину отказа', SIGN_ERROR_CODES.reasonRequired);
+    if (!reason) throw coded('sign.reasonRequired', SIGN_ERROR_CODES.reasonRequired);
 
     await this.db.$transaction(async (tx) => {
       const won = await tx.signAct.updateMany({
         where: { id: act.id, status: 'pending' },
         data: { status: 'declined', declineReason: reason, ip: ctx.ip ?? null, userAgent: this.ua(ctx) },
       });
-      if (won.count === 0) throw coded('Акт уже закрыт', SIGN_ERROR_CODES.alreadySigned);
+      if (won.count === 0) throw coded('sign.actAlreadyClosed', SIGN_ERROR_CODES.alreadySigned);
       await this.logEvent(tx, act.id, 'declined', ctx, { reason });
       // Отказ ОДНОГО подписанта закрывает всю заявку: собирать остальные подписи
       // под документом, который уже отвергли, бессмысленно (та же логика, что у
@@ -1145,7 +1138,7 @@ export class SignService {
             : {}),
         },
       });
-      if (won.count === 0) throw coded('Документ уже подписан', SIGN_ERROR_CODES.alreadySigned);
+      if (won.count === 0) throw coded('sign.alreadySigned', SIGN_ERROR_CODES.alreadySigned);
 
       if (payload.inTx) await payload.inTx(tx);
       await this.logEvent(tx, actId, 'signed', payload.ctx, { method: payload.method, level: payload.level });
@@ -1294,7 +1287,7 @@ export class SignService {
       where: { id: actId },
       include: { request: { select: { status: true } } },
     });
-    if (!act) throw new NotFoundException('Акт подписи не найден');
+    if (!act) throw notFound('sign.actNotFound');
     return {
       actId: act.id,
       status: act.status as SignActStateDto['status'],
@@ -1317,12 +1310,9 @@ export class SignService {
     opts: { allowClosed?: boolean } = {},
   ): Promise<{ act: SignActRow; request: SignRequestRow }> {
     const act = await this.findAct(actId);
-    if (!act) throw new NotFoundException('Акт подписи не найден');
+    if (!act) throw notFound('sign.actNotFound');
     if (!this.isMine(act, actor)) {
-      throw new ForbiddenException({
-        message: 'Это не ваша подпись',
-        details: { code: SIGN_ERROR_CODES.notSigner },
-      });
+      throw forbidden('sign.notYourAct', undefined, { code: SIGN_ERROR_CODES.notSigner });
     }
     if (!opts.allowClosed) {
       // Состояние СВОЕГО акта проверяем ПЕРВЫМ: человеку, который уже подписал,
@@ -1331,19 +1321,19 @@ export class SignService {
       if (act.status === 'expired') {
         // Отдельная ветка: «срок вышел» и «вы уже подписали» — разные новости, и
         // человеку важно понимать, идти ли ему за новой заявкой.
-        throw coded('Срок подписания истёк', SIGN_ERROR_CODES.requestClosed);
+        throw coded('sign.expired', SIGN_ERROR_CODES.requestClosed);
       }
       if (act.status !== 'pending') {
         throw coded(
-          act.status === 'signed' ? 'Вы уже подписали этот документ' : 'Ваша подпись уже закрыта',
+          act.status === 'signed' ? 'sign.alreadySignedByYou' : 'sign.actClosed',
           SIGN_ERROR_CODES.alreadySigned,
         );
       }
       if (act.request.status !== 'pending') {
-        throw coded('Подписание закрыто', SIGN_ERROR_CODES.requestClosed);
+        throw coded('sign.requestClosed', SIGN_ERROR_CODES.requestClosed);
       }
       if (this.isExpired(act.request.expiresAt)) {
-        throw coded('Срок подписания истёк', SIGN_ERROR_CODES.requestClosed);
+        throw coded('sign.expired', SIGN_ERROR_CODES.requestClosed);
       }
     }
     return { act, request: act.request };
@@ -1355,10 +1345,10 @@ export class SignService {
 
   private assertMethodAllowed(request: { methods: string[] }, method: SignMethod): void {
     if (!request.methods.includes(method)) {
-      throw coded('Этот способ подписания недоступен для документа', SIGN_ERROR_CODES.methodNotAllowed);
+      throw coded('sign.methodNotAllowed', SIGN_ERROR_CODES.methodNotAllowed);
     }
     if (!this.availableMethods().includes(method)) {
-      throw coded('Этот способ подписания сейчас выключен', SIGN_ERROR_CODES.methodDisabled);
+      throw coded('sign.methodDisabled', SIGN_ERROR_CODES.methodDisabled);
     }
   }
 
@@ -1367,7 +1357,7 @@ export class SignService {
       where: { id: requestId },
       include: { acts: { orderBy: { createdAt: 'asc' } } },
     });
-    if (!request) throw new NotFoundException('Заявка на подпись не найдена');
+    if (!request) throw notFound('sign.requestNotFound');
     const acts = preloaded ?? request.acts;
     const actorIds = [
       ...new Set([request.createdById, ...acts.map((a) => a.signerUserId).filter((v): v is string => !!v)]),
@@ -1613,21 +1603,21 @@ export class SignService {
         if (a.cmsFileId) {
           downloads.push({
             kind: 'cms',
-            label: `Контейнер подписи — ${a.signerName}`,
+            label: this.i18n.translate('sign.evidence.cms', { signer: a.signerName }),
             url: (await this.files.buildSystemDownloadUrl(a.cmsFileId).catch(() => null))?.url ?? '',
           });
         }
         if (a.ocspFileId) {
           downloads.push({
             kind: 'ocsp',
-            label: `Квитанция OCSP — ${a.signerName}`,
+            label: this.i18n.translate('sign.evidence.ocsp', { signer: a.signerName }),
             url: (await this.files.buildSystemDownloadUrl(a.ocspFileId).catch(() => null))?.url ?? '',
           });
         }
         if (a.tspFileId) {
           downloads.push({
             kind: 'tsp',
-            label: `Метка времени — ${a.signerName}`,
+            label: this.i18n.translate('sign.evidence.tsp', { signer: a.signerName }),
             url: (await this.files.buildSystemDownloadUrl(a.tspFileId).catch(() => null))?.url ?? '',
           });
         }
@@ -1654,10 +1644,10 @@ export class SignService {
 
   async events(actor: SignActor, actId: string): Promise<SignActEventDto[]> {
     const act = await this.findAct(actId);
-    if (!act) throw new NotFoundException('Акт подписи не найден');
+    if (!act) throw notFound('sign.actNotFound');
     const allowed =
       this.isMine(act, actor) || (await this.canViewRequest(actor, act.request));
-    if (!allowed) throw new NotFoundException('Акт подписи не найден');
+    if (!allowed) throw notFound('sign.actNotFound');
     const rows = await this.db.signActEvent.findMany({
       where: { actId },
       orderBy: { id: 'asc' },
@@ -1703,6 +1693,24 @@ export class SignService {
   // Оповещения
   // ============================================================
 
+  /**
+   * Соглашение сторон о ПЭП — в языке ЗАПРОСА подписанта: он соглашается с тем,
+   * что ПРОЧИТАЛ, и ровно эта строка снимается в акт (`consentText`) как
+   * доказательство. Редакция текста — `SIGN_CONSENT_VERSION`.
+   */
+  pepConsentText(docTitle: string, orgName: string | null): string {
+    const org = orgName ? this.i18n.translate('sign.consent.orgSuffix', { org: orgName }) : '';
+    return this.i18n.translate('sign.consent.pep', { docTitle, org });
+  }
+
+  /** Согласие внешнего подписанта на обработку ПД (ст. 8 ЗоПД) — тот же язык */
+  pdConsentText(orgName: string | null): string {
+    const holder = orgName
+      ? this.i18n.translate('sign.consent.pdHolderOrg', { org: orgName })
+      : this.i18n.translate('sign.consent.pdHolderOwner');
+    return this.i18n.translate('sign.consent.pd', { holder });
+  }
+
   private async orgName(workspaceId: string): Promise<string | null> {
     const ws = await this.db.workspace.findUnique({ where: { id: workspaceId }, select: { name: true } });
     return ws?.name ?? null;
@@ -1715,11 +1723,6 @@ export class SignService {
       select: { id: true, firstName: true, lastName: true, avatar: true },
     });
     return Object.fromEntries(users.map((u) => [u.id, u as SignActorLite]));
-  }
-
-  /** Подпись уровня для уведомлений и протокола */
-  levelLabel(level: SignLevel): string {
-    return SIGN_LEVEL_LABELS[level].full;
   }
 
   // ============================================================

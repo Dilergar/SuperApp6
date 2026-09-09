@@ -17,13 +17,13 @@ export class OfficeController {
   constructor(private readonly office: OfficeService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Активные встречи организации (+«идёт сейчас» с участниками)' })
+  @ApiOperation({ summary: 'The live meetings of the organization (+ the ones running now, with their participants)' })
   async list(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     return { success: true, data: await this.office.list(user.sub, id) };
   }
 
   @Get('history')
-  @ApiOperation({ summary: 'История завершённых встреч (cursor; чат встречи — дом транскрипций Ф3)' })
+  @ApiOperation({ summary: 'The history of finished meetings (cursor; the chat of a meeting is the home of the future transcripts)' })
   async history(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -33,7 +33,7 @@ export class OfficeController {
   }
 
   @Post('rooms')
-  @ApiOperation({ summary: 'Создать встречу (имя опционально — «Встреча ДД.ММ ЧЧ:ММ»)' })
+  @ApiOperation({ summary: 'Create a meeting (the name is optional — «Meeting DD.MM HH:MM» by default)' })
   async create(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -44,7 +44,7 @@ export class OfficeController {
   }
 
   @Get('rooms/:roomId')
-  @ApiOperation({ summary: 'Встреча (+живой созвон, моя роль)' })
+  @ApiOperation({ summary: 'A meeting (+ the live call, my role)' })
   async getOne(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -54,7 +54,7 @@ export class OfficeController {
   }
 
   @Post('rooms/:roomId/invite')
-  @ApiOperation({ summary: 'Пригласить сотрудников (уведомление + участники чата встречи)' })
+  @ApiOperation({ summary: 'Invite employees (a notification + the members of the meeting chat)' })
   async invite(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -66,7 +66,7 @@ export class OfficeController {
   }
 
   @Post('rooms/:roomId/end')
-  @ApiOperation({ summary: 'Завершить встречу для всех (организатор ∥ Менеджер+)' })
+  @ApiOperation({ summary: 'End the meeting for everyone (the host ∥ Manager+)' })
   async end(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,

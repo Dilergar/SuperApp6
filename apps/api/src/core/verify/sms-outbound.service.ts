@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { ApiError, badRequest } from '../../shared/errors/api-error';
 import { SMS_OUTBOUND_LIMITS, isKzMobilePhone, maskPhone } from '@superapp/shared';
 import { isDevEnv } from '../../shared/config/env.validation';
 import { RedisService } from '../../shared/redis/redis.service';
@@ -46,10 +47,10 @@ export class SmsOutboundService {
   ): Promise<void> {
     // В dev mock-драйвер пишет SMS в лог — путь проверяется сьютом без денег.
     if (!this.live && !isDevEnv()) {
-      throw new BadRequestException('SMS-канал не настроен — скопируйте ссылку и отправьте её сами');
+      throw badRequest('verify.smsNotConfigured');
     }
     if (!isKzMobilePhone(phone)) {
-      throw new BadRequestException('SMS отправляются только на казахстанские мобильные номера');
+      throw badRequest('verify.kzMobileOnly');
     }
 
     // Бюджет тратится по ФАКТУ отправки (правило бюджета verify): сначала
@@ -59,14 +60,14 @@ export class SmsOutboundService {
     const budgetPrefix = `smsout:ws:${workspaceId}`;
     const used = await this.slidingPeek(budgetPrefix, 24 * 3600);
     if (used >= SMS_OUTBOUND_LIMITS.perWorkspaceDaily) {
-      throw new BadRequestException('Суточный предел служебных SMS организации исчерпан');
+      throw badRequest('verify.orgDailyLimit');
     }
 
     const client = this.redis.getClient();
     const cdKey = `smsout:cd:${opts.refKey}:${phone}`;
     const won = await client.set(cdKey, '1', 'EX', SMS_OUTBOUND_LIMITS.perTargetCooldownSec, 'NX');
     if (won !== 'OK') {
-      throw new BadRequestException('SMS уже отправлена этому номеру — повторить можно через минуту');
+      throw badRequest('verify.alreadySent');
     }
 
     // Кулдаун снимаем на ЛЮБОМ неуспехе, а не только на честном `{ok:false}`:
@@ -78,13 +79,13 @@ export class SmsOutboundService {
       res = await this.sms.driver.send(phone, text);
     } catch (e) {
       await client.del(cdKey).catch(() => undefined);
-      this.logger.warn(`SMS → ${maskPhone(phone)} не ушла: ${(e as Error).message}`);
-      throw new ServiceUnavailableException('SMS-шлюз недоступен — скопируйте ссылку и отправьте её сами');
+      this.logger.warn(`SMS → ${maskPhone(phone)} was not sent: ${(e as Error).message}`);
+      throw new ApiError(HttpStatus.SERVICE_UNAVAILABLE, { code: 'verify.gatewayDown' });
     }
     if (!res.ok) {
       await client.del(cdKey).catch(() => undefined);
-      this.logger.warn(`SMS → ${maskPhone(phone)} не ушла: ${res.error ?? 'без причины'}`);
-      throw new ServiceUnavailableException('SMS-шлюз недоступен — скопируйте ссылку и отправьте её сами');
+      this.logger.warn(`SMS → ${maskPhone(phone)} was not sent: ${res.error ?? 'no reason given'}`);
+      throw new ApiError(HttpStatus.SERVICE_UNAVAILABLE, { code: 'verify.gatewayDown' });
     }
     await this.slidingRecord(budgetPrefix, 24 * 3600).catch(() => undefined);
   }

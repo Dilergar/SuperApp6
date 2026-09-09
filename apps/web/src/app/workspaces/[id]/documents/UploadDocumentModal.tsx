@@ -7,6 +7,7 @@
 // ============================================================
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CounterpartyDto, FileDto } from '@superapp/shared';
@@ -33,6 +34,9 @@ export function UploadDocumentModal({
   /** Открыто из вкладки «С контрагентами» — контрагент уже выбран */
   presetCounterpartyId?: string | null;
 }) {
+  const tr = useTranslations('documents');
+  const tc = useTranslations('common');
+  const tcp = useTranslations('counterparties');
   const router = useRouter();
   const qc = useQueryClient();
   const [docTypeId, setDocTypeId] = useState<string | null>(null);
@@ -105,8 +109,8 @@ export function UploadDocumentModal({
         reset();
         onClose();
       }}
-      title="Загрузить готовый файл"
-      subtitle="PDF или Word (.docx): PDF идёт на подпись как есть, Word откроется в редакторе"
+      title={tr('upload.title')}
+      subtitle={tr('upload.subtitle')}
       size="md"
       footer={
         <>
@@ -117,7 +121,7 @@ export function UploadDocumentModal({
               onClose();
             }}
           >
-            Отмена
+            {tc('actions.cancel')}
           </Button>
           <Button
             icon="check"
@@ -125,64 +129,66 @@ export function UploadDocumentModal({
             disabled={!docTypeId || !uploaded || upload.busy || !!badExt}
             onClick={() => create.mutate()}
           >
-            Создать документ
+            {tr('upload.create')}
           </Button>
         </>
       }
     >
       <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
         <Select
-          label="Вид документа"
+          label={tr('templates.docType')}
           value={docTypeId}
           onChange={(v) => {
             setDocTypeId(v || null);
             setContactId(null);
           }}
           options={(typesQuery.data ?? []).map((t) => ({ value: t.id, label: t.name }))}
-          placeholder="Выберите вид"
-          hint="От вида зависят нумерация, видимость и уровень подписи"
+          placeholder={tr('templates.docTypePlaceholder')}
+          hint={tr('upload.docTypeHint')}
         />
         {isExternal && (
           <>
             <Select
-              label="Контрагент"
+              label={tcp('breadcrumb')}
               value={counterpartyId}
               onChange={(v) => {
                 setCounterpartyId(v || null);
                 setContactId(null);
               }}
               options={(cpsQuery.data?.items ?? []).map((c) => ({ value: c.id, label: c.name }))}
-              placeholder={(cpsQuery.data?.items ?? []).length === 0 ? 'Справочник пуст — заведите контрагента' : 'Выберите контрагента'}
+              placeholder={tr(
+                (cpsQuery.data?.items ?? []).length === 0 ? 'upload.noCounterparties' : 'upload.pickCounterparty',
+              )}
             />
             {counterpartyId && (
               <Select
-                label="Подписант (контактное лицо)"
+                label={tr('upload.contactLabel')}
                 value={contactId}
                 onChange={(v) => setContactId(v || null)}
                 options={contacts.map((c) => ({ value: c.id, label: c.position ? `${c.name} · ${c.position}` : c.name }))}
-                placeholder={contacts.length === 0 ? 'У контрагента нет контактов' : 'Можно выбрать при отправке'}
-                hint="Кому уйдёт ссылка на подписание — можно указать и позже"
+                placeholder={tr(contacts.length === 0 ? 'upload.noContacts' : 'upload.contactLater')}
+                hint={tr('upload.contactHint')}
               />
             )}
           </>
         )}
         <Input
-          label="Название документа"
+          label={tr('free.titleLabel')}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Пусто — возьмём имя файла"
+          placeholder={tr('upload.titlePlaceholder')}
         />
         {!uploaded && (
           <Dropzone
             accept={ACCEPT}
             multiple={false}
             onFiles={(files) => upload.add(files)}
-            title="Перетащите PDF или .docx сюда"
-            note="ДОГОВОР, АВР ИЛИ ЛЮБОЙ ГОТОВЫЙ ДОКУМЕНТ"
+            title={tr('upload.dropTitle')}
+            note={tr('upload.dropNote')}
           />
         )}
         <UploadProgressList items={upload.items} onCancel={upload.cancel} onRemove={upload.remove} />
-        {badExt && <Alert tone="danger">Документом можно сделать только PDF или Word-файл (.docx)</Alert>}
+        {badExt && <Alert tone="danger">{tr('upload.badExt')}</Alert>}
       </div>
     </Modal>
   );

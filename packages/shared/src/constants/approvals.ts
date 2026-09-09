@@ -55,17 +55,16 @@ export const APPROVAL_STEP_KINDS = ['approval', 'signature', 'acknowledgement'] 
 export type ApprovalStepKind = (typeof APPROVAL_STEP_KINDS)[number];
 
 /**
- * Подписи шагов. `action` — надпись на кнопке, `waiting` — как шаг выглядит в
- * стопке, `done` — как он выглядит в истории. Один источник на API и веб:
- * иначе кнопка «Подписать» и запись «Согласовал» разъедутся уже на второй неделе.
+ * Значок вида шага. СЛОВА живут в каталоге — `approvals.kind.<kind>.action`
+ * (надпись на кнопке), `.waiting` (как шаг выглядит в стопке) и `.done` (как он
+ * выглядит в истории): один источник на API и веб, иначе кнопка «Подписать» и
+ * запись «Согласовал» разъедутся уже на второй неделе — теперь ещё и на трёх
+ * языках сразу.
  */
-export const APPROVAL_STEP_KIND_LABELS: Record<
-  ApprovalStepKind,
-  { action: string; waiting: string; done: string; icon: string }
-> = {
-  approval: { action: 'Согласовать', waiting: 'На согласовании', done: 'Согласовал', icon: 'checkCircle' },
-  signature: { action: 'Подписать', waiting: 'На подписи', done: 'Подписал', icon: 'signature' },
-  acknowledgement: { action: 'Ознакомлен', waiting: 'На ознакомлении', done: 'Ознакомился', icon: 'eye' },
+export const APPROVAL_STEP_KIND_META: Record<ApprovalStepKind, { icon: string }> = {
+  approval: { icon: 'checkCircle' },
+  signature: { icon: 'signature' },
+  acknowledgement: { icon: 'eye' },
 };
 
 /** Исход решения человека */
@@ -91,13 +90,7 @@ export const APPROVAL_DECISIONS_NEEDING_COMMENT: readonly ApprovalDecisionKind[]
 export const APPROVAL_REQUEST_STATUSES = ['pending', 'approved', 'rejected', 'returned', 'cancelled'] as const;
 export type ApprovalRequestStatus = (typeof APPROVAL_REQUEST_STATUSES)[number];
 
-export const APPROVAL_REQUEST_STATUS_LABELS: Record<ApprovalRequestStatus, string> = {
-  pending: 'Ждёт решения',
-  approved: 'Согласовано',
-  rejected: 'Отклонено',
-  returned: 'На доработке',
-  cancelled: 'Отменено',
-};
+// Слова статусов заявки — `approvals.status.<status>` в каталоге.
 
 export const APPROVAL_STEP_STATUSES = ['waiting', 'active', 'approved', 'rejected', 'returned', 'skipped'] as const;
 export type ApprovalStepStatus = (typeof APPROVAL_STEP_STATUSES)[number];
@@ -152,11 +145,7 @@ export type ApprovalSignatureKind = (typeof APPROVAL_SIGNATURE_KINDS)[number];
 export const APPROVAL_SIGNATURE_REQUIREMENTS = ['sms', 'ecp'] as const;
 export type ApprovalSignatureRequirement = (typeof APPROVAL_SIGNATURE_REQUIREMENTS)[number];
 
-export const APPROVAL_SIGNATURE_KIND_LABELS: Record<ApprovalSignatureKind, string> = {
-  internal: 'Внутреннее утверждение в SuperApp6',
-  sms: 'Подтверждено кодом из SMS',
-  ecp: 'Электронная цифровая подпись',
-};
+// Чем закрыт шаг — `approvals.signatureKind.<kind>` в каталоге.
 
 export const APPROVAL_LIMITS = {
   /** Шагов в одной заявке. Длиннее — это уже процесс, ему место на канвасе */
@@ -238,11 +227,12 @@ export const APPROVAL_ERROR_CODES = {
 export type ApprovalErrorCode = (typeof APPROVAL_ERROR_CODES)[keyof typeof APPROVAL_ERROR_CODES];
 
 /**
- * Как называется стопка для человека. Держим строкой здесь, а не в вёрстке: имя
- * появляется в бейдже топбара, на Главной, в Задачах и в Документах — четыре
- * места, которые обязаны совпадать.
+ * Как называется стопка для человека. Держим КЛЮЧОМ здесь, а не строкой в
+ * вёрстке: имя появляется в бейдже топбара, на Главной, в Задачах и в
+ * Документах — четыре места, которые обязаны совпадать, — а слово ему даёт
+ * каталог, потому что его читает человек.
  */
-export const APPROVAL_INBOX_TITLE = 'Ждут решения';
+export const APPROVAL_INBOX_TITLE_KEY = 'approvals.inboxTitle';
 
 /**
  * Ключи источников стопки. Сам реестр открыт (источник = свободная строка,

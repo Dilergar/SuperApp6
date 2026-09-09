@@ -8,14 +8,13 @@
 
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import {
   CONTRACT_MAX_SILENT_EXTENSIONS,
   CONTRACT_TYPES,
   DISMISSAL_GROUNDS,
-  HR_ACTION_KIND_LABELS,
   HR_ACTION_ORDER_LIBRARY_KEY,
-  HR_ACTION_STATUS_LABELS,
-  ST54_BAN_EXCEPTIONS_NOTE,
+  SOURCE_LOCALE,
   type CreateHrActionInput,
   type DocTemplateDto,
   type EmploymentDto,
@@ -24,6 +23,7 @@ import {
   type HrMemberCardDto,
   type UpsertEmploymentInput,
 } from '@superapp/shared';
+import { formatMoney } from '@superapp/i18n/format';
 import { apiErrorMessage, apiGet } from '@/lib/api';
 import { dmyOrDash } from '@/lib/dates';
 import { cancelHrAction, createHrAction, upsertEmployment } from '@/lib/hr-api';
@@ -53,11 +53,15 @@ import type { Principal } from '@/lib/entities';
 /** Формат один на весь веб — `lib/dates` (здесь только привычное для КЭДО имя) */
 export const fmtDate = (iso: string | null | undefined): string => dmyOrDash(iso);
 
-/** Тиыны (строка/число) → «250 000 ₸» */
-export const fmtMoney = (tiyn: string | number | null | undefined): string => {
-  if (tiyn === null || tiyn === undefined || tiyn === '') return '—';
-  const tenge = Math.round(Number(tiyn) / 100);
-  return `${tenge.toLocaleString('ru-RU')} ₸`;
+/**
+ * Тиыны (строка/число) → «250 000 ₸». Разделители и знак валюты — ПРАВИЛА
+ * РЕГИОНА, а не языка: в Казахстане деньги пишутся одинаково и для того, кто
+ * выбрал English. Поэтому функция остаётся чистой (тот же приём, что у
+ * `formatWalletAmount`), а прочерк передаёт вызывающий — слово у него есть.
+ */
+export const fmtMoney = (tiyn: string | number | null | undefined, dash = '—'): string => {
+  if (tiyn === null || tiyn === undefined || tiyn === '') return dash;
+  return formatMoney(Math.round(Number(tiyn) / 100), { locale: SOURCE_LOCALE }, { scale: 0 });
 };
 
 /**
@@ -86,8 +90,6 @@ const dateToIso = (d: Date | null): string | undefined =>
     ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
     : undefined;
 
-const contractTypeLabel = (v: string): string => CONTRACT_TYPES.find((t) => t.value === v)?.label ?? v;
-
 // ---------- Трудовые данные ----------
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
@@ -108,6 +110,8 @@ export function EmploymentCard({
   userId: string;
   card: HrMemberCardDto;
 }) {
+  const t = useTranslations('hr');
+  const tc = useTranslations('common');
   const [editing, setEditing] = useState(false);
   // Совместительство: у человека может быть карточка в каждом юрлице организации.
   // Переключатель появляется, только когда их правда больше одной.
@@ -118,7 +122,7 @@ export function EmploymentCard({
   if (!card.canSeeEmployment) {
     return (
       <Card>
-        <EmptyState icon="lock" title="Трудовая карточка закрыта" description="Её видят управляющие и сам сотрудник." />
+        <EmptyState icon="lock" title={t('employment.lockedTitle')} description={t('employment.lockedDescription')} />
       </Card>
     );
   }
@@ -126,12 +130,12 @@ export function EmploymentCard({
   return (
     <Card>
       <CardHeader
-        title="Трудовая карточка"
-        subtitle="Юридический план: как договорились"
+        title={t('employment.title')}
+        subtitle={t('employment.subtitle')}
         actions={
           card.canManage ? (
             <Button variant="matte" size="sm" icon="edit" onClick={() => setEditing(true)}>
-              {e ? 'Править' : 'Завести'}
+              {e ? tc('actions.edit') : t('employment.create')}
             </Button>
           ) : undefined
         }
@@ -141,63 +145,70 @@ export function EmploymentCard({
           <SegmentedControl
             value={e?.id ?? employments[0].id}
             onChange={setActiveId}
-            items={employments.map((x) => ({ key: x.id, label: x.legalEntityName ?? 'Юрлицо' }))}
+            items={employments.map((x) => ({ key: x.id, label: x.legalEntityName ?? t('employment.legalEntity') }))}
           />
         </div>
       )}
       {!e ? (
         <EmptyState
           icon="file"
-          title="Трудовой карточки нет"
-          description="Оформите приём кадровым действием — или заведите карточку вручную, если человек уже работает."
+          title={t('employment.emptyTitle')}
+          description={t('employment.emptyDescription')}
         />
       ) : (
         <div>
-          <Row label="Работодатель" value={e.legalEntityName ?? '—'} />
+          <Row label={t('esutd.field.employer')} value={e.legalEntityName ?? tc('labels.dash')} />
           <Row
-            label="Статус"
+            label={tc('labels.status')}
             value={
               <Chip tone={e.status === 'active' ? 'success' : e.status === 'terminated' ? 'danger' : 'warning'}>
-                {e.status === 'active' ? 'Работает' : e.status === 'terminated' ? 'Уволен' : 'Оформляется'}
+                {t(`employmentStatus.${e.status}`)}
               </Chip>
             }
           />
-          <Row label="Дата приёма" value={fmtDate(e.hiredAt)} />
-          {e.firedAt && <Row label="Дата увольнения" value={fmtDate(e.firedAt)} />}
+          <Row label={t('esutd.field.hiredAt')} value={fmtDate(e.hiredAt)} />
+          {e.firedAt && <Row label={t('esutd.field.firedAt')} value={fmtDate(e.firedAt)} />}
           {e.dismissalGround && (
-            <Row
-              label="Основание прекращения"
-              value={DISMISSAL_GROUNDS.find((g) => g.value === e.dismissalGround)?.label ?? e.dismissalGround}
-            />
+            <Row label={t('esutd.field.dismissalGround')} value={t(`ground.${e.dismissalGround}`)} />
           )}
-          <Row label="Договор" value={`${e.contractNumber ? `№ ${e.contractNumber} · ` : ''}${contractTypeLabel(e.contractType)}`} />
-          {e.contractDate && <Row label="Дата договора" value={fmtDate(e.contractDate)} />}
+          <Row
+            label={t('employment.contract')}
+            value={t('employment.contractValue', {
+              numberPrefix: e.contractNumber ? t('employment.contractNumberPrefix', { number: e.contractNumber }) : '',
+              type: t(`contractType.${e.contractType}`),
+            })}
+          />
+          {e.contractDate && <Row label={t('esutd.field.contractDate')} value={fmtDate(e.contractDate)} />}
           {e.contractEndAt && (
             <Row
-              label="Окончание договора"
+              label={t('employment.contractEnd')}
               value={
                 <>
                   {fmtDate(e.contractEndAt)}
                   {e.contractExtensionsCount >= CONTRACT_MAX_SILENT_EXTENSIONS && (
                     <Chip tone="warning" style={{ marginLeft: 8 }}>
-                      продлевался молчанием ×{e.contractExtensionsCount} — считается бессрочным (ст. 30 ТК РК)
+                      {t('employment.silentExtensions', { count: e.contractExtensionsCount })}
                     </Chip>
                   )}
                 </>
               }
             />
           )}
-          {e.probationUntil && <Row label="Испытательный срок до" value={fmtDate(e.probationUntil)} />}
-          <Row label="Должность по договору" value={e.legalPositionName ?? '—'} />
-          <Row label="Филиал по договору" value={e.legalBranchName ?? '—'} />
-          <Row label="Оклад" value={fmtMoney(e.salaryAmount)} />
-          <Row label="Ставка" value={e.workRate ?? 1} />
-          <Row label="График" value={e.workSchedule ?? '—'} />
-          <Row label="Табельный номер" value={e.personnelNumber ?? '—'} />
+          {e.probationUntil && <Row label={t('employment.probationUntil')} value={fmtDate(e.probationUntil)} />}
+          <Row label={t('employment.legalPosition')} value={e.legalPositionName ?? tc('labels.dash')} />
+          <Row label={t('employment.legalBranch')} value={e.legalBranchName ?? tc('labels.dash')} />
+          <Row label={t('employment.salary')} value={fmtMoney(e.salaryAmount, tc('labels.dash'))} />
+          <Row label={t('employment.workRate')} value={e.workRate ?? 1} />
+          <Row label={t('employment.workSchedule')} value={e.workSchedule ?? tc('labels.dash')} />
+          <Row label={t('employment.personnelNumber')} value={e.personnelNumber ?? tc('labels.dash')} />
           <Row
-            label="Документооборот"
+            label={t('employment.docFlow')}
             value={
-              e.paperMode ? <Chip tone="warning">гибрид: без ЭЦП, с бумажным дублем</Chip> : <Chip tone="success">электронный</Chip>
+              e.paperMode ? (
+                <Chip tone="warning">{t('deliveryMode.hybrid')}</Chip>
+              ) : (
+                <Chip tone="success">{t('deliveryMode.electronic')}</Chip>
+              )
             }
           />
         </div>
@@ -225,6 +236,8 @@ function EmploymentEditModal({
   employment: EmploymentDto | null;
   onClose: () => void;
 }) {
+  const t = useTranslations('hr');
+  const tc = useTranslations('common');
   const qc = useQueryClient();
   const e = employment;
   const [hiredAt, setHiredAt] = useState<string | undefined>(e?.hiredAt ?? undefined);
@@ -248,9 +261,9 @@ function EmploymentEditModal({
       // Числа проверяем ДО отправки: молчаливое «оклад стёрся» и «ставка стала 1»
       // человек замечает через месяц, в расчётном листке.
       const salaryTiyn = salary.trim() ? parseTengeToTiyn(salary) : null;
-      if (salaryTiyn === undefined) throw new Error('Оклад — это число, например 250 000');
+      if (salaryTiyn === undefined) throw new Error(t('form.salaryNumber'));
       const rate = workRate.trim() ? parseRate(workRate) : 1;
-      if (rate === undefined) throw new Error('Ставка — это число, например 1 или 0,5');
+      if (rate === undefined) throw new Error(t('form.rateNumber'));
       const dto: UpsertEmploymentInput = {
         // Правим КОНКРЕТНУЮ карточку: у совместителя их несколько (по юрлицам)
         ...(e ? { employmentId: e.id } : {}),
@@ -279,44 +292,44 @@ function EmploymentEditModal({
   });
 
   return (
-    <Modal open onClose={onClose} title={e ? 'Трудовая карточка' : 'Завести трудовую карточку'} size="md">
+    <Modal open onClose={onClose} title={t(e ? 'employment.title' : 'employment.createTitle')} size="md">
       <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--spacing-3)' }}>
-          <DatePicker label="Дата приёма" value={isoToDate(hiredAt)} onChange={(d) => setHiredAt(dateToIso(d))} />
-          <Input label="Номер договора" value={contractNumber} onChange={(ev) => setContractNumber(ev.target.value)} placeholder="ТД-2026-014" />
-          <DatePicker label="Дата договора" value={isoToDate(contractDate)} onChange={(d) => setContractDate(dateToIso(d))} />
+          <DatePicker label={t('esutd.field.hiredAt')} value={isoToDate(hiredAt)} onChange={(d) => setHiredAt(dateToIso(d))} />
+          <Input label={t('esutd.field.contractNumber')} value={contractNumber} onChange={(ev) => setContractNumber(ev.target.value)} placeholder="2026-014" />
+          <DatePicker label={t('esutd.field.contractDate')} value={isoToDate(contractDate)} onChange={(d) => setContractDate(dateToIso(d))} />
           <Select
-            label="Вид договора"
+            label={t('esutd.field.contractType')}
             value={contractType}
             onChange={(v) => setContractType(v)}
-            options={CONTRACT_TYPES.map((t) => ({ value: t.value, label: t.label }))}
+            options={CONTRACT_TYPES.map((ct) => ({ value: ct, label: t(`contractType.${ct}`) }))}
           />
           {contractType !== 'indefinite' && (
-            <DatePicker label="Окончание договора" value={isoToDate(contractEndAt)} onChange={(d) => setContractEndAt(dateToIso(d))} />
+            <DatePicker label={t('employment.contractEnd')} value={isoToDate(contractEndAt)} onChange={(d) => setContractEndAt(dateToIso(d))} />
           )}
-          <DatePicker label="Испытательный срок до" value={isoToDate(probationUntil)} onChange={(d) => setProbationUntil(dateToIso(d))} />
-          <Input label="Оклад, ₸ в месяц" value={salary} onChange={(ev) => setSalary(ev.target.value)} placeholder="250000" inputMode="numeric" />
-          <Input label="Ставка" value={workRate} onChange={(ev) => setWorkRate(ev.target.value)} placeholder="1 / 0.5" inputMode="decimal" />
-          <Input label="График" value={workSchedule} onChange={(ev) => setWorkSchedule(ev.target.value)} placeholder="5/2, 09:00–18:00" />
-          <Input label="Табельный номер" value={personnelNumber} onChange={(ev) => setPersonnelNumber(ev.target.value)} placeholder="0042" />
+          <DatePicker label={t('employment.probationUntil')} value={isoToDate(probationUntil)} onChange={(d) => setProbationUntil(dateToIso(d))} />
+          <Input label={t('form.salaryMonthly')} value={salary} onChange={(ev) => setSalary(ev.target.value)} placeholder="250000" inputMode="numeric" />
+          <Input label={t('employment.workRate')} value={workRate} onChange={(ev) => setWorkRate(ev.target.value)} placeholder="1 / 0.5" inputMode="decimal" />
+          <Input label={t('employment.workSchedule')} value={workSchedule} onChange={(ev) => setWorkSchedule(ev.target.value)} placeholder="5/2, 09:00–18:00" />
+          <Input label={t('employment.personnelNumber')} value={personnelNumber} onChange={(ev) => setPersonnelNumber(ev.target.value)} placeholder="0042" />
         </div>
         <div>
-          <div className="label-md" style={{ marginBottom: 6 }}>Должность по договору</div>
-          <EntitySelector types={['position']} multi={false} value={position} onChange={setPosition} context={{ workspaceId }} placeholder="Выберите должность" />
+          <div className="label-md" style={{ marginBottom: 6 }}>{t('employment.legalPosition')}</div>
+          <EntitySelector types={['position']} multi={false} value={position} onChange={setPosition} context={{ workspaceId }} placeholder={t('form.pickPosition')} />
         </div>
         <div>
-          <div className="label-md" style={{ marginBottom: 6 }}>Филиал по договору</div>
-          <EntitySelector types={['branch']} multi={false} value={branch} onChange={setBranch} context={{ workspaceId }} placeholder="Без филиала" />
+          <div className="label-md" style={{ marginBottom: 6 }}>{t('employment.legalBranch')}</div>
+          <EntitySelector types={['branch']} multi={false} value={branch} onChange={setBranch} context={{ workspaceId }} placeholder={t('form.noBranch')} />
         </div>
         <Toggle
           checked={paperMode}
           onChange={setPaperMode}
-          label="Гибридный режим (без ЭЦП)"
-          description="У работника нет ЭЦП — подписи работника заменяет печать комплекта и фиксация вручения. Обязать работника получить ЭЦП нельзя."
+          label={t('form.paperMode')}
+          description={t('form.paperModeHint')}
         />
         <div style={{ display: 'flex', gap: 'var(--spacing-2)', justifyContent: 'flex-end' }}>
-          <Button variant="ghost" onClick={onClose}>Отмена</Button>
-          <Button variant="primary" loading={save.isPending} onClick={() => save.mutate()}>Сохранить</Button>
+          <Button variant="ghost" onClick={onClose}>{tc('actions.cancel')}</Button>
+          <Button variant="primary" loading={save.isPending} onClick={() => save.mutate()}>{tc('actions.save')}</Button>
         </div>
       </div>
     </Modal>
@@ -343,6 +356,8 @@ export function ActionsCard({
   card: HrMemberCardDto;
   meId?: string;
 }) {
+  const t = useTranslations('hr');
+  const tc = useTranslations('common');
   const qc = useQueryClient();
   const [confirm, confirmUI] = useConfirm();
   const cancel = useMutation({
@@ -357,9 +372,9 @@ export function ActionsCard({
   if (!card.canSeeEmployment) return null;
   return (
     <Card>
-      <CardHeader title="Кадровые действия" subtitle="Действие первично — документ производен" />
+      <CardHeader title={t('actions.title')} subtitle={t('actions.subtitle')} />
       {card.actions.length === 0 ? (
-        <EmptyState icon="list" title="Действий пока не было" description="Приём, перевод, отпуск и увольнение появятся здесь." />
+        <EmptyState icon="list" title={t('actions.emptyTitle')} description={t('actions.emptyDescription')} />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
           {card.actions.map((a) => {
@@ -378,15 +393,13 @@ export function ActionsCard({
               canCancel={
                 ['draft', 'in_progress', 'scheduled'].includes(a.status) && (card.canManage || isOwnApplication)
               }
-              cancelLabel={isOwnApplication && !card.canManage ? 'Отозвать заявление' : 'Отменить'}
+              cancelLabel={isOwnApplication && !card.canManage ? t('actions.withdraw') : tc('actions.cancel')}
               onCancel={() =>
                 confirm(
                   {
-                    title: 'Отменить действие?',
-                    message: isOwnApplication
-                      ? 'Отзыв заявления безусловен весь срок уведомления (ст. 56 п. 4 ТК РК). Неизданный приказ отменится; об изданном кадровик получит задачу издать приказ об отмене.'
-                      : 'Неприменённое действие и его неизданные документы будут отменены.',
-                    confirmLabel: 'Отменить действие',
+                    title: t('actions.cancelConfirmTitle'),
+                    message: t(isOwnApplication ? 'actions.cancelConfirmOwn' : 'actions.cancelConfirmManager'),
+                    confirmLabel: t('actions.cancelConfirmLabel'),
                     danger: true,
                   },
                   async () => {
@@ -417,6 +430,7 @@ function ActionRow({
   cancelLabel: string;
   onCancel: () => void;
 }) {
+  const t = useTranslations('hr');
   const a = action;
   return (
     <div
@@ -432,16 +446,21 @@ function ActionRow({
     >
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ fontWeight: 700 }}>
-          {HR_ACTION_KIND_LABELS[a.kind]} · с {fmtDate(a.effectiveAt)}
-          {a.effectiveTo ? ` по ${fmtDate(a.effectiveTo)}` : ''}
+          {t('actions.rowTitle', {
+            kind: t(`actionKind.${a.kind}`),
+            from: fmtDate(a.effectiveAt),
+            toSuffix: a.effectiveTo ? t('actions.rowUntil', { to: fmtDate(a.effectiveTo) }) : '',
+          })}
         </div>
         <div className="meta" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
-          <Chip tone={STATUS_TONE[a.status] ?? 'neutral'}>{HR_ACTION_STATUS_LABELS[a.status]}</Chip>
+          <Chip tone={STATUS_TONE[a.status] ?? 'neutral'}>{t(`actionStatus.${a.status}`)}</Chip>
           {a.documents.length > 1 && (
             // Прогресс пакета (онбординг «подписано N из M») — по статусам документов
             <Chip tone="neutral">
-              Подписано {a.documents.filter((d) => ['signed', 'registered', 'active', 'archived'].includes(d.status)).length}{' '}
-              из {a.documents.length}
+              {t('actions.signedOf', {
+                signed: a.documents.filter((d) => ['signed', 'registered', 'active', 'archived'].includes(d.status)).length,
+                total: a.documents.length,
+              })}
             </Chip>
           )}
           {a.failReason && <span style={{ color: 'var(--danger-text)' }}>{a.failReason}</span>}
@@ -486,6 +505,8 @@ export function HrActionModal({
   employment: EmploymentDto | null;
   onClose: () => void;
 }) {
+  const t = useTranslations('hr');
+  const tc = useTranslations('common');
   const qc = useQueryClient();
   const [effectiveAt, setEffectiveAt] = useState<string | undefined>(undefined);
   const [effectiveTo, setEffectiveTo] = useState<string | undefined>(undefined);
@@ -545,17 +566,17 @@ export function HrActionModal({
 
   const create = useMutation({
     mutationFn: () => {
-      if (!effectiveAt) throw new Error('Укажите дату вступления в силу');
-      if (kind === 'leave' && !effectiveTo) throw new Error('Укажите дату окончания отпуска');
+      if (!effectiveAt) throw new Error(t('form.effectiveAtRequired'));
+      if (kind === 'leave' && !effectiveTo) throw new Error(t('form.leaveEndRequired'));
       if (kind === 'leave' && effectiveTo && effectiveTo < effectiveAt) {
-        throw new Error('Отпуск не может кончаться раньше, чем начался');
+        throw new Error(t('form.periodEnd'));
       }
-      if (kind === 'dismissal' && !ground) throw new Error('Выберите основание прекращения (статья ТК РК)');
-      if (kind === 'transfer' && !position[0]) throw new Error('Выберите новую должность');
-      if (!chosenTemplateId) throw new Error('Выберите шаблон приказа');
+      if (kind === 'dismissal' && !ground) throw new Error(t('form.groundRequired'));
+      if (kind === 'transfer' && !position[0]) throw new Error(t('form.positionRequired'));
+      if (!chosenTemplateId) throw new Error(t('form.templateRequired'));
       const salaryTiyn = salary.trim() ? parseTengeToTiyn(salary) : undefined;
-      if (salary.trim() && salaryTiyn === undefined) throw new Error('Оклад — это число, например 250 000');
-      if (kind === 'salary_change' && salaryTiyn === undefined) throw new Error('Укажите новый оклад');
+      if (salary.trim() && salaryTiyn === undefined) throw new Error(t('form.salaryNumber'));
+      if (kind === 'salary_change' && salaryTiyn === undefined) throw new Error(t('form.salaryRequired'));
       const dto: CreateHrActionInput = {
         kind,
         userId,
@@ -593,62 +614,67 @@ export function HrActionModal({
     onError: (err) => toastError(apiErrorMessage(err)),
   });
 
-  const title = HR_ACTION_KIND_LABELS[kind];
-
   return (
-    <Modal open onClose={onClose} title={title} size="md">
+    <Modal open onClose={onClose} title={t(`actionKind.${kind}`)} size="md">
       <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
         {kind === 'dismissal' && (
           <Alert tone="warning">
-            Проверка ст. 54 ТК РК повторится в момент применения: отпуска — по данным системы, <b>больничные системе
-            неизвестны — проверьте вручную</b>. {ST54_BAN_EXCEPTIONS_NOTE}
+            {t('form.st54Warning')} {t('st54ExceptionsNote')}
           </Alert>
         )}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--spacing-3)' }}>
           <DatePicker
-            label={kind === 'leave' ? 'Отпуск с' : kind === 'dismissal' ? 'Дата увольнения' : 'Вступает в силу'}
+            label={t(
+              kind === 'leave' ? 'form.leaveFrom' : kind === 'dismissal' ? 'esutd.field.firedAt' : 'form.effectiveAt',
+            )}
             value={isoToDate(effectiveAt)}
             onChange={(d) => setEffectiveAt(dateToIso(d))}
           />
           {kind === 'leave' && (
-            <DatePicker label="Отпуск по" value={isoToDate(effectiveTo)} onChange={(d) => setEffectiveTo(dateToIso(d))} />
+            <DatePicker label={t('form.leaveTo')} value={isoToDate(effectiveTo)} onChange={(d) => setEffectiveTo(dateToIso(d))} />
           )}
         </div>
 
         {(kind === 'transfer' || kind === 'hire') && (
           <>
             <div>
-              <div className="label-md" style={{ marginBottom: 6 }}>{kind === 'transfer' ? 'Новая должность' : 'Должность по договору'}</div>
-              <EntitySelector types={['position']} multi={false} value={position} onChange={setPosition} context={{ workspaceId }} placeholder="Выберите должность" />
+              <div className="label-md" style={{ marginBottom: 6 }}>
+                {t(kind === 'transfer' ? 'form.newPosition' : 'employment.legalPosition')}
+              </div>
+              <EntitySelector types={['position']} multi={false} value={position} onChange={setPosition} context={{ workspaceId }} placeholder={t('form.pickPosition')} />
             </div>
             <div>
-              <div className="label-md" style={{ marginBottom: 6 }}>Филиал</div>
-              <EntitySelector types={['branch']} multi={false} value={branch} onChange={setBranch} context={{ workspaceId }} placeholder="Без филиала" />
+              <div className="label-md" style={{ marginBottom: 6 }}>{t('form.branch')}</div>
+              <EntitySelector types={['branch']} multi={false} value={branch} onChange={setBranch} context={{ workspaceId }} placeholder={t('form.noBranch')} />
             </div>
           </>
         )}
 
         {(kind === 'salary_change' || kind === 'transfer' || kind === 'hire') && (
           <Input
-            label={kind === 'salary_change' ? 'Новый оклад, ₸ в месяц' : 'Оклад, ₸ в месяц'}
+            label={t(kind === 'salary_change' ? 'form.newSalaryMonthly' : 'form.salaryMonthly')}
             value={salary}
             onChange={(ev) => setSalary(ev.target.value)}
             placeholder="250000"
             inputMode="numeric"
-            hint={employment?.salaryAmount ? `Сейчас: ${fmtMoney(employment.salaryAmount)}` : undefined}
+            hint={
+              employment?.salaryAmount
+                ? t('form.salaryNow', { amount: fmtMoney(employment.salaryAmount, tc('labels.dash')) })
+                : undefined
+            }
           />
         )}
 
         {kind === 'hire' && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--spacing-3)' }}>
             <Select
-              label="Вид договора"
+              label={t('esutd.field.contractType')}
               value={contractType}
               onChange={setContractType}
-              options={CONTRACT_TYPES.map((t) => ({ value: t.value, label: t.label }))}
+              options={CONTRACT_TYPES.map((ct) => ({ value: ct, label: t(`contractType.${ct}`) }))}
             />
-            <DatePicker label="Испытательный срок до" value={isoToDate(probationUntil)} onChange={(d) => setProbationUntil(dateToIso(d))} />
+            <DatePicker label={t('employment.probationUntil')} value={isoToDate(probationUntil)} onChange={(d) => setProbationUntil(dateToIso(d))} />
           </div>
         )}
 
@@ -656,16 +682,14 @@ export function HrActionModal({
           <div>
             {/* Онбординг-пакет: один объект с одним прогрессом «подписано N из M».
                 По умолчанию отмечены трудовой договор и согласие на ПД (библиотека). */}
-            <div className="label-md" style={{ marginBottom: 6 }}>
-              Пакет приёма (вместе с приказом)
-            </div>
+            <div className="label-md" style={{ marginBottom: 6 }}>{t('form.hirePackage')}</div>
             <div style={{ display: 'grid', gap: 6 }}>
-              {packageCandidates.map((t) => (
+              {packageCandidates.map((tpl) => (
                 <Checkbox
-                  key={t.id}
-                  checked={effectivePackage.includes(t.id)}
-                  onChange={() => togglePackage(t.id)}
-                  label={t.name}
+                  key={tpl.id}
+                  checked={effectivePackage.includes(tpl.id)}
+                  onChange={() => togglePackage(tpl.id)}
+                  label={tpl.name}
                 />
               ))}
             </div>
@@ -676,51 +700,54 @@ export function HrActionModal({
           <Toggle
             checked={syncFact}
             onChange={setSyncFact}
-            label="Обновить фактическое назначение"
-            description="Иначе юридический перевод сам родит расхождение «факт ≠ договор»."
+            label={t('form.syncFact')}
+            description={t('form.syncFactHint')}
           />
         )}
 
         {kind === 'dismissal' && (
           <>
             <Select
-              label="Основание (статья ТК РК)"
+              label={t('form.ground')}
               value={ground}
               onChange={setGround}
-              options={DISMISSAL_GROUNDS.map((g) => ({ value: g.value, label: g.label }))}
-              placeholder="Выберите основание"
-              hint="Основание печатается в приказе и уходит в ЕСУТД — предзаполнения нет намеренно."
+              options={DISMISSAL_GROUNDS.map((g) => ({ value: g.value, label: t(`ground.${g.value}`) }))}
+              placeholder={t('form.pickGround')}
+              hint={t('form.groundHint')}
             />
             {employerInitiative && (
               <Toggle
                 checked={banConfirmed}
                 onChange={setBanConfirmed}
-                label="Основание — исключение ст. 54"
-                description="Подтверждаю: основание входит в исключения (пп. 1), 18), 20), 23) п. 1 ст. 52 или п. 1-1) — применение в период отпуска не блокировать."
+                label={t('form.banException')}
+                description={t('form.banExceptionHintSingle')}
               />
             )}
             <Toggle
               checked={alsoRemove}
               onChange={setAlsoRemove}
-              label="И убрать из организации в SuperApp6"
-              description="При применении приказа членство в организации тоже снимется («и то и другое»). Выключено — только юридическое увольнение."
+              label={t('form.alsoRemove')}
+              description={t('form.alsoRemoveHint')}
             />
           </>
         )}
 
         <Select
-          label="Шаблон приказа"
+          label={t('form.template')}
           value={chosenTemplateId}
           onChange={setTemplateId}
-          options={templates.map((t) => ({ value: t.id, label: `${t.name}${t.hasRoute ? '' : ' — без маршрута!'}` }))}
-          placeholder={templatesQ.isPending ? 'Загружаем…' : 'Выберите шаблон'}
-          hint="У шаблона должен быть опубликованный маршрут с нодой «Применить кадровое действие» — иначе старт честно откажет. Готовые бланки — в библиотеке (Документооборот → Шаблоны)."
+          options={templates.map((tpl) => ({
+            value: tpl.id,
+            label: `${tpl.name}${tpl.hasRoute ? '' : t('form.templateNoRouteSuffix')}`,
+          }))}
+          placeholder={templatesQ.isPending ? t('form.loading') : t('form.pickTemplate')}
+          hint={t('form.templateHint')}
         />
 
         <div style={{ display: 'flex', gap: 'var(--spacing-2)', justifyContent: 'flex-end' }}>
-          <Button variant="ghost" onClick={onClose}>Отмена</Button>
+          <Button variant="ghost" onClick={onClose}>{tc('actions.cancel')}</Button>
           <Button variant="primary" loading={create.isPending} onClick={() => create.mutate()}>
-            Создать приказ
+            {t('form.createOrder')}
           </Button>
         </div>
       </div>

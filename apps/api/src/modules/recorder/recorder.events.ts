@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../../core/notifications/notifications.service';
+import { RecorderService } from './recorder.service';
 
 /**
  * Слушатель голосового движка: расшифровка записи Диктофона готова/не удалась →
@@ -17,6 +18,7 @@ export class RecorderEvents implements OnModuleInit {
     private readonly db: DatabaseService,
     private readonly events: EventBusService,
     private readonly notifications: NotificationsService,
+    private readonly recorder: RecorderService,
   ) {}
 
   onModuleInit(): void {
@@ -43,14 +45,19 @@ export class RecorderEvents implements OnModuleInit {
       if (!recIds.length) return; // не запись Диктофона (голосовое в чате и т.п.)
       const recs = await this.db.voiceRecording.findMany({
         where: { id: { in: recIds } },
-        select: { id: true, ownerId: true, title: true },
+        select: { id: true, ownerId: true, title: true, source: true, titleAt: true, createdAt: true },
       });
       for (const rec of recs) {
         await this.notifications
           .send(null, {
             type,
             to: [{ userId: rec.ownerId }],
-            payload: { title: rec.title, recordingId: rec.id, fileId: payload.fileId },
+            // Пустое имя = автоимя: собираем его в языке АДРЕСАТА (у джоба языка запроса нет)
+            payload: {
+              title: await this.recorder.titleFor(rec.ownerId, rec),
+              recordingId: rec.id,
+              fileId: payload.fileId,
+            },
             ref: { type: 'voice_recording', id: rec.id },
             reason: 'owner',
             actionUrl: `/recorder?id=${rec.id}`,

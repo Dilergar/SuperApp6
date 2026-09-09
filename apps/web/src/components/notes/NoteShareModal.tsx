@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import { NOTE_ROLES, type NoteRole, type NoteShareDto, type NoteSpaceRef } from '@superapp/shared';
 import { Button, Chip, EmptyState, IconButton, LoadingBlock, Modal, Select } from '@/components/ui';
 import { EntitySelector } from '@/components/EntitySelector';
@@ -18,9 +19,6 @@ import { toastError } from '@/lib/toast';
 // организации — сотрудники, отделы, должности, объекты и «вся организация».
 // ============================================================
 
-const ROLE_LABEL: Record<NoteRole, string> = { viewer: 'Читает', editor: 'Правит', manager: 'Управляет доступом' };
-const ROLE_OPTIONS = NOTE_ROLES.map((r) => ({ value: r, label: ROLE_LABEL[r] }));
-
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -31,6 +29,10 @@ interface Props {
 }
 
 export function NoteShareModal({ open, onClose, scope, target, canManage }: Props) {
+  const t = useTranslations('notes');
+  // Реестр называет РОЛЬ, слово ей даёт каталог — иначе список прав говорил бы
+  // по-русски у зрителя, выбравшего другой язык.
+  const roleOptions = NOTE_ROLES.map((r) => ({ value: r, label: t(`role.${r}`) }));
   const qc = useQueryClient();
   const key = target.kind === 'note' ? noteSharesKey(target.id) : noteFolderSharesKey(target.id);
   const shares = useQuery({
@@ -76,18 +78,18 @@ export function NoteShareModal({ open, onClose, scope, target, canManage }: Prop
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={target.kind === 'note' ? 'Доступ к заметке' : 'Доступ к папке'} subtitle={target.title} size="md">
+    <Modal open={open} onClose={onClose} title={t(target.kind === 'note' ? 'share.noteTitle' : 'share.folderTitle')} subtitle={target.title} size="md">
       {canManage && (
         <div style={{ display: 'grid', gap: 'var(--spacing-3)', marginBottom: 'var(--spacing-4)' }}>
-          <EntitySelector value={principals} onChange={setPrincipals} types={types} context={scope.workspaceId ? { workspaceId: scope.workspaceId } : undefined} placeholder={personal ? 'Кому из окружения…' : 'Сотрудник, отдел, должность, объект…'} />
+          <EntitySelector value={principals} onChange={setPrincipals} types={types} context={scope.workspaceId ? { workspaceId: scope.workspaceId } : undefined} placeholder={t(personal ? 'share.pickPersonal' : 'share.pickOrg')} />
           <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-            <Select value={role} onChange={(v) => setRole(v as NoteRole)} options={ROLE_OPTIONS} label="Право" width={220} />
+            <Select value={role} onChange={(v) => setRole(v as NoteRole)} options={roleOptions} label={t('share.roleLabel')} width={220} />
             <Button icon="share" onClick={() => add.mutate(principals)} disabled={!principals.length} loading={add.isPending}>
-              Открыть доступ
+              {t('share.grant')}
             </Button>
             {!personal && (
               <Button variant="matte" icon="workspace" onClick={shareToWorkspace} loading={add.isPending}>
-                Всей организации
+                {t('share.wholeOrg')}
               </Button>
             )}
           </div>
@@ -96,7 +98,7 @@ export function NoteShareModal({ open, onClose, scope, target, canManage }: Prop
       {shares.isPending ? (
         <LoadingBlock />
       ) : !shares.data?.length ? (
-        <EmptyState icon="lock" title="Пока только вы" description={target.kind === 'note' ? 'Заметку видят автор и владельцы организации' : 'Папку видят автор и владельцы организации'} />
+        <EmptyState icon="lock" title={t('share.emptyTitle')} description={t(target.kind === 'note' ? 'share.emptyNote' : 'share.emptyFolder')} />
       ) : (
         <div style={{ display: 'grid', gap: 'var(--spacing-2)' }}>
           {shares.data.map((s) => (
@@ -111,12 +113,12 @@ export function NoteShareModal({ open, onClose, scope, target, canManage }: Prop
                 )}
               </div>
               <Chip size="sm" tone={s.role === 'manager' ? 'accent' : s.role === 'editor' ? 'success' : 'neutral'}>
-                {ROLE_LABEL[s.role]}
+                {t(`role.${s.role}`)}
               </Chip>
               {s.inherited ? (
-                <Chip size="sm" icon="folder">из папки «{s.refName}»</Chip>
+                <Chip size="sm" icon="folder">{t('share.fromFolder', { name: s.refName })}</Chip>
               ) : (
-                canManage && <IconButton icon="close" label="Закрыть доступ" size={28} iconSize={14} onClick={() => remove.mutate(s)} />
+                canManage && <IconButton icon="close" label={t('share.revoke')} size={28} iconSize={14} onClick={() => remove.mutate(s)} />
               )}
             </div>
           ))}

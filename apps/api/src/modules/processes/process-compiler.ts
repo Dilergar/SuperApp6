@@ -1,10 +1,11 @@
-import type { ProcessDocument, ProcessValidationIssue } from '@superapp/shared';
-import type { CompiledPlan } from './process-node.types';
+import type { ProcessDocument } from '@superapp/shared';
+import type { CompiledPlan, RawIssue } from './process-node.types';
 import type { ProcessNodeRegistry } from './process-node.registry';
 
 export interface CompileResult {
   plan: CompiledPlan | null;
-  issues: ProcessValidationIssue[];
+  /** Ключи каталога с подстановками — слова добавит сервис */
+  issues: RawIssue[];
 }
 
 /**
@@ -30,20 +31,20 @@ export function compileProcessDocument(
   doc: ProcessDocument,
   registry: ProcessNodeRegistry,
 ): CompileResult {
-  const issues: ProcessValidationIssue[] = [];
+  const issues: RawIssue[] = [];
 
   // --- Уникальность id ---
   const nodeIds = new Set<string>();
   for (const n of doc.nodes) {
-    if (nodeIds.has(n.id)) issues.push({ nodeId: n.id, message: `Дублируется id ноды «${n.id}»` });
+    if (nodeIds.has(n.id)) issues.push({ nodeId: n.id, message: 'processes.issue.duplicateNodeId', params: { id: n.id } });
     nodeIds.add(n.id);
   }
   const formKeys = new Set<string>();
   for (const f of doc.form) {
-    if (formKeys.has(f.key)) issues.push({ message: `Дублируется поле анкеты «${f.key}»` });
+    if (formKeys.has(f.key)) issues.push({ message: 'processes.issue.duplicateFormKey', params: { key: f.key } });
     formKeys.add(f.key);
     if (f.type === 'select' && (!f.options || f.options.length === 0)) {
-      issues.push({ message: `Поле анкеты «${f.label}»: у списка нет вариантов` });
+      issues.push({ message: 'processes.issue.selectWithoutOptions', params: { field: f.label } });
     }
   }
 
@@ -69,7 +70,7 @@ export function compileProcessDocument(
   for (const n of doc.nodes) {
     const provider = registry.get(n.type);
     if (!provider) {
-      issues.push({ nodeId: n.id, message: `Неизвестный тип ноды «${n.type}»` });
+      issues.push({ nodeId: n.id, message: 'processes.issue.unknownNodeType', params: { type: n.type } });
       continue;
     }
     const d = provider.descriptor;
@@ -85,7 +86,10 @@ export function compileProcessDocument(
         issues.push({
           nodeId: n.id,
           field: e.path.join('.') || undefined,
-          message: `${n.label || d.title}: ${e.message}`,
+          message: 'processes.issue.nodeProblem',
+          // Сообщение схемы — тоже ключ каталога: разворачиваем его здесь, чтобы
+          // подставить в обрамляющую фразу «<нода>: <что не так>».
+          params: { node: n.label || registry.title(n.type), problem: registry.text(e.message) },
         });
       }
     }
@@ -97,12 +101,19 @@ export function compileProcessDocument(
     const config = (parsed.success ? parsed.data : (n.config ?? {})) as Record<string, unknown>;
     if (provider.validateConfig) {
       for (const issue of provider.validateConfig(config, doc)) {
-        issues.push({ ...issue, nodeId: n.id, message: `${n.label || d.title}: ${issue.message}` });
+        issues.push({
+          ...issue,
+          nodeId: n.id,
+          message: 'processes.issue.nodeProblem',
+          params: { node: n.label || registry.title(n.type), problem: registry.text(issue.message) },
+        });
       }
     }
     plan.nodes[n.id] = {
       type: d.type,
-      label: n.label || d.title,
+      // Подпись шага ЛОЖИТСЯ в план и живёт там вечно — своё имя ноды или
+      // название типа в языке ИСТОЧНИКА (правило снимков в БД).
+      label: n.label || registry.sourceTitle(d.type),
       config,
       terminal: !!d.terminal,
       auto: d.auto,
@@ -118,9 +129,9 @@ export function compileProcessDocument(
 
   // --- Триггеры/Конец ---
   if (triggerIds.length === 0) {
-    issues.push({ message: 'Нет ни одного триггера запуска — добавьте, например, «Запуск вручную»' });
+    issues.push({ message: 'processes.issue.noTrigger' });
   }
-  if (!hasEnd) issues.push({ message: 'Нет ноды «Конец»' });
+  if (!hasEnd) issues.push({ message: 'processes.issue.noEnd' });
   plan.entryNodeIds = triggerIds;
   // Ручной запуск стартует с «Запуск вручную», иначе с первого триггера (back-compat).
   plan.startNodeId = manualStartId || triggerIds[0] || '';
@@ -130,19 +141,19 @@ export function compileProcessDocument(
     const fromNode = doc.nodes.find((n) => n.id === e.from);
     const toExists = nodeIds.has(e.to);
     if (!fromNode) {
-      issues.push({ edgeId: e.id, message: `Связь из несуществующей ноды «${e.from}»` });
+      issues.push({ edgeId: e.id, message: 'processes.issue.edgeFromMissing', params: { id: e.from } });
       continue;
     }
     if (!toExists) {
-      issues.push({ edgeId: e.id, message: `Связь в несуществующую ноду «${e.to}»` });
+      issues.push({ edgeId: e.id, message: 'processes.issue.edgeToMissing', params: { id: e.to } });
       continue;
     }
     if (e.from === e.to) {
-      issues.push({ edgeId: e.id, nodeId: e.from, message: 'Связь ноды самой на себя недопустима' });
+      issues.push({ edgeId: e.id, nodeId: e.from, message: 'processes.issue.selfEdge' });
       continue;
     }
     if (triggerIds.includes(e.to)) {
-      issues.push({ edgeId: e.id, nodeId: e.to, message: 'В триггер запуска нельзя вести связи (у него нет входа)' });
+      issues.push({ edgeId: e.id, nodeId: e.to, message: 'processes.issue.edgeIntoTrigger' });
       continue;
     }
     const provider = registry.get(fromNode.type);
@@ -150,17 +161,27 @@ export function compileProcessDocument(
     const port = e.fromPort || 'main';
     const oType = outputType(fromNode.type, port);
     if (oType === null) {
-      issues.push({ edgeId: e.id, nodeId: e.from, message: `У ноды «${fromNode.label || provider.descriptor.title}» нет выхода «${port}»` });
+      issues.push({
+        edgeId: e.id,
+        nodeId: e.from,
+        message: 'processes.issue.outputMissing',
+        params: { node: fromNode.label || registry.title(provider.descriptor.type), port },
+      });
       continue;
     }
     const toPort = e.toPort || 'main';
     const iType = inputType(plan.nodes[e.to]?.type ?? '', toPort);
     if (iType === null) {
-      issues.push({ edgeId: e.id, nodeId: e.to, message: `У ноды «${plan.nodes[e.to]?.label ?? e.to}» нет входа «${toPort}»` });
+      issues.push({
+        edgeId: e.id,
+        nodeId: e.to,
+        message: 'processes.issue.inputMissing',
+        params: { node: plan.nodes[e.to]?.label ?? e.to, port: toPort },
+      });
       continue;
     }
     if (oType !== iType) {
-      issues.push({ edgeId: e.id, message: `Несовместимые порты: «${oType}» → «${iType}»` });
+      issues.push({ edgeId: e.id, message: 'processes.issue.portMismatch', params: { from: oType, to: iType } });
       continue;
     }
 
@@ -176,7 +197,12 @@ export function compileProcessDocument(
       if (!adj) continue;
       if (!adj[port]) adj[port] = [];
       if (adj[port].length >= 1 && !provider.descriptor.multiOut) {
-        issues.push({ edgeId: e.id, nodeId: e.from, message: `Из выхода «${port}» ноды «${fromNode.label || fromNode.id}» уже идёт связь — несколько веток только у «Развилки»` });
+        issues.push({
+          edgeId: e.id,
+          nodeId: e.from,
+          message: 'processes.issue.outputTaken',
+          params: { port, node: fromNode.label || fromNode.id },
+        });
         continue;
       }
       if (adj[port].includes(e.to)) continue;
@@ -188,7 +214,12 @@ export function compileProcessDocument(
       if (!att[iType]) att[iType] = [];
       const multi = (registry.get(plan.nodes[e.to].type)?.descriptor.inputs ?? []).find((i) => i.key === toPort)?.multi;
       if (att[iType].length >= 1 && !multi) {
-        issues.push({ edgeId: e.id, nodeId: e.to, message: `К входу «${toPort}» ноды «${plan.nodes[e.to].label}» уже подключена под-нода` });
+        issues.push({
+        edgeId: e.id,
+        nodeId: e.to,
+        message: 'processes.issue.subNodeTaken',
+        params: { port: toPort, node: plan.nodes[e.to].label },
+      });
         continue;
       }
       if (!att[iType].includes(e.from)) att[iType].push(e.from);
@@ -222,7 +253,11 @@ export function compileProcessDocument(
       if (out.optional) continue;
       const targets = plan.adjacency[n.id]?.[out.key] ?? [];
       if (targets.length === 0) {
-        issues.push({ nodeId: n.id, message: `Нода «${compiled.label}»: выход ${out.label ? `«${out.label}»` : ''} никуда не ведёт`.replace('  ', ' ') });
+        issues.push({
+          nodeId: n.id,
+          message: 'processes.issue.outputDangling',
+          params: { node: compiled.label, port: out.key },
+        });
       }
     }
   }
@@ -234,11 +269,13 @@ export function compileProcessDocument(
     if (!provider || !compiled) continue;
     if (provider.descriptor.multiOut) {
       const branches = plan.adjacency[n.id]?.main?.length ?? 0;
-      if (branches < 2) issues.push({ nodeId: n.id, message: `«${compiled.label}»: у развилки должно быть ≥2 ветки` });
+      if (branches < 2)
+        issues.push({ nodeId: n.id, message: 'processes.issue.forkNeedsBranches', params: { node: compiled.label } });
     }
     if (provider.descriptor.join) {
       const k = inDegree.get(n.id) ?? 0;
-      if (k < 2) issues.push({ nodeId: n.id, message: `«${compiled.label}»: в слияние должно входить ≥2 ветки` });
+      if (k < 2)
+        issues.push({ nodeId: n.id, message: 'processes.issue.joinNeedsBranches', params: { node: compiled.label } });
       plan.joinExpected[n.id] = k;
     }
   }
@@ -253,22 +290,25 @@ export function compileProcessDocument(
     // Под-нода (Модель/Память/Инструмент/под-агент через astool) должна быть подключена.
     const usedAsProvider = subNodeConnected.has(n.id);
     if (d.subNode && !usedAsProvider) {
-      issues.push({ nodeId: n.id, message: `«${compiled.label}» не подключена к агенту` });
+      issues.push({ nodeId: n.id, message: 'processes.issue.subNodeDetached', params: { node: compiled.label } });
     }
 
     // Агент: ровно одна Модель, не больше одной Памяти.
     if (compiled.cluster) {
       const att = plan.attachments[n.id] ?? {};
-      if ((att.ai_model?.length ?? 0) === 0) issues.push({ nodeId: n.id, message: `«${compiled.label}»: подключите Модель` });
-      if ((att.ai_model?.length ?? 0) > 1) issues.push({ nodeId: n.id, message: `«${compiled.label}»: можно одну Модель` });
-      if ((att.ai_memory?.length ?? 0) > 1) issues.push({ nodeId: n.id, message: `«${compiled.label}»: можно одну Память` });
+      if ((att.ai_model?.length ?? 0) === 0)
+        issues.push({ nodeId: n.id, message: 'processes.issue.agentNeedsModel', params: { node: compiled.label } });
+      if ((att.ai_model?.length ?? 0) > 1)
+        issues.push({ nodeId: n.id, message: 'processes.issue.agentOneModel', params: { node: compiled.label } });
+      if ((att.ai_memory?.length ?? 0) > 1)
+        issues.push({ nodeId: n.id, message: 'processes.issue.agentOneMemory', params: { node: compiled.label } });
     }
 
     // Достижимость: нода вне потока — либо триггер, либо под-нода/под-агент (provider), либо ошибка.
     if (!reachable.has(n.id) && !d.trigger) {
       const isProvider = d.subNode || usedAsProvider; // под-агент подключён через astool
       if (!isProvider) {
-        issues.push({ nodeId: n.id, message: `Нода «${compiled.label}» недостижима от триггера запуска` });
+        issues.push({ nodeId: n.id, message: 'processes.issue.unreachable', params: { node: compiled.label } });
       }
     }
   }
@@ -297,7 +337,11 @@ export function compileProcessDocument(
     if ((color.get(id) ?? 0) === 0 && dfs(id)) break;
   }
   if (cycleAt) {
-    issues.push({ nodeId: cycleAt, message: `«${plan.nodes[cycleAt]?.label ?? cycleAt}»: цикл агентов-инструментов (агенты ссылаются друг на друга по кругу)` });
+    issues.push({
+      nodeId: cycleAt,
+      message: 'processes.issue.agentCycle',
+      params: { node: plan.nodes[cycleAt]?.label ?? cycleAt },
+    });
   }
 
   return { plan: issues.length === 0 ? plan : null, issues };

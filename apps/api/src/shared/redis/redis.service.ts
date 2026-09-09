@@ -10,7 +10,7 @@ export class RedisService implements OnModuleDestroy {
   constructor() {
     if (!process.env.REDIS_URL) {
       // env validation forbids this in production; in dev it's a convenience fallback.
-      this.logger.warn('REDIS_URL не задан — fallback на redis://localhost:6379 (только для разработки)');
+      this.logger.warn('REDIS_URL is not set — falling back to redis://localhost:6379 (development only)');
     }
     this.client = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
       maxRetriesPerRequest: 3,

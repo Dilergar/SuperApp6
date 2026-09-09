@@ -34,7 +34,7 @@ export class DriveRoutingRegistry {
 
   register(refType: string, provider: DriveRoutingProvider): void {
     if (this.providers.has(refType)) {
-      this.logger.warn(`маршрутизация "${refType}" уже зарегистрирована — перезаписываю`);
+      this.logger.warn(`Routing for "${refType}" is already registered — overwriting`);
     }
     this.providers.set(refType, provider);
   }

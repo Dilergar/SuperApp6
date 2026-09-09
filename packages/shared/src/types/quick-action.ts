@@ -10,7 +10,11 @@ export type QuickActionScope = (typeof QUICK_ACTION_SCOPES)[number];
 export interface QuickActionDescriptor {
   /** Stable key the web maps to a modal/handler (e.g. 'task.create', 'message.schedule'). */
   key: string;
-  /** Button label (Russian). */
+  /**
+   * Подпись кнопки, УЖЕ переведённая сервером в языке запроса: реестр движка
+   * хранит ключ каталога (`labelKey`), а слово подставляется при чтении —
+   * иначе меню чата навсегда осталось бы на языке того, кто его писал.
+   */
   label: string;
   /** Emoji/icon hint. */
   icon: string;

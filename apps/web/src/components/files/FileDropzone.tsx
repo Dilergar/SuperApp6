@@ -2,6 +2,7 @@
 
 import { Icon, toneVars } from '@/components/ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 
 interface FileDropzoneProps {
   onFiles: (files: File[]) => void;
@@ -27,12 +28,13 @@ export function FileDropzone({
   accept,
   multiple = true,
   paste = false,
-  label = 'Перетащите файлы или нажмите',
+  label,
   hint,
   maxSizeMb,
   compact = false,
   disabled = false,
 }: FileDropzoneProps) {
+  const t = useTranslations('common');
   const inputRef = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
 
@@ -110,14 +112,14 @@ export function FileDropzone({
           color: 'var(--on-surface)',
         }}
       >
-        {label}
+        {label ?? t('files.dropHint')}
       </div>
       {(hint || paste) && (
         <div style={{ marginTop: '0.2rem', fontSize: '0.72rem', color: 'var(--on-surface-variant)' }}>
-          {hint ?? 'Можно вставить из буфера — Ctrl+V'}
+          {hint ?? t('files.pasteHint')}
         </div>
       )}
-      {maxSizeMb && <div className="label-caps" style={{ marginTop: '0.45rem' }}>Макс. размер: {maxSizeMb} МБ</div>}
+      {maxSizeMb && <div className="label-caps" style={{ marginTop: '0.45rem' }}>{t('files.maxSize', { mb: maxSizeMb })}</div>}
       <input
         ref={inputRef}
         type="file"

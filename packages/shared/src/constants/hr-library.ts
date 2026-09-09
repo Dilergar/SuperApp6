@@ -12,6 +12,7 @@
 // на каждом маршруте — способ однажды забыть.
 // ============================================================
 
+import type { Locale } from '../constants/i18n';
 import type { BuilderBlock, BuilderDoc, BuilderInline } from '../types/doc-builder';
 import { DOC_BUILDER_VERSION } from '../types/doc-builder';
 
@@ -63,12 +64,15 @@ const doc = (blocks: BuilderBlock[]): BuilderDoc => ({
 
 // ---------- Типы каталога ----------
 
+/**
+ * Поле формы подачи библиотечного бланка. Слов не хранит: `key` — это ИМЯ ТЕГА
+ * внутри бланка («{Form.LeavePeriod}»), а подпись, которую видит подающий,
+ * живёт в каталоге под ключом `hr.library.item.<бланк>.field.<key>`.
+ */
 export interface HrLibraryFormField {
   key: string;
-  label: string;
   kind: 'text' | 'textarea' | 'number' | 'date' | 'daterange' | 'select';
   required?: boolean;
-  options?: { value: string; label: string }[];
 }
 
 /**
@@ -93,13 +97,24 @@ export interface HrLibraryRoute {
   file?: boolean;
 }
 
+/**
+ * Бланк библиотеки. СЛОВ здесь нет: название, описание, имя вида и имя шаблона
+ * собираются по соглашению из каталога — `hr.library.item.<key>.{title,
+ * description, docType, template}`. Название и описание человек читает НА ЭКРАНЕ
+ * (мастер установки) — они в языке зрителя; имя вида и имя шаблона ложатся в БД
+ * организации и печатаются рядом с бумагой — они в языке БЛАНКА.
+ */
 export interface HrLibraryItem {
   key: string;
   version: number;
-  title: string;
-  description: string;
+  /**
+   * ЯЗЫК БЛАНКА. Формулировки ТК РК записаны по-русски, поэтому и печатные слова
+   * платформы внутри них («М.П.», «№ … от …», сумма прописью) обязаны быть
+   * русскими. Перевод самой библиотеки на казахский — отдельный трек с
+   * юридической вычиткой; крюк для него — это поле.
+   */
+  language: Locale;
   docType: {
-    name: string;
     category: 'hr' | 'general';
     numberFormat: string;
     visibility: 'managers' | 'department' | 'team';
@@ -109,7 +124,6 @@ export interface HrLibraryItem {
     retentionYears?: number;
   };
   template: {
-    name: string;
     selfService: boolean;
     fields: HrLibraryFormField[];
   };
@@ -128,68 +142,65 @@ export const HR_LIBRARY: readonly HrLibraryItem[] = [
   {
     key: 'employment_contract',
     version: 1,
-    title: 'Трудовой договор',
-    description:
-      'Бессрочный трудовой договор по ст. 28 ТК РК с оговоркой об электронном документообороте. Данные подставляются из трудовой карточки и анкеты сотрудника; подписывают обе стороны ЭЦП.',
+    language: 'ru',
     docType: {
-      name: 'Трудовые договоры',
       category: 'hr',
-      numberFormat: 'ТД-{ГГГГ}-{NNN}',
+      numberFormat: 'ТД-{YYYY}-{NNN}',
       visibility: 'managers',
       signatureLevel: 'ecp',
       toPersonalFile: true,
       retentionYears: 75,
     },
-    template: { name: 'Трудовой договор', selfService: false, fields: [] },
+    template: { selfService: false, fields: [] },
     builderDoc: doc([
       requisites(),
       h('ТРУДОВОЙ ДОГОВОР'),
       docMeta(),
       p(
         [
-          chip('Организация.Юрнаименование'),
+          chip('Organization.LegalName'),
           t(' (БИН '),
-          chip('Организация.БИН'),
+          chip('Organization.Bin'),
           t('), именуемое далее «Работодатель», в лице директора '),
-          chip('Организация.Директор'),
+          chip('Organization.Director'),
           t(', действующего на основании '),
-          chip('Организация.Основание'),
+          chip('Organization.Ground'),
           t(', с одной стороны, и '),
-          chip('Сотрудник.ФИО'),
+          chip('Employee.FullName'),
           t(' (ИИН '),
-          chip('Сотрудник.ИИН'),
+          chip('Employee.Iin'),
           t('), именуемый(ая) далее «Работник», с другой стороны, заключили настоящий трудовой договор о нижеследующем:'),
         ],
         'justify',
       ),
       numbered([
         t('Работник принимается на работу на должность '),
-        chip('Договор.Должность'),
+        chip('Contract.Position'),
         t(', место работы: '),
-        chip('Договор.Филиал'),
+        chip('Contract.Branch'),
         t('.'),
       ]),
       numbered([
         t('Дата начала работы: '),
-        chip('Договор.Дата приёма', 'дата'),
+        chip('Contract.StartDate', 'date'),
         t('. Срок договора: '),
-        chip('Договор.Срок'),
+        chip('Contract.Term'),
         t('.'),
       ]),
       numbered([
         t('Должностной оклад: '),
-        chip('Договор.Оклад', 'число'),
+        chip('Contract.Salary', 'number'),
         t(' ('),
-        chip('Договор.Оклад', 'прописью'),
+        chip('Contract.Salary', 'words'),
         t(') в месяц; ставка '),
-        chip('Договор.Ставка'),
+        chip('Contract.Rate'),
         t('. Режим работы: '),
-        chip('Договор.График'),
+        chip('Contract.Schedule'),
         t('.'),
       ]),
       numbered([
         t('Испытательный срок: '),
-        chip('Договор.Испытание до'),
+        chip('Contract.ProbationUntil'),
         t('.'),
       ]),
       numbered([
@@ -207,19 +218,16 @@ export const HR_LIBRARY: readonly HrLibraryItem[] = [
   {
     key: 'hire_order',
     version: 1,
-    title: 'Приказ о приёме на работу',
-    description:
-      'Приказ по ст. 33 ТК РК. Подписывает руководитель ЭЦП, работник знакомится в системе; при применении заводится трудовая карточка.',
+    language: 'ru',
     docType: {
-      name: 'Приказы о приёме',
       category: 'hr',
-      numberFormat: 'ПР-{ГГГГ}-{NNN}',
+      numberFormat: 'ПР-{YYYY}-{NNN}',
       visibility: 'managers',
       signatureLevel: 'ecp',
       toPersonalFile: true,
       retentionYears: 75,
     },
-    template: { name: 'Приказ о приёме', selfService: false, fields: [] },
+    template: { selfService: false, fields: [] },
     builderDoc: doc([
       requisites(),
       h('ПРИКАЗ о приёме на работу'),
@@ -227,22 +235,22 @@ export const HR_LIBRARY: readonly HrLibraryItem[] = [
       p(
         [
           t('Принять '),
-          chip('Сотрудник.ФИО'),
+          chip('Employee.FullName'),
           t(' (ИИН '),
-          chip('Сотрудник.ИИН'),
+          chip('Employee.Iin'),
           t(') на должность '),
-          chip('Договор.Должность'),
+          chip('Contract.Position'),
           t(' с '),
-          chip('Действие.Дата вступления', 'дата'),
+          chip('Action.EffectiveFrom', 'date'),
           t(' с должностным окладом '),
-          chip('Договор.Оклад', 'число'),
+          chip('Contract.Salary', 'number'),
           t(' тенге ('),
-          chip('Договор.Оклад', 'прописью'),
+          chip('Contract.Salary', 'words'),
           t(').'),
         ],
         'justify',
       ),
-      p([t('Основание: трудовой договор № '), chip('Договор.Номер'), t(' от '), chip('Договор.Дата договора', 'дата'), t('.')]),
+      p([t('Основание: трудовой договор № '), chip('Contract.Number'), t(' от '), chip('Contract.Date', 'date'), t('.')]),
       p([]),
       sig('Директор', 'director', true),
       sig('С приказом ознакомлен(а): Работник', 'subject'),
@@ -252,19 +260,16 @@ export const HR_LIBRARY: readonly HrLibraryItem[] = [
   {
     key: 'transfer_order',
     version: 1,
-    title: 'Приказ о переводе',
-    description:
-      'Перевод на другую должность/в другой филиал (ст. 38 ТК РК). При применении обновляется трудовая карточка; система предложит синхронизировать фактическое назначение.',
+    language: 'ru',
     docType: {
-      name: 'Приказы о переводе',
       category: 'hr',
-      numberFormat: 'ПР-П-{ГГГГ}-{NNN}',
+      numberFormat: 'ПР-П-{YYYY}-{NNN}',
       visibility: 'managers',
       signatureLevel: 'ecp',
       toPersonalFile: true,
       retentionYears: 75,
     },
-    template: { name: 'Приказ о переводе', selfService: false, fields: [] },
+    template: { selfService: false, fields: [] },
     builderDoc: doc([
       requisites(),
       h('ПРИКАЗ о переводе'),
@@ -272,20 +277,20 @@ export const HR_LIBRARY: readonly HrLibraryItem[] = [
       p(
         [
           t('Перевести '),
-          chip('Сотрудник.ФИО'),
+          chip('Employee.FullName'),
           t(' с должности '),
-          chip('Договор.Должность'),
+          chip('Contract.Position'),
           t(' на должность '),
-          chip('Действие.Новая должность'),
+          chip('Action.NewPosition'),
           t(' ('),
-          chip('Действие.Новый филиал'),
+          chip('Action.NewBranch'),
           t(') с '),
-          chip('Действие.Дата вступления', 'дата'),
+          chip('Action.EffectiveFrom', 'date'),
           t('.'),
         ],
         'justify',
       ),
-      p([t('Оклад с даты перевода: '), chip('Действие.Оклад', 'число'), t(' тенге ('), chip('Действие.Оклад', 'прописью'), t(').')]),
+      p([t('Оклад с даты перевода: '), chip('Action.Salary', 'number'), t(' тенге ('), chip('Action.Salary', 'words'), t(').')]),
       p([]),
       sig('Директор', 'director', true),
       sig('С приказом ознакомлен(а): Работник', 'subject'),
@@ -295,19 +300,16 @@ export const HR_LIBRARY: readonly HrLibraryItem[] = [
   {
     key: 'salary_order',
     version: 1,
-    title: 'Приказ об изменении оклада',
-    description:
-      'Изменение оплаты труда — изменение условий трудового договора: не забудьте письменное уведомление за 15 календарных дней (ст. 46 п. 2 ТК РК), если изменение не по соглашению сторон.',
+    language: 'ru',
     docType: {
-      name: 'Приказы об изменении оплаты',
       category: 'hr',
-      numberFormat: 'ПР-ОТ-{ГГГГ}-{NNN}',
+      numberFormat: 'ПР-ОТ-{YYYY}-{NNN}',
       visibility: 'managers',
       signatureLevel: 'ecp',
       toPersonalFile: true,
       retentionYears: 75,
     },
-    template: { name: 'Приказ об изменении оклада', selfService: false, fields: [] },
+    template: { selfService: false, fields: [] },
     builderDoc: doc([
       requisites(),
       h('ПРИКАЗ об изменении должностного оклада'),
@@ -315,15 +317,15 @@ export const HR_LIBRARY: readonly HrLibraryItem[] = [
       p(
         [
           t('Установить '),
-          chip('Сотрудник.ФИО'),
+          chip('Employee.FullName'),
           t(' ('),
-          chip('Договор.Должность'),
+          chip('Contract.Position'),
           t(') с '),
-          chip('Действие.Дата вступления', 'дата'),
+          chip('Action.EffectiveFrom', 'date'),
           t(' должностной оклад '),
-          chip('Действие.Оклад', 'число'),
+          chip('Action.Salary', 'number'),
           t(' тенге ('),
-          chip('Действие.Оклад', 'прописью'),
+          chip('Action.Salary', 'words'),
           t(') в месяц.'),
         ],
         'justify',
@@ -337,19 +339,16 @@ export const HR_LIBRARY: readonly HrLibraryItem[] = [
   {
     key: 'leave_order',
     version: 1,
-    title: 'Приказ о предоставлении отпуска',
-    description:
-      'Оплачиваемый ежегодный отпуск (ст. 88–92 ТК РК). Счётчик напомнит об оплате за 3 рабочих дня до начала (ст. 92 п. 4).',
+    language: 'ru',
     docType: {
-      name: 'Приказы об отпусках',
       category: 'hr',
-      numberFormat: 'ПР-О-{ГГГГ}-{NNN}',
+      numberFormat: 'ПР-О-{YYYY}-{NNN}',
       visibility: 'managers',
       signatureLevel: 'ecp',
       toPersonalFile: true,
       retentionYears: 5,
     },
-    template: { name: 'Приказ об отпуске', selfService: false, fields: [] },
+    template: { selfService: false, fields: [] },
     builderDoc: doc([
       requisites(),
       h('ПРИКАЗ о предоставлении отпуска'),
@@ -357,15 +356,15 @@ export const HR_LIBRARY: readonly HrLibraryItem[] = [
       p(
         [
           t('Предоставить '),
-          chip('Сотрудник.ФИО'),
+          chip('Employee.FullName'),
           t(' ('),
-          chip('Договор.Должность'),
+          chip('Contract.Position'),
           t(') оплачиваемый ежегодный трудовой отпуск с '),
-          chip('Действие.Дата вступления', 'дата'),
+          chip('Action.EffectiveFrom', 'date'),
           t(' по '),
-          chip('Действие.Дата окончания', 'дата'),
+          chip('Action.EffectiveTo', 'date'),
           t(' продолжительностью '),
-          chip('Действие.Дней'),
+          chip('Action.Days'),
           t(' календарных дней.'),
         ],
         'justify',
@@ -379,20 +378,17 @@ export const HR_LIBRARY: readonly HrLibraryItem[] = [
   {
     key: 'dismissal_order',
     version: 1,
-    title: 'Приказ о прекращении трудового договора',
-    description:
-      'Акт о прекращении (ст. 61 ТК РК): вручается в течение 3 рабочих дней лично либо заказным письмом — вид включает режим обязательного вручения. Расчёт — 3 рабочих дня (ст. 113 п. 4).',
+    language: 'ru',
     docType: {
-      name: 'Приказы об увольнении',
       category: 'hr',
-      numberFormat: 'ПР-У-{ГГГГ}-{NNN}',
+      numberFormat: 'ПР-У-{YYYY}-{NNN}',
       visibility: 'managers',
       signatureLevel: 'ecp',
       toPersonalFile: true,
       specialDelivery: true,
       retentionYears: 75,
     },
-    template: { name: 'Приказ об увольнении', selfService: false, fields: [] },
+    template: { selfService: false, fields: [] },
     builderDoc: doc([
       requisites(),
       h('ПРИКАЗ о прекращении трудового договора'),
@@ -400,17 +396,17 @@ export const HR_LIBRARY: readonly HrLibraryItem[] = [
       p(
         [
           t('Прекратить действие трудового договора № '),
-          chip('Договор.Номер'),
+          chip('Contract.Number'),
           t(' от '),
-          chip('Договор.Дата договора', 'дата'),
+          chip('Contract.Date', 'date'),
           t(': уволить '),
-          chip('Сотрудник.ФИО'),
+          chip('Employee.FullName'),
           t(' ('),
-          chip('Договор.Должность'),
+          chip('Contract.Position'),
           t(') '),
-          chip('Действие.Дата вступления', 'дата'),
+          chip('Action.EffectiveFrom', 'date'),
           t('. Основание: '),
-          chip('Действие.Основание'),
+          chip('Action.Ground'),
           t('.'),
         ],
         'justify',
@@ -427,33 +423,29 @@ export const HR_LIBRARY: readonly HrLibraryItem[] = [
   {
     key: 'leave_application',
     version: 1,
-    title: 'Заявление на отпуск',
-    description:
-      'Сотрудник подаёт сам («Подать заявление»); руководитель согласует, приказ создаётся кадровым действием «Отпуск».',
+    language: 'ru',
     docType: {
-      name: 'Заявления',
       category: 'hr',
-      numberFormat: 'ЗАЯВ-{ГГГГ}-{NNN}',
+      numberFormat: 'ЗАЯВ-{YYYY}-{NNN}',
       visibility: 'managers',
       signatureLevel: 'pep',
       toPersonalFile: false,
       retentionYears: 5,
     },
     template: {
-      name: 'Заявление на отпуск',
       selfService: true,
-      fields: [{ key: 'Период отпуска', label: 'Период отпуска', kind: 'daterange', required: true }],
+      fields: [{ key: 'LeavePeriod', kind: 'daterange', required: true }],
     },
     builderDoc: doc([
-      p([t('Директору '), chip('Организация.Юрнаименование')], 'right'),
-      p([t('от '), chip('Сотрудник.ФИО'), t(' ('), chip('Договор.Должность'), t(')')], 'right'),
+      p([t('Директору '), chip('Organization.LegalName')], 'right'),
+      p([t('от '), chip('Employee.FullName'), t(' ('), chip('Contract.Position'), t(')')], 'right'),
       h('ЗАЯВЛЕНИЕ'),
       p(
         [
           t('Прошу предоставить мне оплачиваемый ежегодный трудовой отпуск '),
-          chip('Форма.Период отпуска'),
+          chip('Form.LeavePeriod'),
           t(' ('),
-          chip('Форма.Период отпуска Дней'),
+          chip('Form.LeavePeriod Days'),
           t(' календарных дней).'),
         ],
         'justify',
@@ -466,31 +458,27 @@ export const HR_LIBRARY: readonly HrLibraryItem[] = [
   {
     key: 'resignation_application',
     version: 1,
-    title: 'Заявление об увольнении',
-    description:
-      'По собственному желанию (ст. 56 ТК РК): уведомление минимум за 1 месяц; отзыв заявления безусловен весь срок уведомления (ст. 56 п. 4).',
+    language: 'ru',
     docType: {
-      name: 'Заявления об увольнении',
       category: 'hr',
-      numberFormat: 'ЗАЯВ-У-{ГГГГ}-{NNN}',
+      numberFormat: 'ЗАЯВ-У-{YYYY}-{NNN}',
       visibility: 'managers',
       signatureLevel: 'pep',
       toPersonalFile: true,
       retentionYears: 75,
     },
     template: {
-      name: 'Заявление об увольнении',
       selfService: true,
-      fields: [{ key: 'Дата увольнения', label: 'Желаемая дата увольнения', kind: 'date', required: true }],
+      fields: [{ key: 'DismissalDate', kind: 'date', required: true }],
     },
     builderDoc: doc([
-      p([t('Директору '), chip('Организация.Юрнаименование')], 'right'),
-      p([t('от '), chip('Сотрудник.ФИО'), t(' ('), chip('Договор.Должность'), t(')')], 'right'),
+      p([t('Директору '), chip('Organization.LegalName')], 'right'),
+      p([t('от '), chip('Employee.FullName'), t(' ('), chip('Contract.Position'), t(')')], 'right'),
       h('ЗАЯВЛЕНИЕ'),
       p(
         [
           t('Прошу расторгнуть трудовой договор по моей инициативе (ст. 56 Трудового кодекса РК) '),
-          chip('Форма.Дата увольнения', 'дата'),
+          chip('Form.DismissalDate', 'date'),
           t('.'),
         ],
         'justify',
@@ -503,32 +491,29 @@ export const HR_LIBRARY: readonly HrLibraryItem[] = [
   {
     key: 'pd_consent',
     version: 1,
-    title: 'Согласие на обработку персональных данных',
-    description:
-      'Ст. 8 Закона РК «О персональных данных». Копии удостоверения личности НЕ прикладываются (запрет ПД-правил с 12.07.2026 — реквизитных полей достаточно).',
+    language: 'ru',
     docType: {
-      name: 'Согласия на обработку ПД',
       category: 'hr',
-      numberFormat: 'ПД-{ГГГГ}-{NNN}',
+      numberFormat: 'ПД-{YYYY}-{NNN}',
       visibility: 'managers',
       signatureLevel: 'pep',
       toPersonalFile: true,
       retentionYears: 75,
     },
-    template: { name: 'Согласие на обработку ПД', selfService: false, fields: [] },
+    template: { selfService: false, fields: [] },
     builderDoc: doc([
       h('СОГЛАСИЕ на сбор и обработку персональных данных'),
       docMeta(),
       p(
         [
           t('Я, '),
-          chip('Сотрудник.ФИО'),
+          chip('Employee.FullName'),
           t(' (ИИН '),
-          chip('Сотрудник.ИИН'),
+          chip('Employee.Iin'),
           t('), в соответствии с Законом РК «О персональных данных и их защите» даю согласие '),
-          chip('Организация.Юрнаименование'),
+          chip('Organization.LegalName'),
           t(' (БИН '),
-          chip('Организация.БИН'),
+          chip('Organization.Bin'),
           t(
             ') на сбор и обработку моих персональных данных в целях трудовых отношений: оформления кадровых документов, расчёта оплаты труда, исполнения обязанностей работодателя по законодательству РК, включая передачу сведений в государственные системы учёта трудовых договоров.',
           ),
@@ -544,37 +529,33 @@ export const HR_LIBRARY: readonly HrLibraryItem[] = [
   {
     key: 'conditions_change_notice',
     version: 1,
-    title: 'Уведомление об изменении условий труда',
-    description:
-      'Ст. 46 п. 2 ТК РК: за 15 календарных дней, с 08.06.2026 — только письменно (бумага или электронный документ с ЭЦП). Подписывает работодатель ЭЦП, работник знакомится.',
+    language: 'ru',
     docType: {
-      name: 'Уведомления',
       category: 'hr',
-      numberFormat: 'УВ-{ГГГГ}-{NNN}',
+      numberFormat: 'УВ-{YYYY}-{NNN}',
       visibility: 'managers',
       signatureLevel: 'ecp',
       toPersonalFile: true,
       retentionYears: 5,
     },
     template: {
-      name: 'Уведомление об изменении условий труда',
       selfService: false,
       fields: [
-        { key: 'Что меняется', label: 'Что меняется', kind: 'textarea', required: true },
-        { key: 'Дата изменения', label: 'Дата изменения условий', kind: 'date', required: true },
+        { key: 'WhatChanges', kind: 'textarea', required: true },
+        { key: 'ChangeDate', kind: 'date', required: true },
       ],
     },
     builderDoc: doc([
       requisites(),
       h('УВЕДОМЛЕНИЕ об изменении условий труда'),
       docMeta(),
-      p([chip('Сотрудник.ФИО'), t(' ('), chip('Договор.Должность'), t(')')]),
+      p([chip('Employee.FullName'), t(' ('), chip('Contract.Position'), t(')')]),
       p(
         [
           t('В соответствии со ст. 46 Трудового кодекса РК уведомляем об изменении условий труда с '),
-          chip('Форма.Дата изменения', 'дата'),
+          chip('Form.ChangeDate', 'date'),
           t(': '),
-          chip('Форма.Что меняется'),
+          chip('Form.WhatChanges'),
           t('.'),
         ],
         'justify',
@@ -596,19 +577,16 @@ export const HR_LIBRARY: readonly HrLibraryItem[] = [
   {
     key: 'cybersecurity_policy',
     version: 1,
-    title: 'Ознакомление с требованиями кибербезопасности',
-    description:
-      'С 25.08.2026 работодатель обязан ознакомить работников с требованиями кибербезопасности. Готовый ЛНА: установите и запустите кампанию ознакомления на всю организацию.',
+    language: 'ru',
     docType: {
-      name: 'Локальные акты',
       category: 'hr',
-      numberFormat: 'ЛНА-{ГГГГ}-{NNN}',
+      numberFormat: 'ЛНА-{YYYY}-{NNN}',
       visibility: 'team',
       signatureLevel: 'none',
       toPersonalFile: false,
       retentionYears: 5,
     },
-    template: { name: 'Требования кибербезопасности', selfService: false, fields: [] },
+    template: { selfService: false, fields: [] },
     builderDoc: doc([
       requisites(),
       h('ТРЕБОВАНИЯ информационной безопасности для работников'),

@@ -6,6 +6,7 @@
 // ============================================================
 
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { apiDelete, apiErrorMessage, apiGet, apiPost } from '@/lib/api';
 import { useFileUpload } from '@/lib/hooks/useFileUpload';
 import { FileDropzone } from '@/components/files/FileDropzone';
@@ -14,7 +15,6 @@ import {
   Button, Card, Chip, EmojiIcon, Field, Glyph, IconButton, TickBar,
 } from '@/components/ui';
 import {
-  LISTING_ITEM_TYPE_LABELS,
   SHOP_LIMITS,
   type ContributionLine,
   type FileDto,
@@ -25,6 +25,7 @@ import { fmtAmount, fmtPrices, listingAvailability, progressLines } from './shop
 
 /** Прогресс сбора по каждой валюте цели — фирменными штрихами (DESIGN.md §5). */
 export function CampaignBars({ prices, raised }: { prices: ListingPriceDto[]; raised?: ContributionLine[] }) {
+  const t = useTranslations('shop');
   return (
     <div className="ui-stack" style={{ gap: '0.5rem', margin: 'var(--spacing-3) 0' }}>
       {progressLines(prices, raised).map((l) => {
@@ -42,7 +43,7 @@ export function CampaignBars({ prices, raised }: { prices: ListingPriceDto[]; ra
               tone={pct >= 100 ? 'success' : 'accent'}
               height={9}
               style={{ marginTop: '0.25rem' }}
-              aria-label={`Собрано ${pct}% в ${l.currencyName}`}
+              aria-label={t('card.collectedPct', { pct, currency: l.currencyName })}
             />
           </div>
         );
@@ -89,15 +90,17 @@ export function ListingCard({
   onForward?: () => void;
   onContribute?: () => void;
 }) {
+  const t = useTranslations('shop');
+  const common = useTranslations('common');
   const iPledged = (l.campaign?.myContribution?.length ?? 0) > 0;
-  const { discountActive, remaining, soldOut, notYet, closed, sellable, reason } = listingAvailability(l);
+  const { discountActive, remaining, soldOut, notYet, closed, sellable, reasonKey } = listingAvailability(l);
 
   return (
     <Card small style={{ position: 'relative', opacity: l.status === 'archived' ? 0.55 : 1 }}>
       {onForward && (
         <IconButton
           icon="share"
-          label="Переслать в чат"
+          label={t('card.forward')}
           size={30}
           variant="outline"
           round={false}
@@ -127,19 +130,22 @@ export function ListingCard({
       {l.description && <p className="label-sm" style={{ margin: '0.25rem 0 0' }}>{l.description}</p>}
 
       <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', margin: 'var(--spacing-3) 0' }}>
-        <Chip size="sm" tone="neutral">{LISTING_ITEM_TYPE_LABELS[l.itemType]}</Chip>
+        <Chip size="sm" tone="neutral">{t(`itemType.${l.itemType}`)}</Chip>
         {l.withTask && (
-          <Chip size="sm" tone="neutral" icon="tasks">С задачей{l.taskDays ? ` · ${l.taskDays}д` : ''}</Chip>
+          <Chip size="sm" tone="neutral" icon="tasks">
+            {t('card.withTask')}
+            {l.taskDays ? ` · ${t('card.taskDays', { days: l.taskDays })}` : ''}
+          </Chip>
         )}
-        {l.crowdfunding && <Chip size="sm" tone="accent" icon="target">Сбор</Chip>}
+        {l.crowdfunding && <Chip size="sm" tone="accent" icon="target">{t('card.campaign')}</Chip>}
         {discountActive && <Chip size="sm" tone="warning" icon="bolt">−{l.discountPercent}%</Chip>}
         {remaining != null && (
           <Chip size="sm" tone={soldOut ? 'danger' : 'neutral'}>
-            {soldOut ? 'Распродано' : `осталось ${remaining}`}
+            {soldOut ? t('unavailable.soldOut') : t('card.remaining', { count: remaining })}
           </Chip>
         )}
-        {closed && <Chip size="sm" tone="neutral" icon="clock">Закрыто</Chip>}
-        {notYet && <Chip size="sm" tone="neutral" icon="clock">Скоро</Chip>}
+        {closed && <Chip size="sm" tone="neutral" icon="clock">{t('unavailable.closed')}</Chip>}
+        {notYet && <Chip size="sm" tone="neutral" icon="clock">{t('unavailable.soon')}</Chip>}
       </div>
 
       <PriceLine listing={l} />
@@ -147,27 +153,27 @@ export function ListingCard({
 
       {canManage ? (
         <div style={{ display: 'flex', gap: '0.375rem', marginTop: 'var(--spacing-3)' }}>
-          <Button variant="outline" size="sm" icon="edit" onClick={onEdit}>Изменить</Button>
-          <Button variant="ghost" size="sm" tone="danger" icon="delete" onClick={onDelete}>Удалить</Button>
+          <Button variant="outline" size="sm" icon="edit" onClick={onEdit}>{common('actions.edit')}</Button>
+          <Button variant="ghost" size="sm" tone="danger" icon="delete" onClick={onDelete}>{common('actions.delete')}</Button>
         </div>
       ) : l.crowdfunding && onContribute ? (
         <div style={{ marginTop: 'var(--spacing-3)' }}>
           {sellable ? (
             <Button variant="primary" size="sm" icon="target" onClick={onContribute}>
-              {iPledged ? 'Мой вклад' : 'Скинуться'}
+              {t(iPledged ? 'card.myPledge' : 'action.chipIn')}
             </Button>
           ) : (
-            <Chip size="sm" tone="neutral">{reason}</Chip>
+            <Chip size="sm" tone="neutral">{t(reasonKey)}</Chip>
           )}
         </div>
       ) : onBuy || onTalk ? (
         <div style={{ marginTop: 'var(--spacing-3)', display: 'flex', gap: '0.375rem', alignItems: 'center', flexWrap: 'wrap' }}>
           {onBuy && (sellable ? (
-            <Button variant="primary" tone="success" size="sm" icon="coins" onClick={onBuy}>Купить</Button>
+            <Button variant="primary" tone="success" size="sm" icon="coins" onClick={onBuy}>{t('action.buy')}</Button>
           ) : (
-            <Chip size="sm" tone="neutral">{reason}</Chip>
+            <Chip size="sm" tone="neutral">{t(reasonKey)}</Chip>
           ))}
-          {onTalk && <Button variant="ghost" size="sm" icon="messenger" onClick={onTalk}>Поговорить</Button>}
+          {onTalk && <Button variant="ghost" size="sm" icon="messenger" onClick={onTalk}>{t('action.talk')}</Button>}
         </div>
       ) : null}
     </Card>
@@ -176,6 +182,7 @@ export function ListingCard({
 
 /** Галерея фото лота внутри формы: грид тумбов с крестиком + дропзона (≤10). */
 export function ListingPhotosSection({ listingId, onError }: { listingId: string; onError: (m: string) => void }) {
+  const t = useTranslations('shop');
   const [images, setImages] = useState<FileDto[]>([]);
   const reload = useCallback(() => {
     apiGet<FileDto[]>(`/shop/listings/${listingId}/images`).then(setImages).catch(() => {});
@@ -196,7 +203,7 @@ export function ListingPhotosSection({ listingId, onError }: { listingId: string
     f.publicUrl ? `${f.publicUrl}${f.variants?.some((v) => v.kind === 'thumb') ? '?variant=thumb' : ''}` : '';
 
   return (
-    <Field label={`Фото (до ${SHOP_LIMITS.maxListingImages}; первое — обложка)`}>
+    <Field label={t('photos.label', { max: SHOP_LIMITS.maxListingImages })}>
       {images.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem', marginBottom: '0.5rem' }}>
           {images.map((f) => (
@@ -211,7 +218,7 @@ export function ListingPhotosSection({ listingId, onError }: { listingId: string
               <img src={thumbOf(f)} alt={f.name} loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               <IconButton
                 icon="close"
-                label={`Убрать фото ${f.name}`}
+                label={t('photos.remove', { name: f.name })}
                 size={20}
                 iconSize={11}
                 variant="outline"
@@ -228,7 +235,7 @@ export function ListingPhotosSection({ listingId, onError }: { listingId: string
           accept="image/*"
           multiple
           compact
-          label="Добавить фото"
+          label={t('photos.add')}
         />
       )}
       <UploadProgressList items={uploader.items.filter((i) => i.status !== 'done')} onCancel={uploader.cancel} onRemove={uploader.remove} />

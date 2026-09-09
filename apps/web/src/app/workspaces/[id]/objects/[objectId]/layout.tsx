@@ -8,6 +8,7 @@
 
 import { useMemo } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { useQuery } from '@tanstack/react-query';
 import { OBJECT_KINDS } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
@@ -19,6 +20,7 @@ import { fetchObject } from '../objects-api';
 type TabKey = 'overview' | 'staffing' | 'shifts' | 'assets' | 'history';
 
 export default function ObjectLayout({ children }: { children: React.ReactNode }) {
+  const t = useTranslations('objects');
   const { isReady } = useRequireAuth();
   const router = useRouter();
   const pathname = usePathname();
@@ -38,11 +40,11 @@ export default function ObjectLayout({ children }: { children: React.ReactNode }
   }, [pathname, base]);
 
   const tabs: TabItem<TabKey>[] = [
-    { key: 'overview', label: 'Обзор', icon: 'dashboard' },
-    { key: 'staffing', label: 'Штатное расписание', icon: 'staff' },
-    { key: 'shifts', label: 'График смен', icon: 'calendarCheck' },
-    { key: 'assets', label: 'Оборудование', icon: 'wrench' },
-    { key: 'history', label: 'Хроника', icon: 'journal' },
+    { key: 'overview', label: t('tabs.overview'), icon: 'dashboard' },
+    { key: 'staffing', label: t('tabs.staffing'), icon: 'staff' },
+    { key: 'shifts', label: t('tabs.shifts'), icon: 'calendarCheck' },
+    { key: 'assets', label: t('assets.breadcrumb'), icon: 'wrench' },
+    { key: 'history', label: t('tabs.history'), icon: 'journal' },
   ];
 
   if (!isReady) return null;
@@ -53,19 +55,15 @@ export default function ObjectLayout({ children }: { children: React.ReactNode }
   if (!node) {
     return (
       <>
-        <PageHeader breadcrumb="Объекты" title="Объект недоступен" />
+        <PageHeader breadcrumb={t('breadcrumb')} title={t('card.unavailable')} />
         <Card>
           <EmptyState
             icon="blocked"
-            title="Объект не открылся"
-            description={
-              error
-                ? apiErrorMessage(error)
-                : 'Объект удалён или у вас нет к нему доступа. Попросите управляющего добавить вас на объект.'
-            }
+            title={t('card.notOpened')}
+            description={error ? apiErrorMessage(error) : t('card.notOpenedHint')}
             action={
               <Button variant="primary" icon="arrowLeft" href={`/workspaces/${id}/objects`}>
-                К списку объектов
+                {t('card.backToList')}
               </Button>
             }
           />
@@ -74,18 +72,18 @@ export default function ObjectLayout({ children }: { children: React.ReactNode }
     );
   }
 
-  const kindLabel = OBJECT_KINDS.find((k) => k.value === node.kind)?.label ?? 'Объект';
+  const kindLabel = OBJECT_KINDS.some((k) => k.value === node.kind) ? t(`kind.${node.kind}`) : t('entity');
 
   return (
     <>
       <PageHeader
-        breadcrumb="Объекты"
+        breadcrumb={t('breadcrumb')}
         title={node.name}
         chip={
           <>
             <Chip tone="neutral">{kindLabel}</Chip>
-            {node.isDefault && <Chip tone="accent">Основной</Chip>}
-            {node.archivedAt && <Chip tone="neutral">В архиве</Chip>}
+            {node.isDefault && <Chip tone="accent">{t('card.main')}</Chip>}
+            {node.archivedAt && <Chip tone="neutral">{t('archived')}</Chip>}
           </>
         }
         description={[node.address, node.effectiveLegalEntityName].filter(Boolean).join(' · ') || undefined}
@@ -95,7 +93,7 @@ export default function ObjectLayout({ children }: { children: React.ReactNode }
           items={tabs}
           value={active}
           onChange={(key) => router.push(key === 'overview' ? base : `${base}/${key}`)}
-          aria-label="Разделы объекта"
+          aria-label={t('tabs.aria')}
         />
       </div>
       {children}

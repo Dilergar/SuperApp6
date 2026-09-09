@@ -3,6 +3,9 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
+import type { Formatters } from '@superapp/i18n/format';
+import { useFormatters } from '@/lib/format';
 import {
   Button,
   Chip,
@@ -16,7 +19,7 @@ import {
   Toggle,
   type MenuAction,
 } from '@/components/ui';
-import { ROLE_PRESETS } from '@superapp/shared';
+import { ROLE_PRESET_KEYS } from '@superapp/shared';
 // Типы социального графа берём ИЗ ОБЩЕГО ПАКЕТА, а не объявляем свои: локальные
 // копии уже разъехались с сервером (в местной `Contact` не было `initiatedBy`),
 // и такое расхождение не ловится компилятором — оно просто тихо теряет поля.
@@ -29,7 +32,7 @@ import type {
   SocialLinks,
   UserProfile,
 } from '@superapp/shared';
-import { presenceStatusLine } from '../messenger/presence-ui';
+import { usePresenceLine } from '../messenger/presence-ui';
 import { getPresence } from '@/lib/messenger-api';
 import { apiErrorMessage, apiPatch } from '@/lib/api';
 import { toastError } from '@/lib/toast';
@@ -386,6 +389,10 @@ function CardBody({ person, size, skin, onOpen }: {
   /** Задаётся только для кликабельной карточки грида — см. комментарий ниже. */
   onOpen?: () => void;
 }) {
+  // Каталог `common`, а НЕ `circles`: карточка человека — платформенная мебель,
+  // её рисуют десятки страниц, и требовать от каждой класть в провайдер
+  // неймспейс «Окружения» значило бы протащить его через всё приложение.
+  const tr = useTranslations('common');
   const cfg = SIZE_CONFIG[size];
   const t = skin.tokens;
   const showDot = cfg.showPresence && person.showOnlineStatus;
@@ -412,7 +419,7 @@ function CardBody({ person, size, skin, onOpen }: {
       variant="ghost"
       size="sm"
       onClick={onOpen}
-      aria-label={`${nameText} — подробнее`}
+      aria-label={tr('person.details', { name: nameText })}
       style={{
         ...nameStyle,
         background: 'none',
@@ -478,6 +485,8 @@ function CardBody({ person, size, skin, onOpen }: {
 function CardFields({ person, metaSize, color, all }: {
   person: CardPerson; metaSize: string; color: string; all: boolean;
 }) {
+  const tr = useTranslations('common');
+  const f = useFormatters();
   const meta = (children: React.ReactNode, extra?: React.CSSProperties) => (
     <div style={{ color, fontSize: metaSize, textAlign: 'center', ...extra }}>{children}</div>
   );
@@ -492,11 +501,11 @@ function CardFields({ person, metaSize, color, all }: {
   ].filter(Boolean) as string[];
   return (
     <>
-      {person.dateOfBirth && meta(formatDate(person.dateOfBirth))}
-      {person.age !== null && meta(`${person.age} лет`)}
+      {person.dateOfBirth && meta(formatDate(person.dateOfBirth, f))}
+      {person.age !== null && meta(tr('person.ageValue', { n: person.age }))}
       {person.city && meta(person.city)}
       {person.bio && meta(person.bio, { fontStyle: 'italic', maxWidth: '200px' })}
-      {person.maritalStatus && meta(MARITAL_LABELS[person.maritalStatus] || person.maritalStatus)}
+      {person.maritalStatus && meta(maritalLabel(person.maritalStatus, tr))}
       {all && person.email && meta(person.email)}
       {all && socialParts.length > 0 && meta(socialParts.join(' · '))}
     </>
@@ -560,6 +569,7 @@ function RoleBadge({ role, skin, size }: { role: string; skin: CardSkinRender; s
 }
 
 function RarityChip({ rarity }: { rarity: CardSkinRender['rarity'] }) {
+  const tr = useTranslations('circles');
   const m = RARITY_META[rarity];
   return (
     <div style={{
@@ -570,7 +580,7 @@ function RarityChip({ rarity }: { rarity: CardSkinRender['rarity'] }) {
       // если цвет редкости станет var(...) (DESIGN.md §1)
       boxShadow: `0 0 0 1.5px color-mix(in srgb, ${m.color} 33%, transparent), 0 0 0 4px color-mix(in srgb, ${m.color} 12%, transparent)`,
     }}>
-      {m.label}
+      {tr(`rarity.${rarity}`)}
     </div>
   );
 }
@@ -582,6 +592,7 @@ function RarityChip({ rarity }: { rarity: CardSkinRender['rarity'] }) {
 function CompactCard({
   contact, folders, activeFolder, onDelete, onBlock, onRemoveFromFolder, onAddToFolder, myCoins, presence, skin,
 }: CompactProps) {
+  const tr = useTranslations('circles');
   const [expanded, setExpanded] = useState(false);
   // Кнопку «Позвонить» показываем только когда движок звонков включён (не рисуем UI
   // несуществующей фичи). Ключ общий → один сетевой запрос на весь грид.
@@ -637,11 +648,11 @@ function CompactCard({
             а фокуса не показывали вовсе (инлайн-стилем состояние не выражается). */}
         <div onClick={stop} style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: '0.1rem', alignItems: 'center', zIndex: 3 }}>
           {activeFolder ? (
-            <IconButton icon="remove" label="Убрать из группы" size={26} iconSize={14} round={false} onClick={onRemoveFromFolder} />
+            <IconButton icon="remove" label={tr('card.removeFromGroup')} size={26} iconSize={14} round={false} onClick={onRemoveFromFolder} />
           ) : groupItems.length > 0 ? (
             <Menu
               items={groupItems}
-              label="Добавить в группу"
+              label={tr('card.addToGroup')}
               trigger={({ ref, onClick, ...aria }) => {
                 // Снимок состояния меню для гварда выше. Запись рефа в рендере
                 // идемпотентна (то же значение при повторном рендере), а иного
@@ -651,7 +662,7 @@ function CompactCard({
                   <IconButton
                     ref={ref}
                     icon="add"
-                    label="Добавить в группу"
+                    label={tr('card.addToGroup')}
                     size={26}
                     iconSize={14}
                     round={false}
@@ -663,11 +674,11 @@ function CompactCard({
             />
           ) : null}
           {onBlock && (
-            <IconButton icon="blocked" label="Заблокировать" size={26} iconSize={14} round={false} onClick={onBlock} />
+            <IconButton icon="blocked" label={tr('card.block')} size={26} iconSize={14} round={false} onClick={onBlock} />
           )}
           <IconButton
             icon="delete"
-            label="Удалить из окружения"
+            label={tr('card.removeFromCircle')}
             variant="danger"
             size={26}
             iconSize={14}
@@ -687,7 +698,7 @@ function CompactCard({
                 stop(e) оставлен — карточка под ними кликабельна, иначе поверх
                 открылся бы ещё и XL-оверлей. */}
             <Button href={`/messenger?dm=${contact.them.id}`} onClick={stop} variant="outline" size="sm" icon="messenger">
-              Написать
+              {tr('card.write')}
             </Button>
             {callsEnabled && (
               <Button
@@ -696,15 +707,15 @@ function CompactCard({
                 variant="outline"
                 size="sm"
                 icon="call"
-                title="Позвонить (аудио; видео включается в звонке)"
+                title={tr('card.callHint')}
               >
-                Позвонить
+                {tr('card.call')}
               </Button>
             )}
           </div>
           {myCoins && myCoins.balance !== 0 && (
             <div className="label-sm" style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 600, color: 'var(--primary)' }}>
-              держит {myCoins.balance.toLocaleString('ru-RU')} <Glyph value={myCoins.icon} size={13} />
+              {tr('card.holdsCoins', { amount: myCoins.balance })} <Glyph value={myCoins.icon} size={13} />
             </div>
           )}
           {foldersIn.length > 0 && (
@@ -776,7 +787,10 @@ function ExpandedCard({
   /** Когда связь подтвердилась (обе стороны приняли). */
   confirmedAt?: string;
 }) {
+  const tr = useTranslations('circles');
+  const f = useFormatters();
   const t = skin.tokens;
+  const presenceStatusLine = usePresenceLine();
   const presence = useSinglePresence(presenceUserId, initialPresence);
   const presenceLine = presenceStatusLine(presence);
   const shown: CardPerson = {
@@ -788,7 +802,7 @@ function ExpandedCard({
     presenceLine: presenceLine ?? person.presenceLine ?? null,
   };
   return (
-    <ModalShell onClose={onClose} zIndex={1000} label={`Карточка: ${person.firstName}`}>
+    <ModalShell onClose={onClose} zIndex={1000} label={tr('card.modalLabel', { name: person.firstName })}>
       <div onClick={(e) => e.stopPropagation()} style={{ position: 'relative', maxWidth: 420, width: '100%' }}>
         <CloseChip
           onClick={onClose}
@@ -811,20 +825,20 @@ function ExpandedCard({
               gap: '0.15rem', textAlign: 'center', color: t.metaColor, fontSize: '0.78rem',
             }}>
               {theirRole && (
-                <div>Он(а) называет вас: <strong style={{ fontWeight: 700 }}>{theirRole}</strong></div>
+                <div>{tr('card.theyCallYou')} <strong style={{ fontWeight: 700 }}>{theirRole}</strong></div>
               )}
-              {confirmedAt && <div>В окружении с {formatDate(confirmedAt)}</div>}
+              {confirmedAt && <div>{tr('card.inCircleSince', { date: formatDate(confirmedAt, f) })}</div>}
             </div>
           )}
 
           {(writeHref || callHref || onWrite) && (
             <div style={{ display: 'flex', justifyContent: 'center', gap: 'var(--spacing-2)', marginTop: 'var(--spacing-4)', flexWrap: 'wrap' }}>
               {writeHref
-                ? <Button href={writeHref} variant="outline" icon="messenger">Написать</Button>
-                : onWrite && <Button variant="outline" icon="messenger" onClick={onWrite}>Написать</Button>}
+                ? <Button href={writeHref} variant="outline" icon="messenger">{tr('card.write')}</Button>
+                : onWrite && <Button variant="outline" icon="messenger" onClick={onWrite}>{tr('card.write')}</Button>}
               {callHref && (
-                <Button href={callHref} variant="outline" icon="call" title="Позвонить (аудио; видео включается в звонке)">
-                  Позвонить
+                <Button href={callHref} variant="outline" icon="call" title={tr('card.callHint')}>
+                  {tr('card.call')}
                 </Button>
               )}
             </div>
@@ -867,6 +881,8 @@ const ROLE_MAX_LENGTH = 50;
  * подписью навсегда: ручка `PATCH /contacts/:linkId` была, но её никто не звал.
  */
 function RoleEditor({ ctx, skin }: { ctx: RoleEditContext; skin: CardSkinRender }) {
+  const tr = useTranslations('circles');
+  const tc = useTranslations('common');
   const queryClient = useQueryClient();
   const [role, setRole] = useState<string | null>(ctx.initialRole);
   const [editing, setEditing] = useState(false);
@@ -888,11 +904,11 @@ function RoleEditor({ ctx, skin }: { ctx: RoleEditContext; skin: CardSkinRender 
   const save = async (value: string | null) => {
     const next = value === null ? '' : value.trim();
     if (next.length > ROLE_MAX_LENGTH) {
-      toastError(`Роль слишком длинная — не больше ${ROLE_MAX_LENGTH} символов`);
+      toastError(tr('card.roleTooLong', { max: ROLE_MAX_LENGTH }));
       return;
     }
     if (/[<>]/.test(next)) {
-      toastError('В роли нельзя использовать символы < и >');
+      toastError(tr('card.roleBadChars'));
       return;
     }
     setSaving(true);
@@ -926,15 +942,15 @@ function RoleEditor({ ctx, skin }: { ctx: RoleEditContext; skin: CardSkinRender 
             size="sm"
             iconRight="edit"
             onClick={() => { setDraft(role); setEditing(true); }}
-            aria-label={`Изменить роль (сейчас: ${role})`}
-            title="Изменить роль"
+            aria-label={tr('card.editRoleAria', { role })}
+            title={tr('card.editRole')}
             style={{ padding: '0.15rem 0.4rem', minHeight: 0 }}
           >
             <RoleBadge role={role} skin={skin} size="XL" />
           </Button>
         ) : (
           <Button variant="outline" size="sm" icon="edit" onClick={() => { setDraft(''); setEditing(true); }}>
-            Указать роль
+            {tr('card.setRole')}
           </Button>
         )}
       </div>
@@ -944,11 +960,11 @@ function RoleEditor({ ctx, skin }: { ctx: RoleEditContext; skin: CardSkinRender 
   return (
     <div style={{ marginTop: 'var(--spacing-3)', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
       <Input
-        label={`Как я называю: ${ctx.personName}`}
-        hint="Подпись видна только вам"
+        label={tr('card.myRoleFor', { name: ctx.personName })}
+        hint={tr('card.myRoleHint')}
         value={draft}
         maxLength={ROLE_MAX_LENGTH}
-        placeholder="Жена, Коллега, Друг…"
+        placeholder={tr('card.rolePlaceholder')}
         autoFocus
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
@@ -963,20 +979,23 @@ function RoleEditor({ ctx, skin }: { ctx: RoleEditContext; skin: CardSkinRender 
         }}
       />
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', maxHeight: 116, overflowY: 'auto' }}>
-        {ROLE_PRESETS.map((preset) => (
-          <Chip key={preset} size="sm" tone="accent" selected={draft === preset} onClick={() => setDraft(preset)}>
-            {preset}
-          </Chip>
-        ))}
+        {ROLE_PRESET_KEYS.map((key) => {
+          const preset = tr(`rolePreset.${key}`);
+          return (
+            <Chip key={key} size="sm" tone="accent" selected={draft === preset} onClick={() => setDraft(preset)}>
+              {preset}
+            </Chip>
+          );
+        })}
       </div>
       <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
         <Button size="sm" variant="primary" tone="success" loading={saving} onClick={() => void save(draft)}>
-          Сохранить
+          {tc('actions.save')}
         </Button>
-        <Button size="sm" variant="ghost" disabled={saving} onClick={() => setEditing(false)}>Отмена</Button>
+        <Button size="sm" variant="ghost" disabled={saving} onClick={() => setEditing(false)}>{tc('actions.cancel')}</Button>
         {role && (
           <Button size="sm" variant="matte" tone="danger" disabled={saving} onClick={() => void save(null)}>
-            Убрать роль
+            {tr('card.clearRole')}
           </Button>
         )}
       </div>
@@ -1006,6 +1025,7 @@ export const StaffPersonCard = memo(function StaffPersonCard({
   /** Страница человека (КЭДО): ссылка «Карточка» — факт, договор, действия, хроника. */
   cardHref?: string;
 }) {
+  const tr = useTranslations('circles');
   const [expanded, setExpanded] = useState(false);
   const skin = usePersonSkin(userId) || DEFAULT_SKIN;
 
@@ -1055,17 +1075,17 @@ export const StaffPersonCard = memo(function StaffPersonCard({
             <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', justifyContent: 'center' }}>
               {onWrite && (
                 <Button variant="outline" size="sm" icon="messenger" onClick={(e) => { stop(e); onWrite(); }}>
-                  Написать
+                  {tr('card.write')}
                 </Button>
               )}
               {cardHref && (
                 <Button variant="outline" size="sm" icon="file" href={cardHref} onClick={stop}>
-                  Карточка
+                  {tr('card.tabCard')}
                 </Button>
               )}
               {onManage && (
                 <Button variant="primary" size="sm" icon="settings" onClick={(e) => { stop(e); onManage(); }}>
-                  Управлять
+                  {tr('card.tabManage')}
                 </Button>
               )}
             </div>
@@ -1090,6 +1110,9 @@ export const StaffPersonCard = memo(function StaffPersonCard({
 // ============================================================
 
 function FullCard({ profile, onToggleVisibility, skin, initialSize }: FullProps) {
+  const tr = useTranslations('circles');
+  const tcm = useTranslations('common');
+  const f = useFormatters();
   const [size, setSize] = useState<CardSize>(initialSize || 'XL');
   const activeSkin = skin || DEFAULT_SKIN;
   const vis = profile.cardVisibility;
@@ -1112,30 +1135,31 @@ function FullCard({ profile, onToggleVisibility, skin, initialSize }: FullProps)
           «здесь точно не null» держалось на честном слове. */}
       {onToggleVisibility && size === 'XL' && (
         <div style={{ width: '100%', maxWidth: 420, display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
-          {profile.city && <VisibilityRow label="Город" value={profile.city} visible={vis.city} onToggle={(v) => onToggleVisibility('city', v)} />}
-          {profile.bio && <VisibilityRow label="О себе" value={profile.bio} visible={vis.bio} onToggle={(v) => onToggleVisibility('bio', v)} />}
-          {profile.dateOfBirth && <VisibilityRow label="Дата рождения" value={formatDate(profile.dateOfBirth)} visible={vis.dateOfBirth} onToggle={(v) => onToggleVisibility('dateOfBirth', v)} />}
-          {profile.dateOfBirth && <VisibilityRow label="Возраст" value={`${calcAge(profile.dateOfBirth)} лет`} visible={vis.age} onToggle={(v) => onToggleVisibility('age', v)} />}
-          <VisibilityRow label="Онлайн-статус" value="Виден другим" visible={vis.onlineStatus} onToggle={(v) => onToggleVisibility('onlineStatus', v)} />
-          {profile.maritalStatus && <VisibilityRow label="Семейное положение" value={MARITAL_LABELS[profile.maritalStatus] || profile.maritalStatus} visible={vis.maritalStatus} onToggle={(v) => onToggleVisibility('maritalStatus', v)} />}
-          {profile.email && <VisibilityRow label="Email" value={profile.email} visible={vis.email} onToggle={(v) => onToggleVisibility('email', v)} />}
+          {profile.city && <VisibilityRow label={tr('visField.city')} value={profile.city} visible={vis.city} onToggle={(v) => onToggleVisibility('city', v)} />}
+          {profile.bio && <VisibilityRow label={tr('visField.bio')} value={profile.bio} visible={vis.bio} onToggle={(v) => onToggleVisibility('bio', v)} />}
+          {profile.dateOfBirth && <VisibilityRow label={tr('visField.dateOfBirth')} value={formatDate(profile.dateOfBirth, f)} visible={vis.dateOfBirth} onToggle={(v) => onToggleVisibility('dateOfBirth', v)} />}
+          {profile.dateOfBirth && <VisibilityRow label={tr('visField.age')} value={tcm('person.ageValue', { n: calcAge(profile.dateOfBirth) })} visible={vis.age} onToggle={(v) => onToggleVisibility('age', v)} />}
+          <VisibilityRow label={tr('visField.onlineStatus')} value={tr('card.onlineValue')} visible={vis.onlineStatus} onToggle={(v) => onToggleVisibility('onlineStatus', v)} />
+          {profile.maritalStatus && <VisibilityRow label={tr('visField.maritalStatus')} value={maritalLabel(profile.maritalStatus, tcm)} visible={vis.maritalStatus} onToggle={(v) => onToggleVisibility('maritalStatus', v)} />}
+          {profile.email && <VisibilityRow label={tr('visField.email')} value={profile.email} visible={vis.email} onToggle={(v) => onToggleVisibility('email', v)} />}
         </div>
       )}
 
       <div className="label-sm" style={{ textAlign: 'center', opacity: 0.5 }}>
-        {editable ? 'Так тебя видят другие' : 'Так выглядит карточка для этой роли'}
+        {editable ? tr('card.previewOthers') : tr('card.previewRole')}
       </div>
     </div>
   );
 }
 
 function SizeSwitcher({ size, onChange }: { size: CardSize; onChange: (s: CardSize) => void }) {
+  const tr = useTranslations('circles');
   // Взаимоисключающий выбор одного из пяти — это пилюля-переключатель кита:
   // стрелки, aria-pressed и фокус-кольцо из коробки. Пять самодельных кнопок
   // не давали ни того, ни другого, ни третьего.
   return (
     <SegmentedControl<CardSize>
-      aria-label="Размер карточки"
+      aria-label={tr('card.sizeAria')}
       value={size}
       onChange={onChange}
       items={CARD_SIZES.map(({ key, label }) => ({ key, label }))}
@@ -1150,6 +1174,7 @@ function SizeSwitcher({ size, onChange }: { size: CardSize; onChange: (s: CardSi
 function VisibilityRow({ label, value, visible, onToggle }: {
   label: string; value: string; visible: boolean; onToggle: (v: boolean) => void;
 }) {
+  const tr = useTranslations('common');
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)',
@@ -1166,7 +1191,7 @@ function VisibilityRow({ label, value, visible, onToggle }: {
       <Toggle
         checked={visible}
         onChange={onToggle}
-        aria-label={`${label}: видно другим`}
+        aria-label={tr('person.visibleToOthers', { label })}
         className="shrink-0"
       />
     </div>
@@ -1224,17 +1249,17 @@ function profileToPerson(profile: ProfileData): CardPerson {
   };
 }
 
-const MARITAL_LABELS: Record<string, string> = {
-  single: 'Не женат/не замужем',
-  married: 'Женат/замужем',
-  relationship: 'В отношениях',
-  divorced: 'Разведён(а)',
-  widowed: 'Вдовец/вдова',
-};
+/** Семейное положение — значение перечисления; слово даёт каталог. */
+function maritalLabel(status: string, tr: (key: string) => string): string {
+  const key = `person.marital.${status}`;
+  const label = tr(key);
+  // Неизвестное значение (старая запись) — показываем как есть, а не ключ.
+  return label === key || label.endsWith(`.${key}`) ? status : label;
+}
 
-function formatDate(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+/** «3 сентября 2026» правилами региона и словами языка зрителя. */
+function formatDate(iso: string, f: Formatters): string {
+  return f.date(iso, 'long');
 }
 
 function calcAge(iso: string): number {

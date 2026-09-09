@@ -1,0 +1,117 @@
+{
+  "card": {
+    "cancel": "Отозвать заявку",
+    "cancelArmed": "Точно отозвать?",
+    "everyoneNeeded": " · нужен каждый",
+    "fingerprint": "{kind} · отпечаток",
+    "notOpened": "Заявка не открылась",
+    "notOpenedHint": "Возможно, её отозвали или у вас нет доступа к её предмету.",
+    "openSubject": "Открыть предмет",
+    "route": "Маршрут",
+    "routeOneStep": "Один шаг",
+    "routeSteps": "{n, plural, one {# шаг} few {# шага} many {# шагов} other {# шага}} по очереди",
+    "step": "Шаг {index} · {title}",
+    "title": "Заявка"
+  },
+  "commentPlaceholder": "Что именно поправить",
+  "decision": {
+    "approved": "Согласовать",
+    "rejected": "Отклонить",
+    "returned": "На доработку"
+  },
+  "decisionDone": {
+    "approved": "Согласовано",
+    "rejected": "Отклонено",
+    "returned": "Отправлено на доработку"
+  },
+  "decisionVerb": {
+    "rejected": "отклонил",
+    "returned": "вернул на доработку"
+  },
+  "inboxTitle": "Ждут решения",
+  "kind": {
+    "acknowledgement": {
+      "action": "Ознакомлен",
+      "done": "Ознакомился",
+      "waiting": "На ознакомлении"
+    },
+    "approval": {
+      "action": "Согласовать",
+      "done": "Согласовал",
+      "waiting": "На согласовании"
+    },
+    "signature": {
+      "action": "Подписать",
+      "done": "Подписал",
+      "waiting": "На подписи"
+    }
+  },
+  "mine": {
+    "active": "В работе",
+    "archived": "Завершённые",
+    "cancel": "Отозвать",
+    "cancelArmed": "Точно отозвать?",
+    "emptyActive": "Вы ничего не отправляли",
+    "emptyActiveHint": "Отправьте документ на маршрут — и увидите здесь, у кого он сейчас.",
+    "emptyArchived": "Завершённых заявок нет",
+    "emptyArchivedHint": "Сюда попадают согласованные, отклонённые и отменённые заявки.",
+    "openSubject": "Открыть предмет заявки",
+    "tabsAria": "Какие заявки показать"
+  },
+  "overdue": "Просрочено",
+  "overdueSuffix": " · просрочено",
+  "reason": "Причина",
+  "sign": "Подписать",
+  "signEcp": "Подписать ЭЦП",
+  "signatureKind": {
+    "ecp": "Электронная цифровая подпись",
+    "internal": "Внутреннее утверждение в SuperApp6",
+    "sms": "Подтверждено кодом из SMS"
+  },
+  "someone": "Сотрудник",
+  "source": {
+    "acknowledgements": "Ознакомления",
+    "signatures": "Подписи"
+  },
+  "sourceLabel": "Согласования",
+  "stack": {
+    "asks": "Просит: ",
+    "due": "Срок",
+    "dueLine": "{label} · {date}",
+    "empty": "Ничего не ждёт",
+    "emptyHint": "Все решения приняты.",
+    "loadFailed": "Стопка не загрузилась",
+    "loadFailedHint": "Это сбой связи, а не пустая стопка.",
+    "next": "Следующее",
+    "openFull": "Открыть целиком",
+    "position": "{index} из {total}",
+    "prev": "Назад",
+    "tabInbox": "На мне",
+    "tabMine": "Мои заявки",
+    "tabsAria": "Решения"
+  },
+  "status": {
+    "approved": "Согласовано",
+    "cancelled": "Отменено",
+    "pending": "Ждёт решения",
+    "rejected": "Отклонено",
+    "returned": "На доработке"
+  },
+  "stepOverdue": "Просрочен",
+  "stepStatus": {
+    "active": "Ждёт решения",
+    "approved": "Готово",
+    "rejected": "Отклонён",
+    "returned": "На доработку",
+    "skipped": "Пропущен",
+    "skippedLower": "пропущен",
+    "waiting": "Ждёт очереди",
+    "waitingLower": "ждёт очереди"
+  },
+  "summary": {
+    "stepOf": "Шаг {index} из {total} · {waiting}"
+  },
+  "toAssignee": "адресату",
+  "toSelectedGroup": "выбранной группе",
+  "waitingFor": "Ждём:"
+}

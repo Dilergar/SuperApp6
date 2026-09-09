@@ -1,0 +1,79 @@
+{
+  "actions": {
+    "chatAndHistory": "Chat and history",
+    "end": "End",
+    "invite": "Invite",
+    "join": "Join",
+    "open": "Open"
+  },
+  "callsOff": {
+    "body": "Bring LiveKit up (docker compose --profile calls up -d) and set LIVEKIT_* in apps/api/.env",
+    "title": "Calls are not connected"
+  },
+  "card": {
+    "ended": "Over",
+    "live": "Live now · {n}",
+    "meeting": "Meeting"
+  },
+  "defaultRoomName": "Meeting {date} {time}",
+  "description": "Video meetings and stand-ups — steady even on a weak connection",
+  "endConfirm": {
+    "message": "The link will stop working. The chat of the meeting stays.",
+    "messageLive": "The call will end for everyone and the link will stop working. The chat of the meeting stays.",
+    "title": "End the meeting?",
+    "titleNamed": "End «{name}»?"
+  },
+  "ended": "Ended",
+  "endedAt": "Ended {when}",
+  "history": {
+    "subtitle": "The chat of a finished meeting stays — the minutes will live there too",
+    "title": "History"
+  },
+  "inCall": "In the call: {n}",
+  "inviteModal": {
+    "placeholder": "Pick employees…",
+    "subtitle": "«{name}» — colleagues will get a notification with the link",
+    "title": "Invite to the meeting"
+  },
+  "newMeeting": "New meeting",
+  "noAccess": {
+    "description": "The meetings of the organization are open to its team.",
+    "title": "No access to the Virtual office"
+  },
+  "onAir": "on air",
+  "role": {
+    "host": "Host",
+    "participant": "Participant"
+  },
+  "room": {
+    "backToMeetings": "To the meetings",
+    "callEnded": "The call is over",
+    "callEndedNote": "The link of the meeting still works — you can call again",
+    "chatLoading": "Loading the chat…",
+    "chatMembersOnly": "The chat of the meeting is open to its participants only",
+    "connectionLost": "The connection dropped — try again",
+    "endForAll": {
+      "message": "The room will close for every participant of the meeting.",
+      "title": "End the call for everyone?"
+    },
+    "inCallNow": "In the call now: {n}",
+    "joinAgain": "Join again",
+    "kicked": "You were removed from the call",
+    "left": "You left the meeting",
+    "loading": "Loading the meeting…",
+    "notFoundDescription": "The meeting may have been ended, or you were not invited.",
+    "notFoundTitle": "The meeting was not found, or there is no access",
+    "tabs": {
+      "chat": "Chat",
+      "people": "Participants"
+    }
+  },
+  "rooms": {
+    "emptyDescription": "Create the first one — the link will work for every employee right away.",
+    "emptyTitle": "No meetings yet",
+    "subtitle": "The link works for every employee until the meeting is ended",
+    "title": "Meetings"
+  },
+  "showMore": "Show more",
+  "title": "Virtual office"
+}

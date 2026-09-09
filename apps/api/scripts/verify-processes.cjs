@@ -976,8 +976,12 @@ async function main() {
     const ssrfRows = await prisma.processStepRun.findMany({ where: { instanceId: instSsrf.id }, select: { nodeId: true, outcome: true, output: true } });
     const h1row = ssrfRows.find((s) => s.nodeId === 'h1');
     const h2row = ssrfRows.find((s) => s.nodeId === 'h2');
-    check('A12: metadata-IP (169.254.169.254) заблокирован → error', h1row?.outcome === 'error' && /внутренн/i.test(JSON.stringify(h1row?.output ?? {})), JSON.stringify(h1row?.output));
-    check('A12: decimal-кодированный loopback (2130706433) заблокирован → error', h2row?.outcome === 'error' && /внутренн/i.test(JSON.stringify(h2row?.output ?? {})), JSON.stringify(h2row?.output));
+    // Проверяем ПОВЕДЕНИЕ, а не фразу: текст стража исходящих живёт в языке
+    // источника и меняется вместе с ним, а «адрес заблокирован» — это outcome
+    // 'error' плюс непустая причина в выводе шага.
+    const blocked = (row) => row?.outcome === 'error' && !!(row?.output ?? {}).error;
+    check('A12: metadata-IP (169.254.169.254) заблокирован → error', blocked(h1row), JSON.stringify(h1row?.output));
+    check('A12: decimal-кодированный loopback (2130706433) заблокирован → error', blocked(h2row), JSON.stringify(h2row?.output));
     await call('DELETE', PR(`/${defSsrfId}`), t1).catch(() => {});
 
     // ---- A4: задача-шаг процесса НЕ самозапускает процессы (self-событие пропущено) ----

@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { SCHEDULED_MESSAGE_LIMITS, type ScheduledMessageItem } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { badRequest, forbidden, notFound } from '../../shared/errors/api-error';
 import { AccessService } from '../../core/access/access.service';
 import { JobDiscardError, JobsRegistry } from '../../core/jobs/jobs.registry';
 import { JobsService } from '../../core/jobs/jobs.service';
@@ -55,10 +56,10 @@ export class ScheduledMessageService implements OnModuleInit, OnApplicationBoots
   onModuleInit(): void {
     this.quickActions.register({
       key: 'message.schedule',
-      label: 'Напомнить',
+      labelKey: 'messenger.quickAction.schedule.label',
       icon: '⏰',
       scopes: ['composer', 'message'],
-      description: 'Отложенное сообщение в этот чат',
+      descriptionKey: 'messenger.quickAction.schedule.description',
     });
     // Ретраев больше, чем дефолт движка: напоминание ценнее, чем экономия попыток
     // (старый крон ретраил бесконечно; 8 попыток с бэкоффом ≈ до ~2 часов).
@@ -93,18 +94,18 @@ export class ScheduledMessageService implements OnModuleInit, OnApplicationBoots
 
   private async assertChatAccess(userId: string, chatId: string): Promise<void> {
     const ok = await this.access.can({ type: 'user', id: userId }, 'chat.view', chatId);
-    if (!ok) throw new ForbiddenException('Нет доступа к чату');
+    if (!ok) throw forbidden('chat.noAccess');
   }
 
   private validateSendAt(iso: string): Date {
     const sendAt = new Date(iso);
     const now = Date.now();
-    if (Number.isNaN(sendAt.getTime())) throw new BadRequestException('Некорректное время');
+    if (Number.isNaN(sendAt.getTime())) throw badRequest('scheduled.badTime');
     if (sendAt.getTime() < now + SCHEDULED_MESSAGE_LIMITS.minLeadSeconds * 1000) {
-      throw new BadRequestException('Время уже прошло или слишком близко');
+      throw badRequest('scheduled.timePassed');
     }
     if (sendAt.getTime() > now + SCHEDULED_MESSAGE_LIMITS.maxHorizonDays * 86_400_000) {
-      throw new BadRequestException('Слишком далеко в будущем');
+      throw badRequest('scheduled.tooFar');
     }
     return sendAt;
   }
@@ -125,7 +126,7 @@ export class ScheduledMessageService implements OnModuleInit, OnApplicationBoots
         select: { chatId: true },
       });
       if (!parent || parent.chatId !== chatId) {
-        throw new BadRequestException('Можно цитировать только сообщение из этого чата');
+        throw badRequest('chat.quoteSameChat');
       }
     }
 
@@ -133,7 +134,7 @@ export class ScheduledMessageService implements OnModuleInit, OnApplicationBoots
       where: { chatId, authorId: userId, status: 'pending' },
     });
     if (pending >= SCHEDULED_MESSAGE_LIMITS.maxPendingPerChat) {
-      throw new BadRequestException('Слишком много запланированных сообщений в этом чате');
+      throw badRequest('scheduled.tooMany');
     }
 
     // Строка + джоб выстрела в одной транзакции (outbox: откат не оставляет ни того, ни другого).
@@ -168,8 +169,8 @@ export class ScheduledMessageService implements OnModuleInit, OnApplicationBoots
     patch: { content?: string; sendAt?: string },
   ): Promise<ScheduledMessageItem> {
     const row = await this.db.scheduledMessage.findUnique({ where: { id } });
-    if (!row || row.authorId !== userId) throw new NotFoundException('Запланированное сообщение не найдено');
-    if (row.status !== 'pending') throw new BadRequestException('Уже отправлено или отменено');
+    if (!row || row.authorId !== userId) throw notFound('scheduled.notFound');
+    if (row.status !== 'pending') throw badRequest('scheduled.alreadyHandled');
 
     const data: { content?: string; sendAt?: Date } = {};
     if (patch.content !== undefined) data.content = patch.content;
@@ -198,7 +199,7 @@ export class ScheduledMessageService implements OnModuleInit, OnApplicationBoots
 
   async cancel(userId: string, id: string): Promise<void> {
     const row = await this.db.scheduledMessage.findUnique({ where: { id } });
-    if (!row || row.authorId !== userId) throw new NotFoundException('Запланированное сообщение не найдено');
+    if (!row || row.authorId !== userId) throw notFound('scheduled.notFound');
     if (row.status !== 'pending') return;
     await this.db.$transaction(async (tx) => {
       await tx.scheduledMessage.update({ where: { id }, data: { status: 'cancelled' } });
@@ -261,7 +262,7 @@ export class ScheduledMessageService implements OnModuleInit, OnApplicationBoots
         await this.db.scheduledMessage
           .update({ where: { id }, data: { status: 'cancelled' } })
           .catch(() => {});
-        throw new JobDiscardError(`нет доступа/чат удалён: ${(e as Error).message}`);
+        throw new JobDiscardError(`No access / the chat is gone: ${(e as Error).message}`);
       }
       // Transient → вернуть строку в pending и отдать ошибку движку (бэкофф-ретрай).
       await this.db.scheduledMessage
@@ -284,7 +285,7 @@ export class ScheduledMessageService implements OnModuleInit, OnApplicationBoots
       data: { status: 'cancelled' },
     });
     if (res.count > 0) {
-      this.logger.warn(`отложенное сообщение ${id}: джоб выстрела похоронен → cancelled`);
+      this.logger.warn(`Scheduled message ${id}: the fire job was discarded → cancelled`);
     }
   }
 

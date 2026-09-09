@@ -21,7 +21,7 @@ export class ShareLinksGuestController {
 
   @Public()
   @Get(':token')
-  @ApiOperation({ summary: 'Состояние ссылки (жива ли, нужен ли пароль). Открытие НЕ засчитывается' })
+  @ApiOperation({ summary: 'The link state (is it alive, is a password needed). The open is NOT counted' })
   async peek(@Param('token') token: string) {
     const data = await this.guest.peek(token);
     return { success: true, data };
@@ -36,7 +36,7 @@ export class ShareLinksGuestController {
   @Throttle({ long: { limit: 10, ttl: 60_000 } })
   @Post(':token/identity/start')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Запросить SMS-код подтверждения номера гостя (код проверяется в /verify/check)' })
+  @ApiOperation({ summary: 'Request an SMS code confirming the guest phone (the code is checked in /verify/check)' })
   async identityStart(@Param('token') token: string, @Body() body: unknown, @Req() req: Request) {
     const dto = shareGuestIdentityStartSchema.parse(body ?? {});
     const data = await this.guest.startIdentity(token, dto, req.ip ?? null);
@@ -52,7 +52,7 @@ export class ShareLinksGuestController {
   @Throttle({ long: { limit: 30, ttl: 60_000 } })
   @Post(':token/session')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Открыть ссылку: засчитать открытие и получить пропуск с содержимым' })
+  @ApiOperation({ summary: 'Open the link: count the open and get a pass together with the content' })
   async openSession(@Param('token') token: string, @Body() body: unknown, @Req() req: Request) {
     const dto = shareGuestSessionSchema.parse(body ?? {});
     const data = await this.guest.openSession(token, dto, {
@@ -66,7 +66,7 @@ export class ShareLinksGuestController {
 
   @Public()
   @Get(':token/view')
-  @ApiOperation({ summary: 'Свежее содержимое по действующему пропуску (без счётчика)' })
+  @ApiOperation({ summary: 'Fresh content for a valid pass (the counter is untouched)' })
   async view(@Param('token') token: string, @Headers(SHARE_SESSION_HEADER) session: string | undefined) {
     const data = await this.guest.refreshView(token, session);
     return { success: true, data };
@@ -85,7 +85,7 @@ export class ShareLinksGuestController {
   @Throttle({ long: { limit: 30, ttl: 60_000 } })
   @Post(':token/actions/:key')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Выполнить действие потребителя от имени гостя' })
+  @ApiOperation({ summary: 'Run a consumer action on behalf of the guest' })
   async action(
     @Param('token') token: string,
     @Param('key') key: string,

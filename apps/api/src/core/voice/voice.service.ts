@@ -6,6 +6,7 @@ import {
   OnApplicationBootstrap,
   OnModuleInit,
 } from '@nestjs/common';
+import { badRequest, notFound } from '../../shared/errors/api-error';
 import { Prisma, VoiceTranscript } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
@@ -170,14 +171,14 @@ export class VoiceService implements OnModuleInit, OnApplicationBootstrap {
    */
   async requestTranscript(userId: string, input: RequestTranscriptInput): Promise<VoiceTranscriptDto> {
     if (!this.stt.enabled) {
-      throw new BadRequestException('Расшифровка не подключена (VOICE_STT_URL не задан)');
+      throw badRequest('voice.notConfigured');
     }
     const file = await this.files.getMeta(userId, input.fileId); // 403/404 по правам
-    if (file.kind !== 'audio') throw new BadRequestException('Расшифровка доступна только для аудио');
-    if (file.status !== 'ready') throw new BadRequestException('Файл ещё не загружен');
+    if (file.kind !== 'audio') throw badRequest('voice.audioOnly');
+    if (file.status !== 'ready') throw badRequest('voice.fileNotReady');
     if (file.scanStatus === 'infected') {
       // Обречённый джоб не ставим: движок файлов всё равно не отдаст байты заражённого
-      throw new BadRequestException('Файл помечен как заражённый — расшифровка недоступна');
+      throw badRequest('voice.fileInfected');
     }
 
     const language = (input.language as VoiceLanguage | undefined) ?? 'auto';
@@ -240,7 +241,7 @@ export class VoiceService implements OnModuleInit, OnApplicationBootstrap {
   async getTranscript(viewerId: string, fileId: string): Promise<VoiceTranscriptDto> {
     await this.files.getMeta(viewerId, fileId); // 403/404 по правам файла
     const row = await this.db.voiceTranscript.findUnique({ where: { fileId } });
-    if (!row) throw new NotFoundException('Расшифровка не запрашивалась');
+    if (!row) throw notFound('voice.notRequested');
     return this.serialize(row);
   }
 
@@ -282,7 +283,7 @@ export class VoiceService implements OnModuleInit, OnApplicationBootstrap {
     language?: VoiceLanguage,
   ): Promise<VoiceSyncSttResult> {
     if (!this.stt.enabled) {
-      throw new BadRequestException('Расшифровка не подключена (VOICE_STT_URL не задан)');
+      throw badRequest('voice.notConfigured');
     }
     const prep = await this.audio.prepareForStt(tmpPath, mime, originalName);
     try {
@@ -329,12 +330,12 @@ export class VoiceService implements OnModuleInit, OnApplicationBootstrap {
     if (file.status !== 'ready' || file.scanStatus === 'infected') {
       await this.finishError(
         fileId,
-        file.scanStatus === 'infected' ? 'Файл помечен как заражённый' : 'Файл недоступен',
+        file.scanStatus === 'infected' ? 'The file is marked as infected' : 'The file is unavailable',
         row.requestedById,
         { attempt },
       );
       // Постоянная причина — ретраи бессмысленны, хороним джоб сразу.
-      throw new JobDiscardError(`voice ${fileId}: файл недоступен/заражён`);
+      throw new JobDiscardError(`voice ${fileId}: the file is unavailable or infected`);
     }
 
     const meta = (file.meta as Record<string, unknown> | null) ?? {};
@@ -397,14 +398,14 @@ export class VoiceService implements OnModuleInit, OnApplicationBootstrap {
       }
     } catch (err) {
       const message = (err instanceof Error ? err.message : String(err)).slice(0, 500);
-      this.logger.warn(`transcript ${fileId} (попытка ${ctx.attempt}/${ctx.maxAttempts}): ${message}`);
+      this.logger.warn(`transcript ${fileId} (attempt ${ctx.attempt}/${ctx.maxAttempts}): ${message}`);
       // ПОСТОЯННЫЙ отказ STT ретраить бессмысленно: 400 «unsupported format», 401
       // «неверный ключ», 413 «слишком большой файл» повторятся слово в слово, а в конце
       // движок напишет error-лог и job.discarded — ложный инцидент вместо честного
       // «расшифровать нельзя». Транзиентными оставляем 408/429 (перегрузка) и все 5xx.
       if (isPermanentSttFailure(message)) {
         await this.finishError(fileId, message, row.requestedById, { attempt });
-        throw new JobDiscardError(`transcript ${fileId}: STT отказал постоянно — ${message}`);
+        throw new JobDiscardError(`transcript ${fileId}: STT failed permanently — ${message}`);
       }
       // На последней попытке пишем терминальный error (API/поллинг увидит финал), затем
       // бросаем — движок кладёт джоб в dead-letter. Иначе просто бросаем → бэкофф-ретрай

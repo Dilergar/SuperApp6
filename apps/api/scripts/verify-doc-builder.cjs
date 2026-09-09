@@ -40,12 +40,12 @@ function sampleBuilderDoc() {
     { id: bid(), type: 'docMeta' },
     p([
       text('Прошу предоставить мне отпуск с '),
-      chip('Форма.С', 'дата:долгая', 'Дата начала'),
+      chip('Form.From', 'date:long', 'Дата начала'),
       text(' на '),
-      chip('Форма.Дней', 'прописью:число', 'Дней'),
+      chip('Form.Days', 'words:number', 'Дней'),
       text(' календарных дней.'),
     ]),
-    p([text('Сотрудник: '), chip('Сотрудник.ФИО'), text(' ('), chip('Организация.Юрнаименование'), text(')')]),
+    p([text('Сотрудник: '), chip('Employee.FullName'), text(' ('), chip('Organization.LegalName'), text(')')]),
     { id: bid(), type: 'signature', props: { role: 'Работник', nameSource: 'subject' } },
     { id: bid(), type: 'pageBreak' },
     p([text('Вторая страница для колонтитула.')]),
@@ -76,15 +76,24 @@ async function main() {
   // ============================================================
   console.log('\n— Рендерер блоков (dist, без сети) —');
   const { renderBuilderHtml, checkBuilderDoc } = require('../dist/core/templates/builder-render.driver.js');
+  const { createT } = require('@superapp/i18n');
+
+  // Слова ЯЗЫКА БУМАГИ: драйвер каталога не знает, переводчик приезжает к нему
+  // параметром (в приложении это TemplateRenderService.printFor)
+  const printFor = (language) => {
+    const t = createT(language);
+    return { language, t: (key, values) => t(key, values) };
+  };
+  const printRu = printFor('ru');
 
   const values = {
-    С: '2026-09-01',
-    Дней: 14,
-    Документ: { Название: 'Заявление', Номер: 'ЗАЯВ-2026-007', Дата: new Date('2026-08-08T10:00:00Z') },
-    Организация: { Юрнаименование: 'ТОО «Ромашка»', БИН: '123456789012', Юрадрес: 'г. Алматы', Директор: 'Ахметов Аскар' },
-    Сотрудник: { ФИО: 'Нурланов Санжар' },
+    From: '2026-09-01',
+    Days: 14,
+    Document: { Title: 'Заявление', Number: 'ЗАЯВ-2026-007', Date: new Date('2026-08-08T10:00:00Z') },
+    Organization: { LegalName: 'ТОО «Ромашка»', Bin: '123456789012', LegalAddress: 'г. Алматы', Director: 'Ахметов Аскар' },
+    Employee: { FullName: 'Нурланов Санжар' },
   };
-  const r1 = renderBuilderHtml(sampleBuilderDoc(), values, { strict: false, title: 'Тест' });
+  const r1 = renderBuilderHtml(sampleBuilderDoc(), values, { strict: false, title: 'Тест', print: printRu });
   check('HTML собрался', r1.html.includes('<!doctype html>'));
   check('чип формы: дата длинная', r1.html.includes('1 сентября 2026 г.'), r1.html.slice(0, 0));
   check('чип формы: число прописью', r1.html.includes('четырнадцать'));
@@ -96,21 +105,21 @@ async function main() {
   check('ничего не потерялось (replaced)', r1.replaced >= 5, String(r1.replaced));
   check('missing пуст при полных данных', r1.missing.length === 0, JSON.stringify(r1.missing));
 
-  const rMiss = renderBuilderHtml(sampleBuilderDoc(), { Документ: values.Документ }, { strict: false });
-  check('мягкий режим: метка вместо пустоты', rMiss.html.includes('chip-missing') && rMiss.html.includes('‹Сотрудник.ФИО›'));
-  check('missing перечислен', rMiss.missing.includes('Организация.Юрнаименование'), JSON.stringify(rMiss.missing));
+  const rMiss = renderBuilderHtml(sampleBuilderDoc(), { Document: values.Document }, { strict: false, print: printRu });
+  check('мягкий режим: метка вместо пустоты', rMiss.html.includes('chip-missing') && rMiss.html.includes('‹Employee.FullName›'));
+  check('missing перечислен', rMiss.missing.includes('Organization.LegalName'), JSON.stringify(rMiss.missing));
   let strictThrew = false;
   try {
-    renderBuilderHtml(sampleBuilderDoc(), {}, { strict: true });
+    renderBuilderHtml(sampleBuilderDoc(), {}, { strict: true, print: printRu });
   } catch (e) {
     strictThrew = Array.isArray(e.missing) && e.missing.length > 0;
   }
   check('strict: отказ СПИСКОМ недостающих', strictThrew);
 
   const rXss = renderBuilderHtml(
-    doc([p([text('<script>alert(1)</script> и '), chip('Форма.Х')])]),
-    { Х: '<img src=x onerror=1>' },
-    { strict: false },
+    doc([p([text('<script>alert(1)</script> и '), chip('Form.X')])]),
+    { X: '<img src=x onerror=1>' },
+    { strict: false, print: printRu },
   );
   check('текст экранирован', !rXss.html.includes('<script>alert') && rXss.html.includes('&lt;script&gt;'));
   check('значение чипа экранировано', !rXss.html.includes('<img src=x') );
@@ -122,28 +131,33 @@ async function main() {
       { id: bid(), type: 'numberedListItem', content: [text('три')] },
     ]),
     {},
-    { strict: false },
+    { strict: false, print: printRu },
   );
   check('подряд идущие пункты склеены в один список', (rList.html.match(/<ul>/g) ?? []).length === 1 && rList.html.includes('<ol>'));
 
   const rTable = renderBuilderHtml(
     doc([{ id: bid(), type: 'table', props: { headerRow: true, columnWidths: [2, 1] }, rows: [
       { cells: [[text('Показатель')], [text('Значение')]] },
-      { cells: [[text('Дней')], [chip('Форма.Дней')]] },
+      { cells: [[text('Дней')], [chip('Form.Days')]] },
     ] }]),
-    { Дней: 14 },
-    { strict: false },
+    { Days: 14 },
+    { strict: false, print: printRu },
   );
   check('таблица: thead + colgroup + значение', rTable.html.includes('<thead>') && rTable.html.includes('colgroup') && rTable.html.includes('>14<'));
 
   const issues = checkBuilderDoc(
-    doc([p([chip('Организация.Несуществующее'), chip('Форма.Нет'), chip('Форма.Дней', 'кривой-формат')])]),
-    (path) => path === 'Организация.Юрнаименование',
-    ['Дней'],
+    doc([p([chip('Organization.NoSuchField'), chip('Form.Missing'), chip('Form.Days', 'кривой-формат')])]),
+    (path) => path === 'Organization.LegalName',
+    ['Days'],
   );
-  check('компилятор: неизвестное поле реестра', issues.some((i) => i.tag === 'Организация.Несуществующее'));
-  check('компилятор: необъявленное поле формы', issues.some((i) => i.tag === 'Форма.Нет'));
+  check('компилятор: неизвестное поле реестра', issues.some((i) => i.tag === 'Organization.NoSuchField'));
+  check('компилятор: необъявленное поле формы', issues.some((i) => i.tag === 'Form.Missing'));
   check('компилятор: неизвестный формат', issues.some((i) => i.code === 'unknown_formatter'));
+  check(
+    'замечания конструктора несут КЛЮЧ каталога, а не готовую фразу',
+    issues.every((i) => typeof i.messageKey === 'string' && i.messageKey.startsWith('templates.') && !i.message),
+    JSON.stringify(issues),
+  );
 
   // ============================================================
   // 1. Организация + сотрудник
@@ -177,7 +191,7 @@ async function main() {
     const ct = await call('POST', `${base}/doc-types`, t1, {
       name: `Заявления-Б ${stamp}`,
       category: 'hr',
-      numberFormat: 'БЛД-{ГГГГ}-{NNN}',
+      numberFormat: 'БЛД-{YYYY}-{NNN}',
       visibility: 'team',
     });
     const typeId = ct.json?.data?.id;
@@ -193,8 +207,8 @@ async function main() {
       kind: 'builder',
       selfService: true,
       fields: [
-        { key: 'С', label: 'Дата начала', kind: 'date', required: true },
-        { key: 'Дней', label: 'Дней', kind: 'number', required: true },
+        { key: 'From', label: 'Дата начала', kind: 'date', required: true },
+        { key: 'Days', label: 'Дней', kind: 'number', required: true },
       ],
     });
     check('builder-шаблон создан', ctpl.ok, JSON.stringify(ctpl.json?.message ?? ctpl.status));
@@ -210,10 +224,10 @@ async function main() {
     const badPublish1 = await call('POST', `${base}/templates/${tplId}/publish`, t1);
     check('публикация пустого листа → 400', badPublish1.status === 400, `status ${badPublish1.status}`);
 
-    const badDoc = doc([p([chip('Организация.Несуществующее')])]);
+    const badDoc = doc([p([chip('Organization.NoSuchField')])]);
     await call('PATCH', `${base}/templates/${tplId}`, t1, { builderDoc: badDoc });
     const badPublish2 = await call('POST', `${base}/templates/${tplId}/publish`, t1);
-    check('публикация с неизвестным чипом → 400 со списком', badPublish2.status === 400 && JSON.stringify(badPublish2.json).includes('Несуществующее'), `status ${badPublish2.status}`);
+    check('публикация с неизвестным чипом → 400 со списком', badPublish2.status === 400 && JSON.stringify(badPublish2.json).includes('NoSuchField'), `status ${badPublish2.status}`);
 
     seq = 0;
     const goodDoc = sampleBuilderDoc();
@@ -248,7 +262,7 @@ async function main() {
     console.log('\n— Документ по шаблону —');
     const cdoc = await call('POST', base, t2, {
       templateId: tplId,
-      fields: { С: '2026-09-01', Дней: 14 },
+      fields: { From: '2026-09-01', Days: 14 },
     });
     check('документ создан', cdoc.ok, JSON.stringify(cdoc.json?.message ?? cdoc.status));
     const docId = cdoc.json?.data?.id;
@@ -267,7 +281,7 @@ async function main() {
 
       // Правка блоков черновика доступна автору
       const patch = await call('PATCH', `${base}/${docId}`, t2, {
-        builderDoc: doc([p([text('Новое тело документа '), chip('Сотрудник.ФИО')])]),
+        builderDoc: doc([p([text('Новое тело документа '), chip('Employee.FullName')])]),
       });
       check('правка блоков черновика', patch.ok, `status ${patch.status}`);
 
@@ -314,7 +328,7 @@ async function main() {
       title: `Служебная записка ${stamp}`,
       builderDoc: doc([
         { id: 'h1', type: 'heading', props: { level: 1 }, content: [text('СЛУЖЕБНАЯ ЗАПИСКА')] },
-        p([text('Прошу закупить канцтовары. Ответственный: '), chip('Сотрудник.ФИО')]),
+        p([text('Прошу закупить канцтовары. Ответственный: '), chip('Employee.FullName')]),
         { id: 's1', type: 'signature', props: { role: 'Составил', nameSource: 'subject' } },
       ]),
     });
@@ -337,12 +351,12 @@ async function main() {
 
     // У документа ПО ШАБЛОНУ форма принадлежит шаблону — своей быть не может.
     // Черновик СВЕЖИЙ: у отправленного правка закрыта, и 403 пришёл бы мимо этой ветки.
-    const freshTplDoc = await call('POST', base, t2, { templateId: tplId, fields: { С: '2026-09-01', Дней: 3 } });
+    const freshTplDoc = await call('POST', base, t2, { templateId: tplId, fields: { From: '2026-09-01', Days: 3 } });
     const tplDocOwn = await call('PATCH', `${base}/${freshTplDoc.json?.data?.id}`, t2, { formFields: ownFields });
     check(
       'документ по шаблону: свои поля отклонены с объяснением',
-      tplDocOwn.status === 400 && String(tplDocOwn.json?.message ?? '').includes('шаблон'),
-      `status ${tplDocOwn.status} ${JSON.stringify(tplDocOwn.json?.message ?? '')}`,
+      tplDocOwn.status === 400 && tplDocOwn.json?.details?.code === 'documents.fieldsFromTemplate',
+      `status ${tplDocOwn.status} code ${tplDocOwn.json?.details?.code}`,
     );
 
     if (PDF_ON) {
@@ -386,9 +400,9 @@ async function main() {
     if (resolved.status === 404) {
       console.log('   (SKIP резолв: дев-полигон выключен — не development)');
     } else {
-      const emp = resolved.json?.data?.values?.['Сотрудник'] ?? {};
-      check('ФИО содержит отчество (Фамилия Имя Отчество)', String(emp['ФИО'] ?? '').includes('Тестұлы'), String(emp['ФИО']));
-      check('Отчество — отдельным полем', emp['Отчество'] === 'Тестұлы', String(emp['Отчество']));
+      const emp = resolved.json?.data?.values?.['Employee'] ?? {};
+      check('ФИО содержит отчество (Фамилия Имя Отчество)', String(emp['FullName'] ?? '').includes('Тестұлы'), String(emp['FullName']));
+      check('Отчество — отдельным полем', emp['MiddleName'] === 'Тестұлы', String(emp['MiddleName']));
     }
     await call('PATCH', '/users/me', t2, { middleName: null }); // прибрать за собой
 
@@ -397,29 +411,36 @@ async function main() {
     // ============================================================
     console.log('\n— Период дат —');
     const range = { from: '2026-09-01', to: '2026-09-14' };
-    const rangeValues = require('@superapp/shared').expandDocFormValues({ Отпуск: range });
+    // Печатную строку периода собирает ВЫЗЫВАЮЩИЙ — в языке бумаги
+    const dmy = (iso) => iso.split('-').reverse().join('.');
+    const rangeValues = require('@superapp/shared').expandDocFormValues({ Vacation: range }, (from, to) =>
+      from === to ? dmy(from) : printRu.t('templates.print.dateRange', { from: dmy(from), to: dmy(to) }),
+    );
     const rDoc = doc([
       p([
         text('Прошу предоставить отпуск с '),
-        chip('Форма.Отпуск С', 'дата:долгая'),
+        chip('Form.Vacation From', 'date:long'),
         text(' по '),
-        chip('Форма.Отпуск По', 'дата'),
+        chip('Form.Vacation To', 'date'),
         text(' на '),
-        chip('Форма.Отпуск Дней', 'прописью:число'),
+        chip('Form.Vacation Days', 'words:number'),
         text(' дней, то есть '),
-        chip('Форма.Отпуск'),
+        chip('Form.Vacation'),
         text('.'),
       ]),
     ]);
-    const rHtml = renderBuilderHtml(rDoc, rangeValues, { strict: false });
+    const rHtml = renderBuilderHtml(rDoc, rangeValues, { strict: false, print: printRu });
     check('период: «с» длинной датой', rHtml.html.includes('1 сентября 2026 г.'));
     check('период: «по» короткой датой', rHtml.html.includes('14.09.2026'));
     check('период: дней прописью', rHtml.html.includes('четырнадцать'));
     check('период: целиком строкой «с … по …»', rHtml.html.includes('с 01.09.2026 по 14.09.2026'));
     check('период: ничего не потерялось', rHtml.missing.length === 0, JSON.stringify(rHtml.missing));
-    const oneDay = require('@superapp/shared').expandDocFormValues({ Отпуск: { from: '2026-09-01', to: '2026-09-01' } });
-    check('один день: целиком = просто дата', oneDay['Отпуск'] === '01.09.2026', String(oneDay['Отпуск']));
-    check('один день: дней = 1', oneDay['Отпуск Дней'] === 1, String(oneDay['Отпуск Дней']));
+    const oneDay = require('@superapp/shared').expandDocFormValues(
+      { Vacation: { from: '2026-09-01', to: '2026-09-01' } },
+      (from, to) => (from === to ? dmy(from) : `${dmy(from)}—${dmy(to)}`),
+    );
+    check('один день: целиком = просто дата', oneDay['Vacation'] === '01.09.2026', String(oneDay['Vacation']));
+    check('один день: дней = 1', oneDay['Vacation Days'] === 1, String(oneDay['Vacation Days']));
 
     const cRange = await call('POST', `${base}/templates`, t1, {
       docTypeId: typeId,
@@ -427,7 +448,7 @@ async function main() {
       kind: 'builder',
       selfService: true,
       builderDoc: rDoc,
-      fields: [{ key: 'Отпуск', label: 'Отпуск', kind: 'daterange', required: true }],
+      fields: [{ key: 'Vacation', label: 'Отпуск', kind: 'daterange', required: true }],
     });
     const rangeTplId = cRange.json?.data?.id;
     check('шаблон с полем-периодом создан', cRange.ok, `status ${cRange.status}`);
@@ -435,14 +456,14 @@ async function main() {
     check('чипы «Отпуск С/По/Дней» — законные пути при публикации', pubRange.ok, JSON.stringify(pubRange.json?.message ?? pubRange.status));
     await call('POST', `${base}/templates/${rangeTplId}/grants`, t1, { principalType: 'user', principalId: u2 });
 
-    const cRangeDoc = await call('POST', base, t2, { templateId: rangeTplId, fields: { Отпуск: range } });
+    const cRangeDoc = await call('POST', base, t2, { templateId: rangeTplId, fields: { Vacation: range } });
     check('документ с периодом создан', cRangeDoc.ok, JSON.stringify(cRangeDoc.json?.message ?? cRangeDoc.status));
-    const savedRange = cRangeDoc.json?.data?.fields?.['Отпуск'];
+    const savedRange = cRangeDoc.json?.data?.fields?.['Vacation'];
     check('период сохранился объектом {from,to}', savedRange?.from === range.from && savedRange?.to === range.to, JSON.stringify(savedRange));
     check('formFields в DTO несут kind периода', (cRangeDoc.json?.data?.formFields ?? []).some((f) => f.kind === 'daterange'));
 
-    const cBadRange = await call('POST', base, t2, { templateId: rangeTplId, fields: { Отпуск: { from: 'мусор', to: 42 } } });
-    check('невалидный период отрезан санитайзером', cBadRange.ok && cBadRange.json?.data?.fields?.['Отпуск'] === undefined, JSON.stringify(cBadRange.json?.data?.fields));
+    const cBadRange = await call('POST', base, t2, { templateId: rangeTplId, fields: { Vacation: { from: 'мусор', to: 42 } } });
+    check('невалидный период отрезан санитайзером', cBadRange.ok && cBadRange.json?.data?.fields?.['Vacation'] === undefined, JSON.stringify(cBadRange.json?.data?.fields));
   } finally {
     if (cleanup.wsId) await call('DELETE', `/workspaces/${cleanup.wsId}`, t1).catch(() => undefined);
   }

@@ -6,6 +6,7 @@
 // ============================================================
 
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
 import { EntitySelector } from '@/components/EntitySelector';
 import {
@@ -13,7 +14,6 @@ import {
   EmptyState, Field, GlyphField, Icon, Input, Modal, Select, Textarea,
 } from '@/components/ui';
 import {
-  LISTING_ITEM_TYPE_LABELS,
   type AccessibleCurrencyDto,
   type AccessibleWishlistRef,
   type Showcase,
@@ -25,6 +25,8 @@ import { PriceLinesEditor, type PriceLine } from './shop-modals';
 import { daysFromNow } from './shop-lib';
 
 export function WishlistView({ onError, onOk }: { onError: (m: string) => void; onOk: (m: string) => void }) {
+  const t = useTranslations('shop');
+  const common = useTranslations('common');
   const [items, setItems] = useState<WishItem[]>([]);
   const [shares, setShares] = useState<ShowcaseShareDto[]>([]);
   const [accessible, setAccessible] = useState<AccessibleWishlistRef[]>([]);
@@ -83,20 +85,20 @@ export function WishlistView({ onError, onOk }: { onError: (m: string) => void; 
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--gap-grid)', flexWrap: 'wrap' }}>
         <Select
-          aria-label="Чей вишлист"
+          aria-label={t('wish.whoseWishlist')}
           value={viewing ?? 'me'}
           onChange={(v) => setViewing(v === 'me' ? null : v)}
           width={280}
           options={[
-            { value: 'me', label: 'Мой вишлист', icon: 'heart' },
+            { value: 'me', label: t('wish.mine'), icon: 'heart' },
             ...accessible.map((a) => ({ value: a.ownerId, label: a.name, hint: String(a.itemCount), icon: 'user' as const })),
           ]}
         />
         {!viewing && (
           <>
-            <Button variant="matte" tone="accent" size="sm" icon="share" onClick={() => setShareOpen(true)}>Поделиться</Button>
+            <Button variant="matte" tone="accent" size="sm" icon="share" onClick={() => setShareOpen(true)}>{t('page.share')}</Button>
             <Button variant="primary" tone="success" size="sm" icon="add" onClick={() => setForm({})} style={{ marginLeft: 'auto' }}>
-              Хотелка
+              {t('wish.item')}
             </Button>
           </>
         )}
@@ -105,19 +107,21 @@ export function WishlistView({ onError, onOk }: { onError: (m: string) => void; 
       <BentoGrid>
         <Card span={12}>
           <CardHeader
-            title={viewing ? `Вишлист: ${their.name}` : 'Мои хотелки'}
-            subtitle={
-              viewing
-                ? 'Можно «Добавить в витрину» — витрина сама расшарится владельцу хотелки'
-                : 'Что хочется получить в подарок. Кому видно — решаете вы'
-            }
+            title={viewing ? t('wish.ofPerson', { name: their.name }) : t('wish.myItems')}
+            subtitle={t(viewing ? 'wish.theirSubtitle' : 'wish.mySubtitle')}
           />
           {shown.length === 0 ? (
             <EmptyState
               icon="gift"
-              title={viewing ? 'В этом вишлисте пусто' : 'Хотелок пока нет'}
-              description={viewing ? 'Владелец ещё ничего не добавил.' : 'Добавьте, что хотите — и поделитесь с окружением.'}
-              action={!viewing ? <Button variant="primary" tone="success" icon="add" onClick={() => setForm({})}>Добавить хотелку</Button> : undefined}
+              title={t(viewing ? 'wish.theirEmpty' : 'wish.myEmpty')}
+              description={t(viewing ? 'wish.theirEmptyHint' : 'wish.myEmptyHint')}
+              action={
+                !viewing ? (
+                  <Button variant="primary" tone="success" icon="add" onClick={() => setForm({})}>
+                    {t('wish.add')}
+                  </Button>
+                ) : undefined
+              }
             />
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--gap-grid)' }}>
@@ -132,8 +136,8 @@ export function WishlistView({ onError, onOk }: { onError: (m: string) => void; 
                   {w.description && <p className="label-sm" style={{ margin: '0.25rem 0 0' }}>{w.description}</p>}
 
                   <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', margin: 'var(--spacing-3) 0' }}>
-                    <Chip size="sm" tone="neutral">{LISTING_ITEM_TYPE_LABELS[w.itemType]}</Chip>
-                    {w.status === 'fulfilled' && <Chip size="sm" tone="success">исполнено</Chip>}
+                    <Chip size="sm" tone="neutral">{t(`itemType.${w.itemType}`)}</Chip>
+                    {w.status === 'fulfilled' && <Chip size="sm" tone="success">{t('wish.fulfilled')}</Chip>}
                   </div>
 
                   {w.link && (
@@ -143,22 +147,22 @@ export function WishlistView({ onError, onOk }: { onError: (m: string) => void; 
                       icon="link"
                       href={w.link.startsWith('http') ? w.link : `https://${w.link}`}
                     >
-                      Ссылка
+                      {t('wish.link')}
                     </Button>
                   )}
 
                   <div style={{ display: 'flex', gap: '0.375rem', marginTop: 'var(--spacing-3)', flexWrap: 'wrap' }}>
                     {viewing ? (
                       <Button variant="primary" tone="success" size="sm" icon="shop" onClick={() => setCopy(w)}>
-                        Добавить в витрину
+                        {t('wish.addToShowcase')}
                       </Button>
                     ) : (
                       <>
-                        <Button variant="outline" size="sm" icon="edit" onClick={() => setForm({ editing: w })}>Изменить</Button>
+                        <Button variant="outline" size="sm" icon="edit" onClick={() => setForm({ editing: w })}>{common('actions.edit')}</Button>
                         {w.status === 'active' && (
-                          <Button variant="ghost" size="sm" icon="check" onClick={() => fulfill(w)}>Исполнено</Button>
+                          <Button variant="ghost" size="sm" icon="check" onClick={() => fulfill(w)}>{t('wish.markFulfilled')}</Button>
                         )}
-                        <Button variant="ghost" size="sm" tone="danger" icon="delete" onClick={() => setRemoving(w)}>Удалить</Button>
+                        <Button variant="ghost" size="sm" tone="danger" icon="delete" onClick={() => setRemoving(w)}>{common('actions.delete')}</Button>
                       </>
                     )}
                   </div>
@@ -185,7 +189,7 @@ export function WishlistView({ onError, onOk }: { onError: (m: string) => void; 
           onClose={() => setCopy(null)}
           onDone={() => {
             setCopy(null);
-            onOk('Добавлено в витрину — она расшарена владельцу хотелки.');
+            onOk(t('wish.copiedOk'));
             setTimeout(() => onOk(''), 5000);
           }}
         />
@@ -195,9 +199,9 @@ export function WishlistView({ onError, onOk }: { onError: (m: string) => void; 
         open={!!removing}
         onClose={() => setRemoving(null)}
         onConfirm={del}
-        title={removing ? `Удалить «${removing.title}»?` : 'Удалить хотелку?'}
-        message="Хотелка исчезнет из вашего вишлиста и у тех, кому он открыт."
-        confirmLabel="Удалить"
+        title={removing ? t('page.confirmDeleteListingOf', { title: removing.title }) : t('wish.confirmDelete')}
+        message={t('wish.confirmDeleteMessage')}
+        confirmLabel={common('actions.delete')}
         danger
       />
     </>
@@ -209,6 +213,8 @@ export function WishlistView({ onError, onOk }: { onError: (m: string) => void; 
 // ============================================================
 
 function WishForm({ init, onClose, onSaved }: { init?: WishItem; onClose: () => void; onSaved: () => void }) {
+  const t = useTranslations('shop');
+  const common = useTranslations('common');
   const [title, setTitle] = useState(init?.title ?? '');
   const [icon, setIcon] = useState(init?.icon ?? '🎁');
   const [description, setDescription] = useState(init?.description ?? '');
@@ -218,7 +224,7 @@ function WishForm({ init, onClose, onSaved }: { init?: WishItem; onClose: () => 
   const [error, setError] = useState<string | null>(null);
 
   const save = async () => {
-    if (!title.trim()) { setError('Введите название'); return; }
+    if (!title.trim()) { setError(t('page.nameRequired')); return; }
     setBusy(true);
     setError(null);
     try {
@@ -243,13 +249,13 @@ function WishForm({ init, onClose, onSaved }: { init?: WishItem; onClose: () => 
     <Modal
       open
       onClose={onClose}
-      title={init ? 'Изменить хотелку' : 'Новая хотелка'}
+      title={t(init ? 'wish.editTitle' : 'wish.newTitle')}
       size="sm"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Отмена</Button>
+          <Button variant="ghost" onClick={onClose}>{common('actions.cancel')}</Button>
           <Button variant="primary" tone="success" icon={init ? 'save' : 'add'} loading={busy} onClick={save}>
-            {init ? 'Сохранить' : 'Создать'}
+            {common(init ? 'actions.save' : 'actions.create')}
           </Button>
         </>
       }
@@ -258,23 +264,35 @@ function WishForm({ init, onClose, onSaved }: { init?: WishItem; onClose: () => 
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
         <div style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', gap: 'var(--spacing-3)', alignItems: 'start' }}>
           <GlyphField value={icon} onChange={(v) => setIcon(v ?? '')} suggest={title} />
-          <Input label="Название" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Что хочешь?" autoFocus />
+          <Input
+            label={common('labels.name')}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder={t('wish.titlePlaceholder')}
+            autoFocus
+          />
         </div>
         <Textarea
-          label="Описание"
+          label={common('labels.description')}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="Необязательно"
+          placeholder={common('labels.optional')}
           style={{ minHeight: 56 }}
         />
-        <Input label="Ссылка" value={link} onChange={(e) => setLink(e.target.value)} placeholder="Необязательно" icon="link" />
+        <Input
+          label={t('wish.link')}
+          value={link}
+          onChange={(e) => setLink(e.target.value)}
+          placeholder={common('labels.optional')}
+          icon="link"
+        />
         <Select
-          label="Тип"
+          label={common('labels.type')}
           value={itemType}
           onChange={(v) => setItemType(v as WishItem['itemType'])}
           options={[
-            { value: 'material', label: 'Материальный', icon: 'gift' },
-            { value: 'nonmaterial', label: 'Нематериальный', icon: 'spark' },
+            { value: 'material', label: t('itemType.material'), icon: 'gift' },
+            { value: 'nonmaterial', label: t('itemType.nonmaterial'), icon: 'spark' },
           ]}
         />
       </div>
@@ -295,6 +313,8 @@ function WishSharePanel({
   onClose: () => void;
   onChanged: (s: ShowcaseShareDto[]) => void;
 }) {
+  const t = useTranslations('shop');
+  const common = useTranslations('common');
   const [error, setError] = useState<string | null>(null);
   const has = (type: 'user' | 'circle', id: string) => shares.some((s) => s.principalType === type && s.principalId === id);
 
@@ -313,10 +333,10 @@ function WishSharePanel({
     <Modal
       open
       onClose={onClose}
-      title="Кому виден мой вишлист"
-      subtitle="Люди и Группы из окружения"
+      title={t('wish.shareTitle')}
+      subtitle={t('wish.shareSubtitle')}
       size="sm"
-      footer={<Button variant="ghost" onClick={onClose}>Готово</Button>}
+      footer={<Button variant="ghost" onClick={onClose}>{common('actions.done')}</Button>}
     >
       <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
@@ -330,7 +350,7 @@ function WishSharePanel({
             for (const p of next) if (!cur.has(`${p.type}:${p.id}`)) toggle(p.type as 'user' | 'circle', p.id);
             for (const s of shares) if (!nxt.has(`${s.principalType}:${s.principalId}`)) toggle(s.principalType as 'user' | 'circle', s.principalId);
           }}
-          placeholder="Добавьте людей или Группы…"
+          placeholder={t('wish.sharePlaceholder')}
         />
       </div>
     </Modal>
@@ -342,6 +362,8 @@ function WishSharePanel({
 // ============================================================
 
 function CopyWishModal({ wish, onClose, onDone }: { wish: WishItem; onClose: () => void; onDone: () => void }) {
+  const t = useTranslations('shop');
+  const common = useTranslations('common');
   const [showcases, setShowcases] = useState<Showcase[]>([]);
   const [currencies, setCurrencies] = useState<AccessibleCurrencyDto[]>([]);
   const [target, setTarget] = useState('new'); // showcaseId | 'new'
@@ -367,8 +389,8 @@ function CopyWishModal({ wish, onClose, onDone }: { wish: WishItem; onClose: () 
     const prices = lines
       .map((l) => ({ currencyId: l.currencyId, amount: parseInt(l.amount, 10) }))
       .filter((p) => p.currencyId && Number.isInteger(p.amount) && p.amount > 0);
-    if (prices.length === 0) { setError('Укажите цену'); return; }
-    if (target === 'new' && !newName.trim()) { setError('Введите название новой витрины'); return; }
+    if (prices.length === 0) { setError(t('copy.priceRequired')); return; }
+    if (target === 'new' && !newName.trim()) { setError(t('copy.newNameRequired')); return; }
     setBusy(true);
     setError(null);
     try {
@@ -395,13 +417,15 @@ function CopyWishModal({ wish, onClose, onDone }: { wish: WishItem; onClose: () 
     <Modal
       open
       onClose={onClose}
-      title={`Добавить в витрину: ${wish.title}`}
-      subtitle={`Тип «${LISTING_ITEM_TYPE_LABELS[wish.itemType]}» берётся из хотелки; витрина расшарится её владельцу`}
+      title={t('copy.title', { title: wish.title })}
+      subtitle={t('copy.subtitle', { type: t(`itemType.${wish.itemType}`) })}
       size="md"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Отмена</Button>
-          <Button variant="primary" tone="success" icon="add" loading={busy} onClick={save}>Добавить</Button>
+          <Button variant="ghost" onClick={onClose}>{common('actions.cancel')}</Button>
+          <Button variant="primary" tone="success" icon="add" loading={busy} onClick={save}>
+            {common('actions.add')}
+          </Button>
         </>
       }
     >
@@ -409,20 +433,20 @@ function CopyWishModal({ wish, onClose, onDone }: { wish: WishItem; onClose: () 
         {error && <Alert tone="danger" onClose={() => setError(null)}>{error}</Alert>}
 
         <Select
-          label="Витрина"
+          label={t('page.showcase')}
           value={target}
           onChange={setTarget}
           options={[
-            { value: 'new', label: 'Новая витрина', icon: 'add' },
+            { value: 'new', label: t('page.newShowcase'), icon: 'add' },
             ...showcases.map((s) => ({ value: s.id, label: s.name, emoji: s.icon })),
           ]}
         />
         {target === 'new' && (
           <Input
-            label="Название витрины"
+            label={t('copy.newShowcaseName')}
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            placeholder={`Например: Подарки для «${wish.title}»`}
+            placeholder={t('copy.newShowcasePlaceholder', { title: wish.title })}
           />
         )}
 
@@ -431,16 +455,16 @@ function CopyWishModal({ wish, onClose, onDone }: { wish: WishItem; onClose: () 
         <Divider style={{ margin: 0 }} />
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 'var(--spacing-3)' }}>
-          <Input label="Запас, штук" type="number" min={1} value={stock} onChange={(e) => setStock(e.target.value)} placeholder="∞" />
-          <Input label="Срок, дней" type="number" min={1} value={limitedDays} onChange={(e) => setLimitedDays(e.target.value)} placeholder="—" />
-          <Input label="Скидка, %" type="number" min={0} max={99} value={discountPct} onChange={(e) => setDiscountPct(e.target.value)} placeholder="0" />
+          <Input label={t('form.stock')} type="number" min={1} value={stock} onChange={(e) => setStock(e.target.value)} placeholder="∞" />
+          <Input label={t('form.limitedDays')} type="number" min={1} value={limitedDays} onChange={(e) => setLimitedDays(e.target.value)} placeholder="—" />
+          <Input label={t('form.discountPct')} type="number" min={0} max={99} value={discountPct} onChange={(e) => setDiscountPct(e.target.value)} placeholder="0" />
           {parseInt(discountPct, 10) > 0 && (
-            <Input label="Скидка, дней" type="number" min={1} value={discountDays} onChange={(e) => setDiscountDays(e.target.value)} placeholder="3" />
+            <Input label={t('form.discountDays')} type="number" min={1} value={discountDays} onChange={(e) => setDiscountDays(e.target.value)} placeholder="3" />
           )}
         </div>
 
-        <Field label="Как собирать">
-          <Checkbox checked={crowdfunding} onChange={setCrowdfunding} label="Краудфандинг — скидываются несколько человек" />
+        <Field label={t('form.howToCollect')}>
+          <Checkbox checked={crowdfunding} onChange={setCrowdfunding} label={t('form.crowdfunding')} />
         </Field>
       </div>
     </Modal>

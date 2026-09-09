@@ -39,13 +39,18 @@ export {
   formatDateTime,
   formatTimeRange,
   formatDayKey,
+  formatWeekday,
+  weekdayNames,
+  formatMonth,
   formatNumber,
   formatMoney,
   formatBytes,
 } from './format';
-export type { Formatters, FormatContext, DateStyle, NumberOptions, ByteUnits } from './format';
+export type { Formatters, FormatContext, DateStyle, TimeOptions, NumberOptions, ByteUnits } from './format';
 
 export { renderChatter, chatterFieldLabel } from './chatter';
+export { resolveLabelKeys } from './label-keys';
+export { resolveIsoValues } from './iso-values';
 export type {
   ChatterRaw,
   ChatterRawKind,

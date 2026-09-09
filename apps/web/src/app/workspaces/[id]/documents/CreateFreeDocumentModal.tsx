@@ -6,6 +6,7 @@
 // ============================================================
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiErrorMessage } from '@/lib/api';
@@ -58,18 +59,20 @@ export function CreateFreeDocumentModal({
   });
 
   const noTypes = !typesQuery.isPending && (typesQuery.data ?? []).length === 0;
+  const tr = useTranslations('documents');
+  const tc = useTranslations('common');
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title="Создать документ"
-      subtitle="Документ собирается с нуля в конструкторе — Word не нужен, на выходе PDF"
+      title={tr('free.title')}
+      subtitle={tr('free.subtitle')}
       size="md"
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
-            Отмена
+            {tc('actions.cancel')}
           </Button>
           <Button
             icon="edit"
@@ -77,25 +80,25 @@ export function CreateFreeDocumentModal({
             disabled={!title.trim() || !docTypeId}
             onClick={() => create.mutate()}
           >
-            Открыть конструктор
+            {tr('free.openBuilder')}
           </Button>
         </>
       }
     >
       <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
         <Input
-          label="Название документа"
+          label={tr('free.titleLabel')}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Служебная записка о закупке"
+          placeholder={tr('free.titlePlaceholder')}
         />
         <Select
-          label="Вид документа"
+          label={tr('templates.docType')}
           value={docTypeId}
           onChange={(v) => setDocTypeId(v || null)}
           options={(typesQuery.data ?? []).map((t) => ({ value: t.id, label: t.name }))}
-          placeholder={noTypes ? 'Видов пока нет — их заводит Менеджер+' : 'Выберите вид'}
-          hint="От вида зависят нумерация, видимость и подшивка в дело"
+          placeholder={tr(noTypes ? 'free.noTypes' : 'templates.docTypePlaceholder')}
+          hint={tr('free.docTypeHint')}
         />
         {isManager && (
           <EntitySelector
@@ -103,7 +106,7 @@ export function CreateFreeDocumentModal({
             value={subject}
             onChange={(v) => setSubject(v.slice(-1))}
             context={{ workspaceId }}
-            placeholder="Сторона документа (пусто — вы сами)"
+            placeholder={tr('free.subjectPlaceholder')}
           />
         )}
       </div>

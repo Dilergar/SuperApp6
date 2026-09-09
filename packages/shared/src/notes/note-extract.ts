@@ -81,8 +81,11 @@ export function extractNoteImageFileIds(doc: NoteDoc): string[] {
 /**
  * Заголовок для заметки без явного названия: первый заголовок документа, иначе
  * первая строка текста (обрезанная), иначе запасной текст.
+ *
+ * `fallback` пустой по умолчанию: слово «без названия» — текст ДЛЯ ЧЕЛОВЕКА, и его
+ * подставляет вызывающий из каталога, а не общая утилита обеих сторон провода.
  */
-export function deriveNoteTitle(doc: NoteDoc, fallback = 'Без названия'): string {
+export function deriveNoteTitle(doc: NoteDoc, fallback = ''): string {
   for (const b of doc.content ?? []) {
     if (b.type === 'heading') {
       const t = inlineToText(b.content ?? []).trim();
@@ -245,7 +248,7 @@ function collectSegments(doc: NoteDoc): Segment[] {
           break;
         }
         case 'image':
-          if (b.attrs.alt) out.push({ headingPath: [...path].filter(Boolean), text: `Изображение: ${b.attrs.alt}` });
+          if (b.attrs.alt) out.push({ headingPath: [...path].filter(Boolean), text: `Image: ${b.attrs.alt}` });
           break;
         case 'table':
           for (const row of b.content) {

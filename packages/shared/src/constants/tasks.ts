@@ -9,14 +9,18 @@ import type {
   ParticipantStatus,
 } from '../types/task';
 
-/** Постановщик lives on Task.creatorId; the other three are participant roles. */
-export const TASK_CREATOR_LABEL = 'Постановщик';
+/**
+ * Реестр называет СМЫСЛ, каталог даёт СЛОВО. Подписи ролей, статусов и
+ * приоритетов жили здесь готовыми русскими строками — то есть один язык
+ * навсегда и сразу у трёх клиентов (API, веб, мобильный). Теперь клиент берёт
+ * их из неймспейса `tasks`: `tasks.role.<role>`, `tasks.status.<status>`,
+ * `tasks.priority.<priority>`, `tasks.participantStatus.<status>` — ключ
+ * выводится из самого значения перечисления, поэтому поля `labelKey` здесь нет.
+ */
+export const TASK_ROLES: readonly TaskRole[] = ['executor', 'co_executor', 'observer'];
 
-export const TASK_ROLE_LABELS: Record<TaskRole, string> = {
-  executor: 'Исполнитель',
-  co_executor: 'Соисполнитель',
-  observer: 'Наблюдатель',
-};
+/** Роль зрителя в задаче (включая Постановщика) — порядок чипов-фильтров. */
+export const VIEWER_TASK_ROLES = ['creator', 'executor', 'co_executor', 'observer'] as const;
 
 /**
  * Семантический тон статуса — ИМЯ СМЫСЛА, а не цвет.
@@ -30,46 +34,38 @@ export const TASK_ROLE_LABELS: Record<TaskRole, string> = {
  */
 export type StatusTone = 'accent' | 'success' | 'warning' | 'danger' | 'waiting' | 'neutral';
 
-/** Подпись и тон статуса — общие для API, веба и мобильного. */
-export const TASK_STATUS_META: Record<
-  TaskStatus,
-  { label: string; tone: StatusTone }
-> = {
-  todo: { label: 'К выполнению', tone: 'neutral' },
-  in_progress: { label: 'В работе', tone: 'accent' },
-  on_review: { label: 'На проверке', tone: 'waiting' },
-  done: { label: 'Готово', tone: 'success' },
-  cancelled: { label: 'Отменена', tone: 'neutral' },
+/** Тон статуса — общий для API, веба и мобильного (слово — в каталоге). */
+export const TASK_STATUS_META: Record<TaskStatus, { tone: StatusTone }> = {
+  todo: { tone: 'neutral' },
+  in_progress: { tone: 'accent' },
+  on_review: { tone: 'waiting' },
+  done: { tone: 'success' },
+  cancelled: { tone: 'neutral' },
 };
 
-export const TASK_PRIORITY_META: Record<
-  TaskPriority,
-  { label: string; tone: StatusTone }
-> = {
-  low: { label: 'Низкий', tone: 'neutral' },
-  medium: { label: 'Средний', tone: 'accent' },
-  high: { label: 'Высокий', tone: 'warning' },
-  urgent: { label: 'Срочно', tone: 'danger' },
+export const TASK_PRIORITY_META: Record<TaskPriority, { tone: StatusTone }> = {
+  low: { tone: 'neutral' },
+  medium: { tone: 'accent' },
+  high: { tone: 'warning' },
+  urgent: { tone: 'danger' },
 };
 
-export const PARTICIPANT_STATUS_META: Record<
-  ParticipantStatus,
-  { label: string; tone: StatusTone }
-> = {
-  pending: { label: 'Не начато', tone: 'neutral' },
-  submitted: { label: 'На проверке', tone: 'waiting' },
-  accepted: { label: 'Принято', tone: 'success' },
-  returned: { label: 'Возвращено', tone: 'danger' },
+export const PARTICIPANT_STATUS_META: Record<ParticipantStatus, { tone: StatusTone }> = {
+  pending: { tone: 'neutral' },
+  submitted: { tone: 'waiting' },
+  accepted: { tone: 'success' },
+  returned: { tone: 'danger' },
 };
 
-// Recurrence presets (RRULE-light). `rule` is what gets stored on Task.recurrenceRule.
-export const TASK_RECURRENCE_PRESETS: Array<{ label: string; rule: string | null }> = [
-  { label: 'Не повторять', rule: null },
-  { label: 'Ежедневно', rule: 'FREQ=DAILY' },
-  { label: 'По будням', rule: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' },
-  { label: 'Еженедельно', rule: 'FREQ=WEEKLY' },
-  { label: 'Ежемесячно', rule: 'FREQ=MONTHLY' },
-  { label: 'Ежегодно', rule: 'FREQ=YEARLY' },
+// Recurrence presets (RRULE-light). `rule` is what gets stored on Task.recurrenceRule;
+// `key` names the catalog entry `tasks.recurrence.<key>`.
+export const TASK_RECURRENCE_PRESETS: Array<{ key: string; rule: string | null }> = [
+  { key: 'none', rule: null },
+  { key: 'daily', rule: 'FREQ=DAILY' },
+  { key: 'weekdays', rule: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' },
+  { key: 'weekly', rule: 'FREQ=WEEKLY' },
+  { key: 'monthly', rule: 'FREQ=MONTHLY' },
+  { key: 'yearly', rule: 'FREQ=YEARLY' },
 ];
 
 // Whitelist of recurrence rules accepted by the API (validated server-side).
@@ -77,13 +73,14 @@ export const ALLOWED_RECURRENCE_RULES: readonly string[] = TASK_RECURRENCE_PRESE
   (p) => p.rule,
 ).filter((r): r is string => r !== null);
 
-// Reminder presets — minutes before dueDate. UI converts to an absolute reminderAt.
-export const TASK_REMINDER_PRESETS: Array<{ label: string; minutesBefore: number | null }> = [
-  { label: 'Без напоминания', minutesBefore: null },
-  { label: 'За 10 минут', minutesBefore: 10 },
-  { label: 'За 30 минут', minutesBefore: 30 },
-  { label: 'За 1 час', minutesBefore: 60 },
-  { label: 'За 1 день', minutesBefore: 1440 },
+// Reminder presets — minutes before dueDate. UI converts to an absolute reminderAt;
+// `key` names the catalog entry `tasks.reminder.<key>`.
+export const TASK_REMINDER_PRESETS: Array<{ key: string; minutesBefore: number | null }> = [
+  { key: 'none', minutesBefore: null },
+  { key: 'min10', minutesBefore: 10 },
+  { key: 'min30', minutesBefore: 30 },
+  { key: 'hour1', minutesBefore: 60 },
+  { key: 'day1', minutesBefore: 1440 },
 ];
 
 export const TASK_LIMITS = {

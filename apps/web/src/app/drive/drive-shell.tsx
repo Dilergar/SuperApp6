@@ -34,7 +34,7 @@ const Ctx = createContext<DriveCtx | null>(null);
 
 export function useDrive(): DriveCtx {
   const v = useContext(Ctx);
-  if (!v) throw new Error('useDrive вне DriveShell');
+  if (!v) throw new Error('useDrive called outside DriveShell');
   return v;
 }
 

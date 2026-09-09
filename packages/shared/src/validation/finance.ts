@@ -5,38 +5,38 @@ const noHtml = (s: string) => !/[<>]/.test(s);
 
 const finNameSchema = z
   .string()
-  .min(1, 'Название обязательно')
+  .min(1, 'validation.finance.nameRequired')
   .max(FIN_LIMITS.maxNameLength)
-  .refine((s) => s.trim().length > 0, 'Название обязательно')
-  .refine(noHtml, 'Недопустимые символы');
+  .refine((s) => s.trim().length > 0, 'validation.finance.nameRequired')
+  .refine(noHtml, 'validation.finance.badCharacters');
 
 const finIconSchema = z
   .string()
   .min(1)
   .max(FIN_LIMITS.maxIconLength)
-  .refine(noHtml, 'Недопустимые символы');
+  .refine(noHtml, 'validation.finance.badCharacters');
 
 const finNoteSchema = z
   .string()
   .max(FIN_LIMITS.maxNoteLength)
-  .refine(noHtml, 'Недопустимые символы');
+  .refine(noHtml, 'validation.finance.badCharacters');
 
 /** Integer minor units (tiyn), > 0. */
 const finAmountSchema = z
   .number()
-  .int('Сумма — целое число в минимальных единицах')
-  .positive('Сумма должна быть больше 0')
+  .int('validation.finance.amountMinorUnits')
+  .positive('validation.finance.amountPositive')
   .max(FIN_LIMITS.maxAmount);
 
 /** Date-only, YYYY-MM-DD. */
 const finDateSchema = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД')
-  .refine((s) => !Number.isNaN(new Date(`${s}T00:00:00Z`).getTime()), 'Некорректная дата');
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'validation.finance.isoDate')
+  .refine((s) => !Number.isNaN(new Date(`${s}T00:00:00Z`).getTime()), 'validation.finance.invalidDate');
 
 const finCurrencyCodeSchema = z
   .string()
-  .regex(/^[A-Z]{3}$/, 'Код валюты — 3 буквы (KZT, USD…)');
+  .regex(/^[A-Z]{3}$/, 'validation.finance.currencyCode');
 
 // ---------- accounts (asset) ----------
 
@@ -59,7 +59,7 @@ export const updateFinAccountSchema = z
     sortOrder: z.number().int().min(0).max(10000).optional(),
   })
   .strict()
-  .refine((d) => Object.keys(d).length > 0, { message: 'Нечего обновлять' });
+  .refine((d) => Object.keys(d).length > 0, { message: 'validation.finance.nothingToUpdate' });
 
 /** «У меня сейчас на счёте N» → adjusting opening transaction (equity ↔ asset) for the delta. */
 export const setFinAccountBalanceSchema = z
@@ -88,7 +88,7 @@ export const updateFinCategorySchema = z
     parentId: z.string().uuid().nullable().optional(),
   })
   .strict()
-  .refine((d) => Object.keys(d).length > 0, { message: 'Нечего обновлять' });
+  .refine((d) => Object.keys(d).length > 0, { message: 'validation.finance.nothingToUpdate' });
 
 // ---------- transactions ----------
 
@@ -116,11 +116,11 @@ export const updateFinTransactionSchema = z
     personUserId: z.string().uuid().nullable().optional(),
   })
   .strict()
-  .refine((d) => Object.keys(d).length > 0, { message: 'Нечего обновлять' });
+  .refine((d) => Object.keys(d).length > 0, { message: 'validation.finance.nothingToUpdate' });
 
 // ---------- budgets + reports (Phase 2) ----------
 
-const finPeriodSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Период в формате ГГГГ-ММ');
+const finPeriodSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'validation.finance.monthPeriod');
 
 /** PUT semantics: amount = null удаляет лимит. Лимиты ставятся на категории РАСХОДОВ. */
 export const upsertFinBudgetSchema = z
@@ -192,8 +192,8 @@ export const createFinDebtSchema = z
     amountReceived: finAmountSchema.optional(),
   })
   .strict()
-  .refine((d) => d.type !== 'installment' || !!d.categoryAccountId, { message: 'Для рассрочки укажите категорию покупки' })
-  .refine((d) => d.type !== 'loan' || !!d.creditAccountId, { message: 'Для кредита укажите счёт зачисления' });
+  .refine((d) => d.type !== 'installment' || !!d.categoryAccountId, { message: 'validation.finance.installmentCategoryRequired' })
+  .refine((d) => d.type !== 'loan' || !!d.creditAccountId, { message: 'validation.finance.loanAccountRequired' });
 
 export const payFinDebtSchema = z
   .object({
@@ -210,7 +210,7 @@ export const updateFinDebtSchema = z
     monthlyPayment: finAmountSchema.optional(),
   })
   .strict()
-  .refine((d) => Object.keys(d).length > 0, { message: 'Нечего обновлять' });
+  .refine((d) => Object.keys(d).length > 0, { message: 'validation.finance.nothingToUpdate' });
 
 // ---------- recurring (Phase 5) ----------
 
@@ -228,8 +228,8 @@ export const createFinRecurringSchema = z
     autoRecord: z.boolean().optional(),
   })
   .strict()
-  .refine((d) => d.interval !== 'monthly' || !!d.dayOfMonth, { message: 'Укажите день месяца' })
-  .refine((d) => d.interval !== 'weekly' || !!d.weekday, { message: 'Укажите день недели' });
+  .refine((d) => d.interval !== 'monthly' || !!d.dayOfMonth, { message: 'validation.finance.dayOfMonthRequired' })
+  .refine((d) => d.interval !== 'weekly' || !!d.weekday, { message: 'validation.finance.weekdayRequired' });
 
 export const updateFinRecurringSchema = z
   .object({
@@ -242,7 +242,7 @@ export const updateFinRecurringSchema = z
     active: z.boolean().optional(),
   })
   .strict()
-  .refine((d) => Object.keys(d).length > 0, { message: 'Нечего обновлять' });
+  .refine((d) => Object.keys(d).length > 0, { message: 'validation.finance.nothingToUpdate' });
 
 export const listFinTransactionsQuerySchema = z.object({
   bookId: z.string().uuid().optional(),

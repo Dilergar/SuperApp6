@@ -8,6 +8,7 @@
 // ============================================================
 
 import { useEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiErrorMessage, apiGet, apiPost } from '@/lib/api';
@@ -20,6 +21,7 @@ import type { StaffDirectory, UserLookupDto, WorkspaceInvitation } from '@supera
 import { ChipPickerBlock, MembersHeader, membersSectionHref, useLegacyMembersTabRedirect, useMembersBase } from '../members-lib';
 
 export default function MembersInvitationsPage() {
+  const t = useTranslations('staff');
   const { id: workspaceId } = useParams<{ id: string }>();
   useLegacyMembersTabRedirect(workspaceId);
   const { isReady, ws, wsQ, canStaff, dir } = useMembersBase(workspaceId);
@@ -36,9 +38,9 @@ export default function MembersInvitationsPage() {
     return (
       <EmptyState
         icon="lock"
-        title="Нанимают управляющие"
-        description="Приглашать в организацию может Менеджер и выше."
-        action={<Button variant="matte" icon="arrowLeft" href={membersSectionHref(workspaceId, 'people')}>К людям</Button>}
+        title={t('invitations.lockedTitle')}
+        description={t('invitations.lockedDescription')}
+        action={<Button variant="matte" icon="arrowLeft" href={membersSectionHref(workspaceId, 'people')}>{t('invitations.toPeople')}</Button>}
       />
     );
   }
@@ -46,8 +48,8 @@ export default function MembersInvitationsPage() {
   return (
     <MembersHeader
       ws={ws}
-      title="Приглашения"
-      description="Наём по номеру: каждый приходит Стажёром"
+      title={t('invitations.title')}
+      description={t('invitations.description')}
       error={error}
       onCloseError={() => setError('')}
     >
@@ -64,6 +66,8 @@ function InvitesSection({
   invites: WorkspaceInvitation[];
   onError: (m: string) => void;
 }) {
+  const t = useTranslations('staff');
+  const tc = useTranslations('common');
   const qc = useQueryClient();
   const [phone, setPhone] = useState('+7');
   const [posId, setPosId] = useState('');
@@ -120,7 +124,7 @@ function InvitesSection({
       refresh();
     },
     onError: (e) =>
-      onError((e as Error)?.message === 'bad-phone' ? 'Номер в формате +7XXXXXXXXXX' : apiErrorMessage(e)),
+      onError((e as Error)?.message === 'bad-phone' ? t('invitations.badPhone') : apiErrorMessage(e)),
   });
   const cancel = useMutation({
     mutationFn: async (invId: string) => apiPost(`/workspaces/${workspaceId}/invitations/${invId}/cancel`),
@@ -134,13 +138,10 @@ function InvitesSection({
     <>
       <BentoGrid>
         <Card span={7}>
-          <CardHeader
-            title="Пригласить сотрудника"
-            subtitle="Каждый наём — в роли «Стажёр». Роль повышается вручную (позже — после обучения в Додзё)"
-          />
+          <CardHeader title={t('invitations.formTitle')} subtitle={t('invitations.formSubtitle')} />
           <form onSubmit={(e) => { e.preventDefault(); invite.mutate(); }} className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
             <Input
-              label="Номер телефона"
+              label={t('invitations.phone')}
               type="tel"
               value={phone}
               onChange={(e) => handlePhoneLookup(e.target.value)}
@@ -149,7 +150,7 @@ function InvitesSection({
               autoFocus
             />
 
-            {lookupLoading && <p className="label-sm" style={{ margin: 0 }}>Поиск…</p>}
+            {lookupLoading && <p className="label-sm" style={{ margin: 0 }}>{t('invitations.searching')}</p>}
             {lookupDone && lookup && (
               <div
                 style={{
@@ -166,47 +167,47 @@ function InvitesSection({
               </div>
             )}
             {lookupDone && !lookup && (
-              <Alert tone="neutral" icon="info">Пользователь не найден — приглашение уйдёт на этот номер</Alert>
+              <Alert tone="neutral" icon="info">{t('invitations.notFound')}</Alert>
             )}
 
             {/* Должность (одна) + Объекты (несколько) — чипами, как роли в «Окружении» */}
             <ChipPickerBlock
-              label="Должность (необязательно)"
+              label={t('invitations.position')}
               icon="position"
               options={dir.positions.map((p) => ({ id: p.id, label: p.departmentName ? `${p.name} · ${p.departmentName}` : p.name }))}
               selected={posId ? [posId] : []}
               onToggle={(id) => setPosId((cur) => (cur === id ? '' : id))}
-              emptyHint="Создайте должности в «Орг. структуре»"
+              emptyHint={t('invitations.positionEmpty')}
             />
             <ChipPickerBlock
-              label={`Объекты (можно несколько; без выбора — основной${defaultBranch ? ` «${defaultBranch.name}»` : ''})`}
+              label={defaultBranch ? t('invitations.branchesWithDefault', { name: defaultBranch.name }) : t('invitations.branches')}
               icon="branch"
               options={dir.branches.map((b) => ({ id: b.id, label: b.name }))}
               selected={branchIds}
               onToggle={(id) => setBranchIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]))}
-              emptyHint="Создайте объекты в разделе «Объекты»"
+              emptyHint={t('invitations.branchesEmpty')}
             />
 
             <Input
-              label="Сообщение"
+              label={t('invitations.message')}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               maxLength={500}
-              placeholder="Привет! Приглашаем в команду…"
+              placeholder={t('invitations.messagePlaceholder')}
             />
 
             <div>
               <Button type="submit" variant="primary" tone="success" icon="send" disabled={phone.length < 12} loading={invite.isPending}>
-                Отправить приглашение
+                {t('invitations.send')}
               </Button>
             </div>
           </form>
         </Card>
 
         <Card span={5}>
-          <CardHeader title="Ожидают ответа" subtitle={invites.length ? `${invites.length} приглашений` : undefined} />
+          <CardHeader title={t('invitations.pending')} subtitle={invites.length ? t('invitations.pendingCount', { n: invites.length }) : undefined} />
           {invites.length === 0 ? (
-            <EmptyState icon="userAdd" title="Нет ожидающих приглашений" description="Отправленные наймы появятся здесь." />
+            <EmptyState icon="userAdd" title={t('invitations.emptyTitle')} description={t('invitations.emptyDescription')} />
           ) : (
             <div className="ui-stack" style={{ gap: '0.375rem' }}>
               {invites.map((inv) => (
@@ -221,12 +222,12 @@ function InvitesSection({
                   <span style={{ minWidth: 0 }}>
                     <span className="title-sm">{inv.toPhone}</span>
                     <span style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.25rem' }}>
-                      <Chip size="sm" tone="neutral" icon="graduation">Стажёр</Chip>
+                      <Chip size="sm" tone="neutral" icon="graduation">{tc('role.workspace.trainee')}</Chip>
                       {inv.positionName && <Chip size="sm" icon="position">{inv.positionName}</Chip>}
                       {inv.branchNames.map((b) => <Chip key={b} size="sm" icon="branch">{b}</Chip>)}
                     </span>
                   </span>
-                  <IconButton icon="close" label="Отменить приглашение" size={30} onClick={() => setCancelling(inv)} />
+                  <IconButton icon="close" label={t('invitations.cancelAria')} size={30} onClick={() => setCancelling(inv)} />
                 </div>
               ))}
             </div>
@@ -238,10 +239,10 @@ function InvitesSection({
         open={!!cancelling}
         onClose={() => setCancelling(null)}
         onConfirm={() => { if (cancelling) cancel.mutate(cancelling.id); }}
-        title="Отменить приглашение?"
-        message={cancelling ? `Приглашение на ${cancelling.toPhone} перестанет действовать.` : ''}
-        confirmLabel="Отменить приглашение"
-        cancelLabel="Оставить"
+        title={t('invitations.cancelTitle')}
+        message={cancelling ? t('invitations.cancelMessage', { phone: cancelling.toPhone }) : ''}
+        confirmLabel={t('invitations.cancelConfirm')}
+        cancelLabel={t('invitations.keep')}
         danger
         loading={cancel.isPending}
       />

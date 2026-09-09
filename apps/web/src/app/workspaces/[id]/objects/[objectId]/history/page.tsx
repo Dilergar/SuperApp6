@@ -4,6 +4,7 @@
 // штатке, графике и оборудовании — одной лентой.
 
 import { useParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { useQuery } from '@tanstack/react-query';
 import type { ChatterPageDto } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
@@ -13,6 +14,7 @@ import { apiGet } from '@/lib/api';
 import { objectChatterKey } from '@/lib/queries';
 
 export default function ObjectHistoryPage() {
+  const t = useTranslations('objects');
   const { isReady } = useRequireAuth();
   const { id, objectId } = useParams<{ id: string; objectId: string }>();
 
@@ -26,14 +28,14 @@ export default function ObjectHistoryPage() {
 
   return (
     <Card>
-      <CardHeader title="Хроника" subtitle="Правки объекта, назначения, смены и движение оборудования" />
+      <CardHeader title={t('tabs.history')} subtitle={t('history.subtitle')} />
       {isPending ? (
         <LoadingBlock />
       ) : (
         <ChronicleFeed
           entries={data?.items ?? []}
           actors={data?.actors ?? {}}
-          emptyText="Пока пусто — события объекта появятся здесь"
+          emptyText={t('history.empty')}
         />
       )}
     </Card>

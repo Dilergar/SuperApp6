@@ -1,15 +1,10 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import {
   OBJECTS_ERROR_CODES,
   OBJECTS_FULL_SCOPE_ROLES,
   OBJECT_LIMITS,
+  SOURCE_LOCALE,
   type CreateShiftInput,
   type ObjectCapsDto,
   type PublishShiftsInput,
@@ -23,6 +18,8 @@ import {
   type UpdateShiftTemplateInput,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
+import { badRequest, conflict, forbidden, notFound, type ErrorParams } from '../../shared/errors/api-error';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { JobsService } from '../../core/jobs/jobs.service';
 import { NotificationsService } from '../../core/notifications/notifications.service';
@@ -64,6 +61,7 @@ export class ShiftsService {
     private readonly jobs: JobsService,
     private readonly notifications: NotificationsService,
     private readonly objects: ObjectsService,
+    private readonly i18n: I18nService,
   ) {}
 
   // ============================================================
@@ -77,7 +75,7 @@ export class ShiftsService {
     known?: ObjectsScope,
   ): Promise<ShiftTemplateDto[]> {
     const scope = known ?? (await this.objects.scopeOf(userId, workspaceId));
-    if (!scope.role || scope.role === 'contractor') throw new NotFoundException('Организация не найдена');
+    if (!scope.role || scope.role === 'contractor') throw notFound('workspace.notFound');
     // Шаблоны объекта видит тот, кто видит объект: иначе любой член организации
     // читал бы расписание чужой точки по одному лишь id в query.
     const branchCaps = branchId
@@ -128,7 +126,7 @@ export class ShiftsService {
     dto: UpdateShiftTemplateInput,
   ): Promise<ShiftTemplateDto> {
     const tpl = await this.db.shiftTemplate.findFirst({ where: { id: templateId, workspaceId } });
-    if (!tpl) throw new NotFoundException('Шаблон не найден');
+    if (!tpl) throw notFound('objects.shiftTemplateNotFound');
     await this.assertTemplateRight(userId, workspaceId, tpl.branchId);
     const row = await this.db.shiftTemplate.update({
       where: { id: templateId },
@@ -147,7 +145,7 @@ export class ShiftsService {
 
   async archiveTemplate(userId: string, workspaceId: string, templateId: string): Promise<void> {
     const tpl = await this.db.shiftTemplate.findFirst({ where: { id: templateId, workspaceId } });
-    if (!tpl) throw new NotFoundException('Шаблон не найден');
+    if (!tpl) throw notFound('objects.shiftTemplateNotFound');
     await this.assertTemplateRight(userId, workspaceId, tpl.branchId);
     // Архив, а не удаление: на шаблон ссылаются уже поставленные смены и ротации.
     await this.db.shiftTemplate.update({ where: { id: templateId }, data: { archivedAt: new Date() } });
@@ -183,14 +181,14 @@ export class ShiftsService {
         where: { id: dto.assignmentId, workspaceId, branchId },
         select: { id: true },
       });
-      if (!target) throw new BadRequestException('Назначение не найдено в этом объекте');
+      if (!target) throw badRequest('objects.assignmentNotInSite');
     }
     if (dto.staffingPositionId) {
       const unit = await this.db.staffingPosition.findFirst({
         where: { id: dto.staffingPositionId, workspaceId, branchId, archivedAt: null },
         select: { id: true },
       });
-      if (!unit) throw new BadRequestException('Штатная единица не найдена в этом объекте');
+      if (!unit) throw badRequest('objects.unitNotInSite');
     }
 
     const row = await this.db.$transaction(async (tx) => {
@@ -225,7 +223,7 @@ export class ShiftsService {
 
   async archivePattern(userId: string, workspaceId: string, patternId: string): Promise<void> {
     const p = await this.db.shiftPattern.findFirst({ where: { id: patternId, workspaceId } });
-    if (!p) throw new NotFoundException('Ротация не найдена');
+    if (!p) throw notFound('objects.patternNotFound');
     const { branch, caps } = await this.objects.getOrThrow(userId, workspaceId, p.branchId);
     this.objects.assertSchedule(caps);
     const today = utcToLocalDate(branch.timeZone, new Date());
@@ -245,7 +243,7 @@ export class ShiftsService {
    */
   async generate(userId: string, workspaceId: string, patternId: string): Promise<number> {
     const p = await this.db.shiftPattern.findFirst({ where: { id: patternId, workspaceId } });
-    if (!p) throw new NotFoundException('Ротация не найдена');
+    if (!p) throw notFound('objects.patternNotFound');
     const { caps } = await this.objects.getOrThrow(userId, workspaceId, p.branchId);
     this.objects.assertSchedule(caps);
     return this.generateFromPattern(patternId);
@@ -423,12 +421,12 @@ export class ShiftsService {
     const unit = await this.db.staffingPosition.findFirst({
       where: { id: dto.staffingPositionId, workspaceId, branchId },
     });
-    if (!unit) throw new BadRequestException('Штатная единица не найдена в этом объекте');
+    if (!unit) throw badRequest('objects.unitNotInSite');
 
     const assignment = dto.assignmentId
       ? await this.db.staffAssignment.findFirst({ where: { id: dto.assignmentId, workspaceId, branchId } })
       : null;
-    if (dto.assignmentId && !assignment) throw new BadRequestException('Назначение не найдено в этом объекте');
+    if (dto.assignmentId && !assignment) throw badRequest('objects.assignmentNotInSite');
 
     // Шаблон — тоже id из тела: его имя и цвет уезжают в сетку и в календарь,
     // поэтому принадлежность организации проверяется наравне с единицей и назначением.
@@ -437,7 +435,7 @@ export class ShiftsService {
         where: { id: dto.templateId, workspaceId, OR: [{ branchId: null }, { branchId }] },
         select: { id: true },
       });
-      if (!tpl) throw new BadRequestException('Шаблон смены не найден в этом объекте');
+      if (!tpl) throw badRequest('objects.templateNotFound');
     }
 
     const settings = this.objects.scheduleSettings(branch);
@@ -445,12 +443,9 @@ export class ShiftsService {
     const endsAt = new Date(startsAt.getTime() + dto.durationMin * 60_000);
     let forcedReason: string | null = null;
     if (dto.durationMin > settings.maxShiftMin) {
-      forcedReason = this.assertForce(
-        dto.force,
-        caps,
-        OBJECTS_ERROR_CODES.shiftTooLong,
-        `Смена длиннее ${settings.maxShiftMin / 60} ч`,
-      );
+      forcedReason = this.assertForce(dto.force, caps, OBJECTS_ERROR_CODES.shiftTooLong, 'objects.shiftTooLong', {
+        hours: settings.maxShiftMin / 60,
+      });
     }
     if (assignment) {
       forcedReason =
@@ -504,7 +499,7 @@ export class ShiftsService {
     const shift = await this.shiftOrThrow(workspaceId, shiftId);
     const { branch, caps } = await this.objects.getOrThrow(userId, workspaceId, shift.branchId);
     this.objects.assertSchedule(caps);
-    if (shift.status === 'cancelled') throw new ConflictException('Смена отменена');
+    if (shift.status === 'cancelled') throw conflict('objects.shiftCancelled');
 
     const settings = this.objects.scheduleSettings(branch);
     const localDate = dto.localDate ?? dateStr(shift.localDate)!;
@@ -530,16 +525,13 @@ export class ShiftsService {
             where: { id: dto.assignmentId, workspaceId, branchId: shift.branchId },
           })
         : null;
-      if (dto.assignmentId && !assignment) throw new BadRequestException('Назначение не найдено в этом объекте');
+      if (dto.assignmentId && !assignment) throw badRequest('objects.assignmentNotInSite');
     }
     let forcedReason: string | null = null;
     if (durationMin > settings.maxShiftMin) {
-      forcedReason = this.assertForce(
-        dto.force,
-        caps,
-        OBJECTS_ERROR_CODES.shiftTooLong,
-        `Смена длиннее ${settings.maxShiftMin / 60} ч`,
-      );
+      forcedReason = this.assertForce(dto.force, caps, OBJECTS_ERROR_CODES.shiftTooLong, 'objects.shiftTooLong', {
+        hours: settings.maxShiftMin / 60,
+      });
     }
     if (assignment) {
       forcedReason =
@@ -576,7 +568,7 @@ export class ShiftsService {
         },
       });
       if (res.count === 0) {
-        throw new ConflictException('Смену уже изменили — обновите страницу');
+        throw conflict('objects.shiftVersionConflict');
       }
       const row = await tx.shift.findUniqueOrThrow({
         where: { id: shiftId },
@@ -623,7 +615,7 @@ export class ShiftsService {
         where: { id: shiftId, status: { not: 'cancelled' } },
         data: { status: 'cancelled', version: { increment: 1 } },
       });
-      if (res.count === 0) throw new ConflictException('Смена уже отменена');
+      if (res.count === 0) throw conflict('objects.shiftAlreadyCancelled');
       const updated = await tx.shift.findUniqueOrThrow({
         where: { id: shiftId },
         include: { position: { select: { name: true } }, template: { select: { name: true, color: true } }, branch: { select: { name: true } }, attendance: true },
@@ -706,19 +698,13 @@ export class ShiftsService {
   async take(userId: string, workspaceId: string, shiftId: string): Promise<ShiftDto> {
     const shift = await this.shiftOrThrow(workspaceId, shiftId);
     const { branch, caps } = await this.objects.getOrThrow(userId, workspaceId, shift.branchId);
-    if (!caps.view) throw new ForbiddenException('Смена не вашего объекта');
+    if (!caps.view) throw forbidden('objects.shiftOtherSite');
     if (shift.userId || shift.status !== 'published') {
-      throw new ConflictException({
-        message: 'Смена уже занята или ещё не опубликована',
-        details: { code: OBJECTS_ERROR_CODES.shiftNotOpen },
-      });
+      throw conflict('objects.shiftNotOpen', undefined, { code: OBJECTS_ERROR_CODES.shiftNotOpen });
     }
     const mine = await this.myAssignmentFor(userId, workspaceId, branch, shift.positionId);
     if (!mine) {
-      throw new ForbiddenException({
-        message: 'Эта смена — для другой должности',
-        details: { code: OBJECTS_ERROR_CODES.shiftWrongPosition },
-      });
+      throw forbidden('objects.shiftWrongPosition', undefined, { code: OBJECTS_ERROR_CODES.shiftWrongPosition });
     }
     const settings = this.objects.scheduleSettings(branch);
     await this.assertRest(
@@ -739,10 +725,7 @@ export class ShiftsService {
         data: { userId, assignmentId: mine.id, version: { increment: 1 } },
       });
       if (res.count === 0) {
-        throw new ConflictException({
-          message: 'Смену уже взяли',
-          details: { code: OBJECTS_ERROR_CODES.shiftNotOpen },
-        });
+        throw conflict('objects.shiftTaken', undefined, { code: OBJECTS_ERROR_CODES.shiftNotOpen });
       }
       const updated = await tx.shift.findUniqueOrThrow({
         where: { id: shiftId },
@@ -853,17 +836,12 @@ export class ShiftsService {
     if (!violation) return null;
     if (violation.kind === 'overlap') {
       // Пересечение обойти нельзя: физически человек в двух местах не стоит.
-      throw new ConflictException({
-        message: 'У человека уже есть смена в это время',
-        details: { code: OBJECTS_ERROR_CODES.shiftOverlap },
-      });
+      throw conflict('objects.shiftOverlap', undefined, { code: OBJECTS_ERROR_CODES.shiftOverlap });
     }
-    return this.assertForce(
-      force,
-      caps,
-      OBJECTS_ERROR_CODES.restViolation,
-      `Между сменами меньше ${Math.round(minRestMin / 60)} ч (получилось ${Math.round((violation.restMin ?? 0) / 60)} ч)`,
-    );
+    return this.assertForce(force, caps, OBJECTS_ERROR_CODES.restViolation, 'objects.restViolation', {
+      hours: Math.round(minRestMin / 60),
+      actual: Math.round((violation.restMin ?? 0) / 60),
+    });
   }
 
   /**
@@ -875,10 +853,13 @@ export class ShiftsService {
     force: boolean | undefined,
     caps: ObjectCapsDto,
     code: string,
-    message: string,
+    reasonKey: string,
+    params: ErrorParams,
   ): string {
-    if (force && caps.manage) return message;
-    throw new ConflictException({ message, details: { code } });
+    // Причина обхода ложится в ВЕЧНУЮ запись хроники — снимок в языке ИСТОЧНИКА;
+    // тот же ключ рисует отказ в языке запроса (его соберёт фильтр).
+    if (force && caps.manage) return this.i18n.translateFor(SOURCE_LOCALE, `errors.${reasonKey}`, params);
+    throw conflict(reasonKey, params, { code });
   }
 
   private async assertTemplateRight(
@@ -893,14 +874,14 @@ export class ShiftsService {
     }
     // Шаблон организации правит только owner/admin: он ложится на все объекты.
     const scope = await this.objects.scopeOf(userId, workspaceId);
-    if (!scope.full) throw new ForbiddenException('Общий шаблон смен заводит владелец или админ');
+    if (!scope.full) throw forbidden('objects.sharedTemplateAdminOnly');
   }
 
   private async assertCycleTemplates(workspaceId: string, cycle: (string | null)[]): Promise<void> {
     const ids = [...new Set(cycle.filter((x): x is string => !!x))];
-    if (ids.length === 0) throw new BadRequestException('В цикле нет ни одной смены');
+    if (ids.length === 0) throw badRequest('objects.cycleEmpty');
     const found = await this.db.shiftTemplate.count({ where: { id: { in: ids }, workspaceId } });
-    if (found !== ids.length) throw new BadRequestException('Шаблон смены не найден в организации');
+    if (found !== ids.length) throw badRequest('objects.templateNotInOrg');
   }
 
   /** Объект ротации — контроллеру нужен для проверки права перед генерацией. */
@@ -909,7 +890,7 @@ export class ShiftsService {
       where: { id: patternId, workspaceId },
       select: { branchId: true },
     });
-    if (!p) throw new NotFoundException('Ротация не найдена');
+    if (!p) throw notFound('objects.patternNotFound');
     return p.branchId;
   }
 
@@ -917,17 +898,14 @@ export class ShiftsService {
   private rethrowShiftOverlap(e: unknown): never {
     const msg = (e as { message?: string })?.message ?? '';
     if (msg.includes('23P01') || msg.includes('shifts_user_no_overlap')) {
-      throw new ConflictException({
-        message: 'У человека уже есть смена в это время',
-        details: { code: OBJECTS_ERROR_CODES.shiftOverlap },
-      });
+      throw conflict('objects.shiftOverlap', undefined, { code: OBJECTS_ERROR_CODES.shiftOverlap });
     }
     throw e as Error;
   }
 
   private async shiftOrThrow(workspaceId: string, shiftId: string) {
     const s = await this.db.shift.findFirst({ where: { id: shiftId, workspaceId } });
-    if (!s) throw new NotFoundException('Смена не найдена');
+    if (!s) throw notFound('objects.shiftNotFound');
     return s;
   }
 

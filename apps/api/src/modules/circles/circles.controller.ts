@@ -29,14 +29,14 @@ export class CirclesController {
   constructor(private circles: CirclesService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Мои окружения' })
+  @ApiOperation({ summary: 'My groups' })
   async list(@CurrentUser() user: JwtPayload) {
     const data = await this.circles.listCircles(user.sub);
     return { success: true, data };
   }
 
   @Post()
-  @ApiOperation({ summary: 'Создать окружение' })
+  @ApiOperation({ summary: 'Create a group' })
   async create(
     @CurrentUser() user: JwtPayload,
     @Body() body: unknown,
@@ -48,7 +48,7 @@ export class CirclesController {
 
   @Post('reorder')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Изменить порядок окружений' })
+  @ApiOperation({ summary: 'Reorder the groups' })
   async reorder(
     @CurrentUser() user: JwtPayload,
     @Body() body: unknown,
@@ -59,7 +59,7 @@ export class CirclesController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Получить окружение с участниками' })
+  @ApiOperation({ summary: 'Get a group with its members' })
   async get(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -69,7 +69,7 @@ export class CirclesController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Обновить окружение' })
+  @ApiOperation({ summary: 'Update a group' })
   async update(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -82,7 +82,7 @@ export class CirclesController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Удалить окружение' })
+  @ApiOperation({ summary: 'Delete a group' })
   async delete(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -92,7 +92,7 @@ export class CirclesController {
   }
 
   @Post(':id/members')
-  @ApiOperation({ summary: 'Добавить контакт в окружение' })
+  @ApiOperation({ summary: 'Add a contact to a group' })
   async addMember(
     @CurrentUser() user: JwtPayload,
     @Param('id') circleId: string,
@@ -105,7 +105,7 @@ export class CirclesController {
 
   @Delete(':id/members/:linkId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Убрать контакт из окружения' })
+  @ApiOperation({ summary: 'Remove a contact from a group' })
   async removeMember(
     @CurrentUser() user: JwtPayload,
     @Param('id') circleId: string,

@@ -1,6 +1,7 @@
 'use client';
 
 import { NOTE_COLORS } from '@superapp/shared';
+import { useTranslations } from 'next-intl';
 import { IconButton, usePopover } from '@/components/ui';
 
 // ============================================================
@@ -9,17 +10,18 @@ import { IconButton, usePopover } from '@/components/ui';
 // ============================================================
 
 export function NoteColorMenu({ value, onChange, size = 30 }: { value: string | null; onChange: (color: string | null) => void; size?: number }) {
+  const t = useTranslations('notes');
   const pop = usePopover<HTMLButtonElement>({ align: 'start' });
   return (
     <>
-      <IconButton ref={pop.anchorRef} icon="palette" label="Цвет заметки" size={size} iconSize={16} onClick={() => pop.setOpen(!pop.open)} aria-expanded={pop.open} />
+      <IconButton ref={pop.anchorRef} icon="palette" label={t('color.pick')} size={size} iconSize={16} onClick={() => pop.setOpen(!pop.open)} aria-expanded={pop.open} />
       {pop.open && (
-        <div ref={pop.layerRef} style={{ ...pop.layerStyle, width: 'auto', zIndex: 320 }} className="card-elevated" role="group" aria-label="Цвет заметки">
+        <div ref={pop.layerRef} style={{ ...pop.layerStyle, width: 'auto', zIndex: 320 }} className="card-elevated" role="group" aria-label={t('color.pick')}>
           <div className="note-color-grid" style={{ background: 'var(--block)', borderRadius: 'var(--radius-sm)' }}>
             <button
               type="button"
               className="note-color-swatch"
-              aria-label="Без цвета"
+              aria-label={t('color.none')}
               aria-pressed={value === null}
               style={{ background: 'var(--block)' }}
               onClick={() => {
@@ -32,7 +34,7 @@ export function NoteColorMenu({ value, onChange, size = 30 }: { value: string | 
                 key={c.value}
                 type="button"
                 className="note-color-swatch"
-                aria-label={c.name}
+                aria-label={t(`color.${c.key}`)}
                 aria-pressed={value === c.value}
                 style={{ ['--note-color' as string]: c.value }}
                 onClick={() => {

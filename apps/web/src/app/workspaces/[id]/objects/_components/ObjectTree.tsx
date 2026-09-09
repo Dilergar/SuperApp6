@@ -17,16 +17,20 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { OBJECT_KINDS, type ObjectNodeDto } from '@superapp/shared';
 import { Button, Chip, EmptyState, Glyph, Icon, SearchField, type IconName } from '@/components/ui';
 
-const KIND_META = new Map(OBJECT_KINDS.map((k) => [k.value, k]));
+const KIND_META = new Map<string, (typeof OBJECT_KINDS)[number]>(OBJECT_KINDS.map((k) => [k.value, k]));
 
 /** Ширина одной направляющей — она же шаг вложенности. */
 const GUIDE_WIDTH = 14;
 
-function haystack(n: ObjectNodeDto): string {
-  return [n.name, n.address, KIND_META.get(n.kind)?.label].filter(Boolean).join(' ').toLowerCase();
+/** Слово вида объекта берётся из каталога — по нему же идёт и поиск. */
+type KindLabel = (kind: string) => string;
+
+function haystack(n: ObjectNodeDto, kindLabel: KindLabel): string {
+  return [n.name, n.address, kindLabel(n.kind)].filter(Boolean).join(' ').toLowerCase();
 }
 
 export function ObjectTree({
@@ -38,9 +42,11 @@ export function ObjectTree({
   nodes: ObjectNodeDto[];
   onAddChild?: (parent: ObjectNodeDto) => void;
 }) {
+  const t = useTranslations('objects');
   const [search, setSearch] = useState('');
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
+  const kindLabel: KindLabel = (kind) => (KIND_META.has(kind) ? t(`kind.${kind}`) : '');
   const query = search.trim().toLowerCase();
 
   /** У кого есть дети — только у них есть каретка сворачивания. */
@@ -57,7 +63,7 @@ export function ObjectTree({
       // поиска не действует — прятать найденное было бы издевательством.
       const keep = new Set<string>();
       for (const n of nodes) {
-        if (!haystack(n).includes(query)) continue;
+        if (!haystack(n, kindLabel).includes(query)) continue;
         keep.add(n.id);
         for (const a of n.ancestorIds) keep.add(a);
       }
@@ -65,7 +71,8 @@ export function ObjectTree({
     }
     if (collapsed.size === 0) return nodes;
     return nodes.filter((n) => !n.ancestorIds.some((a) => collapsed.has(a)));
-  }, [nodes, query, collapsed]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- kindLabel пересоздаётся каждый рендер; его вход — только `t`
+  }, [nodes, query, collapsed, t]);
 
   const toggle = (id: string) =>
     setCollapsed((prev) => {
@@ -82,7 +89,7 @@ export function ObjectTree({
       {(nodes.length > 8 || hasChildren.size > 0) && (
         <div style={{ display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap', alignItems: 'center' }}>
           <SearchField
-            placeholder="Название, адрес, вид…"
+            placeholder={t('tree.searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -93,7 +100,7 @@ export function ObjectTree({
               icon={allCollapsed ? 'caretDown' : 'caretRight'}
               onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(hasChildren))}
             >
-              {allCollapsed ? 'Развернуть всё' : 'Свернуть всё'}
+              {allCollapsed ? t('tree.expandAll') : t('tree.collapseAll')}
             </Button>
           )}
         </div>
@@ -102,8 +109,8 @@ export function ObjectTree({
       {visible.length === 0 ? (
         <EmptyState
           icon="search"
-          title="Ничего не нашлось"
-          description="Попробуйте другое слово — поиск идёт по названию, адресу и виду объекта."
+          title={t('tree.nothingFound')}
+          description={t('tree.nothingFoundHint')}
         />
       ) : (
         <div className="ui-stack" style={{ gap: 'var(--spacing-1)' }}>
@@ -116,6 +123,7 @@ export function ObjectTree({
               collapsed={collapsed.has(n.id)}
               onToggle={() => toggle(n.id)}
               onAddChild={onAddChild}
+              kindLabel={kindLabel}
             />
           ))}
         </div>
@@ -131,6 +139,7 @@ function ObjectRow({
   collapsed,
   onToggle,
   onAddChild,
+  kindLabel,
 }: {
   workspaceId: string;
   node: ObjectNodeDto;
@@ -138,7 +147,9 @@ function ObjectRow({
   collapsed: boolean;
   onToggle: () => void;
   onAddChild?: (parent: ObjectNodeDto) => void;
+  kindLabel: KindLabel;
 }) {
+  const t = useTranslations('objects');
   const kind = KIND_META.get(node.kind);
   const openable = node.caps.view;
   const inner = (
@@ -161,16 +172,16 @@ function ObjectRow({
       <span style={{ minWidth: 0, flex: 1 }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: 600 }}>{node.name}</span>
-          {node.isDefault && <Chip tone="accent">Основной</Chip>}
-          {node.archivedAt && <Chip tone="neutral">В архиве</Chip>}
-          {!openable && <Chip tone="neutral">Нет доступа</Chip>}
+          {node.isDefault && <Chip tone="accent">{t('card.main')}</Chip>}
+          {node.archivedAt && <Chip tone="neutral">{t('archived')}</Chip>}
+          {!openable && <Chip tone="neutral">{t('tree.noAccess')}</Chip>}
         </span>
         <span className="label-sm" style={{ display: 'block', opacity: 0.7 }}>
           {[
-            kind?.label,
+            kindLabel(node.kind),
             node.address,
-            node.headPositionName ? `Управляет: ${node.headPositionName}` : null,
-            node.membersCount ? `${node.membersCount} чел.` : null,
+            node.headPositionName ? t('tree.headOf', { name: node.headPositionName }) : null,
+            node.membersCount ? t('tree.peopleCount', { n: node.membersCount }) : null,
           ]
             .filter(Boolean)
             .join(' · ')}
@@ -209,7 +220,7 @@ function ObjectRow({
         {expandable ? (
           <button
             type="button"
-            aria-label={collapsed ? `Развернуть «${node.name}»` : `Свернуть «${node.name}»`}
+            aria-label={collapsed ? t('tree.expandNode', { name: node.name }) : t('tree.collapseNode', { name: node.name })}
             aria-expanded={!collapsed}
             onClick={onToggle}
             style={{
@@ -254,7 +265,7 @@ function ObjectRow({
         {node.caps.manage && onAddChild && (
           <button
             type="button"
-            aria-label={`Добавить объект внутри «${node.name}»`}
+            aria-label={t('tree.addInside', { name: node.name })}
             onClick={() => onAddChild(node)}
             style={{
               flex: 'none',

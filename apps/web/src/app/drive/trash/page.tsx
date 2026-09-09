@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DriveNodeDto } from '@superapp/shared';
 import { DRIVE_LIMITS } from '@superapp/shared';
@@ -12,6 +13,7 @@ import { useDrive } from '../drive-shell';
 import { DriveNodeList } from '../_components/DriveNodeList';
 
 export default function DriveTrashPage() {
+  const t = useTranslations('drive');
   const { ref } = useDrive();
   const qc = useQueryClient();
   const [confirm, confirmUI] = useConfirm();
@@ -35,7 +37,7 @@ export default function DriveTrashPage() {
             .catch((e) => toastError(apiErrorMessage(e)))
         }
       >
-        Восстановить
+        {t('page.restore')}
       </Button>
       <Button
         variant="matte"
@@ -44,10 +46,10 @@ export default function DriveTrashPage() {
         onClick={() =>
           confirm(
             {
-              title: `Удалить «${node.name}» навсегда?`,
+              title: t('page.purgeConfirm.title', { name: node.name }),
               message:
-                'Файл перестанет открываться везде, где на него ссылались, — включая вложения в чатах. Отменить это будет нельзя.',
-              confirmLabel: 'Удалить навсегда',
+                t('page.purgeConfirm.message'),
+              confirmLabel: t('page.purge'),
               danger: true,
             },
             async () => {
@@ -57,19 +59,17 @@ export default function DriveTrashPage() {
           )
         }
       >
-        Удалить навсегда
+        {t('page.purge')}
       </Button>
     </>
   );
 
   return (
     <>
-      <PageHeader breadcrumb="Диск" title="Корзина" />
+      <PageHeader breadcrumb={t('breadcrumb')} title={t('page.trash')} />
       <div style={{ marginBottom: 16 }}>
       <Alert tone="neutral">
-        Объекты хранятся {DRIVE_LIMITS.trashRetentionDays} дней и всё это время занимают место. Пока
-        объект в корзине, вложение в чате продолжает работать — оно перестанет открываться только
-        после окончательного удаления.
+        {t('page.trashHint', { days: DRIVE_LIMITS.trashRetentionDays })}
       </Alert>
       </div>
       <Card>
@@ -77,7 +77,7 @@ export default function DriveTrashPage() {
           nodes={data?.items}
           loading={isPending}
           emptyIcon="delete"
-          emptyTitle="Корзина пуста"
+          emptyTitle={t('page.trashEmpty')}
           renderActions={actions}
         />
       </Card>

@@ -1,12 +1,6 @@
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  ForbiddenException,
-  BadRequestException,
-  OnApplicationBootstrap,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap, OnModuleInit } from '@nestjs/common';
+import { badRequest, forbidden, notFound } from '../../shared/errors/api-error';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { RRule } from 'rrule';
 import { CalendarEvent as CalEventRow } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
@@ -29,7 +23,6 @@ import {
   CALENDAR_LAYER_KEYS,
   CALENDAR_LAYER_REGISTRY,
   SMART_MATCH_DEFAULTS,
-  RSVP_META,
 } from '@superapp/shared';
 import type {
   CalendarItem,
@@ -89,6 +82,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     // Слои чужих сервисов (задачи/платежи/…) — через реестр, не прямые инъекции.
     private layersRegistry: CalendarLayersRegistry,
     private graphHooks: PersonalGraphRegistry,
+    private i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -96,10 +90,10 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     // result = the event Rich Card posted into the chat.
     this.quickActions.register({
       key: 'event.create',
-      label: 'Событие',
+      labelKey: 'calendar.quickAction.label',
       icon: '📅',
       scopes: ['composer'],
-      description: 'Создать событие в календаре',
+      descriptionKey: 'calendar.quickAction.description',
     });
     // Напоминание = джоб core/jobs с runAt=fireAt: точность ~секунды вместо окна крона
     // в 5 минут, а пропущенное больше не теряется навсегда (было: grace 2ч).
@@ -247,10 +241,10 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     const from = new Date(fromISO);
     const to = new Date(toISO);
     if (isNaN(+from) || isNaN(+to) || to < from) {
-      throw new BadRequestException('Некорректный диапазон дат');
+      throw badRequest('calendar.badRange');
     }
     if ((+to - +from) / MS_PER_DAY > CALENDAR_LIMITS.rangeMaxDays) {
-      throw new BadRequestException('Слишком большой диапазон');
+      throw badRequest('calendar.rangeTooBig');
     }
 
     // Слои по умолчанию (клиент не прислал layers) — из реестра платформы.
@@ -425,7 +419,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
   async createEvent(userId: string, data: CreateCalendarEventInput): Promise<CalendarEventDto> {
     if (data.recurrenceRule) this.assertValidRule(data.recurrenceRule);
     if (data.recurrenceRule && data.resourceId) {
-      throw new BadRequestException('Бронь ресурса доступна только для разовых событий');
+      throw badRequest('calendar.bookingSingleOnly');
     }
     const start = new Date(data.startTime);
     const end = new Date(data.endTime);
@@ -519,7 +513,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
             patch.resourceStatus = null;
           } else {
             if (master.recurrenceRule) {
-              throw new BadRequestException('Бронь ресурса доступна только для разовых событий');
+              throw badRequest('calendar.bookingSingleOnly');
             }
             const b = await this.resources.prepareBooking(data.resourceId, userId, newStart, newEnd, master.id, tx);
             patch.resourceId = data.resourceId;
@@ -541,7 +535,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
       await this.remassializeAll(result);
     } else {
       if (!data.occurrenceStart) {
-        throw new BadRequestException('Нужен occurrenceStart для правки экземпляра');
+        throw badRequest('calendar.occurrenceStartEdit');
       }
       const occ = new Date(data.occurrenceStart);
       result =
@@ -578,7 +572,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     }
 
     if (!opts?.occurrenceStart) {
-      throw new BadRequestException('Нужен occurrenceStart для удаления экземпляра');
+      throw badRequest('calendar.occurrenceStartDelete');
     }
     const occ = new Date(opts.occurrenceStart);
 
@@ -611,7 +605,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
       where: { id: eventId },
       include: { participants: true, resource: { select: { name: true, ownerId: true } } },
     });
-    if (!event) throw new NotFoundException('Событие не найдено');
+    if (!event) throw notFound('calendar.eventNotFound');
 
     const isOrganizer = event.userId === viewerId;
     const myP = event.participants.find((p) => p.userId === viewerId);
@@ -619,7 +613,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     if (!isOrganizer && !myP && !isResourceOwner) {
       const level = await this.resolveAccessLevel(event.userId, viewerId);
       if (this.accessRank(level) < 2) {
-        throw new ForbiddenException('Нет доступа к деталям события');
+        throw forbidden('calendar.detailsNoAccess');
       }
     }
 
@@ -665,7 +659,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
   ): Promise<string[]> {
     const event = await this.ownedEvent(organizerId, eventId);
     if (event.recurrenceParentId) {
-      throw new BadRequestException('Приглашайте на всю серию, а не на отдельный экземпляр');
+      throw badRequest('calendar.inviteWholeSeries');
     }
 
     let ids: string[] = [];
@@ -722,7 +716,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     const p = await this.db.eventParticipant.findUnique({
       where: { eventId_userId: { eventId, userId } },
     });
-    if (!p) throw new ForbiddenException('Вы не участник события');
+    if (!p) throw forbidden('calendar.notParticipant');
     await this.db.eventParticipant.update({
       where: { eventId_userId: { eventId, userId } },
       data: { rsvp: status },
@@ -736,7 +730,9 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
       const rsvpPayload = {
         byUserId: userId,
         byName: fullName(me),
-        rsvpLabel: RSVP_META[status]?.label ?? status,
+        // Ответ едет ЗНАЧЕНИЕМ, а не готовым словом: текст уведомления
+        // собирается при доставке в языке адресата (ICU-ветка select).
+        rsvp: status,
         eventTitle: event.title,
         eventId,
       };
@@ -758,9 +754,9 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
       where: { id: eventId },
       select: { userId: true, title: true },
     });
-    if (!event) throw new NotFoundException('Событие не найдено');
+    if (!event) throw notFound('calendar.eventNotFound');
     if (event.userId !== actorId && actorId !== targetUserId) {
-      throw new ForbiddenException('Нет прав убрать этого участника');
+      throw forbidden('calendar.cannotRemoveParticipant');
     }
     await this.db.eventParticipant.deleteMany({ where: { eventId, userId: targetUserId } });
     await this.db.calendarEventReminder.deleteMany({
@@ -777,14 +773,14 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
   /** Set the calling user's own reminders for an event (organizer's or a participant's). */
   async setMyReminders(userId: string, eventId: string, offsets: number[]): Promise<void> {
     const event = await this.db.calendarEvent.findUnique({ where: { id: eventId } });
-    if (!event) throw new NotFoundException('Событие не найдено');
+    if (!event) throw notFound('calendar.eventNotFound');
     if (event.userId === userId) {
       await this.db.calendarEvent.update({ where: { id: eventId }, data: { reminderOffsets: offsets } });
     } else {
       const p = await this.db.eventParticipant.findUnique({
         where: { eventId_userId: { eventId, userId } },
       });
-      if (!p) throw new ForbiddenException('Вы не участник события');
+      if (!p) throw forbidden('calendar.notParticipant');
       await this.db.eventParticipant.update({
         where: { eventId_userId: { eventId, userId } },
         data: { reminderOffsets: offsets },
@@ -802,14 +798,14 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     sharedWithUserId: string,
     accessLevel: 'busy' | 'detailed',
   ): Promise<void> {
-    if (sharedWithUserId === ownerId) throw new BadRequestException('Нельзя поделиться с самим собой');
+    if (sharedWithUserId === ownerId) throw badRequest('calendar.shareSelf');
     // personalOnly: личный календарь — личный ресурс. Через «рабочий пропуск»
     // доступ выдавался бы коллеге вне окружения, и снять его при разрыве связи
     // было бы нечем (связи не существовало).
     await this.contacts.assertReachable(
       ownerId,
       [sharedWithUserId],
-      'Делиться календарём можно только с людьми из вашего окружения',
+      'contacts.shareCalendarCircleOnly',
       { personalOnly: true },
     );
     // Tuple-native. Сначала выдаём нужный уровень, потом снимаем лишний — иначе в
@@ -882,7 +878,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     const from = new Date(req.from);
     const to = new Date(req.to);
     if (isNaN(+from) || isNaN(+to) || to <= from) {
-      throw new BadRequestException('Некорректный период');
+      throw badRequest('calendar.badPeriod');
     }
     const dayStart = req.dayStartMin ?? SMART_MATCH_DEFAULTS.dayStartMin;
     const dayEnd = req.dayEndMin ?? SMART_MATCH_DEFAULTS.dayEndMin;
@@ -1287,8 +1283,8 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
 
   private async ownedEvent(userId: string, id: string): Promise<CalEventRow> {
     const event = await this.db.calendarEvent.findUnique({ where: { id } });
-    if (!event) throw new NotFoundException('Событие не найдено');
-    if (event.userId !== userId) throw new ForbiddenException('Нет доступа к этому событию');
+    if (!event) throw notFound('calendar.eventNotFound');
+    if (event.userId !== userId) throw forbidden('calendar.eventNoAccess');
     return event;
   }
 
@@ -1306,7 +1302,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
 
   /** Throw unless every id is a confirmed contact AND not blocked (shared gate in Contacts). */
   private async assertInEnvironment(ownerId: string, ids: string[]): Promise<void> {
-    await this.contacts.assertReachable(ownerId, ids, 'Приглашать можно только людей из вашего окружения');
+    await this.contacts.assertReachable(ownerId, ids, 'calendar.inviteCircleOnly');
   }
 
   // Свой разворот Группы удалён: он был побайтовой копией того, что живёт в
@@ -1431,7 +1427,9 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
       seriesId: recurring ? seriesId : null,
       occurrenceStart: occurrenceStart.toISOString(),
       recurring,
-      title: ctx.busy ? 'Занят' : event.title,
+      // «Занят» — слово ДЛЯ ЗРИТЕЛЯ: собирается при чтении в языке запроса,
+      // иначе чужая занятость навсегда осталась бы на языке владельца.
+      title: ctx.busy ? this.i18n.translate('calendar.busySlot') : event.title,
       description: ctx.busy ? null : event.description,
       location: ctx.busy ? null : event.location,
       start: start.toISOString(),
@@ -1482,7 +1480,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
       const opts = RRule.parseString(rule);
       new RRule({ ...opts, dtstart: new Date() });
     } catch {
-      throw new BadRequestException('Недопустимое правило повторения');
+      throw badRequest('validation.calendar.recurrenceRule');
     }
   }
 

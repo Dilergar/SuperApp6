@@ -9,6 +9,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import type { HrLibraryItemDto } from '@superapp/shared';
 import { apiErrorMessage } from '@/lib/api';
 import { fetchHrLibrary, installHrLibraryItem } from '@/lib/hr-api';
@@ -19,6 +20,8 @@ import { EntitySelector } from '@/components/EntitySelector';
 import type { Principal } from '@/lib/entities';
 
 export function HrLibraryBlock({ workspaceId }: { workspaceId: string }) {
+  const t = useTranslations('hr');
+  const ts = useTranslations('sign');
   const qc = useQueryClient();
   const [installing, setInstalling] = useState<HrLibraryItemDto | null>(null);
   const [open, setOpen] = useState(false);
@@ -34,11 +37,11 @@ export function HrLibraryBlock({ workspaceId }: { workspaceId: string }) {
   return (
     <Card span={12}>
       <CardHeader
-        title="Библиотека кадровых бланков РК"
-        subtitle="Трудовой договор, приказы, заявления, согласие на ПД, уведомления — с готовыми маршрутами и зашитым уровнем подписи (ст. 33 ТК РК: кадровые — ЭЦП)"
+        title={t('library.title')}
+        subtitle={t('library.subtitle')}
         actions={
           <Button variant="matte" size="sm" icon={open ? 'caretUp' : 'caretDown'} onClick={() => setOpen((v) => !v)}>
-            {open ? 'Свернуть' : `Открыть (установлено ${installed} из ${items.length})`}
+            {open ? t('library.collapse') : t('library.expand', { installed, total: items.length })}
           </Button>
         }
       />
@@ -63,19 +66,21 @@ export function HrLibraryBlock({ workspaceId }: { workspaceId: string }) {
                 <div className="meta" style={{ flex: 1 }}>{item.description}</div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                   <Chip tone={item.signatureLevel === 'ecp' ? 'accent' : item.signatureLevel === 'pep' ? 'neutral' : 'neutral'}>
-                    {item.signatureLevel === 'ecp' ? 'ЭЦП' : item.signatureLevel === 'pep' ? 'ПЭП (SMS)' : 'Без подписи'}
+                    {item.signatureLevel === 'ecp' || item.signatureLevel === 'pep'
+                      ? ts(`level.${item.signatureLevel}.short`)
+                      : t('library.noSignature')}
                   </Chip>
                   {item.installed ? (
                     item.updateAvailable ? (
                       <Button variant="matte" size="sm" icon="refresh" onClick={() => setInstalling(item)}>
-                        Обновить
+                        {t('library.update')}
                       </Button>
                     ) : (
-                      <Chip tone="success" icon="check">Установлен</Chip>
+                      <Chip tone="success" icon="check">{t('library.installed')}</Chip>
                     )
                   ) : (
                     <Button variant="primary" size="sm" icon="download" onClick={() => setInstalling(item)}>
-                      Установить
+                      {t('library.install')}
                     </Button>
                   )}
                 </div>
@@ -115,43 +120,42 @@ function InstallWizard({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const t = useTranslations('hr');
+  const tc = useTranslations('common');
   const [signerMode, setSignerMode] = useState<'position' | 'user'>('position');
   const [signer, setSigner] = useState<Principal[]>([]);
 
   const install = useMutation({
     mutationFn: () => {
-      if (!signer[0]) throw new Error('Укажите подписанта организации');
+      if (!signer[0]) throw new Error(t('library.signerRequired'));
       return installHrLibraryItem(workspaceId, {
         key: item.key,
         ...(signerMode === 'user' ? { signerUserId: signer[0].id } : { signerPositionId: signer[0].id }),
       });
     },
     onSuccess: () => {
-      toast(`«${item.title}» установлен: вид, шаблон и маршрут опубликованы`, 'success');
+      toast(t('library.installedToast', { title: item.title }), 'success');
       onDone();
     },
     onError: (e) => toastError(apiErrorMessage(e)),
   });
 
   return (
-    <Modal open onClose={onClose} title={`Установить: ${item.title}`} size="md">
+    <Modal open onClose={onClose} title={t('library.installTitle', { title: item.title })} size="md">
       <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
-        <Alert tone="accent">
-          Мастер создаст вид документа, опубликованный шаблон-конструктор и ОПУБЛИКОВАННЫЙ маршрут. Подписант
-          спрашивается один раз и проставляется в шаг «Подписать».
-        </Alert>
+        <Alert tone="accent">{t('library.wizardHint')}</Alert>
         <div>
-          <div className="label-md" style={{ marginBottom: 6 }}>Кто подписывает от организации</div>
+          <div className="label-md" style={{ marginBottom: 6 }}>{t('library.signerLabel')}</div>
           <SegmentedControl
-            aria-label="Вид подписанта"
+            aria-label={t('library.signerMode')}
             value={signerMode}
             onChange={(v) => {
               setSignerMode(v);
               setSigner([]);
             }}
             items={[
-              { key: 'position', label: 'Должность (кто на ней сейчас)' },
-              { key: 'user', label: 'Конкретный человек' },
+              { key: 'position', label: t('library.signerByPosition') },
+              { key: 'user', label: t('library.signerByPerson') },
             ]}
           />
         </div>
@@ -161,12 +165,12 @@ function InstallWizard({
           value={signer}
           onChange={setSigner}
           context={{ workspaceId }}
-          placeholder={signerMode === 'position' ? 'Например, Директор' : 'Выберите сотрудника'}
+          placeholder={t(signerMode === 'position' ? 'library.signerPositionHint' : 'library.signerPersonHint')}
         />
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--spacing-2)' }}>
-          <Button variant="ghost" onClick={onClose}>Отмена</Button>
+          <Button variant="ghost" onClick={onClose}>{tc('actions.cancel')}</Button>
           <Button variant="primary" loading={install.isPending} onClick={() => install.mutate()}>
-            Установить и опубликовать
+            {t('library.installAndPublish')}
           </Button>
         </div>
       </div>

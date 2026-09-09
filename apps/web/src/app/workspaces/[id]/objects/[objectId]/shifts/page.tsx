@@ -13,6 +13,7 @@
 
 import { useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ShiftDto } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
@@ -33,6 +34,7 @@ import { PersonChip } from '@/app/circles/PersonCard';
 import { apiErrorMessage } from '@/lib/api';
 import { toast, toastError } from '@/lib/toast';
 import { dmy } from '@/lib/dates';
+import { useFormatters } from '@/lib/format';
 import { FALLBACK_TZ, minutesIn, todayIn } from '@/lib/objects-time';
 import { objectKey, objectShiftsKey, shiftTemplatesKey } from '@/lib/queries';
 import { fetchObject, fetchShiftBoard, shiftsApi } from '../../objects-api';
@@ -43,7 +45,6 @@ import { ShiftTemplatesPanel } from '../../_components/ShiftTemplatesPanel';
 import { PatternForm } from '../../_components/PatternForm';
 import { UnplannedAttendanceModal } from '../../_components/UnplannedAttendanceModal';
 
-const DAY_LABEL = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
 const OPEN_ROW = '__open__';
 
 /** Строка сетки: человек объекта или «Открытые смены». */
@@ -68,19 +69,26 @@ function weekStartIso(dateIso: string): string {
   return addDaysIso(dateIso, -((new Date(`${dateIso}T00:00:00.000Z`).getUTCDay() + 6) % 7));
 }
 
-function dowIso(dateIso: string): number {
-  return new Date(`${dateIso}T00:00:00.000Z`).getUTCDay();
-}
-
 function dayNumIso(dateIso: string): number {
   return Number(dateIso.slice(8, 10));
 }
 
-function dayLabelIso(dateIso: string): string {
-  return `${DAY_LABEL[dowIso(dateIso)]} ${dayNumIso(dateIso)}`;
+/**
+ * Имя дня недели даёт форматтер языка (свой массив «вс пн вт…» был бы одним
+ * языком навсегда). Полдень UTC — чтобы календарный день совпадал в любом поясе
+ * зрителя: с полуночи он уезжал бы на сутки назад западнее Гринвича.
+ */
+type WeekdayName = (dateIso: string) => string;
+
+function dayLabelIso(dateIso: string, weekday: WeekdayName): string {
+  return `${weekday(dateIso)} ${dayNumIso(dateIso)}`;
 }
 
 export default function ShiftsPage() {
+  const t = useTranslations('objects');
+  const tc = useTranslations('common');
+  const f = useFormatters();
+  const weekday: WeekdayName = (iso) => f.weekday(new Date(`${iso}T12:00:00.000Z`), 'short');
   const { isReady } = useRequireAuth();
   const isMobile = useIsMobile();
   const { id, objectId } = useParams<{ id: string; objectId: string }>();
@@ -133,7 +141,7 @@ export default function ShiftsPage() {
       // Ручка публикует ПАЧКОЙ: если черновиков больше одной пачки, остаток
       // остаётся черновиком — молчать об этом нельзя, график выглядел бы полным.
       if (res.hasMore) {
-        toast(`Опубликовано ${res.published} смен — это не вся неделя. Нажмите «Опубликовать неделю» ещё раз.`);
+        toast(t('shifts.publishedPartly', { n: res.published }));
       }
     },
     onError: (e) => toastError(apiErrorMessage(e)),
@@ -183,7 +191,7 @@ export default function ShiftsPage() {
       assignmentId: p.assignmentId as string | null,
       name: p.userName,
     })),
-    { key: OPEN_ROW, userId: null, assignmentId: null, name: 'Открытые смены' },
+    { key: OPEN_ROW, userId: null, assignmentId: null, name: t('shifts.openRow') },
   ];
   const visibleDays = isMobile ? [days[Math.min(mobileDay, days.length - 1)]] : days;
 
@@ -196,23 +204,35 @@ export default function ShiftsPage() {
   // там она едет ПОД шапку отдельной переносимой строкой.
   const controls = (
     <>
-      <Button size="sm" variant="ghost" icon="arrowLeft" aria-label="Предыдущая неделя" onClick={() => setAnchor(addDaysIso(weekStart, -7))} />
+      <Button
+        size="sm"
+        variant="ghost"
+        icon="arrowLeft"
+        aria-label={t('shifts.prevWeek')}
+        onClick={() => setAnchor(addDaysIso(weekStart, -7))}
+      />
       <Button size="sm" variant="ghost" onClick={() => setAnchor(weekStartIso(todayIn(timeZone)))}>
-        Сегодня
+        {tc('day.today')}
       </Button>
-      <Button size="sm" variant="ghost" icon="arrowRight" aria-label="Следующая неделя" onClick={() => setAnchor(addDaysIso(weekStart, 7))} />
+      <Button
+        size="sm"
+        variant="ghost"
+        icon="arrowRight"
+        aria-label={t('shifts.nextWeek')}
+        onClick={() => setAnchor(addDaysIso(weekStart, 7))}
+      />
       {caps?.attendanceMark && (
         <Button size="sm" variant="ghost" onClick={() => setUnplanned(true)}>
-          Внеплановый выход
+          {t('attendance.unplanned')}
         </Button>
       )}
       {caps?.scheduleManage && (
         <>
           <Button size="sm" variant="ghost" onClick={() => setShowTemplates(true)}>
-            Шаблоны
+            {t('templates.short')}
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setShowPattern(true)}>
-            Ротация
+            {t('patterns.short')}
           </Button>
           <Button
             size="sm"
@@ -221,7 +241,7 @@ export default function ShiftsPage() {
             disabled={!board?.hasDrafts}
             onClick={() => publish.mutate()}
           >
-            Опубликовать неделю
+            {t('shifts.publishWeek')}
           </Button>
         </>
       )}
@@ -232,8 +252,8 @@ export default function ShiftsPage() {
     <>
       <Card>
         <CardHeader
-          title="График смен"
-          subtitle={board ? `${dmy(from)} — ${dmy(to)} · пояс объекта ${board.timeZone}` : undefined}
+          title={t('tabs.shifts')}
+          subtitle={board ? `${dmy(from)} — ${dmy(to)} · ${t('shifts.siteZone', { zone: board.timeZone })}` : undefined}
           actions={isMobile ? undefined : controls}
         />
         {isMobile && (
@@ -247,7 +267,7 @@ export default function ShiftsPage() {
             <SegmentedControl
               value={String(mobileDay)}
               onChange={(k) => setMobileDay(Number(k))}
-              items={days.map((d, i) => ({ key: String(i), label: dayLabelIso(d) }))}
+              items={days.map((d, i) => ({ key: String(i), label: dayLabelIso(d, weekday) }))}
             />
           </div>
         )}
@@ -257,16 +277,12 @@ export default function ShiftsPage() {
         ) : (board?.people.length ?? 0) === 0 && (board?.shifts.length ?? 0) === 0 ? (
           <EmptyState
             icon="calendarCheck"
-            title="Смен пока нет"
-            description={
-              caps?.scheduleManage
-                ? 'Заведите шаблон смены и поставьте первую — или задайте ротацию 2/2, и смены появятся сами.'
-                : 'Когда управляющий опубликует график, он появится здесь и в вашем календаре.'
-            }
+            title={t('shifts.empty')}
+            description={caps?.scheduleManage ? t('shifts.emptyHintManage') : t('shifts.emptyHint')}
             action={
               caps?.scheduleManage ? (
                 <Button variant="primary" onClick={() => setShowTemplates(true)}>
-                  Шаблоны смен
+                  {t('templates.title')}
                 </Button>
               ) : undefined
             }
@@ -284,7 +300,7 @@ export default function ShiftsPage() {
               <div />
               {visibleDays.map((d) => (
                 <div key={d} className="label-sm" style={{ fontWeight: 600, textAlign: 'center' }}>
-                  {dayLabelIso(d)}
+                  {dayLabelIso(d, weekday)}
                 </div>
               ))}
 
@@ -304,9 +320,12 @@ export default function ShiftsPage() {
                   onCancel={(shift) =>
                     confirm(
                       {
-                        title: 'Отменить смену?',
-                        message: `${dmy(shift.localDate)} · ${shift.positionName}. Отменённая смена остаётся в истории.`,
-                        confirmLabel: 'Отменить смену',
+                        title: t('shifts.cancelTitle'),
+                        message: t('shifts.cancelMessage', {
+                          date: dmy(shift.localDate),
+                          position: shift.positionName,
+                        }),
+                        confirmLabel: t('shifts.cancelConfirm'),
                         danger: true,
                       },
                       () => cancelShift.mutateAsync(shift.id).then(() => undefined),
@@ -321,10 +340,10 @@ export default function ShiftsPage() {
         {board && (
           <div style={{ marginTop: 'var(--spacing-4)', display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
             <Chip tone={board.hasDrafts ? 'warning' : 'success'}>
-              {board.hasDrafts ? 'Есть черновики' : 'Всё опубликовано'}
+              {board.hasDrafts ? t('shifts.hasDrafts') : t('shifts.allPublished')}
             </Chip>
             <span className="label-sm" style={{ opacity: 0.7 }}>
-              {`Смен за неделю: ${board.shifts.length}`}
+              {t('shifts.weekCount', { n: board.shifts.length })}
             </span>
           </div>
         )}
@@ -424,13 +443,14 @@ function ShiftRow({
   onRequestMove: (shift: ShiftDto) => void;
   onCancel: (shift: ShiftDto) => void;
 }) {
+  const t = useTranslations('objects');
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', minHeight: 56 }}>
         {row.userId ? (
           <PersonChip size="S" userId={row.userId} firstName={row.name} />
         ) : (
-          <Chip tone="accent">Открытые смены</Chip>
+          <Chip tone="accent">{t('shifts.openRow')}</Chip>
         )}
       </div>
       {days.map((date) => (
@@ -475,6 +495,10 @@ function MoveShiftModal({
   onClose: () => void;
   onMove: (date: string, assignmentId: string | null) => void;
 }) {
+  const t = useTranslations('objects');
+  const tc = useTranslations('common');
+  const f = useFormatters();
+  const weekday: WeekdayName = (iso) => f.weekday(new Date(`${iso}T12:00:00.000Z`), 'short');
   const currentRow = shift.userId ?? OPEN_ROW;
   const [rowKey, setRowKey] = useState(rows.some((r) => r.key === currentRow) ? currentRow : OPEN_ROW);
   const [date, setDate] = useState(days.includes(shift.localDate) ? shift.localDate : days[0]);
@@ -483,26 +507,26 @@ function MoveShiftModal({
   const unchanged = rowKey === currentRow && date === shift.localDate;
 
   return (
-    <Modal open={open} onClose={onClose} title="Переместить смену" size="sm">
+    <Modal open={open} onClose={onClose} title={t('shifts.moveTitle')} size="sm">
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         <span className="label-sm" style={{ opacity: 0.75 }}>
-          {`${shift.templateName ?? shift.positionName} · сейчас ${dmy(shift.localDate)}`}
+          {`${shift.templateName ?? shift.positionName} · ${t('shifts.moveNow', { date: dmy(shift.localDate) })}`}
         </span>
         <Select
-          label="Кому"
+          label={t('shifts.moveTo')}
           value={rowKey}
           onChange={setRowKey}
           options={rows.map((r) => ({ value: r.key, label: r.name }))}
         />
         <Select
-          label="День"
+          label={t('shifts.moveDay')}
           value={date}
           onChange={setDate}
-          options={days.map((d) => ({ value: d, label: `${dayLabelIso(d)} · ${dmy(d)}` }))}
+          options={days.map((d) => ({ value: d, label: `${dayLabelIso(d, weekday)} · ${dmy(d)}` }))}
         />
         <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end' }}>
           <Button variant="ghost" onClick={onClose}>
-            Отмена
+            {tc('actions.cancel')}
           </Button>
           <Button
             variant="primary"
@@ -510,7 +534,7 @@ function MoveShiftModal({
             disabled={unchanged}
             onClick={() => onMove(date, target?.assignmentId ?? null)}
           >
-            Переместить
+            {t('shifts.moveConfirm')}
           </Button>
         </div>
       </div>

@@ -2,6 +2,8 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { DatabaseService } from '../../shared/database/database.service';
 import { activeAssignmentWhere } from '../../shared/utils/assignment-window';
 import { TemplateFieldRegistry, type TemplateFieldContext } from '../../core/templates/template-field.registry';
+import { documentWords, type DocumentWords } from '../../shared/i18n/document-words';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { fullName } from '../../shared/utils/user-name';
 import { OrgGraphService } from './org-graph.service';
 import { holdersForPosition, managerOf, orgToday, pickAssignment } from './org-resolve';
@@ -25,35 +27,35 @@ export class StaffTemplateFieldsProvider implements OnModuleInit {
     private readonly db: DatabaseService,
     private readonly templateFields: TemplateFieldRegistry,
     private readonly graph: OrgGraphService,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit() {
     this.templateFields.register({
       key: 'employee',
-      tagPrefix: 'Сотрудник',
-      label: 'Сотрудник',
+      tagPrefix: 'Employee',
+      // `key` — имя ТЕГА внутри бланка, `id` — то же имя для ключа каталога
       fields: [
-        // key «ФИО» не переименовывать: это тег {Сотрудник.ФИО} в уже написанных бланках
-        { key: 'ФИО', label: 'ФИО (фамилия, имя, отчество)', example: 'Ахметов Аскар Болатұлы' },
-        { key: 'Имя', label: 'Имя', example: 'Аскар' },
-        { key: 'Фамилия', label: 'Фамилия', example: 'Ахметов' },
-        { key: 'Отчество', label: 'Отчество', example: 'Болатұлы' },
-        { key: 'Телефон', label: 'Телефон', example: '+7 700 123 45 67' },
-        { key: 'ИИН', label: 'ИИН', example: '901231300123' },
-        { key: 'Адрес', label: 'Адрес проживания', example: 'г. Алматы, мкр. Самал-2, д. 33' },
-        { key: 'Дата рождения', label: 'Дата рождения', example: '31.12.1990' },
-        { key: 'Удостоверение', label: 'Удостоверение (строкой)', example: '№ 038000000 выдано МВД РК 01.02.2020' },
-        { key: 'Номер удостоверения', label: 'Номер удостоверения', example: '038000000' },
-        { key: 'Кем выдано удостоверение', label: 'Кем выдано', example: 'МВД РК' },
-        { key: 'Дата выдачи удостоверения', label: 'Дата выдачи', example: '01.02.2020' },
-        { key: 'Должность', label: 'Должность', example: 'Менеджер зала' },
-        { key: 'Отдел', label: 'Отдел', example: 'Отдел продаж' },
-        { key: 'Филиал', label: 'Объект (филиал)', example: 'Филиал на Абая' },
+        { key: 'FullName', id: 'fullName' },
+        { key: 'FirstName', id: 'firstName' },
+        { key: 'LastName', id: 'lastName' },
+        { key: 'MiddleName', id: 'middleName' },
+        { key: 'Phone', id: 'phone' },
+        { key: 'Iin', id: 'iin' },
+        { key: 'Address', id: 'address' },
+        { key: 'BirthDate', id: 'birthDate' },
+        { key: 'IdDocument', id: 'idDocument' },
+        { key: 'IdNumber', id: 'idNumber' },
+        { key: 'IdIssuedBy', id: 'idIssuedBy' },
+        { key: 'IdIssuedAt', id: 'idIssuedAt' },
+        { key: 'Position', id: 'position' },
+        { key: 'Department', id: 'department' },
+        { key: 'Branch', id: 'branch' },
         // Оргструктура: руководитель по факту назначений (вершина → владелец организации)
-        { key: 'Руководитель', label: 'Руководитель (ФИО)', example: 'Иванова Айгуль Сериковна' },
-        { key: 'Руководитель Должность', label: 'Должность руководителя', example: 'Руководитель отдела продаж' },
-        { key: 'Руководитель объекта', label: 'Руководитель объекта (ФИО)', example: 'Сейтжанов Ерлан' },
-        { key: 'Руководитель объекта Должность', label: 'Должность руководителя объекта', example: 'Управляющий точкой' },
+        { key: 'Manager', id: 'manager' },
+        { key: 'ManagerPosition', id: 'managerPosition' },
+        { key: 'BranchHead', id: 'branchHead' },
+        { key: 'BranchHeadPosition', id: 'branchHeadPosition' },
       ],
       resolve: (ctx) => this.resolve(ctx),
     });
@@ -132,39 +134,44 @@ export class StaffTemplateFieldsProvider implements OnModuleInit {
       }
     }
 
+    // Строка удостоверения ПЕЧАТАЕТСЯ в бланке: и «№», и «выдано …», и формат
+    // даты берутся в языке БУМАГИ, а не зрителя
+    const w = documentWords(this.i18n, ctx.language);
     const idDoc = user.idDocNumber
       ? [
-          `№ ${user.idDocNumber}`,
-          user.idDocIssuedBy ? `выдано ${user.idDocIssuedBy}` : null,
-          user.idDocIssuedAt ? user.idDocIssuedAt.toISOString().slice(0, 10).split('-').reverse().join('.') : null,
+          w.t('templates.print.number', { value: user.idDocNumber }),
+          user.idDocIssuedBy ? w.t('staff.form.idDocIssuedBy', { issuer: user.idDocIssuedBy }) : null,
+          user.idDocIssuedAt ? w.date(user.idDocIssuedAt) : null,
         ]
           .filter(Boolean)
           .join(' ')
       : null;
 
-    const manager = ctx.workspaceId ? await this.managerFields(ctx.workspaceId, ctx.subjectUserId, assignment?.id ?? null) : null;
+    const manager = ctx.workspaceId
+      ? await this.managerFields(ctx.workspaceId, ctx.subjectUserId, assignment?.id ?? null, w)
+      : null;
 
     return {
       // Кадровый порядок: Фамилия Имя Отчество; незаполненное отчество имя не ломает
-      ФИО: [user.lastName, user.firstName, user.middleName].filter(Boolean).join(' ') || fullName(user),
-      Имя: user.firstName,
-      Фамилия: user.lastName ?? null,
-      Отчество: user.middleName ?? null,
-      Телефон: user.phone,
-      ИИН: user.iin ?? null,
-      Адрес: user.residentialAddress ?? null,
-      'Дата рождения': user.dateOfBirth ?? null,
-      Удостоверение: idDoc,
-      'Номер удостоверения': user.idDocNumber ?? null,
-      'Кем выдано удостоверение': user.idDocIssuedBy ?? null,
-      'Дата выдачи удостоверения': user.idDocIssuedAt ?? null,
-      Должность: assignment?.position?.name ?? null,
-      Отдел: assignment?.position?.department?.name ?? null,
-      Филиал: assignment?.branch?.name ?? null,
-      Руководитель: manager?.managerName ?? null,
-      'Руководитель Должность': manager?.managerPosition ?? null,
-      'Руководитель объекта': manager?.branchHeadName ?? null,
-      'Руководитель объекта Должность': manager?.branchHeadPosition ?? null,
+      FullName: [user.lastName, user.firstName, user.middleName].filter(Boolean).join(' ') || fullName(user),
+      FirstName: user.firstName,
+      LastName: user.lastName ?? null,
+      MiddleName: user.middleName ?? null,
+      Phone: user.phone,
+      Iin: user.iin ?? null,
+      Address: user.residentialAddress ?? null,
+      BirthDate: user.dateOfBirth ?? null,
+      IdDocument: idDoc,
+      IdNumber: user.idDocNumber ?? null,
+      IdIssuedBy: user.idDocIssuedBy ?? null,
+      IdIssuedAt: user.idDocIssuedAt ?? null,
+      Position: assignment?.position?.name ?? null,
+      Department: assignment?.position?.department?.name ?? null,
+      Branch: assignment?.branch?.name ?? null,
+      Manager: manager?.managerName ?? null,
+      ManagerPosition: manager?.managerPosition ?? null,
+      BranchHead: manager?.branchHeadName ?? null,
+      BranchHeadPosition: manager?.branchHeadPosition ?? null,
     };
   }
 
@@ -173,11 +180,17 @@ export class StaffTemplateFieldsProvider implements OnModuleInit {
     workspaceId: string,
     userId: string,
     assignmentId: string | null,
+    w: DocumentWords,
   ): Promise<{ managerName: string | null; managerPosition: string | null; branchHeadName: string | null; branchHeadPosition: string | null }> {
     const g = await this.graph.load(workspaceId);
     const m = managerOf(g, userId, { assignmentId });
     const managerName = m.userIds.length ? await this.kadrName(m.userIds[0]) : null;
-    const managerPosition = m.positionId ? (g.positionById.get(m.positionId)?.name ?? null) : m.userIds.length ? 'Владелец организации' : null;
+    // Значение ПЕЧАТАЕТСЯ в бланке — язык у него язык БУМАГИ, не язык зрителя.
+    const managerPosition = m.positionId
+      ? (g.positionById.get(m.positionId)?.name ?? null)
+      : m.userIds.length
+        ? w.t('staff.card.orgOwner')
+        : null;
 
     let branchHeadName: string | null = null;
     let branchHeadPosition: string | null = null;

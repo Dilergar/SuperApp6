@@ -1,9 +1,10 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   CONTRACT_MAX_SILENT_EXTENSIONS,
   ESUTD_KINDS,
-  ESUTD_TERMINATION_LOCK_NOTE,
+  ESUTD_PAYLOAD_FIELDS,
+  ESUTD_TERMINATION_REQUIRED_FIELDS,
   HR_DEADLINE_RULE_MAP,
   HR_ERROR_CODES,
   HR_LIMITS,
@@ -13,6 +14,7 @@ import {
   type EmploymentDto,
   type EmploymentMismatchDto,
   type EsutdKind,
+  type EsutdPayloadField,
   type EsutdSubmissionDto,
   type HrActorLite,
   type HrDeadlineItemDto,
@@ -23,7 +25,10 @@ import {
   type UpsertEmploymentInput,
   type WorkspaceRole,
 } from '@superapp/shared';
+import { SOURCE_LOCALE } from '@superapp/i18n';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
+import { badRequest, forbidden, notFound } from '../../shared/errors/api-error';
 import { activeAssignmentWhere } from '../../shared/utils/assignment-window';
 import { RolesService } from '../../core/roles/roles.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
@@ -39,10 +44,6 @@ import { fullName } from '../../shared/utils/user-name';
 const WS_CONTEXT = 'workspace';
 
 const dateStr = (d: Date | null | undefined): string | null => (d ? d.toISOString().slice(0, 10) : null);
-
-function coded(message: string, code: string): BadRequestException {
-  return new BadRequestException({ message, details: { code } });
-}
 
 /**
  * КЭДО (modules/hr) — тонкий модуль-связка: данные о трудовых отношениях —
@@ -66,7 +67,13 @@ export class HrService implements HrPort, HrNodesPort {
     private readonly calendar: HrCalendarService,
     private readonly actions: HrActionsService,
     private readonly legal: LegalEntitiesService,
+    private readonly i18n: I18nService,
   ) {}
+
+  /** Слово в языке ИСТОЧНИКА — для снимков, которые ложатся в БД навсегда */
+  private src(key: string, values?: Record<string, string | number>): string {
+    return this.i18n.translateFor(SOURCE_LOCALE, key, values);
+  }
 
   // ============================================================
   // Гейты (лестница ролей, паттерн Documents/Staff)
@@ -82,15 +89,15 @@ export class HrService implements HrPort, HrNodesPort {
 
   private async requireTeam(userId: string, workspaceId: string): Promise<WorkspaceRole> {
     const role = await this.roleOf(userId, workspaceId);
-    if (!role) throw new ForbiddenException('Нет доступа к этой организации');
-    if (role === 'contractor') throw new ForbiddenException('Подрядчику кадровые данные недоступны');
+    if (!role) throw forbidden('workspace.noAccess');
+    if (role === 'contractor') throw forbidden('hr.contractorNoAccess');
     return role;
   }
 
   async requireManager(userId: string, workspaceId: string): Promise<WorkspaceRole> {
     const role = await this.requireTeam(userId, workspaceId);
     if ((WORKSPACE_ROLE_RANK[role] ?? 0) < WORKSPACE_ROLE_RANK.manager) {
-      throw new ForbiddenException('Недостаточно прав (нужен Менеджер или выше)');
+      throw forbidden('hr.managerRequired');
     }
     return role;
   }
@@ -281,11 +288,11 @@ export class HrService implements HrPort, HrNodesPort {
     const actorRole = await this.requireManager(actorId, workspaceId);
     const subjectRole = await this.roleOf(subjectUserId, workspaceId);
     if (!subjectRole || subjectRole === 'contractor') {
-      throw new BadRequestException('Трудовая карточка заводится сотруднику организации');
+      throw badRequest('hr.employmentMemberOnly');
     }
     // Оклад и условия договора человека с равной или более высокой ролью — не
     // епархия Менеджера (та же лестница, что у ролей: админа трогает Владелец).
-    assertCanManageHrSubject(actorRole, subjectRole, 'трудовую карточку');
+    assertCanManageHrSubject(actorRole, subjectRole, 'employment');
     const snapshots = await this.legalSnapshots(workspaceId, dto.legalPositionId, dto.legalBranchId);
 
     // Работодатель: явная карточка (совместительство) → её юрлицо; иначе указанное
@@ -296,7 +303,7 @@ export class HrService implements HrPort, HrNodesPort {
           where: { id: dto.employmentId, workspaceId, userId: subjectUserId },
         })
       : null;
-    if (dto.employmentId && !target) throw new NotFoundException('Трудовая карточка не найдена');
+    if (dto.employmentId && !target) throw notFound('hr.employmentNotFound');
     const legalEntityId = target
       ? target.legalEntityId
       : await this.legal.resolveLegalEntityId(workspaceId, dto.legalEntityId ?? null);
@@ -348,10 +355,9 @@ export class HrService implements HrPort, HrNodesPort {
                 ...data,
               },
             });
-            await this.logMember(actorId, workspaceId, subjectUserId, 'hr.action_created', {
-              kindLabel: 'Трудовая карточка заведена',
-              documentSuffix: '',
-            });
+            // Свой тип записи, а не «действие заведено» с подменой вида:
+            // карточка заводится ПРЯМОЙ правкой, без кадрового действия и приказа.
+            await this.logMember(actorId, workspaceId, subjectUserId, 'hr.employment_created', {});
             return created;
           } catch (err) {
             // Партиальный уникум hr_employments_one_live: параллельное создание
@@ -375,12 +381,12 @@ export class HrService implements HrPort, HrNodesPort {
     let branchName: string | null = null;
     if (positionId) {
       const pos = await this.db.staffPosition.findFirst({ where: { id: positionId, workspaceId }, select: { name: true } });
-      if (!pos) throw new BadRequestException('Должность не найдена в этой организации');
+      if (!pos) throw badRequest('hr.positionNotFound');
       positionName = pos.name;
     }
     if (branchId) {
       const br = await this.db.staffBranch.findFirst({ where: { id: branchId, workspaceId }, select: { name: true } });
-      if (!br) throw new BadRequestException('Филиал не найден в этой организации');
+      if (!br) throw badRequest('hr.branchNotFound');
       branchName = br.name;
     }
     return { positionName, branchName };
@@ -394,16 +400,19 @@ export class HrService implements HrPort, HrNodesPort {
     before: Record<string, unknown>,
     after: Record<string, unknown>,
   ): Promise<void> {
-    const tracked: [string, string][] = [
-      ['salaryAmount', 'оклад'],
-      ['legalPositionName', 'должность по договору'],
-      ['legalBranchName', 'филиал по договору'],
-      ['contractNumber', 'номер договора'],
-      ['contractEndAt', 'окончание договора'],
-      ['probationUntil', 'испытательный срок'],
-      ['paperMode', 'бумажный режим'],
+    // Подпись поля живёт в каталоге (`chatter.fields.hr_member.<поле>`) и
+    // подставляется ПРИ ЧТЕНИИ; в самой записи остаётся снимок языка источника —
+    // фолбэк на случай, если поле однажды уйдёт из каталога.
+    const tracked = [
+      'salaryAmount',
+      'legalPositionName',
+      'legalBranchName',
+      'contractNumber',
+      'contractEndAt',
+      'probationUntil',
+      'paperMode',
     ];
-    for (const [field, label] of tracked) {
+    for (const field of tracked) {
       const from = before[field];
       const to = after[field];
       const norm = (v: unknown) =>
@@ -417,8 +426,9 @@ export class HrService implements HrPort, HrNodesPort {
           actorId,
           actorName: await this.nameOf(actorId),
           typeKey: 'hr.employment_updated',
-          changes: [{ field, label, from: norm(from), to: norm(to) }],
-          payload: { fieldLabel: label },
+          changes: [
+            { field, label: this.src(`chatter.fields.hr_member.${field}`), from: norm(from), to: norm(to) },
+          ],
         })
         .catch(() => undefined);
     }
@@ -429,7 +439,7 @@ export class HrService implements HrPort, HrNodesPort {
       where: { id: userId },
       select: { firstName: true, lastName: true },
     });
-    return u ? fullName(u) : 'Кто-то';
+    return u ? fullName(u) : this.src('common.labels.someone');
   }
 
   /** Запись в хронику человека (workspaceId заполнен → видна и в журнале организации) */
@@ -446,7 +456,7 @@ export class HrService implements HrPort, HrNodesPort {
         refId: hrMemberRefId(workspaceId, subjectUserId),
         workspaceId,
         actorId: actorId ?? undefined,
-        actorName: actorId ? await this.nameOf(actorId) : 'Система',
+        actorName: actorId ? await this.nameOf(actorId) : this.src('common.labels.system'),
         typeKey,
         payload,
       })
@@ -472,7 +482,7 @@ export class HrService implements HrPort, HrNodesPort {
         this.isManager(viewerRole) &&
         ((await this.db.employment.count({ where: { workspaceId, userId: subjectUserId } })) > 0 ||
           (await this.db.hrAction.count({ where: { workspaceId, userId: subjectUserId } })) > 0);
-      if (!hasHrTrace) throw new NotFoundException('Этот человек не в организации');
+      if (!hasHrTrace) throw notFound('hr.notInWorkspace');
     }
 
     const [user, assignments, liveEmp] = await Promise.all([
@@ -505,7 +515,7 @@ export class HrService implements HrPort, HrNodesPort {
             take: 1,
           });
     const employment = employments[0] ?? null;
-    if (!user) throw new NotFoundException('Пользователь не найден');
+    if (!user) throw notFound('auth.userNotFound');
 
     const canSeeEmployment = viewerId === subjectUserId || this.isManager(viewerRole);
     // Черновики действий — только управляющим: готовящийся приказ (основание
@@ -733,21 +743,25 @@ export class HrService implements HrPort, HrNodesPort {
   ): Promise<EsutdSubmissionDto> {
     await this.requireManager(viewerId, workspaceId);
     const row = await this.db.esutdSubmission.findFirst({ where: { id: submissionId, workspaceId } });
-    if (!row) throw new NotFoundException('Запись очереди ЕСУТД не найдена');
+    if (!row) throw notFound('hr.esutdRowNotFound');
     if (row.status !== 'pending') {
       if (row.kind === 'termination' && row.status === 'submitted') {
-        throw coded(ESUTD_TERMINATION_LOCK_NOTE, HR_ERROR_CODES.esutdLocked);
+        throw badRequest('hr.esutdLocked', undefined, { code: HR_ERROR_CODES.esutdLocked });
       }
-      throw new BadRequestException('Эта запись уже закрыта');
+      throw badRequest('hr.esutdRowClosed');
     }
     if (row.kind === 'termination') {
       const payload = await this.buildEsutdPayload(workspaceId, row);
-      const required = ['ФИО работника', 'ИИН работника', 'БИН работодателя', 'Дата прекращения', 'Основание прекращения'];
-      const missing = required.filter((k) => payload[k] === null || payload[k] === undefined || payload[k] === '');
+      const missing = ESUTD_TERMINATION_REQUIRED_FIELDS.filter(
+        (code) => payload[code] === null || payload[code] === undefined || payload[code] === '',
+      );
       if (missing.length > 0) {
-        throw coded(
-          `Сведения о прекращении неполны: ${missing.join(', ')}. ${ESUTD_TERMINATION_LOCK_NOTE}`,
-          HR_ERROR_CODES.esutdIncomplete,
+        // Перечень неполных сведений — подписями полей в языке ЗАПРОСА:
+        // кадровик читает их глазами и идёт дозаполнять карточку.
+        throw badRequest(
+          'hr.esutdIncomplete',
+          { fields: missing.map((code) => this.i18n.translate(`hr.esutd.field.${code}`)).join(', ') },
+          { code: HR_ERROR_CODES.esutdIncomplete },
         );
       }
       // Снимок того, что уходило в ЕСУТД, — на строке (доказательство содержания)
@@ -777,8 +791,8 @@ export class HrService implements HrPort, HrNodesPort {
       },
     });
     await this.logMember(viewerId, workspaceId, row.userId, 'hr.esutd_submitted', {
-      kindLabel: ESUTD_KINDS.find((k) => k.value === row.kind)?.label ?? row.kind,
-      numberSuffix: externalNumber ? ` (№ ${externalNumber})` : '',
+      kindLabelKey: `hr.esutdKind.${row.kind}`,
+      ...(externalNumber ? { numberSuffixKey: 'hr.esutd.numberSuffix', number: externalNumber } : {}),
     });
     return this.serializeEsutd(updated, today);
   }
@@ -786,12 +800,12 @@ export class HrService implements HrPort, HrNodesPort {
   async markEsutdNotRequired(viewerId: string, workspaceId: string, submissionId: string): Promise<EsutdSubmissionDto> {
     await this.requireManager(viewerId, workspaceId);
     const row = await this.db.esutdSubmission.findFirst({ where: { id: submissionId, workspaceId } });
-    if (!row) throw new NotFoundException('Запись очереди ЕСУТД не найдена');
+    if (!row) throw notFound('hr.esutdRowNotFound');
     if (row.status !== 'pending') {
       if (row.kind === 'termination' && row.status === 'submitted') {
-        throw coded(ESUTD_TERMINATION_LOCK_NOTE, HR_ERROR_CODES.esutdLocked);
+        throw badRequest('hr.esutdLocked', undefined, { code: HR_ERROR_CODES.esutdLocked });
       }
-      throw new BadRequestException('Эта запись уже закрыта');
+      throw badRequest('hr.esutdRowClosed');
     }
     const updated = await this.db.esutdSubmission.update({
       where: { id: row.id },
@@ -800,11 +814,15 @@ export class HrService implements HrPort, HrNodesPort {
     return this.serializeEsutd(updated, this.calendar.today());
   }
 
-  /** Снимок по перечню Правил № 353 — одна сборка для «Скопировать» и валидации сдачи */
+  /**
+   * Снимок по перечню Правил № 353 — одна сборка для «Скопировать» и валидации
+   * сдачи. Ключи — КОДЫ полей: снимок ложится в БД доказательством содержания и
+   * обязан пережить смену языка, а подписи ему выдаёт `labelEsutdPayload`.
+   */
   private async buildEsutdPayload(
     workspaceId: string,
     row: { kind: string; userId: string; employmentId: string | null },
-  ): Promise<Record<string, unknown>> {
+  ): Promise<Partial<Record<EsutdPayloadField, unknown>>> {
     const [user, employment, ws] = await Promise.all([
       this.db.user.findUnique({
         where: { id: row.userId },
@@ -822,35 +840,68 @@ export class HrService implements HrPort, HrNodesPort {
       select: { bin: true, legalName: true, name: true },
     });
     return {
-      'Вид сведений': ESUTD_KINDS.find((k) => k.value === row.kind)?.label ?? row.kind,
-      'Работодатель': legalEntity?.legalName ?? legalEntity?.name ?? ws?.name ?? null,
-      'БИН работодателя': legalEntity?.bin ?? null,
-      'ФИО работника': user ? [user.lastName, user.firstName, user.middleName].filter(Boolean).join(' ') : null,
-      'ИИН работника': user?.iin ?? null,
-      'Номер договора': employment?.contractNumber ?? null,
-      'Дата договора': dateStr(employment?.contractDate ?? null),
-      'Дата начала работы': dateStr(employment?.hiredAt ?? null),
-      'Должность': employment?.legalPositionName ?? null,
-      'Вид договора': employment?.contractType ?? null,
-      'Дата окончания (срочный)': dateStr(employment?.contractEndAt ?? null),
+      kind: row.kind,
+      employer: legalEntity?.legalName ?? legalEntity?.name ?? ws?.name ?? null,
+      employerBin: legalEntity?.bin ?? null,
+      employeeName: user ? [user.lastName, user.firstName, user.middleName].filter(Boolean).join(' ') : null,
+      employeeIin: user?.iin ?? null,
+      contractNumber: employment?.contractNumber ?? null,
+      contractDate: dateStr(employment?.contractDate ?? null),
+      hiredAt: dateStr(employment?.hiredAt ?? null),
+      position: employment?.legalPositionName ?? null,
+      contractType: employment?.contractType ?? null,
+      contractEndAt: dateStr(employment?.contractEndAt ?? null),
       ...(row.kind === 'termination'
         ? {
-            'Дата прекращения': dateStr(employment?.firedAt ?? null),
-            'Основание прекращения': employment?.dismissalGround ?? null,
+            firedAt: dateStr(employment?.firedAt ?? null),
+            dismissalGround: employment?.dismissalGround ?? null,
           }
         : {}),
     };
+  }
+
+  /**
+   * Снимок с кодами → то, что человек вставляет в форму enbek.kz: подпись поля и
+   * СЛОВО значения (вид сведений, вид договора, основание) в языке запроса.
+   * Раньше сюда уезжали коды `indefinite` и `st56` — кадровик копировал их в
+   * государственную форму как есть.
+   */
+  private labelEsutdPayload(payload: Partial<Record<EsutdPayloadField, unknown>>): Record<string, unknown> {
+    const valueKey: Partial<Record<EsutdPayloadField, string>> = {
+      kind: 'hr.esutdKind',
+      contractType: 'hr.contractType',
+      dismissalGround: 'hr.ground',
+    };
+    // Даты человек ПЕРЕПИСЫВАЕТ в государственную форму — они обязаны выглядеть
+    // правилами региона (31.08.2026), а не ISO-строкой хранения.
+    const dateFields = new Set<EsutdPayloadField>(['contractDate', 'hiredAt', 'contractEndAt', 'firedAt']);
+    const fmt = this.i18n.format();
+    const out: Record<string, unknown> = {};
+    for (const { code } of ESUTD_PAYLOAD_FIELDS) {
+      if (!(code in payload)) continue;
+      const raw = payload[code];
+      const prefix = valueKey[code];
+      const key = prefix && typeof raw === 'string' ? `${prefix}.${raw}` : null;
+      const value =
+        key && this.i18n.has(key)
+          ? this.i18n.translate(key)
+          : dateFields.has(code) && typeof raw === 'string'
+            ? fmt.date(raw, 'short')
+            : raw ?? null;
+      out[this.i18n.translate(`hr.esutd.field.${code}`)] = value;
+    }
+    return out;
   }
 
   /** Снимок сведений для «Скопировать сведения» (по перечню Правил № 353) */
   async esutdPayload(viewerId: string, workspaceId: string, submissionId: string): Promise<Record<string, unknown>> {
     await this.requireManager(viewerId, workspaceId);
     const row = await this.db.esutdSubmission.findFirst({ where: { id: submissionId, workspaceId } });
-    if (!row) throw new NotFoundException('Запись очереди ЕСУТД не найдена');
+    if (!row) throw notFound('hr.esutdRowNotFound');
     const payload = await this.buildEsutdPayload(workspaceId, row);
     // Снимок отправленного сохраняем на строке (что именно копировали)
     await this.db.esutdSubmission.update({ where: { id: row.id }, data: { payload: payload as object } });
-    return payload;
+    return this.labelEsutdPayload(payload);
   }
 
   // ============================================================
@@ -880,8 +931,8 @@ export class HrService implements HrPort, HrNodesPort {
         key: `esutd:${r.id}`,
         kind: 'esutd',
         userId: r.userId,
-        title: ESUTD_KINDS.find((k) => k.value === r.kind)?.label ?? r.kind,
-        subtitle: HR_DEADLINE_RULE_MAP[ESUTD_KINDS.find((k) => k.value === r.kind)!.ruleKey].article,
+        title: this.i18n.translate(`hr.esutdKind.${r.kind}`),
+        subtitle: this.i18n.translate(`hr.esutd.article.${r.kind}`),
         dueAt: due,
         workDaysLeft: left,
         overdue: due < today,
@@ -917,7 +968,7 @@ export class HrService implements HrPort, HrNodesPort {
         kind: 'delivery',
         userId: d.subjectUserId,
         title: d.number ? `${d.title} № ${d.number}` : d.title,
-        subtitle: 'Вручить в течение 3 рабочих дней (ст. 61 п. 3 ТК РК)',
+        subtitle: this.i18n.translate('hr.deadline.deliverySubtitle'),
         dueAt: due,
         workDaysLeft: due ? await this.calendar.workDaysLeft(today, due) : null,
         overdue: !!due && due < today,
@@ -951,8 +1002,8 @@ export class HrService implements HrPort, HrNodesPort {
         key: `settle:${f.id}`,
         kind: 'settlement',
         userId: f.userId,
-        title: 'Окончательный расчёт и документ о трудовой деятельности',
-        subtitle: 'Расчёт — 3 рабочих дня (ст. 113 п. 4, пеня 1,25× базовой ставки); документ — в день прекращения (ст. 62)',
+        title: this.i18n.translate('hr.deadline.settlementTitle'),
+        subtitle: this.i18n.translate('hr.deadline.settlementSubtitle'),
         dueAt: due,
         workDaysLeft: due ? await this.calendar.workDaysLeft(today, due) : null,
         overdue: !!due && due < today,
@@ -981,8 +1032,8 @@ export class HrService implements HrPort, HrNodesPort {
         key: `probation:${p.id}`,
         kind: 'probation' as const,
         userId: p.userId,
-        title: 'Испытательный срок заканчивается',
-        subtitle: 'Не уведомили до истечения — работник считается прошедшим (ст. 37 ТК РК)',
+        title: this.i18n.translate('hr.deadline.probationTitle'),
+        subtitle: this.i18n.translate('hr.deadline.probationSubtitle'),
         dueAt: due,
         workDaysLeft: null,
         overdue: false,
@@ -1013,8 +1064,8 @@ export class HrService implements HrPort, HrNodesPort {
         key: `contract:${c.id}`,
         kind: 'contract_end' as const,
         userId: c.userId,
-        title: third ? 'Срочный договор: продлевался молчанием 2 раза — считается бессрочным' : 'Срочный договор заканчивается',
-        subtitle: 'Уведомить в последний рабочий день, иначе автопродление (ст. 30 п. 1 пп. 2 ТК РК)',
+        title: this.i18n.translate(third ? 'hr.deadline.contractExhaustedTitle' : 'hr.deadline.contractTitle'),
+        subtitle: this.i18n.translate('hr.deadline.contractSubtitle'),
         dueAt: due,
         workDaysLeft: null,
         overdue: false,
@@ -1037,8 +1088,8 @@ export class HrService implements HrPort, HrNodesPort {
         key: `campaign:${c.id}`,
         kind: 'campaign',
         userId: null,
-        title: `Ознакомление: «${c.title}»`,
-        subtitle: `Не ознакомились ${pending} из ${c._count.targets}`,
+        title: this.i18n.translate('hr.deadline.campaignTitle', { title: c.title }),
+        subtitle: this.i18n.translate('hr.deadline.campaignSubtitle', { pending, total: c._count.targets }),
         dueAt: dateStr(c.dueAt),
         workDaysLeft: null,
         overdue: !!c.dueAt && dateStr(c.dueAt)! < today,
@@ -1133,7 +1184,7 @@ export class HrService implements HrPort, HrNodesPort {
             workspaceId: opts.workspaceId,
             workspaceName:
               (await tx.workspace.findUnique({ where: { id: opts.workspaceId }, select: { name: true } }))?.name ??
-              'Организация',
+              this.src('hr.personalDoc.organizationFallback'),
             orgDocumentId: opts.orgDocumentId,
             title: opts.title,
             number: opts.number ?? null,
@@ -1288,7 +1339,9 @@ export class HrService implements HrPort, HrNodesPort {
       doc.docType.category === 'hr'
     ) {
       await this.logMember(null, doc.workspaceId, doc.subjectUserId ?? info.signerUserId, 'hr.sign_bin_warning', {
-        reason: `акт работодателя «${doc.title}» подписан сертификатом физлица (без БИН юрлица) — для актов работодателя вероятно нужен сертификат сотрудника юрлица`,
+        // Ключ + подстановка: причина собирается при ЧТЕНИИ ленты
+        reasonKey: 'hr.signBinWarning',
+        title: doc.title,
       });
     }
   }

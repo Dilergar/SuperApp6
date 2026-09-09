@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import type { Response } from 'express';
 import { PassThrough } from 'stream';
 import { pipeline } from 'stream/promises';
@@ -6,6 +6,7 @@ import * as yazl from 'yazl';
 import { SHARE_LINK_ERROR_CODES, SHARE_LINK_LIMITS } from '@superapp/shared';
 import { FilesService } from '../../core/files/files.service';
 import { DatabaseService } from '../../shared/database/database.service';
+import { ApiError } from '../../shared/errors/api-error';
 import type { NodeRow } from './drive.service';
 
 /** Уже сжатое повторно жать бессмысленно — только греть процессор на гостевом пути */
@@ -41,25 +42,22 @@ export class DriveGuestZipService {
   async stream(target: NodeRow, res: Response): Promise<void> {
     const { entries, totalBytes } = await this.collect(target);
     if (!entries.length) {
-      throw new HttpException(
-        { message: 'В папке нечего скачивать', details: { code: SHARE_LINK_ERROR_CODES.refGone } },
-        HttpStatus.GONE,
-      );
+      throw new ApiError(HttpStatus.GONE, {
+        code: 'drive.folderEmpty',
+        details: { code: SHARE_LINK_ERROR_CODES.refGone },
+      });
     }
     if (entries.length > SHARE_LINK_LIMITS.zipMaxFiles || totalBytes > SHARE_LINK_LIMITS.zipMaxBytes) {
-      throw new HttpException(
-        {
-          message: 'Папка слишком большая для скачивания одним архивом — скачайте по частям',
-          details: {
-            code: SHARE_LINK_ERROR_CODES.zipTooLarge,
-            maxFiles: SHARE_LINK_LIMITS.zipMaxFiles,
-            maxBytes: SHARE_LINK_LIMITS.zipMaxBytes,
-            files: entries.length,
-            bytes: totalBytes,
-          },
+      throw new ApiError(HttpStatus.FORBIDDEN, {
+        code: 'drive.folderTooBig',
+        details: {
+          code: SHARE_LINK_ERROR_CODES.zipTooLarge,
+          maxFiles: SHARE_LINK_LIMITS.zipMaxFiles,
+          maxBytes: SHARE_LINK_LIMITS.zipMaxBytes,
+          files: entries.length,
+          bytes: totalBytes,
         },
-        HttpStatus.FORBIDDEN,
-      );
+      });
     }
 
     const zip = new yazl.ZipFile();
@@ -105,7 +103,7 @@ export class DriveGuestZipService {
         // Файл исчез или хранилище отдало ошибку на середине. Архив уже начал уезжать
         // клиенту, дописать «извините» в него нельзя — рвём соединение, чтобы битый
         // архив не выглядел целым.
-        this.logger.warn(`гостевой ZIP: файл ${entries[i].fileId} не отдался: ${msg(err)}`);
+        this.logger.warn(`Guest ZIP: file ${entries[i].fileId} could not be streamed: ${msg(err)}`);
         for (const tap of taps) tap.destroy();
         res.destroy();
         return;

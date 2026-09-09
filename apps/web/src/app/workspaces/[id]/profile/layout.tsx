@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
@@ -9,14 +10,16 @@ import type { Workspace } from '@superapp/shared';
 
 type Gate = 'all' | 'manage' | 'owner';
 
-const SECTIONS: { key: string; label: string; gate: Gate }[] = [
-  { key: 'card', label: 'Карточка', gate: 'all' },
-  { key: 'anketa', label: 'Анкета', gate: 'manage' },
-  { key: 'stats', label: 'Статистика', gate: 'all' },
-  { key: 'subscription', label: 'Подписка', gate: 'all' },
-  { key: 'settings', label: 'Настройки', gate: 'manage' },
-  { key: 'notifications', label: 'Уведомления', gate: 'manage' },
-  { key: 'security', label: 'Безопасность', gate: 'owner' },
+// Реестр несёт СОСТАВ и гейты; слово к разделу даёт каталог
+// (`workspaces.profile.section.*`).
+const SECTIONS: { key: string; gate: Gate }[] = [
+  { key: 'card', gate: 'all' },
+  { key: 'anketa', gate: 'manage' },
+  { key: 'stats', gate: 'all' },
+  { key: 'subscription', gate: 'all' },
+  { key: 'settings', gate: 'manage' },
+  { key: 'notifications', gate: 'manage' },
+  { key: 'security', gate: 'owner' },
 ];
 
 const linkBase: React.CSSProperties = {
@@ -31,6 +34,7 @@ const linkBase: React.CSSProperties = {
 
 /** Profile sub-area sidebar (sits inside the org-area shell from ../layout). */
 export default function WorkspaceProfileLayout({ children }: { children: React.ReactNode }) {
+  const t = useTranslations('workspaces');
   const { isReady } = useRequireAuth();
   const pathname = usePathname();
   const { id } = useParams<{ id: string }>();
@@ -55,9 +59,9 @@ export default function WorkspaceProfileLayout({ children }: { children: React.R
           className="label-sm"
           style={{ color: 'var(--on-surface-variant)', marginBottom: 'var(--spacing-3)' }}
         >
-          ← Главная организации
+          ← {t('profile.back')}
         </Link>
-        <h2 className="title-md" style={{ marginBottom: 'var(--spacing-4)' }}>Профиль</h2>
+        <h2 className="title-md" style={{ marginBottom: 'var(--spacing-4)' }}>{t('profile.title')}</h2>
         {SECTIONS.filter((s) => visible(s.gate)).map((s) => {
           const active = pathname === `/workspaces/${id}/profile/${s.key}`;
           return (
@@ -71,7 +75,7 @@ export default function WorkspaceProfileLayout({ children }: { children: React.R
                 boxShadow: active ? 'var(--shadow-card)' : 'none',
               }}
             >
-              {s.label}
+              {t(`profile.section.${s.key}`)}
             </Link>
           );
         })}

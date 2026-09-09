@@ -1,5 +1,6 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
+import { ApiError } from '../../shared/errors/api-error';
 
 /**
  * Куда идти за редактором для КОНКРЕТНОГО документа. Адрес никогда не хардкодится и
@@ -60,11 +61,11 @@ export class DocsRouterService {
    */
   resolveBase(documentId: string, sticky?: string | null): string {
     const bases = this.bases;
-    if (!bases.length) throw new ServiceUnavailableException('Редактор документов не подключен');
+    if (!bases.length) throw new ApiError(HttpStatus.SERVICE_UNAVAILABLE, { code: 'docs.notConnected' });
     if (sticky) {
       const normalized = sticky.replace(/\/+$/, '');
       if (bases.includes(normalized)) return normalized;
-      this.logger.warn(`узел ${normalized} вне белого списка — документ ${documentId} переезжает`);
+      this.logger.warn(`node ${normalized} is outside the allowlist — document ${documentId} is moving`);
     }
     if (bases.length === 1) return bases[0];
     const digest = createHash('sha256').update(documentId).digest();

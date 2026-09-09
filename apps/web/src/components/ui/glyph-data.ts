@@ -130,7 +130,15 @@ export interface GlyphHit {
   label: string;
 }
 
-const norm = (s: string) => s.toLowerCase().replace(/ё/g, 'е').trim();
+/**
+ * Свёртка букв для поиска значка: «ё» и «е» человек не различает, набирая запрос.
+ * Это ДАННЫЕ алфавита, а не текст для человека, — потому имя стоит в белом списке
+ * стража мультиязычности (как автонимы языков `LOCALE_NAMES`).
+ */
+const CYRILLIC_FOLD: ReadonlyArray<readonly [RegExp, string]> = [[/ё/g, 'е']];
+
+const norm = (s: string) =>
+  CYRILLIC_FOLD.reduce((acc, [from, to]) => acc.replace(from, to), s.toLowerCase()).trim();
 
 /**
  * Ранг совпадения. Точный синоним стоит ВЫШЕ, чем начало длинного названия:

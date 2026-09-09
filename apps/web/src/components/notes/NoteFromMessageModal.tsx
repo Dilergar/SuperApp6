@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { usePathname } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { NoteBlock, NoteDoc, NoteSpaceRef } from '@superapp/shared';
 import { Button, Modal, Textarea } from '@/components/ui';
@@ -19,6 +20,8 @@ import { noteScopeFromPath } from './note-target-from-path';
 // ============================================================
 
 export function NoteFromMessageModal({ text, scope: scopeProp, onClose }: { text: string; scope?: NoteSpaceRef; onClose: () => void }) {
+  const t = useTranslations('notes');
+  const tc = useTranslations('common');
   const pathname = usePathname();
   const scope: NoteSpaceRef = scopeProp ?? noteScopeFromPath(pathname);
   const qc = useQueryClient();
@@ -55,20 +58,22 @@ export function NoteFromMessageModal({ text, scope: scopeProp, onClose }: { text
     <Modal
       open
       onClose={onClose}
-      title="В заметку"
-      subtitle="Сообщение станет цитатой; заметка сразу ляжет на доску"
+      title={t('fromMessage.title')}
+      subtitle={t('fromMessage.subtitle')}
       size="sm"
       footer={
         <>
-          <Button variant="matte" onClick={onClose}>Отмена</Button>
-          <Button icon="stickyNote" onClick={() => create.mutate()} loading={create.isPending}>Создать заметку</Button>
+          <Button variant="matte" onClick={onClose}>{tc('actions.cancel')}</Button>
+          <Button icon="stickyNote" onClick={() => create.mutate()} loading={create.isPending}>
+            {t('fromMessage.create')}
+          </Button>
         </>
       }
     >
       <blockquote className="body-sm" style={{ margin: '0 0 var(--spacing-3)', paddingLeft: '0.75rem', borderLeft: '2px solid var(--primary-border)', color: 'var(--on-surface-variant)', whiteSpace: 'pre-wrap', maxHeight: 160, overflow: 'auto' }}>
         {text}
       </blockquote>
-      <Textarea label="Своя мысль (необязательно)" value={comment} onChange={(e) => setComment(e.target.value)} rows={3} placeholder="Например: обсудить на планёрке" />
+      <Textarea label={t('fromMessage.commentLabel')} value={comment} onChange={(e) => setComment(e.target.value)} rows={3} placeholder={t('fromMessage.commentPlaceholder')} />
     </Modal>
   );
 }

@@ -13,16 +13,18 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import { apiPatch, apiPost } from '@/lib/api';
 import { contactsKey, fetchAllContacts } from '@/lib/queries';
 import { EntitySelector } from '@/components/EntitySelector';
 import { useTasksService } from '../tasks-shell';
-import { QuickAdd, formatDue } from '../tasks-ui';
+import { QuickAdd, useDueFormat } from '../tasks-ui';
 import { Alert, Button, Card, Icon, Input, PageHeader } from '@/components/ui';
 import { TaskListSection } from '../TaskListSection';
 import type { Contact, Task } from '@superapp/shared';
 
 export default function TasksInboxPage() {
+  const t = useTranslations('tasks');
   const { invalidate } = useTasksService();
   const contactsQ = useQuery({ queryKey: contactsKey, queryFn: fetchAllContacts, staleTime: 60_000 });
   const contacts = contactsQ.data ?? [];
@@ -30,9 +32,9 @@ export default function TasksInboxPage() {
   return (
     <>
       <PageHeader
-        breadcrumb="Задачи"
-        title="Входящие"
-        description="Быстрые записи себе. Разберите: задайте срок, поручите человеку или отметьте «Разобрано»."
+        breadcrumb={t('breadcrumb')}
+        title={t('sections.inbox.title')}
+        description={t('sections.inbox.description')}
       />
 
       <Card small style={{ marginBottom: 'var(--gap-grid)' }}>
@@ -41,8 +43,8 @@ export default function TasksInboxPage() {
 
       <TaskListSection
         filter={{ smartList: 'inbox' }}
-        emptyText="Входящие пусты"
-        emptyHint="Пришла мысль? Запишите одной строкой выше — детали разберёте потом"
+        emptyText={t('sections.inbox.empty')}
+        emptyHint={t('sections.inbox.emptyHint')}
         renderRow={(t) => <InboxRow task={t} contacts={contacts} onChanged={invalidate} />}
       />
     </>
@@ -54,6 +56,9 @@ export default function TasksInboxPage() {
 // ------------------------------------------------------------
 
 function InboxRow({ task, contacts, onChanged }: { task: Task; contacts: Contact[]; onChanged: () => void }) {
+  const t = useTranslations('tasks');
+  const tc = useTranslations('common');
+  const formatDue = useDueFormat();
   const [panel, setPanel] = useState<null | 'date' | 'assign'>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -71,7 +76,7 @@ function InboxRow({ task, contacts, onChanged }: { task: Task; contacts: Contact
       onChanged();
     } catch (err: unknown) {
       const a = err as { response?: { data?: { message?: string } } };
-      setError(a.response?.data?.message || 'Не получилось — попробуйте ещё раз');
+      setError(a.response?.data?.message || t('inbox.actionFailed'));
     } finally {
       setBusy(false);
     }
@@ -101,8 +106,8 @@ function InboxRow({ task, contacts, onChanged }: { task: Task; contacts: Contact
         <button
           onClick={complete}
           disabled={busy}
-          aria-label="Выполнить"
-          title="Выполнить"
+          aria-label={t('inbox.complete')}
+          title={t('inbox.complete')}
           style={{
             width: 24, height: 24, minWidth: 24, borderRadius: '50%', cursor: 'pointer',
             border: '1px solid var(--outline)', background: 'transparent', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -119,14 +124,14 @@ function InboxRow({ task, contacts, onChanged }: { task: Task; contacts: Contact
             {task.title}
           </Link>
           <div className="label-sm" style={{ marginTop: 2, opacity: 0.75 }}>
-            добавлено {formatDue(task.createdAt, false)}
+            {t('inbox.added', { date: formatDue(task.createdAt, false) })}
           </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-1)', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <Button size="sm" variant="ghost" icon="calendar" onClick={() => setPanel(panel === 'date' ? null : 'date')}>Срок</Button>
-          <Button size="sm" variant="ghost" icon="userAdd" onClick={() => setPanel(panel === 'assign' ? null : 'assign')}>Поручить</Button>
-          <Button size="sm" variant="ghost" icon="check" onClick={markSorted} title="Убрать из Входящих, оставить задачей без срока">Разобрано</Button>
+          <Button size="sm" variant="ghost" icon="calendar" onClick={() => setPanel(panel === 'date' ? null : 'date')}>{t('inbox.due')}</Button>
+          <Button size="sm" variant="ghost" icon="userAdd" onClick={() => setPanel(panel === 'assign' ? null : 'assign')}>{t('inbox.assign')}</Button>
+          <Button size="sm" variant="ghost" icon="check" onClick={markSorted} title={t('inbox.sortedHint')}>{t('inbox.sorted')}</Button>
         </div>
       </div>
 
@@ -139,9 +144,9 @@ function InboxRow({ task, contacts, onChanged }: { task: Task; contacts: Contact
             wrapClassName="inbox-due-field"
           />
           <Button size="sm" variant="ghost" icon={withTime ? 'calendar' : 'clock'} onClick={() => { setWithTime(!withTime); setDue(''); }}>
-            {withTime ? 'весь день' : 'со временем'}
+            {withTime ? t('create.allDay') : t('create.withTime')}
           </Button>
-          <Button size="sm" variant="primary" tone="success" icon="check" disabled={!due} loading={busy} onClick={saveDue}>Сохранить</Button>
+          <Button size="sm" variant="primary" tone="success" icon="check" disabled={!due} loading={busy} onClick={saveDue}>{tc('actions.save')}</Button>
         </div>
       )}
 
@@ -154,10 +159,10 @@ function InboxRow({ task, contacts, onChanged }: { task: Task; contacts: Contact
               options={contacts.map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole }))}
               value={executorId ? [{ type: 'user', id: executorId }] : []}
               onChange={(p) => setExecutorId(p[0]?.id ?? null)}
-              placeholder="Кому поручить…"
+              placeholder={t('inbox.assignPlaceholder')}
             />
           </div>
-          <Button size="sm" variant="primary" tone="success" icon="userAdd" disabled={!executorId} loading={busy} onClick={saveExecutor}>Поручить</Button>
+          <Button size="sm" variant="primary" tone="success" icon="userAdd" disabled={!executorId} loading={busy} onClick={saveExecutor}>{t('inbox.assign')}</Button>
         </div>
       )}
 

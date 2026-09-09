@@ -1,17 +1,16 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import {
-  CONTRACT_TYPES,
-  DISMISSAL_GROUNDS,
-  HR_ACTION_KIND_LABELS,
-  docDateRangeDays,
-  type HrActionKind,
-} from '@superapp/shared';
+import { docDateRangeDays } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
+import { documentWords } from '../../shared/i18n/document-words';
 import { activeAssignmentWhere } from '../../shared/utils/assignment-window';
 import { TemplateFieldRegistry, type TemplateFieldContext } from '../../core/templates/template-field.registry';
 import { fullName } from '../../shared/utils/user-name';
 
 const dstr = (d: Date | null | undefined): string | null => (d ? d.toISOString().slice(0, 10) : null);
+
+// Язык ПЕЧАТНОЙ ФОРМЫ приезжает в контексте резолва (`ctx.language`) — это язык
+// самого документа, а не зрителя: `apps/api/src/shared/i18n/document-words.ts`.
 
 /**
  * Группы полей шаблонов КЭДО: «Договор» (трудовая карточка), «Действие»
@@ -27,54 +26,53 @@ export class HrTemplateFieldsProvider implements OnModuleInit {
   constructor(
     private readonly db: DatabaseService,
     private readonly templateFields: TemplateFieldRegistry,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit() {
     this.templateFields.register({
       key: 'employment_contract',
-      tagPrefix: 'Договор',
-      label: 'Трудовой договор',
+      tagPrefix: 'Contract',
+      // `key` — имя БЛАНКА, `id` — латинское имя поля для ключа каталога
       fields: [
-        { key: 'Номер', label: 'Номер договора', example: 'ТД-2026-014' },
-        { key: 'Дата договора', label: 'Дата договора', example: '01.09.2026' },
-        { key: 'Дата приёма', label: 'Дата начала работы', example: '01.09.2026' },
-        { key: 'Срок', label: 'Срок договора', example: 'на неопределённый срок' },
-        { key: 'Должность', label: 'Должность по договору', example: 'Менеджер зала' },
-        { key: 'Филиал', label: 'Место работы (филиал)', example: 'Филиал на Абая' },
-        { key: 'Оклад', label: 'Оклад, тенге', example: '250 000' },
-        { key: 'Ставка', label: 'Ставка', example: '1' },
-        { key: 'График', label: 'Режим работы', example: '5/2, 09:00–18:00' },
-        { key: 'Испытание до', label: 'Испытательный срок (до даты)', example: '01.12.2026' },
-        { key: 'Табельный номер', label: 'Табельный номер', example: '0042' },
-        { key: 'Дата увольнения', label: 'Дата прекращения', example: '30.09.2026' },
+        { key: 'Number', id: 'number' },
+        { key: 'Date', id: 'date' },
+        { key: 'StartDate', id: 'startDate' },
+        { key: 'Term', id: 'term' },
+        { key: 'Position', id: 'position' },
+        { key: 'Branch', id: 'branch' },
+        { key: 'Salary', id: 'salary' },
+        { key: 'Rate', id: 'rate' },
+        { key: 'Schedule', id: 'schedule' },
+        { key: 'ProbationUntil', id: 'probationUntil' },
+        { key: 'PersonnelNumber', id: 'personnelNumber' },
+        { key: 'EndDate', id: 'endDate' },
       ],
       resolve: (ctx) => this.resolveContract(ctx),
     });
 
     this.templateFields.register({
       key: 'hr_action',
-      tagPrefix: 'Действие',
-      label: 'Кадровое действие',
+      tagPrefix: 'Action',
       fields: [
-        { key: 'Вид', label: 'Вид действия', example: 'Перевод' },
-        { key: 'Дата вступления', label: 'Дата вступления в силу', example: '01.09.2026' },
-        { key: 'Дата окончания', label: 'Дата окончания (отпуск)', example: '14.09.2026' },
-        { key: 'Дней', label: 'Дней (календарных, отпуск)', example: '14' },
-        { key: 'Оклад', label: 'Новый оклад, тенге', example: '300 000' },
-        { key: 'Новая должность', label: 'Новая должность', example: 'Старший менеджер' },
-        { key: 'Новый филиал', label: 'Новый филиал', example: 'Филиал на Абая' },
-        { key: 'Основание', label: 'Основание прекращения (статья ТК РК)', example: 'ст. 56 ТК РК' },
+        { key: 'Kind', id: 'kind' },
+        { key: 'EffectiveFrom', id: 'effectiveFrom' },
+        { key: 'EffectiveTo', id: 'effectiveTo' },
+        { key: 'Days', id: 'days' },
+        { key: 'Salary', id: 'salary' },
+        { key: 'NewPosition', id: 'newPosition' },
+        { key: 'NewBranch', id: 'newBranch' },
+        { key: 'Ground', id: 'ground' },
       ],
       resolve: (ctx) => this.resolveAction(ctx),
     });
 
     this.templateFields.register({
       key: 'hr_signer',
-      tagPrefix: 'Подписант',
-      label: 'Подписант (из маршрута)',
+      tagPrefix: 'Signer',
       fields: [
-        { key: 'ФИО', label: 'ФИО подписанта', example: 'Ахметов Аскар Болатұлы' },
-        { key: 'Должность', label: 'Должность подписанта', example: 'Директор' },
+        { key: 'FullName', id: 'fullName' },
+        { key: 'Position', id: 'position' },
       ],
       resolve: (ctx) => this.resolveSigner(ctx),
     });
@@ -95,27 +93,28 @@ export class HrTemplateFieldsProvider implements OnModuleInit {
       orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
     });
     if (!e) return null;
-    const typeLabel = CONTRACT_TYPES.find((t) => t.value === e.contractType)?.label ?? e.contractType;
+    const w = documentWords(this.i18n, ctx.language);
+    const typeLabel = w.t(`hr.contractType.${e.contractType}`);
     const term =
       e.contractType === 'indefinite'
-        ? 'на неопределённый срок'
+        ? typeLabel.toLowerCase()
         : e.contractEndAt
-          ? `${typeLabel.toLowerCase()}, до ${dstr(e.contractEndAt)!.split('-').reverse().join('.')}`
+          ? `${typeLabel.toLowerCase()}, ${w.t('hr.form.until')} ${w.date(e.contractEndAt)}`
           : typeLabel.toLowerCase();
     return {
-      Номер: e.contractNumber ?? null,
-      'Дата договора': e.contractDate ?? null,
-      'Дата приёма': e.hiredAt ?? null,
-      Срок: term,
-      Должность: e.legalPositionName ?? null,
+      Number: e.contractNumber ?? null,
+      Date: e.contractDate ?? null,
+      StartDate: e.hiredAt ?? null,
+      Term: term,
+      Position: e.legalPositionName ?? null,
       // Осознанно-пустое: без филиала местом работы служит адрес организации
-      Филиал: e.legalBranchName ?? '',
-      Оклад: e.salaryAmount === null ? null : Number(e.salaryAmount) / 100,
-      Ставка: e.workRate ?? 1,
-      График: e.workSchedule ?? null,
-      'Испытание до': e.probationUntil ?? 'без испытательного срока',
-      'Табельный номер': e.personnelNumber ?? '',
-      'Дата увольнения': e.firedAt ?? null,
+      Branch: e.legalBranchName ?? '',
+      Salary: e.salaryAmount === null ? null : Number(e.salaryAmount) / 100,
+      Rate: e.workRate ?? 1,
+      Schedule: e.workSchedule ?? null,
+      ProbationUntil: e.probationUntil ?? w.t('hr.form.noProbation'),
+      PersonnelNumber: e.personnelNumber ?? '',
+      EndDate: e.firedAt ?? null,
     };
   }
 
@@ -126,7 +125,10 @@ export class HrTemplateFieldsProvider implements OnModuleInit {
     const a = await this.db.hrAction.findUnique({ where: { id: ctx.hrActionId } });
     if (!a) return null;
     const p = (a.params ?? {}) as Record<string, unknown>;
-    const groundLabel = DISMISSAL_GROUNDS.find((g) => g.value === p.ground)?.label ?? (p.ground as string) ?? null;
+    const w = documentWords(this.i18n, ctx.language);
+    const groundKey = typeof p.ground === 'string' ? `hr.ground.${p.ground}` : null;
+    const groundLabel =
+      groundKey && this.i18n.has(groundKey, w.locale) ? w.t(groundKey) : (p.ground as string) ?? null;
     const from = dstr(a.effectiveAt)!;
     const to = dstr(a.effectiveTo);
     let positionName: string | null = null;
@@ -140,15 +142,15 @@ export class HrTemplateFieldsProvider implements OnModuleInit {
       branchName = br?.name ?? null;
     }
     return {
-      Вид: HR_ACTION_KIND_LABELS[a.kind as HrActionKind] ?? a.kind,
-      'Дата вступления': a.effectiveAt,
-      'Дата окончания': a.effectiveTo ?? null,
-      Дней: to ? docDateRangeDays({ from, to }) : null,
-      Оклад: p.salaryAmount !== undefined ? Number(p.salaryAmount as number) / 100 : null,
-      'Новая должность': positionName,
+      Kind: this.i18n.has(`hr.actionKind.${a.kind}`, w.locale) ? w.t(`hr.actionKind.${a.kind}`) : a.kind,
+      EffectiveFrom: a.effectiveAt,
+      EffectiveTo: a.effectiveTo ?? null,
+      Days: to ? docDateRangeDays({ from, to }) : null,
+      Salary: p.salaryAmount !== undefined ? Number(p.salaryAmount as number) / 100 : null,
+      NewPosition: positionName,
       // Осознанно-пустое: перевод без смены филиала
-      'Новый филиал': branchName ?? '',
-      Основание: groundLabel,
+      NewBranch: branchName ?? '',
+      Ground: groundLabel,
     };
   }
 
@@ -215,8 +217,8 @@ export class HrTemplateFieldsProvider implements OnModuleInit {
       positionName = assignment?.position.name ?? null;
     }
     return {
-      ФИО: [user.lastName, user.firstName, user.middleName].filter(Boolean).join(' ') || fullName(user),
-      Должность: positionName ?? '',
+      FullName: [user.lastName, user.firstName, user.middleName].filter(Boolean).join(' ') || fullName(user),
+      Position: positionName ?? '',
     };
   }
 }

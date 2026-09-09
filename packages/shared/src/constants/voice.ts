@@ -2,18 +2,27 @@
 // Voice Engine (core/voice) — константы
 // ============================================
 
+import { LOCALE_NAMES } from './i18n';
+
 const KB = 1024;
 const MB = 1024 * KB;
 
 /** Языки транскрипции: auto = автоопределение Whisper (kk-ru вперемешку — ок) */
 export const VOICE_LANGUAGES = ['auto', 'ru', 'kk', 'en'] as const;
 
-export const VOICE_LANGUAGE_LABELS: Record<(typeof VOICE_LANGUAGES)[number], string> = {
-  auto: 'Авто',
-  ru: 'Русский',
-  kk: 'Қазақша',
-  en: 'English',
-};
+/**
+ * Самоназвания языков — их НЕ переводят: «Қазақша» остаётся «Қазақша» в любом
+ * интерфейсе (приём Google/Apple). `auto` сюда не входит: это не язык, а режим, и
+ * слово ему даёт каталог (`common.language.auto`).
+ *
+ * Список совпадает с языками интерфейса, поэтому имя у автонима ОДНО
+ * (`LOCALE_NAMES`): вторая копия тех же трёх строк разъехалась бы с первой на
+ * четвёртом языке.
+ */
+export const VOICE_LANGUAGE_ENDONYMS: Record<
+  Exclude<(typeof VOICE_LANGUAGES)[number], 'auto'>,
+  string
+> = LOCALE_NAMES;
 
 export const VOICE_TRANSCRIPT_STATUSES = ['queued', 'processing', 'ready', 'error'] as const;
 

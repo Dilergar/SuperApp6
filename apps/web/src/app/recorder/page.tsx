@@ -5,9 +5,17 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { FileDto, VoiceLanguage, VoiceRecordingDto, VoiceRecordingSource } from '@superapp/shared';
-import { AUDIO_EXT_TO_MIME, VOICE_LANGUAGES, VOICE_LANGUAGE_LABELS, VOICE_LIMITS } from '@superapp/shared';
+import {
+  AUDIO_EXT_TO_MIME,
+  FILE_PROFILES,
+  VOICE_LANGUAGES,
+  VOICE_LANGUAGE_ENDONYMS,
+  VOICE_LIMITS,
+} from '@superapp/shared';
+import { useTranslations } from 'next-intl';
 import { useConfirm } from '@/components/ui';
 import { apiErrorMessage } from '@/lib/api';
+import { useBytes, useFormatters, useShortDate } from '@/lib/format';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { useVoiceRecorder } from '@/lib/hooks/useVoiceRecorder';
 import { useVoiceTranscript } from '@/lib/hooks/useVoiceTranscript';
@@ -49,12 +57,22 @@ function normalizeAudioMime(file: File): File {
   return mime ? new File([file], file.name, { type: mime }) : file;
 }
 
+/**
+ * Код языка, который вернул STT, — САМОНАЗВАНИЕМ, если это наш язык: автонимы
+ * не переводятся (то же правило, что у переключателя языка). Чужой код (whisper
+ * знает их сотню) показываем как есть.
+ */
+function endonym(code: string): string {
+  return VOICE_LANGUAGE_ENDONYMS[code as keyof typeof VOICE_LANGUAGE_ENDONYMS] ?? code;
+}
+
 export default function RecorderPage() {
+  const tc = useTranslations('common');
   return (
     <Suspense
       fallback={
         <div className="min-h-screen flex items-center justify-center">
-          <p className="label-md" style={{ fontSize: '1rem' }}>Загрузка...</p>
+          <p className="label-md" style={{ fontSize: '1rem' }}>{tc('state.loading')}</p>
         </div>
       }
     >
@@ -64,6 +82,9 @@ export default function RecorderPage() {
 }
 
 function RecorderInner() {
+  const t = useTranslations('recorder');
+  const tc = useTranslations('common');
+  const bytes = useBytes();
   const { isReady } = useRequireAuth();
   const searchParams = useSearchParams();
   const qc = useQueryClient();
@@ -134,7 +155,7 @@ function RecorderInner() {
       const rec = await createRecording({ fileId: file.id, source });
       await afterNewRecording(rec);
     } catch (err) {
-      setCreateError(`Не удалось создать запись: ${apiErrorMessage(err)}`);
+      setCreateError(t('createFailed', { error: apiErrorMessage(err) }));
     }
   };
 
@@ -179,7 +200,7 @@ function RecorderInner() {
   if (!isReady) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <p className="label-md" style={{ fontSize: '1rem' }}>Загрузка...</p>
+        <p className="label-md" style={{ fontSize: '1rem' }}>{tc('state.loading')}</p>
       </div>
     );
   }
@@ -192,9 +213,9 @@ function RecorderInner() {
         {/* Шапка сервиса */}
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--spacing-4)', marginBottom: 'var(--spacing-6)' }}>
           <div>
-            <h1 className="title-lg" style={{ transform: 'none' }}>🎙️ Диктофон</h1>
+            <h1 className="title-lg" style={{ transform: 'none' }}>🎙️ {t('title')}</h1>
             <p className="label-sm" style={{ opacity: 0.75, marginTop: '0.3rem' }}>
-              Запиши собрание или загрузи файл — получишь текст с разбивкой по спикерам
+              {t('subtitle')}
             </p>
           </div>
           <div style={{ display: 'flex', gap: 'var(--spacing-3)', alignItems: 'center' }}>
@@ -215,10 +236,10 @@ function RecorderInner() {
                 />
                 <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>{formatDuration(recorder.elapsedMs) ?? '0:00'}</span>
                 <button onClick={recorder.cancel} className="btn-ghost-inline" style={{ padding: '0.3rem 0.7rem', fontSize: '0.75rem' }}>
-                  Отмена
+                  {tc('actions.cancel')}
                 </button>
                 <button onClick={() => void finishBrowserRecording()} className="btn-primary" style={{ padding: '0.3rem 0.9rem', fontSize: '0.75rem' }}>
-                  ⏹ Готово
+                  ⏹ {tc('actions.done')}
                 </button>
                 <style>{`@keyframes sa6RecPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }`}</style>
               </div>
@@ -228,9 +249,9 @@ function RecorderInner() {
                   onClick={() => void recorder.start()}
                   className="btn-success"
                   style={{ padding: '0.5rem 1.1rem', fontSize: '0.85rem' }}
-                  title={recorder.state === 'denied' ? 'Доступ к микрофону запрещён в браузере' : 'Записать с микрофона'}
+                  title={recorder.state === 'denied' ? t('record.denied') : t('record.hint')}
                 >
-                  ⏺ Записать
+                  ⏺ {t('record.start')}
                 </button>
               )
             )}
@@ -273,10 +294,10 @@ function RecorderInner() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
             <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
               <RecorderTab active={tab === 'recordings'} onClick={() => switchTab('recordings')}>
-                🎙️ Записи
+                🎙️ {t('tabs.recordings')}
               </RecorderTab>
               <RecorderTab active={tab === 'calls'} onClick={() => switchTab('calls')}>
-                📞 Журнал звонков{callsCount > 0 ? ` · ${callsCount}` : ''}
+                📞 {t('tabs.calls')}{callsCount > 0 ? ` · ${callsCount}` : ''}
               </RecorderTab>
             </div>
             {tab === 'recordings' && (
@@ -286,20 +307,18 @@ function RecorderInner() {
                 accept="audio/*,.webm,.mp3,.m4a,.wav,.ogg,.oga,.opus,.flac,.aac"
                 multiple={false}
                 compact
-                label="Загрузить запись"
-                hint="mp3 / m4a / wav / ogg / webm / flac · до 200 МБ"
+                label={t('upload.label')}
+                hint={t('upload.hint', { size: bytes(FILE_PROFILES.dictaphone.maxSize) })}
                 disabled={uploadsBusy}
               />
             )}
             {isPending ? (
-              <p className="label-sm" style={{ opacity: 0.7 }}>Загрузка…</p>
+              <p className="label-sm" style={{ opacity: 0.7 }}>{tc('state.loading')}</p>
             ) : visibleRecordings.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 'var(--spacing-8) var(--spacing-4)', background: 'var(--surface-container-low)', borderRadius: 'var(--radius-sketch, var(--radius-md))' }}>
                 <div style={{ fontSize: '2rem' }}>{tab === 'calls' ? '📞' : '🎙️'}</div>
                 <p className="label-sm" style={{ opacity: 0.7, marginTop: '0.4rem' }}>
-                  {tab === 'calls'
-                    ? 'Пока пусто. Нажми «Получить запись» во время звонка в мессенджере — она появится здесь'
-                    : 'Пока пусто. Запиши собрание или загрузи аудио-файл'}
+                  {tab === 'calls' ? t('empty.calls') : t('empty.recordings')}
                 </p>
               </div>
             ) : (
@@ -326,7 +345,7 @@ function RecorderInner() {
               <RecordingDetail key={selected.id} rec={selected} sttEnabled={!!voiceStatus?.enabled} />
             ) : (
               <div style={{ textAlign: 'center', padding: 'var(--spacing-10)', background: 'var(--surface-container-low)', borderRadius: 'var(--radius-sketch, var(--radius-md))' }}>
-                <p className="label-sm" style={{ opacity: 0.7 }}>Выбери запись слева</p>
+                <p className="label-sm" style={{ opacity: 0.7 }}>{t('empty.detail')}</p>
               </div>
             )}
           </div>
@@ -372,6 +391,9 @@ function RecordingRow({
   onSelect: () => void;
   onDeleted: () => void;
 }) {
+  const t = useTranslations('recorder');
+  const tc = useTranslations('common');
+  const shortDate = useShortDate();
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(rec.title);
@@ -397,7 +419,12 @@ function RecordingRow({
 
   const remove = () => {
     confirm(
-      { title: `Удалить запись «${rec.title}»?`, message: 'Аудио и расшифровка будут удалены безвозвратно.', confirmLabel: 'Удалить', danger: true },
+      {
+        title: t('delete.title', { title: rec.title }),
+        message: t('delete.message'),
+        confirmLabel: tc('actions.delete'),
+        danger: true,
+      },
       removeNow,
     );
   };
@@ -407,17 +434,17 @@ function RecordingRow({
       await deleteRecording(rec.id);
       onDeleted();
     } catch (err) {
-      toastError(`Не удалось удалить: ${apiErrorMessage(err)}`);
+      toastError(t('delete.failed', { error: apiErrorMessage(err) }));
     }
   };
 
   const statusBadge =
     rec.transcriptStatus === 'ready'
-      ? { text: 'Расшифровано', color: 'var(--secondary)' }
+      ? { text: t('status.ready'), color: 'var(--secondary)' }
       : rec.transcriptStatus === 'queued' || rec.transcriptStatus === 'processing'
-        ? { text: 'Расшифровываю…', color: 'var(--on-surface-variant)' }
+        ? { text: t('status.processing'), color: 'var(--on-surface-variant)' }
         : rec.transcriptStatus === 'error'
-          ? { text: 'Ошибка', color: 'var(--primary)' }
+          ? { text: t('status.error'), color: 'var(--primary)' }
           : null;
 
   return (
@@ -482,8 +509,8 @@ function RecordingRow({
             e.stopPropagation();
             setEditing(true);
           }}
-          title="Переименовать"
-          aria-label="Переименовать"
+          title={tc('actions.rename')}
+          aria-label={tc('actions.rename')}
           style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', opacity: 0.55, padding: 0 }}
         >
           ✏️
@@ -493,17 +520,25 @@ function RecordingRow({
             e.stopPropagation();
             void remove();
           }}
-          title="Удалить"
-          aria-label="Удалить"
+          title={tc('actions.delete')}
+          aria-label={tc('actions.delete')}
           style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', opacity: 0.55, padding: 0 }}
         >
           🗑️
         </button>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '0.7rem', color: 'var(--on-surface-variant)' }}>
-        <span>{new Date(rec.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</span>
+        <span>{shortDate(rec.createdAt)}</span>
         {rec.durationMs != null && <span>{formatDuration(rec.durationMs)}</span>}
-        <span>{rec.source === 'web' ? '⏺ браузер' : rec.source === 'terminal' ? 'терминал' : rec.source === 'call' ? 'звонок' : 'файл'}</span>
+        <span>
+          {rec.source === 'web'
+            ? `⏺ ${t('source.web')}`
+            : rec.source === 'terminal'
+              ? t('source.terminal')
+              : rec.source === 'call'
+                ? t('source.call')
+                : t('source.upload')}
+        </span>
         {statusBadge && <span style={{ color: statusBadge.color, fontWeight: 700 }}>{statusBadge.text}</span>}
       </div>
       {confirmUI}
@@ -514,6 +549,9 @@ function RecordingRow({
 // ---------- деталь записи ----------
 
 function RecordingDetail({ rec, sttEnabled }: { rec: VoiceRecordingDto; sttEnabled: boolean }) {
+  const t = useTranslations('recorder');
+  const tc = useTranslations('common');
+  const f = useFormatters();
   const qc = useQueryClient();
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [language, setLanguage] = useState<VoiceLanguage>(rec.language ?? 'auto');
@@ -567,14 +605,14 @@ function RecordingDetail({ rec, sttEnabled }: { rec: VoiceRecordingDto; sttEnabl
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.6rem', flexWrap: 'wrap' }}>
           <h2 className="title-sm" style={{ fontSize: '1.05rem' }}>{rec.title}</h2>
           <span style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)' }}>
-            {new Date(rec.createdAt).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}
+            {f.dateTime(rec.createdAt, 'dayMonthLong')}
           </span>
         </div>
 
         {url ? (
           <audio ref={audioRef} controls preload="metadata" src={url} style={{ width: '100%', height: '2.2rem' }} />
         ) : (
-          <p className="label-sm" style={{ opacity: 0.7 }}>{rec.file ? 'Загружаю аудио…' : 'Файл записи недоступен'}</p>
+          <p className="label-sm" style={{ opacity: 0.7 }}>{rec.file ? t('audio.loading') : t('audio.missing')}</p>
         )}
 
         {/* Расшифровка: язык + запуск */}
@@ -582,17 +620,20 @@ function RecordingDetail({ rec, sttEnabled }: { rec: VoiceRecordingDto; sttEnabl
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
             {!sttEnabled ? (
               <span className="label-sm" style={{ opacity: 0.7 }}>
-                Расшифровка не подключена (запусти whisper-контейнер и задай VOICE_STT_URL)
+                {t('stt.disabled')}
               </span>
             ) : inProgress ? (
-              <span className="label-sm" style={{ fontWeight: 700 }}>⏳ Расшифровываю… это может занять несколько минут</span>
+              <span className="label-sm" style={{ fontWeight: 700 }}>⏳ {t('stt.inProgress')}</span>
             ) : status === 'ready' ? (
               <span className="label-sm" style={{ color: 'var(--secondary)', fontWeight: 700 }}>
-                ✓ Расшифровано{transcript?.detectedLanguage ? ` · язык: ${transcript.detectedLanguage}` : ''}
+                ✓ {t('status.ready')}
+                {transcript?.detectedLanguage
+                  ? ` · ${t('stt.detected', { language: endonym(transcript.detectedLanguage) })}`
+                  : ''}
               </span>
             ) : (
               <>
-                <label className="label-sm" htmlFor="rec-lang" style={{ opacity: 0.8 }}>Язык:</label>
+                <label className="label-sm" htmlFor="rec-lang" style={{ opacity: 0.8 }}>{t('stt.language')}</label>
                 <select
                   id="rec-lang"
                   value={language}
@@ -606,15 +647,15 @@ function RecordingDetail({ rec, sttEnabled }: { rec: VoiceRecordingDto; sttEnabl
                   }}
                 >
                   {VOICE_LANGUAGES.map((l) => (
-                    <option key={l} value={l}>{VOICE_LANGUAGE_LABELS[l]}</option>
+                    <option key={l} value={l}>{l === 'auto' ? tc('language.auto') : VOICE_LANGUAGE_ENDONYMS[l]}</option>
                   ))}
                 </select>
                 <button onClick={() => void askTranscribe()} className="btn-primary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>
-                  {status === 'error' ? 'Расшифровать ещё раз' : 'Расшифровать'}
+                  {status === 'error' ? t('stt.again') : t('stt.run')}
                 </button>
                 {status === 'error' && (
                   <span className="label-sm" style={{ color: 'var(--primary)' }} title={transcript?.error ?? undefined}>
-                    Прошлая попытка не удалась
+                    {t('stt.lastFailed')}
                   </span>
                 )}
               </>

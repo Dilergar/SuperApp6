@@ -105,9 +105,21 @@ async function main() {
     await sweep();
     let warns = await warnsOf();
     check('за 7 дней пришло предупреждение', warns.length === 1, `${warns.length}`);
-    // Текст рендерится ПРИ ЧТЕНИИ в языке зрителя; событие несёт данные шаблона:
-    // склонённое слово («дней»/«дня»/«день») готовит эмиттер, дата — в payload.
-    check('в событии склонённый срок и имя организации', warns[0]?.payload?.days === 7 && warns[0]?.payload?.daysWord === '7 дней' && String(warns[0]?.payload?.workspaceName || '').includes('restore-e2e'), JSON.stringify(warns[0]?.payload));
+    // Текст рендерится ПРИ ЧТЕНИИ в языке зрителя; событие несёт ДАННЫЕ шаблона —
+    // число дней и имя организации. Склонение («дней»/«дня»/«день») — дело каталога.
+    check('в событии число дней и имя организации', warns[0]?.payload?.days === 7 && String(warns[0]?.payload?.workspaceName || '').includes('restore-e2e'), JSON.stringify(warns[0]?.payload));
+    // Строка ленты схлопнута по организации и догоняет рубежи джобом — ждём её
+    // с коротким ретраем и проверяем ПОСЛЕДНИЙ рубеж (склонение «1 день», а не «1 дней»).
+    const feedTitle = async (re) => {
+      let last = '';
+      for (let i = 0; i < 20; i++) {
+        last = String(((await call('GET', '/notifications', t1)).json?.data?.items ?? [])
+          .find((r) => r.type === 'workspace.archive.expiring')?.title ?? '');
+        if (re.test(last)) return last;
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      return last;
+    };
     check('в событии — дата, после которой не вернуть', /\d{2}\.\d{2}\.\d{4}/.test(String(warns[0]?.payload?.purgeDate || '')), String(warns[0]?.payload?.purgeDate));
     check('дип-линк ведёт на дашборд', warns[0]?.actionUrl === '/dashboard');
 
@@ -122,13 +134,15 @@ async function main() {
     await sweep();
     warns = await warnsOf();
     check('за 3 дня пришло второе предупреждение', warns.length === 2, `${warns.length}`);
-    check('во втором — «3 дня»', warns[1]?.payload?.days === 3 && warns[1]?.payload?.daysWord === '3 дня', JSON.stringify(warns[1]?.payload));
+    check('во втором — 3 дня', warns[1]?.payload?.days === 3, JSON.stringify(warns[1]?.payload));
 
     await archivedDaysAgo(RETENTION_DAYS - 1); // остался 1
     await sweep();
     warns = await warnsOf();
     check('за 1 день пришло третье предупреждение', warns.length === 3, `${warns.length}`);
-    check('в третьем — «1 день», а не «1 дней»', warns[2]?.payload?.days === 1 && warns[2]?.payload?.daysWord === '1 день', JSON.stringify(warns[2]?.payload));
+    check('в третьем — 1 день', warns[2]?.payload?.days === 1, JSON.stringify(warns[2]?.payload));
+    const lastTitle = await feedTitle(/1\s*день(?!\p{L})/u);
+    check('лента склоняет «1 день», а не «1 дней»', /1\s*день(?!\p{L})/u.test(lastTitle), lastTitle);
 
     await call('POST', `/workspaces/${wsId}/restore`, t1);
     await sweep();

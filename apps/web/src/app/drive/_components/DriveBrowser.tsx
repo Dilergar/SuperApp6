@@ -11,7 +11,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { Virtuoso } from 'react-virtuoso';
-import { pluralRu, type DriveNodeDto, type DriveSort, type DriveSortDir } from '@superapp/shared';
+import type { DriveNodeDto, DriveSort, DriveSortDir } from '@superapp/shared';
 import {
   Button,
   Chip,
@@ -43,14 +43,17 @@ import { driveListKey } from '@/lib/queries';
 import type { DriveSpaceRef } from '@superapp/shared';
 import { useDriveUpload } from './useDriveUpload';
 import { DriveShareModal } from './DriveShareModal';
-import { driveIcon, humanSize, shortDate } from './drive-ui';
+import { useTranslations } from 'next-intl';
+import { useBytes, useShortDate } from '@/lib/format';
+import { driveIcon } from './drive-ui';
 
-const COLUMNS: TableColumn[] = [
-  { key: 'name', label: 'Название', sortable: true },
-  { key: 'size', label: 'Размер', width: 'auto', align: 'end', sortable: true, hideOnMobile: true },
-  { key: 'updated', label: 'Изменён', width: 'auto', align: 'end', sortable: true, hideOnMobile: true },
-  { key: 'actions', label: '', width: '40px', align: 'end' },
-];
+/** Колонки таблицы: заголовки — ключи каталога, слово подставляет компонент. */
+const COLUMN_KEYS = [
+  { key: 'name', labelKey: 'browser.colName', sortable: true },
+  { key: 'size', labelKey: 'browser.colSize', width: 'auto', align: 'end', sortable: true, hideOnMobile: true },
+  { key: 'updated', labelKey: 'browser.colUpdated', width: 'auto', align: 'end', sortable: true, hideOnMobile: true },
+  { key: 'actions', labelKey: null, width: '40px', align: 'end' },
+] as const;
 
 export interface DriveBrowserProps {
   driveRef: DriveSpaceRef;
@@ -70,6 +73,14 @@ export function DriveBrowser({
   onOpenFolder,
   onChanged,
 }: DriveBrowserProps) {
+  const t = useTranslations('drive');
+  const tc = useTranslations('common');
+  const humanSize = useBytes();
+  const shortDate = useShortDate();
+  const COLUMNS: TableColumn[] = useMemo(
+    () => COLUMN_KEYS.map((c) => ({ ...c, label: c.labelKey ? t(c.labelKey) : '' })),
+    [t],
+  );
   const qc = useQueryClient();
   const [confirm, confirmUI] = useConfirm();
   const [sort, setSort] = useState<DriveSort>('name');
@@ -147,33 +158,33 @@ export function DriveBrowser({
       if (node.file) {
         actions.push({
           key: 'open',
-          label: 'Скачать',
+          label: t('browser.download'),
           icon: 'download',
           onClick: () => void openNode(node),
         });
       }
       actions.push({
         key: 'star',
-        label: node.starred ? 'Убрать из избранного' : 'В избранное',
+        label: node.starred ? t('browser.unstar') : t('browser.star'),
         icon: 'star',
         onClick: () => void setDriveStar(node.id, !node.starred).then(refresh).catch((e) => toastError(apiErrorMessage(e))),
       });
       if (!canEdit || node.systemKey) return actions;
       actions.push(
-        { key: 'rename', label: 'Переименовать', icon: 'edit', onClick: () => setRenaming(node) },
-        { key: 'share', label: 'Настроить доступ', icon: 'share', onClick: () => setSharing(node) },
+        { key: 'rename', label: t('browser.rename'), icon: 'edit', onClick: () => setRenaming(node) },
+        { key: 'share', label: t('browser.share'), icon: 'share', onClick: () => setSharing(node) },
         {
           key: 'trash',
-          label: 'Удалить',
+          label: tc('actions.delete'),
           icon: 'delete',
           danger: true,
           onClick: () =>
             confirm(
               {
-                title: `Удалить «${node.name}»?`,
+                title: t('browser.deleteConfirm.title', { name: node.name }),
                 message:
-                  'Объект отправится в корзину на 30 дней. Пока он там, вложение в чате продолжает работать.',
-                confirmLabel: 'В корзину',
+                  t('browser.deleteConfirm.message'),
+                confirmLabel: t('browser.toTrash'),
                 danger: true,
               },
               async () => {
@@ -195,7 +206,7 @@ export function DriveBrowser({
       e.preventDefault();
       setDragOver(false);
       if (!canEdit) {
-        toastError('Нет прав добавлять файлы в эту папку');
+        toastError(t('browser.noUploadRights'));
         return;
       }
       void upload.addDrop(e.dataTransfer);
@@ -217,7 +228,7 @@ export function DriveBrowser({
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
               <Icon name={driveIcon(node)} size={18} style={{ color: 'var(--primary-dim)', flexShrink: 0 }} />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{node.name}</span>
-              {node.systemKey && <Chip tone="neutral">системная</Chip>}
+              {node.systemKey && <Chip tone="neutral">{t('systemFolder.chip')}</Chip>}
               {node.starred && <Icon name="star" size={13} style={{ color: 'var(--warning-base)' }} />}
               {/* Объект раздан НАРУЖУ по гостевой ссылке — это видно прямо в списке:
                   иначе узнать об этом можно было только открыв модалку у каждой строки. */}
@@ -226,7 +237,7 @@ export function DriveBrowser({
                   name="link"
                   size={13}
                   style={{ color: 'var(--primary-dim)' }}
-                  aria-label="Доступно по ссылке наружу"
+                  aria-label={t('browser.publicLink')}
                 />
               )}
             </span>
@@ -239,7 +250,7 @@ export function DriveBrowser({
           </TableCell>
           <TableCell align="end">
             <span onClick={(e) => e.stopPropagation()}>
-              <Menu items={rowActions(node)} label={`Действия: ${node.name}`} />
+              <Menu items={rowActions(node)} label={t('browser.rowActions', { name: node.name })} />
             </span>
           </TableCell>
         </TableRow>
@@ -266,7 +277,7 @@ export function DriveBrowser({
       }}
     >
       {/* Путь */}
-      <nav aria-label="Путь" style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center', marginBottom: 12 }}>
+      <nav aria-label={t('browser.pathAria')} style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center', marginBottom: 12 }}>
         {breadcrumbs.map((b, i) => (
           <span key={b.id ?? 'root'} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             {i > 0 && <span className="label-sm" style={{ color: 'var(--muted)' }}>/</span>}
@@ -282,10 +293,10 @@ export function DriveBrowser({
         {canEdit && (
           <>
             <Button icon="upload" onClick={() => fileInput.current?.click()}>
-              Загрузить
+              {t('browser.upload')}
             </Button>
             <Button variant="outline" icon="folderPlus" onClick={() => setNewFolder('')}>
-              Новая папка
+              {t('browser.newFolder')}
             </Button>
             <input
               ref={fileInput}
@@ -301,7 +312,7 @@ export function DriveBrowser({
         )}
         <span style={{ flex: 1 }} />
         <Chip tone="neutral">
-          {rows.length ? `${rows.length} ${pluralRu(rows.length, ['объект', 'объекта', 'объектов'])}` : 'пусто'}
+          {rows.length ? t('browser.itemCount', { n: rows.length }) : t('browser.empty')}
         </Chip>
       </div>
 
@@ -333,8 +344,8 @@ export function DriveBrowser({
         ) : rows.length === 0 ? (
           <EmptyState
             icon="folder"
-            title="Здесь пока пусто"
-            description={canEdit ? 'Перетащите сюда файлы или целую папку' : 'В этой папке нет доступных вам объектов'}
+            title={t('browser.emptyTitle')}
+            description={canEdit ? t('browser.emptyEditable') : t('browser.emptyReadonly')}
           />
         ) : (
           <Virtuoso
@@ -352,9 +363,9 @@ export function DriveBrowser({
 
       {/* Новая папка */}
       {newFolder !== null && (
-        <Modal open onClose={() => setNewFolder(null)} title="Новая папка" size="sm">
+        <Modal open onClose={() => setNewFolder(null)} title={t('browser.newFolder')} size="sm">
           <Input
-            label="Название"
+            label={t('browser.name')}
             value={newFolder}
             autoFocus
             onChange={(e) => setNewFolder(e.target.value)}
@@ -364,10 +375,10 @@ export function DriveBrowser({
           />
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
             <Button variant="ghost" onClick={() => setNewFolder(null)}>
-              Отмена
+              {tc('actions.cancel')}
             </Button>
             <Button tone="success" onClick={() => void doCreateFolder()}>
-              Создать
+              {tc('actions.create')}
             </Button>
           </div>
         </Modal>
@@ -375,9 +386,9 @@ export function DriveBrowser({
 
       {/* Переименование */}
       {renaming && (
-        <Modal open onClose={() => setRenaming(null)} title="Переименовать" size="sm">
+        <Modal open onClose={() => setRenaming(null)} title={t('browser.rename')} size="sm">
           <Input
-            label="Название"
+            label={t('browser.name')}
             value={renaming.name}
             autoFocus
             onChange={(e) => setRenaming({ ...renaming, name: e.target.value })}
@@ -387,10 +398,10 @@ export function DriveBrowser({
           />
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
             <Button variant="ghost" onClick={() => setRenaming(null)}>
-              Отмена
+              {tc('actions.cancel')}
             </Button>
             <Button tone="success" onClick={() => void doRename()}>
-              Сохранить
+              {tc('actions.save')}
             </Button>
           </div>
         </Modal>

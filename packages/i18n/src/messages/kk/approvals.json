@@ -1,0 +1,117 @@
+{
+  "card": {
+    "cancel": "Өтінімді кері қайтару",
+    "cancelArmed": "Расымен кері қайтару керек пе?",
+    "everyoneNeeded": " · әрқайсысы қажет",
+    "fingerprint": "{kind} · таңба",
+    "notOpened": "Өтінім ашылмады",
+    "notOpenedHint": "Оны кері қайтарған болуы мүмкін немесе оның мәніне қолжетімділігіңіз жоқ.",
+    "openSubject": "Мәнін ашу",
+    "route": "Маршрут",
+    "routeOneStep": "Бір қадам",
+    "routeSteps": "кезекпен {n, plural, one {# қадам} other {# қадам}}",
+    "step": "{index}-қадам · {title}",
+    "title": "Өтінім"
+  },
+  "commentPlaceholder": "Нақты нені түзету керек",
+  "decision": {
+    "approved": "Келісу",
+    "rejected": "Қабылдамау",
+    "returned": "Пысықтауға"
+  },
+  "decisionDone": {
+    "approved": "Келісілді",
+    "rejected": "Қабылданбады",
+    "returned": "Пысықтауға жіберілді"
+  },
+  "decisionVerb": {
+    "rejected": "қабылдамады",
+    "returned": "пысықтауға қайтарды"
+  },
+  "inboxTitle": "Шешім күтуде",
+  "kind": {
+    "acknowledgement": {
+      "action": "Таныстым",
+      "done": "танысты",
+      "waiting": "Танысуда"
+    },
+    "approval": {
+      "action": "Келісу",
+      "done": "келісті",
+      "waiting": "Келісуде"
+    },
+    "signature": {
+      "action": "Қол қою",
+      "done": "қол қойды",
+      "waiting": "Қол қоюда"
+    }
+  },
+  "mine": {
+    "active": "Жұмыста",
+    "archived": "Аяқталғандар",
+    "cancel": "Кері қайтару",
+    "cancelArmed": "Расымен кері қайтару керек пе?",
+    "emptyActive": "Сіз ештеңе жіберген жоқсыз",
+    "emptyActiveHint": "Құжатты маршрутқа жіберіңіз — сонда ол қазір кімде екенін осында көресіз.",
+    "emptyArchived": "Аяқталған өтінім жоқ",
+    "emptyArchivedHint": "Келісілген, қабылданбаған және тоқтатылған өтінімдер осында түседі.",
+    "openSubject": "Өтінім мәнін ашу",
+    "tabsAria": "Қандай өтінімдерді көрсету"
+  },
+  "overdue": "Мерзімі өткен",
+  "overdueSuffix": " · мерзімі өткен",
+  "reason": "Себебі",
+  "sign": "Қол қою",
+  "signEcp": "ЭЦҚ-мен қол қою",
+  "signatureKind": {
+    "ecp": "Электрондық цифрлық қолтаңба",
+    "internal": "SuperApp6 ішіндегі бекіту",
+    "sms": "SMS кодымен расталған"
+  },
+  "someone": "Қызметкер",
+  "source": {
+    "acknowledgements": "Танысулар",
+    "signatures": "Қолтаңбалар"
+  },
+  "sourceLabel": "Келісулер",
+  "stack": {
+    "asks": "Сұрайды: ",
+    "due": "Мерзімі",
+    "dueLine": "{label} · {date}",
+    "empty": "Ештеңе күтіп тұрған жоқ",
+    "emptyHint": "Барлық шешім қабылданды.",
+    "loadFailed": "Топтама жүктелмеді",
+    "loadFailedHint": "Бұл байланыс ақауы, бос топтама емес.",
+    "next": "Келесі",
+    "openFull": "Толық ашу",
+    "position": "{total} ішінен {index}",
+    "prev": "Артқа",
+    "tabInbox": "Менде",
+    "tabMine": "Менің өтінімдерім",
+    "tabsAria": "Шешімдер"
+  },
+  "status": {
+    "approved": "Келісілді",
+    "cancelled": "Тоқтатылды",
+    "pending": "Шешім күтуде",
+    "rejected": "Қабылданбады",
+    "returned": "Пысықтауда"
+  },
+  "stepOverdue": "Мерзімі өткен",
+  "stepStatus": {
+    "active": "Шешім күтуде",
+    "approved": "Дайын",
+    "rejected": "Қабылданбады",
+    "returned": "Пысықтауға",
+    "skipped": "Өткізілді",
+    "skippedLower": "өткізілді",
+    "waiting": "Кезегін күтуде",
+    "waitingLower": "кезегін күтуде"
+  },
+  "summary": {
+    "stepOf": "{total} ішінен {index}-қадам · {waiting}"
+  },
+  "toAssignee": "адресатқа",
+  "toSelectedGroup": "таңдалған топқа",
+  "waitingFor": "Күтудеміз:"
+}

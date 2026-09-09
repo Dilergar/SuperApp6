@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SUPPORTED_LOCALES } from '../constants/i18n';
 import { phoneSchema } from './auth';
 
 const noHtml = (s: string) => !/[<>]/.test(s);
@@ -10,16 +11,13 @@ const ASSIGNABLE_WORKSPACE_ROLES = ['admin', 'manager', 'staff', 'trainee'] as c
 
 const nameSchema = z
   .string()
-  .min(1, 'Название не может быть пустым')
-  .max(100, 'Название слишком длинное')
-  .refine(noHtml, 'Недопустимые символы');
+  .min(1, 'validation.workspace.nameRequired')
+  .max(100)
+  .refine(noHtml, 'validation.workspace.badCharacters');
 
-const logoSchema = z.string().max(500, 'Слишком длинная ссылка').refine(noHtml, 'Недопустимые символы');
+const logoSchema = z.string().max(500).refine(noHtml, 'validation.workspace.badCharacters');
 
-const messageSchema = z
-  .string()
-  .max(500, 'Сообщение слишком длинное')
-  .refine(noHtml, 'Недопустимые символы');
+const messageSchema = z.string().max(500).refine(noHtml, 'validation.workspace.badCharacters');
 
 const assignableRoleSchema = z.enum(ASSIGNABLE_WORKSPACE_ROLES);
 
@@ -37,7 +35,7 @@ export const updateWorkspaceSchema = z
     name: nameSchema.optional(),
     logo: logoSchema.nullable().optional(),
   })
-  .refine((d) => Object.keys(d).length > 0, 'Нечего обновлять');
+  .refine((d) => Object.keys(d).length > 0, 'validation.workspace.nothingToUpdate');
 
 export const transferOwnershipSchema = z.object({
   toUserId: z.string().uuid(),
@@ -47,27 +45,12 @@ export const transferOwnershipSchema = z.object({
 // Company profile (Анкета) — mirrors updateProfileSchema for the org card
 // ============================================================
 
-const descriptionSchema = z
-  .string()
-  .max(1000, 'Описание слишком длинное')
-  .refine(noHtml, 'Недопустимые символы');
-const industrySchema = z
-  .string()
-  .max(100, 'Слишком длинно')
-  .refine(noHtml, 'Недопустимые символы');
-const cityOrgSchema = z
-  .string()
-  .max(100, 'Слишком длинно')
-  .refine(noHtml, 'Недопустимые символы');
-const websiteSchema = z
-  .string()
-  .max(200, 'Слишком длинная ссылка')
-  .refine(noHtml, 'Недопустимые символы');
-const contactEmailSchema = z.string().email('Некорректный email').max(200);
-const contactPhoneSchema = z
-  .string()
-  .max(20, 'Слишком длинно')
-  .refine(noHtml, 'Недопустимые символы');
+const descriptionSchema = z.string().max(1000).refine(noHtml, 'validation.workspace.badCharacters');
+const industrySchema = z.string().max(100).refine(noHtml, 'validation.workspace.badCharacters');
+const cityOrgSchema = z.string().max(100).refine(noHtml, 'validation.workspace.badCharacters');
+const websiteSchema = z.string().max(200).refine(noHtml, 'validation.workspace.badCharacters');
+const contactEmailSchema = z.string().email().max(200);
+const contactPhoneSchema = z.string().max(20).refine(noHtml, 'validation.workspace.badCharacters');
 
 // Default-visibility flags (what members see). Partial: UI may send a subset.
 export const workspaceCardVisibilitySchema = z
@@ -95,8 +78,13 @@ export const updateWorkspaceProfileSchema = z
     contactEmail: contactEmailSchema.nullable().optional(),
     contactPhone: contactPhoneSchema.nullable().optional(),
     cardVisibility: workspaceCardVisibilitySchema.optional(),
+    /**
+     * ЯЗЫК ДОКУМЕНТОВ организации — язык её бумаг (договоры, приказы, счета), а
+     * не интерфейса. Умолчание для новых бланков; у отдельного бланка свой.
+     */
+    documentLanguage: z.enum(SUPPORTED_LOCALES).optional(),
   })
-  .refine((d) => Object.keys(d).length > 0, 'Нечего обновлять');
+  .refine((d) => Object.keys(d).length > 0, 'validation.workspace.nothingToUpdate');
 
 // ============================================================
 // Members & invitations

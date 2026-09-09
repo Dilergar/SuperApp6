@@ -1,8 +1,11 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import * as QRCode from 'qrcode';
 import { SIGN_ERROR_CODES, SIGN_LIMITS, type SignQrStartDto } from '@superapp/shared';
+import type { Locale } from '@superapp/i18n';
+import { ApiError, badRequest, notFound } from '../../shared/errors/api-error';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { SignQrBridgeService } from './drivers/sign-qr.driver';
 import { SignService, type SignActor, type SignCtx } from './sign.service';
 
@@ -27,16 +30,24 @@ export class SignQrService {
     private readonly db: DatabaseService,
     private readonly sign: SignService,
     private readonly bridge: SignQrBridgeService,
+    private readonly i18n: I18nService,
   ) {}
+
+  /**
+   * Язык надписи, которую человек увидит В ПРИЛОЖЕНИИ eGov Mobile. Подписант
+   * известен строкой акта, поэтому берём его `User.locale` — заявку мог открыть
+   * мост, у которого запроса (а значит и языка) нет вовсе. Внешний подписант
+   * аккаунта не имеет: ему достаётся язык запроса, а мосту — язык источника.
+   */
+  private async signerLocale(signerUserId: string | null): Promise<Locale> {
+    return signerUserId ? this.i18n.localeOf(signerUserId) : this.i18n.locale;
+  }
 
   /** Начать подписание по QR: завести сессию и нарисовать код */
   async start(actor: SignActor, actId: string, ctx: SignCtx): Promise<SignQrStartDto> {
     const { act, request } = await this.sign.loadActForQr(actor, actId);
     if (!request.methods.includes('qr')) {
-      throw new BadRequestException({
-        message: 'Подписание через eGov Mobile недоступно для документа',
-        details: { code: SIGN_ERROR_CODES.methodNotAllowed },
-      });
+      throw badRequest('sign.qrNotAllowed', undefined, { code: SIGN_ERROR_CODES.methodNotAllowed });
     }
 
     // Прошлые сессии этого акта гасим: живой QR должен быть ровно один, иначе
@@ -58,7 +69,11 @@ export class SignQrService {
     const procedure = await this.bridge.createProcedure({
       dataUrl,
       signUrl,
-      description: `Подписание документа «${request.refTitle}»`,
+      description: this.i18n.translateFor(
+        await this.signerLocale(act.signerUserId),
+        'sign.qr.procedure',
+        { title: request.refTitle },
+      ),
       expiresAt,
     });
 
@@ -94,7 +109,7 @@ export class SignQrService {
       where: { dataToken },
       include: { act: { include: { request: true } } },
     });
-    if (!session) throw new NotFoundException('Сессия подписания не найдена');
+    if (!session) throw notFound('sign.qrSessionNotFound');
     if (session.expiresAt.getTime() <= Date.now()) {
       throw this.dead();
     }
@@ -116,7 +131,11 @@ export class SignQrService {
       name: file?.name ?? 'document.pdf',
       mime: file?.mime ?? 'application/pdf',
       base64: bytes.toString('base64'),
-      description: `Подписание документа «${request.refTitle}»`,
+      description: this.i18n.translateFor(
+        await this.signerLocale(session.act.signerUserId),
+        'sign.qr.procedure',
+        { title: request.refTitle },
+      ),
     };
   }
 
@@ -129,7 +148,7 @@ export class SignQrService {
       where: { signToken },
       include: { act: true },
     });
-    if (!session) throw new NotFoundException('Сессия подписания не найдена');
+    if (!session) throw notFound('sign.qrSessionNotFound');
     if (session.expiresAt.getTime() <= Date.now()) throw this.dead();
 
     const claimed = await this.db.signQrSession.updateMany({
@@ -153,11 +172,8 @@ export class SignQrService {
     return { ok: true };
   }
 
-  private dead(): BadRequestException {
-    return new BadRequestException({
-      message: 'Сессия подписания истекла или уже использована',
-      details: { code: SIGN_ERROR_CODES.qrSessionDead },
-    });
+  private dead(): ApiError {
+    return badRequest('sign.qrSessionDead', undefined, { code: SIGN_ERROR_CODES.qrSessionDead });
   }
 
   /** Протухшие сессии — крон движка (гигиена, а не безопасность: срок уже проверен) */

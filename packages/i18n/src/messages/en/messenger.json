@@ -1,5 +1,307 @@
 {
+  "attachCard": {
+    "calendar": "Calendar",
+    "emptyCalendar": "No upcoming events.",
+    "emptyShop": "No listings yet.",
+    "emptyTasks": "No tasks yet.",
+    "loadFailed": "Could not load",
+    "sent": "Sent",
+    "shop": "Shop",
+    "subtitle": "Pick your task, event or listing — the card appears in this chat.",
+    "tasks": "Tasks",
+    "title": "Send a card"
+  },
+  "attachmentPreview": {
+    "audio": "🎵 Audio",
+    "file": "📎 File",
+    "files": "📎 Files: {n}",
+    "voice": "🎤 Voice message"
+  },
+  "attachmentsFallback": "Attachments",
+  "breadcrumb": "Messenger",
+  "call": {
+    "calling": "Calling…",
+    "connecting": "Connecting…",
+    "connectingToCall": "Connecting to the call…",
+    "endConfirm": {
+      "label": "End",
+      "message": "The room closes for every participant.",
+      "title": "End the call for everyone?"
+    },
+    "getRecording": "Get the recording",
+    "participants": "Participants: {n}",
+    "record": "⏺ Record",
+    "recordHint": "Record the call (audio; every participant sees an indicator)",
+    "recording": "● Recording",
+    "recordingClaimed": "It will land in the Recorder",
+    "recordingHint": "The full recording lands in your Recorder → «Call log»",
+    "recordingNow": "The call is being recorded",
+    "stopRecording": "Stop the recording (the initiator or a moderator)"
+  },
+  "callFallback": "Call",
+  "card": {
+    "actionFailed": "Could not do it",
+    "reason": "Reason",
+    "reasonPlaceholder": "Explain briefly",
+    "share": "Share the card"
+  },
+  "cardFallback": "Card",
+  "chat": {
+    "attachCard": "Attach a card",
+    "attachFiles": "Attach files",
+    "backToList": "To the chat list",
+    "call": "Call",
+    "callGoing": "A call is going on · {n}",
+    "cancelReply": "Cancel the reply",
+    "closeSearch": "Close the search",
+    "composerPlaceholder": "Write a message…",
+    "emoji": "Emoji",
+    "join": "Join",
+    "manageGroup": "Manage the group",
+    "nextMatch": "Next match",
+    "nothingFound": "Nothing found",
+    "participants": "{n, plural, one {# participant} other {# participants}}",
+    "prevMatch": "Previous match",
+    "recordingSuffix": " · ● Recording",
+    "reply": "Reply",
+    "replyTo": "Reply · {name}",
+    "scheduled": "Scheduled messages",
+    "search": "Search in the chat",
+    "searchPlaceholder": "Search in this chat…",
+    "send": "Send"
+  },
+  "chatFallback": "Chat",
+  "dmFallback": "Direct chat",
+  "documentFallback": "a document",
+  "duration": {
+    "hourMin": "{h} h {m} min",
+    "min": "{n} min",
+    "sec": "{n} sec"
+  },
+  "files": {
+    "captionAria": "Attachment caption",
+    "captionPlaceholder": "Caption (optional)",
+    "dropLabel": "Files, photos, videos, documents",
+    "openPhoto": "Open the photo: {name}",
+    "playVideo": "Play the video: {name}",
+    "sendCount": "Send ({n})",
+    "title": "Attach files",
+    "tooMany": "At most {max} files in one message",
+    "uploading": "Uploading…"
+  },
+  "group": {
+    "add": "Add",
+    "addCount": "Add ({n})",
+    "addPlaceholder": "Add people or a Group…",
+    "addTitle": "Add participants",
+    "back": "Back",
+    "delete": "Delete the group",
+    "deleteConfirm": {
+      "message": "The chat and the whole history will disappear for every participant. This cannot be undone.",
+      "title": "Delete the group for everyone?"
+    },
+    "demote": "Remove admin",
+    "leave": "Leave the group",
+    "leaveConfirm": {
+      "message": "You will stop receiving this group’s messages.",
+      "title": "Leave the group?"
+    },
+    "manageTitle": "Manage the group",
+    "name": "Name",
+    "nameAria": "Group name",
+    "participants": "Participants",
+    "promote": "Make an admin",
+    "remove": "Remove",
+    "removeConfirm": {
+      "message": "The person loses access to the chat and its history.",
+      "title": "Remove {name} from the group?"
+    },
+    "rename": "Rename",
+    "roleAdmin": "Admin",
+    "roleBot": "Bot",
+    "roleMember": "Member",
+    "roleOwner": "Owner",
+    "you": " (you)"
+  },
+  "list": {
+    "empty": "No chats yet",
+    "emptyHint": "Press «New chat» to write to someone from your Circle",
+    "group": "Group",
+    "messageDeleted": "The message was deleted",
+    "newChat": "New chat",
+    "noMessages": "No messages",
+    "pinned": "Pinned",
+    "taskChat": "Task chat",
+    "title": "Chats",
+    "you": "You:"
+  },
+  "messageFallback": "Message",
+  "messages": {
+    "actions": "Message actions",
+    "deleteConfirm": {
+      "message": "It will disappear for every participant of the chat.",
+      "title": "Delete the message?"
+    },
+    "deleted": "The message was deleted",
+    "delivered": "Delivered",
+    "edit": "Edit",
+    "editCaption": "Change the caption",
+    "edited": "(edited)",
+    "empty": "No messages yet",
+    "emptyHint": "Write the first message below",
+    "mention": "Mention a participant",
+    "read": "Read",
+    "reply": "Reply",
+    "sent": "Sent",
+    "yesterday": "yesterday"
+  },
+  "newChat": {
+    "createGroup": "Create the group",
+    "creating": "Creating…",
+    "dm": "Direct",
+    "emptyCircle": "Nobody in the Circle yet",
+    "group": "Group",
+    "groupName": "Group name",
+    "participants": "Participants",
+    "title": "New chat"
+  },
+  "page": {
+    "pickChat": "Pick a chat",
+    "pickChatHint": "Open a chat on the left or start a new one with someone from your Circle"
+  },
+  "participantFallback": "A participant",
+  "picker": {
+    "loadFailed": "Could not load the Circle",
+    "searchHint": "Search by name…"
+  },
+  "presence": {
+    "atUntil": "At {title} until {time}",
+    "busyUntil": "Busy until {time}"
+  },
+  "qa": {
+    "event": {
+      "failed": "Could not create the event",
+      "fillTitleAndStart": "Enter a title and a start time.",
+      "label": "Event",
+      "participants": "Participants (optional)",
+      "placeholder": "Event title",
+      "start": "Start",
+      "subtitle": "Plan an event and invite people — the card appears in this chat.",
+      "title": "Create an event"
+    },
+    "expense": {
+      "account": "From the account",
+      "amount": "Amount",
+      "category": "Category",
+      "note": "Note",
+      "submit": "Record",
+      "subtitle": "The spending lands in your Finance book, the card goes to the chat",
+      "title": "Record an expense"
+    },
+    "schedule": {
+      "atLeastMinute": "Pick a time at least a minute ahead.",
+      "failed": "Could not schedule it",
+      "fillTextAndTime": "Enter the text and the delivery time.",
+      "label": "Message",
+      "placeholder": "The message text…",
+      "submit": "Schedule",
+      "subtitle": "The message is sent automatically at the chosen time.",
+      "title": "Schedule a message",
+      "when": "When to send"
+    },
+    "task": {
+      "descriptionFromMessage": "Description (from the message)",
+      "due": "Due date (optional)",
+      "executor": "Assignee",
+      "executorPicked": "The assignee is picked",
+      "failed": "Could not create the task",
+      "label": "Task",
+      "pickExecutor": "Pick an assignee and enter a title.",
+      "placeholder": "What needs to be done?",
+      "subtitle": "Assign a task to someone from your Circle — its card appears in this chat.",
+      "title": "Create a task"
+    }
+  },
+  "quickAction": {
+    "schedule": {
+      "description": "A scheduled message to this chat",
+      "label": "Remind"
+    }
+  },
+  "quickActions": {
+    "none": "No actions available",
+    "title": "Quick actions"
+  },
+  "scheduled": {
+    "cancel": "Cancel",
+    "cancelConfirm": {
+      "label": "Cancel the delivery",
+      "message": "It will not be sent.",
+      "title": "Cancel this message?"
+    },
+    "cancelFailed": "Could not cancel it",
+    "changeTime": "Change the time",
+    "empty": "No scheduled messages.",
+    "pickTime": "Pick a time.",
+    "subtitle": "Your messages awaiting automatic delivery.",
+    "timeFailed": "Could not change the time",
+    "title": "Scheduled",
+    "whenAria": "When to send"
+  },
+  "search": {
+    "aria": "Global search",
+    "assets": "Equipment",
+    "branches": "Sites",
+    "chats": "Chats",
+    "clear": "Clear",
+    "clearAria": "Clear the search",
+    "counterparties": "Counterparties",
+    "driveNodes": "Drive",
+    "messages": "Messages",
+    "more": "…more",
+    "noMatches": "No matches for «{query}»",
+    "notes": "Notes",
+    "nothingFound": "Nothing found",
+    "orgDocuments": "Documents",
+    "orgUnits": "Org structure",
+    "people": "People",
+    "placeholder": "Search chats, people, messages…",
+    "searching": "Searching…"
+  },
+  "share": {
+    "empty": "No chats yet.",
+    "loadFailed": "Could not load the chats.",
+    "sent": "Sent",
+    "subtitle": "Pick the chat to send the card to.",
+    "title": "Forward: {title}"
+  },
+  "somebody": "Somebody",
+  "someone": "someone",
   "systemPlaque": {
-    "unknown": "System event"
+    "unknown": "A system message"
+  },
+  "typing": {
+    "few": "{names} are typing…",
+    "many": "{names} and {n} more are typing…",
+    "one": "{name} is typing…"
+  },
+  "voice": {
+    "cancelRecording": "Cancel the recording",
+    "emptyTranscript": "(empty)",
+    "hideText": "Hide the text",
+    "micDenied": "Microphone access is denied — allow it in the browser settings",
+    "pause": "Pause",
+    "play": "Play",
+    "position": "Playback position",
+    "recordVoice": "Record a voice message",
+    "retry": "Failed · Try again",
+    "sendFailed": "Could not send the voice message: {reason}",
+    "sendVoice": "Send the voice message",
+    "sending": "Sending… {progress}%",
+    "showText": "Show the text",
+    "speed": "Playback speed",
+    "transcribe": "Transcribe",
+    "transcribeHint": "Transcribe the voice message into text",
+    "transcribing": "Transcribing…"
   }
 }

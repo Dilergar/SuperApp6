@@ -1,6 +1,7 @@
 'use client';
 
 import { CSSProperties, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
 import { useCallEconomy } from './CallResilience';
 
@@ -19,6 +20,7 @@ export function ControlsBar({
   /** Доп. кнопки справа (тумблеры панелей Участники/Чат) */
   extra?: React.ReactNode;
 }) {
+  const t = useTranslations('calls');
   const room = useRoomContext();
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled, isScreenShareEnabled } =
     useLocalParticipant();
@@ -70,16 +72,16 @@ export function ControlsBar({
         flexWrap: 'wrap',
       }}
     >
-      <button onClick={toggleMic} title={isMicrophoneEnabled ? 'Выключить микрофон' : 'Включить микрофон'} style={roundBtn(isMicrophoneEnabled)}>
+      <button onClick={toggleMic} title={isMicrophoneEnabled ? t('controls.micOff') : t('controls.micOn')} style={roundBtn(isMicrophoneEnabled)}>
         {isMicrophoneEnabled ? '🎤' : '🔇'}
       </button>
-      <button onClick={toggleCam} title={isCameraEnabled ? 'Выключить камеру' : 'Включить камеру'} style={roundBtn(isCameraEnabled)}>
+      <button onClick={toggleCam} title={isCameraEnabled ? t('controls.camOff') : t('controls.camOn')} style={roundBtn(isCameraEnabled)}>
         {isCameraEnabled ? '🎥' : '📷'}
       </button>
       <button
         onClick={toggleShare}
         disabled={busyShare}
-        title={isScreenShareEnabled ? 'Остановить демонстрацию' : 'Демонстрация экрана'}
+        title={isScreenShareEnabled ? t('controls.screenStop') : t('controls.screenStart')}
         style={{
           ...roundBtn(true),
           background: isScreenShareEnabled ? 'var(--secondary)' : 'var(--surface-container-high)',
@@ -91,9 +93,7 @@ export function ControlsBar({
       <button
         onClick={() => setAudioOnly(!audioOnly)}
         title={
-          audioOnly
-            ? 'Выключить режим «только звук» (вернуть видео участников)'
-            : 'Режим «только звук» — экономия на слабой сети'
+          audioOnly ? t('controls.audioOnlyOff') : t('controls.audioOnlyOn')
         }
         style={{
           ...roundBtn(true),
@@ -107,7 +107,7 @@ export function ControlsBar({
       <div style={{ width: 1 }} />
 
       <button className="btn-danger-soft" style={{ padding: '0.55rem 1.2rem', fontSize: '0.85rem' }} onClick={() => void room.disconnect()}>
-        Покинуть
+        {t('controls.leave')}
       </button>
       {moderator && (
         <button
@@ -123,7 +123,7 @@ export function ControlsBar({
             color: 'white',
           }}
         >
-          Завершить для всех
+          {t('controls.endForAll')}
         </button>
       )}
       {extra}

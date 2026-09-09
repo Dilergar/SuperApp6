@@ -1,89 +1,246 @@
 {
-  "actions": {
-    "save": "Save",
-    "cancel": "Cancel",
-    "delete": "Delete",
-    "remove": "Remove",
-    "done": "Done",
-    "retry": "Try again",
-    "confirm": "Confirm",
-    "select": "Select",
-    "yes": "Yes",
-    "no": "No"
+  "a11y": {
+    "actions": "Actions",
+    "clear": "Clear",
+    "close": "Close",
+    "collapseGroup": "Collapse {name}",
+    "expandGroup": "Expand {name}",
+    "group": "group",
+    "loading": "Loading",
+    "notifications": "Notifications"
   },
-  "state": {
-    "loading": "Loading…",
-    "empty": "Nothing here yet",
-    "error": "Something went wrong"
+  "actions": {
+    "add": "Add",
+    "apply": "Apply",
+    "back": "Back",
+    "cancel": "Cancel",
+    "close": "Close",
+    "confirm": "Confirm",
+    "copy": "Copy",
+    "create": "Create",
+    "delete": "Delete",
+    "done": "Done",
+    "download": "Download",
+    "edit": "Edit",
+    "hide": "Hide",
+    "no": "No",
+    "open": "Open",
+    "ready": "Done",
+    "remove": "Remove",
+    "rename": "Rename",
+    "retry": "Try again",
+    "save": "Save",
+    "search": "Search",
+    "select": "Select",
+    "show": "Show",
+    "yes": "Yes"
+  },
+  "audience": {
+    "anchor": {
+      "initiator": "the initiator",
+      "self": "me",
+      "subject": "the document party"
+    },
+    "kind": {
+      "branch": "Site",
+      "branch_head_of": "Site head",
+      "circle": "A Group",
+      "department": "Department",
+      "manager_of": "Manager",
+      "position": "Position",
+      "subordinates_of": "Team (subordinates)",
+      "user": "A person",
+      "workspace": "The whole team"
+    },
+    "label": {
+      "branch": "Site «{name}»",
+      "department": "Department «{name}»",
+      "managerOf": "Manager: {who}",
+      "managerOfAnchor": "Manager of {who}",
+      "position": "Position «{name}»",
+      "siteHeadOf": "Site head: {who}",
+      "siteHeadOfAnchor": "Site head of {who}",
+      "siteHeadOfSite": "Site head of «{name}»",
+      "teamOf": "Team: {who}",
+      "teamOfAnchor": "Team of {who}",
+      "wholeTeam": "the whole team"
+    }
+  },
+  "calendar": {
+    "clearDate": "Clear the date",
+    "nextMonth": "Next month",
+    "pickDate": "Pick a date",
+    "prevMonth": "Previous month"
+  },
+  "calls": {
+    "recordingTitle": "Call · {date} {time}"
+  },
+  "chronicle": {
+    "empty": "Nothing has happened here yet — events will show up here",
+    "emptyValue": "—",
+    "system": "System",
+    "taskContext": "· Task «{title}»"
   },
   "day": {
     "today": "Today",
     "yesterday": "Yesterday"
   },
-  "units": {
-    "b": "B",
-    "kb": "KB",
-    "mb": "MB",
-    "gb": "GB"
+  "docs": {
+    "bigFileHint": "The file is big ({mb} MB) — opening it may take up to a minute",
+    "milestoneName": "{title} (v{n}).{ext}",
+    "othersEditing": "{name} and {n} more"
   },
-  "labels": {
-    "dash": "—",
-    "someone": "Someone"
+  "dropzone": {
+    "title": "Drag files here or <pick>choose</pick>"
   },
-  "a11y": {
-    "close": "Close",
-    "loading": "Loading",
-    "notifications": "Notifications",
-    "actions": "Actions",
-    "group": "group",
-    "expandGroup": "Expand {name}",
-    "collapseGroup": "Collapse {name}"
+  "entitySelector": {
+    "nothingFound": "Nothing found",
+    "placeholder": "Start typing a name…",
+    "removeAria": "Remove: {title}"
   },
-  "chronicle": {
-    "empty": "Nothing has happened here yet — events will show up here",
-    "system": "System",
-    "taskContext": "· Task «{title}»",
-    "emptyValue": "—"
+  "entityType": {
+    "branch": "Sites",
+    "circle": "Groups",
+    "counterparty": "Counterparties",
+    "department": "Departments",
+    "position": "Positions",
+    "user": "People",
+    "workspace": "Organization",
+    "workspaceAll": "The whole organization"
   },
-  "calendar": {
-    "prevMonth": "Previous month",
-    "nextMonth": "Next month",
-    "pickDate": "Pick a date",
-    "clearDate": "Clear the date"
+  "files": {
+    "attach": "Attach a file",
+    "cancelUpload": "Cancel the upload",
+    "dropHint": "Drag files here or click",
+    "editHint": "Open for editing: changes are saved automatically and are visible to everyone who has access to the file",
+    "loadingVideo": "Loading the video…",
+    "maxSize": "Max. size: {mb} MB",
+    "noAttachments": "No attachments yet.",
+    "openAria": "Open: {name}",
+    "openDocument": "Open the document",
+    "pasteHint": "You can paste from the clipboard — Ctrl+V",
+    "photo": "Photo",
+    "removeAttachmentAria": "Remove the attachment: {name}",
+    "removeFromList": "Remove from the list",
+    "replace": "Replace",
+    "unnamed": "file",
+    "upload": "Upload",
+    "uploadCancelled": "Cancelled",
+    "uploadError": "Error",
+    "uploadFailed": "The upload failed",
+    "uploadPhotoAria": "Upload a photo",
+    "view": "View",
+    "viewHint": "Open read-only — nothing will change"
   },
   "glyph": {
-    "setIcons": "Icons",
-    "setOwn": "Ours",
-    "setNoto": "Noto",
-    "ownEmoji": "Our emoji",
-    "setAria": "Icon set",
-    "searchPlaceholder": "Find an icon…",
-    "searchAria": "Icon search",
+    "change": "Change icon",
+    "dialogAria": "Icon picker",
+    "field": "Icon",
     "loadFailed": "Could not load the icon set.",
     "nothingFound": "Nothing found. Try another word.",
+    "ownEmoji": "Our emoji",
+    "pick": "Pick an icon",
     "recent": "Recent",
     "recentItem": "Recent icon",
     "remove": "Remove icon",
-    "field": "Icon",
-    "change": "Change icon",
-    "pick": "Pick an icon",
-    "shown": "· {shown} of {total}",
-    "dialogAria": "Icon picker"
-  },
-  "language": {
-    "label": "Interface language",
-    "hint": "Menus, buttons and notifications will be shown in this language on every device."
-  },
-  "otp": {
-    "title": "Code from SMS",
-    "sentTo": "We sent the code to",
-    "yourNumber": "your number",
-    "smsOff": "SMS delivery is not configured — the message will not arrive, take the code from the hint below.",
-    "resend": "Send again",
-    "resendIn": "Send again ({time})",
-    "changeNumber": "Change the number"
+    "searchAria": "Icon search",
+    "searchPlaceholder": "Find an icon…",
+    "setAria": "Icon set",
+    "setIcons": "Icons",
+    "setNoto": "Noto",
+    "setOwn": "Ours",
+    "shown": "· {shown} of {total}"
   },
   "guest": {
     "sharedVia": "Shared with you via SuperApp6"
+  },
+  "labels": {
+    "all": "All",
+    "dash": "—",
+    "deletedUser": "A deleted user",
+    "description": "Description",
+    "item": "the item",
+    "name": "Name",
+    "none": "None",
+    "optional": "Optional",
+    "someone": "Someone",
+    "status": "Status",
+    "system": "System",
+    "total": "Total",
+    "type": "Type"
+  },
+  "language": {
+    "auto": "Auto",
+    "hint": "Menus, buttons and notifications will be shown in this language on every device.",
+    "label": "Interface language"
+  },
+  "otp": {
+    "changeNumber": "Change the number",
+    "devCode": "[dev] code: <b>{code}</b>",
+    "resend": "Send again",
+    "resendIn": "Send again ({time})",
+    "sentTo": "We sent the code to",
+    "smsOff": "SMS delivery is not configured — the message will not arrive, take the code from the hint below.",
+    "title": "Code from SMS",
+    "yourNumber": "your number"
+  },
+  "pagination": {
+    "aria": "Pagination",
+    "next": "Next page",
+    "page": "Page {n}",
+    "prev": "Previous page",
+    "summary": "Page {page} of {total}"
+  },
+  "person": {
+    "ageValue": "{n, plural, one {# year} other {# years}}",
+    "details": "{name} — details",
+    "marital": {
+      "divorced": "Divorced",
+      "married": "Married",
+      "relationship": "In a relationship",
+      "single": "Single",
+      "widowed": "Widowed"
+    },
+    "peopleCount": "{n, plural, one {# person} other {# people}}",
+    "visibleToOthers": "{label}: visible to others"
+  },
+  "presence": {
+    "at": "{date} at {time}",
+    "hoursAgo": "{n, plural, one {# hour} other {# hours}} ago",
+    "justNow": "just now",
+    "lastSeen": "last seen {when}",
+    "minutesAgo": "{n, plural, one {# minute} other {# minutes}} ago",
+    "online": "online"
+  },
+  "role": {
+    "circle": {
+      "member": "Member",
+      "owner": "Creator"
+    },
+    "system": {
+      "admin": "Administrator",
+      "moderator": "Moderator",
+      "user": "User"
+    },
+    "workspace": {
+      "admin": "Administrator",
+      "contractor": "Contractor",
+      "manager": "Manager",
+      "owner": "Owner",
+      "staff": "Employee",
+      "trainee": "Trainee"
+    }
+  },
+  "state": {
+    "empty": "Nothing here yet",
+    "error": "Something went wrong",
+    "loading": "Loading…"
+  },
+  "units": {
+    "b": "B",
+    "gb": "GB",
+    "hourShort": "h",
+    "kb": "KB",
+    "mb": "MB"
   }
 }

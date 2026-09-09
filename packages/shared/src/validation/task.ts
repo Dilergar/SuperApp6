@@ -8,24 +8,24 @@ const taskPriorityEnum = z.enum(['low', 'medium', 'high', 'urgent']);
 
 const titleSchema = z
   .string()
-  .min(1, 'Название задачи обязательно')
+  .min(1, 'validation.task.titleRequired')
   .max(TASK_LIMITS.maxTitleLength)
-  .refine(noHtml, 'Недопустимые символы');
+  .refine(noHtml, 'validation.task.badCharacters');
 
 const descriptionSchema = z
   .string()
   .max(TASK_LIMITS.maxDescriptionLength)
-  .refine(noHtml, 'Недопустимые символы');
+  .refine(noHtml, 'validation.task.badCharacters');
 
 const tagSchema = z
   .string()
   .min(1)
   .max(TASK_LIMITS.maxTagLength)
-  .refine(noHtml, 'Недопустимые символы');
+  .refine(noHtml, 'validation.task.badCharacters');
 
 const recurrenceSchema = z
   .string()
-  .refine((r) => ALLOWED_RECURRENCE_RULES.includes(r), 'Неподдерживаемое повторение');
+  .refine((r) => ALLOWED_RECURRENCE_RULES.includes(r), 'validation.task.recurrenceRule');
 
 const coinSchema = z.number().int().min(0).max(TASK_LIMITS.maxCoinReward);
 
@@ -64,11 +64,11 @@ export const createTaskSchema = z
   })
   .strict()
   .refine((d) => !(d.executorId && d.assignedCircleId), {
-    message: 'Нельзя одновременно назначить Исполнителя и Группу',
+    message: 'validation.task.executorOrCircle',
     path: ['assignedCircleId'],
   })
   .refine((d) => !(d.assignedCircleId && d.coExecutorIds?.length), {
-    message: 'При назначении на Группу Соисполнители берутся из неё',
+    message: 'validation.task.circleCoExecutors',
     path: ['coExecutorIds'],
   });
 
@@ -115,7 +115,7 @@ export const taskFilterSchema = z.object({
   dueDateFrom: z.string().datetime().optional(),
   dueDateTo: z.string().datetime().optional(),
   tags: z.array(z.string()).optional(),
-  search: z.string().max(200).refine(noHtml, 'Недопустимые символы').optional(),
+  search: z.string().max(200).refine(noHtml, 'validation.task.badCharacters').optional(),
   page: z.coerce.number().int().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });

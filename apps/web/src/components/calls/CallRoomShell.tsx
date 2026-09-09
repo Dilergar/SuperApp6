@@ -1,6 +1,7 @@
 'use client';
 
 import { ReactNode, useEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import {
   AudioPresets,
   ConnectionQuality,
@@ -53,6 +54,7 @@ export function CallRoomShell({
   onLeft: (reason: CallLeaveReason) => void;
   children: ReactNode;
 }) {
+  const t = useTranslations('calls');
   const [room, setRoom] = useState<Room | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
   const [localQuality, setLocalQuality] = useState<ConnectionQuality>(ConnectionQuality.Unknown);
@@ -152,7 +154,7 @@ export function CallRoomShell({
             fontWeight: 600,
           }}
         >
-          Переподключение… звонок восстановится сам
+          {t('shell.reconnecting')}
         </div>
       )}
       <CallResilienceProvider localQuality={localQuality} reconnecting={reconnecting}>

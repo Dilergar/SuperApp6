@@ -177,9 +177,9 @@ async function main() {
     const byViewer = await call('POST', '/share-links', t2, { refType: 'drive_node', refId: folderA });
     check('зритель не создаёт ссылку → 403 с причиной', byViewer.status === 403, `status ${byViewer.status}`);
     check(
-      'причина названа, а не «не найдено»',
-      typeof byViewer.json?.message === 'string' && !byViewer.json.message.includes('не найден'),
-      byViewer.json?.message,
+      'причина названа кодом, а не «не найдено»',
+      typeof byViewer.json?.details?.code === 'string' && !byViewer.json.details.code.endsWith('.notFound'),
+      byViewer.json?.details?.code,
     );
 
     const chatterRow = await prisma.chatterEntry.findFirst({

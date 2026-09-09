@@ -4,9 +4,12 @@ import {
   StyleSheet, Alert, KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
 import { Link, router } from 'expo-router';
+import { useTranslations } from 'use-intl';
 import { useAuthStore } from '../../src/stores/auth.store';
 
 export default function RegisterScreen() {
+  const t = useTranslations('auth');
+  const tc = useTranslations('common');
   const [phone, setPhone] = useState('+7');
   const [password, setPassword] = useState('');
   const [firstName, setFirstName] = useState('');
@@ -16,15 +19,15 @@ export default function RegisterScreen() {
 
   const handleRegister = async () => {
     if (!firstName.trim()) {
-      Alert.alert('Ошибка', 'Введите имя');
+      Alert.alert(tc('state.error'), t('register.nameRequired'));
       return;
     }
     if (phone.length < 12) {
-      Alert.alert('Ошибка', 'Введите корректный номер телефона');
+      Alert.alert(tc('state.error'), t('register.phoneInvalid'));
       return;
     }
     if (password.length < 8) {
-      Alert.alert('Ошибка', 'Пароль должен быть минимум 8 символов');
+      Alert.alert(tc('state.error'), t('register.passwordShort'));
       return;
     }
 
@@ -39,8 +42,8 @@ export default function RegisterScreen() {
       router.replace('/(app)/dashboard');
     } catch (err: any) {
       Alert.alert(
-        'Ошибка регистрации',
-        err.response?.data?.error?.message || 'Попробуйте позже',
+        t('register.failed'),
+        err.response?.data?.message || t('register.tryLater'),
       );
     } finally {
       setLoading(false);
@@ -53,13 +56,13 @@ export default function RegisterScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.title}>Регистрация</Text>
-        <Text style={styles.subtitle}>Создайте аккаунт SuperApp6</Text>
+        <Text style={styles.title}>{t('register.title')}</Text>
+        <Text style={styles.subtitle}>{t('register.subtitleShort')}</Text>
 
         <View style={styles.form}>
           <TextInput
             style={styles.input}
-            placeholder="Имя *"
+            placeholder={t('register.firstNameRequiredPlaceholder')}
             placeholderTextColor="#666"
             value={firstName}
             onChangeText={setFirstName}
@@ -67,7 +70,7 @@ export default function RegisterScreen() {
 
           <TextInput
             style={styles.input}
-            placeholder="Фамилия"
+            placeholder={t('register.lastNamePlaceholder')}
             placeholderTextColor="#666"
             value={lastName}
             onChangeText={setLastName}
@@ -75,7 +78,7 @@ export default function RegisterScreen() {
 
           <TextInput
             style={styles.input}
-            placeholder="Номер телефона *"
+            placeholder={t('register.phonePlaceholder')}
             placeholderTextColor="#666"
             value={phone}
             onChangeText={setPhone}
@@ -84,7 +87,7 @@ export default function RegisterScreen() {
 
           <TextInput
             style={styles.input}
-            placeholder="Пароль (минимум 8 символов) *"
+            placeholder={t('register.passwordPlaceholder')}
             placeholderTextColor="#666"
             value={password}
             onChangeText={setPassword}
@@ -97,13 +100,13 @@ export default function RegisterScreen() {
             disabled={loading}
           >
             <Text style={styles.buttonText}>
-              {loading ? 'Регистрация...' : 'Создать аккаунт'}
+              {loading ? t('register.creating') : t('register.createAccount')}
             </Text>
           </TouchableOpacity>
         </View>
 
         <Link href="/(auth)/login" style={styles.link}>
-          <Text style={styles.linkText}>Уже есть аккаунт? Войти</Text>
+          <Text style={styles.linkText}>{t('register.haveAccountSignIn')}</Text>
         </Link>
       </ScrollView>
     </KeyboardAvoidingView>

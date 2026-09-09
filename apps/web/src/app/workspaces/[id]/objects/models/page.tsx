@@ -16,6 +16,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ASSET_KINDS, type AssetKind, type AssetModelDto } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
@@ -48,15 +49,6 @@ import { AttachmentsSection } from '@/components/files/AttachmentsSection';
 import { assetModelsApi, assetsApi, fetchAssetModels, fetchObjectTree } from '../objects-api';
 
 const KIND_META = new Map(ASSET_KINDS.map((k) => [k.value, k]));
-const KIND_OPTIONS = ASSET_KINDS.map((k) => ({ value: k.value, label: k.label }));
-
-const COLUMNS: TableColumn[] = [
-  { key: 'name', label: 'Модель' },
-  { key: 'manufacturer', label: 'Производитель', hideOnMobile: true, width: 'auto' },
-  { key: 'category', label: 'Категория', hideOnMobile: true, width: 'auto' },
-  { key: 'count', label: 'Единиц', width: '90px', align: 'end' },
-  { key: 'actions', label: '', width: '160px', align: 'end' },
-];
 
 interface Draft {
   id: string | null;
@@ -70,6 +62,16 @@ interface Draft {
 const EMPTY_DRAFT: Draft = { id: null, kind: 'equipment', name: '', manufacturer: '', category: '', glyph: null };
 
 export default function AssetModelsPage() {
+  const t = useTranslations('objects');
+  const tc = useTranslations('common');
+  const kindOptions = ASSET_KINDS.map((k) => ({ value: k.value, label: t(`assetKind.${k.value}`) }));
+  const columns: TableColumn[] = [
+    { key: 'name', label: t('models.one') },
+    { key: 'manufacturer', label: t('models.manufacturer'), hideOnMobile: true, width: 'auto' },
+    { key: 'category', label: t('models.category'), hideOnMobile: true, width: 'auto' },
+    { key: 'count', label: t('models.unitsCol'), width: '90px', align: 'end' },
+    { key: 'actions', label: '', width: '160px', align: 'end' },
+  ];
   const { isReady } = useRequireAuth();
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
@@ -131,11 +133,7 @@ export default function AssetModelsPage() {
     mutationFn: (modelId: string) => assetsApi.removeModel(id, modelId),
     onSuccess: invalidate,
     onError: (e) =>
-      toastError(
-        apiErrorDetails(e)?.code === 'asset_model_in_use'
-          ? 'Модель используется: по ней заведено оборудование. Спишите или перенесите единицы, потом удаляйте модель.'
-          : apiErrorMessage(e),
-      ),
+      toastError(apiErrorDetails(e)?.code === 'asset_model_in_use' ? t('models.inUseHint') : apiErrorMessage(e)),
   });
 
   if (!isReady) return null;
@@ -143,13 +141,13 @@ export default function AssetModelsPage() {
   return (
     <>
       <PageHeader
-        breadcrumb="Объекты"
-        title="Модели оборудования"
-        description="Общий справочник сети: производитель, категория и значок задаются один раз — все экземпляры показывают их сами."
+        breadcrumb={t('breadcrumb')}
+        title={t('models.breadcrumb')}
+        description={t('models.description')}
         actions={
           canManage ? (
             <Button variant="primary" icon="add" onClick={() => setDraft({ ...EMPTY_DRAFT })}>
-              Модель
+              {t('models.one')}
             </Button>
           ) : undefined
         }
@@ -158,7 +156,7 @@ export default function AssetModelsPage() {
       <Card>
         <div style={{ marginBottom: 'var(--spacing-4)' }}>
           <SearchField
-            placeholder="Название модели…"
+            placeholder={t('models.searchByName')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -169,27 +167,23 @@ export default function AssetModelsPage() {
         ) : list.length === 0 ? (
           <EmptyState
             icon="toolbox"
-            title={query ? 'Ничего не нашлось' : 'Моделей пока нет'}
-            description={
-              query
-                ? 'Попробуйте другое слово — поиск идёт по названию модели.'
-                : 'Модель появляется сама, когда её впервые указывают в карточке оборудования. Здесь её можно дополнить и переименовать.'
-            }
+            title={query ? t('tree.nothingFound') : t('models.empty')}
+            description={query ? t('models.nothingFoundHint') : t('models.emptyHint')}
             action={
               canManage && !query ? (
                 <Button variant="primary" icon="add" onClick={() => setDraft({ ...EMPTY_DRAFT })}>
-                  Добавить модель
+                  {t('models.add')}
                 </Button>
               ) : undefined
             }
           />
         ) : (
-          <Table columns={COLUMNS} aria-label="Модели оборудования">
-            <TableHeader columns={COLUMNS} />
+          <Table columns={columns} aria-label={t('models.breadcrumb')}>
+            <TableHeader columns={columns} />
             {list.map((m, i) => {
               const kind = KIND_META.get(m.kind);
               return (
-                <TableRow key={m.id} columns={COLUMNS} rowIndex={i + 1}>
+                <TableRow key={m.id} columns={columns} rowIndex={i + 1}>
                   <TableCell>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
                       <span style={{ flex: 'none', color: 'var(--on-surface-variant)', display: 'inline-flex' }}>
@@ -200,7 +194,7 @@ export default function AssetModelsPage() {
                         )}
                       </span>
                       <span style={{ fontWeight: 600, minWidth: 0 }}>{m.name}</span>
-                      {m.kind !== 'equipment' && <Chip tone="neutral">{kind?.label ?? m.kind}</Chip>}
+                      {m.kind !== 'equipment' && <Chip tone="neutral">{kind ? t(`assetKind.${m.kind}`) : m.kind}</Chip>}
                     </span>
                   </TableCell>
                   <TableCell hideOnMobile>{m.manufacturer ?? '—'}</TableCell>
@@ -214,10 +208,10 @@ export default function AssetModelsPage() {
                         size="sm"
                         variant="ghost"
                         icon="docs"
-                        aria-label={`Документы модели «${m.name}»`}
+                        aria-label={t('models.filesAria', { name: m.name })}
                         onClick={() => setFilesFor(m)}
                       >
-                        Документы
+                        {t('models.files')}
                       </Button>
                     {canManage && (
                       <>
@@ -225,7 +219,7 @@ export default function AssetModelsPage() {
                           size="sm"
                           variant="ghost"
                           icon="edit"
-                          aria-label={`Изменить модель «${m.name}»`}
+                          aria-label={t('models.editAria', { name: m.name })}
                           onClick={() =>
                             setDraft({
                               id: m.id,
@@ -237,14 +231,14 @@ export default function AssetModelsPage() {
                             })
                           }
                         >
-                          Править
+                          {tc('actions.edit')}
                         </Button>
                         <Button
                           size="sm"
                           variant="ghost"
                           tone="danger"
                           icon="delete"
-                          aria-label={`Удалить модель «${m.name}»`}
+                          aria-label={t('models.deleteAria', { name: m.name })}
                           // Модель с экземплярами сервер не удалит (409): кнопку
                           // не прячем, но и не даём нажать — иначе непонятно, куда
                           // она делась у «занятых» строк.
@@ -252,16 +246,16 @@ export default function AssetModelsPage() {
                           onClick={() =>
                             confirm(
                               {
-                                title: 'Удалить модель?',
-                                message: `«${m.name}» исчезнет из справочника. Экземпляров по ней нет, поэтому история не пострадает.`,
-                                confirmLabel: 'Удалить',
+                                title: t('models.deleteTitle'),
+                                message: t('models.deleteMessage', { name: m.name }),
+                                confirmLabel: tc('actions.delete'),
                                 danger: true,
                               },
                               () => remove.mutateAsync(m.id).then(() => undefined),
                             )
                           }
                         >
-                          Удалить
+                          {tc('actions.delete')}
                         </Button>
                       </>
                     )}
@@ -277,13 +271,13 @@ export default function AssetModelsPage() {
       <Modal
         open={!!draft}
         onClose={() => setDraft(null)}
-        title={draft?.id ? 'Модель' : 'Новая модель'}
+        title={draft?.id ? t('models.one') : t('models.newTitle')}
         size="md"
       >
         {draft && (
           <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
             <Input
-              label="Название"
+              label={tc('labels.name')}
               placeholder="Jura X8"
               maxLength={120}
               value={draft.name}
@@ -292,15 +286,15 @@ export default function AssetModelsPage() {
             />
             <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)' }}>
               <Input
-                label="Производитель"
+                label={t('models.manufacturer')}
                 placeholder="Jura"
                 maxLength={120}
                 value={draft.manufacturer}
                 onChange={(e) => setDraft({ ...draft, manufacturer: e.target.value })}
               />
               <Input
-                label="Категория"
-                placeholder="Кофейное оборудование"
+                label={t('models.category')}
+                placeholder={t('models.categoryPlaceholder')}
                 maxLength={80}
                 value={draft.category}
                 onChange={(e) => setDraft({ ...draft, category: e.target.value })}
@@ -310,20 +304,20 @@ export default function AssetModelsPage() {
               {draft.id ? (
                 <div>
                   <span className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-2)', fontWeight: 600 }}>
-                    Вид
+                    {tc('labels.type')}
                   </span>
-                  <Chip tone="neutral">{KIND_META.get(draft.kind)?.label ?? draft.kind}</Chip>
+                  <Chip tone="neutral">{KIND_META.has(draft.kind) ? t(`assetKind.${draft.kind}`) : draft.kind}</Chip>
                 </div>
               ) : (
                 <Select
-                  label="Вид"
+                  label={tc('labels.type')}
                   value={draft.kind}
                   onChange={(v) => setDraft({ ...draft, kind: v })}
-                  options={KIND_OPTIONS}
+                  options={kindOptions}
                 />
               )}
               <GlyphField
-                label="Значок"
+                label={tc('glyph.field')}
                 value={draft.glyph}
                 onChange={(v) => setDraft({ ...draft, glyph: v })}
               />
@@ -331,7 +325,7 @@ export default function AssetModelsPage() {
 
             <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end' }}>
               <Button variant="ghost" onClick={() => setDraft(null)}>
-                Отмена
+                {tc('actions.cancel')}
               </Button>
               <Button
                 variant="primary"
@@ -340,7 +334,7 @@ export default function AssetModelsPage() {
                 disabled={draft.name.trim().length === 0}
                 onClick={() => save.mutate(draft)}
               >
-                Сохранить
+                {tc('actions.save')}
               </Button>
             </div>
           </div>
@@ -374,6 +368,7 @@ function ModelFilesModal({
   canEdit: boolean;
   onClose: () => void;
 }) {
+  const t = useTranslations('objects');
   const qc = useQueryClient();
   const { data: files } = useQuery({
     queryKey: assetModelFilesKey(workspaceId, model.id),
@@ -393,7 +388,7 @@ function ModelFilesModal({
   });
 
   return (
-    <Modal open onClose={onClose} title={`Документы — ${model.name}`} size="lg">
+    <Modal open onClose={onClose} title={`${t('models.files')} — ${model.name}`} size="lg">
       <AttachmentsSection
         files={files ?? []}
         canEdit={canEdit}

@@ -2,6 +2,7 @@
 
 import { CloseChip, Input, ModalShell } from '@/components/ui';
 import { useState, useEffect } from 'react';
+import { useTranslations } from 'next-intl';
 import { MESSENGER_LIMITS } from '@superapp/shared';
 import { ContactPicker, useContacts } from './ContactPicker';
 import { EntitySelector } from '@/components/EntitySelector';
@@ -24,6 +25,8 @@ export function NewChatModal({
   onPick: (userId: string) => void;
   onCreateGroup: (name: string, memberIds: string[]) => void;
 }) {
+  const t = useTranslations('messenger');
+  const tc = useTranslations('common');
   const { contacts, loading, error } = useContacts();
   const [mode, setMode] = useState<Mode>('dm');
 
@@ -89,7 +92,7 @@ export function NewChatModal({
             marginBottom: 'var(--spacing-4)',
           }}
         >
-          <h3 className="title-md">Новый чат</h3>
+          <h3 className="title-md">{t('newChat.title')}</h3>
           <CloseChip onClick={onClose} />
         </div>
 
@@ -104,7 +107,7 @@ export function NewChatModal({
             borderRadius: 'var(--radius-md)',
           }}
         >
-          {([['dm', 'Личный'], ['group', 'Группа']] as [Mode, string][]).map(([m, lbl]) => (
+          {([['dm', t('newChat.dm')], ['group', t('newChat.group')]] as [Mode, string][]).map(([m, lbl]) => (
             <button
               key={m}
               onClick={() => setMode(m)}
@@ -130,17 +133,17 @@ export function NewChatModal({
         {mode === 'group' && (
           <>
             <Input
-              label="Название группы"
+              label={t('newChat.groupName')}
               value={groupName}
               onChange={(e) => setGroupName(e.target.value)}
-              placeholder="Название группы"
+              placeholder={t('newChat.groupName')}
               autoFocus
               maxLength={MESSENGER_LIMITS.maxGroupNameLength}
               wrapClassName="mb-3"
               style={{ fontSize: '0.95rem', fontWeight: 600 }}
             />
             <label className="label-md" style={{ marginBottom: 'var(--spacing-2)' }}>
-              Участники {selected.length > 0 && <span style={{ color: 'var(--secondary)' }}>· {selected.length}</span>}
+              {t('newChat.participants')} {selected.length > 0 && <span style={{ color: 'var(--secondary)' }}>· {selected.length}</span>}
             </label>
           </>
         )}
@@ -152,10 +155,10 @@ export function NewChatModal({
             error={error}
             mode="single"
             onPick={onPick}
-            emptyHint="В окружении пока никого"
+            emptyHint={t('newChat.emptyCircle')}
           />
         ) : loading ? (
-          <p className="label-sm" style={{ padding: 'var(--spacing-3)' }}>Загрузка...</p>
+          <p className="label-sm" style={{ padding: 'var(--spacing-3)' }}>{tc('state.loading')}</p>
         ) : (
           <EntitySelector
             types={['user', 'circle']}
@@ -163,7 +166,7 @@ export function NewChatModal({
             options={groupModeOptions}
             value={selected.map((id) => ({ type: 'user', id }))}
             onChange={handleSelect}
-            placeholder="Добавить людей или Группу…"
+            placeholder={t('group.addPlaceholder')}
           />
         )}
 
@@ -174,7 +177,7 @@ export function NewChatModal({
             className="btn-success"
             style={{ marginTop: 'var(--spacing-4)', fontSize: '0.9rem', opacity: canCreate ? 1 : 0.5 }}
           >
-            {creating ? 'Создание...' : 'Создать группу'}
+            {creating ? t('newChat.creating') : t('newChat.createGroup')}
           </button>
         )}
       </div>

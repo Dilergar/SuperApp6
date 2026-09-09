@@ -22,14 +22,14 @@ export class OfficeCron {
     await this.redis.withLock('cron:office-rooms', 60_000, async () => {
       try {
         const ended = await this.office.autoEndIdle();
-        if (ended > 0) this.logger.log(`авто-завершено простаивающих встреч: ${ended}`);
+        if (ended > 0) this.logger.log(`Idle meetings auto-ended: ${ended}`);
       } catch (err) {
         this.logger.warn(`autoEnd: ${err instanceof Error ? err.message : err}`);
       }
       // Сверка: снять участия людей, выбывших из организации (дрейф синхронного отзыва)
       try {
         const cleaned = await this.office.reconcileOrphanParticipants();
-        if (cleaned > 0) this.logger.log(`снято осиротевших участий во встречах: ${cleaned}`);
+        if (cleaned > 0) this.logger.log(`Orphan meeting participations removed: ${cleaned}`);
       } catch (err) {
         this.logger.warn(`reconcileOrphanParticipants: ${err instanceof Error ? err.message : err}`);
       }

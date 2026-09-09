@@ -30,7 +30,7 @@ export class AuthController {
   @Public()
   @Post('register')
   @Throttle({ long: { limit: 5, ttl: 900000 } })
-  @ApiOperation({ summary: 'Регистрация нового пользователя' })
+  @ApiOperation({ summary: 'Register a new user' })
   async register(@Body() body: unknown, @Headers('user-agent') userAgent?: string) {
     const data = registerSchema.parse(body);
     const tokens = await this.authService.register(data, deviceInfoOf(userAgent));
@@ -41,7 +41,7 @@ export class AuthController {
   @Post('login')
   @Throttle({ long: { limit: 5, ttl: 900000 } })
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Вход в аккаунт' })
+  @ApiOperation({ summary: 'Sign in' })
   async login(@Body() body: unknown, @Headers('user-agent') userAgent?: string) {
     const data = loginSchema.parse(body);
     const tokens = await this.authService.login(data.phone, data.password, deviceInfoOf(userAgent));
@@ -52,7 +52,7 @@ export class AuthController {
   @Post('password-reset')
   @Throttle({ long: { limit: 5, ttl: 900000 } })
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Завершить сброс пароля (verifyToken из /verify/check) → автовход' })
+  @ApiOperation({ summary: 'Finish the password reset (verifyToken from /verify/check) → auto sign-in' })
   async passwordReset(@Body() body: unknown, @Headers('user-agent') userAgent?: string) {
     const data = passwordResetCompleteSchema.parse(body);
     const tokens = await this.authService.resetPassword(
@@ -66,7 +66,7 @@ export class AuthController {
   @Public()
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Обновить токены' })
+  @ApiOperation({ summary: 'Refresh the tokens' })
   async refresh(@Body() body: unknown) {
     const data = refreshTokenSchema.parse(body);
     const tokens = await this.authService.refreshToken(data.refreshToken);
@@ -75,7 +75,7 @@ export class AuthController {
 
   @Post('logout')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Выход из аккаунта' })
+  @ApiOperation({ summary: 'Sign out' })
   async logout(
     @CurrentUser() user: JwtPayload,
     @Body() body: { refreshToken: string },
@@ -86,7 +86,7 @@ export class AuthController {
 
   @Post('logout-all')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Выход со всех устройств' })
+  @ApiOperation({ summary: 'Sign out on every device' })
   async logoutAll(@CurrentUser() user: JwtPayload) {
     await this.authService.logoutAll(user.sub);
     return { success: true };

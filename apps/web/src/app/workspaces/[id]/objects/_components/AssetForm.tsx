@@ -8,6 +8,7 @@
 // сервер отвергает их с 403, поэтому форма их и не показывает.
 
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { HOLDING_KINDS, type AssetModelDto } from '@superapp/shared';
 import { Button, Chip, Input, Modal, SearchField, Select } from '@/components/ui';
@@ -52,6 +53,8 @@ export function AssetForm({
   const [modelId, setModelId] = useState<string | null>(null);
   const [newModelName, setNewModelName] = useState<string | null>(null);
   const [name, setName] = useState('');
+  const t = useTranslations('objects');
+  const tc = useTranslations('common');
   const [inventoryNumber, setInventoryNumber] = useState('');
   const [serialNumber, setSerialNumber] = useState('');
   const [holdingKind, setHoldingKind] = useState('owned');
@@ -66,13 +69,13 @@ export function AssetForm({
 
   const list = useMemo(() => (models as AssetModelDto[] | undefined) ?? [], [models]);
   const canCreateNew = modelSearch.trim().length > 1 && !list.some((m) => m.name.toLowerCase() === modelSearch.trim().toLowerCase());
-  const chosenLabel = modelId ? (list.find((m) => m.id === modelId)?.name ?? 'Модель') : newModelName;
+  const chosenLabel = modelId ? (list.find((m) => m.id === modelId)?.name ?? t('models.one')) : newModelName;
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!modelId && !newModelName) throw new Error('Выберите модель или создайте новую');
+      if (!modelId && !newModelName) throw new Error(t('assets.pickOrCreateModel'));
       const tiyn = tengeToTiyn(price);
-      if (price.trim() && tiyn === null) throw new Error('Цена — это число, например 450 000');
+      if (price.trim() && tiyn === null) throw new Error(t('assets.priceIsNumber'));
       return assetsApi.create(workspaceId, objectId, {
         ...(modelId ? { modelId } : { newModel: { name: newModelName! } }),
         name: name.trim(),
@@ -91,11 +94,11 @@ export function AssetForm({
   });
 
   return (
-    <Modal open={open} onClose={onClose} title="Новое оборудование" size="lg">
+    <Modal open={open} onClose={onClose} title={t('assets.newTitle')} size="lg">
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         <div>
           <span className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-2)', fontWeight: 600 }}>
-            Модель
+            {t('models.one')}
           </span>
           {chosenLabel ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
@@ -108,13 +111,13 @@ export function AssetForm({
                   setNewModelName(null);
                 }}
               >
-                Изменить
+                {tc('actions.edit')}
               </Button>
             </div>
           ) : (
             <>
               <SearchField
-                placeholder="Кофемашина Jura X8…"
+                placeholder={t('models.searchPlaceholder')}
                 value={modelSearch}
                 onChange={(e) => setModelSearch(e.target.value)}
               />
@@ -126,7 +129,7 @@ export function AssetForm({
                 ))}
                 {canCreateNew && (
                   <Button size="sm" variant="outline" icon="add" onClick={() => setNewModelName(modelSearch.trim())}>
-                    {`Создать «${modelSearch.trim()}»`}
+                    {t('models.createNamed', { name: modelSearch.trim() })}
                   </Button>
                 )}
               </div>
@@ -135,27 +138,35 @@ export function AssetForm({
         </div>
 
         <Input
-          label="Название"
-          placeholder="Кофемашина у бара"
+          label={tc('labels.name')}
+          placeholder={t('assets.namePlaceholder')}
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
 
         <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-3)' }}>
-          <Input label="Инвентарный номер" value={inventoryNumber} onChange={(e) => setInventoryNumber(e.target.value)} />
-          <Input label="Серийный номер" value={serialNumber} onChange={(e) => setSerialNumber(e.target.value)} />
+          <Input
+            label={t('assets.inventoryNumber')}
+            value={inventoryNumber}
+            onChange={(e) => setInventoryNumber(e.target.value)}
+          />
+          <Input
+            label={t('assets.serialNumber')}
+            value={serialNumber}
+            onChange={(e) => setSerialNumber(e.target.value)}
+          />
         </div>
 
         {canSeeMoney && (
           <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-3)' }}>
             <Select
-              label="Владение"
+              label={t('assets.holding')}
               value={holdingKind}
               onChange={setHoldingKind}
-              options={HOLDING_KINDS.map((h) => ({ value: h.value, label: h.label }))}
+              options={HOLDING_KINDS.map((h) => ({ value: h, label: t(`holdingKind.${h}`) }))}
             />
             <Input
-              label="Цена покупки"
+              label={t('assets.purchasePrice')}
               placeholder="450 000"
               inputMode="decimal"
               value={price}
@@ -166,20 +177,20 @@ export function AssetForm({
 
         <div>
           <span className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-2)', fontWeight: 600 }}>
-            Ответственный
+            {t('assets.custodian')}
           </span>
           <EntitySelector
             types={['user']}
             context={{ workspaceId }}
             value={custodian}
             onChange={(next) => setCustodian(next.slice(-1) as { type: 'user'; id: string }[])}
-            placeholder="Не назначен"
+            placeholder={t('assets.custodianEmpty')}
           />
         </div>
 
         <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end' }}>
           <Button variant="ghost" onClick={onClose}>
-            Отмена
+            {tc('actions.cancel')}
           </Button>
           <Button
             variant="primary"
@@ -187,7 +198,7 @@ export function AssetForm({
             disabled={!name.trim() || (!modelId && !newModelName)}
             onClick={() => save.mutate()}
           >
-            Добавить
+            {tc('actions.add')}
           </Button>
         </div>
       </div>

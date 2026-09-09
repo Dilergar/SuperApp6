@@ -1,0 +1,132 @@
+{
+  "breadcrumb": "Drive",
+  "browser": {
+    "colName": "Name",
+    "colSize": "Size",
+    "colUpdated": "Changed",
+    "deleteConfirm": {
+      "message": "The item goes to the trash for 30 days. While it is there, a chat attachment keeps working.",
+      "title": "Delete «{name}»?"
+    },
+    "download": "Download",
+    "empty": "empty",
+    "emptyEditable": "Drag files or a whole folder here",
+    "emptyReadonly": "This folder has no items available to you",
+    "emptyTitle": "Nothing here yet",
+    "itemCount": "{n, plural, one {# item} other {# items}}",
+    "name": "Name",
+    "newFolder": "New folder",
+    "noUploadRights": "You have no right to add files to this folder",
+    "pathAria": "Path",
+    "publicLink": "Available by an outside link",
+    "rename": "Rename",
+    "rowActions": "Actions: {name}",
+    "share": "Configure the access",
+    "star": "Add to starred",
+    "toTrash": "To the trash",
+    "unstar": "Remove from starred",
+    "upload": "Upload"
+  },
+  "card": {
+    "filesInside": "Files inside",
+    "size": "Size",
+    "type": "Type"
+  },
+  "kind": {
+    "file": "File",
+    "fileOnDrive": "A file on the Drive",
+    "folder": "Folder",
+    "folderOnDrive": "A folder on the Drive"
+  },
+  "node": {
+    "changed": " · changed {date}",
+    "download": "Download",
+    "openDrive": "Open the Drive",
+    "path": "Path: {path}",
+    "toMyDrive": "To my Drive",
+    "unavailable": "The item is unavailable",
+    "unavailableHint": "It was deleted or the access was closed",
+    "usedElsewhere": "This file is used in {n, plural, one {# more place} other {# more places}} — as a chat attachment, for example."
+  },
+  "org": {
+    "trashHint": "Items are kept for {days} days and take up the organization’s space all that time.",
+    "usedSpace": "Space used by the organization"
+  },
+  "orgBreadcrumb": "Organization",
+  "page": {
+    "photos": "Photos",
+    "purge": "Delete for good",
+    "purgeConfirm": {
+      "message": "The file will stop opening everywhere it was referenced — including chat attachments. This cannot be undone.",
+      "title": "Delete «{name}» for good?"
+    },
+    "recent": "Recent",
+    "recentEmpty": "You have not opened anything yet",
+    "restore": "Restore",
+    "shared": "Shared with me",
+    "sharedEmpty": "Nothing has been shared with you yet",
+    "sharedEmptyHint": "The drives you are given access to will show up here",
+    "starred": "Starred",
+    "starredEmpty": "Nothing here yet",
+    "starredEmptyHint": "Star the things you come back to most often",
+    "trash": "Trash",
+    "trashEmpty": "The trash is empty",
+    "trashHint": "Items are kept for {days} days and take up space all that time. While an item is in the trash, a chat attachment keeps working — it stops opening only after the permanent deletion.",
+    "usedOf": "{used} of {limit}",
+    "usedSpace": "Space used"
+  },
+  "photos": {
+    "all": "All",
+    "empty": "No photos yet",
+    "emptyHint": "Photos that land on the Drive will line up here by the date they were taken"
+  },
+  "quickAction": {
+    "attach": {
+      "description": "Send a file that already lives on your Drive",
+      "label": "Attach from Drive"
+    },
+    "save": {
+      "description": "Put the attachment on your own Drive",
+      "label": "Save to Drive"
+    }
+  },
+  "restoredSuffix": "restored",
+  "role": {
+    "editor": "Edits",
+    "manager": "Manages access",
+    "owner": "Owner",
+    "viewer": "Views"
+  },
+  "roleLower": {
+    "editor": "edits",
+    "manager": "manages access",
+    "viewer": "views"
+  },
+  "rootName": "My Drive",
+  "rootNameOrg": "Organization drive",
+  "share": {
+    "grant": "Open",
+    "grantedHere": "Granted here",
+    "hint": "Here you see who has access. Changing it and handing out outside links is up to whoever manages this item.",
+    "inherited": "Inherited from folders",
+    "inheritedHint": "Such access is removed where it was granted — in the folder itself.",
+    "nobody": "Nobody yet.",
+    "person": "A person",
+    "pickPerson": "Who to open the access to",
+    "publicLinks": "Access by an outside link",
+    "revoke": "Close",
+    "role": "Role",
+    "title": "Access to «{name}»"
+  },
+  "somebody": "Somebody",
+  "spaceTitle": "Drive · {name}",
+  "systemFolder": {
+    "chat_uploads": "Files from chats",
+    "chip": "system",
+    "documents": "Organization documents",
+    "personal_files": "Personal files"
+  },
+  "tab": {
+    "files": "Files"
+  }
+}

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import type { NoteListItemDto, NoteRelatedTargetType, NoteSpaceRef } from '@superapp/shared';
 import { Button, EmptyState, Icon, LoadingBlock, Modal, SearchField } from '@/components/ui';
 import { PersonAvatar } from '@/app/messenger/messenger-ui';
@@ -21,6 +22,7 @@ import './notes.css';
 // ============================================================
 
 export function NotesPanel({ target, scope }: { target: { type: NoteRelatedTargetType; id: string }; scope: NoteSpaceRef }) {
+  const t = useTranslations('notes');
   const router = useRouter();
   const qc = useQueryClient();
   const layer = useNotesLayer();
@@ -55,16 +57,16 @@ export function NotesPanel({ target, scope }: { target: { type: NoteRelatedTarge
     <div>
       <div style={{ display: 'flex', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-3)', flexWrap: 'wrap' }}>
         <Button size="sm" icon="stickyNote" onClick={() => create.mutate()} loading={create.isPending} disabled={q.data ? !q.data.canAttach : false}>
-          Новая заметка
+          {t('panel.newNote')}
         </Button>
         <Button size="sm" variant="matte" icon="link" onClick={() => setAttachOpen(true)} disabled={q.data ? !q.data.canAttach : false}>
-          Прикрепить существующую
+          {t('panel.attachExisting')}
         </Button>
       </div>
       {q.isPending ? (
         <LoadingBlock />
       ) : !q.data?.items.length ? (
-        <EmptyState icon="notes" title="Заметок пока нет" description="Запишите договорённости, детали и мысли — они останутся здесь" />
+        <EmptyState icon="notes" title={t('panel.emptyTitle')} description={t('panel.emptyHint')} />
       ) : (
         <div className="notes-panel-list">
           {q.data.items.map((n) => (
@@ -73,7 +75,7 @@ export function NotesPanel({ target, scope }: { target: { type: NoteRelatedTarge
               <div className="note-card-main">
                 <div className="note-card-title">
                   {n.pinnedAt && <Icon name="pin" size={14} />}
-                  <span>{n.title || n.snippet || 'Без названия'}</span>
+                  <span>{n.title || n.snippet || t('untitled')}</span>
                 </div>
                 {n.title && n.snippet && <div className="note-card-snippet">{n.snippet}</div>}
                 <div className="note-card-meta">
@@ -91,6 +93,7 @@ export function NotesPanel({ target, scope }: { target: { type: NoteRelatedTarge
 }
 
 function AttachNoteModal({ open, onClose, scope, onPick }: { open: boolean; onClose: () => void; scope: NoteSpaceRef; onPick: (noteId: string) => void }) {
+  const t = useTranslations('notes');
   const [q, setQ] = useState('');
   const list = useQuery({
     queryKey: notesAttachPickerKey(noteScopeKey(scope), q.trim()),
@@ -98,19 +101,19 @@ function AttachNoteModal({ open, onClose, scope, onPick }: { open: boolean; onCl
     enabled: open,
   });
   return (
-    <Modal open={open} onClose={onClose} title="Прикрепить заметку" size="md">
+    <Modal open={open} onClose={onClose} title={t('panel.attachTitle')} size="md">
       <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
-        <SearchField value={q} onChange={(e) => setQ(e.target.value)} onClear={() => setQ('')} placeholder="Найти заметку…" width="100%" />
+        <SearchField value={q} onChange={(e) => setQ(e.target.value)} onClear={() => setQ('')} placeholder={t('panel.searchPlaceholder')} width="100%" />
         {list.isPending ? (
           <LoadingBlock />
         ) : !list.data?.items.length ? (
-          <EmptyState icon="notes" title="Заметок не найдено" />
+          <EmptyState icon="notes" title={t('panel.notFound')} />
         ) : (
           <div style={{ display: 'grid', gap: 'var(--spacing-1)', maxHeight: 360, overflowY: 'auto' }}>
             {list.data.items.map((n) => (
               <button key={n.id} type="button" className="notes-tree-item" onClick={() => onPick(n.id)}>
                 <span className="notes-tree-dot" style={n.color ? ({ ['--note-color' as string]: n.color } as React.CSSProperties) : undefined} aria-hidden />
-                <span className="notes-tree-label">{n.title || n.snippet || 'Без названия'}</span>
+                <span className="notes-tree-label">{n.title || n.snippet || t('untitled')}</span>
               </button>
             ))}
           </div>

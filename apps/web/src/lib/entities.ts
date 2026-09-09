@@ -27,6 +27,12 @@ export interface EntityOption {
   type: string;
   id: string;
   title: string; // primary display text (for search + fallback)
+  /**
+   * Ключ каталога вместо готового заголовка — для СИНТЕЗИРОВАННЫХ вариантов
+   * («вся организация»), у которых нет имени в данных. Разворачивает его
+   * владелец пикера, поэтому кэш реестра остаётся языконезависимым.
+   */
+  titleKey?: string;
   // user
   firstName?: string;
   lastName?: string | null;
@@ -37,14 +43,19 @@ export interface EntityOption {
   count?: number;
 }
 
-export const ENTITY_TYPE_LABELS: Record<string, string> = {
-  user: 'Люди',
-  circle: 'Группы',
-  department: 'Отделы',
-  position: 'Должности',
-  branch: 'Объекты',
-  counterparty: 'Контрагенты',
-  workspace: 'Организация',
+/**
+ * Заголовок группы в выпадающем списке — КЛЮЧ каталога, а не слово: реестр общий
+ * для всех пикеров, а язык у каждого зрителя свой. Разворачивает его владелец
+ * (`EntitySelector`) в неймспейсе `common`.
+ */
+export const ENTITY_TYPE_LABEL_KEYS: Record<string, string> = {
+  user: 'entityType.user',
+  circle: 'entityType.circle',
+  department: 'entityType.department',
+  position: 'entityType.position',
+  branch: 'entityType.branch',
+  counterparty: 'entityType.counterparty',
+  workspace: 'entityType.workspace',
 };
 
 /** Контекст загрузки: workspace-скоупные типы (отдел/должность/филиал) требуют организацию. */
@@ -195,7 +206,7 @@ async function loadCounterparties(ctx?: EntityLoadContext): Promise<EntityOption
 // массовые кадровые действия): выбор целиком, без перечисления людей.
 async function loadWorkspaceAll(ctx?: EntityLoadContext): Promise<EntityOption[]> {
   if (!ctx?.workspaceId) return [];
-  return [{ type: 'workspace', id: ctx.workspaceId, title: 'Вся организация', icon: 'workspace' }];
+  return [{ type: 'workspace', id: ctx.workspaceId, title: '', titleKey: 'entityType.workspaceAll', icon: 'workspace' }];
 }
 
 const LOADERS: Record<string, (ctx?: EntityLoadContext) => Promise<EntityOption[]>> = {

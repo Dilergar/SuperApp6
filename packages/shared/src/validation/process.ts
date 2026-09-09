@@ -7,20 +7,20 @@ export const processIdSchema = z
   .string()
   .min(1)
   .max(48)
-  .regex(/^[a-zA-Z][a-zA-Z0-9_-]*$/, 'id: латиница/цифры/_/-, начинается с буквы');
+  .regex(/^[a-zA-Z][a-zA-Z0-9_-]*$/, 'validation.process.idFormat');
 
 const processLabelSchema = z
   .string()
-  .max(120, 'Подпись слишком длинная')
-  .refine(noHtml, 'Недопустимые символы');
+  .max(120, 'validation.process.labelTooLong')
+  .refine(noHtml, 'validation.process.badCharacters');
 
 export const processFormFieldSchema = z.object({
   key: processIdSchema,
-  label: z.string().min(1).max(80).refine(noHtml, 'Недопустимые символы'),
+  label: z.string().min(1).max(80).refine(noHtml, 'validation.process.badCharacters'),
   type: z.enum(['text', 'number', 'boolean', 'date', 'select']),
   required: z.boolean().optional(),
   options: z
-    .array(z.string().min(1).max(80).refine(noHtml, 'Недопустимые символы'))
+    .array(z.string().min(1).max(80).refine(noHtml, 'validation.process.badCharacters'))
     .max(30)
     .optional(),
 });
@@ -29,7 +29,7 @@ export const processNodeSchema = z.object({
   id: processIdSchema,
   type: z.string().min(1).max(60),
   label: processLabelSchema.optional(),
-  note: z.string().max(500).refine(noHtml, 'Недопустимые символы').optional(),
+  note: z.string().max(500).refine(noHtml, 'validation.process.badCharacters').optional(),
   config: z.record(z.unknown()).default({}),
   position: z.object({ x: z.number(), y: z.number() }).optional(),
 });
@@ -44,20 +44,20 @@ export const processEdgeSchema = z.object({
 
 /** Форма канвас-документа. Графовая целостность проверяется компилятором (issues с привязкой к нодам). */
 export const processDocumentSchema = z.object({
-  nodes: z.array(processNodeSchema).min(1, 'Документ пуст').max(150, 'Слишком много нод'),
-  edges: z.array(processEdgeSchema).max(300, 'Слишком много связей'),
-  form: z.array(processFormFieldSchema).max(30, 'Слишком много полей анкеты').default([]),
+  nodes: z.array(processNodeSchema).min(1, 'validation.process.emptyDocument').max(150, 'validation.process.tooManyNodes'),
+  edges: z.array(processEdgeSchema).max(300, 'validation.process.tooManyEdges'),
+  form: z.array(processFormFieldSchema).max(30, 'validation.process.tooManyFormFields').default([]),
 });
 
 export const createProcessDefinitionSchema = z.object({
-  name: z.string().min(1, 'Название обязательно').max(100).refine(noHtml, 'Недопустимые символы'),
-  description: z.string().max(500).refine(noHtml, 'Недопустимые символы').nullable().optional(),
+  name: z.string().min(1, 'validation.process.nameRequired').max(100).refine(noHtml, 'validation.process.badCharacters'),
+  description: z.string().max(500).refine(noHtml, 'validation.process.badCharacters').nullable().optional(),
   /**
    * Профиль редактора: режет палитру нод и включает правила предметной области.
    * Приходит от сервиса-заказчика («Документы» заводят кадровый маршрут), а не от
    * человека — в общем списке процессов выбора профиля нет.
    */
-  surface: z.string().max(40).refine(noHtml, 'Недопустимые символы').optional(),
+  surface: z.string().max(40).refine(noHtml, 'validation.process.badCharacters').optional(),
   /**
    * Готовая заготовка канваса. Пустой холст на 32 ноды кадровика отпугивает, поэтому
    * маршрут документа заводится уже собранным — остаётся указать, кто подписывает.
@@ -67,11 +67,11 @@ export const createProcessDefinitionSchema = z.object({
 
 export const updateProcessDefinitionSchema = z
   .object({
-    name: z.string().min(1).max(100).refine(noHtml, 'Недопустимые символы').optional(),
-    description: z.string().max(500).refine(noHtml, 'Недопустимые символы').nullable().optional(),
+    name: z.string().min(1).max(100).refine(noHtml, 'validation.process.badCharacters').optional(),
+    description: z.string().max(500).refine(noHtml, 'validation.process.badCharacters').nullable().optional(),
     visibility: z.enum(['team', 'admins']).optional(),
   })
-  .refine((d) => Object.keys(d).length > 0, 'Нечего обновлять');
+  .refine((d) => Object.keys(d).length > 0, 'validation.process.nothingToUpdate');
 
 export const saveProcessDocumentSchema = z.object({
   document: processDocumentSchema,
@@ -123,8 +123,8 @@ export const createProcessTriggerSchema = z
     everyValue: z.coerce.number().int().min(1).max(100000).optional(),
     everyUnit: z.enum(['hours', 'days']).optional(),
   })
-  .refine((d) => d.type !== 'event' || !!d.eventType, { message: 'Выберите событие', path: ['eventType'] })
-  .refine((d) => d.type !== 'schedule' || (!!d.everyValue && !!d.everyUnit), { message: 'Укажите интервал', path: ['everyValue'] });
+  .refine((d) => d.type !== 'event' || !!d.eventType, { message: 'validation.process.eventRequired', path: ['eventType'] })
+  .refine((d) => d.type !== 'schedule' || (!!d.everyValue && !!d.everyUnit), { message: 'validation.process.intervalRequired', path: ['everyValue'] });
 
 export const updateProcessTriggerSchema = z.object({
   enabled: z.boolean(),
@@ -135,7 +135,7 @@ export const updateProcessTriggerSchema = z.object({
 const noHtmlCred = (s: string) => !/[<>]/.test(s);
 export const createProcessCredentialSchema = z
   .object({
-    name: z.string().min(1).max(80).refine(noHtmlCred, 'Недопустимые символы'),
+    name: z.string().min(1).max(80).refine(noHtmlCred, 'validation.process.badCharacters'),
     type: z.enum(['header', 'basic', 'bearer']),
     // секреты (наружу не отдаются):
     token: z.string().max(2000).optional(),
@@ -144,6 +144,6 @@ export const createProcessCredentialSchema = z
     headerName: z.string().max(100).optional(),
     headerValue: z.string().max(2000).optional(),
   })
-  .refine((d) => d.type !== 'bearer' || !!d.token, { message: 'Укажите токен', path: ['token'] })
-  .refine((d) => d.type !== 'basic' || (!!d.username && !!d.password), { message: 'Логин и пароль', path: ['username'] })
-  .refine((d) => d.type !== 'header' || (!!d.headerName && !!d.headerValue), { message: 'Имя и значение заголовка', path: ['headerName'] });
+  .refine((d) => d.type !== 'bearer' || !!d.token, { message: 'validation.process.tokenRequired', path: ['token'] })
+  .refine((d) => d.type !== 'basic' || (!!d.username && !!d.password), { message: 'validation.process.basicRequired', path: ['username'] })
+  .refine((d) => d.type !== 'header' || (!!d.headerName && !!d.headerValue), { message: 'validation.process.headerRequired', path: ['headerName'] });

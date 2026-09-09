@@ -10,9 +10,11 @@
 // открытая из Алматы, обязана показывать время объекта — по нему люди выходят.
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import type { ShiftDto } from '@superapp/shared';
 import { Button, Chip } from '@/components/ui';
 import { timeIn, tint, todayIn } from '@/lib/objects-time';
+import { dmy } from '@/lib/dates';
 
 /**
  * Что тащим: смена И СТРОКА, из которой её взяли. Без строки перенос на другого
@@ -50,6 +52,7 @@ export function ShiftCell({
   onRequestMove: (shift: ShiftDto) => void;
   onCancel: (shift: ShiftDto) => void;
 }) {
+  const t = useTranslations('objects');
   const [over, setOver] = useState(false);
   const today = todayIn(timeZone);
 
@@ -104,8 +107,8 @@ export function ShiftCell({
         />
       ))}
       {canManage && (
-        <Button size="sm" variant="ghost" icon="add" aria-label={`Добавить смену ${date}`} onClick={onCreate}>
-          смена
+        <Button size="sm" variant="ghost" icon="add" aria-label={t('shifts.addOn', { date: dmy(date) })} onClick={onCreate}>
+          {t('shifts.shiftShort')}
         </Button>
       )}
     </div>
@@ -135,6 +138,7 @@ function ShiftChip({
   onRequestMove: (shift: ShiftDto) => void;
   onCancel: (shift: ShiftDto) => void;
 }) {
+  const t = useTranslations('objects');
   const time = `${timeIn(shift.startsAt, timeZone)}–${timeIn(shift.endsAt, timeZone)}`;
   const cancelled = shift.status === 'cancelled';
   const draft = shift.status === 'draft';
@@ -169,15 +173,15 @@ function ShiftChip({
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
         <span style={{ fontWeight: 600 }}>{time}</span>
-        {draft && <Chip tone="neutral">черновик</Chip>}
-        {cancelled && <Chip tone="danger">отменена</Chip>}
+        {draft && <Chip tone="neutral">{t('shiftStatus.draft')}</Chip>}
+        {cancelled && <Chip tone="danger">{t('shifts.cancelledChip')}</Chip>}
         {shift.attendance && (
           <Chip tone={shift.attendance.outcome === 'absent' ? 'danger' : shift.attendance.outcome === 'late' ? 'warning' : 'success'}>
             {shift.attendance.outcome === 'absent'
-              ? 'не вышел'
+              ? t('attendanceOutcome.absent')
               : shift.attendance.outcome === 'late'
-                ? `+${shift.attendance.lateMin} мин`
-                : 'вышел'}
+                ? t('shifts.lateBy', { n: shift.attendance.lateMin })
+                : t('attendanceOutcome.worked')}
           </Chip>
         )}
       </div>
@@ -185,24 +189,24 @@ function ShiftChip({
       <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', marginTop: '0.15rem' }}>
         {shift.canTake && (
           <Button size="sm" variant="primary" onClick={() => onTake(shift.id)}>
-            Возьму
+            {t('shifts.take')}
           </Button>
         )}
         {canMark && past && !cancelled && shift.userId && (
           <Button size="sm" variant="ghost" onClick={() => onOpenAttendance(shift)}>
-            {shift.attendance ? 'Правка факта' : 'Отметить'}
+            {shift.attendance ? t('shifts.editAttendance') : t('shifts.mark')}
           </Button>
         )}
         {/* Путь без мыши: на телефоне виден ОДИН день, тащить некуда, а с клавиатуры
             нативный dnd недоступен вовсе. */}
         {canManage && !cancelled && (
           <Button size="sm" variant="ghost" icon="drag" onClick={() => onRequestMove(shift)}>
-            Переместить…
+            {t('shifts.move')}
           </Button>
         )}
         {canManage && !cancelled && (
           <Button size="sm" variant="ghost" tone="danger" onClick={() => onCancel(shift)}>
-            Отменить
+            {t('shifts.cancel')}
           </Button>
         )}
       </div>

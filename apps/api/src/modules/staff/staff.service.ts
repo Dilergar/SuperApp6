@@ -1,11 +1,7 @@
-import {
-  Injectable,
-  NotFoundException,
-  ForbiddenException,
-  BadRequestException,
-  ConflictException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { DatabaseService } from '../../shared/database/database.service';
+import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import {
   activeAssignmentWhere,
   assignmentToday,
@@ -20,6 +16,7 @@ import { fullName } from '../../shared/utils/user-name';
 import {
   OBJECTS_ERROR_CODES,
   ORG_ERROR_CODES,
+  SOURCE_LOCALE,
   STAFF_LIMITS,
   WORKSPACE_ROLE_RANK,
   type OrgScopeDto,
@@ -56,8 +53,6 @@ interface Actor {
   scope: OrgScopeDto;
 }
 
-const coded = <T extends Error>(Ctor: new (body: unknown) => T, message: string, code: string): T =>
-  new Ctor({ message, details: { code } });
 
 /**
  * StaffService — сервис «Сотрудники» (B2B): справочники Должность/Отдел/Объект +
@@ -92,6 +87,7 @@ export class StaffService {
     private chatter: ChatterService,
     private orgGraph: OrgGraphService,
     private rights: OrgRightsService,
+    private i18n: I18nService,
   ) {}
 
   /** Имя пользователя для снапшотов хроники (удалённый/неизвестный → «Пользователь»). */
@@ -228,7 +224,7 @@ export class StaffService {
     if (!data.parentId) this.requireAll(actor);
     const count = await this.db.staffDepartment.count({ where: { workspaceId } });
     if (count >= STAFF_LIMITS.maxDepartmentsPerWorkspace) {
-      throw new BadRequestException(`Лимит отделов: ${STAFF_LIMITS.maxDepartmentsPerWorkspace}`);
+      throw badRequest('staff.departmentLimit', { max: STAFF_LIMITS.maxDepartmentsPerWorkspace });
     }
     if (data.parentId) {
       await this.getDepartmentOrThrow(workspaceId, data.parentId);
@@ -250,7 +246,7 @@ export class StaffService {
           },
           select: { id: true, name: true, parentId: true, headPositionId: true },
         });
-        await this.logUnit(tx, workspaceId, userId, 'created', 'отдел', row.name);
+        await this.logUnit(tx, workspaceId, userId, 'created', 'department', row.name);
         // Цикл новый отдел замкнуть не может: у него нет ни должностей, ни подотделов.
         if (data.headPositionId) {
           await this.logHeadSet(tx, workspaceId, userId, row.id, row.name, null, data.headPositionId);
@@ -259,13 +255,13 @@ export class StaffService {
       });
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        throw new ConflictException('Отдел с таким названием уже есть');
+        throw conflict('staff.departmentDuplicate');
       }
       throw e;
     }
     await this.afterStructureChanged(workspaceId);
     // Уведомление — только после коммита: шина at-most-once, откат её не догонит.
-    if (data.headPositionId) await this.notifyHeadHolders(workspaceId, data.headPositionId, `отделом «${dep.name}»`);
+    if (data.headPositionId) await this.notifyHeadHolders(workspaceId, data.headPositionId, 'department', dep.name);
     return { id: dep.id, name: dep.name, parentId: dep.parentId, headPositionId: dep.headPositionId };
   }
 
@@ -281,7 +277,7 @@ export class StaffService {
 
     if (data.parentId !== undefined && data.parentId !== current.parentId) {
       if (data.parentId === departmentId) {
-        throw new BadRequestException('Отдел не может быть родителем самого себя');
+        throw badRequest('staff.departmentSelfParent');
       }
       if (data.parentId === null) this.requireAll(actor); // вынос в корень
       else {
@@ -325,12 +321,12 @@ export class StaffService {
       });
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        throw new ConflictException('Отдел с таким названием уже есть');
+        throw conflict('staff.departmentDuplicate');
       }
       throw e;
     }
     if (headChanged && data.headPositionId) {
-      await this.notifyHeadHolders(workspaceId, data.headPositionId, `отделом «${data.name ?? current.name}»`);
+      await this.notifyHeadHolders(workspaceId, data.headPositionId, 'department', data.name ?? current.name);
     }
     // Родитель/голова меняют производные рёбра (member предков, head потомков) —
     // им нужна полная пересборка проекции. Имя и порядок рёбер не трогают, но ЛЕЖАТ
@@ -361,7 +357,7 @@ export class StaffService {
       }
       // Должности отцепляются (FK SetNull) — мягкое удаление узла.
       await tx.staffDepartment.delete({ where: { id: departmentId } });
-      await this.logUnit(tx, workspaceId, userId, 'deleted', 'отдел', dep.name);
+      await this.logUnit(tx, workspaceId, userId, 'deleted', 'department', dep.name);
     });
     await this.accessProjection.staffEntityDeleted('department', departmentId);
     await this.afterStructureChanged(workspaceId);
@@ -391,7 +387,7 @@ export class StaffService {
     }
     const count = await this.db.staffPosition.count({ where: { workspaceId } });
     if (count >= STAFF_LIMITS.maxPositionsPerWorkspace) {
-      throw new BadRequestException(`Лимит должностей: ${STAFF_LIMITS.maxPositionsPerWorkspace}`);
+      throw badRequest('staff.positionLimit', { max: STAFF_LIMITS.maxPositionsPerWorkspace });
     }
     if (data.reportsToPositionId) await this.getPositionOrThrow(workspaceId, data.reportsToPositionId);
 
@@ -409,12 +405,12 @@ export class StaffService {
           },
           select: { id: true, name: true, departmentId: true },
         });
-        await this.logUnit(tx, workspaceId, userId, 'created', 'должность', row.name);
+        await this.logUnit(tx, workspaceId, userId, 'created', 'position', row.name);
         return row;
       });
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        throw new ConflictException('Должность с таким названием уже есть');
+        throw conflict('staff.positionDuplicate');
       }
       throw e;
     }
@@ -452,7 +448,7 @@ export class StaffService {
     const reportsChanged = data.reportsToPositionId !== undefined && data.reportsToPositionId !== pos.reportsToPositionId;
     if (reportsChanged && data.reportsToPositionId) {
       if (data.reportsToPositionId === positionId) {
-        throw new BadRequestException('Должность не может подчиняться самой себе');
+        throw badRequest('staff.positionSelfReports');
       }
       await this.getPositionOrThrow(workspaceId, data.reportsToPositionId);
     }
@@ -480,7 +476,7 @@ export class StaffService {
       });
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        throw new ConflictException('Должность с таким названием уже есть');
+        throw conflict('staff.positionDuplicate');
       }
       throw e;
     }
@@ -497,7 +493,7 @@ export class StaffService {
         actorId: userId,
         actorName: await this.chatterUserName(userId),
         typeKey: 'staff.position_moved',
-        changes: [{ field: 'department', label: 'Отдел', from, to }],
+        changes: [{ field: 'department', label: this.fieldLabel('department'), from, to }],
         payload: { positionId, positionName: data.name ?? pos.name },
       });
     }
@@ -513,7 +509,7 @@ export class StaffService {
         actorId: userId,
         actorName: await this.chatterUserName(userId),
         typeKey: 'staff.reports_to_set',
-        changes: [{ field: 'reportsTo', label: 'Подчиняется', from, to }],
+        changes: [{ field: 'reportsTo', label: this.fieldLabel('reportsTo'), from, to }],
         payload: { positionId, positionName: data.name ?? pos.name },
       });
     }
@@ -529,22 +525,18 @@ export class StaffService {
     this.requirePosition(actor, pos.departmentId);
     const holders = await this.db.staffAssignment.count({ where: { positionId } });
     if (holders > 0) {
-      throw new ConflictException('Сначала снимите назначения этой должности с сотрудников');
+      throw conflict('staff.positionHasHolders');
     }
     const [headsDep, headsBr] = await Promise.all([
       this.db.staffDepartment.count({ where: { headPositionId: positionId } }),
       this.db.staffBranch.count({ where: { headPositionId: positionId } }),
     ]);
     if (headsDep + headsBr > 0) {
-      throw coded(
-        ConflictException,
-        'Должность руководит отделом или объектом — сначала назначьте другого руководителя',
-        ORG_ERROR_CODES.headInUse,
-      );
+      throw conflict('staff.positionIsHead', undefined, { code: ORG_ERROR_CODES.headInUse });
     }
     await this.db.$transaction(async (tx) => {
       await tx.staffPosition.delete({ where: { id: positionId } });
-      await this.logUnit(tx, workspaceId, userId, 'deleted', 'должность', pos.name);
+      await this.logUnit(tx, workspaceId, userId, 'deleted', 'position', pos.name);
     });
     await this.accessProjection.staffEntityDeleted('position', positionId);
     // reportsTo на неё → SetNull (откат к дереву), заместители → каскад FK.
@@ -564,7 +556,7 @@ export class StaffService {
     this.requireAll(actor);
     const count = await this.db.staffBranch.count({ where: { workspaceId } });
     if (count >= STAFF_LIMITS.maxBranchesPerWorkspace) {
-      throw new BadRequestException(`Лимит объектов: ${STAFF_LIMITS.maxBranchesPerWorkspace}`);
+      throw badRequest('staff.branchLimit', { max: STAFF_LIMITS.maxBranchesPerWorkspace });
     }
     if (data.headPositionId) await this.getPositionOrThrow(workspaceId, data.headPositionId);
     try {
@@ -580,21 +572,21 @@ export class StaffService {
             isDefault: count === 0,
           },
         });
-        await this.logUnit(tx, workspaceId, userId, 'created', 'объект', row.name);
+        await this.logUnit(tx, workspaceId, userId, 'created', 'branch', row.name);
         if (data.headPositionId) {
           await this.logBranchHeadSet(tx, workspaceId, userId, row.id, row.name, null, data.headPositionId);
         }
         return row;
       });
       await this.orgGraph.invalidate(workspaceId);
-      if (data.headPositionId) await this.notifyHeadHolders(workspaceId, data.headPositionId, `объектом «${br.name}»`, br.id);
+      if (data.headPositionId) await this.notifyHeadHolders(workspaceId, data.headPositionId, 'branch', br.name, br.id);
       return { id: br.id, name: br.name, isDefault: br.isDefault };
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         // Гонка «первый объект»: партиальный уникум is_default отвергает второго
         // основного тем же кодом, что и дубль имени — сообщение подбираем по факту.
         const dupName = await this.db.staffBranch.count({ where: { workspaceId, name: data.name } });
-        throw new ConflictException(dupName > 0 ? 'Объект с таким названием уже есть' : 'Основной объект уже назначен — повторите');
+        throw conflict(dupName > 0 ? 'staff.branchDuplicate' : 'staff.branchDefaultTaken');
       }
       throw e;
     }
@@ -631,7 +623,7 @@ export class StaffService {
     // Прежний основной читаем ДО транзакции: после переноса флага «предыдущего»
     // приходилось угадывать по updatedAt — снимок имени честнее догадки.
     const prevDefaultName = makeDefault
-      ? (await this.db.staffBranch.findFirst({ where: { workspaceId, isDefault: true }, select: { name: true } }))?.name ?? '—'
+      ? (await this.db.staffBranch.findFirst({ where: { workspaceId, isDefault: true }, select: { name: true } }))?.name ?? null
       : null;
     const actorName = await this.chatterUserName(userId);
 
@@ -662,7 +654,7 @@ export class StaffService {
             actorId: userId,
             actorName,
             typeKey: 'staff.default_branch_changed',
-            changes: [{ field: 'defaultBranch', label: 'Основной объект', from: prevDefaultName ?? '—', to: data.name ?? current.name }],
+            changes: [{ field: 'defaultBranch', label: this.fieldLabel('defaultBranch'), from: prevDefaultName, to: data.name ?? current.name }],
             payload: { branchId },
           });
         }
@@ -672,13 +664,13 @@ export class StaffService {
       });
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        throw new ConflictException('Объект с таким названием уже есть');
+        throw conflict('staff.branchDuplicate');
       }
       throw e;
     }
     if (headChanged) {
       if (data.headPositionId) {
-        await this.notifyHeadHolders(workspaceId, data.headPositionId, `объектом «${data.name ?? current.name}»`, branchId);
+        await this.notifyHeadHolders(workspaceId, data.headPositionId, 'branch', data.name ?? current.name, branchId);
       }
       await this.afterStructureChanged(workspaceId);
     } else {
@@ -694,21 +686,17 @@ export class StaffService {
     const br = await this.getBranchOrThrow(workspaceId, branchId);
     const total = await this.db.staffBranch.count({ where: { workspaceId } });
     if (br.isDefault || total <= 1) {
-      throw coded(
-        ConflictException,
-        'Основной объект удалить нельзя: сначала сделайте основным другой объект',
-        ORG_ERROR_CODES.defaultBranch,
-      );
+      throw conflict('staff.branchDefaultDelete', undefined, { code: ORG_ERROR_CODES.defaultBranch });
     }
     const used = await this.db.staffAssignment.count({
       where: { branchId, ...activeAssignmentWhere() },
     });
     if (used > 0) {
-      throw new ConflictException('Сначала переведите сотрудников из этого объекта');
+      throw conflict('staff.branchHasStaff');
     }
     await this.db.$transaction(async (tx) => {
       await tx.staffBranch.delete({ where: { id: branchId } });
-      await this.logUnit(tx, workspaceId, userId, 'deleted', 'объект', br.name);
+      await this.logUnit(tx, workspaceId, userId, 'deleted', 'branch', br.name);
     });
     await this.accessProjection.staffEntityDeleted('branch', branchId);
     await this.orgGraph.invalidate(workspaceId);
@@ -761,9 +749,9 @@ export class StaffService {
     inTx?: (tx: Tx, assignmentId: string) => Promise<void>,
   ) {
     const targetRole = await this.getRoleOf(targetUserId, workspaceId);
-    if (!targetRole) throw new NotFoundException('Этот человек не в организации');
+    if (!targetRole) throw notFound('staff.notInWorkspace');
     if (targetRole === 'contractor') {
-      throw new BadRequestException('Подрядчику должности не назначаются');
+      throw badRequest('staff.contractorNoPosition');
     }
 
     const position = await this.getPositionOrThrow(workspaceId, data.positionId);
@@ -773,7 +761,7 @@ export class StaffService {
       where: { workspaceId, userId: targetUserId, ...activeAssignmentWhere() },
     });
     if (existingCount >= STAFF_LIMITS.maxAssignmentsPerMember) {
-      throw new BadRequestException(`Лимит должностей на сотрудника: ${STAFF_LIMITS.maxAssignmentsPerMember}`);
+      throw badRequest('staff.assignmentLimit', { max: STAFF_LIMITS.maxAssignmentsPerMember });
     }
 
     // Дубль ищем среди действующих НА ДАТУ НАЧАЛА нового назначения: уникум в БД
@@ -792,10 +780,7 @@ export class StaffService {
       select: { id: true },
     });
     if (dup) {
-      throw new ConflictException({
-        message: 'Такое назначение уже есть',
-        details: { code: OBJECTS_ERROR_CODES.assignmentOverlap },
-      });
+      throw conflict('staff.assignmentDuplicate', undefined, { code: OBJECTS_ERROR_CODES.assignmentOverlap });
     }
 
     // Имена для вечной записи снимаем ДО транзакции: внутри неё остаётся только запись.
@@ -856,15 +841,12 @@ export class StaffService {
     } catch (e) {
       // Гонка двух параллельных назначений — unique-индексы решают.
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        throw new ConflictException('Такое назначение уже есть');
+        throw conflict('staff.assignmentDuplicate');
       }
       // 23P01 — EXCLUDE `staff_assignments_no_overlap`: периоды одной связки
       // пересеклись. Это данные, а не UI: машинный код, чтобы веб не гадал по тексту.
       if (isAssignmentOverlapError(e)) {
-        throw new ConflictException({
-          message: 'Периоды назначения пересекаются — закройте предыдущее',
-          details: { code: OBJECTS_ERROR_CODES.assignmentOverlap },
-        });
+        throw conflict('staff.assignmentOverlap', undefined, { code: OBJECTS_ERROR_CODES.assignmentOverlap });
       }
       throw e;
     }
@@ -905,7 +887,7 @@ export class StaffService {
       include: ASSIGNMENT_INCLUDE,
     });
     if (!current || current.workspaceId !== workspaceId) {
-      throw new NotFoundException('Назначение не найдено');
+      throw notFound('staff.assignmentNotFound');
     }
     this.requireAssignment(actor, current.position.departmentId, current.branchId);
     await this.assertRankAllows(actor, workspaceId, current.userId);
@@ -926,7 +908,7 @@ export class StaffService {
         },
         select: { id: true },
       });
-      if (dup) throw new ConflictException('Такое назначение уже есть');
+      if (dup) throw conflict('staff.assignmentDuplicate');
     }
 
     const makePrimary = data.isPrimary === true && !current.isPrimary;
@@ -969,7 +951,7 @@ export class StaffService {
           actorId,
           actorName,
           typeKey: 'staff.position_updated',
-          changes: [{ field: 'branch', label: 'Объект', from: current.branch.name, to: row.branch.name }],
+          changes: [{ field: 'branch', label: this.fieldLabel('branch'), from: current.branch.name, to: row.branch.name }],
           payload: { targetUserId: current.userId, targetName, positionName: current.position.name },
         });
       }
@@ -984,8 +966,8 @@ export class StaffService {
           changes: [
             {
               field: 'primary',
-              label: 'Основное место',
-              from: prevPrimary ? `${prevPrimary.position.name} · ${prevPrimary.branch.name}` : '—',
+              label: this.fieldLabel('primary'),
+              from: prevPrimary ? `${prevPrimary.position.name} · ${prevPrimary.branch.name}` : null,
               to: `${row.position.name} · ${row.branch.name}`,
             },
           ],
@@ -1039,7 +1021,7 @@ export class StaffService {
       select: { id: true, workspaceId: true, userId: true, branchId: true, position: { select: { departmentId: true } } },
     });
     if (!current || current.workspaceId !== workspaceId) {
-      throw new NotFoundException('Назначение не найдено');
+      throw notFound('staff.assignmentNotFound');
     }
     this.requireAssignment(actor, current.position.departmentId, current.branchId);
     await this.assertRankAllows(actor, workspaceId, current.userId);
@@ -1059,7 +1041,7 @@ export class StaffService {
       },
     });
     if (!current || current.workspaceId !== workspaceId) {
-      throw new NotFoundException('Назначение не найдено');
+      throw notFound('staff.assignmentNotFound');
     }
     const [actorName, targetName] = await Promise.all([
       this.chatterUserName(actorId),
@@ -1298,7 +1280,12 @@ export class StaffService {
     }
     const ws = await db.workspace.findUnique({ where: { id: workspaceId }, select: { name: true } });
     const created = await db.staffBranch.create({
-      data: { workspaceId, name: ws?.name ?? 'Основной объект', isDefault: true },
+      // Имя объекта ложится в БД навсегда — фолбэк пишем в языке ИСТОЧНИКА.
+      data: {
+        workspaceId,
+        name: ws?.name || this.i18n.translateFor(SOURCE_LOCALE, 'staff.member.defaultBranch'),
+        isDefault: true,
+      },
       select: { id: true, name: true },
     });
     return created;
@@ -1345,9 +1332,9 @@ export class StaffService {
   /** Любой член «команды» (Подрядчик изолирован — ростер/справочники ему закрыты). */
   private async assertTeamMember(userId: string, workspaceId: string): Promise<WorkspaceRole> {
     const role = await this.getRoleOf(userId, workspaceId);
-    if (!role) throw new ForbiddenException('Нет доступа к этой организации');
+    if (!role) throw forbidden('workspace.noAccess');
     if (role === 'contractor') {
-      throw new ForbiddenException('Подрядчику доступны только его задачи');
+      throw forbidden('staff.contractorTasksOnly');
     }
     return role;
   }
@@ -1357,14 +1344,14 @@ export class StaffService {
     const role = await this.assertTeamMember(userId, workspaceId);
     const scope = await this.rights.scopeOf(userId, workspaceId, role);
     if (scope.kind === 'none') {
-      throw new ForbiddenException('Недостаточно прав: структуру правят Менеджер и выше либо руководители своих отделов и объектов');
+      throw forbidden('staff.manageForbidden');
     }
     return { userId, role, scope };
   }
 
   /** Управление всей организацией (корневые отделы, объекты): владелец, админ, менеджер. */
   private requireAll(actor: Actor): void {
-    if (actor.scope.kind !== 'all') throw OrgRightsService.forbid('Недостаточно прав (нужен Менеджер или выше)');
+    if (actor.scope.kind !== 'all') throw OrgRightsService.forbid('staff.managerRequired');
   }
 
   private requireDepartment(actor: Actor, departmentId: string): void {
@@ -1389,7 +1376,7 @@ export class StaffService {
     const targetRole = await this.getRoleOf(targetUserId, workspaceId);
     if (!targetRole) return; // «не в организации» — отдельная ошибка ниже по пути
     if ((WORKSPACE_ROLE_RANK[targetRole] ?? 0) > (WORKSPACE_ROLE_RANK[actor.role] ?? 0)) {
-      throw new ForbiddenException('Нельзя менять назначения сотрудника с более высокой ролью в организации');
+      throw forbidden('staff.rankTooHigh');
     }
   }
 
@@ -1414,7 +1401,7 @@ export class StaffService {
     const dep = await this.db.staffDepartment.findFirst({
       where: { id: departmentId, workspaceId },
     });
-    if (!dep) throw new NotFoundException('Отдел не найден');
+    if (!dep) throw notFound('staff.departmentNotFound');
     return dep;
   }
 
@@ -1422,7 +1409,7 @@ export class StaffService {
     const pos = await this.db.staffPosition.findFirst({
       where: { id: positionId, workspaceId },
     });
-    if (!pos) throw new NotFoundException('Должность не найдена');
+    if (!pos) throw notFound('staff.positionNotFound');
     return pos;
   }
 
@@ -1430,20 +1417,30 @@ export class StaffService {
     const br = await this.db.staffBranch.findFirst({
       where: { id: branchId, workspaceId },
     });
-    if (!br) throw new NotFoundException('Объект не найден');
+    if (!br) throw notFound('staff.branchNotFound');
     return br;
   }
 
-  private async departmentName(id: string | null): Promise<string> {
-    if (!id) return 'без отдела';
+  /**
+   * Имя справочника для «было → стало» вечной записи. Пусто — это `null`, а НЕ слово:
+   * прочерк рисует зритель из своего каталога (`common.labels.dash`), иначе «без
+   * отдела» застыло бы в языке того, кто нажал кнопку.
+   */
+  private async departmentName(id: string | null): Promise<string | null> {
+    if (!id) return null;
     const d = await this.db.staffDepartment.findUnique({ where: { id }, select: { name: true } });
-    return d?.name ?? 'без отдела';
+    return d?.name ?? null;
   }
 
-  private async positionName(id: string | null): Promise<string> {
-    if (!id) return 'по структуре';
+  private async positionName(id: string | null): Promise<string | null> {
+    if (!id) return null;
     const p = await this.db.staffPosition.findUnique({ where: { id }, select: { name: true } });
-    return p?.name ?? 'по структуре';
+    return p?.name ?? null;
+  }
+
+  /** Снимок подписи поля для ВЕЧНОЙ записи — в языке источника (зритель берёт каталог). */
+  private fieldLabel(field: string): string {
+    return this.i18n.translateFor(SOURCE_LOCALE, `chatter.fields.workspace.${field}`);
   }
 
   /** Новый родитель не должен быть потомком отдела (иначе цикл в дереве). */
@@ -1461,7 +1458,7 @@ export class StaffService {
     const visited = new Set<string>();
     while (cursor) {
       if (cursor === departmentId) {
-        throw new BadRequestException('Нельзя переместить отдел внутрь его собственного подотдела');
+        throw badRequest('staff.departmentIntoDescendant');
       }
       if (visited.has(cursor)) break; // защитный выход при повреждённом дереве
       visited.add(cursor);
@@ -1490,14 +1487,14 @@ export class StaffService {
     return findPositionCycle(g);
   }
 
-  private async cycleError(workspaceId: string, cycle: string[]): Promise<BadRequestException> {
+  private async cycleError(workspaceId: string, cycle: string[]) {
     const names = await this.db.staffPosition.findMany({
       where: { workspaceId, id: { in: cycle } },
       select: { id: true, name: true },
     });
     const byId = new Map(names.map((n) => [n.id, n.name]));
     const path = [...cycle, cycle[0]].map((id) => byId.get(id) ?? '?').join(' → ');
-    return coded(BadRequestException, `Подчинение замыкается в цикл: ${path}`, ORG_ERROR_CODES.cycle);
+    return badRequest('staff.cycle', { path }, { code: ORG_ERROR_CODES.cycle });
   }
 
   /**
@@ -1522,18 +1519,22 @@ export class StaffService {
       actorId,
       actorName: await this.chatterUserName(actorId),
       typeKey: 'staff.head_set',
-      changes: [{ field: 'head', label: 'Руководитель', from, to }],
+      changes: [{ field: 'head', label: this.fieldLabel('head'), from, to }],
       payload: { departmentId, departmentName },
     });
   }
 
-  /** Появление/исчезновение единицы структуры — в ту же транзакцию, что и сама правка */
+  /**
+   * Появление/исчезновение единицы структуры — в ту же транзакцию, что и сама правка.
+   * Вид единицы едет в вечный payload КЛЮЧОМ каталога (`staff.unitLabel.<вид>`), а не
+   * словом: текст записи собирается в языке читателя.
+   */
   private async logUnit(
     tx: Tx | null,
     workspaceId: string,
     actorId: string,
     kind: 'created' | 'deleted',
-    unitLabel: 'отдел' | 'должность' | 'объект',
+    unitKind: 'department' | 'position' | 'branch',
     unitName: string,
   ): Promise<void> {
     await this.chatter.log(tx, {
@@ -1543,7 +1544,7 @@ export class StaffService {
       actorId,
       actorName: await this.chatterUserName(actorId),
       typeKey: kind === 'created' ? 'staff.unit_created' : 'staff.unit_deleted',
-      payload: { unitLabel, unitName },
+      payload: { unitLabelKey: `staff.unitLabel.${unitKind}`, unitName },
     });
   }
 
@@ -1564,19 +1565,29 @@ export class StaffService {
       actorId,
       actorName: await this.chatterUserName(actorId),
       typeKey: 'staff.branch_head_set',
-      changes: [{ field: 'head', label: 'Руководитель', from, to }],
+      changes: [{ field: 'head', label: this.fieldLabel('head'), from, to }],
       payload: { branchId, branchName },
     });
   }
 
-  private async headName(positionId: string | null): Promise<string> {
-    if (!positionId) return 'не назначен';
+  /** «Не назначен» — это ПУСТО (`null`), а не слово: прочерк рисует зритель. */
+  private async headName(positionId: string | null): Promise<string | null> {
+    if (!positionId) return null;
     const p = await this.db.staffPosition.findUnique({ where: { id: positionId }, select: { name: true } });
-    return p?.name ?? 'не назначен';
+    return p?.name ?? null;
   }
 
-  /** Уведомить держателей руководящей должности (объект — только работающих в нём). */
-  private async notifyHeadHolders(workspaceId: string, positionId: string, unitLabel: string, branchId?: string): Promise<void> {
+  /**
+   * Уведомить держателей руководящей должности (объект — только работающих в нём).
+   * Единица едет ключом каталога: уведомление рендерится в языке АДРЕСАТА.
+   */
+  private async notifyHeadHolders(
+    workspaceId: string,
+    positionId: string,
+    unitKind: 'department' | 'branch',
+    unitName: string,
+    branchId?: string,
+  ): Promise<void> {
     const [holders, ws, pos] = await Promise.all([
       this.db.staffAssignment.findMany({
         where: { workspaceId, positionId, ...(branchId ? { branchId } : {}), ...activeAssignmentWhere() },
@@ -1590,7 +1601,13 @@ export class StaffService {
     await this.notifications.send(null, {
       type: 'staff.head.assigned',
       to: userIds.map((id) => ({ userId: id })),
-      payload: { workspaceId, workspaceName: ws?.name ?? '', unitLabel, positionName: pos?.name ?? '' },
+      payload: {
+        workspaceId,
+        workspaceName: ws?.name ?? '',
+        unitLabelKey: `staff.headUnit.${unitKind}`,
+        unitName,
+        positionName: pos?.name ?? '',
+      },
       workspaceId,
       reason: 'manager',
       actionUrl: `/workspaces/${workspaceId}/members/org`,
@@ -1611,15 +1628,29 @@ export class StaffService {
       this.db.staffBranch.findMany({ where: { workspaceId, headPositionId: positionId, id: branchId }, select: { name: true } }),
       this.db.staffPosition.findUnique({ where: { id: positionId }, select: { name: true } }),
     ]);
-    const units = [...deps.map((d) => `отделом «${d.name}»`), ...brs.map((b) => `объектом «${b.name}»`)];
+    const units: Array<{ kind: 'department' | 'branch'; name: string }> = [
+      ...deps.map((d) => ({ kind: 'department' as const, name: d.name })),
+      ...brs.map((b) => ({ kind: 'branch' as const, name: b.name })),
+    ];
     if (!units.length) return;
-    await this.notifications.send(null, {
-      type: 'staff.head.assigned',
-      to: userIds.map((id) => ({ userId: id })),
-      payload: { workspaceId, workspaceName, unitLabel: units.join(', '), positionName: pos?.name ?? '' },
-      workspaceId,
-      reason: 'manager',
-      actionUrl: `/workspaces/${workspaceId}/members/org`,
-    });
+    // Единиц может быть несколько (одна должность ведёт два отдела) — по уведомлению
+    // на каждую: склеенная строка «отделом «А», отделом «Б»» была бы СЛОВОМ в вечном
+    // payload, то есть языком того, кто нажал кнопку.
+    for (const unit of units) {
+      await this.notifications.send(null, {
+        type: 'staff.head.assigned',
+        to: userIds.map((id) => ({ userId: id })),
+        payload: {
+          workspaceId,
+          workspaceName,
+          unitLabelKey: `staff.headUnit.${unit.kind}`,
+          unitName: unit.name,
+          positionName: pos?.name ?? '',
+        },
+        workspaceId,
+        reason: 'manager',
+        actionUrl: `/workspaces/${workspaceId}/members/org`,
+      });
+    }
   }
 }

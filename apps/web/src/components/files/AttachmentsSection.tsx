@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import type { FileDto } from '@superapp/shared';
 import type { DocsPlace } from '../../lib/docs-api';
 import { useFileUpload } from '../../lib/hooks/useFileUpload';
@@ -48,6 +49,7 @@ export function AttachmentsSection({
   onAttach,
   onRemove,
 }: AttachmentsSectionProps) {
+  const t = useTranslations('common');
   const [lightbox, setLightbox] = useState<FileDto | null>(null);
   const uploader = useFileUpload(profile, { onUploaded: onAttach });
   // Второй загрузчик существует всегда (хуки не вызываются условно), но получает
@@ -100,13 +102,13 @@ export function AttachmentsSection({
 
       {canEdit && (
         <>
-          <FileDropzone onFiles={(fs) => addFiles(fs)} paste multiple compact label="Прикрепить файл" />
+          <FileDropzone onFiles={(fs) => addFiles(fs)} paste multiple compact label={t('files.attach')} />
           <UploadProgressList items={pending} onCancel={cancelUpload} onRemove={removeUpload} />
         </>
       )}
 
       {!canEdit && files.length === 0 && (
-        <p className="label-sm" style={{ opacity: 0.6, fontSize: '0.75rem' }}>Вложений нет.</p>
+        <p className="label-sm" style={{ opacity: 0.6, fontSize: '0.75rem' }}>{t('files.noAttachments')}</p>
       )}
 
       {lightbox && <ImageLightbox file={lightbox} onClose={() => setLightbox(null)} />}
@@ -125,6 +127,7 @@ function ImageTile({
   onOpen: () => void;
   onRemove: () => void;
 }) {
+  const t = useTranslations('common');
   const { url } = useFileDisplayUrl(file, 'thumb');
   return (
     <div style={{ position: 'relative', width: 72, height: 72, borderRadius: 'var(--radius-md)', overflow: 'hidden', background: 'var(--surface-container-high)' }}>
@@ -132,7 +135,7 @@ function ImageTile({
       <button
         type="button"
         onClick={onOpen}
-        aria-label={`Открыть: ${file.name}`}
+        aria-label={t('files.openAria', { name: file.name })}
         style={{ width: '100%', height: '100%', border: 'none', padding: 0, background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       >
         {url ? (
@@ -146,8 +149,8 @@ function ImageTile({
         <button
           type="button"
           onClick={onRemove}
-          title="Убрать"
-          aria-label={`Убрать вложение: ${file.name}`}
+          title={t('actions.remove')}
+          aria-label={t('files.removeAttachmentAria', { name: file.name })}
           style={{ position: 'absolute', top: 2, right: 2, width: 18, height: 18, border: 'none', borderRadius: '50%', background: 'rgba(0, 0, 0, 0.65)', color: 'var(--on-primary)', fontSize: '0.6rem', cursor: 'pointer', lineHeight: 1 }}
         >
           ✕

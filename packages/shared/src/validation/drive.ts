@@ -21,10 +21,10 @@ const hasControlChar = (s: string): boolean => [...s].some((c) => (c.codePointAt
 const nodeName = z
   .string()
   .trim()
-  .min(1, 'Название обязательно')
+  .min(1, 'validation.drive.nameRequired')
   .max(DRIVE_LIMITS.maxNameLength)
-  .refine((s) => !FORBIDDEN_NAME_CHARS.test(s) && !hasControlChar(s), 'Недопустимые символы в названии')
-  .refine((s) => s !== '.' && s !== '..', 'Недопустимое название');
+  .refine((s) => !FORBIDDEN_NAME_CHARS.test(s) && !hasControlChar(s), 'validation.drive.badCharacters')
+  .refine((s) => s !== '.' && s !== '..', 'validation.drive.reservedName');
 
 const nodeId = z.string().uuid();
 const spaceRef = {
@@ -34,10 +34,10 @@ const spaceRef = {
   workspaceId: z.string().uuid().optional(),
 };
 const oneSpace = (v: { spaceId?: string; workspaceId?: string }) => !(v.spaceId && v.workspaceId);
-const oneSpaceMsg = { message: 'Укажите либо spaceId, либо workspaceId' };
+const oneSpaceMsg = { message: 'validation.drive.oneSpace' };
 
 /** Пакетная операция: список узлов с потолком — иначе одним запросом можно уронить инстанс */
-const nodeIds = z.array(nodeId).min(1, 'Не выбрано ни одного объекта').max(DRIVE_LIMITS.maxBulkIds);
+const nodeIds = z.array(nodeId).min(1, 'validation.drive.pickSomething').max(DRIVE_LIMITS.maxBulkIds);
 
 export const driveOverviewQuerySchema = z.object(spaceRef).strict().refine(oneSpace, oneSpaceMsg);
 
@@ -159,7 +159,7 @@ export const drivePhotoQuerySchema = z
     /** `YYYY-MM`; без него лента идёт с самых свежих */
     month: z
       .string()
-      .regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Ожидается месяц в формате ГГГГ-ММ')
+      .regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'validation.drive.monthPeriod')
       .optional(),
     cursor: z.string().max(200).optional(),
     limit: z.coerce.number().int().min(1).max(DRIVE_LIMITS.photoPageSize).optional(),

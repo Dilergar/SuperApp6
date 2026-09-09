@@ -1,0 +1,228 @@
+{
+  "actStatus": {
+    "declined": "Declined to sign",
+    "expired": "The signing deadline has passed",
+    "failed": "The signature was rejected",
+    "pending": "Awaiting the signature",
+    "signed": "Signed"
+  },
+  "block": {
+    "check": "Check the signature",
+    "downloadStamped": "Download with the stamps",
+    "package": "Package with the signatures",
+    "packageFileName": "Signed",
+    "protocol": "Signing log",
+    "reason": "Reason: {reason}",
+    "sign": "Sign",
+    "title": "Signatures"
+  },
+  "check": {
+    "chainBad": "The chain is not verified",
+    "checking": "Checking:",
+    "dropNote": "THE FILE STAYS IN THE BROWSER — ONLY THE FINGERPRINT GOES TO THE SERVER",
+    "dropTitle": "Drag the signed document here or pick a file",
+    "failed": "Could not check the signature. Try again later.",
+    "found": "The document is signed in SuperApp6. Signatures found: {count}",
+    "lead": "Upload the signed document — the browser computes its fingerprint and finds the signatures.",
+    "leadNote": "The file itself is never sent to the server.",
+    "needsHttps": "The check works only over a secure connection (https). Open the page at its https address.",
+    "notFound": "No signatures were found for this document. The file may have been changed after the signing — a single added space is enough for the fingerprint to stop matching.",
+    "originalFingerprint": "Fingerprint of the signed original: {sha256}",
+    "pageTitle": "Electronic signature check — SuperApp6",
+    "pepNote": "Simple electronic signature: the identity is confirmed by the sign-in and by an SMS code, and the integrity of the document is maintained by the information system (art. 46–47 of the Digital Code of the Republic of Kazakhstan).",
+    "readFailed": "Could not read the file or reach the verification service.",
+    "revoked": "The certificate was revoked",
+    "rowIin": "IIN",
+    "rowIssuer": "Certificate issuer",
+    "rowMethod": "Method",
+    "rowSerial": "Serial number",
+    "rowSignedAt": "Signed",
+    "rowStatus": "Status at the moment of signing",
+    "stampedNotice": "You are checking a copy with the stamps. The signatures were placed under the original document — its fingerprint is shown below; the stamped copy itself was made by the system after the signing.",
+    "statusGood": "valid",
+    "thirdParty": "For a third-party check",
+    "thirdPartyNote": "The signature containers and the receipts can be checked independently — on the eGov portal, for example.",
+    "title": "Electronic signature check"
+  },
+  "consent": {
+    "orgSuffix": " ({org})",
+    "pd": "I give my consent to {holder} and to the operator of the SuperApp6 information system to collect and process my personal data (surname, first name, patronymic, phone number and, when signing with a QES, the IIN) required to sign this document and to keep the evidence of the signing.\n\nThe consent is given for the retention period of the signed document and may be withdrawn in the manner prescribed by the law of the Republic of Kazakhstan.",
+    "pdHolderOrg": "the organization «{org}»",
+    "pdHolderOwner": "the owner of the document",
+    "pep": "I confirm that I have read the document «{docTitle}»{org} and that I sign it with a simple electronic signature.\n\nThe parties have agreed that a simple electronic signature — a one-time code sent to a confirmed phone number after signing in to SuperApp6 — is equivalent to a handwritten signature (art. 46–47 of the Digital Code of the Republic of Kazakhstan, art. 152 of the Civil Code of the Republic of Kazakhstan).\n\nThe integrity of the signed document is maintained by the SuperApp6 information system: the document fingerprint (SHA-256), the time of signing and the action log are stored."
+  },
+  "event": {
+    "cancelled": "The sender withdrew the request",
+    "chain_checked": "The certificate, its status and the timestamp were checked",
+    "cms_received": "The signature container was received",
+    "consent": "The electronic signature agreement was accepted",
+    "created": "The document was sent for signing",
+    "declined": "The signer declined to sign",
+    "failed": "The signature was rejected",
+    "otp_sent": "A confirmation code was sent",
+    "otp_verified": "The code was confirmed",
+    "qr_claimed": "The eGov Mobile app fetched the data",
+    "qr_issued": "A QR code for eGov Mobile was issued",
+    "signed": "The document was signed",
+    "viewed": "The signer opened the document"
+  },
+  "evidence": {
+    "cms": "Signature container — {signer}",
+    "ocsp": "OCSP receipt — {signer}",
+    "tsp": "Timestamp — {signer}"
+  },
+  "export": {
+    "fileName": "Signed — {title}",
+    "note": "The document fingerprint is computed over the file in the document/ folder. The signatures can also be checked with third-party tools (eGov, ezSigner): the containers are in signatures/."
+  },
+  "fingerprint": "SHA-256 fingerprint: {sha256}",
+  "flow": {
+    "alreadySigned": "You have already signed this document.",
+    "closed": "The signing of this document is closed.",
+    "codeSent": "The code was sent to your confirmed number. Entering the code signs the document.",
+    "consentPd": "I agree to the processing of my personal data",
+    "consentPep": "I have read the document and agree to sign it with a simple electronic signature",
+    "decline": "Decline to sign",
+    "declinePlaceholder": "For example: the amount in clause 3 is wrong",
+    "declineReason": "Reason for the refusal",
+    "devCode": "[dev] code:",
+    "getCode": "Get the code",
+    "ncaOpen": "Open the NCALayer window and pick your signing key.",
+    "ncaPassword": "The key password is entered only there — we neither see nor ask for it.",
+    "notLoaded": "The document is not loaded",
+    "openDocument": "Open the document ({size})",
+    "otherMethod": "Another method",
+    "qrAlt": "A QR code for signing in eGov Mobile",
+    "qrHint": "Scan the code in the eGov Mobile app and confirm the signature.",
+    "qrMock": "The eGov Mobile bridge is not connected yet — the code works in test mode only.",
+    "rejected": "The signature was not accepted. Check that you signed this very document with your own key",
+    "title": "Signing the document",
+    "unreadable": "Could not read the document for signing"
+  },
+  "guest": {
+    "actionFailed": "Could not perform the action. Try once more",
+    "alreadySigned": "Already signed: {names}",
+    "closed": {
+      "cancelled": {
+        "hint": "The collection of signatures has stopped. If the document is revised, they will send you a new link.",
+        "title": "The sender withdrew the document"
+      },
+      "declined": {
+        "hint": "One of the parties refused to sign the document. The sender knows about it.",
+        "title": "The signing was cancelled"
+      },
+      "expired": {
+        "hint": "The document went back to the sender. If it is still relevant, they will send you a new link.",
+        "title": "The signing deadline has passed"
+      },
+      "other": {
+        "hint": "The collection of signatures for this document has stopped.",
+        "title": "The signing is closed"
+      }
+    },
+    "codeSent": "The code was sent to the number you confirmed. Entering the code signs the document.",
+    "consentSign": "I have read the document and agree to sign it with an electronic signature",
+    "declinedNote": "The sender got a notification. If the document is sent back revised, a new link will arrive.",
+    "done": {
+      "allSigned": "Signed by all the parties",
+      "checkAgain": "Check again",
+      "checkNote": "The signature is verified on the open /check page — the file never leaves the browser during the check.",
+      "downloadPackage": "Download the package with the signatures",
+      "downloadStamped": "Download the document with the stamps",
+      "preparing": "Preparing the final document with the stamps…",
+      "signed": "The document is signed",
+      "signers": "Signed: {names}",
+      "waiting": "We are waiting for the other party to sign — the final document will appear right here.",
+      "yourSignature": "Your signature is in place"
+    },
+    "downloadDocument": "Download the document",
+    "goToSigning": "Go to the signing",
+    "managedToSign": "Managed to sign: {names}",
+    "openInNewTab": "Open the document in a new tab",
+    "qrHint": "Scan the code in the eGov Mobile app. Refresh the page once you have signed.",
+    "refresh": "Refresh",
+    "youDeclined": "You refused to sign"
+  },
+  "inbox": {
+    "subtitle": "Sign the document · {level}"
+  },
+  "level": {
+    "ecp": {
+      "full": "Qualified electronic signature (art. 49 of the Digital Code of the Republic of Kazakhstan)",
+      "short": "QES"
+    },
+    "pep": {
+      "full": "Simple electronic signature — a digital confirmation (art. 46–47 of the Digital Code of the Republic of Kazakhstan)",
+      "short": "Simple signature"
+    }
+  },
+  "method": {
+    "ncalayer": {
+      "hint": "A running NCALayer and a QES key are needed (AUTH/RSA or GOST)",
+      "title": "QES via NCALayer"
+    },
+    "pep_otp": {
+      "hint": "An agreement of the parties plus an SMS code sent to your confirmed number",
+      "title": "Simple signature by SMS"
+    },
+    "qr": {
+      "hint": "Scan the QR code in the eGov Mobile app and confirm the signature",
+      "title": "QES via eGov Mobile"
+    }
+  },
+  "nca": {
+    "badAnswer": "NCALayer sent an answer that could not be understood",
+    "cancelled": "The signing was cancelled",
+    "notRunning": "NCALayer is not running or not installed. Download it at pki.gov.kz, start it and try again",
+    "silent": "NCALayer did not answer — the signing window was closed or the program hung",
+    "unreachable": "Could not connect to NCALayer"
+  },
+  "page": {
+    "breadcrumb": "Signing",
+    "openDocument": "Open the document",
+    "signEcp": "Sign with a QES",
+    "signersTotal": "Signers in total: {count}"
+  },
+  "protocol": {
+    "certLine": "IIN {iin} · certificate {serial}",
+    "chainBad": "NOT verified",
+    "chainLine": "Chain: {chain} · status at the moment of signing: {ocsp}",
+    "chainOk": "verified",
+    "colAt": "Time",
+    "colEvent": "Event",
+    "colKind": "Signature kind",
+    "colSignedAt": "Signed at",
+    "colSigner": "Signer",
+    "document": "Document",
+    "events": "Action log",
+    "fileName": "Signing log — {title}",
+    "fingerprint": "Document fingerprint (SHA-256):",
+    "footer": "The signature can be checked on the open verification page: {url} — the document never leaves the browser, only its fingerprint is compared (art. 61 of the Digital Code of the Republic of Kazakhstan).",
+    "issuerLine": "Issuer: {issuer}",
+    "noSignatures": "There are no signatures",
+    "ocspUnchecked": "not checked",
+    "pepLine": "Simple electronic signature — the code was confirmed on the number {phone}",
+    "requestLine": "Request № {id} of {at}",
+    "signatures": "Signatures",
+    "title": "Signing log"
+  },
+  "qr": {
+    "procedure": "Signing the document «{title}»"
+  },
+  "stamp": {
+    "band": "The document is signed with an electronic signature — {signers}",
+    "bandCheck": "SuperApp6 · SHA-256: {sha256} · Check: {url}",
+    "bin": "BIN: {bin}",
+    "certLine": "Certificate: {serial} · Issuer: {issuer}",
+    "chainLine": "Chain: {chain} · OCSP at the moment of signing: {ocsp}",
+    "document": "Document: {title}",
+    "fileName": "{title} (signed)",
+    "fingerprint": "Fingerprint of the signed document (SHA-256):",
+    "footerCheck": "Signature check: {url} — the file never leaves the browser, only its fingerprint is compared (art. 61 of the Digital Code of the Republic of Kazakhstan).",
+    "footerNotice": "This is a stamped copy for reading and printing. The legal evidence are the signature containers in the export package.",
+    "iin": "IIN: {iin}",
+    "pepLine": "Simple electronic signature — the code was confirmed on the number {phone}",
+    "sheetTitle": "Signature sheet",
+    "signedAt": "Signed at: {at}"
+  }
+}

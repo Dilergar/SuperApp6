@@ -7,6 +7,7 @@ import { SearchRegistry } from '../../core/search/search.registry';
 import { SearchProjectionService } from '../../core/search/search-projection.service';
 import type { SearchProviderOpts, SearchProviderResult } from '../../core/search/search.types';
 import { ContactsService } from '../contacts/contacts.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 
 const USER_LITE = { id: true, firstName: true, lastName: true, avatar: true } as const;
 
@@ -45,15 +46,16 @@ export class MessengerSearchService implements OnModuleInit {
     private readonly registry: SearchRegistry,
     private readonly projection: SearchProjectionService,
     private readonly contacts: ContactsService,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
     // Registration order = global-search group order: Чаты, Люди, Сообщения.
-    this.registry.register({ type: 'chat', label: 'Чаты', search: (v, q, o) => this.searchChats(v, q, o) });
-    this.registry.register({ type: 'person', label: 'Люди', search: (v, q, o) => this.searchPeople(v, q, o) });
+    this.registry.register({ type: 'chat', labelKey: 'messenger.search.chats', search: (v, q, o) => this.searchChats(v, q, o) });
+    this.registry.register({ type: 'person', labelKey: 'messenger.search.people', search: (v, q, o) => this.searchPeople(v, q, o) });
     this.registry.register({
       type: 'message',
-      label: 'Сообщения',
+      labelKey: 'messenger.search.messages',
       search: (v, q, o) => this.searchMessages(v, q, o),
       reconcile: () => this.reconcileRecentMessages(),
     });
@@ -168,7 +170,7 @@ export class MessengerSearchService implements OnModuleInit {
     const items: SearchResultItem[] = rows.map((r) => ({
       type: 'message',
       id: r.messageId,
-      title: r.chatTitle ?? peerName.get(r.chatId) ?? 'Личный чат',
+      title: r.chatTitle ?? peerName.get(r.chatId) ?? this.i18n.translate('messenger.dmFallback'),
       snippet: makeSnippet(r.body, query),
       url: `/messenger?chat=${r.chatId}&msg=${r.messageId}`,
       chatId: r.chatId,
@@ -209,7 +211,7 @@ export class MessengerSearchService implements OnModuleInit {
     const items: SearchResultItem[] = members.map((m) => ({
       type: 'chat',
       id: m.chat.id,
-      title: m.chat.title ?? 'Чат',
+      title: m.chat.title ?? this.i18n.translate('messenger.chatFallback'),
       snippet: null,
       url: `/messenger?chat=${m.chat.id}`,
       chatId: m.chat.id,

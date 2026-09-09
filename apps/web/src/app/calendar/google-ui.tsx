@@ -1,11 +1,16 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslations } from 'next-intl';
+import { useFormatters } from '@/lib/format';
 import { apiDelete, apiErrorMessage, apiGet, apiPost } from '@/lib/api';
 import { Alert, Button, Card, Chip, Field, Icon, Modal } from '@/components/ui';
 import type { GoogleConnectionStatus, GoogleCalendarListItem, GoogleSyncResult } from '@superapp/shared';
 
 export function GooglePanel({ onClose }: { onClose: (changed: boolean) => void }) {
+  const t = useTranslations('calendar');
+  const tc = useTranslations('common');
+  const f = useFormatters();
   const [status, setStatus] = useState<GoogleConnectionStatus | null>(null);
   const [calendars, setCalendars] = useState<GoogleCalendarListItem[] | null>(null);
   const [notConfigured, setNotConfigured] = useState(false);
@@ -46,7 +51,7 @@ export function GooglePanel({ onClose }: { onClose: (changed: boolean) => void }
       await apiPost('/integrations/google/select-calendar', { calendarId });
       setChanged(true);
       await load();
-      setMsg('Календарь выбран, синхронизация запущена');
+      setMsg(t('google.picked'));
     } catch (e) {
       setError(apiErrorMessage(e));
     } finally { setBusy(false); }
@@ -58,7 +63,7 @@ export function GooglePanel({ onClose }: { onClose: (changed: boolean) => void }
       const r = await apiPost<GoogleSyncResult>('/integrations/google/sync');
       setChanged(true);
       await load();
-      setMsg(`Готово: выгружено ${r.pushed}, загружено ${r.pulled}, удалено ${r.deleted}`);
+      setMsg(t('google.syncDone', { pushed: r.pushed, pulled: r.pulled, deleted: r.deleted }));
     } catch (e) {
       setError(apiErrorMessage(e));
     } finally { setBusy(false); }
@@ -82,21 +87,21 @@ export function GooglePanel({ onClose }: { onClose: (changed: boolean) => void }
     <Modal
       open
       onClose={() => onClose(changed)}
-      title="Google Календарь"
-      subtitle={connected ? undefined : 'Двусторонняя синхронизация: события из SuperApp6 появятся в Google и наоборот'}
+      title={t('google.title')}
+      subtitle={connected ? undefined : t('google.subtitle')}
       size="sm"
       footer={
         connected ? (
           <>
-            <Button variant="ghost" tone="danger" icon="plug" disabled={busy} onClick={disconnect}>Отключить</Button>
-            <Button variant="ghost" onClick={() => onClose(changed)}>Закрыть</Button>
-            <Button variant="primary" icon="refresh" loading={busy} onClick={syncNow}>Синхронизировать</Button>
+            <Button variant="ghost" tone="danger" icon="plug" disabled={busy} onClick={disconnect}>{t('google.disconnect')}</Button>
+            <Button variant="ghost" onClick={() => onClose(changed)}>{tc('actions.close')}</Button>
+            <Button variant="primary" icon="refresh" loading={busy} onClick={syncNow}>{t('google.syncNow')}</Button>
           </>
         ) : (
           <>
-            <Button variant="ghost" onClick={() => onClose(changed)}>Закрыть</Button>
+            <Button variant="ghost" onClick={() => onClose(changed)}>{tc('actions.close')}</Button>
             {!notConfigured && (
-              <Button variant="primary" icon="link" loading={busy} onClick={connect}>Подключить Google</Button>
+              <Button variant="primary" icon="link" loading={busy} onClick={connect}>{t('google.connect')}</Button>
             )}
           </>
         )
@@ -107,13 +112,12 @@ export function GooglePanel({ onClose }: { onClose: (changed: boolean) => void }
         {msg && <Alert tone="success" onClose={() => setMsg('')}>{msg}</Alert>}
 
         {notConfigured ? (
-          <Alert tone="warning" icon="plug" title="Интеграция ещё не настроена">
-            В <code>.env</code> сервера нет OAuth-данных Google (<code>GOOGLE_CLIENT_ID/SECRET/REDIRECT_URI</code>).
-            Зарегистрируйте OAuth-приложение в Google Cloud и добавьте их — тогда появится кнопка подключения.
+          <Alert tone="warning" icon="plug" title={t('google.notConfigured')}>
+            {t('google.notConfiguredBody')}
           </Alert>
         ) : !connected ? (
           <p className="body-md" style={{ margin: 0 }}>
-            Задачи выгружаются в отдельный календарь — в Google они только для чтения.
+            {t('google.tasksReadOnly')}
           </p>
         ) : (
           <>
@@ -123,20 +127,20 @@ export function GooglePanel({ onClose }: { onClose: (changed: boolean) => void }
                 <span className="title-sm">{status?.email}</span>
               </div>
               <div className="label-sm" style={{ marginTop: '0.375rem' }}>
-                Календарь: <strong>{status?.syncCalendarName ?? '—'}</strong>
+                {t('google.calendarLabel', { name: status?.syncCalendarName ?? '—' })}
               </div>
               <div className="label-sm">
-                Синхронизация: {status?.lastSyncedAt ? new Date(status.lastSyncedAt).toLocaleString('ru-RU') : 'ещё не было'}
+                {t('google.lastSynced', { when: status?.lastSyncedAt ? f.dateTime(status.lastSyncedAt) : t('google.never') })}
               </div>
             </Card>
 
-            <Field label="Календарь для синхры">
+            <Field label={t('google.pickCalendar')}>
               {calendars === null ? (
-                <Button variant="matte" size="sm" icon="calendar" onClick={loadCalendars}>Сменить календарь…</Button>
+                <Button variant="matte" size="sm" icon="calendar" onClick={loadCalendars}>{t('google.changeCalendar')}</Button>
               ) : (
                 <div className="ui-stack" style={{ gap: '0.25rem' }}>
                   <CalendarRow
-                    label="Создать отдельный «SuperApp6»"
+                    label={t('google.createOwn')}
                     icon="calendarAdd"
                     active={false}
                     disabled={busy}
@@ -147,7 +151,7 @@ export function GooglePanel({ onClose }: { onClose: (changed: boolean) => void }
                       key={c.id}
                       label={c.summary}
                       icon="calendar"
-                      hint={c.primary ? 'основной' : undefined}
+                      hint={c.primary ? t('google.primary') : undefined}
                       active={c.id === status?.syncCalendarId}
                       disabled={busy}
                       onClick={() => selectCalendar(c.id)}

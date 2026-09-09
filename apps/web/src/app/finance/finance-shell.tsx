@@ -12,6 +12,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { FinAccountDto, FinBookOverviewDto, FinPersonDto, FinSharedBookDto } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
@@ -49,12 +50,13 @@ const Ctx = createContext<FinanceBookCtx | null>(null);
 
 export function useFinanceBook(): FinanceBookCtx {
   const v = useContext(Ctx);
-  if (!v) throw new Error('useFinanceBook вне FinanceShell');
+  if (!v) throw new Error('useFinanceBook is used outside FinanceShell');
   return v;
 }
 
 export function FinanceShell({ defaultCollapsed, children }: { defaultCollapsed?: boolean; children: React.ReactNode }) {
   const { isReady, user: me } = useRequireAuth();
+  const t = useTranslations('finance');
   const qc = useQueryClient();
   const router = useRouter();
   const pathname = usePathname();
@@ -108,7 +110,7 @@ export function FinanceShell({ defaultCollapsed, children }: { defaultCollapsed?
       isOwnBook,
       canEdit,
       meId: me?.id ?? null,
-      meName: me?.firstName ?? 'Я',
+      meName: me?.firstName ?? t('book.me'),
       overview,
       accounts: (overview?.accounts ?? []).filter((a) => !a.archived),
       categories: overview?.categories ?? [],
@@ -116,7 +118,7 @@ export function FinanceShell({ defaultCollapsed, children }: { defaultCollapsed?
       invalidate: () => qc.invalidateQueries({ queryKey: ['finance'] }),
       withBook,
     }),
-    [bookId, isOwnBook, canEdit, me?.id, me?.firstName, overview, people, qc, withBook],
+    [bookId, isOwnBook, canEdit, me?.id, me?.firstName, overview, people, qc, withBook, t],
   );
 
 
@@ -168,6 +170,7 @@ function FinanceBookCard({
   // Механизм всплывания — из кита (закрытие по Esc и клику вне, переворот,
   // портал). Готовый Menu тут не годится: его пункты — текстовые, а книгу
   // называет ЧЕЛОВЕК, и по принципу 2 он рисуется карточкой PersonChip.
+  const t = useTranslations('finance');
   const { anchorRef, layerRef, open, setOpen, layerStyle } = usePopover<HTMLButtonElement>({ matchWidth: true, maxHeight: 320 });
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -218,19 +221,19 @@ function FinanceBookCard({
           /* Принцип 2: человек — только карточкой (скины видны и здесь) */
           <PersonChip size="S" userId={active.ownerUserId} firstName={active.ownerName} avatar={active.ownerAvatar} />
         ) : (
-          <span className="title-sm" style={{ whiteSpace: 'nowrap' }}>Моя книга</span>
+          <span className="title-sm" style={{ whiteSpace: 'nowrap' }}>{t('book.mine')}</span>
         )}
         {hasChoice && <Icon name="caretDown" size={13} style={{ color: 'var(--label)', flex: 'none' }} />}
       </button>
 
-      {!isOwnBook && !canEdit && <Chip size="sm" tone="warning" icon="eye">только просмотр</Chip>}
+      {!isOwnBook && !canEdit && <Chip size="sm" tone="warning" icon="eye">{t('book.readOnly')}</Chip>}
 
       {isOwnBook && (
-        <IconButton icon="key" label="Доступ к моим финансам" size={30} onClick={onAccess} />
+        <IconButton icon="key" label={t('book.accessLabel')} size={30} onClick={onAccess} />
       )}
 
       {open && mounted && createPortal(
-        <div ref={layerRef} className="ui-popover" style={layerStyle} role="listbox" aria-label="Книга финансов">
+        <div ref={layerRef} className="ui-popover" style={layerStyle} role="listbox" aria-label={t('book.picker')}>
           <button
             type="button"
             className="ui-option"
@@ -240,7 +243,7 @@ function FinanceBookCard({
             onClick={() => pick(null)}
           >
             <Icon name="finance" size={16} />
-            <span>Моя книга</span>
+            <span>{t('book.mine')}</span>
           </button>
           {sharedBooks.map((b) => (
             <button
@@ -254,7 +257,7 @@ function FinanceBookCard({
             >
               <PersonChip size="S" userId={b.ownerUserId} firstName={b.ownerName} avatar={b.ownerAvatar} />
               <span className="label-sm" style={{ marginLeft: 'auto' }}>
-                {b.myRole === 'editor' ? 'ведёте вместе' : 'смотрите'}
+                {t(b.myRole === 'editor' ? 'book.youEdit' : 'book.youView')}
               </span>
             </button>
           ))}

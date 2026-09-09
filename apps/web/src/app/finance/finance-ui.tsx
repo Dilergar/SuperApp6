@@ -7,6 +7,7 @@
 
 import type { CSSProperties, ReactNode } from 'react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { EmojiIcon, Icon, ICONS, TickBar, type IconName, type Tone } from '@/components/ui';
 import { formatMoney } from './finance-lib';
 
@@ -27,8 +28,9 @@ export function budgetProgress(spent: number, amount: number): {
 
 /** Штриховой план-факт лимита (DESIGN.md §5 — сплошных полосок в системе нет). */
 export function BudgetBar({ spent, amount, small }: { spent: number; amount: number; small?: boolean }) {
+  const t = useTranslations('finance');
   const { pct, tone } = budgetProgress(spent, amount);
-  return <TickBar value={pct} tone={tone} height={small ? 8 : 10} aria-label="Израсходовано от лимита" />;
+  return <TickBar value={pct} tone={tone} height={small ? 8 : 10} aria-label={t('budget.spentOfLimit')} />;
 }
 
 /**

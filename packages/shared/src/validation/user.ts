@@ -4,18 +4,18 @@ import { userRequisiteFieldsSchema } from './requisites';
 import { SUPPORTED_LOCALES } from '../constants/i18n';
 
 const noHtml = (s: string) => !/[<>]/.test(s);
-const noHtmlMsg = 'Недопустимые символы';
+const noHtmlMsg = 'validation.user.badCharacters';
 
 export const updateProfileSchema = z.object({
   firstName: z.string().min(1).max(50).refine(noHtml, noHtmlMsg).optional(),
   lastName: z.string().max(50).refine(noHtml, noHtmlMsg).nullable().optional(),
   /** Отчество — реквизит документов (полное ФИО в приказах); в карточках не показывается */
   middleName: z.string().max(50).refine(noHtml, noHtmlMsg).nullable().optional(),
-  dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Формат: YYYY-MM-DD').nullable().optional(),
+  dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'validation.user.isoDate').nullable().optional(),
   avatar: z.string().url().nullable().optional(),
   bio: z.string().max(160).refine(noHtml, noHtmlMsg).nullable().optional(),
   city: z.string().max(100).refine(noHtml, noHtmlMsg).nullable().optional(),
-  email: z.string().email('Неверный формат email').nullable().optional(),
+  email: z.string().email('validation.user.email').nullable().optional(),
   maritalStatus: z.enum(['single', 'married', 'relationship', 'divorced', 'widowed']).nullable().optional(),
   socialLinks: z.object({
     telegram: z.string().max(100).optional(),

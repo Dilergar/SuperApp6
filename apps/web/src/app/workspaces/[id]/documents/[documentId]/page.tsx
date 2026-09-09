@@ -12,6 +12,7 @@
 // ============================================================
 
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useParams, useRouter } from 'next/navigation';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -25,6 +26,7 @@ import {
 } from '@superapp/shared';
 import { apiErrorMessage, apiGet } from '@/lib/api';
 import { dmy } from '@/lib/dates';
+import { useFormatters } from '@/lib/format';
 import { toastError } from '@/lib/toast';
 import { documentHref } from '@/lib/docs-api';
 import { approvalsRootKey, orgDocumentKey, orgDocumentsPrefix } from '@/lib/queries';
@@ -53,19 +55,27 @@ import { ShareCardModal } from '@/app/messenger/ShareCardModal';
 import { DocStatusChip } from '../documents-ui';
 import { CampaignAckBanner, DeliveryBlock } from '../HrDocBlocks';
 
-/** Значение поля читабельной строкой: период — «с … по … (N дней)», не [object Object] */
-function readableFieldValue(value: unknown): string {
+/**
+ * Значение поля читабельной строкой: период — «с … по … (N дней)», не [object Object].
+ * Слова приходят параметром: функция чистая, каталога у неё нет.
+ */
+function readableFieldValue(value: unknown, tr: (key: string, values?: Record<string, string | number>) => string): string {
   if (isDocDateRangeValue(value)) {
-    const dot = dmy;
-    const days = docDateRangeDays(value);
-    return value.from === value.to
-      ? `${dot(value.from)} (1 день)`
-      : `с ${dot(value.from)} по ${dot(value.to)} (дней: ${days})`;
+    if (value.from === value.to) return tr('card.rangeOneDay', { date: dmy(value.from) });
+    return tr('card.rangeSpan', {
+      from: dmy(value.from),
+      to: dmy(value.to),
+      days: docDateRangeDays(value),
+    });
   }
   return value === null || value === undefined ? '' : String(value);
 }
 
 export default function OrgDocumentPage() {
+  const tr = useTranslations('documents');
+  const tc = useTranslations('common');
+  const tn = useTranslations('notes');
+  const f = useFormatters();
   const { id, documentId } = useParams<{ id: string; documentId: string }>();
   const router = useRouter();
   const qc = useQueryClient();
@@ -179,16 +189,16 @@ export default function OrgDocumentPage() {
   if (docQuery.isError || !doc) {
     return (
       <>
-        <PageHeader breadcrumb="Документооборот" title="Документ не открылся" />
+        <PageHeader breadcrumb={tr('page.title')} title={tr('card.failedTitle')} />
         <BentoGrid>
           <Card span={12}>
             <EmptyState
               icon="blocked"
-              title="Нет доступа к документу"
-              description="Документ мог быть отменён, или его вид закрыт для вас."
+              title={tr('card.noAccessTitle')}
+              description={tr('card.noAccessText')}
               action={
                 <Button variant="matte" icon="arrowLeft" href={`/workspaces/${id}/documents`}>
-                  К списку документов
+                  {tr('card.toList')}
                 </Button>
               }
             />
@@ -209,10 +219,10 @@ export default function OrgDocumentPage() {
         actions={
           <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
             <Button variant="ghost" icon="arrowLeft" href={`/workspaces/${id}/documents`}>
-              К списку
+              {tr('card.back')}
             </Button>
             <Button variant="ghost" icon="messenger" onClick={() => setShareOpen(true)}>
-              В чат
+              {tr('card.toChat')}
             </Button>
             {doc.documentId && (
               <Button
@@ -220,12 +230,12 @@ export default function OrgDocumentPage() {
                 icon="edit"
                 href={documentHref(doc.documentId, { refType: ORG_DOCUMENT_REF_TYPE, refId: doc.id }, { readonly: !can.edit })}
               >
-                {can.edit ? 'Править документ' : 'Открыть документ'}
+                {tr(can.edit ? 'card.editDocument' : 'card.openDocument')}
               </Button>
             )}
             {doc.builderDoc && can.edit && (
               <Button variant="matte" icon="edit" href={`/workspaces/${id}/documents/${doc.id}/edit`}>
-                Править в конструкторе
+                {tr('card.editInBuilder')}
               </Button>
             )}
             {can.submit && (
@@ -235,15 +245,15 @@ export default function OrgDocumentPage() {
                 // Пока фон пересобирает содержимое, сервер отправку отвергнет —
                 // не предлагаем клик в гарантированный отказ (карточка опрашивается)
                 disabled={!!doc.rebuilding}
-                title={doc.rebuilding ? 'Документ пересобирается — несколько секунд' : undefined}
+                title={doc.rebuilding ? tr('card.rebuildingHint') : undefined}
                 onClick={() => submit.mutate()}
               >
-                Отправить на маршрут
+                {tr('card.submitToRoute')}
               </Button>
             )}
             {can.sendExternal && (
               <Button icon="send" onClick={() => setSendOpen(true)}>
-                Отправить контрагенту
+                {tr('send.title')}
               </Button>
             )}
             {can.returnToDraft && (
@@ -253,7 +263,7 @@ export default function OrgDocumentPage() {
                 loading={returnToDraft.isPending}
                 onClick={() => returnToDraft.mutate()}
               >
-                Вернуть в черновик
+                {tr('card.returnToDraft')}
               </Button>
             )}
             {can.withdraw && (
@@ -263,7 +273,7 @@ export default function OrgDocumentPage() {
                 loading={withdraw.isPending}
                 onClick={() => withdraw.mutate()}
               >
-                Вернуть в черновик
+                {tr('card.returnToDraft')}
               </Button>
             )}
             {can.cancel && (
@@ -273,16 +283,16 @@ export default function OrgDocumentPage() {
                 onClick={() =>
                   confirm(
                     {
-                      title: 'Отменить документ?',
-                      message: 'Он останется в реестре со статусом «Отменён» — история решений не пропадает.',
-                      confirmLabel: 'Отменить документ',
+                      title: tr('card.cancelTitle'),
+                      message: tr('card.cancelText'),
+                      confirmLabel: tr('card.cancelConfirm'),
                       danger: true,
                     },
                     async () => { await cancel.mutateAsync(); },
                   )
                 }
               >
-                Отменить
+                {tc('actions.cancel')}
               </Button>
             )}
           </div>
@@ -297,14 +307,12 @@ export default function OrgDocumentPage() {
         <DeliveryBlock workspaceId={id} doc={doc} />
         <Card span={7}>
           {/* Заголовок — по категории: у договора «заявление» звучало бы ложью */}
-          <CardHeader title={doc.category === 'external' ? 'Данные документа' : 'Данные заявления'} />
+          <CardHeader title={tr(doc.category === 'external' ? 'card.dataDocument' : 'card.dataApplication')} />
           {/* Смотрим на ОБЪЯВЛЕНИЕ полей, а не на значения: поле, только что
               заведённое в конструкторе, ещё пустое — и по значениям карточка
               говорила «полей нет», то есть заполнить его было негде. */}
           {formFields.length === 0 ? (
-            <p style={{ color: 'var(--text-muted)' }}>
-              Заполняемых полей нет — документ собран по данным организации и сотрудника.
-            </p>
+            <p style={{ color: 'var(--text-muted)' }}>{tr('card.noFields')}</p>
           ) : can.edit ? (
             // Пока документ правится, значения формы — настоящие поля ТЕМИ ЖЕ
             // контролами, что при подаче (даты — мини-календарь, период — пара):
@@ -319,7 +327,7 @@ export default function OrgDocumentPage() {
                     loading={saveFields.isPending}
                     onClick={() => saveFields.mutate(draft)}
                   >
-                    Сохранить и пересобрать документ
+                    {tr('card.saveAndRebuild')}
                   </Button>
                 </div>
               )}
@@ -328,11 +336,11 @@ export default function OrgDocumentPage() {
             /* Читаем по ОБЪЯВЛЕНИЮ: человеческая подпись поля вместо ключа-тега,
                и незаполненное поле видно прочерком, а не пропадает из списка */
             <dl style={{ display: 'grid', gap: 'var(--spacing-2)', margin: 0 }}>
-              {formFields.map((f) => (
-                <div key={f.key} style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
-                  <dt style={{ color: 'var(--text-muted)', minWidth: 160 }}>{f.label || f.key}</dt>
+              {formFields.map((field) => (
+                <div key={field.key} style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
+                  <dt style={{ color: 'var(--text-muted)', minWidth: 160 }}>{field.label || field.key}</dt>
                   <dd style={{ margin: 0, fontWeight: 500 }}>
-                    {readableFieldValue(fieldValues[f.key]) || '—'}
+                    {readableFieldValue(fieldValues[field.key], tr) || tc('labels.dash')}
                   </dd>
                 </div>
               ))}
@@ -344,13 +352,13 @@ export default function OrgDocumentPage() {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-3)', alignItems: 'center' }}>
             {doc.counterparty && (
               <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Контрагент:</span>
+                <span style={{ color: 'var(--text-muted)' }}>{tr('card.counterpartyRow')}</span>
                 <Chip size="sm" icon="workspace">
                   {doc.counterparty.name}
                 </Chip>
                 {doc.counterpartyContact && (
                   <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-                    подписант: {doc.counterpartyContact.name}
+                    {tr('card.signerIs', { name: doc.counterpartyContact.name })}
                     {doc.counterpartyContact.position ? ` (${doc.counterpartyContact.position})` : ''}
                   </span>
                 )}
@@ -359,24 +367,24 @@ export default function OrgDocumentPage() {
             {doc.subjectUserId && (
               <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
                 <span style={{ color: 'var(--text-muted)' }}>
-                  {doc.category === 'external' ? 'Куратор:' : 'Сторона:'}
+                  {tr(doc.category === 'external' ? 'card.curatorRow' : 'card.partyRow')}
                 </span>
-                <PersonChip size="M" userId={doc.subjectUserId} firstName={doc.subjectName ?? "Сотрудник"} />
+                <PersonChip size="M" userId={doc.subjectUserId} firstName={doc.subjectName ?? tc('labels.someone')} />
               </span>
             )}
             <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
-              <span style={{ color: 'var(--text-muted)' }}>Подал:</span>
-              <PersonChip size="M" userId={doc.createdById} firstName={doc.createdByName ?? "Сотрудник"} />
+              <span style={{ color: 'var(--text-muted)' }}>{tr('card.submittedBy')}</span>
+              <PersonChip size="M" userId={doc.createdById} firstName={doc.createdByName ?? tc('labels.someone')} />
             </span>
           </div>
         </Card>
 
         <Card span={5}>
-          <CardHeader title="Состояние" />
+          <CardHeader title={tr('card.state')} />
           <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
-            <Row label="Вид">{doc.docTypeName}</Row>
-            {doc.templateName && <Row label="Шаблон">{doc.templateName}</Row>}
-            <Row label="Номер">
+            <Row label={tr('card.typeRow')}>{doc.docTypeName}</Row>
+            {doc.templateName && <Row label={tr('card.templateRow')}>{doc.templateName}</Row>}
+            <Row label={tr('card.numberRow')}>
               {doc.number ? (
                 <Chip size="sm" icon="list">
                   {doc.number}
@@ -392,19 +400,23 @@ export default function OrgDocumentPage() {
                     loading={assignNumber.isPending}
                     onClick={() => assignNumber.mutate()}
                   >
-                    Присвоить номер
+                    {tr('card.assignNumber')}
                   </Button>
                 ) : (
-                  <span style={{ color: 'var(--text-muted)' }}>Не присвоен</span>
+                  <span style={{ color: 'var(--text-muted)' }}>{tr('card.numberNone')}</span>
                 )
               ) : (
-                <span style={{ color: 'var(--text-muted)' }}>Присваивается при регистрации</span>
+                <span style={{ color: 'var(--text-muted)' }}>{tr('card.numberOnRegister')}</span>
               )}
             </Row>
-            <Row label="Подписан">
-              {doc.signedAt ? new Date(doc.signedAt).toLocaleString('ru-RU') : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+            <Row label={tr('card.signedAtRow')}>
+              {doc.signedAt ? (
+                f.dateTime(doc.signedAt)
+              ) : (
+                <span style={{ color: 'var(--text-muted)' }}>{tc('labels.dash')}</span>
+              )}
             </Row>
-            <Row label="Файл">
+            <Row label={tr('card.fileRow')}>
               {doc.fileId ? (
                 <span style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
                   <Button variant="ghost" size="sm" icon="download" onClick={() => downloadFile(doc.fileId!)}>
@@ -412,8 +424,8 @@ export default function OrgDocumentPage() {
                         файл — сам PDF (у загруженного pdfFileId === fileId без
                         живого документа), «.docx» здесь было бы ложью */}
                     {doc.builderDoc || (doc.pdfFileId === doc.fileId && !doc.documentId)
-                      ? 'Скачать PDF'
-                      : 'Скачать .docx'}
+                      ? tr('card.downloadPdf')
+                      : tr('card.downloadDocx')}
                   </Button>
                   {/* PDF — это ОТПЕЧАТОК на момент отправки: именно его видит решающий
                       и именно его подпишет core/sign. Снимался он и раньше, но на
@@ -425,35 +437,35 @@ export default function OrgDocumentPage() {
                       icon="file"
                       onClick={() => downloadFile(doc.pdfFileId!, 'pdf')}
                     >
-                      PDF-отпечаток
+                      {tr('card.pdfImprint')}
                     </Button>
                   )}
                 </span>
               ) : (
-                <span style={{ color: 'var(--text-muted)' }}>Формируется…</span>
+                <span style={{ color: 'var(--text-muted)' }}>{tr('card.fileBuilding')}</span>
               )}
             </Row>
             {doc.approvalRequestId && (
-              <Row label="Решение">
+              <Row label={tr('card.decisionRow')}>
                 <Button
                   variant="ghost"
                   size="sm"
                   icon="checkCircle"
                   href={approvalHref(doc.approvalRequestId, id)}
                 >
-                  Маршрут согласования
+                  {tr('card.approvalRoute')}
                 </Button>
               </Row>
             )}
             {doc.parentDocumentId && (
-              <Row label="Основание">
+              <Row label={tr('card.groundRow')}>
                 <Button
                   variant="ghost"
                   size="sm"
                   icon="arrowRight"
                   onClick={() => router.push(`/workspaces/${id}/documents/${doc.parentDocumentId}`)}
                 >
-                  Открыть документ-основание
+                  {tr('card.openGround')}
                 </Button>
               </Row>
             )}
@@ -480,19 +492,19 @@ export default function OrgDocumentPage() {
         )}
 
         <Card span={12}>
-          <CardHeader title="Заметки" subtitle="Договорённости и детали по документу — видны тем, с кем поделились" />
+          <CardHeader title={tn('breadcrumb')} subtitle={tr('card.notesSubtitle')} />
           <NotesPanel target={{ type: 'document', id: documentId }} scope={{ workspaceId: id }} />
         </Card>
 
         <Card span={12}>
-          <CardHeader title="Хроника документа" />
+          <CardHeader title={tr('card.chronicle')} />
           {chronicleQuery.isPending ? (
             <LoadingBlock />
           ) : (
             <ChronicleFeed
               entries={entries as never[]}
               actors={actors}
-              emptyText="Здесь появятся отправка, решения, номер и подшивка"
+              emptyText={tr('card.chronicleEmpty')}
             />
           )}
         </Card>

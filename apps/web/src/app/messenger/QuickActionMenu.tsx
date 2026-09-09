@@ -2,6 +2,7 @@
 
 import { Glyph, Icon, type IconName } from '@/components/ui';
 import { useEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useQuery } from '@tanstack/react-query';
 import type { QuickActionDescriptor } from '@superapp/shared';
 import { getQuickActions } from '@/lib/messenger-api';
@@ -51,6 +52,7 @@ export function QuickActionMenu({
   /** Refetch the scheduled list after a message is scheduled. */
   onScheduled?: () => void;
 }) {
+  const t = useTranslations('messenger');
   const [open, setOpen] = useState(false);
   const [modal, setModal] = useState<ModalKey | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -87,8 +89,8 @@ export function QuickActionMenu({
     <div ref={wrapRef} style={{ position: 'relative', flexShrink: 0 }}>
       <button
         onClick={() => setOpen((v) => !v)}
-        title="Быстрые действия"
-        aria-label="Быстрые действия"
+        title={t('quickActions.title')}
+        aria-label={t('quickActions.title')}
         aria-expanded={open}
         style={{
           background: open ? 'var(--secondary-container)' : 'var(--surface-container-high)',
@@ -128,7 +130,7 @@ export function QuickActionMenu({
         >
           {actions.length === 0 && (
             <span className="label-sm" style={{ opacity: 0.6, padding: '0.4rem 0.6rem' }}>
-              Нет доступных действий
+              {t('quickActions.none')}
             </span>
           )}
           {actions.map((a) => {

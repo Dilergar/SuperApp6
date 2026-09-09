@@ -1,3 +1,4 @@
+import type { StatusTone } from '../constants/tasks';
 import {
   RICH_CARD_REF_TYPES,
   RICH_CARD_ACTION_STYLES,
@@ -54,8 +55,18 @@ export interface RichCardPayload {
   imageUrl?: string | null;
   fields: RichCardField[];
   progress?: RichCardProgress | null;
-  /** Short status word, e.g. "Ожидает подтверждения". */
+  /** Short status word, already rendered in the VIEWER’s language. */
   status?: string | null;
+  /**
+   * Тон чипа статуса — ИМЯ СМЫСЛА, которое называет провайдер.
+   *
+   * Раньше веб угадывал тон по самому СЛОВУ («в работе» → accent), то есть
+   * держал у себя словарь русских статусов всех сервисов. С переводом такой
+   * словарь перестал бы совпадать вообще: карточка на английском получала бы
+   * нейтральный чип, а на казахском — тоже. Тон обязан приходить рядом со
+   * словом, как и везде в системе (DESIGN.md §1).
+   */
+  statusTone?: StatusTone | null;
   /** Action buttons available to the CURRENT viewer (already permission-filtered). */
   actions: RichCardAction[];
   /** Deep link into the owning service (e.g. /shop, /tasks/<id>). */

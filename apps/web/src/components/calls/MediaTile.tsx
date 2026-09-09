@@ -1,6 +1,7 @@
 'use client';
 
 import { CSSProperties } from 'react';
+import { useTranslations } from 'next-intl';
 import { Track } from 'livekit-client';
 import {
   VideoTrack,
@@ -20,6 +21,7 @@ function isRealTrack(ref: TrackReferenceOrPlaceholder): ref is TrackReference {
  * карточкой/аватаром со скином). Говорящий подсвечивается рамкой-«карандашом».
  */
 export function MediaTile({ trackRef }: { trackRef: TrackReferenceOrPlaceholder }) {
+  const t = useTranslations('calls');
   const participant = trackRef.participant;
   const speaking = useIsSpeaking(participant);
   const micOn = participant.isMicrophoneEnabled;
@@ -28,7 +30,7 @@ export function MediaTile({ trackRef }: { trackRef: TrackReferenceOrPlaceholder 
   // (у локальной публикации isSubscribed всегда true — поведение не меняется)
   const videoOn =
     isRealTrack(trackRef) && !trackRef.publication.isMuted && trackRef.publication.isSubscribed;
-  const name = participant.name || 'Участник';
+  const name = participant.name || t('tile.participant');
 
   const tileStyle: CSSProperties = {
     position: 'relative',
@@ -86,11 +88,11 @@ export function MediaTile({ trackRef }: { trackRef: TrackReferenceOrPlaceholder 
           textOverflow: 'ellipsis',
         }}
       >
-        {!micOn && <span title="Микрофон выключен">🔇</span>}
+        {!micOn && <span title={t('tile.micOff')}>🔇</span>}
         <ConnectionQualityBadge participant={participant} />
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {name}
-          {participant.isLocal ? ' (вы)' : ''}
+          {participant.isLocal ? ` (${t('tile.you')})` : ''}
         </span>
       </div>
     </div>
@@ -99,7 +101,8 @@ export function MediaTile({ trackRef }: { trackRef: TrackReferenceOrPlaceholder 
 
 /** Крупный тайл демонстрации экрана (доминирует в раскладке; contain — читаемость текста) */
 export function ScreenShareTile({ trackRef }: { trackRef: TrackReference }) {
-  const name = trackRef.participant.name || 'Участник';
+  const t = useTranslations('calls');
+  const name = trackRef.participant.name || t('tile.participant');
   return (
     <div
       style={{
@@ -125,7 +128,7 @@ export function ScreenShareTile({ trackRef }: { trackRef: TrackReference }) {
           fontWeight: 600,
         }}
       >
-        🖥️ Демонстрация — {name}
+        {t('tile.screenShare', { name })}
       </div>
     </div>
   );

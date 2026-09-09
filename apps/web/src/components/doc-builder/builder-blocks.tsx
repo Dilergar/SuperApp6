@@ -8,7 +8,9 @@
 // выигрыш конструктора против «скопируй {Организация.БИН} в буфер».
 // ============================================================
 
+import { useTranslations } from 'next-intl';
 import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs } from '@blocknote/core';
+import { DOC_CHIP_FORMATS } from '@superapp/shared';
 import { createReactBlockSpec, createReactInlineContentSpec } from '@blocknote/react';
 
 /** Инлайн-чип данных: рисуется матовой пилюлей, редактируется только целиком */
@@ -24,33 +26,30 @@ const ChipInline = createReactInlineContentSpec(
   },
   {
     render: (props) => {
+      const tr = useTranslations('documents');
       const { path, format, label } = props.inlineContent.props;
       const text = label || path;
       return (
-        <span className="db-chip" title={format ? `${path} · формат: ${format}` : path} data-path={path}>
+        <span
+          className="db-chip"
+          title={format ? tr('builder.chipFormatTitle', { path, format }) : path}
+          data-path={path}
+        >
           {text}
-          {format ? <span className="db-chip-fmt">{formatShort(format)}</span> : null}
+          {format ? <span className="db-chip-fmt">{formatShort(format, tr)}</span> : null}
         </span>
       );
     },
   },
 );
 
-function formatShort(format: string): string {
-  switch (format) {
-    case 'дата':
-      return '01.02.2026';
-    case 'дата:долгая':
-      return '1 февраля 2026 г.';
-    case 'прописью':
-      return 'прописью';
-    case 'прописью:число':
-      return 'прописью';
-    case 'число':
-      return '10 000';
-    default:
-      return format;
-  }
+/**
+ * Короткий пример формата. Само имя формата — DSL бланка («дата:долгая»),
+ * а пример к нему живёт в каталоге по ключу формата.
+ */
+function formatShort(format: string, tr: (key: string) => string): string {
+  const known = DOC_CHIP_FORMATS.find((f) => f.value === format);
+  return known ? tr(`builder.chipFormatExample.${known.key}`) : format;
 }
 
 /** Смарт-блок «Реквизиты организации» — каркас шапки-бланка (данные подставит рендер) */
@@ -61,24 +60,25 @@ const RequisitesBlock = createReactBlockSpec(
     content: 'none',
   },
   {
-    render: (props) => (
-      <div className="db-requisites" contentEditable={false}>
-        <div className="db-requisites-name">Реквизиты организации</div>
-        <div className="db-requisites-line">
-          Юрнаименование · БИН · адрес — подставятся из «Анкеты компании»
+    render: (props) => {
+      const tr = useTranslations('documents');
+      return (
+        <div className="db-requisites" contentEditable={false}>
+          <div className="db-requisites-name">{tr('builder.block.requisites')}</div>
+          <div className="db-requisites-line">{tr('builder.requisitesLine')}</div>
+          <label className="db-block-opt">
+            <input
+              type="checkbox"
+              checked={props.block.props.showLogo}
+              onChange={(e) =>
+                props.editor.updateBlock(props.block, { props: { showLogo: e.target.checked } })
+              }
+            />
+            {tr('builder.withLogo')}
+          </label>
         </div>
-        <label className="db-block-opt">
-          <input
-            type="checkbox"
-            checked={props.block.props.showLogo}
-            onChange={(e) =>
-              props.editor.updateBlock(props.block, { props: { showLogo: e.target.checked } })
-            }
-          />
-          с логотипом
-        </label>
-      </div>
-    ),
+      );
+    },
   },
 );
 
@@ -90,16 +90,19 @@ const DocMetaBlock = createReactBlockSpec(
     content: 'none',
   },
   {
-    render: (props) => (
-      <div
-        className="db-docmeta"
-        contentEditable={false}
-        style={{ textAlign: props.block.props.align as 'left' | 'center' | 'right' }}
-        title="Номер присвоится при регистрации документа, дата — дата документа"
-      >
-        № _______ от «___» ____________
-      </div>
-    ),
+    render: (props) => {
+      const tr = useTranslations('documents');
+      return (
+        <div
+          className="db-docmeta"
+          contentEditable={false}
+          style={{ textAlign: props.block.props.align as 'left' | 'center' | 'right' }}
+          title={tr('builder.docMetaHint')}
+        >
+          {tr('builder.docMetaSample')}
+        </div>
+      );
+    },
   },
 );
 
@@ -108,7 +111,8 @@ const SignatureBlock = createReactBlockSpec(
   {
     type: 'signature',
     propSchema: {
-      role: { default: 'Директор' },
+      // Роль по умолчанию ставит редактор при вставке — слово живёт в каталоге
+      role: { default: '' },
       nameSource: { default: 'director', values: ['subject', 'director', 'counterparty', 'custom', 'none'] as const },
       customName: { default: '' },
       stamp: { default: false },
@@ -117,6 +121,7 @@ const SignatureBlock = createReactBlockSpec(
   },
   {
     render: (props) => {
+      const tr = useTranslations('documents');
       const { role, nameSource, customName, stamp } = props.block.props;
       const set = (patch: Record<string, unknown>) =>
         props.editor.updateBlock(props.block, { props: patch });
@@ -125,35 +130,35 @@ const SignatureBlock = createReactBlockSpec(
           <input
             className="db-sig-role"
             value={role}
-            aria-label="Кто подписывает (должность или роль)"
+            aria-label={tr('builder.signatureRoleAria')}
             onChange={(e) => set({ role: e.target.value })}
           />
           <span className="db-sig-line" aria-hidden="true" />
           <span className="db-sig-name">
             <select
               value={nameSource}
-              aria-label="Чьё имя печатать у подписи"
+              aria-label={tr('builder.signatureNameAria')}
               onChange={(e) => set({ nameSource: e.target.value })}
             >
-              <option value="director">Директор (из реквизитов)</option>
-              <option value="subject">Сотрудник — сторона документа</option>
-              <option value="counterparty">Подписант контрагента</option>
-              <option value="custom">Впишу сам</option>
-              <option value="none">Без имени</option>
+              <option value="director">{tr('builder.nameSource.director')}</option>
+              <option value="subject">{tr('builder.nameSource.subject')}</option>
+              <option value="counterparty">{tr('builder.nameSource.counterparty')}</option>
+              <option value="custom">{tr('builder.nameSource.custom')}</option>
+              <option value="none">{tr('builder.nameSource.none')}</option>
             </select>
             {nameSource === 'custom' && (
               <input
                 className="db-sig-custom"
                 value={customName}
-                placeholder="Фамилия и имя"
-                aria-label="Имя у подписи"
+                placeholder={tr('builder.signaturePersonPlaceholder')}
+                aria-label={tr('builder.signaturePersonAria')}
                 onChange={(e) => set({ customName: e.target.value })}
               />
             )}
           </span>
           <label className="db-block-opt">
             <input type="checkbox" checked={stamp} onChange={(e) => set({ stamp: e.target.checked })} />
-            М.П.
+            {tr('builder.stampMark')}
           </label>
         </div>
       );
@@ -169,11 +174,14 @@ const PageBreakBlock = createReactBlockSpec(
     content: 'none',
   },
   {
-    render: () => (
-      <div className="db-pagebreak" contentEditable={false}>
-        <span>разрыв страницы</span>
-      </div>
-    ),
+    render: () => {
+      const tr = useTranslations('documents');
+      return (
+        <div className="db-pagebreak" contentEditable={false}>
+          <span>{tr('builder.pageBreakMark')}</span>
+        </div>
+      );
+    },
   },
 );
 

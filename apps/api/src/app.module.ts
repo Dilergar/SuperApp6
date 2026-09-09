@@ -267,7 +267,7 @@ export class AppModule implements OnApplicationBootstrap {
       }
     }
     if (missing.length) {
-      const msg = `DI-токены не резолвятся (провайдер переименован или не зарегистрирован): ${missing.join(', ')} — сверить shared/di-tokens.ts с модулями`;
+      const msg = `DI tokens do not resolve (a provider was renamed or is not registered): ${missing.join(', ')} — check shared/di-tokens.ts against the modules`;
       this.logger.error(msg);
       throw new Error(msg);
     }

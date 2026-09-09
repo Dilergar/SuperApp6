@@ -40,7 +40,7 @@ export class DriveController {
   ) {}
 
   @Get()
-  @ApiOperation({ summary: 'Диск: пространство, доступные мне чужие, занятое место' })
+  @ApiOperation({ summary: 'Drive: the space, other drives shared with me, space used' })
   async overview(@CurrentUser() user: JwtPayload, @Query() query: Record<string, unknown>) {
     const q = driveOverviewQuerySchema.parse(query);
     const data = await this.drive.overview(user.sub, q);
@@ -48,7 +48,7 @@ export class DriveController {
   }
 
   @Get('nodes')
-  @ApiOperation({ summary: 'Содержимое папки (keyset; папки вперёд)' })
+  @ApiOperation({ summary: 'Folder contents (keyset; folders first)' })
   async list(@CurrentUser() user: JwtPayload, @Query() query: Record<string, unknown>) {
     const q = driveListQuerySchema.parse(query);
     // DriveListPageDto наконец стоит на ОБЕИХ сторонах провода: он и был web-only
@@ -57,7 +57,7 @@ export class DriveController {
   }
 
   @Get('trash')
-  @ApiOperation({ summary: 'Корзина (только явно удалённые объекты)' })
+  @ApiOperation({ summary: 'Trash (explicitly deleted items only)' })
   async trashList(@CurrentUser() user: JwtPayload, @Query() query: Record<string, unknown>) {
     const q = driveTrashQuerySchema.parse(query);
     const { items, nextCursor } = await this.tree.listTrash(user.sub, q, q);
@@ -69,7 +69,7 @@ export class DriveController {
   }
 
   @Get('nodes/:id')
-  @ApiOperation({ summary: 'Объект: путь, права зрителя, где ещё используется файл' })
+  @ApiOperation({ summary: 'Item: path, viewer rights, where else the file is used' })
   async detail(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const { node, access } = await this.drive.requireNode(user.sub, id);
     const space = await this.drive.loadSpace(node.spaceId);
@@ -89,7 +89,7 @@ export class DriveController {
   }
 
   @Post('folders')
-  @ApiOperation({ summary: 'Создать папку' })
+  @ApiOperation({ summary: 'Create a folder' })
   async createFolder(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const dto = driveFolderCreateSchema.parse(body);
     const data = await this.drive.createFolder(user.sub, dto);
@@ -97,7 +97,7 @@ export class DriveController {
   }
 
   @Post('nodes')
-  @ApiOperation({ summary: 'Положить на Диск уже загруженный файл (движок принимает байты сам)' })
+  @ApiOperation({ summary: 'Put an already uploaded file on the Drive (the engine takes the bytes itself)' })
   async attach(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const dto = driveNodeCreateSchema.parse(body);
     const data = await this.drive.attachFile(user.sub, dto);
@@ -105,7 +105,7 @@ export class DriveController {
   }
 
   @Patch('nodes/:id')
-  @ApiOperation({ summary: 'Переименовать' })
+  @ApiOperation({ summary: 'Rename' })
   async rename(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { name } = driveNodeUpdateSchema.parse(body);
     const data = await this.drive.rename(user.sub, id, name);
@@ -114,7 +114,7 @@ export class DriveController {
 
   @Post('nodes/move')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Переместить в другую папку того же диска' })
+  @ApiOperation({ summary: 'Move to another folder of the same drive' })
   async move(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const dto = driveMoveSchema.parse(body);
     const moved = await this.tree.move(user.sub, dto.ids, dto.parentId);
@@ -123,7 +123,7 @@ export class DriveController {
 
   @Post('nodes/trash')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'В корзину (файл ещё жив: вложение в чате работает)' })
+  @ApiOperation({ summary: 'To the trash (the file stays alive: a chat attachment keeps working)' })
   async trash(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const dto = driveIdsSchema.parse(body);
     const trashed = await this.tree.trash(user.sub, dto.ids);
@@ -132,7 +132,7 @@ export class DriveController {
 
   @Post('nodes/restore')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Восстановить из корзины' })
+  @ApiOperation({ summary: 'Restore from the trash' })
   async restore(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const dto = driveIdsSchema.parse(body);
     const restored = await this.tree.restore(user.sub, dto.ids);
@@ -141,7 +141,7 @@ export class DriveController {
 
   @Delete('nodes')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Удалить навсегда (файл гаснет везде, включая вложения в чатах)' })
+  @ApiOperation({ summary: 'Delete for good (the file dies everywhere, chat attachments included)' })
   async purge(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const dto = driveIdsSchema.parse(body);
     const purged = await this.tree.purge(user.sub, dto.ids);
@@ -150,7 +150,7 @@ export class DriveController {
 
   @Post('nodes/:id/star')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'В избранное' })
+  @ApiOperation({ summary: 'Add to starred' })
   async star(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     await this.drive.setStar(user.sub, id, true);
     return { success: true, data: { starred: true } };
@@ -158,7 +158,7 @@ export class DriveController {
 
   @Delete('nodes/:id/star')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Убрать из избранного' })
+  @ApiOperation({ summary: 'Remove from starred' })
   async unstar(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     await this.drive.setStar(user.sub, id, false);
     return { success: true, data: { starred: false } };
@@ -166,7 +166,7 @@ export class DriveController {
 
   @Post('nodes/copy')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Копировать (в том числе на другой диск; оригинал остаётся)' })
+  @ApiOperation({ summary: 'Copy (to another drive too; the original stays)' })
   async copy(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const dto = driveCopySchema.parse(body);
     const data = await this.tree.copy(user.sub, dto.ids, dto);
@@ -176,14 +176,14 @@ export class DriveController {
   // ---- Доступ ----
 
   @Get('nodes/:id/shares')
-  @ApiOperation({ summary: 'Кому открыт доступ (включая унаследованный от папок-предков)' })
+  @ApiOperation({ summary: 'Who has access (inherited from ancestor folders included)' })
   async shares(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const data = await this.shares_.listShares(user.sub, id);
     return { success: true, data };
   }
 
   @Post('nodes/:id/shares')
-  @ApiOperation({ summary: 'Открыть доступ человеку, Группе, отделу, должности или филиалу' })
+  @ApiOperation({ summary: 'Give access to a person, Group, department, position or site' })
   async share(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const dto = driveShareSchema.parse(body);
     const data = await this.shares_.share(user.sub, id, dto);
@@ -192,7 +192,7 @@ export class DriveController {
 
   @Delete('nodes/:id/shares/:principalType/:principalId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Закрыть доступ' })
+  @ApiOperation({ summary: 'Revoke access' })
   async unshare(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -206,14 +206,14 @@ export class DriveController {
   // ---- Версии ----
 
   @Get('nodes/:id/versions')
-  @ApiOperation({ summary: 'Версии файла (у офисных документов — свои, в core/docs)' })
+  @ApiOperation({ summary: 'File versions (office documents keep their own, in core/docs)' })
   async versions(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const data = await this.versions_.list(user.sub, id);
     return { success: true, data };
   }
 
   @Post('nodes/:id/versions')
-  @ApiOperation({ summary: 'Сохранить текущее содержимое версией' })
+  @ApiOperation({ summary: 'Save the current content as a version' })
   async snapshot(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const data = await this.versions_.snapshot(user.sub, id);
     return { success: true, data };
@@ -221,7 +221,7 @@ export class DriveController {
 
   @Post('nodes/:id/versions/:versionId/restore')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Вернуть версию (текущее содержимое уходит в историю)' })
+  @ApiOperation({ summary: 'Restore a version (the current content goes into the history)' })
   async restoreVersion(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -232,14 +232,14 @@ export class DriveController {
   }
 
   @Get('starred')
-  @ApiOperation({ summary: 'Избранное зрителя' })
+  @ApiOperation({ summary: 'The viewer’s starred items' })
   async starred(@CurrentUser() user: JwtPayload) {
     const data = await this.drive.listStarred(user.sub);
     return { success: true, data };
   }
 
   @Get('recent')
-  @ApiOperation({ summary: 'Недавно открытые' })
+  @ApiOperation({ summary: 'Recently opened' })
   async recent(@CurrentUser() user: JwtPayload) {
     const data = await this.drive.listRecent(user.sub);
     return { success: true, data };
@@ -248,7 +248,7 @@ export class DriveController {
   // ---- Лента «Фото» ----
 
   @Get('photos/buckets')
-  @ApiOperation({ summary: 'Счётчики снимков по месяцам (кормят скруббер)' })
+  @ApiOperation({ summary: 'Photo counts by month (they feed the scrubber)' })
   async photoBuckets(@CurrentUser() user: JwtPayload, @Query() query: Record<string, unknown>) {
     const q = drivePhotoBucketsQuerySchema.parse(query);
     const data = await this.photos.buckets(user.sub, q);
@@ -256,7 +256,7 @@ export class DriveController {
   }
 
   @Get('photos')
-  @ApiOperation({ summary: 'Страница ленты «Фото» (колоночный ответ с готовыми ссылками)' })
+  @ApiOperation({ summary: 'A page of the Photos feed (a columnar response with ready links)' })
   async photoPage(@CurrentUser() user: JwtPayload, @Query() query: Record<string, unknown>) {
     const q = drivePhotoQuerySchema.parse(query);
     const data = await this.photos.page(user.sub, q);

@@ -23,7 +23,7 @@ export class ApprovalsController {
   constructor(private readonly approvals: ApprovalsService) {}
 
   @Get('inbox')
-  @ApiOperation({ summary: 'Стопка «Ждут решения» — по реестру источников' })
+  @ApiOperation({ summary: 'The «Awaiting decision» stack — from the source registry' })
   async inbox(@CurrentUser() user: JwtPayload, @Query() query: Record<string, unknown>) {
     const q = approvalInboxQuerySchema.parse(query);
     const data = await this.approvals.inbox(user.sub, q);
@@ -31,7 +31,7 @@ export class ApprovalsController {
   }
 
   @Get('inbox/count')
-  @ApiOperation({ summary: 'Счётчик бейджа: одно число, без списков' })
+  @ApiOperation({ summary: 'The badge counter: one number, no lists' })
   async inboxCount(@CurrentUser() user: JwtPayload, @Query() query: Record<string, unknown>) {
     const q = approvalInboxQuerySchema.parse(query);
     const data = await this.approvals.inboxCount(user.sub, q);
@@ -39,7 +39,7 @@ export class ApprovalsController {
   }
 
   @Get('mine')
-  @ApiOperation({ summary: 'Мои заявки: где сейчас то, что я отправил' })
+  @ApiOperation({ summary: 'My requests: where the things I sent are now' })
   async mine(@CurrentUser() user: JwtPayload, @Query() query: Record<string, unknown>) {
     const q = approvalMineQuerySchema.parse(query);
     // ApprovalMinePage целиком: тип уже стоял на API и НЕ стоял на вебе именно
@@ -59,7 +59,7 @@ export class ApprovalsController {
   // Веб её не вызывал ни разу — это была чистая незакрытая поверхность.
 
   @Get(':id')
-  @ApiOperation({ summary: 'Заявка целиком: маршрут, кто решил, комментарии' })
+  @ApiOperation({ summary: 'The whole request: the route, who decided, the comments' })
   async get(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const data = await this.approvals.get(user.sub, id);
     return { success: true, data };
@@ -67,7 +67,7 @@ export class ApprovalsController {
 
   @Post(':id/cancel')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Отозвать свою заявку' })
+  @ApiOperation({ summary: 'Withdraw my request' })
   async cancel(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     await this.approvals.cancel(user.sub, id);
     return { success: true };
@@ -75,7 +75,7 @@ export class ApprovalsController {
 
   @Post('steps/:stepId/decide')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Согласовать · Отклонить · На доработку' })
+  @ApiOperation({ summary: 'Approve · Decline · Send back' })
   async decide(
     @CurrentUser() user: JwtPayload,
     @Param('stepId') stepId: string,

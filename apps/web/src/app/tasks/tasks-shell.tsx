@@ -12,6 +12,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { fetchTaskStats, taskStatsKey } from '@/lib/queries';
 import { TaskCreateModal } from './TaskCreateModal';
@@ -31,11 +32,12 @@ const Ctx = createContext<TasksServiceCtx | null>(null);
 
 export function useTasksService(): TasksServiceCtx {
   const v = useContext(Ctx);
-  if (!v) throw new Error('useTasksService вне TasksShell');
+  if (!v) throw new Error('useTasksService called outside TasksShell');
   return v;
 }
 
 export function TasksShell({ defaultCollapsed, children }: { defaultCollapsed?: boolean; children: React.ReactNode }) {
+  const tc = useTranslations('common');
   const { isReady, user } = useRequireAuth();
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
@@ -69,7 +71,7 @@ export function TasksShell({ defaultCollapsed, children }: { defaultCollapsed?: 
   if (!isReady) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <p className="label-md" style={{ fontSize: '1rem' }}>Загрузка...</p>
+        <p className="label-md" style={{ fontSize: '1rem' }}>{tc('state.loading')}</p>
       </div>
     );
   }

@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { SIGN_LEVEL_LABELS, signRequestHref, type SignLevel } from '@superapp/shared';
+import { signRequestHref } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -64,7 +64,7 @@ export class SignJobs implements OnModuleInit {
   /** Срок сбора истёк: единственная работа — разбудить потребителя его хуком */
   private async expired(requestId: string): Promise<void> {
     const request = await this.db.signRequest.findUnique({ where: { id: requestId } });
-    if (!request) throw new JobDiscardError('заявка на подпись удалена');
+    if (!request) throw new JobDiscardError('the signing request is gone');
     const provider = this.registry.get(request.refType);
     // Ошибка хука поднимается наверх — движок ретраит: «документ навсегда завис
     // у контрагента» хуже повторного вызова идемпотентного хука.
@@ -79,7 +79,7 @@ export class SignJobs implements OnModuleInit {
     });
     // Заявка исчезла — работа потеряла смысл. Это ПОСТОЯННАЯ ошибка: ретраить
     // нечего, и ложный dead-letter здесь был бы инцидентом на пустом месте.
-    if (!request) throw new JobDiscardError('заявка на подпись удалена');
+    if (!request) throw new JobDiscardError('the signing request is gone');
     if (request.status !== 'pending') return;
 
     const href = signRequestHref(request.id, request.workspaceId);
@@ -89,10 +89,10 @@ export class SignJobs implements OnModuleInit {
         .send(null, {
           type: 'sign.requested',
           to: [{ userId: act.signerUserId }],
-          payload: {
-            refTitle: request.refTitle,
-            levelLabel: SIGN_LEVEL_LABELS[request.level as SignLevel].short,
-          },
+          // В payload едет УРОВЕНЬ, а не его подпись: текст уведомления
+          // перерисовывается в языке читателя, и снимок фразы навсегда закрепил
+          // бы язык отправителя.
+          payload: { refTitle: request.refTitle, level: request.level },
           ref: { type: 'sign_request', id: request.id },
           workspaceId: request.workspaceId,
           actorId: request.createdById,
@@ -117,7 +117,7 @@ export class SignJobs implements OnModuleInit {
       where: { id: payload.actId },
       include: { request: { include: { acts: { select: { status: true, signerName: true } } } } },
     });
-    if (!act) throw new JobDiscardError('акт подписи удалён');
+    if (!act) throw new JobDiscardError('the signature act is gone');
     const request = act.request;
 
     const provider = this.registry.get(request.refType);

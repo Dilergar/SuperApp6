@@ -2,6 +2,8 @@
 
 import { CloseChip, Input, ModalShell, useConfirm } from '@/components/ui';
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
+import { useFormatters } from '@/lib/format';
 import type { ScheduledMessageItem } from '@superapp/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { listScheduled, updateScheduled, cancelScheduled } from '@/lib/messenger-api';
@@ -27,18 +29,16 @@ export function usePendingScheduledCount(chatId: string | null, enabled: boolean
   return (q.data ?? []).filter((s) => s.status === 'pending').length;
 }
 
-function fmtWhen(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleString('ru-RU', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+/** Момент отправки в правилах региона и словах языка зрителя. */
+function useWhen(): (iso: string) => string {
+  const f = useFormatters();
+  return (iso: string) => (Number.isNaN(new Date(iso).getTime()) ? '' : f.dateTime(iso, 'dayMonthLong'));
 }
 
 export function ScheduledPanel({ chatId, onClose }: { chatId: string; onClose: () => void }) {
+  const t = useTranslations('messenger');
+  const tc = useTranslations('common');
+  const fmtWhen = useWhen();
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: scheduledKey(chatId),
@@ -72,18 +72,18 @@ export function ScheduledPanel({ chatId, onClose }: { chatId: string; onClose: (
             marginBottom: 'var(--spacing-1)',
           }}
         >
-          <h3 className="title-md">Запланировано</h3>
+          <h3 className="title-md">{t('scheduled.title')}</h3>
           <CloseChip onClick={onClose} />
         </div>
         <p className="label-sm" style={{ opacity: 0.7, marginBottom: 'var(--spacing-4)' }}>
-          Ваши сообщения, ожидающие автоматической отправки.
+          {t('scheduled.subtitle')}
         </p>
 
         <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-          {isLoading && <p className="label-sm" style={{ opacity: 0.7 }}>Загрузка…</p>}
+          {isLoading && <p className="label-sm" style={{ opacity: 0.7 }}>{tc('state.loading')}</p>}
           {!isLoading && pending.length === 0 && (
             <p className="label-sm" style={{ opacity: 0.7, padding: 'var(--spacing-3)', textAlign: 'center' }}>
-              Запланированных сообщений нет.
+              {t('scheduled.empty')}
             </p>
           )}
           {pending.map((item) => (
@@ -93,7 +93,7 @@ export function ScheduledPanel({ chatId, onClose }: { chatId: string; onClose: (
 
         <div style={{ marginTop: 'var(--spacing-4)', textAlign: 'right' }}>
           <button onClick={onClose} className="btn-ghost-inline">
-            Закрыть
+            {tc('actions.close')}
           </button>
         </div>
       </div>
@@ -102,6 +102,9 @@ export function ScheduledPanel({ chatId, onClose }: { chatId: string; onClose: (
 }
 
 function ScheduledRow({ item, onChanged }: { item: ScheduledMessageItem; onChanged: () => void }) {
+  const t = useTranslations('messenger');
+  const tc = useTranslations('common');
+  const fmtWhen = useWhen();
   const [editing, setEditing] = useState(false);
   const [when, setWhen] = useState(toLocalInput(new Date(item.sendAt)));
   const [busy, setBusy] = useState(false);
@@ -113,7 +116,7 @@ function ScheduledRow({ item, onChanged }: { item: ScheduledMessageItem; onChang
   const saveTime = async () => {
     const sendAt = localToIso(when);
     if (!sendAt) {
-      setErr('Выберите время.');
+      setErr(t('scheduled.pickTime'));
       return;
     }
     setBusy(true);
@@ -123,7 +126,7 @@ function ScheduledRow({ item, onChanged }: { item: ScheduledMessageItem; onChang
       setEditing(false);
       onChanged();
     } catch (e) {
-      setErr(errMsg(e, 'Не удалось изменить время'));
+      setErr(errMsg(e, t('scheduled.timeFailed')));
     } finally {
       setBusy(false);
     }
@@ -131,7 +134,7 @@ function ScheduledRow({ item, onChanged }: { item: ScheduledMessageItem; onChang
 
   const cancel = () => {
     confirm(
-      { title: 'Отменить это сообщение?', message: 'Оно не будет отправлено.', confirmLabel: 'Отменить отправку', danger: true },
+      { title: t('scheduled.cancelConfirm.title'), message: t('scheduled.cancelConfirm.message'), confirmLabel: t('scheduled.cancelConfirm.label'), danger: true },
       cancelNow,
     );
   };
@@ -143,7 +146,7 @@ function ScheduledRow({ item, onChanged }: { item: ScheduledMessageItem; onChang
       await cancelScheduled(item.id);
       onChanged();
     } catch (e) {
-      setErr(errMsg(e, 'Не удалось отменить'));
+      setErr(errMsg(e, t('scheduled.cancelFailed')));
       setBusy(false);
     }
   };
@@ -165,7 +168,7 @@ function ScheduledRow({ item, onChanged }: { item: ScheduledMessageItem; onChang
       {editing ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
           <Input
-            aria-label="Когда отправить"
+            aria-label={t('scheduled.whenAria')}
             type="datetime-local"
             value={when}
             min={minWhen}
@@ -183,7 +186,7 @@ function ScheduledRow({ item, onChanged }: { item: ScheduledMessageItem; onChang
               className="btn-ghost-inline"
               style={{ fontSize: '0.78rem', padding: '0.35rem 0.8rem' }}
             >
-              Отмена
+              {tc('actions.cancel')}
             </button>
             <button
               onClick={saveTime}
@@ -191,7 +194,7 @@ function ScheduledRow({ item, onChanged }: { item: ScheduledMessageItem; onChang
               className="btn-success"
               style={{ fontSize: '0.78rem', padding: '0.35rem 0.8rem', opacity: busy ? 0.5 : 1 }}
             >
-              {busy ? '…' : 'Сохранить'}
+              {busy ? '…' : tc('actions.save')}
             </button>
           </div>
         </div>
@@ -210,7 +213,7 @@ function ScheduledRow({ item, onChanged }: { item: ScheduledMessageItem; onChang
               className="btn-ghost-inline"
               style={{ fontSize: '0.74rem', padding: '0.3rem 0.7rem' }}
             >
-              Изменить время
+              {t('scheduled.changeTime')}
             </button>
             <button
               onClick={cancel}
@@ -226,7 +229,7 @@ function ScheduledRow({ item, onChanged }: { item: ScheduledMessageItem; onChang
                 opacity: busy ? 0.5 : 1,
               }}
             >
-              Отменить
+              {t('scheduled.cancel')}
             </button>
           </div>
         </div>

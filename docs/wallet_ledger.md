@@ -25,6 +25,20 @@
 
 В контексте организации (X-Workspace-Id), только owner: компанийная валюта (эмитент=workspace) + казна (воркспейс-счёт), `POST /wallet/company/pay` (казна→сотрудник), выпуск в казну, держатели.
 
+## Слова (i18n)
+
+Движок переведён: **ни одной строки для человека в коде**.
+
+- **Вид записи леджера — по ЗНАЧЕНИЮ** (`wallet.entryType.<type>`); словарь
+  `LEDGER_ENTRY_LABELS` из `@superapp/shared` удалён.
+- **Имя исчезнувшей валюты — прочерк, а не слово.** `EscrowService.currencyName` при
+  гонке с удалением валюты кладёт в payload уведомления `'—'`: имя валюты пишет человек,
+  и заменить его словом одного языка значило бы заморозить язык в вечной записи.
+- **Дата в отказе — форматтером платформы** (`badRequest('wallet.renameCooldown', { date: i18n.format().date(nextAt) })`),
+  а не `toLocaleDateString('ru-RU')`.
+- Отказы — фабрики `shared/errors/api-error.ts` (`errors.wallet.*`), Swagger и логи
+  реконсиляции — по-английски.
+
 ## API (кратко)
 
 `GET /wallet` · `GET /wallet/history` (cursor) · cards CRUD · currency CRUD + mint + holders · `POST /wallet/burn` · company/* (валюта, казна, pay, держатели).

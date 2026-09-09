@@ -26,16 +26,19 @@ export const NOTE_PRINCIPAL_TYPES = ['user', 'circle', 'workspace', 'department'
  * Цвета заметок/стикеров — ЦВЕТ-ДАННЫЕ (выбирает человек), а не цвет системы.
  * Те же восемь пастельных тонов, что у Групп окружения: одна палитра на платформу,
  * ничего не выдумываем (правило DESIGN.md «цвета не придумывать»).
+ *
+ * Реестр называет ЦВЕТ ключом, слово даёт каталог (`notes.color.<ключ>`): название
+ * тона читает человек, и оно обязано быть на его языке.
  */
-export const NOTE_COLORS: ReadonlyArray<{ value: string; name: string }> = [
-  { value: '#f0c4c2', name: 'Розовый' },
-  { value: '#c3d8f0', name: 'Голубой' },
-  { value: '#eed6ae', name: 'Песочный' },
-  { value: '#c6ddc7', name: 'Зелёный' },
-  { value: '#e1bee7', name: 'Сиреневый' },
-  { value: '#ffccbc', name: 'Персиковый' },
-  { value: '#b2dfdb', name: 'Бирюзовый' },
-  { value: '#f0f4c3', name: 'Лаймовый' },
+export const NOTE_COLORS: ReadonlyArray<{ value: string; key: string }> = [
+  { value: '#f0c4c2', key: 'pink' },
+  { value: '#c3d8f0', key: 'blue' },
+  { value: '#eed6ae', key: 'sand' },
+  { value: '#c6ddc7', key: 'green' },
+  { value: '#e1bee7', key: 'lilac' },
+  { value: '#ffccbc', key: 'peach' },
+  { value: '#b2dfdb', key: 'teal' },
+  { value: '#f0f4c3', key: 'lime' },
 ];
 export const NOTE_COLOR_VALUES = NOTE_COLORS.map((c) => c.value) as readonly string[];
 
@@ -46,14 +49,6 @@ export const NOTE_COLOR_VALUES = NOTE_COLORS.map((c) => c.value) as readonly str
 export const NOTE_TARGET_TYPES = ['note', 'task', 'counterparty', 'branch', 'document'] as const;
 export const NOTE_RELATED_TARGET_TYPES = ['task', 'counterparty', 'branch', 'document'] as const;
 export const NOTE_LINK_KINDS = ['wikilink', 'related'] as const;
-
-export const NOTE_TARGET_LABELS: Record<(typeof NOTE_TARGET_TYPES)[number], string> = {
-  note: 'Заметка',
-  task: 'Задача',
-  counterparty: 'Контрагент',
-  branch: 'Объект',
-  document: 'Документ',
-};
 
 export const NOTE_LIMITS = {
   /** Заголовок заметки */

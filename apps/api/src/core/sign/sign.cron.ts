@@ -26,7 +26,7 @@ export class SignCron {
   @Cron('*/5 * * * *')
   async handleQrSessions(): Promise<void> {
     const n = await this.redis.withLock('cron:sign-qr-expire', 4 * 60 * 1000, () => this.qr.expireStale());
-    if (n !== null && n > 0) this.logger.log(`QR-сессий закрыто по сроку: ${n}`);
+    if (n !== null && n > 0) this.logger.log(`QR sessions expired: ${n}`);
   }
 
   /**
@@ -38,7 +38,7 @@ export class SignCron {
   @Cron('19 * * * *')
   async handleExpiredRequests(): Promise<void> {
     const n = await this.redis.withLock('cron:sign-expire-requests', 10 * 60 * 1000, () => this.expireRequests());
-    if (n !== null && n > 0) this.logger.log(`Заявок на подпись закрыто по сроку: ${n}`);
+    if (n !== null && n > 0) this.logger.log(`Signing requests expired: ${n}`);
   }
 
   async expireRequests(): Promise<number> {

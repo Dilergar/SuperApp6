@@ -10,6 +10,7 @@
 // ============================================================
 
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   DOC_EXTERNAL_DEFAULT_TTL_DAYS,
@@ -60,6 +61,9 @@ export function SendToCounterpartyModal({
   const [signersTouched, setSignersTouched] = useState(false);
   const [expiresAt, setExpiresAt] = useState<Date | null>(null);
   const [sendSms, setSendSms] = useState(true);
+  const tr = useTranslations('documents');
+  const tc = useTranslations('common');
+  const tcp = useTranslations('counterparties');
 
   // Отпечаток: контрагент подписывает РОВНО его. Пока не готов — кнопка ждёт.
   const subjectReady = doc.builderDoc ? !!doc.fileId : !!doc.pdfFileId;
@@ -70,7 +74,7 @@ export function SendToCounterpartyModal({
     enabled: open,
   });
   const level = (typesQuery.data ?? []).find((t) => t.id === doc.docTypeId)?.signatureLevel ?? 'pep';
-  const levelLabel = DOC_SIGNATURE_LEVELS.find((l) => l.value === level)?.label ?? level;
+  const levelLabel = tr(`signatureLevel.${level}`);
 
   const cpsQuery = useQuery({
     queryKey: counterpartiesKey(workspaceId, { forPicker: 'send' }),
@@ -185,19 +189,19 @@ export function SendToCounterpartyModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="Отправить контрагенту"
+      title={tr('send.title')}
       subtitle={doc.number ? `${doc.title} № ${doc.number}` : doc.title}
       size="md"
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
-            Отмена
+            {tc('actions.cancel')}
           </Button>
           <Button variant="ghost" icon="eye" disabled={!subjectReady} onClick={() => void openSubjectPdf()}>
-            Посмотреть, что уйдёт
+            {tr('send.previewSubject')}
           </Button>
           <Button icon="send" loading={send.isPending} disabled={!canSend} onClick={() => send.mutate()}>
-            Отправить
+            {tr('send.send')}
           </Button>
         </>
       }
@@ -205,7 +209,7 @@ export function SendToCounterpartyModal({
       <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
         {showPicker && (
           <Select
-            label="Контрагент"
+            label={tcp('breadcrumb')}
             value={counterpartyId}
             onChange={(v) => {
               const next = v || null;
@@ -216,7 +220,7 @@ export function SendToCounterpartyModal({
               if (next) bind.mutate(next);
             }}
             options={(cpsQuery.data?.items ?? []).map((c) => ({ value: c.id, label: c.name }))}
-            placeholder={(cpsQuery.data?.items ?? []).length === 0 ? 'Справочник пуст' : 'Выберите контрагента'}
+            placeholder={tr((cpsQuery.data?.items ?? []).length === 0 ? 'send.emptyDirectory' : 'upload.pickCounterparty')}
           />
         )}
 
@@ -232,29 +236,29 @@ export function SendToCounterpartyModal({
                 icon="add"
                 href={`/workspaces/${workspaceId}/counterparties?open=${counterpartyId}`}
               >
-                Добавить контакт
+                {tr('send.addContact')}
               </Button>
             }
           >
-            У контрагента нет контактных лиц — документ некому отправить на подпись
+            {tr('send.noContacts')}
           </Alert>
         ) : counterpartyId ? (
           <Select
-            label="Подписант со стороны контрагента"
+            label={tr('send.contactLabel')}
             value={contactId}
             onChange={(v) => setContactId(v || null)}
             options={contacts.map((c) => ({
               value: c.id,
               label: [c.name, c.position, c.phone].filter(Boolean).join(' · '),
             }))}
-            placeholder="Выберите контактное лицо"
-            hint="Ему уйдёт ссылка на подписание; личность подтверждается SMS-кодом"
+            placeholder={tr('send.pickContact')}
+            hint={tr('send.contactHint')}
           />
         ) : null}
 
         <div>
           <span className="label-sm" style={{ fontWeight: 600, display: 'block', marginBottom: 'var(--spacing-2)' }}>
-            Внутренние подписанты (с нашей стороны)
+            {tr('send.internalSigners')}
           </span>
           <EntitySelector
             types={['user']}
@@ -264,13 +268,13 @@ export function SendToCounterpartyModal({
               setSigners(v);
             }}
             context={{ workspaceId }}
-            placeholder="Кто подписывает от организации"
+            placeholder={tr('send.internalSignersPlaceholder')}
           />
         </div>
 
         <div style={{ display: 'flex', gap: 'var(--spacing-4)', alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <DatePicker
-            label="Срок подписания"
+            label={tr('send.due')}
             value={expiresAt ?? defaultDue}
             min={new Date()}
             onChange={(d) => setExpiresAt(d)}
@@ -278,7 +282,7 @@ export function SendToCounterpartyModal({
           />
           {/* Уровень диктует ВИД документа — здесь только показываем */}
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--spacing-2)', paddingBottom: 6 }}>
-            <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Подпись:</span>
+            <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{tr('send.signature')}</span>
             <Chip size="sm" tone={level === 'ecp' ? 'accent' : 'neutral'} icon="signature">
               {levelLabel}
             </Chip>
@@ -287,28 +291,23 @@ export function SendToCounterpartyModal({
 
         {contact?.phone && (
           <Toggle
-            label={`Отправить SMS со ссылкой на ${contact.phone}`}
+            label={tr('send.sendSms', { phone: contact.phone })}
             checked={sendSms}
             onChange={setSendSms}
           />
         )}
 
         {!subjectReady && (
-          <Alert tone="waiting">PDF-отпечаток ещё формируется — кнопка откроется, как только он будет готов</Alert>
+          <Alert tone="waiting">{tr('send.pdfBuilding')}</Alert>
         )}
         {subjectReady && !!doc.rebuilding && (
-          <Alert tone="waiting">
-            Пересобираем документ с данными контрагента — кнопка откроется через несколько секунд
-          </Alert>
+          <Alert tone="waiting">{tr('send.rebuilding')}</Alert>
         )}
         {level === 'none' && (
-          <Alert tone="danger">Вид документа не предполагает подписи — включите её в настройках вида</Alert>
+          <Alert tone="danger">{tr('send.noSignatureLevel')}</Alert>
         )}
         {!doc.number && (
-          <Alert tone="warning">
-            У документа нет номера. Отправить можно и так, но в тексте договора номер уже не появится —
-            присвойте его на карточке до отправки.
-          </Alert>
+          <Alert tone="warning">{tr('send.noNumber')}</Alert>
         )}
       </div>
     </Modal>

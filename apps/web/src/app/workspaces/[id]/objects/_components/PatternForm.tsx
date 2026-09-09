@@ -8,6 +8,7 @@
 // сутки, и ротация начиналась вчера.
 
 import { useMemo, useState, type CSSProperties } from 'react';
+import { useTranslations } from 'next-intl';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ShiftPatternDto, ShiftTemplateDto, StaffingTableDto } from '@superapp/shared';
 import { Alert, Button, Chip, DatePicker, Divider, Input, Modal, Select, useConfirm } from '@/components/ui';
@@ -34,6 +35,8 @@ export function PatternForm({
   onClose: () => void;
   onSaved?: () => void;
 }) {
+  const t = useTranslations('objects');
+  const tc = useTranslations('common');
   const qc = useQueryClient();
   const [confirm, confirmUI] = useConfirm();
   const today = todayIn(timeZone);
@@ -64,9 +67,11 @@ export function PatternForm({
     }
     const units = new Map<string, string>();
     for (const r of rows) if (!units.has(r.staffingPositionId)) units.set(r.staffingPositionId, r.positionName);
-    for (const [unitId, label] of units) out.push({ value: `u:${unitId}`, label: `Открытые слоты · ${label}` });
+    for (const [unitId, label] of units) {
+      out.push({ value: `u:${unitId}`, label: `${t('patterns.openSlots')} · ${label}` });
+    }
     return out;
-  }, [staffing]);
+  }, [staffing, t]);
 
   const [name, setName] = useState('2/2');
   const [target, setTarget] = useState('');
@@ -93,8 +98,8 @@ export function PatternForm({
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!target) throw new Error('Выберите, для кого ротация');
-      if (cycle.every((c) => !c)) throw new Error('В цикле нет ни одной смены');
+      if (!target) throw new Error(t('patterns.pickTarget'));
+      if (cycle.every((c) => !c)) throw new Error(t('patterns.cycleEmpty'));
       const [kind, id] = target.split(':');
       return shiftsApi.createPattern(workspaceId, objectId, {
         name: name.trim(),
@@ -135,19 +140,21 @@ export function PatternForm({
   });
 
   return (
-    <Modal open={open} onClose={onClose} title="Ротация смен" size="lg">
+    <Modal open={open} onClose={onClose} title={t('patterns.title')} size="lg">
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         <div className="ui-stack" style={{ gap: 'var(--spacing-2)' }}>
           {((patterns as ShiftPatternDto[] | undefined) ?? []).length === 0 ? (
-            <span className="label-sm">Ротаций пока нет</span>
+            <span className="label-sm">{t('patterns.empty')}</span>
           ) : (
             ((patterns as ShiftPatternDto[]) ?? []).map((p) => (
               <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
                 <span style={{ fontWeight: 600 }}>{p.name}</span>
-                <Chip tone="neutral">{`цикл ${p.cycle.length} дн.`}</Chip>
-                <span className="label-sm" style={{ opacity: 0.7 }}>{`с ${dmy(p.activeFrom)}`}</span>
+                <Chip tone="neutral">{t('patterns.cycleDays', { n: p.cycle.length })}</Chip>
+                <span className="label-sm" style={{ opacity: 0.7 }}>
+                  {t('rates.since', { date: dmy(p.activeFrom) })}
+                </span>
                 <Button size="sm" variant="ghost" loading={generate.isPending} onClick={() => generate.mutate(p.id)}>
-                  Догенерировать
+                  {t('patterns.generate')}
                 </Button>
                 <Button
                   size="sm"
@@ -156,15 +163,15 @@ export function PatternForm({
                   onClick={() =>
                     confirm(
                       {
-                        title: 'Убрать ротацию?',
-                        message: 'Будущие ЧЕРНОВИКИ снимутся; опубликованные смены останутся.',
-                        confirmLabel: 'Убрать',
+                        title: t('patterns.removeTitle'),
+                        message: t('patterns.removeMessage'),
+                        confirmLabel: tc('actions.remove'),
                       },
                       () => remove.mutateAsync(p.id).then(() => undefined),
                     )
                   }
                 >
-                  Убрать
+                  {tc('actions.remove')}
                 </Button>
               </div>
             ))
@@ -176,26 +183,39 @@ export function PatternForm({
         {/* Цикл собирается ИЗ ШАБЛОНОВ: без них форма нерабочая по существу —
             говорим причину, а не показываем вечно выключенную кнопку. */}
         {tplList.length === 0 && (
-          <Alert tone="warning" title="Сначала нужен шаблон смены">
-            Ротация переключает дни между шаблонами и выходным. Заведите хотя бы один шаблон в разделе «Шаблоны».
+          <Alert tone="warning" title={t('patterns.needTemplate')}>
+            {t('patterns.needTemplateHint')}
           </Alert>
         )}
 
         <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-3)' }}>
-          <Input label="Название" placeholder="2/2" value={name} onChange={(e) => setName(e.target.value)} />
-          <Select label="Для кого" value={target} onChange={setTarget} options={[{ value: '', label: 'Выберите…' }, ...targets]} />
-          <DatePicker label="Якорная дата (начало цикла)" value={isoToDate(anchor)} onChange={(d) => setAnchor(dateToIso(d))} />
-          <DatePicker label="Действует с" value={isoToDate(activeFrom)} onChange={(d) => setActiveFrom(dateToIso(d))} />
+          <Input label={tc('labels.name')} placeholder="2/2" value={name} onChange={(e) => setName(e.target.value)} />
+          <Select
+            label={t('patterns.forWhom')}
+            value={target}
+            onChange={setTarget}
+            options={[{ value: '', label: tc('actions.select') }, ...targets]}
+          />
+          <DatePicker
+            label={t('patterns.anchorDate')}
+            value={isoToDate(anchor)}
+            onChange={(d) => setAnchor(dateToIso(d))}
+          />
+          <DatePicker
+            label={t('patterns.activeFrom')}
+            value={isoToDate(activeFrom)}
+            onChange={(d) => setActiveFrom(dateToIso(d))}
+          />
         </div>
 
         <div>
           <span className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-2)', fontWeight: 600 }}>
-            Цикл — кликните по дню, чтобы выбрать смену или выходной
+            {t('patterns.cycleHint')}
           </span>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: 'var(--spacing-3)' }}>
             {[2, 3, 4, 5, 7, 14].map((n) => (
               <Button key={n} size="sm" variant={cycleLen === n ? 'primary' : 'ghost'} onClick={() => setLen(n)}>
-                {`${n} дн.`}
+                {t('patterns.days', { n })}
               </Button>
             ))}
           </div>
@@ -209,15 +229,15 @@ export function PatternForm({
                 : { minWidth: 88 };
               return (
                 <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                  <span className="meta" style={{ textAlign: 'center' }}>{`день ${i + 1}`}</span>
+                  <span className="meta" style={{ textAlign: 'center' }}>{t('patterns.day', { n: i + 1 })}</span>
                   <Button
                     size="sm"
                     variant={tpl ? 'matte' : 'outline'}
                     style={toneStyle}
-                    aria-label={`День ${i + 1}: ${tpl ? tpl.name : 'выходной'}. Нажмите, чтобы сменить`}
+                    aria-label={t('patterns.dayAria', { n: i + 1, name: tpl ? tpl.name : t('patterns.dayOff') })}
                     onClick={() => toggleDay(i)}
                   >
-                    {tpl ? tpl.name : 'выходной'}
+                    {tpl ? tpl.name : t('patterns.dayOff')}
                   </Button>
                 </div>
               );
@@ -227,10 +247,15 @@ export function PatternForm({
 
         <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end' }}>
           <Button variant="ghost" onClick={onClose}>
-            Отмена
+            {tc('actions.cancel')}
           </Button>
-          <Button variant="primary" loading={save.isPending} disabled={!target || tplList.length === 0} onClick={() => save.mutate()}>
-            Создать ротацию
+          <Button
+            variant="primary"
+            loading={save.isPending}
+            disabled={!target || tplList.length === 0}
+            onClick={() => save.mutate()}
+          >
+            {t('patterns.create')}
           </Button>
         </div>
       </div>

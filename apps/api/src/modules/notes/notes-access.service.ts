@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   NOTE_FOLDER_REF_TYPE,
@@ -15,6 +15,7 @@ import { AccessService } from '../../core/access/access.service';
 import { principalSubjectRelation } from '../../core/access/access-schema';
 import { RolesService } from '../../core/roles/roles.service';
 import { DatabaseService } from '../../shared/database/database.service';
+import { forbidden, notFound } from '../../shared/errors/api-error';
 
 type Tx = Prisma.TransactionClient;
 
@@ -79,7 +80,7 @@ export class NotesAccessService {
     // workspaceId заводил строку note_spaces и только потом получал отказ.
     if (ref.workspaceId) {
       const rank = await this.workspaceRank(userId, ref.workspaceId);
-      if (rank < WORKSPACE_ROLE_RANK.trainee) throw new ForbiddenException('Вы не состоите в этой организации');
+      if (rank < WORKSPACE_ROLE_RANK.trainee) throw forbidden('notes.notInWorkspace');
     }
     const space = await this.ensureSpace(ref.workspaceId ? 'workspace' : 'user', ref.workspaceId ?? userId);
     return this.scopeForSpace(userId, space);
@@ -95,7 +96,7 @@ export class NotesAccessService {
       const rank = await this.workspaceRank(userId, space.ownerId);
       // Подрядчик изолирован: рабочие заметки ему не показываются вовсе.
       member = rank >= WORKSPACE_ROLE_RANK.trainee;
-      if (!member) throw new ForbiddenException('Вы не состоите в этой организации');
+      if (!member) throw forbidden('notes.notInWorkspace');
       spaceAccess = rank >= WORKSPACE_ROLE_RANK.admin ? 'owner' : null;
     }
     const grants = await this.grantsFor(userId);
@@ -105,7 +106,7 @@ export class NotesAccessService {
   /** Скоуп по id пространства (чужие заметки, расшаренные мне, живут в чужом пространстве) */
   async scopeForSpaceId(userId: string, spaceId: string): Promise<NoteScope> {
     const space = await this.db.noteSpace.findUnique({ where: { id: spaceId } });
-    if (!space) throw new NotFoundException('Заметка не найдена');
+    if (!space) throw notFound('notes.noteNotFound');
     // Личное пространство другого человека: членства нет, доступ только по грантам.
     if (space.ownerType === 'user' && space.ownerId !== userId) {
       return { userId, space, spaceAccess: null, member: false, grants: await this.grantsFor(userId) };
@@ -126,7 +127,7 @@ export class NotesAccessService {
     if (found) return found;
     if (ownerType === 'workspace') {
       const ws = await db.workspace.findUnique({ where: { id: ownerId }, select: { id: true } });
-      if (!ws) throw new NotFoundException('Организация не найдена');
+      if (!ws) throw notFound('notes.workspaceNotFound');
     }
     // Гонка двух первых запросов: unique (owner_type, owner_id) — второй перечитывает.
     return db.noteSpace
@@ -201,14 +202,20 @@ export class NotesAccessService {
     return null;
   }
 
-  /** Бросить, если прав не хватает: чужое = 404 (не выдаём существование), мало = 403 */
-  assertAccess(access: NoteAccess | null, need: NoteRole, what = 'заметке'): NoteAccess {
-    if (!access) throw new NotFoundException(what === 'папке' ? 'Папка не найдена' : 'Заметка не найдена');
+  /**
+   * Бросить, если прав не хватает: чужое = 404 (не выдаём существование), мало = 403.
+   * `subject` называет ПРЕДМЕТ отказа кодом — слова обоим даёт каталог.
+   */
+  assertAccess(access: NoteAccess | null, need: NoteRole, subject: 'note' | 'folder' = 'note'): NoteAccess {
+    const folder = subject === 'folder';
+    if (!access) throw notFound(folder ? 'notes.folderNotFound' : 'notes.noteNotFound');
     if (rank(access) < NOTE_ROLE_RANK[need]) {
-      throw new ForbiddenException(
+      throw forbidden(
         need === 'manager'
-          ? 'Управлять доступом может только автор или владелец'
-          : `Нет прав на изменение: доступ к ${what} только на просмотр`,
+          ? 'notes.ownerManagesAccess'
+          : folder
+            ? 'notes.readOnlyFolder'
+            : 'notes.readOnlyNote',
       );
     }
     return access;

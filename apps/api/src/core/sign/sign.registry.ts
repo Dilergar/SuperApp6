@@ -108,11 +108,14 @@ export interface SignRefProvider {
    * ключом». Зовётся ДО финализации акта гостя. `{ok:false}` → жёсткий отказ
    * `sign_counterparty_mismatch` (акт не хоронится — человек мог выбрать не тот
    * ключ в NCALayer). Отсутствует → сверки нет (личность держит SMS-номер).
+   *
+   * Причина отказа — КЛЮЧ каталога с параметрами, а не фраза: её читает и
+   * человек (в языке запроса), и append-only протокол (ключом навсегда).
    */
   checkGuestCert?(
     refId: string,
     cert: { iin: string | null; bin: string | null },
-  ): Promise<{ ok: boolean; reason?: string }>;
+  ): Promise<{ ok: boolean; reason?: { key: string; params?: Record<string, string | number> } }>;
 }
 
 @Injectable()

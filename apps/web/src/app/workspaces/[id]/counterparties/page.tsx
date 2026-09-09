@@ -10,24 +10,27 @@
 // ============================================================
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   COUNTERPARTY_FORM_OPTIONS,
-  COUNTERPARTY_KINDS,
+  
   COUNTERPARTY_REF_TYPE,
   counterpartyFormQuery,
   ORG_FORMS,
-  ORG_FORM_LEGAL_WRAP,
+  ORG_FORMS_WITH_LEGAL_WRAP,
+  composeSignBasis,
   SIGN_BASIS_OPTIONS,
   TAX_REGIMES,
   WORKSPACE_ROLE_RANK,
-  counterpartyIdLabel,
+  counterpartyIdKey,
   defaultKbeFor,
   isValidIinOrBin,
   type ChatterActorLite,
   type ChatterPageDto,
   type CounterpartyDto,
+  type SignBasisInput,
   type CounterpartyKind,
   type Workspace,
   type WorkspaceRole,
@@ -70,6 +73,7 @@ import { NotesPanel } from '@/components/notes/NotesPanel';
 import { counterpartiesApi, fetchCounterparties, fetchCounterparty, lookupCounterparty } from './counterparties-api';
 
 export default function CounterpartiesPage() {
+  const tdoc = useTranslations('documents');
   const { isReady } = useRequireAuth();
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -89,7 +93,7 @@ export default function CounterpartiesPage() {
   return openId ? (
     <CounterpartyCard workspaceId={id} counterpartyId={openId} isManager={isManager} onBack={() => router.push(`/workspaces/${id}/counterparties`)} />
   ) : (
-    <CounterpartiesList workspaceId={id} wsName={wsQuery.data?.name ?? 'Организация'} isManager={isManager} />
+    <CounterpartiesList workspaceId={id} wsName={wsQuery.data?.name ?? tdoc('page.orgFallback')} isManager={isManager} />
   );
 }
 
@@ -108,6 +112,9 @@ function CounterpartiesList({
 }) {
   const router = useRouter();
   const [search, setSearch] = useState('');
+  const tr = useTranslations('counterparties');
+  const tc = useTranslations('common');
+  const tdoc = useTranslations('documents');
   // «Вид» — ТОТ ЖЕ список, что в форме (COUNTERPARTY_FORM_OPTIONS): в запрос он
   // превращается общим `counterpartyFormQuery`, чтобы список и форма не разъезжались
   const [formKey, setFormKey] = useState<string | null>(null);
@@ -135,12 +142,12 @@ function CounterpartiesList({
     <>
       <PageHeader
         breadcrumb={wsName}
-        title="Контрагенты"
-        description="Справочник внешних сторон: реквизиты, контактные лица и счета — их читают договоры и будущие счета на оплату"
+        title={tr('breadcrumb')}
+        description={tr('list.description')}
         actions={
           isManager ? (
             <Button icon="add" onClick={() => setCreateOpen(true)}>
-              Контрагент
+              {tr('list.add')}
             </Button>
           ) : undefined
         }
@@ -150,24 +157,24 @@ function CounterpartiesList({
         <SearchField
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Название, юрнаименование или БИН"
-          aria-label="Поиск по контрагентам"
+          placeholder={tr('list.searchPlaceholder')}
+          aria-label={tr('list.searchAria')}
         />
         <Select
-          label="Вид"
+          label={tr('list.kindFilter')}
           value={formKey}
           onChange={(v) => setFormKey(v || null)}
           options={[
-            { value: '', label: 'Все' },
-            ...COUNTERPARTY_FORM_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+            { value: '', label: tc('labels.all') },
+            ...COUNTERPARTY_FORM_OPTIONS.map((o) => ({ value: o.value, label: tr(`form.${o.value}`) })),
           ]}
-          placeholder="Все"
+          placeholder={tc('labels.all')}
           width={210}
         />
         {/* Архив — не удаление: сюда уходят карточки, с которыми больше не работают,
             и отсюда же возвращаются */}
         <Chip tone="accent" selected={archived} icon="delete" onClick={() => setArchived((v) => !v)}>
-          В архиве
+          {tr('list.archived')}
         </Chip>
       </div>
 
@@ -178,10 +185,10 @@ function CounterpartiesList({
           ) : listQuery.isError ? (
             <EmptyState
               icon="warningCircle"
-              title="Справочник не загрузился"
+              title={tr('list.loadFailed')}
               action={
                 <Button variant="matte" icon="refresh" onClick={() => listQuery.refetch()}>
-                  Повторить
+                  {tc('actions.retry')}
                 </Button>
               }
             />
@@ -189,23 +196,23 @@ function CounterpartiesList({
             archived ? (
               <EmptyState
                 icon="delete"
-                title="В архиве пусто"
-                description="Сюда попадают карточки, убранные из справочника. Вернуть их можно в любой момент."
+                title={tr('list.archiveEmpty')}
+                description={tr('list.archiveEmptyText')}
                 action={
                   <Button variant="matte" icon="arrowLeft" onClick={() => setArchived(false)}>
-                    К действующим
+                    {tr('list.toActive')}
                   </Button>
                 }
               />
             ) : (
               <EmptyState
                 icon="workspace"
-                title="Контрагентов пока нет"
-                description="Заведите тех, с кем заключаете договоры: их реквизиты подставятся в документы, а контактное лицо получит ссылку на подписание."
+                title={tr('list.emptyTitle')}
+                description={tr('list.emptyText')}
                 action={
                   isManager ? (
                     <Button icon="add" onClick={() => setCreateOpen(true)}>
-                      Добавить контрагента
+                      {tr('list.addFirst')}
                     </Button>
                   ) : undefined
                 }
@@ -233,9 +240,9 @@ function CounterpartiesList({
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600 }}>{cp.name}</div>
                     <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                      {[cp.legalName !== cp.name ? cp.legalName : null, cp.bin ? `${counterpartyIdLabel(cp.kind)} ${cp.bin}` : null]
+                      {[cp.legalName !== cp.name ? cp.legalName : null, cp.bin ? `${tr(`idLabel.${counterpartyIdKey(cp.kind)}`)} ${cp.bin}` : null]
                         .filter(Boolean)
-                        .join(' · ') || FORM_LABEL(cp)}
+                        .join(' · ') || tr(formLabelKey(cp))}
                     </div>
                   </div>
                   {(cp.documentsCount ?? 0) > 0 && (
@@ -243,13 +250,13 @@ function CounterpartiesList({
                       {cp.documentsCount}
                     </Chip>
                   )}
-                  <Chip size="sm">{FORM_LABEL(cp)}</Chip>
+                  <Chip size="sm">{tr(formLabelKey(cp))}</Chip>
                 </button>
               ))}
               {listQuery.hasNextPage && (
                 <div style={{ textAlign: 'center' }}>
                   <Button variant="matte" size="sm" loading={listQuery.isFetchingNextPage} onClick={() => listQuery.fetchNextPage()}>
-                    Показать ещё
+                    {tr('list.more')}
                   </Button>
                 </div>
               )}
@@ -268,10 +275,10 @@ function CounterpartiesList({
   );
 }
 
-const KIND_LABEL = (kind: CounterpartyKind) => COUNTERPARTY_KINDS.find((k) => k.value === kind)?.label ?? kind;
-/** Подпись вида: орг-форма (ТОО/АО/…), а без неё — широкий вид (юрлицо/ИП/физлицо) */
-const FORM_LABEL = (cp: Pick<CounterpartyDto, 'kind' | 'orgForm'>) =>
-  (cp.orgForm ? ORG_FORMS.find((f) => f.value === cp.orgForm)?.label : null) ?? KIND_LABEL(cp.kind);
+/** КЛЮЧ подписи вида: слово даёт каталог — реестр называет только смысл */
+const formLabelKey = (cp: Pick<CounterpartyDto, 'kind' | 'orgForm'>) =>
+  cp.orgForm && (ORG_FORMS as readonly string[]).includes(cp.orgForm) ? `form.${cp.orgForm}` : `kind.${cp.kind}`;
+  
 
 // ============================================================
 // Карточка: Реквизиты (+контакты и счета) · Хроника
@@ -292,6 +299,10 @@ function CounterpartyCard({
 }) {
   const qc = useQueryClient();
   const [confirm, confirmUI] = useConfirm();
+  const tr = useTranslations('counterparties');
+  const tc = useTranslations('common');
+  const tdoc = useTranslations('documents');
+  const tn = useTranslations('notes');
   const [tab, setTab] = useState<CardTab>('requisites');
   const [editOpen, setEditOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -325,15 +336,15 @@ function CounterpartyCard({
   if (cpQuery.isError || !cp) {
     return (
       <>
-        <PageHeader breadcrumb="Контрагенты" title="Карточка не открылась" />
+        <PageHeader breadcrumb={tr('breadcrumb')} title={tr('card.failedTitle')} />
         <BentoGrid>
           <Card span={12}>
             <EmptyState
               icon="blocked"
-              title="Контрагент не найден"
+              title={tr('card.notFound')}
               action={
                 <Button variant="matte" icon="arrowLeft" onClick={onBack}>
-                  К справочнику
+                  {tr('card.back')}
                 </Button>
               }
             />
@@ -346,44 +357,45 @@ function CounterpartyCard({
   // Контакты и счета живут ВНУТРИ «Реквизитов» (решение продукта 2026-08-18):
   // карточка читается одной страницей; отдельной вкладкой — только длинная хроника.
   const tabs: TabItem<CardTab>[] = [
-    { key: 'requisites', label: 'Реквизиты', icon: 'workspace' },
-    { key: 'notes', label: 'Заметки', icon: 'notes' },
-    { key: 'chronicle', label: 'Хроника', icon: 'journal' },
+    { key: 'requisites', label: tr('card.tabRequisites'), icon: 'workspace' },
+    { key: 'notes', label: tn('breadcrumb'), icon: 'notes' },
+    { key: 'chronicle', label: tr('card.tabChronicle'), icon: 'journal' },
   ];
 
   return (
     <>
       <PageHeader
-        breadcrumb="Контрагенты"
+        breadcrumb={tr('breadcrumb')}
         title={cp.name}
         chip={
           cp.archivedAt ? (
             <Chip tone="danger" icon="delete">
-              В архиве
+              {tr('list.archived')}
             </Chip>
           ) : (
-            <Chip size="sm">{FORM_LABEL(cp)}</Chip>
+            <Chip size="sm">{tr(formLabelKey(cp))}</Chip>
           )
         }
         actions={
           <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
             <Button variant="ghost" icon="arrowLeft" onClick={onBack}>
-              К справочнику
+              {tr('card.back')}
             </Button>
             <Button variant="ghost" icon="messenger" onClick={() => setShareOpen(true)}>
-              В чат
+              {tr('card.toChat')}
             </Button>
             <Button
               variant="matte"
               icon="file"
               href={`/workspaces/${workspaceId}/documents?counterparty=${cp.id}`}
             >
-              Документы{(cp.documentsCount ?? 0) > 0 ? ` · ${cp.documentsCount}` : ''}
+              {tdoc('page.title')}
+              {(cp.documentsCount ?? 0) > 0 ? ` · ${cp.documentsCount}` : ''}
             </Button>
             {isManager && !cp.archivedAt && (
               <>
                 <Button variant="matte" icon="edit" onClick={() => setEditOpen(true)}>
-                  Править
+                  {tc('actions.edit')}
                 </Button>
                 {/* Тот же матовый форм-фактор, что у «Документы»/«Править», но красный:
                     опасное действие — danger-тон (правило дизайн-системы) */}
@@ -394,9 +406,9 @@ function CounterpartyCard({
                   onClick={() =>
                     confirm(
                       {
-                        title: 'Убрать контрагента в архив?',
-                        message: 'Документы с ним останутся в реестре. Документы в работе блокируют архив.',
-                        confirmLabel: 'В архив',
+                        title: tr('card.archiveTitle'),
+                        message: tr('card.archiveText'),
+                        confirmLabel: tr('card.archive'),
                         danger: true,
                       },
                       async () => {
@@ -405,7 +417,7 @@ function CounterpartyCard({
                     )
                   }
                 >
-                  В архив
+                  {tr('card.archive')}
                 </Button>
               </>
             )}
@@ -419,14 +431,14 @@ function CounterpartyCard({
                 loading={restore.isPending}
                 onClick={() => restore.mutate()}
               >
-                Вернуть из архива
+                {tr('card.restore')}
               </Button>
             )}
           </div>
         }
       />
 
-      <SegmentedControl items={tabs} value={tab} onChange={setTab} aria-label="Разделы карточки контрагента" />
+      <SegmentedControl items={tabs} value={tab} onChange={setTab} aria-label={tr('card.tabsAria')} />
 
       {/* ОДНА BentoGrid на весь состав карточки (паттерн карточки документа):
           секции — просто Card'ы в общем гриде, ритм держит его gap */}
@@ -440,7 +452,7 @@ function CounterpartyCard({
       {tab === 'notes' && (
         <BentoGrid>
           <Card span={12}>
-            <CardHeader title="Заметки о контрагенте" subtitle="Записи по клиенту — модель «Notes» Salesforce: заметка привязана к карточке" />
+            <CardHeader title={tr('card.notesTitle')} subtitle={tr('card.notesSubtitle')} />
             <NotesPanel target={{ type: 'counterparty', id: cp.id }} scope={{ workspaceId }} />
           </Card>
         </BentoGrid>
@@ -479,35 +491,43 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 function RequisitesTab({ cp }: { cp: CounterpartyDto }) {
+  const tr = useTranslations('counterparties');
+  const tws = useTranslations('workspaces');
   const vat = cp.vatPayer
-    ? [cp.vatSeries ? `серия ${cp.vatSeries}` : null, cp.vatNumber ? `№ ${cp.vatNumber}` : null, cp.vatDate ? `от ${dmy(cp.vatDate)}` : null]
+    ? [
+          cp.vatSeries ? tr('card.vatSeries', { series: cp.vatSeries }) : null,
+          cp.vatNumber ? tr('card.vatNumber', { number: cp.vatNumber }) : null,
+          cp.vatDate ? tr('card.vatDate', { date: dmy(cp.vatDate) }) : null,
+        ]
         .filter(Boolean)
-        .join(' ') || 'плательщик'
-    : 'не плательщик';
+        .join(' ') || tr('card.vatPayer')
+    : tr('card.vatNotPayer');
   return (
     <>
       <Card span={7}>
-        <CardHeader title="Реквизиты" subtitle="Подставляются в документы тегами {Контрагент.…}" />
+        <CardHeader title={tr('card.tabRequisites')} subtitle={tr('card.requisitesSubtitle')} />
         <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
-          <Row label="Юридическое наименование">{cp.legalName ?? ''}</Row>
-          <Row label={counterpartyIdLabel(cp.kind)}>{cp.bin ?? ''}</Row>
-          <Row label="Юридический адрес">{cp.legalAddress ?? ''}</Row>
-          <Row label="Фактический адрес">
-            {cp.actualAddress ?? (cp.legalAddress ? 'совпадает с юридическим' : '')}
+          <Row label={tr('form.legalName')}>{cp.legalName ?? ''}</Row>
+          <Row label={tr(`idLabel.${counterpartyIdKey(cp.kind)}`)}>{cp.bin ?? ''}</Row>
+          <Row label={tr('form.legalAddress')}>{cp.legalAddress ?? ''}</Row>
+          <Row label={tr('form.actualAddress')}>
+            {cp.actualAddress ?? (cp.legalAddress ? tr('card.sameAsLegal') : '')}
           </Row>
-          <Row label="КБе">{cp.kbe ?? ''}</Row>
-          <Row label="Налоговый режим">
-            {cp.taxRegime ? (TAX_REGIMES.find((r) => r.value === cp.taxRegime)?.label ?? cp.taxRegime) : ''}
+          <Row label={tr('form.kbe')}>{cp.kbe ?? ''}</Row>
+          <Row label={tr('form.taxRegime')}>
+            {cp.taxRegime && (TAX_REGIMES as readonly string[]).includes(cp.taxRegime)
+              ? tws(`taxRegime.${cp.taxRegime}`)
+              : (cp.taxRegime ?? '')}
           </Row>
-          <Row label="НДС">{vat}</Row>
+          <Row label={tr('card.vat')}>{vat}</Row>
         </div>
       </Card>
       <Card span={5}>
-        <CardHeader title="Подпись и связь" />
+        <CardHeader title={tr('card.signAndContacts')} />
         <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
-          <Row label="Руководитель">{cp.directorName ?? ''}</Row>
-          <Row label="Основание подписи">{cp.signBasis ?? ''}</Row>
-          <Row label="Телефон">{cp.phone ?? ''}</Row>
+          <Row label={tr('form.director')}>{cp.directorName ?? ''}</Row>
+          <Row label={tr('form.signBasis')}>{cp.signBasis ?? ''}</Row>
+          <Row label={tr('card.phone')}>{cp.phone ?? ''}</Row>
           <Row label="E-mail">{cp.email ?? ''}</Row>
         </div>
         {cp.comment && (
@@ -538,6 +558,8 @@ function ContactsTab({
 }) {
   const [confirm, confirmUI] = useConfirm();
   const [name, setName] = useState('');
+  const tr = useTranslations('counterparties');
+  const tc = useTranslations('common');
   const [position, setPosition] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -569,14 +591,14 @@ function ContactsTab({
     <>
       <Card span={7}>
         <CardHeader
-          title="Контактные лица"
-          subtitle="Подписант выбирается из них — на его номер уходит ссылка и SMS"
+          title={tr('contacts.title')}
+          subtitle={tr('contacts.subtitle')}
         />
         {cp.contacts.length === 0 ? (
           <EmptyState
             icon="people"
-            title="Контактов пока нет"
-            description="Без контактного лица документ некому отправить на подпись."
+            title={tr('contacts.emptyTitle')}
+            description={tr('contacts.emptyText')}
           />
         ) : (
           <div style={{ display: 'grid', gap: 'var(--spacing-2)' }}>
@@ -606,9 +628,9 @@ function ContactsTab({
                     onClick={() =>
                       confirm(
                         {
-                          title: `Убрать «${c.name}»?`,
-                          message: 'Контакт уйдёт в архив: в истории документов его имя останется.',
-                          confirmLabel: 'Убрать',
+                          title: tr('contacts.removeTitle', { name: c.name }),
+                          message: tr('contacts.removeText'),
+                          confirmLabel: tc('actions.remove'),
                           danger: true,
                         },
                         async () => {
@@ -617,7 +639,7 @@ function ContactsTab({
                       )
                     }
                   >
-                    Убрать
+                    {tc('actions.remove')}
                   </Button>
                 )}
               </div>
@@ -627,12 +649,17 @@ function ContactsTab({
       </Card>
       {isManager && (
         <Card span={5}>
-          <CardHeader title="Добавить контакт" />
+          <CardHeader title={tr('contacts.add')} />
           <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
-            <Input label="Имя *" value={name} onChange={(e) => setName(e.target.value)} placeholder="Асель Нурланова" />
-            <Input label="Должность" value={position} onChange={(e) => setPosition(e.target.value)} placeholder="Директор" />
+            <Input label={tr('contacts.name')} value={name} onChange={(e) => setName(e.target.value)} placeholder={tr('contacts.namePlaceholder')} />
             <Input
-              label="Телефон (для SMS со ссылкой)"
+              label={tr('contacts.position')}
+              value={position}
+              onChange={(e) => setPosition(e.target.value)}
+              placeholder={tr('contacts.positionPlaceholder')}
+            />
+            <Input
+              label={tr('contacts.phone')}
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               placeholder="+7 777 123 45 67"
@@ -640,7 +667,7 @@ function ContactsTab({
             <Input label="E-mail" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="a@company.kz" />
             <div>
               <Button icon="add" loading={add.isPending} disabled={!name.trim()} onClick={() => add.mutate()}>
-                Добавить
+                {tc('actions.add')}
               </Button>
             </div>
           </div>
@@ -668,6 +695,8 @@ function AccountsTab({
 }) {
   const [confirm, confirmUI] = useConfirm();
   const [iban, setIban] = useState('');
+  const tr = useTranslations('counterparties');
+  const tc = useTranslations('common');
   const [bankName, setBankName] = useState('');
   const [bik, setBik] = useState('');
 
@@ -700,9 +729,9 @@ function AccountsTab({
   return (
     <>
       <Card span={7}>
-        <CardHeader title="Банковские счета" subtitle="Основной подставляется в документы ({Контрагент.ИИК})" />
+        <CardHeader title={tr('accounts.title')} subtitle={tr('accounts.subtitle')} />
         {cp.bankAccounts.length === 0 ? (
-          <EmptyState icon="card" title="Счетов пока нет" />
+          <EmptyState icon="card" title={tr('accounts.empty')} />
         ) : (
           <div style={{ display: 'grid', gap: 'var(--spacing-2)' }}>
             {cp.bankAccounts.map((a) => (
@@ -720,17 +749,17 @@ function AccountsTab({
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 600, fontFamily: 'var(--font-mono, monospace)' }}>{a.iban}</div>
                   <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                    {a.bankName} · БИК {a.bik}
+                    {a.bankName} · {tr('accounts.bik')} {a.bik}
                   </div>
                 </div>
                 {a.isPrimary ? (
                   <Chip size="sm" tone="accent">
-                    Основной
+                    {tr('accounts.primary')}
                   </Chip>
                 ) : (
                   isManager && (
                     <Button variant="ghost" size="sm" loading={setPrimary.isPending} onClick={() => setPrimary.mutate(a.id)}>
-                      Сделать основным
+                      {tr('accounts.makePrimary')}
                     </Button>
                   )
                 )}
@@ -741,14 +770,14 @@ function AccountsTab({
                     icon="close"
                     onClick={() =>
                       confirm(
-                        { title: 'Удалить счёт?', confirmLabel: 'Удалить', danger: true },
+                        { title: tr('accounts.deleteTitle'), confirmLabel: tc('actions.delete'), danger: true },
                         async () => {
                           await remove.mutateAsync(a.id);
                         },
                       )
                     }
                   >
-                    Удалить
+                    {tc('actions.delete')}
                   </Button>
                 )}
               </div>
@@ -758,11 +787,16 @@ function AccountsTab({
       </Card>
       {isManager && (
         <Card span={5}>
-          <CardHeader title="Добавить счёт" subtitle="Первый счёт становится основным сам" />
+          <CardHeader title={tr('accounts.add')} subtitle={tr('accounts.addHint')} />
           <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
-            <Input label="ИИК (IBAN) *" value={iban} onChange={(e) => setIban(e.target.value)} placeholder="KZ86125KZT5004100100" />
-            <Input label="Банк *" value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="АО «Народный Банк»" />
-            <Input label="БИК *" value={bik} onChange={(e) => setBik(e.target.value)} placeholder="HSBKKZKX" />
+            <Input label={tr('accounts.iban')} value={iban} onChange={(e) => setIban(e.target.value)} placeholder="KZ86125KZT5004100100" />
+            <Input
+              label={tr('accounts.bank')}
+              value={bankName}
+              onChange={(e) => setBankName(e.target.value)}
+              placeholder={tr('accounts.bankPlaceholder')}
+            />
+            <Input label={tr('accounts.bikRequired')} value={bik} onChange={(e) => setBik(e.target.value)} placeholder="HSBKKZKX" />
             <div>
               <Button
                 icon="add"
@@ -770,7 +804,7 @@ function AccountsTab({
                 disabled={!iban.trim() || !bankName.trim() || !bik.trim()}
                 onClick={() => add.mutate()}
               >
-                Добавить
+                {tc('actions.add')}
               </Button>
             </div>
           </div>
@@ -782,6 +816,7 @@ function AccountsTab({
 }
 
 function ChronicleTab({ counterpartyId }: { counterpartyId: string }) {
+  const tr = useTranslations('counterparties');
   const chronicleQuery = useInfiniteQuery({
     queryKey: ['chatter', COUNTERPARTY_REF_TYPE, counterpartyId],
     queryFn: async ({ pageParam }) =>
@@ -801,11 +836,11 @@ function ChronicleTab({ counterpartyId }: { counterpartyId: string }) {
   return (
     <BentoGrid>
       <Card span={12}>
-        <CardHeader title="Хроника карточки" />
+        <CardHeader title={tr('card.chronicle')} />
         {chronicleQuery.isPending ? (
           <LoadingBlock />
         ) : (
-          <ChronicleFeed entries={entries as never[]} actors={actors} emptyText="Здесь появятся правки карточки и контактов" />
+          <ChronicleFeed entries={entries as never[]} actors={actors} emptyText={tr('card.chronicleEmpty')} />
         )}
       </Card>
     </BentoGrid>
@@ -820,47 +855,28 @@ function ChronicleTab({ counterpartyId }: { counterpartyId: string }) {
 const toYmd = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-/** Дата → «15.01.2026» (так документ-основание пишется в шапке договора) */
-const toDmy = (d: Date) =>
-  `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
-
 /**
- * Разобрать сохранённое основание подписи обратно в поля формы: вид документа,
- * номер и дата хранятся ОДНОЙ строкой («Приказа № 12-к от 15.01.2026»), потому
- * что ровно в таком виде она печатается в договоре.
+ * Полное юрнаименование по орг-форме. Порядок слов принадлежит ЯЗЫКУ (в казахском
+ * форма стоит ПОСЛЕ названия), поэтому фраза берётся из каталога целиком, а куски
+ * «до» и «после» вычисляются по месту подстановки.
  */
-function parseSignBasis(
-  raw: string | null | undefined,
-  isNew: boolean,
-): { key: string; number: string; date: Date | null; custom: string } {
-  const v = (raw ?? '').trim();
-  if (!v) return { key: isNew ? 'ustav' : 'none', number: '', date: null, custom: '' };
-  for (const o of SIGN_BASIS_OPTIONS) {
-    if (o.value === 'custom') continue;
-    if (v === o.label) return { key: o.value, number: '', date: null, custom: '' };
-    if (o.needsDetail && v.startsWith(`${o.label} `)) {
-      const rest = v.slice(o.label.length + 1).trim();
-      const m = rest.match(/от\s+(\d{1,2})\.(\d{1,2})\.(\d{4})\s*$/);
-      if (m) {
-        return {
-          key: o.value,
-          number: rest.slice(0, m.index).replace(/^№\s*/, '').trim(),
-          date: new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])),
-          custom: '',
-        };
-      }
-      // Дата записана как попало (старая запись руками) — не мнём её разбором:
-      // строка целиком уезжает в «Свой вариант» и остаётся под глазами человека
-      if (/\bот\b/i.test(rest)) return { key: 'custom', number: '', date: null, custom: v };
-      return { key: o.value, number: rest.replace(/^№\s*/, '').trim(), date: null, custom: '' };
-    }
-  }
-  return { key: 'custom', number: '', date: null, custom: v };
+const NAME_MARK = '\u0000';
+
+function legalWrapOf(
+  tr: (key: string, values?: Record<string, string>) => string,
+  form: string,
+): { pre: string; post: string } | null {
+  if (!(ORG_FORMS_WITH_LEGAL_WRAP as readonly string[]).includes(form)) return null;
+  const phrase = tr(`orgFormLegal.${form}`, { name: NAME_MARK });
+  const at = phrase.indexOf(NAME_MARK);
+  if (at === -1) return null;
+  return { pre: phrase.slice(0, at), post: phrase.slice(at + NAME_MARK.length) };
 }
 
 /** Снять известную приставку полной формы («Товарищество … «Ромашка»» → «Ромашка») */
-function stripLegalWrap(full: string): string {
-  for (const w of Object.values(ORG_FORM_LEGAL_WRAP)) {
+function stripLegalWrap(full: string, tr: (key: string, values?: Record<string, string>) => string): string {
+  for (const form of ORG_FORMS_WITH_LEGAL_WRAP) {
+    const w = legalWrapOf(tr, form);
     if (w && full.startsWith(w.pre) && full.endsWith(w.post) && full.length > w.pre.length + w.post.length) {
       return w.post ? full.slice(w.pre.length, -w.post.length) : full.slice(w.pre.length);
     }
@@ -882,6 +898,9 @@ function CounterpartyFormModal({
   onSaved: (cp: CounterpartyDto) => void;
 }) {
   const qc = useQueryClient();
+  const tr = useTranslations('counterparties');
+  const tc = useTranslations('common');
+  const tws = useTranslations('workspaces');
 
   // «Вид» — ЕДИНЫЙ список орг-форм РК: kind (БИН/ИИН, сверка ЭЦП) и приставка
   // юрнаименования выводятся из выбора сами (решение продукта 2026-08-18)
@@ -896,11 +915,11 @@ function CounterpartyFormModal({
   });
   const option = COUNTERPARTY_FORM_OPTIONS.find((o) => o.value === formKey) ?? COUNTERPARTY_FORM_OPTIONS[0];
   const kind = option.kind as CounterpartyKind;
-  const wrap = option.orgForm ? ORG_FORM_LEGAL_WRAP[option.orgForm] : null;
+  const wrap = option.orgForm ? legalWrapOf(tws, option.orgForm) : null;
 
   const [name, setName] = useState(existing?.name ?? '');
   // Юрнаименование: человек вводит ТОЛЬКО название, полную приставку даёт вид
-  const [legalBare, setLegalBare] = useState(() => (existing?.legalName ? stripLegalWrap(existing.legalName) : ''));
+  const [legalBare, setLegalBare] = useState(() => (existing?.legalName ? stripLegalWrap(existing.legalName, tws) : ''));
   const [legalTouched, setLegalTouched] = useState(!!existing?.legalName);
   const legalFull =
     kind === 'individual'
@@ -927,28 +946,30 @@ function CounterpartyFormModal({
   const [dupOf, setDupOf] = useState<string | null>(null);
 
   // Основание подписи — готовый список («…действующего на основании Устава»);
-  // у документа-основания номер и дата спрашиваются РАЗДЕЛЬНО (дата — календарём)
-  const parsedBasis = parseSignBasis(existing?.signBasis, !existing);
-  const [basisKey, setBasisKey] = useState<string>(parsedBasis.key);
-  const [basisNumber, setBasisNumber] = useState<string>(parsedBasis.number);
-  const [basisDate, setBasisDate] = useState<Date | null>(parsedBasis.date);
-  const [basisCustom, setBasisCustom] = useState<string>(parsedBasis.custom);
+  // у документа-основания номер и дата спрашиваются РАЗДЕЛЬНО (дата — календарём).
+  // На провод уезжает СТРУКТУРА: печатную строку собирает сервер на языке бланка.
+  const parsedBasis = existing?.signBasisParts ?? null;
+  const [basisKey, setBasisKey] = useState<string>(parsedBasis?.kind ?? (existing ? 'none' : 'ustav'));
+  const [basisNumber, setBasisNumber] = useState<string>(parsedBasis?.number ?? '');
+  const [basisDate, setBasisDate] = useState<Date | null>(
+    parsedBasis?.date ? new Date(`${parsedBasis.date}T00:00:00`) : null,
+  );
+  const [basisCustom, setBasisCustom] = useState<string>(parsedBasis?.text ?? '');
   const [basisTouched, setBasisTouched] = useState(!!existing);
   const basisOption = SIGN_BASIS_OPTIONS.find((o) => o.value === basisKey);
-  const signBasisFull =
-    basisKey === 'none'
-      ? ''
-      : basisKey === 'custom'
-        ? basisCustom.trim()
-        : basisOption
-          ? [
-              basisOption.label,
-              basisOption.needsDetail && basisNumber.trim() ? `№ ${basisNumber.trim()}` : '',
-              basisOption.needsDetail && basisDate ? `от ${toDmy(basisDate)}` : '',
-            ]
-              .filter(Boolean)
-              .join(' ')
-          : '';
+  // Подсказка «что уйдёт в договор» — на языке ЗРИТЕЛЯ: печатать её будет сервер
+  // на языке бланка, а человеку здесь важен смысл, а не байты.
+  const basisPreview =
+    composeSignBasis(
+      {
+        kind: basisKey as SignBasisInput['kind'],
+        number: basisNumber.trim() || null,
+        date: basisDate ? toYmd(basisDate) : null,
+        text: basisCustom.trim() || null,
+      },
+      (key, values) => tr(key, values),
+      (iso) => dmy(iso),
+    ) ?? '';
 
   // Смена вида тянет за собой умолчания, пока человек их не трогал сам
   const changeForm = (v: string) => {
@@ -990,7 +1011,15 @@ function CounterpartyFormModal({
         vatNumber: vatPayer ? vatNumber.trim() || null : null,
         vatDate: vatPayer && vatDate ? toYmd(vatDate) : null,
         directorName: directorName.trim() || null,
-        signBasis: signBasisFull || null,
+        signBasis:
+          basisKey === 'none'
+            ? null
+            : {
+                kind: basisKey as SignBasisInput['kind'],
+                ...(basisOption?.needsDetail && basisNumber.trim() ? { number: basisNumber.trim() } : {}),
+                ...(basisOption?.needsDetail && basisDate ? { date: toYmd(basisDate) } : {}),
+                ...(basisKey === 'custom' ? { text: basisCustom.trim() } : {}),
+              },
         phone: phone.trim() || null,
         email: email.trim() || null,
         comment: comment.trim() || null,
@@ -1019,13 +1048,13 @@ function CounterpartyFormModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={existing ? 'Карточка контрагента' : 'Новый контрагент'}
-      subtitle="Реквизиты подставляются в договоры тегами {Контрагент.…}"
+      title={tr(existing ? 'form.editTitle' : 'form.newTitle')}
+      subtitle={tr('card.requisitesSubtitle')}
       size="md"
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
-            Отмена
+            {tc('actions.cancel')}
           </Button>
           <Button
             icon="check"
@@ -1033,63 +1062,63 @@ function CounterpartyFormModal({
             disabled={!name.trim() || binInvalid}
             onClick={() => save.mutate()}
           >
-            {existing ? 'Сохранить' : 'Добавить'}
+            {tc(existing ? 'actions.save' : 'actions.add')}
           </Button>
         </>
       }
     >
       <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
         <Select
-          label="Вид"
+          label={tr('list.kindFilter')}
           value={formKey}
           onChange={changeForm}
-          options={COUNTERPARTY_FORM_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+          options={COUNTERPARTY_FORM_OPTIONS.map((o) => ({ value: o.value, label: tr(`form.${o.value}`) }))}
         />
         <Input
-          label={kind === 'individual' ? 'ФИО *' : 'Название (рабочее имя) *'}
+          label={tr(kind === 'individual' ? 'form.fullName' : 'form.name')}
           value={name}
           onChange={(e) => {
             setName(e.target.value);
             if (!legalTouched) setLegalBare(e.target.value);
           }}
-          placeholder={kind === 'individual' ? 'Иванов Иван Иванович' : 'Ромашка'}
+          placeholder={tr(kind === 'individual' ? 'form.fullNamePlaceholder' : 'form.namePlaceholder')}
         />
         {kind !== 'individual' &&
           (wrap ? (
             // Вид стоит ПЕРЕД полем (как БИН/ИИН меняется от вида): ТОО «…», ИП …
             <Field
-              label="Юридическое наименование"
-              hint={legalFull ? `В договор пойдёт: ${legalFull}` : 'Полная форма вида добавится сама'}
+              label={tr('form.legalName')}
+              hint={legalFull ? tr('form.legalPreview', { name: legalFull }) : tr('form.legalHint')}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
-                <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{option.label}</span>
+                <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{tr(`form.${option.value}`)}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <Input
-                    aria-label={`Юридическое наименование (${option.label})`}
+                    aria-label={`${tr('form.legalName')} (${tr(`form.${option.value}`)})`}
                     value={legalBare}
                     onChange={(e) => {
                       setLegalBare(e.target.value);
                       setLegalTouched(true);
                     }}
-                    placeholder={formKey === 'ip' ? 'Иванов И. И.' : 'Ромашка'}
+                    placeholder={tr(formKey === 'ip' ? 'form.ipNamePlaceholder' : 'form.namePlaceholder')}
                   />
                 </div>
               </div>
             </Field>
           ) : (
             <Input
-              label="Юридическое наименование"
+              label={tr('form.legalName')}
               value={legalBare}
               onChange={(e) => {
                 setLegalBare(e.target.value);
                 setLegalTouched(true);
               }}
-              placeholder="Филиал АО «…» в г. Астане"
-              hint="У этого вида наименование свободное — пишется целиком"
+              placeholder={tr('form.branchNamePlaceholder')}
+              hint={tr('form.freeLegalHint')}
             />
           ))}
         <Input
-          label={counterpartyIdLabel(kind)}
+          label={tr(`idLabel.${counterpartyIdKey(kind)}`)}
           value={bin}
           onChange={(e) => {
             setBin(e.target.value);
@@ -1097,98 +1126,98 @@ function CounterpartyFormModal({
           }}
           onBlur={() => void checkDup(binTrimmed)}
           placeholder="123456789012"
-          error={binInvalid ? 'Номер не проходит контрольную сумму (12 цифр)' : dupOf ? `Уже в справочнике: «${dupOf}»` : undefined}
+          error={binInvalid ? tr('form.binInvalid') : dupOf ? tr('form.binDuplicate', { name: dupOf }) : undefined}
         />
         <div style={twoCols}>
           <Input
-            label="Юридический адрес"
+            label={tr('form.legalAddress')}
             value={legalAddress}
             onChange={(e) => setLegalAddress(e.target.value)}
-            placeholder="г. Астана, пр. Абая, 1"
+            placeholder={tr('form.addressPlaceholder')}
           />
           <Input
-            label="Фактический адрес"
+            label={tr('form.actualAddress')}
             value={actualAddress}
             onChange={(e) => setActualAddress(e.target.value)}
-            placeholder="Пусто — совпадает с юридическим"
+            placeholder={tr('form.actualAddressPlaceholder')}
           />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 'var(--spacing-3)' }}>
-          <Input label="КБе" value={kbe} onChange={(e) => setKbe(e.target.value)} placeholder="17" />
+          <Input label={tr('form.kbe')} value={kbe} onChange={(e) => setKbe(e.target.value)} placeholder="17" />
           <Select
-            label="Налоговый режим"
+            label={tr('form.taxRegime')}
             value={taxRegime || null}
             onChange={(v) => setTaxRegime(v)}
-            options={[{ value: '', label: 'Не указан' }, ...TAX_REGIMES.map((r) => ({ value: r.value, label: r.label }))]}
-            placeholder="Не указан"
+            options={[
+            { value: '', label: tr('form.notStated') },
+            ...TAX_REGIMES.map((r) => ({ value: r, label: tws(`taxRegime.${r}`) })),
+          ]}
+            placeholder={tr('form.notStated')}
           />
         </div>
         <Toggle
-          label="Плательщик НДС"
-          description="Включите, если у контрагента есть свидетельство плательщика НДС — тогда суммы в договоре пишутся «в т. ч. НДС». Не уверены — уточните у контрагента."
+          label={tr('form.vatPayer')}
+          description={tr('form.vatPayerHint')}
           checked={vatPayer}
           onChange={setVatPayer}
         />
         {vatPayer && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 'var(--spacing-3)' }}>
-            <Input label="Серия свидетельства" value={vatSeries} onChange={(e) => setVatSeries(e.target.value)} placeholder="60001" />
-            <Input label="№ свидетельства" value={vatNumber} onChange={(e) => setVatNumber(e.target.value)} placeholder="0031205" />
-            <DatePicker label="Дата свидетельства" value={vatDate} onChange={(d) => setVatDate(d)} />
+            <Input label={tr('form.vatSeries')} value={vatSeries} onChange={(e) => setVatSeries(e.target.value)} placeholder="60001" />
+            <Input label={tr('form.vatNumber')} value={vatNumber} onChange={(e) => setVatNumber(e.target.value)} placeholder="0031205" />
+            <DatePicker label={tr('form.vatDate')} value={vatDate} onChange={(d) => setVatDate(d)} />
           </div>
         )}
         {kind !== 'individual' && (
           <Input
-            label="Руководитель (ФИО)"
+            label={tr('form.director')}
             value={directorName}
             onChange={(e) => setDirectorName(e.target.value)}
-            placeholder="Иванов Иван"
+            placeholder={tr('form.directorPlaceholder')}
           />
         )}
         <div style={twoCols}>
           <Select
-            label="Основание подписи"
-            hint={
-              signBasisFull
-                ? `В договор: «…действующего на основании ${signBasisFull}»`
-                : 'На основании чего подписант вправе подписывать'
-            }
+            label={tr('form.signBasis')}
+            hint={basisPreview ? tr('form.basisPreview', { basis: basisPreview }) : tr('form.basisHint')}
             value={basisKey}
             onChange={(v) => {
               setBasisKey(v);
               setBasisTouched(true);
             }}
             options={[
-              ...SIGN_BASIS_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
-              { value: 'none', label: 'Не указано' },
+              ...SIGN_BASIS_OPTIONS.map((o) => ({ value: o.value, label: tr(`signBasis.${o.value}`) })),
+              { value: 'custom', label: tr('signBasis.custom') },
+              { value: 'none', label: tr('signBasis.none') },
             ]}
           />
           {basisOption?.needsDetail && basisKey !== 'custom' ? (
             <>
               <Input
-                label="Номер"
+                label={tr('form.basisNumber')}
                 value={basisNumber}
                 onChange={(e) => setBasisNumber(e.target.value)}
-                placeholder={'numberPlaceholder' in basisOption ? basisOption.numberPlaceholder : ''}
+                placeholder={tr(`signBasisNumberExample.${basisOption.value}`)}
               />
               {/* Дата — календарём, как «Дата свидетельства»: руками «от 15.01.2026» не набирают */}
-              <DatePicker label="Дата" value={basisDate} onChange={(d) => setBasisDate(d)} />
+              <DatePicker label={tr('form.basisDate')} value={basisDate} onChange={(d) => setBasisDate(d)} />
             </>
           ) : basisKey === 'custom' ? (
             <Input
-              label="Свой вариант"
+              label={tr('signBasis.custom')}
               value={basisCustom}
               onChange={(e) => setBasisCustom(e.target.value)}
-              placeholder="Решения учредителя № 1"
+              placeholder={tr('form.basisCustomPlaceholder')}
             />
           ) : (
             <div />
           )}
         </div>
         <div style={twoCols}>
-          <Input label="Телефон" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+7 727 244 00 00" />
+          <Input label={tr('card.phone')} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+7 727 244 00 00" />
           <Input label="E-mail" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="info@company.kz" />
         </div>
-        <Textarea label="Заметка" value={comment} onChange={(e) => setComment(e.target.value)} rows={2} />
+        <Textarea label={tr('form.comment')} value={comment} onChange={(e) => setComment(e.target.value)} rows={2} />
       </div>
     </Modal>
   );

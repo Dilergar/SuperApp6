@@ -15,15 +15,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  SIGN_LEVEL_LABELS,
-  SIGN_METHOD_LABELS,
-  type SignFlowDto,
-  type SignMethod,
-} from '@superapp/shared';
+import { useLocale, useTranslations } from 'next-intl';
+import { SIGN_METHOD_ICONS, type SignFlowDto, type SignMethod } from '@superapp/shared';
 import { Alert, Button, Checkbox, Icon, Modal, Spinner, Textarea, type IconName } from '@/components/ui';
 import { CodeInput } from '@/components/verify/CodeInput';
 import { apiErrorMessage } from '@/lib/api';
+import { useBytes } from '@/lib/format';
 import { toastError } from '@/lib/toast';
 import {
   confirmPep,
@@ -50,6 +47,9 @@ export function SignFlowModal({
   /** Подписано — родитель обновляет свои списки */
   onSigned?: () => void;
 }) {
+  const t = useTranslations('sign');
+  const tc = useTranslations('common');
+  const locale = useLocale();
   const qc = useQueryClient();
   const [screen, setScreen] = useState<Screen>('choose');
   const [method, setMethod] = useState<SignMethod | null>(null);
@@ -100,15 +100,15 @@ export function SignFlowModal({
   // ---- ЭЦП через NCALayer ----
   const nca = useMutation({
     mutationFn: async () => {
-      if (!flow) throw new Error('Документ не загружен');
+      if (!flow) throw new Error(t('flow.notLoaded'));
       // Байты берём по подписанной ссылке движка файлов: подписывать нужно ровно
       // ту копию, которую человек видит на экране, а не «документ вообще».
       const res = await fetch(flow.subject.url);
-      if (!res.ok) throw new Error('Не удалось прочитать документ для подписи');
+      if (!res.ok) throw new Error(t('flow.unreadable'));
       const bytes = new Uint8Array(await res.arrayBuffer());
       let binary = '';
       for (const b of bytes) binary += String.fromCharCode(b);
-      const cms = await signWithNcaLayer({ dataBase64: btoa(binary) });
+      const cms = await signWithNcaLayer({ dataBase64: btoa(binary), locale });
       return submitCms(actId!, cms);
     },
     onSuccess: finish,
@@ -117,7 +117,7 @@ export function SignFlowModal({
         setScreen('choose');
         return;
       }
-      setError(e instanceof NcaLayerError ? e.message : apiErrorMessage(e));
+      setError(e instanceof NcaLayerError ? t(e.key) : apiErrorMessage(e));
     },
   });
 
@@ -146,7 +146,7 @@ export function SignFlowModal({
       finish();
     }
     if (state.data?.status === 'failed' && state.data.errorCode) {
-      setError('Подпись не принята. Проверьте, что подписывали именно этот документ своим ключом');
+      setError(t('flow.rejected'));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.data?.status]);
@@ -165,7 +165,7 @@ export function SignFlowModal({
     pepStart.isPending || pepConfirm.isPending || nca.isPending || qr.isPending || decline.isPending;
 
   return (
-    <Modal open onClose={onClose} title="Подписание документа" size="md">
+    <Modal open onClose={onClose} title={t('flow.title')} size="md">
       {flowQuery.isPending && <Spinner />}
       {flowQuery.isError && <Alert tone="danger">{apiErrorMessage(flowQuery.error)}</Alert>}
 
@@ -196,19 +196,11 @@ export function SignFlowModal({
           {screen === 'pep-consent' && (
             <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
               <ConsentBox text={flow.consentText ?? ''} />
-              <Checkbox
-                checked={consent}
-                onChange={setConsent}
-                label="Я прочитал(а) документ и согласен(на) подписать его простой электронной подписью"
-              />
+              <Checkbox checked={consent} onChange={setConsent} label={t('flow.consentPep')} />
               {flow.pdConsentText && (
                 <>
                   <ConsentBox text={flow.pdConsentText} />
-                  <Checkbox
-                    checked={pdConsent}
-                    onChange={setPdConsent}
-                    label="Согласен(на) на обработку персональных данных"
-                  />
+                  <Checkbox checked={pdConsent} onChange={setPdConsent} label={t('flow.consentPd')} />
                 </>
               )}
               <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
@@ -217,10 +209,10 @@ export function SignFlowModal({
                   disabled={!consent || (!!flow.pdConsentText && !pdConsent) || busy}
                   loading={pepStart.isPending}
                 >
-                  Получить код
+                  {t('flow.getCode')}
                 </Button>
                 <Button variant="ghost" onClick={() => setScreen('choose')} disabled={busy}>
-                  Назад
+                  {tc('actions.back')}
                 </Button>
               </div>
             </div>
@@ -229,7 +221,7 @@ export function SignFlowModal({
           {screen === 'pep-code' && (
             <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
               <p className="body-sm" style={{ margin: 0 }}>
-                Код отправлен на ваш подтверждённый номер. Ввод кода = подпись документа.
+                {t('flow.codeSent')}
               </p>
               <CodeInput
                 value={code}
@@ -240,11 +232,11 @@ export function SignFlowModal({
               />
               {devCode && (
                 <Alert tone="accent">
-                  [dev] код: <b>{devCode}</b>
+                  {t('flow.devCode')} <b>{devCode}</b>
                 </Alert>
               )}
               <Button variant="ghost" onClick={() => setScreen('pep-consent')} disabled={busy}>
-                Назад
+                {tc('actions.back')}
               </Button>
             </div>
           )}
@@ -253,12 +245,12 @@ export function SignFlowModal({
             <div style={{ display: 'grid', gap: 'var(--spacing-3)', justifyItems: 'center' }}>
               <Spinner />
               <p className="body-sm" style={{ margin: 0, textAlign: 'center' }}>
-                Откройте окно NCALayer и выберите свой ключ подписи.
+                {t('flow.ncaOpen')}
                 <br />
-                Пароль от ключа вводится только там — мы его не видим и не спрашиваем.
+                {t('flow.ncaPassword')}
               </p>
               <Button variant="ghost" onClick={() => setScreen('choose')}>
-                Отмена
+                {tc('actions.cancel')}
               </Button>
             </div>
           )}
@@ -269,19 +261,15 @@ export function SignFlowModal({
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={qr.data.qrDataUrl}
-                alt="QR-код для подписания в eGov Mobile"
+                alt={t('flow.qrAlt')}
                 style={{ width: 220, height: 220, background: '#fff', borderRadius: 12, padding: 8 }}
               />
               <p className="body-sm" style={{ margin: 0, textAlign: 'center' }}>
-                Отсканируйте код в приложении <b>eGov Mobile</b> и подтвердите подпись.
+                {t('flow.qrHint')}
               </p>
-              {qr.data.mock && (
-                <Alert tone="warning">
-                  Мост eGov Mobile ещё не подключён — код работает только в тестовом режиме.
-                </Alert>
-              )}
+              {qr.data.mock && <Alert tone="warning">{t('flow.qrMock')}</Alert>}
               <Button variant="ghost" onClick={() => setScreen('choose')}>
-                Другой способ
+                {t('flow.otherMethod')}
               </Button>
             </div>
           )}
@@ -289,10 +277,10 @@ export function SignFlowModal({
           {screen === 'decline' && (
             <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
               <Textarea
-                label="Причина отказа"
+                label={t('flow.declineReason')}
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                placeholder="Например: неверная сумма в пункте 3"
+                placeholder={t('flow.declinePlaceholder')}
                 rows={3}
               />
               <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
@@ -303,10 +291,10 @@ export function SignFlowModal({
                   disabled={reason.trim().length < 3 || busy}
                   loading={decline.isPending}
                 >
-                  Отказаться от подписи
+                  {t('flow.decline')}
                 </Button>
                 <Button variant="ghost" onClick={() => setScreen('choose')} disabled={busy}>
-                  Назад
+                  {tc('actions.back')}
                 </Button>
               </div>
             </div>
@@ -315,8 +303,10 @@ export function SignFlowModal({
           {screen === 'done' && (
             <div style={{ display: 'grid', gap: 'var(--spacing-3)', justifyItems: 'center' }}>
               <Icon name="sealCheck" size={48} />
-              <p className="title-sm" style={{ margin: 0 }}>Готово</p>
-              <Button onClick={onClose}>Закрыть</Button>
+              <p className="title-sm" style={{ margin: 0 }}>
+                {tc('actions.done')}
+              </p>
+              <Button onClick={onClose}>{tc('actions.close')}</Button>
             </div>
           )}
         </div>
@@ -327,6 +317,8 @@ export function SignFlowModal({
 
 /** Шапка: что подписываем, каким уровнем и под каким отпечатком */
 function SubjectHeader({ flow }: { flow: SignFlowDto }) {
+  const t = useTranslations('sign');
+  const bytes = useBytes();
   return (
     <div
       style={{
@@ -341,12 +333,12 @@ function SubjectHeader({ flow }: { flow: SignFlowDto }) {
         <Icon name="signature" size={18} />
         <b>{flow.request.refTitle}</b>
       </div>
-      <div className="body-sm">{SIGN_LEVEL_LABELS[flow.request.level].full}</div>
+      <div className="body-sm">{t(`level.${flow.request.level}.full`)}</div>
       <a href={flow.subject.url} target="_blank" rel="noreferrer" className="body-sm">
-        Открыть документ ({formatSize(flow.subject.size)})
+        {t('flow.openDocument', { size: bytes(flow.subject.size) })}
       </a>
       <div className="body-xs" style={{ wordBreak: 'break-all', opacity: 0.7 }}>
-        Отпечаток SHA-256: {flow.subject.sha256}
+        {t('fingerprint', { sha256: flow.subject.sha256 })}
       </div>
     </div>
   );
@@ -363,12 +355,11 @@ function ChooseMethod({
   onPick: (m: SignMethod) => void;
   onDecline: () => void;
 }) {
+  const t = useTranslations('sign');
   if (!flow.canSign) {
     return (
       <Alert tone="accent">
-        {flow.myAct?.status === 'signed'
-          ? 'Вы уже подписали этот документ.'
-          : 'Подписание по этому документу закрыто.'}
+        {flow.myAct?.status === 'signed' ? t('flow.alreadySigned') : t('flow.closed')}
       </Alert>
     );
   }
@@ -381,27 +372,20 @@ function ChooseMethod({
           block
           onClick={() => onPick(m)}
           disabled={busy}
-          icon={SIGN_METHOD_LABELS[m].icon as IconName}
+          icon={SIGN_METHOD_ICONS[m] as IconName}
           style={{ justifyContent: 'flex-start', height: 'auto', paddingBlock: 'var(--spacing-3)' }}
         >
           <span style={{ display: 'grid', textAlign: 'left', gap: 2 }}>
-            <b>{SIGN_METHOD_LABELS[m].title}</b>
-            <span className="body-xs">{SIGN_METHOD_LABELS[m].hint}</span>
+            <b>{t(`method.${m}.title`)}</b>
+            <span className="body-xs">{t(`method.${m}.hint`)}</span>
           </span>
         </Button>
       ))}
       <Button variant="ghost" tone="danger" onClick={onDecline} disabled={busy}>
-        Отказаться от подписи
+        {t('flow.decline')}
       </Button>
     </div>
   );
-}
-
-/** Размер документа. Мелкий файл — в байтах: «0 КБ» читается как поломка */
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} Б`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} КБ`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
 }
 
 /** Текст соглашения показывается ЦЕЛИКОМ: он же уходит снимком в акт */

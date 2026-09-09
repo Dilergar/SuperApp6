@@ -6,38 +6,44 @@
 // в разделы, мини-списки «Сегодня» и «На проверке».
 // ============================================================
 
+import { useTranslations } from 'next-intl';
 import { useTasksService } from './tasks-shell';
 import { QuickAdd } from './tasks-ui';
 import { TaskListSection } from './TaskListSection';
 import { BentoGrid, Button, Card, CardHeader, PageHeader, StatTile, type IconName, type Tone } from '@/components/ui';
 
+/**
+ * Плитка называет РАЗДЕЛ, а слово ему даёт каталог: `labelKey` вместо готовой
+ * строки — тот же приём, что у пунктов сайдбара (`lib/app-nav.ts`).
+ */
 const STAT_CARDS: Array<{
   key: 'inbox' | 'today' | 'overdue' | 'onReview' | 'assignedToMe';
-  label: string;
+  labelKey: string;
   icon: IconName;
   href: string;
   /** Тон загорается только когда есть чем заняться. */
   hotTone?: Tone;
 }> = [
-  { key: 'inbox', label: 'Входящие', icon: 'empty', href: '/tasks/inbox', hotTone: 'accent' },
-  { key: 'today', label: 'Сегодня', icon: 'sun', href: '/tasks/today', hotTone: 'accent' },
-  { key: 'overdue', label: 'Просроченные', icon: 'overdue', href: '/tasks/overdue', hotTone: 'danger' },
-  { key: 'onReview', label: 'На проверке', icon: 'eye', href: '/tasks/review', hotTone: 'warning' },
-  { key: 'assignedToMe', label: 'Мне поставили', icon: 'target', href: '/tasks/assigned', hotTone: 'success' },
+  { key: 'inbox', labelKey: 'sections.inbox.title', icon: 'empty', href: '/tasks/inbox', hotTone: 'accent' },
+  { key: 'today', labelKey: 'sections.today.title', icon: 'sun', href: '/tasks/today', hotTone: 'accent' },
+  { key: 'overdue', labelKey: 'sections.overdue.title', icon: 'overdue', href: '/tasks/overdue', hotTone: 'danger' },
+  { key: 'onReview', labelKey: 'sections.review.title', icon: 'eye', href: '/tasks/review', hotTone: 'warning' },
+  { key: 'assignedToMe', labelKey: 'sections.assigned.title', icon: 'target', href: '/tasks/assigned', hotTone: 'success' },
 ];
 
 export default function TasksOverviewPage() {
+  const t = useTranslations('tasks');
   const { stats, openCreate } = useTasksService();
 
   return (
     <>
       <PageHeader
-        breadcrumb="Задачи"
-        title="Обзор"
-        description="Ставьте задачи себе и людям из окружения"
+        breadcrumb={t('breadcrumb')}
+        title={t('sections.overview.title')}
+        description={t('sections.overview.description')}
         actions={
           <Button variant="primary" tone="success" icon="add" onClick={openCreate}>
-            Новая задача
+            {t('create.open')}
           </Button>
         }
       />
@@ -55,7 +61,7 @@ export default function TasksOverviewPage() {
             <StatTile
               key={c.key}
               span={2}
-              label={c.label}
+              label={t(c.labelKey)}
               value={value ?? '…'}
               icon={c.icon}
               tone={hot ? (c.hotTone ?? 'accent') : 'neutral'}
@@ -66,36 +72,36 @@ export default function TasksOverviewPage() {
         {/* 5 плиток по 2 колонки + пустые 2: сетка 12 не делится на 5 нацело,
             остаток отдаём кнопке «Все задачи», чтобы ряд не разъезжался */}
         <Card small span={2} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Button variant="ghost" size="sm" href="/tasks/all" iconRight="caretRight">Все</Button>
+          <Button variant="ghost" size="sm" href="/tasks/all" iconRight="caretRight">{t('list.all')}</Button>
         </Card>
       </BentoGrid>
 
       <BentoGrid>
         <Card span={6}>
           <CardHeader
-            title="Сегодня"
-            actions={<Button variant="ghost" size="sm" href="/tasks/today" iconRight="caretRight">Все</Button>}
+            title={t('sections.today.title')}
+            actions={<Button variant="ghost" size="sm" href="/tasks/today" iconRight="caretRight">{t('list.all')}</Button>}
           />
           <TaskListSection
             filter={{ smartList: 'today' }}
             limit={5}
             enablePagination={false}
-            emptyText="На сегодня задач нет"
-            emptyHint="Запланируйте что-нибудь — задачи со сроком на сегодня появятся здесь"
+            emptyText={t('sections.today.empty')}
+            emptyHint={t('sections.today.emptyHintOverview')}
           />
         </Card>
 
         <Card span={6}>
           <CardHeader
-            title="На проверке"
-            actions={<Button variant="ghost" size="sm" href="/tasks/review" iconRight="caretRight">Все</Button>}
+            title={t('sections.review.title')}
+            actions={<Button variant="ghost" size="sm" href="/tasks/review" iconRight="caretRight">{t('list.all')}</Button>}
           />
           <TaskListSection
             filter={{ smartList: 'on_review' }}
             limit={5}
             enablePagination={false}
-            emptyText="Никто не ждёт вашей приёмки"
-            emptyHint="Когда исполнитель сдаст работу по вашей задаче — она появится здесь"
+            emptyText={t('sections.review.empty')}
+            emptyHint={t('sections.review.emptyHint')}
           />
         </Card>
       </BentoGrid>

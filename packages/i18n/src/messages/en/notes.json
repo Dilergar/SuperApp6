@@ -1,0 +1,232 @@
+{
+  "board": {
+    "closeLayer": "Close the board (Esc, {keys})",
+    "emptyHint": "Take a blank sheet from the stack in the top left corner",
+    "emptyTitle": "Nothing here yet",
+    "layerAria": "Notes board",
+    "newNote": "New note ({keys})",
+    "openNotes": "Open the Notes",
+    "searchHint": "Try another word",
+    "trashHint": "Deleted notes are kept for {days} days"
+  },
+  "breadcrumb": "Notes",
+  "card": {
+    "folder": "Folder",
+    "noAccess": "No access",
+    "pinned": "Pinned",
+    "tags": "Tags"
+  },
+  "color": {
+    "blue": "Blue",
+    "green": "Green",
+    "label": "Color",
+    "lilac": "Lilac",
+    "lime": "Lime",
+    "none": "No color",
+    "peach": "Peach",
+    "pick": "Note color",
+    "pink": "Pink",
+    "sand": "Sand",
+    "teal": "Teal"
+  },
+  "dictate": {
+    "busy": "Recognizing…",
+    "failed": "The speech was not recognized — try again",
+    "language": "Dictation language",
+    "languageOf": "Dictation language: {name}",
+    "noMic": "No access to the microphone",
+    "start": "Dictate the text",
+    "stop": "Stop the recording ({time})",
+    "unsupported": "Recording is not supported in this browser"
+  },
+  "editor": {
+    "bold": "Bold (Ctrl+B)",
+    "bullet": "List",
+    "code": "Code",
+    "codeBlock": "Code block",
+    "colAfter": "Column to the right",
+    "colBefore": "Column to the left",
+    "colDelete": "Delete the column",
+    "divider": "Divider",
+    "done": "Done",
+    "dropTable": "Delete the table",
+    "headerRow": "Header row",
+    "heading1": "Heading 1",
+    "heading2": "Heading 2",
+    "heading3": "Heading 3",
+    "image": "Image",
+    "imageFailed": "Could not upload the image",
+    "imageLoading": "The image is loading",
+    "imageNoRights": "Images cannot be added to this note: no rights to the files",
+    "italic": "Italic (Ctrl+I)",
+    "linkAdd": "Link (select the text)",
+    "linkBlocked": "The link is blocked: the address is not allowed",
+    "linkEmpty": "Enter an address",
+    "linkInvalid": "That address cannot be inserted: only http(s), mailto, tel or a path inside the application",
+    "linkLabel": "Link address",
+    "linkRemove": "Remove the link",
+    "mergeCells": "Merge the cells",
+    "newTag": "a new tag",
+    "nobodyFound": "Nobody found",
+    "notesNotFound": "No notes found",
+    "ordered": "Numbered list",
+    "placeholder": "Start writing…",
+    "quote": "Quote",
+    "rowAfter": "Row below",
+    "rowBefore": "Row above",
+    "rowDelete": "Delete the row",
+    "splitCell": "Split the cell",
+    "strike": "Struck through",
+    "suggestAria": "Suggestions",
+    "table": "Table",
+    "table33": "A 3×3 table",
+    "tableActions": "Table actions",
+    "task": "Checkboxes",
+    "titlePlaceholder": "Untitled",
+    "toolbarAria": "Formatting",
+    "underline": "Underlined (Ctrl+U)",
+    "wikilinkHint": "Start typing the note title"
+  },
+  "folder": {
+    "aria": "Folder «{name}»",
+    "create": "New folder",
+    "deleteConfirm": {
+      "message": "The folder and the notes inside go to the trash for {days} days",
+      "title": "Delete the folder «{name}»?"
+    },
+    "menu": {
+      "share": "Access",
+      "subfolder": "New subfolder",
+      "toRoot": "Move to the root",
+      "trash": "To the trash"
+    },
+    "namePlaceholder": "Clients, for example",
+    "rename": "Rename the folder"
+  },
+  "fromMessage": {
+    "commentLabel": "A thought of your own (optional)",
+    "commentPlaceholder": "For example: discuss at the stand-up",
+    "create": "Create the note",
+    "subtitle": "The message becomes a quote; the note lands on the board right away",
+    "title": "To a note"
+  },
+  "history": {
+    "current": "now",
+    "emptyHint": "Versions show up after the first saves",
+    "emptyNote": "An empty note",
+    "emptyTitle": "The history is empty",
+    "restore": "Restore",
+    "restoreConfirm": {
+      "message": "The current text stays in the history — you can come back the same way",
+      "title": "Restore version #{n}?"
+    },
+    "subtitle": "The latest saves of this note",
+    "title": "Version history"
+  },
+  "noteWord": "Note",
+  "panel": {
+    "attachExisting": "Attach an existing one",
+    "attachTitle": "Attach a note",
+    "emptyHint": "Write down the agreements, the details and the thoughts — they stay here",
+    "emptyTitle": "No notes yet",
+    "newNote": "New note",
+    "notFound": "No notes found",
+    "searchPlaceholder": "Find a note…"
+  },
+  "quickAction": {
+    "description": "Save the message as a quote in a new or an existing note",
+    "label": "To a note"
+  },
+  "related": {
+    "nothingFound": "Nothing found",
+    "searchPlaceholder": "Find: {type}…",
+    "startTyping": "Start typing a name",
+    "title": "Link the note",
+    "typeAria": "Entity type"
+  },
+  "role": {
+    "editor": "Edits",
+    "manager": "Manages access",
+    "viewer": "Reads"
+  },
+  "rootName": "Root",
+  "section": {
+    "folder": "Folder",
+    "pinned": "Pinned",
+    "root": "Unfiled",
+    "search": "Search: «{q}»",
+    "shared": "Shared with me",
+    "trash": "Trash"
+  },
+  "share": {
+    "emptyFolder": "The folder is seen by its author and the organization owners",
+    "emptyNote": "The note is seen by its author and the organization owners",
+    "emptyTitle": "Only you so far",
+    "folderTitle": "Access to the folder",
+    "fromFolder": "from the folder «{name}»",
+    "grant": "Open the access",
+    "noteTitle": "Access to the note",
+    "pickOrg": "An employee, department, position, site…",
+    "pickPersonal": "Someone from your circle…",
+    "revoke": "Revoke the access",
+    "roleLabel": "Right",
+    "wholeOrg": "The whole organization"
+  },
+  "space": {
+    "org": "Organization",
+    "personal": "My notes"
+  },
+  "sticky": {
+    "actions": "Actions on the note",
+    "aria": "A note on the board: {title}",
+    "collapse": "Collapse into a strip",
+    "expand": "Expand",
+    "history": "Version history",
+    "openInNotes": "Open in the Notes",
+    "placeholder": "A sticky…",
+    "purge": "Delete for good",
+    "purgeConfirm": {
+      "message": "The note cannot be restored afterwards",
+      "title": "Delete for good?"
+    },
+    "related": "Link to…",
+    "restore": "Restore",
+    "saving": "Saving",
+    "share": "Access",
+    "toTrash": "To the trash"
+  },
+  "target": {
+    "branch": "Site",
+    "counterparty": "Counterparty",
+    "document": "Document",
+    "note": "Note",
+    "task": "Task"
+  },
+  "title": "Notes",
+  "tree": {
+    "aria": "Notes explorer",
+    "collapse": "Collapse «{name}»",
+    "empty": "No notes",
+    "expand": "Expand «{name}»",
+    "folderActions": "Actions on the folder «{name}»",
+    "folders": "Folders",
+    "foldersAria": "Note folders",
+    "loading": "Loading…",
+    "more": "More…",
+    "newFolder": "New folder",
+    "noFolders": "No folders yet",
+    "nothingFound": "Nothing found",
+    "pinnedEmpty": "Nothing is pinned",
+    "searchPlaceholder": "Search the notes…",
+    "sharedFolders": "Shared with me",
+    "tags": "Tags",
+    "trashEmpty": "The trash is empty"
+  },
+  "unavailable": "Unavailable",
+  "untitled": "Untitled",
+  "ws": {
+    "backToFolders": "Folders",
+    "boardAria": "Board: {title}",
+    "hotkeyHint": "{keys} — the board on any page"
+  }
+}

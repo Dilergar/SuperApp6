@@ -138,10 +138,16 @@ function unpack(base64) {
 }
 const textOf = (xml) => xml.replace(/<[^>]+>/g, '');
 
+/** Разделитель разрядов — ПРАВИЛО РЕГИОНА (профиль КЗ), одно на экран и бумагу */
+const GROUP = require('@superapp/i18n').REGION_PROFILE_KZ.groupSeparator;
+
 async function devRender(token, docx, values, ctx) {
   return call('POST', '/templates/dev/render', token, {
     docxBase64: docx.toString('base64'),
     values,
+    // Язык БУМАГИ (не запроса): «прописью», месяцы и «Да/Нет» собираются в нём.
+    // Сьюта проверяет русский бланк, а отдельным блоком — казахский и английский.
+    language: 'ru',
     ...(ctx || {}),
   });
 }
@@ -165,31 +171,32 @@ async function main() {
     console.log('\n— Драйвер: подстановка и форматтеры —');
     {
       const body =
-        p(r('БИН: {Организация.БИН}')) +
+        p(r('БИН: {Organization.Bin}')) +
         // Тег, разорванный Word'ом на три прогона (проверка орфографии + жирный кусок)
         p(
-          '<w:proofErr w:type="spellStart"/><w:r><w:t>{Сотруд</w:t></w:r>' +
-            '<w:proofErr w:type="spellEnd"/><w:r><w:rPr><w:b/></w:rPr><w:t>ник.ФИ</w:t></w:r>' +
-            '<w:r><w:t>О}</w:t></w:r>',
+          '<w:proofErr w:type="spellStart"/><w:r><w:t>{Emplo</w:t></w:r>' +
+            '<w:proofErr w:type="spellEnd"/><w:r><w:rPr><w:b/></w:rPr><w:t>yee.Full</w:t></w:r>' +
+            '<w:r><w:t>Name}</w:t></w:r>',
         ) +
-        p(r('Дата: {Дата|дата} / {Дата|дата:долгая}')) +
-        p(r('Сумма: {Сумма|прописью} ({Сумма|число} тг)')) +
-        p(r('Дней: {Дней|прописью:число}')) +
-        p(r('Адрес: {Адрес}')) +
-        p(r('Спец: {Спец}')) +
-        p(r('Активен: {Активен}'));
-      const header = p(r('Шапка: {Организация.Название}'));
+        p(r('Дата: {Date|date} / {Date|date:long}')) +
+        p(r('Сумма: {Amount|words} ({Amount|number} тг)')) +
+        p(r('Дней: {Days|words:number}')) +
+        p(r('Адрес: {Address}')) +
+        p(r('Спец: {Special}')) +
+        p(r('Активен: {Active}'));
+      const header = p(r('Шапка: {Organization.Name}'));
       const docx = buildDocx(body, header);
-      const res = await devRender(t1, docx, {
-        Организация: { БИН: '123456789012', Название: 'ТОО «Тест»' },
-        Сотрудник: { ФИО: 'Ахметов Аскар' },
-        Дата: '2026-09-01',
-        Сумма: 123456.78,
-        Дней: 5,
-        Адрес: 'г. Алматы\nул. Абая, 1',
-        Спец: 'А&Б <В>',
-        Активен: true,
-      });
+      const values = {
+        Organization: { Bin: '123456789012', Name: 'ТОО «Тест»' },
+        Employee: { FullName: 'Ахметов Аскар' },
+        Date: '2026-09-01',
+        Amount: 123456.78,
+        Days: 5,
+        Address: 'г. Алматы\nул. Абая, 1',
+        Special: 'А&Б <В>',
+        Active: true,
+      };
+      const res = await devRender(t1, docx, values);
       check('рендер прошёл', res.ok, JSON.stringify(res.json?.message ?? res.status));
       if (res.ok) {
         const { doc, header: hdr } = unpack(res.json.data.docxBase64);
@@ -203,7 +210,9 @@ async function main() {
           text.includes('Сто двадцать три тысячи четыреста пятьдесят шесть тенге 78 тиын'),
           text.slice(text.indexOf('Сумма:'), text.indexOf('Сумма:') + 90),
         );
-        check('число с разрядами', text.includes('123 456,78 тг'));
+        // Разряды и дробь — ПРАВИЛА РЕГИОНА (узкий неразрывный пробел), а не
+        // язык: печатать сумму своим пробелом значило бы разойтись с экраном
+        check('число с разрядами по правилам региона', text.includes(`123${GROUP}456,78 тг`), text.slice(text.indexOf('('), text.indexOf('(') + 30));
         check('число словами', text.includes('Дней: пять'));
         check('многострочное значение — настоящий <w:br/>', doc.includes('<w:br/>') && text.includes('ул. Абая, 1'));
         check('спецсимволы экранированы', doc.includes('А&amp;Б &lt;В&gt;'));
@@ -225,12 +234,12 @@ async function main() {
           '<w:tr><w:tc>' + p(r('№')) + '</w:tc><w:tc>' + p(r('Название')) + '</w:tc><w:tc>' + p(r('Сумма')) + '</w:tc></w:tr>' +
           '<w:tr>' + rowCells + '</w:tr>' +
           '</w:tbl>' +
-          p(r('Итого: {Итого|число}')),
+          p(r('Итого: {Итого|number}')),
       );
     const repeatRow =
-      '<w:tc>' + p(r('{#Строки}{№}')) + '</w:tc>' +
+      '<w:tc>' + p(r('{#Строки}{No}')) + '</w:tc>' +
       '<w:tc>' + p(r('{Название}')) + '</w:tc>' +
-      '<w:tc>' + p(r('{Сумма|число}{/Строки}')) + '</w:tc>';
+      '<w:tc>' + p(r('{Сумма|number}{/Строки}')) + '</w:tc>';
     {
       const res = await devRender(t1, tableDocx(repeatRow), {
         Строки: [
@@ -248,10 +257,10 @@ async function main() {
         check('строка размножена: шапка + 3 клона', trCount === 4, `tr=${trCount}`);
         check('все элементы на месте и по порядку',
           text.indexOf('Стол') > 0 && text.indexOf('Стол') < text.indexOf('Стул') && text.indexOf('Стул') < text.indexOf('Шкаф'));
-        check('{№} нумерует с единицы', text.includes('1') && /1\s*Стол|1Стол/.test(text.replace(/\s+/g, '')), text.slice(0, 60));
-        check('форматтер работает В СТРОКЕ повтора', text.includes('5 500,5'));
+        check('{No} нумерует с единицы', text.includes('1') && /1\s*Стол|1Стол/.test(text.replace(/\s+/g, '')), text.slice(0, 60));
+        check('форматтер работает В СТРОКЕ повтора', text.includes(`5${GROUP}500,5`));
         check('маркеры повтора удалены', !text.includes('{#') && !text.includes('{/'));
-        check('поле ВНЕ повтора живо', text.includes('Итого: 116 500,5'));
+        check('поле ВНЕ повтора живо', text.includes(`Итого: 116${GROUP}500,5`));
       }
 
       const empty = await devRender(t1, tableDocx(repeatRow), { Строки: [], Итого: 0 });
@@ -306,7 +315,7 @@ async function main() {
       check('неизвестный форматтер пойман', issues.some((i) => i.code === 'unknown_formatter'));
     }
     {
-      const res = await devCompile(t1, buildDocx(p(r('{дата без аргумента: {Поле|дата:кривая}'))), ['Поле']);
+      const res = await devCompile(t1, buildDocx(p(r('{дата без аргумента: {Поле|date:кривая}'))), ['Поле']);
       const issues = res.json?.data?.issues ?? [];
       check('неизвестный АРГУМЕНТ форматтера пойман', issues.some((i) => i.code === 'unknown_formatter'));
     }
@@ -330,13 +339,37 @@ async function main() {
       check('{/Б} против {#А} → несовпадение поймано', issues.some((i) => i.code === 'repeat_without_open'));
     }
     {
-      const res = await devCompile(t1, buildDocx(p(r('{Оргнизация.БИН} и {Организация.Бин} и {Просто} и {№}'))));
+      // ЯЗЫК БУМАГИ: те же значения, другой язык — другие слова и другой порядок
+      // частей даты. Правила региона (разделители, dd.mm.yyyy) при этом ОДНИ.
+      const body = p(r('{Date|date} / {Date|date:long} / {Amount|words} / {Active}'));
+      const values = { Date: '2026-09-01', Amount: 123456.78, Active: true };
+
+      const kk = await devRender(t1, buildDocx(body), values, { language: 'kk' });
+      const kkText = kk.ok ? textOf(unpack(kk.json.data.docxBase64).doc) : '';
+      check('казахский бланк: дата короткая в правилах региона', kkText.includes('01.09.2026'), kkText);
+      check('казахский бланк: месяц по-казахски', kkText.includes('қыркүйек'), kkText);
+      check('казахский бланк: сумма прописью по-казахски', kkText.includes('теңге') && kkText.includes('мың'), kkText);
+      check('казахский бланк: булево словом языка', kkText.includes('Иә'), kkText);
+
+      const en = await devRender(t1, buildDocx(body), values, { language: 'en' });
+      const enText = en.ok ? textOf(unpack(en.json.data.docxBase64).doc) : '';
+      check('английский бланк: дата короткая в правилах региона', enText.includes('01.09.2026'), enText);
+      check('английский бланк: месяц по-английски', enText.includes('September'), enText);
+      check(
+        'английский бланк: сумма прописью по-английски',
+        enText.includes('tenge') && enText.includes('thousand'),
+        enText,
+      );
+      check('английский бланк: булево словом языка', enText.includes('Yes'), enText);
+    }
+    {
+      const res = await devCompile(t1, buildDocx(p(r('{Orgnization.Bin} и {Organization.Bn} и {Просто} и {No}'))));
       const issues = res.json?.data?.issues ?? [];
       const msgs = issues.map((i) => i.message).join(' | ');
-      check('опечатка в ГРУППЕ поймана', issues.some((i) => i.code === 'unknown_field' && i.message.includes('Оргнизация')), msgs);
-      check('опечатка в ПОЛЕ поймана', issues.some((i) => i.code === 'unknown_field' && i.message.includes('Бин')));
+      check('опечатка в ГРУППЕ поймана', issues.some((i) => i.code === 'unknown_field' && i.message.includes('Orgnization')), msgs);
+      check('опечатка в ПОЛЕ поймана', issues.some((i) => i.code === 'unknown_field' && i.message.includes('Bn')));
       check('голое поле вне повтора поймано', issues.some((i) => i.code === 'unknown_field' && i.message.includes('Просто')));
-      check('{№} вне повтора пойман', issues.some((i) => i.message.includes('№')));
+      check('{No} вне повтора пойман', issues.some((i) => i.message.includes('{No}')));
     }
     {
       const res = await devRender(t1, Buffer.from('это вообще не zip'), {});
@@ -351,7 +384,7 @@ async function main() {
       const tags = res.json?.data?.tags ?? [];
       check('валидный шаблон компилируется без замечаний', issues.length === 0, JSON.stringify(issues.map((i) => i.code)));
       check('теги перечислены для панели', tags.some((t) => t.kind === 'repeat_open' && t.path === 'Строки') &&
-        tags.some((t) => t.kind === 'field' && t.path === 'Итого' && t.formatters[0]?.key === 'число'));
+        tags.some((t) => t.kind === 'field' && t.path === 'Итого' && t.formatters[0]?.key === 'number'));
     }
 
     // ============================================================
@@ -361,11 +394,16 @@ async function main() {
     {
       const res = await call('GET', '/templates/field-groups', t1);
       const groups = res.json?.data?.groups ?? [];
-      const org = groups.find((g) => g.tagPrefix === 'Организация');
-      const emp = groups.find((g) => g.tagPrefix === 'Сотрудник');
+      const org = groups.find((g) => g.tagPrefix === 'Organization');
+      const emp = groups.find((g) => g.tagPrefix === 'Employee');
       check('группы «Организация» и «Сотрудник» зарегистрированы', !!org && !!emp, JSON.stringify(groups.map((g) => g.tagPrefix)));
-      check('у «Организации» есть БИН и ИИК', org && org.fields.some((f) => f.key === 'БИН') && org.fields.some((f) => f.key === 'ИИК'));
-      check('у «Сотрудника» есть ИИН и Должность', emp && emp.fields.some((f) => f.key === 'ИИН') && emp.fields.some((f) => f.key === 'Должность'));
+      check('у «Организации» есть Bin и Iik', org && org.fields.some((f) => f.key === 'Bin') && org.fields.some((f) => f.key === 'Iik'));
+      check('у «Сотрудника» есть Iin и Position', emp && emp.fields.some((f) => f.key === 'Iin') && emp.fields.some((f) => f.key === 'Position'));
+      check(
+        'подписи полей — СЛОВА в языке запроса, а не имена тегов',
+        org && org.fields.every((f) => typeof f.label === 'string' && f.label.length > 0 && f.label !== f.key),
+        JSON.stringify(org?.fields?.slice(0, 3)),
+      );
     }
 
     const cws = await call('POST', '/workspaces', t1, { name: `tpl-ws-${stamp}` });
@@ -375,9 +413,9 @@ async function main() {
 
     {
       // Контракт честности: реквизиты не заполнены → отказ, а не пустота в приказе
-      const res = await devRender(t1, buildDocx(p(r('{Организация.Название} БИН {Организация.БИН}'))), {}, { workspaceId: wsId });
-      check('незаполненный реквизит → отказ «Организация.БИН» (не пустота)',
-        res.status === 400 && (res.json?.details?.missing ?? []).includes('Организация.БИН'),
+      const res = await devRender(t1, buildDocx(p(r('{Organization.Name} БИН {Organization.Bin}'))), {}, { workspaceId: wsId });
+      check('незаполненный реквизит → отказ «Organization.Bin» (не пустота)',
+        res.status === 400 && (res.json?.details?.missing ?? []).includes('Organization.Bin'),
         JSON.stringify(res.json?.details ?? res.status));
     }
 
@@ -390,7 +428,7 @@ async function main() {
       legalAddress: 'г. Алматы, ул. Абая, 1',
       kbe: '17',
       directorUserId: u1,
-      signBasis: 'Устава',
+      signBasis: { kind: 'ustav' },
     });
     const acc = await call('POST', `/workspaces/${wsId}/requisites/accounts`, t1, {
       iban, bankName: 'Kaspi Bank', bik: 'CASPKZKA',
@@ -398,14 +436,21 @@ async function main() {
     check('реквизиты и счёт сохранены', acc.ok, `status ${acc.status}`);
 
     {
-      const res = await call('POST', '/templates/dev/resolve', t1, { workspaceId: wsId });
-      const org = res.json?.data?.values?.['Организация'] ?? {};
-      check('резолв: БИН из анкеты', org['БИН'] === bin, JSON.stringify(org['БИН']));
-      check('резолв: юрформа ярлыком', org['Юрформа'] === 'ТОО');
-      check('резолв: ИИК основного счёта', org['ИИК'] === iban);
-      check('резолв: БИК', org['БИК'] === 'CASPKZKA');
-      check('резолв: директор — ФИО', typeof org['Директор'] === 'string' && org['Директор'].length > 0, org['Директор']);
-      check('резолв: не-плательщик НДС = осознанно-пустое', org['Свидетельство НДС'] === '');
+      // Язык БУМАГИ — русский: юрформа печатается его словом («ТОО», не «LLP»)
+      const res = await call('POST', '/templates/dev/resolve', t1, { workspaceId: wsId, language: 'ru' });
+      const org = res.json?.data?.values?.['Organization'] ?? {};
+      check('резолв: БИН из анкеты', org['Bin'] === bin, JSON.stringify(org['Bin']));
+      check('резолв: юрформа ярлыком языка бумаги', org['OrgForm'] === 'ТОО', String(org['OrgForm']));
+      check('резолв: ИИК основного счёта', org['Iik'] === iban);
+      check('резолв: БИК', org['Bik'] === 'CASPKZKA');
+      check('резолв: директор — ФИО', typeof org['Director'] === 'string' && org['Director'].length > 0, org['Director']);
+      check('резолв: не-плательщик НДС = осознанно-пустое', org['VatCertificate'] === '');
+      const orgKk = await call('POST', '/templates/dev/resolve', t1, { workspaceId: wsId, language: 'kk' });
+      check(
+        'резолв: юрформа в языке БУМАГИ, а не запроса',
+        orgKk.json?.data?.values?.['Organization']?.['OrgForm'] === 'ЖШС',
+        String(orgKk.json?.data?.values?.['Organization']?.['OrgForm']),
+      );
     }
 
     // Сотрудник: нанять u2, дать должность в отделе и филиале, заполнить анкету
@@ -435,24 +480,28 @@ async function main() {
     });
 
     {
-      const res = await call('POST', '/templates/dev/resolve', t1, { workspaceId: wsId, subjectUserId: u2 });
-      const emp = res.json?.data?.values?.['Сотрудник'] ?? {};
-      check('резолв сотрудника: ИИН', emp['ИИН'] === iin2, JSON.stringify(emp['ИИН']));
-      check('резолв сотрудника: должность', String(emp['Должность'] ?? '').startsWith('Менеджер'), emp['Должность']);
-      check('резолв сотрудника: отдел через должность', String(emp['Отдел'] ?? '').startsWith('Отдел продаж'));
-      check('резолв сотрудника: филиал', String(emp['Филиал'] ?? '').startsWith('Филиал на Абая'));
-      check('резолв сотрудника: удостоверение строкой', String(emp['Удостоверение'] ?? '').includes('№ 038112233'), emp['Удостоверение']);
+      const res = await call('POST', '/templates/dev/resolve', t1, {
+        workspaceId: wsId,
+        subjectUserId: u2,
+        language: 'ru',
+      });
+      const emp = res.json?.data?.values?.['Employee'] ?? {};
+      check('резолв сотрудника: ИИН', emp['Iin'] === iin2, JSON.stringify(emp['Iin']));
+      check('резолв сотрудника: должность', String(emp['Position'] ?? '').startsWith('Менеджер'), emp['Position']);
+      check('резолв сотрудника: отдел через должность', String(emp['Department'] ?? '').startsWith('Отдел продаж'));
+      check('резолв сотрудника: филиал', String(emp['Branch'] ?? '').startsWith('Филиал на Абая'));
+      check('резолв сотрудника: удостоверение строкой', String(emp['IdDocument'] ?? '').includes('№ 038112233'), emp['IdDocument']);
     }
 
     let renderedForSmoke = null;
     {
       // Полный круг: заявление собирается из реестра + значений формы
       const body =
-        p(r('В {Организация.Юрнаименование}')) +
-        p(r('от {Сотрудник.ФИО}, {Сотрудник.Должность}')) +
-        p(r('Прошу предоставить отпуск с {С|дата:долгая} на {Дней|прописью:число} дней.')) +
-        p(r('ИИН: {Сотрудник.ИИН}'));
-      const res = await devRender(t1, buildDocx(body), { С: '2026-09-01', Дней: 14 }, { workspaceId: wsId, subjectUserId: u2 });
+        p(r('В {Organization.LegalName}')) +
+        p(r('от {Employee.FullName}, {Employee.Position}')) +
+        p(r('Прошу предоставить отпуск с {From|date:long} на {Days|words:number} дней.')) +
+        p(r('ИИН: {Employee.Iin}'));
+      const res = await devRender(t1, buildDocx(body), { From: '2026-09-01', Days: 14 }, { workspaceId: wsId, subjectUserId: u2 });
       check('полный круг: рендер прошёл', res.ok, JSON.stringify(res.json?.details ?? res.json?.message ?? res.status));
       if (res.ok) {
         const text = textOf(unpack(res.json.data.docxBase64).doc);

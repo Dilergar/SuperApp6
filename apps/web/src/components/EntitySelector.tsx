@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import {
   loadEntities,
-  ENTITY_TYPE_LABELS,
+  ENTITY_TYPE_LABEL_KEYS,
   type Principal,
   type EntityOption,
   type EntityLoadContext,
@@ -25,7 +26,7 @@ export function EntitySelector({
   onChange,
   types = ['user'],
   multi = true,
-  placeholder = 'Начните вводить имя…',
+  placeholder,
   options,
   context,
 }: {
@@ -39,6 +40,8 @@ export function EntitySelector({
   /** Контекст лоадеров: workspace-скоупные типы (отдел/должность/филиал) требуют workspaceId. */
   context?: EntityLoadContext;
 }) {
+  const t = useTranslations('common');
+  const hint = placeholder ?? t('entitySelector.placeholder');
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const [loaded, setLoaded] = useState<EntityOption[]>([]);
@@ -58,7 +61,21 @@ export function EntitySelector({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typesKey, options, ctxKey]);
 
-  const opts = options ?? loaded;
+  // Синтезированный вариант («вся организация») приходит из реестра с КЛЮЧОМ
+  // вместо заголовка — разворачиваем один раз здесь, до поиска и до чипов:
+  // дальше по коду вариант ничем не отличается от загруженного из данных.
+  const opts = useMemo(() => {
+    const list = options ?? loaded;
+    return list.some((o) => o.titleKey)
+      ? list.map((o) => (o.titleKey ? { ...o, title: t(o.titleKey) } : o))
+      : list;
+  }, [options, loaded, t]);
+
+  /** Заголовок группы типов; незнакомый тип называет сам себя, а не ломает список. */
+  const typeLabel = (type: string) => {
+    const k = ENTITY_TYPE_LABEL_KEYS[type];
+    return k ? t(k) : type;
+  };
   // ARIA-combobox: список и активный кандидат должны быть НАЗВАНЫ скринридеру
   // (клавиатура тут работала и раньше, но незрячий не слышал, по чему ходит)
   const listId = useId();
@@ -125,8 +142,8 @@ export function EntitySelector({
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); remove(p); }}
-                title="Убрать"
-                aria-label={`Убрать: ${o.title}`}
+                title={t('actions.remove')}
+                aria-label={t('entitySelector.removeAria', { title: o.title })}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)', fontSize: '0.9rem', lineHeight: 1, padding: '0 0.15rem' }}
               >×</button>
             </span>
@@ -137,13 +154,13 @@ export function EntitySelector({
           onChange={(e) => { setQ(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
-          placeholder={value.length ? '' : placeholder}
+          placeholder={value.length ? '' : hint}
           role="combobox"
           aria-expanded={open}
           aria-controls={listId}
           aria-autocomplete="list"
           aria-activedescendant={open && flat[hi] ? optId(hi) : undefined}
-          aria-label={placeholder}
+          aria-label={hint}
           style={{ flex: 1, minWidth: '8rem', border: 'none', outline: 'none', background: 'transparent', fontSize: '0.9rem', color: 'var(--on-surface)', padding: '0.2rem' }}
         />
       </div>
@@ -160,13 +177,13 @@ export function EntitySelector({
           }}
         >
           {flat.length === 0 ? (
-            <div className="label-sm" style={{ padding: 'var(--spacing-2)', opacity: 0.6 }}>Ничего не найдено</div>
+            <div className="label-sm" style={{ padding: 'var(--spacing-2)', opacity: 0.6 }}>{t('entitySelector.nothingFound')}</div>
           ) : (
             groups.map((g) => (
-              <div key={g.type} role="group" aria-label={ENTITY_TYPE_LABELS[g.type] ?? g.type} style={{ marginBottom: '0.3rem' }}>
+              <div key={g.type} role="group" aria-label={typeLabel(g.type)} style={{ marginBottom: '0.3rem' }}>
                 {types.length > 1 && (
                   <div className="label-sm" aria-hidden style={{ fontSize: '0.66rem', opacity: 0.55, padding: '0.2rem 0.3rem' }}>
-                    {ENTITY_TYPE_LABELS[g.type] ?? g.type}
+                    {typeLabel(g.type)}
                   </div>
                 )}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>

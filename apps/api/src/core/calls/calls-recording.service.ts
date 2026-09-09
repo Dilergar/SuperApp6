@@ -1,20 +1,13 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  Logger,
-  NotFoundException,
-  OnApplicationBootstrap,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap, OnModuleInit } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import { CallRecording, Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { EgressStatus, type WebhookEvent } from 'livekit-server-sdk';
-import type { CallRecordingDto } from '@superapp/shared';
+import { APP_TIMEZONE, SOURCE_LOCALE, type CallRecordingDto } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { FilesService } from '../files/files.service';
@@ -59,6 +52,7 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
     private readonly notifications: NotificationsService,
     private readonly jobs: JobsService,
     private readonly jobsRegistry: JobsRegistry,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -119,7 +113,7 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
   private async markRecordingDiscarded(recordingId: string, error: string): Promise<void> {
     const rec = await this.db.callRecording.findUnique({ where: { id: recordingId } });
     if (!rec || rec.status === 'ready' || rec.status === 'error') return;
-    await this.markError(rec, `финализация не удалась: ${error}`);
+    await this.markError(rec, `the finalization failed: ${error}`);
   }
 
   /** Поставить джоб доставки записи одному клейманту (uniqueKey `crd:<id>:<user>`). */
@@ -137,14 +131,14 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
 
   async start(userId: string, sessionId: string): Promise<CallRecordingDto> {
     if (!this.livekit.recordingEnabled) {
-      throw new BadRequestException('Запись звонков не подключена (LIVEKIT_EGRESS_DIR не задан)');
+      throw badRequest('calls.recordingNotConfigured');
     }
     const session = await this.requireActiveSession(sessionId);
     // Нет потребителя-доставщика для этого refType (напр. офис Ф3 ещё не подключён) —
     // не даём начать: иначе запись финализируется, но джоб доставки некому исполнить
     // (хук refType не зарегистрирован), файл повиснет неотданным — проверяем на входе.
     if (!this.recordingRegistry.get(session.refType)) {
-      throw new BadRequestException('Запись для этого типа звонка пока не поддерживается');
+      throw badRequest('calls.recordingUnsupported');
     }
     await this.requireParticipant(sessionId, userId, { openOnly: true });
 
@@ -161,7 +155,7 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
       });
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        throw new ConflictException('Запись уже идёт');
+        throw conflict('calls.recordingRunning');
       }
       throw err;
     }
@@ -179,14 +173,14 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
       });
       if (claimed.count !== 1) {
         await this.livekit.stopEgress(info.egressId);
-        throw new ConflictException('Запись уже остановлена');
+        throw conflict('calls.recordingStopped');
       }
       rec = (await this.db.callRecording.findUnique({ where: { id: rec.id } })) ?? rec;
     } catch (err) {
       // Слот освобождаем (error вне partial unique) — «запись идёт» не должно врать
       await this.db.callRecording.update({
         where: { id: rec.id },
-        data: { status: 'error', error: 'egress не стартовал', endedAt: new Date() },
+        data: { status: 'error', error: 'the egress did not start', endedAt: new Date() },
       }).catch(() => undefined);
       throw err;
     }
@@ -200,11 +194,11 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
       where: { sessionId, status: 'recording' },
       orderBy: { startedAt: 'desc' },
     });
-    if (!rec) throw new NotFoundException('Идущая запись не найдена');
+    if (!rec) throw notFound('calls.recordingNotFound');
     if (rec.startedById !== userId) {
       const resolver = this.refRegistry.get(rec.refType);
       if (!resolver || !(await resolver.canModerate(userId, rec.refId))) {
-        throw new ForbiddenException('Остановить запись может её инициатор или модератор');
+        throw forbidden('calls.stopByStarterOrModerator');
       }
     }
     const claimed = await this.db.callRecording.updateMany({
@@ -227,14 +221,14 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
       where: { sessionId, status: { not: 'error' } },
       orderBy: { startedAt: 'desc' },
     });
-    if (!rec) throw new NotFoundException('Запись этого звонка не найдена');
+    if (!rec) throw notFound('calls.recordingOfCallNotFound');
 
     // Доступ перепроверяем СЕЙЧАС резолвером refType (как issueToken на каждый вход):
     // историческая строка журнала звонок обходит Hard Revoke — снятый с задачи/уволенный
     // не должен забрать запись по сохранённому sessionId.
     const resolver = this.refRegistry.get(rec.refType);
     if (!resolver || !(await resolver.canJoin(userId, rec.refId))) {
-      throw new ForbiddenException('Нет доступа к этому звонку');
+      throw forbidden('calls.noAccess');
     }
     // Окно присутствия: забрать запись может лишь тот, чьё присутствие в комнате
     // пересекалось с окном записи [startedAt, endedAt] — не «был когда-то в звонке до
@@ -278,7 +272,7 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
     if (evt.event !== 'egress_ended') return; // started/updated — статус ведём сами
     const rec = await this.db.callRecording.findUnique({ where: { egressId: info.egressId } });
     if (!rec) {
-      this.logger.warn(`egress_ended для незнакомого egress ${info.egressId} — игнор`);
+      this.logger.warn(`egress_ended for an unknown egress ${info.egressId} — ignoring`);
       return;
     }
     // Ставим джоб финализации со СНИМКОМ egress из вебхука (обработчик LiveKit не опрашивает
@@ -305,8 +299,8 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
     if (!rec) return; // строка удалена
     if (rec.status === 'ready' || rec.status === 'error') return; // терминал → no-op
     if (!rec.egressId) {
-      await this.markError(rec, 'egress не стартовал');
-      throw new JobDiscardError(`recording ${recordingId}: egress не стартовал`);
+      await this.markError(rec, 'the egress did not start');
+      throw new JobDiscardError(`recording ${recordingId}: the egress did not start`);
     }
 
     // Снимок egress: из payload (вебхук/крон) либо самоопрос LiveKit (бэкфилл после рестарта).
@@ -315,7 +309,7 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
     let egressError = (payload.error as string | null | undefined) ?? null;
     if (complete === undefined) {
       const info = await this.livekit.getEgressInfo(rec.egressId);
-      if (!info) throw new Error(`egress ${rec.egressId} не найден в LiveKit`);
+      if (!info) throw new Error(`egress ${rec.egressId} was not found in LiveKit`);
       if (
         info.status === EgressStatus.EGRESS_ACTIVE ||
         info.status === EgressStatus.EGRESS_STARTING ||
@@ -328,7 +322,7 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
         // обычную ошибку транзиентной, 5 попыток сгорели бы за ~7.5 мин, dead-letter
         // дёрнул бы onDiscard → markError, и ИДУЩАЯ запись была бы объявлена
         // провалившейся — а в терминальный error файл egress принять уже некуда.
-        this.logger.log(`recording ${recordingId}: egress ещё идёт — финализация будет позже`);
+        this.logger.log(`recording ${recordingId}: the egress is still running — finalization comes later`);
         return;
       }
       complete = info.status === EgressStatus.EGRESS_COMPLETE;
@@ -337,8 +331,8 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
     }
 
     if (!complete) {
-      await this.markError(rec, `egress не завершился: ${egressError || 'без деталей'}`);
-      throw new JobDiscardError(`recording ${recordingId}: egress не COMPLETE`);
+      await this.markError(rec, `the egress did not finish: ${egressError || 'no details'}`);
+      throw new JobDiscardError(`recording ${recordingId}: the egress is not COMPLETE`);
     }
 
     // Клейм в ingesting + МОНОТОННЫЙ токен строки. НЕ ctx.attempt: у нового джоба того же
@@ -355,9 +349,9 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
         ?.attempts ?? 0;
 
     try {
-      if (!containerFile) throw new Error('egress не вернул файл');
+      if (!containerFile) throw new Error('the egress returned no file');
       const hostDir = this.livekit.egressDir;
-      if (!hostDir) throw new Error('LIVEKIT_EGRESS_DIR не задан');
+      if (!hostDir) throw new Error('LIVEKIT_EGRESS_DIR is not set');
       const hostPath = path.join(hostDir, path.basename(containerFile));
       // access ДО ingest: файл ещё не сброшен на диск → бросаем без сироты в files
       await fs.promises.access(hostPath, fs.constants.R_OK);
@@ -370,7 +364,12 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
       let fileId = rec.fileId;
       if (!fileId) {
         const started = rec.startedAt;
-        const title = `Звонок · ${started.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })} ${started.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+        // Имя файла ложится В БД — снимок в языке ИСТОЧНИКА и по правилам региона.
+        const fmt = this.i18n.format(SOURCE_LOCALE, APP_TIMEZONE);
+        const title = this.i18n.translateFor(SOURCE_LOCALE, 'common.calls.recordingTitle', {
+          date: fmt.date(started, 'dayMonth'),
+          time: fmt.time(started),
+        });
         const file = await this.files.ingestLocalFile({
           path: hostPath,
           name: `${title}.ogg`,
@@ -407,11 +406,11 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
       if (fresh) this.events.emit('call.recording.ready', this.eventPayload(fresh), 'calls');
     } catch (err) {
       const msg = (err instanceof Error ? err.message : String(err)).slice(0, 500);
-      this.logger.warn(`финализация записи ${rec.id} (попытка ${ctx.attempt}/${ctx.maxAttempts}): ${msg}`);
+      this.logger.warn(`finalizing recording ${rec.id} (attempt ${ctx.attempt}/${ctx.maxAttempts}): ${msg}`);
       // На последней попытке — терминальный error (инициатору уйдёт уведомление), затем
       // бросаем (dead-letter). Иначе бросаем → бэкофф-ретрай (строка остаётся ingesting).
       if (ctx.attempt >= ctx.maxAttempts) {
-        await this.markError(rec, `финализация не удалась: ${msg}`);
+        await this.markError(rec, `the finalization failed: ${msg}`);
       }
       throw err;
     }
@@ -446,23 +445,23 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
     const rec = await this.db.callRecording.findUnique({ where: { id: recordingId } });
     if (!rec) {
       // Запись удалена (каскад сессии) — ретраить нечего и незачем поднимать инцидент.
-      throw new JobDiscardError(`recording ${recordingId} удалён — доставка отменена`);
+      throw new JobDiscardError(`recording ${recordingId} is gone — the delivery is cancelled`);
     }
     if (rec.status === 'error') {
-      throw new JobDiscardError(`recording ${recordingId} в ошибке — доставлять нечего`);
+      throw new JobDiscardError(`recording ${recordingId} is in error — there is nothing to deliver`);
     }
     if (rec.status !== 'ready' || !rec.fileId) {
       // Финализация ещё идёт — вернём джоб в очередь (бэкофф), дозреет.
-      throw new Error(`recording ${recordingId}: ещё не ready — доставка отложена`);
+      throw new Error(`recording ${recordingId}: not ready yet — the delivery is postponed`);
     }
     const claim = await this.db.callRecordingClaim.findFirst({ where: { recordingId, userId } });
-    if (!claim) throw new JobDiscardError(`claim ${recordingId}/${userId} снят — доставлять нечего`);
+    if (!claim) throw new JobDiscardError(`the claim ${recordingId}/${userId} is gone — there is nothing to deliver`);
     if (claim.deliveredAt) return; // уже доставлено (идемпотентность)
 
     const handler = this.recordingRegistry.get(rec.refType);
     if (!handler) {
       // Хук потребителя ещё не зарегистрирован / refType не подключён — ретрай движка.
-      throw new Error(`нет recording-хука для refType="${rec.refType}"`);
+      throw new Error(`no recording hook for refType="${rec.refType}"`);
     }
     await handler.onReady({
       recordingId: rec.id,
@@ -500,7 +499,7 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
     for (const rec of stale) {
       try {
         if (!rec.egressId) {
-          await this.markError(rec, 'egress не стартовал');
+          await this.markError(rec, 'the egress did not start');
           continue;
         }
         const info = await this.livekit.getEgressInfo(rec.egressId);
@@ -508,7 +507,7 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
           // LiveKit не знает такой egress (перезапуск / истёк info). Недолго терпим, но
           // висеть вечно нельзя: индикатор «● Запись» горит и partial-unique блокирует
           // новую запись сессии. По порогу — терминальная ошибка с уведомлением.
-          if (+rec.updatedAt < now - 30 * 60_000) await this.markError(rec, 'egress пропал');
+          if (+rec.updatedAt < now - 30 * 60_000) await this.markError(rec, 'the egress disappeared');
           continue;
         }
         if (
@@ -524,7 +523,7 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
           error: info.error ?? null,
         });
       } catch (err) {
-        this.logger.warn(`redrive записи ${rec.id}: ${err instanceof Error ? err.message : err}`);
+        this.logger.warn(`redrive of recording ${rec.id}: ${err instanceof Error ? err.message : err}`);
       }
     }
 
@@ -588,7 +587,7 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
   private async requireActiveSession(sessionId: string) {
     const session = await this.db.callSession.findUnique({ where: { id: sessionId } });
     if (!session || session.status !== 'active') {
-      throw new NotFoundException('Активная сессия звонка не найдена');
+      throw notFound('calls.activeSessionNotFound');
     }
     return session;
   }
@@ -602,7 +601,7 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
       where: { sessionId, userId, ...(opts.openOnly ? { leftAt: null } : {}) },
       select: { id: true },
     });
-    if (!row) throw new ForbiddenException('Действие доступно только участнику звонка');
+    if (!row) throw forbidden('calls.participantOnly');
   }
 
   /**
@@ -627,7 +626,7 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
       select: { id: true },
     });
     if (!overlaps) {
-      throw new ForbiddenException('Запись доступна только тем, кто был в звонке во время записи');
+      throw forbidden('calls.recordingParticipantsOnly');
     }
   }
 

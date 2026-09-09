@@ -163,7 +163,7 @@ const markSchema: z.ZodType<NoteMark> = z.union([
             .string()
             .min(1)
             .max(NOTE_LIMITS.maxHrefLength)
-            .refine(isSafeNoteHref, 'Недопустимый адрес ссылки'),
+            .refine(isSafeNoteHref, 'notes.badHref'),
         })
         .strict(),
     })
@@ -276,6 +276,7 @@ export const noteDocSchema: z.ZodType<NoteDoc> = z
   .object({ type: z.literal('doc'), content: z.array(blockSchema) })
   .strict();
 
+/** `reason` — КЛЮЧ каталога отказов (без префикса `errors.`), а не готовая фраза. */
 export type NoteDocValidation = { ok: true; nodes: number; depth: number; bytes: number } | { ok: false; reason: string };
 
 /**
@@ -292,16 +293,16 @@ export function validateNoteDoc(input: unknown): NoteDocValidation {
   const shape = measureShape(input);
   if (!shape.ok) return shape;
   const bytes = byteLength(JSON.stringify(input));
-  if (bytes > NOTE_LIMITS.maxDocBytes) return { ok: false, reason: 'Документ слишком большой' };
+  if (bytes > NOTE_LIMITS.maxDocBytes) return { ok: false, reason: 'notes.docTooBig' };
   const parsed = noteDocSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, reason: 'Неверная структура документа' };
+  if (!parsed.success) return { ok: false, reason: 'notes.docBadShape' };
   return { ok: true, nodes: shape.nodes, depth: shape.depth, bytes };
 }
 
 /** Обход СТЕКОМ (не рекурсией): число узлов и глубина по полю `content` */
 function measureShape(input: unknown): { ok: true; nodes: number; depth: number } | { ok: false; reason: string } {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
-    return { ok: false, reason: 'Неверная структура документа' };
+    return { ok: false, reason: 'notes.docBadShape' };
   }
   let nodes = 0;
   let maxDepth = 0;
@@ -309,8 +310,8 @@ function measureShape(input: unknown): { ok: true; nodes: number; depth: number 
   while (stack.length) {
     const { node, depth } = stack.pop()!;
     nodes += 1;
-    if (nodes > NOTE_LIMITS.maxDocNodes) return { ok: false, reason: 'Документ слишком сложный' };
-    if (depth > NOTE_LIMITS.maxDocDepth) return { ok: false, reason: 'Документ слишком сложный' };
+    if (nodes > NOTE_LIMITS.maxDocNodes) return { ok: false, reason: 'notes.docTooComplex' };
+    if (depth > NOTE_LIMITS.maxDocDepth) return { ok: false, reason: 'notes.docTooComplex' };
     if (depth > maxDepth) maxDepth = depth;
     const children = (node as { content?: unknown }).content;
     if (!Array.isArray(children)) continue;

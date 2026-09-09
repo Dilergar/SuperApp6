@@ -7,12 +7,16 @@
 
 import { Suspense } from 'react';
 import RouteLoading from '@/components/shell/RouteLoading';
+import { ServiceMessages } from '@/i18n/ServiceMessages';
 import { DriveShell } from './drive-shell';
 
 export default function DriveLayout({ children }: { children: React.ReactNode }) {
   return (
-    <Suspense fallback={<RouteLoading />}>
-      <DriveShell>{children}</DriveShell>
-    </Suspense>
+    // `circles` рядом с `drive`: окно доступа рисует людей карточками.
+    <ServiceMessages ns={['drive', 'circles', 'share']}>
+      <Suspense fallback={<RouteLoading />}>
+        <DriveShell>{children}</DriveShell>
+      </Suspense>
+    </ServiceMessages>
   );
 }

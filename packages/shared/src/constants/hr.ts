@@ -5,24 +5,23 @@
 // в одном сервисе соседствуют «15 календарных» (ст. 46) и «15 рабочих»
 // (ст. 53 п. 2), и хранить единицу соглашением, а не полем — способ однажды
 // недосчитать срок (недосчёт = штраф, ст. 98 КоАП РК).
+//
+// СЛОВ здесь нет. Реестр называет СМЫСЛ (значение перечисления, единицу срока,
+// инициативу работодателя), слово даёт каталог `hr` по ключу, выведенному из
+// самого значения: `hr.actionKind.<вид>`, `hr.actionStatus.<статус>`,
+// `hr.ground.<основание>`, `hr.esutdKind.<вид>`. Готовая строка в общем пакете —
+// это один язык навсегда и сразу у трёх клиентов (API, веб, мобильный).
 // ============================================================
 
 // ---------- Трудовая карточка (Employment) ----------
 
-export const EMPLOYMENT_STATUSES = [
-  { value: 'draft', label: 'Оформляется' },
-  { value: 'active', label: 'Работает' },
-  { value: 'terminated', label: 'Уволен' },
-] as const;
-export type EmploymentStatus = (typeof EMPLOYMENT_STATUSES)[number]['value'];
+/** Слово — `hr.employmentStatus.<статус>` */
+export const EMPLOYMENT_STATUSES = ['draft', 'active', 'terminated'] as const;
+export type EmploymentStatus = (typeof EMPLOYMENT_STATUSES)[number];
 
-export const CONTRACT_TYPES = [
-  { value: 'indefinite', label: 'Бессрочный' },
-  { value: 'fixed_term', label: 'На определённый срок' },
-  { value: 'seasonal', label: 'Сезонная работа' },
-  { value: 'task_based', label: 'На время выполнения работы' },
-] as const;
-export type ContractType = (typeof CONTRACT_TYPES)[number]['value'];
+/** Слово — `hr.contractType.<вид>` */
+export const CONTRACT_TYPES = ['indefinite', 'fixed_term', 'seasonal', 'task_based'] as const;
+export type ContractType = (typeof CONTRACT_TYPES)[number];
 
 /**
  * Ст. 30 п. 1 пп. 2 ТК РК: не уведомили в последний рабочий день — срочный
@@ -34,40 +33,25 @@ export const CONTRACT_MAX_SILENT_EXTENSIONS = 2;
 
 // ---------- Кадровые действия ----------
 
-export const HR_ACTION_KINDS = [
-  { value: 'hire', label: 'Приём на работу', icon: 'userPlus' },
-  { value: 'transfer', label: 'Перевод', icon: 'swap' },
-  { value: 'salary_change', label: 'Изменение оклада', icon: 'coins' },
-  { value: 'leave', label: 'Отпуск', icon: 'sun' },
-  { value: 'dismissal', label: 'Увольнение', icon: 'signOut' },
-] as const;
-export type HrActionKind = (typeof HR_ACTION_KINDS)[number]['value'];
-
-export const HR_ACTION_KIND_LABELS = HR_ACTION_KINDS.reduce(
-  (acc, k) => ({ ...acc, [k.value]: k.label }),
-  {} as Record<HrActionKind, string>,
-);
+/** Слово — `hr.actionKind.<вид>` */
+export const HR_ACTION_KINDS = ['hire', 'transfer', 'salary_change', 'leave', 'dismissal'] as const;
+export type HrActionKind = (typeof HR_ACTION_KINDS)[number];
 
 /**
  * `scheduled` — отдельный статус намеренно: документы подписаны, действие ждёт
  * даты вступления в силу. Без него списки не различают «на подписи у директора»
  * и «подписано, вступает в силу 1 сентября» — а это разные ответы на вопрос
- * «почему человек ещё не переведён».
+ * «почему человек ещё не переведён». Слово — `hr.actionStatus.<статус>`.
  */
 export const HR_ACTION_STATUSES = [
-  { value: 'draft', label: 'Черновик' },
-  { value: 'in_progress', label: 'На оформлении' },
-  { value: 'scheduled', label: 'Вступает в силу' },
-  { value: 'applied', label: 'Применено' },
-  { value: 'cancelled', label: 'Отменено' },
-  { value: 'failed', label: 'Не применено' },
+  'draft',
+  'in_progress',
+  'scheduled',
+  'applied',
+  'cancelled',
+  'failed',
 ] as const;
-export type HrActionStatus = (typeof HR_ACTION_STATUSES)[number]['value'];
-
-export const HR_ACTION_STATUS_LABELS = HR_ACTION_STATUSES.reduce(
-  (acc, s) => ({ ...acc, [s.value]: s.label }),
-  {} as Record<HrActionStatus, string>,
-);
+export type HrActionStatus = (typeof HR_ACTION_STATUSES)[number];
 
 /** Та же сущность, два входа: заявление работника и решение работодателя */
 export const HR_ACTION_SOURCES = ['employee', 'employer'] as const;
@@ -75,20 +59,24 @@ export type HrActionSource = (typeof HR_ACTION_SOURCES)[number];
 
 // ---------- Основания прекращения (справочник статей ТК РК) ----------
 
+/**
+ * Основание = значение + признак инициативы работодателя (на неё действует
+ * запрет ст. 54). Сама формулировка статьи — слово: `hr.ground.<основание>`.
+ */
 export const DISMISSAL_GROUNDS = [
-  { value: 'st50', label: 'Соглашение сторон (ст. 50 ТК РК)', employerInitiative: false },
-  { value: 'st51', label: 'Истечение срока договора (ст. 51 ТК РК)', employerInitiative: false },
-  { value: 'st52_p1_1', label: 'Ликвидация работодателя (пп. 1) п. 1 ст. 52 ТК РК)', employerInitiative: true },
-  { value: 'st52_p1_2', label: 'Сокращение численности или штата (пп. 2) п. 1 ст. 52 ТК РК)', employerInitiative: true },
-  { value: 'st52_p1_3', label: 'Снижение объёма производства (пп. 3) п. 1 ст. 52 ТК РК)', employerInitiative: true },
-  { value: 'st52_p1_18', label: 'Нарушение обязанностей руководителем/заместителем с материальным ущербом (пп. 18) п. 1 ст. 52 ТК РК)', employerInitiative: true },
-  { value: 'st52_p1_20', label: 'Неявка более двух месяцев подряд из-за временной нетрудоспособности (пп. 20) п. 1 ст. 52 ТК РК)', employerInitiative: true },
-  { value: 'st52_p1_23', label: 'Досрочное прекращение полномочий руководителя исполнительного органа (пп. 23) п. 1 ст. 52 ТК РК)', employerInitiative: true },
-  { value: 'st52_p1_1_1', label: 'Основание п. 1-1 ст. 52 ТК РК (руководители квазигосударственного сектора)', employerInitiative: true },
-  { value: 'st52_other', label: 'Иное основание ст. 52 ТК РК (инициатива работодателя)', employerInitiative: true },
-  { value: 'st56', label: 'Инициатива работника (ст. 56 ТК РК)', employerInitiative: false },
-  { value: 'st58', label: 'Отказ работника от продолжения работы (ст. 58 ТК РК)', employerInitiative: false },
-  { value: 'other', label: 'Иное основание ТК РК', employerInitiative: false },
+  { value: 'st50', employerInitiative: false },
+  { value: 'st51', employerInitiative: false },
+  { value: 'st52_p1_1', employerInitiative: true },
+  { value: 'st52_p1_2', employerInitiative: true },
+  { value: 'st52_p1_3', employerInitiative: true },
+  { value: 'st52_p1_18', employerInitiative: true },
+  { value: 'st52_p1_20', employerInitiative: true },
+  { value: 'st52_p1_23', employerInitiative: true },
+  { value: 'st52_p1_1_1', employerInitiative: true },
+  { value: 'st52_other', employerInitiative: true },
+  { value: 'st56', employerInitiative: false },
+  { value: 'st58', employerInitiative: false },
+  { value: 'other', employerInitiative: false },
 ] as const;
 export type DismissalGround = (typeof DISMISSAL_GROUNDS)[number]['value'];
 
@@ -104,6 +92,8 @@ export function isEmployerInitiativeGround(ground: string | null | undefined): b
  * в справочнике оснований и в этом списке. Проверка в момент применения знает
  * их все; границы данных честные: отпуска — по данным системы, больничные
  * системе неизвестны («проверьте вручную» — обязательная формулировка).
+ *
+ * Пояснение для человека — `hr.st54ExceptionsNote`.
  */
 export const ST54_BAN_EXCEPTION_GROUNDS: readonly string[] = [
   'st52_p1_1',
@@ -112,8 +102,6 @@ export const ST54_BAN_EXCEPTION_GROUNDS: readonly string[] = [
   'st52_p1_23',
   'st52_p1_1_1',
 ];
-export const ST54_BAN_EXCEPTIONS_NOTE =
-  'Исключения ст. 54 — пп. 1), 18), 20), 23) п. 1 ст. 52 и п. 1-1 — выбираются основанием из списка. Для оснований вне справочника («иное») отметьте исключение вручную.';
 
 // ---------- Юридические сроки (калькулятор) ----------
 
@@ -122,36 +110,52 @@ export type HrDeadlineUnit = 'work_days' | 'calendar_days' | 'months';
 
 export interface HrDeadlineRule {
   key: string;
-  label: string;
-  article: string;
   amount: number;
   unit: HrDeadlineUnit;
-  /** От какого события считается срок */
-  anchor: string;
 }
 
 /**
- * Таблица норм, которые система обязана знать. Единица — ПОЛЕМ, не соглашением.
+ * Таблица норм, которые система обязана знать: ВЕЛИЧИНА и ЕДИНИЦА срока. Единица —
+ * ПОЛЕМ, не соглашением. Статья названа в комментарии строки, а не полем: она
+ * СЛОВО (по-казахски «ҚР ЕК 56-бабы»), и полем разъехалась бы по языкам; там,
+ * где статья показывается человеку, её даёт каталог (`hr.esutd.article.<вид>`).
+ *
  * Проверено по официальным текстам (adilet.zan.kz); нормы «ответ работника
  * 5 рабочих дней» НЕ СУЩЕСТВУЕТ (п. 3 ст. 46 даёт лишь право отказаться) —
  * блокирующих таймеров на ней не строим.
  */
 export const HR_DEADLINE_RULES: readonly HrDeadlineRule[] = [
-  { key: 'resignation_notice', label: 'Уведомление об увольнении по собственному желанию', article: 'ст. 56 п. 1 ТК РК', amount: 1, unit: 'months', anchor: 'от подачи заявления' },
-  { key: 'liquidation_notice', label: 'Уведомление при ликвидации / сокращении', article: 'ст. 53 п. 1 ТК РК', amount: 1, unit: 'months', anchor: 'до даты прекращения' },
-  { key: 'production_cut_notice', label: 'Уведомление при снижении объёма производства', article: 'ст. 53 п. 2 ТК РК', amount: 15, unit: 'work_days', anchor: 'до даты прекращения' },
-  { key: 'termination_act_delivery', label: 'Вручение акта о прекращении', article: 'ст. 61 п. 3 ТК РК', amount: 3, unit: 'work_days', anchor: 'со дня издания' },
-  { key: 'final_settlement', label: 'Окончательный расчёт', article: 'ст. 113 п. 4 ТК РК', amount: 3, unit: 'work_days', anchor: 'со дня прекращения' },
-  { key: 'work_activity_doc', label: 'Документ о трудовой деятельности', article: 'ст. 62 п. 1 ТК РК', amount: 0, unit: 'work_days', anchor: 'в день прекращения' },
-  { key: 'certificate_on_request', label: 'Справка по требованию работника', article: 'ст. 62 п. 2 ТК РК', amount: 5, unit: 'work_days', anchor: 'с обращения' },
-  { key: 'conditions_change_notice', label: 'Уведомление об изменении условий труда (только письменно: бумага или ЭД с ЭЦП — ред. 08.06.2026)', article: 'ст. 46 п. 2 ТК РК', amount: 15, unit: 'calendar_days', anchor: 'до изменения' },
-  { key: 'vacation_pay', label: 'Оплата отпуска', article: 'ст. 92 п. 4 ТК РК', amount: 3, unit: 'work_days', anchor: 'до начала отпуска' },
-  { key: 'explanation', label: 'Объяснительная работника', article: 'ст. 65 п. 2 ТК РК', amount: 2, unit: 'work_days', anchor: 'с запроса' },
-  { key: 'disciplinary_announce', label: 'Объявление взыскания под роспись', article: 'ст. 65 п. 5 ТК РК', amount: 3, unit: 'work_days', anchor: 'со дня издания' },
-  { key: 'esutd_contract', label: 'ЕСУТД: заключение договора', article: 'п. 7 Правил № 353', amount: 5, unit: 'work_days', anchor: 'от подписания обеими сторонами' },
-  { key: 'esutd_amendment', label: 'ЕСУТД: изменения договора', article: 'п. 8 Правил № 353', amount: 15, unit: 'calendar_days', anchor: 'от подписания допсоглашения' },
-  { key: 'esutd_termination', label: 'ЕСУТД: прекращение договора', article: 'п. 12 Правил № 353', amount: 3, unit: 'work_days', anchor: 'от дня прекращения' },
-  { key: 'esutd_correction', label: 'ЕСУТД: исправление ошибки без штрафа', article: 'разъяснения к ст. 98 КоАП РК', amount: 30, unit: 'work_days', anchor: 'от внесения сведений' },
+  // ст. 56 п. 1 ТК РК — от подачи заявления (увольнение по собственному желанию)
+  { key: 'resignation_notice', amount: 1, unit: 'months' },
+  // ст. 53 п. 1 ТК РК — до даты прекращения (ликвидация / сокращение)
+  { key: 'liquidation_notice', amount: 1, unit: 'months' },
+  // ст. 53 п. 2 ТК РК — до даты прекращения (снижение объёма производства)
+  { key: 'production_cut_notice', amount: 15, unit: 'work_days' },
+  // ст. 61 п. 3 ТК РК — со дня издания (вручение акта о прекращении)
+  { key: 'termination_act_delivery', amount: 3, unit: 'work_days' },
+  // ст. 113 п. 4 ТК РК — со дня прекращения (окончательный расчёт)
+  { key: 'final_settlement', amount: 3, unit: 'work_days' },
+  // ст. 62 п. 1 ТК РК — в день прекращения (документ о трудовой деятельности)
+  { key: 'work_activity_doc', amount: 0, unit: 'work_days' },
+  // ст. 62 п. 2 ТК РК — с обращения (справка по требованию работника)
+  { key: 'certificate_on_request', amount: 5, unit: 'work_days' },
+  // ст. 46 п. 2 ТК РК — до изменения условий труда (только письменно: бумага
+  // или электронный документ с ЭЦП, ред. 08.06.2026)
+  { key: 'conditions_change_notice', amount: 15, unit: 'calendar_days' },
+  // ст. 92 п. 4 ТК РК — до начала отпуска (оплата отпуска)
+  { key: 'vacation_pay', amount: 3, unit: 'work_days' },
+  // ст. 65 п. 2 ТК РК — с запроса (объяснительная работника)
+  { key: 'explanation', amount: 2, unit: 'work_days' },
+  // ст. 65 п. 5 ТК РК — со дня издания (объявление взыскания под роспись)
+  { key: 'disciplinary_announce', amount: 3, unit: 'work_days' },
+  // п. 7 Правил № 353 — от подписания обеими сторонами (ЕСУТД: договор)
+  { key: 'esutd_contract', amount: 5, unit: 'work_days' },
+  // п. 8 Правил № 353 — от подписания допсоглашения (ЕСУТД: изменения)
+  { key: 'esutd_amendment', amount: 15, unit: 'calendar_days' },
+  // п. 12 Правил № 353 — от дня прекращения (ЕСУТД: прекращение)
+  { key: 'esutd_termination', amount: 3, unit: 'work_days' },
+  // разъяснения к ст. 98 КоАП РК — от внесения сведений (окно исправления без штрафа)
+  { key: 'esutd_correction', amount: 30, unit: 'work_days' },
 ];
 
 export const HR_DEADLINE_RULE_MAP: Record<string, HrDeadlineRule> = HR_DEADLINE_RULES.reduce(
@@ -161,97 +165,103 @@ export const HR_DEADLINE_RULE_MAP: Record<string, HrDeadlineRule> = HR_DEADLINE_
 
 // ---------- ЕСУТД ----------
 
+/** Слово — `hr.esutdKind.<вид>`, статья срока — `hr.esutd.article.<вид>` */
 export const ESUTD_KINDS = [
-  { value: 'contract', label: 'Заключение договора', ruleKey: 'esutd_contract' },
-  { value: 'amendment', label: 'Изменение договора', ruleKey: 'esutd_amendment' },
-  { value: 'termination', label: 'Прекращение договора', ruleKey: 'esutd_termination' },
+  { value: 'contract', ruleKey: 'esutd_contract' },
+  { value: 'amendment', ruleKey: 'esutd_amendment' },
+  { value: 'termination', ruleKey: 'esutd_termination' },
 ] as const;
 export type EsutdKind = (typeof ESUTD_KINDS)[number]['value'];
 
-export const ESUTD_STATUSES = [
-  { value: 'pending', label: 'Не сдано' },
-  { value: 'submitted', label: 'Сдано' },
-  { value: 'failed', label: 'Ошибка' },
-  { value: 'not_required', label: 'Не требуется' },
-] as const;
-export type EsutdStatus = (typeof ESUTD_STATUSES)[number]['value'];
+/** Состояние строки очереди; словом на экранах пока не показывается */
+export const ESUTD_STATUSES = ['pending', 'submitted', 'failed', 'not_required'] as const;
+export type EsutdStatus = (typeof ESUTD_STATUSES)[number];
 
 /**
- * Штрафы ст. 98 п. 1-1 КоАП РК (закон № 257-VIII, с 12.03.2026) — первое/повторное,
- * МРП 2026 = 4 325 ₸. Наказуемы не только опоздание, но неполнота и недостоверность.
+ * Перечень сведений Правил № 353 — КОДЫ полей снимка «Скопировать сведения».
+ * Снимок ложится в БД доказательством содержания, поэтому в нём коды, а не слова:
+ * подпись каждого поля даёт каталог (`hr.esutd.field.<код>`) в языке того, кто
+ * смотрит. `terminationOnly` — поля, которые есть только у прекращения.
  */
-export const ESUTD_FINES_NOTE =
-  'Штраф за несдачу/недостоверность (ст. 98 п. 1-1 КоАП): должностные лица 30/60 МРП, малый бизнес 60/80, средний 80/100, крупный 150/200 МРП';
+export const ESUTD_PAYLOAD_FIELDS = [
+  { code: 'kind', terminationOnly: false },
+  { code: 'employer', terminationOnly: false },
+  { code: 'employerBin', terminationOnly: false },
+  { code: 'employeeName', terminationOnly: false },
+  { code: 'employeeIin', terminationOnly: false },
+  { code: 'contractNumber', terminationOnly: false },
+  { code: 'contractDate', terminationOnly: false },
+  { code: 'hiredAt', terminationOnly: false },
+  { code: 'position', terminationOnly: false },
+  { code: 'contractType', terminationOnly: false },
+  { code: 'contractEndAt', terminationOnly: false },
+  { code: 'firedAt', terminationOnly: true },
+  { code: 'dismissalGround', terminationOnly: true },
+] as const;
+export type EsutdPayloadField = (typeof ESUTD_PAYLOAD_FIELDS)[number]['code'];
 
-/** После сдачи ПРЕКРАЩЕНИЯ самостоятельная правка невозможна (п. 13 Правил № 353) */
-export const ESUTD_TERMINATION_LOCK_NOTE =
-  'После отправки прекращения в ЕСУТД исправление — только через госорган по труду по обращению (п. 13 Правил № 353). Проверьте сведения до отправки.';
+/**
+ * Сдача ПРЕКРАЩЕНИЯ безоткатна (п. 13 Правил № 353), поэтому полнота этих
+ * сведений проверяется ДО отметки: неполнота = недостоверность = штраф
+ * (ст. 98 п. 1-1 КоАП РК).
+ */
+export const ESUTD_TERMINATION_REQUIRED_FIELDS: readonly EsutdPayloadField[] = [
+  'employeeName',
+  'employeeIin',
+  'employerBin',
+  'firedAt',
+  'dismissalGround',
+];
 
 // ---------- Кампании ознакомления ----------
 
 /** Полиморфный ключ кампании в движке подписи (sms-режим) */
 export const DOC_CAMPAIGN_REF_TYPE = 'doc_campaign';
 
-export const CAMPAIGN_MODES = [
-  { value: 'one_off', label: 'Разовая' },
-  { value: 'standing', label: 'Постоянное правило' },
-] as const;
-export type CampaignMode = (typeof CAMPAIGN_MODES)[number]['value'];
+/** Слово — `hr.campaignMode.<режим>` */
+export const CAMPAIGN_MODES = ['one_off', 'standing'] as const;
+export type CampaignMode = (typeof CAMPAIGN_MODES)[number];
 
 /**
  * Как фиксируется факт ознакомления. `click` законен по ст. 23 п. 2 пп. 6 ТК РК
  * («посредством электронной почты и иных ИКТ» — подпись для факта ознакомления
  * не требуется) и бесплатен; `sms` — усиленное доказательство для критичных ЛНА
  * (охрана труда, дисциплина): SMS стоит денег организации (~8–10 ₸ × адресат).
+ * Слово — `hr.campaignFixMode.<режим>`.
  */
-export const CAMPAIGN_FIX_MODES = [
-  { value: 'click', label: 'Отметка в системе (клик)' },
-  { value: 'sms', label: 'Код из SMS (усиленное доказательство)' },
-] as const;
-export type CampaignFixMode = (typeof CAMPAIGN_FIX_MODES)[number]['value'];
+export const CAMPAIGN_FIX_MODES = ['click', 'sms'] as const;
+export type CampaignFixMode = (typeof CAMPAIGN_FIX_MODES)[number];
 
-export const CAMPAIGN_STATUSES = [
-  { value: 'active', label: 'Идёт' },
-  { value: 'done', label: 'Завершена' },
-  { value: 'cancelled', label: 'Отменена' },
-] as const;
-export type CampaignStatus = (typeof CAMPAIGN_STATUSES)[number]['value'];
+/** Слово — `hr.campaignStatus.<статус>` */
+export const CAMPAIGN_STATUSES = ['active', 'done', 'cancelled'] as const;
+export type CampaignStatus = (typeof CAMPAIGN_STATUSES)[number];
 
-/** `sms_failed` — отдельный исход: недоставленная SMS не значит «не ознакомился» */
-export const CAMPAIGN_TARGET_STATUSES = [
-  { value: 'pending', label: 'Не ознакомился' },
-  { value: 'acknowledged', label: 'Ознакомился' },
-  { value: 'sms_failed', label: 'SMS не доставлена' },
-] as const;
-export type CampaignTargetStatus = (typeof CAMPAIGN_TARGET_STATUSES)[number]['value'];
+/**
+ * `sms_failed` — отдельный исход: недоставленная SMS не значит «не ознакомился».
+ * Слово — `hr.campaignTargetStatus.<статус>` (заголовок ГРУППЫ адресатов: единственное
+ * место, где статус показывается словом, — разбивка списка по исходам).
+ */
+export const CAMPAIGN_TARGET_STATUSES = ['pending', 'acknowledged', 'sms_failed'] as const;
+export type CampaignTargetStatus = (typeof CAMPAIGN_TARGET_STATUSES)[number];
 
 // ---------- Личный архив ----------
 
-export const PERSONAL_DOC_KINDS = [
-  { value: 'signed', label: 'Подписан мной' },
-  { value: 'acknowledged', label: 'Ознакомлен' },
-  { value: 'delivered', label: 'Вручён' },
-] as const;
-export type PersonalDocKind = (typeof PERSONAL_DOC_KINDS)[number]['value'];
+/** Слово — `hr.personalDocKind.<вид>` */
+export const PERSONAL_DOC_KINDS = ['signed', 'acknowledged', 'delivered'] as const;
+export type PersonalDocKind = (typeof PERSONAL_DOC_KINDS)[number];
 
 /** Полиморфный ключ личной записи-архива в движке файлов */
 export const PERSONAL_DOC_REF_TYPE = 'personal_doc';
 
 // ---------- Вручение (гибрид и специальный режим) ----------
 
-export const DOC_DELIVERY_MODES = [
-  { value: 'electronic', label: 'Электронно' },
-  { value: 'paper', label: 'На бумаге' },
-  { value: 'hybrid', label: 'Электронно и на бумаге' },
-] as const;
-export type DocDeliveryMode = (typeof DOC_DELIVERY_MODES)[number]['value'];
+/** Слово — `hr.deliveryMode.<режим>` */
+export const DOC_DELIVERY_MODES = ['electronic', 'paper', 'hybrid'] as const;
+export type DocDeliveryMode = (typeof DOC_DELIVERY_MODES)[number];
 
-export const DOC_DELIVERY_METHODS = [
-  { value: 'in_person', label: 'Лично под роспись' },
-  { value: 'refusal_act', label: 'Отказ — составлен акт' },
-  { value: 'registered_mail', label: 'Заказное письмо с уведомлением' },
-] as const;
-export type DocDeliveryMethod = (typeof DOC_DELIVERY_METHODS)[number]['value'];
+/** Слово — `hr.deliveryMethod.<способ>` */
+export const DOC_DELIVERY_METHODS = ['in_person', 'refusal_act', 'registered_mail'] as const;
+export type DocDeliveryMethod = (typeof DOC_DELIVERY_METHODS)[number];
 
 // ---------- Ссылки ----------
 

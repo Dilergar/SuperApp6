@@ -1,16 +1,10 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  Logger,
-  NotFoundException,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { buffer as streamToBuffer } from 'node:stream/consumers';
 import { createHash } from 'node:crypto';
 import {
   CAMPAIGN_AUDIENCE_KINDS,
+  SOURCE_LOCALE,
   DOC_CAMPAIGN_REF_TYPE,
   HR_LIMITS,
   ORG_DOCUMENT_REF_TYPE,
@@ -27,6 +21,8 @@ import {
   type WorkspaceRole,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
+import { badRequest, forbidden, notFound } from '../../shared/errors/api-error';
 import { RolesService } from '../../core/roles/roles.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { JobsRegistry } from '../../core/jobs/jobs.registry';
@@ -70,6 +66,7 @@ export class DocCampaignsService implements OnModuleInit {
     private readonly files: FilesService,
     private readonly redis: RedisService,
     private readonly audiences: AudiencesService,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -84,7 +81,7 @@ export class DocCampaignsService implements OnModuleInit {
     // Заявок approvals НЕ создаётся намеренно: это обошло бы кап снимка 500,
     // maxSteps и перф awaitingUserIds — кампания живёт своей моделью.
     this.approvalsRegistry.registerSource('hr_campaign', {
-      label: 'Ознакомления',
+      labelKey: 'approvals.source.acknowledgements',
       count: (userId, scope) =>
         this.db.docCampaignTarget.count({
           where: {
@@ -136,7 +133,12 @@ export class DocCampaignsService implements OnModuleInit {
           include: { workspace: { select: { name: true } } },
         });
         if (!campaign) return null;
-        return { title: campaign.title, kindLabel: 'Ознакомление', orgLabel: campaign.workspace.name };
+        // Открытая страница проверки рисуется в языке ЗАПРОСА
+        return {
+          title: campaign.title,
+          kindLabel: this.i18n.translate('documents.campaign.kindLabel'),
+          orgLabel: campaign.workspace.name,
+        };
       },
       onActFinished: async (refId, info) => {
         if (info.outcome !== 'signed' || !info.signerUserId) return;
@@ -163,13 +165,13 @@ export class DocCampaignsService implements OnModuleInit {
 
   private async requireManager(userId: string, workspaceId: string): Promise<void> {
     if (!this.isManager(await this.roleOf(userId, workspaceId))) {
-      throw new ForbiddenException('Кампании ознакомления ведёт Менеджер или выше');
+      throw forbidden('documents.campaignManagerOnly');
     }
   }
 
   private async nameOf(userId: string): Promise<string> {
     const u = await this.db.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true } });
-    return u ? fullName(u) : 'Кто-то';
+    return fullName(u);
   }
 
   // ============================================================
@@ -182,23 +184,23 @@ export class DocCampaignsService implements OnModuleInit {
       where: { id: dto.orgDocumentId, workspaceId },
       include: { docType: { select: { name: true } } },
     });
-    if (!doc) throw new NotFoundException('Документ не найден');
+    if (!doc) throw notFound('documents.notFound');
     // Кампания открывает предмет ВСЕМ адресатам (ветка campaignDocIds в
     // visibilityWhere) — по отменённому документу знакомить не с чем.
     if (doc.status === 'cancelled') {
-      throw new BadRequestException('Документ отменён — кампания ознакомления по нему не запускается');
+      throw badRequest('documents.campaignDocCancelled');
     }
 
     // Одна заморозка на всю кампанию: что видел КАЖДЫЙ адресат. Берём печатный
     // PDF (у builder-документа файл и есть PDF); без отпечатка — честный отказ.
     const sourceFileId = doc.builderDoc ? doc.fileId : (doc.pdfFileId ?? (doc.fileId && !doc.documentId ? doc.fileId : null));
     if (!sourceFileId) {
-      throw new BadRequestException('У документа нет печатного PDF — сначала снимите отпечаток на карточке');
+      throw badRequest('documents.campaignNoPdf');
     }
     const variant = !doc.builderDoc && doc.pdfFileId === doc.fileId && !!doc.documentId ? 'pdf' : undefined;
     const { result, mime, name } = await this.files.openRawStream(sourceFileId, variant ?? null);
     const bytes = await streamToBuffer(result.stream);
-    if (bytes.length === 0) throw new BadRequestException('Файл документа пуст');
+    if (bytes.length === 0) throw badRequest('documents.campaignEmptyFile');
     const frozen = await withTempFile(name, bytes, (filePath) =>
       this.files.ingestLocalFile({
         path: filePath,
@@ -215,18 +217,24 @@ export class DocCampaignsService implements OnModuleInit {
     const sha256 = frozen.sha256 ?? createHash('sha256').update(bytes).digest('hex');
 
     const userIds = await this.resolveAudience(workspaceId, dto.audience, actorId);
-    if (userIds.length === 0) throw new BadRequestException('Аудитория пуста — знакомить некого');
+    if (userIds.length === 0) throw badRequest('documents.campaignAudienceEmpty');
     if (userIds.length > HR_LIMITS.campaignMaxTargets) {
-      throw new BadRequestException(
-        `Потолок кампании — ${HR_LIMITS.campaignMaxTargets} адресатов (выбрано ${userIds.length})`,
-      );
+      throw badRequest('documents.campaignTargetsOverflow', {
+        max: HR_LIMITS.campaignMaxTargets,
+        picked: userIds.length,
+      });
     }
 
     const fixMode = dto.fixMode ?? 'click';
     const campaign = await this.db.docCampaign.create({
       data: {
         workspaceId,
-        title: dto.title ?? (doc.number ? `${doc.title} № ${doc.number}` : doc.title),
+        // Имя кампании ЛОЖИТСЯ в БД — снимок в языке ИСТОЧНИКА (docs/i18n.md)
+        title:
+          dto.title ??
+          (doc.number
+            ? `${doc.title} ${this.i18n.translateFor(SOURCE_LOCALE, 'documents.numberLabel', { number: doc.number })}`
+            : doc.title),
         orgDocumentId: doc.id,
         subjectFileId: frozen.id,
         subjectSha256: sha256,
@@ -257,9 +265,7 @@ export class DocCampaignsService implements OnModuleInit {
         await this.db.docCampaign
           .update({ where: { id: campaign.id }, data: { status: 'cancelled', completedAt: new Date() } })
           .catch(() => undefined);
-        throw new BadRequestException(
-          `Кампания с подтверждением по SMS не запустилась: ${(e as Error).message}`,
-        );
+        throw badRequest('documents.campaignSmsStartFailed', { reason: (e as Error).message });
       }
     }
 
@@ -299,7 +305,7 @@ export class DocCampaignsService implements OnModuleInit {
     // обрезки не оставляем — громкий след (правило «no silent caps»).
     if (userIds.length > HR_LIMITS.campaignMaxTargets) {
       this.logger.warn(
-        `campaign ${campaignId}: аудитория ${userIds.length} превысила потолок ${HR_LIMITS.campaignMaxTargets} — лишние адресаты НЕ материализованы (разбейте кампанию по подразделениям)`,
+        `campaign ${campaignId}: the audience of ${userIds.length} is over the cap of ${HR_LIMITS.campaignMaxTargets} — the extra targets are NOT materialized (split the campaign by departments)`,
       );
     }
     const capped = userIds.slice(0, HR_LIMITS.campaignMaxTargets);
@@ -407,7 +413,7 @@ export class DocCampaignsService implements OnModuleInit {
    */
   async markAcknowledged(campaignId: string, userId: string, opts: { signActId?: string } = {}): Promise<void> {
     const campaign = await this.db.docCampaign.findUnique({ where: { id: campaignId } });
-    if (!campaign) throw new NotFoundException('Кампания не найдена');
+    if (!campaign) throw notFound('documents.campaignNotFound');
     // Идемпотентность РАНЬШЕ статуса кампании: one_off закрывается последним
     // ознакомившимся, и его же повторный клик (двойной тап, ретрай хука) не должен
     // отвечать «кампания уже завершена» — событие уже записано, это успех.
@@ -416,9 +422,9 @@ export class DocCampaignsService implements OnModuleInit {
       select: { status: true },
     });
     if (mine?.status === 'acknowledged') return;
-    if (campaign.status !== 'active') throw new BadRequestException('Кампания уже завершена');
+    if (campaign.status !== 'active') throw badRequest('documents.campaignFinished');
     if (campaign.fixMode === 'sms' && !opts.signActId) {
-      throw new BadRequestException('В этой кампании ознакомление подтверждается кодом из SMS — откройте документ на подпись');
+      throw badRequest('documents.campaignSmsMode');
     }
     const claimed = await this.db.docCampaignTarget.updateMany({
       where: { campaignId, userId, status: 'pending' },
@@ -431,7 +437,7 @@ export class DocCampaignsService implements OnModuleInit {
     });
     if (claimed.count === 0) {
       const exists = await this.db.docCampaignTarget.count({ where: { campaignId, userId } });
-      if (!exists) throw new ForbiddenException('Вы не адресат этой кампании');
+      if (!exists) throw forbidden('documents.campaignNotAddressee');
       return; // уже ознакомлен — идемпотентно
     }
 
@@ -505,10 +511,11 @@ export class DocCampaignsService implements OnModuleInit {
           data: {
             userId,
             workspaceId: campaign.workspaceId,
-            workspaceName: ws?.name ?? 'Организация',
+            // Личная запись переживает организацию — снимок в языке ИСТОЧНИКА
+            workspaceName: ws?.name ?? this.i18n.translateFor(SOURCE_LOCALE, 'documents.external.orgFallback'),
             orgDocumentId: campaign.orgDocumentId,
             title: campaign.title,
-            docTypeName: 'Ознакомление',
+            docTypeName: this.i18n.translateFor(SOURCE_LOCALE, 'documents.campaign.kindLabel'),
             fileId: campaign.subjectFileId,
             signRequestId: campaign.signRequestId,
             kind: 'acknowledged',
@@ -539,8 +546,8 @@ export class DocCampaignsService implements OnModuleInit {
       where: { id: campaignId, workspaceId },
       select: { id: true, status: true },
     });
-    if (!campaign) throw new NotFoundException('Кампания не найдена');
-    if (campaign.status !== 'active') throw new BadRequestException('Кампания уже завершена');
+    if (!campaign) throw notFound('documents.campaignNotFound');
+    if (campaign.status !== 'active') throw badRequest('documents.campaignFinished');
     await this.jobs.enqueue(null, {
       type: CAMPAIGN_RUN_JOB,
       payload: { campaignId: campaign.id },
@@ -575,11 +582,11 @@ export class DocCampaignsService implements OnModuleInit {
   async markSmsFailed(actorId: string, workspaceId: string, campaignId: string, userId: string): Promise<void> {
     await this.requireManager(actorId, workspaceId);
     const campaign = await this.db.docCampaign.findFirst({ where: { id: campaignId, workspaceId } });
-    if (!campaign) throw new NotFoundException('Кампания не найдена');
+    if (!campaign) throw notFound('documents.campaignNotFound');
     // Исход существует только там, где SMS вообще была: в click-кампании отметка
     // «SMS не доставлена» была бы ложью в необратимом журнале.
     if (campaign.fixMode !== 'sms') {
-      throw new BadRequestException('Исход «SMS не доставлена» есть только у SMS-кампаний');
+      throw badRequest('documents.campaignSmsOnlyOutcome');
     }
     const claimed = await this.db.docCampaignTarget.updateMany({
       where: { campaignId, userId, status: 'pending' },
@@ -592,12 +599,12 @@ export class DocCampaignsService implements OnModuleInit {
   async cancel(actorId: string, workspaceId: string, campaignId: string): Promise<void> {
     await this.requireManager(actorId, workspaceId);
     const campaign = await this.db.docCampaign.findFirst({ where: { id: campaignId, workspaceId } });
-    if (!campaign) throw new NotFoundException('Кампания не найдена');
+    if (!campaign) throw notFound('documents.campaignNotFound');
     const claimed = await this.db.docCampaign.updateMany({
       where: { id: campaignId, status: 'active' },
       data: { status: 'cancelled', completedAt: new Date() },
     });
-    if (claimed.count === 0) throw new BadRequestException('Кампания уже завершена');
+    if (claimed.count === 0) throw badRequest('documents.campaignFinished');
     if (campaign.signRequestId) {
       await this.sign.cancelRequest(actorId, campaign.signRequestId).catch(() => undefined);
     }
@@ -636,7 +643,7 @@ export class DocCampaignsService implements OnModuleInit {
   async detail(viewerId: string, workspaceId: string, campaignId: string): Promise<DocCampaignDetailDto> {
     await this.requireManager(viewerId, workspaceId);
     const row = await this.db.docCampaign.findFirst({ where: { id: campaignId, workspaceId } });
-    if (!row) throw new NotFoundException('Кампания не найдена');
+    if (!row) throw notFound('documents.campaignNotFound');
     const targets = await this.db.docCampaignTarget.findMany({
       where: { campaignId },
       orderBy: [{ status: 'asc' }, { createdAt: 'asc' }],
@@ -737,14 +744,23 @@ export class DocCampaignsService implements OnModuleInit {
         sourceKey: 'hr_campaign',
         id: c.id,
         title: c.title,
-        subtitle: sms ? 'Ознакомьтесь и подтвердите кодом из SMS' : 'Ознакомьтесь с документом',
+        subtitle: this.i18n.translate(sms ? 'documents.campaign.inboxSubtitleSms' : 'documents.campaign.inboxSubtitle'),
         icon: 'eye',
         href:
           sms && c.signRequestId
             ? signRequestHref(c.signRequestId, c.workspaceId)
             : `/workspaces/${c.workspaceId}/documents/${c.orgDocumentId}`,
         // click: «Ознакомлен» прямо из стопки; sms: только через экран подписи
-        actions: sms ? [] : [{ key: 'acknowledge', label: 'Ознакомлен', tone: 'primary', commentRequired: false }],
+        actions: sms
+          ? []
+          : [
+              {
+                key: 'acknowledge',
+                label: this.i18n.translate('documents.campaign.acknowledgeAction'),
+                tone: 'primary',
+                commentRequired: false,
+              },
+            ],
         requestedById: c.createdById,
         createdAt: t.createdAt.toISOString(),
         dueAt: c.dueAt ? c.dueAt.toISOString() : null,

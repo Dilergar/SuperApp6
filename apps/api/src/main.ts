@@ -135,7 +135,7 @@ async function bootstrap() {
   if (process.env.NODE_ENV === 'development') {
     const config = new DocumentBuilder()
       .setTitle('SuperApp6 API')
-      .setDescription('API для SuperApp6 — одно приложение для всего')
+      .setDescription('The SuperApp6 API — one app for everything')
       .setVersion('0.1.0')
       .addBearerAuth()
       .build();

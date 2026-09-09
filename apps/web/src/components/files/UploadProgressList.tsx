@@ -10,7 +10,8 @@
 // ============================================================
 
 import type { UploadItem } from '../../lib/hooks/useFileUpload';
-import { humanSize } from './files-ui';
+import { useTranslations } from 'next-intl';
+import { useBytes } from '../../lib/format';
 import { GradientTickBar, Icon, IconButton, toneVars, type IconName, type Tone } from '@/components/ui';
 
 /** Вид файла → иконка кита (эмодзи здесь не место: это интерфейс). */
@@ -30,6 +31,8 @@ interface UploadProgressListProps {
 }
 
 export function UploadProgressList({ items, onCancel, onRemove }: UploadProgressListProps) {
+  const t = useTranslations('common');
+  const humanSize = useBytes();
   if (!items.length) return null;
 
   return (
@@ -43,9 +46,9 @@ export function UploadProgressList({ items, onCancel, onRemove }: UploadProgress
               : item.status === 'cancelled' ? 'neutral'
                 : 'accent';
         const statusText =
-          item.status === 'done' ? 'Готово'
-            : item.status === 'cancelled' ? 'Отменено'
-              : item.status === 'error' ? (item.error ?? 'Ошибка')
+          item.status === 'done' ? t('actions.done')
+            : item.status === 'cancelled' ? t('files.uploadCancelled')
+              : item.status === 'error' ? (item.error ?? t('files.uploadError'))
                 : null;
 
         return (
@@ -97,7 +100,7 @@ export function UploadProgressList({ items, onCancel, onRemove }: UploadProgress
 
             <IconButton
               icon="close"
-              label={uploading ? 'Отменить загрузку' : 'Убрать из списка'}
+              label={uploading ? t('files.cancelUpload') : t('files.removeFromList')}
               size={28}
               onClick={() => (uploading ? onCancel(item.localId) : onRemove(item.localId))}
             />

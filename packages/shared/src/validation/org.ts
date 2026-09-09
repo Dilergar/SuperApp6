@@ -3,7 +3,7 @@ import { ORG_LIMITS } from '../constants/org';
 import { queryBoolean } from './query';
 
 const noHtml = (s: string) => !/[<>]/.test(s);
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД');
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'validation.org.isoDate');
 
 // ---------- Заместители ----------
 
@@ -20,19 +20,19 @@ export const createStaffDeputySchema = z
     ...deputyTarget,
     startsOn: isoDate.nullable().optional(),
     endsOn: isoDate.nullable().optional(),
-    note: z.string().max(300, 'Комментарий слишком длинный').refine(noHtml, 'Недопустимые символы').nullable().optional(),
+    note: z.string().max(300, 'validation.org.noteTooLong').refine(noHtml, 'validation.org.badCharacters').nullable().optional(),
   })
   .strict()
   .refine((d) => !!d.deputyPositionId !== !!d.deputyUserId, {
-    message: 'Укажите ровно одно: должность-заместителя или человека',
+    message: 'validation.org.deputyTargetOne',
     path: ['deputyUserId'],
   })
   .refine((d) => !d.deputyPositionId || d.deputyPositionId !== d.positionId, {
-    message: 'Должность не может замещать сама себя',
+    message: 'validation.org.deputySelf',
     path: ['deputyPositionId'],
   })
   .refine((d) => !d.startsOn || !d.endsOn || d.endsOn >= d.startsOn, {
-    message: 'Конец периода раньше начала',
+    message: 'validation.org.periodEnd',
     path: ['endsOn'],
   });
 
@@ -40,12 +40,12 @@ export const updateStaffDeputySchema = z
   .object({
     startsOn: isoDate.nullable().optional(),
     endsOn: isoDate.nullable().optional(),
-    note: z.string().max(300).refine(noHtml, 'Недопустимые символы').nullable().optional(),
+    note: z.string().max(300).refine(noHtml, 'validation.org.badCharacters').nullable().optional(),
   })
   .strict()
-  .refine((d) => Object.keys(d).length > 0, 'Нечего обновлять')
+  .refine((d) => Object.keys(d).length > 0, 'validation.org.nothingToUpdate')
   .refine((d) => !d.startsOn || !d.endsOn || d.endsOn >= d.startsOn, {
-    message: 'Конец периода раньше начала',
+    message: 'validation.org.periodEnd',
     path: ['endsOn'],
   });
 
@@ -76,12 +76,12 @@ export const orgSetupSchema = z
     top: z
       .object({
         positionId: z.string().uuid().optional(),
-        newPositionName: z.string().min(1).max(100).refine(noHtml, 'Недопустимые символы').optional(),
+        newPositionName: z.string().min(1).max(100).refine(noHtml, 'validation.org.badCharacters').optional(),
         userId: z.string().uuid().nullable().optional(),
       })
       .strict()
       .refine((t) => !!t.positionId !== !!t.newPositionName, {
-        message: 'Укажите существующую должность либо название новой',
+        message: 'validation.org.topPositionOne',
         path: ['positionId'],
       })
       .optional(),

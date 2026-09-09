@@ -24,7 +24,7 @@ export class CalendarController {
   constructor(private calendarService: CalendarService) {}
 
   @Get('events')
-  @ApiOperation({ summary: 'Календарь за период: события + слой задач + overlay чужих календарей' })
+  @ApiOperation({ summary: 'The calendar for a period: events + the tasks layer + other people’s overlays' })
   async getRange(
     @CurrentUser() user: JwtPayload,
     @Query('from') from: string,
@@ -43,14 +43,14 @@ export class CalendarController {
   }
 
   @Get('shared-with-me')
-  @ApiOperation({ summary: 'Люди, чьи календари мне доступны (для слоёв)' })
+  @ApiOperation({ summary: 'People whose calendars are available to me (for the overlays)' })
   async sharedWithMe(@CurrentUser() user: JwtPayload) {
     const data = await this.calendarService.listSharedWithMe(user.sub);
     return { success: true, data };
   }
 
   @Post('smart-match')
-  @ApiOperation({ summary: 'Подобрать общее свободное время (Smart Match)' })
+  @ApiOperation({ summary: 'Find a free slot for everyone (Smart Match)' })
   async smartMatch(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const data = smartMatchSchema.parse(body);
     const result = await this.calendarService.smartMatch(user.sub, data);
@@ -58,14 +58,14 @@ export class CalendarController {
   }
 
   @Get('events/:id')
-  @ApiOperation({ summary: 'Детали события (с участниками)' })
+  @ApiOperation({ summary: 'Event details (with the participants)' })
   async getEvent(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const data = await this.calendarService.getEventDetail(user.sub, id);
     return { success: true, data };
   }
 
   @Post('events')
-  @ApiOperation({ summary: 'Создать событие (с участниками)' })
+  @ApiOperation({ summary: 'Create an event (with participants)' })
   async createEvent(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const data = createCalendarEventSchema.parse(body);
     const event = await this.calendarService.createEvent(user.sub, data);
@@ -73,7 +73,7 @@ export class CalendarController {
   }
 
   @Patch('events/:id')
-  @ApiOperation({ summary: 'Обновить событие (editScope: this | this_and_following | all)' })
+  @ApiOperation({ summary: 'Update an event (editScope: this | this_and_following | all)' })
   async updateEvent(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -86,7 +86,7 @@ export class CalendarController {
 
   @Delete('events/:id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Удалить событие или экземпляр серии' })
+  @ApiOperation({ summary: 'Delete an event or a single occurrence of a series' })
   async deleteEvent(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -101,7 +101,7 @@ export class CalendarController {
   // ---- Participants & RSVP ----
 
   @Post('events/:id/participants')
-  @ApiOperation({ summary: 'Пригласить участников (человек или Группа из окружения)' })
+  @ApiOperation({ summary: 'Invite participants (a person or a Group from the Circle)' })
   async invite(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -114,7 +114,7 @@ export class CalendarController {
 
   @Delete('events/:id/participants/:userId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Убрать участника (организатор) или выйти (сам)' })
+  @ApiOperation({ summary: 'Remove a participant (organizer) or leave (yourself)' })
   async removeParticipant(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -125,7 +125,7 @@ export class CalendarController {
   }
 
   @Post('events/:id/rsvp')
-  @ApiOperation({ summary: 'Ответить на приглашение (accepted | declined | tentative)' })
+  @ApiOperation({ summary: 'Answer an invitation (accepted | declined | tentative)' })
   async rsvp(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -137,7 +137,7 @@ export class CalendarController {
   }
 
   @Post('events/:id/reminders')
-  @ApiOperation({ summary: 'Мои напоминания по событию' })
+  @ApiOperation({ summary: 'My reminders for an event' })
   async setMyReminders(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -151,14 +151,14 @@ export class CalendarController {
   // ---- Sharing (per-person; per-group lives on circles) ----
 
   @Get('shares')
-  @ApiOperation({ summary: 'Кому я открыл календарь (персонально)' })
+  @ApiOperation({ summary: 'Who I opened my calendar to (personally)' })
   async getShares(@CurrentUser() user: JwtPayload) {
     const data = await this.calendarService.listShares(user.sub);
     return { success: true, data };
   }
 
   @Post('shares')
-  @ApiOperation({ summary: 'Открыть календарь человеку (busy | detailed)' })
+  @ApiOperation({ summary: 'Open the calendar to a person (busy | detailed)' })
   async setShare(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const data = setCalendarShareSchema.parse(body);
     await this.calendarService.setShare(user.sub, data.sharedWithUserId, data.accessLevel);
@@ -167,7 +167,7 @@ export class CalendarController {
 
   @Delete('shares/:userId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Закрыть календарь от человека' })
+  @ApiOperation({ summary: 'Revoke a person’s calendar access' })
   async removeShare(@CurrentUser() user: JwtPayload, @Param('userId') userId: string) {
     await this.calendarService.removeShare(user.sub, userId);
     return { success: true };

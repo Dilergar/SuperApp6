@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
@@ -26,6 +27,9 @@ import type { CompanyWalletDto, CurrencyHolder, WorkspaceMember } from '@superap
  */
 export default function CompanyWalletPage() {
   const { isReady } = useRequireAuth();
+  const t = useTranslations('wallet');
+  const common = useTranslations('common');
+  const ws = useTranslations('workspaces');
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const cfg = { headers: { 'X-Workspace-Id': id } };
@@ -82,22 +86,22 @@ export default function CompanyWalletPage() {
   };
 
   const createCurrency = () => run(async () => {
-    if (!name.trim()) return setError('Введите название');
+    if (!name.trim()) return setError(t('company.nameRequired'));
     await apiPost('/wallet/company/currency', { name: name.trim(), icon: icon || '🏢' }, cfg);
-    flash('Валюта компании создана');
+    flash(t('company.created'));
   }, [companyWalletKey(id)]);
   const mint = () => run(async () => {
     const amount = parseInt(mintAmt, 10);
-    if (!(amount > 0)) return setError('Сумма — целое число больше нуля');
+    if (!(amount > 0)) return setError(t('company.amountPositive'));
     await apiPost('/wallet/company/currency/mint', { amount }, cfg);
-    setMintAmt(''); flash(`Выпущено ${amount} в казну`);
+    setMintAmt(''); flash(t('company.minted', { amount }));
   }, [companyWalletKey(id)]);
   const pay = () => run(async () => {
     const amount = parseInt(payAmt, 10);
-    if (!payUser) return setError('Выберите сотрудника');
-    if (!(amount > 0)) return setError('Сумма — целое число больше нуля');
+    if (!payUser) return setError(t('company.pickEmployee'));
+    if (!(amount > 0)) return setError(t('company.amountPositive'));
     await apiPost('/wallet/company/pay', { userId: payUser, amount }, cfg);
-    setPayAmt(''); flash('Начислено сотруднику');
+    setPayAmt(''); flash(t('company.paid'));
   }, [companyWalletKey(id), companyHoldersKey(id)]);
 
   const memberName = (m: WorkspaceMember) => m.userName || m.userId.slice(0, 8);
@@ -110,14 +114,18 @@ export default function CompanyWalletPage() {
   if (denied) {
     return (
       <>
-        <PageHeader breadcrumb="Организация" title="Кошелёк компании" />
+        <PageHeader breadcrumb={ws('breadcrumb')} title={t('company.title')} />
         <BentoGrid>
           <Card span={12}>
             <EmptyState
               icon="lock"
-              title="Только для владельца"
-              description="Кошельком компании управляет владелец организации."
-              action={<Button variant="matte" icon="arrowLeft" href={`/workspaces/${id}`}>К организации</Button>}
+              title={t('company.ownerOnly')}
+              description={t('company.ownerOnlyHint')}
+              action={
+                <Button variant="matte" icon="arrowLeft" href={`/workspaces/${id}`}>
+                  {t('company.backToOrg')}
+                </Button>
+              }
             />
           </Card>
         </BentoGrid>
@@ -128,9 +136,9 @@ export default function CompanyWalletPage() {
   return (
     <>
       <PageHeader
-        breadcrumb="Организация"
-        title="Кошелёк компании"
-        description="Внутренняя валюта для наград сотрудникам и магазина компании"
+        breadcrumb={ws('breadcrumb')}
+        title={t('company.title')}
+        description={t('company.description')}
       />
 
       {(shownError || ok) && (
@@ -144,15 +152,22 @@ export default function CompanyWalletPage() {
         <BentoGrid>
           <Card span={12}>
             <CardHeader
-              title="Создайте валюту компании"
-              subtitle="Ею платят награды за задачи и покупают в магазине организации"
+              title={t('company.createTitle')}
+              subtitle={t('company.createSubtitle')}
             />
             <div style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', gap: 'var(--spacing-3)', maxWidth: 460, alignItems: 'start' }}>
               <GlyphField value={icon} onChange={(v) => setIcon(v ?? '')} suggest={name} />
-              <Input label="Название" value={name} onChange={(e) => setName(e.target.value)} placeholder="Например, БонусКоин" />
+              <Input
+                label={common('labels.name')}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={t('company.namePlaceholder')}
+              />
             </div>
             <div style={{ marginTop: 'var(--spacing-4)' }}>
-              <Button variant="primary" tone="success" icon="add" onClick={createCurrency} loading={busy}>Создать</Button>
+              <Button variant="primary" tone="success" icon="add" onClick={createCurrency} loading={busy}>
+                {common('actions.create')}
+              </Button>
             </div>
           </Card>
         </BentoGrid>
@@ -161,21 +176,21 @@ export default function CompanyWalletPage() {
           {/* ---------- Казна ---------- */}
           <StatTile
             span={4}
-            label="Казна"
+            label={t('company.treasury')}
             value={formatWalletAmount(treasury?.balance ?? 0, currency.scale)}
             emoji={currency.icon}
             tone="accent"
           />
           <StatTile
             span={4}
-            label="Заморожено"
+            label={t('company.held')}
             value={formatWalletAmount(treasury?.held ?? 0, currency.scale)}
             icon="lock"
             tone={(treasury?.held ?? 0) > 0 ? 'warning' : 'neutral'}
           />
           <StatTile
             span={4}
-            label="Держателей"
+            label={t('company.holdersCount')}
             value={holders.length}
             icon="people"
             tone={holders.length ? 'success' : 'neutral'}
@@ -183,11 +198,19 @@ export default function CompanyWalletPage() {
 
           {/* ---------- Выпуск в казну ---------- */}
           <Card span={6}>
-            <CardHeader title="Выпустить в казну" subtitle={<span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}><Glyph value={currency.icon} size={14} />{currency.name} — эмитент организация</span>} />
+            <CardHeader
+              title={t('company.mintTitle')}
+              subtitle={
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                  <Glyph value={currency.icon} size={14} />
+                  {t('company.issuedBy', { name: currency.name })}
+                </span>
+              }
+            />
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
               <div style={{ width: 160 }}>
                 <Input
-                  label="Сумма"
+                  label={t('company.amount')}
                   type="number"
                   min={1}
                   value={mintAmt}
@@ -195,13 +218,13 @@ export default function CompanyWalletPage() {
                   placeholder="1 000"
                 />
               </div>
-              <Button variant="primary" tone="success" icon="spark" onClick={mint} loading={busy}>Выпустить</Button>
+              <Button variant="primary" tone="success" icon="spark" onClick={mint} loading={busy}>{t('company.mint')}</Button>
             </div>
           </Card>
 
           {/* ---------- Начислить сотруднику ---------- */}
           <Card span={6}>
-            <CardHeader title="Начислить сотруднику" subtitle="Списывается из казны организации" />
+            <CardHeader title={t('company.payTitle')} subtitle={t('company.paySubtitle')} />
             <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
               <EntitySelector
                 types={['user']}
@@ -215,12 +238,12 @@ export default function CompanyWalletPage() {
                 }))}
                 value={payUser ? [{ type: 'user', id: payUser }] : []}
                 onChange={(next) => setPayUser(next[next.length - 1]?.id ?? '')}
-                placeholder="Выберите сотрудника…"
+                placeholder={t('company.pickEmployeePlaceholder')}
               />
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                 <div style={{ width: 160 }}>
                   <Input
-                    label="Сумма"
+                    label={t('company.amount')}
                     type="number"
                     min={1}
                     value={payAmt}
@@ -228,19 +251,19 @@ export default function CompanyWalletPage() {
                     placeholder="100"
                   />
                 </div>
-                <Button variant="primary" tone="success" icon="send" onClick={pay} loading={busy}>Начислить</Button>
+                <Button variant="primary" tone="success" icon="send" onClick={pay} loading={busy}>{t('company.pay')}</Button>
               </div>
             </div>
           </Card>
 
           {/* ---------- Держатели ---------- */}
           <Card span={12}>
-            <CardHeader title="Держатели" subtitle="У кого на руках валюта организации" />
+            <CardHeader title={t('company.holders')} subtitle={t('company.holdersSubtitle')} />
             {holders.length === 0 ? (
               <EmptyState
                 icon="people"
-                title="Пока ни у кого нет коинов"
-                description="Начислите первому сотруднику — он появится здесь."
+                title={t('company.holdersEmpty')}
+                description={t('company.holdersEmptyHint')}
               />
             ) : (
               <div className="ui-stack" style={{ gap: '0.375rem' }}>

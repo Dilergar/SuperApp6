@@ -1,22 +1,22 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma, type Counterparty, type CounterpartyContact } from '@prisma/client';
+import { SOURCE_LOCALE } from '@superapp/shared';
 import {
   COUNTERPARTY_LIMITS,
   COUNTERPARTY_REF_TYPE,
   WORKSPACE_ROLE_RANK,
-  counterpartyIdLabel,
+  counterpartyIdKey,
   type CounterpartyBankAccountDto,
   type CounterpartyContactDto,
   type CounterpartyDto,
   type CounterpartyKind,
   type CounterpartyLiteDto,
   type CreateCounterpartyBankAccountInput,
+  composeSignBasis,
+  signBasisColumnsOf,
+  signBasisPartsOf,
+  type SignBasisColumns,
+  type SignBasisInput,
   type CreateCounterpartyContactInput,
   type CreateCounterpartyInput,
   type CursorPage,
@@ -28,22 +28,12 @@ import {
 import { DatabaseService } from '../../shared/database/database.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { ChatterService, type ChatterTrackSpec } from '../../core/chatter/chatter.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
+import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
 import { fullName } from '../../shared/utils/user-name';
 
-const WS_CONTEXT = 'workspace';
 
-/** Отслеживаемые поля карточки — диффы «было → стало» в хронике */
-const TRACK_SPEC: ChatterTrackSpec<Counterparty> = {
-  name: { typeKey: 'counterparty.updated', label: 'Название', format: (r) => r.name },
-  legalName: { typeKey: 'counterparty.updated', label: 'Юрнаименование', format: (r) => r.legalName },
-  bin: { typeKey: 'counterparty.updated', label: 'БИН/ИИН', format: (r) => r.bin },
-  legalAddress: { typeKey: 'counterparty.updated', label: 'Юрадрес', format: (r) => r.legalAddress },
-  actualAddress: { typeKey: 'counterparty.updated', label: 'Фактический адрес', format: (r) => r.actualAddress },
-  taxRegime: { typeKey: 'counterparty.updated', label: 'Налоговый режим', format: (r) => r.taxRegime },
-  directorName: { typeKey: 'counterparty.updated', label: 'Руководитель', format: (r) => r.directorName },
-  phone: { typeKey: 'counterparty.updated', label: 'Телефон', format: (r) => r.phone },
-  email: { typeKey: 'counterparty.updated', label: 'E-mail', format: (r) => r.email },
-};
+const WS_CONTEXT = 'workspace';
 
 /**
  * Сервис «Контрагенты» (B2B) — ЕДИНЫЙ справочник внешних сторон организации.
@@ -61,7 +51,47 @@ export class CounterpartiesService {
     private readonly db: DatabaseService,
     private readonly roles: RolesService,
     private readonly chatter: ChatterService,
+    private readonly i18n: I18nService,
   ) {}
+
+  /**
+   * Отслеживаемые поля карточки — диффы «было → стало» в хронике. Строится на
+   * каждый вызов, а не константой: СНАПШОТ подписи ложится в БД в языке
+   * ИСТОЧНИКА и берётся из того же каталога, что показывает живую подпись.
+   */
+  private trackSpec(): ChatterTrackSpec<Counterparty> {
+    const src = (field: string) => this.i18n.translateFor(SOURCE_LOCALE, `chatter.fields.counterparty.${field}`);
+    const track = (field: keyof Counterparty, format: (r: Counterparty) => string | null) => ({
+      typeKey: 'counterparty.updated',
+      label: src(field as string),
+      format,
+    });
+    return {
+      name: track('name', (r) => r.name),
+      legalName: track('legalName', (r) => r.legalName),
+      bin: track('bin', (r) => r.bin),
+      legalAddress: track('legalAddress', (r) => r.legalAddress),
+      actualAddress: track('actualAddress', (r) => r.actualAddress),
+      taxRegime: track('taxRegime', (r) => r.taxRegime),
+      directorName: track('directorName', (r) => r.directorName),
+      phone: track('phone', (r) => r.phone),
+      email: track('email', (r) => r.email),
+    };
+  }
+
+  /**
+   * Основание подписи ЭКРАНУ — в языке зрителя: на карточке его читает человек.
+   * В документ та же структура попадает через группу полей шаблона, и там
+   * фраза собирается заново, в языке БЛАНКА (`counterparties-registries`).
+   */
+  private signBasisText(row: SignBasisColumns): string | null {
+    return composeSignBasis(
+      signBasisPartsOf(row),
+      (key, values) => this.i18n.translate(`counterparties.${key}`, values),
+      (iso) => this.i18n.format().date(iso),
+    );
+  }
+
 
   // ============================================================
   // Гейты (модель Staff/Documents)
@@ -78,8 +108,8 @@ export class CounterpartiesService {
   /** Чтение справочника — команда; Подрядчик изолирован. */
   private async requireTeam(userId: string, workspaceId: string): Promise<WorkspaceRole> {
     const role = await this.roleOf(userId, workspaceId);
-    if (!role) throw new ForbiddenException('Нет доступа к этой организации');
-    if (role === 'contractor') throw new ForbiddenException('Подрядчику справочник контрагентов недоступен');
+    if (!role) throw forbidden('workspace.noAccess');
+    if (role === 'contractor') throw forbidden('counterparties.contractorNoAccess');
     return role;
   }
 
@@ -87,7 +117,7 @@ export class CounterpartiesService {
   private async requireManager(userId: string, workspaceId: string): Promise<WorkspaceRole> {
     const role = await this.requireTeam(userId, workspaceId);
     if ((WORKSPACE_ROLE_RANK[role] ?? 0) < WORKSPACE_ROLE_RANK.manager) {
-      throw new ForbiddenException('Недостаточно прав (нужен Менеджер или выше)');
+      throw forbidden('counterparties.managerRequired');
     }
     return role;
   }
@@ -180,7 +210,7 @@ export class CounterpartiesService {
     // Лимит ДО создания (правило платформы): считаем живых
     const count = await this.db.counterparty.count({ where: { workspaceId, archivedAt: null } });
     if (count >= COUNTERPARTY_LIMITS.maxPerWorkspace) {
-      throw new BadRequestException('Достигнут предел контрагентов в организации');
+      throw badRequest('counterparties.limitReached');
     }
     try {
       const row = await this.db.$transaction(async (tx) => {
@@ -201,7 +231,7 @@ export class CounterpartiesService {
             vatNumber: dto.vatNumber ?? null,
             vatDate: dto.vatDate ? new Date(dto.vatDate) : null,
             directorName: dto.directorName ?? null,
-            signBasis: dto.signBasis ?? null,
+            ...signBasisColumnsOf(dto.signBasis),
             phone: dto.phone ?? null,
             email: dto.email ?? null,
             comment: dto.comment ?? null,
@@ -253,14 +283,16 @@ export class CounterpartiesService {
             ...(dto.vatNumber !== undefined ? { vatNumber: dto.vatNumber } : {}),
             ...(dto.vatDate !== undefined ? { vatDate: dto.vatDate ? new Date(dto.vatDate) : null } : {}),
             ...(dto.directorName !== undefined ? { directorName: dto.directorName } : {}),
-            ...(dto.signBasis !== undefined ? { signBasis: dto.signBasis } : {}),
+            ...(dto.signBasis !== undefined
+              ? signBasisColumnsOf(dto.signBasis)
+              : {}),
             ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
             ...(dto.email !== undefined ? { email: dto.email } : {}),
             ...(dto.comment !== undefined ? { comment: dto.comment } : {}),
           },
         });
         // Диффы «было → стало» — по единой спеке; пустой дифф не пишется вовсе
-        const diffs = this.chatter.diffTracked(TRACK_SPEC, before, after);
+        const diffs = this.chatter.diffTracked(this.trackSpec(), before, after);
         if (diffs.length) {
           const actorName = await this.nameOf(userId);
           await this.chatter.logMany(
@@ -296,7 +328,7 @@ export class CounterpartiesService {
       where: { workspaceId, counterpartyId: row.id, status: { in: ['in_review', 'sent'] } },
     });
     if (live > 0) {
-      throw new BadRequestException('С контрагентом есть документы в работе — сначала завершите их');
+      throw badRequest('counterparties.documentsInWork');
     }
     await this.db.$transaction(async (tx) => {
       const claimed = await tx.counterparty.updateMany({
@@ -331,7 +363,7 @@ export class CounterpartiesService {
 
     const live = await this.db.counterparty.count({ where: { workspaceId, archivedAt: null } });
     if (live >= COUNTERPARTY_LIMITS.maxPerWorkspace) {
-      throw new BadRequestException('Достигнут предел контрагентов в организации');
+      throw badRequest('counterparties.limitReached');
     }
     try {
       await this.db.$transaction(async (tx) => {
@@ -373,7 +405,7 @@ export class CounterpartiesService {
       where: { counterpartyId: parent.id, archivedAt: null },
     });
     if (count >= COUNTERPARTY_LIMITS.maxContactsPerCounterparty) {
-      throw new BadRequestException('Слишком много контактных лиц у контрагента');
+      throw badRequest('counterparties.tooManyContacts');
     }
     const created = await this.db.$transaction(async (tx) => {
       const row = await tx.counterpartyContact.create({
@@ -465,7 +497,7 @@ export class CounterpartiesService {
     const parent = await this.rowOrThrow(workspaceId, counterpartyId);
     const count = await this.db.counterpartyBankAccount.count({ where: { counterpartyId: parent.id } });
     if (count >= COUNTERPARTY_LIMITS.maxBankAccountsPerCounterparty) {
-      throw new BadRequestException('Слишком много счетов у контрагента');
+      throw badRequest('counterparties.tooManyAccounts');
     }
     const row = await this.db.$transaction(async (tx) => {
       // Первый счёт — основной сам; явный isPrimary снимает роль с остальных
@@ -500,7 +532,7 @@ export class CounterpartiesService {
     const account = await this.db.counterpartyBankAccount.findFirst({
       where: { id: accountId, counterpartyId },
     });
-    if (!account) throw new NotFoundException('Счёт не найден');
+    if (!account) throw notFound('counterparties.accountNotFound');
     await this.db.$transaction(async (tx) => {
       await tx.counterpartyBankAccount.updateMany({ where: { counterpartyId }, data: { isPrimary: false } });
       await tx.counterpartyBankAccount.update({ where: { id: account.id }, data: { isPrimary: true } });
@@ -519,7 +551,7 @@ export class CounterpartiesService {
     const account = await this.db.counterpartyBankAccount.findFirst({
       where: { id: accountId, counterpartyId },
     });
-    if (!account) throw new NotFoundException('Счёт не найден');
+    if (!account) throw notFound('counterparties.accountNotFound');
     await this.db.$transaction(async (tx) => {
       await tx.counterpartyBankAccount.delete({ where: { id: account.id } });
       if (account.isPrimary) {
@@ -545,8 +577,8 @@ export class CounterpartiesService {
    */
   async assertUsable(workspaceId: string, counterpartyId: string): Promise<Counterparty> {
     const row = await this.db.counterparty.findFirst({ where: { id: counterpartyId, workspaceId } });
-    if (!row) throw new NotFoundException('Контрагент не найден в этой организации');
-    if (row.archivedAt) throw new BadRequestException('Контрагент в архиве — верните его или выберите другого');
+    if (!row) throw notFound('counterparties.notFoundInWorkspace');
+    if (row.archivedAt) throw badRequest('counterparties.archived');
     return row;
   }
 
@@ -555,8 +587,8 @@ export class CounterpartiesService {
     const row = await this.db.counterpartyContact.findFirst({
       where: { id: contactId, counterpartyId },
     });
-    if (!row) throw new NotFoundException('Контактное лицо не найдено у этого контрагента');
-    if (row.archivedAt) throw new BadRequestException('Контактное лицо в архиве — выберите другое');
+    if (!row) throw notFound('counterparties.contactNotFoundHere');
+    if (row.archivedAt) throw badRequest('counterparties.contactArchived');
     return row;
   }
 
@@ -583,9 +615,10 @@ export class CounterpartiesService {
   /** P2002 по партиальному уникуму БИН → человеческий 409 с подсказкой */
   private rethrowBinConflict(err: unknown, kind: CounterpartyKind): void {
     if ((err as Prisma.PrismaClientKnownRequestError)?.code === 'P2002') {
-      throw new ConflictException(
-        `Контрагент с таким ${counterpartyIdLabel(kind)} уже есть в справочнике`,
-      );
+      // Подпись идентификатора — слово языка ЗАПРОСА: отказ читает человек
+      throw conflict('counterparties.idTaken', {
+        id: this.i18n.translate(`counterparties.idLabel.${counterpartyIdKey(kind)}`),
+      });
     }
   }
 
@@ -601,7 +634,7 @@ export class CounterpartiesService {
         ...(opts.includeArchived ? {} : { archivedAt: null }),
       },
     });
-    if (!row) throw new NotFoundException('Контрагент не найден');
+    if (!row) throw notFound('counterparties.notFound');
     return row;
   }
 
@@ -609,7 +642,7 @@ export class CounterpartiesService {
     const row = await this.db.counterpartyContact.findFirst({
       where: { id: contactId, counterpartyId, workspaceId, archivedAt: null },
     });
-    if (!row) throw new NotFoundException('Контактное лицо не найдено');
+    if (!row) throw notFound('counterparties.contactNotFound');
     return row;
   }
 
@@ -659,7 +692,9 @@ export class CounterpartiesService {
       vatNumber: row.vatNumber,
       vatDate: row.vatDate ? row.vatDate.toISOString().slice(0, 10) : null,
       directorName: row.directorName,
-      signBasis: row.signBasis,
+      // Фраза для экрана — в языке зрителя; хранится структура
+      signBasis: this.signBasisText(row),
+      signBasisParts: signBasisPartsOf(row),
       phone: row.phone,
       email: row.email,
       comment: row.comment,

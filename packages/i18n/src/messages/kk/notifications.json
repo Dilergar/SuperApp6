@@ -1,707 +1,707 @@
 {
-  "contact": {
-    "invitation": {
-      "received": {
-        "title": "{fromName} сізді контактіге қосқысы келеді",
-        "body": "{message}",
-        "label": "Ортаға сұраныс"
-      },
-      "accepted": {
-        "title": "{byName} шақыруыңызды қабылдады",
-        "label": "Сұраныс қабылданды"
-      },
-      "rejected": {
-        "title": "{byName} шақыруыңыздан бас тартты",
-        "label": "Сұраныс қабылданбады"
-      },
-      "cancelled": {
-        "title": "Шақыру тоқтатылды",
-        "label": "Сұраныс жойылды"
-      },
-      "expired": {
-        "title": "{toPhone} үшін шақыру мерзімі өтті",
-        "body": "Оны қайта жіберуге болады",
-        "label": "Сұраныс мерзімі өтті"
-      }
-    },
-    "linked": {
-      "title": "{otherName} енді сіздің контактілеріңізде",
-      "label": "Жаңа байланыс"
-    },
-    "removed": {
-      "title": "Контакт жойылды",
-      "label": "Байланыс жойылды"
-    }
-  },
-  "task": {
-    "assigned": {
-      "title": "Сізге тапсырма берілді: {taskTitle}",
-      "label": "Маған тапсырма қойылды"
-    },
-    "completed": {
-      "title": "Тапсырма орындалды: {taskTitle}",
-      "label": "Тапсырма аяқталды"
-    },
+  "approval": {
     "due_soon": {
-      "title": "Мерзімі жақындады: {taskTitle}",
-      "label": "Мерзім жақын"
-    },
-    "submitted": {
-      "title": "{byName} тапсырманы тексеруге тапсырды: {taskTitle}",
-      "label": "Жұмыс тексеруге тапсырылды"
-    },
-    "accepted": {
-      "title": "Тапсырма қабылданды: {taskTitle}",
-      "label": "Жұмыс қабылданды"
-    },
-    "returned": {
-      "title": "Тапсырма пысықтауға қайтарылды: {taskTitle}",
-      "label": "Жұмыс қайтарылды"
+      "body": "{stepTitle} — {deadlineLabel} дейін",
+      "label": "Шешім мерзімі жақын",
+      "title": "Мерзімі жақындады: «{refTitle}»"
     },
     "overdue": {
-      "title": "Тапсырма мерзімі өтті: {taskTitle}",
-      "label": "Тапсырма мерзімі өтті"
-    }
-  },
-  "wallet": {
-    "coins": {
-      "received": {
-        "title": "Сіз {amount} {currencyName} таптыңыз",
-        "body": "«{taskTitle}» тапсырмасы үшін",
-        "label": "Коиндар алынды"
-      }
-    }
-  },
-  "calendar": {
-    "event": {
-      "invited": {
-        "title": "Оқиғаға шақыру: {eventTitle}",
-        "label": "Іс-шараға шақыру"
-      },
-      "reminder": {
-        "title": "Еске салу: {eventTitle}",
-        "label": "Іс-шара туралы еске салу"
-      },
-      "rsvp": {
-        "title": "{byName}: {rsvpLabel} — {eventTitle}",
-        "collapsed": "{n, plural, one {# жауап} other {# жауап}} — {eventTitle}",
-        "label": "Шақыруға жауап"
-      },
-      "updated": {
-        "title": "Оқиға өзгертілді: {eventTitle}",
-        "label": "Іс-шара өзгертілді"
-      },
-      "cancelled": {
-        "title": "Оқиға тоқтатылды: {eventTitle}",
-        "label": "Іс-шара жойылды"
-      }
+      "body": "{stepTitle}",
+      "label": "Шешім мерзімі өтті",
+      "title": "«{refTitle}» бойынша шешім мерзімі өтті"
     },
-    "resource": {
-      "requested": {
-        "title": "«{resourceName}» бойынша өтінім: {eventTitle}",
-        "label": "Ресурсты брондау сұранысы"
-      },
-      "confirmed": {
-        "title": "Брондау расталды: {resourceName}",
-        "label": "Брондау расталды"
-      },
-      "rejected": {
-        "title": "Брондау қабылданбады: {resourceName}",
-        "label": "Брондау қабылданбады"
-      }
-    }
-  },
-  "workspace": {
-    "invitation": {
-      "received": {
-        "title": "{workspaceName} сізді жұмысқа шақырады",
-        "body": "{message}",
-        "label": "Ұйымға шақыру"
-      },
-      "accepted": {
-        "title": "{byName} {workspaceName} ұйымына шақыруды қабылдады",
-        "label": "Шақыру қабылданды"
-      },
-      "rejected": {
-        "title": "{byName} {workspaceName} ұйымына шақырудан бас тартты",
-        "label": "Шақыру қабылданбады"
-      }
+    "requested": {
+      "body": "{stepTitle}",
+      "label": "Менің шешімім күтілуде",
+      "title": "{actionLabel}: «{refTitle}»"
     },
-    "member": {
-      "removed": {
-        "title": "Сіз {workspaceName} ұйымынан шығарылдыңыз",
-        "label": "Ұйымнан шығару"
-      }
+    "resolved": {
+      "body": "{comment}",
+      "label": "Менің өтінімім бойынша шешім қабылданды",
+      "title": "{outcomeLabel}: «{refTitle}»"
     },
-    "role": {
-      "changed": {
-        "title": "{workspaceName} ұйымындағы рөліңіз өзгерді: {role}",
-        "label": "Рөл өзгертілді"
-      }
-    },
-    "position": {
-      "assigned": {
-        "title": "{workspaceName} ұйымында сізге лауазым берілді: {positionName}",
-        "body": "{branchName}",
-        "label": "Лауазым тағайындалды"
-      },
-      "certified": {
-        "title": "{workspaceName} ұйымында {positionName} лауазымы бойынша аттестациядан өттіңіз",
-        "label": "Аттестациядан өтті"
-      }
-    },
-    "archive": {
-      "expiring": {
-        "title": "«{workspaceName}» ұйымы {daysWord} кейін жойылады",
-        "body": "Ол мұрағатта. Жоюдың қажеті болмаса, қалпына келтіріңіз — {purgeDate} өткен соң қайтару мүмкін болмайды.",
-        "label": "Ұйым архиві жойылады"
-      }
-    }
-  },
-  "objects": {
-    "shifts": {
-      "published": {
-        "title": "Кесте жарияланды: {branchName}",
-        "body": "{periodLabel} — ауысым саны: {count}",
-        "label": "Кесте жарияланды"
-      }
-    },
-    "shift": {
-      "changed": {
-        "title": "Ауысым өзгертілді: {dateLabel}",
-        "collapsed": "Сіздің {n, plural, one {# ауысымыңыз} other {# ауысымыңыз}} өзгертілді",
-        "label": "Ауысым өзгертілді"
-      },
-      "taken": {
-        "title": "Ашық ауысымды алды: {dateLabel}",
-        "label": "Ашық ауысым алынды"
-      }
-    }
-  },
-  "staff": {
-    "head": {
-      "assigned": {
-        "title": "{workspaceName} ұйымында {unitLabel} басқарасыз",
-        "body": "«{positionName}» лауазымы басшылық лауазым болып белгіленді — бағыныштылардың келісімдері мен өтініштері енді сізге келеді.",
-        "label": "Басшы болып тағайындалды"
-      }
-    },
-    "deputy": {
-      "assigned": {
-        "title": "{workspaceName} ұйымында «{positionName}» лауазымы бойынша орынбасарсыз",
-        "body": "{periodLabel}",
-        "label": "Орынбасар болып тағайындалды"
-      }
-    }
-  },
-  "shop": {
-    "order": {
-      "placed": {
-        "title": "Жаңа тапсырыс: {title}",
-        "label": "Жаңа тапсырыс"
-      },
-      "confirmed": {
-        "title": "Тапсырыс расталды: {title}",
-        "label": "Тапсырыс расталды"
-      },
-      "rejected": {
-        "title": "Тапсырыс қабылданбады: {title}",
-        "label": "Тапсырыс қабылданбады"
-      },
-      "cancelled": {
-        "title": "Сатып алушы тапсырысты тоқтатты: {title}",
-        "label": "Тапсырыс жойылды"
-      },
-      "funded": {
-        "title": "Жиналым жиналды: {title} — растаңыз",
-        "label": "Жинақ жиналды"
-      }
-    }
-  },
-  "mention": {
-    "received": {
-      "title": "{mentionerName} сізді атап өтті",
-      "body": "{snippet}",
-      "label": "Атап өту"
+    "unassigned": {
+      "body": "{stepTitle} — «{assigneeLabel}» ішінде бірде-бір қызметкер жоқ",
+      "label": "Шешетін адам жоқ",
+      "title": "Шешетін адам жоқ: «{refTitle}»"
     }
   },
   "auth": {
     "password": {
       "changed": {
-        "title": "Құпия сөз өзгертілді",
         "body": "Бұл сіз болмасаңыз — құпия сөзді дереу ауыстырып, бөгде сеанстарды аяқтаңыз.",
-        "label": "Құпиясөз өзгертілді"
+        "label": "Құпиясөз өзгертілді",
+        "title": "Құпия сөз өзгертілді"
       }
     },
     "phone": {
       "changed": {
-        "title": "Телефон нөмірі өзгертілді",
         "body": "Кіруге арналған жаңа нөмір: {newPhoneMasked}. Бұл сіз болмасаңыз — бізге хабарласыңыз.",
-        "label": "Нөмір өзгертілді"
+        "label": "Нөмір өзгертілді",
+        "title": "Телефон нөмірі өзгертілді"
       }
     }
   },
-  "files": {
-    "scan": {
-      "infected": {
-        "title": "«{name}» файлы вирус жұқтырған және бұғатталды",
-        "label": "Вирус жұққан файл бұғатталды"
-      }
-    }
-  },
-  "voice": {
-    "transcript": {
-      "ready": {
-        "title": "«{title}» мәтіні дайын",
-        "label": "Транскрипт дайын"
+  "calendar": {
+    "event": {
+      "cancelled": {
+        "label": "Іс-шара жойылды",
+        "title": "Оқиға тоқтатылды: {eventTitle}"
       },
-      "failed": {
-        "title": "«{title}» мәтінге түрлендірілмеді",
-        "label": "Транскрипт сәтсіз аяқталды"
+      "invited": {
+        "label": "Іс-шараға шақыру",
+        "title": "Оқиғаға шақыру: {eventTitle}"
+      },
+      "reminder": {
+        "label": "Іс-шара туралы еске салу",
+        "title": "Еске салу: {eventTitle}"
+      },
+      "rsvp": {
+        "collapsed": "{n, plural, one {# жауап} other {# жауап}} — {eventTitle}",
+        "label": "Шақыруға жауап",
+        "title": "{byName}: {rsvp, select, accepted {Барамын} declined {Бармаймын} tentative {Мүмкін} other {Жауап жоқ}} — {eventTitle}"
+      },
+      "updated": {
+        "label": "Іс-шара өзгертілді",
+        "title": "Оқиға өзгертілді: {eventTitle}"
+      }
+    },
+    "resource": {
+      "confirmed": {
+        "label": "Брондау расталды",
+        "title": "Брондау расталды: {resourceName}"
+      },
+      "rejected": {
+        "label": "Брондау қабылданбады",
+        "title": "Брондау қабылданбады: {resourceName}"
+      },
+      "requested": {
+        "label": "Ресурсты брондау сұранысы",
+        "title": "«{resourceName}» бойынша өтінім: {eventTitle}"
       }
     }
   },
   "call": {
     "missed": {
-      "title": "{fromName} қоңырауы жауапсыз қалды",
       "collapsed": "{fromName}: {n, plural, one {# өткізіп алған қоңырау} other {# өткізіп алған қоңырау}}",
-      "label": "Өткізіп алған қоңырау"
+      "label": "Өткізіп алған қоңырау",
+      "title": "{fromName} қоңырауы жауапсыз қалды"
     },
     "recording": {
+      "failed": {
+        "label": "Қоңырау жазбасы сәтсіз аяқталды",
+        "title": "Қоңырауды жазу мүмкін болмады"
+      },
       "ready": {
-        "title": "«{title}» қоңырауының жазбасы — Қоңыраулар журналында",
-        "label": "Қоңырау жазбасы дайын"
+        "label": "Қоңырау жазбасы дайын",
+        "title": "«{title}» қоңырауының жазбасы — Қоңыраулар журналында"
+      }
+    }
+  },
+  "channel": {
+    "chat": "Чат",
+    "email": "Пошта",
+    "inapp": "Қосымшада",
+    "push": "Push",
+    "sms": "SMS"
+  },
+  "chat": {
+    "prefix": "Хабарлама: {title}"
+  },
+  "contact": {
+    "invitation": {
+      "accepted": {
+        "label": "Сұраныс қабылданды",
+        "title": "{byName} шақыруыңызды қабылдады"
+      },
+      "cancelled": {
+        "label": "Сұраныс жойылды",
+        "title": "Шақыру тоқтатылды"
+      },
+      "expired": {
+        "body": "Оны қайта жіберуге болады",
+        "label": "Сұраныс мерзімі өтті",
+        "title": "{toPhone} үшін шақыру мерзімі өтті"
+      },
+      "received": {
+        "body": "{message}",
+        "label": "Ортаға сұраныс",
+        "title": "{fromName} сізді контактіге қосқысы келеді"
+      },
+      "rejected": {
+        "label": "Сұраныс қабылданбады",
+        "title": "{byName} шақыруыңыздан бас тартты"
+      }
+    },
+    "linked": {
+      "label": "Жаңа байланыс",
+      "title": "{otherName} енді сіздің контактілеріңізде"
+    },
+    "removed": {
+      "label": "Байланыс жойылды",
+      "title": "Контакт жойылды"
+    }
+  },
+  "document": {
+    "counterparty_declined": {
+      "body": "{reasonLabel}",
+      "label": "Контрагент бас тартты",
+      "title": "Контрагент бас тартты: «{title}»"
+    },
+    "counterparty_signed": {
+      "body": "{signerLabel}",
+      "label": "Контрагент қол қойды",
+      "title": "Контрагент қол қойды: «{title}»"
+    },
+    "external_expired": {
+      "body": "Құжат жобаға қайтты — оны қайта жіберіңіз",
+      "label": "Қол қою мерзімі өтті",
+      "title": "Қол қою мерзімі өтті: «{title}»"
+    },
+    "internal_declined": {
+      "body": "{signerLabel}{reasonLabel}",
+      "label": "Біздің қол қоюшы бас тартты",
+      "title": "Қол қоюшы бас тартты: «{title}»"
+    },
+    "resolved": {
+      "body": "{numberLabel}",
+      "label": "Құжат бағыты аяқталды",
+      "title": "{outcomeLabel}: «{title}»"
+    }
+  },
+  "drive": {
+    "shared": {
+      "body": "«{nodeName}» — {role, select, viewer {қарайды} editor {өңдейді} manager {қолжетімді басқарады} other {{role}}}",
+      "label": "Дискіге қолжетімділік",
+      "title": "{ownerName} сізге рұқсат берді"
+    }
+  },
+  "files": {
+    "scan": {
+      "infected": {
+        "label": "Вирус жұққан файл бұғатталды",
+        "title": "«{name}» файлы вирус жұқтырған және бұғатталды"
+      }
+    }
+  },
+  "finance": {
+    "book": {
+      "shared": {
+        "body": "Рөл: {roleLabel}",
+        "label": "Маған қаржы кітабы ашылды",
+        "title": "{ownerName} сізге қаржысына рұқсат берді"
+      }
+    },
+    "budget": {
+      "exceeded": {
+        "body": "{period} үшін {limit} ішінен {spent}",
+        "label": "Лимиттен асып кетті",
+        "title": "«{categoryName}» лимитінен асып кетті"
+      },
+      "warning": {
+        "body": "{period} үшін {limit} ішінен {spent}",
+        "label": "Лимит таусылуға жақын",
+        "title": "«{categoryName}» лимиті таусылуға жақын"
+      }
+    },
+    "debt": {
+      "paid": {
+        "body": "{amount}",
+        "label": "Қарыз өтелді",
+        "title": "«{debtName}» қарызы толық өтелді 🎉"
+      },
+      "payment_due": {
+        "body": "{amount} — Қаржы бөлімінде төлемді растаңыз",
+        "label": "Қарыз төлемі",
+        "title": "Бүгін «{debtName}» бойынша төлем"
+      }
+    },
+    "recurring": {
+      "due": {
+        "body": "{amount}",
+        "label": "Қайталанатын операция растауды күтуде",
+        "title": "«{title}» операциясын растаңыз"
+      },
+      "recorded": {
+        "body": "{amount}",
+        "label": "Қайталанатын операция жазылды",
+        "title": "Жазылды: {title}"
+      }
+    }
+  },
+  "hr": {
+    "action": {
+      "applied": {
+        "body": "{targetName} · {effectiveAt} бастап",
+        "label": "Кадрлық әрекет қолданылды",
+        "title": "{kindLabel}: қолданылды"
       },
       "failed": {
-        "title": "Қоңырауды жазу мүмкін болмады",
-        "label": "Қоңырау жазбасы сәтсіз аяқталды"
+        "body": "{reason}",
+        "label": "Кадрлық әрекет қолданылмады",
+        "title": "{kindLabel}: қолданылмады"
+      },
+      "withdrawn": {
+        "body": "Кері қайтару хабарлау мерзімінің бүкіл кезеңінде сөзсіз (ҚР ЕК 56-бап 4-т.). {note}",
+        "label": "Өтініш кері қайтарылды",
+        "title": "{targetName} өтінішін кері қайтарды"
+      }
+    },
+    "campaign": {
+      "assigned": {
+        "body": "{workspaceName}",
+        "label": "Танысуға құжат",
+        "title": "Танысыңыз: «{title}»"
+      },
+      "done": {
+        "body": "{total} ішінен {acknowledged} танысты",
+        "label": "Танысу науқаны аяқталды",
+        "title": "Науқан аяқталды: «{title}»"
+      },
+      "reminder": {
+        "label": "Танысу туралы еске салу",
+        "title": "Құжат танысуды күтуде: «{title}»"
+      }
+    },
+    "contract": {
+      "expiring": {
+        "body": "{targetName} · {until} дейін. Соңғы жұмыс күні хабарлаңыз, әйтпесе автоматты түрде ұзартылады (ҚР ЕК 30-бап)",
+        "label": "Шарт мерзімі аяқталуда",
+        "title": "Мерзімді шарт аяқталуда"
+      }
+    },
+    "delivery": {
+      "due": {
+        "body": "Шығарылған күннен бастап 3 жұмыс күні ішінде тапсыру керек (ҚР ЕК 61-бап 3-т.)",
+        "label": "Акт тапсыруды күтуде",
+        "title": "Акт тапсыруды күтуде: «{title}»"
+      }
+    },
+    "esutd": {
+      "due_soon": {
+        "body": "{kindLabel} · {targetName} · {state, select, overdue {{days, plural, one {# жұмыс күніне} other {# жұмыс күніне}} кешіктірілді} today {мерзімі бүгін} left {{days, plural, one {# жұмыс күні} other {# жұмыс күні}} қалды} other {{daysLeft} қалды}}",
+        "label": "ЕСУТД тапсыру мерзімі",
+        "title": "ЕСУТД: тапсыру мерзімі жақындады"
+      }
+    },
+    "probation": {
+      "ending": {
+        "body": "{targetName} · {until} дейін. Мерзім өткенше хабарламасаңыз, қызметкер өткен болып саналады (ҚР ЕК 37-бап)",
+        "label": "Сынақ мерзімі аяқталуда",
+        "title": "Сынақ мерзімі аяқталуда"
+      }
+    }
+  },
+  "mention": {
+    "received": {
+      "body": "{snippet}",
+      "label": "Атап өту",
+      "title": "{mentionerName} сізді атап өтті"
+    }
+  },
+  "messenger": {
+    "scheduled": {
+      "sent": {
+        "body": "{snippet}",
+        "label": "Кейінге қалдырылған хабарлама жіберілді",
+        "title": "Еске салу жіберілді"
+      }
+    }
+  },
+  "meta": {
+    "actorsMore": "{name} және тағы {n, plural, one {# адам} other {# адам}}",
+    "collapsed": "{n, plural, one {және тағы #} other {және тағы #}}"
+  },
+  "note": {
+    "shared": {
+      "body": "«{noteName}» — {role, select, viewer {оқиды} editor {өңдейді} manager {қолжетімді басқарады} other {{role}}}",
+      "label": "Жазбаға қолжетімділік",
+      "title": "{ownerName} жазбамен бөлісті"
+    }
+  },
+  "objects": {
+    "shift": {
+      "changed": {
+        "collapsed": "Сіздің {n, plural, one {# ауысымыңыз} other {# ауысымыңыз}} өзгертілді",
+        "label": "Ауысым өзгертілді",
+        "title": "Ауысым өзгертілді: {dateLabel}"
+      },
+      "taken": {
+        "label": "Ашық ауысым алынды",
+        "title": "Ашық ауысымды алды: {dateLabel}"
+      }
+    },
+    "shifts": {
+      "published": {
+        "body": "{periodLabel} — ауысым саны: {count}",
+        "label": "Кесте жарияланды",
+        "title": "Кесте жарияланды: {branchName}"
       }
     }
   },
   "office": {
     "meeting": {
       "invited": {
-        "title": "{byName} сізді «{roomName}» кездесуіне шақырады",
-        "label": "Кездесуге шақыру"
+        "label": "Кездесуге шақыру",
+        "title": "{byName} сізді «{roomName}» кездесуіне шақырады"
       }
     }
-  },
-  "process": {
-    "finished": {
-      "title": "«{processName}» процесі аяқталды",
-      "label": "Процесс аяқталды"
-    },
-    "failed": {
-      "title": "«{processName}» процесі қатемен тоқтады",
-      "body": "{error}",
-      "label": "Процесс қатемен тоқтады"
-    },
-    "step": {
-      "notify": {
-        "title": "{title}",
-        "body": "{message}",
-        "label": "Процестен хабарлама"
-      },
-      "overdue": {
-        "title": "Қадам мерзімі өтті: {title}",
-        "body": "«{processName}» процесі",
-        "label": "Процесс қадамының мерзімі өтті"
-      }
-    },
-    "approval": {
-      "requested": {
-        "title": "Сіздің шешіміңіз керек: {title}",
-        "body": "«{processName}» процесі",
-        "label": "Процесте мақұлдау"
-      }
-    },
-    "task": {
-      "queued": {
-        "title": "Бөлімнің жаңа тапсырмасы: {title}",
-        "body": "{departmentName} · «{processName}» процесі",
-        "label": "Бөлім кезегіндегі тапсырма"
-      }
-    }
-  },
-  "finance": {
-    "budget": {
-      "warning": {
-        "title": "«{categoryName}» лимиті таусылуға жақын",
-        "body": "{periodLabel} ішінде {limit} ішінен {spent}",
-        "label": "Лимит таусылуға жақын"
-      },
-      "exceeded": {
-        "title": "«{categoryName}» лимитінен асып кетті",
-        "body": "{periodLabel} ішінде {limit} ішінен {spent}",
-        "label": "Лимиттен асып кетті"
-      }
-    },
-    "debt": {
-      "payment_due": {
-        "title": "Бүгін «{debtName}» бойынша төлем",
-        "body": "{amount} — Қаржы бөлімінде төлемді растаңыз",
-        "label": "Қарыз төлемі"
-      },
-      "paid": {
-        "title": "«{debtName}» қарызы толық өтелді 🎉",
-        "body": "{amount}",
-        "label": "Қарыз өтелді"
-      }
-    },
-    "recurring": {
-      "due": {
-        "title": "«{title}» операциясын растаңыз",
-        "body": "{amount}",
-        "label": "Қайталанатын операция растауды күтуде"
-      },
-      "recorded": {
-        "title": "Жазылды: {title}",
-        "body": "{amount}",
-        "label": "Қайталанатын операция жазылды"
-      }
-    },
-    "book": {
-      "shared": {
-        "title": "{ownerName} сізге қаржысына рұқсат берді",
-        "body": "Рөл: {roleLabel}",
-        "label": "Маған қаржы кітабы ашылды"
-      }
-    }
-  },
-  "drive": {
-    "shared": {
-      "title": "{ownerName} сізге рұқсат берді",
-      "body": "«{nodeName}» — {roleLabel}",
-      "label": "Дискіге қолжетімділік"
-    }
-  },
-  "note": {
-    "shared": {
-      "title": "{ownerName} жазбамен бөлісті",
-      "body": "«{noteName}» — {roleLabel}",
-      "label": "Жазбаға қолжетімділік"
-    }
-  },
-  "share": {
-    "link": {
-      "opened": {
-        "title": "Сілтемені ашты",
-        "body": "«{targetName}»{labelSuffix}{guestSuffix}",
-        "collapsed": "Сілтеме {n, plural, one {# рет} other {# рет}} ашылды",
-        "label": "Сыртқы сілтеме ашылды"
-      }
-    }
-  },
-  "document": {
-    "resolved": {
-      "title": "{outcomeLabel}: «{title}»",
-      "body": "{numberLabel}",
-      "label": "Құжат бағыты аяқталды"
-    },
-    "counterparty_signed": {
-      "title": "Контрагент қол қойды: «{title}»",
-      "body": "{signerLabel}",
-      "label": "Контрагент қол қойды"
-    },
-    "counterparty_declined": {
-      "title": "Контрагент бас тартты: «{title}»",
-      "body": "{reasonLabel}",
-      "label": "Контрагент бас тартты"
-    },
-    "internal_declined": {
-      "title": "Қол қоюшы бас тартты: «{title}»",
-      "body": "{signerLabel}{reasonLabel}",
-      "label": "Біздің қол қоюшы бас тартты"
-    },
-    "external_expired": {
-      "title": "Қол қою мерзімі өтті: «{title}»",
-      "body": "Құжат жобаға қайтты — оны қайта жіберіңіз",
-      "label": "Қол қою мерзімі өтті"
-    }
-  },
-  "approval": {
-    "requested": {
-      "title": "{actionLabel}: «{refTitle}»",
-      "body": "{stepTitle}",
-      "label": "Менің шешімім күтілуде"
-    },
-    "due_soon": {
-      "title": "Мерзімі жақындады: «{refTitle}»",
-      "body": "{stepTitle} — {deadlineLabel} дейін",
-      "label": "Шешім мерзімі жақын"
-    },
-    "overdue": {
-      "title": "«{refTitle}» бойынша шешім мерзімі өтті",
-      "body": "{stepTitle}",
-      "label": "Шешім мерзімі өтті"
-    },
-    "resolved": {
-      "title": "{outcomeLabel}: «{refTitle}»",
-      "body": "{comment}",
-      "label": "Менің өтінімім бойынша шешім қабылданды"
-    },
-    "unassigned": {
-      "title": "Шешетін адам жоқ: «{refTitle}»",
-      "body": "{stepTitle} — «{assigneeLabel}» ішінде бірде-бір қызметкер жоқ",
-      "label": "Шешетін адам жоқ"
-    }
-  },
-  "sign": {
-    "requested": {
-      "title": "Қол қойыңыз: «{refTitle}»",
-      "body": "{levelLabel}",
-      "label": "Қол қою қажет"
-    },
-    "completed": {
-      "title": "Құжатқа қол қойылды: «{refTitle}»",
-      "body": "{signersLabel}",
-      "label": "Құжатқа қол қойылды"
-    },
-    "declined": {
-      "title": "Қол қоюдан бас тарту: «{refTitle}»",
-      "body": "{reason}",
-      "label": "Қол қоюдан бас тарту"
-    }
-  },
-  "hr": {
-    "action": {
-      "applied": {
-        "title": "{kindLabel}: қолданылды",
-        "body": "{targetName} · {effectiveAt} бастап",
-        "label": "Кадрлық әрекет қолданылды"
-      },
-      "failed": {
-        "title": "{kindLabel}: қолданылмады",
-        "body": "{reason}",
-        "label": "Кадрлық әрекет қолданылмады"
-      },
-      "withdrawn": {
-        "title": "{targetName} өтінішін кері қайтарды",
-        "body": "Кері қайтару хабарлау мерзімінің бүкіл кезеңінде сөзсіз (ҚР ЕК 56-бап 4-т.). {note}",
-        "label": "Өтініш кері қайтарылды"
-      }
-    },
-    "esutd": {
-      "due_soon": {
-        "title": "ЕЭХЖ: тапсыру мерзімі жақындады",
-        "body": "{kindLabel} · {targetName} · {state, select, overdue {{days, plural, one {# жұмыс күніне} other {# жұмыс күніне}} кешіктірілді} today {мерзімі бүгін} left {{days, plural, one {# жұмыс күні} other {# жұмыс күні}} қалды} other {{daysLeft} қалды}}",
-        "label": "ЕСУТД тапсыру мерзімі"
-      }
-    },
-    "campaign": {
-      "assigned": {
-        "title": "Танысыңыз: «{title}»",
-        "body": "{workspaceName}",
-        "label": "Танысуға құжат"
-      },
-      "reminder": {
-        "title": "Құжат танысуды күтуде: «{title}»",
-        "label": "Танысу туралы еске салу"
-      },
-      "done": {
-        "title": "Науқан аяқталды: «{title}»",
-        "body": "{total} ішінен {acknowledged} танысты",
-        "label": "Танысу науқаны аяқталды"
-      }
-    },
-    "delivery": {
-      "due": {
-        "title": "Акт тапсыруды күтуде: «{title}»",
-        "body": "Шығарылған күннен бастап 3 жұмыс күні ішінде тапсыру керек (ҚР ЕК 61-бап 3-т.)",
-        "label": "Акт тапсыруды күтуде"
-      }
-    },
-    "probation": {
-      "ending": {
-        "title": "Сынақ мерзімі аяқталуда",
-        "body": "{targetName} · {until} дейін. Мерзім өткенше хабарламасаңыз, қызметкер өткен болып саналады (ҚР ЕК 37-бап)",
-        "label": "Сынақ мерзімі аяқталуда"
-      }
-    },
-    "contract": {
-      "expiring": {
-        "title": "Мерзімді шарт аяқталуда",
-        "body": "{targetName} · {until} дейін. Соңғы жұмыс күні хабарлаңыз, әйтпесе автоматты түрде ұзартылады (ҚР ЕК 30-бап)",
-        "label": "Шарт мерзімі аяқталуда"
-      }
-    }
-  },
-  "messenger": {
-    "scheduled": {
-      "sent": {
-        "title": "Еске салу жіберілді",
-        "body": "{snippet}",
-        "label": "Кейінге қалдырылған хабарлама жіберілді"
-      }
-    }
-  },
-  "system": {
-    "welcome": {
-      "title": "SuperApp6-ке қош келдіңіз!",
-      "label": "Қош келдіңіз"
-    },
-    "announcement": {
-      "title": "{title}",
-      "label": "Хабарландыру"
-    }
-  },
-  "service": {
-    "tasks": "Тапсырмалар",
-    "calendar": "Күнтізбе",
-    "messenger": "Мессенджер",
-    "contacts": "Менің айналам",
-    "shop": "Дүкен",
-    "wallet": "Әмиян",
-    "finances": "Қаржы",
-    "recorder": "Диктофон",
-    "drive": "Диск",
-    "notes": "Жазбалар",
-    "share": "Сыртқы сілтемелер",
-    "workspaces": "Ұйымдар",
-    "staff": "Ұйым құрылымы",
-    "objects": "Нысандар",
-    "documents": "Құжат айналымы",
-    "approvals": "Шешім күтуде",
-    "sign": "Қол қою",
-    "hr": "КЭДО",
-    "processes": "Процестер",
-    "office": "Виртуалды кеңсе",
-    "security": "Аккаунт қауіпсіздігі",
-    "system": "Платформа"
-  },
-  "channel": {
-    "inapp": "Қосымшада",
-    "push": "Push",
-    "sms": "SMS",
-    "email": "Пошта",
-    "chat": "Чат"
-  },
-  "priority": {
-    "critical": "Әрқашан",
-    "high": "Маған арналған",
-    "normal": "Барысы",
-    "low": "Мәлімет үшін"
-  },
-  "meta": {
-    "collapsed": "{n, plural, one {және тағы #} other {және тағы #}}",
-    "actorsMore": "{name} және тағы {n, plural, one {# адам} other {# адам}}"
-  },
-  "push": {
-    "summaryTitle": "{n, plural, one {# жаңа хабарлама} other {# жаңа хабарлама}}",
-    "summaryBody": "{first}"
-  },
-  "sms": {
-    "text": "SuperApp6: {title}"
-  },
-  "chat": {
-    "prefix": "Хабарлама: {title}"
   },
   "page": {
-    "title": "Хабарламалар",
+    "allContexts": "Барлық жерде",
+    "allServices": "Барлық сервистер",
     "breadcrumb": "Платформа",
     "description": "Бәріне бір таспа: жеке және әр ұйым",
-    "settingsLink": "Хабарлама баптаулары",
     "filters": {
       "context": "Контекст",
       "service": "Сервис",
       "state": "Көрсету"
     },
-    "allContexts": "Барлық жерде",
-    "allServices": "Барлық сервистер",
+    "settingsLink": "Хабарлама баптаулары",
     "state": {
       "all": "Барлығы",
-      "unread": "Оқылмаған",
+      "archived": "Дайын",
       "mentions": "Атап өтулер",
       "saved": "Сақталған",
       "snoozed": "Кейінге қалдырылған",
-      "archived": "Дайын"
-    }
-  },
-  "settings": {
-    "title": "Хабарламалар",
-    "description": "Не келеді және қалай — жеке кеңістік пен әр ұйым үшін бөлек",
-    "quiet": {
-      "title": "Тыныштық",
-      "description": "Push пен SMS таңға дейін күтеді; қосымшада бәрі келеді. Маңыздылары өтіп кетеді.",
-      "enable": "Түнде мазаламау",
-      "from": "Басы",
-      "to": "Соңы",
-      "weekends": "Демалыс күндері толығымен",
-      "timezone": "Сіздің уақытыңыз бойынша ({tz})",
-      "activeNow": "Қазір тыныш",
-      "save": "Сақтау",
-      "saved": "Тыныштық сақталды"
+      "unread": "Оқылмаған"
     },
-    "devices": {
-      "title": "Құрылғылар",
-      "description": "Push-хабарламалар қайда келеді",
-      "browser": "Осы браузердегі хабарламалар",
-      "browserHint": "Қойынды жабық болса да келеді",
-      "blocked": "Хабарламаларға браузер баптауларында тыйым салынған",
-      "unsupported": "Бұл браузер push-хабарламаларды қолдамайды",
-      "empty": "Құрылғылар әзірге жоқ",
-      "remove": "Жою",
-      "lastSeen": "Соңғы кіру {time}",
-      "disabled": "Өшірілген",
-      "platform": {
-        "web": "Браузер",
-        "ios": "iPhone",
-        "android": "Android"
-      }
-    },
-    "contexts": {
-      "title": "Не келеді",
-      "description": "Әр ұйымның өз жиынтығы бар; жеке — бөлек",
-      "personal": "Жеке"
-    },
-    "matrix": {
-      "service": "Сервис",
-      "inapp": "Қосымшада",
-      "push": "Push",
-      "expand": "Түрлерін көрсету",
-      "collapse": "Түрлерін жасыру",
-      "locked": "Міндетті",
-      "lockedHint": "Ұйымда міндетті — өшіру мүмкін емес",
-      "empty": "Бұл контекст үшін баптаулар әзірге жоқ"
-    },
-    "sms": {
-      "title": "Маңыздысы үшін SMS",
-      "description": "Тек маңызды хабарламалар үшін және тек қазақстандық нөмірге. Ұйым немесе платформа есебінен."
-    },
-    "always": {
-      "title": "Әрқашан келеді",
-      "description": "Оларды өшіру мүмкін емес: қауіпсіздік, заң мерзімдері, қолдар",
-      "show": "Тізімді көрсету",
-      "hide": "Тізімді жасыру"
-    },
-    "copy": {
-      "button": "Барлық ұйымдарыма қолдану",
-      "confirmTitle": "Барлық ұйымдарға қолдану керек пе?",
-      "confirmMessage": "Осы ұйымның баптаулары басқаларына көшіріледі. Олардың ағымдағы баптаулары ауыстырылады.",
-      "done": "{n, plural, one {# ұйымға} other {# ұйымға}} қолданылды",
-      "none": "Сізде басқа ұйымдар жоқ"
-    }
+    "title": "Хабарламалар"
   },
   "policy": {
-    "title": "Хабарлама саясаты",
+    "confirmMessage": "Қызметкерлер құлыпталған хабарламаларды өшіре алмайды.",
+    "confirmTitle": "Хабарламаларды міндетті ету керек пе?",
     "description": "Қызметкерлер үшін әдепкі мәндер және олар өшіре алмайтын нәрсе. Жеке баптаулар әдепкіден күшті, бірақ құлыптан емес.",
     "legend": {
-      "default_on": "Әдепкі бойынша қосулы — қызметкер өшіре алады",
       "default_off": "Әдепкі бойынша өшірулі — қызметкер қоса алады",
+      "default_on": "Әдепкі бойынша қосулы — қызметкер өшіре алады",
       "locked_on": "Міндетті — өшіру мүмкін емес"
     },
     "mode": {
-      "registry": "Платформа әдепкісі",
-      "default_on": "Қосулы",
       "default_off": "Өшірулі",
-      "locked_on": "Міндетті"
+      "default_on": "Қосулы",
+      "locked_on": "Міндетті",
+      "registry": "Платформа әдепкісі"
     },
+    "noAccess": "Саясатты ұйым әкімшісі баптайды",
+    "notLockable": "Міндетті ету мүмкін емес",
     "reset": "Платформа әдепкісіне қайтару",
     "save": "Саясатты сақтау",
     "saved": "Саясат сақталды",
-    "confirmTitle": "Хабарламаларды міндетті ету керек пе?",
-    "confirmMessage": "Қызметкерлер құлыпталған хабарламаларды өшіре алмайды.",
-    "notLockable": "Міндетті ету мүмкін емес",
-    "noAccess": "Саясатты ұйым әкімшісі баптайды"
+    "title": "Хабарлама саясаты"
+  },
+  "priority": {
+    "critical": "Әрқашан",
+    "high": "Маған арналған",
+    "low": "Мәлімет үшін",
+    "normal": "Барысы"
+  },
+  "process": {
+    "approval": {
+      "requested": {
+        "body": "«{processName}» процесі",
+        "label": "Процесте мақұлдау",
+        "title": "Сіздің шешіміңіз керек: {title}"
+      }
+    },
+    "failed": {
+      "body": "{error}",
+      "label": "Процесс қатемен тоқтады",
+      "title": "«{processName}» процесі қатемен тоқтады"
+    },
+    "finished": {
+      "label": "Процесс аяқталды",
+      "title": "«{processName}» процесі аяқталды"
+    },
+    "step": {
+      "notify": {
+        "body": "{message}",
+        "label": "Процестен хабарлама",
+        "title": "{title}"
+      },
+      "overdue": {
+        "body": "«{processName}» процесі",
+        "label": "Процесс қадамының мерзімі өтті",
+        "title": "Қадам мерзімі өтті: {title}"
+      }
+    },
+    "task": {
+      "queued": {
+        "body": "{departmentName} · «{processName}» процесі",
+        "label": "Бөлім кезегіндегі тапсырма",
+        "title": "Бөлімнің жаңа тапсырмасы: {title}"
+      }
+    }
+  },
+  "push": {
+    "summaryBody": "{first}",
+    "summaryTitle": "{n, plural, one {# жаңа хабарлама} other {# жаңа хабарлама}}"
+  },
+  "service": {
+    "approvals": "Шешім күтуде",
+    "calendar": "Күнтізбе",
+    "contacts": "Менің айналам",
+    "documents": "Құжат айналымы",
+    "drive": "Диск",
+    "finances": "Қаржы",
+    "hr": "КЭДО",
+    "messenger": "Мессенджер",
+    "notes": "Жазбалар",
+    "objects": "Нысандар",
+    "office": "Виртуалды кеңсе",
+    "processes": "Процестер",
+    "recorder": "Диктофон",
+    "security": "Аккаунт қауіпсіздігі",
+    "share": "Сыртқы сілтемелер",
+    "shop": "Дүкен",
+    "sign": "Қол қою",
+    "staff": "Ұйым құрылымы",
+    "system": "Платформа",
+    "tasks": "Тапсырмалар",
+    "wallet": "Әмиян",
+    "workspaces": "Ұйымдар"
+  },
+  "settings": {
+    "always": {
+      "description": "Оларды өшіру мүмкін емес: қауіпсіздік, заң мерзімдері, қолдар",
+      "hide": "Тізімді жасыру",
+      "show": "Тізімді көрсету",
+      "title": "Әрқашан келеді"
+    },
+    "contexts": {
+      "description": "Әр ұйымның өз жиынтығы бар; жеке — бөлек",
+      "personal": "Жеке",
+      "title": "Не келеді"
+    },
+    "copy": {
+      "button": "Барлық ұйымдарыма қолдану",
+      "confirmMessage": "Осы ұйымның баптаулары басқаларына көшіріледі. Олардың ағымдағы баптаулары ауыстырылады.",
+      "confirmTitle": "Барлық ұйымдарға қолдану керек пе?",
+      "done": "{n, plural, one {# ұйымға} other {# ұйымға}} қолданылды",
+      "none": "Сізде басқа ұйымдар жоқ"
+    },
+    "description": "Не келеді және қалай — жеке кеңістік пен әр ұйым үшін бөлек",
+    "devices": {
+      "blocked": "Хабарламаларға браузер баптауларында тыйым салынған",
+      "browser": "Осы браузердегі хабарламалар",
+      "browserHint": "Қойынды жабық болса да келеді",
+      "description": "Push-хабарламалар қайда келеді",
+      "disabled": "Өшірілген",
+      "empty": "Құрылғылар әзірге жоқ",
+      "lastSeen": "Соңғы кіру {time}",
+      "platform": {
+        "android": "Android",
+        "ios": "iPhone",
+        "web": "Браузер"
+      },
+      "remove": "Жою",
+      "title": "Құрылғылар",
+      "unsupported": "Бұл браузер push-хабарламаларды қолдамайды"
+    },
+    "matrix": {
+      "collapse": "Түрлерін жасыру",
+      "empty": "Бұл контекст үшін баптаулар әзірге жоқ",
+      "expand": "Түрлерін көрсету",
+      "inapp": "Қосымшада",
+      "locked": "Міндетті",
+      "lockedHint": "Ұйымда міндетті — өшіру мүмкін емес",
+      "push": "Push",
+      "service": "Сервис"
+    },
+    "quiet": {
+      "activeNow": "Қазір тыныш",
+      "description": "Push пен SMS таңға дейін күтеді; қосымшада бәрі келеді. Маңыздылары өтіп кетеді.",
+      "enable": "Түнде мазаламау",
+      "from": "Басы",
+      "save": "Сақтау",
+      "saved": "Тыныштық сақталды",
+      "timezone": "Сіздің уақытыңыз бойынша ({tz})",
+      "title": "Тыныштық",
+      "to": "Соңы",
+      "weekends": "Демалыс күндері толығымен"
+    },
+    "sms": {
+      "description": "Тек маңызды хабарламалар үшін және тек қазақстандық нөмірге. Ұйым немесе платформа есебінен.",
+      "title": "Маңыздысы үшін SMS"
+    },
+    "title": "Хабарламалар"
+  },
+  "share": {
+    "link": {
+      "opened": {
+        "body": "«{targetName}»{labelSuffix}{guestSuffix}",
+        "collapsed": "Сілтеме {n, plural, one {# рет} other {# рет}} ашылды",
+        "label": "Сыртқы сілтеме ашылды",
+        "title": "Сілтемені ашты"
+      }
+    }
+  },
+  "shop": {
+    "order": {
+      "cancelled": {
+        "label": "Тапсырыс жойылды",
+        "title": "Сатып алушы тапсырысты тоқтатты: {title}"
+      },
+      "confirmed": {
+        "label": "Тапсырыс расталды",
+        "title": "Тапсырыс расталды: {title}"
+      },
+      "funded": {
+        "label": "Жинақ жиналды",
+        "title": "Жиналым жиналды: {title} — растаңыз"
+      },
+      "placed": {
+        "label": "Жаңа тапсырыс",
+        "title": "Жаңа тапсырыс: {title}"
+      },
+      "rejected": {
+        "label": "Тапсырыс қабылданбады",
+        "title": "Тапсырыс қабылданбады: {title}"
+      }
+    }
+  },
+  "sign": {
+    "completed": {
+      "body": "{signersLabel}",
+      "label": "Құжатқа қол қойылды",
+      "title": "Құжатқа қол қойылды: «{refTitle}»"
+    },
+    "declined": {
+      "body": "{reason}",
+      "label": "Қол қоюдан бас тарту",
+      "title": "Қол қоюдан бас тарту: «{refTitle}»"
+    },
+    "requested": {
+      "body": "{level, select, ecp {Электрондық цифрлық қолтаңба} other {Қарапайым электрондық қолтаңба}}",
+      "label": "Қол қою қажет",
+      "title": "Қол қойыңыз: «{refTitle}»"
+    }
+  },
+  "sms": {
+    "text": "SuperApp6: {title}"
+  },
+  "staff": {
+    "deputy": {
+      "assigned": {
+        "body": "{periodLabel}",
+        "label": "Орынбасар болып тағайындалды",
+        "title": "{workspaceName} ұйымында «{positionName}» лауазымы бойынша орынбасарсыз"
+      }
+    },
+    "head": {
+      "assigned": {
+        "body": "«{positionName}» лауазымы басшылық лауазым болып белгіленді — бағыныштылардың келісімдері мен өтініштері енді сізге келеді.",
+        "label": "Басшы болып тағайындалды",
+        "title": "{workspaceName} ұйымында {unitLabel} басқарасыз"
+      }
+    }
+  },
+  "system": {
+    "announcement": {
+      "label": "Хабарландыру",
+      "title": "{title}"
+    },
+    "welcome": {
+      "label": "Қош келдіңіз",
+      "title": "SuperApp6-ке қош келдіңіз!"
+    }
+  },
+  "task": {
+    "accepted": {
+      "label": "Жұмыс қабылданды",
+      "title": "Тапсырма қабылданды: {taskTitle}"
+    },
+    "assigned": {
+      "label": "Маған тапсырма қойылды",
+      "title": "Сізге тапсырма берілді: {taskTitle}"
+    },
+    "completed": {
+      "label": "Тапсырма аяқталды",
+      "title": "Тапсырма орындалды: {taskTitle}"
+    },
+    "due_soon": {
+      "label": "Мерзім жақын",
+      "title": "Мерзімі жақындады: {taskTitle}"
+    },
+    "overdue": {
+      "label": "Тапсырма мерзімі өтті",
+      "title": "Тапсырма мерзімі өтті: {taskTitle}"
+    },
+    "returned": {
+      "label": "Жұмыс қайтарылды",
+      "title": "Тапсырма пысықтауға қайтарылды: {taskTitle}"
+    },
+    "submitted": {
+      "label": "Жұмыс тексеруге тапсырылды",
+      "title": "{byName} тапсырманы тексеруге тапсырды: {taskTitle}"
+    }
+  },
+  "voice": {
+    "transcript": {
+      "failed": {
+        "label": "Транскрипт сәтсіз аяқталды",
+        "title": "«{title}» мәтінге түрлендірілмеді"
+      },
+      "ready": {
+        "label": "Транскрипт дайын",
+        "title": "«{title}» мәтіні дайын"
+      }
+    }
+  },
+  "wallet": {
+    "coins": {
+      "received": {
+        "body": "«{taskTitle}» тапсырмасы үшін",
+        "label": "Коиндар алынды",
+        "title": "Сіз {amount} {currencyName} таптыңыз"
+      }
+    }
+  },
+  "workspace": {
+    "archive": {
+      "expiring": {
+        "body": "Ол мұрағатта. Жоюдың қажеті болмаса, қалпына келтіріңіз — {purgeDate} өткен соң қайтару мүмкін болмайды.",
+        "label": "Ұйым архиві жойылады",
+        "title": "«{workspaceName}» ұйымы {days, plural, one {# күннен} other {# күннен}} кейін жойылады"
+      }
+    },
+    "invitation": {
+      "accepted": {
+        "label": "Шақыру қабылданды",
+        "title": "{byName} {workspaceName} ұйымына шақыруды қабылдады"
+      },
+      "received": {
+        "body": "{message}",
+        "label": "Ұйымға шақыру",
+        "title": "{workspaceName} сізді жұмысқа шақырады"
+      },
+      "rejected": {
+        "label": "Шақыру қабылданбады",
+        "title": "{byName} {workspaceName} ұйымына шақырудан бас тартты"
+      }
+    },
+    "member": {
+      "removed": {
+        "label": "Ұйымнан шығару",
+        "title": "Сіз {workspaceName} ұйымынан шығарылдыңыз"
+      }
+    },
+    "position": {
+      "assigned": {
+        "body": "{branchName}",
+        "label": "Лауазым тағайындалды",
+        "title": "{workspaceName} ұйымында сізге лауазым берілді: {positionName}"
+      },
+      "certified": {
+        "label": "Аттестациядан өтті",
+        "title": "{workspaceName} ұйымында {positionName} лауазымы бойынша аттестациядан өттіңіз"
+      }
+    },
+    "role": {
+      "changed": {
+        "label": "Рөл өзгертілді",
+        "title": "{workspaceName} ұйымындағы рөліңіз өзгерді: {role}"
+      }
+    }
   }
 }

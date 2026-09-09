@@ -26,12 +26,12 @@ export const verifyStartSchema = z.object({
 export const verifyStepUpSchema = z
   .object({
     purpose: z.enum(['password_change', 'phone_change_old', 'phone_change_new']),
-    password: z.string().min(1, 'Введите пароль'),
+    password: z.string().min(1, 'validation.verify.passwordRequired'),
     newPhone: kzMobilePhoneSchema.optional(),
   })
   .refine((v) => v.purpose !== 'phone_change_new' || !!v.newPhone, {
     path: ['newPhone'],
-    message: 'Укажите новый номер телефона',
+    message: 'validation.verify.newPhoneRequired',
   });
 
 /** POST /verify/check */
@@ -39,11 +39,11 @@ export const verifyCheckSchema = z.object({
   challengeId: z.string().uuid(),
   code: z
     .string()
-    .regex(new RegExp(`^\\d{${VERIFY_LIMITS.codeLength}}$`), `Код — ${VERIFY_LIMITS.codeLength} цифр`),
+    .regex(new RegExp(`^\\d{${VERIFY_LIMITS.codeLength}}$`), 'validation.verify.code'),
 });
 
 /** Одноразовый пропуск, выданный /verify/check (64 hex-символа). */
-export const verifyTokenSchema = z.string().regex(/^[a-f0-9]{64}$/, 'Некорректный токен подтверждения');
+export const verifyTokenSchema = z.string().regex(/^[a-f0-9]{64}$/, 'validation.verify.token');
 
 /** POST /auth/password-reset — завершение сброса пароля. */
 export const passwordResetCompleteSchema = z.object({
@@ -53,7 +53,7 @@ export const passwordResetCompleteSchema = z.object({
 
 /** POST /users/me/change-password — смена пароля залогиненным (пароль + SMS step-up). */
 export const changePasswordSchema = z.object({
-  currentPassword: z.string().min(1, 'Введите текущий пароль'),
+  currentPassword: z.string().min(1, 'validation.verify.currentPasswordRequired'),
   newPassword: passwordSchema,
   verifyToken: verifyTokenSchema,
   // Свой refresh-токен: эта сессия ПЕРЕЖИВАЕТ отзыв (остальные гаснут). Не передан → гаснут все.
@@ -62,7 +62,7 @@ export const changePasswordSchema = z.object({
 
 /** POST /users/me/change-phone — смена номера (пароль + код на старый + код на новый). */
 export const changePhoneSchema = z.object({
-  password: z.string().min(1, 'Введите пароль'),
+  password: z.string().min(1, 'validation.verify.passwordRequired'),
   newPhone: kzMobilePhoneSchema,
   oldVerifyToken: verifyTokenSchema, // purpose=phone_change_old, отправлен на ТЕКУЩИЙ номер
   newVerifyToken: verifyTokenSchema, // purpose=phone_change_new, отправлен на НОВЫЙ номер

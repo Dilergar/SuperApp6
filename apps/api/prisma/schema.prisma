@@ -852,6 +852,11 @@ model Workspace {
   // (see DEFAULT_WORKSPACE_CARD_VISIBILITY in @superapp/shared). Always-visible: name, logo.
   cardVisibility Json?   @map("card_visibility")
 
+  // ЯЗЫК ДОКУМЕНТОВ организации: на нём печатаются бумаги (бланки, счета, акты)
+  // и собираются печатные слова платформы внутри них. Умолчание — государственный
+  // язык рынка (RegionProfile.defaultLocale); у отдельного бланка язык свой.
+  documentLanguage String @default("kk") @map("document_language")
+
   ownerId  String  @map("owner_id") // founder; single owner (billing/delete/transfer)
   isActive Boolean @default(true) @map("is_active")
   // Когда организацию деактивировали (отправили в архив). Отдельная колонка, а не
@@ -936,7 +941,14 @@ model LegalEntity {
   // Директор — выбор из СОТРУДНИКОВ (валидируется членством при записи; FK на users
   // нет намеренно — увольнение не должно рвать реквизиты, подпись сверяется на выдаче).
   directorUserId String?   @map("director_user_id")
-  signBasis      String?   @map("sign_basis") // «Устава» / «доверенности № 7 от …»
+  // ОСНОВАНИЕ ПОДПИСИ — структурой, а не готовой фразой: «действующего на
+  // основании Приказа № 12-к от 15.01.2026» печатается ВНУТРИ договора, а
+  // договор бывает на трёх языках. Слова подбираются на выходе — в языке
+  // бланка при рендере и в языке зрителя на экране (docs/counterparties.md).
+  signBasisKind   String?   @map("sign_basis_kind") // ustav | svid_ip | doverennost | prikaz | polozhenie | custom
+  signBasisNumber String?   @map("sign_basis_number")
+  signBasisDate   DateTime? @map("sign_basis_date") @db.Date
+  signBasisText   String?   @map("sign_basis_text") // своя формулировка целиком (kind = custom)
 
   sortOrder  Int       @default(0) @map("sort_order")
   archivedAt DateTime? @map("archived_at")
@@ -2603,7 +2615,10 @@ model FinBook {
   id        String   @id @default(uuid())
   ownerType String   @default("user") @map("owner_type") // 'user' | 'workspace'
   ownerId   String   @map("owner_id")
-  name      String   @default("Мои финансы")
+  // АВТОимя платформы (человек книгу не переименовывает): хранится в языке
+  // ИСТОЧНИКА, а показывается в языке зрителя — `FinancesService.bookName`.
+  // Дефолт БД — машинный запасной путь для строки, заведённой мимо сервиса.
+  name      String   @default("My finances")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -2980,7 +2995,14 @@ model VoiceTranscript {
 model VoiceRecording {
   id        String   @id @default(uuid())
   ownerId   String   @map("owner_id")
-  title     String
+  // ПУСТО = названия нет, оно собирается ПРИ ЧТЕНИИ в языке зрителя («Запись 05.09.2026
+  // 21:07» / «Recording …»). Хранить автоимя значило бы запереть его в языке, который
+  // был у человека в момент создания: сменив язык, он остался бы со старой лентой.
+  // Непустое — имя, введённое руками (его не трогаем никогда).
+  title     String?
+  // Момент, который НАЗЫВАЕТ автоимя. У записи звонка это начало разговора: createdAt
+  // у неё — когда запись доехала из егресса, то есть уже после конца звонка. Пусто → createdAt.
+  titleAt   DateTime? @map("title_at")
   source    String   @default("upload") // upload | web | terminal | call («Журнал звонков»)
   language  String? // предпочтительный язык расшифровки
   // «Журнал звонков»: source='call' + ссылка на запись движка звонков (без FK —
@@ -3783,7 +3805,14 @@ model Counterparty {
   // Руководитель — ТЕКСТ, а не user_id: человек вне платформы (паттерн
   // WorkspaceRequisites.directorUserId здесь неприменим — некого валидировать).
   directorName String? @map("director_name")
-  signBasis    String? @map("sign_basis") // «Устава» / «доверенности № 7 от …»
+  // ОСНОВАНИЕ ПОДПИСИ — структурой, а не готовой фразой: «действующего на
+  // основании Приказа № 12-к от 15.01.2026» печатается ВНУТРИ договора, а
+  // договор бывает на трёх языках. Слова подбираются на выходе — в языке
+  // бланка при рендере и в языке зрителя на экране (docs/counterparties.md).
+  signBasisKind   String?   @map("sign_basis_kind") // ustav | svid_ip | doverennost | prikaz | polozhenie | custom
+  signBasisNumber String?   @map("sign_basis_number")
+  signBasisDate   DateTime? @map("sign_basis_date") @db.Date
+  signBasisText   String?   @map("sign_basis_text") // своя формулировка целиком (kind = custom)
 
   phone   String?
   email   String?
@@ -3937,6 +3966,10 @@ model DocTemplate {
   fileId     String? @map("file_id") // .docx бланка; живёт и без включённого редактора
 
   fields      Json    @default("[]") // форма подачи: [{key,label,kind,required,options?}]
+  // ЯЗЫК БЛАНКА (не интерфейса): на нём печатаются слова платформы внутри
+  // документа — «М.П.», «№ … от …», месяц прописью, сумма прописью. Умолчание —
+  // язык документов организации; у бланков библиотеки ТК РК он свой (ru).
+  language    String  @default("kk")
   selfService Boolean @default(false) @map("self_service") // «сотрудник подаёт сам»
   status      String  @default("draft") // draft | published
   version     Int     @default(1)
@@ -3992,6 +4025,9 @@ model OrgDocument {
   // Снимок блоков конструктора (документ по builder-шаблону или свободный документ);
   // у docx-документов null. Снимок, а не ссылка: правка шаблона не меняет поданное.
   builderDoc Json?   @map("builder_doc")
+  // Снимок ЯЗЫКА БЛАНКА: документ печатается одинаково всегда, даже если
+  // шаблон потом переведут на другой язык.
+  language   String  @default("kk")
 
   fields Json @default("{}") // значения формы подачи
   // Объявление полей СВОБОДНОГО документа (без шаблона): у документа по шаблону

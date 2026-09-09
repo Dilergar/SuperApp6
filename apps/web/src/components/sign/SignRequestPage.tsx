@@ -18,16 +18,13 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import {
-  SIGN_ACT_STATUS_LABELS,
-  SIGN_LEVEL_LABELS,
-  SIGN_METHOD_LABELS,
-  signRequestHref,
-} from '@superapp/shared';
+import { useTranslations } from 'next-intl';
+import { signRequestHref } from '@superapp/shared';
 import { Alert, Button, Card, CardHeader, Chip, Icon, LoadingBlock, PageHeader } from '@/components/ui';
 import { PersonChip } from '@/app/circles/PersonCard';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { apiErrorMessage } from '@/lib/api';
+import { useFormatters } from '@/lib/format';
 import { fetchSignFlow, signFlowKey } from './sign-api';
 import { SignFlowModal } from './SignFlowModal';
 
@@ -39,6 +36,8 @@ export function SignRequestPage({
   /** Организация из АДРЕСА; null — открыто по личному пути */
   contextWorkspaceId?: string | null;
 }) {
+  const t = useTranslations('sign');
+  const f = useFormatters();
   const { isReady: ready } = useRequireAuth();
   const router = useRouter();
   const [signing, setSigning] = useState(false);
@@ -62,37 +61,37 @@ export function SignRequestPage({
   return (
     <>
       <PageHeader
-        breadcrumb="Подписание"
+        breadcrumb={t('page.breadcrumb')}
         title={request.refTitle}
         actions={
           <Button variant="matte" href={subject.url} icon="eye">
-            Открыть документ
+            {t('page.openDocument')}
           </Button>
         }
       />
 
       <Card>
         <CardHeader
-          title={SIGN_LEVEL_LABELS[request.level].short}
-          subtitle={SIGN_LEVEL_LABELS[request.level].full}
+          title={t(`level.${request.level}.short`)}
+          subtitle={t(`level.${request.level}.full`)}
         />
         {/* Отпечаток показываем всегда: он — единственное, чем «этот документ»
             отличается от «похожего документа», и он же печатается в протоколе. */}
         <div className="meta" style={{ wordBreak: 'break-all' }}>
-          Отпечаток SHA-256: {subject.sha256}
+          {t('fingerprint', { sha256: subject.sha256 })}
         </div>
 
         {canSign && (
           <div style={{ marginTop: 'var(--spacing-3)' }}>
             <Button variant="primary" icon="signature" onClick={() => setSigning(true)}>
-              {request.level === 'ecp' ? 'Подписать ЭЦП' : 'Подписать'}
+              {request.level === 'ecp' ? t('page.signEcp') : t('block.sign')}
             </Button>
           </div>
         )}
         {myAct && !canSign && (
           <div style={{ marginTop: 'var(--spacing-3)' }}>
             <Alert tone={myAct.status === 'signed' ? 'success' : 'warning'}>
-              {SIGN_ACT_STATUS_LABELS[myAct.status]}
+              {t(`actStatus.${myAct.status}`)}
               {myAct.declineReason ? `: ${myAct.declineReason}` : ''}
             </Alert>
           </div>
@@ -100,7 +99,10 @@ export function SignRequestPage({
       </Card>
 
       <Card style={{ marginTop: 'var(--spacing-3)' }}>
-        <CardHeader title="Подписи" subtitle={`Всего подписантов: ${request.acts.length}`} />
+        <CardHeader
+          title={t('block.title')}
+          subtitle={t('page.signersTotal', { count: request.acts.length })}
+        />
         <div style={{ display: 'grid', gap: 'var(--spacing-2)' }}>
           {request.acts.map((act) => {
             const actor = act.signerUserId ? request.actors[act.signerUserId] : undefined;
@@ -134,18 +136,18 @@ export function SignRequestPage({
                     size="sm"
                     tone={act.status === 'signed' ? 'success' : act.status === 'pending' ? 'neutral' : 'danger'}
                   >
-                    {SIGN_ACT_STATUS_LABELS[act.status]}
+                    {t(`actStatus.${act.status}`)}
                   </Chip>
                 </div>
                 {act.status === 'signed' && (
                   <div className="meta">
-                    {act.method ? SIGN_METHOD_LABELS[act.method].title : SIGN_LEVEL_LABELS[act.level].short}
-                    {act.signedAt ? ` · ${new Date(act.signedAt).toLocaleString('ru-RU')}` : ''}
+                    {act.method ? t(`method.${act.method}.title`) : t(`level.${act.level}.short`)}
+                    {act.signedAt ? ` · ${f.dateTime(act.signedAt)}` : ''}
                   </div>
                 )}
                 {act.checkUrl && (
                   <a className="meta" href={act.checkUrl} target="_blank" rel="noreferrer">
-                    Проверить подпись
+                    {t('block.check')}
                   </a>
                 )}
               </div>

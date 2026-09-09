@@ -1,7 +1,10 @@
 import { Tabs } from 'expo-router';
+import { useTranslations } from 'use-intl';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function AppLayout() {
+  const tShell = useTranslations('shell');
+  const tProfile = useTranslations('profile');
   return (
     <Tabs
       screenOptions={{
@@ -18,7 +21,7 @@ export default function AppLayout() {
       <Tabs.Screen
         name="dashboard"
         options={{
-          title: 'Главная',
+          title: tShell('nav.dashboard'),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="grid-outline" size={size} color={color} />
           ),
@@ -27,7 +30,7 @@ export default function AppLayout() {
       <Tabs.Screen
         name="tasks"
         options={{
-          title: 'Задачи',
+          title: tShell('nav.tasks'),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="checkbox-outline" size={size} color={color} />
           ),
@@ -36,7 +39,7 @@ export default function AppLayout() {
       <Tabs.Screen
         name="calendar"
         options={{
-          title: 'Календарь',
+          title: tShell('nav.calendar'),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="calendar-outline" size={size} color={color} />
           ),
@@ -45,7 +48,7 @@ export default function AppLayout() {
       <Tabs.Screen
         name="circles"
         options={{
-          title: 'Окружение',
+          title: tShell('nav.circles'),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="people-outline" size={size} color={color} />
           ),
@@ -54,7 +57,7 @@ export default function AppLayout() {
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Профиль',
+          title: tProfile('title'),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="person-outline" size={size} color={color} />
           ),

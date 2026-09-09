@@ -6,7 +6,8 @@ import { useQuery } from '@tanstack/react-query';
 import type { SearchResultItem, SearchSourceType } from '@superapp/shared';
 import { SEARCH_LIMITS } from '@superapp/shared';
 import { searchGlobal } from '@/lib/messenger-api';
-import { Avatar, PersonAvatar, formatListTime } from './messenger-ui';
+import { useTranslations } from 'next-intl';
+import { Avatar, PersonAvatar, useListTime } from './messenger-ui';
 import { stripMentions } from './mention-render';
 
 // ============================================================
@@ -18,17 +19,18 @@ import { stripMentions } from './mention-render';
 // then clear the search.
 // ============================================================
 
-const SECTION_LABELS: Record<SearchSourceType, string> = {
-  chat: 'Чаты',
-  person: 'Люди',
-  message: 'Сообщения',
-  note: 'Заметки',
-  drive_node: 'Диск',
-  org_document: 'Документы',
-  counterparty: 'Контрагенты',
-  org_unit: 'Оргструктура',
-  branch: 'Объекты',
-  asset: 'Оборудование',
+/** Раздел выдачи называет СМЫСЛ, слово ему даёт каталог. */
+const SECTION_LABEL_KEYS: Record<SearchSourceType, string> = {
+  chat: 'search.chats',
+  person: 'search.people',
+  message: 'search.messages',
+  note: 'search.notes',
+  drive_node: 'search.driveNodes',
+  org_document: 'search.orgDocuments',
+  counterparty: 'search.counterparties',
+  org_unit: 'search.orgUnits',
+  branch: 'search.branches',
+  asset: 'search.assets',
 };
 // Stable display order of the grouped sections. Диск идёт последним: в поиске
 // ВНУТРИ мессенджера чаще ищут переписку, а не файлы.
@@ -49,6 +51,7 @@ export function GlobalSearch({
   /** The normal chat list — shown when no query is active. */
   children: ReactNode;
 }) {
+  const t = useTranslations('messenger');
   const [raw, setRaw] = useState('');
   const [debounced, setDebounced] = useState('');
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -123,9 +126,9 @@ export function GlobalSearch({
                 inputRef.current?.blur();
               }
             }}
-            placeholder="Поиск по чатам, людям, сообщениям…"
+            placeholder={t('search.placeholder')}
             maxLength={SEARCH_LIMITS.maxQueryLength}
-            aria-label="Глобальный поиск"
+            aria-label={t('search.aria')}
             style={{
               width: '100%',
               padding: '0.55rem 2.2rem 0.55rem 2.1rem',
@@ -145,8 +148,8 @@ export function GlobalSearch({
                 clear();
                 inputRef.current?.focus();
               }}
-              aria-label="Очистить поиск"
-              title="Очистить"
+              aria-label={t('search.clearAria')}
+              title={t('search.clear')}
               style={{
                 position: 'absolute',
                 right: '0.5rem',
@@ -169,14 +172,14 @@ export function GlobalSearch({
       {showResults ? (
         <div style={{ flex: 1, overflowY: 'auto', padding: '0 var(--spacing-2) var(--spacing-2)' }}>
           {query.isLoading && (
-            <p className="label-sm" style={{ padding: 'var(--spacing-4)' }}>Поиск…</p>
+            <p className="label-sm" style={{ padding: 'var(--spacing-4)' }}>{t('search.searching')}</p>
           )}
 
           {isEmpty && (
             <div style={{ padding: 'var(--spacing-8) var(--spacing-4)', textAlign: 'center' }}>
-              <p className="label-md" style={{ marginBottom: 'var(--spacing-1)' }}>Ничего не найдено</p>
+              <p className="label-md" style={{ marginBottom: 'var(--spacing-1)' }}>{t('search.nothingFound')}</p>
               <p className="label-sm" style={{ opacity: 0.7 }}>
-                По запросу «{debounced}» совпадений нет
+                {t('search.noMatches', { query: debounced })}
               </p>
             </div>
           )}
@@ -198,7 +201,7 @@ export function GlobalSearch({
                       opacity: 0.8,
                     }}
                   >
-                    {SECTION_LABELS[group.type]}
+                    {t(SECTION_LABEL_KEYS[group.type])}
                   </div>
                   {group.items.map((item) => (
                     <SearchRow
@@ -222,7 +225,7 @@ export function GlobalSearch({
                         fontStyle: 'italic',
                       }}
                     >
-                      …ещё
+                      {t('search.more')}
                     </div>
                   )}
                 </div>
@@ -251,6 +254,7 @@ function SearchRow({
   query: string;
   onSelect: () => void;
 }) {
+  const listTime = useListTime();
   const isMessage = item.type === 'message';
   const secondary = isMessage ? stripMentions(item.snippet) : item.snippet ?? '';
 
@@ -300,7 +304,7 @@ function SearchRow({
           </span>
           {isMessage && item.createdAt && (
             <span className="label-sm" style={{ fontSize: '0.66rem', flexShrink: 0 }}>
-              {formatListTime(item.createdAt)}
+              {listTime(item.createdAt)}
             </span>
           )}
         </div>

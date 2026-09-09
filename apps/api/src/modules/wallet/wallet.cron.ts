@@ -57,13 +57,13 @@ export class WalletCron {
         if (!ok) {
           broken++;
           this.logger.error(
-            `ЛЕДЖЕР РАСХОДИТСЯ: валюта «${c.name}» (${c.id}) Σ=${net} (должно быть 0) — расследовать немедленно`,
+            `LEDGER OUT OF BALANCE: currency "${c.name}" (${c.id}) net=${net} (must be 0) — investigate immediately`,
           );
         }
       }
       if (broken === 0) {
         this.logger.log(
-          `Ledger reconcile (${fullSweep ? 'full' : 'incremental'}): ${currencies.length} валют, Σ=0 везде`,
+          `Ledger reconcile (${fullSweep ? 'full' : 'incremental'}): ${currencies.length} currencies, net=0 everywhere`,
         );
       }
       if (currentMax !== null) {

@@ -144,6 +144,7 @@ export * from './constants/legal-entity';
 export * from './constants/objects';
 export * from './constants/templates';
 export * from './constants/org-documents';
+export * from './constants/doc-template-dsl';
 export * from './constants/counterparties';
 export * from './constants/hr';
 export * from './constants/hr-library';

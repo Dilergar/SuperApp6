@@ -4,7 +4,9 @@ import { CloseChip, ModalShell } from '@/components/ui';
 import { useEffect } from 'react';
 import type { FileDto } from '@superapp/shared';
 import { useFileDisplayUrl } from '../../lib/hooks/useFileUrl';
-import { hasVariant, humanSize } from './files-ui';
+import { hasVariant } from './files-ui';
+import { useBytes } from '../../lib/format';
+import { useTranslations } from 'next-intl';
 
 interface ImageLightboxProps {
   file: FileDto;
@@ -13,6 +15,8 @@ interface ImageLightboxProps {
 
 /** Полноэкранный просмотр изображения (medium-вариант, если есть; Esc/клик — закрыть) */
 export function ImageLightbox({ file, onClose }: ImageLightboxProps) {
+  const t = useTranslations('common');
+  const humanSize = useBytes();
   const variant = hasVariant(file, 'medium') ? ('medium' as const) : undefined;
   const { url, isLoading } = useFileDisplayUrl(file, variant);
 
@@ -27,7 +31,7 @@ export function ImageLightbox({ file, onClose }: ImageLightboxProps) {
   return (
     <ModalShell onClose={onClose}>
       {isLoading || !url ? (
-        <div style={{ color: 'var(--on-primary)', fontFamily: 'var(--font-body)' }}>Загружаю…</div>
+        <div style={{ color: 'var(--on-primary)', fontFamily: 'var(--font-body)' }}>{t('state.loading')}</div>
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img

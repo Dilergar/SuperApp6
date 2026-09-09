@@ -10,7 +10,7 @@ import type { ProcessNodeProvider } from './process-node.types';
 
 const noHtml = (s: string) => !/[<>]/.test(s);
 const textField = (max: number, min = 0) =>
-  z.string().min(min, 'Поле обязательно').max(max).refine(noHtml, 'Недопустимые символы');
+  z.string().min(min, 'processes.validation.required').max(max).refine(noHtml, 'processes.validation.badCharacters');
 
 /**
  * Runtime-проверка членства: публикация валидирует состав, но человек мог быть уволен
@@ -33,7 +33,7 @@ async function assertActiveMember(
       role: { in: [...TEAM_WORKSPACE_ROLES] },
     },
   });
-  if (count === 0) throw new Error(`${who} больше не работает в организации`);
+  if (count === 0) throw new Error(`${who} no longer works in the organization`);
 }
 
 // ============================================================
@@ -50,24 +50,19 @@ async function assertActiveMember(
 /** runAs — действующий сотрудник, от чьего лица идёт авто-запущенный процесс (создаёт задачи/уведомления). */
 const runAsField = {
   key: 'runAsUserId',
-  label: 'От имени',
   kind: 'member' as const,
   required: true,
-  help: 'От чьего лица идёт процесс при авто-запуске (создаёт задачи, шлёт уведомления).',
 };
 
 /** Триггер «Запуск вручную»: человек жмёт «Запустить» и заполняет анкету. Точка входа по умолчанию. */
 export const startNode: ProcessNodeProvider = {
   descriptor: {
     type: 'start', // тип-ключ сохранён (back-compat с сохранёнными документами)
-    title: 'Запуск вручную',
-    description:
-      'Запуск кнопкой «Запустить»: инициатор заполняет анкету и стартует процесс. Точка входа — её можно удалить, если запуск только автоматический.',
     category: 'trigger',
     icon: 'click',
     tier: 'standard',
     trigger: true,
-    outputs: [{ key: 'main', label: '' }],
+    outputs: [{ key: 'main' }],
     fields: [],
     configSchema: z.object({}).passthrough(),
     auto: true,
@@ -81,28 +76,25 @@ export const startNode: ProcessNodeProvider = {
 export const scheduleTriggerNode: ProcessNodeProvider = {
   descriptor: {
     type: 'trigger.schedule',
-    title: 'По расписанию',
-    description: 'Запускает процесс автоматически каждые N часов/дней. Анкета не заполняется (берёт значения по умолчанию).',
     category: 'trigger',
     icon: 'clock',
     tier: 'standard',
     trigger: true,
-    outputs: [{ key: 'main', label: '' }],
+    outputs: [{ key: 'main' }],
     fields: [
-      { key: 'everyValue', label: 'Каждые', kind: 'number', required: true, placeholder: '1' },
+      { key: 'everyValue', kind: 'number', required: true },
       {
         key: 'everyUnit',
-        label: 'Единица',
         kind: 'select',
         required: true,
-        options: PROCESS_SCHEDULE_UNITS.map((u) => ({ value: u.value, label: u.label })),
+        options: PROCESS_SCHEDULE_UNITS
       },
-      runAsField,
+      runAsField
     ],
     configSchema: z.object({
       everyValue: z.coerce.number().int().min(1).max(100000),
       everyUnit: z.enum(['hours', 'days']),
-      runAsUserId: z.string().uuid('Выберите, от чьего имени идёт процесс'),
+      runAsUserId: z.string().uuid('processes.validation.runAsRequired'),
     }),
     auto: true,
   },
@@ -115,16 +107,14 @@ export const scheduleTriggerNode: ProcessNodeProvider = {
 export const webhookTriggerNode: ProcessNodeProvider = {
   descriptor: {
     type: 'trigger.webhook',
-    title: 'Веб-хук',
-    description: 'Внешняя система (Kaspi, 1С, сайт…) вызывает публичный URL — процесс запускается. URL появится в этой панели после публикации; тело запроса попадает в анкету.',
     category: 'trigger',
     icon: 'plug',
     tier: 'standard',
     trigger: true,
-    outputs: [{ key: 'main', label: '' }],
+    outputs: [{ key: 'main' }],
     fields: [runAsField],
     configSchema: z.object({
-      runAsUserId: z.string().uuid('Выберите, от чьего имени идёт процесс'),
+      runAsUserId: z.string().uuid('processes.validation.runAsRequired'),
     }),
     auto: true,
   },
@@ -137,33 +127,32 @@ export const webhookTriggerNode: ProcessNodeProvider = {
 export const eventTriggerNode: ProcessNodeProvider = {
   descriptor: {
     type: 'trigger.event',
-    title: 'Событие в SuperApp',
-    description: 'Запускает процесс на событие платформы: принят сотрудник, назначена должность, завершена/создана задача и т.п.',
     category: 'trigger',
     icon: 'broadcast',
     tier: 'standard',
     trigger: true,
-    outputs: [{ key: 'main', label: '' }],
+    outputs: [{ key: 'main' }],
     fields: [
       {
         key: 'eventType',
-        label: 'Событие',
         kind: 'select',
         required: true,
-        options: PROCESS_EVENT_TYPES.map((e) => ({ value: e.value, label: e.label })),
+        options: PROCESS_EVENT_TYPES
       },
       // Ф2 (sfflow#1): условие запуска — фильтр по полю данных события ДО старта (необязательно).
-      { key: 'condField', label: 'Условие: поле события (необяз.)', kind: 'text', placeholder: 'напр. taskTitle', help: 'Запускать только если это поле события удовлетворяет условию. Пусто — запускать всегда.' },
-      { key: 'condOp', label: 'Условие: оператор', kind: 'select', options: PROCESS_CONDITION_OPS.map((o) => ({ value: o.value, label: o.label })) },
-      { key: 'condValue', label: 'Условие: значение', kind: 'text' },
-      runAsField,
+      { key: 'condField', kind: 'text' },
+      { key: 'condOp', kind: 'select', options: PROCESS_CONDITION_OPS },
+      { key: 'condValue', kind: 'text' },
+      runAsField
     ],
     configSchema: z.object({
-      eventType: z.string().refine((v) => PROCESS_EVENT_TYPES.some((e) => e.value === v), 'Выберите событие'),
+      eventType: z
+        .string()
+        .refine((v) => (PROCESS_EVENT_TYPES as readonly string[]).includes(v), 'processes.validation.eventRequired'),
       condField: z.string().max(64).optional(),
       condOp: z.enum(['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'contains', 'empty', 'not_empty']).optional(),
       condValue: textField(200).optional(),
-      runAsUserId: z.string().uuid('Выберите, от чьего имени идёт процесс'),
+      runAsUserId: z.string().uuid('processes.validation.runAsRequired'),
     }),
     auto: true,
   },
@@ -181,27 +170,22 @@ export const eventTriggerNode: ProcessNodeProvider = {
 export const telegramTriggerNode: ProcessNodeProvider = {
   descriptor: {
     type: 'trigger.telegram',
-    title: 'Telegram: входящее',
-    description:
-      'Запускает процесс, когда боту пишут в Telegram. Доступно нодам: текст → {{form.text}}, чат → {{form.chatId}}, имя → {{form.fromName}}. Ответ — нодой «Telegram» с Chat ID = {{form.chatId}}.',
     category: 'trigger',
     icon: 'telegram',
     tier: 'standard',
     trigger: true,
-    outputs: [{ key: 'main', label: '' }],
+    outputs: [{ key: 'main' }],
     fields: [
       {
         key: 'credentialId',
-        label: 'Токен бота (кред)',
         kind: 'credential',
-        required: true,
-        help: 'Bearer-кред с токеном от @BotFather. После публикации вебхук бота настроится сам (нужен публичный API-адрес; на localhost — настроить вручную).',
+        required: true
       },
-      runAsField,
+      runAsField
     ],
     configSchema: z.object({
-      credentialId: z.string().uuid('Выберите кред с токеном бота'),
-      runAsUserId: z.string().uuid('Выберите, от чьего имени идёт процесс'),
+      credentialId: z.string().uuid('processes.validation.botTokenRequired'),
+      runAsUserId: z.string().uuid('processes.validation.runAsRequired'),
     }),
     auto: true,
   },
@@ -234,33 +218,28 @@ function deadlineFrom(hours?: number): Date | undefined {
 export const humanTaskNode: ProcessNodeProvider = {
   descriptor: {
     type: 'human.task',
-    title: 'Задача человеку',
-    description:
-      'Создаёт задачу в Задачнике (чат, напоминания) и ждёт приёмки. Режим «Отдел» — задача встаёт в очередь, её забирает любой сотрудник отдела. Подстановки {{form.поле}}.',
     category: 'people',
     icon: 'tasks',
     tier: 'standard',
-    outputs: [{ key: 'main', label: '' }],
+    outputs: [{ key: 'main' }],
     fields: [
-      { key: 'title', label: 'Название задачи', kind: 'text', required: true, placeholder: 'Найти стиральную машину до {{form.budget}} ₸' },
-      { key: 'description', label: 'Описание', kind: 'textarea', placeholder: 'Что нужно сделать (видно исполнителю)' },
+      { key: 'title', kind: 'text', required: true },
+      { key: 'description', kind: 'textarea' },
       {
         key: 'assigneeMode',
-        label: 'Исполнитель',
         kind: 'select',
         required: true,
         options: [
-          { value: 'member', label: 'Сотрудник' },
-          { value: 'department', label: 'Отдел (очередь)' },
-          { value: 'initiator', label: 'Инициатор процесса' },
+          'member',
+          'department',
+          'initiator',
           // Оргструктура: руководитель инициатора по факту назначений (вершина → владелец)
-          { value: 'initiator_manager', label: 'Руководитель инициатора' },
-        ],
-        help: 'Руководитель считается по оргструктуре в момент шага; если руководитель не найден — владелец организации.',
+          'initiator_manager'
+        ]
       },
-      { key: 'assigneeUserId', label: 'Кто', kind: 'member', showIf: { field: 'assigneeMode', in: ['member'] } },
-      { key: 'departmentId', label: 'Отдел', kind: 'department', showIf: { field: 'assigneeMode', in: ['department'] } },
-      { key: 'dueInHours', label: 'Срок (часов с момента шага)', kind: 'number', placeholder: '24' },
+      { key: 'assigneeUserId', kind: 'member', showIf: { field: 'assigneeMode', in: ['member'] } },
+      { key: 'departmentId', kind: 'department', showIf: { field: 'assigneeMode', in: ['department'] } },
+      { key: 'dueInHours', kind: 'number' }
     ],
     configSchema: z
       .object({
@@ -272,11 +251,11 @@ export const humanTaskNode: ProcessNodeProvider = {
         dueInHours: z.coerce.number().int().min(1).max(24 * 365).optional(),
       })
       .refine((c) => c.assigneeMode !== 'member' || !!c.assigneeUserId, {
-        message: 'Выберите сотрудника-исполнителя',
+        message: 'processes.validation.assigneeRequired',
         path: ['assigneeUserId'],
       })
       .refine((c) => c.assigneeMode !== 'department' || !!c.departmentId, {
-        message: 'Выберите отдел',
+        message: 'processes.validation.departmentRequired',
         path: ['departmentId'],
       }),
     auto: false, // токен «спит» в БД, пока задачу не примут/не заберут — Wait-механика n8n
@@ -304,7 +283,7 @@ export const humanTaskNode: ProcessNodeProvider = {
         where: { id: cfg.departmentId! },
         select: { name: true, workspaceId: true },
       });
-      if (!dep || dep.workspaceId !== ctx.workspaceId) throw new Error('Отдел не найден');
+      if (!dep || dep.workspaceId !== ctx.workspaceId) throw new Error('the department was not found');
       const memberIds = await departmentMemberIds(ctx, cfg.departmentId!);
       await ctx.deps.notifications
         .send(null, {
@@ -336,12 +315,13 @@ export const humanTaskNode: ProcessNodeProvider = {
         { workspaceId: ctx.workspaceId, initiatorId: ctx.startedById, selfId: ctx.startedById },
         { max: 50, onOverflow: 'truncate' },
       );
-      if (!ids.length) throw new Error('Руководитель инициатора не найден: у организации нет ни структуры, ни владельца в команде');
+      if (!ids.length)
+      throw new Error('the manager of the initiator was not found: the organization has neither a structure nor an owner in the team');
       assigneeId = ids[0];
     } else {
       assigneeId = cfg.assigneeMode === 'initiator' ? ctx.startedById : cfg.assigneeUserId!;
     }
-    await assertActiveMember(ctx, assigneeId, 'Исполнитель шага');
+    await assertActiveMember(ctx, assigneeId, 'the assignee of the step');
     // Создаём от имени инициатора (он — Постановщик и принимает работу).
     const task = await ctx.deps.tasks.createTask(
       ctx.startedById,
@@ -373,88 +353,77 @@ export const humanTaskNode: ProcessNodeProvider = {
 export const approvalNode: ProcessNodeProvider = {
   descriptor: {
     type: 'human.approval',
-    title: 'Решение человека',
-    description:
-      'Отправляет предмет человеку на согласование, подпись или ознакомление. Решение принимается в общей стопке «Ждут решения» — из уведомления, с Главной или прямо из чата. Подстановки {{form.поле}}.',
     category: 'people',
     icon: 'checkCircle',
     tier: 'standard',
     outputs: [
-      { key: 'approved', label: 'Согласовано' },
-      { key: 'rejected', label: 'Отклонено' },
+      { key: 'approved' },
+      { key: 'rejected' },
       // Третий исход добавлен к УЖЕ опубликованным нодам, поэтому необязательный:
       // без этого каждый нарисованный маршрут стал бы невалидным на первой же
       // проверке. Не подключён — токен уходит по «Отклонено» (см. fallback).
-      { key: 'returned', label: 'На доработку', optional: true, fallback: 'rejected' },
+      { key: 'returned', optional: true, fallback: 'rejected' }
     ],
     fields: [
       {
         key: 'kind',
-        label: 'Что требуется',
         kind: 'select',
         options: [
-          { value: 'approval', label: 'Согласовать' },
-          { value: 'signature', label: 'Подписать' },
-          { value: 'acknowledgement', label: 'Ознакомиться' },
-        ],
-        help: 'У ознакомления исход один: отказаться от ознакомления нельзя.',
+          'approval',
+          'signature',
+          'acknowledgement'
+        ]
       },
-      { key: 'title', label: 'Что решаем', kind: 'text', required: true, placeholder: 'Покупка стиральной машины за {{form.budget}} ₸' },
+      { key: 'title', kind: 'text', required: true },
       {
         key: 'assigneeMode',
-        label: 'Кто решает',
         kind: 'select',
         required: true,
         options: [
-          { value: 'member', label: 'Сотрудник' },
-          { value: 'position', label: 'Должность (кто на ней сейчас)' },
-          { value: 'department', label: 'Отдел' },
+          'member',
+          'position',
+          'department',
           // Ось `branch#member` давно проецируется в движок прав и объявлена
           // адресатом в APPROVAL_ASSIGNEE_TYPES — недоставало только режима
           // здесь, из-за чего «ознакомить филиал с приказом» было недостижимо
           // с канваса вовсе.
-          { value: 'branch', label: 'Филиал' },
-          { value: 'initiator', label: 'Инициатор процесса' },
+          'branch',
+          'initiator',
           // КЭДО: работник знакомится с приказом О СЕБЕ, кто бы ни запускал маршрут.
           // До этого режима адресовать шаг стороне документа было нечем: инициатор
           // кадрового маршрута — кадровик, а не работник.
-          { value: 'subject', label: 'Сторона документа (сотрудник в приказе)' },
+          'subject',
           // Оргструктура (core/audiences): относительные адресаты — считаются в момент
           // активации шага; руководитель не найден → владелец организации.
-          { value: 'initiator_manager', label: 'Руководитель инициатора' },
-          { value: 'subject_manager', label: 'Руководитель стороны документа' },
-          { value: 'branch_head', label: 'Руководитель объекта инициатора' },
-        ],
-        help: 'Относительные адресаты (руководитель…) считаются по оргструктуре в момент шага; руководитель не найден → владелец организации.',
+          'initiator_manager',
+          'subject_manager',
+          'branch_head'
+        ]
       },
-      { key: 'assigneeUserId', label: 'Кто', kind: 'member', showIf: { field: 'assigneeMode', in: ['member'] } },
-      { key: 'positionId', label: 'Должность', kind: 'position', showIf: { field: 'assigneeMode', in: ['position'] } },
-      { key: 'departmentId', label: 'Отдел', kind: 'department', showIf: { field: 'assigneeMode', in: ['department'] } },
-      { key: 'branchId', label: 'Филиал', kind: 'branch', showIf: { field: 'assigneeMode', in: ['branch'] } },
+      { key: 'assigneeUserId', kind: 'member', showIf: { field: 'assigneeMode', in: ['member'] } },
+      { key: 'positionId', kind: 'position', showIf: { field: 'assigneeMode', in: ['position'] } },
+      { key: 'departmentId', kind: 'department', showIf: { field: 'assigneeMode', in: ['department'] } },
+      { key: 'branchId', kind: 'branch', showIf: { field: 'assigneeMode', in: ['branch'] } },
       {
         key: 'rule',
-        label: 'Сколько ответов нужно',
         kind: 'select',
         options: [
-          { value: 'any', label: 'Любой из них' },
-          { value: 'all', label: 'Каждый' },
+          'any',
+          'all'
         ],
-        showIf: { field: 'assigneeMode', in: ['position', 'department', 'branch'] },
-        help: 'Состав фиксируется снимком в момент, когда шаг дошёл до людей.',
+        showIf: { field: 'assigneeMode', in: ['position', 'department', 'branch'] }
       },
       {
         key: 'signatureLevel',
-        label: 'Чем подписывать',
         kind: 'select',
         options: [
-          { value: 'none', label: 'Достаточно нажать кнопку' },
-          { value: 'pep', label: 'Простой подписью (код из SMS)' },
-          { value: 'ecp', label: 'ЭЦП (ключ НУЦ РК)' },
+          'none',
+          'pep',
+          'ecp'
         ],
-        showIf: { field: 'kind', in: ['signature'] },
-        help: 'Кадровые документы по ст. 33 ТК РК подписываются ЭЦП. Уровень обычно подставляется из вида документа.',
+        showIf: { field: 'kind', in: ['signature'] }
       },
-      { key: 'dueInHours', label: 'Срок решения (часов)', kind: 'number', placeholder: '24' },
+      { key: 'dueInHours', kind: 'number' }
     ],
     configSchema: z
       .object({
@@ -475,19 +444,19 @@ export const approvalNode: ProcessNodeProvider = {
         dueInHours: z.coerce.number().int().min(1).max(24 * 365).optional(),
       })
       .refine((c) => c.assigneeMode !== 'member' || !!c.assigneeUserId, {
-        message: 'Выберите согласующего',
+        message: 'processes.validation.approverRequired',
         path: ['assigneeUserId'],
       })
       .refine((c) => c.assigneeMode !== 'position' || !!c.positionId, {
-        message: 'Выберите должность',
+        message: 'processes.validation.positionRequired',
         path: ['positionId'],
       })
       .refine((c) => c.assigneeMode !== 'department' || !!c.departmentId, {
-        message: 'Выберите отдел',
+        message: 'processes.validation.departmentRequired',
         path: ['departmentId'],
       })
       .refine((c) => c.assigneeMode !== 'branch' || !!c.branchId, {
-        message: 'Выберите филиал',
+        message: 'processes.validation.branchRequired',
         path: ['branchId'],
       }),
     auto: false, // токен спит, пока человек не решит — будит хук движка согласований
@@ -512,7 +481,7 @@ export const approvalNode: ProcessNodeProvider = {
     // отбрасывает; маршрут без стороны — честная ошибка, не пустой шаг.
     if ((cfg.assigneeMode === 'subject' || cfg.assigneeMode === 'subject_manager') && typeof ctx.variables._subjectUserId !== 'string') {
       throw new Error(
-        'Шаг адресован стороне документа, но у запуска её нет: этот маршрут запускается отправкой документа с сотрудником-стороной',
+        'processes.validation.subjectMissing',
       );
     }
     const assignee: { type: 'user' | 'position' | 'department' | 'branch' | 'manager_of' | 'branch_head_of'; id: string } =
@@ -537,7 +506,7 @@ export const approvalNode: ProcessNodeProvider = {
     // Уволенный после публикации не должен получать решения (та же runtime-проверка,
     // что у задач и уведомлений). Для должности и отдела состав проверит сам движок
     // согласований, развернув снимок: пустой снимок — это честный тупик с уведомлением.
-    if (assignee.type === 'user') await assertActiveMember(ctx, assignee.id, 'Согласующий');
+    if (assignee.type === 'user') await assertActiveMember(ctx, assignee.id, 'the approver');
 
     // Предмет решения. По умолчанию — САМ ЗАПУСК процесса: у него есть анкета, история
     // шагов и адрес. Но если маршрут ведёт предмет (документ отправлен на согласование),
@@ -604,25 +573,22 @@ export const PROCESS_ORIGIN_TYPE = 'process';
 export const delayNode: ProcessNodeProvider = {
   descriptor: {
     type: 'delay',
-    title: 'Пауза',
-    description: 'Останавливает процесс на заданное время, затем продолжает.',
     category: 'flow',
     icon: 'hourglass',
     tier: 'standard',
-    outputs: [{ key: 'main', label: '' }],
+    outputs: [{ key: 'main' }],
     fields: [
-      { key: 'amount', label: 'Сколько ждать', kind: 'number', required: true, placeholder: '1' },
+      { key: 'amount', kind: 'number', required: true },
       {
         key: 'unit',
-        label: 'Единица',
         kind: 'select',
         required: true,
         options: [
-          { value: 'minutes', label: 'минут' },
-          { value: 'hours', label: 'часов' },
-          { value: 'days', label: 'дней' },
-        ],
-      },
+          'minutes',
+          'hours',
+          'days'
+        ]
+      }
     ],
     configSchema: z.object({
       amount: z.coerce.number().int().min(1).max(100000),
@@ -644,33 +610,29 @@ const DELAY_UNIT_MS: Record<string, number> = { minutes: 60_000, hours: 3_600_00
 export const conditionNode: ProcessNodeProvider = {
   descriptor: {
     type: 'condition',
-    title: 'Если',
-    description: 'Сравнивает поле анкеты с значением и ведёт токен по ветке «Да» или «Нет».',
     category: 'flow',
     icon: 'condition',
     tier: 'standard',
     outputs: [
-      { key: 'true', label: 'Да' },
-      { key: 'false', label: 'Нет' },
+      { key: 'true' },
+      { key: 'false' }
     ],
     fields: [
-      { key: 'field', label: 'Поле анкеты', kind: 'formField', required: true },
+      { key: 'field', kind: 'formField', required: true },
       {
         key: 'op',
-        label: 'Условие',
         kind: 'select',
         required: true,
-        options: PROCESS_CONDITION_OPS.map((o) => ({ value: o.value, label: o.label })),
+        options: PROCESS_CONDITION_OPS
       },
       {
         key: 'value',
-        label: 'Значение',
         kind: 'text',
-        showIf: { field: 'op', in: ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'contains'] },
-      },
+        showIf: { field: 'op', in: ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'contains'] }
+      }
     ],
     configSchema: z.object({
-      field: z.string().min(1, 'Выберите поле анкеты').max(48),
+      field: z.string().min(1, 'processes.validation.formFieldRequired').max(48),
       op: z.enum(['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'contains', 'empty', 'not_empty']),
       value: textField(200).optional(),
     }),
@@ -679,7 +641,7 @@ export const conditionNode: ProcessNodeProvider = {
   validateConfig(config, doc) {
     const field = config.field as string | undefined;
     if (field && !doc.form.some((f) => f.key === field)) {
-      return [{ field: 'field', message: `Поле анкеты «${field}» не существует` }];
+      return [{ field: 'field', message: 'processes.validation.formFieldUnknown' }];
     }
     return [];
   },
@@ -708,10 +670,10 @@ export function evalCondition(raw: unknown, op: string, expected?: string): bool
 
   switch (op) {
     case 'eq':
-      if (typeof raw === 'boolean') return raw === (exp === 'true' || exp === 'да');
+      if (typeof raw === 'boolean') return raw === (exp === 'true');
       return bothNumeric ? numRaw === numExp : String(raw ?? '') === exp;
     case 'ne':
-      if (typeof raw === 'boolean') return raw !== (exp === 'true' || exp === 'да');
+      if (typeof raw === 'boolean') return raw !== (exp === 'true');
       return bothNumeric ? numRaw !== numExp : String(raw ?? '') !== exp;
     case 'gt':
       return bothNumeric && numRaw > numExp;
@@ -732,30 +694,27 @@ export function evalCondition(raw: unknown, op: string, expected?: string): bool
 export const notifyNode: ProcessNodeProvider = {
   descriptor: {
     type: 'notify',
-    title: 'Уведомить',
-    description: 'Отправляет уведомление инициатору или выбранному сотруднику. Поддерживает подстановки {{form.поле}}.',
     category: 'service',
     icon: 'bell',
     tier: 'standard',
     // main — поток; astool — подключение к AI-Агенту как инструмент (один узел = действие И инструмент, модель n8n).
     outputs: [
-      { key: 'main', label: '' },
-      { key: 'astool', label: 'как инструмент', type: 'ai_tool' },
+      { key: 'main' },
+      { key: 'astool', type: 'ai_tool' }
     ],
     fields: [
       {
         key: 'to',
-        label: 'Кому',
         kind: 'select',
         required: true,
         options: [
-          { value: 'initiator', label: 'Инициатору процесса' },
-          { value: 'member', label: 'Сотруднику' },
-        ],
+          'initiator',
+          'member'
+        ]
       },
-      { key: 'userId', label: 'Кто', kind: 'member', showIf: { field: 'to', in: ['member'] } },
-      { key: 'title', label: 'Заголовок', kind: 'text', help: 'Для обычной ноды — обязательно. Как инструмент агента: текст придумывает агент (шлёт инициатору).' },
-      { key: 'message', label: 'Текст', kind: 'textarea' },
+      { key: 'userId', kind: 'member', showIf: { field: 'to', in: ['member'] } },
+      { key: 'title', kind: 'text' },
+      { key: 'message', kind: 'textarea' }
     ],
     configSchema: z
       .object({
@@ -765,13 +724,14 @@ export const notifyNode: ProcessNodeProvider = {
         message: textField(600).optional(),
       })
       .refine((c) => c.to !== 'member' || !!c.userId, {
-        message: 'Выберите получателя',
+        message: 'processes.validation.recipientRequired',
         path: ['userId'],
       }),
     auto: true,
     tool: {
       name: 'notify_initiator',
-      description: 'Отправить короткое уведомление инициатору процесса.',
+      // Описание инструмента читает МОДЕЛЬ — оно остаётся английским.
+      description: 'Send a notification to the person who started the process.',
       schema: { type: 'object', properties: { title: { type: 'string' }, message: { type: 'string' } }, required: ['title'] },
       async execute(ctx, input) {
         await ctx.deps.notifications
@@ -786,7 +746,7 @@ export const notifyNode: ProcessNodeProvider = {
             budget: 'workspace',
           })
           .catch(() => undefined);
-        return 'Уведомление отправлено';
+        return 'The notification was sent';
       },
     },
   },
@@ -796,9 +756,10 @@ export const notifyNode: ProcessNodeProvider = {
     const recipientId = cfg.to === 'initiator' ? ctx.startedById : cfg.userId;
     // Уведомление — best-effort (sfflow#3): любой сбой (нет заголовка/получателя, получатель
     // уволен) НЕ валит процесс — фиксируем в output и продолжаем по main.
-    if (!title || !recipientId) return { kind: 'complete', output: { skipped: !title ? 'нет заголовка' : 'нет получателя' } };
+    if (!title || !recipientId)
+      return { kind: 'complete', output: { skipped: !title ? 'no title' : 'no recipient' } };
     try {
-      if (cfg.to === 'member') await assertActiveMember(ctx, recipientId, 'Получатель уведомления');
+      if (cfg.to === 'member') await assertActiveMember(ctx, recipientId, 'the notification recipient');
       // Программируемый продюсер — с бюджетом организации (10 000 событий/час);
       // сверх бюджета движок отвечает `notification.rateLimited`, нода фиксирует skipped.
       await ctx.deps.notifications.send(null, {
@@ -822,12 +783,10 @@ export const notifyNode: ProcessNodeProvider = {
 export const splitNode: ProcessNodeProvider = {
   descriptor: {
     type: 'parallel.split',
-    title: 'Развилка',
-    description: 'Запускает несколько веток одновременно — все идут параллельно. Соедините выход с 2+ нодами.',
     category: 'flow',
     icon: 'split',
     tier: 'standard',
-    outputs: [{ key: 'main', label: '' }],
+    outputs: [{ key: 'main' }],
     fields: [],
     configSchema: z.object({}).passthrough(),
     auto: true,
@@ -842,12 +801,10 @@ export const splitNode: ProcessNodeProvider = {
 export const joinNode: ProcessNodeProvider = {
   descriptor: {
     type: 'parallel.join',
-    title: 'Слияние',
-    description: 'Ждёт, пока завершатся все параллельные ветки, затем продолжает. Соедините 2+ ветки в его вход.',
     category: 'flow',
     icon: 'merge',
     tier: 'standard',
-    outputs: [{ key: 'main', label: '' }],
+    outputs: [{ key: 'main' }],
     fields: [],
     configSchema: z.object({}).passthrough(),
     auto: false, // ждёт прибытия всех токенов; будится депозитом ветки (activated=false)
@@ -870,19 +827,16 @@ export const joinNode: ProcessNodeProvider = {
 export const loopEachNode: ProcessNodeProvider = {
   descriptor: {
     type: 'loop.each',
-    title: 'Перебрать список',
-    description:
-      'Берёт список (результат прошлого шага/анкета) и прогоняет ветку «Каждый» на КАЖДЫЙ элемент — элемент доступен как {{item.поле}}. Ветку «Каждый» соедините связью ОБРАТНО в эту ноду. Когда элементы кончатся — процесс идёт по «Готово».',
     category: 'flow',
     icon: 'loop',
     tier: 'standard',
     outputs: [
-      { key: 'loop', label: 'Каждый' },
-      { key: 'done', label: 'Готово' },
+      { key: 'loop' },
+      { key: 'done' }
     ],
     fields: [
-      { key: 'source', label: 'Список (откуда)', kind: 'text', required: true, placeholder: '{{steps.kaspi.body.data}} / {{form.список}}', help: 'Ссылка на массив: результат прошлого шага или поле анкеты. Ветку «Каждый» верните связью в эту ноду.' },
-      { key: 'maxIterations', label: 'Максимум элементов', kind: 'number', placeholder: '500' },
+      { key: 'source', kind: 'text', required: true },
+      { key: 'maxIterations', kind: 'number' }
     ],
     configSchema: z.object({
       source: z.string().min(1).max(300),
@@ -915,15 +869,12 @@ export const loopEachNode: ProcessNodeProvider = {
 export const setDataNode: ProcessNodeProvider = {
   descriptor: {
     type: 'data.set',
-    title: 'Задать данные',
-    description:
-      'Вычисляет поля и сохраняет в данные процесса. Каждая строка: «имя = выражение», напр. «итог = item.sum * 1.12» или «привет = upper(item.name)». Дальше — {{form.имя}}.',
     category: 'flow',
     icon: 'variables',
     tier: 'standard',
-    outputs: [{ key: 'main', label: '' }],
+    outputs: [{ key: 'main' }],
     fields: [
-      { key: 'assignments', label: 'Поля (имя = выражение, по строке)', kind: 'textarea', required: true, placeholder: 'итог = item.sum * 1.12\nимя = upper(item.name)' },
+      { key: 'assignments', kind: 'textarea', required: true }
     ],
     configSchema: z.object({ assignments: z.string().min(1).max(4000) }),
     auto: true,
@@ -949,8 +900,6 @@ export const setDataNode: ProcessNodeProvider = {
 export const endNode: ProcessNodeProvider = {
   descriptor: {
     type: 'end',
-    title: 'Конец',
-    description: 'Завершает процесс.',
     category: 'flow',
     icon: 'finish',
     tier: 'standard',

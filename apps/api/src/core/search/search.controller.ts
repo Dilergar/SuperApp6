@@ -17,7 +17,7 @@ export class SearchController {
   constructor(private readonly search: SearchService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Поиск (глобальный / в чате / постранично по типу)' })
+  @ApiOperation({ summary: 'Search (global / inside a chat / paged by type)' })
   async query(@CurrentUser() user: JwtPayload, @Query() raw: Record<string, unknown>) {
     const input = searchQuerySchema.parse({
       q: raw.q,

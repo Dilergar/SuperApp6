@@ -44,10 +44,10 @@ export class ObjectsJobs implements OnModuleInit {
       ASSIGNMENT_ROLLOVER_JOB,
       async (payload) => {
         const workspaceId = String(payload.workspaceId ?? '');
-        if (!workspaceId) throw new JobDiscardError('нет workspaceId');
+        if (!workspaceId) throw new JobDiscardError('workspaceId is missing');
         const exists = await this.db.workspace.count({ where: { id: workspaceId } });
         // Организацию удалили — пересобирать нечего (постоянная ошибка).
-        if (!exists) throw new JobDiscardError('организация удалена');
+        if (!exists) throw new JobDiscardError('the organization is deleted');
         await this.staff.afterStructureChanged(workspaceId);
       },
       { queue: OBJECTS_QUEUE, maxAttempts: 5 },
@@ -57,10 +57,10 @@ export class ObjectsJobs implements OnModuleInit {
       SHIFTS_GENERATE_JOB,
       async (payload) => {
         const patternId = String(payload.patternId ?? '');
-        if (!patternId) throw new JobDiscardError('нет patternId');
+        if (!patternId) throw new JobDiscardError('patternId is missing');
         const pattern = await this.db.shiftPattern.findUnique({ where: { id: patternId } });
         // Ротацию удалили или отправили в архив — генерировать нечего.
-        if (!pattern || pattern.archivedAt) throw new JobDiscardError('ротация удалена');
+        if (!pattern || pattern.archivedAt) throw new JobDiscardError('the rotation is deleted');
         await this.shifts.generateFromPattern(patternId);
       },
       { queue: OBJECTS_QUEUE, maxAttempts: 5 },
@@ -139,3 +139,4 @@ export function midnightIn(dateISO: string, timeZone: string): Date {
   const offsetMs = asUtc - utcMidnight.getTime();
   return new Date(utcMidnight.getTime() - offsetMs);
 }
+

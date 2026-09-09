@@ -8,8 +8,9 @@
 // ============================================================
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useQuery } from '@tanstack/react-query';
-import { ORG_MANAGER_REASON_LABELS, pluralRu, type OrgChartDepartmentDto, type OrgChartDto, type OrgChartPositionDto } from '@superapp/shared';
+import type { OrgChartDepartmentDto, OrgChartDto, OrgChartPositionDto } from '@superapp/shared';
 import { Button, Card, CardHeader, Chip, EmptyState, Glyph, Icon, LoadingBlock } from '@/components/ui';
 import { dmy } from '@/lib/dates';
 import { fetchOrgLine } from '@/lib/org-api';
@@ -18,6 +19,7 @@ import { PersonChip } from '@/app/circles/PersonCard';
 import { isTopOfStructure } from './org-lib';
 
 export function OrgTree({ workspaceId, chart, meId }: { workspaceId: string; chart: OrgChartDto; meId: string | null }) {
+  const t = useTranslations('staff');
   const lineQ = useQuery({
     queryKey: orgLineKey(workspaceId, meId ?? ''),
     queryFn: () => fetchOrgLine(workspaceId, meId!),
@@ -27,13 +29,13 @@ export function OrgTree({ workspaceId, chart, meId }: { workspaceId: string; cha
   const byDept = useMemo(() => {
     const m = new Map<string | null, OrgChartPositionDto[]>();
     for (const p of chart.positions) m.set(p.departmentId, [...(m.get(p.departmentId) ?? []), p]);
-    for (const list of m.values()) list.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'ru'));
+    for (const list of m.values()) list.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
     return m;
   }, [chart.positions]);
   const children = useMemo(() => {
     const m = new Map<string | null, OrgChartDepartmentDto[]>();
     for (const d of chart.departments) m.set(d.parentId, [...(m.get(d.parentId) ?? []), d]);
-    for (const list of m.values()) list.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'ru'));
+    for (const list of m.values()) list.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
     return m;
   }, [chart.departments]);
 
@@ -42,7 +44,7 @@ export function OrgTree({ workspaceId, chart, meId }: { workspaceId: string; cha
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-grid)' }}>
       {meId && (
         <Card small>
-          <CardHeader title="Мой руководитель" />
+          <CardHeader title={t('card.myManager')} />
           {lineQ.isPending ? (
             <LoadingBlock />
           ) : line ? (
@@ -51,14 +53,14 @@ export function OrgTree({ workspaceId, chart, meId }: { workspaceId: string; cha
                 // Владелец — фолбэк вертикали, и сервер честно отдаёт его самого;
                 // показывать человеку его же карточку как «моего руководителя» нельзя
                 // (на десктопе стояла заглушка, здесь — нет, витрины расходились).
-                <Chip tone="neutral" icon="crown">Вершина структуры — руководителя нет</Chip>
+                <Chip tone="neutral" icon="crown">{t('card.topOfStructure')}</Chip>
               ) : line.manager.userIds.length === 0 ? (
-                <Chip tone="neutral">Руководитель не определён</Chip>
+                <Chip tone="neutral">{t('org.tree.managerUnknown')}</Chip>
               ) : (
                 <div className="otree-holders">
                   {line.manager.userIds.map((uid) => {
                     const p = line.people[uid];
-                    return <PersonChip key={uid} size="S" userId={uid} firstName={p?.firstName ?? 'Без имени'} lastName={p?.lastName ?? null} avatar={p?.avatar ?? null} role={line.manager.positionName} />;
+                    return <PersonChip key={uid} size="S" userId={uid} firstName={p?.firstName ?? t('noName')} lastName={p?.lastName ?? null} avatar={p?.avatar ?? null} role={line.manager.positionName} />;
                   })}
                 </div>
               )}
@@ -66,27 +68,36 @@ export function OrgTree({ workspaceId, chart, meId }: { workspaceId: string; cha
                 {/* Подпись причины — факт, а не проблема: «подчиняется владельцу» для
                     небольшой организации норма, амбер тут учил видеть дефект. */}
                 {!isTopOfStructure(line.manager, meId) && (
-                  <Chip size="sm" tone="neutral">{ORG_MANAGER_REASON_LABELS[line.manager.reason]}</Chip>
+                  <Chip size="sm" tone="neutral">{t(`managerReason.${line.manager.reason}`)}</Chip>
                 )}
-                {line.manager.viaDeputy && <Chip size="sm" tone="warning">через замещение{line.manager.deputyUntil ? ` до ${dmy(line.manager.deputyUntil)}` : ''}</Chip>}
+                {line.manager.viaDeputy && (
+                  <Chip size="sm" tone="warning">
+                    {line.manager.deputyUntil
+                      ? t('org.tree.viaDeputyUntil', { date: dmy(line.manager.deputyUntil) })
+                      : t('org.tree.viaDeputy')}
+                  </Chip>
+                )}
                 {/* Переход — ссылка, а не чип: у чипа нет смысла действия (DESIGN.md) */}
                 {line.team.count > 0 && (
                   <Button variant="ghost" size="sm" icon="people" href={`/workspaces/${workspaceId}/members/${meId}`}>
-                    моя команда: {line.team.count}
+                    {t('org.tree.myTeamLink', { n: line.team.count })}
                   </Button>
                 )}
               </div>
             </div>
           ) : (
-            <p className="label-sm" style={{ margin: 0 }}>Место в структуре не найдено.</p>
+            <p className="label-sm" style={{ margin: 0 }}>{t('org.tree.placeNotFound')}</p>
           )}
         </Card>
       )}
 
       <Card small>
-        <CardHeader title="Структура" subtitle={`${chart.counts.positions} ${pluralRu(chart.counts.positions, ['должность', 'должности', 'должностей'])} · ${chart.counts.departments} ${pluralRu(chart.counts.departments, ['отдел', 'отдела', 'отделов'])}`} />
+        <CardHeader
+          title={t('org.tree.structure')}
+          subtitle={`${t('positionsCount', { n: chart.counts.positions })} · ${t('departmentsCount', { n: chart.counts.departments })}`}
+        />
         {chart.positions.length === 0 && chart.departments.length === 0 ? (
-          <EmptyState icon="department" title="Структура пока пустая" description="Отделы и должности добавляются на большом экране или в разделе «Люди»." />
+          <EmptyState icon="department" title={t('org.tree.emptyTitle')} description={t('org.tree.emptyHint')} />
         ) : (
           <div className="otree">
             {(children.get(null) ?? []).map((d) => (
@@ -94,7 +105,7 @@ export function OrgTree({ workspaceId, chart, meId }: { workspaceId: string; cha
             ))}
             {noDept.length > 0 && (
               <div className="otree-children" style={{ marginLeft: 0, paddingLeft: 0, borderLeft: 'none' }}>
-                <div className="label-caps" style={{ padding: '0.5rem 0.25rem 0' }}>Без отдела</div>
+                <div className="label-caps" style={{ padding: '0.5rem 0.25rem 0' }}>{t('org.tree.noDepartment')}</div>
                 {noDept.map((p) => <PositionRow key={p.id} position={p} chart={chart} />)}
               </div>
             )}
@@ -111,6 +122,7 @@ function DeptNode({
   dept: OrgChartDepartmentDto; chart: OrgChartDto;
   byDept: Map<string | null, OrgChartPositionDto[]>; children: Map<string | null, OrgChartDepartmentDto[]>; level: number;
 }) {
+  const t = useTranslations('staff');
   const [open, setOpen] = useState(level === 0);
   const positions = byDept.get(dept.id) ?? [];
   const kids = children.get(dept.id) ?? [];
@@ -121,18 +133,18 @@ function DeptNode({
         <Icon name={open ? 'caretDown' : 'caretRight'} size={14} />
         <Icon name="department" size={16} />
         <span className="title-sm" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dept.name}</span>
-        <span className="meta" title="Должностей в отделе">{positions.length} {pluralRu(positions.length, ['должность', 'должности', 'должностей'])}</span>
+        <span className="meta" title={t('org.tree.positionsInDepartment')}>{t('positionsCount', { n: positions.length })}</span>
       </button>
       {open && (
         <div className="otree-children">
           {head && (
             <div className="otree-pos-row" style={{ padding: '0.25rem' }}>
-              <Chip size="sm" tone="accent" icon="crown">Руководит: {head.name}</Chip>
+              <Chip size="sm" tone="accent" icon="crown">{t('org.leadsName', { name: head.name })}</Chip>
             </div>
           )}
           {kids.map((k) => <DeptNode key={k.id} dept={k} chart={chart} byDept={byDept} children={children} level={level + 1} />)}
           {positions.map((p) => <PositionRow key={p.id} position={p} chart={chart} />)}
-          {positions.length === 0 && kids.length === 0 && <p className="label-sm" style={{ margin: '0.25rem' }}>Должностей нет.</p>}
+          {positions.length === 0 && kids.length === 0 && <p className="label-sm" style={{ margin: '0.25rem' }}>{t('org.tree.noPositions')}</p>}
         </div>
       )}
     </div>
@@ -140,19 +152,20 @@ function DeptNode({
 }
 
 function PositionRow({ position: p, chart }: { position: OrgChartPositionDto; chart: OrgChartDto }) {
+  const t = useTranslations('staff');
   return (
     <div className="otree-pos">
       <div className="otree-pos-row">
         <Glyph value={p.glyph} fallback="position" size={16} />
         <span className="body-sm" style={{ fontWeight: 700, minWidth: 0 }}>{p.name}</span>
-        {(p.headsDepartmentIds.length > 0 || p.headsBranchIds.length > 0) && <Chip size="sm" tone="accent" icon="crown">руководит</Chip>}
-        {p.vacant && <Chip size="sm" tone="waiting">Вакансия</Chip>}
+        {(p.headsDepartmentIds.length > 0 || p.headsBranchIds.length > 0) && <Chip size="sm" tone="accent" icon="crown">{t('org.leads')}</Chip>}
+        {p.vacant && <Chip size="sm" tone="waiting">{t('org.vacancyChip')}</Chip>}
       </div>
       {p.holders.length > 0 && (
         <div className="otree-holders">
           {p.holders.map((h) => {
             const person = chart.people[h.userId];
-            return <PersonChip key={h.assignmentId} size="S" userId={h.userId} firstName={person?.firstName ?? 'Без имени'} lastName={person?.lastName ?? null} avatar={person?.avatar ?? null} />;
+            return <PersonChip key={h.assignmentId} size="S" userId={h.userId} firstName={person?.firstName ?? t('noName')} lastName={person?.lastName ?? null} avatar={person?.avatar ?? null} />;
           })}
         </div>
       )}

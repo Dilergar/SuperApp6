@@ -1,10 +1,10 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { TEAM_WORKSPACE_ROLES, type AudienceContext, type SearchResultItem } from '@superapp/shared';
+import { TEAM_WORKSPACE_ROLES, type SearchResultItem } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { AudiencesRegistry } from '../../core/audiences/audiences.registry';
 import { SearchRegistry } from '../../core/search/search.registry';
 import type { SearchProviderOpts, SearchProviderResult } from '../../core/search/search.types';
-import { fullName } from '../../shared/utils/user-name';
 import { OrgGraphService } from './org-graph.service';
 import {
   branchHeadHolders,
@@ -32,6 +32,7 @@ export class StaffRegistriesProvider implements OnModuleInit {
     private readonly graph: OrgGraphService,
     private readonly audiences: AudiencesRegistry,
     private readonly search: SearchRegistry,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -43,7 +44,6 @@ export class StaffRegistriesProvider implements OnModuleInit {
         if (!g.memberRole.has(userId)) return [];
         return managerOf(g, userId, { branchId: ctx.branchId ?? null }).userIds;
       },
-      label: (userId, ctx) => this.personLabel('Руководитель', userId, ctx),
     });
 
     // ---- Команда человека (точная инверсия managerOf по всем назначениям) ----
@@ -54,7 +54,6 @@ export class StaffRegistriesProvider implements OnModuleInit {
         if (!g.memberRole.has(userId)) return [];
         return subordinateIdsOf(g, userId).slice(0, limit);
       },
-      label: (userId, ctx) => this.personLabel('Команда', userId, ctx),
     });
 
     // ---- Руководитель объекта: объекта по id ЛИБО объекта человека (основное место / ctx.branchId) ----
@@ -72,27 +71,21 @@ export class StaffRegistriesProvider implements OnModuleInit {
         if (!a) return [];
         return branchHeadHolders(g, a.branchId, at, id).userIds;
       },
+      // Своя подпись нужна ровно для ОБЪЕКТА: движок умеет назвать человека
+      // («Руководитель объекта: Имя»), а имя объекта по его id взять не может.
       label: async (id, ctx) => {
-        if (ctx.workspaceId) {
-          const b = await this.db.staffBranch.findFirst({ where: { id, workspaceId: ctx.workspaceId }, select: { name: true } });
-          if (b) return `Руководитель объекта «${b.name}»`;
-        }
-        return this.personLabel('Руководитель объекта', id, ctx);
+        if (!ctx.workspaceId) return null;
+        const b = await this.db.staffBranch.findFirst({ where: { id, workspaceId: ctx.workspaceId }, select: { name: true } });
+        return b ? this.i18n.translate('common.audience.label.siteHeadOfSite', { name: b.name }) : null;
       },
     });
 
     // ---- Поиск: отделы и должности организаций зрителя ----
     this.search.register({
       type: 'org_unit',
-      label: 'Оргструктура',
+      labelKey: 'staff.orgStructure',
       search: (viewerId, query, opts) => this.searchUnits(viewerId, query, opts),
     });
-  }
-
-  private async personLabel(prefix: string, userId: string, ctx: AudienceContext): Promise<string | null> {
-    void ctx;
-    const u = await this.db.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true } });
-    return u ? `${prefix}: ${fullName(u)}` : null;
   }
 
   /** Живой провайдер: отдел/должность по подстроке имени — только в организациях команды зрителя */
@@ -123,7 +116,7 @@ export class StaffRegistriesProvider implements OnModuleInit {
         type: 'org_unit' as const,
         id: `department:${d.id}`,
         title: d.name,
-        snippet: `Отдел · ${d.workspace.name}`,
+        snippet: `${this.i18n.translate('staff.term.department')} · ${d.workspace.name}`,
         url: `/workspaces/${d.workspaceId}/members/org?focus=department:${d.id}`,
         chatId: null,
         messageId: null,
@@ -135,7 +128,7 @@ export class StaffRegistriesProvider implements OnModuleInit {
         type: 'org_unit' as const,
         id: `position:${p.id}`,
         title: p.name,
-        snippet: `Должность${p.department ? ` · ${p.department.name}` : ''} · ${p.workspace.name}`,
+        snippet: `${this.i18n.translate('staff.term.position')}${p.department ? ` · ${p.department.name}` : ''} · ${p.workspace.name}`,
         url: `/workspaces/${p.workspaceId}/members/org?focus=position:${p.id}`,
         chatId: null,
         messageId: null,

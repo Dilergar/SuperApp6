@@ -22,7 +22,7 @@ export class ShareLinksController {
   constructor(private readonly links: ShareLinksService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Создать гостевую ссылку на объект' })
+  @ApiOperation({ summary: 'Create a guest link to an item' })
   async create(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
     const dto = createShareLinkSchema.parse(body);
     const data = await this.links.create(user.sub, dto);
@@ -30,7 +30,7 @@ export class ShareLinksController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Ссылки объекта (включая отозванные — это история раздачи)' })
+  @ApiOperation({ summary: 'The links of an item (revoked ones included — this is the sharing history)' })
   async list(@CurrentUser() user: JwtPayload, @Query() query: Record<string, unknown>) {
     const q = listShareLinksQuerySchema.parse(query);
     return { success: true, data: await this.links.list(user.sub, q.refType, q.refId) };
@@ -41,14 +41,14 @@ export class ShareLinksController {
    * `/share-links/mine` с параметром и уйдёт искать ссылку с идентификатором «mine».
    */
   @Get('mine')
-  @ApiOperation({ summary: 'Все мои ссылки из всех сервисов — раздел «Мои ссылки»' })
+  @ApiOperation({ summary: 'Every link of mine from every service — the “My links” section' })
   async mine(@CurrentUser() user: JwtPayload, @Query() query: Record<string, unknown>) {
     const q = mineShareLinksQuerySchema.parse(query);
     return { success: true, data: await this.links.listMine(user.sub, q) };
   }
 
   @Get('mine/stats')
-  @ApiOperation({ summary: 'Сводка: действующих ссылок, объектов, открытий за период' })
+  @ApiOperation({ summary: 'A summary: active links, items and opens over the period' })
   async mineStats(@CurrentUser() user: JwtPayload) {
     const data = await this.links.statsMine(user.sub);
     return { success: true, data };
@@ -56,7 +56,7 @@ export class ShareLinksController {
 
   @Post('mine/revoke')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Отозвать пачку своих ссылок (право — авторство, не права на объект)' })
+  @ApiOperation({ summary: 'Revoke a batch of my links (the right is authorship, not the rights to the item)' })
   async revokeMine(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
     const { ids } = bulkRevokeSchema.parse(body);
     const revoked = await this.links.revokeMine(user.sub, ids);
@@ -64,7 +64,7 @@ export class ShareLinksController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Изменить подпись, срок, пароль или лимит открытий' })
+  @ApiOperation({ summary: 'Change the label, the deadline, the password or the open limit' })
   async update(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() body: unknown) {
     const dto = updateShareLinkSchema.parse(body);
     const data = await this.links.update(user.sub, id, dto);
@@ -72,7 +72,7 @@ export class ShareLinksController {
   }
 
   @Post(':id/revoke')
-  @ApiOperation({ summary: 'Отозвать ссылку (идемпотентно)' })
+  @ApiOperation({ summary: 'Revoke a link (idempotent)' })
   async revoke(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const data = await this.links.revoke(user.sub, id);
     return { success: true, data };
@@ -80,14 +80,14 @@ export class ShareLinksController {
 
   @Post(':id/rotate')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Сменить адрес ссылки, сохранив настройки и журнал визитов' })
+  @ApiOperation({ summary: 'Change the link address, keeping its settings and the visit log' })
   async rotate(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const data = await this.links.rotateToken(user.sub, id);
     return { success: true, data };
   }
 
   @Get(':id/visits')
-  @ApiOperation({ summary: 'Журнал визитов: когда открывали, с какого адреса' })
+  @ApiOperation({ summary: 'The visit log: when it was opened and from which address' })
   async visits(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,

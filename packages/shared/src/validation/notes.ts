@@ -33,16 +33,16 @@ const spaceRef = {
 
 const color = z
   .string()
-  .refine((v) => (NOTE_COLOR_VALUES as readonly string[]).includes(v), 'Цвет вне палитры')
+  .refine((v) => (NOTE_COLOR_VALUES as readonly string[]).includes(v), 'validation.notes.color')
   .nullable();
 
 const hasControlChar = (s: string): boolean => [...s].some((c) => (c.codePointAt(0) ?? 32) < 32);
 const folderName = z
   .string()
   .trim()
-  .min(1, 'Название обязательно')
+  .min(1, 'validation.notes.nameRequired')
   .max(NOTE_LIMITS.maxFolderNameLength)
-  .refine((s) => !/[<>]/.test(s) && !hasControlChar(s), 'Недопустимые символы в названии');
+  .refine((s) => !/[<>]/.test(s) && !hasControlChar(s), 'validation.notes.badCharacters');
 
 /** `folderId=root` — корень пространства (без папки); отсутствует — все папки */
 const folderFilter = z.union([uuid, z.literal('root')]).optional();
@@ -88,7 +88,7 @@ export const updateNoteFolderSchema = z
     parentId: uuid.nullable().optional(),
   })
   .strict()
-  .refine((v) => Object.keys(v).length > 0, 'Нечего менять');
+  .refine((v) => Object.keys(v).length > 0, 'validation.notes.nothingToUpdate');
 export type UpdateNoteFolderInput = z.infer<typeof updateNoteFolderSchema>;
 
 export const noteRelatedRefSchema = z
@@ -110,7 +110,7 @@ export const createNoteSchema = z
     related: z.array(noteRelatedRefSchema).max(NOTE_LIMITS.maxRelated).optional(),
   })
   .strict()
-  .refine((v) => !(v.content && v.markdown !== undefined), { message: 'Укажите либо content, либо markdown' });
+  .refine((v) => !(v.content && v.markdown !== undefined), { message: 'validation.notes.contentOrMarkdown' });
 export type CreateNoteInput = z.infer<typeof createNoteSchema>;
 
 export const updateNoteSchema = z
@@ -125,7 +125,7 @@ export const updateNoteSchema = z
     folderId: uuid.nullable().optional(),
   })
   .strict()
-  .refine((v) => !(v.content && v.markdown !== undefined), { message: 'Укажите либо content, либо markdown' });
+  .refine((v) => !(v.content && v.markdown !== undefined), { message: 'validation.notes.contentOrMarkdown' });
 export type UpdateNoteInput = z.infer<typeof updateNoteSchema>;
 
 export const noteShareSchema = z

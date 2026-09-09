@@ -1,89 +1,246 @@
 {
-  "actions": {
-    "save": "Сохранить",
-    "cancel": "Отмена",
-    "delete": "Удалить",
-    "remove": "Убрать",
-    "done": "Готово",
-    "retry": "Попробовать снова",
-    "confirm": "Подтвердить",
-    "select": "Выбрать",
-    "yes": "Да",
-    "no": "Нет"
+  "a11y": {
+    "actions": "Действия",
+    "clear": "Очистить",
+    "close": "Закрыть",
+    "collapseGroup": "Свернуть {name}",
+    "expandGroup": "Развернуть {name}",
+    "group": "группу",
+    "loading": "Загрузка",
+    "notifications": "Уведомления"
   },
-  "state": {
-    "loading": "Загружаем…",
-    "empty": "Пока пусто",
-    "error": "Что-то пошло не так"
+  "actions": {
+    "add": "Добавить",
+    "apply": "Применить",
+    "back": "Назад",
+    "cancel": "Отмена",
+    "close": "Закрыть",
+    "confirm": "Подтвердить",
+    "copy": "Копировать",
+    "create": "Создать",
+    "delete": "Удалить",
+    "done": "Готово",
+    "download": "Скачать",
+    "edit": "Изменить",
+    "hide": "Скрыть",
+    "no": "Нет",
+    "open": "Открыть",
+    "ready": "Готово",
+    "remove": "Убрать",
+    "rename": "Переименовать",
+    "retry": "Попробовать снова",
+    "save": "Сохранить",
+    "search": "Найти",
+    "select": "Выбрать",
+    "show": "Показать",
+    "yes": "Да"
+  },
+  "audience": {
+    "anchor": {
+      "initiator": "инициатора",
+      "self": "меня",
+      "subject": "стороны документа"
+    },
+    "kind": {
+      "branch": "Объект",
+      "branch_head_of": "Руководитель объекта",
+      "circle": "Группа",
+      "department": "Отдел",
+      "manager_of": "Руководитель",
+      "position": "Должность",
+      "subordinates_of": "Команда (подчинённые)",
+      "user": "Человек",
+      "workspace": "Вся команда"
+    },
+    "label": {
+      "branch": "Объект «{name}»",
+      "department": "Отдел «{name}»",
+      "managerOf": "Руководитель: {who}",
+      "managerOfAnchor": "Руководитель {who}",
+      "position": "Должность «{name}»",
+      "siteHeadOf": "Руководитель объекта: {who}",
+      "siteHeadOfAnchor": "Руководитель объекта {who}",
+      "siteHeadOfSite": "Руководитель объекта «{name}»",
+      "teamOf": "Команда: {who}",
+      "teamOfAnchor": "Команда {who}",
+      "wholeTeam": "вся команда"
+    }
+  },
+  "calendar": {
+    "clearDate": "Очистить дату",
+    "nextMonth": "Следующий месяц",
+    "pickDate": "Выберите дату",
+    "prevMonth": "Предыдущий месяц"
+  },
+  "calls": {
+    "recordingTitle": "Звонок · {date} {time}"
+  },
+  "chronicle": {
+    "empty": "Пока пусто — события появятся здесь",
+    "emptyValue": "—",
+    "system": "Система",
+    "taskContext": "· Задача «{title}»"
   },
   "day": {
     "today": "Сегодня",
     "yesterday": "Вчера"
   },
-  "units": {
-    "b": "Б",
-    "kb": "КБ",
-    "mb": "МБ",
-    "gb": "ГБ"
+  "docs": {
+    "bigFileHint": "Файл большой ({mb} МБ) — открытие может занять до минуты",
+    "milestoneName": "{title} (в{n}).{ext}",
+    "othersEditing": "{name} и ещё {n}"
   },
-  "labels": {
-    "dash": "—",
-    "someone": "Кто-то"
+  "dropzone": {
+    "title": "Перетащите файлы или <pick>выберите</pick>"
   },
-  "a11y": {
-    "close": "Закрыть",
-    "loading": "Загрузка",
-    "notifications": "Уведомления",
-    "actions": "Действия",
-    "group": "группу",
-    "expandGroup": "Развернуть {name}",
-    "collapseGroup": "Свернуть {name}"
+  "entitySelector": {
+    "nothingFound": "Ничего не найдено",
+    "placeholder": "Начните вводить имя…",
+    "removeAria": "Убрать: {title}"
   },
-  "chronicle": {
-    "empty": "Пока пусто — события появятся здесь",
-    "system": "Система",
-    "taskContext": "· Задача «{title}»",
-    "emptyValue": "—"
+  "entityType": {
+    "branch": "Объекты",
+    "circle": "Группы",
+    "counterparty": "Контрагенты",
+    "department": "Отделы",
+    "position": "Должности",
+    "user": "Люди",
+    "workspace": "Организация",
+    "workspaceAll": "Вся организация"
   },
-  "calendar": {
-    "prevMonth": "Предыдущий месяц",
-    "nextMonth": "Следующий месяц",
-    "pickDate": "Выберите дату",
-    "clearDate": "Очистить дату"
+  "files": {
+    "attach": "Прикрепить файл",
+    "cancelUpload": "Отменить загрузку",
+    "dropHint": "Перетащите файлы или нажмите",
+    "editHint": "Открыть на правку: изменения сохраняются автоматически и видны всем, кому доступен файл",
+    "loadingVideo": "Загружаю видео…",
+    "maxSize": "Макс. размер: {mb} МБ",
+    "noAttachments": "Вложений нет.",
+    "openAria": "Открыть: {name}",
+    "openDocument": "Открыть документ",
+    "pasteHint": "Можно вставить из буфера — Ctrl+V",
+    "photo": "Фото",
+    "removeAttachmentAria": "Убрать вложение: {name}",
+    "removeFromList": "Убрать из списка",
+    "replace": "Заменить",
+    "unnamed": "файл",
+    "upload": "Загрузить",
+    "uploadCancelled": "Отменено",
+    "uploadError": "Ошибка",
+    "uploadFailed": "Не удалось загрузить",
+    "uploadPhotoAria": "Загрузить фото",
+    "view": "Просмотр",
+    "viewHint": "Открыть только для чтения — ничего не изменится"
   },
   "glyph": {
-    "setIcons": "Иконки",
-    "setOwn": "Свои",
-    "setNoto": "Noto",
-    "ownEmoji": "Свои эмодзи",
-    "setAria": "Набор значков",
-    "searchPlaceholder": "Найти значок…",
-    "searchAria": "Поиск значка",
+    "change": "Изменить значок",
+    "dialogAria": "Выбор значка",
+    "field": "Значок",
     "loadFailed": "Не удалось загрузить набор значков.",
     "nothingFound": "Ничего не нашлось. Попробуйте другое слово.",
+    "ownEmoji": "Свои эмодзи",
+    "pick": "Выбрать значок",
     "recent": "Недавние",
     "recentItem": "Недавний значок",
     "remove": "Убрать значок",
-    "field": "Значок",
-    "change": "Изменить значок",
-    "pick": "Выбрать значок",
-    "shown": "· {shown} из {total}",
-    "dialogAria": "Выбор значка"
-  },
-  "language": {
-    "label": "Язык интерфейса",
-    "hint": "Меню, кнопки и уведомления будут показаны на этом языке на всех устройствах."
-  },
-  "otp": {
-    "title": "Код из SMS",
-    "sentTo": "Отправили код на",
-    "yourNumber": "ваш номер",
-    "smsOff": "Отправка SMS не настроена — сообщение не придёт, код возьмите из подсказки ниже.",
-    "resend": "Отправить ещё раз",
-    "resendIn": "Отправить ещё раз ({time})",
-    "changeNumber": "Изменить номер"
+    "searchAria": "Поиск значка",
+    "searchPlaceholder": "Найти значок…",
+    "setAria": "Набор значков",
+    "setIcons": "Иконки",
+    "setNoto": "Noto",
+    "setOwn": "Свои",
+    "shown": "· {shown} из {total}"
   },
   "guest": {
     "sharedVia": "Этим поделились с вами через SuperApp6"
+  },
+  "labels": {
+    "all": "Все",
+    "dash": "—",
+    "deletedUser": "Удалённый пользователь",
+    "description": "Описание",
+    "item": "объект",
+    "name": "Название",
+    "none": "Нет",
+    "optional": "Необязательно",
+    "someone": "Кто-то",
+    "status": "Статус",
+    "system": "Система",
+    "total": "Итого",
+    "type": "Тип"
+  },
+  "language": {
+    "auto": "Авто",
+    "hint": "Меню, кнопки и уведомления будут показаны на этом языке на всех устройствах.",
+    "label": "Язык интерфейса"
+  },
+  "otp": {
+    "changeNumber": "Изменить номер",
+    "devCode": "[dev] код: <b>{code}</b>",
+    "resend": "Отправить ещё раз",
+    "resendIn": "Отправить ещё раз ({time})",
+    "sentTo": "Отправили код на",
+    "smsOff": "Отправка SMS не настроена — сообщение не придёт, код возьмите из подсказки ниже.",
+    "title": "Код из SMS",
+    "yourNumber": "ваш номер"
+  },
+  "pagination": {
+    "aria": "Постраничная навигация",
+    "next": "Следующая страница",
+    "page": "Страница {n}",
+    "prev": "Предыдущая страница",
+    "summary": "Страница {page} из {total}"
+  },
+  "person": {
+    "ageValue": "{n, plural, one {# год} few {# года} many {# лет} other {# года}}",
+    "details": "{name} — подробнее",
+    "marital": {
+      "divorced": "Разведён(а)",
+      "married": "Женат/замужем",
+      "relationship": "В отношениях",
+      "single": "Не женат/не замужем",
+      "widowed": "Вдовец/вдова"
+    },
+    "peopleCount": "{n, plural, one {# человек} few {# человека} many {# человек} other {# человека}}",
+    "visibleToOthers": "{label}: видно другим"
+  },
+  "presence": {
+    "at": "{date} в {time}",
+    "hoursAgo": "{n, plural, one {# час} few {# часа} many {# часов} other {# часа}} назад",
+    "justNow": "только что",
+    "lastSeen": "был(а) в сети {when}",
+    "minutesAgo": "{n, plural, one {# минуту} few {# минуты} many {# минут} other {# минуты}} назад",
+    "online": "в сети"
+  },
+  "role": {
+    "circle": {
+      "member": "Участник",
+      "owner": "Создатель"
+    },
+    "system": {
+      "admin": "Администратор",
+      "moderator": "Модератор",
+      "user": "Пользователь"
+    },
+    "workspace": {
+      "admin": "Администратор",
+      "contractor": "Подрядчик",
+      "manager": "Менеджер",
+      "owner": "Владелец",
+      "staff": "Сотрудник",
+      "trainee": "Стажёр"
+    }
+  },
+  "state": {
+    "empty": "Пока пусто",
+    "error": "Что-то пошло не так",
+    "loading": "Загружаем…"
+  },
+  "units": {
+    "b": "Б",
+    "gb": "ГБ",
+    "hourShort": "ч",
+    "kb": "КБ",
+    "mb": "МБ"
   }
 }

@@ -1,44 +1,42 @@
-'use client';
+// Серверная обёртка области организации: кладёт в клиентский провайдер
+// неймспейсы, которые нужны её страницам.
+//
+// `circles` здесь не случайно: ростер сотрудников рисует ту же карточку
+// человека, что и «Моё окружение» (`StaffPersonCard`), а её действия и подписи
+// полей живут в этом неймспейсе.
+//
+// Сам каркас области — клиентский (адрес организации, проверка входа), поэтому
+// он вынесен в `workspace-chrome.tsx`: `ServiceMessages` обязан выполняться на
+// сервере (см. `app/profile/`).
 
-import { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { apiGet } from '@/lib/api';
-import type { Workspace } from '@superapp/shared';
+import type { ReactNode } from 'react';
+import { ServiceMessages } from '@/i18n/ServiceMessages';
+import { WorkspaceChrome } from './workspace-chrome';
 
-/**
- * Top-level chrome for the organization area (Главная организации, Сотрудники, Профиль).
- * Just the nav bar + page container; the profile sub-area adds its own sidebar.
- * Mirrors how the personal /dashboard and /profile share the app shell.
- */
-export default function WorkspaceAreaLayout({ children }: { children: React.ReactNode }) {
-  const { isReady } = useRequireAuth();
-  const { id } = useParams<{ id: string }>();
-  const [name, setName] = useState('Организация');
-
-  useEffect(() => {
-    if (!isReady || !id) return;
-    apiGet<Workspace>(`/workspaces/${id}`)
-      .then((w) => setName(w.name))
-      .catch(() => {});
-  }, [isReady, id]);
-
-  if (!isReady) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="label-md" style={{ fontSize: '1rem' }}>Загрузка...</p>
-      </div>
-    );
-  }
-
+export default function WorkspaceAreaLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="">
-      
-
-      <div className="" style={{ paddingBottom: 'var(--spacing-16)' }}>
-        {children}
-      </div>
-    </div>
+    <ServiceMessages
+      ns={[
+        'workspaces',
+        'circles',
+        'approvals',
+        'tasks',
+        'drive',
+        'notes',
+        'sign',
+        'processes',
+        'hr',
+        'documents',
+        'counterparties',
+        'objects',
+        'staff',
+        'wallet',
+        'office',
+        'calls',
+        'share',
+      ]}
+    >
+      <WorkspaceChrome>{children}</WorkspaceChrome>
+    </ServiceMessages>
   );
 }

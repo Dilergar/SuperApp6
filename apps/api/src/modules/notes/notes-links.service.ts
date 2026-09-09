@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   NOTE_ERROR_CODES,
@@ -12,6 +12,8 @@ import {
   type NoteWikilinkCandidateDto,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { badRequest } from '../../shared/errors/api-error';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { NotesAccessService, type NoteScope } from './notes-access.service';
 import { NoteTargetRegistry } from './notes-targets.registry';
 
@@ -29,6 +31,7 @@ export class NotesLinksService {
     private readonly db: DatabaseService,
     private readonly acl: NotesAccessService,
     private readonly targets: NoteTargetRegistry,
+    private readonly i18n: I18nService,
   ) {}
 
   // ------------------------------------------------------------
@@ -88,7 +91,8 @@ export class NotesLinksService {
       orderBy: { updatedAt: 'desc' },
       take: NOTE_LIMITS.pickerLimit,
     });
-    return rows.map((r) => ({ id: r.id, title: r.title || 'Без названия', folderName: r.folder?.name ?? null }));
+    const untitled = this.i18n.translate('notes.untitled');
+    return rows.map((r) => ({ id: r.id, title: r.title || untitled, folderName: r.folder?.name ?? null }));
   }
 
   // ------------------------------------------------------------
@@ -102,28 +106,22 @@ export class NotesLinksService {
    */
   async requireTarget(viewerId: string, scope: NoteScope, targetType: NoteRelatedTargetType, targetId: string) {
     const resolver = this.targets.get(targetType);
-    if (!resolver) throw new BadRequestException('Неизвестный тип сущности для привязки');
+    if (!resolver) throw badRequest('notes.unknownTargetType');
     // describe отдаёт null там же, где canView вернул бы false — хватает одного вызова
     const described = await resolver.describe(viewerId, targetId);
     if (!described) {
-      throw new BadRequestException({
-        message: 'Сущность не найдена или недоступна',
-        details: { code: NOTE_ERROR_CODES.targetNotVisible },
-      });
+      throw badRequest('notes.targetNotVisible', undefined, { code: NOTE_ERROR_CODES.targetNotVisible });
     }
     const noteWorkspaceId = scope.space.ownerType === 'workspace' ? scope.space.ownerId : null;
     if (noteWorkspaceId && described.workspaceId && described.workspaceId !== noteWorkspaceId) {
-      throw new BadRequestException({
-        message: 'Эта сущность принадлежит другой организации',
-        details: { code: NOTE_ERROR_CODES.targetNotVisible },
-      });
+      throw badRequest('notes.targetOtherWorkspace', undefined, { code: NOTE_ERROR_CODES.targetNotVisible });
     }
     return described;
   }
 
   async addRelated(tx: Tx, noteId: string, targetType: NoteRelatedTargetType, targetId: string, actorId: string): Promise<boolean> {
     const count = await tx.noteLink.count({ where: { noteId, kind: 'related' } });
-    if (count >= NOTE_LIMITS.maxRelated) throw new BadRequestException('Слишком много привязок у одной заметки');
+    if (count >= NOTE_LIMITS.maxRelated) throw badRequest('notes.tooManyLinks');
     const res = await tx.noteLink.createMany({
       data: [{ noteId, targetType, targetId, kind: 'related', createdById: actorId }],
       skipDuplicates: true,
@@ -165,7 +163,7 @@ export class NotesLinksService {
       list.push({
         targetType: link.targetType as NoteRelatedTargetType,
         targetId: link.targetId,
-        title: d?.title ?? 'Недоступно',
+        title: d?.title ?? this.i18n.translate('notes.unavailable'),
         url: d?.url ?? null,
       });
       out.set(link.noteId, list);

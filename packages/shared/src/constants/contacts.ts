@@ -5,42 +5,47 @@
 // Common role presets shown in the role picker. Pure suggestions —
 // the user can also type any custom role. Each person has exactly ONE
 // role per side, stored as a plain string on ContactLink.
-export const ROLE_PRESETS: readonly string[] = [
-  'Муж',
-  'Жена',
-  'Парень',
-  'Девушка',
-  'Партнёр',
-  'Мама',
-  'Папа',
-  'Сын',
-  'Дочь',
-  'Брат',
-  'Сестра',
-  'Бабушка',
-  'Дедушка',
-  'Родственник',
-  'Друг',
-  'Подруга',
-  'Коллега',
-  'Начальник',
-  'Подчинённый',
-  'Клиент',
-  'Наставник',
-  'Сосед',
-  'Одноклассник',
-  'Однокурсник',
+//
+// Реестр называет СМЫСЛ подсказки, слово даёт каталог (`circles.rolePreset.<key>`):
+// сама роль в связи — ДАННЫЕ (её человек может и напечатать своими словами), а
+// вот список подсказок — интерфейс, и он обязан говорить на языке зрителя.
+export const ROLE_PRESET_KEYS: readonly string[] = [
+  'husband',
+  'wife',
+  'boyfriend',
+  'girlfriend',
+  'partner',
+  'mother',
+  'father',
+  'son',
+  'daughter',
+  'brother',
+  'sister',
+  'grandmother',
+  'grandfather',
+  'relative',
+  'friend',
+  'closeFriend',
+  'colleague',
+  'boss',
+  'report',
+  'client',
+  'mentor',
+  'neighbour',
+  'schoolmate',
+  'coursemate',
 ] as const;
 
-// Suggested group names/colors when the user creates a new group.
+// Suggested group names/colors when the user creates a new group
+// (`circles.groupPreset.<key>` даёт имя).
 export const DEFAULT_CIRCLE_PRESETS: Array<{
-  name: string;
+  key: string;
   icon: string;
   color: string;
 }> = [
-  { name: 'Семья', icon: '👨‍👩‍👧', color: '#de6d68' },
-  { name: 'Друзья', icon: '🤝', color: '#588cd3' },
-  { name: 'Работа', icon: '💼', color: '#8a8478' },
+  { key: 'family', icon: '👨‍👩‍👧', color: '#de6d68' },
+  { key: 'friends', icon: '🤝', color: '#588cd3' },
+  { key: 'work', icon: '💼', color: '#8a8478' },
 ];
 
 // ============================================================

@@ -1,6 +1,8 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
+import { useFormatters } from '@/lib/format';
 import { Badge, Card, CardHeader, Glyph, Icon, IconButton, StatusDot, TONE_BASE, type Tone } from '@/components/ui';
 import {
   TASK_STATUS_META,
@@ -9,7 +11,7 @@ import {
   type CalendarTaskItem,
   type Task,
 } from '@superapp/shared';
-import { isEvent, isTask, isToday, startOfDay, fmtTime, itemColor } from './calendar-lib';
+import { isEvent, isTask, isToday, startOfDay, itemColor } from './calendar-lib';
 import { itemHref, itemGlyph, kindFallbackIcon } from './calendar-layers';
 import { setDrag, clearDrag } from './calendar-dnd';
 
@@ -37,6 +39,7 @@ export function TriagePanel({
   onTask: (t: CalendarTaskItem) => void;
   onClose: () => void;
 }) {
+  const t = useTranslations('calendar');
   const overdue = items.filter((i) => isTask(i) && i.overdue) as CalendarTaskItem[];
   const today = items.filter((i) => !(isTask(i) && i.overdue) && isToday(new Date(i.start)));
   const upcoming = items.filter(
@@ -49,21 +52,21 @@ export function TriagePanel({
       style={{ width: 280, flexShrink: 0, maxHeight: '78vh', overflowY: 'auto', alignSelf: 'flex-start' }}
     >
       <CardHeader
-        title="Планнер"
-        subtitle="Тащи задачи на сетку, чтобы назначить день и время"
-        actions={<IconButton icon="caretLeft" label="Скрыть планнер" size={28} onClick={onClose} />}
+        title={t('planner.title')}
+        subtitle={t('planner.subtitle')}
+        actions={<IconButton icon="caretLeft" label={t('planner.hide')} size={28} onClick={onClose} />}
       />
 
-      <Group title="Просрочено" tone="danger" count={overdue.length}>
+      <Group title={t('planner.overdue')} tone="danger" count={overdue.length}>
         {overdue.map((t) => <TaskCard key={t.taskId} t={t} onTask={onTask} />)}
       </Group>
-      <Group title="Без даты" tone="warning" count={undated.length}>
+      <Group title={t('planner.undated')} tone="warning" count={undated.length}>
         {undated.map((t) => <UndatedCard key={t.id} t={t} />)}
       </Group>
-      <Group title="Сегодня" tone="accent" count={today.length}>
+      <Group title={t('planner.today')} tone="accent" count={today.length}>
         {today.map((i, idx) => <Row key={rk(i, idx)} i={i} onEvent={onEvent} onTask={onTask} />)}
       </Group>
-      <Group title="Предстоящие" tone="success" count={upcoming.length}>
+      <Group title={t('planner.upcoming')} tone="success" count={upcoming.length}>
         {upcoming.slice(0, 40).map((i, idx) => <Row key={rk(i, idx)} i={i} onEvent={onEvent} onTask={onTask} withDay />)}
       </Group>
     </Card>
@@ -88,13 +91,14 @@ function Group({ title, tone, count, children }: { title: string; tone: Tone; co
 }
 
 function TaskCard({ t, onTask }: { t: CalendarTaskItem; onTask: (t: CalendarTaskItem) => void }) {
+  const tr = useTranslations('calendar');
   return (
     <div
       draggable
       onDragStart={(e) => setDrag({ kind: 'task', id: t.taskId, title: t.title }, e)}
       onDragEnd={clearDrag}
       onClick={() => onTask(t)}
-      title="Перетащи на день или время"
+      title={tr('planner.dragHint')}
       style={cardStyle(itemColor(t))}
     >
       <Icon name="tasks" size={13} style={{ color: 'var(--muted)' }} />
@@ -104,13 +108,14 @@ function TaskCard({ t, onTask }: { t: CalendarTaskItem; onTask: (t: CalendarTask
 }
 
 function UndatedCard({ t }: { t: UndatedTask }) {
+  const tr = useTranslations('calendar');
   const st = TASK_STATUS_META[t.status];
   return (
     <div
       draggable
       onDragStart={(e) => setDrag({ kind: 'task', id: t.id, title: t.title }, e)}
       onDragEnd={clearDrag}
-      title="Перетащи на день или время, чтобы назначить срок"
+      title={tr('planner.dragHintDue')}
       style={cardStyle(TONE_BASE[st.tone])}
     >
       <Icon name="tasks" size={13} style={{ color: 'var(--muted)' }} />
@@ -121,10 +126,9 @@ function UndatedCard({ t }: { t: UndatedTask }) {
 
 function Row({ i, onEvent, onTask, withDay }: { i: CalendarItem; onEvent: (o: CalendarEventOccurrence) => void; onTask: (t: CalendarTaskItem) => void; withDay?: boolean }) {
   const router = useRouter();
+  const f = useFormatters();
   const color = itemColor(i);
-  const time = withDay
-    ? new Date(i.start).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
-    : fmtTime(i.start);
+  const time = withDay ? f.date(i.start, 'dayMonthLong') : f.time(i.start);
   const draggableTask = isTask(i);
   return (
     <div

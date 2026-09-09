@@ -1,11 +1,4 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  Logger,
-  NotFoundException,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Prisma, VoiceRecording } from '@prisma/client';
 import {
   CreateRecordingInput,
@@ -15,6 +8,9 @@ import {
   VoiceRecordingSource,
   VoiceTranscriptStatus,
 } from '@superapp/shared';
+import { coerceLocale, type Locale } from '@superapp/i18n';
+import { badRequest, forbidden, notFound } from '../../shared/errors/api-error';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { DatabaseService } from '../../shared/database/database.service';
 import { FilesService } from '../../core/files/files.service';
 import { FilesRefRegistry } from '../../core/files/files-ref.registry';
@@ -24,6 +20,14 @@ import {
   type CallRecordingReadyContext,
 } from '../../core/calls/calls-recording.registry';
 import { NotificationsService } from '../../core/notifications/notifications.service';
+
+/** Минимум, из которого собирается автоимя записи (строка целиком не нужна). */
+export interface AutoTitleRow {
+  title: string | null;
+  source: string;
+  titleAt: Date | null;
+  createdAt: Date;
+}
 
 /**
  * Диктофон — потребитель голосового движка (прото-Plaud без железки): запись
@@ -44,6 +48,7 @@ export class RecorderService implements OnModuleInit {
     private readonly voice: VoiceService,
     private readonly callsRecordings: CallsRecordingRegistry,
     private readonly notifications: NotificationsService,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -83,7 +88,9 @@ export class RecorderService implements OnModuleInit {
       row = await this.db.voiceRecording.create({
         data: {
           ownerId: ctx.claimantUserId,
-          title: callTitle(ctx.startedAt),
+          // Имени нет: его соберёт чтение в языке зрителя. Момент — НАЧАЛО звонка.
+          title: null,
+          titleAt: ctx.startedAt,
           source: 'call',
           callRecordingId: ctx.recordingId,
         },
@@ -121,7 +128,11 @@ export class RecorderService implements OnModuleInit {
       .send(null, {
         type: 'call.recording.ready',
         to: [{ userId: ctx.claimantUserId }],
-        payload: { title: row.title, recordingId: row.id, fileId: ctx.fileId },
+        payload: {
+          title: await this.titleFor(ctx.claimantUserId, row),
+          recordingId: row.id,
+          fileId: ctx.fileId,
+        },
         ref: { type: 'voice_recording', id: row.id },
         reason: 'owner',
         actionUrl: `/recorder?id=${row.id}`,
@@ -155,13 +166,14 @@ export class RecorderService implements OnModuleInit {
 
   async create(userId: string, input: CreateRecordingInput): Promise<VoiceRecordingDto> {
     const [file] = await this.files.getOwnedReadyFiles(userId, [input.fileId]);
-    if (file.kind !== 'audio') throw new BadRequestException('Диктофон принимает только аудио');
+    if (file.kind !== 'audio') throw badRequest('recorder.audioOnly');
 
     const row = await this.db.$transaction(async (tx) => {
       const created = await tx.voiceRecording.create({
         data: {
           ownerId: userId,
-          title: input.title ?? defaultTitle(),
+          // Имя ввели руками — храним; не ввели — собирается при чтении
+          title: input.title ?? null,
           source: input.source ?? 'upload',
           language: input.language ?? null,
         },
@@ -176,7 +188,8 @@ export class RecorderService implements OnModuleInit {
   async rename(userId: string, id: string, title: string): Promise<{ id: string; title: string }> {
     await this.assertOwner(userId, id);
     const row = await this.db.voiceRecording.update({ where: { id }, data: { title } });
-    return { id: row.id, title: row.title };
+    // title только что задан руками — он непустой по определению схемы входа
+    return { id: row.id, title: row.title ?? title };
   }
 
   /** Удаление: отвязка (движок реапит осиротевший файл) → транскрипты ТОЛЬКО прибранных файлов → строка */
@@ -192,9 +205,40 @@ export class RecorderService implements OnModuleInit {
 
   private async assertOwner(userId: string, id: string): Promise<VoiceRecording> {
     const row = await this.db.voiceRecording.findUnique({ where: { id } });
-    if (!row) throw new NotFoundException('Запись не найдена');
-    if (row.ownerId !== userId) throw new ForbiddenException('Это не ваша запись');
+    if (!row) throw notFound('recorder.notFound');
+    if (row.ownerId !== userId) throw forbidden('recorder.notOwner');
     return row;
+  }
+
+  /**
+   * Название записи для ЛЕНТЫ — в языке запроса. Пустой `title` в БД означает
+   * «имени нет»: оно собирается здесь, при чтении (render-at-read), потому что
+   * записанное автоимя навсегда осталось бы в языке, который был у человека в
+   * момент создания. Дата и время — общими форматтерами: свой `DD.MM.YYYY` был
+   * бы сразу и языком, и регионом, зашитыми в строку.
+   */
+  private displayTitle(row: AutoTitleRow, locale?: Locale, timeZone?: string): string {
+    if (row.title) return row.title;
+    const at = row.titleAt ?? row.createdAt;
+    const f = this.i18n.format(locale, timeZone);
+    const key = row.source === 'call' ? 'recorder.callTitle' : 'recorder.defaultTitle';
+    return locale
+      ? this.i18n.translateFor(locale, key, { date: f.date(at), time: f.time(at) })
+      : this.i18n.translate(key, { date: f.date(at), time: f.time(at) });
+  }
+
+  /**
+   * То же для ФОНА (уведомление): языка запроса у джоба нет, поэтому берём язык и
+   * пояс АДРЕСАТА. Снимок имени в уведомлении застывает — это осознанно: лента
+   * уведомлений живёт неделями, а карточка записи перерисуется при следующем чтении.
+   */
+  async titleFor(userId: string, row: AutoTitleRow): Promise<string> {
+    if (row.title) return row.title;
+    const user = await this.db.user.findUnique({
+      where: { id: userId },
+      select: { locale: true, timezone: true },
+    });
+    return this.displayTitle(row, coerceLocale(user?.locale), user?.timezone ?? undefined);
   }
 
   private serialize(
@@ -208,7 +252,7 @@ export class RecorderService implements OnModuleInit {
     return {
       id: row.id,
       ownerId: row.ownerId,
-      title: row.title,
+      title: this.displayTitle(row),
       source: row.source as VoiceRecordingSource,
       language: (row.language as VoiceLanguage | null) ?? null,
       // Длительность живёт у файла (конвейер) с добором из транскрипта (STT посчитал);
@@ -219,15 +263,4 @@ export class RecorderService implements OnModuleInit {
       transcriptStatus,
     };
   }
-}
-
-function defaultTitle(): string {
-  const d = new Date();
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `Запись ${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
-}
-
-function callTitle(startedAt: Date): string {
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `Звонок ${p(startedAt.getDate())}.${p(startedAt.getMonth() + 1)}.${startedAt.getFullYear()} ${p(startedAt.getHours())}:${p(startedAt.getMinutes())}`;
 }

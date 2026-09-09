@@ -1,7 +1,10 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { PROCESS_LIMITS, TEAM_WORKSPACE_ROLES } from '@superapp/shared';
+import { SOURCE_LOCALE } from '@superapp/i18n';
+import { badRequest, conflict, forbidden } from '../../shared/errors/api-error';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../../core/notifications/notifications.service';
@@ -57,6 +60,7 @@ export class ProcessEngineService {
     private tasks: TasksService,
     private approvals: ApprovalsService,
     private moduleRef: ModuleRef,
+    private i18n: I18nService,
   ) {}
 
   // ---------------------------------------------------------------
@@ -80,7 +84,7 @@ export class ProcessEngineService {
     // Точка входа: фиксированного «Старт» нет — стартуем со сработавшего триггера.
     const entryNodeId = params.entryNodeId || plan.startNodeId;
     const entryNode = plan.nodes[entryNodeId];
-    if (!entryNode) throw new BadRequestException('У процесса нет точки входа (триггера)');
+    if (!entryNode) throw badRequest('processes.noEntryPoint');
 
     const instance = await this.db.$transaction(async (tx) => {
       const created = await tx.processInstance.create({
@@ -131,7 +135,7 @@ export class ProcessEngineService {
       const goOn = await this.kickOnce(instanceId);
       if (!goOn) return;
     }
-    this.logger.warn(`kick(${instanceId}): исчерпан бюджет авто-цепочки — продолжит крон`);
+    this.logger.warn(`kick(${instanceId}): the auto-chain budget is spent — the cron will continue`);
   }
 
   /**
@@ -150,7 +154,7 @@ export class ProcessEngineService {
 
       const plan = await this.getPlan(instance.versionId);
       if (!plan) {
-        await this.failInstance(instanceId, null, 'План версии не найден');
+        await this.failInstance(instanceId, null, 'the plan of the version was not found');
         return { stop: true };
       }
 
@@ -211,7 +215,7 @@ export class ProcessEngineService {
     const node = plan.nodes[step.nodeId];
     const provider = node ? this.registry.get(node.type) : undefined;
     if (!node || !provider) {
-      await this.failInstance(instance.id, step.id, `Неизвестная нода «${step.nodeId}»`);
+      await this.failInstance(instance.id, step.id, `unknown node «${step.nodeId}»`);
       return;
     }
     // allowRetry=false: повтор с паузой под локом недопустим (держал бы инстанс-лок).
@@ -223,7 +227,11 @@ export class ProcessEngineService {
     try {
       await this.commitResult(instance, plan, step, outcome.result);
     } catch (err) {
-      await this.failInstance(instance.id, step.id, `${node.label}: ${err instanceof Error ? err.message : 'Ошибка выполнения ноды'}`);
+      await this.failInstance(
+          instance.id,
+          step.id,
+          `${node.label}: ${err instanceof Error ? err.message : 'the node failed'}`,
+        );
     }
   }
 
@@ -232,7 +240,7 @@ export class ProcessEngineService {
     const node = plan.nodes[step.nodeId];
     const provider = node ? this.registry.get(node.type) : undefined;
     if (!node || !provider) {
-      await this.failInstance(instance.id, step.id, `Неизвестная нода «${step.nodeId}»`);
+      await this.failInstance(instance.id, step.id, `unknown node «${step.nodeId}»`);
       return;
     }
     // allowRetry=true: retry (с паузой) идёт ВНЕ лока — не держит инстанс-лок (P3/n8n#3).
@@ -246,20 +254,24 @@ export class ProcessEngineService {
       try {
         await this.commitResult(instance, plan, step, outcome.result);
       } catch (err) {
-        await this.failInstance(instance.id, step.id, `${node.label}: ${err instanceof Error ? err.message : 'Ошибка выполнения ноды'}`);
+        await this.failInstance(
+          instance.id,
+          step.id,
+          `${node.label}: ${err instanceof Error ? err.message : 'the node failed'}`,
+        );
       }
     });
     if (!committed) {
       // Экстремально редко (лок держится лишь на bookkeeping): аренда истечёт → крон
       // переисполнит ноду. Для не-идемпотентного I/O — as-good-as-it-gets (n8n-семантика).
-      this.logger.warn(`runIoStep(${instance.id}/${step.nodeId}): коммит не взял лок — добьёт крон`);
+      this.logger.warn(`runIoStep(${instance.id}/${step.nodeId}): the commit did not take the lock — the cron will finish it`);
     }
   }
 
   /** Собрать контекст (+join/cluster) и выполнить ноду. Без предположений о локе. */
   private async runProvider(instance: InstanceLite, plan: CompiledPlan, step: StepLite, node: CompiledPlan['nodes'][string]): Promise<NodeRunResult> {
     const provider = this.registry.get(node.type);
-    if (!provider) throw new Error(`Неизвестная нода «${step.nodeId}»`);
+    if (!provider) throw new Error(`unknown node «${step.nodeId}»`);
     const ctx = await this.buildContext(instance, step, node);
     if (node.join) ctx.join = { arrivals: step.joinArrivals ?? 0, expected: plan.joinExpected[step.nodeId] ?? 1 };
     if (node.cluster) ctx.cluster = await this.buildAgentCluster(instance, plan, step.nodeId, 0);
@@ -303,7 +315,7 @@ export class ProcessEngineService {
       }
     }
     // Throw после всех попыток → решает onError.
-    const message = lastErr instanceof Error ? lastErr.message : 'Ошибка выполнения ноды';
+    const message = lastErr instanceof Error ? lastErr.message : 'the node failed';
     const recovered = this.applyOnError(node, message);
     return recovered ? { result: this.withRetryMeta(recovered, retries) } : { fail: `${node.label}: ${message}` };
   }
@@ -465,7 +477,12 @@ export class ProcessEngineService {
         }
       }
       if (nextIds.length === 0 || nextIds.some((id) => !plan.nodes[id])) {
-        await this.markErrorTx(tx, instanceId, null, `Выход «${outputKey}» ноды «${node?.label ?? nodeId}» никуда не ведёт`);
+        await this.markErrorTx(
+        tx,
+        instanceId,
+        null,
+        `the output «${outputKey}» of the node «${node?.label ?? nodeId}» leads nowhere`,
+      );
         return 'failed';
       }
 
@@ -478,7 +495,7 @@ export class ProcessEngineService {
         select: { stepsSpawned: true },
       });
       if (bumped.stepsSpawned > PROCESS_LIMITS.maxStepsPerInstance) {
-        await this.markErrorTx(tx, instanceId, null, 'Превышен лимит шагов процесса (возможен бесконечный цикл)');
+        await this.markErrorTx(tx, instanceId, null, 'the step limit of the process is exceeded (an endless loop is possible)');
         return 'failed';
       }
 
@@ -537,14 +554,14 @@ export class ProcessEngineService {
   async onTaskDeleted(taskId: string): Promise<void> {
     const step = await this.db.processStepRun.findFirst({ where: { taskId, status: 'active' } });
     if (!step) return;
-    await this.failInstance(step.instanceId, step.id, 'Связанная задача удалена');
+    await this.failInstance(step.instanceId, step.id, 'the linked task was deleted');
   }
 
   /** Задачу-шаг отменили в Задачнике — работа не будет сделана, процесс останавливается. */
   async onTaskCancelled(taskId: string): Promise<void> {
     const step = await this.db.processStepRun.findFirst({ where: { taskId, status: 'active' } });
     if (!step) return;
-    await this.failInstance(step.instanceId, step.id, 'Задача шага отменена — процесс остановлен');
+    await this.failInstance(step.instanceId, step.id, 'the task of the step was cancelled — the process stopped');
   }
 
   // ---------------------------------------------------------------
@@ -560,20 +577,20 @@ export class ProcessEngineService {
     const step = await this.db.processStepRun.findFirst({
       where: { id: stepId, instanceId, status: 'active', taskId: null, departmentId: { not: null } },
     });
-    if (!step) throw new BadRequestException('Задача уже забрана или недоступна');
+    if (!step) throw badRequest('processes.taskTaken');
     const instance = await this.db.processInstance.findUnique({ where: { id: instanceId } });
-    if (!instance || instance.status !== 'running') throw new BadRequestException('Процесс не активен');
+    if (!instance || instance.status !== 'running') throw badRequest('processes.notRunning');
 
     const isMember = await this.db.relationTuple.count({
       where: { resourceType: 'department', resourceId: step.departmentId!, relation: 'member', subjectType: 'user', subjectId: userId },
     });
-    if (isMember === 0) throw new ForbiddenException('Задача доступна только сотрудникам этого отдела');
+    if (isMember === 0) throw forbidden('processes.departmentOnly');
 
     const spec = (step.output ?? {}) as { title?: string; description?: string | null; dueInHours?: number | null };
     const task = await this.tasks.createTask(
       instance.startedById,
       {
-        title: spec.title || 'Задача процесса',
+        title: spec.title || this.i18n.translateFor(SOURCE_LOCALE, 'processes.defaults.taskTitle'),
         description: spec.description ?? undefined,
         executorId: userId,
         dueDate: spec.dueInHours ? new Date(Date.now() + spec.dueInHours * 3_600_000).toISOString() : undefined,
@@ -588,7 +605,7 @@ export class ProcessEngineService {
     });
     if (claimed.count === 0) {
       await this.tasks.updateTask(instance.startedById, task.id, { status: 'cancelled' }).catch(() => undefined);
-      throw new BadRequestException('Задачу только что забрал другой сотрудник');
+      throw conflict('processes.taskJustTaken');
     }
     return task.id;
   }
@@ -624,7 +641,7 @@ export class ProcessEngineService {
     // крон-сверка (она про задачи), ни kick (шаг не авто и уже активирован): решение
     // было принято, а маршрут стоял бы на нём вечно.
     if (advanced === false) {
-      throw new Error(`resumeApproval: инстанс ${instanceId} занят — повторим`);
+      throw new Error(`resumeApproval: the instance ${instanceId} is busy — retrying`);
     }
     if (advanced) await this.kick(instanceId);
 
@@ -654,7 +671,7 @@ export class ProcessEngineService {
       }>(DI_TOKENS.DocumentsService, { strict: false });
       await documents?.systemResolve(refId, outcome);
     } catch (err) {
-      this.logger.error(`итог маршрута документу ${refId}: ${(err as Error).message}`);
+      this.logger.error(`the route outcome for document ${refId}: ${(err as Error).message}`);
     }
   }
 
@@ -663,9 +680,9 @@ export class ProcessEngineService {
     const step = await this.db.processStepRun.findFirst({
       where: { id: stepId, instanceId, status: 'active', taskId: { not: null } },
     });
-    if (!step) throw new BadRequestException('Шаг недоступен для переназначения (нужна активная задача)');
+    if (!step) throw badRequest('processes.stepNotReassignable');
     const instance = await this.db.processInstance.findUnique({ where: { id: instanceId } });
-    if (!instance || instance.status !== 'running') throw new BadRequestException('Процесс не активен');
+    if (!instance || instance.status !== 'running') throw badRequest('processes.notRunning');
     // «Работает в организации» = БЕЛЫЙ список командных ролей (fail-closed): по чёрному
     // списку на шаг процесса можно было бы переназначить человека с любой будущей
     // не-командной ролью. Право САМОГО переназначающего (manager+) проверено выше по стеку.
@@ -678,7 +695,7 @@ export class ProcessEngineService {
         role: { in: [...TEAM_WORKSPACE_ROLES] },
       },
     });
-    if (isMember === 0) throw new BadRequestException('Новый исполнитель не работает в организации');
+    if (isMember === 0) throw badRequest('processes.newAssigneeNotAMember');
     await this.tasks.reassignExecutorTrusted(step.taskId!, newUserId);
     await this.db.processStepRun.update({ where: { id: stepId }, data: { assigneeId: newUserId } });
   }
@@ -899,7 +916,7 @@ export class ProcessEngineService {
       try {
         await this.approvals.cancelByOrigin(PROCESS_ORIGIN_TYPE, `${instanceId}:${stepId}`);
       } catch (err) {
-        this.logger.error(`отмена заявки шага ${stepId}: ${(err as Error).message}`);
+        this.logger.error(`cancelling the request of step ${stepId}: ${(err as Error).message}`);
       }
     }
     this.events.emit(
@@ -988,7 +1005,7 @@ export class ProcessEngineService {
     for (const step of approvalSteps) {
       await this.approvals
         .cancelByOrigin(PROCESS_ORIGIN_TYPE, `${instanceId}:${step.id}`)
-        .catch((err) => this.logger.error(`отмена заявки шага ${step.id}: ${(err as Error).message}`));
+        .catch((err) => this.logger.error(`cancelling the request of step ${step.id}: ${(err as Error).message}`));
     }
     // sfflow#4: сбой видит и ОТВЕТСТВЕННЫЙ за процесс (создатель определения), а не только
     // инициатор — для авто-запусков (runAs=служебный сотрудник) инициатор мог бы не заметить.
@@ -1056,10 +1073,10 @@ export class ProcessEngineService {
     agentNodeId: string,
     depth: number,
   ): Promise<AgentCluster> {
-    if (depth > 3) throw new Error('Слишком глубокая вложенность агентов');
+    if (depth > 3) throw new Error('the agents are nested too deeply');
     const att = plan.attachments[agentNodeId] ?? {};
     const modelId = att.ai_model?.[0];
-    if (!modelId || !plan.nodes[modelId]) throw new Error('К агенту не подключена Модель');
+    if (!modelId || !plan.nodes[modelId]) throw new Error('no Model is connected to the agent');
 
     const modelNode = plan.nodes[modelId];
     const modelCtx = await this.buildContext(instance, { id: '', nodeId: modelId }, modelNode);
@@ -1083,7 +1100,7 @@ export class ProcessEngineService {
           return raw
             .map((s) => { try { return JSON.parse(s) as { u: string; a: string }; } catch { return null; } })
             .filter((t): t is { u: string; a: string } => !!t)
-            .map((t) => `Пользователь: ${t.u}\nАгент: ${t.a}`)
+            .map((t) => `User: ${t.u}\nAgent: ${t.a}`)
             .join('\n\n');
         },
         append: async (u, a) => {
@@ -1113,8 +1130,8 @@ export class ProcessEngineService {
         const maxIter = Math.min(8, Math.max(1, Number(toolNode.config.maxIterations ?? 5)));
         tools.push({
           name,
-          description: String(toolNode.config.toolDescription || `Делегировать задачу агенту «${toolNode.label}»`),
-          schema: { type: 'object', properties: { input: { type: 'string', description: 'Задача/вопрос агенту' } }, required: ['input'] },
+          description: String(toolNode.config.toolDescription || `Delegate the task to the agent «${toolNode.label}»`),
+          schema: { type: 'object', properties: { input: { type: 'string', description: 'A task or a question for the agent' } }, required: ['input'] },
           run: async (input) => (await runAgentWithCluster(subCluster, String(input.input ?? ''), maxIter)).text,
         });
       }
@@ -1140,7 +1157,7 @@ export class ProcessEngineService {
     ]);
     const meta = {
       initiatorName: [starter?.firstName, starter?.lastName].filter(Boolean).join(' '),
-      definitionName: definition?.name ?? 'Процесс',
+      definitionName: definition?.name ?? this.i18n.translateFor(SOURCE_LOCALE, 'processes.defaults.processName'),
     };
     if (this.instanceMetaCache.size >= 200) {
       const oldest = this.instanceMetaCache.keys().next().value;
@@ -1230,7 +1247,10 @@ function renderTemplate(text: string, ctx: Record<string, unknown>): string {
   return text.replace(/\{\{([^}]*)\}\}/g, (_m, inner: string) => {
     const value = resolveExpr(ctx, inner);
     if (value === null || value === undefined) return '';
-    if (typeof value === 'boolean') return value ? 'да' : 'нет';
+    // Значение подстановки ложится в текст задачи/уведомления, а тот — в БД:
+    // пишем в языке ИСТОЧНИКА, как всякий снимок.
+    if (typeof value === 'boolean')
+      return this.i18n.translateFor(SOURCE_LOCALE, value ? 'common.actions.yes' : 'common.actions.no');
     // Объект/массив (напр. {{steps.fetch.body}}) — сериализуем в JSON, чтобы AI-промпт
     // мог сослаться на целый результат прошлого шага.
     if (typeof value === 'object') {

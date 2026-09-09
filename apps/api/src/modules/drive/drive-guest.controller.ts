@@ -2,9 +2,7 @@ import {
   Controller,
   Get,
   Headers,
-  HttpException,
   HttpStatus,
-  NotFoundException,
   Param,
   Query,
   Res,
@@ -24,6 +22,7 @@ import {
 import { ShareLinksGuestService } from '../../core/share-links/share-links-guest.service';
 import { Public } from '../../shared/decorators/public.decorator';
 import { DatabaseService } from '../../shared/database/database.service';
+import { ApiError, notFound } from '../../shared/errors/api-error';
 import { DriveGuestZipService } from './drive-guest-zip.service';
 import { DriveShareLinksProvider } from './drive-share-links.provider';
 import { DriveService, type NodeRow } from './drive.service';
@@ -52,7 +51,7 @@ export class DriveGuestController {
 
   @Public()
   @Get('nodes')
-  @ApiOperation({ summary: 'Содержимое папки внутри гостевой ссылки' })
+  @ApiOperation({ summary: 'Folder contents inside a guest link' })
   async list(
     @Headers(SHARE_SESSION_HEADER) session: string | undefined,
     @Query() query: Record<string, unknown>,
@@ -60,10 +59,10 @@ export class DriveGuestController {
     const q = driveGuestListSchema.parse(query);
     const { link, root } = await this.rootOf(session);
     // Ссылка на одиночный файл папок не открывает — листать нечего.
-    if (root.kind !== 'folder') throw new NotFoundException('Папка не найдена');
+    if (root.kind !== 'folder') throw notFound('drive.folderNotFound');
 
     const parent = q.parentId ? await this.nodeInScope(root, q.parentId) : root;
-    if (parent.kind !== 'folder') throw new NotFoundException('Папка не найдена');
+    if (parent.kind !== 'folder') throw notFound('drive.folderNotFound');
 
     const { rows, nextCursor } = await this.drive.listChildrenOf(parent.id, q);
     const page: ShareDriveNodesPage = {
@@ -91,24 +90,21 @@ export class DriveGuestController {
     const q = driveGuestZipSchema.parse(query);
     const { link, root } = await this.rootOf(q.session);
     if (!link.allowDownload) {
-      throw new HttpException(
-        {
-          message: 'Владелец ссылки разрешил только просмотр',
-          details: { code: SHARE_LINK_ERROR_CODES.downloadDisabled },
-        },
-        HttpStatus.FORBIDDEN,
-      );
+      throw new ApiError(HttpStatus.FORBIDDEN, {
+        code: 'drive.linkViewOnly',
+        details: { code: SHARE_LINK_ERROR_CODES.downloadDisabled },
+      });
     }
-    if (root.kind !== 'folder') throw new NotFoundException('Папка не найдена');
+    if (root.kind !== 'folder') throw notFound('drive.folderNotFound');
 
     const target = q.nodeId ? await this.nodeInScope(root, q.nodeId) : root;
-    if (target.kind !== 'folder') throw new NotFoundException('Папка не найдена');
+    if (target.kind !== 'folder') throw notFound('drive.folderNotFound');
     await this.zipper.stream(target, res);
   }
 
   @Public()
   @Get('nodes/:id')
-  @ApiOperation({ summary: 'Один объект внутри ссылки (свежие ссылки на байты)' })
+  @ApiOperation({ summary: 'One item inside the link (fresh links to the bytes)' })
   async node(@Headers(SHARE_SESSION_HEADER) session: string | undefined, @Param('id') id: string) {
     const { link, root } = await this.rootOf(session);
     const node = await this.nodeInScope(root, id);
@@ -127,7 +123,7 @@ export class DriveGuestController {
     const { link } = await this.guest.authorizeGuest(session, DRIVE_NODE_REF_TYPE);
     const root = await this.db.driveNode.findUnique({ where: { id: link.refId } });
     // Корень исчез или уехал в корзину — тот же ответ, что даёт resolveGuestView.
-    if (!root || root.trashedAt) throw new NotFoundException('Объект больше недоступен');
+    if (!root || root.trashedAt) throw notFound('drive.itemGone');
     return { link, root };
   }
 
@@ -144,7 +140,7 @@ export class DriveGuestController {
       !node.trashedAt &&
       node.spaceId === root.spaceId &&
       (node.id === root.id || node.ancestorIds.includes(root.id));
-    if (!inScope) throw new NotFoundException('Объект не найден');
+    if (!inScope) throw notFound('drive.nodeNotFound');
     return node;
   }
 }

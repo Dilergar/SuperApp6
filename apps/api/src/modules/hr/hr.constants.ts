@@ -2,8 +2,8 @@
 // КЭДО (modules/hr) — внутренние константы модуля.
 // ============================================================
 
-import { ForbiddenException } from '@nestjs/common';
 import { WORKSPACE_ROLE_RANK, type WorkspaceRole } from '@superapp/shared';
+import { forbidden } from '../../shared/errors/api-error';
 
 /**
  * refType хроники СТРАНИЦЫ ЧЕЛОВЕКА: `<workspaceId>:<userId>`.
@@ -34,13 +34,12 @@ export const HR_QUEUE = 'hr';
 export function assertCanManageHrSubject(
   actorRole: WorkspaceRole,
   subjectRole: WorkspaceRole,
-  what = 'кадровые действия',
+  /** ЧТО именно нельзя вести — ветка ICU внутри одной фразы каталога */
+  what: 'actions' | 'employment' = 'actions',
 ): void {
   if (actorRole === 'owner') return;
   if ((WORKSPACE_ROLE_RANK[subjectRole] ?? 0) >= (WORKSPACE_ROLE_RANK[actorRole] ?? 0)) {
-    throw new ForbiddenException(
-      `Нельзя вести ${what} по сотруднику с равной или более высокой ролью в организации — это делает Владелец`,
-    );
+    throw forbidden('hr.subjectRankTooHigh', { what });
   }
 }
 

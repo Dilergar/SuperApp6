@@ -33,17 +33,17 @@ export class WorkspacesCron {
         const purged = await this.workspaces.purgeExpiredArchives();
         if (purged > 0) {
           this.logger.log(
-            `Удалено организаций по ретеншну архива (${WORKSPACE_LIMITS.archiveRetentionDays} дн.): ${purged}`,
+            `Workspaces purged by the archive retention (${WORKSPACE_LIMITS.archiveRetentionDays} days): ${purged}`,
           );
         }
         const warned = await this.workspaces.warnExpiringArchives();
         if (warned > 0) {
-          this.logger.log(`Предупреждений о скором удалении отправлено: ${warned}`);
+          this.logger.log(`Warnings about the coming deletion sent: ${warned}`);
         }
       },
     );
     if (ran === null) {
-      this.logger.debug('Пропущено — лок держит другой инстанс');
+      this.logger.debug('Skipped — another instance holds the lock');
     }
   }
 }

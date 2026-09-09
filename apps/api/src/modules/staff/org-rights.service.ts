@@ -1,8 +1,9 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ORG_ERROR_CODES, STAFF_FULL_SCOPE_ROLES, WORKSPACE_ROLE_RANK, type OrgScopeDto, type WorkspaceRole } from '@superapp/shared';
 import { AccessService } from '../../core/access/access.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { DatabaseService } from '../../shared/database/database.service';
+import { forbidden, type ApiError } from '../../shared/errors/api-error';
 
 const WS_CONTEXT = 'workspace';
 
@@ -88,7 +89,12 @@ export class OrgRightsService {
     return OrgRightsService.coversDepartment(scope, departmentId) || OrgRightsService.coversBranch(scope, branchId);
   }
 
-  static forbid(what = 'Это вне вашей области: править можно только свою ветку или объект'): ForbiddenException {
-    return new ForbiddenException({ message: what, details: { code: ORG_ERROR_CODES.scopeForbidden } });
+  /**
+   * Отказ по области. Слова у него нет: ключ каталога подбирает фразу в языке
+   * запроса, а машинный код (`details.code`) остаётся прежним для всех причин —
+   * клиент ветвится по коду, а не по тексту.
+   */
+  static forbid(messageKey = 'org.scopeForbidden'): ApiError {
+    return forbidden(messageKey, undefined, { code: ORG_ERROR_CODES.scopeForbidden });
   }
 }

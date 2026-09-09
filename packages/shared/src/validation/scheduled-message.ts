@@ -8,9 +8,9 @@ export const scheduleMessageSchema = z
   .object({
     content: z
       .string()
-      .min(1, 'Сообщение не может быть пустым')
+      .min(1, 'validation.scheduled.messageEmpty')
       .max(MESSENGER_LIMITS.maxMessageLength)
-      .refine(noHtml, 'Недопустимые символы'),
+      .refine(noHtml, 'validation.scheduled.badCharacters'),
     sendAt: z.string().datetime({ offset: true }),
     replyToId: z.string().uuid().optional(),
   })
@@ -22,12 +22,12 @@ export const updateScheduledMessageSchema = z
       .string()
       .min(1)
       .max(MESSENGER_LIMITS.maxMessageLength)
-      .refine(noHtml, 'Недопустимые символы')
+      .refine(noHtml, 'validation.scheduled.badCharacters')
       .optional(),
     sendAt: z.string().datetime({ offset: true }).optional(),
   })
   .strict()
-  .refine((v) => v.content !== undefined || v.sendAt !== undefined, 'Нечего обновлять');
+  .refine((v) => v.content !== undefined || v.sendAt !== undefined, 'validation.scheduled.nothingToUpdate');
 
 export type ScheduleMessageInput = z.infer<typeof scheduleMessageSchema>;
 export type UpdateScheduledMessageInput = z.infer<typeof updateScheduledMessageSchema>;

@@ -34,7 +34,7 @@ Self-host: профиль voice → `hwdsl2/whisper-server` (faster-whisper + д
 
 ## Ловушки
 
-- Классификация «голосовое» и превью — общие хелперы shared (`isVoiceNoteProfile`/`attachmentPreviewText`).
+- Классификация «голосовое» и превью — общие хелперы shared (`isVoiceNoteProfile`/`attachmentPreviewKind`). Второй возвращает ВЕТКУ каталога (`messenger.attachmentPreview.*`) и число файлов, а не фразу: решение общее для API и веба, слово — у вызывающего в его языке.
 - `duration=Infinity` у headerless-webm лечится сик-трюком.
 - Карты расширение↔MIME — в shared (`AUDIO_EXT_TO_MIME`); веб нормализует пустой/octet-stream MIME по расширению.
 

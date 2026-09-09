@@ -8,13 +8,15 @@
 // ============================================================
 
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import type { ShareDriveGuestView, ShareDriveNodeDto } from '@superapp/shared';
 import { Button } from '@/components/ui/Button';
 import { Icon } from '@/components/ui/Icon';
 import { EmptyState } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Feedback';
 import { shareDriveList, shareDriveNode, shareDriveZipUrl } from '@/lib/public-api';
-import { driveIcon, humanSize, shortDate } from '@/app/drive/_components/drive-ui';
+import { driveIcon } from '@/app/drive/_components/drive-ui';
+import { useBytes, useShortDate } from '@/lib/format';
 
 interface Crumb {
   id: string | null;
@@ -49,6 +51,9 @@ function ShareFolderView({
   session: string;
   allowDownload: boolean;
 }) {
+  const t = useTranslations('share');
+  const humanSize = useBytes();
+  const shortDate = useShortDate();
   const [crumbs, setCrumbs] = useState<Crumb[]>([{ id: null, name: rootName }]);
   const [rows, setRows] = useState<ShareDriveNodeDto[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -70,7 +75,7 @@ function ShareFolderView({
         setRows((prev) => (append ? [...prev, ...page.items] : page.items));
         setCursor(page.nextCursor);
       } catch {
-        setError('Не удалось загрузить содержимое');
+        setError(t('guest.drive.loadFailed'));
       } finally {
         setLoading(false);
       }
@@ -89,7 +94,7 @@ function ShareFolderView({
     <>
       {/* В корне путь не рисуем: имя папки и так стоит заголовком страницы */}
       {crumbs.length > 1 && (
-        <nav aria-label="Путь" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, marginBottom: 'var(--spacing-4)' }}>
+        <nav aria-label={t('guest.drive.pathAria')} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, marginBottom: 'var(--spacing-4)' }}>
           {crumbs.map((c, i) => (
             <span key={`${c.id ?? 'root'}-${i}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               {i > 0 && <Icon name="caretDown" size={12} style={{ transform: 'rotate(-90deg)', color: 'var(--on-surface-variant)' }} />}
@@ -116,7 +121,7 @@ function ShareFolderView({
             icon="download"
             href={shareDriveZipUrl(session, current.id ?? undefined)}
           >
-            Скачать всё
+            {t('guest.drive.downloadAll')}
           </Button>
         </div>
       )}
@@ -127,7 +132,7 @@ function ShareFolderView({
           {error}
         </p>
       )}
-      {!loading && !error && rows.length === 0 && <EmptyState icon="folder" title="Папка пуста" />}
+      {!loading && !error && rows.length === 0 && <EmptyState icon="folder" title={t('guest.drive.emptyFolder')} />}
 
       {/* Список — настоящие ul/li, кнопка ВНУТРИ строки. Раньше role="listitem" стояла
           на самой button и перекрывала её роль: в дереве доступности строка была
@@ -169,7 +174,7 @@ function ShareFolderView({
       {cursor && (
         <div style={{ marginTop: 'var(--spacing-4)', textAlign: 'center' }}>
           <Button variant="ghost" onClick={() => void load(current.id, true, cursor)} disabled={loading}>
-            Показать ещё
+            {t('guest.drive.showMore')}
           </Button>
         </div>
       )}
@@ -211,6 +216,9 @@ function ShareFileCard({
   allowDownload: boolean;
   onClose?: () => void;
 }) {
+  const t = useTranslations('share');
+  const tc = useTranslations('common');
+  const humanSize = useBytes();
   const [current, setCurrent] = useState(file);
   const [busy, setBusy] = useState(false);
 
@@ -245,7 +253,7 @@ function ShareFileCard({
       <div style={{ textAlign: 'center', padding: 'var(--spacing-5) 0' }}>
         <Icon name="lock" size={28} style={{ color: 'var(--on-surface-variant)' }} />
         <p className="body-sm" style={{ margin: '0.5rem 0 0' }}>
-          «{name}» — владелец разрешил только просмотр, а предпросмотра у этого типа файлов нет.
+          {t('guest.drive.noPreviewNamed', { name })}
         </p>
       </div>
     );
@@ -256,7 +264,7 @@ function ShareFileCard({
       <div style={{ textAlign: 'center', padding: 'var(--spacing-5) 0' }}>
         <Icon name="warningCircle" size={28} style={{ color: 'var(--on-surface-variant)' }} />
         <p className="body-sm" style={{ margin: '0.5rem 0 0' }}>
-          Файл недоступен — он ещё обрабатывается или заблокирован проверкой безопасности.
+          {t('guest.drive.fileBlocked')}
         </p>
       </div>
     );
@@ -269,7 +277,7 @@ function ShareFileCard({
         <span className="title-sm" style={{ flex: 1, minWidth: 0, wordBreak: 'break-word' }}>{name}</span>
         <span className="meta">{humanSize(current.size)}</span>
         {onClose && (
-          <Button variant="ghost" size="sm" onClick={onClose} aria-label="Закрыть просмотр">
+          <Button variant="ghost" size="sm" onClick={onClose} aria-label={t('guest.drive.closePreview')}>
             ✕
           </Button>
         )}
@@ -294,14 +302,12 @@ function ShareFileCard({
       {allowDownload ? (
         <div style={{ marginTop: 'var(--spacing-4)' }}>
           <Button icon="download" onClick={() => void download()} loading={busy}>
-            Скачать
+            {tc('actions.download')}
           </Button>
         </div>
       ) : (
         <p className="meta" style={{ margin: 'var(--spacing-4) 0 0' }}>
-          {current.previewUrl
-            ? 'Владелец разрешил только просмотр — скачивание отключено.'
-            : 'Владелец разрешил только просмотр, а предпросмотра у этого типа файлов нет.'}
+          {current.previewUrl ? t('guest.drive.downloadOff') : t('guest.drive.noPreview')}
         </p>
       )}
     </div>

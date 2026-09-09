@@ -9,6 +9,7 @@
 // ============================================================
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useQuery } from '@tanstack/react-query';
 import { fetchInbox } from '@/lib/approvals-api';
 import { approvalInboxKey } from '@/lib/queries';
@@ -17,6 +18,9 @@ import { DecisionStack } from '@/components/approvals/DecisionStack';
 import { MyApprovalsList } from '@/components/approvals/MyApprovalsList';
 
 export function DecisionsTab({ workspaceId }: { workspaceId: string }) {
+  const tr = useTranslations('documents');
+  const ta = useTranslations('approvals');
+  const tc = useTranslations('common');
   const [open, setOpen] = useState(false);
   // Раздел живёт ВНУТРИ организации — и решения показывает только её
   const scope = { workspaceId };
@@ -37,18 +41,18 @@ export function DecisionsTab({ workspaceId }: { workspaceId: string }) {
           ) : inboxQuery.isError ? (
             <EmptyState
               icon="warningCircle"
-              title="Не удалось загрузить стопку решений"
+              title={ta('stack.loadFailed')}
               action={
                 <Button variant="matte" icon="refresh" onClick={() => inboxQuery.refetch()}>
-                  Повторить
+                  {tc('actions.retry')}
                 </Button>
               }
             />
           ) : items.length === 0 ? (
             <EmptyState
               icon="check"
-              title="Ничего не ждёт вашего решения"
-              description="Здесь появятся документы, которые надо согласовать, подписать или прочитать."
+              title={tr('decisions.emptyTitle')}
+              description={tr('decisions.emptyText')}
             />
           ) : (
             <div style={{ display: 'grid', gap: 'var(--spacing-2)' }}>
@@ -79,19 +83,19 @@ export function DecisionsTab({ workspaceId }: { workspaceId: string }) {
                   </div>
                   {item.overdue && (
                     <Chip size="sm" tone="danger">
-                      Просрочено
+                      {ta('overdue')}
                     </Chip>
                   )}
                   {i === 0 && (
                     <Chip size="sm" tone="accent">
-                      Разобрать
+                      {tr('decisions.resolve')}
                     </Chip>
                   )}
                 </button>
               ))}
               <div style={{ marginTop: 'var(--spacing-3)' }}>
                 <Button icon="check" onClick={() => setOpen(true)}>
-                  Разобрать стопку
+                  {tr('decisions.resolveAll')}
                 </Button>
               </div>
             </div>
@@ -101,7 +105,7 @@ export function DecisionsTab({ workspaceId }: { workspaceId: string }) {
         {/* Обратная сторона: не «что ждёт меня», а «где то, что отправил я».
             Список — тот же компонент, что и в модалке стопки. */}
         <Card span={12}>
-          <CardHeader title="Мои заявки" subtitle="Что вы отправили и у кого оно сейчас" />
+          <CardHeader title={ta('stack.tabMine')} subtitle={tr('decisions.mineSubtitle')} />
           <MyApprovalsList scope={scope} />
         </Card>
       </BentoGrid>

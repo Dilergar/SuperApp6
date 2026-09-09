@@ -60,9 +60,16 @@ async function main() {
 
     // --- Catalog ---
     const cat = (await call('GET', '/card-skins/catalog', t1)).json.data;
-    const floral = cat.find((s) => s.name === 'Цветочный');
-    const paper = cat.find((s) => s.name === 'Мятая бумага');
-    const neon = cat.find((s) => s.name === 'Ретро-неон');
+    // Скины ищем по ФИКСИРОВАННЫМ id сида: имя собирает каталог в языке запроса,
+    // и ассерт на слово стал бы ассертом на язык.
+    const SKIN_IDS = {
+      floral: '00000000-0000-4000-a000-000000000001',
+      paper: '00000000-0000-4000-a000-000000000002',
+      neon: '00000000-0000-4000-a000-000000000003',
+    };
+    const floral = cat.find((s) => s.id === SKIN_IDS.floral);
+    const paper = cat.find((s) => s.id === SKIN_IDS.paper);
+    const neon = cat.find((s) => s.id === SKIN_IDS.neon);
     check('каталог содержит 3 сид-скина', !!floral && !!paper && !!neon, `n=${cat.length}`);
     check('Цветочный: безлимитный, доступен, не куплен', floral && floral.supply === null && floral.available && floral.owned === false);
     check('Ретро-неон: лимит 500', neon && neon.supply === 500);

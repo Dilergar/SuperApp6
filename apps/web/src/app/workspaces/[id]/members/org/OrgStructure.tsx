@@ -10,9 +10,10 @@
 // ============================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ORG_ERROR_CODES, pluralRu, type OrgChartDto, type Workspace } from '@superapp/shared';
+import { ORG_ERROR_CODES, type OrgChartDto, type Workspace } from '@superapp/shared';
 import { apiErrorDetails, apiErrorMessage } from '@/lib/api';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { fetchOrgChart, movePositionToDepartment, setPositionReportsTo } from '@/lib/org-api';
@@ -28,7 +29,7 @@ import { OrgWizard } from './OrgWizard';
 import { CreateDepartmentModal, CreatePositionModal } from './OrgCreateModals';
 import { OrgTree } from './OrgTree';
 import { deptNodeId, type OrgFocusMode, type OrgViewMode } from './org-layout';
-import { focusNodeId as resolveFocusNodeId, parseFocus, personName, showApiError, useOrgRefresh, type OrgSelection } from './org-lib';
+import { focusNodeId as resolveFocusNodeId, parseFocus, showApiError, useOrgRefresh, usePersonName, type OrgSelection } from './org-lib';
 
 const ALL_BRANCHES = '__all__';
 /** Порог, после которого рамки отделов не рисуются (предупреждение + фильтр объекта) */
@@ -43,6 +44,8 @@ interface SearchHit {
 }
 
 export function OrgStructure({ workspaceId, ws }: { workspaceId: string; ws: Workspace }) {
+  const t = useTranslations('staff');
+  const personName = usePersonName();
   const { user } = useRequireAuth();
   const meId = user?.id ?? null;
   const router = useRouter();
@@ -115,17 +118,17 @@ export function OrgStructure({ workspaceId, ws }: { workspaceId: string; ws: Wor
     const out: SearchHit[] = [];
     for (const p of chart.positions) {
       if (p.name.toLowerCase().includes(q)) {
-        out.push({ nodeId: p.id, title: p.name, meta: p.holders.length ? `${p.holders.length} чел.` : 'вакансия', icon: 'position' });
+        out.push({ nodeId: p.id, title: p.name, meta: p.holders.length ? t('peopleCount', { n: p.holders.length }) : t('org.vacancy'), icon: 'position' });
         continue;
       }
       const holder = p.holders.find((h) => personName(chart.people[h.userId]).toLowerCase().includes(q));
       if (holder) out.push({ nodeId: p.id, title: personName(chart.people[holder.userId]), meta: p.name, icon: 'user' });
     }
     for (const d of chart.departments) {
-      if (d.name.toLowerCase().includes(q)) out.push({ nodeId: deptNodeId(d.id), title: d.name, meta: 'отдел', icon: 'department' });
+      if (d.name.toLowerCase().includes(q)) out.push({ nodeId: deptNodeId(d.id), title: d.name, meta: t('org.metaDepartment'), icon: 'department' });
     }
     return out.slice(0, 12);
-  }, [chart, search]);
+  }, [chart, search, t, personName]);
   const hits = useMemo(() => (search.trim() ? new Set(hitsList.map((h) => h.nodeId)) : null), [hitsList, search]);
 
   /** Закрыть панель и вернуть фокус на узел, с которого её открыли (клавиатурный путь) */
@@ -185,13 +188,13 @@ export function OrgStructure({ workspaceId, ws }: { workspaceId: string; ws: Wor
   if (chartQ.isError) {
     const code = apiErrorDetails(chartQ.error)?.code;
     return (
-      <MembersHeader ws={ws} title="Орг. структура" description="Кто кому руководитель — на графе должностей и объектов">
+      <MembersHeader ws={ws} title={t('org.title')} description={t('org.description')}>
         {code === ORG_ERROR_CODES.chartTooBig ? (
           <EmptyState
             icon="department"
-            title="Схема больше потолка"
+            title={t('org.tooBigTitle')}
             description={apiErrorMessage(chartQ.error)}
-            action={<Button variant="matte" icon="branch" href={`/workspaces/${workspaceId}/members/branches`}>Открыть по объектам</Button>}
+            action={<Button variant="matte" icon="branch" href={`/workspaces/${workspaceId}/members/branches`}>{t('org.openByBranches')}</Button>}
           />
         ) : (
           <Alert tone="danger">{apiErrorMessage(chartQ.error)}</Alert>
@@ -204,7 +207,7 @@ export function OrgStructure({ workspaceId, ws }: { workspaceId: string; ws: Wor
   // ---- Мобильный фолбэк ----
   if (isMobile) {
     return (
-      <MembersHeader ws={ws} title="Орг. структура" description="Дерево отделов и должностей">
+      <MembersHeader ws={ws} title={t('org.title')} description={t('org.descriptionMobile')}>
         {chart.branches.length > 1 && (
           <div style={{ marginBottom: 'var(--gap-grid)' }}>
             <BranchSelect chart={chart} value={branchId} onChange={setBranch} />
@@ -221,29 +224,29 @@ export function OrgStructure({ workspaceId, ws }: { workspaceId: string; ws: Wor
         <div className="org-toolbar-head">
           <MembersHeader
             ws={ws}
-            title="Орг. структура"
+            title={t('org.title')}
             actions={
               <>
-                <Button variant="ghost" size="sm" icon="arrowLeft" href={membersSectionHref(workspaceId, 'people')}>Люди</Button>
+                <Button variant="ghost" size="sm" icon="arrowLeft" href={membersSectionHref(workspaceId, 'people')}>{t('org.people')}</Button>
                 <Button
                   variant={selection?.type === 'unassigned' ? 'matte' : 'outline'}
                   size="sm"
                   icon="people"
                   onClick={() => setSelection(selection?.type === 'unassigned' ? null : { type: 'unassigned' })}
                 >
-                  Вне структуры
+                  {t('org.unassigned')}
                   {/* Бейдж считает ЛЮДЕЙ вне структуры: раньше сюда подмешивались
                       вакансии, и «Вне структуры · 2» горело при нуле таких людей
                       (вакансии видно отдельным чипом в ряду ниже). */}
                   {chart.counts.unassigned > 0 && <Badge tone="neutral">{chart.counts.unassigned}</Badge>}
                 </Button>
                 {chart.scope.kind === 'all' && (
-                  <Button variant={chart.assembled ? 'outline' : 'primary'} size="sm" icon="spark" onClick={() => setWizardOpen(true)}>Собрать структуру</Button>
+                  <Button variant={chart.assembled ? 'outline' : 'primary'} size="sm" icon="spark" onClick={() => setWizardOpen(true)}>{t('org.assemble')}</Button>
                 )}
                 {canEdit && (
                   <>
-                    <Button variant="matte" size="sm" icon="add" onClick={() => setCreateOpen('department')}>Отдел</Button>
-                    <Button variant="matte" size="sm" icon="add" onClick={() => setCreateOpen('position')}>Должность</Button>
+                    <Button variant="matte" size="sm" icon="add" onClick={() => setCreateOpen('department')}>{t('term.department')}</Button>
+                    <Button variant="matte" size="sm" icon="add" onClick={() => setCreateOpen('position')}>{t('term.position')}</Button>
                   </>
                 )}
               </>
@@ -252,26 +255,26 @@ export function OrgStructure({ workspaceId, ws }: { workspaceId: string; ws: Wor
         </div>
         <div className="org-toolbar-row">
           <SegmentedControl<OrgViewMode>
-            aria-label="Вид схемы"
+            aria-label={t('org.viewAria')}
             value={view}
             onChange={setView}
             items={[
-              { key: 'reports', label: 'Подчинение', icon: 'processes' },
-              { key: 'deputies', label: 'Замещения', icon: 'loop', count: chart.deputies.length },
-              { key: 'both', label: 'Всё' },
+              { key: 'reports', label: t('org.viewReports'), icon: 'processes' },
+              { key: 'deputies', label: t('org.viewDeputies'), icon: 'loop', count: chart.deputies.length },
+              { key: 'both', label: t('org.viewBoth') },
             ]}
           />
           <BranchSelect chart={chart} value={branchId} onChange={setBranch} />
           {branchId && (
-            <Button variant="ghost" size="sm" icon="crown" onClick={() => setSelection({ type: 'branch', id: branchId })}>Руководитель объекта</Button>
+            <Button variant="ghost" size="sm" icon="crown" onClick={() => setSelection({ type: 'branch', id: branchId })}>{t('org.branchHead')}</Button>
           )}
           <SegmentedControl<OrgFocusMode>
-            aria-label="Охват"
+            aria-label={t('org.scopeAria')}
             value={effectiveFocusMode}
             onChange={setFocusMode}
             items={[
-              { key: 'mine', label: 'Моя ветка', icon: 'user', disabled: chart.myPositionIds.length === 0 },
-              { key: 'all', label: 'Вся компания', icon: 'workspace' },
+              { key: 'mine', label: t('org.scopeMine'), icon: 'user', disabled: chart.myPositionIds.length === 0 },
+              { key: 'all', label: t('org.scopeAll'), icon: 'workspace' },
             ]}
           />
           <div className="org-search">
@@ -282,14 +285,14 @@ export function OrgStructure({ workspaceId, ws }: { workspaceId: string; ws: Wor
               onBlur={() => window.setTimeout(() => setSearchOpen(false), 150)}
               onKeyDown={(e) => { if (e.key === 'Enter' && hitsList[0]) goTo(hitsList[0].nodeId); if (e.key === 'Escape') { setSearch(''); setSearchOpen(false); } }}
               onClear={() => setSearch('')}
-              placeholder="Должность или человек…"
+              placeholder={t('org.searchPlaceholder')}
               width={220}
-              aria-label="Поиск по схеме"
+              aria-label={t('org.searchAria')}
             />
             {searchOpen && search.trim() && (
-              <div className="org-search-list" role="listbox" aria-label="Совпадения">
+              <div className="org-search-list" role="listbox" aria-label={t('org.matches')}>
                 {hitsList.length === 0 ? (
-                  <p className="label-sm" style={{ margin: '0.25rem 0.5rem' }}>Ничего не найдено</p>
+                  <p className="label-sm" style={{ margin: '0.25rem 0.5rem' }}>{t('org.nothingFound')}</p>
                 ) : (
                   hitsList.map((h) => (
                     <button key={`${h.icon}:${h.nodeId}:${h.title}`} type="button" className="org-search-item" role="option" aria-selected={false} onMouseDown={(e) => e.preventDefault()} onClick={() => goTo(h.nodeId)}>
@@ -306,22 +309,20 @@ export function OrgStructure({ workspaceId, ws }: { workspaceId: string; ws: Wor
           {/* Одна подписанная строка вместо четырёх голых чисел с иконками: «5 · 3 · 2»
               не читалось без наведения и переносилось во второй ряд, дёргая тулбар. */}
           <span className="meta">
-            {chart.counts.positions} {pluralRu(chart.counts.positions, ['должность', 'должности', 'должностей'])}
+            {t('positionsCount', { n: chart.counts.positions })}
             {' · '}
-            {chart.counts.departments} {pluralRu(chart.counts.departments, ['отдел', 'отдела', 'отделов'])}
+            {t('departmentsCount', { n: chart.counts.departments })}
             {' · '}
-            {chart.counts.branches} {pluralRu(chart.counts.branches, ['объект', 'объекта', 'объектов'])}
+            {t('branchesCount', { n: chart.counts.branches })}
           </span>
           {chart.counts.vacancies > 0 && (
-            <Chip size="sm" tone="waiting">
-              {chart.counts.vacancies} {pluralRu(chart.counts.vacancies, ['вакансия', 'вакансии', 'вакансий'])}
-            </Chip>
+            <Chip size="sm" tone="waiting">{t('vacanciesCount', { n: chart.counts.vacancies })}</Chip>
           )}
           {effectiveFocusMode === 'mine' && chart.myPositionIds.length > 0 && (
-            <Chip size="sm" tone="neutral" icon="user" title="Мои должности, руководители выше и команда ниже">показана моя ветка</Chip>
+            <Chip size="sm" tone="neutral" icon="user" title={t('org.mineBranchTitle')}>{t('org.mineBranchChip')}</Chip>
           )}
-          {!canEdit && <Chip size="sm" tone="neutral" icon="eye">только просмотр</Chip>}
-          {chart.scope.kind === 'scoped' && <Chip size="sm" tone="accent" icon="edit">правка своих веток</Chip>}
+          {!canEdit && <Chip size="sm" tone="neutral" icon="eye">{t('org.readOnly')}</Chip>}
+          {chart.scope.kind === 'scoped' && <Chip size="sm" tone="accent" icon="edit">{t('org.scopedEdit')}</Chip>}
         </div>
       </div>
 
@@ -330,9 +331,9 @@ export function OrgStructure({ workspaceId, ws }: { workspaceId: string; ws: Wor
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <EmptyState
               icon="position"
-              title="Должностей пока нет"
-              description="Добавьте первую должность — от неё и пойдёт схема."
-              action={canEdit ? <Button variant="primary" tone="success" icon="add" onClick={() => setCreateOpen('position')}>Должность</Button> : undefined}
+              title={t('org.emptyTitle')}
+              description={t('org.emptyHint')}
+              action={canEdit ? <Button variant="primary" tone="success" icon="add" onClick={() => setCreateOpen('position')}>{t('term.position')}</Button> : undefined}
             />
           </div>
         ) : (
@@ -360,13 +361,13 @@ export function OrgStructure({ workspaceId, ws }: { workspaceId: string; ws: Wor
               tone="warning"
               action={<BranchSelect chart={chart} value={branchId} onChange={setBranch} />}
             >
-              Схема большая ({chart.counts.positions} должностей, {chart.counts.departments} отделов) — рамки отделов не рисуются. Откройте её по объекту.
+              {t('org.framesOff', { positions: chart.counts.positions, departments: chart.counts.departments })}
             </Alert>
           </div>
         )}
         {!chart.ownerInChart && selection?.type !== 'unassigned' && chart.positions.length > 0 && chart.roots.length > 1 && (
           <div className="org-banner" style={{ top: 'auto', bottom: 'var(--spacing-4)' }}>
-            <Alert tone="neutral" icon="info">Несколько корней: должности без руководителя подчиняются владельцу организации напрямую.</Alert>
+            <Alert tone="neutral" icon="info">{t('org.manyRoots')}</Alert>
           </div>
         )}
 
@@ -392,15 +393,16 @@ export function OrgStructure({ workspaceId, ws }: { workspaceId: string; ws: Wor
 }
 
 function BranchSelect({ chart, value, onChange }: { chart: OrgChartDto; value: string | null; onChange: (id: string) => void }) {
+  const t = useTranslations('staff');
   return (
     <Select
-      aria-label="Объект"
+      aria-label={t('term.branch')}
       value={value ?? ALL_BRANCHES}
       onChange={onChange}
       width={200}
       options={[
-        { value: ALL_BRANCHES, label: 'Все объекты', icon: 'branch' },
-        ...chart.branches.map((b) => ({ value: b.id, label: b.name, hint: b.isDefault ? 'основной' : undefined })),
+        { value: ALL_BRANCHES, label: t('people.allBranches'), icon: 'branch' },
+        ...chart.branches.map((b) => ({ value: b.id, label: b.name, hint: b.isDefault ? t('org.defaultHint') : undefined })),
       ]}
     />
   );

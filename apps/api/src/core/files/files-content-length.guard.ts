@@ -1,14 +1,5 @@
-import {
-  CanActivate,
-  ConflictException,
-  ExecutionContext,
-  ForbiddenException,
-  HttpException,
-  HttpStatus,
-  Injectable,
-  NotFoundException,
-  PayloadTooLargeException,
-} from '@nestjs/common';
+import { CanActivate, ExecutionContext, HttpStatus, Injectable } from '@nestjs/common';
+import { ApiError, conflict, forbidden, notFound } from '../../shared/errors/api-error';
 import { FILE_LIMITS, FILE_PROFILES } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 
@@ -32,10 +23,10 @@ export class FilesContentLengthGuard implements CanActivate {
       where: { id: fileId },
       select: { profile: true, status: true, uploaderId: true, uploadId: true },
     });
-    if (!row || row.status === 'deleted') throw new NotFoundException('Файл не найден');
-    if (row.status !== 'uploading') throw new ConflictException('Файл уже завершён');
+    if (!row || row.status === 'deleted') throw notFound('files.notFound');
+    if (row.status !== 'uploading') throw conflict('files.alreadyComplete');
     if (req.user?.sub && row.uploaderId !== req.user.sub) {
-      throw new ForbiddenException('Загрузку продолжает только её автор');
+      throw forbidden('files.uploaderOnlyContinue');
     }
 
     const spec = FILE_PROFILES[row.profile] ?? FILE_PROFILES.generic;
@@ -48,11 +39,11 @@ export class FilesContentLengthGuard implements CanActivate {
     // напишет на диск до apiSingleRequestMax (200 МБ) даже для 5-МБ профиля.
     // Легитимные клиенты (браузер/axios с multipart/form-data) его всегда шлют.
     if (!Number.isFinite(contentLength) || contentLength <= 0) {
-      throw new HttpException('Требуется заголовок Content-Length', HttpStatus.LENGTH_REQUIRED);
+      throw new ApiError(HttpStatus.LENGTH_REQUIRED, { code: 'files.contentLengthRequired' });
     }
     // +1 МБ на служебные части multipart/form-data
     if (contentLength > ceiling + 1024 * 1024) {
-      throw new PayloadTooLargeException('Файл больше лимита профиля');
+      throw new ApiError(HttpStatus.PAYLOAD_TOO_LARGE, { code: 'files.tooLargeForProfile' });
     }
     return true;
   }

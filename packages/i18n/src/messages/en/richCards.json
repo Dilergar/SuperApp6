@@ -1,16 +1,27 @@
 {
-  "unavailable": "Card unavailable",
   "deleted": "The record was deleted",
   "event": {
-    "when": "When",
-    "where": "Where",
-    "yourStatus": "Your answer",
     "organizer": "Organizer",
     "rsvp": {
-      "pending": "No answer",
       "accepted": "Going",
       "declined": "Not going",
+      "pending": "No answer",
       "tentative": "Maybe"
-    }
-  }
+    },
+    "when": "When",
+    "where": "Where",
+    "yourStatus": "Your answer"
+  },
+  "shift": {
+    "open": "Open",
+    "openStatus": "Open shift",
+    "take": "I will take it",
+    "taken": "Taken",
+    "template": "Shift"
+  },
+  "site": {
+    "people": "People",
+    "timeZone": "Time zone"
+  },
+  "unavailable": "Card unavailable"
 }

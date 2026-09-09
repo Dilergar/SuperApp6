@@ -620,6 +620,11 @@ export const CHATTER_REGISTRY = {
   // ---- КЭДО (modules/hr; refType='hr_member', refId=`<wsId>:<userId>` —
   // хроника вкладки «Хроника» на странице человека; workspaceId у записи
   // заполнен, поэтому она же видна в «Журнале организации» фильтром «Кадры») ----
+  'hr.employment_created': {
+    icon: '📇',
+    category: 'hr',
+    chatPost: false,
+  },
   'hr.employment_updated': {
     icon: '📇',
     category: 'hr',

@@ -2,6 +2,8 @@
 
 import { Button, Input } from '@/components/ui';
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
+import { useFormatters } from '@/lib/format';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiErrorMessage, apiPost } from '@/lib/api';
@@ -16,18 +18,11 @@ import {
   workspacesArchivedKey,
   workspacesIncomingInvitationsKey,
 } from '@/lib/queries';
-import { daysUntilPurge, pluralDays, WORKSPACE_ARCHIVE_WARN_DAYS } from '@superapp/shared';
+import { daysUntilPurge, WORKSPACE_ARCHIVE_WARN_DAYS } from '@superapp/shared';
 import type { Workspace, WorkspaceInvitation } from '@superapp/shared';
 
-/** «26.10.2026 в 19:14» — дата и время удаления в поясе зрителя. */
-function formatPurgeMoment(iso: string): string {
-  const d = new Date(iso);
-  const date = d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-  return `${date} в ${time}`;
-}
-
-const daysWord = (n: number) => (n === 0 ? 'меньше суток' : pluralDays(n));
+// Момент удаления и «сколько осталось» собираются В КОМПОНЕНТЕ: и формат даты,
+// и склонение дней принадлежат языку и региону зрителя (каталог + форматтеры).
 
 // Стабильные пустые списки: `= []` в деструктуризации рождал бы новый массив на
 // каждый рендер и зря будил бы всё, что зависит от этих значений.
@@ -39,6 +34,11 @@ const EMPTY_INVITES: WorkspaceInvitation[] = [];
  * Clicking an organization card opens its page (the "switch into context" entry point).
  */
 export function WorkspacesPanel() {
+  const t = useTranslations('workspaces');
+  const tc = useTranslations('common');
+  const f = useFormatters();
+  const purgeMoment = (iso: string) => t('panel.purgeMoment', { date: f.date(iso), time: f.time(iso) });
+  const daysWord = (n: number) => (n === 0 ? t('panel.lessThanDay') : t('panel.days', { n }));
   const [showArchive, setShowArchive] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -85,7 +85,7 @@ export function WorkspacesPanel() {
       await apiPost(`/workspaces/invitations/${id}/${action}`);
       await refreshAll();
     } catch {
-      setError('Не удалось обработать приглашение');
+      setError(t('panel.inviteFailed'));
     } finally {
       setBusyId(null);
     }
@@ -114,7 +114,7 @@ export function WorkspacesPanel() {
       setShowCreate(false);
       await refreshAll();
     } catch {
-      setError('Не удалось создать организацию');
+      setError(t('panel.createFailed'));
     } finally {
       setCreating(false);
     }
@@ -131,7 +131,7 @@ export function WorkspacesPanel() {
           paddingLeft: 'var(--spacing-2)',
         }}
       >
-        <h2 className="title-md">Организации</h2>
+        <h2 className="title-md">{t('panel.title')}</h2>
         <Button
           size="sm"
           variant={showCreate ? 'ghost' : 'primary'}
@@ -139,7 +139,7 @@ export function WorkspacesPanel() {
           icon={showCreate ? 'close' : 'add'}
           onClick={() => setShowCreate((v) => !v)}
         >
-          {showCreate ? 'Отмена' : 'Создать'}
+          {showCreate ? tc('actions.cancel') : t('panel.create')}
         </Button>
       </div>
 
@@ -153,15 +153,15 @@ export function WorkspacesPanel() {
       {showCreate && (
         <div className="card" style={{ marginBottom: 'var(--spacing-6)', display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
           <Input
-            aria-label="Название организации"
+            aria-label={t('panel.nameAria')}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Название организации"
+            placeholder={t('panel.nameAria')}
             maxLength={100}
             wrapClassName="ws-create-field"
             onKeyDown={(e) => e.key === 'Enter' && create()}
           />
-          <Button onClick={create} disabled={!name.trim()} loading={creating} variant="primary" tone="success" icon="add">Создать</Button>
+          <Button onClick={create} disabled={!name.trim()} loading={creating} variant="primary" tone="success" icon="add">{t('panel.create')}</Button>
         </div>
       )}
 
@@ -182,20 +182,20 @@ export function WorkspacesPanel() {
               }}
             >
               <div>
-                <div className="label-sm" style={{ marginBottom: 'var(--spacing-1)' }}>Приглашение</div>
+                <div className="label-sm" style={{ marginBottom: 'var(--spacing-1)' }}>{t('panel.invitation')}</div>
                 <div className="title-md">{inv.workspaceName}</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', marginTop: 'var(--spacing-1)', flexWrap: 'wrap' }}>
                   <PersonChip size="S" userId={inv.invitedBy} firstName={inv.invitedByName} />
                   <span className="label-md" style={{ fontSize: '0.85rem' }}>
-                    Нанимаетесь Стажёром
+                    {t('panel.hiredAsTrainee')}
                     {inv.positionName ? ` · ${inv.positionName}` : ''}
                     {inv.branchNames.length ? ` · ${inv.branchNames.join(', ')}` : ''}
                   </span>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 'var(--spacing-3)' }}>
-                <Button size="sm" variant="primary" tone="success" icon="check" disabled={busyId === inv.id} onClick={() => respond(inv.id, 'accept')}>Принять</Button>
-                <Button size="sm" variant="matte" tone="danger" icon="close" disabled={busyId === inv.id} onClick={() => respond(inv.id, 'reject')}>Отклонить</Button>
+                <Button size="sm" variant="primary" tone="success" icon="check" disabled={busyId === inv.id} onClick={() => respond(inv.id, 'accept')}>{t('panel.accept')}</Button>
+                <Button size="sm" variant="matte" tone="danger" icon="close" disabled={busyId === inv.id} onClick={() => respond(inv.id, 'reject')}>{t('panel.reject')}</Button>
               </div>
             </div>
           ))}
@@ -204,10 +204,10 @@ export function WorkspacesPanel() {
 
       {/* My organizations */}
       {loading ? (
-        <p className="label-md" style={{ paddingLeft: 'var(--spacing-2)' }}>Загрузка…</p>
+        <p className="label-md" style={{ paddingLeft: 'var(--spacing-2)' }}>{tc('state.loading')}</p>
       ) : workspaces.length === 0 ? (
         <p className="label-md" style={{ paddingLeft: 'var(--spacing-2)', opacity: 0.7 }}>
-          {invites.length > 0 ? 'Примите приглашение, чтобы вступить в организацию.' : 'У вас пока нет организаций.'}
+          {invites.length > 0 ? t('panel.acceptToJoin') : t('panel.none')}
         </p>
       ) : (
         <div className="grid md:grid-cols-3" style={{ gap: 'var(--spacing-6)' }}>
@@ -235,7 +235,7 @@ export function WorkspacesPanel() {
             aria-expanded={showArchive}
             onClick={() => setShowArchive((v) => !v)}
           >
-            Архив · {archived.length}
+            {t('panel.archive', { n: archived.length })}
           </Button>
 
           {showArchive && (
@@ -257,7 +257,7 @@ export function WorkspacesPanel() {
                   <div>
                     <div className="title-md">{ws.name}</div>
                     <div className="label-md" style={{ fontSize: '0.85rem', opacity: 0.8 }}>
-                      В архиве · участников {ws.membersCount}
+                      {t('panel.archivedLine', { n: ws.membersCount })}
                     </div>
                     {ws.purgeAt &&
                       (() => {
@@ -276,8 +276,8 @@ export function WorkspacesPanel() {
                               fontWeight: urgent ? 700 : undefined,
                             }}
                           >
-                            {urgent ? '⚠️ ' : ''}Будет удалена навсегда {formatPurgeMoment(ws.purgeAt)} · осталось{' '}
-                            {daysWord(left)}
+                            {urgent ? '⚠️ ' : ''}
+                            {t('panel.purgeLine', { moment: purgeMoment(ws.purgeAt), left: daysWord(left) })}
                           </div>
                         );
                       })()}
@@ -289,7 +289,7 @@ export function WorkspacesPanel() {
                     loading={busyId === ws.id}
                     onClick={() => restore(ws.id)}
                   >
-                    Восстановить
+                    {t('panel.restore')}
                   </Button>
                 </div>
               ))}

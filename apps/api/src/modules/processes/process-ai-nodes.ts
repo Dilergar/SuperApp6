@@ -13,11 +13,7 @@ import { llmAgentLoop, llmGenerateText, type LlmConfig, type LlmProvider } from 
 // Ключ API — bearer-кред из сейфа (наружу не отдаётся).
 // ============================================================
 
-const PROVIDER_OPTS = [
-  { value: 'anthropic', label: 'Anthropic (Claude)' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'openai-compatible', label: 'OpenAI-совместимый (свой URL)' },
-];
+const PROVIDER_OPTS = ['anthropic', 'openai', 'openai-compatible'] as const;
 
 const llmConfigShape = {
   provider: z.enum(['anthropic', 'openai', 'openai-compatible']),
@@ -29,12 +25,12 @@ const llmConfigShape = {
 };
 
 const llmFields = [
-  { key: 'provider', label: 'Провайдер', kind: 'select' as const, required: true, options: PROVIDER_OPTS },
-  { key: 'credentialId', label: 'API-ключ (bearer-кред)', kind: 'credential' as const, required: true },
-  { key: 'model', label: 'Модель', kind: 'text' as const, required: true, placeholder: 'claude-sonnet-4-6 / gpt-4o' },
-  { key: 'baseUrl', label: 'Base URL', kind: 'text' as const, placeholder: 'https://...', showIf: { field: 'provider', in: ['openai-compatible'] } },
-  { key: 'temperature', label: 'Температура (0–2)', kind: 'number' as const, placeholder: '0.7' },
-  { key: 'maxTokens', label: 'Лимит токенов ответа', kind: 'number' as const, placeholder: '1024' },
+  { key: 'provider', kind: 'select' as const, required: true, options: PROVIDER_OPTS },
+  { key: 'credentialId', kind: 'credential' as const, required: true },
+  { key: 'model', kind: 'text' as const, required: true },
+  { key: 'baseUrl', kind: 'text' as const, showIf: { field: 'provider', in: ['openai-compatible'] } },
+  { key: 'temperature', kind: 'number' as const },
+  { key: 'maxTokens', kind: 'number' as const },
 ];
 
 /** Резолвим модель: достаём ключ из bearer-креда сейфа. Используется и нодой AI, и движком (под-нода Модель). */
@@ -43,7 +39,7 @@ export async function resolveLlmConfig(
   cfg: { provider: LlmProvider; credentialId: string; model: string; baseUrl?: string; temperature?: number; maxTokens?: number },
 ): Promise<LlmConfig> {
   const cred = await ctx.deps.db.processCredential.findUnique({ where: { id: cfg.credentialId } });
-  if (!cred || cred.workspaceId !== ctx.workspaceId) throw new Error('API-ключ не найден в сейфе');
+  if (!cred || cred.workspaceId !== ctx.workspaceId) throw new Error('the API key is not in the safe');
   const apiKey = credentialKey(JSON.parse(decryptSecret(cred.data)));
   return { provider: cfg.provider, apiKey, model: cfg.model, baseUrl: cfg.baseUrl, temperature: cfg.temperature, maxTokens: cfg.maxTokens };
 }
@@ -54,21 +50,19 @@ export async function resolveLlmConfig(
 export const aiGenerateNode: ProcessNodeProvider = {
   descriptor: {
     type: 'ai.generate',
-    title: 'AI',
-    description: 'Простой запрос к ИИ по API (Claude/GPT). Свой промпт/модель на каждой ноде. Подстановки {{form.x}}/{{steps.x}}. Результат в output.text.',
     category: 'ai',
     icon: 'spark',
     tier: 'standard',
     io: true, // LLM-вызов → вне инстанс-лока (P3): долгий ответ не задваивается
     outputs: [
-      { key: 'success', label: 'Готово' },
-      { key: 'error', label: 'Ошибка' },
+      { key: 'success' },
+      { key: 'error' }
     ],
     fields: [
       ...llmFields.slice(0, 4),
-      { key: 'systemPrompt', label: 'Системный промпт', kind: 'textarea', placeholder: 'Ты — помощник…' },
-      { key: 'userPrompt', label: 'Запрос', kind: 'textarea', required: true, placeholder: 'Сократи: {{steps.fetch.body}}' },
-      ...llmFields.slice(4),
+      { key: 'systemPrompt', kind: 'textarea' },
+      { key: 'userPrompt', kind: 'textarea', required: true },
+      ...llmFields.slice(4)
     ],
     configSchema: z.object({ ...llmConfigShape, systemPrompt: z.string().max(8000).optional(), userPrompt: z.string().min(1).max(20000) }),
     auto: true,
@@ -93,14 +87,12 @@ const noop = async () => ({ kind: 'complete' as const });
 export const aiModelNode: ProcessNodeProvider = {
   descriptor: {
     type: 'ai.model',
-    title: 'Модель',
-    description: 'Модель ИИ (Claude/GPT) — подключается к агенту. Одну модель можно подключить к нескольким агентам.',
     category: 'ai',
     icon: 'brain',
     tier: 'standard',
     subNode: true,
     inputs: [],
-    outputs: [{ key: 'model', label: '', type: 'ai_model' }],
+    outputs: [{ key: 'model', type: 'ai_model' }],
     fields: llmFields,
     configSchema: z.object(llmConfigShape),
     auto: true,
@@ -114,17 +106,15 @@ export const aiModelNode: ProcessNodeProvider = {
 export const aiMemoryNode: ProcessNodeProvider = {
   descriptor: {
     type: 'ai.memory',
-    title: 'Память',
-    description: 'Память агента по ключу сессии: помнит контекст между запусками процесса с тем же ключом (напр. id клиента из анкеты).',
     category: 'ai',
     icon: 'memory',
     tier: 'standard',
     subNode: true,
     inputs: [],
-    outputs: [{ key: 'memory', label: '', type: 'ai_memory' }],
+    outputs: [{ key: 'memory', type: 'ai_memory' }],
     fields: [
-      { key: 'sessionKey', label: 'Ключ сессии', kind: 'text', placeholder: '{{form.clientId}} (пусто = id запуска)' },
-      { key: 'window', label: 'Сколько реплик помнить', kind: 'number', placeholder: '10' },
+      { key: 'sessionKey', kind: 'text' },
+      { key: 'window', kind: 'number' }
     ],
     configSchema: z.object({ sessionKey: z.string().max(200).optional(), window: z.coerce.number().int().min(1).max(50).optional() }),
     auto: true,
@@ -145,17 +135,13 @@ export const aiMemoryNode: ProcessNodeProvider = {
 export const aiParserNode: ProcessNodeProvider = {
   descriptor: {
     type: 'ai.parser',
-    title: 'Структурированный ответ',
-    description: 'Подключается к агенту: заставляет вернуть строгий JSON с нужными полями. Результат — в output.data (поля доступны как {{steps.агент.data.поле}}).',
     category: 'ai',
     icon: 'braces',
     tier: 'standard',
     subNode: true,
     inputs: [],
-    outputs: [{ key: 'parser', label: '', type: 'ai_output' }],
-    fields: [
-      { key: 'fields', label: 'Поля JSON (по строке «ключ: описание»)', kind: 'textarea', required: true, placeholder: 'decision: approve или reject\nreason: краткая причина\namount: число' },
-    ],
+    outputs: [{ key: 'parser', type: 'ai_output' }],
+    fields: [{ key: 'fields', kind: 'textarea', required: true }],
     configSchema: z.object({ fields: z.string().min(1).max(4000) }),
     auto: true,
   },
@@ -169,7 +155,8 @@ export function parserInstruction(fieldsText: string): string {
     const i = l.indexOf(':');
     return i > 0 ? `«${l.slice(0, i).trim()}» — ${l.slice(i + 1).trim()}` : `«${l}»`;
   });
-  return `Ответь СТРОГО валидным JSON-объектом с полями: ${fields.join('; ')}. Без markdown, без пояснений вокруг — только JSON.`;
+  // Инструкция адресована МОДЕЛИ — остаётся английской, как и остальные промпты.
+  return `Answer with a STRICTLY valid JSON object with the fields: ${fields.join('; ')}. No markdown, no explanations around it — JSON only.`;
 }
 
 /** Достать JSON из ответа модели (модель иногда оборачивает его в текст/markdown). */
@@ -197,7 +184,7 @@ export async function runAgentWithCluster(
   maxIterations: number,
 ): Promise<{ text: string; toolCalls: number; data?: unknown }> {
   const prior = cluster.memory ? await cluster.memory.load() : '';
-  const system = [cluster.systemPrompt, prior && `Предыдущий контекст диалога:\n${prior}`].filter(Boolean).join('\n\n') || undefined;
+  const system = [cluster.systemPrompt, prior && `Earlier conversation context:\n${prior}`].filter(Boolean).join('\n\n') || undefined;
   const user = cluster.outputParser ? `${userPrompt}\n\n${cluster.outputParser.instruction}` : userPrompt;
   const result = await llmAgentLoop(
     cluster.model,
@@ -206,7 +193,7 @@ export async function runAgentWithCluster(
     cluster.tools.map((t) => ({ name: t.name, description: t.description, schema: t.schema })),
     async (name, input) => {
       const tool = cluster.tools.find((t) => t.name === name);
-      return tool ? tool.run(input) : `Неизвестный инструмент: ${name}`;
+      return tool ? tool.run(input) : `Unknown tool: ${name}`;
     },
     maxIterations,
   );
@@ -218,30 +205,27 @@ export async function runAgentWithCluster(
 export const aiAgentNode: ProcessNodeProvider = {
   descriptor: {
     type: 'ai.agent',
-    title: 'AI-Агент',
-    description:
-      'Мозг-оркестратор (n8n-модель): снизу портами подключаются Модель (обязательно), Память (опц.) и Инструменты (сколько угодно). Агент сам решает, какие инструменты звать. Можно подключить как инструмент к другому агенту.',
     category: 'ai',
     icon: 'robot',
     tier: 'standard',
     io: true, // агент-цикл (LLM + инструменты) → вне инстанс-лока (P3)
     inputs: [
       { key: 'main', type: 'main' },
-      { key: 'ai_model', type: 'ai_model', label: 'Модель' },
-      { key: 'ai_memory', type: 'ai_memory', label: 'Память' },
-      { key: 'ai_tool', type: 'ai_tool', multi: true, label: 'Инструменты' },
-      { key: 'ai_output', type: 'ai_output', label: 'Парсер' },
+      { key: 'ai_model', type: 'ai_model' },
+      { key: 'ai_memory', type: 'ai_memory' },
+      { key: 'ai_tool', type: 'ai_tool', multi: true },
+      { key: 'ai_output', type: 'ai_output' }
     ],
     outputs: [
-      { key: 'success', label: 'Готово', type: 'main' },
-      { key: 'error', label: 'Ошибка', type: 'main' },
-      { key: 'astool', label: 'как инструмент', type: 'ai_tool' },
+      { key: 'success', type: 'main' },
+      { key: 'error', type: 'main' },
+      { key: 'astool', type: 'ai_tool' }
     ],
     fields: [
-      { key: 'systemPrompt', label: 'Системный промпт (роль)', kind: 'textarea', placeholder: 'Ты — диспетчер снабжения…' },
-      { key: 'userPrompt', label: 'Задача', kind: 'textarea', required: true, placeholder: 'Обработай заказ {{form.orderId}}' },
-      { key: 'toolDescription', label: 'Описание (когда агент = инструмент)', kind: 'text', placeholder: 'Зачем звать этого агента из другого' },
-      { key: 'maxIterations', label: 'Макс. шагов агента', kind: 'number', placeholder: '5' },
+      { key: 'systemPrompt', kind: 'textarea' },
+      { key: 'userPrompt', kind: 'textarea', required: true },
+      { key: 'toolDescription', kind: 'text' },
+      { key: 'maxIterations', kind: 'number' }
     ],
     configSchema: z.object({
       systemPrompt: z.string().max(8000).optional(),
@@ -253,7 +237,7 @@ export const aiAgentNode: ProcessNodeProvider = {
   },
   async run(ctx) {
     const cfg = ctx.config as { systemPrompt?: string; userPrompt: string; maxIterations?: number };
-    if (!ctx.cluster) return { kind: 'complete', outputKey: 'error', output: { error: 'К агенту не подключена Модель' } };
+    if (!ctx.cluster) return { kind: 'complete', outputKey: 'error', output: { error: 'no Model is connected to the agent' } };
     try {
       const cluster = { ...ctx.cluster, systemPrompt: cfg.systemPrompt ? ctx.render(cfg.systemPrompt) : ctx.cluster.systemPrompt };
       const r = await runAgentWithCluster(cluster, ctx.render(cfg.userPrompt), cfg.maxIterations ?? 5);

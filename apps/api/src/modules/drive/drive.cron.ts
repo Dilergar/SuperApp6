@@ -33,13 +33,13 @@ export class DriveCron {
         total += purged;
         if (purged < DRIVE_LIMITS.purgeBatch) break;
       }
-      if (total) this.logger.log(`корзина Диска: удалено навсегда ${total} объектов`);
+      if (total) this.logger.log(`Drive trash: ${total} items deleted for good`);
 
       // Отметки «недавно открывал»: строка на каждую пару (человек, объект) сама не
       // истекает, а показываем мы одну страницу — без ретеншна таблица растёт вечно.
       const cutoff = new Date(Date.now() - DRIVE_LIMITS.recentRetentionDays * 86_400_000);
       const gone = await this.db.driveRecent.deleteMany({ where: { openedAt: { lt: cutoff } } });
-      if (gone.count) this.logger.log(`«Недавние»: убрано ${gone.count} устаревших отметок`);
+      if (gone.count) this.logger.log(`Recent: ${gone.count} stale marks removed`);
     });
   }
 
@@ -60,7 +60,7 @@ export class DriveCron {
          WHERE "kind" = 'folder' AND "subtree_bytes" IS NULL
          LIMIT 200`;
       for (const { space_id } of dirty) await this.jobs.rollup(space_id);
-      if (dirty.length) this.logger.log(`пересчитаны размеры в ${dirty.length} пространствах`);
+      if (dirty.length) this.logger.log(`Sizes recounted in ${dirty.length} spaces`);
     });
   }
 
@@ -97,7 +97,7 @@ export class DriveCron {
               AND to_char(n."taken_at_local", 'YYYY-MM') = b."month"
          )`;
       if (written || dropped) {
-        this.logger.log(`счётчики «Фото»: обновлено ${written}, убрано пустых ${dropped}`);
+        this.logger.log(`Photo counters: ${written} updated, ${dropped} empty ones dropped`);
       }
     });
   }

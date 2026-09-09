@@ -34,7 +34,7 @@ export class VerifyCron {
         total += batch.length;
         if (batch.length < 5000) break;
       }
-      if (total > 0) this.logger.log(`Ретеншн verify: удалено ${total} цепочек старше ${VERIFY_LIMITS.retentionDays}д`);
+      if (total > 0) this.logger.log(`Verify retention: ${total} chains older than ${VERIFY_LIMITS.retentionDays}d deleted`);
     });
   }
 }

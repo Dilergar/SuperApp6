@@ -2,6 +2,7 @@
 
 import { Icon, useConfirm } from '@/components/ui';
 import { useEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import type { CallActiveDto, CallTokenDto, ChatType } from '@superapp/shared';
 import { CALL_LIMITS } from '@superapp/shared';
 import { ACCESS_TOKEN_KEY, apiErrorMessage } from '@/lib/api';
@@ -49,6 +50,7 @@ export function CallOverlay({
   recordingEnabled?: boolean;
   onClose: (reason: CallLeaveReason | 'cancelled') => void;
 }) {
+  const t = useTranslations('messenger');
   const [call, setCall] = useState<CallTokenDto | null>(null);
   const [confirm, confirmUI] = useConfirm();
   const onCloseRef = useRef(onClose);
@@ -159,10 +161,10 @@ export function CallOverlay({
           </div>
           <div className="label-md" style={{ color: 'var(--on-surface-variant)' }}>
             {!call
-              ? 'Подключение…'
+              ? t('call.connecting')
               : isDm && !peerJoined
-                ? 'Звоним…'
-                : `Участников: ${active?.participantUserIds?.length ?? 1}${active?.recording ? ' · ● Запись' : ''}`}
+                ? t('call.calling')
+                : `${t('call.participants', { n: active?.participantUserIds?.length ?? 1 })}${active?.recording ? t('chat.recordingSuffix') : ''}`}
           </div>
         </div>
       </div>
@@ -183,7 +185,7 @@ export function CallOverlay({
               // DM: «Завершить для всех» прячем — «Покинуть» и есть трубка (см. handleLeft)
               moderator={!isDm && call.moderator}
               onEndForAll={() => confirm(
-                { title: 'Завершить звонок для всех?', message: 'Комната закроется у каждого участника.', confirmLabel: 'Завершить', danger: true },
+                { title: t('call.endConfirm.title'), message: t('call.endConfirm.message'), confirmLabel: t('call.endConfirm.label'), danger: true },
                 () => endCallSession(call.sessionId).catch((e) => toastError(apiErrorMessage(e))),
               )}
               extra={
@@ -196,7 +198,7 @@ export function CallOverlay({
         </CallRoomShell>
       ) : (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <p className="label-md">Подключение к звонку…</p>
+          <p className="label-md">{t('call.connectingToCall')}</p>
         </div>
       )}
       {confirmUI}
@@ -210,6 +212,7 @@ export function CallOverlay({
  * раздел «Журнал звонков»; инициатор получает автоматически).
  */
 function RecordingControls({ sessionId, recording }: { sessionId: string; recording: boolean }) {
+  const t = useTranslations('messenger');
   const [busy, setBusy] = useState(false);
   const [claimed, setClaimed] = useState(false);
   // Новая запись в этом же звонке (стоп → снова ⏺) — клейм нужно жать заново
@@ -243,7 +246,7 @@ function RecordingControls({ sessionId, recording }: { sessionId: string; record
           })
         }
         disabled={busy}
-        title="Записать звонок (аудио; все участники увидят индикатор)"
+        title={t('call.recordHint')}
         style={{
           padding: '0.55rem 1rem',
           fontSize: '0.85rem',
@@ -254,7 +257,7 @@ function RecordingControls({ sessionId, recording }: { sessionId: string; record
           background: 'var(--surface-container-high)',
         }}
       >
-        ⏺ Запись
+        {t('call.record')}
       </button>
     );
   }
@@ -263,14 +266,14 @@ function RecordingControls({ sessionId, recording }: { sessionId: string; record
       <span
         className="label-md"
         style={{ color: 'var(--primary)', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.3rem' }}
-        title="Идёт запись звонка"
+        title={t('call.recordingNow')}
       >
-        ● Запись
+        {t('call.recording')}
       </span>
       <button
         onClick={() => void run(() => stopCallRecording(sessionId))}
         disabled={busy}
-        title="Остановить запись (инициатор или модератор)"
+        title={t('call.stopRecording')}
         style={{
           padding: '0.55rem 0.9rem',
           fontSize: '0.85rem',
@@ -290,11 +293,11 @@ function RecordingControls({ sessionId, recording }: { sessionId: string; record
           })
         }
         disabled={busy || claimed}
-        title="Полная запись придёт в ваш Диктофон → «Журнал звонков»"
+        title={t('call.recordingHint')}
         className="btn-secondary"
         style={{ padding: '0.5rem 1rem', fontSize: '0.8rem', opacity: claimed ? 0.7 : 1 }}
       >
-        {claimed ? 'Придёт в Диктофон' : 'Получить запись'}
+        {claimed ? t('call.recordingClaimed') : t('call.getRecording')}
       </button>
     </>
   );

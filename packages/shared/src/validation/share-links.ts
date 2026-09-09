@@ -18,14 +18,18 @@ const label = z
   .string()
   .trim()
   .max(SHARE_LINK_LIMITS.maxLabelLength)
-  .refine((s) => !/[<>]/.test(s), 'Недопустимые символы в подписи');
+  .refine((s) => !/[<>]/.test(s), 'validation.share.badCharacters');
 
 /** Срок действия только в будущем — «истекла в момент создания» это опечатка, а не сценарий */
-const futureDate = z.coerce.date().refine((d) => d.getTime() > Date.now(), 'Срок должен быть в будущем');
+const futureDate = z.coerce
+  .date()
+  .refine((d) => d.getTime() > Date.now(), 'validation.share.futureDate');
 
+// Своей фразы у длины нет намеренно: общий отказ `validation.tooSmall.string`
+// уже несёт минимум числом и переводится каталогом.
 const password = z
   .string()
-  .min(SHARE_LINK_LIMITS.passwordMinLength, `Минимум ${SHARE_LINK_LIMITS.passwordMinLength} символа`)
+  .min(SHARE_LINK_LIMITS.passwordMinLength)
   .max(SHARE_LINK_LIMITS.passwordMaxLength);
 
 const maxOpens = z.coerce.number().int().positive().max(SHARE_LINK_LIMITS.maxOpensCeiling);
@@ -63,7 +67,7 @@ export const updateShareLinkSchema = z
     requireIdentity: z.boolean().optional(),
   })
   .strict()
-  .refine((v) => Object.keys(v).length > 0, 'Нечего менять');
+  .refine((v) => Object.keys(v).length > 0, 'validation.share.nothingToUpdate');
 
 /** GET /share-links?refType&refId */
 export const listShareLinksQuerySchema = z.object({ refType, refId: z.string().uuid() }).strict();
@@ -98,9 +102,9 @@ export const shareVisitsQuerySchema = z
 const guestName = z
   .string()
   .trim()
-  .min(1, 'Представьтесь, пожалуйста')
+  .min(1, 'validation.share.guestNameRequired')
   .max(SHARE_LINK_LIMITS.guestNameMaxLength)
-  .refine((s) => !/[<>]/.test(s), 'Недопустимые символы в имени');
+  .refine((s) => !/[<>]/.test(s), 'validation.share.badCharacters');
 
 /** POST /share-links/guest/:token/session */
 export const shareGuestSessionSchema = z

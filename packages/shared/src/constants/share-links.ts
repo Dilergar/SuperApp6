@@ -163,9 +163,3 @@ export function shareLinkStatus(link: {
   return 'active';
 }
 
-export const SHARE_LINK_STATUS_LABELS: Record<ShareLinkStatus, string> = {
-  active: 'Действует',
-  revoked: 'Отозвана',
-  expired: 'Истекла',
-  exhausted: 'Лимит исчерпан',
-};

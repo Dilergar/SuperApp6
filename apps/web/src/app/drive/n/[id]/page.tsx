@@ -15,9 +15,14 @@ import { toastError } from '@/lib/toast';
 import { getDownloadUrl } from '@/lib/files-api';
 import { driveNodeKey } from '@/lib/queries';
 import { fetchDriveNode } from '@/lib/drive-api';
-import { driveIcon, humanSize, shortDate } from '../../_components/drive-ui';
+import { useTranslations } from 'next-intl';
+import { useBytes, useShortDate } from '@/lib/format';
+import { driveIcon } from '../../_components/drive-ui';
 
 export default function DriveNodePage() {
+  const t = useTranslations('drive');
+  const humanSize = useBytes();
+  const shortDate = useShortDate();
   const { id } = useParams<{ id: string }>();
   const { isReady } = useRequireAuth();
 
@@ -33,9 +38,9 @@ export default function DriveNodePage() {
     return (
       <EmptyState
         icon="blocked"
-        title="Объект недоступен"
-        description="Его удалили или доступ закрыли"
-        action={<Button href="/drive">На мой диск</Button>}
+        title={t('node.unavailable')}
+        description={t('node.unavailableHint')}
+        action={<Button href="/drive">{t('node.toMyDrive')}</Button>}
       />
     );
   }
@@ -51,27 +56,26 @@ export default function DriveNodePage() {
           <div style={{ minWidth: 0 }}>
             <p className="title-sm" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{node.name}</p>
             <p className="label-sm" style={{ color: 'var(--muted)' }}>
-              {node.kind === 'folder' ? 'Папка' : 'Файл'}
+              {node.kind === 'folder' ? t('kind.folder') : t('kind.file')}
               {node.subtreeBytes !== null && ` · ${humanSize(node.subtreeBytes)}`}
-              {` · изменён ${shortDate(node.updatedAt)}`}
+              {t('node.changed', { date: shortDate(node.updatedAt) })}
             </p>
           </div>
           <span style={{ flex: 1 }} />
           <Chip tone="accent">
-            {access === 'owner' ? 'Владелец' : access === 'manager' ? 'Управляет доступом' : access === 'editor' ? 'Правит' : 'Смотрит'}
+            {access === 'owner' ? t('role.owner') : t(`role.${access}`)}
           </Chip>
         </div>
 
         {breadcrumbs.length > 0 && (
           <p className="label-sm" style={{ color: 'var(--muted)', marginBottom: 12 }}>
-            Путь: {breadcrumbs.map((b) => b.name).join(' / ')}
+            {t('node.path', { path: breadcrumbs.map((b) => b.name).join(' / ') })}
           </p>
         )}
 
         {usedElsewhere > 0 && (
           <p className="body-sm" style={{ color: 'var(--muted)', marginBottom: 12 }}>
-            Этот файл используется ещё в {usedElsewhere} мест{usedElsewhere === 1 ? 'е' : 'ах'} —
-            например, вложением в чате.
+            {t('node.usedElsewhere', { n: usedElsewhere })}
           </p>
         )}
 
@@ -85,12 +89,12 @@ export default function DriveNodePage() {
                   .catch((e) => toastError(apiErrorMessage(e)))
               }
             >
-              Скачать
+              {t('node.download')}
             </Button>
           )}
           <Link href={space.ownerType === 'workspace' ? `/workspaces/${space.ownerId}/drive` : `/drive?space=${space.id}`}>
             <Button variant="outline" icon="drive">
-              Открыть диск
+              {t('node.openDrive')}
             </Button>
           </Link>
         </div>

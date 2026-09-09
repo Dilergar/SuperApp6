@@ -1,5 +1,8 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
+import { useFormatters } from '@/lib/format';
+
 // Icon — напрямую из файла, не из барабана '@/components/ui': этот модуль сидит
 // в корневом графе (аватар топбара), и барабан утащил бы туда весь кит.
 import { Icon } from '@/components/ui/Icon';
@@ -94,12 +97,13 @@ export function PersonAvatar({
 
 /** Галочки на МОИХ сообщениях: одна — отправлено, две — доставлено, две синие — прочитано. */
 export function StatusTicks({ status }: { status?: MessageDeliveryStatus }) {
+  const t = useTranslations('messenger');
   if (!status) return null;
   const read = status === 'read';
   const doubled = status === 'delivered' || status === 'read';
   return (
     <span
-      title={status === 'sent' ? 'Отправлено' : status === 'delivered' ? 'Доставлено' : 'Прочитано'}
+      title={t(status === 'sent' ? 'messages.sent' : status === 'delivered' ? 'messages.delivered' : 'messages.read')}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -113,25 +117,32 @@ export function StatusTicks({ status }: { status?: MessageDeliveryStatus }) {
   );
 }
 
-// ---- time formatting (ru-RU) ----
+// ---- время: правила региона, слова языка зрителя ----
 
-/** Short relative-ish label for the inbox list. */
-export function formatListTime(iso: string): string {
-  const d = new Date(iso);
-  const now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
-  if (sameDay) return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+/**
+ * Короткая отметка времени в списке чатов: сегодня — часы, вчера — «вчера»,
+ * на этой неделе — день недели, дальше — дата. Всё через форматтеры языка:
+ * `toLocaleDateString('ru-RU')` зашивал бы и язык, и страну навсегда.
+ */
+export function useListTime(): (iso: string) => string {
+  const t = useTranslations('messenger');
+  const f = useFormatters();
+  return (iso: string) => {
+    const d = new Date(iso);
+    const now = new Date();
+    if (d.toDateString() === now.toDateString()) return f.time(d);
 
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (d.toDateString() === yesterday.toDateString()) return 'вчера';
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    if (d.toDateString() === yesterday.toDateString()) return t('messages.yesterday');
 
-  const days = Math.floor((now.getTime() - d.getTime()) / 86_400_000);
-  if (days < 7) return d.toLocaleDateString('ru-RU', { weekday: 'short' });
-  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+    const days = Math.floor((now.getTime() - d.getTime()) / 86_400_000);
+    return days < 7 ? f.weekday(d, 'short') : f.date(d, 'dayMonthLong');
+  };
 }
 
-/** Clock under a message bubble. */
-export function formatBubbleTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+/** Часы под пузырём сообщения. */
+export function useBubbleTime(): (iso: string) => string {
+  const f = useFormatters();
+  return (iso: string) => f.time(iso);
 }

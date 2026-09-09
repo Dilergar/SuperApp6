@@ -35,7 +35,7 @@ export class ObjectsController {
   constructor(private objects: ObjectsService) {}
 
   @Get('tree')
-  @ApiOperation({ summary: 'Дерево объектов, обрезанное правами зрителя' })
+  @ApiOperation({ summary: 'The site tree, trimmed by the rights of the viewer' })
   async tree(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -47,21 +47,21 @@ export class ObjectsController {
   }
 
   @Get('mine')
-  @ApiOperation({ summary: 'Мои объекты (где я работаю)' })
+  @ApiOperation({ summary: 'My sites (where I work)' })
   async mine(@CurrentUser() user: JwtPayload, @Param('workspaceId') workspaceId: string) {
     const data = await this.objects.mine(user.sub, workspaceId);
     return { success: true, data };
   }
 
   @Get('settings')
-  @ApiOperation({ summary: 'Словари и потолки сервиса + права зрителя на уровне организации' })
+  @ApiOperation({ summary: 'Dictionaries and caps of the service + rights of the viewer at the organization level' })
   async settings(@CurrentUser() user: JwtPayload, @Param('workspaceId') workspaceId: string) {
     const data = await this.objects.settings(user.sub, workspaceId);
     return { success: true, data };
   }
 
   @Post()
-  @ApiOperation({ summary: 'Создать объект (верхний уровень — admin+; внутрь ветки — управляющий)' })
+  @ApiOperation({ summary: 'Create a site (top level — admin+; inside a branch — its manager)' })
   async create(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -73,7 +73,7 @@ export class ObjectsController {
   }
 
   @Get(':objectId')
-  @ApiOperation({ summary: 'Объект + права зрителя' })
+  @ApiOperation({ summary: 'A site + rights of the viewer' })
   async getOne(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -84,7 +84,7 @@ export class ObjectsController {
   }
 
   @Get(':objectId/people')
-  @ApiOperation({ summary: 'Коллеги объекта (с поддеревом)' })
+  @ApiOperation({ summary: 'Colleagues of the site (with its subtree)' })
   async people(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -95,7 +95,7 @@ export class ObjectsController {
   }
 
   @Get(':objectId/files')
-  @ApiOperation({ summary: 'Файлы объекта (фото площадки, схемы)' })
+  @ApiOperation({ summary: 'Files of the site (photos, floor plans)' })
   async files(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -106,7 +106,7 @@ export class ObjectsController {
   }
 
   @Post(':objectId/files')
-  @ApiOperation({ summary: 'Приложить файл к объекту (управляющий)' })
+  @ApiOperation({ summary: 'Attach a file to the site (the manager)' })
   async attachFile(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -120,7 +120,7 @@ export class ObjectsController {
 
   @Delete(':objectId/files/:fileId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Отвязать файл от объекта' })
+  @ApiOperation({ summary: 'Detach a file from the site' })
   async detachFile(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -132,7 +132,7 @@ export class ObjectsController {
   }
 
   @Patch(':objectId')
-  @ApiOperation({ summary: 'Изменить объект (управляющий объектом)' })
+  @ApiOperation({ summary: 'Change the site (its manager)' })
   async update(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -146,7 +146,7 @@ export class ObjectsController {
 
   @Post(':objectId/move')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Перенести узел (цикл — 409; поддерево пересчитывается)' })
+  @ApiOperation({ summary: 'Move a node (a cycle — 409; the subtree is recomputed)' })
   async move(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -160,7 +160,7 @@ export class ObjectsController {
 
   @Post(':objectId/archive')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'В архив (вместе с поддеревом)' })
+  @ApiOperation({ summary: 'Archive (together with the subtree)' })
   async archive(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -172,7 +172,7 @@ export class ObjectsController {
 
   @Post(':objectId/make-default')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Сделать объект основным (владелец/админ)' })
+  @ApiOperation({ summary: 'Make the site the main one (owner/admin)' })
   async makeDefault(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -184,7 +184,7 @@ export class ObjectsController {
 
   @Post(':objectId/restore')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Вернуть из архива' })
+  @ApiOperation({ summary: 'Restore from the archive' })
   async restore(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -196,7 +196,7 @@ export class ObjectsController {
 
   @Delete(':objectId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Удалить пустой объект (дети/люди — 409)' })
+  @ApiOperation({ summary: 'Delete an empty site (children/people — 409)' })
   async remove(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,

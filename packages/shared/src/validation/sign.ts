@@ -26,9 +26,9 @@ const SIGN_SIGNERS_MAX = APPROVAL_LIMITS.maxSnapshotSize;
 const reason = z
   .string()
   .trim()
-  .min(SIGN_LIMITS.declineReasonMinLength, 'Укажите причину отказа')
+  .min(SIGN_LIMITS.declineReasonMinLength, 'validation.sign.reasonRequired')
   .max(SIGN_LIMITS.declineReasonMaxLength)
-  .refine((s) => !/[<>]/.test(s), 'Недопустимые символы');
+  .refine((s) => !/[<>]/.test(s), 'validation.sign.badCharacters');
 
 /**
  * Согласие сторон об электронной подписи. `literal(true)` — не придирка: ПЭП
@@ -37,7 +37,7 @@ const reason = z
  * основания подписывать.
  */
 const consentAccepted = z.literal(true, {
-  errorMap: () => ({ message: 'Подтвердите согласие на подписание' }),
+  errorMap: () => ({ message: 'validation.sign.consentRequired' }),
 });
 
 /** ПОДПИСЬ по ПЭП, шаг 1: приняли соглашение → шлём код на подтверждённый номер */
@@ -56,7 +56,7 @@ export const signPepConfirmSchema = z
     code: z
       .string()
       .trim()
-      .regex(new RegExp(`^\\d{${VERIFY_LIMITS.codeLength}}$`), 'Код состоит из 6 цифр'),
+      .regex(new RegExp(`^\\d{${VERIFY_LIMITS.codeLength}}$`), 'validation.sign.codeDigits'),
   })
   .strict();
 
@@ -70,8 +70,8 @@ export const signCmsSchema = z
     cms: z
       .string()
       .trim()
-      .min(1, 'Пустой контейнер подписи')
-      .max(Math.ceil((SIGN_LIMITS.maxCmsBytes * 4) / 3) + 64, 'Контейнер подписи слишком большой'),
+      .min(1, 'validation.sign.cmsEmpty')
+      .max(Math.ceil((SIGN_LIMITS.maxCmsBytes * 4) / 3) + 64, 'validation.sign.cmsTooBig'),
     /** Соглашение принимается и при ЭЦП: событие `consent` обязано быть в протоколе */
     consentAccepted: consentAccepted.optional(),
     pdConsentAccepted: z.boolean().optional(),
@@ -108,7 +108,7 @@ export const signCheckQuerySchema = z
     sha256: z
       .string()
       .trim()
-      .regex(/^[a-f0-9]{64}$/i, 'Отпечаток — 64 шестнадцатеричных символа')
+      .regex(/^[a-f0-9]{64}$/i, 'validation.sign.sha256Format')
       .optional(),
     actId: z.string().uuid().optional(),
     /** checkToken из адреса `/check/:actId?k=…` */
@@ -116,7 +116,7 @@ export const signCheckQuerySchema = z
   })
   .strict()
   .refine((q) => !!q.sha256 || (!!q.actId && !!q.k), {
-    message: 'Укажите отпечаток документа или ссылку проверки',
+    message: 'validation.sign.checkQuery',
   });
 
 /**
@@ -182,7 +182,7 @@ export const signQrSubmitSchema = z
   })
   .passthrough()
   .transform((body) => body.cms ?? body.signature ?? body.cmsSignature ?? '')
-  .refine((cms) => cms.length > 0, { message: 'Пустой контейнер подписи' });
+  .refine((cms) => cms.length > 0, { message: 'validation.sign.cmsEmpty' });
 
 export type SignPepStartInput = z.infer<typeof signPepStartSchema>;
 export type SignPepConfirmInput = z.infer<typeof signPepConfirmSchema>;

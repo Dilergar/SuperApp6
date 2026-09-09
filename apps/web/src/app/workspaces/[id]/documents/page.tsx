@@ -10,6 +10,7 @@
 // ============================================================
 
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -53,6 +54,8 @@ import { DocStatusChip } from './documents-ui';
 type TabKey = 'registry' | 'external' | 'decisions' | 'campaigns' | 'mine' | 'submissions' | 'templates' | 'types';
 
 export default function WorkspaceDocumentsPage() {
+  const tr = useTranslations('documents');
+  const tc = useTranslations('common');
   const { isReady } = useRequireAuth();
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -128,9 +131,9 @@ export default function WorkspaceDocumentsPage() {
 
   const header = (
     <PageHeader
-      breadcrumb={wsQuery.data?.name ?? 'Организация'}
-      title="Документооборот"
-      description="Внутренние документы и договоры с контрагентами: подача, подпись, номер и место в деле"
+      breadcrumb={wsQuery.data?.name ?? tr('page.orgFallback')}
+      title={tr('page.title')}
+      description={tr('page.description')}
       actions={
         <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
           {/* Три пути создания без третьей кнопки в ряд: свободный документ в
@@ -138,21 +141,21 @@ export default function WorkspaceDocumentsPage() {
               Триггер — нативная кнопка классами кита: Menu якорится по ref,
               а компонент Button ref не пробрасывает. */}
           <Menu
-            label="Создать"
+            label={tc('actions.create')}
             items={[
-              { key: 'free', label: 'Свободный документ', icon: 'edit', onClick: () => setFreeOpen(true) },
-              { key: 'upload', label: 'Загрузить готовый файл', icon: 'upload', onClick: () => setUploadOpen(true) },
+              { key: 'free', label: tr('page.createFree'), icon: 'edit', onClick: () => setFreeOpen(true) },
+              { key: 'upload', label: tr('page.createUpload'), icon: 'upload', onClick: () => setUploadOpen(true) },
             ]}
             trigger={(props) => (
               <button {...props} type="button" className="ui-btn ui-btn--matte ui-btn--md">
                 <Icon name="add" size={17} />
-                Создать
+                {tc('actions.create')}
                 <Icon name="caretDown" size={15} />
               </button>
             )}
           />
           <Button icon="add" onClick={() => setSubmitOpen(true)}>
-            Подать заявление
+            {tr('page.submit')}
           </Button>
         </div>
       }
@@ -167,11 +170,11 @@ export default function WorkspaceDocumentsPage() {
           <Card span={12}>
             <EmptyState
               icon="blocked"
-              title="Организация не открылась"
-              description="Возможно, у вас нет доступа. Обновите страницу или вернитесь к списку организаций."
+              title={tr('page.orgFailedTitle')}
+              description={tr('page.orgFailedText')}
               action={
                 <Button variant="matte" icon="dashboard" href="/dashboard">
-                  На главную
+                  {tr('page.toDashboard')}
                 </Button>
               }
             />
@@ -182,21 +185,21 @@ export default function WorkspaceDocumentsPage() {
   }
 
   const tabs: TabItem<TabKey>[] = [
-    { key: 'registry', label: 'Реестр', icon: 'list' },
+    { key: 'registry', label: tr('page.tab.registry'), icon: 'list' },
     // Внешний контур СРАЗУ после общего реестра (реестр продолжает показывать всё)
-    { key: 'external', label: 'С контрагентами', icon: 'workspace' },
-    { key: 'decisions', label: 'Ждут решения', icon: 'check', count: decisionsCount || undefined },
+    { key: 'external', label: tr('page.tab.external'), icon: 'workspace' },
+    { key: 'decisions', label: tr('page.tab.decisions'), icon: 'check', count: decisionsCount || undefined },
     // «Обо мне», а не «Мои документы»: личный пункт сайдбара «Мои документы»
     // (бессрочный архив КЭДО) — другой раздел, и два одинаковых имени с разным
     // составом путали бы (решение Этапа 9).
-    { key: 'mine', label: 'Обо мне', icon: 'file' },
-    { key: 'submissions', label: 'Заявления', icon: 'send' },
+    { key: 'mine', label: tr('page.tab.mine'), icon: 'file' },
+    { key: 'submissions', label: tr('page.tab.submissions'), icon: 'send' },
     ...(isManager
       ? ([
           // КЭДО: кампании ознакомления с аналитикой до человека
-          { key: 'campaigns', label: 'Ознакомления', icon: 'eye' },
-          { key: 'templates', label: 'Шаблоны', icon: 'filePlus' },
-          { key: 'types', label: 'Виды', icon: 'folder' },
+          { key: 'campaigns', label: tr('page.tab.campaigns'), icon: 'eye' },
+          { key: 'templates', label: tr('page.tab.templates'), icon: 'filePlus' },
+          { key: 'types', label: tr('page.tab.types'), icon: 'folder' },
         ] as TabItem<TabKey>[])
       : []),
   ];
@@ -207,7 +210,7 @@ export default function WorkspaceDocumentsPage() {
 
       {/* Пилюли-сегменты — как «везде» (Сотрудники, переключатель контекста):
           подчёркнутые Tabs в сервисах вертикали разъезжались с остальным приложением */}
-      <SegmentedControl items={tabs} value={tab} onChange={setTab} aria-label="Разделы документов" />
+      <SegmentedControl items={tabs} value={tab} onChange={setTab} aria-label={tr('page.tabsAria')} />
 
       {tab === 'decisions' && <DecisionsTab workspaceId={id} />}
       {tab === 'campaigns' && <CampaignsTab workspaceId={id} />}
@@ -226,36 +229,36 @@ export default function WorkspaceDocumentsPage() {
             <SearchField
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Название или номер"
-              aria-label="Поиск по документам"
+              placeholder={tr('page.searchPlaceholder')}
+              aria-label={tr('page.searchAria')}
             />
             {tab === 'external' && (
               <div style={{ marginLeft: 'auto' }}>
                 <Button icon="add" onClick={() => setExternalSubmitOpen(true)}>
-                  Документ
+                  {tr('page.newExternal')}
                 </Button>
               </div>
             )}
             <Select
-              label="Вид"
+              label={tr('page.typeFilter')}
               value={docTypeId}
               onChange={(v) => setDocTypeId(v || null)}
               options={[
-                { value: '', label: 'Все виды' },
+                { value: '', label: tr('page.allTypes') },
                 ...(typesQuery.data ?? []).map((t) => ({ value: t.id, label: t.name })),
               ]}
-              placeholder="Все виды"
+              placeholder={tr('page.allTypes')}
               width={200}
             />
             <Select
-              label="Статус"
+              label={tc('labels.status')}
               value={status}
               onChange={(v) => setStatus((v || null) as DocStatus | null)}
               options={[
-                { value: '', label: 'Любой' },
-                ...DOC_STATUSES.map((s) => ({ value: s.value, label: s.label })),
+                { value: '', label: tr('page.anyStatus') },
+                ...DOC_STATUSES.map((s) => ({ value: s, label: tr(`status.${s}`) })),
               ]}
-              placeholder="Любой"
+              placeholder={tr('page.anyStatus')}
               width={190}
             />
           </div>
@@ -265,15 +268,15 @@ export default function WorkspaceDocumentsPage() {
               и вернуться ко всем документам нечем. */}
           {tab === 'registry' && subjectFromUrl && (
             <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center', flexWrap: 'wrap', marginBottom: 'var(--spacing-3)' }}>
-              <span className="meta">Показаны документы одного сотрудника:</span>
-              <PersonChip size="S" userId={subjectFromUrl} firstName="Сотрудник" />
+              <span className="meta">{tr('page.oneEmployeeFilter')}</span>
+              <PersonChip size="S" userId={subjectFromUrl} firstName={tc('labels.someone')} />
               <Button
                 variant="ghost"
                 size="sm"
                 icon="close"
                 onClick={() => router.replace(`/workspaces/${id}/documents`)}
               >
-                Показать все
+                {tr('page.showAll')}
               </Button>
             </div>
           )}
@@ -285,10 +288,10 @@ export default function WorkspaceDocumentsPage() {
               ) : listQuery.isError ? (
                 <EmptyState
                   icon="warningCircle"
-                  title="Не удалось загрузить реестр"
+                  title={tr('page.registryFailed')}
                   action={
                     <Button variant="matte" icon="refresh" onClick={() => listQuery.refetch()}>
-                      Повторить
+                      {tc('actions.retry')}
                     </Button>
                   }
                 />
@@ -296,15 +299,15 @@ export default function WorkspaceDocumentsPage() {
                 tab === 'external' ? (
                   <EmptyState
                     icon="workspace"
-                    title="Документов с контрагентами пока нет"
-                    description="Договор или АВР можно собрать по шаблону, в конструкторе — или загрузить уже готовый файл. Контрагент подпишет по ссылке, аккаунт ему не нужен."
+                    title={tr('page.externalEmptyTitle')}
+                    description={tr('page.externalEmptyText')}
                     action={
                       <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', justifyContent: 'center' }}>
                         <Button variant="matte" icon="upload" onClick={() => setUploadOpen(true)}>
-                          Загрузить готовый файл
+                          {tr('page.createUpload')}
                         </Button>
                         <Button icon="add" onClick={() => setExternalSubmitOpen(true)}>
-                          По шаблону
+                          {tr('page.fromTemplate')}
                         </Button>
                       </div>
                     }
@@ -314,16 +317,12 @@ export default function WorkspaceDocumentsPage() {
                   icon="file"
                   title={
                     tab === 'submissions'
-                      ? 'Вы пока ничего не подавали'
+                      ? tr('page.emptySubmissions')
                       : tab === 'mine'
-                        ? 'Документов о вас пока нет'
-                        : 'Документов пока нет'
+                        ? tr('page.emptyMine')
+                        : tr('page.emptyRegistry')
                   }
-                  description={
-                    tab === 'registry'
-                      ? 'Здесь появятся заявления и приказы организации.'
-                      : 'Нажмите «Подать заявление» — доступные вам шаблоны появятся в списке.'
-                  }
+                  description={tr(tab === 'registry' ? 'page.emptyRegistryText' : 'page.emptySubmissionsText')}
                 />
                 )
               ) : (
@@ -362,15 +361,17 @@ export default function WorkspaceDocumentsPage() {
                         </Chip>
                       )}
                       {doc.subjectUserId && (
-                        <PersonChip size="M" userId={doc.subjectUserId} firstName={doc.subjectName ?? "Сотрудник"} />
+                        <PersonChip size="M" userId={doc.subjectUserId} firstName={doc.subjectName ?? tc('labels.someone')} />
                       )}
                       <DocStatusChip status={doc.status} />
                     </button>
                   ))}
                   {(listQuery.data?.total ?? 0) > (listQuery.data?.items ?? []).length && (
                     <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center' }}>
-                      Показано {(listQuery.data?.items ?? []).length} из {listQuery.data?.total}. Уточните
-                      фильтры, чтобы найти нужное.
+                      {tr('page.shownOf', {
+                        shown: (listQuery.data?.items ?? []).length,
+                        total: listQuery.data?.total ?? 0,
+                      })}
                     </p>
                   )}
                 </div>

@@ -41,7 +41,7 @@ export function subjectDocumentId(variables: Record<string, unknown>): string | 
 function requireDocument(variables: Record<string, unknown>): string {
   const id = subjectDocumentId(variables);
   if (!id) {
-    throw new Error('Эта нода работает только в маршруте документа (запуск от «Документ отправлен»)');
+    throw new Error('this node only works inside a document route (started by the document-submitted trigger)');
   }
   return id;
 }
@@ -53,9 +53,6 @@ export const DOCUMENT_PROCESS_NODES: ProcessNodeProvider[] = [
   {
     descriptor: {
       type: 'trigger.document',
-      title: 'Документ отправлен',
-      description:
-        'Запускает маршрут, когда сотрудник отправил документ по выбранному шаблону. Поля формы подачи доступны как {{form.поле}}.',
       category: 'trigger',
       icon: 'file',
       tier: 'standard',
@@ -65,15 +62,14 @@ export const DOCUMENT_PROCESS_NODES: ProcessNodeProvider[] = [
       // объявляются недостижимыми (категория для палитры, флаг — для движка).
       trigger: true,
       inputs: [],
-      outputs: [{ key: 'main', label: 'Дальше' }],
+      outputs: [{ key: 'main' }],
       fields: [
         {
           key: 'templateId',
-          label: 'Шаблон документа',
+
           kind: 'text',
-          required: true,
-          help: 'Один шаблон — один маршрут. Второй опубликованный маршрут на тот же шаблон публикация не пропустит.',
-        },
+          required: true
+        }
       ],
       configSchema: z.object({ templateId: z.string().uuid() }),
       // Триггер сам ничего не делает: движок стартует токен с него.
@@ -90,17 +86,14 @@ export const DOCUMENT_PROCESS_NODES: ProcessNodeProvider[] = [
   {
     descriptor: {
       type: 'doc.generate',
-      title: 'Сформировать документ',
-      description:
-        'Создаёт новый документ по шаблону на основании текущего (приказ из заявления). Данные организации и сотрудника подставляются сами.',
       category: 'service',
       icon: 'filePlus',
       tier: 'standard',
       surfaces: SURFACES,
-      outputs: [{ key: 'main', label: 'Дальше' }],
+      outputs: [{ key: 'main' }],
       fields: [
-        { key: 'templateId', label: 'Шаблон нового документа', kind: 'text', required: true },
-        { key: 'title', label: 'Название', kind: 'text', placeholder: 'Приказ о предоставлении отпуска' },
+        { key: 'templateId', kind: 'text', required: true },
+        { key: 'title', kind: 'text' }
       ],
       configSchema: z.object({
         templateId: z.string().uuid(),
@@ -133,14 +126,11 @@ export const DOCUMENT_PROCESS_NODES: ProcessNodeProvider[] = [
   {
     descriptor: {
       type: 'doc.register',
-      title: 'Регистрация',
-      description:
-        'Присваивает документу номер по формату вида и вносит его в книгу регистрации. Номер выдаётся здесь, а не при создании: черновики нумерацию не съедают.',
       category: 'service',
       icon: 'list',
       tier: 'standard',
       surfaces: SURFACES,
-      outputs: [{ key: 'main', label: 'Дальше' }],
+      outputs: [{ key: 'main' }],
       fields: [],
       configSchema: z.object({}),
       auto: true,
@@ -159,14 +149,11 @@ export const DOCUMENT_PROCESS_NODES: ProcessNodeProvider[] = [
   {
     descriptor: {
       type: 'doc.file',
-      title: 'Подшить в дело',
-      description:
-        'Кладёт документ на Диск организации: в реестр своего вида и, если вид так настроен, в личное дело сотрудника. Файл один — он просто виден в двух местах.',
       category: 'service',
       icon: 'archive',
       tier: 'standard',
       surfaces: SURFACES,
-      outputs: [{ key: 'main', label: 'Дальше' }],
+      outputs: [{ key: 'main' }],
       fields: [],
       configSchema: z.object({}),
       auto: true,

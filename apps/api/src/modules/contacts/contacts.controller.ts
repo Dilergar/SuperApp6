@@ -36,7 +36,7 @@ export class ContactsController {
   // ------------------------------------------------------------
 
   @Get()
-  @ApiOperation({ summary: 'Список моих контактов' })
+  @ApiOperation({ summary: 'My contacts' })
   async list(
     @CurrentUser() user: JwtPayload,
     @Query('cursor') cursor?: string,
@@ -48,7 +48,7 @@ export class ContactsController {
   }
 
   @Get('invitations/incoming')
-  @ApiOperation({ summary: 'Входящие приглашения' })
+  @ApiOperation({ summary: 'Incoming invitations' })
   async listIncoming(
     @CurrentUser() user: JwtPayload,
     @Query('cursor') cursor?: string,
@@ -58,7 +58,7 @@ export class ContactsController {
 
   @Get('invitations/outgoing')
   @ApiOperation({
-    summary: 'Исходящие приглашения (scope=pending | history)',
+    summary: 'Outgoing invitations (scope=pending | history)',
   })
   async listOutgoing(@CurrentUser() user: JwtPayload, @Query() query: unknown) {
     const { scope, cursor } = listInvitationsQuerySchema.parse(query ?? {});
@@ -70,7 +70,7 @@ export class ContactsController {
 
   @Post('invitations')
   @Throttle({ long: { limit: 10, ttl: 60000 } })
-  @ApiOperation({ summary: 'Отправить приглашение в контакты' })
+  @ApiOperation({ summary: 'Send a contact invitation' })
   async sendInvitation(
     @CurrentUser() user: JwtPayload,
     @Body() body: unknown,
@@ -82,7 +82,7 @@ export class ContactsController {
 
   @Post('invitations/:id/accept')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Принять приглашение' })
+  @ApiOperation({ summary: 'Accept an invitation' })
   async acceptInvitation(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -95,7 +95,7 @@ export class ContactsController {
 
   @Post('invitations/:id/reject')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Отклонить приглашение' })
+  @ApiOperation({ summary: 'Decline an invitation' })
   async rejectInvitation(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -106,7 +106,7 @@ export class ContactsController {
 
   @Post('invitations/:id/cancel')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Отменить отправленное приглашение' })
+  @ApiOperation({ summary: 'Cancel an invitation you sent' })
   async cancelInvitation(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -117,7 +117,7 @@ export class ContactsController {
 
   @Post('invitations/:id/resend')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Повторно отправить приглашение (cooldown 24ч)' })
+  @ApiOperation({ summary: 'Send an invitation again (24h cooldown)' })
   async resendInvitation(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -131,14 +131,14 @@ export class ContactsController {
   // ------------------------------------------------------------
 
   @Get('blocks')
-  @ApiOperation({ summary: 'Список заблокированных' })
+  @ApiOperation({ summary: 'Blocked people' })
   async listBlocks(@CurrentUser() user: JwtPayload) {
     const data = await this.contacts.listBlocks(user.sub);
     return { success: true, data };
   }
 
   @Post('blocks')
-  @ApiOperation({ summary: 'Заблокировать пользователя' })
+  @ApiOperation({ summary: 'Block a person' })
   async blockUser(
     @CurrentUser() user: JwtPayload,
     @Body() body: unknown,
@@ -150,7 +150,7 @@ export class ContactsController {
 
   @Delete('blocks/:userId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Разблокировать пользователя' })
+  @ApiOperation({ summary: 'Unblock a person' })
   async unblockUser(
     @CurrentUser() user: JwtPayload,
     @Param('userId') targetUserId: string,
@@ -164,7 +164,7 @@ export class ContactsController {
   // ------------------------------------------------------------
 
   @Get(':linkId')
-  @ApiOperation({ summary: 'Карточка контакта' })
+  @ApiOperation({ summary: 'A contact card' })
   async getContact(
     @CurrentUser() user: JwtPayload,
     @Param('linkId') linkId: string,
@@ -174,7 +174,7 @@ export class ContactsController {
   }
 
   @Patch(':linkId')
-  @ApiOperation({ summary: 'Обновить роль контакта (моя сторона)' })
+  @ApiOperation({ summary: 'Update the contact role (my side)' })
   async updateContact(
     @CurrentUser() user: JwtPayload,
     @Param('linkId') linkId: string,
@@ -187,7 +187,7 @@ export class ContactsController {
 
   @Delete(':linkId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Удалить контакт (двустороннее удаление)' })
+  @ApiOperation({ summary: 'Delete a contact (both sides)' })
   async deleteContact(
     @CurrentUser() user: JwtPayload,
     @Param('linkId') linkId: string,

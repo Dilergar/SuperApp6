@@ -1,6 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslations } from 'next-intl';
+import type { Formatters } from '@superapp/i18n/format';
+import { useFormatters } from '@/lib/format';
 import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
 import { EntitySelector } from '@/components/EntitySelector';
 import { PersonChip } from '../circles/PersonCard';
@@ -36,6 +39,9 @@ export function ResourcesPanel({
   circles: Circle[];
   onClose: (changed: boolean) => void;
 }) {
+  const t = useTranslations('calendar');
+  const tc = useTranslations('common');
+  const f = useFormatters();
   const [list, setList] = useState<Resource[]>([]);
   const [requests, setRequests] = useState<ResourceBooking[]>([]);
   const [changed, setChanged] = useState(false);
@@ -76,17 +82,17 @@ export function ResourcesPanel({
     <Modal
       open
       onClose={() => onClose(changed)}
-      title="Ресурсы"
-      subtitle="Общие вещи (переговорка, машина, оборудование) со своим расписанием. Бронь — прикрепить ресурс к событию"
+      title={t('resources.title')}
+      subtitle={t('resources.subtitle')}
       size="lg"
-      footer={<Button variant="ghost" onClick={() => onClose(changed)}>Готово</Button>}
+      footer={<Button variant="ghost" onClick={() => onClose(changed)}>{tc('actions.ready')}</Button>}
     >
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
 
         {/* Заявки на бронь моих ресурсов */}
         {requests.length > 0 && (
-          <Field label={`Заявки на бронь · ${requests.length}`}>
+          <Field label={t('resources.requests', { n: requests.length })}>
             <div className="ui-stack" style={{ gap: '0.375rem' }}>
               {requests.map((r) => (
                 <div
@@ -101,15 +107,15 @@ export function ResourcesPanel({
                     <div className="title-sm">{r.resourceName}: {r.title}</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
                       <PersonChip size="S" userId={r.bookerId} firstName={r.bookerName} />
-                      <span className="label-sm">{slot(r.start)}</span>
+                      <span className="label-sm">{slot(r.start, f)}</span>
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '0.375rem', flex: 'none' }}>
                     <Button variant="primary" tone="success" size="sm" icon="check" disabled={busy} onClick={() => act(r.eventId, 'confirm')}>
-                      Подтвердить
+                      {t('modal.confirm')}
                     </Button>
                     <Button variant="matte" tone="danger" size="sm" icon="close" disabled={busy} onClick={() => act(r.eventId, 'reject')}>
-                      Отклонить
+                      {t('modal.reject')}
                     </Button>
                   </div>
                 </div>
@@ -122,9 +128,9 @@ export function ResourcesPanel({
 
         {/* Мои ресурсы */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--spacing-3)' }}>
-          <span className="label-caps">Мои ресурсы</span>
+          <span className="label-caps">{t('resources.mine')}</span>
           {editing === null && (
-            <Button variant="matte" tone="accent" size="sm" icon="add" onClick={() => setEditing('new')}>Создать</Button>
+            <Button variant="matte" tone="accent" size="sm" icon="add" onClick={() => setEditing('new')}>{t('resources.create')}</Button>
           )}
         </div>
 
@@ -141,9 +147,9 @@ export function ResourcesPanel({
         {mine.length === 0 && !editing ? (
           <EmptyState
             icon="folder"
-            title="Ресурсов пока нет"
-            description="Создайте переговорку или машину — их можно будет бронировать событием."
-            action={<Button variant="matte" icon="add" onClick={() => setEditing('new')}>Создать ресурс</Button>}
+            title={t('resources.emptyTitle')}
+            description={t('resources.emptyHint')}
+            action={<Button variant="matte" icon="add" onClick={() => setEditing('new')}>{t('resources.createOne')}</Button>}
           />
         ) : (
           <div className="ui-stack" style={{ gap: '0.375rem' }}>
@@ -158,16 +164,16 @@ export function ResourcesPanel({
               >
                 <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                   <Chip size="sm" tone="neutral" icon={RESOURCE_TYPE_ICON[r.type]}>
-                    {RESOURCE_TYPE_META[r.type].label}
+                    {t(`resourceType.${r.type}`)}
                   </Chip>
                   <span className="title-sm">{r.name}</span>
                   <span className="label-sm">
-                    вмест. {r.capacity} · доступ: {r.bookerUserIds.length + r.bookerCircleIds.length || '—'}
+                    {t('resources.capacityLine', { capacity: r.capacity, access: r.bookerUserIds.length + r.bookerCircleIds.length || '—' })}
                   </span>
                 </div>
                 <div style={{ display: 'flex', gap: '0.25rem' }}>
-                  <IconButton icon="edit" label={`Изменить ${r.name}`} size={30} onClick={() => setEditing(r)} />
-                  <IconButton icon="delete" label={`Удалить ${r.name}`} size={30} disabled={busy} onClick={() => del(r.id)} />
+                  <IconButton icon="edit" label={t('resources.edit', { name: r.name })} size={30} onClick={() => setEditing(r)} />
+                  <IconButton icon="delete" label={t('resources.delete', { name: r.name })} size={30} disabled={busy} onClick={() => del(r.id)} />
                 </div>
               </div>
             ))}
@@ -187,6 +193,8 @@ function ResourceForm({
   onCancel: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('calendar');
+  const tc = useTranslations('common');
   const [name, setName] = useState(resource?.name ?? '');
   const [type, setType] = useState<ResourceType>(resource?.type ?? 'room');
   const [capacity, setCapacity] = useState(resource?.capacity ?? 1);
@@ -215,28 +223,28 @@ function ResourceForm({
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
 
-        <Input label="Название" value={name} onChange={(e) => setName(e.target.value)} placeholder="Переговорка" autoFocus />
+        <Input label={t('resources.name')} value={name} onChange={(e) => setName(e.target.value)} placeholder={t('resources.namePlaceholder')} autoFocus />
 
         <div style={{ display: 'flex', gap: 'var(--spacing-6)', flexWrap: 'wrap' }}>
-          <Field label="Тип">
+          <Field label={t('resources.type')}>
             <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
-              {(Object.keys(RESOURCE_TYPE_META) as ResourceType[]).map((t) => (
+              {(Object.keys(RESOURCE_TYPE_META) as ResourceType[]).map((rt) => (
                 <Chip
-                  key={t}
+                  key={rt}
                   size="sm"
                   tone="accent"
-                  icon={RESOURCE_TYPE_ICON[t]}
-                  selected={type === t}
-                  onClick={() => setType(t)}
+                  icon={RESOURCE_TYPE_ICON[rt]}
+                  selected={type === rt}
+                  onClick={() => setType(rt)}
                 >
-                  {RESOURCE_TYPE_META[t].label}
+                  {t(`resourceType.${rt}`)}
                 </Chip>
               ))}
             </div>
           </Field>
           <div style={{ width: 110 }}>
             <Input
-              label="Вместимость"
+              label={t('resources.capacity')}
               type="number"
               min={1}
               value={capacity}
@@ -245,7 +253,7 @@ function ResourceForm({
           </div>
         </div>
 
-        <Field label="Кто может бронировать" hint="Остальным бронь уйдёт заявкой вам на подтверждение">
+        <Field label={t('resources.whoCanBook')} hint={t('resources.whoCanBookHint')}>
           <EntitySelector
             types={['user', 'circle']}
             multi
@@ -258,12 +266,12 @@ function ResourceForm({
               setUserIds(next.filter((p) => p.type === 'user').map((p) => p.id));
               setCircleIds(next.filter((p) => p.type === 'circle').map((p) => p.id));
             }}
-            placeholder="Люди или Группы…"
+            placeholder={t('resources.pickPlaceholder')}
           />
         </Field>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-          <Button variant="ghost" size="sm" onClick={onCancel}>Отмена</Button>
+          <Button variant="ghost" size="sm" onClick={onCancel}>{tc('actions.cancel')}</Button>
           <Button
             variant="primary"
             tone="success"
@@ -273,7 +281,7 @@ function ResourceForm({
             loading={busy}
             onClick={save}
           >
-            {resource ? 'Сохранить' : 'Создать'}
+            {resource ? tc('actions.save') : tc('actions.create')}
           </Button>
         </div>
       </div>
@@ -281,7 +289,7 @@ function ResourceForm({
   );
 }
 
-function slot(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) + ', ' + d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+/** «3 сентября, 14:35» — правила региона, слова языка зрителя. */
+function slot(iso: string, f: Formatters): string {
+  return f.dateTime(iso, 'dayMonthLong');
 }

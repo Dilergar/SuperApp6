@@ -23,6 +23,6 @@ export class MockEsutdDriver implements EsutdDriver {
   async submit(): Promise<{ externalNumber: string }> {
     // Честный отказ, а не имитация успеха: «сдано в ЕСУТД» без реальной сдачи —
     // это ровно та недостоверность, за которую штрафует ст. 98 КоАП.
-    throw new Error('API ЕСУТД не подключено — отметьте сдачу вручную после подачи через кабинет enbek.kz');
+    throw new Error('ESUTD API is not connected — mark the filing manually after submitting it via the enbek.kz cabinet');
   }
 }

@@ -2,6 +2,7 @@
 
 import { ModalShell } from '@/components/ui';
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import type { ChatSummary, RichCardRefType } from '@superapp/shared';
 import { listChats, shareRichCard } from '@/lib/messenger-api';
 import { Avatar } from './messenger-ui';
@@ -29,6 +30,8 @@ export function ShareCardModal({
   title: string;
   onClose: () => void;
 }) {
+  const t = useTranslations('messenger');
+  const tc = useTranslations('common');
   const [chats, setChats] = useState<ChatSummary[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [sendingTo, setSendingTo] = useState<string | null>(null);
@@ -50,7 +53,7 @@ export function ShareCardModal({
       await shareRichCard(chatId, refType, refId);
       setSentTo(chatId);
     } catch (e) {
-      setError(errMsg(e));
+      setError(errMsg(e, t('card.actionFailed')));
     } finally {
       setSendingTo(null);
     }
@@ -72,10 +75,10 @@ export function ShareCardModal({
         }}
       >
         <h3 className="title-md" style={{ marginBottom: 'var(--spacing-1)' }}>
-          Переслать: {title}
+          {t('share.title', { title })}
         </h3>
         <p className="label-sm" style={{ opacity: 0.7, marginBottom: 'var(--spacing-4)' }}>
-          Выберите чат, куда отправить карточку.
+          {t('share.subtitle')}
         </p>
 
         {error && (
@@ -85,13 +88,13 @@ export function ShareCardModal({
         )}
 
         {chats === null && !loadFailed && (
-          <p className="label-sm" style={{ opacity: 0.7 }}>Загрузка…</p>
+          <p className="label-sm" style={{ opacity: 0.7 }}>{tc('state.loading')}</p>
         )}
         {loadFailed && (
-          <p className="label-sm" style={{ color: 'var(--danger)' }}>Не удалось загрузить чаты.</p>
+          <p className="label-sm" style={{ color: 'var(--danger)' }}>{t('share.loadFailed')}</p>
         )}
         {chats && chats.length === 0 && (
-          <p className="label-sm" style={{ opacity: 0.7 }}>Чатов пока нет.</p>
+          <p className="label-sm" style={{ opacity: 0.7 }}>{t('share.empty')}</p>
         )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
@@ -117,7 +120,7 @@ export function ShareCardModal({
                 <span style={{ flex: 1, fontSize: '0.88rem', fontWeight: 500 }}>{c.title}</span>
                 {done ? (
                   <span className="label-sm" style={{ fontSize: '0.72rem', color: 'var(--secondary)' }}>
-                    Отправлено
+                    {t('share.sent')}
                   </span>
                 ) : sendingTo === c.id ? (
                   <span className="label-sm" style={{ fontSize: '0.72rem', opacity: 0.6 }}>…</span>
@@ -129,7 +132,7 @@ export function ShareCardModal({
 
         <div style={{ marginTop: 'var(--spacing-4)', textAlign: 'right' }}>
           <button onClick={onClose} className="btn-ghost-inline">
-            Закрыть
+            {tc('actions.close')}
           </button>
         </div>
       </div>
@@ -137,7 +140,7 @@ export function ShareCardModal({
   );
 }
 
-export function errMsg(e: unknown, fallback = 'Не удалось выполнить'): string {
+export function errMsg(e: unknown, fallback: string): string {
   const ax = e as { response?: { data?: { message?: string; error?: string } } };
   const m = ax?.response?.data?.message || ax?.response?.data?.error;
   return Array.isArray(m) ? m.join(', ') : m || fallback;

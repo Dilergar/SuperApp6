@@ -7,6 +7,7 @@
 
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { OBJECT_KINDS, type FileDto } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
@@ -45,6 +46,8 @@ interface RosterRow {
 }
 
 export default function ObjectOverviewPage() {
+  const t = useTranslations('objects');
+  const tc = useTranslations('common');
   const { isReady } = useRequireAuth();
   const { id, objectId } = useParams<{ id: string; objectId: string }>();
   const router = useRouter();
@@ -139,15 +142,11 @@ export default function ObjectOverviewPage() {
       <Card>
         <EmptyState
           icon="blocked"
-          title="Объект не открылся"
-          description={
-            error
-              ? apiErrorMessage(error)
-              : 'Объект удалён или у вас нет к нему доступа. Попросите управляющего добавить вас на объект.'
-          }
+          title={t('card.notOpened')}
+          description={error ? apiErrorMessage(error) : t('card.notOpenedHint')}
           action={
             <Button variant="primary" icon="arrowLeft" href={`/workspaces/${id}/objects`}>
-              К списку объектов
+              {t('card.backToList')}
             </Button>
           }
         />
@@ -155,7 +154,7 @@ export default function ObjectOverviewPage() {
     );
   }
 
-  const kindLabel = OBJECT_KINDS.find((k) => k.value === node.kind)?.label ?? 'Объект';
+  const kindLabel = OBJECT_KINDS.some((k) => k.value === node.kind) ? t(`kind.${node.kind}`) : t('entity');
   // Основным делает только владелец/админ, и только живой объект — иначе сервер
   // ответит 409 «Архивный объект основным не делают».
   const canMakeDefault = !!tree?.canCreate && !node.isDefault && !node.archivedAt;
@@ -165,12 +164,12 @@ export default function ObjectOverviewPage() {
       <BentoGrid>
         <Card span={7}>
           <CardHeader
-            title="Об объекте"
+            title={t('card.about')}
             actions={
               node.caps.manage ? (
                 <>
                   <Button size="sm" variant="matte" icon="edit" onClick={() => setEditing(true)}>
-                    Править
+                    {tc('actions.edit')}
                   </Button>
                   {canMakeDefault && (
                     <Button
@@ -181,15 +180,15 @@ export default function ObjectOverviewPage() {
                       onClick={() =>
                         confirm(
                           {
-                            title: 'Сделать основным?',
-                            message: `«${node.name}» станет объектом по умолчанию: сюда попадают новые сотрудники, если объект не выбран. Прежний основной перестанет им быть.`,
-                            confirmLabel: 'Сделать основным',
+                            title: t('card.makeDefaultTitle'),
+                            message: t('card.makeDefaultMessage', { name: node.name }),
+                            confirmLabel: t('card.makeDefault'),
                           },
                           () => makeDefault.mutateAsync().then(() => undefined),
                         )
                       }
                     >
-                      Сделать основным
+                      {t('card.makeDefault')}
                     </Button>
                   )}
                   <Button
@@ -201,15 +200,15 @@ export default function ObjectOverviewPage() {
                         ? archive.mutate()
                         : confirm(
                             {
-                              title: 'Закрыть объект?',
-                              message: `«${node.name}» и всё, что внутри, уйдёт в архив. История, смены и оборудование сохранятся.`,
-                              confirmLabel: 'В архив',
+                              title: t('card.archiveTitle'),
+                              message: t('card.archiveMessage', { name: node.name }),
+                              confirmLabel: t('card.archive'),
                             },
                             () => archive.mutateAsync().then(() => undefined),
                           )
                     }
                   >
-                    {node.archivedAt ? 'Вернуть из архива' : 'В архив'}
+                    {node.archivedAt ? t('card.restore') : t('card.archive')}
                   </Button>
                   {!node.isDefault && (
                     <Button
@@ -220,17 +219,16 @@ export default function ObjectOverviewPage() {
                       onClick={() =>
                         confirm(
                           {
-                            title: 'Удалить объект?',
-                            message:
-                              'Удаляется только ПУСТОЙ объект: если внутри есть вложенные объекты или люди — сервер откажет.',
-                            confirmLabel: 'Удалить',
+                            title: t('card.deleteTitle'),
+                            message: t('card.deleteMessage'),
+                            confirmLabel: tc('actions.delete'),
                             danger: true,
                           },
                           () => removeObject.mutateAsync().then(() => undefined),
                         )
                       }
                     >
-                      Удалить
+                      {tc('actions.delete')}
                     </Button>
                   )}
                 </>
@@ -238,33 +236,34 @@ export default function ObjectOverviewPage() {
             }
           />
           <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
-            <Row label="Вид" value={kindLabel} />
-            <Row label="Адрес" value={node.address ?? '—'} />
+            <Row label={tc('labels.type')} value={kindLabel} />
+            <Row label={t('form.address')} value={node.address ?? tc('labels.dash')} />
             <Row
-              label="Юрлицо"
+              label={t('form.legalEntity')}
               value={
                 node.effectiveLegalEntityName
                   ? `${node.effectiveLegalEntityName}${
-                      node.legalEntityInherited ? (node.parentId ? ' (как у родителя)' : ' (головное)') : ''
+                      node.legalEntityInherited
+                        ? node.parentId
+                          ? ` (${t('card.legalFromParent')})`
+                          : ` (${t('card.legalHead')})`
+                        : ''
                     }`
-                  : '—'
+                  : tc('labels.dash')
               }
             />
-            <Row label="Часовой пояс" value={node.timeZone} />
-            <Row
-              label="Управляющая должность"
-              value={node.headPositionName ?? '—'}
-            />
-            {node.note && <Row label="Заметка" value={node.note} />}
+            <Row label={t('form.timeZone')} value={node.timeZone} />
+            <Row label={t('form.headPosition')} value={node.headPositionName ?? tc('labels.dash')} />
+            {node.note && <Row label={t('form.note')} value={node.note} />}
           </div>
         </Card>
 
         <div style={{ gridColumn: 'span 5' }}>
           <BentoGrid>
-            <StatTile span={6} label="Людей" value={node.membersCount} icon="people" tone="accent" />
+            <StatTile span={6} label={t('card.people')} value={node.membersCount} icon="people" tone="accent" />
             <StatTile
               span={6}
-              label="Штатных позиций"
+              label={t('card.staffingUnits')}
               value={node.staffingCount}
               icon="staff"
               tone={node.staffingCount ? 'success' : 'neutral'}
@@ -272,7 +271,7 @@ export default function ObjectOverviewPage() {
             />
             <StatTile
               span={6}
-              label="Смен сегодня"
+              label={t('card.shiftsToday')}
               value={todayShifts}
               icon="calendarCheck"
               tone={todayShifts ? 'success' : 'neutral'}
@@ -280,7 +279,7 @@ export default function ObjectOverviewPage() {
             />
             <StatTile
               span={6}
-              label="Оборудования"
+              label={t('card.assets')}
               value={node.assetsCount}
               icon="wrench"
               tone={node.assetsCount ? 'accent' : 'neutral'}
@@ -290,9 +289,9 @@ export default function ObjectOverviewPage() {
         </div>
 
         <Card span={12}>
-          <CardHeader title="Коллеги" subtitle="Кто работает в этом объекте и его подразделениях" />
+          <CardHeader title={t('card.colleagues')} subtitle={t('card.colleaguesHint')} />
           {(roster?.length ?? 0) === 0 ? (
-            <EmptyState icon="people" title="Пока никого" description="Назначьте людей на штатные единицы объекта." />
+            <EmptyState icon="people" title={t('card.nobody')} description={t('card.nobodyHint')} />
           ) : (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
               {(roster ?? []).map((r) => (
@@ -303,12 +302,12 @@ export default function ObjectOverviewPage() {
         </Card>
 
         <Card span={12}>
-          <CardHeader title="Заметки" subtitle="Записи об этом объекте — сразу привязанные к нему" />
+          <CardHeader title={t('card.notes')} subtitle={t('card.notesHint')} />
           <NotesPanel target={{ type: 'branch', id: objectId }} scope={{ workspaceId: id }} />
         </Card>
 
         <Card span={12}>
-          <CardHeader title="Фото и документы" subtitle="Схемы зала, планы, инструкции" />
+          <CardHeader title={t('card.files')} subtitle={t('card.filesHint')} />
           {/* Два профиля: `document` не принимает картинки, `asset_photo` — только их.
               Оба разрешены движком для типа `branch`, поэтому секция берёт и фото
               зала, и PDF-схему. */}

@@ -3,11 +3,13 @@
 import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import type { Node as PMNode } from 'prosemirror-model';
 import type { EditorView, NodeView, NodeViewConstructor } from 'prosemirror-view';
 import { Chip } from '@/components/ui';
 import { PersonChip } from '@/app/circles/PersonCard';
 import { useFileUrl } from '@/lib/hooks/useFileUrl';
+import { noteEditorLabels } from './labels';
 
 // ============================================================
 // React-виды узлов поверх ProseMirror — СВОЙ мини-хост на порталах (без сторонних
@@ -111,6 +113,7 @@ function MentionChip({ name, userId }: { name: string; userId: string }) {
 }
 
 function WikilinkChip({ noteId, title, onOpen }: { noteId: string; title: string; onOpen?: (noteId: string) => void }) {
+  const t = useTranslations('notes');
   const router = useRouter();
   return (
     <Chip
@@ -119,7 +122,7 @@ function WikilinkChip({ noteId, title, onOpen }: { noteId: string; title: string
       icon="brackets"
       onClick={() => (onOpen ? onOpen(noteId) : router.push(`/notes/${noteId}`))}
     >
-      {title || 'Заметка'}
+      {title || t('noteWord')}
     </Chip>
   );
 }
@@ -145,6 +148,7 @@ function ImageBlock({
   onResize: (width: number) => void;
   readOnly: boolean;
 }) {
+  const t = useTranslations('notes');
   // Один вариант, а не два: раньше рядом запрашивался оригинал и показывался ИМЕННО он —
   // 'medium' работал вхолостую, а в тексте висели полноразмерные файлы.
   const { url, isLoading } = useFileUrl(fileId, 'medium');
@@ -176,7 +180,7 @@ function ImageBlock({
       {url ? (
         <img src={url} alt={alt ?? ''} draggable={false} />
       ) : (
-        <div className={`ne-image-ph${isLoading ? ' ne-image-ph--loading' : ''}`} aria-label="Изображение загружается" />
+        <div className={`ne-image-ph${isLoading ? ' ne-image-ph--loading' : ''}`} aria-label={t('editor.imageLoading')} />
       )}
       {!readOnly && <span className="ne-image-handle" onPointerDown={onPointerDown} aria-hidden />}
       {alt ? <figcaption className="label-sm">{alt}</figcaption> : null}
@@ -222,7 +226,7 @@ export function buildNodeViews(registry: PortalRegistry, opts: NodeViewOptions):
       box.type = 'checkbox';
       box.className = 'ne-task-box';
       box.contentEditable = 'false';
-      box.setAttribute('aria-label', 'Выполнено');
+      box.setAttribute('aria-label', noteEditorLabels.done);
       box.checked = !!node.attrs.checked;
       box.disabled = opts.readOnly;
       const content = document.createElement('div');

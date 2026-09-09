@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { OBJECT_KINDS, type RichCardPayload, type SearchSourceType } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { ChatterRefRegistry } from '../../core/chatter/chatter-ref.registry';
 import { FilesRefRegistry } from '../../core/files/files-ref.registry';
 import { SearchRegistry } from '../../core/search/search.registry';
@@ -28,6 +29,7 @@ export class ObjectsRegistriesProvider implements OnModuleInit {
     private readonly searchRegistry: SearchRegistry,
     private readonly richCards: RichCardRegistry,
     private readonly driveRouting: DriveRoutingRegistry,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -121,14 +123,14 @@ export class ObjectsRegistriesProvider implements OnModuleInit {
     // ---- Глобальный поиск: имя и адрес объекта ----
     this.searchRegistry.register({
       type: BRANCH_REF_TYPE as SearchSourceType,
-      label: 'Объекты',
+      labelKey: 'objects.breadcrumb',
       search: (viewerId, query, opts) => this.search(viewerId, query, opts),
     });
 
     // ---- Поиск оборудования: имя, инвентарный, серийный ----
     this.searchRegistry.register({
       type: 'asset' as SearchSourceType,
-      label: 'Оборудование',
+      labelKey: 'objects.assets.breadcrumb',
       search: (viewerId, query, opts) => this.searchAssets(viewerId, query, opts),
     });
 
@@ -205,7 +207,7 @@ export class ObjectsRegistriesProvider implements OnModuleInit {
         id: r.id,
         title: r.name,
         snippet:
-          [r.address, OBJECT_KINDS.find((k) => k.value === r.kind)?.label].filter(Boolean).join(' · ') || 'Объект',
+          [r.address, this.kindLabel(r.kind)].filter(Boolean).join(' · ') || this.i18n.translate('objects.entity'),
         url: `/workspaces/${r.workspaceId}/objects/${r.id}`,
         chatId: null,
         messageId: null,
@@ -337,7 +339,14 @@ export class ObjectsRegistriesProvider implements OnModuleInit {
         type: 'asset' as SearchSourceType,
         id: r.id,
         title: r.name,
-        snippet: [r.branch.name, r.inventoryNumber ? `инв. ${r.inventoryNumber}` : null].filter(Boolean).join(' · '),
+        snippet: [
+          r.branch.name,
+          r.inventoryNumber
+            ? this.i18n.translate('objects.assets.inventoryShort', { number: r.inventoryNumber })
+            : null,
+        ]
+          .filter(Boolean)
+          .join(' · '),
         url: `/workspaces/${r.workspaceId}/objects/${r.branchId}/assets/${r.id}`,
         chatId: null,
         messageId: null,
@@ -347,6 +356,12 @@ export class ObjectsRegistriesProvider implements OnModuleInit {
       });
     }
     return { items };
+  }
+
+  /** Слово вида объекта — каталог по значению реестра (реестр слов не хранит). */
+  private kindLabel(kind: string): string | null {
+    const known = OBJECT_KINDS.some((k) => k.value === kind);
+    return known ? this.i18n.translate(`objects.kind.${kind}`) : null;
   }
 
   private async renderCard(
@@ -360,7 +375,7 @@ export class ObjectsRegistriesProvider implements OnModuleInit {
     const caps = this.objects.capsFor(scope, row);
     if (!caps.view) return null;
 
-    const kindLabel = OBJECT_KINDS.find((k) => k.value === row.kind)?.label ?? 'Объект';
+    const kindLabel = this.kindLabel(row.kind) ?? this.i18n.translate('objects.entity');
     const members = await deps.db.staffAssignment.findMany({
       // Счётчик людей на карточке — про действующих (правило канона: каждый
       // потребитель «кто сейчас работает» фильтрует по датам назначения).
@@ -376,12 +391,15 @@ export class ObjectsRegistriesProvider implements OnModuleInit {
       icon: '🏬',
       imageUrl: null,
       fields: [
-        { label: 'Вид', value: kindLabel },
-        { label: 'Людей', value: String(new Set(members.map((m) => m.userId)).size) },
-        ...(row.timeZone ? [{ label: 'Пояс', value: row.timeZone }] : []),
+        { label: this.i18n.translate('common.labels.type'), value: kindLabel },
+        {
+          label: this.i18n.translate('richCards.site.people'),
+          value: String(new Set(members.map((m) => m.userId)).size),
+        },
+        ...(row.timeZone ? [{ label: this.i18n.translate('richCards.site.timeZone'), value: row.timeZone }] : []),
       ],
       progress: null,
-      status: row.archivedAt ? 'В архиве' : kindLabel,
+      status: row.archivedAt ? this.i18n.translate('objects.archived') : kindLabel,
       actions: [],
       href: `/workspaces/${row.workspaceId}/objects/${row.id}`,
     };

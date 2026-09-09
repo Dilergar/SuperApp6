@@ -73,7 +73,7 @@ export async function llmGenerateText(cfg: LlmConfig, system: string | undefined
       { 'x-api-key': cfg.apiKey, 'anthropic-version': '2023-06-01' },
       { model: cfg.model, max_tokens: cfg.maxTokens ?? 1024, temperature: cfg.temperature, system, messages: [{ role: 'user', content: user }] },
     );
-    if (status >= 400) throw new Error(`Anthropic ${status}: ${json?.error?.message ?? 'ошибка'}`);
+    if (status >= 400) throw new Error(`Anthropic ${status}: ${json?.error?.message ?? 'error'}`);
     return (json.content ?? []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n').trim();
   }
   const base = openaiBase(cfg);
@@ -84,7 +84,7 @@ export async function llmGenerateText(cfg: LlmConfig, system: string | undefined
     temperature: cfg.temperature,
     max_tokens: cfg.maxTokens ?? 1024,
   });
-  if (status >= 400) throw new Error(`OpenAI ${status}: ${json?.error?.message ?? 'ошибка'}`);
+  if (status >= 400) throw new Error(`OpenAI ${status}: ${json?.error?.message ?? 'error'}`);
   return (json.choices?.[0]?.message?.content ?? '').trim();
 }
 
@@ -122,7 +122,7 @@ async function anthropicAgent(cfg: LlmConfig, system: string | undefined, user: 
       { 'x-api-key': cfg.apiKey, 'anthropic-version': '2023-06-01' },
       { model: cfg.model, max_tokens: cfg.maxTokens ?? 1024, temperature: cfg.temperature, system, messages, tools: apiTools.length ? apiTools : undefined },
     );
-    if (status >= 400) throw new Error(`Anthropic ${status}: ${json?.error?.message ?? 'ошибка'}`);
+    if (status >= 400) throw new Error(`Anthropic ${status}: ${json?.error?.message ?? 'error'}`);
     const content = json.content ?? [];
     const toolUses = content.filter((b: any) => b.type === 'tool_use');
     if (toolUses.length === 0) {
@@ -136,13 +136,13 @@ async function anthropicAgent(cfg: LlmConfig, system: string | undefined, user: 
       try {
         out = await execute(tu.name, tu.input ?? {});
       } catch (err) {
-        out = `Ошибка инструмента: ${(err as Error).message}`;
+        out = `Tool error: ${(err as Error).message}`;
       }
       results.push({ type: 'tool_result', tool_use_id: tu.id, content: out.slice(0, 8000) });
     }
     messages.push({ role: 'user', content: results });
   }
-  return { text: '(достигнут лимит шагов агента)', toolCallCount };
+  return { text: '(the agent step limit was reached)', toolCallCount };
 }
 
 async function openaiAgent(cfg: LlmConfig, system: string | undefined, user: string, tools: LlmTool[], execute: ToolExecutor, maxIter: number): Promise<AgentResult> {
@@ -158,7 +158,7 @@ async function openaiAgent(cfg: LlmConfig, system: string | undefined, user: str
       max_tokens: cfg.maxTokens ?? 1024,
       tools: apiTools.length ? apiTools : undefined,
     });
-    if (status >= 400) throw new Error(`OpenAI ${status}: ${json?.error?.message ?? 'ошибка'}`);
+    if (status >= 400) throw new Error(`OpenAI ${status}: ${json?.error?.message ?? 'error'}`);
     const msg = json.choices?.[0]?.message;
     const calls = msg?.tool_calls ?? [];
     if (calls.length === 0) return { text: (msg?.content ?? '').trim(), toolCallCount };
@@ -170,10 +170,10 @@ async function openaiAgent(cfg: LlmConfig, system: string | undefined, user: str
         const args = JSON.parse(c.function.arguments || '{}');
         out = await execute(c.function.name, args);
       } catch (err) {
-        out = `Ошибка инструмента: ${(err as Error).message}`;
+        out = `Tool error: ${(err as Error).message}`;
       }
       messages.push({ role: 'tool', tool_call_id: c.id, content: out.slice(0, 8000) });
     }
   }
-  return { text: '(достигнут лимит шагов агента)', toolCallCount };
+  return { text: '(the agent step limit was reached)', toolCallCount };
 }

@@ -25,10 +25,18 @@ export type NoteListRow = Prisma.NoteGetPayload<{ select: typeof NOTE_LIST_SELEC
 export const USER_LITE_SELECT = { id: true, firstName: true, lastName: true, avatar: true } as const;
 export type UserLiteRow = Prisma.UserGetPayload<{ select: typeof USER_LITE_SELECT }>;
 
-export function userLite(u: UserLiteRow | null | undefined, fallbackId: string): NoteUserLiteDto {
+/**
+ * Лайт-профиль автора. Аккаунт исчез — имя подставляет ВЫЗЫВАЮЩИЙ: слово читает
+ * человек, и оно приходит из каталога в языке запроса, а не литералом отсюда.
+ */
+export function userLite(
+  u: UserLiteRow | null | undefined,
+  fallbackId: string,
+  unknownName = '',
+): NoteUserLiteDto {
   return u
     ? { id: u.id, firstName: u.firstName, lastName: u.lastName, avatar: u.avatar }
-    : { id: fallbackId, firstName: 'Пользователь', lastName: null, avatar: null };
+    : { id: fallbackId, firstName: unknownName, lastName: null, avatar: null };
 }
 
 export function noteListItem(
@@ -37,6 +45,7 @@ export function noteListItem(
   shared: boolean,
   author: UserLiteRow | null | undefined,
   snippet: string,
+  unknownName = '',
 ): NoteListItemDto {
   return {
     id: row.id,
@@ -48,7 +57,7 @@ export function noteListItem(
     tags: row.tags,
     access,
     shared,
-    createdBy: userLite(author, row.createdById),
+    createdBy: userLite(author, row.createdById, unknownName),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     deletedAt: row.deletedAt ? row.deletedAt.toISOString() : null,

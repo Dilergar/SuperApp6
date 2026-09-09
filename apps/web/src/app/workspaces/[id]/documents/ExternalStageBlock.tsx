@@ -11,15 +11,10 @@
 
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import {
-  SIGN_ACT_STATUS_LABELS,
-  SIGN_LEVEL_LABELS,
-  type OrgDocumentDto,
-  type OrgDocumentExternalDto,
-  type SignActStatus,
-  type SignLevel,
-} from '@superapp/shared';
+import { useTranslations } from 'next-intl';
+import type { OrgDocumentDto, OrgDocumentExternalDto, SignActStatus } from '@superapp/shared';
 import { apiErrorMessage } from '@/lib/api';
+import { useFormatters } from '@/lib/format';
 import { toast, toastError } from '@/lib/toast';
 import { Alert, Button, Card, CardHeader, Chip, Divider, useConfirm } from '@/components/ui';
 import { PersonChip } from '@/app/circles/PersonCard';
@@ -44,6 +39,10 @@ export function ExternalStageBlock({
   external: OrgDocumentExternalDto;
   onChanged: () => void;
 }) {
+  const t = useTranslations('documents');
+  const ts = useTranslations('sign');
+  const tc = useTranslations('common');
+  const f = useFormatters();
   const [confirm, confirmUI] = useConfirm();
   const [copied, setCopied] = useState(false);
 
@@ -54,7 +53,7 @@ export function ExternalStageBlock({
   });
   const sms = useMutation({
     mutationFn: () => documentsApi.resendExternalSms(workspaceId, doc.id),
-    onSuccess: () => toast('SMS со ссылкой отправлена'),
+    onSuccess: () => toast(t('external.smsSent')),
     onError: (e) => toastError(apiErrorMessage(e)),
   });
 
@@ -65,27 +64,26 @@ export function ExternalStageBlock({
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1600);
     } catch {
-      toastError('Не удалось скопировать — выделите ссылку вручную');
+      toastError(t('external.copyFailed'));
     }
   };
 
-  const stage =
-    external.status === 'pending'
-      ? { label: 'Ждём подписи', tone: 'waiting' as const }
-      : external.status === 'completed'
-        ? { label: 'Подписано всеми', tone: 'success' as const }
-        : external.status === 'declined'
-          ? { label: 'Контрагент отказал', tone: 'danger' as const }
-          : external.status === 'cancelled'
-            ? { label: 'Отправка отозвана', tone: 'neutral' as const }
-            : { label: 'Срок истёк', tone: 'neutral' as const };
+  const STAGE_TONE = {
+    pending: 'waiting',
+    completed: 'success',
+    declined: 'danger',
+    cancelled: 'neutral',
+    expired: 'neutral',
+  } as const;
+  const stageKey = (external.status in STAGE_TONE ? external.status : 'expired') as keyof typeof STAGE_TONE;
+  const stage = { label: t(`external.stage.${stageKey}`), tone: STAGE_TONE[stageKey] };
 
   return (
     <Card span={12}>
       <CardHeader
-        title="Отправка контрагенту"
-        subtitle={`${SIGN_LEVEL_LABELS[external.level as SignLevel]?.short ?? external.level}${
-          external.expiresAt ? ` · срок до ${new Date(external.expiresAt).toLocaleDateString('ru-RU')}` : ''
+        title={t('external.title')}
+        subtitle={`${ts(`level.${external.level}.short`)}${
+          external.expiresAt ? ` · ${t('external.dueUntil', { date: f.date(external.expiresAt) })}` : ''
         }`}
         actions={
           <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -101,10 +99,9 @@ export function ExternalStageBlock({
                 onClick={() =>
                   confirm(
                     {
-                      title: 'Отозвать отправку?',
-                      message:
-                        'Ссылка контрагента погаснет, сбор подписей прекратится, документ вернётся в черновик. Уже поставленные подписи останутся в истории.',
-                      confirmLabel: 'Отозвать',
+                      title: t('external.revokeConfirm.title'),
+                      message: t('external.revokeConfirm.message'),
+                      confirmLabel: t('external.revokeConfirm.action'),
                       danger: true,
                     },
                     async () => {
@@ -113,7 +110,7 @@ export function ExternalStageBlock({
                   )
                 }
               >
-                Отозвать отправку
+                {t('external.revoke')}
               </Button>
             )}
           </div>
@@ -123,13 +120,13 @@ export function ExternalStageBlock({
       <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
         {/* Вторая сторона */}
         <div style={{ display: 'flex', gap: 'var(--spacing-3)', alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ color: 'var(--text-muted)', minWidth: 130 }}>Вторая сторона</span>
+          <span style={{ color: 'var(--text-muted)', minWidth: 130 }}>{t('external.otherParty')}</span>
           <Chip size="sm" icon="workspace">
-            {doc.counterparty?.name ?? 'Контрагент'}
+            {doc.counterparty?.name ?? t('external.counterparty')}
           </Chip>
           {doc.counterpartyContact && (
             <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-              подписант: {doc.counterpartyContact.name}
+              {t('external.signerIs', { name: doc.counterpartyContact.name })}
               {doc.counterpartyContact.position ? ` · ${doc.counterpartyContact.position}` : ''}
             </span>
           )}
@@ -138,7 +135,7 @@ export function ExternalStageBlock({
         {/* Ссылка + SMS + счётчик открытий */}
         {external.link && (
           <div style={{ display: 'flex', gap: 'var(--spacing-3)', alignItems: 'center', flexWrap: 'wrap' }}>
-            <span style={{ color: 'var(--text-muted)', minWidth: 130 }}>Ссылка</span>
+            <span style={{ color: 'var(--text-muted)', minWidth: 130 }}>{t('external.link')}</span>
             <code
               style={{
                 padding: '4px 10px',
@@ -158,20 +155,20 @@ export function ExternalStageBlock({
             {!external.link.revoked && (
               <>
                 <Button variant="ghost" size="sm" icon="copy" onClick={() => void copyLink()}>
-                  {copied ? 'Скопировано' : 'Копировать'}
+                  {copied ? t('external.copied') : tc('actions.copy')}
                 </Button>
                 {external.smsAvailable && external.status === 'pending' && (
                   <Button variant="ghost" size="sm" icon="sms" loading={sms.isPending} onClick={() => sms.mutate()}>
-                    Отправить SMS
+                    {t('external.sendSms')}
                   </Button>
                 )}
               </>
             )}
             {external.opens && external.opens.count > 0 && (
               <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                открыто {external.opens.count} раз
+                {t('external.opens', { count: external.opens.count })}
                 {external.opens.lastOpenedAt
-                  ? ` · последний: ${new Date(external.opens.lastOpenedAt).toLocaleString('ru-RU')}`
+                  ? ` · ${t('external.lastOpen', { at: f.dateTime(external.opens.lastOpenedAt) })}`
                   : ''}
               </span>
             )}
@@ -184,15 +181,15 @@ export function ExternalStageBlock({
         <div style={{ display: 'grid', gap: 'var(--spacing-2)' }}>
           {external.internalActs.map((a) => (
             <div key={a.userId} style={{ display: 'flex', gap: 'var(--spacing-3)', alignItems: 'center', flexWrap: 'wrap' }}>
-              <span style={{ color: 'var(--text-muted)', minWidth: 130 }}>Наша сторона</span>
+              <span style={{ color: 'var(--text-muted)', minWidth: 130 }}>{t('external.ourParty')}</span>
               <PersonChip size="M" userId={a.userId} firstName={a.name} />
               <Chip size="sm" tone={ACT_TONE[a.status] ?? 'neutral'}>
-                {SIGN_ACT_STATUS_LABELS[a.status] ?? a.status}
+                {ts(`actStatus.${a.status}`)}
               </Chip>
             </div>
           ))}
           <div style={{ display: 'flex', gap: 'var(--spacing-3)', alignItems: 'center', flexWrap: 'wrap' }}>
-            <span style={{ color: 'var(--text-muted)', minWidth: 130 }}>Контрагент</span>
+            <span style={{ color: 'var(--text-muted)', minWidth: 130 }}>{t('external.counterparty')}</span>
             {external.guestAct ? (
               <>
                 <span style={{ fontWeight: 600 }}>{external.guestAct.name}</span>
@@ -200,16 +197,16 @@ export function ExternalStageBlock({
                   <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{external.guestAct.phoneMasked}</span>
                 )}
                 <Chip size="sm" tone={ACT_TONE[external.guestAct.status] ?? 'neutral'}>
-                  {SIGN_ACT_STATUS_LABELS[external.guestAct.status] ?? external.guestAct.status}
+                  {ts(`actStatus.${external.guestAct.status}`)}
                 </Chip>
                 {external.guestAct.signedAt && (
                   <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                    {new Date(external.guestAct.signedAt).toLocaleString('ru-RU')}
+                    {f.dateTime(external.guestAct.signedAt)}
                   </span>
                 )}
               </>
             ) : (
-              <span style={{ color: 'var(--text-muted)' }}>ещё не открывал документ</span>
+              <span style={{ color: 'var(--text-muted)' }}>{t('external.notOpenedYet')}</span>
             )}
           </div>
         </div>
@@ -219,13 +216,10 @@ export function ExternalStageBlock({
           external.guestAct.status === 'signed' &&
           external.level === 'pep' &&
           !external.guestAct.matchesContact && (
-            <Alert tone="warning">
-              Номер подписанта не совпадает с телефоном контактного лица из справочника — проверьте, тот ли
-              человек подписал
-            </Alert>
+            <Alert tone="warning">{t('external.phoneMismatch')}</Alert>
           )}
         {external.guestAct?.declineReason && (
-          <Alert tone="danger">Причина отказа: {external.guestAct.declineReason}</Alert>
+          <Alert tone="danger">{t('external.declineReason', { reason: external.guestAct.declineReason })}</Alert>
         )}
       </div>
 

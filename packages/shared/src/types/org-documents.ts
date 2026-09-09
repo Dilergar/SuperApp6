@@ -5,6 +5,7 @@ import type {
   DocStatus,
   DocVisibility,
 } from '../constants/org-documents';
+import type { Locale } from '../constants/i18n';
 import type { SignActStatus, SignLevel, SignRequestStatus } from '../constants/sign';
 import type { BuilderDoc, DocTemplateKind } from './doc-builder';
 import type { CounterpartyLiteDto } from './counterparty';
@@ -72,6 +73,11 @@ export interface DocTemplateDto {
   fileId: string | null;
   fields: DocFormFieldDto[];
   selfService: boolean;
+  /**
+   * ЯЗЫК БЛАНКА — язык самой бумаги: на нём печатаются слова платформы внутри
+   * документа («М.П.», «№ … от …», сумма прописью). Не язык интерфейса.
+   */
+  language: Locale;
   status: 'draft' | 'published';
   version: number;
   /** Есть ли опубликованный маршрут (триггер «Документ отправлен») */
@@ -143,6 +149,8 @@ export interface OrgDocumentDto {
   templateId: string | null;
   templateName: string | null;
   title: string;
+  /** ЯЗЫК БУМАГИ — снимок с бланка: документ печатается одинаково всегда */
+  language: Locale;
   status: DocStatus;
   number: string | null;
   numberedAt: string | null;

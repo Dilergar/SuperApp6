@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 
 export function CodeInput({
   value,
@@ -29,6 +30,7 @@ export function CodeInput({
   disabled?: boolean;
   autoFocus?: boolean;
 }) {
+  const t = useTranslations('common');
   const inputRef = useRef<HTMLInputElement>(null);
   const [focused, setFocused] = useState(false);
   const firedFor = useRef<string | null>(null);
@@ -83,7 +85,7 @@ export function CodeInput({
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         onChange={(e) => onChange(e.target.value.replace(/\D/g, '').slice(0, length))}
-        aria-label="Код из SMS"
+        aria-label={t('otp.title')}
         style={{
           position: 'absolute',
           inset: 0,

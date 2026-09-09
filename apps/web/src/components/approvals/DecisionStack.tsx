@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import type { ApprovalDecisionKind, InboxItemDto } from '@superapp/shared';
-import { APPROVAL_INBOX_TITLE } from '@superapp/shared';
+import { useFormatters } from '@/lib/format';
 import { Button, Card, EmptyState, Icon, Input, LoadingBlock, Modal, Tabs } from '@/components/ui';
 import { PersonChip } from '@/app/circles/PersonCard';
 import { approvalInboxKey, approvalsRootKey, type ApprovalScope } from '@/lib/queries';
@@ -85,24 +86,27 @@ export function DecisionStack({
     onError: (e) => toastError(apiErrorMessage(e)),
   });
 
+  const t = useTranslations('approvals');
+  const tc = useTranslations('common');
+  const f = useFormatters();
   const needsComment = pending ? (item?.actions.find((a) => a.key === pending)?.commentRequired ?? false) : false;
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title={APPROVAL_INBOX_TITLE}
-      subtitle={tab === 'inbox' && items.length > 0 ? `${index + 1} из ${items.length}` : undefined}
+      title={t('inboxTitle')}
+      subtitle={tab === 'inbox' && items.length > 0 ? t('stack.position', { index: index + 1, total: items.length }) : undefined}
       size="md"
     >
       <div style={{ marginBottom: 'var(--spacing-4)' }}>
         <Tabs
-          aria-label="Решения"
+          aria-label={t('stack.tabsAria')}
           value={tab}
           onChange={setTab}
           items={[
-            { key: 'inbox', label: 'На мне', icon: 'checkCircle', count: items.length },
-            { key: 'mine', label: 'Мои заявки', icon: 'send' },
+            { key: 'inbox', label: t('stack.tabInbox'), icon: 'checkCircle', count: items.length },
+            { key: 'mine', label: t('stack.tabMine'), icon: 'send' },
           ]}
         />
       </div>
@@ -114,16 +118,16 @@ export function DecisionStack({
       ) : inboxQ.isError ? (
         <EmptyState
           icon="warningCircle"
-          title="Стопка не загрузилась"
-          description="Это сбой связи, а не пустая стопка."
+          title={t('stack.loadFailed')}
+          description={t('stack.loadFailedHint')}
           action={
             <Button variant="matte" icon="refresh" onClick={() => inboxQ.refetch()}>
-              Повторить
+              {tc('actions.retry')}
             </Button>
           }
         />
       ) : items.length === 0 ? (
-        <EmptyState icon="checkCircle" title="Ничего не ждёт" description="Все решения приняты." />
+        <EmptyState icon="checkCircle" title={t('stack.empty')} description={t('stack.emptyHint')} />
       ) : item ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
           <Card>
@@ -137,7 +141,7 @@ export function DecisionStack({
                 <div style={{ display: 'flex', gap: 'var(--spacing-3)', marginTop: '0.4rem', flexWrap: 'wrap' }}>
                   {item.dueAt && (
                     <span className="meta" style={item.overdue ? { color: 'var(--danger-text)' } : undefined}>
-                      {item.overdue ? 'Просрочено' : 'Срок'} · {new Date(item.dueAt).toLocaleString('ru-RU')}
+                      {t('stack.dueLine', { label: item.overdue ? t('overdue') : t('stack.due'), date: f.dateTime(item.dueAt) })}
                     </span>
                   )}
                 </div>
@@ -146,7 +150,7 @@ export function DecisionStack({
 
             {item.requestedById && inboxQ.data?.actors[item.requestedById] && (
               <div style={{ marginTop: 'var(--spacing-3)' }}>
-                <span className="meta">Просит: </span>
+                <span className="meta">{t('stack.asks')}</span>
                 <PersonChip
                   size="S"
                   userId={item.requestedById}
@@ -160,7 +164,7 @@ export function DecisionStack({
             {item.href && (
               <div style={{ marginTop: 'var(--spacing-3)' }}>
                 <Button variant="ghost" size="sm" href={item.href} icon="eye">
-                  Открыть целиком
+                  {t('stack.openFull')}
                 </Button>
               </div>
             )}
@@ -168,10 +172,10 @@ export function DecisionStack({
 
           {needsComment && (
             <Input
-              label="Причина"
+              label={t('reason')}
               value={comment}
               onChange={(e) => setComment(e.target.value)}
-              placeholder="Что именно поправить"
+              placeholder={t('commentPlaceholder')}
               autoFocus
             />
           )}
@@ -185,7 +189,7 @@ export function DecisionStack({
               icon="signature"
               onClick={() => setSigningStepId(item.id)}
             >
-              {item.signRequirement === 'ecp' ? 'Подписать ЭЦП' : 'Подписать'}
+              {item.signRequirement === 'ecp' ? t('signEcp') : t('sign')}
             </Button>
           )}
 
@@ -224,7 +228,7 @@ export function DecisionStack({
                 disabled={index === 0}
                 onClick={() => setIndex((i) => Math.max(0, i - 1))}
               >
-                Назад
+                {t('stack.prev')}
               </Button>
               <Button
                 variant="ghost"
@@ -233,7 +237,7 @@ export function DecisionStack({
                 disabled={index >= items.length - 1}
                 onClick={() => setIndex((i) => Math.min(items.length - 1, i + 1))}
               >
-                Следующее
+                {t('stack.next')}
               </Button>
             </div>
           )}

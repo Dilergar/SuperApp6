@@ -18,9 +18,8 @@ import {
   processNodeTypesKey,
   workspaceMembersKey,
 } from '@/lib/queries';
+import { useTranslations } from 'next-intl';
 import {
-  PROCESS_INSTANCE_STATUS_LABELS,
-  PROCESS_STEP_STATUS_LABELS,
   type ProcessStepStatus,
   type WorkspaceMember,
 } from '@superapp/shared';
@@ -38,8 +37,14 @@ import {
   INSTANCE_STATUS_TONE,
   STEP_STATUS_TONE,
 } from '../../process-lib';
+import { useDurationUnits } from '../../use-duration-units';
+import { useFormatters } from '@/lib/format';
 
 export default function ProcessInstancePage() {
+  const t = useTranslations('processes');
+  const tc = useTranslations('common');
+  const f = useFormatters();
+  const units = useDurationUnits();
   const { isReady } = useRequireAuth();
   const { id: wsId, instId } = useParams<{ id: string; instId: string }>();
   const router = useRouter();
@@ -147,10 +152,10 @@ export default function ProcessInstancePage() {
     const stepState = new Map<string, { status: ProcessStepStatus; badge?: string }>();
     for (const s of inst.steps) {
       const n = attempts.get(s.nodeId) ?? 1;
-      const dur = s.status === 'done' && s.durationMs !== null ? ` · ${humanizeDuration(s.durationMs)}` : '';
+      const dur = s.status === 'done' && s.durationMs !== null ? ` · ${humanizeDuration(s.durationMs, units)}` : '';
       stepState.set(s.nodeId, {
         status: s.status,
-        badge: `${PROCESS_STEP_STATUS_LABELS[s.status]}${n > 1 ? ` ×${n}` : ''}${dur}`,
+        badge: `${t(`stepStatus.${s.status}`)}${n > 1 ? ` ×${n}` : ''}${dur}`,
       });
     }
     return docToFlow(inst.document, typeMap, stepState);
@@ -162,14 +167,14 @@ export default function ProcessInstancePage() {
   if (detailQ.isError || !inst) {
     return (
       <>
-        <PageHeader breadcrumb="Процессы" title="Запуск процесса" />
+        <PageHeader breadcrumb={t('title')} title={t('instance.title')} />
         <BentoGrid>
           <Card span={12}>
             <EmptyState
               icon="warningCircle"
-              title="Процесс не найден"
-              description="Возможно, он удалён или у вас нет доступа."
-              action={<Button variant="matte" icon="arrowLeft" href={`/workspaces/${wsId}/processes`}>К процессам</Button>}
+              title={t('instance.notFound')}
+              description={t('instance.notFoundText')}
+              action={<Button variant="matte" icon="arrowLeft" href={`/workspaces/${wsId}/processes`}>{t('instance.toProcesses')}</Button>}
             />
           </Card>
         </BentoGrid>
@@ -180,7 +185,7 @@ export default function ProcessInstancePage() {
   return (
     <>
       <PageHeader
-        breadcrumb="Процессы"
+        breadcrumb={t('title')}
         title={
           <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: '0.5rem', flexWrap: 'wrap' }}>
             {inst.definitionName}
@@ -189,16 +194,16 @@ export default function ProcessInstancePage() {
         }
         chip={
           <Chip tone={INSTANCE_STATUS_TONE[inst.status] ?? 'neutral'}>
-            {PROCESS_INSTANCE_STATUS_LABELS[inst.status]}
+            {t(`instanceStatus.${inst.status}`)}
           </Chip>
         }
         actions={
           <>
             {/* Контурная: шапка страницы лежит на фоне, а не на блоке */}
-            <Button variant="outline" icon="arrowLeft" href={`/workspaces/${wsId}/processes`}>Процессы</Button>
+            <Button variant="outline" icon="arrowLeft" href={`/workspaces/${wsId}/processes`}>{t('title')}</Button>
             {inst.canCancel && (
               <Button variant="matte" tone="danger" icon="close" loading={cancelMut.isPending} onClick={() => setConfirmCancel(true)}>
-                Отменить
+                {tc('actions.cancel')}
               </Button>
             )}
           </>
@@ -218,16 +223,18 @@ export default function ProcessInstancePage() {
         <Card span={12} small>
           <div style={{ display: 'flex', gap: 'var(--spacing-6)', flexWrap: 'wrap', alignItems: 'center' }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span className="label-caps">Запустил</span>
+              <span className="label-caps">{t('instance.startedBy')}</span>
               <PersonChip size="S" userId={inst.startedBy.id} firstName={inst.startedBy.firstName} lastName={inst.startedBy.lastName} />
             </span>
             <span className="body-sm">
-              {new Date(inst.startedAt).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}
+              {f.dateTime(inst.startedAt, 'long')}
             </span>
             <span className="title-sm">
               {inst.finishedAt
-                ? `Длился ${humanizeDuration(inst.durationMs)}`
-                : `Идёт ${humanizeDuration(Date.now() - new Date(inst.startedAt).getTime())}`}
+                ? t('instance.lasted', { duration: humanizeDuration(inst.durationMs, units) })
+                : t('instance.running', {
+                    duration: humanizeDuration(Date.now() - new Date(inst.startedAt).getTime(), units),
+                  })}
             </span>
           </div>
         </Card>
@@ -239,11 +246,16 @@ export default function ProcessInstancePage() {
 
         {/* ---------- Шаги: «секундомер отделов» ---------- */}
         <Card span={8}>
-          <CardHeader title="Шаги" subtitle="Сколько каждый шаг занял и кто его вёл" />
+          <CardHeader title={t('instance.steps')} subtitle={t('instance.stepsHint')} />
           <div className="density-compact ui-stack" style={{ gap: '0.375rem' }}>
             {inst.steps.map((s) => {
               const queued = s.status === 'active' && !!s.departmentId && !s.taskId;
-              const decision = s.decision === 'approved' ? 'одобрено' : s.decision === 'rejected' ? 'отклонено' : null;
+              const decision =
+              s.decision === 'approved'
+                ? t('instance.decisionApproved')
+                : s.decision === 'rejected'
+                  ? t('instance.decisionRejected')
+                  : null;
               return (
                 <div
                   key={s.id}
@@ -253,18 +265,22 @@ export default function ProcessInstancePage() {
                     border: `1px solid ${s.overdue ? 'var(--danger-base)' : 'var(--divider)'}`,
                   }}
                 >
-                  <StatusDot tone={STEP_STATUS_TONE[s.status]} size={9} title={PROCESS_STEP_STATUS_LABELS[s.status]} />
+                  <StatusDot tone={STEP_STATUS_TONE[s.status]} size={9} title={t(`stepStatus.${s.status}`)} />
                   <div style={{ flex: '1 1 10rem', minWidth: 0 }}>
                     <div className="title-sm">{s.label}</div>
                     <div className="label-sm">
-                      <span style={{ fontWeight: 600 }}>{queued ? 'В очереди отдела' : PROCESS_STEP_STATUS_LABELS[s.status]}</span>
+                      <span style={{ fontWeight: 600 }}>
+                        {queued ? t('instance.inDepartmentQueue') : t(`stepStatus.${s.status}`)}
+                      </span>
                       {s.departmentName ? ` · ${s.departmentName}` : ''}
                       {decision ? ` · ${decision}` : ''}
-                      {s.outcome && s.nodeType === 'condition' ? ` · ветка «${s.outcome === 'true' ? 'Да' : 'Нет'}»` : ''}
+                      {s.outcome && s.nodeType === 'condition'
+                        ? ` · ${t('instance.branch', { branch: t(`output.${s.outcome}`) })}`
+                        : ''}
                       {s.overdue
-                        ? ' · просрочен'
+                        ? ` · ${t('instance.overdueStep')}`
                         : s.deadlineAt && s.status === 'active'
-                          ? ` · срок ${new Date(s.deadlineAt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
+                          ? ` · ${t('instance.due', { at: f.dateTime(s.deadlineAt) })}`
                           : ''}
                       {s.error ? ` · ${s.error}` : ''}
                     </div>
@@ -273,16 +289,16 @@ export default function ProcessInstancePage() {
                     <span style={{ display: 'flex', gap: '0.375rem', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                       {rejectFor?.stepId === s.id && (
                         <Input
-                          label="Причина"
+                          label={t('instance.reason')}
                           value={rejectWhy}
                           onChange={(e) => setRejectWhy(e.target.value)}
-                          placeholder="Что именно поправить"
+                          placeholder={t('instance.reasonPlaceholder')}
                           autoFocus
                           style={{ minWidth: 220 }}
                         />
                       )}
                       <Button variant="primary" tone="success" size="sm" icon="check" disabled={decideMut.isPending} onClick={() => decideMut.mutate({ stepId: s.id, decision: 'approved' })}>
-                        Согласовать
+                        {t('instance.approve')}
                       </Button>
                       <Button
                         variant="matte"
@@ -299,7 +315,7 @@ export default function ProcessInstancePage() {
                           }
                         }}
                       >
-                        Отклонить
+                        {t('instance.reject')}
                       </Button>
                       <Button
                         variant="matte"
@@ -315,29 +331,35 @@ export default function ProcessInstancePage() {
                           }
                         }}
                       >
-                        На доработку
+                        {t('instance.return')}
                       </Button>
                     </span>
                   )}
                   {s.canClaim && (
                     <Button variant="primary" tone="success" size="sm" icon="download" disabled={claimMut.isPending} onClick={() => claimMut.mutate(s.id)}>
-                      Забрать
+                      {t('inbox.take')}
                     </Button>
                   )}
                   {s.canReassign && (
-                    <Button variant="ghost" size="sm" icon="refresh" onClick={() => setReassignFor(s.id)}>Переназначить</Button>
+                    <Button variant="ghost" size="sm" icon="refresh" onClick={() => setReassignFor(s.id)}>
+                      {t('instance.reassignAction')}
+                    </Button>
                   )}
                   {s.assignee && <PersonChip size="S" userId={s.assignee.id} firstName={s.assignee.firstName} lastName={s.assignee.lastName} />}
                   {s.taskId && (
-                    <Button variant="ghost" size="sm" iconRight="caretRight" href={`/tasks/${s.taskId}`}>задача</Button>
+                    <Button variant="ghost" size="sm" iconRight="caretRight" href={`/tasks/${s.taskId}`}>
+                      {t('instance.taskWord')}
+                    </Button>
                   )}
                   <div className="label-sm" style={{ textAlign: 'right' }}>
                     <div>
-                      {new Date(s.startedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
-                      {s.completedAt ? ` → ${new Date(s.completedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}` : ''}
+                      {f.time(s.startedAt)}
+                      {s.completedAt ? ` → ${f.time(s.completedAt)}` : ''}
                     </div>
                     <div style={{ fontWeight: 700 }}>
-                      {s.completedAt ? humanizeDuration(s.durationMs) : humanizeDuration(Date.now() - new Date(s.startedAt).getTime())}
+                      {s.completedAt
+                        ? humanizeDuration(s.durationMs, units)
+                        : humanizeDuration(Date.now() - new Date(s.startedAt).getTime(), units)}
                     </div>
                   </div>
                 </div>
@@ -348,16 +370,16 @@ export default function ProcessInstancePage() {
 
         {/* ---------- Анкета ---------- */}
         <Card span={4}>
-          <CardHeader title="Анкета процесса" subtitle="Значения, с которыми процесс запустили" />
+          <CardHeader title={t('instance.form')} subtitle={t('instance.formHint')} />
           {Object.keys(inst.variables).length === 0 ? (
-            <EmptyState icon="empty" title="Анкета пуста" />
+            <EmptyState icon="empty" title={t('instance.formEmpty')} />
           ) : (
             <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
               {Object.entries(inst.variables).map(([k, v]) => (
                 <div key={k}>
                   <div className="label-caps">{k}</div>
                   <div className="title-sm" style={{ wordBreak: 'break-word' }}>
-                    {typeof v === 'boolean' ? (v ? 'да' : 'нет') : String(v)}
+                    {typeof v === 'boolean' ? tc(v ? 'actions.yes' : 'actions.no') : String(v)}
                   </div>
                 </div>
               ))}
@@ -370,17 +392,17 @@ export default function ProcessInstancePage() {
         <Modal
           open
           onClose={() => setReassignFor(null)}
-          title="Переназначить исполнителя"
-          subtitle="Награда за задачу перемораживается на нового исполнителя"
+          title={t('instance.reassign')}
+          subtitle={t('instance.reassignHint')}
           size="sm"
-          footer={<Button variant="ghost" onClick={() => setReassignFor(null)}>Отмена</Button>}
+          footer={<Button variant="ghost" onClick={() => setReassignFor(null)}>{tc('actions.cancel')}</Button>}
         >
           <EntitySelector
             value={[]}
             onChange={(next: Principal[]) => { if (next[0]) reassignMut.mutate({ stepId: reassignFor, userId: next[0].id }); }}
             multi={false}
             options={memberOptions}
-            placeholder="Выберите нового исполнителя…"
+            placeholder={t('instance.reassignPlaceholder')}
           />
         </Modal>
       )}
@@ -389,10 +411,10 @@ export default function ProcessInstancePage() {
         open={confirmCancel}
         onClose={() => setConfirmCancel(false)}
         onConfirm={() => cancelMut.mutate()}
-        title="Отменить процесс?"
-        message="Открытые задачи-шаги будут отменены, процесс закроется как отменённый."
-        confirmLabel="Отменить процесс"
-        cancelLabel="Пусть идёт"
+        title={t('instance.cancelTitle')}
+        message={t('instance.cancelText')}
+        confirmLabel={t('instance.cancelConfirm')}
+        cancelLabel={t('instance.cancelDeny')}
         danger
         loading={cancelMut.isPending}
       />

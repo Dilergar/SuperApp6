@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { COUNTERPARTY_KINDS, COUNTERPARTY_LIMITS } from '../constants/counterparties';
+import { COUNTERPARTY_KINDS, COUNTERPARTY_LIMITS, SIGN_BASIS_KINDS } from '../constants/counterparties';
 import { ORG_FORMS, TAX_REGIMES } from '../constants/requisites';
 import { isValidBik, isValidIinOrBin, isValidKbe, isValidKzIban, normalizeIban } from '../utils/requisites';
 import { normalizePhone } from '../utils/phone';
@@ -17,39 +17,56 @@ const safeText = (max: number, min = 1) =>
     .trim()
     .min(min)
     .max(max)
-    .refine((v) => !/[<>]/.test(v), { message: 'Символы < и > запрещены' });
+    .refine((v) => !/[<>]/.test(v), { message: 'validation.counterparty.badCharacters' });
 
-const kindEnum = z.enum(COUNTERPARTY_KINDS.map((k) => k.value) as [string, ...string[]]);
+const kindEnum = z.enum([...COUNTERPARTY_KINDS] as [string, ...string[]]);
 
 /** БИН/ИИН: 12 цифр + два прохода весов mod 11 */
 const binSchema = z
   .string()
   .trim()
-  .refine((v) => isValidIinOrBin(v), { message: 'Номер не проходит контрольную сумму (12 цифр)' });
+  .refine((v) => isValidIinOrBin(v), { message: 'validation.counterparty.binChecksum' });
 
 const ibanSchema = z
   .string()
   .trim()
   .transform((v) => normalizeIban(v))
-  .refine((v) => isValidKzIban(v), { message: 'IBAN не проходит контроль (KZ + 18 знаков)' });
+  .refine((v) => isValidKzIban(v), { message: 'validation.counterparty.iban' });
 
 const bikSchema = z
   .string()
   .trim()
   .transform((v) => v.toUpperCase())
-  .refine((v) => isValidBik(v), { message: 'БИК — 8 знаков SWIFT-формата' });
+  .refine((v) => isValidBik(v), { message: 'validation.counterparty.bik' });
 
 const kbeSchema = z
   .string()
   .trim()
-  .refine((v) => isValidKbe(v), { message: 'КБе — две цифры' });
+  .refine((v) => isValidKbe(v), { message: 'validation.counterparty.kbe' });
 
 /** Телефон контакта нормализуется сразу: по нему сверяется личность подписанта */
 const phoneSchema = z
   .string()
   .trim()
   .transform((v) => normalizePhone(v))
-  .refine((v) => /^\+\d{10,15}$/.test(v), { message: 'Номер телефона в международном формате' });
+  .refine((v) => /^\+\d{10,15}$/.test(v), { message: 'validation.counterparty.phone' });
+
+/**
+ * Основание подписи: на проводе — структура, печатную строку собирает сервер на
+ * языке бланка (`counterparties.signBasisPrinted.*`). Свободный текст остаётся
+ * только у `custom` — человек пишет формулировку сам.
+ */
+export const signBasisInputSchema = z
+  .object({
+    kind: z.enum([...SIGN_BASIS_KINDS] as [string, ...string[]]),
+    number: z.string().trim().max(60).optional(),
+    date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, { message: 'validation.counterparty.isoDate' })
+      .optional(),
+    text: safeText(200, 0).optional(),
+  })
+  .strict();
 
 /**
  * Поля карточки. ВАЖНО: та же схема стоит и на POST, и на PATCH (partial) —
@@ -61,7 +78,7 @@ const counterpartyFields = {
   legalName: safeText(300).nullable().optional(),
   bin: binSchema.nullable().optional(),
   orgForm: z
-    .enum(ORG_FORMS.map((f) => f.value) as [string, ...string[]])
+    .enum([...ORG_FORMS] as [string, ...string[]])
     .nullable()
     .optional(),
   legalAddress: safeText(500).nullable().optional(),
@@ -70,7 +87,7 @@ const counterpartyFields = {
   kbe: kbeSchema.nullable().optional(),
   /** Налоговый режим — тот же справочник, что в анкете своей организации */
   taxRegime: z
-    .enum(TAX_REGIMES.map((r) => r.value) as [string, ...string[]])
+    .enum([...TAX_REGIMES] as [string, ...string[]])
     .nullable()
     .optional(),
   vatPayer: z.boolean().optional(),
@@ -83,7 +100,7 @@ const counterpartyFields = {
     .nullable()
     .optional(),
   directorName: safeText(200).nullable().optional(),
-  signBasis: safeText(200).nullable().optional(),
+  signBasis: signBasisInputSchema.nullable().optional(),
   phone: phoneSchema.nullable().optional(),
   email: z.string().trim().email().max(200).nullable().optional(),
   comment: safeText(1000).nullable().optional(),
@@ -118,7 +135,7 @@ export const listCounterpartiesSchema = z.object({
   kind: kindEnum.optional(),
   /** Фильтр «Вид» списка = орг-форма формы (ОДИН источник, `counterpartyFormQuery`) */
   orgForm: z
-    .enum(ORG_FORMS.map((f) => f.value) as [string, ...string[]])
+    .enum([...ORG_FORMS] as [string, ...string[]])
     .optional(),
   /** ТОЛЬКО queryBoolean: `?archived=false` обязан значить ложь (правило платформы) */
   archived: queryBoolean.optional(),

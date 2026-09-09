@@ -28,7 +28,7 @@ export class FilesCron {
     const ran = await this.redis.withLock('cron:files-stale-uploads', 10 * 60 * 1000, () =>
       this.sweepStaleUploads(),
     );
-    if (ran !== null && ran > 0) this.logger.log(`Брошенных загрузок закрыто: ${ran}`);
+    if (ran !== null && ran > 0) this.logger.log(`Abandoned uploads closed: ${ran}`);
   }
 
   async sweepStaleUploads(): Promise<number> {
@@ -42,7 +42,7 @@ export class FilesCron {
     for (const row of rows) {
       const res = await this.db.fileObject.updateMany({
         where: { id: row.id, status: 'uploading' },
-        data: { status: 'failed', error: 'загрузка брошена', uploadId: null },
+        data: { status: 'failed', error: 'the upload was abandoned', uploadId: null },
       });
       if (res.count !== 1) continue; // кто-то успел завершить/отменить — не трогаем
       if (row.uploadId) await this.driver.abortMultipart(row.storageKey, row.uploadId);
@@ -58,7 +58,7 @@ export class FilesCron {
     const ran = await this.redis.withLock('cron:files-purge-deleted', 30 * 60 * 1000, () =>
       this.sweepDeleted(),
     );
-    if (ran !== null && ran > 0) this.logger.log(`Физически удалено файлов: ${ran}`);
+    if (ran !== null && ran > 0) this.logger.log(`Files physically deleted: ${ran}`);
   }
 
   async sweepDeleted(): Promise<number> {
@@ -94,7 +94,7 @@ export class FilesCron {
     const ran = await this.redis.withLock('cron:files-orphan-ready', 10 * 60 * 1000, () =>
       this.files.sweepOrphanReady(FILE_LIMITS.orphanReadyGraceHours * 3600 * 1000),
     );
-    if (ran !== null && ran > 0) this.logger.log(`Осиротевших файлов прибрано: ${ran}`);
+    if (ran !== null && ran > 0) this.logger.log(`Orphaned files cleaned up: ${ran}`);
   }
 
   /** Ежедневно 04:40: сверка квот — пересчёт от фактических ready-файлов (drift-фикс) */

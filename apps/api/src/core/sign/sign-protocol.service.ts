@@ -1,21 +1,14 @@
-import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { buffer as streamToBuffer } from 'node:stream/consumers';
 import { PassThrough } from 'node:stream';
 import * as yazl from 'yazl';
 import * as QRCode from 'qrcode';
 import type { SignAct as PrismaSignAct, SignRequest as PrismaSignRequest } from '@prisma/client';
-import {
-  SIGN_ACT_EVENT_LABELS,
-  SIGN_LEVEL_LABELS,
-  SIGN_LIMITS,
-  SIGN_METHOD_LABELS,
-  maskIin,
-  signCheckUrl,
-  type SignActEventType,
-  type SignLevel,
-  type SignMethod,
-} from '@superapp/shared';
+import { SIGN_LIMITS, maskIin, signCheckUrl } from '@superapp/shared';
+import type { Formatters, Translator } from '@superapp/i18n';
+import { ApiError, notFound } from '../../shared/errors/api-error';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { FilesService } from '../files/files.service';
 import { PdfRenderService } from '../templates/pdf-render.service';
 import { SignService, type SignActor } from './sign.service';
@@ -40,7 +33,17 @@ export class SignProtocolService {
     private readonly sign: SignService,
     private readonly files: FilesService,
     private readonly pdf: PdfRenderService,
+    private readonly i18n: I18nService,
   ) {}
+
+  /**
+   * Слова и правила показа для артефактов ЗАЯВКИ — в языке ЗАПРОСА: протокол и
+   * пакет собираются на лету тому, кто их попросил, и должны читаться им же.
+   * Секунда во времени обязательна: для суда важен порядок событий.
+   */
+  private words(): { t: Translator; f: Formatters } {
+    return { t: this.i18n.t, f: this.i18n.format() };
+  }
 
   // ============================================================
   // Протокол подписания
@@ -49,14 +52,19 @@ export class SignProtocolService {
   async buildProtocol(actor: SignActor, requestId: string): Promise<{ buffer: Buffer; fileName: string }> {
     const request = await this.loadForExport(actor, requestId);
     if (!this.pdf.enabled) {
-      throw new ServiceUnavailableException('Печать протокола недоступна: PDF-рендер выключен');
+      throw new ApiError(HttpStatus.SERVICE_UNAVAILABLE, { code: 'sign.protocolUnavailable' });
     }
     const html = await this.protocolHtml(request);
-    const buffer = await this.pdf.htmlToPdf(html, { footer: 'pageNumbers' });
-    return { buffer, fileName: `Протокол подписания — ${request.refTitle}.pdf` };
+    // Колонтитул — на языке САМОГО артефакта: протокол собирается в языке запроса
+    const buffer = await this.pdf.htmlToPdf(html, { footer: 'pageNumbers', language: this.i18n.locale });
+    const fileName = `${this.i18n.translate('sign.protocol.fileName', { title: request.refTitle })}.pdf`;
+    return { buffer, fileName };
   }
 
   private async protocolHtml(request: ExportRow): Promise<string> {
+    const { t, f } = this.words();
+    const at = (d: Date | null) => (d ? f.dateTime(d, 'short', { seconds: true }) : t('common.labels.dash'));
+    const dash = t('common.labels.dash');
     const webUrl = process.env.WEB_URL || 'http://localhost:3000';
     const signed = request.acts.filter((a) => a.status === 'signed');
     const first = signed[0];
@@ -72,19 +80,31 @@ export class SignProtocolService {
     const rows = signed
       .map((a) => {
         const cert = a.certSubjectIin
-          ? `<div class="muted">ИИН ${maskIin(a.certSubjectIin)} · сертификат ${esc(a.certSerial ?? '—')}</div>
-             <div class="muted">Издатель: ${esc(a.certIssuerCn ?? '—')}</div>
-             <div class="muted">Цепочка: ${a.chainValid ? 'подтверждена' : 'НЕ подтверждена'} · статус на момент подписания: ${esc(a.ocspStatus ?? 'не проверялся')}</div>`
-          : `<div class="muted">Простая электронная подпись — код подтверждён на номер ${esc(maskPhoneSafe(a.signerPhone))}</div>`;
+          ? `<div class="muted">${esc(
+              t('sign.protocol.certLine', {
+                iin: maskIin(a.certSubjectIin) ?? dash,
+                serial: a.certSerial ?? dash,
+              }),
+            )}</div>
+             <div class="muted">${esc(t('sign.protocol.issuerLine', { issuer: a.certIssuerCn ?? dash }))}</div>
+             <div class="muted">${esc(
+               t('sign.protocol.chainLine', {
+                 chain: t(a.chainValid ? 'sign.protocol.chainOk' : 'sign.protocol.chainBad'),
+                 ocsp: a.ocspStatus ?? t('sign.protocol.ocspUnchecked'),
+               }),
+             )}</div>`
+          : `<div class="muted">${esc(
+              t('sign.protocol.pepLine', { phone: maskPhoneSafe(a.signerPhone, dash) }),
+            )}</div>`;
         return `<tr>
           <td>
             <div class="strong">${esc(a.signerName)}</div>
             ${cert}
           </td>
-          <td>${esc(SIGN_LEVEL_LABELS[a.level as SignLevel].short)}<div class="muted">${esc(
-            a.method ? SIGN_METHOD_LABELS[a.method as SignMethod].title : '—',
+          <td>${esc(t(`sign.level.${a.level}.short`))}<div class="muted">${esc(
+            a.method ? t(`sign.method.${a.method}.title`) : dash,
           )}</div></td>
-          <td>${esc(fmt(a.signedAt))}</td>
+          <td>${esc(at(a.signedAt))}</td>
         </tr>`;
       })
       .join('');
@@ -98,8 +118,8 @@ export class SignProtocolService {
     const eventRows = events
       .map(
         (e) =>
-          `<tr><td>${esc(fmt(e.at))}</td><td>${esc(actNames.get(e.actId) ?? '')}</td><td>${esc(
-            SIGN_ACT_EVENT_LABELS[e.type as SignActEventType] ?? e.type,
+          `<tr><td>${esc(at(e.at))}</td><td>${esc(actNames.get(e.actId) ?? '')}</td><td>${esc(
+            t.has(`sign.event.${e.type}`) ? t(`sign.event.${e.type}`) : e.type,
           )}</td><td class="mono">${esc(e.ip ?? '')}</td></tr>`,
       )
       .join('');
@@ -121,27 +141,30 @@ export class SignProtocolService {
     </style></head><body>
       <div class="head">
         <div>
-          <h1>Протокол подписания</h1>
-          <div>Документ: <span class="strong">${esc(request.refTitle)}</span></div>
-          <div class="muted">Отпечаток документа (SHA-256):</div>
+          <h1>${esc(t('sign.protocol.title'))}</h1>
+          <div>${esc(t('sign.protocol.document'))}: <span class="strong">${esc(request.refTitle)}</span></div>
+          <div class="muted">${esc(t('sign.protocol.fingerprint'))}</div>
           <div class="hash">${esc(request.subjectSha256)}</div>
-          <div class="muted">Заявка № ${esc(request.id)} от ${esc(fmt(request.createdAt))}</div>
+          <div class="muted">${esc(
+            t('sign.protocol.requestLine', { id: request.id, at: at(request.createdAt) }),
+          )}</div>
         </div>
         <div class="qr">${qrSvg}</div>
       </div>
 
-      <h2>Подписи</h2>
-      <table><thead><tr><th>Подписант</th><th>Вид подписи</th><th>Время подписания</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="3">Подписей нет</td></tr>'}</tbody></table>
+      <h2>${esc(t('sign.protocol.signatures'))}</h2>
+      <table><thead><tr><th>${esc(t('sign.protocol.colSigner'))}</th><th>${esc(
+        t('sign.protocol.colKind'),
+      )}</th><th>${esc(t('sign.protocol.colSignedAt'))}</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="3">${esc(t('sign.protocol.noSignatures'))}</td></tr>`}</tbody></table>
 
-      <h2>Протокол действий</h2>
-      <table><thead><tr><th>Время</th><th>Подписант</th><th>Событие</th><th>IP</th></tr></thead>
+      <h2>${esc(t('sign.protocol.events'))}</h2>
+      <table><thead><tr><th>${esc(t('sign.protocol.colAt'))}</th><th>${esc(
+        t('sign.protocol.colSigner'),
+      )}</th><th>${esc(t('sign.protocol.colEvent'))}</th><th>IP</th></tr></thead>
       <tbody>${eventRows}</tbody></table>
 
-      <div class="muted">
-        Проверить подпись можно на открытой странице проверки: ${esc(webUrl)}/check — документ при проверке
-        не покидает браузер, сверяется только его отпечаток (ст. 61 Цифрового кодекса Республики Казахстан).
-      </div>
+      <div class="muted">${esc(t('sign.protocol.footer', { url: `${webUrl}/check` }))}</div>
     </body></html>`;
   }
 
@@ -211,9 +234,12 @@ export class SignProtocolService {
     if (this.pdf.enabled) {
       try {
         const html = await this.protocolHtml(request);
-        zip.addBuffer(await this.pdf.htmlToPdf(html, { footer: 'pageNumbers' }), 'protocol.pdf');
+        zip.addBuffer(
+          await this.pdf.htmlToPdf(html, { footer: 'pageNumbers', language: this.i18n.locale }),
+          'protocol.pdf',
+        );
       } catch (err) {
-        this.logger.warn(`Протокол в пакет не попал: ${(err as Error).message}`);
+        this.logger.warn(`The signing log did not make it into the package: ${(err as Error).message}`);
       }
     }
 
@@ -231,18 +257,19 @@ export class SignProtocolService {
       completedAt: request.completedAt?.toISOString() ?? null,
       signatures: manifestActs,
       verify: `${webUrl}/check`,
-      note:
-        'Отпечаток документа считается по файлу из папки document/. ' +
-        'Подписи можно проверить и сторонними средствами (eGov, ezSigner): контейнеры лежат в signatures/.',
+      // Манифест читает ЧЕЛОВЕК на той стороне — примечание переводим в языке
+      // запроса вместе с остальным пакетом.
+      note: this.i18n.translate('sign.export.note'),
     };
     zip.addBuffer(Buffer.from(JSON.stringify(manifest, null, 2), 'utf8'), 'manifest.json');
 
     zip.end();
     const buffer = await streamToBuffer(out);
     if (buffer.length > SIGN_LIMITS.exportMaxBytes) {
-      throw new ServiceUnavailableException('Пакет слишком велик для одной выгрузки');
+      throw new ApiError(HttpStatus.SERVICE_UNAVAILABLE, { code: 'sign.packageTooBig' });
     }
-    return { buffer, fileName: `Подписано — ${request.refTitle}.zip` };
+    const fileName = `${this.i18n.translate('sign.export.fileName', { title: request.refTitle })}.zip`;
+    return { buffer, fileName };
   }
 
   private async bytesOf(fileId: string): Promise<Buffer> {
@@ -260,7 +287,7 @@ export class SignProtocolService {
       where: { id: requestId },
       include: { acts: { orderBy: { createdAt: 'asc' } } },
     });
-    if (!request) throw new NotFoundException('Заявка на подпись не найдена');
+    if (!request) throw notFound('sign.requestNotFound');
     // Права переиспользуем у сервиса: одна планка на экран подписания и на экспорт.
     await this.sign.getFlow(actor, requestId);
     return request;
@@ -289,17 +316,8 @@ function esc(s: string | null | undefined): string {
   return String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
-function fmt(d: Date | null): string {
-  if (!d) return '—';
-  return new Intl.DateTimeFormat('ru-RU', {
-    dateStyle: 'short',
-    timeStyle: 'medium',
-    timeZone: process.env.APP_TIMEZONE || 'Asia/Almaty',
-  }).format(d);
-}
-
-function maskPhoneSafe(phone: string | null): string {
-  if (!phone) return '—';
+function maskPhoneSafe(phone: string | null, dash: string): string {
+  if (!phone) return dash;
   return `${phone.slice(0, 6)}•••${phone.slice(-2)}`;
 }
 

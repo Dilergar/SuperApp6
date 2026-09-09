@@ -1,10 +1,11 @@
-import { BadRequestException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { pipeline } from 'stream/promises';
 import { DOCS_JOB_TYPES, DOCS_LIMITS, DOCS_QUEUE } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { badRequest } from '../../shared/errors/api-error';
 import { FilesService } from '../files/files.service';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { JobsService } from '../jobs/jobs.service';
@@ -56,12 +57,12 @@ export class DocsRenditionService implements OnModuleInit {
    * содержимого — тогда клиент сразу идёт за ней обычной ссылкой скачивания варианта.
    */
   async request(documentId: string, target: RenditionTarget): Promise<{ ready: boolean }> {
-    if (!this.editor.enabled) throw new BadRequestException('Редактор документов не подключен');
+    if (!this.editor.enabled) throw badRequest('docs.notConnected');
     const doc = await this.db.document.findUnique({
       where: { id: documentId },
       select: { fileId: true },
     });
-    if (!doc) throw new BadRequestException('Документ не найден');
+    if (!doc) throw badRequest('docs.documentNotFound');
     const file = await this.db.fileObject.findUnique({
       where: { id: doc.fileId },
       select: { sha256: true },
@@ -80,12 +81,12 @@ export class DocsRenditionService implements OnModuleInit {
   }
 
   private async run(documentId: string, target: RenditionTarget): Promise<void> {
-    if (!this.editor.enabled) throw new JobDiscardError('редактор документов выключен');
+    if (!this.editor.enabled) throw new JobDiscardError('the document editor is off');
     const doc = await this.db.document.findUnique({ where: { id: documentId } });
-    if (!doc) throw new JobDiscardError(`документ ${documentId} удалён`);
+    if (!doc) throw new JobDiscardError(`document ${documentId} is deleted`);
     const file = await this.db.fileObject.findUnique({ where: { id: doc.fileId } });
-    if (!file || file.status !== 'ready') throw new JobDiscardError('файл документа недоступен');
-    if (file.scanStatus === 'infected') throw new JobDiscardError('файл помечен как заражённый');
+    if (!file || file.status !== 'ready') throw new JobDiscardError('the document file is unavailable');
+    if (file.scanStatus === 'infected') throw new JobDiscardError('the file is marked as infected');
 
     const kind = target === 'pdf' ? 'pdf' : 'text';
     const existing = await this.files.getVariant(doc.fileId, kind);
@@ -109,7 +110,7 @@ export class DocsRenditionService implements OnModuleInit {
       );
 
       const size = (await fs.promises.stat(tmp)).size;
-      if (size <= 0) throw new Error('редактор вернул пустую производную');
+      if (size <= 0) throw new Error('the editor returned an empty rendition');
       await this.files.putDerivedVariant({
         fileId: doc.fileId,
         kind,
@@ -118,7 +119,7 @@ export class DocsRenditionService implements OnModuleInit {
         // sha исходника — по нему видно, не протухла ли производная
         meta: { sha256: file.sha256 },
       });
-      this.logger.log(`производная ${kind} документа ${documentId} готова (${size} байт)`);
+      this.logger.log(`the ${kind} rendition of document ${documentId} is ready (${size} bytes)`);
     } finally {
       await fs.promises.unlink(src).catch(() => undefined);
       // putDerivedVariant ПОТРЕБЛЯЕТ вход (rename) — здесь обычно уже ENOENT

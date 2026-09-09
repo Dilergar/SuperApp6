@@ -207,6 +207,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
       this.i18n.translateFor(locale, key, params);
     const path = issue.path.join('.') || '—';
 
+    // Схема может назвать КЛЮЧ каталога вместо фразы:
+    //   z.string().min(1, 'validation.calendar.title')
+    // Тогда её сообщение точнее общей фразы И переводится. Проверка идёт первой
+    // и для ЛЮБОГО кода проблемы: `min(1, …)` — это `too_small`, а не `custom`,
+    // и без неё своё сообщение схемы терялось бы под общей формулировкой.
+    const own = issue.message;
+    if (own && this.i18n.has(`errors.${own}`, locale)) return t(`errors.${own}`);
+
     switch (issue.code) {
       case 'invalid_type':
         return issue.received === 'undefined'

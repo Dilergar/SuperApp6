@@ -1,10 +1,14 @@
 import { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslations } from 'use-intl';
+import { useFormatters } from '../../src/i18n/formatters';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/lib/api';
 
 export default function CalendarScreen() {
+  const t = useTranslations('calendar');
+  const f = useFormatters();
   const [currentDate, setCurrentDate] = useState(new Date());
 
   const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
@@ -55,8 +59,10 @@ export default function CalendarScreen() {
     currentDate.getMonth() === today.getMonth() &&
     currentDate.getFullYear() === today.getFullYear();
 
-  const monthName = currentDate.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
-  const weekDays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+  const monthName = f.date(currentDate, 'monthYear');
+  // Имена дней и ПОРЯДОК недели — у форматтера: в РК неделя начинается с понедельника,
+  // а массив в коде был бы одним языком и одним регионом навсегда.
+  const weekDays = f.weekdayNames('short');
 
   return (
     <ScrollView style={styles.container}>
@@ -73,8 +79,8 @@ export default function CalendarScreen() {
 
       {/* Week day headers */}
       <View style={styles.weekRow}>
-        {weekDays.map((d) => (
-          <Text key={d} style={styles.weekDay}>{d}</Text>
+        {weekDays.map((d, i) => (
+          <Text key={i} style={styles.weekDay}>{d}</Text>
         ))}
       </View>
 
@@ -108,7 +114,7 @@ export default function CalendarScreen() {
 
       {/* Today's events list */}
       <Text style={styles.sectionTitle}>
-        События на {today.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}
+        {t('grid.eventsOn', { date: f.date(today, 'dayMonthLong') })}
       </Text>
       {events
         .filter((e: any) => {
@@ -121,9 +127,7 @@ export default function CalendarScreen() {
             <View style={styles.eventContent}>
               <Text style={styles.eventTitle}>{e.title}</Text>
               <Text style={styles.eventTime}>
-                {e.allDay
-                  ? 'Весь день'
-                  : `${new Date(e.startTime).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })} — ${new Date(e.endTime).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`}
+                {e.allDay ? t('grid.allDay') : f.timeRange(e.startTime, e.endTime)}
               </Text>
             </View>
             {e.type === 'task' && (

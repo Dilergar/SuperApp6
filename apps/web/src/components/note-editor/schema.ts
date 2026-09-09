@@ -1,6 +1,7 @@
 import { Schema, type Node as PMNode, type NodeSpec, type MarkSpec } from 'prosemirror-model';
 import { tableNodes } from 'prosemirror-tables';
 import { normalizeNoteHref } from '@superapp/shared';
+import { noteEditorLabels } from './labels';
 import type { NoteDoc } from '@superapp/shared';
 
 // ============================================================
@@ -168,7 +169,7 @@ const marks: Record<string, MarkSpec> = {
       const href = normalizeNoteHref(mark.attrs.href);
       return href
         ? ['a', { href, rel: 'noopener noreferrer nofollow', target: '_blank', class: 'ne-link' }, 0]
-        : ['span', { class: 'ne-link ne-link--blocked', title: 'Ссылка заблокирована: недопустимый адрес' }, 0];
+        : ['span', { class: 'ne-link ne-link--blocked', title: noteEditorLabels.blockedLink }, 0];
     },
   },
   bold: {

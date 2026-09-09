@@ -38,7 +38,7 @@ export class StaffController {
   constructor(private staff: StaffService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Справочники: отделы + должности + филиалы (со счётчиками)' })
+  @ApiOperation({ summary: 'Directories: departments + positions + sites (with counters)' })
   async directory(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const data = await this.staff.getDirectory(user.sub, id);
     return { success: true, data };
@@ -47,7 +47,7 @@ export class StaffController {
   // ----- Отделы -----
 
   @Post('departments')
-  @ApiOperation({ summary: 'Создать отдел (manager+)' })
+  @ApiOperation({ summary: 'Create a department (manager+)' })
   async createDepartment(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -59,7 +59,7 @@ export class StaffController {
   }
 
   @Patch('departments/:depId')
-  @ApiOperation({ summary: 'Обновить отдел (manager+)' })
+  @ApiOperation({ summary: 'Update a department (manager+)' })
   async updateDepartment(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -73,7 +73,7 @@ export class StaffController {
 
   @Delete('departments/:depId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Удалить отдел (manager+; должности отцепляются)' })
+  @ApiOperation({ summary: 'Delete a department (manager+; its positions are detached)' })
   async deleteDepartment(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -86,7 +86,7 @@ export class StaffController {
   // ----- Должности -----
 
   @Post('positions')
-  @ApiOperation({ summary: 'Создать должность (manager+)' })
+  @ApiOperation({ summary: 'Create a position (manager+)' })
   async createPosition(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -98,7 +98,7 @@ export class StaffController {
   }
 
   @Patch('positions/:posId')
-  @ApiOperation({ summary: 'Обновить должность (manager+)' })
+  @ApiOperation({ summary: 'Update a position (manager+)' })
   async updatePosition(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -112,7 +112,7 @@ export class StaffController {
 
   @Delete('positions/:posId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Удалить должность (manager+; 409 если есть назначения)' })
+  @ApiOperation({ summary: 'Delete a position (manager+; 409 when assignments exist)' })
   async deletePosition(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -125,7 +125,7 @@ export class StaffController {
   // ----- Филиалы -----
 
   @Post('branches')
-  @ApiOperation({ summary: 'Создать филиал (manager+)' })
+  @ApiOperation({ summary: 'Create a site (manager+)' })
   async createBranch(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -137,7 +137,7 @@ export class StaffController {
   }
 
   @Patch('branches/:brId')
-  @ApiOperation({ summary: 'Обновить филиал (manager+)' })
+  @ApiOperation({ summary: 'Update a site (manager+)' })
   async updateBranch(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -151,7 +151,7 @@ export class StaffController {
 
   @Delete('branches/:brId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Удалить филиал (manager+; 409 если там работают люди)' })
+  @ApiOperation({ summary: 'Delete a site (manager+; 409 when people work there)' })
   async deleteBranch(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -164,7 +164,7 @@ export class StaffController {
   // ----- Назначения должностей -----
 
   @Post('members/:userId/assignments')
-  @ApiOperation({ summary: 'Назначить должность сотруднику (manager+)' })
+  @ApiOperation({ summary: 'Assign a position to an employee (manager+)' })
   async assign(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -177,7 +177,7 @@ export class StaffController {
   }
 
   @Patch('assignments/:assignmentId')
-  @ApiOperation({ summary: 'Изменить назначение: филиал/аттестация (manager+)' })
+  @ApiOperation({ summary: 'Update an assignment: site or certification (manager+)' })
   async updateAssignment(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -191,7 +191,7 @@ export class StaffController {
 
   @Delete('assignments/:assignmentId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Снять назначение (manager+)' })
+  @ApiOperation({ summary: 'Remove an assignment (manager+)' })
   async removeAssignment(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,

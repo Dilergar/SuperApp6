@@ -29,7 +29,7 @@ export class WorkspaceShareLinksController {
   ) {}
 
   @Get()
-  @ApiOperation({ summary: 'Ссылки наружу всей организации (Менеджер+)' })
+  @ApiOperation({ summary: 'Guest links shared by the whole organization (Manager+)' })
   async list(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -41,7 +41,7 @@ export class WorkspaceShareLinksController {
   }
 
   @Get('stats')
-  @ApiOperation({ summary: 'Сводка: действующих ссылок, объектов, открытий за период' })
+  @ApiOperation({ summary: 'A summary: active links, shared objects, opens over the period' })
   async stats(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     await this.workspaces.assertManagerPlus(user.sub, id);
     return { success: true, data: await this.links.statsForWorkspace(id) };
@@ -49,7 +49,7 @@ export class WorkspaceShareLinksController {
 
   @Post('revoke')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Отозвать пачку ссылок организации, в том числе чужих (Менеджер+)' })
+  @ApiOperation({ summary: 'Revoke a batch of the organization links, other people’s included (Manager+)' })
   async revoke(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() body: unknown) {
     await this.workspaces.assertManagerPlus(user.sub, id);
     const { ids } = bulkRevokeSchema.parse(body);

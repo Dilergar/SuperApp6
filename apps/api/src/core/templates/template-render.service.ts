@@ -1,11 +1,19 @@
 import { Injectable } from '@nestjs/common';
 import { buffer as streamToBuffer } from 'node:stream/consumers';
+import type { Locale } from '@superapp/i18n';
 import type { TemplateIssueDto, TemplateTagDto } from '@superapp/shared';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { FilesService } from '../files/files.service';
 import { docxRenderDriver } from './docx-render.driver';
 import { checkTagsAgainstRegistry } from './template-compiler';
+import { templateIssueText } from './template-issue.text';
 import { TemplateFieldRegistry, type TemplateFieldContext } from './template-field.registry';
-import type { TemplateRenderOptions, TemplateRenderResult, TemplateValues } from './template.types';
+import type {
+  TemplatePrint,
+  TemplateRenderOptions,
+  TemplateRenderResult,
+  TemplateValues,
+} from './template.types';
 
 /**
  * core/templates — заполнение шаблонов документов. Тонкая подсистема БЕЗ своих
@@ -18,7 +26,30 @@ export class TemplateRenderService {
   constructor(
     private readonly registry: TemplateFieldRegistry,
     private readonly files: FilesService,
+    private readonly i18n: I18nService,
   ) {}
+
+  /**
+   * Слова ЯЗЫКА БЛАНКА для драйверов. Драйверы — чистые функции без каталога,
+   * поэтому переводчик приезжает к ним параметром; язык берётся у самого
+   * документа (`OrgDocument.language`), а не у зрителя и не у запроса.
+   */
+  printFor(language: Locale): TemplatePrint {
+    return {
+      language,
+      t: (key, values) => this.i18n.translateFor(language, key, values),
+    };
+  }
+
+  /** Замечание СЛОВАМИ в языке запроса — одна точка выхода на весь движок. */
+  issueText(issue: TemplateIssueDto): string {
+    return templateIssueText(this.i18n, issue);
+  }
+
+  /** Те же замечания, но с готовой фразой в `message` — для витрин и отказов. */
+  withText(issues: TemplateIssueDto[]): TemplateIssueDto[] {
+    return issues.map((i) => ({ ...i, message: this.issueText(i) }));
+  }
 
   /**
    * Проверить шаблон: структура + сверка тегов с реестром. НЕ бросает —
@@ -29,11 +60,12 @@ export class TemplateRenderService {
     issues: TemplateIssueDto[];
   } {
     const extract = docxRenderDriver.extractTags(template);
-    return checkTagsAgainstRegistry(extract, this.registry, opts?.extraPaths ?? []);
+    const { tags, issues } = checkTagsAgainstRegistry(extract, this.registry, opts?.extraPaths ?? []);
+    return { tags, issues: this.withText(issues) };
   }
 
   /** Заполнить шаблон готовыми значениями; кидает TemplateCompileError | TemplateDataError */
-  render(template: Buffer, values: TemplateValues, opts?: TemplateRenderOptions): TemplateRenderResult {
+  render(template: Buffer, values: TemplateValues, opts: TemplateRenderOptions): TemplateRenderResult {
     return docxRenderDriver.render(template, values, opts);
   }
 
@@ -56,8 +88,8 @@ export class TemplateRenderService {
   async renderForContext(
     template: Buffer,
     ctx: TemplateFieldContext,
-    extraValues?: TemplateValues,
-    opts?: TemplateRenderOptions,
+    extraValues: TemplateValues | undefined,
+    opts: TemplateRenderOptions,
   ): Promise<TemplateRenderResult> {
     const values = { ...(extraValues ?? {}), ...(await this.registry.resolveValues(ctx)) };
     return this.render(template, values, opts);
@@ -71,8 +103,8 @@ export class TemplateRenderService {
   async systemRenderFileForContext(
     fileId: string,
     ctx: TemplateFieldContext,
-    extraValues?: TemplateValues,
-    opts?: TemplateRenderOptions,
+    extraValues: TemplateValues | undefined,
+    opts: TemplateRenderOptions,
   ): Promise<TemplateRenderResult> {
     const { result } = await this.files.openRawStream(fileId, null);
     const bytes = await streamToBuffer(result.stream);

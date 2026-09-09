@@ -6,6 +6,7 @@
 // ============================================================
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import type { FinPersonDto } from '@superapp/shared';
 import { apiDelete, apiErrorMessage, apiPost } from '@/lib/api';
 import { EntitySelector } from '@/components/EntitySelector';
@@ -24,6 +25,8 @@ export function PeoplePanel({
   bookId: string | null;
   canEdit: boolean;
 }) {
+  const t = useTranslations('finance');
+  const common = useTranslations('common');
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,12 +53,12 @@ export function PeoplePanel({
     <BentoGrid>
       <Card span={12}>
         <CardHeader
-          title="Близкие"
-          subtitle="Быстрый выбор для поля «на кого» — человек об этом не узнаёт"
+          title={t('people.title')}
+          subtitle={t('people.subtitle')}
           actions={
             canEdit ? (
               <Button variant="matte" tone="accent" size="sm" icon="userAdd" onClick={() => setAdding((v) => !v)}>
-                {adding ? 'Скрыть' : 'Из окружения'}
+                {adding ? common('actions.hide') : t('people.fromCircle')}
               </Button>
             ) : undefined
           }
@@ -74,7 +77,7 @@ export function PeoplePanel({
               onChange={(next) => next[0] && add(next[0].id)}
               types={['user']}
               multi={false}
-              placeholder="Кого добавить…"
+              placeholder={t('people.pickPlaceholder')}
             />
           </div>
         )}
@@ -95,7 +98,13 @@ export function PeoplePanel({
               >
                 <PersonChip size="S" userId={p.userId} firstName={p.name} avatar={p.avatar} />
                 {canEdit && (
-                  <IconButton icon="close" label={`Убрать ${p.name} из близких`} size={22} iconSize={12} onClick={() => remove(p.userId)} />
+                  <IconButton
+                    icon="close"
+                    label={t('people.removeLabel', { name: p.name })}
+                    size={22}
+                    iconSize={12}
+                    onClick={() => remove(p.userId)}
+                  />
                 )}
               </span>
             ))}
@@ -103,9 +112,15 @@ export function PeoplePanel({
         ) : (
           <EmptyState
             icon="people"
-            title="Список пуст"
-            description="Добавьте тех, на кого чаще всего тратите — они появятся первыми в поле «на кого»."
-            action={canEdit ? <Button variant="matte" icon="userAdd" onClick={() => setAdding(true)}>Выбрать из окружения</Button> : undefined}
+            title={t('people.emptyTitle')}
+            description={t('people.emptyDescription')}
+            action={
+              canEdit ? (
+                <Button variant="matte" icon="userAdd" onClick={() => setAdding(true)}>
+                  {t('people.pickFromCircle')}
+                </Button>
+              ) : undefined
+            }
           />
         )}
       </Card>

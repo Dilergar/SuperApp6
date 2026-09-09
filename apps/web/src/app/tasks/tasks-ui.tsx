@@ -8,7 +8,9 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useQueryClient } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import { apiErrorMessage, apiPost } from '@/lib/api';
+import { useFormatters } from '@/lib/format';
 import { PersonChip } from '../circles/PersonCard';
 import { TASK_STATUS_META, TASK_PRIORITY_META, type Task, type TaskStatus, type TaskPriority } from '@superapp/shared';
 import {
@@ -19,8 +21,9 @@ import {
 /**
  * Статус задачи → ИКОНКА. Только иконка: имена берутся из веб-реестра `ICONS`,
  * которого нет в общем пакете. Тон сюда больше не дублируется — он приходит из
- * `TASK_STATUS_META[...].tone` вместе с подписью, одним источником на API, веб
- * и мобильный (раньше та же карта тонов лежала ещё и здесь, и в календаре).
+ * `TASK_STATUS_META[...].tone`, одним источником на API, веб и мобильный
+ * (раньше та же карта тонов лежала ещё и здесь, и в календаре), а подпись —
+ * из каталога (`tasks.status.<status>`).
  */
 export const TASK_STATUS_ICON: Record<TaskStatus, IconName> = {
   todo: 'tasks',
@@ -31,16 +34,37 @@ export const TASK_STATUS_ICON: Record<TaskStatus, IconName> = {
 };
 
 // ------------------------------------------------------------
+// Хелперы дат
+//
+// Формат берётся у форматтеров языка и региона: `toLocaleDateString('ru-RU')`
+// зашивал бы и язык, и страну навсегда — человек, выбравший English, всё равно
+// читал бы «3 сент.».
+// ------------------------------------------------------------
+
+/** Срок задачи в правилах зрителя: «весь день» — без часов. */
+export function useDueFormat(): (iso: string, allDay: boolean, withYear?: boolean) => string {
+  const f = useFormatters();
+  return (iso, allDay, withYear = false) => {
+    const style = withYear ? 'long' : 'dayMonthLong';
+    return allDay ? f.date(iso, style) : f.dateTime(iso, style);
+  };
+}
+
+// ------------------------------------------------------------
 // Строка задачи (списки всех разделов)
 // ------------------------------------------------------------
 
 export function TaskRow({ task, extra }: { task: Task; extra?: React.ReactNode }) {
+  const t = useTranslations('tasks');
+  const tc = useTranslations('common');
+  const formatDue = useDueFormat();
   const st = TASK_STATUS_META[task.status];
   const pr = TASK_PRIORITY_META[task.priority];
+  const statusLabel = t(`status.${task.status}`);
   const done = task.status === 'done';
   const assigneeLabel = task.assignedCircleName
-    ? `Группа «${task.assignedCircleName}»`
-    : task.executor?.name ?? (task.myRole === 'creator' ? 'Себе' : '—');
+    ? t('row.circle', { name: task.assignedCircleName })
+    : task.executor?.name ?? (task.myRole === 'creator' ? t('row.self') : tc('labels.dash'));
 
   return (
     <Link
@@ -49,7 +73,7 @@ export function TaskRow({ task, extra }: { task: Task; extra?: React.ReactNode }
       style={{ display: 'block', color: 'inherit', border: '1px solid var(--border)' }}
     >
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--spacing-3)' }}>
-        <Icon name={TASK_STATUS_ICON[task.status]} size={18} style={{ marginTop: 2, color: 'var(--muted)' }} label={st.label} />
+        <Icon name={TASK_STATUS_ICON[task.status]} size={18} style={{ marginTop: 2, color: 'var(--muted)' }} label={statusLabel} />
 
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -60,7 +84,7 @@ export function TaskRow({ task, extra }: { task: Task; extra?: React.ReactNode }
               {task.title}
             </span>
             {task.priority !== 'medium' && (
-              <KitChip size="sm" tone={pr.tone}>{pr.label}</KitChip>
+              <KitChip size="sm" tone={pr.tone}>{t(`priority.${task.priority}`)}</KitChip>
             )}
           </div>
 
@@ -72,7 +96,7 @@ export function TaskRow({ task, extra }: { task: Task; extra?: React.ReactNode }
             )}
             {task.progress && (
               <span className="meta" style={{ color: 'var(--primary-dim)' }}>
-                {task.progress.accepted} из {task.progress.total} принято
+                {t('row.progress', { accepted: task.progress.accepted, total: task.progress.total })}
               </span>
             )}
             {task.dueDate && (
@@ -87,14 +111,14 @@ export function TaskRow({ task, extra }: { task: Task; extra?: React.ReactNode }
             {task.coinReward > 0 && (
               <span className="meta" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', color: 'var(--warning)' }}>
                 <Icon name="coins" size={13} />
-                {task.coinReward}{task.assignedCircleName ? '/чел' : ''}
+                {task.coinReward}{task.assignedCircleName ? t('row.perPerson') : ''}
               </span>
             )}
           </div>
           {extra}
         </div>
 
-        <KitChip size="sm" tone={st.tone}>{st.label}</KitChip>
+        <KitChip size="sm" tone={st.tone}>{statusLabel}</KitChip>
       </div>
     </Link>
   );
@@ -129,7 +153,8 @@ export function Chip({
 // Самодостаточен: инвалидирует корень ['tasks'] сам (списки+счётчики+бейджи).
 // ------------------------------------------------------------
 
-export function QuickAdd({ placeholder = 'Быстрая задачка себе… (Enter)', autoFocus }: { placeholder?: string; autoFocus?: boolean }) {
+export function QuickAdd({ placeholder, autoFocus }: { placeholder?: string; autoFocus?: boolean }) {
+  const t = useTranslations('tasks');
   const queryClient = useQueryClient();
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
@@ -137,12 +162,12 @@ export function QuickAdd({ placeholder = 'Быстрая задачка себе
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const t = title.trim();
-    if (!t || busy) return;
+    const value = title.trim();
+    if (!value || busy) return;
     setBusy(true);
     setError('');
     try {
-      await apiPost('/tasks', { title: t, inbox: true });
+      await apiPost('/tasks', { title: value, inbox: true });
       setTitle('');
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
     } catch (err: unknown) {
@@ -158,7 +183,7 @@ export function QuickAdd({ placeholder = 'Быстрая задачка себе
         <Input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder={placeholder}
+          placeholder={placeholder ?? t('quickAdd.placeholder')}
           icon="add"
           autoFocus={autoFocus}
           maxLength={500}
@@ -166,16 +191,12 @@ export function QuickAdd({ placeholder = 'Быстрая задачка себе
           wrapClassName="quick-add-field"
         />
         <Button type="submit" variant="primary" tone="success" icon="add" disabled={!title.trim()} loading={busy}>
-          Во Входящие
+          {t('quickAdd.submit')}
         </Button>
       </div>
     </form>
   );
 }
-
-// ------------------------------------------------------------
-// Хелперы дат
-// ------------------------------------------------------------
 
 /** Просрочка глазами клиента — та же семантика, что smartList=overdue на бэке:
  *  задача «весь день» на сегодня НЕ просрочена до конца дня (Todoist). */
@@ -188,11 +209,4 @@ export function isOverdue(t: Task): boolean {
     return due < startOfToday;
   }
   return due < new Date();
-}
-
-export function formatDue(iso: string, allDay: boolean): string {
-  const d = new Date(iso);
-  const date = d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
-  if (allDay) return date;
-  return `${date}, ${d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
 }

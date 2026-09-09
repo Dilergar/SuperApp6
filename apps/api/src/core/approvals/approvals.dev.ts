@@ -1,8 +1,9 @@
-import { Body, Controller, ForbiddenException, Injectable, OnModuleInit, Param, Post } from '@nestjs/common';
+import { Body, Controller, Injectable, OnModuleInit, Param, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { approvalStepInputSchema } from '@superapp/shared';
 import { isDevEnv } from '../../shared/config/env.validation';
+import { forbidden } from '../../shared/errors/api-error';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
 import { ApprovalsService } from './approvals.service';
 import { ApprovalsRegistry } from './approvals.registry';
@@ -81,11 +82,11 @@ export class ApprovalsDevController {
   ) {}
 
   private assertDev(): void {
-    if (!isDevEnv()) throw new ForbiddenException('Дев-полигон доступен только в development');
+    if (!isDevEnv()) throw forbidden('dev.developmentOnly');
   }
 
   @Post('request')
-  @ApiOperation({ summary: 'Дев-полигон: объявить предмет и завести на него заявку (только development)' })
+  @ApiOperation({ summary: 'Dev playground: declare a subject and start a request on it (development only)' })
   async create(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
     this.assertDev();
     const dto = devCreateSchema.parse(body ?? {});
@@ -112,7 +113,7 @@ export class ApprovalsDevController {
    * «обычный клик не закрывает подписной шаг» надо ДО появления потребителя.
    */
   @Post('step/:stepId/require-signature')
-  @ApiOperation({ summary: 'Дев-полигон: потребовать от шага подпись (только development)' })
+  @ApiOperation({ summary: 'Dev playground: require a signature on a step (development only)' })
   async requireSignature(@Param('stepId') stepId: string, @Body() body: unknown) {
     this.assertDev();
     const { kind } = z
@@ -124,7 +125,7 @@ export class ApprovalsDevController {
   }
 
   @Post('outcome')
-  @ApiOperation({ summary: 'Дев-полигон: чем закончилась заявка по ссылке ведущего (только development)' })
+  @ApiOperation({ summary: 'Dev playground: how the request ended, by the origin link (development only)' })
   async outcome(@Body() body: unknown) {
     this.assertDev();
     const { originRef } = z.object({ originRef: z.string().min(1) }).strict().parse(body ?? {});

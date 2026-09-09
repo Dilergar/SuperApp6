@@ -22,34 +22,7 @@ export function driveIcon(node: { kind: string; file?: { kind?: string | null } 
   }
 }
 
-const KB = 1024;
-
-export function humanSize(bytes: number): string {
-  if (bytes < KB) return `${bytes} Б`;
-  if (bytes < KB ** 2) return `${(bytes / KB).toFixed(1)} КБ`;
-  if (bytes < KB ** 3) return `${(bytes / KB ** 2).toFixed(1)} МБ`;
-  return `${(bytes / KB ** 3).toFixed(2)} ГБ`;
-}
-
-/** Короткая дата: сегодня — время, этот год — день и месяц, иначе с годом */
-export function shortDate(iso: string): string {
-  const d = new Date(iso);
-  const now = new Date();
-  const sameDay =
-    d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
-  if (sameDay) return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-  if (d.getFullYear() === now.getFullYear()) return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
-  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
-}
-
-const MONTHS = [
-  'январь', 'февраль', 'март', 'апрель', 'май', 'июнь',
-  'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь',
-];
-
-/** `2026-07` → «июль 2026» */
-export function monthLabel(month: string): string {
-  const [y, m] = month.split('-');
-  const idx = Number(m) - 1;
-  return `${MONTHS[idx] ?? m} ${y}`;
-}
+// Размеры, короткие даты и месяц прописью переехали в общие хуки
+// `useBytes` / `useShortDate` / `useMonthLabel` (`lib/format.ts`): здесь они
+// были собраны своими руками с `'ru-RU'` и русскими именами месяцев — то есть
+// язык и регион, зашитые навсегда.

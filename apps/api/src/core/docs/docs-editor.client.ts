@@ -1,4 +1,5 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { ApiError } from '../../shared/errors/api-error';
 import * as fs from 'fs';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
@@ -40,7 +41,7 @@ export class DocsEditorClient {
     const map = await this.discovery(base);
     const urlsrc = map[ext.toLowerCase()] ?? map[mime.toLowerCase()];
     if (!urlsrc) {
-      throw new ServiceUnavailableException(`Редактор не умеет открывать «${ext}»`);
+      throw new ApiError(HttpStatus.SERVICE_UNAVAILABLE, { code: 'docs.extUnsupported', params: { ext } });
     }
     return urlsrc;
   }
@@ -53,7 +54,7 @@ export class DocsEditorClient {
     const xml = await this.fetchDiscovery(base);
     const map = this.parseDiscovery(xml, base);
     if (!Object.keys(map).length) {
-      throw new ServiceUnavailableException('Редактор вернул пустой discovery');
+      throw new ApiError(HttpStatus.SERVICE_UNAVAILABLE, { code: 'docs.emptyDiscovery' });
     }
     await this.redis.setJson(key, map, DOCS_LIMITS.discoveryCacheSec).catch(() => undefined);
     return map;
@@ -69,12 +70,12 @@ export class DocsEditorClient {
         { timeoutMs: DOCS_LIMITS.editorRequestTimeoutMs, origin: 'env' },
       );
     } catch (err) {
-      this.logger.warn(`discovery недоступен (${base}): ${String((err as Error)?.message ?? err)}`);
-      throw new ServiceUnavailableException('Редактор документов недоступен');
+      this.logger.warn(`discovery is unavailable (${base}): ${String((err as Error)?.message ?? err)}`);
+      throw new ApiError(HttpStatus.SERVICE_UNAVAILABLE, { code: 'docs.editorUnavailable' });
     }
     if (!res.ok) {
-      this.logger.warn(`discovery ответил ${res.status} (${base})`);
-      throw new ServiceUnavailableException('Редактор документов недоступен');
+      this.logger.warn(`discovery answered ${res.status} (${base})`);
+      throw new ApiError(HttpStatus.SERVICE_UNAVAILABLE, { code: 'docs.editorUnavailable' });
     }
     return res.text();
   }
@@ -148,11 +149,16 @@ export class DocsEditorClient {
         { timeoutMs: DOCS_LIMITS.convertTimeoutMs, origin: 'env' },
       );
     } catch (err) {
-      throw new ServiceUnavailableException(
-        `Конвертация недоступна: ${String((err as Error)?.message ?? err)}`,
-      );
+      throw new ApiError(HttpStatus.SERVICE_UNAVAILABLE, {
+        code: 'docs.conversionUnavailable',
+        details: { reason: String((err as Error)?.message ?? err) },
+      });
     }
-    if (!res.ok || !res.body) throw new ServiceUnavailableException(`Конвертация вернула ${res.status}`);
+    if (!res.ok || !res.body)
+      throw new ApiError(HttpStatus.SERVICE_UNAVAILABLE, {
+        code: 'docs.conversionUnavailable',
+        details: { status: res.status },
+      });
     await pipeline(Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]), fs.createWriteStream(outPath));
   }
 }

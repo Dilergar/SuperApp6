@@ -1,18 +1,12 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  Logger,
-  NotFoundException,
-  OnModuleInit,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { badRequest, conflict, forbidden, notFound, unauthorized } from '../../shared/errors/api-error';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import {
   DOCS_LIMITS,
+  SOURCE_LOCALE,
   documentFormatForFile,
   fileExtension,
-  formatTimeRange,
+  APP_TIMEZONE,
   DOCUMENT_SESSION_STATUSES,
   type DocsStatusDto,
   type DocumentAccess,
@@ -98,6 +92,7 @@ export class DocsService implements OnModuleInit {
     private readonly chatterRegistry: ChatterRefRegistry,
     private readonly events: EventBusService,
     private readonly shareLinks: ShareLinksService,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -167,16 +162,16 @@ export class DocsService implements OnModuleInit {
    * вызов возвращает существующий.
    */
   async createFromFile(userId: string, dto: DocumentFromFileInput): Promise<DocumentDto> {
-    if (!this.router.enabled) throw new BadRequestException('Редактор документов не подключен');
+    if (!this.router.enabled) throw badRequest('docs.notConnected');
     const file = await this.db.fileObject.findUnique({ where: { id: dto.fileId } });
-    if (!file || file.status !== 'ready') throw new NotFoundException('Файл не найден');
+    if (!file || file.status !== 'ready') throw notFound('files.notFound');
     // Публичные раздаются вечной ссылкой с immutable-кэшем: заменённые байты жили бы
     // в кэшах браузеров и CDN. Документом может стать только приватный файл.
-    if (file.visibility !== 'private') throw new BadRequestException('Публичный файл нельзя сделать документом');
-    if (file.scanStatus === 'infected') throw new ForbiddenException('Файл помечен как заражённый');
+    if (file.visibility !== 'private') throw badRequest('docs.publicFile');
+    if (file.scanStatus === 'infected') throw forbidden('files.markedInfected');
 
     const format = documentFormatForFile({ name: file.name, mime: file.mime });
-    if (!format) throw new BadRequestException('Этот формат нельзя редактировать');
+    if (!format) throw badRequest('docs.formatNotEditable');
     this.assertOpenable(Number(file.size));
 
     const ctx = dto.refType && dto.refId ? { refType: dto.refType, refId: dto.refId } : null;
@@ -192,9 +187,7 @@ export class DocsService implements OnModuleInit {
       // Сюда попадает и тот, кто просто хотел ПОСМОТРЕТЬ: пока файл не оживлён,
       // отдельного просмотрщика у него нет. Оживление раздаёт право правки всем
       // участникам места, поэтому первым его делает тот, кто этим правом обладает.
-      throw new ForbiddenException(
-        'Открыть этот файл как документ может тот, кто вправе его менять (участник места, куда он приложен, или загрузивший). Скачивание доступно всем, кому виден файл.',
-      );
+      throw forbidden('docs.openAsDocumentRight');
     }
 
     const title = (dto.title ?? this.titleFromFileName(file.name)).slice(0, DOCS_LIMITS.maxTitleLength);
@@ -247,7 +240,7 @@ export class DocsService implements OnModuleInit {
       return doc;
     });
 
-    this.logger.log(`документ ${created.id} создан из файла ${file.id} (${format.ext})`);
+    this.logger.log(`document ${created.id} was created from file ${file.id} (${format.ext})`);
     await this.logRevival(userId, created, ctx);
     return this.serialize(created, 'edit');
   }
@@ -306,7 +299,7 @@ export class DocsService implements OnModuleInit {
   async listVersions(userId: string, id: string, ctx?: DocsPlaceCtx | null): Promise<DocumentVersionDto[]> {
     const doc = await this.loadOrThrow(id);
     if ((await this.resolveMode(userId, doc, ctx)) === 'none') {
-      throw new ForbiddenException('Нет доступа к документу');
+      throw forbidden('docs.noAccess');
     }
     return this.versions.list(doc.id);
   }
@@ -324,7 +317,7 @@ export class DocsService implements OnModuleInit {
   ): Promise<void> {
     const doc = await this.loadOrThrow(id);
     if ((await this.resolveMode(userId, doc, ctx)) !== 'edit') {
-      throw new ForbiddenException('Версию сохраняет тот, кто может редактировать документ');
+      throw forbidden('docs.saveVersionRight');
     }
     await this.versions.createManual(doc.id, userId, reason);
     await this.logDocEvent(userId, doc, 'document.version_saved', {
@@ -345,10 +338,10 @@ export class DocsService implements OnModuleInit {
   ): Promise<void> {
     const doc = await this.loadOrThrow(id);
     if ((await this.resolveMode(userId, doc, ctx)) !== 'edit') {
-      throw new ForbiddenException('Вернуть версию может тот, кто может редактировать документ');
+      throw forbidden('docs.restoreVersionRight');
     }
     if (await this.getActiveSession(doc.id)) {
-      throw new ConflictException('Документ сейчас открыт в редакторе — закройте его и повторите');
+      throw conflict('docs.openInEditor');
     }
     const versionNo = await this.versions.restore(doc, versionId, userId);
     await this.logDocEvent(userId, doc, 'document.restored', { versionNo });
@@ -387,7 +380,7 @@ export class DocsService implements OnModuleInit {
   ): Promise<{ ready: boolean }> {
     const doc = await this.loadOrThrow(id);
     if ((await this.resolveMode(userId, doc, ctx)) === 'none') {
-      throw new ForbiddenException('Нет доступа к документу');
+      throw forbidden('docs.noAccess');
     }
     return this.rendition.request(doc.id, target);
   }
@@ -402,7 +395,7 @@ export class DocsService implements OnModuleInit {
   async getDocument(userId: string, id: string, ctx?: DocsPlaceCtx | null): Promise<DocumentDto> {
     const doc = await this.loadOrThrow(id);
     const mode = await this.resolveMode(userId, doc, ctx);
-    if (mode === 'none') throw new ForbiddenException('Нет доступа к документу');
+    if (mode === 'none') throw forbidden('docs.noAccess');
     return this.serialize(doc, mode);
   }
 
@@ -410,7 +403,7 @@ export class DocsService implements OnModuleInit {
   async update(userId: string, id: string, dto: DocumentUpdateInput): Promise<DocumentDto> {
     const doc = await this.loadOrThrow(id);
     if (!(await this.access.can({ type: 'user', id: userId }, 'document.manage', doc.id))) {
-      throw new ForbiddenException('Настройки документа меняет владелец');
+      throw forbidden('docs.settingsOwnerOnly');
     }
     const freezing = dto.mode !== undefined && dto.mode !== doc.mode;
     const updated = await this.db.document.update({
@@ -460,7 +453,7 @@ export class DocsService implements OnModuleInit {
   async archiveByUser(userId: string, id: string): Promise<void> {
     const doc = await this.loadOrThrow(id);
     if (!(await this.access.can({ type: 'user', id: userId }, 'document.manage', doc.id))) {
-      throw new ForbiddenException('Закрыть документ может владелец');
+      throw forbidden('docs.closeOwnerOnly');
     }
     await this.archive(doc.id);
   }
@@ -491,7 +484,7 @@ export class DocsService implements OnModuleInit {
           data: { status: 'skipped' },
         });
       });
-      this.logger.log(`документ ${doc.id} закрыт (архив)`);
+      this.logger.log(`document ${doc.id} was closed (archived)`);
     }
 
     // Снимки-вехи уходят вместе с документом — кроме подписанных: на них сошлётся ЭЦП,
@@ -522,7 +515,7 @@ export class DocsService implements OnModuleInit {
     const doc = await this.loadOrThrow(id);
     const ctx = dto.refType && dto.refId ? { refType: dto.refType, refId: dto.refId } : null;
     const mode = await this.resolveMode(userId, doc, ctx);
-    if (mode === 'none') throw new ForbiddenException('Нет доступа к документу');
+    if (mode === 'none') throw forbidden('docs.noAccess');
     const effective: 'edit' | 'view' = dto.readonly ? 'view' : mode;
 
     // Размер проверяем и здесь, а не только при оживлении: файл живой и мог вырасти
@@ -574,21 +567,19 @@ export class DocsService implements OnModuleInit {
   private assertOpenable(size: number): void {
     if (size > DOCS_LIMITS.openHardLimitBytes) {
       const mb = Math.round(DOCS_LIMITS.openHardLimitBytes / (1024 * 1024));
-      throw new BadRequestException(
-        `Файл слишком большой для правки в браузере (больше ${mb} МБ) — скачайте его и откройте на компьютере`,
-      );
+      throw badRequest('docs.tooBigForBrowser', { mb });
     }
   }
 
   /** «Жёлтая зона»: открываем, но предупреждаем — иначе долгая загрузка выглядит зависанием */
   private openWarning(size: number): string | null {
     if (size <= DOCS_LIMITS.openSoftLimitBytes) return null;
-    return `Файл большой (${Math.round(size / (1024 * 1024))} МБ) — открытие может занять до минуты`;
+    return this.i18n.translate('common.docs.bigFileHint', { mb: Math.round(size / (1024 * 1024)) });
   }
 
   private async loadOrThrow(id: string): Promise<DocumentRow> {
     const doc = await this.db.document.findUnique({ where: { id } });
-    if (!doc || doc.deletedAt || doc.status !== 'active') throw new NotFoundException('Документ не найден');
+    if (!doc || doc.deletedAt || doc.status !== 'active') throw notFound('docs.documentNotFound');
     return doc;
   }
 
@@ -697,20 +688,20 @@ export class DocsService implements OnModuleInit {
    * раз в 5 минут), и это несопоставимо дешевле дыры.
    */
   async authorizeWopi(documentId: string, token: string | undefined): Promise<WopiContext> {
-    if (!this.router.enabled) throw new NotFoundException('Редактор документов не подключен');
+    if (!this.router.enabled) throw notFound('docs.notConnected');
     const verdict = this.tokens.verify(token);
-    if (!verdict.ok || !verdict.payload) throw new UnauthorizedException('Токен недействителен');
+    if (!verdict.ok || !verdict.payload) throw unauthorized('docs.tokenInvalid');
     const payload = verdict.payload;
-    if (payload.d !== documentId) throw new UnauthorizedException('Токен выдан на другой документ');
+    if (payload.d !== documentId) throw unauthorized('docs.tokenOtherDocument');
 
     const doc = await this.db.document.findUnique({ where: { id: documentId } });
-    if (!doc || doc.status !== 'active' || doc.deletedAt) throw new NotFoundException('Документ не найден');
-    if (doc.tokenEpoch !== payload.e) throw new UnauthorizedException('Токен отозван');
+    if (!doc || doc.status !== 'active' || doc.deletedAt) throw notFound('docs.documentNotFound');
+    if (doc.tokenEpoch !== payload.e) throw unauthorized('docs.tokenRevoked');
 
     const mode = await this.resolveMode(payload.u, doc, this.tokens.placeOf(payload));
     // Доступ пропал совсем — редактор обязан выйти. 401 (а не 403) сознательно: на нём
     // контроллер ещё и закроет брошенную блокировку, а COOL не уйдёт в цикл ретраев.
-    if (mode === 'none') throw new UnauthorizedException('Доступ к документу отозван');
+    if (mode === 'none') throw unauthorized('docs.accessRevoked');
 
     // Право правки могли снять, не трогая просмотр (сняли с задачи роль, документ
     // заморозили): токен на запись мгновенно вырождается в «только чтение».
@@ -739,14 +730,14 @@ export class DocsService implements OnModuleInit {
       where: { id: ctx.doc.fileId },
       select: { size: true, sha256: true, status: true, scanStatus: true },
     });
-    if (!file || file.status !== 'ready') throw new NotFoundException('Файл документа не найден');
-    if (file.scanStatus === 'infected') throw new ForbiddenException('Файл помечен как заражённый');
+    if (!file || file.status !== 'ready') throw notFound('docs.fileNotFound');
+    if (file.scanStatus === 'infected') throw forbidden('files.markedInfected');
 
     const user = await this.db.user.findUnique({
       where: { id: ctx.userId },
       select: { firstName: true, lastName: true, avatar: true },
     });
-    const name = [user?.firstName, user?.lastName].filter(Boolean).join(' ') || 'Пользователь';
+    const name = [user?.firstName, user?.lastName].filter(Boolean).join(' ') || this.i18n.translate('common.labels.someone');
 
     return {
       // BaseFileName ОБЯЗАН содержать расширение: по нему клиент выбирает
@@ -868,7 +859,7 @@ export class DocsService implements OnModuleInit {
     const active = await this.getActiveSession(documentId);
     if (!active || active.lockValue !== lockValue) return;
     await this.closeSession(active, 'expired');
-    this.logger.warn(`сессия документа ${documentId} закрыта: токен редактора истёк`);
+    this.logger.warn(`the session of document ${documentId} was closed: the editor token expired`);
   }
 
   private lockDeadline(): Date {
@@ -938,9 +929,15 @@ export class DocsService implements OnModuleInit {
           select: { firstName: true, lastName: true },
         })
       : null;
-    const name = [actor?.firstName, actor?.lastName].filter(Boolean).join(' ') || 'Кто-то';
-    const actorName = others ? `${name} и ещё ${others}` : name;
-    const period = formatTimeRange(session.lockedAt, session.lastPutAt);
+    const name =
+      [actor?.firstName, actor?.lastName].filter(Boolean).join(' ') ||
+      this.i18n.translateFor(SOURCE_LOCALE, 'common.labels.someone');
+    const actorName = others
+      ? this.i18n.translateFor(SOURCE_LOCALE, 'common.docs.othersEditing', { name, n: others })
+      : name;
+    const period = this.i18n
+      .format(SOURCE_LOCALE, APP_TIMEZONE)
+      .timeRange(session.lockedAt, session.lastPutAt);
     const payload = { title: doc.title, documentId: doc.id, period };
 
     const entries: ChatterLogInput[] = [
@@ -990,7 +987,7 @@ export class DocsService implements OnModuleInit {
       isExitSave?: boolean;
     },
   ): Promise<{ lastModifiedTime: string; version: string }> {
-    if (!ctx.canWrite) throw new ForbiddenException('Документ открыт только для чтения');
+    if (!ctx.canWrite) throw forbidden('docs.readOnly');
 
     let session = await this.getActiveSession(ctx.doc.id);
     // Блокировка живая, а запрос пришёл без неё или с чужой — по протоколу это конфликт.

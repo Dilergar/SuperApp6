@@ -4,24 +4,28 @@
 // склад, зона. Дерево: права и люди родителя распространяются вниз.
 // ============================================================
 
+// Реестр называет ЗНАЧЕНИЕ и значок, слово даёт каталог (`objects.kind.<value>`).
 export const OBJECT_KINDS = [
-  { value: 'site', label: 'Площадка', icon: 'storefront' },
-  { value: 'building', label: 'Здание', icon: 'buildings' },
-  { value: 'floor', label: 'Этаж', icon: 'stairs' },
-  { value: 'room', label: 'Помещение', icon: 'door' },
-  { value: 'warehouse', label: 'Склад', icon: 'warehouse' },
-  { value: 'zone', label: 'Зона', icon: 'mapPin' },
-  { value: 'other', label: 'Другое', icon: 'workspace' },
+  { value: 'site', icon: 'storefront' },
+  { value: 'building', icon: 'buildings' },
+  { value: 'floor', icon: 'stairs' },
+  { value: 'room', icon: 'door' },
+  { value: 'warehouse', icon: 'warehouse' },
+  { value: 'zone', icon: 'mapPin' },
+  { value: 'other', icon: 'workspace' },
 ] as const;
 
 export type ObjectKind = (typeof OBJECT_KINDS)[number]['value'];
 
-/** Тип ставки. `revenue_share` ЗАРЕЗЕРВИРОВАН: хранится, но не считается в план затрат. */
+/**
+ * Тип ставки. `revenue_share` ЗАРЕЗЕРВИРОВАН: хранится, но не считается в план затрат.
+ * Слова — каталог: `objects.rateType.<value>` (полное) и `objects.rateTypeShort.<value>`.
+ */
 export const RATE_TYPES = [
-  { value: 'monthly', label: 'В месяц', short: 'мес.' },
-  { value: 'per_shift', label: 'За смену', short: 'смена' },
-  { value: 'hourly', label: 'В час', short: 'час' },
-  { value: 'revenue_share', label: 'Процент с выручки', short: '%', reserved: true },
+  { value: 'monthly' },
+  { value: 'per_shift' },
+  { value: 'hourly' },
+  { value: 'revenue_share', reserved: true },
 ] as const;
 
 export type RateType = (typeof RATE_TYPES)[number]['value'];
@@ -29,18 +33,16 @@ export type RateType = (typeof RATE_TYPES)[number]['value'];
 /** Типы ставок, участвующие в расчёте плана затрат (revenue_share — только хранение) */
 export const PAYABLE_RATE_TYPES = ['monthly', 'per_shift', 'hourly'] as const;
 
-export const SHIFT_STATUSES = [
-  { value: 'draft', label: 'Черновик', tone: 'neutral' },
-  { value: 'published', label: 'Опубликована', tone: 'success' },
-  { value: 'cancelled', label: 'Отменена', tone: 'danger' },
-] as const;
+/** Слово статуса — каталог `objects.shiftStatus.<value>` */
+export const SHIFT_STATUSES = ['draft', 'published', 'cancelled'] as const;
 
-export type ShiftStatus = (typeof SHIFT_STATUSES)[number]['value'];
+export type ShiftStatus = (typeof SHIFT_STATUSES)[number];
 
+/** Слово исхода — каталог `objects.attendanceOutcome.<value>` */
 export const ATTENDANCE_OUTCOMES = [
-  { value: 'worked', label: 'Вышел', tone: 'success' },
-  { value: 'late', label: 'Опоздал', tone: 'warning' },
-  { value: 'absent', label: 'Не вышел', tone: 'danger' },
+  { value: 'worked', tone: 'success' },
+  { value: 'late', tone: 'warning' },
+  { value: 'absent', tone: 'danger' },
 ] as const;
 
 export type AttendanceOutcome = (typeof ATTENDANCE_OUTCOMES)[number]['value'];
@@ -49,31 +51,31 @@ export type AttendanceOutcome = (typeof ATTENDANCE_OUTCOMES)[number]['value'];
 export const ATTENDANCE_SOURCES = ['manual', 'access_control', 'self'] as const;
 export type AttendanceSource = (typeof ATTENDANCE_SOURCES)[number];
 
+/** Слово статуса — каталог `objects.assetStatus.<value>` */
 export const ASSET_STATUSES = [
-  { value: 'active', label: 'В работе', tone: 'success' },
-  { value: 'in_repair', label: 'В ремонте', tone: 'warning' },
-  { value: 'stored', label: 'На хранении', tone: 'neutral' },
-  { value: 'written_off', label: 'Списано', tone: 'neutral' },
-  { value: 'disposed', label: 'Утилизировано', tone: 'neutral' },
+  { value: 'active', tone: 'success' },
+  { value: 'in_repair', tone: 'warning' },
+  { value: 'stored', tone: 'neutral' },
+  { value: 'written_off', tone: 'neutral' },
+  { value: 'disposed', tone: 'neutral' },
 ] as const;
 
 export type AssetStatus = (typeof ASSET_STATUSES)[number]['value'];
 
-/** Чьё оборудование: своё, в лизинге, в аренде, чужое (клиента/подрядчика) */
-export const HOLDING_KINDS = [
-  { value: 'owned', label: 'Собственное' },
-  { value: 'leased', label: 'Лизинг' },
-  { value: 'rented', label: 'Аренда' },
-  { value: 'third_party', label: 'Чужое' },
-] as const;
+/**
+ * Чьё оборудование: своё, в лизинге, в аренде, чужое (клиента/подрядчика).
+ * Слово — каталог `objects.holdingKind.<value>`.
+ */
+export const HOLDING_KINDS = ['owned', 'leased', 'rented', 'third_party'] as const;
 
-export type HoldingKind = (typeof HOLDING_KINDS)[number]['value'];
+export type HoldingKind = (typeof HOLDING_KINDS)[number];
 
+/** Слово вида — каталог `objects.assetKind.<value>` */
 export const ASSET_KINDS = [
-  { value: 'equipment', label: 'Оборудование', icon: 'wrench' },
-  { value: 'vehicle', label: 'Транспорт', icon: 'truck' },
-  { value: 'land', label: 'Земля/недвижимость', icon: 'buildings' },
-  { value: 'other', label: 'Другое', icon: 'toolbox' },
+  { value: 'equipment', icon: 'wrench' },
+  { value: 'vehicle', icon: 'truck' },
+  { value: 'land', icon: 'buildings' },
+  { value: 'other', icon: 'toolbox' },
 ] as const;
 
 export type AssetKind = (typeof ASSET_KINDS)[number]['value'];
@@ -82,18 +84,11 @@ export type AssetKind = (typeof ASSET_KINDS)[number]['value'];
 export const ASSET_MOVE_KINDS = ['placement', 'custodian', 'holding', 'status'] as const;
 export type AssetMoveKind = (typeof ASSET_MOVE_KINDS)[number];
 
-export const ASSET_SERVICE_KINDS = [
-  { value: 'maintenance', label: 'Обслуживание' },
-  { value: 'repair', label: 'Ремонт' },
-  { value: 'inspection', label: 'Осмотр' },
-] as const;
+/** Слово вида работ — каталог `objects.assetServiceKind.<value>` */
+export const ASSET_SERVICE_KINDS = ['maintenance', 'repair', 'inspection'] as const;
 
-export const ASSET_SERVICE_STATUSES = [
-  { value: 'planned', label: 'Запланировано', tone: 'neutral' },
-  { value: 'in_progress', label: 'В работе', tone: 'warning' },
-  { value: 'done', label: 'Выполнено', tone: 'success' },
-  { value: 'cancelled', label: 'Отменено', tone: 'neutral' },
-] as const;
+/** Слово статуса работ — каталог `objects.assetServiceStatus.<value>` */
+export const ASSET_SERVICE_STATUSES = ['planned', 'in_progress', 'done', 'cancelled'] as const;
 
 export const OBJECT_LIMITS = {
   /** Глубина дерева объектов (площадка → здание → этаж → помещение → зона → …) */

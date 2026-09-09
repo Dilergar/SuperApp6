@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import {
   Alert, Button, Card, Chip, EmojiIcon, IconButton, Input, TickBar,
@@ -31,6 +32,7 @@ export function RichCardWidget({
   /** Отдаём свежую карточку наверх, чтобы родитель заменил payload сообщения в кэше. */
   onActionDone?: (updatedCard: RichCardPayload) => void;
 }) {
+  const t = useTranslations('messenger');
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [noteIsError, setNoteIsError] = useState(false);
@@ -65,7 +67,7 @@ export function RichCardWidget({
         setNoteIsError(false);
       }
     } catch (e) {
-      setNote(errMsg(e));
+      setNote(errMsg(e, t('card.actionFailed')));
       setNoteIsError(true);
     } finally {
       setBusyKey(null);
@@ -77,7 +79,7 @@ export function RichCardWidget({
     progress && progress.target > 0
       ? Math.min(100, Math.round((progress.current / progress.target) * 100))
       : 0;
-  const tone = statusTone(payload.status);
+  const tone: Tone = payload.status ? ((payload.statusTone as Tone | undefined) ?? 'neutral') : 'accent';
 
   return (
     <div style={{ display: 'flex', justifyContent: 'center', padding: '0.3rem 0' }}>
@@ -123,7 +125,7 @@ export function RichCardWidget({
           </div>
           <IconButton
             icon="share"
-            label="Поделиться карточкой"
+            label={t('card.share')}
             size={32}
             onClick={() => setShowShare(true)}
             style={{ flexShrink: 0, marginTop: -2 }}
@@ -203,11 +205,11 @@ export function RichCardWidget({
             {armed && (
               <div style={{ marginTop: 'var(--spacing-3)' }}>
                 <Input
-                  label="Причина"
+                  label={t('card.reason')}
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
                   placeholder={
-                    payload.actions.find((a) => a.key === armed)?.commentPlaceholder ?? 'Коротко объясните'
+                    payload.actions.find((a) => a.key === armed)?.commentPlaceholder ?? t('card.reasonPlaceholder')
                   }
                   autoFocus
                 />
@@ -276,45 +278,11 @@ const ACTION_TONE: Record<string, Tone> = {
   default: 'neutral',
 };
 
-/**
- * Тон статуса. В payload приходит уже готовое СЛОВО (сервер сам его строит),
- * поэтому сверяемся со словарями провайдеров: задачи, заказы, RSVP календаря,
- * встречи офиса. Незнакомое слово → нейтральный чип, а не выдуманный цвет.
- */
-const STATUS_TONE: Record<string, Tone> = {
-  // задачи
-  'к выполнению': 'neutral',
-  'в работе': 'accent',
-  'на проверке': 'warning',
-  'выполнена': 'success',
-  'отменена': 'danger',
-  // заказы и сборы
-  'идёт сбор': 'accent',
-  'ожидает подтверждения': 'warning',
-  'завершён': 'success',
-  'отклонён': 'danger',
-  'отменён': 'danger',
-  'возвращён': 'danger',
-  // календарь
-  'организатор': 'accent',
-  'не ответил(а)': 'warning',
-  'иду': 'success',
-  'не иду': 'danger',
-  'возможно': 'warning',
-  // виртуальный офис
-  'встреча': 'accent',
-  'завершена': 'neutral',
-};
+// Тон статуса приходит ОТ ПРОВАЙДЕРА (`payload.statusTone`). Здесь раньше жил
+// словарь русских статусов всех сервисов — с переводом он перестал бы совпадать
+// с текстом вообще (см. комментарий у `RichCardPayload.statusTone`).
 
-function statusTone(status?: string | null): Tone {
-  if (!status) return 'accent';
-  const key = status.trim().toLowerCase();
-  // «Идёт сейчас · 3» — счётчик в хвосте, поэтому по началу строки
-  if (key.startsWith('идёт сейчас')) return 'success';
-  return STATUS_TONE[key] ?? 'neutral';
-}
-
-function errMsg(e: unknown, fallback = 'Не удалось выполнить'): string {
+function errMsg(e: unknown, fallback: string): string {
   const ax = e as { response?: { data?: { message?: string; error?: string } } };
   const m = ax?.response?.data?.message || ax?.response?.data?.error;
   return Array.isArray(m) ? m.join(', ') : m || fallback;

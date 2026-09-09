@@ -8,6 +8,7 @@
 
 import type { SkinRarity, CardSkinTokens, CardSkinRender } from '@superapp/shared';
 import { SKIN_RARITY_META, SKIN_RARITIES } from '@superapp/shared';
+import { DEFAULT_SKIN_NAME_KEY } from './skin-keys';
 export type { SkinRarity, CardSkinTokens, CardSkinRender };
 
 export type CardSize = 'XL' | 'L' | 'M' | 'S' | 'XS';
@@ -32,10 +33,10 @@ export const RARITY_COLORS: Record<SkinRarity, string> = {
  * скин показывал одну редкость в магазине и другую на карточке — обе стороны
  * (магазин и карточка) обязаны читать именно RARITY_META.
  */
-export const RARITY_META: Record<SkinRarity, { label: string; priceHint: number; color: string }> =
+export const RARITY_META: Record<SkinRarity, { priceHint: number; color: string }> =
   Object.fromEntries(
     SKIN_RARITIES.map((r) => [r, { ...SKIN_RARITY_META[r], color: RARITY_COLORS[r] }]),
-  ) as Record<SkinRarity, { label: string; priceHint: number; color: string }>;
+  ) as Record<SkinRarity, { priceHint: number; color: string }>;
 
 /**
  * Встроенный бесплатный скин — базовая карточка системы.
@@ -47,7 +48,9 @@ export const RARITY_META: Record<SkinRarity, { label: string; priceHint: number;
  */
 export const DEFAULT_SKIN: CardSkinRender = {
   id: 'default',
-  name: 'Базовый',
+  // Имя встроенного скина — не данные каталога скинов, а слово интерфейса:
+  // страница подменяет его переводом по `DEFAULT_SKIN_NAME_KEY`.
+  name: DEFAULT_SKIN_NAME_KEY,
   rarity: 'common',
   decor: 'none',
   tokens: {

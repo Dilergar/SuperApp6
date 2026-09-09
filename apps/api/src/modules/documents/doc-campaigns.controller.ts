@@ -16,14 +16,14 @@ export class DocCampaignsController {
   constructor(private readonly campaigns: DocCampaignsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Кампании ознакомления организации (Менеджер+)' })
+  @ApiOperation({ summary: 'The acknowledgement campaigns of the organization (Manager and above)' })
   async list(@CurrentUser() user: JwtPayload, @Param('workspaceId') workspaceId: string) {
     const data = await this.campaigns.list(user.sub, workspaceId);
     return { success: true, data };
   }
 
   @Post()
-  @ApiOperation({ summary: 'Запустить кампанию ознакомления (Менеджер+)' })
+  @ApiOperation({ summary: 'Start an acknowledgement campaign (Manager and above)' })
   async create(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -35,7 +35,7 @@ export class DocCampaignsController {
   }
 
   @Get(':campaignId')
-  @ApiOperation({ summary: 'Кампания с аналитикой до человека (Менеджер+)' })
+  @ApiOperation({ summary: 'A campaign with the analytics down to a person (Manager and above)' })
   async detail(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -46,7 +46,7 @@ export class DocCampaignsController {
   }
 
   @Post(':campaignId/sweep')
-  @ApiOperation({ summary: 'Догнать аудиторию сейчас (standing: принятый позже получает задание, Менеджер+)' })
+  @ApiOperation({ summary: 'Catch up with the audience now (standing: whoever is hired later gets the task, Manager and above)' })
   async sweep(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -57,7 +57,7 @@ export class DocCampaignsController {
   }
 
   @Post(':campaignId/cancel')
-  @ApiOperation({ summary: 'Отменить кампанию (Менеджер+)' })
+  @ApiOperation({ summary: 'Cancel a campaign (Manager and above)' })
   async cancel(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -68,7 +68,7 @@ export class DocCampaignsController {
   }
 
   @Post(':campaignId/targets/:userId/sms-failed')
-  @ApiOperation({ summary: 'Отметить: SMS не доставлена (отдельный исход, Менеджер+)' })
+  @ApiOperation({ summary: 'Mark the SMS as undelivered (a separate outcome, Manager and above)' })
   async smsFailed(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -87,14 +87,14 @@ export class DocCampaignsPersonalController {
   constructor(private readonly campaigns: DocCampaignsService) {}
 
   @Post(':campaignId/acknowledge')
-  @ApiOperation({ summary: 'Ознакомлен (click-режим; фиксирует sha256 и хронику)' })
+  @ApiOperation({ summary: 'Acknowledged (the click mode; records the sha256 and the chronicle)' })
   async acknowledge(@CurrentUser() user: JwtPayload, @Param('campaignId') campaignId: string) {
     await this.campaigns.markAcknowledged(campaignId, user.sub);
     return { success: true, data: { acknowledged: true } };
   }
 
   @Get('my-task')
-  @ApiOperation({ summary: 'Моё задание кампании по документу (кнопка на карточке)' })
+  @ApiOperation({ summary: 'My campaign task for the document (the button on the card)' })
   async myTask(@CurrentUser() user: JwtPayload, @Query('documentId') documentId: string) {
     const data = await this.campaigns.myTaskForDocument(user.sub, String(documentId ?? ''));
     return { success: true, data };

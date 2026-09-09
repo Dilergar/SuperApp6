@@ -43,23 +43,19 @@ export const ORG_ERROR_CODES = {
 } as const;
 export type OrgErrorCode = (typeof ORG_ERROR_CODES)[keyof typeof ORG_ERROR_CODES];
 
-/** Почему руководитель определился именно так (подпись в UI и в снимках согласований) */
+/**
+ * Почему руководитель определился именно так (подпись в UI и в снимках
+ * согласований). Слова у причины нет: её даёт каталог — `staff.managerReason.<вид>`.
+ */
 export const ORG_MANAGER_REASONS = ['position', 'owner_fallback'] as const;
 export type OrgManagerReason = (typeof ORG_MANAGER_REASONS)[number];
 
-export const ORG_MANAGER_REASON_LABELS: Record<OrgManagerReason, string> = {
-  position: 'по структуре',
-  owner_fallback: 'руководитель не найден → владелец организации',
-};
-
-/** Вид замещения: без дат — запасной; с датами — вместо на период */
+/**
+ * Вид замещения: без дат — запасной; с датами — вместо на период. Подпись —
+ * каталог `staff.deputyKind.<вид>`.
+ */
 export const ORG_DEPUTY_KINDS = ['standing', 'temporary'] as const;
 export type OrgDeputyKind = (typeof ORG_DEPUTY_KINDS)[number];
-
-export const ORG_DEPUTY_KIND_LABELS: Record<OrgDeputyKind, string> = {
-  standing: 'Запасной (когда некому)',
-  temporary: 'Замещает на период',
-};
 
 /** Виды канваса (одна схема — переключатель видов, приём реестра слоёв календаря) */
 export const ORG_CHART_VIEWS = ['reports', 'deputies'] as const;

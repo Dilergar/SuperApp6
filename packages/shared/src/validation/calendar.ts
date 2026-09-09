@@ -3,7 +3,7 @@ import { CALENDAR_LAYER_KEYS, type CalendarLayerKey } from '../constants/calenda
 
 const hexColor = z
   .string()
-  .regex(/^#[0-9a-fA-F]{6}$/, 'Цвет должен быть в формате #RRGGBB');
+  .regex(/^#[0-9a-fA-F]{6}$/, 'validation.calendar.color');
 
 // Значок события — формат Glyph, как у Групп/Финансов (см. iconSchema в circle.ts).
 const iconSchema = z.string().max(64);
@@ -16,19 +16,19 @@ const rruleSchema = z
   .max(500)
   .regex(
     /^FREQ=(DAILY|WEEKLY|MONTHLY|YEARLY)(;(INTERVAL=\d{1,3}|COUNT=\d{1,4}|UNTIL=\d{8}(T\d{6}Z?)?|BYDAY=(MO|TU|WE|TH|FR|SA|SU)(,(MO|TU|WE|TH|FR|SA|SU))*|BYMONTHDAY=-?\d{1,2}(,-?\d{1,2})*|BYMONTH=\d{1,2}))*$/,
-    'Недопустимое правило повторения',
+    'validation.calendar.recurrenceRule',
   );
 
 const reminderOffsets = z
   .array(z.number().int().min(0).max(40320)) // up to 4 weeks before
-  .max(5, 'Не больше 5 напоминаний')
-  .refine((arr) => new Set(arr).size === arr.length, 'Напоминания не должны повторяться');
+  .max(5, 'validation.calendar.remindersMax')
+  .refine((arr) => new Set(arr).size === arr.length, 'validation.calendar.remindersUnique');
 
 const editScopeEnum = z.enum(['this', 'this_and_following', 'all']);
 
 export const createCalendarEventSchema = z
   .object({
-    title: z.string().min(1, 'Название события обязательно').max(500),
+    title: z.string().min(1, 'validation.calendar.titleRequired').max(500),
     description: z.string().max(5000).optional(),
     location: z.string().max(500).optional(),
     startTime: z.string().datetime(),
@@ -44,7 +44,7 @@ export const createCalendarEventSchema = z
     resourceId: z.string().uuid().optional(),
   })
   .refine((d) => new Date(d.endTime) >= new Date(d.startTime), {
-    message: 'Окончание не может быть раньше начала',
+    message: 'validation.calendar.endBeforeStart',
     path: ['endTime'],
   });
 
@@ -70,7 +70,7 @@ export const updateCalendarEventSchema = z
       d.editScope === 'all' ||
       d.editScope === undefined ||
       d.occurrenceStart !== undefined,
-    { message: 'Для правки экземпляра нужен occurrenceStart', path: ['occurrenceStart'] },
+    { message: 'validation.calendar.occurrenceStart', path: ['occurrenceStart'] },
   );
 
 export const deleteCalendarEventSchema = z.object({
@@ -100,7 +100,7 @@ export const inviteParticipantsSchema = z
     circleId: z.string().uuid().optional(),
   })
   .refine((d) => (d.userIds?.length ?? 0) > 0 || !!d.circleId, {
-    message: 'Укажите людей или группу',
+    message: 'validation.calendar.pickPeopleOrGroup',
   });
 
 export const rsvpSchema = z.object({
@@ -123,7 +123,7 @@ export const smartMatchSchema = z
     dayEndMin: z.number().int().min(0).max(1440).optional(),
   })
   .refine((d) => new Date(d.to) > new Date(d.from), {
-    message: 'Конец периода должен быть позже начала',
+    message: 'validation.calendar.periodEnd',
     path: ['to'],
   });
 
@@ -132,7 +132,7 @@ export const smartMatchSchema = z
 const resourceTypeEnum = z.enum(['room', 'vehicle', 'equipment', 'other']);
 
 export const createResourceSchema = z.object({
-  name: z.string().min(1, 'Название ресурса обязательно').max(120),
+  name: z.string().min(1, 'validation.calendar.resourceName').max(120),
   type: resourceTypeEnum.optional().default('other'),
   capacity: z.number().int().min(1).max(1000).optional().default(1),
   bookerUserIds: z.array(z.string().uuid()).max(500).optional(),

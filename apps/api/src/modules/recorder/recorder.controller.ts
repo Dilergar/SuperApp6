@@ -12,14 +12,14 @@ export class RecorderController {
   constructor(private readonly recorder: RecorderService) {}
 
   @Get('recordings')
-  @ApiOperation({ summary: 'Мои записи Диктофона (с файлом и статусом расшифровки)' })
+  @ApiOperation({ summary: 'My recordings (with the file and the transcript status)' })
   async list(@CurrentUser() user: JwtPayload) {
     const data = await this.recorder.list(user.sub);
     return { success: true, data };
   }
 
   @Post('recordings')
-  @ApiOperation({ summary: 'Создать запись из готового аудио-файла (профиль dictaphone/voice_message)' })
+  @ApiOperation({ summary: 'Create a recording from an uploaded audio file (profile dictaphone/voice_message)' })
   async create(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const dto = createRecordingSchema.parse(body);
     const data = await this.recorder.create(user.sub, dto);
@@ -27,7 +27,7 @@ export class RecorderController {
   }
 
   @Patch('recordings/:id')
-  @ApiOperation({ summary: 'Переименовать запись' })
+  @ApiOperation({ summary: 'Rename a recording' })
   async rename(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const { title } = renameRecordingSchema.parse(body);
     const data = await this.recorder.rename(user.sub, id, title);
@@ -36,7 +36,7 @@ export class RecorderController {
 
   @Delete('recordings/:id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Удалить запись (файл и расшифровка чистятся движками)' })
+  @ApiOperation({ summary: 'Delete a recording (the engines clean up the file and the transcript)' })
   async remove(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     await this.recorder.remove(user.sub, id);
     return { success: true, data: { ok: true } };

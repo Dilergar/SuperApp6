@@ -1,6 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { NOTE_LIMITS, NOTE_REF_TYPE, noteSnippet, type NoteBoardDto, type NoteBoardItemDto, type NoteBoardPutInput, type NoteBoardQuery, type NoteDoc } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { notFound } from '../../shared/errors/api-error';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { NotesAccessService, type NoteScope } from './notes-access.service';
 import { USER_LITE_SELECT, noteListItem } from './notes-dto';
 import { NotesLinksService } from './notes-links.service';
@@ -19,6 +21,7 @@ export class NotesBoardService {
     private readonly acl: NotesAccessService,
     private readonly links: NotesLinksService,
     private readonly notes: NotesService,
+    private readonly i18n: I18nService,
   ) {}
 
   /**
@@ -72,7 +75,14 @@ export class NotesBoardService {
         z: saved?.z ?? maxSavedZ + (rows.length - index),
         collapsed: saved?.collapsed ?? false,
         note: {
-          ...noteListItem(note, access, sharedIds.has(note.id), authorById.get(note.createdById), noteSnippet(note.plainText, note.title)),
+          ...noteListItem(
+            note,
+            access,
+            sharedIds.has(note.id),
+            authorById.get(note.createdById),
+            noteSnippet(note.plainText, note.title),
+            this.i18n.translate('common.labels.someone'),
+          ),
           content: note.content as unknown as NoteDoc,
           version: note.version,
           related: related.get(note.id) ?? [],
@@ -90,7 +100,7 @@ export class NotesBoardService {
    */
   async put(userId: string, noteId: string, input: NoteBoardPutInput): Promise<NoteBoardItemDto> {
     const note = await this.db.note.findUnique({ where: { id: noteId }, select: NOTE_FULL_SELECT });
-    if (!note) throw new NotFoundException('Заметка не найдена');
+    if (!note) throw notFound('notes.noteNotFound');
     const scope = await this.acl.scopeForSpaceId(userId, note.spaceId);
     const access = this.acl.assertAccess(this.acl.noteAccess(scope, note), 'viewer');
     // Пространство строки — то, где заметка живёт: раскладка привязана к заметке, а
@@ -135,7 +145,14 @@ export class NotesBoardService {
       z: item.z,
       collapsed: item.collapsed,
       note: {
-        ...noteListItem(note, access, sharedIds.has(note.id), author, noteSnippet(note.plainText, note.title)),
+        ...noteListItem(
+          note,
+          access,
+          sharedIds.has(note.id),
+          author,
+          noteSnippet(note.plainText, note.title),
+          this.i18n.translate('common.labels.someone'),
+        ),
         content: note.content as unknown as NoteDoc,
         version: note.version,
         related: related.get(note.id) ?? [],

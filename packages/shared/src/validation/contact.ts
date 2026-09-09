@@ -7,14 +7,14 @@ const noHtml = (s: string) => !/[<>]/.test(s);
 // (ROLE_PRESETS in constants/contacts).
 const roleSchema = z
   .string()
-  .min(1, 'Роль не может быть пустой')
-  .max(50, 'Роль слишком длинная')
-  .refine(noHtml, 'Недопустимые символы');
+  .min(1, 'validation.contact.roleEmpty')
+  .max(50, 'validation.contact.roleTooLong')
+  .refine(noHtml, 'validation.contact.badCharacters');
 
 const messageSchema = z
   .string()
-  .max(500, 'Сообщение слишком длинное')
-  .refine(noHtml, 'Недопустимые символы');
+  .max(500, 'validation.contact.messageTooLong')
+  .refine(noHtml, 'validation.contact.badCharacters');
 
 // ============================================================
 // Invitations

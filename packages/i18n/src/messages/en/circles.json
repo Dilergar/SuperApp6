@@ -1,0 +1,267 @@
+{
+  "acceptModal": {
+    "accepted": "The invitation is accepted",
+    "addToGroups": "Add to my groups right away",
+    "addToGroupsHint": "Optional — a person can always be sorted into groups later.",
+    "myRoleFor": "What I call {name}",
+    "sender": "The sender",
+    "subtitle": "The role is the caption on the person’s card. You can change it later.",
+    "theirRoleFor": "What {name} calls me",
+    "title": "Accept the invitation from {name}"
+  },
+  "blocked": {
+    "line": "{phone} · blocked {date}",
+    "title": "Blocked",
+    "unblock": "Unblock"
+  },
+  "breadcrumb": "Circle",
+  "calAccess": {
+    "busy": "Busy",
+    "detailed": "Detailed",
+    "none": "No"
+  },
+  "card": {
+    "addToGroup": "Add to a group",
+    "block": "Block",
+    "call": "Call",
+    "callHint": "Call (audio; video is turned on during the call)",
+    "clearRole": "Clear the role",
+    "editRole": "Change the role",
+    "editRoleAria": "Change the role (now: {role})",
+    "holdsCoins": "holds {amount}",
+    "inCircleSince": "In the Circle since {date}",
+    "modalLabel": "Card: {name}",
+    "myRoleFor": "What I call: {name}",
+    "myRoleHint": "The caption is visible only to you",
+    "onlineValue": "Visible to others",
+    "previewOthers": "This is how others see you",
+    "previewRole": "This is how the card looks for this role",
+    "removeFromCircle": "Remove from the Circle",
+    "removeFromGroup": "Remove from the group",
+    "roleBadChars": "The characters < and > cannot be used in a role",
+    "rolePlaceholder": "Wife, Colleague, Friend…",
+    "roleTooLong": "The role is too long — at most {max} characters",
+    "setRole": "Set a role",
+    "sizeAria": "Card size",
+    "tabCard": "Card",
+    "tabManage": "Manage",
+    "theyCallYou": "They call you:",
+    "write": "Message"
+  },
+  "color": {
+    "green": "Green",
+    "groupAria": "Group colour",
+    "lilac": "Lilac",
+    "lime": "Lime",
+    "peach": "Peach",
+    "pink": "Pink",
+    "sand": "Sand",
+    "sky": "Sky blue",
+    "teal": "Teal"
+  },
+  "confirm": {
+    "block": {
+      "message": "The link will be removed for both of you. They will no longer be able to message you, invite you or see your data.",
+      "title": "Block {name}?"
+    },
+    "deleteContact": {
+      "message": "The action is mutual — the link disappears for both of you.",
+      "title": "Remove from the Circle?"
+    },
+    "deleteGroup": {
+      "message": "The people stay in the Circle — only the group itself and its visibility settings disappear.",
+      "title": "Delete the group «{name}»?"
+    },
+    "unblock": {
+      "message": "The person will be able to send you an invitation again. The previous link is NOT restored — it has to be confirmed anew.",
+      "title": "Unblock {name}?"
+    }
+  },
+  "daysLeft": "{n, plural, one {# day} other {# days}}",
+  "grid": {
+    "circleEmpty": "Nobody in the Circle yet",
+    "circleEmptyHint": "Add a person by their phone number — they confirm the link, and you see each other.",
+    "clearSearch": "Clear the search",
+    "groupEmpty": "Nobody in this group yet",
+    "groupEmptyHint": "Open a person’s card in the Circle and add them to this group.",
+    "loadFailed": "Could not load",
+    "loadFailedAll": "The Circle list did not load.",
+    "loadFailedGroup": "The group members did not load.",
+    "loadFailedHint": " Check the connection and try again.",
+    "loadMore": "Load more",
+    "nobodyFound": "Nobody found",
+    "searchAria": "Search the Circle: a name, a role or a number",
+    "searchOther": "Try another name, role or number.",
+    "searchPartial": "The search runs over the already loaded people — the one you need may be further down the list.",
+    "searchPlaceholder": "Name, role, number…",
+    "showMore": "Show more",
+    "sortAria": "The order of people",
+    "sortName": "By name",
+    "sortRecent": "Recent"
+  },
+  "groupModal": {
+    "colour": "Colour",
+    "down": "Down",
+    "name": "Group name",
+    "namePlaceholder": "Family, Relatives…",
+    "place": "Place in the list",
+    "position": "{index} of {total}",
+    "saved": "The group is updated",
+    "selectPlaceholder": "Start typing the group name…",
+    "subtitle": "The name, the icon, the colour and the place in the filter list",
+    "title": "«{name}» group settings",
+    "up": "Up"
+  },
+  "groupNamed": "Group «{name}»",
+  "groupPreset": {
+    "family": "Family",
+    "friends": "Friends",
+    "work": "Work"
+  },
+  "groupVis": {
+    "calendarAria": "Access to my calendar for this group",
+    "calendarHint": "«Busy» shows only the availability, «Detailed» shows the events in full.",
+    "calendarSaved": "The calendar access is saved",
+    "calendarTitle": "Access to my calendar",
+    "fieldHidden": "{label}: hidden from the group",
+    "fieldShown": "{label}: visible to the group",
+    "hint": "The first name, last name, phone and role are always visible. The changes save themselves.",
+    "saved": "The group visibility is saved",
+    "title": "What people in «{name}» see"
+  },
+  "groups": {
+    "all": "All",
+    "createFailed": "Could not create the group",
+    "createTitle": "New group",
+    "deleteLabel": "Delete the group «{name}»",
+    "emptyHint": "For example: Family, Friends, Colleagues",
+    "emptyTitle": "Create your first group",
+    "namePlaceholder": "Name (for example: Family)",
+    "new": "Group",
+    "presetsAria": "Ready-made group names",
+    "settingsLabel": "Configure the group «{name}»"
+  },
+  "invitations": {
+    "active": "Active",
+    "history": "History",
+    "historyEmpty": "The history is empty — there have been no declined or cancelled invitations yet",
+    "historyFailed": "Could not load the invitation history",
+    "historyLoading": "Loading the history…",
+    "moreIncoming": "Show more incoming",
+    "moreOutgoing": "Show more invitations",
+    "noneActive": "No active invitations",
+    "tabAria": "Which invitations to show",
+    "title": "Invitations"
+  },
+  "invite": {
+    "accept": "Accept",
+    "block": "Block",
+    "blockHint": "Block — invitations and messages from this person become impossible",
+    "cancel": "Cancel",
+    "expiresIn": "Expires in {days}",
+    "expiresToday": "Expires today",
+    "incoming": "Incoming",
+    "myRoleChip": "Me: {role}",
+    "notRegistered": " — not registered",
+    "outgoing": "Outgoing",
+    "reject": "Decline",
+    "resend": "Send again",
+    "status": {
+      "accepted": "Accepted",
+      "cancelled": "Cancelled",
+      "expired": "Expired",
+      "pending": "Awaiting an answer",
+      "rejected": "Declined"
+    },
+    "theirRoleChip": "{name}: {role}"
+  },
+  "inviteForm": {
+    "addToGroups": "Add to my groups right away",
+    "addToGroupsHint": "Optional — the person lands in these groups once they accept the invitation.",
+    "alreadyInvited": "An invitation to this number has already been sent",
+    "alreadyInvitedHint": "It is awaiting an answer — find it in the «Invitations» section.",
+    "alreadyLinked": "This person is already in your Circle",
+    "alreadyLinkedPlain": "No invitation is needed.",
+    "alreadyLinkedRole": "You call them «{role}». No invitation is needed.",
+    "message": "Message",
+    "messagePlaceholder": "Hi! Let’s connect…",
+    "myRole": "My role (how they see me)",
+    "notFound": "No account found — the invitation will be sent to this number",
+    "phone": "Phone number",
+    "searching": "Looking the person up…",
+    "submit": "Send the invitation",
+    "theirRole": "Their role",
+    "theirRoleNamed": "Role: {name}",
+    "title": "Add to the Circle"
+  },
+  "page": {
+    "add": "Add",
+    "loadedCount": "Loaded {count}",
+    "loading": "Loading the Circle…",
+    "somebody": "this person"
+  },
+  "peopleCount": "{n, plural, one {# person} other {# people}}",
+  "rarity": {
+    "common": "Common",
+    "epic": "Epic",
+    "legendary": "Legendary",
+    "mythic": "Mythic",
+    "rare": "Rare",
+    "uncommon": "Uncommon"
+  },
+  "rolePreset": {
+    "boss": "Boss",
+    "boyfriend": "Boyfriend",
+    "brother": "Brother",
+    "client": "Client",
+    "closeFriend": "Close friend",
+    "colleague": "Colleague",
+    "coursemate": "Coursemate",
+    "custom": "Custom",
+    "customAria": "{label}: a custom one",
+    "customPlaceholder": "Type your own…",
+    "daughter": "Daughter",
+    "father": "Father",
+    "friend": "Friend",
+    "girlfriend": "Girlfriend",
+    "grandfather": "Grandfather",
+    "grandmother": "Grandmother",
+    "husband": "Husband",
+    "mentor": "Mentor",
+    "mother": "Mother",
+    "neighbour": "Neighbour",
+    "partner": "Partner",
+    "relative": "Relative",
+    "report": "Report",
+    "schoolmate": "Schoolmate",
+    "sister": "Sister",
+    "son": "Son",
+    "title": "Roles you can use",
+    "wife": "Wife"
+  },
+  "skin": {
+    "default": "Basic"
+  },
+  "title": "My Circle",
+  "toast": {
+    "blocked": "The person is blocked",
+    "groupCreated": "The group is created",
+    "groupDeleted": "The group is deleted",
+    "inviteCancelled": "The invitation is cancelled",
+    "inviteRejected": "The invitation is declined",
+    "inviteResent": "The invitation is sent again",
+    "inviteSent": "The invitation is sent",
+    "linkDeleted": "The link is deleted",
+    "unblocked": "The person is unblocked"
+  },
+  "visField": {
+    "age": "Age",
+    "bio": "About",
+    "city": "City",
+    "dateOfBirth": "Date of birth",
+    "email": "E-mail",
+    "maritalStatus": "Marital status",
+    "onlineStatus": "Online status",
+    "socialLinks": "Social links"
+  }
+}

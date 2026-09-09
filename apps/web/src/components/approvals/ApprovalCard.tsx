@@ -22,14 +22,13 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { approvalHref } from '@superapp/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
+import { useFormatters } from '@/lib/format';
 import {
   APPROVAL_DECISIONS_NEEDING_COMMENT,
   APPROVAL_KIND_DECISIONS,
-  APPROVAL_REQUEST_STATUS_LABELS,
-  APPROVAL_SIGNATURE_KIND_LABELS,
-  APPROVAL_STEP_KIND_LABELS,
+  APPROVAL_STEP_KIND_META,
   type ApprovalDecisionKind,
-  type ApprovalSignatureKind,
   type ApprovalStepDto,
   type ApprovalStepKind,
 } from '@superapp/shared';
@@ -52,19 +51,9 @@ const STATUS_TONE: Record<string, 'accent' | 'success' | 'danger' | 'warning' | 
   cancelled: 'neutral',
 };
 
-/** На КНОПКЕ стоит действие… */
-const DECISION_ACTION: Record<ApprovalDecisionKind, string> = {
-  approved: 'Согласовать',
-  rejected: 'Отклонить',
-  returned: 'На доработку',
-};
-
-/** …а в истории — результат: «Отклонить» под уже принятым решением читается как призыв */
-const DECISION_RESULT: Record<ApprovalDecisionKind, string> = {
-  approved: 'Согласовано',
-  rejected: 'Отклонено',
-  returned: 'Отправлено на доработку',
-};
+// На КНОПКЕ стоит действие (`approvals.decision.<исход>`), а в истории —
+// результат (`approvals.decisionDone.<исход>`): «Отклонить» под уже принятым
+// решением читается как призыв.
 
 export function ApprovalCard({
   id,
@@ -74,6 +63,7 @@ export function ApprovalCard({
   /** Организация, ВНУТРИ которой открыта карточка. Пусто — личный адрес */
   contextWorkspaceId?: string;
 }) {
+  const t = useTranslations('approvals');
   const { isReady } = useRequireAuth();
   const router = useRouter();
   const qc = useQueryClient();
@@ -121,13 +111,13 @@ export function ApprovalCard({
   if (q.isError || !q.data) {
     return (
       <>
-        <PageHeader breadcrumb="Ждут решения" title="Заявка" />
+        <PageHeader breadcrumb={t('inboxTitle')} title={t('card.title')} />
         <BentoGrid>
           <Card span={12}>
             <EmptyState
               icon="checkCircle"
-              title="Заявка не открылась"
-              description="Возможно, её отозвали или у вас нет доступа к её предмету."
+              title={t('card.notOpened')}
+              description={t('card.notOpenedHint')}
             />
           </Card>
         </BentoGrid>
@@ -145,17 +135,17 @@ export function ApprovalCard({
   return (
     <>
       <PageHeader
-        breadcrumb="Ждут решения"
+        breadcrumb={t('inboxTitle')}
         title={req.ref?.title ?? req.refTitle}
         chip={
           <Chip tone={STATUS_TONE[req.status] ?? 'neutral'} icon="checkCircle">
-            {APPROVAL_REQUEST_STATUS_LABELS[req.status]}
+            {t(`status.${req.status}`)}
           </Chip>
         }
         actions={
           req.ref?.href ? (
             <Button variant="matte" href={req.ref.href} icon="eye">
-              Открыть предмет
+              {t('card.openSubject')}
             </Button>
           ) : undefined
         }
@@ -166,15 +156,15 @@ export function ApprovalCard({
         {myStep && (
           <Card span={12}>
             <CardHeader
-              title={APPROVAL_STEP_KIND_LABELS[myStep.kind].action}
+              title={t(`kind.${myStep.kind}.action`)}
               subtitle={myStep.title}
             />
             {needsComment && (
               <Input
-                label="Причина"
+                label={t('reason')}
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
-                placeholder="Что именно поправить"
+                placeholder={t('commentPlaceholder')}
                 autoFocus
               />
             )}
@@ -184,7 +174,7 @@ export function ApprovalCard({
             {myStep.requiredSignatureKind && (
               <div style={{ marginTop: 'var(--spacing-3)' }}>
                 <Button variant="primary" icon="signature" onClick={() => setSigningStepId(myStep.id)}>
-                  {myStep.requiredSignatureKind === 'ecp' ? 'Подписать ЭЦП' : 'Подписать'}
+                  {myStep.requiredSignatureKind === 'ecp' ? t('signEcp') : t('sign')}
                 </Button>
               </div>
             )}
@@ -216,9 +206,7 @@ export function ApprovalCard({
                       decide.mutate(decision);
                     }}
                   >
-                    {decision === 'approved'
-                      ? APPROVAL_STEP_KIND_LABELS[myStep.kind].action
-                      : DECISION_ACTION[decision]}
+                    {decision === 'approved' ? t(`kind.${myStep.kind}.action`) : t(`decision.${decision}`)}
                   </Button>
                 );
               })}
@@ -229,8 +217,8 @@ export function ApprovalCard({
         {/* ---------- Маршрут ---------- */}
         <Card span={12}>
           <CardHeader
-            title="Маршрут"
-            subtitle={groups.length > 1 ? `${groups.length} шага(ов) по очереди` : 'Один шаг'}
+            title={t('card.route')}
+            subtitle={groups.length > 1 ? t('card.routeSteps', { n: groups.length }) : t('card.routeOneStep')}
             actions={
               req.canCancel ? (
                 <Button
@@ -240,7 +228,7 @@ export function ApprovalCard({
                   loading={cancel.isPending}
                   onClick={() => (cancelArmed ? cancel.mutate() : setCancelArmed(true))}
                 >
-                  {cancelArmed ? 'Точно отозвать?' : 'Отозвать заявку'}
+                  {cancelArmed ? t('card.cancelArmed') : t('card.cancel')}
                 </Button>
               ) : undefined
             }
@@ -282,14 +270,7 @@ const STEP_TONE: Record<string, 'accent' | 'success' | 'danger' | 'warning' | 'n
   skipped: 'neutral',
 };
 
-const STEP_STATUS_LABEL: Record<string, string> = {
-  waiting: 'Ждёт очереди',
-  active: 'Ждёт решения',
-  approved: 'Готово',
-  rejected: 'Отклонён',
-  returned: 'На доработку',
-  skipped: 'Пропущен',
-};
+// Слова статусов шага — `approvals.stepStatus.<статус>` в каталоге.
 
 function StepRow({
   step,
@@ -300,7 +281,9 @@ function StepRow({
   index: number;
   actors: Record<string, { firstName: string; lastName: string | null; avatar: string | null }>;
 }) {
-  const labels = APPROVAL_STEP_KIND_LABELS[step.kind as ApprovalStepKind];
+  const t = useTranslations('approvals');
+  const f = useFormatters();
+  const meta = APPROVAL_STEP_KIND_META[step.kind as ApprovalStepKind];
   // Кого ещё ждём: адресаты снимка, от которых решения пока нет.
   const answered = new Set(step.decisions.map((d) => d.userId));
   const waiting = step.awaitingUserIds.filter((u) => !answered.has(u));
@@ -315,30 +298,30 @@ function StepRow({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
-        <Icon name={(labels.icon as never) ?? 'checkCircle'} size={18} />
+        <Icon name={(meta?.icon as never) ?? 'checkCircle'} size={18} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 600 }}>
-            Шаг {index} · {step.title}
+            {t('card.step', { index, title: step.title })}
           </div>
           <div className="meta">
-            {labels.waiting}
+            {t(`kind.${step.kind}.waiting`)}
             {step.assigneeLabel ? ` · ${step.assigneeLabel}` : ''}
-            {step.rule === 'all' ? ' · нужен каждый' : ''}
+            {step.rule === 'all' ? t('card.everyoneNeeded') : ''}
           </div>
         </div>
         {step.overdue && (
           <Chip size="sm" tone="danger">
-            Просрочен
+            {t('stepOverdue')}
           </Chip>
         )}
         <Chip size="sm" tone={STEP_TONE[step.status] ?? 'neutral'}>
-          {STEP_STATUS_LABEL[step.status] ?? step.status}
+          {t(`stepStatus.${step.status}`)}
         </Chip>
       </div>
 
       {waiting.length > 0 && step.status === 'active' && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: 'var(--spacing-2)', flexWrap: 'wrap' }}>
-          <span className="meta">Ждём:</span>
+          <span className="meta">{t('waitingFor')}</span>
           {waiting.map((uid) =>
             actors[uid] ? (
               <PersonChip
@@ -374,16 +357,16 @@ function StepRow({
               />
             )}
             <Chip size="sm" tone={d.decision === 'approved' ? 'success' : d.decision === 'rejected' ? 'danger' : 'warning'}>
-              {d.decision === 'approved' ? labels.done : DECISION_RESULT[d.decision]}
+              {d.decision === 'approved' ? t(`kind.${step.kind}.done`) : t(`decisionDone.${d.decision}`)}
             </Chip>
-            <span className="meta">{new Date(d.decidedAt).toLocaleString('ru-RU')}</span>
+            <span className="meta">{f.dateTime(d.decidedAt)}</span>
           </div>
           {d.comment && <div style={{ marginTop: '0.35rem' }}>{d.comment}</div>}
           {/* Отпечаток той версии предмета, под которой стоит решение: без него
               подпись ничего не доказывает — файл могли переписать после. */}
           {d.subjectSha256 && (
             <div className="meta" style={{ marginTop: '0.35rem' }} title={d.subjectSha256}>
-              {APPROVAL_SIGNATURE_KIND_LABELS[d.signatureKind as ApprovalSignatureKind]} · отпечаток{' '}
+              {t('card.fingerprint', { kind: t(`signatureKind.${d.signatureKind}`) })}{' '}
               {d.subjectSha256.slice(0, 12)}…
             </div>
           )}

@@ -1,10 +1,4 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { OfficeRoom, Prisma } from '@prisma/client';
 import {
   CreateOfficeRoomInput,
@@ -14,11 +8,16 @@ import {
   OfficeRoomDto,
   OfficeRoomPersonDto,
   OfficeRoomRole,
+  SOURCE_LOCALE,
   TEAM_WORKSPACE_ROLES,
+  type Locale,
   WORKSPACE_ROLE_RANK,
   WorkspaceRole,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
+import { badRequest, forbidden, notFound } from '../../shared/errors/api-error';
+import { fullName } from '../../shared/utils/user-name';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { RolesService } from '../../core/roles/roles.service';
@@ -71,6 +70,7 @@ export class OfficeService implements OnModuleInit {
     private readonly notifications: NotificationsService,
     private readonly messenger: MessengerService,
     private readonly redis: RedisService,
+    private readonly i18n: I18nService,
   ) {}
 
   /** Регистрация refType-резолвера в движке звонков (паттерн FilesRefRegistry). */
@@ -131,7 +131,7 @@ export class OfficeService implements OnModuleInit {
       where: { id: roomId, workspaceId },
       include: { participants: { where: { userId }, select: { userId: true, role: true } } },
     });
-    if (!room) throw new NotFoundException('Встреча не найдена');
+    if (!room) throw notFound('office.roomNotFound');
     const [dto] = await this.serializeMany(userId, [room]);
     return dto;
   }
@@ -162,7 +162,7 @@ export class OfficeService implements OnModuleInit {
 
   async create(userId: string, workspaceId: string, input: CreateOfficeRoomInput): Promise<OfficeRoomDto> {
     await this.assertTeamMember(userId, workspaceId);
-    const name = input.name?.trim() || `Встреча ${formatMeetingStamp(new Date())}`;
+    const name = input.name?.trim() || this.defaultRoomName(new Date());
     const room = await this.db.$transaction(async (tx) => {
       const created = await tx.officeRoom.create({
         data: { workspaceId, name, createdById: userId },
@@ -197,8 +197,8 @@ export class OfficeService implements OnModuleInit {
       where: { id: roomId, workspaceId },
       select: { id: true, name: true, status: true, participants: { select: { userId: true } } },
     });
-    if (!room) throw new NotFoundException('Встреча не найдена');
-    if (room.status !== 'active') throw new BadRequestException('Встреча завершена — приглашать некуда');
+    if (!room) throw notFound('office.roomNotFound');
+    if (room.status !== 'active') throw badRequest('office.roomEnded');
 
     const targetIds = [...new Set(input.userIds)].filter((id) => id !== userId);
     if (!targetIds.length) return { invited: 0 };
@@ -255,9 +255,9 @@ export class OfficeService implements OnModuleInit {
       where: { id: roomId, workspaceId },
       select: { id: true, createdById: true },
     });
-    if (!room) throw new NotFoundException('Встреча не найдена');
+    if (!room) throw notFound('office.roomNotFound');
     if (!(await this.canManageRoom(userId, workspaceId, room.createdById))) {
-      throw new ForbiddenException('Завершить встречу может организатор или Менеджер и выше');
+      throw forbidden('office.endForbidden');
     }
     // Сначала ЗАКРЫВАЕМ дверь (status='ended'), потом гасим созвон: иначе в окне между
     // deleteRoom и updateMany опоздавший canJoin видит status='active' и поднимает НОВУЮ
@@ -439,7 +439,7 @@ export class OfficeService implements OnModuleInit {
       return {
         id: room.id,
         workspaceId: room.workspaceId,
-        name: room.name,
+        name: this.displayName(room),
         kind: room.kind as OfficeRoomDto['kind'],
         status: room.status as OfficeRoomDto['status'],
         createdById: room.createdById,
@@ -501,7 +501,32 @@ export class OfficeService implements OnModuleInit {
       where: { id: userId },
       select: { firstName: true, lastName: true },
     });
-    return u ? [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || 'Коллега' : 'Коллега';
+    // Снимок имени в payload уведомления переживает аккаунт — фолбэк общий
+    // (`common.labels.someone` в языке источника).
+    return fullName(u);
+  }
+
+  /**
+   * «Meeting 17.07 14:30» — имя по умолчанию, которое ЛОЖИТСЯ в БД. Пишется в
+   * языке ИСТОЧНИКА: строка переживает смену языка любого зрителя.
+   */
+  private defaultRoomName(d: Date, locale: Locale = SOURCE_LOCALE): string {
+    const f = this.i18n.format(locale);
+    return this.i18n.translateFor(locale, 'office.defaultRoomName', {
+      date: f.date(d, 'dayMonth'),
+      time: f.time(d),
+    });
+  }
+
+  /**
+   * Имя встречи в языке ЗРИТЕЛЯ. Своё имя человека отдаётся как есть; АВТОимя
+   * («Meeting 17.07 14:30») перерисовывается — оно не данные, а слово продукта
+   * (та же механика, что у системных папок Диска, `DriveService.displayName`).
+   */
+  private displayName(room: { name: string; createdAt: Date }): string {
+    return room.name === this.defaultRoomName(room.createdAt)
+      ? this.defaultRoomName(room.createdAt, this.i18n.locale)
+      : room.name;
   }
 
   private async canManageRoom(userId: string, workspaceId: string, createdById: string): Promise<boolean> {
@@ -526,22 +551,13 @@ export class OfficeService implements OnModuleInit {
   /** Вся команда (Стажёр+); Подрядчик изолирован — офис ему закрыт (паттерн staff). */
   private async assertTeamMember(userId: string, workspaceId: string): Promise<WorkspaceRole> {
     const role = await this.getRoleOf(userId, workspaceId);
-    if (!role) throw new ForbiddenException('Нет доступа к этой организации');
+    if (!role) throw forbidden('workspace.noAccess');
     if (!isOfficeTeamRole(role)) {
       // Персональная формулировка — только Подрядчику (единственная существующая
       // не-командная роль); любая будущая получает нейтральный отказ, а не проход.
-      throw new ForbiddenException(
-        role === 'contractor'
-          ? 'Подрядчику доступны только его задачи'
-          : 'Нет доступа к этой организации',
-      );
+      throw forbidden(role === 'contractor' ? 'staff.contractorTasksOnly' : 'workspace.noAccess');
     }
     return role;
   }
 }
 
-/** «Встреча 17.07 14:30» — имя по умолчанию для мгновенной встречи */
-function formatMeetingStamp(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}

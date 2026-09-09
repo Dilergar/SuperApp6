@@ -8,9 +8,9 @@
 
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import {
   DISMISSAL_GROUNDS,
-  ESUTD_FINES_NOTE,
   HR_ACTION_KINDS,
   HR_ACTION_ORDER_LIBRARY_KEY,
   HR_LIMITS,
@@ -23,6 +23,7 @@ import {
 } from '@superapp/shared';
 import { apiErrorMessage, apiGet } from '@/lib/api';
 import { dmy } from '@/lib/dates';
+import { useFormatters } from '@/lib/format';
 import {
   createHrBatch,
   fetchEsutd,
@@ -61,32 +62,44 @@ const isoToDate = (iso?: string): Date | null => (iso ? new Date(`${iso}T00:00:0
 const dateToIso = (d: Date | null): string | undefined =>
   d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : undefined;
 
+/** Остаток срока словами каталога: «Просрочено» / «Сегодня» / «N раб. дн.» */
+function useDaysLeftLabel(): (workDaysLeft: number) => string {
+  const t = useTranslations('hr');
+  return (workDaysLeft: number) =>
+    workDaysLeft < 0
+      ? t('daysLeft.overdue')
+      : workDaysLeft === 0
+        ? t('daysLeft.today')
+        : t('daysLeft.workDays', { days: workDaysLeft });
+}
+
 function DaysLeftChip({ item }: { item: HrDeadlineItemDto }) {
-  if (item.overdue) return <Chip tone="danger">Просрочено</Chip>;
+  const t = useTranslations('hr');
+  const label = useDaysLeftLabel();
+  if (item.overdue) return <Chip tone="danger">{t('daysLeft.overdue')}</Chip>;
   if (item.workDaysLeft === null) {
-    return item.dueAt ? <Chip tone="neutral">до {dmy(item.dueAt)}</Chip> : null;
+    return item.dueAt ? <Chip tone="neutral">{t('daysLeft.until', { date: dmy(item.dueAt) })}</Chip> : null;
   }
   const tone = item.workDaysLeft <= 1 ? 'danger' : item.workDaysLeft <= 3 ? 'warning' : 'neutral';
-  return (
-    <Chip tone={tone}>
-      {item.workDaysLeft === 0 ? 'Сегодня' : `${item.workDaysLeft} раб. дн.`}
-    </Chip>
-  );
+  return <Chip tone={tone}>{label(item.workDaysLeft)}</Chip>;
 }
 
 function Section({
   title,
   items,
   actors,
+  tc,
 }: {
   title: string;
   items: HrDeadlineItemDto[];
   actors: Record<string, HrActorLite>;
+  tc: (key: string) => string;
 }) {
+  const t = useTranslations('hr');
   if (!items.length) return null;
   return (
     <Card>
-      <CardHeader title={title} subtitle={`${items.length} шт.`} />
+      <CardHeader title={title} subtitle={t('section.count', { count: items.length })} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
         {items.map((item) => {
           const actor = item.userId ? actors[item.userId] : null;
@@ -121,7 +134,7 @@ function Section({
               <DaysLeftChip item={item} />
               {item.href && (
                 <Button variant="ghost" size="sm" href={item.href} icon="arrowRight">
-                  Открыть
+                  {tc('actions.open')}
                 </Button>
               )}
             </div>
@@ -133,6 +146,10 @@ function Section({
 }
 
 export function DeadlinesTab({ workspaceId }: { workspaceId: string }) {
+  const t = useTranslations('hr');
+  const tc = useTranslations('common');
+  const f = useFormatters();
+  const daysLeft = useDaysLeftLabel();
   const qc = useQueryClient();
   const [payloadFor, setPayloadFor] = useState<EsutdSubmissionDto | null>(null);
   const [submitFor, setSubmitFor] = useState<EsutdSubmissionDto | null>(null);
@@ -170,9 +187,13 @@ export function DeadlinesTab({ workspaceId }: { workspaceId: string }) {
     return (
       <EmptyState
         icon="warningCircle"
-        title="Сроки не загрузились"
-        description="Экран доступен Менеджеру и выше."
-        action={<Button variant="matte" icon="refresh" onClick={() => deadlinesQ.refetch()}>Повторить</Button>}
+        title={t('deadlines.loadFailed')}
+        description={t('deadlines.lockedDescription')}
+        action={
+          <Button variant="matte" icon="refresh" onClick={() => deadlinesQ.refetch()}>
+            {tc('actions.retry')}
+          </Button>
+        }
       />
     );
   }
@@ -183,7 +204,7 @@ export function DeadlinesTab({ workspaceId }: { workspaceId: string }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-grid)' }}>
       <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', alignItems: 'center' }}>
         <Chip tone={d.total > 0 ? 'warning' : 'success'} icon="clock">
-          Горит: {d.total}
+          {t('deadlines.burning', { count: d.total })}
         </Chip>
         <span style={{ flex: 1 }} />
         <Button
@@ -195,7 +216,7 @@ export function DeadlinesTab({ workspaceId }: { workspaceId: string }) {
             setZipBusy(true);
             try {
               const blob = await fetchHrRegistryZip(workspaceId);
-              saveHrBlob(blob, 'Кадровый реестр.zip');
+              saveHrBlob(blob, `${t('deadlines.registryFile')}.zip`);
             } catch (e) {
               toastError(apiErrorMessage(e));
             } finally {
@@ -203,15 +224,15 @@ export function DeadlinesTab({ workspaceId }: { workspaceId: string }) {
             }
           }}
         >
-          {zipBusy ? 'Собираем…' : 'Реестр (ZIP)'}
+          {zipBusy ? t('deadlines.zipBusy') : t('deadlines.registryZip')}
         </Button>
         <Button variant="primary" icon="people" onClick={() => setMassOpen(true)}>
-          Массовое действие
+          {t('batch.open')}
         </Button>
       </div>
 
       {d.total === 0 && (
-        <EmptyState icon="checkCircle" title="Ничего не горит" description="Сроки ЕСУТД, вручения и расчёты под контролем." />
+        <EmptyState icon="checkCircle" title={t('deadlines.emptyTitle')} description={t('deadlines.emptyDescription')} />
       )}
 
       {esutdQ.isError && (
@@ -219,18 +240,18 @@ export function DeadlinesTab({ workspaceId }: { workspaceId: string }) {
           tone="warning"
           action={
             <Button variant="matte" size="sm" icon="refresh" onClick={() => void esutdQ.refetch()}>
-              Повторить
+              {tc('actions.retry')}
             </Button>
           }
         >
-          Очередь ЕСУТД не загрузилась — сроки сдачи сведений на этом экране сейчас не видны.
+          {t('esutd.queueFailed')}
         </Alert>
       )}
 
       {/* ЕСУТД — с кнопками ручного пути */}
       {esutdPending.length > 0 && (
         <Card>
-          <CardHeader title="ЕСУТД: не сдано" subtitle={ESUTD_FINES_NOTE} />
+          <CardHeader title={t('esutd.pendingTitle')} subtitle={t('esutdFinesNote')} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
             {esutdPending.map((s) => {
               const actor = esutdQ.data?.actors[s.userId];
@@ -249,9 +270,9 @@ export function DeadlinesTab({ workspaceId }: { workspaceId: string }) {
                 >
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontWeight: 700 }}>
-                      {s.kind === 'contract' ? 'Заключение договора' : s.kind === 'amendment' ? 'Изменение договора' : 'Прекращение договора'}
+                      {t(`esutdKind.${s.kind}`)}
                     </div>
-                    <div className="meta">Срок: до {dmy(s.dueAt)}</div>
+                    <div className="meta">{t('esutd.dueBy', { date: dmy(s.dueAt) })}</div>
                     {actor && (
                       <div style={{ marginTop: 6 }}>
                         <PersonChip size="S" userId={actor.id} firstName={actor.firstName} lastName={actor.lastName} avatar={actor.avatar} />
@@ -260,17 +281,17 @@ export function DeadlinesTab({ workspaceId }: { workspaceId: string }) {
                   </div>
                   {s.workDaysLeft !== null && (
                     <Chip tone={s.workDaysLeft < 0 ? 'danger' : s.workDaysLeft <= 1 ? 'danger' : s.workDaysLeft <= 3 ? 'warning' : 'neutral'}>
-                      {s.workDaysLeft < 0 ? 'Просрочено' : s.workDaysLeft === 0 ? 'Сегодня' : `${s.workDaysLeft} раб. дн.`}
+                      {daysLeft(s.workDaysLeft)}
                     </Chip>
                   )}
                   <Button variant="matte" size="sm" icon="copy" onClick={() => setPayloadFor(s)}>
-                    Скопировать сведения
+                    {t('esutd.copyData')}
                   </Button>
                   {/* Отметка о сдаче НЕОБРАТИМА для прекращения (п. 13 Правил
                       № 353: правка только через госорган) — спрашиваем номер
                       регистрации и подтверждение, а не закрываем одним кликом. */}
                   <Button variant="primary" size="sm" onClick={() => setSubmitFor(s)}>
-                    Отметить сданным
+                    {t('esutd.markSubmitted')}
                   </Button>
                   <Button
                     variant="ghost"
@@ -278,10 +299,9 @@ export function DeadlinesTab({ workspaceId }: { workspaceId: string }) {
                     onClick={() =>
                       confirm(
                         {
-                          title: 'Сдача не требуется?',
-                          message:
-                            'Строка закроется без сдачи сведений в ЕСУТД. Если сведения всё же подлежали сдаче, это нарушение ст. 98 п. 1-1 КоАП РК.',
-                          confirmLabel: 'Не требуется',
+                          title: t('esutd.notRequiredConfirmTitle'),
+                          message: t('esutd.notRequiredConfirmMessage'),
+                          confirmLabel: t('esutd.notRequired'),
                           danger: true,
                         },
                         async () => {
@@ -290,7 +310,7 @@ export function DeadlinesTab({ workspaceId }: { workspaceId: string }) {
                       )
                     }
                   >
-                    Не требуется
+                    {t('esutd.notRequired')}
                   </Button>
                 </div>
               );
@@ -302,27 +322,29 @@ export function DeadlinesTab({ workspaceId }: { workspaceId: string }) {
       {/* Окна исправления после сдачи */}
       {(esutdQ.data?.items ?? []).some((s) => s.status === 'submitted' && s.correctionUntil) && (
         <Card>
-          <CardHeader title="ЕСУТД: окно исправления" subtitle="30 рабочих дней на исправление ошибочно внесённых сведений без штрафа" />
+          <CardHeader title={t('esutd.correctionTitle')} subtitle={t('esutd.correctionSubtitle')} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {(esutdQ.data?.items ?? [])
               .filter((s) => s.status === 'submitted' && s.correctionUntil)
               .map((s) => (
                 <div key={s.id} className="meta">
-                  {s.kind === 'contract' ? 'Заключение' : s.kind === 'amendment' ? 'Изменение' : 'Прекращение'} · сдано{' '}
-                  {s.submittedAt ? new Date(s.submittedAt).toLocaleDateString('ru-RU') : '—'}
-                  {s.externalNumber ? ` (№ ${s.externalNumber})` : ''} · исправление без штрафа до{' '}
-                  {dmy(s.correctionUntil)}
+                  {t('esutd.correctionRow', {
+                    kind: t(`esutdKind.${s.kind}`),
+                    submittedAt: s.submittedAt ? f.date(s.submittedAt) : tc('labels.dash'),
+                    numberSuffix: s.externalNumber ? t('esutd.numberSuffix', { number: s.externalNumber }) : '',
+                    until: dmy(s.correctionUntil),
+                  })}
                 </div>
               ))}
           </div>
         </Card>
       )}
 
-      <Section title="Вручения (3 рабочих дня, ст. 61 п. 3)" items={d.deliveries} actors={d.actors} />
-      <Section title="Расчёты и документы при увольнении" items={d.settlements} actors={d.actors} />
-      <Section title="Испытательные сроки" items={d.probations} actors={d.actors} />
-      <Section title="Срочные договоры" items={d.contractEnds} actors={d.actors} />
-      <Section title="Ознакомления" items={d.campaigns} actors={d.actors} />
+      <Section title={t('section.deliveries')} items={d.deliveries} actors={d.actors} tc={tc} />
+      <Section title={t('section.settlements')} items={d.settlements} actors={d.actors} tc={tc} />
+      <Section title={t('section.probations')} items={d.probations} actors={d.actors} tc={tc} />
+      <Section title={t('section.contractEnds')} items={d.contractEnds} actors={d.actors} tc={tc} />
+      <Section title={t('section.campaigns')} items={d.campaigns} actors={d.actors} tc={tc} />
 
       {payloadFor && (
         <EsutdPayloadModal workspaceId={workspaceId} submission={payloadFor} onClose={() => setPayloadFor(null)} />
@@ -365,6 +387,8 @@ function EsutdPayloadModal({
   submission: EsutdSubmissionDto;
   onClose: () => void;
 }) {
+  const t = useTranslations('hr');
+  const tc = useTranslations('common');
   const payloadQ = useQuery({
     queryKey: [...hrEsutdKey(workspaceId), submission.id, 'payload'],
     queryFn: () => fetchEsutdPayload(workspaceId, submission.id),
@@ -376,7 +400,7 @@ function EsutdPayloadModal({
       .join('\n');
   }, [payloadQ.data]);
   return (
-    <Modal open onClose={onClose} title="Сведения для ЕСУТД" subtitle="По перечню Правил № 353 — вставьте в форму enbek.kz" size="md">
+    <Modal open onClose={onClose} title={t('esutd.payloadTitle')} subtitle={t('esutd.payloadSubtitle')} size="md">
       {payloadQ.isPending ? (
         <LoadingBlock />
       ) : (
@@ -399,10 +423,10 @@ function EsutdPayloadModal({
               icon="copy"
               onClick={() => {
                 void navigator.clipboard.writeText(text);
-                toast('Скопировано', 'success');
+                toast(t('esutd.copied'), 'success');
               }}
             >
-              Скопировать
+              {tc('actions.copy')}
             </Button>
           </div>
         </div>
@@ -427,31 +451,31 @@ function EsutdSubmitModal({
   onClose: () => void;
   onSubmit: (externalNumber?: string) => Promise<void>;
 }) {
+  const t = useTranslations('hr');
+  const tc = useTranslations('common');
   const [num, setNum] = useState('');
   const isTermination = submission.kind === 'termination';
   return (
-    <Modal open onClose={onClose} title="Отметить сданным в ЕСУТД" size="sm">
+    <Modal open onClose={onClose} title={t('esutd.submitTitle')} size="sm">
       <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
         <Alert tone={isTermination ? 'warning' : 'accent'}>
-          {isTermination
-            ? 'Прекращение договора: после отправки исправить сведения самостоятельно НЕЛЬЗЯ — только через госорган по труду по обращению (п. 13 Правил № 353). Проверьте сведения кнопкой «Скопировать сведения» до отметки.'
-            : 'Отметка фиксирует, что сведения поданы через кабинет enbek.kz. Окно исправления без штрафа — 30 рабочих дней.'}
+          {t(isTermination ? 'esutd.submitWarnTermination' : 'esutd.submitHint')}
         </Alert>
         <Input
-          label="Номер регистрации в ЕСУТД (если есть)"
+          label={t('esutd.externalNumber')}
           value={num}
           onChange={(e) => setNum(e.target.value)}
-          placeholder="например, 2026-000123"
-          hint="Номер из кабинета enbek.kz — доказательство сдачи; можно оставить пустым."
+          placeholder="2026-000123"
+          hint={t('esutd.externalNumberHint')}
         />
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--spacing-2)' }}>
-          <Button variant="ghost" onClick={onClose}>Отмена</Button>
+          <Button variant="ghost" onClick={onClose}>{tc('actions.cancel')}</Button>
           <Button
             variant="primary"
             loading={pending}
             onClick={() => void onSubmit(num.trim() || undefined)}
           >
-            {isTermination ? 'Подтверждаю: сдано' : 'Отметить сданным'}
+            {t(isTermination ? 'esutd.submitConfirm' : 'esutd.markSubmitted')}
           </Button>
         </div>
       </div>
@@ -470,6 +494,8 @@ function MassActionModal({
   onClose: () => void;
   onStarted: (batchId: string) => void;
 }) {
+  const t = useTranslations('hr');
+  const tc = useTranslations('common');
   const [kind, setKind] = useState('leave');
   const [audience, setAudience] = useState<Principal[]>([]);
   const [effectiveAt, setEffectiveAt] = useState<string | undefined>(undefined);
@@ -502,18 +528,18 @@ function MassActionModal({
 
   const start = useMutation({
     mutationFn: () => {
-      if (!effectiveAt) throw new Error('Укажите дату');
-      if (!chosenTemplateId) throw new Error('Выберите шаблон приказа');
-      if (!audience.length) throw new Error('Выберите аудиторию');
-      if (kind === 'leave' && !effectiveTo) throw new Error('Укажите дату окончания отпуска');
+      if (!effectiveAt) throw new Error(t('form.dateRequired'));
+      if (!chosenTemplateId) throw new Error(t('form.templateRequired'));
+      if (!audience.length) throw new Error(t('form.audienceRequired'));
+      if (kind === 'leave' && !effectiveTo) throw new Error(t('form.leaveEndRequired'));
       if (kind === 'leave' && effectiveTo && effectiveTo < effectiveAt) {
-        throw new Error('Отпуск не может кончаться раньше, чем начался');
+        throw new Error(t('form.periodEnd'));
       }
-      if (kind === 'dismissal' && !ground) throw new Error('Выберите основание прекращения (статья ТК РК)');
-      if (kind === 'transfer' && !position[0]) throw new Error('Выберите новую должность');
+      if (kind === 'dismissal' && !ground) throw new Error(t('form.groundRequired'));
+      if (kind === 'transfer' && !position[0]) throw new Error(t('form.positionRequired'));
       const salaryTiyn = salary.trim() ? parseTengeToTiyn(salary) : undefined;
-      if (salary.trim() && salaryTiyn === undefined) throw new Error('Оклад — это число, например 250 000');
-      if (kind === 'salary_change' && salaryTiyn === undefined) throw new Error('Укажите новый оклад');
+      if (salary.trim() && salaryTiyn === undefined) throw new Error(t('form.salaryNumber'));
+      if (kind === 'salary_change' && salaryTiyn === undefined) throw new Error(t('form.salaryRequired'));
       const dto: CreateHrBatchInput = {
         kind,
         audience: audience.map((p) => ({ type: p.type as CreateHrBatchInput['audience'][number]['type'], id: p.id })),
@@ -541,56 +567,62 @@ function MassActionModal({
   });
 
   return (
-    <Modal open onClose={onClose} title="Массовое кадровое действие" subtitle={`Потолок — ${HR_LIMITS.batchMax} человек за прогон`} size="md">
+    <Modal
+      open
+      onClose={onClose}
+      title={t('batch.title')}
+      subtitle={t('batch.cap', { max: HR_LIMITS.batchMax })}
+      size="md"
+    >
       <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
         <Select
-          label="Действие"
+          label={t('batch.action')}
           value={kind}
           onChange={(v) => {
             setKind(v);
             setTemplateId('');
           }}
-          options={HR_ACTION_KINDS.filter((k) => k.value !== 'hire').map((k) => ({ value: k.value, label: k.label }))}
+          options={HR_ACTION_KINDS.filter((k) => k !== 'hire').map((k) => ({ value: k, label: t(`actionKind.${k}`) }))}
         />
         <div>
-          <div className="label-md" style={{ marginBottom: 6 }}>Аудитория</div>
+          <div className="label-md" style={{ marginBottom: 6 }}>{t('batch.audience')}</div>
           <EntitySelector
             types={['user', 'position', 'department', 'branch', 'workspace']}
             value={audience}
             onChange={setAudience}
             context={{ workspaceId }}
-            placeholder="Люди, должности, отделы, филиалы или вся организация"
+            placeholder={t('batch.audiencePlaceholder')}
           />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--spacing-3)' }}>
-          <DatePicker label="Вступает в силу" value={isoToDate(effectiveAt)} onChange={(dd) => setEffectiveAt(dateToIso(dd))} />
+          <DatePicker label={t('form.effectiveAt')} value={isoToDate(effectiveAt)} onChange={(dd) => setEffectiveAt(dateToIso(dd))} />
           {kind === 'leave' && (
-            <DatePicker label="По" value={isoToDate(effectiveTo)} onChange={(dd) => setEffectiveTo(dateToIso(dd))} />
+            <DatePicker label={t('form.effectiveTo')} value={isoToDate(effectiveTo)} onChange={(dd) => setEffectiveTo(dateToIso(dd))} />
           )}
         </div>
 
         {kind === 'transfer' && (
           <>
             <div>
-              <div className="label-md" style={{ marginBottom: 6 }}>Новая должность (одна на всю пачку)</div>
-              <EntitySelector types={['position']} multi={false} value={position} onChange={setPosition} context={{ workspaceId }} placeholder="Выберите должность" />
+              <div className="label-md" style={{ marginBottom: 6 }}>{t('batch.newPosition')}</div>
+              <EntitySelector types={['position']} multi={false} value={position} onChange={setPosition} context={{ workspaceId }} placeholder={t('form.pickPosition')} />
             </div>
             <div>
-              <div className="label-md" style={{ marginBottom: 6 }}>Новый филиал</div>
-              <EntitySelector types={['branch']} multi={false} value={branch} onChange={setBranch} context={{ workspaceId }} placeholder="Без филиала" />
+              <div className="label-md" style={{ marginBottom: 6 }}>{t('form.newBranch')}</div>
+              <EntitySelector types={['branch']} multi={false} value={branch} onChange={setBranch} context={{ workspaceId }} placeholder={t('form.noBranch')} />
             </div>
             <Toggle
               checked={syncFact}
               onChange={setSyncFact}
-              label="Обновить фактические назначения"
-              description="Иначе юридический перевод сам родит расхождение «факт ≠ договор» у каждого."
+              label={t('form.syncFact')}
+              description={t('batch.syncFactHint')}
             />
           </>
         )}
 
         {(kind === 'salary_change' || kind === 'transfer') && (
           <Input
-            label={kind === 'salary_change' ? 'Новый оклад, ₸ в месяц (всем в пачке)' : 'Оклад, ₸ в месяц (необязательно)'}
+            label={t(kind === 'salary_change' ? 'batch.salaryRequired' : 'batch.salaryOptional')}
             value={salary}
             onChange={(ev) => setSalary(ev.target.value)}
             placeholder="250000"
@@ -601,50 +633,49 @@ function MassActionModal({
         {kind === 'dismissal' && (
           <>
             <Select
-              label="Основание (статья ТК РК)"
+              label={t('form.ground')}
               value={ground}
               onChange={setGround}
-              options={DISMISSAL_GROUNDS.map((g) => ({ value: g.value, label: g.label }))}
-              placeholder="Выберите основание"
-              hint="Одно основание на всю пачку — оно печатается в каждом приказе и уходит в ЕСУТД."
+              options={DISMISSAL_GROUNDS.map((g) => ({ value: g.value, label: t(`ground.${g.value}`) }))}
+              placeholder={t('form.pickGround')}
+              hint={t('batch.groundHint')}
             />
             {employerInitiative && (
               <>
                 <Alert tone="warning">
-                  Увольнение по инициативе работодателя: ст. 54 ТК РК проверяется в момент применения по КАЖДОМУ
-                  человеку — кто в отпуске, тот получит «Не применено» с причиной. Больничные системе неизвестны.
+                  {t('batch.st54Warning')}
                 </Alert>
                 <Toggle
                   checked={banConfirmed}
                   onChange={setBanConfirmed}
-                  label="Основание — исключение ст. 54"
-                  description="Подтверждаю: основание входит в исключения (пп. 1), 18), 20), 23) п. 1 ст. 52 или п. 1-1)."
+                  label={t('form.banException')}
+                  description={t('form.banExceptionHint')}
                 />
               </>
             )}
             <Toggle
               checked={alsoRemove}
               onChange={setAlsoRemove}
-              label="И убрать из организации в SuperApp6"
-              description="При применении приказа членство тоже снимется — у каждого в пачке."
+              label={t('form.alsoRemove')}
+              description={t('batch.alsoRemoveHint')}
             />
           </>
         )}
 
         <Select
-          label="Шаблон приказа"
+          label={t('form.template')}
           value={chosenTemplateId}
           onChange={setTemplateId}
-          options={templates.map((t) => ({ value: t.id, label: `${t.name}${t.hasRoute ? '' : ' — без маршрута!'}` }))}
-          placeholder={templatesQ.isPending ? 'Загружаем…' : 'Выберите шаблон'}
+          options={templates.map((tpl) => ({
+            value: tpl.id,
+            label: `${tpl.name}${tpl.hasRoute ? '' : t('form.templateNoRouteSuffix')}`,
+          }))}
+          placeholder={templatesQ.isPending ? t('form.loading') : t('form.pickTemplate')}
         />
-        <Alert tone="accent">
-          На каждого человека будет создан СВОЙ приказ и запущен маршрут («приказ пер-человек юридически верен»). Один
-          неподходящий человек не валит пачку — он останется на экране прогресса с причиной.
-        </Alert>
+        <Alert tone="accent">{t('batch.perPersonHint')}</Alert>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--spacing-2)' }}>
-          <Button variant="ghost" onClick={onClose}>Отмена</Button>
-          <Button variant="primary" loading={start.isPending} onClick={() => start.mutate()}>Запустить</Button>
+          <Button variant="ghost" onClick={onClose}>{tc('actions.cancel')}</Button>
+          <Button variant="primary" loading={start.isPending} onClick={() => start.mutate()}>{t('batch.start')}</Button>
         </div>
       </div>
     </Modal>
@@ -660,6 +691,8 @@ function BatchProgressModal({
   batchId: string;
   onClose: () => void;
 }) {
+  const t = useTranslations('hr');
+  const tc = useTranslations('common');
   const batchQ = useQuery({
     queryKey: [...hrRootKey(workspaceId), 'batch', batchId],
     queryFn: () => fetchHrBatch(workspaceId, batchId),
@@ -671,26 +704,40 @@ function BatchProgressModal({
   const b = batchQ.data;
   const created = b ? Object.values(b.progress).reduce((s, n) => s + n, 0) : 0;
   return (
-    <Modal open onClose={onClose} title="Массовая операция" subtitle={b ? `${created} из ${b.total}` : undefined} size="sm">
+    <Modal
+      open
+      onClose={onClose}
+      title={t('batch.progressTitle')}
+      subtitle={b ? t('batch.progressOf', { created, total: b.total }) : undefined}
+      size="sm"
+    >
       {!b ? (
         <LoadingBlock />
       ) : (
         <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
           <TickBar value={b.total ? Math.round((created / b.total) * 100) : 0} />
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {b.progress.in_progress > 0 && <Chip tone="accent">На оформлении: {b.progress.in_progress}</Chip>}
-            {b.progress.draft > 0 && <Chip tone="neutral">Черновики: {b.progress.draft}</Chip>}
-            {b.progress.scheduled > 0 && <Chip tone="warning">Вступают в силу: {b.progress.scheduled}</Chip>}
-            {b.progress.applied > 0 && <Chip tone="success">Применено: {b.progress.applied}</Chip>}
-            {b.progress.failed > 0 && <Chip tone="danger">Не удалось: {b.progress.failed}</Chip>}
+            {b.progress.in_progress > 0 && (
+              <Chip tone="accent">{t('batch.stat', { status: t('actionStatus.in_progress'), n: b.progress.in_progress })}</Chip>
+            )}
+            {b.progress.draft > 0 && (
+              <Chip tone="neutral">{t('batch.stat', { status: t('actionStatus.draft'), n: b.progress.draft })}</Chip>
+            )}
+            {b.progress.scheduled > 0 && (
+              <Chip tone="warning">{t('batch.stat', { status: t('actionStatus.scheduled'), n: b.progress.scheduled })}</Chip>
+            )}
+            {b.progress.applied > 0 && (
+              <Chip tone="success">{t('batch.stat', { status: t('actionStatus.applied'), n: b.progress.applied })}</Chip>
+            )}
+            {b.progress.failed > 0 && (
+              <Chip tone="danger">{t('batch.stat', { status: t('actionStatus.failed'), n: b.progress.failed })}</Chip>
+            )}
           </div>
           <div className="meta">
-            {b.status === 'running'
-              ? 'Приказы создаются и уходят на маршруты…'
-              : 'Пачка создана. Приказы идут по маршрутам — прогресс виден в действиях людей.'}
+            {t(b.status === 'running' ? 'batch.running' : 'batch.done')}
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Button variant="matte" onClick={onClose}>Закрыть</Button>
+            <Button variant="matte" onClick={onClose}>{tc('actions.close')}</Button>
           </div>
         </div>
       )}

@@ -9,10 +9,12 @@
 // ============================================================
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   DEFAULT_DOC_NUMBER_FORMAT,
   DOC_CATEGORIES,
+  DOC_NUMBER_TOKENS,
   DOC_SIGNATURE_LEVELS,
   DOC_VISIBILITIES,
   formatDocNumber,
@@ -58,6 +60,8 @@ const EMPTY: Draft = {
 };
 
 export function DocTypesTab({ workspaceId }: { workspaceId: string }) {
+  const tr = useTranslations('documents');
+  const tc = useTranslations('common');
   const qc = useQueryClient();
   const [confirm, confirmUI] = useConfirm();
   const [editing, setEditing] = useState<DocTypeDto | null>(null);
@@ -80,7 +84,7 @@ export function DocTypesTab({ workspaceId }: { workspaceId: string }) {
     <>
       <div style={{ display: 'flex', justifyContent: 'flex-end', margin: 'var(--gap-grid) 0' }}>
         <Button variant="matte" icon="add" onClick={() => setCreating(true)}>
-          Новый вид
+          {tr('types.new')}
         </Button>
       </div>
 
@@ -95,10 +99,10 @@ export function DocTypesTab({ workspaceId }: { workspaceId: string }) {
           <Card span={12}>
             <EmptyState
               icon="warningCircle"
-              title="Не удалось загрузить виды документов"
+              title={tr('types.loadFailed')}
               action={
                 <Button variant="matte" icon="refresh" onClick={() => typesQuery.refetch()}>
-                  Повторить
+                  {tc('actions.retry')}
                 </Button>
               }
             />
@@ -107,11 +111,11 @@ export function DocTypesTab({ workspaceId }: { workspaceId: string }) {
           <Card span={12}>
             <EmptyState
               icon="folder"
-              title="Видов документов пока нет"
-              description="Вид — это «Приказы», «Заявления», «Справки»: у каждого своя нумерация и свои правила видимости."
+              title={tr('types.emptyTitle')}
+              description={tr('types.emptyText')}
               action={
                 <Button variant="matte" icon="add" onClick={() => setCreating(true)}>
-                  Создать первый
+                  {tr('types.createFirst')}
                 </Button>
               }
             />
@@ -124,7 +128,7 @@ export function DocTypesTab({ workspaceId }: { workspaceId: string }) {
                 actions={
                   <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
                     <Button variant="ghost" size="sm" icon="edit" onClick={() => setEditing(type)}>
-                      Изменить
+                      {tc('actions.edit')}
                     </Button>
                     <Button
                       variant="ghost"
@@ -133,43 +137,40 @@ export function DocTypesTab({ workspaceId }: { workspaceId: string }) {
                       onClick={() =>
                         confirm(
                           {
-                            title: `Убрать вид «${type.name}» в архив?`,
-                            message:
-                              'Выданные номера и подписанные документы останутся — вид просто перестанет предлагаться при создании.',
-                            confirmLabel: 'В архив',
+                            title: tr('types.archiveTitle', { name: type.name }),
+                            message: tr('types.archiveText'),
+                            confirmLabel: tr('types.archive'),
                           },
                           async () => { await archive.mutateAsync(type.id); },
                         )
                       }
                     >
-                      В архив
+                      {tr('types.archive')}
                     </Button>
                   </div>
                 }
               />
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)' }}>
                 <Chip size="sm" tone="accent">
-                  {DOC_CATEGORIES.find((c) => c.value === type.category)?.label ?? type.category}
+                  {tr(`category.${type.category}`)}
                 </Chip>
-                <Chip size="sm">
-                  {DOC_VISIBILITIES.find((v) => v.value === type.visibility)?.label ?? type.visibility}
-                </Chip>
+                <Chip size="sm">{tr(`visibility.${type.visibility}`)}</Chip>
                 {type.signatureLevel !== 'none' && (
                   <Chip size="sm" tone="accent" icon="signature">
-                    {type.signatureLevel === 'ecp' ? 'Подпись: ЭЦП' : 'Подпись: SMS'}
+                    {tr(type.signatureLevel === 'ecp' ? 'types.signEcp' : 'types.signPep')}
                   </Chip>
                 )}
                 {type.toPersonalFile && (
                   <Chip size="sm" icon="folder">
-                    В личное дело
+                    {tr('types.toPersonalFile')}
                   </Chip>
                 )}
                 <Chip size="sm" icon="list">
-                  Номер: {formatDocNumber(type.numberFormat, 7, new Date())}
+                  {tr('types.numberSample', { sample: formatDocNumber(type.numberFormat, 7, new Date()) })}
                 </Chip>
               </div>
               <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: 'var(--spacing-3)' }}>
-                Шаблонов: {type.templatesCount ?? 0}
+                {tr('types.templatesCount', { count: type.templatesCount ?? 0 })}
               </p>
             </Card>
           ))
@@ -201,6 +202,8 @@ function TypeModal({
   type: DocTypeDto | null;
   onClose: () => void;
 }) {
+  const tr = useTranslations('documents');
+  const tc = useTranslations('common');
   const qc = useQueryClient();
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
@@ -241,71 +244,69 @@ function TypeModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={type ? 'Изменить вид документа' : 'Новый вид документа'}
+      title={tr(type ? 'types.editTitle' : 'types.newTitle')}
       size="md"
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
-            Отмена
+            {tc('actions.cancel')}
           </Button>
           <Button icon="check" loading={save.isPending} disabled={!draft.name.trim()} onClick={() => save.mutate()}>
-            Сохранить
+            {tc('actions.save')}
           </Button>
         </>
       }
     >
       <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
         <Input
-          label="Название"
+          label={tc('labels.name')}
           value={draft.name}
           onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-          placeholder="Приказы по личному составу"
+          placeholder={tr('types.namePlaceholder')}
         />
         <Select
-          label="Категория"
+          label={tr('types.category')}
           value={draft.category}
           onChange={(v) => setDraft({ ...draft, category: v })}
-          options={DOC_CATEGORIES.map((c) => ({ value: c.value, label: c.label }))}
-          hint="Кадры — маршруты проверяются по правилам ТК РК, а редактор показывает только кадровые шаги"
+          options={DOC_CATEGORIES.map((c) => ({ value: c, label: tr(`category.${c}`) }))}
+          hint={tr('types.categoryHint')}
         />
         <Input
-          label="Формат номера"
+          label={tr('types.numberFormat')}
           value={draft.numberFormat}
           onChange={(e) => setDraft({ ...draft, numberFormat: e.target.value })}
-          hint={`{ГГГГ} — год, {ММ} — месяц, {NNN} — порядковый номер. Пример: ${formatDocNumber(draft.numberFormat, 7, new Date())}`}
+          // Сами плейсхолдеры — DSL бланка и пишутся как есть; объяснение к ним — каталог
+          hint={tr('types.numberFormatHint', {
+            tokens: DOC_NUMBER_TOKENS.map((t) => `${t.token} — ${tr(`numberToken.${t.descKey}`)}`).join(', '),
+            sample: formatDocNumber(draft.numberFormat, 7, new Date()),
+          })}
         />
         <Select
-          label="Кто видит документы этого вида"
+          label={tr('types.visibility')}
           value={draft.visibility}
           onChange={(v) => setDraft({ ...draft, visibility: v })}
-          options={DOC_VISIBILITIES.map((v) => ({ value: v.value, label: v.label }))}
-          hint="Автор, сторона документа и управляющие видят всегда — настройка добавляет зрителей сверх них"
+          options={DOC_VISIBILITIES.map((v) => ({ value: v, label: tr(`visibility.${v}`) }))}
+          hint={tr('types.visibilityHint')}
         />
         {/* Уровень подписи задаёт ВИД, а не каждый маршрут по отдельности:
             кадровые документы по ст. 33 ТК РК требуют именно ЭЦП, и выбирать
             это руками на каждом маршруте — способ однажды забыть. Отсюда
             значение подставляется в шаг «Подписать» заготовки маршрута. */}
         <Select
-          label="Чем подписывается"
+          label={tr('types.signatureLevel')}
           value={draft.signatureLevel}
           onChange={(v) => setDraft({ ...draft, signatureLevel: v })}
-          options={DOC_SIGNATURE_LEVELS.map((s) => ({ value: s.value, label: s.label }))}
-          hint={
-            draft.signatureLevel === 'ecp'
-              ? 'Кадровые документы подписываются ЭЦП (ст. 33 ТК РК). Подписант выбирает eGov Mobile или NCALayer'
-              : draft.signatureLevel === 'pep'
-                ? 'Простая подпись: согласие сторон + код из SMS. Для гражданско-правовых документов (ст. 46–47 Цифрового кодекса РК)'
-                : 'Без электронной подписи — документ закрывается обычным согласованием'
-          }
+          options={DOC_SIGNATURE_LEVELS.map((s) => ({ value: s, label: tr(`signatureLevel.${s}`) }))}
+          hint={tr(`types.signatureHint.${draft.signatureLevel}`)}
         />
         <div>
           <Toggle
-            label="Подшивать в личное дело сотрудника"
+            label={tr('types.personalFileToggle')}
             checked={draft.toPersonalFile}
             onChange={(v) => setDraft({ ...draft, toPersonalFile: v })}
           />
           <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: 'var(--spacing-2)' }}>
-            Личные дела на Диске организации закрыты: их видят управляющие, а сотрудник — только своё.
+            {tr('types.personalFileHint')}
           </p>
         </div>
       </div>

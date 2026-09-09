@@ -28,58 +28,58 @@ export const FIN_LIMITS = {
   maxPeople: 100,
 } as const;
 
-export const FIN_ASSET_SUBTYPE_LABELS: Record<FinAssetSubtype, string> = {
-  cash: 'Наличные',
-  card: 'Карта',
-  savings: 'Депозит',
-  other: 'Другое',
-};
+// Засев книги пишет ИМЕНА в базу: человек их потом переименовывает, значит слово
+// обязано родиться на его языке. Поэтому здесь — ключи каталога, а слово даёт
+// `I18nService` в момент создания книги (язык запроса).
 
 /** Seed asset accounts for a fresh book (PRD: базовые кошельки при старте). */
-export const FIN_SEED_ACCOUNTS: ReadonlyArray<{ name: string; subtype: FinAssetSubtype; icon: string }> = [
-  { name: 'Наличные', subtype: 'cash', icon: '💵' },
-  { name: 'Карта', subtype: 'card', icon: '💳' },
+export const FIN_SEED_ACCOUNTS: ReadonlyArray<{ nameKey: string; subtype: FinAssetSubtype; icon: string }> = [
+  { nameKey: 'finance.seed.cash', subtype: 'cash', icon: '💵' },
+  { nameKey: 'finance.seed.card', subtype: 'card', icon: '💳' },
 ];
 
+/** Hidden equity peg every book gets — the counter-account of an opening balance. */
+export const FIN_SEED_EQUITY_KEY = 'finance.seed.openingBalance';
+
 export interface FinSeedCategory {
-  name: string;
+  nameKey: string;
   icon: string;
-  children?: ReadonlyArray<{ name: string; icon: string }>;
+  children?: ReadonlyArray<{ nameKey: string; icon: string }>;
 }
 
 /** Seed category tree (expense) — Kaspi-familiar names, editable afterwards. */
 export const FIN_SEED_EXPENSE_CATEGORIES: readonly FinSeedCategory[] = [
   {
-    name: 'Еда',
+    nameKey: 'finance.seed.food',
     icon: '🍽️',
     children: [
-      { name: 'Продукты', icon: '🛒' },
-      { name: 'Кафе и рестораны', icon: '☕' },
-      { name: 'Доставка', icon: '🛵' },
+      { nameKey: 'finance.seed.groceries', icon: '🛒' },
+      { nameKey: 'finance.seed.cafes', icon: '☕' },
+      { nameKey: 'finance.seed.delivery', icon: '🛵' },
     ],
   },
-  { name: 'Транспорт', icon: '🚌' },
+  { nameKey: 'finance.seed.transport', icon: '🚌' },
   {
-    name: 'Дом',
+    nameKey: 'finance.seed.home',
     icon: '🏠',
     children: [
-      { name: 'Аренда', icon: '🔑' },
-      { name: 'Коммуналка', icon: '💡' },
+      { nameKey: 'finance.seed.rent', icon: '🔑' },
+      { nameKey: 'finance.seed.utilities', icon: '💡' },
     ],
   },
-  { name: 'Связь', icon: '📱' },
-  { name: 'Здоровье', icon: '💊' },
-  { name: 'Одежда', icon: '👕' },
-  { name: 'Развлечения', icon: '🎬' },
-  { name: 'Образование', icon: '📚' },
-  { name: 'Подарки', icon: '🎁' },
-  { name: 'Прочее', icon: '📦' },
+  { nameKey: 'finance.seed.communication', icon: '📱' },
+  { nameKey: 'finance.seed.health', icon: '💊' },
+  { nameKey: 'finance.seed.clothing', icon: '👕' },
+  { nameKey: 'finance.seed.entertainment', icon: '🎬' },
+  { nameKey: 'finance.seed.education', icon: '📚' },
+  { nameKey: 'finance.seed.gifts', icon: '🎁' },
+  { nameKey: 'finance.seed.other', icon: '📦' },
 ];
 
 /** Seed category list (income). */
 export const FIN_SEED_INCOME_CATEGORIES: readonly FinSeedCategory[] = [
-  { name: 'Зарплата', icon: '💼' },
-  { name: 'Подработка', icon: '🧰' },
-  { name: 'Подарки', icon: '🎁' },
-  { name: 'Прочее', icon: '📦' },
+  { nameKey: 'finance.seed.salary', icon: '💼' },
+  { nameKey: 'finance.seed.sideJob', icon: '🧰' },
+  { nameKey: 'finance.seed.gifts', icon: '🎁' },
+  { nameKey: 'finance.seed.other', icon: '📦' },
 ];

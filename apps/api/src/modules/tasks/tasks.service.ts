@@ -23,10 +23,12 @@ import { DriveRoutingRegistry } from '../drive/drive-routing.registry';
 import { ChatterService, ChatterLogInput, ChatterTrackSpec } from '../../core/chatter/chatter.service';
 import { ChatterRefRegistry } from '../../core/chatter/chatter-ref.registry';
 import { WorkspaceContextService } from '../../shared/context/workspace-context.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
+import { badRequest, forbidden, notFound } from '../../shared/errors/api-error';
 import { DI_TOKENS } from '../../shared/di-tokens';
 import { fullName } from '../../shared/utils/user-name';
 import { Prisma } from '@prisma/client';
-import { TASK_PRIORITY_META, TASK_ROLE_LABELS, formatTaskDeadline } from '@superapp/shared';
+import { APP_TIMEZONE, SOURCE_LOCALE } from '@superapp/shared';
 import type {
   Task as TaskDto,
   TaskParticipant as TaskParticipantDto,
@@ -61,48 +63,11 @@ type UserMini = { id: string; firstName: string; lastName: string | null; avatar
 // (high < low < medium < urgent), which put high-priority tasks BELOW low-priority ones.
 const PRIORITY_RANK: Record<string, number> = { low: 1, medium: 2, high: 3, urgent: 4 };
 
-// TASK_ROLE_LABELS — из @superapp/shared (единый источник подписей ролей; локальная
-// копия разъезжалась бы с карточкой задачи и мессенджером при правке в shared).
-
 const truncate = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 
 // Отслеживаемые поля хроники (core/chatter): каждое изменённое поле = своя запись
 // «было → стало». Сравнение — по display-строкам (см. ChatterService.diffTracked).
 type TaskTrackRow = { title: string; priority: string; dueDate: Date | null; allDay: boolean; coinReward: number };
-const TASK_TRACK_SPEC: ChatterTrackSpec<TaskTrackRow> = {
-  dueDate: {
-    typeKey: 'task.deadline_changed',
-    label: 'Срок',
-    // Сырая ISO-дата рядом со снимком: зритель покажет её СВОИМИ правилами
-    // (язык и пояс читателя), а не тем форматом, что запёкся при записи.
-    // Задача «на весь день» показывается без часов — вид зависит от строки.
-    raw: (r) => (r.dueDate ? r.dueDate.toISOString() : null),
-    kind: (r: TaskTrackRow) => (r.allDay ? 'date' : 'datetime'),
-    // Формат ДЕТЕРМИНИРОВАН в APP_TIMEZONE (не в TZ окружения сервера) и включает
-    // время у не-allDay — иначе прод-UTC зафиксировал бы день раньше и не заметил
-    // перенос времени в пределах суток (строка «было → стало» пишется навсегда).
-    format: (r) => (r.dueDate ? formatTaskDeadline(r.dueDate, r.allDay) : 'без срока'),
-  },
-  priority: {
-    typeKey: 'task.priority_changed',
-    label: 'Приоритет',
-    format: (r) =>
-      (TASK_PRIORITY_META as Record<string, { label: string }>)[r.priority]?.label ?? r.priority,
-  },
-  coinReward: {
-    typeKey: 'task.reward_changed',
-    label: 'Награда',
-    format: (r) => `${r.coinReward} 🪙`,
-    raw: (r) => String(r.coinReward),
-    kind: 'number' as const,
-  },
-  title: {
-    typeKey: 'task.title_changed',
-    label: 'Название',
-    format: (r) => truncate(r.title, 80),
-  },
-};
-
 
 @Injectable()
 export class TasksService implements OnModuleInit {
@@ -125,17 +90,66 @@ export class TasksService implements OnModuleInit {
     private chatter: ChatterService,
     private chatterRegistry: ChatterRefRegistry,
     private workspaceContext: WorkspaceContextService,
+    private i18n: I18nService,
   ) {}
+
+  /**
+   * Отслеживаемые поля хроники. Строится на каждый вызов, а не константой:
+   * СНАПШОТ подписи и значения ложится в БД в языке ИСТОЧНИКА (`SOURCE_LOCALE`),
+   * и берём мы его из того же каталога, что показывает живую подпись, —
+   * второй список слов немедленно разъехался бы с первым.
+   */
+  private trackSpec(): ChatterTrackSpec<TaskTrackRow> {
+    const src = (key: string) => this.i18n.translateFor(SOURCE_LOCALE, key);
+    const f = this.i18n.format(SOURCE_LOCALE, APP_TIMEZONE);
+    return {
+      dueDate: {
+        typeKey: 'task.deadline_changed',
+        label: src('chatter.fields.task.dueDate'),
+        // Сырая ISO-дата рядом со снимком: зритель покажет её СВОИМИ правилами
+        // (язык и пояс читателя), а не тем форматом, что запёкся при записи.
+        // Задача «на весь день» показывается без часов — вид зависит от строки.
+        raw: (r) => (r.dueDate ? r.dueDate.toISOString() : null),
+        kind: (r: TaskTrackRow) => (r.allDay ? 'date' : 'datetime'),
+        // Формат ДЕТЕРМИНИРОВАН в APP_TIMEZONE (не в TZ окружения сервера) и включает
+        // время у не-allDay — иначе прод-UTC зафиксировал бы день раньше и не заметил
+        // перенос времени в пределах суток (строка «было → стало» пишется навсегда).
+        format: (r) =>
+          r.dueDate
+            ? r.allDay
+              ? f.date(r.dueDate)
+              : f.dateTime(r.dueDate)
+            : src('tasks.row.noDueDate'),
+      },
+      priority: {
+        typeKey: 'task.priority_changed',
+        label: src('chatter.fields.task.priority'),
+        format: (r) => src(`tasks.priority.${r.priority}`),
+      },
+      coinReward: {
+        typeKey: 'task.reward_changed',
+        label: src('chatter.fields.task.coinReward'),
+        format: (r) => `${r.coinReward} 🪙`,
+        raw: (r) => String(r.coinReward),
+        kind: 'number' as const,
+      },
+      title: {
+        typeKey: 'task.title_changed',
+        label: src('chatter.fields.task.title'),
+        format: (r) => truncate(r.title, 80),
+      },
+    };
+  }
 
   onModuleInit(): void {
     // Phase 7: "Создать задачу" in the chat ＋-menu and a message's corner menu (a message
     // there prefills the task description). Form = modal; result = the task Rich Card in chat.
     this.quickActions.register({
       key: 'task.create',
-      label: 'Создать задачу',
+      labelKey: 'tasks.quickAction.label',
       icon: '✓',
       scopes: ['composer', 'message'],
-      description: 'Поставить задачу из чата',
+      descriptionKey: 'tasks.quickAction.description',
     });
 
     // Вложения задачи (движок файлов): доступ наследуется от задачи; прикрепляют
@@ -254,7 +268,7 @@ export class TasksService implements OnModuleInit {
       where: { id: taskId },
       select: { creatorId: true, participants: { select: { userId: true } } },
     });
-    if (!task) throw new NotFoundException('Задача не найдена');
+    if (!task) throw notFound('task.notFound');
     await this.assertCanView(userId, taskId, task);
     return (await this.files.listLinked('task', [taskId])).get(taskId) ?? [];
   }
@@ -264,9 +278,9 @@ export class TasksService implements OnModuleInit {
       where: { id: taskId },
       select: { creatorId: true, participants: { select: { userId: true } } },
     });
-    if (!task) throw new NotFoundException('Задача не найдена');
+    if (!task) throw notFound('task.notFound');
     if (!this.isCreatorOrParticipant(task, userId)) {
-      throw new ForbiddenException('Прикреплять файлы могут постановщик и участники');
+      throw forbidden('task.attachForbidden');
     }
     await this.files.getOwnedReadyFiles(userId, [fileId]); // ready + uploader === userId
     await this.files.linkFile(userId, fileId, 'task', taskId);
@@ -289,7 +303,7 @@ export class TasksService implements OnModuleInit {
 
   /** Throw unless every id is a confirmed contact AND not blocked (shared gate in Contacts). */
   private async assertInEnvironment(ownerId: string, ids: string[]): Promise<void> {
-    await this.contacts.assertReachable(ownerId, ids, 'Назначать можно только людей из вашего окружения');
+    await this.contacts.assertReachable(ownerId, ids, 'task.assignCircleOnly');
   }
 
   // Разворота Группы своей копией здесь БОЛЬШЕ НЕТ: он проверял только владение группой
@@ -316,7 +330,7 @@ export class TasksService implements OnModuleInit {
           })
         : 0;
       if (!parent || (parent.creatorId !== userId && isParticipant === 0)) {
-        throw new ForbiddenException('Родительская задача не найдена');
+        throw forbidden('task.parentNotFound');
       }
     }
 
@@ -338,10 +352,10 @@ export class TasksService implements OnModuleInit {
       // авторизован иначе, но владение Группой проверяется в любом случае.
       const memberIds = await this.contacts.resolveCircleMemberIds(userId, data.assignedCircleId, {
         gate: !opts.skipEnvironmentChecks,
-        notLinkedMessage: 'Назначать можно только людей из вашего окружения',
+        notLinkedCode: 'task.assignCircleOnly',
       });
       if (memberIds.length === 0) {
-        throw new BadRequestException('В выбранной группе нет участников');
+        throw badRequest('task.circleEmpty');
       }
       assignedCircleId = data.assignedCircleId;
       for (const id of memberIds) setRole(id, 'co_executor');
@@ -715,7 +729,7 @@ export class TasksService implements OnModuleInit {
         subtasks: { select: { status: true } },
       },
     });
-    if (!task) throw new NotFoundException('Задача не найдена');
+    if (!task) throw notFound('task.notFound');
     await this.assertCanView(userId, taskId, task);
 
     const dto = this.toDto(task, userId);
@@ -785,14 +799,14 @@ export class TasksService implements OnModuleInit {
       where: { id: taskId },
       include: { participants: { select: { id: true, userId: true, role: true } } },
     });
-    if (!existing) throw new NotFoundException('Задача не найдена');
+    if (!existing) throw notFound('task.notFound');
 
     const isCreator = existing.creatorId === userId;
     const isWorker = existing.participants.some(
       (p) => p.userId === userId && p.role !== 'observer',
     );
     if (!isCreator && !isWorker) {
-      throw new ForbiddenException('Нет доступа к этой задаче');
+      throw forbidden('task.noAccess');
     }
 
     // Role / reward edits are creator-only.
@@ -803,7 +817,7 @@ export class TasksService implements OnModuleInit {
       data.removeParticipantUserIds?.length ||
       data.coinReward !== undefined;
     if (roleEdit && !isCreator) {
-      throw new ForbiddenException('Менять роли и награду может только Постановщик');
+      throw forbidden('task.rolesCreatorOnly');
     }
 
     // The per-person reward is fixed once workers are assigned (coins are committed to escrow).
@@ -814,7 +828,7 @@ export class TasksService implements OnModuleInit {
       existing.participants.some((p) => p.role !== 'observer')
     ) {
       throw new BadRequestException(
-        'Награду нельзя изменить после назначения исполнителей — отмените задачу или измените состав',
+        'task.rewardLocked',
       );
     }
 
@@ -848,11 +862,11 @@ export class TasksService implements OnModuleInit {
     // Direct status moves: starting work, cancelling. Acceptance flow has dedicated endpoints.
     if (data.status !== undefined) {
       if (data.status === 'done' || data.status === 'on_review') {
-        throw new BadRequestException('Используйте «сдать» / «принять» для завершения задачи');
+        throw badRequest('task.useSubmitAccept');
       }
       patch.status = data.status;
       if (data.status === 'cancelled' && !isCreator) {
-        throw new ForbiddenException('Отменить задачу может только Постановщик');
+        throw forbidden('task.cancelCreatorOnly');
       }
     }
 
@@ -879,7 +893,7 @@ export class TasksService implements OnModuleInit {
       actorName,
     };
     const chatterEntries: ChatterLogInput[] = this.chatter
-      .diffTracked(TASK_TRACK_SPEC, existing, afterRow)
+      .diffTracked(this.trackSpec(), existing, afterRow)
       .map((d) => ({
         ...entryBase,
         typeKey: d.typeKey,
@@ -922,7 +936,7 @@ export class TasksService implements OnModuleInit {
           })
         ).map((u) => [u.id, fullName(u)]),
       );
-      const target = (uid: string) => ({ targetUserId: uid, targetName: names.get(uid) ?? 'Пользователь' });
+      const target = (uid: string) => ({ targetUserId: uid, targetName: names.get(uid) ?? this.i18n.translateFor(SOURCE_LOCALE, 'common.labels.someone') });
 
       for (const uid of removedForLog) {
         chatterEntries.push({
@@ -955,14 +969,14 @@ export class TasksService implements OnModuleInit {
         chatterEntries.push({
           ...entryBase,
           typeKey: 'task.participant_added',
-          payload: { taskTitle: afterRow.title, ...target(uid), roleLabel: TASK_ROLE_LABELS.co_executor },
+          payload: { taskTitle: afterRow.title, ...target(uid), role: 'co_executor' },
         });
       }
       for (const uid of (data.addObserverIds ?? []).filter(isNewMember)) {
         chatterEntries.push({
           ...entryBase,
           typeKey: 'task.participant_added',
-          payload: { taskTitle: afterRow.title, ...target(uid), roleLabel: TASK_ROLE_LABELS.observer },
+          payload: { taskTitle: afterRow.title, ...target(uid), role: 'observer' },
         });
       }
     }
@@ -1069,9 +1083,9 @@ export class TasksService implements OnModuleInit {
 
   async deleteTask(userId: string, taskId: string) {
     const task = await this.db.task.findUnique({ where: { id: taskId } });
-    if (!task) throw new NotFoundException('Задача не найдена');
+    if (!task) throw notFound('task.notFound');
     if (task.creatorId !== userId) {
-      throw new ForbiddenException('Удалить задачу может только Постановщик');
+      throw forbidden('task.deleteCreatorOnly');
     }
     await this.db.$transaction(async (tx) => {
       await this.escrow.releaseAll(tx, { refType: 'task', refId: taskId }); // refund any frozen / paid reward to the creator
@@ -1095,11 +1109,11 @@ export class TasksService implements OnModuleInit {
       where: { id: taskId },
       include: { participants: true, creator: { select: { id: true, firstName: true, lastName: true, avatar: true } } },
     });
-    if (!task) throw new NotFoundException('Задача не найдена');
+    if (!task) throw notFound('task.notFound');
 
     // Self-task (no participants): only the creator can complete it, no review step.
     if (task.participants.length === 0) {
-      if (task.creatorId !== userId) throw new ForbiddenException('Нет доступа к этой задаче');
+      if (task.creatorId !== userId) throw forbidden('task.noAccess');
       await this.db.task.update({
         where: { id: taskId },
         data: { status: 'done', completedAt: new Date() },
@@ -1134,7 +1148,7 @@ export class TasksService implements OnModuleInit {
     }
 
     const me = task.participants.find((p) => p.userId === userId && p.role !== 'observer');
-    if (!me) throw new ForbiddenException('Сдать задачу может только Исполнитель');
+    if (!me) throw forbidden('task.submitExecutorOnly');
 
     if (me.userId === task.creatorId) {
       // Creator is their own executor → no acceptance needed.
@@ -1187,7 +1201,7 @@ export class TasksService implements OnModuleInit {
         where: { id: target.id, status: { not: 'accepted' } },
         data: { status: 'accepted', acceptedAt: new Date(), returnedAt: null },
       });
-      if (claimed.count === 0) throw new BadRequestException('Работа уже принята');
+      if (claimed.count === 0) throw badRequest('task.workAlreadyAccepted');
       const legs = await this.escrow.capture(tx, { refType: 'task', refId: taskId, beneficiaryUserId: target.userId }); // pay out the frozen reward
       captured = legs[0] ?? null;
       await this.chatter.log(tx, {
@@ -1269,15 +1283,15 @@ export class TasksService implements OnModuleInit {
       where: { id: taskId },
       include: { participants: true },
     });
-    if (!task) throw new NotFoundException('Задача не найдена');
+    if (!task) throw notFound('task.notFound');
     if (task.creatorId !== userId) {
-      throw new ForbiddenException('Принимать работу может только Постановщик');
+      throw forbidden('task.acceptCreatorOnly');
     }
     const workers = task.participants.filter((p) => p.role !== 'observer');
     const target = participantUserId
       ? workers.find((p) => p.userId === participantUserId)
       : workers.find((p) => p.role === 'executor') ?? workers[0];
-    if (!target) throw new NotFoundException('Участник не найден');
+    if (!target) throw notFound('task.participantNotFound');
     return { task, target };
   }
 
@@ -1397,9 +1411,9 @@ export class TasksService implements OnModuleInit {
       where: { id: taskId },
       include: { participants: { select: { id: true, userId: true, role: true } } },
     });
-    if (!task) throw new NotFoundException('Задача не найдена');
+    if (!task) throw notFound('task.notFound');
     if (task.status === 'done' || task.status === 'cancelled') {
-      throw new BadRequestException('Задача уже завершена');
+      throw badRequest('task.alreadyFinished');
     }
     const oldExecPre = task.participants.find((p) => p.role === 'executor');
     const oldExecName =
@@ -1578,7 +1592,7 @@ export class TasksService implements OnModuleInit {
     const dropped = candidates.length - kept.length;
     if (dropped > 0) {
       this.logger.warn(
-        `Повтор задачи ${task.id}: ${dropped} участник(ов) больше не в окружении постановщика — следующий экземпляр создан без них`,
+        `Task recurrence ${task.id}: ${dropped} participant(s) are no longer in the creator's Circle — the next instance was created without them`,
       );
     }
     return kept;
@@ -1607,9 +1621,7 @@ export class TasksService implements OnModuleInit {
       ? await tx.currency.findFirst({ where: { issuerType: 'workspace', issuerId: workspaceId, status: 'active' } })
       : await tx.currency.findFirst({ where: { issuerType: 'user', issuerId: creatorId, status: 'active' } });
     if (!currency) {
-      throw new BadRequestException(
-        workspaceId ? 'Создайте валюту компании, чтобы назначать награду' : 'Создайте свою валюту, чтобы назначать награду за задачу',
-      );
+      throw badRequest(workspaceId ? 'task.currencyNeededWorkspace' : 'task.currencyNeeded');
     }
     for (const workerId of workers) {
       await this.escrow.fund(tx, {
@@ -1735,7 +1747,7 @@ export class TasksService implements OnModuleInit {
     if (await this.access.can(this.user(userId), 'task.view', taskId)) return;
     if (task.creatorId === userId) return;
     if (task.participants.some((p) => p.userId === userId)) return;
-    throw new ForbiddenException('Нет доступа к этой задаче');
+    throw forbidden('task.noAccess');
   }
 
   private async userMini(id: string): Promise<UserMini> {

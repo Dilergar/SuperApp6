@@ -1,16 +1,27 @@
 {
-  "unavailable": "Карточка недоступна",
   "deleted": "Запись удалена",
   "event": {
-    "when": "Когда",
-    "where": "Где",
-    "yourStatus": "Ваш статус",
     "organizer": "Организатор",
     "rsvp": {
-      "pending": "Не ответил(а)",
       "accepted": "Иду",
       "declined": "Не иду",
+      "pending": "Не ответил(а)",
       "tentative": "Возможно"
-    }
-  }
+    },
+    "when": "Когда",
+    "where": "Где",
+    "yourStatus": "Ваш статус"
+  },
+  "shift": {
+    "open": "Открыта",
+    "openStatus": "Открытая смена",
+    "take": "Возьму",
+    "taken": "Занята",
+    "template": "Смена"
+  },
+  "site": {
+    "people": "Людей",
+    "timeZone": "Пояс"
+  },
+  "unavailable": "Карточка недоступна"
 }

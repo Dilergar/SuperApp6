@@ -16,20 +16,20 @@ export class GoogleCalendarController {
   constructor(private google: GoogleCalendarService) {}
 
   @Get('status')
-  @ApiOperation({ summary: 'Статус подключения Google' })
+  @ApiOperation({ summary: 'Google connection status' })
   async status(@CurrentUser() user: JwtPayload) {
     return { success: true, data: await this.google.getStatus(user.sub) };
   }
 
   @Get('auth-url')
-  @ApiOperation({ summary: 'Ссылка для подключения Google (OAuth)' })
+  @ApiOperation({ summary: 'The link that connects Google (OAuth)' })
   authUrl(@CurrentUser() user: JwtPayload) {
     return { success: true, data: { url: this.google.getAuthUrl(user.sub) } };
   }
 
   @Public()
   @Get('callback')
-  @ApiOperation({ summary: 'OAuth callback (Google → редирект в веб)' })
+  @ApiOperation({ summary: 'OAuth callback (Google → redirect to the web app)' })
   async callback(@Query('code') code: string, @Query('state') state: string, @Res() res: Response) {
     const webUrl = process.env.WEB_URL || 'http://localhost:3000';
     try {
@@ -41,13 +41,13 @@ export class GoogleCalendarController {
   }
 
   @Get('calendars')
-  @ApiOperation({ summary: 'Список моих Google-календарей' })
+  @ApiOperation({ summary: 'My Google calendars' })
   async calendars(@CurrentUser() user: JwtPayload) {
     return { success: true, data: await this.google.listCalendars(user.sub) };
   }
 
   @Post('select-calendar')
-  @ApiOperation({ summary: 'Выбрать календарь для синхры (__new__ = создать SuperApp6)' })
+  @ApiOperation({ summary: 'Pick the calendar to sync with (__new__ = create a SuperApp6 one)' })
   async select(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const data = selectGoogleCalendarSchema.parse(body);
     await this.google.selectCalendar(user.sub, data.calendarId);
@@ -55,14 +55,14 @@ export class GoogleCalendarController {
   }
 
   @Post('sync')
-  @ApiOperation({ summary: 'Синхронизировать сейчас' })
+  @ApiOperation({ summary: 'Sync now' })
   async sync(@CurrentUser() user: JwtPayload) {
     return { success: true, data: await this.google.syncNow(user.sub) };
   }
 
   @Delete()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Отключить Google' })
+  @ApiOperation({ summary: 'Disconnect Google' })
   async disconnect(@CurrentUser() user: JwtPayload) {
     await this.google.disconnect(user.sub);
     return { success: true };
@@ -71,7 +71,7 @@ export class GoogleCalendarController {
   @Public()
   @Post('webhook')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Приёмник push-уведомлений Google' })
+  @ApiOperation({ summary: 'Receiver for Google push notifications' })
   async webhook(
     @Headers('x-goog-channel-id') channelId: string,
     @Headers('x-goog-resource-state') resourceState: string,

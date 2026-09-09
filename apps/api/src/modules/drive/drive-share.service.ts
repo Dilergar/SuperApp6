@@ -1,7 +1,8 @@
-import { BadRequestException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import {
   DRIVE_NODE_REF_TYPE,
   DRIVE_ROLES,
+  SOURCE_LOCALE,
   WORKSPACE_ROLE_RANK,
   type DriveRole,
   type DriveShareDto,
@@ -10,18 +11,14 @@ import {
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { ChatterRefRegistry } from '../../core/chatter/chatter-ref.registry';
 import { DatabaseService } from '../../shared/database/database.service';
+import { badRequest } from '../../shared/errors/api-error';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { PersonalGraphRegistry } from '../contacts/personal-graph.registry';
 import { NotificationsService } from '../../core/notifications/notifications.service';
 import { DriveAccessService, principalRelation } from './drive-access.service';
 import { DriveService } from './drive.service';
 import { AudiencesService } from '../../core/audiences/audiences.service';
-
-const ROLE_LABEL: Record<DriveRole, string> = {
-  viewer: 'смотрит',
-  editor: 'правит',
-  manager: 'управляет доступом',
-};
 
 /**
  * Шеринг узлов Диска.
@@ -44,6 +41,7 @@ export class DriveShareService implements OnModuleInit {
     private readonly chatter: ChatterService,
     private readonly chatterRegistry: ChatterRefRegistry,
     private readonly audiences: AudiencesService,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -142,7 +140,7 @@ export class DriveShareService implements OnModuleInit {
         actorId: userId,
         actorName: await this.actorName(userId),
         typeKey: 'drive.shared',
-        payload: { targetName: node.name, principalLabel: label, roleLabel: ROLE_LABEL[input.role] },
+        payload: { targetName: node.name, principalLabel: label, role: input.role },
       })
       .catch(() => undefined);
 
@@ -203,7 +201,7 @@ export class DriveShareService implements OnModuleInit {
       const doomed = grantedIds.filter((g) => mine.has(g.resourceId)).map((g) => g.id);
       if (!doomed.length) continue;
       await this.db.relationTuple.deleteMany({ where: { id: { in: doomed } } });
-      this.logger.log(`отозвано ${doomed.length} грантов Диска между ${owner} и ${other}`);
+      this.logger.log(`Revoked ${doomed.length} Drive grants between ${owner} and ${other}`);
     }
   }
 
@@ -233,20 +231,20 @@ export class DriveShareService implements OnModuleInit {
 
     switch (input.principalType) {
       case 'user': {
-        if (input.principalId === userId) throw new BadRequestException('Себе доступ выдавать не нужно');
+        if (input.principalId === userId) throw badRequest('drive.shareSelf');
         if (personal) {
           // ЛИЧНЫЙ ресурс: «рабочий пропуск» здесь не годится — иначе грант достанется
           // коллеге вне окружения, а снимать его при разрыве связи будет нечему.
           await this.contacts.assertReachable(
             userId,
             [input.principalId],
-            'Открыть доступ можно только человеку из вашего окружения',
+            'contacts.shareCircleOnly',
             { personalOnly: true },
           );
         } else {
           const rank = await this.acl.workspaceRank(input.principalId, space.ownerId);
           if (rank < WORKSPACE_ROLE_RANK.trainee) {
-            throw new BadRequestException('Этот человек не состоит в организации');
+            throw badRequest('drive.notInOrganization');
           }
         }
         return;
@@ -255,12 +253,12 @@ export class DriveShareService implements OnModuleInit {
       case 'circle': {
         // Группа — понятие ЛИЧНОГО окружения. На диске организации она означала бы
         // «пустить в рабочие файлы своих родственников», поэтому там её нет вовсе.
-        if (!personal) throw new BadRequestException('На диске организации доступ выдаётся её сотрудникам, отделам, должностям и филиалам');
+        if (!personal) throw badRequest('drive.orgDriveAudience');
         const circle = await this.db.circle.findUnique({
           where: { id: input.principalId },
           select: { ownerId: true },
         });
-        if (!circle || circle.ownerId !== userId) throw new BadRequestException('Такой Группы у вас нет');
+        if (!circle || circle.ownerId !== userId) throw badRequest('drive.noSuchCircle');
         return;
       }
 
@@ -268,7 +266,7 @@ export class DriveShareService implements OnModuleInit {
         // Единственный осмысленный случай — «вся команда» СВОЕЙ организации: ровно тот
         // грант, что стоит на корне её диска.
         if (personal || input.principalId !== space.ownerId) {
-          throw new BadRequestException('Открыть доступ всей команде можно только на диске этой организации');
+          throw badRequest('drive.teamOnOrgDriveOnly');
         }
         return;
       }
@@ -276,14 +274,14 @@ export class DriveShareService implements OnModuleInit {
       case 'department':
       case 'position':
       case 'branch': {
-        if (personal) throw new BadRequestException('Отделы, должности и филиалы бывают только у организации');
+        if (personal) throw badRequest('drive.orgDirectoryOnly');
         const owner = await this.staffOwnerWorkspace(input.principalType, input.principalId);
-        if (owner !== space.ownerId) throw new BadRequestException('Этот справочник принадлежит другой организации');
+        if (owner !== space.ownerId) throw badRequest('drive.foreignDirectory');
         return;
       }
 
       default:
-        throw new BadRequestException('Неизвестный тип получателя доступа');
+        throw badRequest('drive.unknownPrincipal');
     }
   }
 
@@ -316,7 +314,7 @@ export class DriveShareService implements OnModuleInit {
       .send(null, {
         type: 'drive.shared',
         to: [{ userId: input.principalId }],
-        payload: { ownerName, nodeName, roleLabel: ROLE_LABEL[input.role], nodeId },
+        payload: { ownerName, nodeName, role: input.role, nodeId },
         ref: { type: 'drive_node', id: nodeId },
         actorId,
         reason: 'subscribed',
@@ -330,7 +328,9 @@ export class DriveShareService implements OnModuleInit {
       where: { id: userId },
       select: { firstName: true, lastName: true },
     });
-    return u ? `${u.firstName}${u.lastName ? ` ${u.lastName}` : ''}` : 'Кто-то';
+    return u
+      ? `${u.firstName}${u.lastName ? ` ${u.lastName}` : ''}`
+      : this.i18n.translateFor(SOURCE_LOCALE, 'drive.somebody');
   }
 
   /** Как принципал называется в хронике («Аня Н.», «Группа Семья», «Отдел Продажи») */

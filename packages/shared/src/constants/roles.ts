@@ -12,30 +12,29 @@ export const ROLE_CONTEXTS = {
 
 export type RoleContext = (typeof ROLE_CONTEXTS)[keyof typeof ROLE_CONTEXTS];
 
-// Системные роли (context = "system", tenantId = null)
+// Системные роли (context = "system", tenantId = null).
+//
+// Реестр несёт ПРАВА, а не слова: имя роли живёт в каталоге
+// (`common.role.system.<key>`), потому что оно показывается человеку — в
+// профиле, на Главной и в карточке организации, — и обязано говорить на его
+// языке. Описания ролей отсюда убраны: их не показывал никто.
 export const SYSTEM_ROLES = {
   user: {
-    name: 'Пользователь',
-    description: 'Обычный пользователь платформы',
     permissions: ['workspaces.create', 'circles.create'] as SystemPermission[],
   },
   moderator: {
-    name: 'Модератор',
-    description: 'Модератор контента',
     permissions: ['users.view', 'workspaces.create', 'circles.create'] as SystemPermission[],
   },
   admin: {
-    name: 'Администратор',
-    description: 'Полный доступ к платформе',
-    permissions: Object.keys({
-      'users.view': true,
-      'users.manage': true,
-      'workspaces.create': true,
-      'workspaces.manage_all': true,
-      'subscriptions.manage': true,
-      'admin.access': true,
-      'admin.full': true,
-    }) as SystemPermission[],
+    permissions: [
+      'users.view',
+      'users.manage',
+      'workspaces.create',
+      'workspaces.manage_all',
+      'subscriptions.manage',
+      'admin.access',
+      'admin.full',
+    ] as SystemPermission[],
   },
 } as const;
 
@@ -52,37 +51,26 @@ export const MYSTERY_SHOPPER_SYSTEM_ROLE = 'mystery_shopper' as const;
 // Найм ВСЕГДА в trainee (приглашение не несёт выбора роли); повышение — вручную
 // (позже — бизнес-процессами/Додзё). Должности/отделы/филиалы — отдельные сущности
 // (StaffModule), роль прав они не несут.
+// Имена ступеней — `common.role.workspace.<key>` в каталоге.
 export const WORKSPACE_ROLES = {
   owner: {
-    name: 'Владелец',
-    description: 'Создатель рабочего пространства',
     permissions: ['workspace.manage', 'workspace.members', 'workspace.tasks', 'workspace.delete'] as WorkspacePermission[],
   },
   admin: {
-    name: 'Администратор',
-    description: 'Управляет пространством',
     permissions: ['workspace.manage', 'workspace.members', 'workspace.tasks'] as WorkspacePermission[],
   },
   manager: {
-    name: 'Менеджер',
-    description: 'Управляет сотрудниками: справочники, должности, наём',
     permissions: ['workspace.members.view', 'workspace.tasks', 'workspace.staff.manage'] as WorkspacePermission[],
   },
   staff: {
-    name: 'Сотрудник',
-    description: 'Полноценный сотрудник',
     permissions: ['workspace.tasks.own', 'workspace.members.view'] as WorkspacePermission[],
   },
   trainee: {
-    name: 'Стажёр',
-    description: 'Новый сотрудник: проходит обучение (Додзё) своей должности',
     permissions: ['workspace.tasks.own', 'workspace.members.view'] as WorkspacePermission[],
   },
+  // Внешний исполнитель (Коллаб-модель): доступ только к явно выданным
+  // задачам/чатам. Назначается сервисами (Тайный гость, UGC), не вручную.
   contractor: {
-    name: 'Подрядчик',
-    description:
-      'Внешний исполнитель (Коллаб-модель): доступ только к явно выданным задачам/чатам. ' +
-      'Назначается сервисами (Тайный гость, UGC), не вручную',
     permissions: [] as WorkspacePermission[],
   },
 } as const;
@@ -112,58 +100,57 @@ export const ADMIN_ASSIGNABLE_WORKSPACE_ROLES = ['manager', 'staff', 'trainee'] 
 // contractor сюда НЕ входит — он изолирован до явных выдач доступа.
 export const TEAM_WORKSPACE_ROLES = ['owner', 'admin', 'manager', 'staff', 'trainee'] as const;
 
-// Роли в circle (context = "circle", tenantId = circle_id)
+// Роли в circle (context = "circle", tenantId = circle_id).
+// Имена — `common.role.circle.<key>`.
 export const CIRCLE_ROLES = {
   owner: {
-    name: 'Создатель',
-    description: 'Создатель окружения',
     permissions: ['circle.manage', 'circle.members', 'circle.delete'] as CirclePermission[],
   },
   member: {
-    name: 'Участник',
-    description: 'Участник окружения',
     permissions: ['circle.view', 'circle.tasks'] as CirclePermission[],
   },
 } as const;
 
 export type CircleRole = keyof typeof CIRCLE_ROLES;
 
-// Разрешения по контекстам
-export const SYSTEM_PERMISSIONS = {
-  'users.view': 'Просмотр пользователей',
-  'users.manage': 'Управление пользователями',
-  'workspaces.create': 'Создание рабочих пространств',
-  'workspaces.manage_all': 'Управление всеми пространствами',
-  'circles.create': 'Создание окружений',
-  'subscriptions.manage': 'Управление подписками',
-  'admin.access': 'Доступ к админ-панели',
-  'admin.full': 'Полный доступ администратора',
-} as const;
+// Разрешения по контекстам — это КЛЮЧИ, а не подписи: человеку разрешения
+// нигде не показываются (в профиле видна роль, а не её состав), и их русские
+// описания были мёртвым текстом.
+export const SYSTEM_PERMISSIONS = [
+  'users.view',
+  'users.manage',
+  'workspaces.create',
+  'workspaces.manage_all',
+  'circles.create',
+  'subscriptions.manage',
+  'admin.access',
+  'admin.full',
+] as const;
 
-export type SystemPermission = keyof typeof SYSTEM_PERMISSIONS;
+export type SystemPermission = (typeof SYSTEM_PERMISSIONS)[number];
 
-export const WORKSPACE_PERMISSIONS = {
-  'workspace.manage': 'Управление пространством',
-  'workspace.delete': 'Удаление пространства',
-  'workspace.members': 'Управление участниками',
-  'workspace.members.view': 'Просмотр участников',
-  'workspace.staff.manage': 'Управление сотрудниками (справочники, должности, наём)',
-  'workspace.tasks': 'Управление всеми задачами',
-  'workspace.tasks.own': 'Управление своими задачами',
-  'workspace.view': 'Просмотр пространства',
-} as const;
+export const WORKSPACE_PERMISSIONS = [
+  'workspace.manage',
+  'workspace.delete',
+  'workspace.members',
+  'workspace.members.view',
+  'workspace.staff.manage',
+  'workspace.tasks',
+  'workspace.tasks.own',
+  'workspace.view',
+] as const;
 
-export type WorkspacePermission = keyof typeof WORKSPACE_PERMISSIONS;
+export type WorkspacePermission = (typeof WORKSPACE_PERMISSIONS)[number];
 
-export const CIRCLE_PERMISSIONS = {
-  'circle.manage': 'Управление окружением',
-  'circle.delete': 'Удаление окружения',
-  'circle.members': 'Управление участниками',
-  'circle.view': 'Просмотр окружения',
-  'circle.tasks': 'Задачи в окружении',
-} as const;
+export const CIRCLE_PERMISSIONS = [
+  'circle.manage',
+  'circle.delete',
+  'circle.members',
+  'circle.view',
+  'circle.tasks',
+] as const;
 
-export type CirclePermission = keyof typeof CIRCLE_PERMISSIONS;
+export type CirclePermission = (typeof CIRCLE_PERMISSIONS)[number];
 
 // Интерфейс роли пользователя
 export interface UserRoleRecord {

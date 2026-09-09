@@ -24,7 +24,7 @@ export class FinancesCron {
       const recurring = await this.finances.processDueRecurring();
       const reminders = await this.finances.processDebtReminders();
       if (recurring || reminders) {
-        this.logger.log(`Finance cron: повторов ${recurring}, напоминаний по долгам ${reminders}`);
+        this.logger.log(`Finance cron: ${recurring} recurring, ${reminders} debt reminders`);
       }
       return recurring + reminders;
     });
@@ -40,7 +40,7 @@ export class FinancesCron {
     const ran = await this.redis.withLock('cron:finance-share-sweep', 10 * 60 * 1000, async () => {
       const revoked = await this.finances.sweepOrphanFinbookShares();
       if (revoked) {
-        this.logger.warn(`Finance share sweep: отозвано осиротевших грантов книг: ${revoked}`);
+        this.logger.warn(`Finance share sweep: revoked ${revoked} orphaned book grants`);
       }
       return revoked;
     });

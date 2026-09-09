@@ -10,7 +10,7 @@ import { CHATTER_CATEGORIES, CHATTER_LIMITS } from '../constants/chatter';
 // валить всю ленту 400 — как у остальных query-схем репо (finance/wallet).
 /** GET /chatter/:refType/:refId — хроника одной записи (keyset по BigInt id) */
 export const chronicleQuerySchema = z.object({
-  cursor: z.string().regex(/^\d+$/, 'Некорректный курсор').optional(),
+  cursor: z.string().regex(/^\d+$/, 'validation.chatter.cursor').optional(),
   limit: z.coerce
     .number()
     .int()

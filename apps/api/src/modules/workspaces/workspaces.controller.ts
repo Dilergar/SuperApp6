@@ -36,14 +36,14 @@ export class WorkspacesController {
   // ----- Workspaces -----
 
   @Get()
-  @ApiOperation({ summary: 'Мои организации (для переключателя)' })
+  @ApiOperation({ summary: 'My organizations (for the switcher)' })
   async list(@CurrentUser() user: JwtPayload) {
     const data = await this.workspaces.listMyWorkspaces(user.sub);
     return { success: true, data };
   }
 
   @Post()
-  @ApiOperation({ summary: 'Создать организацию' })
+  @ApiOperation({ summary: 'Create an organization' })
   async create(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
     const data = createWorkspaceSchema.parse(body);
     const ws = await this.workspaces.createWorkspace(user.sub, data);
@@ -51,7 +51,7 @@ export class WorkspacesController {
   }
 
   @Get('archived')
-  @ApiOperation({ summary: 'Архив: мои деактивированные организации (владелец)' })
+  @ApiOperation({ summary: 'The archive: my deactivated organizations (owner)' })
   async listArchived(@CurrentUser() user: JwtPayload) {
     const data = await this.workspaces.listArchivedWorkspaces(user.sub);
     return { success: true, data };
@@ -65,7 +65,7 @@ export class WorkspacesController {
    */
   @Post('dev/purge-archives')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'DEV: прогнать ретеншн архива сейчас (только development)' })
+  @ApiOperation({ summary: 'DEV: run the archive retention right now (development only)' })
   async devPurgeArchives(@Body() body?: { workspaceId?: string }) {
     if (process.env.NODE_ENV !== 'development') throw new NotFoundException();
     // Полигон КЭДО: purge КОНКРЕТНОЙ организации сейчас (проверка «личный архив
@@ -82,7 +82,7 @@ export class WorkspacesController {
   // ----- Incoming invitations (must precede ':id' routes) -----
 
   @Get('invitations/incoming')
-  @ApiOperation({ summary: 'Мои входящие приглашения в организации' })
+  @ApiOperation({ summary: 'My incoming invitations to organizations' })
   async incomingInvitations(@CurrentUser() user: JwtPayload) {
     const data = await this.workspaces.listIncomingInvitations(user.sub);
     return { success: true, data };
@@ -90,7 +90,7 @@ export class WorkspacesController {
 
   @Post('invitations/:invId/accept')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Принять приглашение в организацию' })
+  @ApiOperation({ summary: 'Accept an invitation to an organization' })
   async acceptInvitation(
     @CurrentUser() user: JwtPayload,
     @Param('invId') invId: string,
@@ -101,7 +101,7 @@ export class WorkspacesController {
 
   @Post('invitations/:invId/reject')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Отклонить приглашение в организацию' })
+  @ApiOperation({ summary: 'Decline an invitation to an organization' })
   async rejectInvitation(
     @CurrentUser() user: JwtPayload,
     @Param('invId') invId: string,
@@ -113,7 +113,7 @@ export class WorkspacesController {
   // ----- Single workspace -----
 
   @Get(':id')
-  @ApiOperation({ summary: 'Организация (с моей ролью)' })
+  @ApiOperation({ summary: 'The organization (with my role)' })
   async get(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const data = await this.workspaces.getWorkspace(user.sub, id);
     return { success: true, data };
@@ -122,14 +122,14 @@ export class WorkspacesController {
   // ----- Реквизиты (блок «Анкеты компании»: юрформа, БИН, банк, директор) -----
 
   @Get(':id/requisites')
-  @ApiOperation({ summary: 'Реквизиты организации + банковские счета (сотрудникам — по флагу видимости)' })
+  @ApiOperation({ summary: 'The details of the organization + its bank accounts (employees see them by the visibility flag)' })
   async getRequisites(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const data = await this.workspaces.getRequisites(user.sub, id);
     return { success: true, data };
   }
 
   @Patch(':id/requisites')
-  @ApiOperation({ summary: 'Обновить реквизиты (admin+; null очищает поле)' })
+  @ApiOperation({ summary: 'Update the details (admin+; null clears a field)' })
   async updateRequisites(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -141,7 +141,7 @@ export class WorkspacesController {
   }
 
   @Post(':id/requisites/accounts')
-  @ApiOperation({ summary: 'Добавить банковский счёт (admin+; первый становится основным)' })
+  @ApiOperation({ summary: 'Add a bank account (admin+; the first one becomes the main one)' })
   async addBankAccount(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -153,7 +153,7 @@ export class WorkspacesController {
   }
 
   @Patch(':id/requisites/accounts/:accId')
-  @ApiOperation({ summary: 'Изменить банковский счёт / назначить основным (admin+)' })
+  @ApiOperation({ summary: 'Change a bank account / make it the main one (admin+)' })
   async updateBankAccount(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -167,7 +167,7 @@ export class WorkspacesController {
 
   @Delete(':id/requisites/accounts/:accId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Удалить банковский счёт (admin+)' })
+  @ApiOperation({ summary: 'Delete a bank account (admin+)' })
   async removeBankAccount(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -178,7 +178,7 @@ export class WorkspacesController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Обновить профиль организации (admin+)' })
+  @ApiOperation({ summary: 'Update the profile of the organization (admin+)' })
   async update(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -191,7 +191,7 @@ export class WorkspacesController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Деактивировать организацию (владелец)' })
+  @ApiOperation({ summary: 'Deactivate the organization (owner)' })
   async deactivate(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     await this.workspaces.deactivateWorkspace(user.sub, id);
     return { success: true };
@@ -199,7 +199,7 @@ export class WorkspacesController {
 
   @Post(':id/restore')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Восстановить деактивированную организацию (владелец)' })
+  @ApiOperation({ summary: 'Restore a deactivated organization (owner)' })
   async restore(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     await this.workspaces.restoreWorkspace(user.sub, id);
     return { success: true };
@@ -207,7 +207,7 @@ export class WorkspacesController {
 
   @Post(':id/transfer')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Передать владение (владелец)' })
+  @ApiOperation({ summary: 'Transfer the ownership (owner)' })
   async transfer(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -220,7 +220,7 @@ export class WorkspacesController {
 
   @Post(':id/leave')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Выйти из организации (не владелец)' })
+  @ApiOperation({ summary: 'Leave the organization (anyone but the owner)' })
   async leave(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     await this.workspaces.leaveWorkspace(user.sub, id);
     return { success: true };
@@ -229,14 +229,14 @@ export class WorkspacesController {
   // ----- Members -----
 
   @Get(':id/members')
-  @ApiOperation({ summary: 'Сотрудники организации' })
+  @ApiOperation({ summary: 'The employees of the organization' })
   async members(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const data = await this.workspaces.listMembers(user.sub, id);
     return { success: true, data };
   }
 
   @Get(':id/members/:userId')
-  @ApiOperation({ summary: 'Один сотрудник: карточка + реквизиты (комплект для договоров — manager+)' })
+  @ApiOperation({ summary: 'One employee: the card + the details (the set for contracts — manager+)' })
   async member(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -247,7 +247,7 @@ export class WorkspacesController {
   }
 
   @Patch(':id/members/:userId')
-  @ApiOperation({ summary: 'Изменить роль сотрудника (admin+; админа — только владелец)' })
+  @ApiOperation({ summary: 'Change the role of an employee (admin+; an administrator — the owner only)' })
   async updateMember(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -261,7 +261,7 @@ export class WorkspacesController {
 
   @Delete(':id/members/:userId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Уволить сотрудника (admin+)' })
+  @ApiOperation({ summary: 'Dismiss an employee (admin+)' })
   async removeMember(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -274,7 +274,7 @@ export class WorkspacesController {
   // ----- Outgoing invitations -----
 
   @Post(':id/invitations')
-  @ApiOperation({ summary: 'Нанять по номеру — всегда в Стажёра (manager+)' })
+  @ApiOperation({ summary: 'Hire by phone number — always as a Trainee (manager+)' })
   async invite(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -286,7 +286,7 @@ export class WorkspacesController {
   }
 
   @Get(':id/invitations')
-  @ApiOperation({ summary: 'Исходящие приглашения организации (manager+)' })
+  @ApiOperation({ summary: 'The outgoing invitations of the organization (manager+)' })
   async outgoingInvitations(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -297,7 +297,7 @@ export class WorkspacesController {
 
   @Post(':id/invitations/:invId/cancel')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Отменить приглашение (manager+)' })
+  @ApiOperation({ summary: 'Cancel an invitation (manager+)' })
   async cancelInvitation(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,

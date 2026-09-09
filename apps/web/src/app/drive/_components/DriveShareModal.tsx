@@ -20,19 +20,11 @@ import { apiErrorMessage } from '@/lib/api';
 import { toastError } from '@/lib/toast';
 import { driveNodeKey, driveSharesKey } from '@/lib/queries';
 import { fetchDriveNode, fetchDriveShares, shareDriveNode, unshareDriveNode } from '@/lib/drive-api';
+import { useTranslations } from 'next-intl';
 import { PersonChip } from '../../circles/PersonCard';
 
-const ROLE_OPTIONS = [
-  { value: 'viewer', label: 'Смотрит' },
-  { value: 'editor', label: 'Правит' },
-  { value: 'manager', label: 'Управляет доступом' },
-];
-
-const ROLE_LABEL: Record<DriveRole, string> = {
-  viewer: 'смотрит',
-  editor: 'правит',
-  manager: 'управляет доступом',
-};
+/** Ступени доступа: реестр называет СМЫСЛ, слово даёт каталог. */
+const ROLE_VALUES: DriveRole[] = ['viewer', 'editor', 'manager'];
 
 export function DriveShareModal({
   node,
@@ -45,6 +37,7 @@ export function DriveShareModal({
   workspaceId?: string;
   onClose: () => void;
 }) {
+  const t = useTranslations('drive');
   const qc = useQueryClient();
   const [picked, setPicked] = useState<Principal[]>([]);
   const [role, setRole] = useState<DriveRole>('viewer');
@@ -99,7 +92,7 @@ export function DriveShareModal({
   const inherited = (shares ?? []).filter((s) => s.inherited);
 
   return (
-    <Modal open onClose={onClose} title={`Доступ к «${node.name}»`} size="md">
+    <Modal open onClose={onClose} title={t('share.title', { name: node.name })} size="md">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {canManage ? (
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
@@ -109,13 +102,13 @@ export function DriveShareModal({
                 onChange={setPicked}
                 types={types}
                 context={workspaceId ? { workspaceId } : undefined}
-                placeholder="Кому открыть доступ"
+                placeholder={t('share.pickPerson')}
               />
             </div>
             <Select
-              label="Роль"
+              label={t('share.role')}
               value={role}
-              options={ROLE_OPTIONS}
+              options={ROLE_VALUES.map((value) => ({ value, label: t(`role.${value}`) }))}
               onChange={(v) => setRole(v as DriveRole)}
               className="w-44"
             />
@@ -125,13 +118,12 @@ export function DriveShareModal({
               loading={grant.isPending}
               onClick={() => grant.mutate()}
             >
-              Открыть
+              {t('share.grant')}
             </Button>
           </div>
         ) : (
           <p className="body-sm" style={{ margin: 0, color: 'var(--muted)' }}>
-            Здесь видно, кому открыт доступ. Менять его и раздавать ссылки наружу может тот,
-            кто управляет этим объектом.
+            {t('share.hint')}
           </p>
         )}
 
@@ -140,9 +132,9 @@ export function DriveShareModal({
         ) : (
           <>
             <section>
-              <p className="label-caps" style={{ marginBottom: 8 }}>Доступ выдан здесь</p>
+              <p className="label-caps" style={{ marginBottom: 8 }}>{t('share.grantedHere')}</p>
               {own.length === 0 ? (
-                <p className="body-sm" style={{ color: 'var(--muted)' }}>Пока никому.</p>
+                <p className="body-sm" style={{ color: 'var(--muted)' }}>{t('share.nobody')}</p>
               ) : (
                 <ul style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {own.map((s) => (
@@ -151,7 +143,7 @@ export function DriveShareModal({
                       style={{ display: 'flex', alignItems: 'center', gap: 8 }}
                     >
                       <SharePrincipal share={s} />
-                      <Chip tone="accent">{ROLE_LABEL[s.role]}</Chip>
+                      <Chip tone="accent">{t(`roleLower.${s.role}`)}</Chip>
                       <span style={{ flex: 1 }} />
                       {canManage && (
                         <Button
@@ -161,7 +153,7 @@ export function DriveShareModal({
                           onClick={() => revoke.mutate(s)}
                           disabled={revoke.isPending}
                         >
-                          Закрыть
+                          {t('share.revoke')}
                         </Button>
                       )}
                     </li>
@@ -172,7 +164,7 @@ export function DriveShareModal({
 
             {inherited.length > 0 && (
               <section>
-                <p className="label-caps" style={{ marginBottom: 8 }}>Унаследовано от папок</p>
+                <p className="label-caps" style={{ marginBottom: 8 }}>{t('share.inherited')}</p>
                 <ul style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {inherited.map((s) => (
                     <li
@@ -180,7 +172,7 @@ export function DriveShareModal({
                       style={{ display: 'flex', alignItems: 'center', gap: 8 }}
                     >
                       <SharePrincipal share={s} />
-                      <Chip tone="neutral">{ROLE_LABEL[s.role]}</Chip>
+                      <Chip tone="neutral">{t(`roleLower.${s.role}`)}</Chip>
                       <span className="label-sm" style={{ color: 'var(--muted)' }}>
                         <Icon name="folder" size={12} /> {s.nodeName}
                       </span>
@@ -188,7 +180,7 @@ export function DriveShareModal({
                   ))}
                 </ul>
                 <p className="body-sm" style={{ color: 'var(--muted)', marginTop: 6 }}>
-                  Такой доступ снимается там, где он выдан, — в самой папке.
+                  {t('share.inheritedHint')}
                 </p>
               </section>
             )}
@@ -198,7 +190,7 @@ export function DriveShareModal({
                 и остальным этот блок отвечал бы отказом на каждое действие. */}
             {canManage && (
               <section style={{ borderTop: '1px solid var(--divider)', paddingTop: 'var(--spacing-5)' }}>
-                <p className="label-caps" style={{ marginBottom: 8 }}>Доступ по ссылке наружу</p>
+                <p className="label-caps" style={{ marginBottom: 8 }}>{t('share.publicLinks')}</p>
                 <ShareLinkSection refType={DRIVE_NODE_REF_TYPE} refId={node.id} />
               </section>
             )}
@@ -211,8 +203,9 @@ export function DriveShareModal({
 
 /** Человек — всегда карточкой (несущее правило платформы), остальное — чипом */
 function SharePrincipal({ share }: { share: DriveShareDto }) {
+  const t = useTranslations('drive');
   if (share.principalType === 'user') {
-    return <PersonChip size="S" userId={share.principalId} firstName={share.principalName ?? 'Человек'} />;
+    return <PersonChip size="S" userId={share.principalId} firstName={share.principalName ?? t('share.person')} />;
   }
   return <Chip tone="neutral">{share.principalName ?? share.principalType}</Chip>;
 }

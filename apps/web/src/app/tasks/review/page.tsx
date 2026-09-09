@@ -1,16 +1,18 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { PageHeader } from '@/components/ui';
 import { TaskListSection } from '../TaskListSection';
 
 export default function TasksReviewPage() {
+  const t = useTranslations('tasks');
   return (
     <>
-      <PageHeader breadcrumb="Задачи" title="На проверке" description="Исполнители сдали работу и ждут вашей приёмки. Откройте задачу — «Принять» или «Вернуть»." />
+      <PageHeader breadcrumb={t('breadcrumb')} title={t('sections.review.title')} description={t('sections.review.description')} />
       <TaskListSection
         filter={{ smartList: 'on_review' }}
-        emptyText="Никто не ждёт вашей приёмки"
-        emptyHint="Когда по вашей задаче сдадут работу — она появится здесь"
+        emptyText={t('sections.review.empty')}
+        emptyHint={t('sections.review.emptyHint')}
       />
     </>
   );

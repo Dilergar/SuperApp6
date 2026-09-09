@@ -1,12 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { useIsMobile } from '@/lib/hooks/useIsMobile';
 import { apiErrorMessage } from '@/lib/api';
+import { useFormatters } from '@/lib/format';
 import { fetchOfficeRoom, messengerMessagesKey, officeRoomKey, officeRoomsKey } from '@/lib/queries';
 import { endCallSession, getCallToken } from '@/lib/calls-api';
 import { CallRoomShell, type CallLeaveReason } from '@/components/calls/CallRoomShell';
@@ -42,6 +44,8 @@ type Phase = 'prejoin' | 'joining' | 'incall' | 'left' | 'kicked' | 'callEnded';
  * скопирована с детальки задачи (единственный существующий паттерн встраивания).
  */
 export default function MeetingRoom() {
+  const t = useTranslations('office');
+  const f = useFormatters();
   const { isReady, user } = useRequireAuth();
   const { id: wsId, roomId } = useParams<{ id: string; roomId: string }>();
   const queryClient = useQueryClient();
@@ -90,11 +94,11 @@ export default function MeetingRoom() {
       if (reason === 'ended') setPhase('callEnded');
       else if (reason === 'kicked') setPhase('kicked');
       else if (reason === 'error') {
-        setJoinError('Соединение прервалось — попробуйте снова');
+        setJoinError(t('room.connectionLost'));
         setPhase('prejoin');
       } else setPhase('left');
     },
-    [queryClient, wsId, roomId],
+    [queryClient, wsId, roomId, t],
   );
 
   // ============================================================
@@ -265,7 +269,7 @@ export default function MeetingRoom() {
         const saved = await sendAttachmentMessage(chatId, fileIds, caption || undefined, replyToId);
         upsertMessageInCache(chatId, saved);
       } catch (e) {
-        console.error('Не удалось отправить вложения', e);
+        console.error('Could not send the attachments', e);
       }
     },
     [chatId, upsertMessageInCache],
@@ -340,9 +344,13 @@ export default function MeetingRoom() {
       <Card>
         <EmptyState
           icon="blocked"
-          title="Встреча не найдена или нет доступа"
-          description="Возможно, встречу завершили или вас не приглашали."
-          action={<Button variant="matte" icon="arrowLeft" href={`/workspaces/${wsId}/office`}>К встречам</Button>}
+          title={t('room.notFoundTitle')}
+          description={t('room.notFoundDescription')}
+          action={
+            <Button variant="matte" icon="arrowLeft" href={`/workspaces/${wsId}/office`}>
+              {t('room.backToMeetings')}
+            </Button>
+          }
         />
       </Card>
     );
@@ -358,17 +366,19 @@ export default function MeetingRoom() {
           className="label-md"
           style={{ color: 'var(--secondary)', fontWeight: 600, textDecoration: 'none', display: 'inline-block', marginBottom: 'var(--spacing-4)' }}
         >
-          ← Встречи
+          ← {t('rooms.title')}
         </Link>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--spacing-3)', flexWrap: 'wrap', marginBottom: 'var(--spacing-4)' }}>
           <h1 className="title-lg" style={{ fontSize: '1.2rem' }}>🏁 {room.name}</h1>
           <span className="label-sm" style={{ opacity: 0.7 }}>
-            Завершена{room.endedAt ? ` ${new Date(room.endedAt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}
+            {room.endedAt
+              ? t('endedAt', { when: `${f.date(room.endedAt, 'dayMonthLong')}, ${f.time(room.endedAt)}` })
+              : t('ended')}
           </span>
         </div>
         {chatQuery.isError ? (
           <div className="card" style={{ padding: 'var(--spacing-6)', textAlign: 'center' }}>
-            <p className="label-md">Чат встречи доступен только её участникам</p>
+            <p className="label-md">{t('room.chatMembersOnly')}</p>
           </div>
         ) : chatDetail ? (
           <div
@@ -390,7 +400,7 @@ export default function MeetingRoom() {
             />
           </div>
         ) : (
-          <p className="label-md">Загрузка чата…</p>
+          <p className="label-md">{t('room.chatLoading')}</p>
         )}
       </div>
     );
@@ -402,12 +412,12 @@ export default function MeetingRoom() {
         icon={phase === 'kicked' ? 'signOut' : phase === 'callEnded' ? 'checkCircle' : 'call'}
         title={
           phase === 'kicked'
-            ? 'Вас исключили из звонка'
+            ? t('room.kicked')
             : phase === 'callEnded'
-              ? 'Звонок завершён'
-              : 'Вы покинули встречу'
+              ? t('room.callEnded')
+              : t('room.left')
         }
-        note={phase === 'callEnded' ? 'Ссылка встречи продолжает работать — можно созвониться снова' : undefined}
+        note={phase === 'callEnded' ? t('room.callEndedNote') : undefined}
         wsId={wsId}
         onRejoin={phase === 'kicked' ? undefined : () => setPhase('prejoin')}
       />
@@ -418,12 +428,12 @@ export default function MeetingRoom() {
     return (
       <div>
         <Link href={`/workspaces/${wsId}/office`} className="label-md" style={{ color: 'var(--secondary)', fontWeight: 600, textDecoration: 'none', display: 'inline-block', marginBottom: 'var(--spacing-5)' }}>
-          ← Встречи
+          ← {t('rooms.title')}
         </Link>
         <PreJoin title={room.name} joining={phase === 'joining'} error={joinError} onJoin={handleJoin} />
         {room.live && (
           <p className="label-md" style={{ textAlign: 'center', marginTop: 'var(--spacing-4)' }}>
-            Сейчас в звонке: {room.live.participantCount}
+            {t('room.inCallNow', { n: room.live.participantCount })}
           </p>
         )}
       </div>
@@ -445,8 +455,8 @@ export default function MeetingRoom() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-3)', flexWrap: 'wrap' }}>
         <div className="title-lg" style={{ fontSize: '1.1rem' }}>🎥 {room.name}</div>
         <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
-          <TabButton active={rightTab === 'people'} onClick={() => setRightTab((t) => (t === 'people' ? null : 'people'))}>Участники</TabButton>
-          <TabButton active={rightTab === 'chat'} onClick={() => setRightTab((t) => (t === 'chat' ? null : 'chat'))}>Чат</TabButton>
+          <TabButton active={rightTab === 'people'} onClick={() => setRightTab((t) => (t === 'people' ? null : 'people'))}>{t('room.tabs.people')}</TabButton>
+          <TabButton active={rightTab === 'chat'} onClick={() => setRightTab((t) => (t === 'chat' ? null : 'chat'))}>{t('room.tabs.chat')}</TabButton>
         </div>
       </div>
 
@@ -466,7 +476,12 @@ export default function MeetingRoom() {
           <ControlsBar
             moderator={call.moderator}
             onEndForAll={() => confirm(
-              { title: 'Завершить звонок для всех?', message: 'Комната закроется у каждого участника встречи.', confirmLabel: 'Завершить', danger: true },
+              {
+                title: t('room.endForAll.title'),
+                message: t('room.endForAll.message'),
+                confirmLabel: t('actions.end'),
+                danger: true,
+              },
               () => endCallSession(call.sessionId).catch((e) => toastError(apiErrorMessage(e))),
             )}
           />
@@ -509,7 +524,7 @@ export default function MeetingRoom() {
               />
             </div>
           ) : (
-            <p className="label-md">Загрузка чата…</p>
+            <p className="label-md">{t('room.chatLoading')}</p>
           )}
         </aside>
         )}
@@ -553,6 +568,7 @@ function FinalScreen({
   wsId: string;
   onRejoin?: () => void;
 }) {
+  const t = useTranslations('office');
   return (
     <Card>
       <EmptyState
@@ -562,9 +578,9 @@ function FinalScreen({
         action={
           <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
             {onRejoin && (
-              <Button variant="primary" icon="video" onClick={onRejoin}>Присоединиться снова</Button>
+              <Button variant="primary" icon="video" onClick={onRejoin}>{t('room.joinAgain')}</Button>
             )}
-            <Button variant="ghost" icon="arrowLeft" href={`/workspaces/${wsId}/office`}>К встречам</Button>
+            <Button variant="ghost" icon="arrowLeft" href={`/workspaces/${wsId}/office`}>{t('room.backToMeetings')}</Button>
           </div>
         }
       />

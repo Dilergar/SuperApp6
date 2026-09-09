@@ -2,6 +2,8 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { AccessProjectionService } from '../../core/access/access-projection.service';
 import { DatabaseService } from '../../shared/database/database.service';
+import { SOURCE_LOCALE } from '@superapp/shared';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { MessengerService } from './messenger.service';
 
 /**
@@ -28,7 +30,13 @@ export class OrderSystemListener implements OnModuleInit {
     private readonly projection: AccessProjectionService,
     private readonly db: DatabaseService,
     private readonly messenger: MessengerService,
+    private readonly i18n: I18nService,
   ) {}
+
+  /** Снимок плашки в языке источника (перерисовывается при чтении). */
+  private src(key: string, params?: Record<string, string>): string {
+    return this.i18n.translateFor(SOURCE_LOCALE, key, params);
+  }
 
   onModuleInit() {
     this.events.onPattern('shop.order.*').subscribe((e) => {
@@ -50,7 +58,7 @@ export class OrderSystemListener implements OnModuleInit {
         await this.messenger.postOrderSystemMessage(
           orderId,
           'order.funded',
-          'Сбор завершён — ожидается подтверждение',
+          this.src('chatter.type.order.collecting_done'),
         );
         return;
       }
@@ -77,11 +85,11 @@ export class OrderSystemListener implements OnModuleInit {
   private textFor(type: string): string | null {
     switch (type) {
       case 'shop.order.confirmed':
-        return 'Заказ подтверждён';
+        return this.src('chatter.type.order.confirmed');
       case 'shop.order.rejected':
-        return 'Заказ отклонён';
+        return this.src('chatter.type.order.rejected');
       case 'shop.order.cancelled':
-        return 'Заказ отменён';
+        return this.src('chatter.type.order.cancelled');
       default:
         return null;
     }

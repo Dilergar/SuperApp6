@@ -43,11 +43,11 @@ export class DocsCron {
           if (await this.docs.closeSession(session, 'expired')) closed++;
         } catch (err) {
           this.logger.warn(
-            `не удалось закрыть сессию ${session.id}: ${String((err as Error)?.message ?? err)}`,
+            `could not close session ${session.id}: ${String((err as Error)?.message ?? err)}`,
           );
         }
       }
-      if (closed) this.logger.log(`жнец закрыл просроченных сессий правки: ${closed}`);
+      if (closed) this.logger.log(`the reaper closed ${closed} expired editing sessions`);
     });
   }
 }

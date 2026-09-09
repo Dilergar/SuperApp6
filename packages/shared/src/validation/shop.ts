@@ -3,9 +3,9 @@ import { SHOP_LIMITS } from '../constants/shop';
 
 const noAngle = (s: string) => !/[<>]/.test(s);
 const text = (max: number) =>
-  z.string().trim().min(1).max(max).refine(noAngle, { message: 'Недопустимые символы (< >)' });
+  z.string().trim().min(1).max(max).refine(noAngle, { message: 'validation.shop.badCharacters' });
 const optText = (max: number) =>
-  z.string().trim().max(max).refine(noAngle, { message: 'Недопустимые символы (< >)' }).nullable().optional();
+  z.string().trim().max(max).refine(noAngle, { message: 'validation.shop.badCharacters' }).nullable().optional();
 const icon = z.string().trim().max(SHOP_LIMITS.maxIconLength).nullable().optional();
 
 export const createShowcaseSchema = z
@@ -47,7 +47,7 @@ const pricesArray = z
   .min(1)
   .max(SHOP_LIMITS.maxPriceLines)
   .refine((lines) => new Set(lines.map((l) => l.currencyId)).size === lines.length, {
-    message: 'Каждая валюта может быть указана только один раз',
+    message: 'validation.shop.duplicateCurrency',
   });
 
 // Listing fields shared by create/update (title handled separately — required on create).
@@ -75,7 +75,7 @@ export const createListingSchema = z
   })
   .strict()
   .refine((d) => d.priceAmount !== undefined || (d.prices && d.prices.length > 0), {
-    message: 'Укажите цену (priceAmount или prices)',
+    message: 'validation.shop.priceRequired',
   });
 
 export const updateListingSchema = z
@@ -97,7 +97,7 @@ export const contributeSchema = z
   .strict();
 
 // ---- Wishlist (Phase 8) ----
-const wishLink = z.string().trim().max(500).refine(noAngle, { message: 'Недопустимые символы (< >)' }).nullable().optional();
+const wishLink = z.string().trim().max(500).refine(noAngle, { message: 'validation.shop.badCharacters' }).nullable().optional();
 
 export const createWishSchema = z
   .object({
@@ -136,7 +136,7 @@ export const copyWishSchema = z
   })
   .strict()
   .refine((d) => !!d.showcaseId !== !!d.newShowcaseName, {
-    message: 'Укажите витрину или название новой (одно из двух)',
+    message: 'validation.shop.showcaseOrName',
   });
 
 export const assignShopStaffSchema = z
@@ -147,7 +147,7 @@ export const assignShopStaffSchema = z
   })
   .strict()
   .refine((d) => d.scope !== 'showcase' || !!d.showcaseId, {
-    message: 'showcaseId обязателен для роли витрины',
+    message: 'validation.shop.showcaseIdRequired',
   });
 
 // ---- Входные типы: ЕДИНСТВЕННОЕ описание формы входа ----

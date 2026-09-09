@@ -12,7 +12,7 @@ export class TemplatesController {
   constructor(private readonly registry: TemplateFieldRegistry) {}
 
   @Get('field-groups')
-  @ApiOperation({ summary: 'Группы полей шаблонов (реестр): «Организация», «Сотрудник», …' })
+  @ApiOperation({ summary: 'Template field groups from the registry (words in the request language)' })
   fieldGroups() {
     return { success: true, data: { groups: this.registry.list() } };
   }

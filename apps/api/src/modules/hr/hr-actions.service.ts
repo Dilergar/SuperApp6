@@ -1,14 +1,7 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   CAMPAIGN_AUDIENCE_KINDS,
   ESUTD_KINDS,
-  HR_ACTION_KIND_LABELS,
   HR_DEADLINE_RULE_MAP,
   HR_ERROR_CODES,
   HR_LIMITS,
@@ -25,7 +18,10 @@ import {
   type HrActionStatus,
   type WorkspaceRole,
 } from '@superapp/shared';
+import { SOURCE_LOCALE } from '@superapp/i18n';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
+import { badRequest, forbidden, notFound } from '../../shared/errors/api-error';
 import { RolesService } from '../../core/roles/roles.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { JobsService } from '../../core/jobs/jobs.service';
@@ -78,10 +74,6 @@ const dateStr = (d: Date | null | undefined): string | null => (d ? d.toISOStrin
 /** Сегодня в поясе платформы (фолбэк, если у действия нет даты вступления) */
 const orgTodayIso = (): string => assignmentToday();
 
-function coded(message: string, code: string): BadRequestException {
-  return new BadRequestException({ message, details: { code } });
-}
-
 /**
  * Кадровые действия (КЭДО): действие ПЕРВИЧНО, документ производен.
  * «Уволить» → приказ (черновик, правится) → отправка на маршрут → подписи →
@@ -95,8 +87,14 @@ function coded(message: string, code: string): BadRequestException {
 export class HrActionsService {
   private readonly logger = new Logger(HrActionsService.name);
 
+  /** Слово в языке ИСТОЧНИКА — снимок, который ложится в БД навсегда */
+  private src(key: string, values?: Record<string, string | number>): string {
+    return this.i18n.translateFor(SOURCE_LOCALE, key, values);
+  }
+
   constructor(
     private readonly db: DatabaseService,
+    private readonly i18n: I18nService,
     private readonly roles: RolesService,
     private readonly chatter: ChatterService,
     private readonly jobs: JobsService,
@@ -126,14 +124,14 @@ export class HrActionsService {
 
   private async requireManager(userId: string, workspaceId: string): Promise<WorkspaceRole> {
     const role = await this.roleOf(userId, workspaceId);
-    if (!role || role === 'contractor') throw new ForbiddenException('Нет доступа к этой организации');
-    if (!this.isManager(role)) throw new ForbiddenException('Кадровые действия ведёт Менеджер или выше');
+    if (!role || role === 'contractor') throw forbidden('workspace.noAccess');
+    if (!this.isManager(role)) throw forbidden('hr.actionsManagerOnly');
     return role;
   }
 
   private async nameOf(userId: string): Promise<string> {
     const u = await this.db.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true } });
-    return u ? fullName(u) : 'Кто-то';
+    return u ? fullName(u) : this.src('common.labels.someone');
   }
 
   private async logMember(
@@ -149,7 +147,7 @@ export class HrActionsService {
         refId: hrMemberRefId(workspaceId, subjectUserId),
         workspaceId,
         actorId: actorId ?? undefined,
-        actorName: actorId ? await this.nameOf(actorId) : 'Система',
+        actorName: actorId ? await this.nameOf(actorId) : this.src('common.labels.system'),
         typeKey,
         payload,
       })
@@ -169,7 +167,7 @@ export class HrActionsService {
     const actorRole = await this.requireManager(actorId, workspaceId);
     const subjectRole = await this.roleOf(dto.userId, workspaceId);
     if (!subjectRole || subjectRole === 'contractor') {
-      throw new BadRequestException('Кадровое действие заводится на сотрудника организации');
+      throw badRequest('hr.actionMemberOnly');
     }
     assertCanManageHrSubject(actorRole, subjectRole);
     const kind = dto.kind as HrActionKind;
@@ -177,10 +175,10 @@ export class HrActionsService {
 
     // Обязательное по виду — проверяем ЗДЕСЬ, а не в Zod: параметры дополняют
     // друг друга, и только сервис знает, что для какого вида несущее.
-    if (kind === 'leave' && !dto.effectiveTo) throw new BadRequestException('У отпуска обязательна дата окончания');
-    if (kind === 'dismissal' && !params.ground) throw new BadRequestException('Укажите основание прекращения (статья ТК РК)');
-    if (kind === 'transfer' && !params.legalPositionId) throw new BadRequestException('Укажите новую должность');
-    if (kind === 'salary_change' && params.salaryAmount === undefined) throw new BadRequestException('Укажите новый оклад');
+    if (kind === 'leave' && !dto.effectiveTo) throw badRequest('hr.leaveEndRequired');
+    if (kind === 'dismissal' && !params.ground) throw badRequest('hr.groundRequired');
+    if (kind === 'transfer' && !params.legalPositionId) throw badRequest('hr.positionRequired');
+    if (kind === 'salary_change' && params.salaryAmount === undefined) throw badRequest('hr.salaryRequired');
 
     /**
      * Дубль незакрытого действия. Два приказа применятся ОБА, и разбираться с
@@ -202,11 +200,10 @@ export class HrActionsService {
         select: { id: true },
       });
       if (openSame) {
-        throw coded(
-          kind === 'dismissal'
-            ? 'По этому сотруднику уже идёт увольнение — закройте или отмените его прежде, чем заводить новое'
-            : `По этому сотруднику уже идёт действие «${HR_ACTION_KIND_LABELS[kind]}» на эту же дату — закройте или отмените его прежде, чем заводить новое`,
-          HR_ERROR_CODES.actionDuplicate,
+        throw badRequest(
+          kind === 'dismissal' ? 'hr.dismissalDuplicate' : 'hr.actionDuplicate',
+          { kind: this.i18n.translate(`hr.actionKind.${kind}`) },
+          { code: HR_ERROR_CODES.actionDuplicate },
         );
       }
     }
@@ -234,7 +231,7 @@ export class HrActionsService {
           where: { id: dto.employmentId, workspaceId, userId: dto.userId },
         })
       : null;
-    if (dto.employmentId && !explicit) throw new BadRequestException('Трудовая карточка не найдена');
+    if (dto.employmentId && !explicit) throw badRequest('hr.employmentNotFound');
     const legalEntityId = explicit
       ? explicit.legalEntityId
       : await this.legal.resolveLegalEntityId(workspaceId, params.legalEntityId ?? null);
@@ -250,7 +247,7 @@ export class HrActionsService {
       }));
     if (kind === 'hire') {
       if (live && live.status === 'active') {
-        throw new BadRequestException('У сотрудника уже есть действующая трудовая карточка');
+        throw badRequest('hr.employmentAlreadyLive');
       }
       const snapshots = params.legalPositionId
         ? await this.legalSnapshots(workspaceId, params.legalPositionId, params.legalBranchId ?? null)
@@ -293,7 +290,7 @@ export class HrActionsService {
       });
       employmentId = draft.id;
     } else {
-      if (!live) throw new BadRequestException('Сначала заведите трудовую карточку (или оформите приём)');
+      if (!live) throw badRequest('hr.employmentRequired');
       employmentId = live.id;
     }
 
@@ -336,8 +333,8 @@ export class HrActionsService {
     });
 
     await this.logMember(actorId, workspaceId, dto.userId, 'hr.action_created', {
-      kindLabel: HR_ACTION_KIND_LABELS[kind],
-      documentSuffix: docIds.length ? ` (документов: ${docIds.length})` : '',
+      kindLabelKey: `hr.actionKind.${kind}`,
+      ...(docIds.length ? { documentSuffixKey: 'hr.documentCountSuffix', docCount: docIds.length } : {}),
     });
 
     return this.getAction(workspaceId, action.id);
@@ -346,11 +343,11 @@ export class HrActionsService {
   private async legalSnapshots(workspaceId: string, positionId: string, branchId: string | null, tx?: HrTx) {
     const db = tx ?? this.db;
     const pos = await db.staffPosition.findFirst({ where: { id: positionId, workspaceId }, select: { name: true } });
-    if (!pos) throw new BadRequestException('Должность не найдена в этой организации');
+    if (!pos) throw badRequest('hr.positionNotFound');
     let branchName: string | null = null;
     if (branchId) {
       const br = await db.staffBranch.findFirst({ where: { id: branchId, workspaceId }, select: { name: true } });
-      if (!br) throw new BadRequestException('Филиал не найден в этой организации');
+      if (!br) throw badRequest('hr.branchNotFound');
       branchName = br.name;
     }
     return { positionName: pos.name, branchName };
@@ -366,10 +363,7 @@ export class HrActionsService {
       (t) => ((t.config ?? {}) as { templateId?: string }).templateId === templateId,
     );
     if (!trigger) {
-      throw coded(
-        'У шаблона приказа нет опубликованного маршрута — без него действие никогда не применится. Откройте шаблон и настройте «Маршрут»',
-        HR_ERROR_CODES.noApplyRoute,
-      );
+      throw badRequest('hr.noRoute', undefined, { code: HR_ERROR_CODES.noApplyRoute });
     }
     const def = await this.db.processDefinition.findUnique({
       where: { id: trigger.definitionId },
@@ -380,10 +374,7 @@ export class HrActionsService {
       : null;
     const nodes = ((version?.document ?? {}) as { nodes?: { type?: string }[] }).nodes ?? [];
     if (!nodes.some((n) => n.type === 'hr.apply')) {
-      throw coded(
-        'В маршруте шаблона нет ноды «Применить кадровое действие» — подписанный приказ не изменит данные. Добавьте её на канвас',
-        HR_ERROR_CODES.noApplyRoute,
-      );
+      throw badRequest('hr.noApplyNode', undefined, { code: HR_ERROR_CODES.noApplyRoute });
     }
   }
 
@@ -436,7 +427,7 @@ export class HrActionsService {
    */
   async onRouteReachedApply(hrActionId: string): Promise<{ scheduled: boolean }> {
     const action = await this.db.hrAction.findUnique({ where: { id: hrActionId } });
-    if (!action) throw new NotFoundException('Кадровое действие не найдено');
+    if (!action) throw notFound('hr.actionNotFound');
     if (action.status === 'applied') return { scheduled: false };
     if (['cancelled', 'failed'].includes(action.status)) return { scheduled: false };
 
@@ -481,7 +472,7 @@ export class HrActionsService {
   async applyAction(hrActionId: string): Promise<void> {
     let outcome:
       | { kind: 'applied'; action: HrActionRow; post: PostApplyEffects }
-      | { kind: 'failed'; action: HrActionRow; reason: string }
+      | { kind: 'failed'; action: HrActionRow; reasonKey: string }
       | null = null;
 
     try {
@@ -499,11 +490,14 @@ export class HrActionsService {
 
         const legality = await this.checkLegality(tx, action);
         if (!legality.ok) {
+          const reasonKey = legality.reasonKey ?? 'hr.fail.legality';
+          // `failReason` — колонка БД: снимок в языке ИСТОЧНИКА. Ленты и
+          // уведомления перерисовывают ту же причину по ключу.
           await tx.hrAction.update({
             where: { id: action.id },
-            data: { status: 'failed', appliedAt: null, failReason: legality.reason },
+            data: { status: 'failed', appliedAt: null, failReason: this.src(reasonKey) },
           });
-          return { kind: 'failed' as const, action, reason: legality.reason ?? 'проверка законности' };
+          return { kind: 'failed' as const, action, reasonKey };
         }
         const post = await this.applyEffectsTx(tx, action);
         return { kind: 'applied' as const, action, post };
@@ -518,17 +512,17 @@ export class HrActionsService {
         .update({ where: { id: hrActionId }, data: { status: 'failed', appliedAt: null, failReason: reason } })
         .catch(() => undefined);
       await this.notifyOutcome(action, 'hr.action.failed', { reason });
-      this.logger.warn(`применение действия ${hrActionId}: ${reason}`);
+      this.logger.warn(`applying hr action ${hrActionId}: ${reason}`);
       return;
     }
 
     if (!outcome) return; // уже применено/отменено — идемпотентный выход
 
     if (outcome.kind === 'failed') {
-      await this.notifyOutcome(outcome.action, 'hr.action.failed', { reason: outcome.reason });
+      await this.notifyOutcome(outcome.action, 'hr.action.failed', { reasonKey: outcome.reasonKey });
       await this.logMember(null, outcome.action.workspaceId, outcome.action.userId, 'hr.action_failed', {
-        kindLabel: HR_ACTION_KIND_LABELS[outcome.action.kind as HrActionKind],
-        reason: outcome.reason,
+        kindLabelKey: `hr.actionKind.${outcome.action.kind}`,
+        reasonKey: outcome.reasonKey,
       });
       return;
     }
@@ -540,7 +534,7 @@ export class HrActionsService {
       await this.staff
         .closeAssignmentsSystem(action.workspaceId, action.userId, post.closeAssignments)
         .catch((e) =>
-          this.logger.warn(`closeAssignments после увольнения ${action.userId}: ${(e as Error).message}`),
+          this.logger.warn(`closeAssignments after dismissal of ${action.userId}: ${(e as Error).message}`),
         );
     }
     if (post.hireFact) {
@@ -559,21 +553,21 @@ export class HrActionsService {
       // ошибке кадровик снимает членство обычной кнопкой ростера.
       await this.workspaces
         .removeMember(action.createdById, action.workspaceId, action.userId)
-        .catch((e) => this.logger.warn(`removeMember после увольнения ${action.userId}: ${(e as Error).message}`));
+        .catch((e) => this.logger.warn(`removeMember after dismissal of ${action.userId}: ${(e as Error).message}`));
     }
     await this.notifyOutcome(action, 'hr.action.applied', {});
     const orderDocumentId = (action.params as { orderDocumentId?: string }).orderDocumentId;
-    let documentSuffix = '';
+    let orderNumber: string | null = null;
     if (orderDocumentId) {
       const doc = await this.db.orgDocument.findUnique({
         where: { id: orderDocumentId },
         select: { number: true },
       });
-      if (doc?.number) documentSuffix = ` (приказ ${doc.number})`;
+      orderNumber = doc?.number ?? null;
     }
     await this.logMember(null, action.workspaceId, action.userId, 'hr.action_applied', {
-      kindLabel: HR_ACTION_KIND_LABELS[action.kind as HrActionKind],
-      documentSuffix,
+      kindLabelKey: `hr.actionKind.${action.kind}`,
+      ...(orderNumber ? { documentSuffixKey: 'hr.orderNumberSuffix', number: orderNumber } : {}),
     });
   }
 
@@ -594,7 +588,7 @@ export class HrActionsService {
       effectiveAt: Date;
       params: unknown;
     },
-  ): Promise<{ ok: boolean; reason?: string }> {
+  ): Promise<{ ok: boolean; reasonKey?: string }> {
     if (action.kind !== 'dismissal') return { ok: true };
     const params = (action.params ?? {}) as { ground?: string; banExceptionConfirmed?: boolean };
     if (!isEmployerInitiativeGround(params.ground)) return { ok: true };
@@ -613,13 +607,7 @@ export class HrActionsService {
       },
       select: { id: true },
     });
-    if (onLeave) {
-      return {
-        ok: false,
-        reason:
-          'ст. 54 ТК РК: увольнение по инициативе работодателя в период отпуска запрещено (по данным системы сотрудник в отпуске; исключения — пп. 1), 18), 20), 23) п. 1 ст. 52 и п. 1-1). Больничные системе неизвестны — проверяйте вручную',
-      };
-    }
+    if (onLeave) return { ok: false, reasonKey: 'hr.fail.st54Leave' };
     return { ok: true };
   }
 
@@ -637,7 +625,7 @@ export class HrActionsService {
           where: { workspaceId: action.workspaceId, userId: action.userId, status: { not: 'terminated' } },
           orderBy: { createdAt: 'desc' },
         });
-    if (!employment) throw new Error('трудовая карточка не найдена');
+    if (!employment) throw new Error('the employment record is not found');
 
     const signedBase = await this.orderSignedDate(tx, action);
 
@@ -662,7 +650,7 @@ export class HrActionsService {
       }
       case 'transfer': {
         const positionId = params.legalPositionId as string | undefined;
-        if (!positionId) throw new Error('в параметрах перевода нет должности');
+        if (!positionId) throw new Error('the transfer parameters carry no position');
         const snapshots = await this.legalSnapshots(
           action.workspaceId,
           positionId,
@@ -694,7 +682,7 @@ export class HrActionsService {
         break;
       }
       case 'salary_change': {
-        if (params.salaryAmount === undefined) throw new Error('в параметрах нет нового оклада');
+        if (params.salaryAmount === undefined) throw new Error('the parameters carry no new salary');
         await tx.employment.update({
           where: { id: employment.id },
           data: { salaryAmount: BigInt(params.salaryAmount as number) },
@@ -807,7 +795,7 @@ export class HrActionsService {
           prevDay,
         );
         if (closed === 0) {
-          this.logger.warn(`syncFact ${action.userId}: прежних назначений не найдено — расхождение факт/договор`);
+          this.logger.warn(`syncFact ${action.userId}: no previous assignment found — fact/contract mismatch`);
         }
       }
       // Без объекта назначения не бывает: договор без объекта → основной объект.
@@ -835,7 +823,7 @@ export class HrActionsService {
       // применение. Но МОЛЧА глотать нельзя — пишем в хронику человека.
       this.logger.warn(`syncFact ${action.userId}: ${(e as Error).message}`);
       await this.logMember(null, action.workspaceId, action.userId, 'hr.action_failed', {
-        kindLabel: 'Синхронизация факта',
+        kindLabelKey: 'hr.factSync',
         reason: (e as Error).message,
       }).catch(() => undefined);
     }
@@ -875,7 +863,7 @@ export class HrActionsService {
     extra: Record<string, unknown>,
   ): Promise<void> {
     const payload = {
-      kindLabel: HR_ACTION_KIND_LABELS[action.kind as HrActionKind],
+      kindLabelKey: `hr.actionKind.${action.kind}`,
       targetName: await this.nameOf(action.userId),
       effectiveAt: dateStr(action.effectiveAt),
       workspaceId: action.workspaceId,
@@ -904,7 +892,7 @@ export class HrActionsService {
 
   async cancelAction(actorId: string, workspaceId: string, actionId: string): Promise<HrActionDto> {
     const action = await this.db.hrAction.findFirst({ where: { id: actionId, workspaceId } });
-    if (!action) throw new NotFoundException('Кадровое действие не найдено');
+    if (!action) throw notFound('hr.actionNotFound');
 
     const role = await this.roleOf(actorId, workspaceId);
     /**
@@ -921,12 +909,11 @@ export class HrActionsService {
       (action.source === 'employee' || dismissalGround === 'st56');
     if (!this.isManager(role) && !isOwnApplication) {
       if (action.userId === actorId && action.kind === 'dismissal') {
-        throw coded(
-          'Это приказ работодателя, а не ваше заявление: отзыв по ст. 56 п. 4 ТК РК относится только к увольнению по собственному желанию',
-          HR_ERROR_CODES.withdrawNotOwnApplication,
-        );
+        throw forbidden('hr.withdrawNotOwnApplication', undefined, {
+          code: HR_ERROR_CODES.withdrawNotOwnApplication,
+        });
       }
-      throw new ForbiddenException('Отменить действие может Менеджер+ (или сам работник — своё заявление об увольнении)');
+      throw forbidden('hr.cancelManagerOnly');
     }
     if (this.isManager(role)) {
       const subjectRole = await this.roleOf(action.userId, workspaceId);
@@ -940,7 +927,7 @@ export class HrActionsService {
       data: { status: 'cancelled' },
     });
     if (claimed.count === 0) {
-      throw coded('Действие уже применено или закрыто — отменить нечего', HR_ERROR_CODES.actionNotActive);
+      throw badRequest('hr.actionNotActive', undefined, { code: HR_ERROR_CODES.actionNotActive });
     }
     // Отложенный джоб применения отменяем (невзятый); executing добьёт статус-гвард
     await this.jobs.cancelByUniqueKey(null, HR_APPLY_JOB, `hrapply:${action.id}`).catch(() => undefined);
@@ -950,24 +937,26 @@ export class HrActionsService {
     // полуручной путь: срок, напоминания и приёмка у задачи уже есть).
     const issued = await this.documents.systemCancelForHrAction(action.id, actorId);
     if (issued.issuedLeft > 0) {
-      const kindLabel = HR_ACTION_KIND_LABELS[action.kind as HrActionKind];
+      // Задача ложится в БД и живёт своей жизнью — язык ИСТОЧНИКА
+      const kindLabel = this.src(`hr.actionKind.${action.kind}`);
       const targetName = await this.nameOf(action.userId);
       await this.tasks
         .createTask(
           actorId,
           {
-            title: `Издать приказ об отмене: ${kindLabel} — ${targetName}`,
-            description:
-              `Действие «${kindLabel}» отменено${isOwnApplication ? ' отзывом заявления (ст. 56 п. 4 ТК РК)' : ''}, ` +
-              `но приказ уже издан (подписан/зарегистрирован) — изданное отменяется только встречным приказом. ` +
-              `Карточка сотрудника: ${hrMemberHref(workspaceId, action.userId)}`,
+            title: this.src('hr.cancelTask.title', { kind: kindLabel, name: targetName }),
+            description: this.src('hr.cancelTask.description', {
+              kind: kindLabel,
+              withdrawn: isOwnApplication ? 'yes' : 'no',
+              href: hrMemberHref(workspaceId, action.userId),
+            }),
             executorId: action.createdById,
             workspaceId,
           } as Parameters<TasksService['createTask']>[1],
           // Членство обеих сторон уже проверено гейтами КЭДО; окружение не при чём
           { skipEnvironmentChecks: true, origin: 'hr' },
         )
-        .catch((e) => this.logger.warn(`задача «приказ об отмене» ${action.id}: ${(e as Error).message}`));
+        .catch((e) => this.logger.warn(`counter-order task ${action.id}: ${(e as Error).message}`));
     }
 
     if (isOwnApplication && !this.isManager(role)) {
@@ -977,7 +966,7 @@ export class HrActionsService {
           to: [{ userId: action.createdById }],
           payload: {
             targetName: await this.nameOf(action.userId),
-            note: issued.issuedLeft > 0 ? 'Приказ уже издан — издайте приказ об отмене.' : '',
+            ...(issued.issuedLeft > 0 ? { noteKey: 'hr.withdrawn.orderIssued' } : {}),
             workspaceId,
           },
           ref: { type: 'hr_action', id: action.id },
@@ -990,8 +979,8 @@ export class HrActionsService {
         .catch(() => undefined);
     }
     await this.logMember(actorId, workspaceId, action.userId, 'hr.action_cancelled', {
-      kindLabel: HR_ACTION_KIND_LABELS[action.kind as HrActionKind],
-      noteSuffix: isOwnApplication && !this.isManager(role) ? ' (отзыв заявления, ст. 56 п. 4 ТК РК)' : '',
+      kindLabelKey: `hr.actionKind.${action.kind}`,
+      ...(isOwnApplication && !this.isManager(role) ? { noteSuffixKey: 'hr.withdrawnSuffix' } : {}),
     });
     return this.getAction(workspaceId, action.id);
   }
@@ -1004,9 +993,9 @@ export class HrActionsService {
     const actorRole = await this.requireManager(actorId, workspaceId);
     await this.assertApplyRoute(workspaceId, dto.templateId);
     const userIds = await this.resolveAudience(workspaceId, dto.audience, actorRole, actorId);
-    if (userIds.length === 0) throw new BadRequestException('Аудитория пуста — некому применять');
+    if (userIds.length === 0) throw badRequest('hr.audienceEmpty');
     if (userIds.length > HR_LIMITS.batchMax) {
-      throw new BadRequestException(`Потолок массовой операции — ${HR_LIMITS.batchMax} человек за прогон (выбрано ${userIds.length})`);
+      throw badRequest('hr.batchOverflow', { max: HR_LIMITS.batchMax, picked: userIds.length });
     }
     const batch = await this.db.$transaction(async (tx) => {
       const row = await tx.hrActionBatch.create({
@@ -1123,7 +1112,7 @@ export class HrActionsService {
   async getBatch(viewerId: string, workspaceId: string, batchId: string): Promise<HrActionBatchDto> {
     await this.requireManager(viewerId, workspaceId);
     const batch = await this.db.hrActionBatch.findFirst({ where: { id: batchId, workspaceId } });
-    if (!batch) throw new NotFoundException('Массовая операция не найдена');
+    if (!batch) throw notFound('hr.batchNotFound');
     const groups = await this.db.hrAction.groupBy({
       by: ['status'],
       where: { batchId: batch.id },
@@ -1153,7 +1142,7 @@ export class HrActionsService {
 
   async getAction(workspaceId: string, actionId: string): Promise<HrActionDto> {
     const row = await this.db.hrAction.findFirst({ where: { id: actionId, workspaceId } });
-    if (!row) throw new NotFoundException('Кадровое действие не найдено');
+    if (!row) throw notFound('hr.actionNotFound');
     return (await this.serializeMany([row]))[0];
   }
 
@@ -1182,7 +1171,7 @@ export class HrActionsService {
   /** Мои действия-заявления (работник видит свои: отзыв по ст. 56 п. 4) */
   async listMine(viewerId: string, workspaceId: string): Promise<HrActionDto[]> {
     const role = await this.roleOf(viewerId, workspaceId);
-    if (!role || role === 'contractor') throw new ForbiddenException('Нет доступа к этой организации');
+    if (!role || role === 'contractor') throw forbidden('workspace.noAccess');
     return this.listForUser(workspaceId, viewerId, 50, { includeDrafts: this.isManager(role) });
   }
 

@@ -1,17 +1,22 @@
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslations } from 'use-intl';
 import { useAuthStore } from '../../src/stores/auth.store';
-import { formatPhone } from '@superapp/shared';
+import { formatPhone, LOCALE_NAMES } from '@superapp/shared';
+import { useLocaleStore } from '../../src/i18n/locale';
 
 export default function ProfileScreen() {
+  const t = useTranslations('profile');
+  const tc = useTranslations('common');
+  const locale = useLocaleStore((s) => s.locale);
   const { user, logout } = useAuthStore();
 
   const handleLogout = () => {
-    Alert.alert('Выход', 'Вы уверены что хотите выйти?', [
-      { text: 'Отмена', style: 'cancel' },
+    Alert.alert(t('logout.confirmTitle'), t('logout.confirmText'), [
+      { text: tc('actions.cancel'), style: 'cancel' },
       {
-        text: 'Выйти',
+        text: t('nav.logout'),
         style: 'destructive',
         onPress: async () => {
           await logout();
@@ -40,18 +45,19 @@ export default function ProfileScreen() {
 
       {/* Menu items */}
       <View style={styles.menu}>
-        <MenuItem icon="person-outline" label="Редактировать профиль" />
-        <MenuItem icon="notifications-outline" label="Уведомления" />
-        <MenuItem icon="shield-outline" label="Безопасность" />
-        <MenuItem icon="color-palette-outline" label="Оформление" />
-        <MenuItem icon="language-outline" label="Язык" value="Русский" />
-        <MenuItem icon="card-outline" label="Подписка" value="Пробный период" />
-        <MenuItem icon="phone-portrait-outline" label="Активные сессии" />
+        <MenuItem icon="person-outline" label={t('nav.form')} />
+        <MenuItem icon="notifications-outline" label={t('nav.notifications')} />
+        <MenuItem icon="shield-outline" label={t('nav.security')} />
+        <MenuItem icon="color-palette-outline" label={t('nav.appearance')} />
+        {/* Язык называет САМ СЕБЯ (автоним) — иначе человек в чужом языке не найдёт свой */}
+        <MenuItem icon="language-outline" label={tc('language.label')} value={LOCALE_NAMES[locale]} />
+        <MenuItem icon="card-outline" label={t('nav.subscription')} />
+        <MenuItem icon="phone-portrait-outline" label={t('nav.sessions')} />
       </View>
 
       <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
         <Ionicons name="log-out-outline" size={20} color="#E74C3C" />
-        <Text style={styles.logoutText}>Выйти из аккаунта</Text>
+        <Text style={styles.logoutText}>{t('logout.action')}</Text>
       </TouchableOpacity>
 
       <Text style={styles.version}>SuperApp6 v0.1.0</Text>

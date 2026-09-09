@@ -211,6 +211,9 @@ importers:
       '@superapp/api-client':
         specifier: workspace:*
         version: link:../../packages/api-client
+      '@superapp/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
       '@superapp/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -256,13 +259,25 @@ importers:
       react-native-screens:
         specifier: ~4.4.0
         version: 4.4.0(react-native@0.76.5(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@19.2.14)(react@18.3.1))(react@18.3.1)
+      use-intl:
+        specifier: ^3.26.5
+        version: 3.26.5(react@18.3.1)
       zustand:
         specifier: ^5.0.0
         version: 5.0.12(@types/react@19.2.14)(react@18.3.1)(use-sync-external-store@1.6.0(react@18.3.1))
     devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.17
       '@types/react':
         specifier: ^19.2.14
         version: 19.2.14
+      '@typescript-eslint/parser':
+        specifier: ^8.20.0
+        version: 8.66.0(eslint@9.39.5(jiti@2.6.1))(typescript@5.9.3)
+      eslint:
+        specifier: ^9.18.0
+        version: 9.39.5(jiti@2.6.1)
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
@@ -415,6 +430,12 @@ importers:
         specifier: ^1.18.1
         version: 1.18.1
     devDependencies:
+      '@typescript-eslint/parser':
+        specifier: ^8.20.0
+        version: 8.66.0(eslint@9.39.5(jiti@2.6.1))(typescript@5.9.3)
+      eslint:
+        specifier: ^9.18.0
+        version: 9.39.5(jiti@2.6.1)
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
@@ -1380,7 +1401,7 @@ packages:
 
   '@expo/bunyan@4.0.1':
     resolution: {integrity: sha512-+Lla7nYSiHZirgK+U/uYzsLv/X+HaJienbD5AKX1UQZHYfWaP+9uuQluRB4GrEVWF0GZ7vEVp/jzaOT9k/SQlg==}
-    engines: {node: '>=0.10.0'}
+    engines: {'0': node >=0.10.0}
 
   '@expo/cli@0.22.28':
     resolution: {integrity: sha512-lvt72KNitGuixYD2l3SZmRKVu2G4zJpmg5V7WfUBNpmUU5oODBw/6qmiJ6kSLAlfDozscUk+BBGknBBzxUrwrA==}
@@ -14746,6 +14767,12 @@ snapshots:
       react: 19.2.4
     optionalDependencies:
       '@types/react': 19.2.14
+
+  use-intl@3.26.5(react@18.3.1):
+    dependencies:
+      '@formatjs/fast-memoize': 2.2.7
+      intl-messageformat: 10.7.18
+      react: 18.3.1
 
   use-intl@3.26.5(react@19.2.4):
     dependencies:

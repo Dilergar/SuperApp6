@@ -1,5 +1,6 @@
-import { Body, Controller, HttpCode, HttpStatus, NotFoundException, Param, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { notFound } from '../../shared/errors/api-error';
 import { Public } from '../../shared/decorators/public.decorator';
 import { ProcessTriggerRouter } from './process-triggers.service';
 
@@ -15,7 +16,7 @@ export class ProcessWebhookController {
   @Public()
   @Post('telegram/:token')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Telegram-триггер: входящее сообщение боту → запуск процесса' })
+  @ApiOperation({ summary: 'Telegram trigger: an incoming message to the bot starts a process' })
   async fireTelegram(@Param('token') token: string, @Body() body: unknown) {
     // Telegram повторяет доставку при не-2xx → всегда отвечаем 200 (даже если апдейт проигнорирован).
     const update = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
@@ -26,11 +27,11 @@ export class ProcessWebhookController {
   @Public()
   @Post(':token')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Вебхук-триггер: запустить процесс (тело → анкета)' })
+  @ApiOperation({ summary: 'Webhook trigger: start a process (the body becomes the form values)' })
   async fire(@Param('token') token: string, @Body() body: unknown) {
     const payload = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
     const instanceId = await this.router.fireWebhook(token, payload);
-    if (!instanceId) throw new NotFoundException('Вебхук не найден или отключён');
+    if (!instanceId) throw notFound('processes.webhookNotFound');
     return { success: true, instanceId };
   }
 }

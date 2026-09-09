@@ -2,23 +2,11 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { glyphPrefix, type RichCardField, type RichCardPayload } from '@superapp/shared';
 import { RichCardRegistry } from '../../core/rich-cards/rich-cards.registry';
 import { QuickActionRegistry } from '../../core/quick-actions/quick-actions.registry';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import type { RichCardDeps } from '../../core/rich-cards/rich-card.types';
 import { FinancesService } from './finances.service';
 
 const SYMBOLS: Record<string, string> = { KZT: '₸', USD: '$', EUR: '€', RUB: '₽' };
-const money = (minor: number | bigint, code: string): string =>
-  `${(Number(minor) / 100).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ${SYMBOLS[code] ?? code}`;
-const dateHuman = (d: Date): string =>
-  d.toISOString().slice(0, 10).split('-').reverse().join('.');
-
-const TYPE_TITLES: Record<string, string> = {
-  expense: 'Расход',
-  income: 'Доход',
-  transfer: 'Перевод',
-  debt_payment: 'Платёж по долгу',
-  debt_draw: 'Кредит',
-  opening: 'Корректировка остатка',
-};
 
 /**
  * Финансы × чат (Принцип 3): rich-card рендереры + quick action «Записать расход».
@@ -33,7 +21,13 @@ export class FinancesCardsProvider implements OnModuleInit {
     private readonly richCards: RichCardRegistry,
     private readonly quickActions: QuickActionRegistry,
     private readonly finances: FinancesService,
+    private readonly i18n: I18nService,
   ) {}
+
+  /** Деньги словами языка зрителя: знак валюты — из кода счёта, а не из региона. */
+  private money(minor: number | bigint, code: string): string {
+    return this.i18n.format().money(Number(minor), { scale: 2, symbol: SYMBOLS[code] ?? code });
+  }
 
   onModuleInit() {
     this.richCards.registerRenderer('fin_transaction', (deps, viewerId, refId) =>
@@ -44,10 +38,10 @@ export class FinancesCardsProvider implements OnModuleInit {
     );
     this.quickActions.register({
       key: 'finance.add-expense',
-      label: 'Записать расход',
+      labelKey: 'finance.quickAction.label',
       icon: '💸',
       scopes: ['composer'],
-      description: 'Трата — в вашу книгу Финансов, карточка — в чат',
+      descriptionKey: 'finance.quickAction.description',
     });
   }
 
@@ -73,25 +67,34 @@ export class FinancesCardsProvider implements OnModuleInit {
       select: { firstName: true, lastName: true },
     });
 
+    const t = (key: string) => this.i18n.translate(key);
     const sign = type === 'expense' || type === 'debt_payment' ? '−' : type === 'income' || type === 'debt_draw' ? '+' : '';
     const fields: RichCardField[] = [
-      { label: 'Сумма', value: `${sign}${money(tx.amount, tx.currencyCode)}` },
-      ...(tx.amountTo != null ? [{ label: 'Зачислено', value: money(tx.amountTo, tx.toAccount.currencyCode) }] : []),
+      { label: t('finance.card.amount'), value: `${sign}${this.money(tx.amount, tx.currencyCode)}` },
+      ...(tx.amountTo != null
+        ? [{ label: t('finance.card.credited'), value: this.money(tx.amountTo, tx.toAccount.currencyCode) }]
+        : []),
       {
-        label: type === 'income' ? 'На счёт' : 'Счёт',
+        label: t(type === 'income' ? 'finance.card.toAccount' : 'finance.card.account'),
         value: type === 'income' ? tx.toAccount.name : tx.fromAccount.name,
       },
-      ...(type === 'transfer' ? [{ label: 'Куда', value: tx.toAccount.name }] : []),
-      { label: 'Дата', value: dateHuman(tx.occurredOn) },
-      ...(tx.personName ? [{ label: type === 'income' ? 'От кого' : 'На кого', value: tx.personName }] : []),
-      ...(author ? [{ label: 'Записал(а)', value: `${author.firstName} ${author.lastName ?? ''}`.trim() }] : []),
+      ...(type === 'transfer' ? [{ label: t('finance.card.destination'), value: tx.toAccount.name }] : []),
+      { label: t('finance.card.date'), value: this.i18n.format().date(tx.occurredOn) },
+      ...(tx.personName
+        ? [{ label: t(type === 'income' ? 'finance.card.fromWhom' : 'finance.card.toWhom'), value: tx.personName }]
+        : []),
+      ...(author
+        ? [{ label: t('finance.card.recordedBy'), value: `${author.firstName} ${author.lastName ?? ''}`.trim() }]
+        : []),
     ];
 
+    // Заголовок собирается по ВИДУ операции: ключ собирается от того же слова, что и ветка выше.
+    const typeTitle = t(`finance.txType.${type}`);
     return {
       kind: 'rich_card',
       cardType: 'fin_transaction',
       ref: { type: 'fin_transaction', id: tx.id },
-      title: category ? `${TYPE_TITLES[type]} · ${category.name}` : TYPE_TITLES[type] ?? 'Операция',
+      title: category ? `${typeTitle} · ${category.name}` : typeTitle,
       subtitle: tx.note,
       icon: category?.icon ?? (type === 'transfer' ? 'refresh' : 'finance'),  // фолбэк — имя иконки кита, эмодзи категории остаётся как есть
       fields,
@@ -128,30 +131,33 @@ export class FinancesCardsProvider implements OnModuleInit {
       for (const c of cats) catNames.set(c.id, { name: c.name, icon: c.icon });
     }
 
+    const t = (key: string, values?: Record<string, string>) => this.i18n.translate(key, values);
     const joinSums = (sums: Array<{ currencyCode: string; amount: number }>): string =>
-      sums.length ? sums.map((s) => money(s.amount, s.currencyCode)).join(' · ') : '—';
+      sums.length ? sums.map((s) => this.money(s.amount, s.currencyCode)).join(' · ') : '—';
 
     const fields: RichCardField[] = [
-      { label: 'Расходы', value: `−${joinSums(report.totalExpense)}` },
-      { label: 'Доходы', value: `+${joinSums(report.totalIncome)}` },
-      ...(report.debtPayments.length ? [{ label: 'Платежи по долгам', value: joinSums(report.debtPayments) }] : []),
-      ...topSpends.map((t, i) => {
-        const cat = catNames.get(t.categoryId);
+      { label: t('finance.card.expenses'), value: `−${joinSums(report.totalExpense)}` },
+      { label: t('finance.card.incomes'), value: `+${joinSums(report.totalIncome)}` },
+      ...(report.debtPayments.length
+        ? [{ label: t('finance.card.debtPayments'), value: joinSums(report.debtPayments) }]
+        : []),
+      ...topSpends.map((s, i) => {
+        const cat = catNames.get(s.categoryId);
         return {
-          label: i === 0 ? 'Топ трат' : ' ',
+          label: i === 0 ? t('finance.card.topSpending') : ' ',
           // Значок в СТРОКЕ: печатать значение как есть нельзя — у него бывает
           // пометка набора ('fl:1f697'). glyphPrefix отдаёт символ или пустоту.
-          value: `${glyphPrefix(cat?.icon)}${cat?.name ?? 'Категория'} — ${money(t.amount, t.currencyCode)}`,
+          value: `${glyphPrefix(cat?.icon)}${cat?.name ?? t('finance.card.category')} — ${this.money(s.amount, s.currencyCode)}`,
         };
       }),
     ];
 
-    const label = new Date(`${period}-01T00:00:00Z`).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
+    const label = this.i18n.format().date(`${period}-01`, 'monthYear');
     return {
       kind: 'rich_card',
       cardType: 'fin_month',
       ref: { type: 'fin_month', id: refId },
-      title: `Итоги: ${label}`,
+      title: t('finance.card.monthTotals', { period: label }),
       subtitle: null,
       icon: '📊',
       fields,

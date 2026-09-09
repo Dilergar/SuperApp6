@@ -9,11 +9,12 @@
 // ============================================================
 
 import { createContext, memo, useContext } from 'react';
+import { useTranslations } from 'next-intl';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { OrgPersonLite } from '@superapp/shared';
 import { AvatarStack, Button, Chip, Glyph, Icon, Tooltip, cx } from '@/components/ui';
 import { PersonAvatar } from '@/app/messenger/messenger-ui';
-import { personName } from './org-lib';
+import { usePersonName } from './org-lib';
 import type { OrgDeptNode, OrgPositionNode } from './org-layout';
 
 export interface OrgCanvasContextValue {
@@ -36,12 +37,14 @@ const MAX_FACES = 3;
 const SIDE_HANDLE: React.CSSProperties = { opacity: 0, pointerEvents: 'none', width: 1, height: 1, minWidth: 0, minHeight: 0 };
 
 export const OrgPositionNodeView = memo(function OrgPositionNodeView({ data, selected }: NodeProps<OrgPositionNode>) {
+  const t = useTranslations('staff');
+  const personName = usePersonName();
   const { people, hireHref } = useContext(OrgCanvasContext);
   const p = data.position;
   const holders = p.holders;
   const faces = holders.slice(0, MAX_FACES);
   const rest = holders.length - faces.length;
-  const headTitle = data.headOf.length ? `Руководит: ${data.headOf.join(', ')}` : undefined;
+  const headTitle = data.headOf.length ? t('org.leadsName', { name: data.headOf.join(', ') }) : undefined;
   return (
     <div
       className={cx('onode', p.vacant && 'is-vacant', selected && 'is-selected', data.isHead && 'is-head')}
@@ -68,15 +71,15 @@ export const OrgPositionNodeView = memo(function OrgPositionNodeView({ data, sel
           </Chip>
         )}
         {p.vacant ? (
-          <Chip size="sm" tone="waiting">Вакансия</Chip>
+          <Chip size="sm" tone="waiting">{t('org.vacancyChip')}</Chip>
         ) : data.training ? (
-          <Chip size="sm" tone="waiting">Стажируется</Chip>
+          <Chip size="sm" tone="waiting">{t('assignmentStatus.training')}</Chip>
         ) : null}
       </div>
       <div className="onode-people">
         {p.vacant ? (
           <span className="nodrag">
-            <Button size="sm" variant="matte" icon="userAdd" href={hireHref}>Нанять</Button>
+            <Button size="sm" variant="matte" icon="userAdd" href={hireHref}>{t('org.hire')}</Button>
           </span>
         ) : (
           <>

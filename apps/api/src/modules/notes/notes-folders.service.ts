@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   NOTE_FOLDER_REF_TYPE,
@@ -9,8 +9,11 @@ import {
   type NoteFolderDto,
   type UpdateNoteFolderInput,
 } from '@superapp/shared';
+import { SOURCE_LOCALE } from '@superapp/shared';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { DatabaseService } from '../../shared/database/database.service';
+import { badRequest, notFound } from '../../shared/errors/api-error';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { fullName } from '../../shared/utils/user-name';
 import { NotesAccessService, type NoteScope } from './notes-access.service';
 
@@ -50,6 +53,7 @@ export class NotesFoldersService {
     private readonly db: DatabaseService,
     private readonly acl: NotesAccessService,
     private readonly chatter: ChatterService,
+    private readonly i18n: I18nService,
   ) {}
 
   // ------------------------------------------------------------
@@ -79,8 +83,8 @@ export class NotesFoldersService {
 
   async requireFolder(scope: NoteScope, folderId: string, need: 'viewer' | 'editor' | 'manager'): Promise<{ folder: NoteFolderRow; access: NoteAccess }> {
     const folder = await this.db.noteFolder.findUnique({ where: { id: folderId }, select: FOLDER_SELECT });
-    if (!folder || folder.spaceId !== scope.space.id || folder.deletedAt) throw new NotFoundException('Папка не найдена');
-    const access = this.acl.assertAccess(this.acl.folderAccess(scope, folder), need, 'папке');
+    if (!folder || folder.spaceId !== scope.space.id || folder.deletedAt) throw notFound('notes.folderNotFound');
+    const access = this.acl.assertAccess(this.acl.folderAccess(scope, folder), need, 'folder');
     return { folder, access };
   }
 
@@ -102,7 +106,7 @@ export class NotesFoldersService {
   /** Пространство папки (для скоупа контроллера); нет папки — 404 */
   async spaceIdOf(folderId: string): Promise<string> {
     const row = await this.db.noteFolder.findUnique({ where: { id: folderId }, select: { spaceId: true } });
-    if (!row) throw new NotFoundException('Папка не найдена');
+    if (!row) throw notFound('notes.folderNotFound');
     return row.spaceId;
   }
 
@@ -144,9 +148,9 @@ export class NotesFoldersService {
       const { folder: parent } = await this.requireFolder(scope, input.parentId, 'editor');
       ancestorIds = [...parent.ancestorIds, parent.id];
       depth = parent.depth + 1;
-      if (depth > NOTE_LIMITS.maxFolderDepth) throw new BadRequestException('Слишком глубокая вложенность папок');
+      if (depth > NOTE_LIMITS.maxFolderDepth) throw badRequest('notes.folderTooDeep');
     } else if (!scope.member) {
-      throw new NotFoundException('Пространство не найдено');
+      throw notFound('notes.spaceNotFound');
     }
     const created = await this.db
       .$transaction(async (tx) => {
@@ -167,7 +171,7 @@ export class NotesFoldersService {
         return row;
       })
       .catch((err: { code?: string }) => {
-        if (err?.code === 'P2002') throw new BadRequestException('Папка с таким названием уже есть');
+        if (err?.code === 'P2002') throw badRequest('notes.folderNameTaken');
         throw err;
       });
     return created;
@@ -193,13 +197,18 @@ export class NotesFoldersService {
           const row = await tx.noteFolder.update({ where: { id: folderId }, data, select: FOLDER_SELECT });
           if (data.name) {
             await this.log(tx, scope, folderId, 'note.folder.renamed', { targetName: row.name }, [
-              { field: 'name', label: 'Название', from: folder.name, to: row.name },
+              {
+                field: 'name',
+                label: this.i18n.translateFor(SOURCE_LOCALE, 'chatter.fields.note_folder.name'),
+                from: folder.name,
+                to: row.name,
+              },
             ]);
           }
           return row;
         })
         .catch((err: { code?: string }) => {
-          if (err?.code === 'P2002') throw new BadRequestException('Папка с таким названием уже есть');
+          if (err?.code === 'P2002') throw badRequest('notes.folderNameTaken');
           throw err;
         });
     } else if (input.parentId !== undefined) {
@@ -216,13 +225,13 @@ export class NotesFoldersService {
     let newAncestors: string[] = [];
     let newDepth = 0;
     if (newParentId) {
-      if (newParentId === folder.id) throw new BadRequestException('Папку нельзя переместить в саму себя');
+      if (newParentId === folder.id) throw badRequest('notes.folderIntoItself');
       const { folder: parent } = await this.requireFolder(scope, newParentId, 'editor');
-      if (parent.ancestorIds.includes(folder.id)) throw new BadRequestException('Папку нельзя переместить внутрь её же подпапки');
+      if (parent.ancestorIds.includes(folder.id)) throw badRequest('notes.folderIntoOwnChild');
       newAncestors = [...parent.ancestorIds, parent.id];
       newDepth = parent.depth + 1;
     } else if (!scope.member) {
-      throw new NotFoundException('Пространство не найдено');
+      throw notFound('notes.spaceNotFound');
     }
     const deepest = await this.db.noteFolder.aggregate({
       where: { ancestorIds: { has: folder.id }, deletedAt: null },
@@ -230,10 +239,10 @@ export class NotesFoldersService {
     });
     const subtreeDepth = (deepest._max.depth ?? folder.depth) - folder.depth;
     if (newDepth + subtreeDepth > NOTE_LIMITS.maxFolderDepth) {
-      throw new BadRequestException('Слишком глубокая вложенность папок');
+      throw badRequest('notes.folderTooDeep');
     }
     const oldPrefixLen = folder.ancestorIds.length; // сколько элементов заменить у потомков
-    const targetName = newParentId ? (await this.db.noteFolder.findUnique({ where: { id: newParentId }, select: { name: true } }))?.name ?? '' : 'Корень';
+    const targetName = newParentId ? (await this.db.noteFolder.findUnique({ where: { id: newParentId }, select: { name: true } }))?.name ?? '' : this.i18n.translateFor(SOURCE_LOCALE, 'notes.rootName');
 
     await this.db.$transaction(async (tx) => {
       await tx.noteFolder.update({
@@ -279,8 +288,8 @@ export class NotesFoldersService {
   /** Восстановить папку с тем, что удалялось вместе с ней; родитель в корзине → в корень */
   async restore(scope: NoteScope, folderId: string): Promise<{ noteIds: string[] }> {
     const folder = await this.db.noteFolder.findUnique({ where: { id: folderId }, select: FOLDER_SELECT });
-    if (!folder || folder.spaceId !== scope.space.id || !folder.deletedAt) throw new NotFoundException('Папка не найдена');
-    this.acl.assertAccess(this.acl.folderAccess(scope, folder), 'manager', 'папке');
+    if (!folder || folder.spaceId !== scope.space.id || !folder.deletedAt) throw notFound('notes.folderNotFound');
+    this.acl.assertAccess(this.acl.folderAccess(scope, folder), 'manager', 'folder');
     const stamp = folder.deletedAt;
     const noteIds = await this.db.$transaction(async (tx) => {
       const subtree = await tx.noteFolder.findMany({

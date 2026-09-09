@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   NOTE_FOLDER_REF_TYPE,
   NOTE_REF_TYPE,
@@ -13,6 +13,7 @@ import {
 } from '@superapp/shared';
 import { AudiencesService } from '../../core/audiences/audiences.service';
 import { DatabaseService } from '../../shared/database/database.service';
+import { badRequest } from '../../shared/errors/api-error';
 import { fullName } from '../../shared/utils/user-name';
 import { ContactsService } from '../contacts/contacts.service';
 import { NotificationsService } from '../../core/notifications/notifications.service';
@@ -20,12 +21,6 @@ import { NotesAccessService, type NoteScope } from './notes-access.service';
 import { noteUrl } from './notes-dto';
 import { NotesFoldersService } from './notes-folders.service';
 import { NotesService } from './notes.service';
-
-const ROLE_LABEL: Record<NoteRole, string> = {
-  viewer: 'читает',
-  editor: 'правит',
-  manager: 'управляет доступом',
-};
 
 type RefType = typeof NOTE_REF_TYPE | typeof NOTE_FOLDER_REF_TYPE;
 
@@ -126,7 +121,7 @@ export class NotesShareService {
       await this.notes.log(tx, scope, noteId, 'note.shared', {
         targetName: this.notes.displayTitle(note),
         principalLabel: label,
-        roleLabel: ROLE_LABEL[input.role],
+        role: input.role,
       });
     });
     await this.notifyRecipient(scope, userId, input, this.notes.displayTitle(note), noteUrl(scope.space, noteId));
@@ -156,7 +151,7 @@ export class NotesShareService {
       await this.folders.log(tx, scope, folderId, 'note.folder.shared', {
         targetName: folder.name,
         principalLabel: label,
-        roleLabel: ROLE_LABEL[input.role],
+        role: input.role,
       });
     });
     const url = scope.space.ownerType === 'workspace' ? `/workspaces/${scope.space.ownerId}/notes?folder=${folderId}` : `/notes?folder=${folderId}`;
@@ -222,7 +217,7 @@ export class NotesShareService {
       const doomed = tuples.filter((t) => mine.has(t.resourceId));
       if (!doomed.length) continue;
       await this.db.relationTuple.deleteMany({ where: { id: { in: doomed.map((d) => d.id) } } });
-      this.logger.log(`отозвано ${doomed.length} грантов Заметок между ${owner} и ${other}`);
+      this.logger.log(`Revoked ${doomed.length} Notes grants between ${owner} and ${other}`);
     }
   }
 
@@ -234,39 +229,39 @@ export class NotesShareService {
     const personal = scope.space.ownerType === 'user';
     switch (input.principalType) {
       case 'user': {
-        if (input.principalId === userId) throw new BadRequestException('Себе доступ выдавать не нужно');
+        if (input.principalId === userId) throw badRequest('notes.shareSelf');
         if (personal) {
-          await this.contacts.assertReachable(userId, [input.principalId], 'Открыть доступ можно только человеку из вашего окружения', {
+          await this.contacts.assertReachable(userId, [input.principalId], 'contacts.shareCircleOnly', {
             personalOnly: true,
           });
         } else {
           const rank = await this.acl.workspaceRank(input.principalId, scope.space.ownerId);
-          if (rank < WORKSPACE_ROLE_RANK.trainee) throw new BadRequestException('Этот человек не состоит в организации');
+          if (rank < WORKSPACE_ROLE_RANK.trainee) throw badRequest('notes.notInOrganization');
         }
         return;
       }
       case 'circle': {
-        if (!personal) throw new BadRequestException('В организации доступ выдаётся её сотрудникам, отделам, должностям и объектам');
+        if (!personal) throw badRequest('notes.orgAudience');
         const circle = await this.db.circle.findUnique({ where: { id: input.principalId }, select: { ownerId: true } });
-        if (!circle || circle.ownerId !== userId) throw new BadRequestException('Такой Группы у вас нет');
+        if (!circle || circle.ownerId !== userId) throw badRequest('notes.noSuchCircle');
         return;
       }
       case 'workspace': {
         if (personal || input.principalId !== scope.space.ownerId) {
-          throw new BadRequestException('Открыть доступ всей команде можно только в заметках этой организации');
+          throw badRequest('notes.teamOnOrgOnly');
         }
         return;
       }
       case 'department':
       case 'position':
       case 'branch': {
-        if (personal) throw new BadRequestException('Отделы, должности и объекты бывают только у организации');
+        if (personal) throw badRequest('notes.orgDirectoryOnly');
         const owner = await this.staffOwnerWorkspace(input.principalType, input.principalId);
-        if (owner !== scope.space.ownerId) throw new BadRequestException('Этот справочник принадлежит другой организации');
+        if (owner !== scope.space.ownerId) throw badRequest('notes.foreignDirectory');
         return;
       }
       default:
-        throw new BadRequestException('Неизвестный тип получателя доступа');
+        throw badRequest('notes.unknownPrincipal');
     }
   }
 
@@ -286,7 +281,7 @@ export class NotesShareService {
 
   private async scopeOfFolder(userId: string, folderId: string): Promise<NoteScope> {
     const folder = await this.db.noteFolder.findUnique({ where: { id: folderId }, select: { spaceId: true } });
-    if (!folder) throw new BadRequestException('Папка не найдена');
+    if (!folder) throw badRequest('notes.folderNotFound');
     return this.acl.scopeForSpaceId(userId, folder.spaceId);
   }
 
@@ -298,7 +293,7 @@ export class NotesShareService {
       .send(null, {
         type: 'note.shared',
         to: [{ userId: input.principalId }],
-        payload: { ownerName: fullName(actor), noteName: name, roleLabel: ROLE_LABEL[input.role] },
+        payload: { ownerName: fullName(actor), noteName: name, role: input.role },
         actorId,
         workspaceId: scope.space.ownerType === 'workspace' ? scope.space.ownerId : null,
         reason: 'subscribed',

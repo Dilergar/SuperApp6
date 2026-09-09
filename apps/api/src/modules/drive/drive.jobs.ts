@@ -130,7 +130,7 @@ export class DriveJobs implements OnModuleInit {
       // уже нет. Это ПОСТОЯННЫЙ отказ, а не сбой: ретраить нечего, и пять попыток
       // с бэкоффом закончились бы dead-letter'ом, то есть ложной аварией в проде.
       if (err instanceof NotFoundException) {
-        this.logger.log(`ingest ${fileId}: файл исчез до укладки — пропускаем`);
+        this.logger.log(`ingest ${fileId}: the file vanished before it was placed — skipping`);
         return;
       }
       throw err;
@@ -215,7 +215,7 @@ export class DriveJobs implements OnModuleInit {
       this.db.driveNode.findUnique({ where: { id: targetId } }),
     ]);
     // Исходник или назначение удалили, пока джоб ждал — копировать нечего и некуда.
-    if (!source || !target) throw new JobDiscardError('копия отменена: узел исчез');
+    if (!source || !target) throw new JobDiscardError('The copy is cancelled: the node is gone');
     const space = await this.db.driveSpace.findUniqueOrThrow({ where: { id: target.spaceId } });
 
     const children = await this.db.driveNode.findMany({
@@ -307,7 +307,7 @@ export class DriveJobs implements OnModuleInit {
     if (file.kind !== 'image' && file.kind !== 'video') return;
 
     const meta = (file.meta ?? {}) as Record<string, unknown>;
-    if (meta.pipeline === 'pending') throw new Error('конвейер ещё не отработал');
+    if (meta.pipeline === 'pending') throw new Error('The pipeline has not finished yet');
 
     // EXIF есть — берём стенное время съёмки; нет (скриншот, скачанная картинка) —
     // время появления файла. Обе величины хранятся БЕЗ пояса: ночной снимок не должен

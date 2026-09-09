@@ -13,9 +13,9 @@ export const searchQuerySchema = z
   .object({
     q: z
       .string()
-      .min(SEARCH_LIMITS.minQueryLength, 'Слишком короткий запрос')
+      .min(SEARCH_LIMITS.minQueryLength, 'validation.search.tooShort')
       .max(SEARCH_LIMITS.maxQueryLength)
-      .refine(noHtml, 'Недопустимые символы'),
+      .refine(noHtml, 'validation.search.badCharacters'),
     type: z.enum(SEARCH_SOURCE_TYPES).optional(),
     chatId: z.string().uuid().optional(),
     cursor: z.string().max(200).optional(),

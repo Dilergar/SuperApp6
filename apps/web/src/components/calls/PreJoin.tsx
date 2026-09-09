@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { Icon } from '@/components/ui';
 import { useEffect, useRef, useState } from 'react';
 
@@ -36,6 +37,7 @@ export function PreJoin({
   error?: string | null;
   onJoin: (choice: PreJoinChoice) => void;
 }) {
+  const t = useTranslations('calls');
   const prefs = useRef(loadPrefs());
   const [audioEnabled, setAudioEnabled] = useState(prefs.current.audioEnabled ?? true);
   const [videoEnabled, setVideoEnabled] = useState(prefs.current.videoEnabled ?? true);
@@ -75,7 +77,7 @@ export function PreJoin({
       } catch {
         if (!cancelled) {
           setStream(null);
-          setMediaError('Нет доступа к камере/микрофону — проверьте разрешения браузера');
+          setMediaError(t('prejoin.mediaError'));
         }
       }
     })();
@@ -154,7 +156,7 @@ export function PreJoin({
             }}
           >
             <span style={{ fontSize: '2.4rem' }}><Icon name="video" size={15} /></span>
-            <span className="label-md">{mediaError ?? 'Камера выключена'}</span>
+            <span className="label-md">{mediaError ?? t('prejoin.cameraOff')}</span>
           </div>
         )}
         {/* Тумблеры поверх превью */}
@@ -171,14 +173,14 @@ export function PreJoin({
         >
           <button
             onClick={() => setAudioEnabled((v) => !v)}
-            title={audioEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
+            title={audioEnabled ? t('controls.micOff') : t('controls.micOn')}
             style={toggleStyle(audioEnabled)}
           >
             {audioEnabled ? '🎤' : '🔇'}
           </button>
           <button
             onClick={() => setVideoEnabled((v) => !v)}
-            title={videoEnabled ? 'Выключить камеру' : 'Включить камеру'}
+            title={videoEnabled ? t('controls.camOff') : t('controls.camOn')}
             style={toggleStyle(videoEnabled)}
           >
             {videoEnabled ? '🎥' : '📷'}
@@ -191,30 +193,30 @@ export function PreJoin({
         <div style={{ display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap', marginBottom: 'var(--spacing-5)' }}>
           {mics.length > 0 && (
             <label className="label-md" style={{ flex: 1, minWidth: 200 }}>
-              Микрофон
+              {t('prejoin.micLabel')}
               <select
                 value={audioDeviceId ?? ''}
                 onChange={(e) => setAudioDeviceId(e.target.value || undefined)}
                 style={{ display: 'block', width: '100%', marginTop: '0.25rem', padding: '0.4rem 0.5rem', background: 'var(--surface-container)', border: 'none', borderRadius: 'var(--radius-sketch)' }}
               >
-                <option value="">По умолчанию</option>
+                <option value="">{t('prejoin.default')}</option>
                 {mics.map((d) => (
-                  <option key={d.deviceId} value={d.deviceId}>{d.label || 'Микрофон'}</option>
+                  <option key={d.deviceId} value={d.deviceId}>{d.label || t('prejoin.micLabel')}</option>
                 ))}
               </select>
             </label>
           )}
           {cams.length > 0 && (
             <label className="label-md" style={{ flex: 1, minWidth: 200 }}>
-              Камера
+              {t('prejoin.camLabel')}
               <select
                 value={videoDeviceId ?? ''}
                 onChange={(e) => setVideoDeviceId(e.target.value || undefined)}
                 style={{ display: 'block', width: '100%', marginTop: '0.25rem', padding: '0.4rem 0.5rem', background: 'var(--surface-container)', border: 'none', borderRadius: 'var(--radius-sketch)' }}
               >
-                <option value="">По умолчанию</option>
+                <option value="">{t('prejoin.default')}</option>
                 {cams.map((d) => (
-                  <option key={d.deviceId} value={d.deviceId}>{d.label || 'Камера'}</option>
+                  <option key={d.deviceId} value={d.deviceId}>{d.label || t('prejoin.camLabel')}</option>
                 ))}
               </select>
             </label>
@@ -229,7 +231,7 @@ export function PreJoin({
       )}
 
       <button className="btn-primary" onClick={join} disabled={joining} style={{ fontSize: '1rem', padding: '0.7rem 2.2rem' }}>
-        {joining ? 'Подключение…' : 'Присоединиться'}
+        {joining ? t('prejoin.joining') : t('prejoin.join')}
       </button>
     </div>
   );

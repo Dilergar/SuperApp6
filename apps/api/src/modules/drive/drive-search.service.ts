@@ -5,6 +5,7 @@ import { SearchRegistry } from '../../core/search/search.registry';
 import { SearchProjectionService } from '../../core/search/search-projection.service';
 import type { SearchProviderOpts, SearchProviderResult } from '../../core/search/search.types';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { DriveAccessService } from './drive-access.service';
 
 interface DriveHitRow {
@@ -34,12 +35,13 @@ export class DriveSearchService implements OnModuleInit {
     private readonly registry: SearchRegistry,
     private readonly projection: SearchProjectionService,
     private readonly acl: DriveAccessService,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
     this.registry.register({
       type: DRIVE_NODE_REF_TYPE,
-      label: 'Диск',
+      labelKey: 'drive.breadcrumb',
       search: (viewerId, query, opts) => this.search(viewerId, query, opts),
     });
   }
@@ -73,7 +75,7 @@ export class DriveSearchService implements OnModuleInit {
         body: null,
       });
     } catch (err) {
-      this.logger.warn(`индексация узла ${node.id}: ${err instanceof Error ? err.message : err}`);
+      this.logger.warn(`Indexing node ${node.id}: ${err instanceof Error ? err.message : err}`);
     }
   }
 
@@ -138,7 +140,7 @@ export class DriveSearchService implements OnModuleInit {
       type: DRIVE_NODE_REF_TYPE,
       id: h.id,
       title: h.name,
-      snippet: h.kind === 'folder' ? 'Папка' : 'Файл',
+      snippet: this.i18n.translate(h.kind === 'folder' ? 'drive.kind.folder' : 'drive.kind.file'),
       url: `/drive/n/${h.id}`,
       chatId: null,
       messageId: null,

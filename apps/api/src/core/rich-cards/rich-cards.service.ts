@@ -1,11 +1,11 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import type {
   RichCardPayload,
   ExecuteRichCardActionResult,
   RichCardRefType,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
-import { badRequest } from '../../shared/errors/api-error';
+import { badRequest, forbidden, notFound } from '../../shared/errors/api-error';
 import { NotificationChannelRegistry } from '../notifications/notifications.registry';
 import { AccessService } from '../access/access.service';
 import { RichCardRegistry } from './rich-cards.registry';
@@ -55,11 +55,11 @@ export class RichCardsService {
     payload?: Record<string, unknown>,
   ): Promise<ExecuteRichCardActionResult> {
     const def = this.registry.getAction(actionKey);
-    if (!def) throw new ForbiddenException('Неизвестное действие');
+    if (!def) throw forbidden('richCard.unknownAction');
 
     if (def.requiredCapability) {
       const ok = await this.access.can(this.user(userId), def.requiredCapability, ref.id);
-      if (!ok) throw new ForbiddenException('Недостаточно прав для действия');
+      if (!ok) throw forbidden('richCard.actionForbidden');
     }
 
     await def.handler(userId, ref.id, payload);
@@ -67,7 +67,7 @@ export class RichCardsService {
     const card = await this.render(userId, ref.type, ref.id);
     if (!card) {
       // Action may have closed/removed the entity, or revoked the actor's view (e.g. cancel).
-      throw new NotFoundException('Карточка недоступна после действия');
+      throw notFound('richCard.goneAfterAction');
     }
     return { card };
   }
@@ -83,10 +83,10 @@ export class RichCardsService {
     refId: string,
   ): Promise<RichCardPayload> {
     const canChat = await this.access.can(this.user(userId), 'chat.view', chatId);
-    if (!canChat) throw new ForbiddenException('Нет доступа к чату');
+    if (!canChat) throw forbidden('richCard.noChatAccess');
 
     const card = await this.render(userId, refType, refId);
-    if (!card) throw new ForbiddenException('Нет доступа к карточке');
+    if (!card) throw forbidden('richCard.noCardAccess');
 
     // Чат — канал доставки движка уведомлений: драйвер регистрирует мессенджер, ленивого
     // токена на фичу у движка больше нет (ребро core/rich-cards → modules/messenger закрыто).

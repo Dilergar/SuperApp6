@@ -8,9 +8,9 @@ import { OFFICE_LIMITS } from '../constants/office';
 const roomNameSchema = z
   .string()
   .trim()
-  .min(1, 'Название обязательно')
-  .max(OFFICE_LIMITS.maxNameLen, 'Слишком длинное название')
-  .refine((v) => !/[<>]/.test(v), 'Название содержит недопустимые символы');
+  .min(1, 'validation.office.nameRequired')
+  .max(OFFICE_LIMITS.maxNameLen)
+  .refine((v) => !/[<>]/.test(v), 'validation.office.badCharacters');
 
 /** POST /workspaces/:id/office/rooms — создать встречу (имя опционально) */
 export const createOfficeRoomSchema = z

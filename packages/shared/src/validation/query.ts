@@ -23,6 +23,6 @@ export const queryBoolean = z
     if (s === '' ) return undefined;
     if (s === 'true' || s === '1' || s === 'yes') return true;
     if (s === 'false' || s === '0' || s === 'no') return false;
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Ожидается true или false' });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'validation.query.boolean' });
     return z.NEVER;
   });

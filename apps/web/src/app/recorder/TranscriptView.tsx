@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import type { VoiceSegment } from '@superapp/shared';
 import { formatDuration } from '@/components/files/files-ui';
 
@@ -46,6 +47,7 @@ export function TranscriptView({
   text: string | null;
   onSeek?: (sec: number) => void;
 }) {
+  const t = useTranslations('recorder');
   const [copied, setCopied] = useState(false);
 
   const groups = useMemo<SpeakerGroup[]>(() => {
@@ -72,13 +74,15 @@ export function TranscriptView({
     if (groups.length) {
       return groups
         .map((g) => {
-          const label = g.speaker ? `Спикер ${(speakerIndex.get(g.speaker) ?? 0) + 1}: ` : '';
+          const label = g.speaker
+            ? `${t('transcript.speaker', { n: (speakerIndex.get(g.speaker) ?? 0) + 1 })}: `
+            : '';
           return `${label}${g.parts.map((p) => p.text).join(' ')}`;
         })
         .join('\n\n');
     }
     return text ?? '';
-  }, [groups, speakerIndex, text]);
+  }, [groups, speakerIndex, text, t]);
 
   const copy = async () => {
     try {
@@ -104,13 +108,13 @@ export function TranscriptView({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span className="title-sm" style={{ fontSize: '0.9rem' }}>Расшифровка</span>
+        <span className="title-sm" style={{ fontSize: '0.9rem' }}>{t('transcript.title')}</span>
         <button
           onClick={() => void copy()}
           className="btn-secondary"
           style={{ padding: '0.3rem 0.8rem', fontSize: '0.75rem' }}
         >
-          {copied ? 'Скопировано' : 'Скопировать текст'}
+          {copied ? t('transcript.copied') : t('transcript.copy')}
         </button>
       </div>
 
@@ -132,12 +136,12 @@ export function TranscriptView({
                         padding: '0.1rem 0.55rem',
                       }}
                     >
-                      Спикер {idx + 1}
+                      {t('transcript.speaker', { n: idx + 1 })}
                     </span>
                   )}
                   <button
                     onClick={() => onSeek?.(g.startSec)}
-                    title="Перемотать сюда"
+                    title={t('transcript.seek')}
                     style={{
                       background: 'none',
                       border: 'none',

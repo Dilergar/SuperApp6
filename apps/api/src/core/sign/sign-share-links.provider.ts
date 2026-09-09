@@ -1,10 +1,8 @@
-import { BadRequestException, ForbiddenException, Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import {
   SIGN_ERROR_CODES,
   SIGN_REQUEST_REF_TYPE,
   WORKSPACE_ROLE_RANK,
-  buildSignPdConsentText,
-  buildSignPepConsentText,
   signCmsSchema,
   signDeclineSchema,
   signPepConfirmSchema,
@@ -19,6 +17,7 @@ import {
   type SignRequestStatus,
   type WorkspaceRole,
 } from '@superapp/shared';
+import { badRequest, forbidden } from '../../shared/errors/api-error';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { ShareLinksRegistry, type GuestActionContext } from '../share-links/share-links.registry';
@@ -79,9 +78,7 @@ export class SignShareLinksProvider implements OnModuleInit {
           const role = request.workspaceId ? await this.roleIn(userId, request.workspaceId) : null;
           if (!role || role === 'contractor') return null; // посторонний: существование не подтверждаем
           if ((WORKSPACE_ROLE_RANK[role] ?? 0) < WORKSPACE_ROLE_RANK.manager) {
-            throw new ForbiddenException(
-              'Ссылкой на подписание управляет отправитель или Менеджер+',
-            );
+            throw forbidden('sign.linkManagerOnly');
           }
         }
         return {
@@ -139,9 +136,9 @@ export class SignShareLinksProvider implements OnModuleInit {
           signed: request.acts
             .filter((a) => a.status === 'signed')
             .map((a) => ({ name: a.signerName, at: a.signedAt?.toISOString() ?? null })),
-          consentText: buildSignPepConsentText({ docTitle: request.refTitle, orgName }),
+          consentText: this.sign.pepConsentText(request.refTitle, orgName),
           consentVersion: SIGN_CONSENT_VERSION,
-          pdConsentText: buildSignPdConsentText({ orgName }),
+          pdConsentText: this.sign.pdConsentText(orgName),
           myAct: myActRow
             ? {
                 status: myActRow.status as SignActStatus,
@@ -242,10 +239,7 @@ export class SignShareLinksProvider implements OnModuleInit {
     ctx: GuestActionContext,
   ): Promise<void> {
     if (!accepted) {
-      throw new BadRequestException({
-        message: 'Нужно согласие на обработку персональных данных',
-        details: { code: SIGN_ERROR_CODES.consentRequired },
-      });
+      throw badRequest('sign.pdConsentRequired', undefined, { code: SIGN_ERROR_CODES.consentRequired });
     }
     await this.sign.recordGuestPdConsent(actor, actId, { ip: ctx.ip, userAgent: ctx.userAgent });
   }
@@ -263,10 +257,7 @@ export class SignShareLinksProvider implements OnModuleInit {
     if (!ctx.guest) {
       // Ссылка без подтверждения номера подписывать не даёт вовсе: неизвестно
       // кем поставленная подпись хуже отсутствия подписи — она создаёт видимость.
-      throw new BadRequestException({
-        message: 'Для подписания нужно подтвердить номер телефона',
-        details: { code: SIGN_ERROR_CODES.notSigner },
-      });
+      throw badRequest('sign.phoneRequired', undefined, { code: SIGN_ERROR_CODES.notSigner });
     }
     const actor: SignActor = {
       type: 'guest',

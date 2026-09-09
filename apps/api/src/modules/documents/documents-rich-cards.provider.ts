@@ -1,5 +1,6 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { DOC_STATUS_LABELS, ORG_DOCUMENT_REF_TYPE, type DocStatus, type RichCardPayload } from '@superapp/shared';
+import { ORG_DOCUMENT_REF_TYPE, type RichCardPayload } from '@superapp/shared';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { RichCardRegistry } from '../../core/rich-cards/rich-cards.registry';
 import type { RichCardDeps } from '../../core/rich-cards/rich-card.types';
 import { DocumentsService } from './documents.service';
@@ -18,6 +19,7 @@ export class DocumentsRichCardsProvider implements OnModuleInit {
   constructor(
     private readonly registry: RichCardRegistry,
     private readonly documents: DocumentsService,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -39,6 +41,7 @@ export class DocumentsRichCardsProvider implements OnModuleInit {
       .catch(() => false);
     if (!visible) return null;
 
+    const t = (key: string) => this.i18n.translate(key);
     const counterparty = doc.counterpartyId
       ? await deps.db.counterparty.findUnique({ where: { id: doc.counterpartyId }, select: { name: true } })
       : null;
@@ -47,18 +50,20 @@ export class DocumentsRichCardsProvider implements OnModuleInit {
       kind: 'rich_card',
       cardType: ORG_DOCUMENT_REF_TYPE,
       ref: { type: ORG_DOCUMENT_REF_TYPE, id: refId },
-      title: doc.number ? `${doc.title} № ${doc.number}` : doc.title,
+      title: doc.number
+        ? `${doc.title} ${this.i18n.translate('documents.numberLabel', { number: doc.number })}`
+        : doc.title,
       subtitle: doc.docType.name,
       icon: '📄',
       imageUrl: null,
       fields: [
-        ...(counterparty ? [{ label: 'Контрагент', value: counterparty.name }] : []),
+        ...(counterparty ? [{ label: t('documents.card.counterparty'), value: counterparty.name }] : []),
         ...(doc.signedAt
-          ? [{ label: 'Подписан', value: doc.signedAt.toLocaleDateString('ru-RU') }]
+          ? [{ label: t('documents.card.signedAt'), value: this.i18n.format().date(doc.signedAt) }]
           : []),
       ],
       progress: null,
-      status: DOC_STATUS_LABELS[doc.status as DocStatus] ?? doc.status,
+      status: t(`documents.status.${doc.status}`),
       actions: [],
       href: `/workspaces/${doc.workspaceId}/documents/${doc.id}`,
     };

@@ -1,7 +1,6 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
-  SIGN_LEVEL_LABELS,
   approvalSignatureKindOf,
   signRequestHref,
   type InboxItemDto,
@@ -9,6 +8,7 @@ import {
   type SignLevel,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { ApprovalsRegistry } from '../approvals/approvals.registry';
 
 /**
@@ -29,11 +29,12 @@ export class SignInboxProvider implements OnModuleInit {
   constructor(
     private readonly db: DatabaseService,
     private readonly approvals: ApprovalsRegistry,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
     this.approvals.registerSource('sign', {
-      label: 'Подписи',
+      labelKey: 'approvals.source.signatures',
       count: (userId, scope) => this.db.signAct.count({ where: this.where(userId, scope) }),
       list: (userId, limit, scope) => this.list(userId, limit, scope),
     });
@@ -73,7 +74,9 @@ export class SignInboxProvider implements OnModuleInit {
         sourceKey: 'sign',
         id: act.id,
         title: act.request.refTitle,
-        subtitle: `Подпишите документ · ${SIGN_LEVEL_LABELS[level].short}`,
+        subtitle: this.i18n.translate('sign.inbox.subtitle', {
+          level: this.i18n.translate(`sign.level.${level}.short`),
+        }),
         icon: act.request.refIcon ?? 'signature',
         href: signRequestHref(act.requestId, act.request.workspaceId),
         actions: [],

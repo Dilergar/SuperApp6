@@ -83,11 +83,11 @@ class SmartBridgeQrDriver implements SignQrDriver {
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       this.logger.error(`Smart Bridge ${res.status}: ${text.slice(0, 300)}`);
-      throw new Error('Сервис подписания eGov временно недоступен');
+      throw new Error('The eGov signing service is temporarily unavailable');
     }
     const json = (await res.json()) as { deepLink?: string; url?: string; procedureId?: string; id?: string };
     const deepLink = json.deepLink ?? json.url;
-    if (!deepLink) throw new Error('Мост не вернул ссылку для QR');
+    if (!deepLink) throw new Error('The bridge returned no deep link for the QR code');
     return { deepLink, procedureId: json.procedureId ?? json.id };
   }
 }
@@ -124,15 +124,15 @@ export class SignQrBridgeService {
 
     if (useBridge && url && id && secret) {
       this.driver = new SmartBridgeQrDriver(url, id, secret);
-      this.logger.log(`QR-мост eGov Mobile: smartbridge (${url})`);
+      this.logger.log(`eGov Mobile QR bridge: smartbridge (${url})`);
     } else {
       this.driver = new MockQrDriver();
       if (useBridge && url) {
         this.logger.error(
-          '🚨 SIGN_QR_DRIVER=smartbridge, но не заданы SMARTBRIDGE_CLIENT_ID/SECRET — работаю в mock.',
+          '🚨 SIGN_QR_DRIVER=smartbridge, but SMARTBRIDGE_CLIENT_ID/SECRET are not set — falling back to mock.',
         );
       } else {
-        this.logger.log('QR-мост eGov Mobile: mock (SMARTBRIDGE_URL не задан)');
+        this.logger.log('eGov Mobile QR bridge: mock (SMARTBRIDGE_URL is not set)');
       }
     }
   }

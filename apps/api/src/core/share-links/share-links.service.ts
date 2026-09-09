@@ -1,10 +1,11 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, type ShareLink } from '@prisma/client';
 import { randomBytes } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import {
   APP_TIMEZONE,
   SHARE_LINK_LIMITS,
+  SOURCE_LOCALE,
   buildShareLinkUrl,
   shareLinkStatus,
   type CreateShareLinkInput,
@@ -20,7 +21,10 @@ import {
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { utcTs } from '../../shared/database/sql-time';
+import { formatDayKey } from '@superapp/i18n';
 import { ChatterService } from '../chatter/chatter.service';
+import { badRequest, notFound } from '../../shared/errors/api-error';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { ShareLinksRegistry, type ShareRefContext } from './share-links.registry';
 
 const BCRYPT_ROUNDS = 12;
@@ -41,6 +45,7 @@ export class ShareLinksService {
     private readonly db: DatabaseService,
     private readonly registry: ShareLinksRegistry,
     private readonly chatter: ChatterService,
+    private readonly i18n: I18nService,
   ) {}
 
   // ============================================================
@@ -71,12 +76,10 @@ export class ShareLinksService {
         tx.shareLink.count({ where: { createdById: userId, revokedAt: null } }),
       ]);
       if (onRef >= SHARE_LINK_LIMITS.maxActivePerRef) {
-        throw new BadRequestException(
-          `У объекта уже ${SHARE_LINK_LIMITS.maxActivePerRef} действующих ссылок — отзовите ненужные`,
-        );
+        throw badRequest('shareLink.maxActive', { max: SHARE_LINK_LIMITS.maxActivePerRef });
       }
       if (byCreator >= SHARE_LINK_LIMITS.maxActivePerCreator) {
-        throw new BadRequestException('Достигнут лимит действующих гостевых ссылок');
+        throw badRequest('shareLink.maxActiveGeneric');
       }
 
       return tx.shareLink.create({
@@ -147,9 +150,7 @@ export class ShareLinksService {
   private assertConstraints(refType: string, maxOpens: number | null): void {
     if (maxOpens === null) return;
     if (this.registry.get(refType)?.constraints?.forbidMaxOpens) {
-      throw new BadRequestException(
-        'Для такой ссылки нельзя задать лимит открытий: получатель должен иметь возможность вернуться к документу',
-      );
+      throw badRequest('shareLink.noOpenLimit');
     }
   }
 
@@ -173,7 +174,7 @@ export class ShareLinksService {
   async update(userId: string, id: string, dto: UpdateShareLinkInput): Promise<ShareLinkDto> {
     const link = await this.loadOrThrow(id);
     await this.authorize(userId, link.refType, link.refId);
-    if (link.revokedAt) throw new BadRequestException('Ссылка отозвана — создайте новую');
+    if (link.revokedAt) throw badRequest('shareLink.revokedCreateNew');
 
     const data: Prisma.ShareLinkUpdateInput = {};
     if (dto.label !== undefined) data.label = dto.label;
@@ -188,9 +189,7 @@ export class ShareLinksService {
       // Снять подтверждение личности там, где его требует сам тип объекта, нельзя:
       // правка не должна уметь того, чего не умеет создание.
       if (!dto.requireIdentity && this.forcedIdentity(link.refType)) {
-        throw new BadRequestException(
-          'Для такой ссылки подтверждение номера обязательно: по ней подписывают документ',
-        );
+        throw badRequest('shareLink.identityMandatory');
       }
       data.requireIdentity = dto.requireIdentity;
       // ВКЛЮЧЕНИЕ подтверждения номера гасит уже открытые АНОНИМНЫЕ сессии бампом
@@ -294,7 +293,7 @@ export class ShareLinksService {
     if (!cursor) return null;
     const [iso, id] = cursor.split('|');
     const createdAt = new Date(iso);
-    if (!id || Number.isNaN(createdAt.getTime())) throw new BadRequestException('Неверный курсор');
+    if (!id || Number.isNaN(createdAt.getTime())) throw badRequest('shareLink.badCursor');
     return { createdAt, id };
   }
 
@@ -321,7 +320,7 @@ export class ShareLinksService {
     // Сутки — МЕСТНЫЕ (APP_TIMEZONE), а не UTC. Иначе у человека в Алматы открытия с
     // полуночи до пяти утра падали бы во «вчера», и сегодняшний столбик выглядел бы
     // пустым до рассвета. Ту же дату считает и SQL ниже, поэтому ключи сходятся.
-    const dayKey = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: APP_TIMEZONE });
+    const dayKey = (d: Date) => formatDayKey(d, { locale: SOURCE_LOCALE, timeZone: APP_TIMEZONE });
     const from = new Date(Date.now() - (days - 1) * 86_400_000);
 
     const [live, opens] = await Promise.all([
@@ -452,7 +451,7 @@ export class ShareLinksService {
   async rotateToken(userId: string, id: string): Promise<ShareLinkDto> {
     const link = await this.loadOrThrow(id);
     await this.authorize(userId, link.refType, link.refId);
-    if (link.revokedAt) throw new BadRequestException('Ссылка отозвана — создайте новую');
+    if (link.revokedAt) throw badRequest('shareLink.revokedCreateNew');
 
     const updated = await this.db.shareLink.update({
       where: { id: link.id },
@@ -590,7 +589,7 @@ export class ShareLinksService {
       data: { revokedAt: new Date() },
     });
     if (count > 0) {
-      this.logger.log(`системный отзыв гостевых ссылок: ${refType} × ${refIds.length} → ${count}`);
+      this.logger.log(`System revoke of guest links: ${refType} × ${refIds.length} → ${count}`);
     }
     return count;
   }
@@ -615,18 +614,18 @@ export class ShareLinksService {
   private async authorize(userId: string, refType: string, refId: string): Promise<ShareRefContext> {
     const provider = this.registry.get(refType);
     if (!provider) {
-      throw new BadRequestException('Для этого типа объектов гостевые ссылки не поддерживаются');
+      throw badRequest('shareLink.typeUnsupported');
     }
     const ctx = await provider.authorizeManage(userId, refId);
     // Единый ответ и на «нет объекта», и на «нет прав»: существование чужого объекта
     // подтверждать нельзя — иначе перебором id виден чужой Диск.
-    if (!ctx) throw new NotFoundException('Объект не найден');
+    if (!ctx) throw notFound('shareLink.refNotFound');
     return ctx;
   }
 
   private async loadOrThrow(id: string): Promise<ShareLink> {
     const link = await this.db.shareLink.findUnique({ where: { id } });
-    if (!link) throw new NotFoundException('Ссылка не найдена');
+    if (!link) throw notFound('shareLink.notFound');
     return link;
   }
 
@@ -635,7 +634,7 @@ export class ShareLinksService {
     try {
       return BigInt(cursor);
     } catch {
-      throw new BadRequestException('Неверный курсор');
+      throw badRequest('shareLink.badCursor');
     }
   }
 
@@ -663,7 +662,7 @@ export class ShareLinksService {
         actorName: user ? `${user.firstName}${user.lastName ? ` ${user.lastName}` : ''}` : null,
         typeKey,
         payload: {
-          targetName: link.refTitle ?? 'объект',
+          targetName: link.refTitle ?? this.i18n.translateFor(SOURCE_LOCALE, 'common.labels.item'),
           // Суффикс собирается здесь, а не в шаблоне: шаблонизатор реестра не умеет
           // условий, и «ссылка ()» с пустыми скобками была бы видна человеку.
           labelSuffix: link.label ? ` («${link.label}»)` : '',

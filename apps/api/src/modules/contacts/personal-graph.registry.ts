@@ -47,7 +47,7 @@ export class PersonalGraphRegistry {
         await hook.onUnlinked(userAId, userBId);
       } catch (err) {
         this.logger.error(
-          `Отзыв доступа при разрыве связи не удался (${key}, ${userAId}↔${userBId}): ` +
+          `Revoking access on an unlinked pair failed (${key}, ${userAId}↔${userBId}): ` +
             (err instanceof Error ? err.message : String(err)),
         );
       }

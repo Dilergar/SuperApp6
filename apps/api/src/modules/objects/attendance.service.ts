@@ -1,10 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import {
   DEFAULT_SCHEDULE_SETTINGS,
   type AttendanceDto,
@@ -14,6 +8,8 @@ import {
   type UpdateAttendanceInput,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
+import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { ObjectsService } from './objects.service';
 import { utcToLocalDate } from './shift-time';
@@ -25,12 +21,6 @@ function dayOf(iso: string): Date {
 function dateStr(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
-
-const OUTCOME_LABEL: Record<string, string> = {
-  worked: 'вышел',
-  late: 'опоздал',
-  absent: 'не вышел',
-};
 
 /**
  * ФАКТ выходов. План (Shift) и факт (ShiftAttendance) — разные записи: смену мог
@@ -46,6 +36,7 @@ export class AttendanceService {
     private readonly db: DatabaseService,
     private readonly chatter: ChatterService,
     private readonly objects: ObjectsService,
+    private readonly i18n: I18nService,
   ) {}
 
   /** Отметить факт по ПЛАНОВОЙ смене (управляющий/планировщик объекта). */
@@ -56,11 +47,11 @@ export class AttendanceService {
     dto: MarkAttendanceInput,
   ): Promise<AttendanceDto> {
     const shift = await this.db.shift.findFirst({ where: { id: shiftId, workspaceId } });
-    if (!shift) throw new NotFoundException('Смена не найдена');
+    if (!shift) throw notFound('objects.shiftNotFound');
     const { caps } = await this.objects.getOrThrow(userId, workspaceId, shift.branchId);
-    if (!caps.attendanceMark) throw new ForbiddenException('Факт отмечает управляющий объектом');
-    if (!shift.userId) throw new ConflictException('Смена открытая — некому отмечать выход');
-    if (shift.status === 'cancelled') throw new ConflictException('Смена отменена');
+    if (!caps.attendanceMark) throw forbidden('objects.attendanceMarkOnly');
+    if (!shift.userId) throw conflict('objects.shiftOpenNoAttendance');
+    if (shift.status === 'cancelled') throw conflict('objects.shiftCancelled');
 
     const row = await this.db.$transaction(async (tx) => {
       // Один факт на смену (рукописный партиальный уникум — Prisma его не выражает,
@@ -97,7 +88,7 @@ export class AttendanceService {
         payload: {
           targetUserId: shift.userId,
           dateLabel: dateStr(shift.localDate),
-          outcomeLabel: OUTCOME_LABEL[dto.outcome] ?? dto.outcome,
+          outcomeLabelKey: `objects.attendanceOutcome.${dto.outcome}`,
         },
       });
       return saved;
@@ -113,7 +104,7 @@ export class AttendanceService {
     dto: UnplannedAttendanceInput,
   ): Promise<AttendanceDto> {
     const { branch, caps } = await this.objects.getOrThrow(userId, workspaceId, branchId);
-    if (!caps.attendanceMark) throw new ForbiddenException('Факт отмечает управляющий объектом');
+    if (!caps.attendanceMark) throw forbidden('objects.attendanceMarkOnly');
     await this.assertWorksHere(workspaceId, branch, dto.userId);
     const row = await this.db.$transaction(async (tx) => {
       const saved = await tx.shiftAttendance.create({
@@ -142,7 +133,7 @@ export class AttendanceService {
         payload: {
           targetUserId: dto.userId,
           dateLabel: dto.localDate,
-          outcomeLabel: OUTCOME_LABEL[dto.outcome] ?? dto.outcome,
+          outcomeLabelKey: `objects.attendanceOutcome.${dto.outcome}`,
         },
       });
       return saved;
@@ -186,8 +177,9 @@ export class AttendanceService {
       where: { id: { in: [...new Set(rows.map((r) => r.userId))] } },
       select: { id: true, firstName: true, lastName: true },
     });
+    const someone = this.i18n.translate('common.labels.someone');
     const nameOf = new Map(
-      users.map((u) => [u.id, [u.lastName, u.firstName].filter(Boolean).join(' ') || 'Сотрудник']),
+      users.map((u) => [u.id, [u.lastName, u.firstName].filter(Boolean).join(' ') || someone]),
     );
     return rows.map((r) => ({ ...this.serialize(r), userName: nameOf.get(r.userId) ?? null }));
   }
@@ -200,7 +192,7 @@ export class AttendanceService {
     dto: UpdateAttendanceInput,
   ): Promise<AttendanceDto> {
     const { row, caps, branchId } = await this.factOrThrow(userId, workspaceId, attendanceId);
-    if (!caps.attendanceMark) throw new ForbiddenException('Факт правит управляющий объектом');
+    if (!caps.attendanceMark) throw forbidden('objects.attendanceEditOnly');
     const updated = await this.db.$transaction(async (tx) => {
       const next = await tx.shiftAttendance.update({
         where: { id: attendanceId },
@@ -230,7 +222,7 @@ export class AttendanceService {
         payload: {
           targetUserId: next.userId,
           dateLabel: dateStr(next.localDate),
-          outcomeLabel: OUTCOME_LABEL[next.outcome] ?? next.outcome,
+          outcomeLabelKey: `objects.attendanceOutcome.${next.outcome}`,
         },
       });
       return next;
@@ -241,7 +233,7 @@ export class AttendanceService {
   /** Удалить ошибочную запись факта. */
   async remove(userId: string, workspaceId: string, attendanceId: string): Promise<void> {
     const { row, caps, branchId } = await this.factOrThrow(userId, workspaceId, attendanceId);
-    if (!caps.attendanceMark) throw new ForbiddenException('Факт правит управляющий объектом');
+    if (!caps.attendanceMark) throw forbidden('objects.attendanceEditOnly');
     await this.db.$transaction(async (tx) => {
       await tx.shiftAttendance.delete({ where: { id: attendanceId } });
       await this.chatter.log(tx, {
@@ -257,7 +249,7 @@ export class AttendanceService {
 
   private async factOrThrow(userId: string, workspaceId: string, attendanceId: string) {
     const row = await this.db.shiftAttendance.findFirst({ where: { id: attendanceId, workspaceId } });
-    if (!row) throw new NotFoundException('Запись табеля не найдена');
+    if (!row) throw notFound('objects.attendanceNotFound');
     const { caps } = await this.objects.getOrThrow(userId, workspaceId, row.branchId);
     return { row, caps, branchId: row.branchId };
   }
@@ -274,7 +266,7 @@ export class AttendanceService {
     dto: GateEventInput,
   ): Promise<AttendanceDto | null> {
     const { branch, caps } = await this.objects.getOrThrow(userId, workspaceId, branchId);
-    if (!caps.attendanceMark) throw new ForbiddenException('Нет права отмечать выходы в этом объекте');
+    if (!caps.attendanceMark) throw forbidden('objects.attendanceMarkOnly');
     await this.assertWorksHere(workspaceId, branch, dto.userId);
     return this.recordAttendanceSystem({
       workspaceId,
@@ -307,7 +299,7 @@ export class AttendanceService {
     const branch = await this.db.staffBranch.findFirst({
       where: { id: args.branchId, workspaceId: args.workspaceId },
     });
-    if (!branch) throw new NotFoundException('Объект не найден');
+    if (!branch) throw notFound('objects.notFound');
     const settings = this.objects.scheduleSettings(branch);
     const tolerance = settings.lateToleranceMin ?? DEFAULT_SCHEDULE_SETTINGS.lateToleranceMin;
     const localDate = utcToLocalDate(branch.timeZone, args.at);
@@ -420,7 +412,7 @@ export class AttendanceService {
       where: { workspaceId, userId: targetUserId, branchId: { in: scopeBranches.map((b) => b.id) } },
       select: { id: true },
     });
-    if (!found) throw new BadRequestException('Этот человек не работает в этом объекте');
+    if (!found) throw badRequest('objects.notWorkingHere');
   }
 
   private serialize(r: {

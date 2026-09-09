@@ -16,14 +16,17 @@ import {
   TableRow,
   type TableColumn,
 } from '@/components/ui';
-import { driveIcon, humanSize, shortDate } from './drive-ui';
+import { useTranslations } from 'next-intl';
+import { useBytes, useShortDate } from '@/lib/format';
+import { driveIcon } from './drive-ui';
 
-const COLUMNS: TableColumn[] = [
-  { key: 'name', label: 'Название' },
-  { key: 'size', label: 'Размер', width: 'auto', align: 'end', hideOnMobile: true },
-  { key: 'date', label: 'Изменён', width: 'auto', align: 'end', hideOnMobile: true },
-  { key: 'actions', label: '', width: 'auto', align: 'end' },
-];
+/** Колонки таблицы: заголовки — ключи каталога, слово подставляет компонент. */
+const COLUMN_KEYS = [
+  { key: 'name', labelKey: 'browser.colName' },
+  { key: 'size', labelKey: 'browser.colSize', width: 'auto', align: 'end', hideOnMobile: true },
+  { key: 'date', labelKey: 'browser.colUpdated', width: 'auto', align: 'end', hideOnMobile: true },
+  { key: 'actions', labelKey: null, width: 'auto', align: 'end' },
+] as const;
 
 export interface DriveNodeListProps {
   nodes: DriveNodeDto[] | undefined;
@@ -45,6 +48,10 @@ export function DriveNodeList({
   renderActions,
   onOpen,
 }: DriveNodeListProps) {
+  const t = useTranslations('drive');
+  const humanSize = useBytes();
+  const shortDate = useShortDate();
+  const COLUMNS: TableColumn[] = COLUMN_KEYS.map((c) => ({ ...c, label: c.labelKey ? t(c.labelKey) : '' }));
   if (loading) {
     return (
       <div style={{ padding: 24, display: 'flex', justifyContent: 'center' }}>
@@ -68,7 +75,7 @@ export function DriveNodeList({
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
               <Icon name={driveIcon(node)} size={18} style={{ color: 'var(--primary-dim)', flexShrink: 0 }} />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{node.name}</span>
-              {node.systemKey && <Chip tone="neutral">системная</Chip>}
+              {node.systemKey && <Chip tone="neutral">{t('systemFolder.chip')}</Chip>}
             </span>
           </TableCell>
           <TableCell align="end" hideOnMobile>

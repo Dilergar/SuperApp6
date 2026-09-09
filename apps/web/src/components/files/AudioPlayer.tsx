@@ -3,6 +3,7 @@
 import type { FileDto } from '@superapp/shared';
 import { useFileDisplayUrl } from '../../lib/hooks/useFileUrl';
 import { formatDuration } from './files-ui';
+import { useTranslations } from 'next-intl';
 
 interface AudioPlayerProps {
   file: FileDto;
@@ -10,6 +11,7 @@ interface AudioPlayerProps {
 
 /** Аудио/голосовое из движка файлов (Range/206 → перемотка нативная) */
 export function AudioPlayer({ file }: AudioPlayerProps) {
+  const t = useTranslations('common');
   const { url } = useFileDisplayUrl(file);
   const duration = formatDuration((file.meta as { durationMs?: number } | null)?.durationMs);
 
@@ -28,7 +30,7 @@ export function AudioPlayer({ file }: AudioPlayerProps) {
       {url ? (
         <audio controls preload="metadata" src={url} style={{ width: '100%', height: '2rem' }} />
       ) : (
-        <span style={{ fontSize: '0.8rem', color: 'var(--on-surface-variant)' }}>Загружаю…</span>
+        <span style={{ fontSize: '0.8rem', color: 'var(--on-surface-variant)' }}>{t('state.loading')}</span>
       )}
       {duration && (
         <span style={{ fontSize: '0.7rem', color: 'var(--on-surface-variant)', flexShrink: 0 }}>

@@ -1,14 +1,9 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import {
   OBJECTS_ERROR_CODES,
   PAYABLE_RATE_TYPES,
+  SOURCE_LOCALE,
   type AssignToStaffingInput,
   type CloseAssignmentInput,
   type CreateStaffingPositionInput,
@@ -22,6 +17,8 @@ import {
   type UpdateStaffingPositionInput,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
+import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { StaffService } from '../staff/staff.service';
 import { HrService } from '../hr/hr.service';
@@ -80,6 +77,7 @@ export class StaffingService {
     private readonly staff: StaffService,
     private readonly hr: HrService,
     private readonly jobs: ObjectsJobs,
+    private readonly i18n: I18nService,
   ) {}
 
   // ============================================================
@@ -184,7 +182,9 @@ export class StaffingService {
             ? {
                 id: a.id,
                 userId: a.userId,
-                userName: [a.user?.lastName, a.user?.firstName].filter(Boolean).join(' ') || 'Сотрудник',
+                userName:
+                  [a.user?.lastName, a.user?.firstName].filter(Boolean).join(' ') ||
+                  this.i18n.translate('common.labels.someone'),
                 userAvatar: a.user?.avatar ?? null,
                 startsOn: dateStr(a.startsOn),
                 endsOn: dateStr(a.endsOn),
@@ -300,7 +300,7 @@ export class StaffingService {
       where: { id: dto.positionId, workspaceId },
       select: { id: true, name: true },
     });
-    if (!position) throw new BadRequestException('Должность не найдена в этой организации');
+    if (!position) throw badRequest('objects.positionNotFound');
     await this.assertTemplateOwned(workspaceId, branchId, dto.shiftTemplateId);
 
     await this.db
@@ -362,7 +362,13 @@ export class StaffingService {
           actorId: userId,
           typeKey: 'staffing.unit_updated',
           changes: [
-            { field: 'headcount', label: 'По штату', from: String(unit.headcount), to: String(dto.headcount) },
+            {
+              field: 'headcount',
+              // Снимок подписи ложится в БД — берём его в языке ИСТОЧНИКА.
+              label: this.i18n.translateFor(SOURCE_LOCALE, 'chatter.fields.staffing.headcount'),
+              from: String(unit.headcount),
+              to: String(dto.headcount),
+            },
           ],
           payload: { positionName: next.position.name },
         });
@@ -381,10 +387,7 @@ export class StaffingService {
       where: { staffingPositionId: unitId, ...activeAssignmentWhere() },
     });
     if (busy > 0) {
-      throw new ConflictException({
-        message: 'На единице есть действующие назначения — закройте их',
-        details: { code: OBJECTS_ERROR_CODES.objectInUse },
-      });
+      throw conflict('objects.unitHasAssignments', undefined, { code: OBJECTS_ERROR_CODES.objectInUse });
     }
     await this.db.$transaction(async (tx) => {
       const next = await tx.staffingPosition.update({
@@ -417,14 +420,11 @@ export class StaffingService {
     this.objects.assertManage(caps);
     const branchTimeZone = branch.timeZone;
     const unit = await this.unitOrThrow(workspaceId, dto.staffingPositionId);
-    if (unit.branchId !== branchId) throw new BadRequestException('Штатная единица другого объекта');
+    if (unit.branchId !== branchId) throw badRequest('objects.unitOtherSite');
     // На архивную единицу назначать нельзя: в таблице её нет, и человек либо
     // проваливается в чужую строку, либо исчезает из штатки, продолжая работать.
     if (unit.archivedAt) {
-      throw new ConflictException({
-        message: 'Эта штатная единица убрана из расписания',
-        details: { code: OBJECTS_ERROR_CODES.objectInUse },
-      });
+      throw conflict('objects.unitArchived', undefined, { code: OBJECTS_ERROR_CODES.objectInUse });
     }
 
     // Плановая ставка единицы — предзаполнение фактической (её можно переопределить).
@@ -465,7 +465,7 @@ export class StaffingService {
           workspaceId,
           actorId: userId,
           typeKey: 'staffing.assigned',
-          payload: { positionName: unit.positionName, startsOn, targetUserId: dto.userId },
+          payload: { positionName: unit.positionName, startsOnIso: startsOn, targetUserId: dto.userId },
         });
       },
     );
@@ -515,7 +515,7 @@ export class StaffingService {
     await this.staff.assertRankOver(userId, workspaceId, a.userId);
     const startsOnStr = dateStr(a.startsOn);
     if (startsOnStr && dto.endsOn < startsOnStr) {
-      throw new BadRequestException('Дата окончания раньше начала назначения (' + startsOnStr + ')');
+      throw badRequest('objects.closeBeforeStart', { startsOn: startsOnStr });
     }
     await this.db.$transaction(async (tx) => {
       await tx.staffAssignment.update({
@@ -547,7 +547,7 @@ export class StaffingService {
         workspaceId,
         actorId: userId,
         typeKey: 'staffing.closed',
-        payload: { positionName: a.positionName, endsOn: dto.endsOn, targetUserId: a.userId },
+        payload: { positionName: a.positionName, endsOnIso: dto.endsOn, targetUserId: a.userId },
       });
     });
     await this.staff.afterStructureChanged(workspaceId);
@@ -566,7 +566,7 @@ export class StaffingService {
     const a = await this.assignmentOrThrow(workspaceId, assignmentId);
     const { caps } = await this.objects.getOrThrow(userId, workspaceId, a.branchId);
     this.objects.assertManage(caps);
-    if (!caps.payrollView) throw new ForbiddenException('Ставку ведёт тот, кто видит деньги объекта');
+    if (!caps.payrollView) throw forbidden('objects.rateNeedsPayroll');
     // Уникум «одна версия на дату» отдаёт P2002 — без обёртки клиент получал
     // сырой текст Prisma и был вынужден ветвиться по строке.
     return this.db
@@ -579,8 +579,8 @@ export class StaffingService {
         actorId: userId,
         typeKey: 'staffing.rate_set',
         payload: {
-          rateLabel: `${dto.rateType}`,
-          effectiveFrom: dateStr(row.effectiveFrom),
+          rateLabelKey: `objects.rateType.${dto.rateType}`,
+          effectiveFromIso: dateStr(row.effectiveFrom),
           targetUserId: a.userId,
         },
       });
@@ -598,7 +598,7 @@ export class StaffingService {
     const unit = await this.unitOrThrow(workspaceId, unitId);
     const { caps } = await this.objects.getOrThrow(userId, workspaceId, unit.branchId);
     this.objects.assertManage(caps);
-    if (!caps.payrollView) throw new ForbiddenException('Ставку ведёт тот, кто видит деньги объекта');
+    if (!caps.payrollView) throw forbidden('objects.rateNeedsPayroll');
     return this.db
       .$transaction(async (tx) => {
       const row = await this.writeRate(tx, workspaceId, userId, { staffingPositionId: unitId }, dto);
@@ -608,7 +608,7 @@ export class StaffingService {
         workspaceId,
         actorId: userId,
         typeKey: 'staffing.rate_set',
-        payload: { rateLabel: `${dto.rateType}`, effectiveFrom: dateStr(row.effectiveFrom) },
+        payload: { rateLabelKey: `objects.rateType.${dto.rateType}`, effectiveFromIso: dateStr(row.effectiveFrom) },
       });
       return this.serializeRate(row);
       })
@@ -895,7 +895,7 @@ export class StaffingService {
       where: { id: unitId, workspaceId },
       include: { position: { select: { name: true } } },
     });
-    if (!unit) throw new NotFoundException('Штатная единица не найдена');
+    if (!unit) throw notFound('objects.unitNotFound');
     return { ...unit, positionName: unit.position.name };
   }
 
@@ -904,16 +904,13 @@ export class StaffingService {
       where: { id: assignmentId, workspaceId },
       include: { position: { select: { name: true } } },
     });
-    if (!a) throw new NotFoundException('Назначение не найдено');
+    if (!a) throw notFound('objects.assignmentNotFound');
     return { ...a, positionName: a.position.name };
   }
 
   private rethrowUnit(e: unknown): never {
     if ((e as { code?: string })?.code === 'P2002') {
-      throw new ConflictException({
-        message: 'Такая должность уже есть в штатке объекта',
-        details: { code: OBJECTS_ERROR_CODES.staffingUnitDuplicate },
-      });
+      throw conflict('objects.unitDuplicate', undefined, { code: OBJECTS_ERROR_CODES.staffingUnitDuplicate });
     }
     throw e as Error;
   }
@@ -932,21 +929,15 @@ export class StaffingService {
       where: { id: templateId, workspaceId, archivedAt: null, OR: [{ branchId: null }, { branchId }] },
       select: { id: true },
     });
-    if (!tpl) throw new BadRequestException('Шаблон смены не найден в этом объекте');
+    if (!tpl) throw badRequest('objects.templateNotFound');
   }
 
   private rethrowOverlap(e: unknown): never {
     if (isAssignmentOverlapError(e)) {
-      throw new ConflictException({
-        message: 'Периоды назначения пересекаются — закройте предыдущее',
-        details: { code: OBJECTS_ERROR_CODES.assignmentOverlap },
-      });
+      throw conflict('objects.assignmentOverlap', undefined, { code: OBJECTS_ERROR_CODES.assignmentOverlap });
     }
     if ((e as { code?: string })?.code === 'P2002') {
-      throw new ConflictException({
-        message: 'Ставка на эту дату уже задана',
-        details: { code: OBJECTS_ERROR_CODES.rateOverlap },
-      });
+      throw conflict('objects.rateOverlap', undefined, { code: OBJECTS_ERROR_CODES.rateOverlap });
     }
     throw e as Error;
   }

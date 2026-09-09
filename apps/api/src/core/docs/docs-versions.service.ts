@@ -1,4 +1,4 @@
-import { HttpException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { HttpException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
@@ -7,6 +7,7 @@ import { pipeline } from 'stream/promises';
 import {
   DOCS_JOB_TYPES,
   DOCS_LIMITS,
+  SOURCE_LOCALE,
   DOCS_QUEUE,
   DOCUMENT_SESSION_STATUSES,
   documentFormatByExt,
@@ -15,6 +16,8 @@ import {
   type FileOwnerType,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { notFound } from '../../shared/errors/api-error';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { FilesService } from '../files/files.service';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { JobsService } from '../jobs/jobs.service';
@@ -40,6 +43,7 @@ export class DocsVersionsService implements OnModuleInit {
     private readonly files: FilesService,
     private readonly jobs: JobsService,
     private readonly jobsRegistry: JobsRegistry,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -183,7 +187,7 @@ export class DocsVersionsService implements OnModuleInit {
       where: { id: versionId, documentId: doc.id, status: 'ready' },
       select: { id: true, versionNo: true, fileId: true },
     });
-    if (!version?.fileId) throw new NotFoundException('Версия недоступна');
+    if (!version?.fileId) throw notFound('docs.versionUnavailable');
 
     await this.db.$transaction((tx) =>
       this.requestMilestone(tx, { documentId: doc.id, reason: 'manual', createdById: actorId }),
@@ -203,7 +207,7 @@ export class DocsVersionsService implements OnModuleInit {
       where: { id: doc.id },
       data: { lastSavedAt: new Date(), lastEditorId: actorId },
     });
-    this.logger.log(`документ ${doc.id}: версия ${version.versionNo} возвращена как текущая`);
+    this.logger.log(`document ${doc.id}: version ${version.versionNo} restored as the current one`);
     return version.versionNo;
   }
 
@@ -218,7 +222,7 @@ export class DocsVersionsService implements OnModuleInit {
    */
   private async materialize(documentId: string): Promise<void> {
     const doc = await this.db.document.findUnique({ where: { id: documentId } });
-    if (!doc) throw new JobDiscardError(`документ ${documentId} удалён — веху резать нечем`);
+    if (!doc) throw new JobDiscardError(`document ${documentId} is deleted — there is nothing to snapshot`);
 
     const pendings = await this.db.documentVersion.findMany({
       where: { documentId, status: 'pending' },
@@ -243,7 +247,7 @@ export class DocsVersionsService implements OnModuleInit {
         where: { id: target.id, status: 'pending' },
         data: { status: 'failed' },
       });
-      throw new JobDiscardError(`файл документа ${documentId} недоступен`);
+      throw new JobDiscardError(`the file of document ${documentId} is unavailable`);
     }
 
     const lastReady = await this.db.documentVersion.findFirst({
@@ -266,7 +270,12 @@ export class DocsVersionsService implements OnModuleInit {
 
       const snapshot = await this.ingestSnapshot(target.id, {
         path: tmp,
-        name: `${doc.title} (в${target.versionNo}).${doc.ext}`,
+        // Имя файла ложится В БД — снимок в языке ИСТОЧНИКА.
+      name: this.i18n.translateFor(SOURCE_LOCALE, 'common.docs.milestoneName', {
+        title: doc.title,
+        n: target.versionNo,
+        ext: doc.ext,
+      }),
         // Канонический MIME формата: у документов, оживлённых до этой правки, в строке
         // может лежать application/octet-stream, который белый список профиля не примет.
         mime: documentFormatByExt(doc.ext)?.mime ?? doc.mime,
@@ -303,7 +312,7 @@ export class DocsVersionsService implements OnModuleInit {
           },
         });
       });
-      this.logger.log(`веха ${target.versionNo} документа ${documentId} готова`);
+      this.logger.log(`milestone ${target.versionNo} of document ${documentId} is ready`);
     } finally {
       await fs.promises.unlink(tmp).catch(() => undefined);
     }
@@ -333,7 +342,7 @@ export class DocsVersionsService implements OnModuleInit {
         data: { status: 'failed' },
       });
       throw new JobDiscardError(
-        `снимок вехи невозможен (${status}): ${String((err as Error)?.message ?? err)}`,
+        `the milestone snapshot is impossible (${status}): ${String((err as Error)?.message ?? err)}`,
       );
     }
   }
@@ -378,7 +387,7 @@ export class DocsVersionsService implements OnModuleInit {
       await this.db.documentVersion.delete({ where: { id: version.id } }).catch(() => undefined);
     }
     if (doomed.length) {
-      this.logger.log(`ретеншн документа ${documentId}: удалено вех ${doomed.length}`);
+      this.logger.log(`retention of document ${documentId}: ${doomed.length} milestones deleted`);
     }
   }
 

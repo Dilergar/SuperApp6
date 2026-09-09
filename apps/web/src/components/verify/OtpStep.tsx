@@ -13,13 +13,7 @@ import { Alert, Button } from '@/components/ui';
 import { CodeInput } from './CodeInput';
 import { useVerifyStatus } from './use-verify-status';
 import type { OtpFlow } from './otp-flow';
-
-/** Секунды → «м:сс» (кулдаун доходит до 120 и «0:120» выглядел бы поломкой). */
-function formatCountdown(sec: number): string {
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
+import { formatCountdown } from '@/lib/format';
 
 export function OtpStep({
   flow,
@@ -65,7 +59,7 @@ export function OtpStep({
 
       {flow.devCode && (
         <p className="label-sm" style={{ margin: 'var(--spacing-3) 0 0' }}>
-          [dev] код: <b>{flow.devCode}</b>
+          {t.rich('otp.devCode', { code: flow.devCode, b: (chunk) => <b>{chunk}</b> })}
         </p>
       )}
 

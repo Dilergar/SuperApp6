@@ -11,6 +11,7 @@
 // ============================================================
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { LEGAL_ENTITY_LIMITS, type LegalEntityDto } from '@superapp/shared';
 import { Button, Card, CardHeader, Chip, EmptyState, Input, Modal, useConfirm } from '@/components/ui';
@@ -20,6 +21,8 @@ import { legalEntitiesKey, workspaceRequisitesKey } from '@/lib/queries';
 import { RequisitesEditor } from './RequisitesSection';
 
 export function LegalEntitiesSection({ workspaceId, span = 12 }: { workspaceId: string; span?: number }) {
+  const t = useTranslations('workspaces');
+  const tc = useTranslations('common');
   const qc = useQueryClient();
   const [confirm, confirmUI] = useConfirm();
   const [showArchived, setShowArchived] = useState(false);
@@ -89,8 +92,8 @@ export function LegalEntitiesSection({ workspaceId, span = 12 }: { workspaceId: 
     <>
       <Card span={span}>
         <CardHeader
-          title="Юрлица"
-          subtitle="ТОО и ИП организации: реквизиты, счета, стороны договоров. Головное подставляется по умолчанию"
+          title={t('legalEntities.title')}
+          subtitle={t('legalEntities.subtitle')}
           actions={
             <>
               <Button
@@ -98,7 +101,7 @@ export function LegalEntitiesSection({ workspaceId, span = 12 }: { workspaceId: 
                 variant="ghost"
                 onClick={() => setShowArchived((v) => !v)}
               >
-                {showArchived ? 'Скрыть архив' : 'Показать архив'}
+                {showArchived ? t('legalEntities.hideArchive') : t('legalEntities.showArchive')}
               </Button>
               <Button
                 size="sm"
@@ -107,7 +110,7 @@ export function LegalEntitiesSection({ workspaceId, span = 12 }: { workspaceId: 
                 disabled={list.length >= LEGAL_ENTITY_LIMITS.maxPerWorkspace}
                 onClick={() => setCreating(true)}
               >
-                Юрлицо
+                {t('legalEntities.add')}
               </Button>
             </>
           }
@@ -115,9 +118,13 @@ export function LegalEntitiesSection({ workspaceId, span = 12 }: { workspaceId: 
         {list.length === 0 ? (
           <EmptyState
             icon="buildings"
-            title="Юрлиц пока нет"
-            description="Добавьте ТОО или ИП — от его имени будут заключаться договоры"
-            action={<Button variant="primary" icon="add" onClick={() => setCreating(true)}>Добавить юрлицо</Button>}
+            title={t('legalEntities.emptyTitle')}
+            description={t('legalEntities.emptyDescription')}
+            action={
+              <Button variant="primary" icon="add" onClick={() => setCreating(true)}>
+                {t('legalEntities.emptyAction')}
+              </Button>
+            }
           />
         ) : (
           <div className="ui-stack" style={{ gap: 'var(--spacing-2)' }}>
@@ -154,11 +161,13 @@ export function LegalEntitiesSection({ workspaceId, span = 12 }: { workspaceId: 
                   >
                     <div style={{ fontWeight: 600 }}>{e.name}</div>
                     <div className="label-sm" style={{ opacity: 0.7 }}>
-                      {[e.legalName, e.bin ? `БИН ${e.bin}` : null].filter(Boolean).join(' · ') || 'Реквизиты не заполнены'}
+                      {[e.legalName, e.bin ? t('legalEntities.binShort', { bin: e.bin }) : null]
+                        .filter(Boolean)
+                        .join(' · ') || t('legalEntities.noRequisites')}
                     </div>
                   </button>
-                  {e.isHead && <Chip tone="success">Головное</Chip>}
-                  {e.archivedAt && <Chip tone="neutral">В архиве</Chip>}
+                  {e.isHead && <Chip tone="success">{t('legalEntities.head')}</Chip>}
+                  {e.archivedAt && <Chip tone="neutral">{t('legalEntities.archived')}</Chip>}
                   {!e.isHead && !e.archivedAt && (
                     // Архивное головным не делают — сервер отвечает 409, поэтому
                     // кнопка живёт только у живых юрлиц.
@@ -170,21 +179,21 @@ export function LegalEntitiesSection({ workspaceId, span = 12 }: { workspaceId: 
                       onClick={() =>
                         confirm(
                           {
-                            title: 'Сделать головным?',
-                            message: `Реквизиты «${e.name}» будут подставляться везде, где юрлицо не выбрано явно. Прежнее головное останется в списке обычным.`,
-                            confirmLabel: 'Сделать головным',
+                            title: t('legalEntities.makeHeadTitle'),
+                            message: t('legalEntities.makeHeadMessage', { name: e.name }),
+                            confirmLabel: t('legalEntities.makeHead'),
                           },
                           () => makeHead.mutateAsync(e.id).then(() => undefined),
                         )
                       }
                     >
-                      Сделать головным
+                      {t('legalEntities.makeHead')}
                     </Button>
                   )}
                   {!e.isHead &&
                     (e.archivedAt ? (
                       <Button size="sm" variant="ghost" loading={restore.isPending} onClick={() => restore.mutate(e.id)}>
-                        Вернуть
+                        {t('legalEntities.restore')}
                       </Button>
                     ) : (
                       <Button
@@ -193,15 +202,15 @@ export function LegalEntitiesSection({ workspaceId, span = 12 }: { workspaceId: 
                         onClick={() =>
                           confirm(
                             {
-                              title: 'В архив?',
-                              message: `«${e.name}» перестанет предлагаться в новых договорах и объектах. Существующие записи сохранятся.`,
-                              confirmLabel: 'В архив',
+                              title: t('legalEntities.archiveTitle'),
+                              message: t('legalEntities.archiveMessage', { name: e.name }),
+                              confirmLabel: t('legalEntities.archive'),
                             },
                             () => archive.mutateAsync(e.id).then(() => undefined),
                           )
                         }
                       >
-                        В архив
+                        {t('legalEntities.archive')}
                       </Button>
                     ))}
                 </div>
@@ -219,8 +228,8 @@ export function LegalEntitiesSection({ workspaceId, span = 12 }: { workspaceId: 
           span={span}
           basePath={`/workspaces/${workspaceId}/legal-entities/${selected.id}`}
           invalidateKeys={invalidateKeys}
-          title={`Реквизиты — ${selected.name}`}
-          subtitle="Юрформа, БИН, банк, директор: подставляются в договоры и счета этого юрлица"
+          title={t('requisites.forEntity', { name: selected.name })}
+          subtitle={t('requisites.entitySubtitle')}
           nameField={
             selected.isHead
               ? undefined
@@ -229,29 +238,29 @@ export function LegalEntitiesSection({ workspaceId, span = 12 }: { workspaceId: 
                   onChange: (v) => setNames((prev) => ({ ...prev, [selected.id]: v })),
                 }
           }
-          headerExtra={selected.isHead ? <Chip tone="success">Головное</Chip> : undefined}
+          headerExtra={selected.isHead ? <Chip tone="success">{t('legalEntities.head')}</Chip> : undefined}
         />
       )}
 
-      <Modal open={creating} onClose={() => setCreating(false)} title="Новое юрлицо">
+      <Modal open={creating} onClose={() => setCreating(false)} title={t('legalEntities.newTitle')}>
         <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
           <Input
-            label="Название"
-            placeholder="ТОО «Ромашка-Юг»"
+            label={t('legalEntities.newName')}
+            placeholder={t('legalEntities.newNamePlaceholder')}
             maxLength={LEGAL_ENTITY_LIMITS.nameMaxLength}
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            hint="Реквизиты заполните после создания"
+            hint={t('legalEntities.newNameHint')}
           />
           <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end' }}>
-            <Button variant="ghost" onClick={() => setCreating(false)}>Отмена</Button>
+            <Button variant="ghost" onClick={() => setCreating(false)}>{tc('actions.cancel')}</Button>
             <Button
               variant="primary"
               loading={create.isPending}
               disabled={newName.trim().length === 0}
               onClick={() => create.mutate()}
             >
-              Создать
+              {tc('actions.create')}
             </Button>
           </div>
         </div>

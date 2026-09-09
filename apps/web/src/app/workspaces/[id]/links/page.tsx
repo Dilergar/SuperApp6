@@ -12,6 +12,7 @@
 // ============================================================
 
 import { useParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { useQuery } from '@tanstack/react-query';
 import { WORKSPACE_ROLE_RANK, type Workspace, type WorkspaceRole } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
@@ -26,6 +27,7 @@ import { ShareLinksBrowser } from '@/components/share-links/ShareLinksBrowser';
 import { BentoGrid, Button, Card, EmptyState, LoadingBlock, PageHeader } from '@/components/ui';
 
 export default function WorkspaceLinksPage() {
+  const t = useTranslations('workspaces');
   const { isReady } = useRequireAuth();
   const { id } = useParams<{ id: string }>();
 
@@ -42,9 +44,9 @@ export default function WorkspaceLinksPage() {
 
   const header = (
     <PageHeader
-      breadcrumb={wsQuery.data?.name ?? 'Организация'}
-      title="Ссылки наружу"
-      description="Что команда раздала людям без аккаунта SuperApp6 — и кто именно раздал"
+      breadcrumb={wsQuery.data?.name ?? t('orgFallback')}
+      title={t('links.title')}
+      description={t('links.description')}
     />
   );
 
@@ -56,9 +58,9 @@ export default function WorkspaceLinksPage() {
           <Card span={12}>
             <EmptyState
               icon="blocked"
-              title="Организация не открылась"
-              description="Возможно, у вас нет доступа. Обновите страницу или вернитесь к списку организаций."
-              action={<Button variant="matte" icon="dashboard" href="/dashboard">На главную</Button>}
+              title={t('notOpened.title')}
+              description={t('notOpened.description')}
+              action={<Button variant="matte" icon="dashboard" href="/dashboard">{t('toDashboard')}</Button>}
             />
           </Card>
         </BentoGrid>
@@ -74,9 +76,9 @@ export default function WorkspaceLinksPage() {
           <Card span={12}>
             <EmptyState
               icon="lock"
-              title="Раздел доступен с роли Менеджер"
-              description="Ссылки наружу видят и закрывают управляющие — так задумано. Свои ссылки есть у каждого в профиле."
-              action={<Button variant="matte" icon="link" href="/profile/links">Мои ссылки</Button>}
+              title={t('links.managerOnly.title')}
+              description={t('links.managerOnly.description')}
+              action={<Button variant="matte" icon="link" href="/profile/links">{t('links.myLinks')}</Button>}
             />
           </Card>
         </BentoGrid>
@@ -86,9 +88,9 @@ export default function WorkspaceLinksPage() {
 
   return (
     <ShareLinksBrowser
-      title="Ссылки наружу"
-      subtitle={`Что раздала наружу команда «${wsQuery.data?.name ?? 'организации'}». Отозвать можно любую, в том числе чужую.`}
-      emptyDescription="Ссылка появляется здесь, как только кто-то из команды поделится файлом, папкой или документом наружу."
+      title={t('links.title')}
+      subtitle={t('links.subtitle', { name: wsQuery.data?.name ?? t('orgFallback') })}
+      emptyDescription={t('links.empty')}
       source={{
         keyPrefix: workspaceShareLinksScopeKey(id),
         list: ({ status, cursor }) =>

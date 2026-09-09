@@ -7,6 +7,7 @@
 // ============================================================
 
 import { useState, useEffect } from 'react';
+import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
@@ -19,7 +20,6 @@ import {
   GlyphField, Icon, IconButton, Input, LoadingBlock, Modal, PageHeader, Select, SegmentedControl, type TabItem,
 } from '@/components/ui';
 import {
-  pluralRu,
   type Shop, type Showcase, type Listing, type AccessibleShopRef, type Contact,
   type ShopOverviewDto,
 } from '@superapp/shared';
@@ -32,6 +32,8 @@ type Tab = 'shops' | 'wishlist' | 'orders';
 
 export default function ShopPage() {
   const { isReady } = useRequireAuth();
+  const t = useTranslations('shop');
+  const common = useTranslations('common');
   const router = useRouter();
 
   const qc = useQueryClient();
@@ -134,7 +136,7 @@ export default function ShopPage() {
     setError(''); setOk('');
     try {
       await apiPost(`/shop/listings/${l.id}/buy`);
-      setOk(`Заказ оформлен: «${l.title}». Коины заморожены до подтверждения продавцом (вкладка «Заказы»).`);
+      setOk(t('page.orderPlaced', { title: l.title }));
       setTimeout(() => setOk(''), 5000);
     } catch (e) {
       setError(apiErrorMessage(e));
@@ -158,35 +160,35 @@ export default function ShopPage() {
   const shownError = error || (shopQ.error ? apiErrorMessage(shopQ.error) : '');
 
   const tabs: TabItem<Tab>[] = [
-    { key: 'shops', label: 'Магазины', icon: 'shop' },
-    { key: 'wishlist', label: 'Вишлист', icon: 'heart' },
-    { key: 'orders', label: 'Заказы', icon: 'receipt' },
+    { key: 'shops', label: t('page.tabShops'), icon: 'shop' },
+    { key: 'wishlist', label: t('page.tabWishlist'), icon: 'heart' },
+    { key: 'orders', label: t('page.tabOrders'), icon: 'receipt' },
   ];
 
   return (
     <>
       <PageHeader
         breadcrumb="My Wish & Shop"
-        title={viewOwnerId ? shop?.name ?? 'Магазин' : 'Мой магазин'}
-        description={viewOwnerId ? 'Витрины, которыми с вами поделились' : 'Витрины подарков за коины и списки желаний'}
+        title={viewOwnerId ? shop?.name ?? t('defaultShopName') : t('page.myShop')}
+        description={t(viewOwnerId ? 'page.sharedDescription' : 'page.myDescription')}
         actions={
           <>
             {/* Переключатель «чей магазин смотрю» — навигация, поэтому Select, не EntitySelector */}
             {accessible.length > 0 && tab === 'shops' && (
               <Select
-                aria-label="Чей магазин"
+                aria-label={t('page.whoseShop')}
                 value={viewOwnerId ?? 'me'}
                 onChange={(v) => setViewOwnerId(v === 'me' ? null : v)}
                 width={230}
                 options={[
-                  { value: 'me', label: 'Мой магазин', icon: 'shop' },
+                  { value: 'me', label: t('page.myShop'), icon: 'shop' },
                   ...accessible.map((a) => ({ value: a.ownerId, label: a.name, icon: 'user' as const })),
                 ]}
               />
             )}
             {canManage && tab === 'shops' && (
               <Button variant="matte" tone="accent" icon="people" onClick={() => setStaffOpen(true)}>
-                Сотрудники
+                {t('page.staff')}
               </Button>
             )}
           </>
@@ -194,7 +196,7 @@ export default function ShopPage() {
       />
 
       <div style={{ marginBottom: 'var(--gap-grid)' }}>
-        <SegmentedControl aria-label="Разделы магазина" items={tabs} value={tab} onChange={setTab} />
+        <SegmentedControl aria-label={t('page.sections')} items={tabs} value={tab} onChange={setTab} />
       </div>
 
       {(shownError || ok) && (
@@ -213,19 +215,25 @@ export default function ShopPage() {
           {/* ---------- Витрины ---------- */}
           <Card span={3}>
             <CardHeader
-              title="Витрины"
+              title={t('page.showcases')}
               actions={
                 canManage ? (
-                  <IconButton icon="add" label="Новая витрина" size={30} onClick={() => setShowcaseModal({})} />
+                  <IconButton icon="add" label={t('page.newShowcase')} size={30} onClick={() => setShowcaseModal({})} />
                 ) : undefined
               }
             />
             {showcases.length === 0 ? (
               <EmptyState
                 icon="folder"
-                title="Витрин нет"
-                description={canManage ? 'Создайте первую — например «Подарки».' : 'Владелец пока ничем не поделился.'}
-                action={canManage ? <Button variant="matte" size="sm" icon="add" onClick={() => setShowcaseModal({})}>Витрина</Button> : undefined}
+                title={t('page.noShowcases')}
+                description={t(canManage ? 'page.noShowcasesOwner' : 'page.noShowcasesGuest')}
+                action={
+                  canManage ? (
+                    <Button variant="matte" size="sm" icon="add" onClick={() => setShowcaseModal({})}>
+                      {t('page.showcase')}
+                    </Button>
+                  ) : undefined
+                }
               />
             ) : (
               <div className="ui-stack" style={{ gap: '0.25rem' }}>
@@ -268,35 +276,35 @@ export default function ShopPage() {
                     <span className="title-md">{selected.name}</span>
                   </span>
                 }
-                subtitle={`${listings.length} ${pluralRu(listings.length, ['товар', 'товара', 'товаров'])}`}
+                subtitle={t('page.listingCount', { count: listings.length })}
                 actions={
                   canManage ? (
                     <>
-                      <Button variant="ghost" size="sm" icon="share" onClick={() => setSharePanel(selected)}>Поделиться</Button>
-                      <IconButton icon="edit" label="Переименовать витрину" size={30} onClick={() => setShowcaseModal({ editing: selected })} />
-                      <IconButton icon="delete" label="Удалить витрину" size={30} onClick={() => setRemovingShowcase(selected)} />
+                      <Button variant="ghost" size="sm" icon="share" onClick={() => setSharePanel(selected)}>{t('page.share')}</Button>
+                      <IconButton icon="edit" label={t('page.renameShowcase')} size={30} onClick={() => setShowcaseModal({ editing: selected })} />
+                      <IconButton icon="delete" label={t('page.deleteShowcase')} size={30} onClick={() => setRemovingShowcase(selected)} />
                       <Button variant="primary" tone="success" size="sm" icon="add" onClick={() => setListingModal({ showcaseId: selected.id })}>
-                        Товар
+                        {t('page.listing')}
                       </Button>
                     </>
                   ) : undefined
                 }
               />
             ) : (
-              <CardHeader title="Товары" subtitle="Выберите витрину слева" />
+              <CardHeader title={t('page.listings')} subtitle={t('page.pickShowcase')} />
             )}
 
             {!selected ? (
-              <EmptyState icon="shop" title="Витрина не выбрана" description="Слева — список витрин этого магазина." />
+              <EmptyState icon="shop" title={t('page.noShowcaseSelected')} description={t('page.noShowcaseSelectedHint')} />
             ) : listings.length === 0 ? (
               <EmptyState
                 icon="gift"
-                title="В витрине нет товаров"
-                description={canManage ? 'Добавьте первый — цену можно назначить в своей и чужих валютах.' : 'Владелец ещё не выложил товары.'}
+                title={t('page.showcaseEmpty')}
+                description={t(canManage ? 'page.showcaseEmptyOwner' : 'page.showcaseEmptyGuest')}
                 action={
                   canManage ? (
                     <Button variant="primary" tone="success" icon="add" onClick={() => setListingModal({ showcaseId: selected.id })}>
-                      Новый товар
+                      {t('page.newListing')}
                     </Button>
                   ) : undefined
                 }
@@ -363,18 +371,26 @@ export default function ShopPage() {
         open={!!removingShowcase}
         onClose={() => setRemovingShowcase(null)}
         onConfirm={deleteShowcase}
-        title={removingShowcase ? `Удалить витрину «${removingShowcase.name}»?` : 'Удалить витрину?'}
-        message="Вместе с витриной исчезнут её товары. Товар с активным заказом удалить нельзя."
-        confirmLabel="Удалить"
+        title={
+          removingShowcase
+            ? t('page.confirmDeleteShowcaseOf', { name: removingShowcase.name })
+            : t('page.confirmDeleteShowcase')
+        }
+        message={t('page.confirmDeleteShowcaseMessage')}
+        confirmLabel={common('actions.delete')}
         danger
       />
       <ConfirmDialog
         open={!!removingListing}
         onClose={() => setRemovingListing(null)}
         onConfirm={deleteListing}
-        title={removingListing ? `Удалить «${removingListing.title}»?` : 'Удалить товар?'}
-        message="Если по товару есть активный заказ — удалить не получится."
-        confirmLabel="Удалить"
+        title={
+          removingListing
+            ? t('page.confirmDeleteListingOf', { title: removingListing.title })
+            : t('page.confirmDeleteListing')
+        }
+        message={t('page.confirmDeleteListingMessage')}
+        confirmLabel={common('actions.delete')}
         danger
       />
     </>
@@ -391,13 +407,15 @@ function ShowcaseModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('shop');
+  const common = useTranslations('common');
   const [name, setName] = useState(init?.name ?? '');
   const [icon, setIcon] = useState(init?.icon ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const save = async () => {
-    if (!name.trim()) { setError('Введите название'); return; }
+    if (!name.trim()) { setError(t('page.nameRequired')); return; }
     setBusy(true);
     setError(null);
     try {
@@ -416,14 +434,14 @@ function ShowcaseModal({
     <Modal
       open
       onClose={onClose}
-      title={init ? 'Переименовать витрину' : 'Новая витрина'}
-      subtitle="Витрина — папка товаров со своим доступом"
+      title={t(init ? 'page.renameShowcase' : 'page.newShowcase')}
+      subtitle={t('page.showcaseSubtitle')}
       size="sm"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Отмена</Button>
+          <Button variant="ghost" onClick={onClose}>{common('actions.cancel')}</Button>
           <Button variant="primary" tone="success" icon={init ? 'save' : 'add'} loading={busy} onClick={save}>
-            {init ? 'Сохранить' : 'Создать'}
+            {common(init ? 'actions.save' : 'actions.create')}
           </Button>
         </>
       }
@@ -433,10 +451,10 @@ function ShowcaseModal({
         <div style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', gap: 'var(--spacing-3)', alignItems: 'start' }}>
           <GlyphField value={icon} onChange={(v) => setIcon(v ?? '')} suggest={name} />
           <Input
-            label="Название"
+            label={common('labels.name')}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Подарки"
+            placeholder={t('page.showcasePlaceholder')}
             autoFocus
             onKeyDown={(e) => { if (e.key === 'Enter' && name.trim() && !busy) save(); }}
           />

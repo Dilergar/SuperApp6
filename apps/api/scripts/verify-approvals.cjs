@@ -311,8 +311,9 @@ const created = [];
       include: { event: true },
     });
     check('адресат позван при СОЗДАНИИ заявки, а не после первого решения', !!asked);
-    check('глагол берётся из вида шага («Подписать», не «Согласовать»)',
-      !!asked && String(asked.event.payload?.actionLabel ?? '').startsWith('Подписать'), asked?.event?.payload?.actionLabel);
+    check('глагол берётся из вида шага (ключ signature, не approval)',
+      asked?.event?.payload?.actionLabelKey === 'approvals.kind.signature.action',
+      asked?.event?.payload?.actionLabelKey);
 
     // Пустой снимок — ЧЕСТНЫЙ ОТКАЗ при создании (КЭДО-волна): раньше шаг молча
     // активировался «в никуда» и заявка ждала вечно — теперь маршрут с адресатом,

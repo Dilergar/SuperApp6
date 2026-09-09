@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { HR_ERROR_CODES } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { badRequest } from '../../shared/errors/api-error';
 
 // ============================================================
 // Производственный календарь РК (КЭДО). Машиночитаемого госисточника НЕТ,
@@ -25,6 +26,11 @@ import { DatabaseService } from '../../shared/database/database.service';
 interface SeedDay {
   date: string; // YYYY-MM-DD
   kind: 'holiday' | 'dayoff' | 'transferred' | 'workday' | 'shortened';
+  /**
+   * Название дня — СНИМОК В БАЗУ, а человеку он не показывается ни на одном
+   * экране (расчёту нужны `date` и `kind`). Поэтому язык источника, как у любой
+   * вечной строки БД: календарь заводится один раз и переживает смену языка.
+   */
   name: string;
 }
 
@@ -34,45 +40,45 @@ export const HR_CALENDAR_YEARS: readonly number[] = [2026, 2027];
 /** Государственные и национальные праздники (переносятся при совпадении с выходным) */
 const HOLIDAYS: Record<number, { date: string; name: string }[]> = {
   2026: [
-    { date: '2026-01-01', name: 'Новый год' },
-    { date: '2026-01-02', name: 'Новый год' },
-    { date: '2026-03-08', name: 'Международный женский день' },
-    { date: '2026-03-21', name: 'Наурыз мейрамы' },
-    { date: '2026-03-22', name: 'Наурыз мейрамы' },
-    { date: '2026-03-23', name: 'Наурыз мейрамы' },
-    { date: '2026-05-01', name: 'Праздник единства народа Казахстана' },
-    { date: '2026-05-07', name: 'День защитника Отечества' },
-    { date: '2026-05-09', name: 'День Победы' },
-    { date: '2026-07-06', name: 'День столицы' },
-    { date: '2026-10-25', name: 'День Республики' },
-    { date: '2026-12-16', name: 'День независимости' },
+    { date: '2026-01-01', name: 'New Year' },
+    { date: '2026-01-02', name: 'New Year' },
+    { date: '2026-03-08', name: 'International Women’s Day' },
+    { date: '2026-03-21', name: 'Nauryz Meiramy' },
+    { date: '2026-03-22', name: 'Nauryz Meiramy' },
+    { date: '2026-03-23', name: 'Nauryz Meiramy' },
+    { date: '2026-05-01', name: 'Kazakhstan People’s Unity Day' },
+    { date: '2026-05-07', name: 'Defender of the Fatherland Day' },
+    { date: '2026-05-09', name: 'Victory Day' },
+    { date: '2026-07-06', name: 'Capital City Day' },
+    { date: '2026-10-25', name: 'Republic Day' },
+    { date: '2026-12-16', name: 'Independence Day' },
   ],
   2027: [
-    { date: '2027-01-01', name: 'Новый год' },
-    { date: '2027-01-02', name: 'Новый год' },
-    { date: '2027-03-08', name: 'Международный женский день' },
+    { date: '2027-01-01', name: 'New Year' },
+    { date: '2027-01-02', name: 'New Year' },
+    { date: '2027-03-08', name: 'International Women’s Day' },
     // Первое празднование Дня Конституции 15 марта — 2027 (закон № 306-VIII)
-    { date: '2027-03-15', name: 'День Конституции' },
-    { date: '2027-03-21', name: 'Наурыз мейрамы' },
-    { date: '2027-03-22', name: 'Наурыз мейрамы' },
-    { date: '2027-03-23', name: 'Наурыз мейрамы' },
-    { date: '2027-05-01', name: 'Праздник единства народа Казахстана' },
-    { date: '2027-05-07', name: 'День защитника Отечества' },
-    { date: '2027-05-09', name: 'День Победы' },
-    { date: '2027-07-06', name: 'День столицы' },
-    { date: '2027-10-25', name: 'День Республики' },
-    { date: '2027-12-16', name: 'День независимости' },
+    { date: '2027-03-15', name: 'Constitution Day' },
+    { date: '2027-03-21', name: 'Nauryz Meiramy' },
+    { date: '2027-03-22', name: 'Nauryz Meiramy' },
+    { date: '2027-03-23', name: 'Nauryz Meiramy' },
+    { date: '2027-05-01', name: 'Kazakhstan People’s Unity Day' },
+    { date: '2027-05-07', name: 'Defender of the Fatherland Day' },
+    { date: '2027-05-09', name: 'Victory Day' },
+    { date: '2027-07-06', name: 'Capital City Day' },
+    { date: '2027-10-25', name: 'Republic Day' },
+    { date: '2027-12-16', name: 'Independence Day' },
   ],
 };
 
 /** Выходные по п. 5 ст. 84 ТК РК — НЕ переносятся */
 const DAYOFFS: SeedDay[] = [
-  { date: '2026-01-07', kind: 'dayoff', name: 'Рождество Христово' },
-  { date: '2026-05-27', kind: 'dayoff', name: 'Первый день Курбан-айта' },
-  { date: '2027-01-07', kind: 'dayoff', name: 'Рождество Христово' },
+  { date: '2026-01-07', kind: 'dayoff', name: 'Orthodox Christmas' },
+  { date: '2026-05-27', kind: 'dayoff', name: 'First day of Kurban Ait' },
+  { date: '2027-01-07', kind: 'dayoff', name: 'Orthodox Christmas' },
   // Плавающая дата лунного календаря; 2027 ≈ 16 мая (совпал с воскресеньем —
   // просто совпал, переноса у выходных п. 5 ст. 84 нет)
-  { date: '2027-05-16', kind: 'dayoff', name: 'Первый день Курбан-айта' },
+  { date: '2027-05-16', kind: 'dayoff', name: 'First day of Kurban Ait' },
 ];
 
 /**
@@ -117,7 +123,7 @@ export function buildCalendarSeed(): SeedDay[] {
       byDate.set(candidate, {
         date: candidate,
         kind: 'transferred',
-        name: `Перенос выходного (${h.name})`,
+        name: `Day off moved from ${h.name}`,
       });
     }
   }
@@ -149,11 +155,11 @@ export class HrCalendarService implements OnApplicationBootstrap {
         });
       } catch (e) {
         failed += 1;
-        this.logger.error(`сид производственного календаря ${day.date}: ${(e as Error).message}`);
+        this.logger.error(`work calendar seed ${day.date}: ${(e as Error).message}`);
       }
     }
     if (failed > 0) {
-      this.logger.error(`производственный календарь засеян НЕ ПОЛНОСТЬЮ: ${failed} из ${seed.length} дней`);
+      this.logger.error(`work calendar seeded INCOMPLETELY: ${failed} of ${seed.length} days`);
     }
     this.cache = null;
   }
@@ -166,10 +172,13 @@ export class HrCalendarService implements OnApplicationBootstrap {
 
   assertCovered(dateStr: string): void {
     if (!this.covered(dateStr)) {
-      throw new BadRequestException({
-        message: `Производственный календарь на ${dateStr.slice(0, 4)} год не загружен — срок в рабочих днях посчитать нечем`,
-        details: { code: HR_ERROR_CODES.calendarHorizon },
-      });
+      // Фраза — из каталога в языке запроса, `details.code` — машинный код КЭДО,
+      // по которому ветвятся клиенты и сьюта.
+      throw badRequest(
+        'hr.calendarHorizon',
+        { year: dateStr.slice(0, 4) },
+        { code: HR_ERROR_CODES.calendarHorizon },
+      );
     }
   }
 

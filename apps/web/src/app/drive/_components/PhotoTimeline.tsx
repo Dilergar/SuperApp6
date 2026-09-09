@@ -20,7 +20,8 @@ import { drivePhotoBucketsKey, drivePhotosKey } from '@/lib/queries';
 import type { DriveSpaceRef } from '@superapp/shared';
 import { fetchPhotoBuckets, fetchPhotoPage } from '@/lib/drive-api';
 import { useQuery } from '@tanstack/react-query';
-import { monthLabel } from './drive-ui';
+import { useTranslations } from 'next-intl';
+import { useMonthLabel } from '@/lib/format';
 
 interface Tile {
   id: string;
@@ -77,6 +78,8 @@ function layout(tiles: Tile[], width: number): Row[] {
 }
 
 export function PhotoTimeline({ driveRef }: { driveRef: DriveSpaceRef }) {
+  const t = useTranslations('drive');
+  const monthLabel = useMonthLabel();
   const [month, setMonth] = useState<string | undefined>(undefined);
   const [width, setWidth] = useState(0);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -127,7 +130,7 @@ export function PhotoTimeline({ driveRef }: { driveRef: DriveSpaceRef }) {
       {(buckets ?? []).length > 0 && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
           <Chip tone="accent" selected={!month} onClick={() => setMonth(undefined)}>
-            Все
+            {t('photos.all')}
           </Chip>
           {(buckets ?? []).map((b) => (
             <Chip key={b.month} tone="accent" selected={month === b.month} onClick={() => setMonth(b.month)}>
@@ -145,8 +148,8 @@ export function PhotoTimeline({ driveRef }: { driveRef: DriveSpaceRef }) {
         ) : tiles.length === 0 ? (
           <EmptyState
             icon="image"
-            title="Снимков пока нет"
-            description="Фотографии, попавшие на Диск, выстроятся здесь по датам съёмки"
+            title={t('photos.empty')}
+            description={t('photos.emptyHint')}
           />
         ) : (
           <Virtuoso

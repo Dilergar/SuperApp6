@@ -9,6 +9,9 @@
 // These interfaces are API DTOs (assembled views), not raw DB rows: `role` on a member
 // is read from UserRole, and user name/avatar are joined in by the service.
 
+import type { SignBasisParts } from '../constants/counterparties';
+import type { Locale } from '../constants/i18n';
+
 // WorkspaceRole is defined in constants/roles.ts — re-export for convenience.
 export { type WorkspaceRole } from '../constants/roles';
 
@@ -54,6 +57,12 @@ export interface Workspace {
   contactPhone: string | null;
   /** Default field-visibility to members. Present ONLY for owner/admin (editing). */
   cardVisibility?: WorkspaceCardVisibility;
+  /**
+   * Язык БУМАГ организации: на нём печатаются договоры, приказы и счета.
+   * Умолчание для новых бланков (у бланка язык можно переопределить). Не язык
+   * интерфейса — тот у каждого человека свой.
+   */
+  documentLanguage: Locale;
   ownerId: string;
   membersCount: number;
   /** Active (non-cancelled) task count — present in the single-workspace view. */
@@ -140,7 +149,13 @@ export interface WorkspaceRequisitesDto {
   /** Директор — сотрудник организации (для PersonChip) */
   directorUserId: string | null;
   directorName: string | null;
+  /**
+   * Основание подписи ФРАЗОЙ для экрана — в языке зрителя. В документ печатается
+   * не отсюда: там ту же структуру собирает группа полей шаблона в языке БУМАГИ.
+   */
   signBasis: string | null;
+  /** Она же полями формы — так она и хранится */
+  signBasisParts: SignBasisParts | null;
   bankAccounts: WorkspaceBankAccountDto[];
 }
 

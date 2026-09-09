@@ -38,7 +38,7 @@ const chipPathSchema = z
   .min(3)
   .max(120)
   .refine((v) => /^[^{}.|<>\n]{1,60}\.[^{}.|<>\n]{1,60}$/.test(v), {
-    message: 'Путь чипа — «Группа.Поле» без { } . | < > внутри частей',
+    message: 'validation.docBuilder.chipPath',
   });
 
 const inlineChipSchema = z.object({
@@ -120,9 +120,9 @@ const signatureSchema = z.object({
   id: blockIdSchema,
   type: z.literal('signature'),
   props: z.object({
-    role: z.string().trim().min(1).max(120).refine((v) => !/[<>]/.test(v), { message: 'Символы < и > запрещены' }),
+    role: z.string().trim().min(1).max(120).refine((v) => !/[<>]/.test(v), { message: 'validation.docBuilder.badCharacters' }),
     nameSource: z.enum(['subject', 'director', 'counterparty', 'custom', 'none']),
-    customName: z.string().trim().max(120).refine((v) => !/[<>]/.test(v), { message: 'Символы < и > запрещены' }).optional(),
+    customName: z.string().trim().max(120).refine((v) => !/[<>]/.test(v), { message: 'validation.docBuilder.badCharacters' }).optional(),
     stamp: z.boolean().optional(),
   }),
 });

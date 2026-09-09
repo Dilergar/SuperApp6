@@ -27,8 +27,24 @@ export interface BlueprintDoc {
 }
 
 /**
+ * Подписи шагов заготовки. Слова приходят СВЕРХУ, из каталога: маршрут дальше
+ * правит человек, и подписи он читает и меняет на своём языке.
+ */
+export interface RouteBlueprintLabels {
+  trigger: string;
+  sign: string;
+  signTitle: string;
+  ack: string;
+  ackTitle: string;
+  register: string;
+  file: string;
+  done: string;
+  refused: string;
+}
+
+/**
  * @param templateId — шаблон, отправка по которому запускает маршрут
- * @param docName — человеческое имя шаблона (идёт в подписи шагов)
+ * @param labels — подписи шагов на языке того, кто рисует маршрут
  * @param signatureLevel — чем подписывается ВИД документа (core/sign). Подставляем
  *   в шаг «Подписать» сразу: кадровику не приходится знать, что ст. 33 ТК РК
  *   требует ЭЦП, а забыть выбрать уровень — значит получить приказ, «подписанный»
@@ -36,25 +52,25 @@ export interface BlueprintDoc {
  */
 export function buildRouteBlueprint(
   templateId: string,
-  docName: string,
+  labels: RouteBlueprintLabels,
   signatureLevel: 'none' | 'pep' | 'ecp' = 'none',
 ): BlueprintDoc {
   const nodes: BlueprintNode[] = [
     {
       id: 'trigger',
       type: 'trigger.document',
-      label: 'Документ отправлен',
+      label: labels.trigger,
       config: { templateId },
       position: { x: 80, y: 160 },
     },
     {
       id: 'sign',
       type: 'human.approval',
-      label: 'Подпись руководителя',
+      label: labels.sign,
       config: {
         kind: 'signature',
         signatureLevel,
-        title: `Подписать: ${docName}`,
+        title: labels.signTitle,
         // Кто подписывает — единственное, что человек обязан указать сам: у каждой
         // компании это своя должность, и угадывать её за неё нельзя.
         assigneeMode: 'position',
@@ -65,10 +81,10 @@ export function buildRouteBlueprint(
     {
       id: 'ack',
       type: 'human.approval',
-      label: 'Ознакомление сотрудника',
+      label: labels.ack,
       config: {
         kind: 'acknowledgement',
-        title: `Ознакомиться: ${docName}`,
+        title: labels.ackTitle,
         assigneeMode: 'initiator',
       },
       position: { x: 680, y: 160 },
@@ -76,20 +92,20 @@ export function buildRouteBlueprint(
     {
       id: 'register',
       type: 'doc.register',
-      label: 'Регистрация номера',
+      label: labels.register,
       config: {},
       position: { x: 980, y: 160 },
     },
     {
       id: 'file',
       type: 'doc.file',
-      label: 'Подшить в дело',
+      label: labels.file,
       config: {},
       position: { x: 1240, y: 160 },
     },
-    { id: 'done', type: 'end', label: 'Готово', config: {}, position: { x: 1500, y: 160 } },
+    { id: 'done', type: 'end', label: labels.done, config: {}, position: { x: 1500, y: 160 } },
     // Отказ — тоже конец пути, и он должен быть виден на схеме, а не подразумеваться.
-    { id: 'refused', type: 'end', label: 'Отклонён', config: {}, position: { x: 380, y: 360 } },
+    { id: 'refused', type: 'end', label: labels.refused, config: {}, position: { x: 380, y: 360 } },
   ];
 
   const edges = [

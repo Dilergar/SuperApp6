@@ -13,11 +13,15 @@
 // ============================================================
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ORG_FORMS,
+  SIGN_BASIS_OPTIONS,
   TAX_REGIMES,
   REQUISITE_LIMITS,
+  composeSignBasis,
+  signBasisNeedsDetail,
   isValidBik,
   isValidIinOrBin,
   isValidKbe,
@@ -25,6 +29,7 @@ import {
   normalizeIban,
   LEGAL_ENTITY_LIMITS,
   type LegalEntityDto,
+  type SignBasisInput,
   type WorkspaceMember,
   type WorkspaceRequisitesDto,
 } from '@superapp/shared';
@@ -32,10 +37,13 @@ import { Button, Card, CardHeader, Chip, Divider, Input, Select, Toggle, useConf
 import { EntitySelector } from '@/components/EntitySelector';
 import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
 import { toastError } from '@/lib/toast';
+import { useFormatters } from '@/lib/format';
 import { legalEntitiesKey, workspaceRequisitesKey } from '@/lib/queries';
 
-const ORG_FORM_LABEL = new Map<string, string>(ORG_FORMS.map((f) => [f.value, f.label]));
-const TAX_REGIME_LABEL = new Map<string, string>(TAX_REGIMES.map((r) => [r.value, r.label]));
+
+/** Справочники РК называют СМЫСЛ — слово даёт каталог (`workspaces.orgForm.*`) */
+const orgFormKey = (v: string) => ((ORG_FORMS as readonly string[]).includes(v) ? `orgForm.${v}` : null);
+const taxRegimeKey = (v: string) => ((TAX_REGIMES as readonly string[]).includes(v) ? `taxRegime.${v}` : null);
 
 export type { LegalEntityDto };
 
@@ -80,30 +88,45 @@ function Row({ label, value }: { label: string; value: string | null }) {
 }
 
 function RequisitesView({ data, span }: { data: WorkspaceRequisitesDto; span: number }) {
+  const tws = useTranslations('workspaces');
+  const t = tws;
   const filled =
     data.legalName || data.bin || data.legalAddress || data.orgForm || data.bankAccounts.length > 0;
   if (!filled) return null;
   return (
     <Card span={span}>
-      <CardHeader title="Реквизиты" subtitle="Для договоров и счетов" />
+      <CardHeader title={t('requisites.title')} subtitle={t('requisites.viewSubtitle')} />
       <div className="ui-stack" style={{ gap: 'var(--spacing-1)' }}>
-        <Row label="Форма" value={data.orgForm ? (ORG_FORM_LABEL.get(data.orgForm) ?? data.orgForm) : null} />
-        <Row label="Юр. наименование" value={data.legalName} />
-        <Row label="БИН" value={data.bin} />
-        <Row label="Налоговый режим" value={data.taxRegime ? (TAX_REGIME_LABEL.get(data.taxRegime) ?? data.taxRegime) : null} />
-        <Row label="Юридический адрес" value={data.legalAddress} />
-        <Row label="КБе" value={data.kbe} />
+        <Row label={t('requisites.orgForm')} value={data.orgForm ? (orgFormKey(data.orgForm) ? tws(orgFormKey(data.orgForm)!) : data.orgForm) : null} />
+        <Row label={t('requisites.legalName')} value={data.legalName} />
+        <Row label={t('requisites.bin')} value={data.bin} />
         <Row
-          label="НДС"
+          label={t('requisites.taxRegime')}
+          value={data.taxRegime ? (taxRegimeKey(data.taxRegime) ? tws(taxRegimeKey(data.taxRegime)!) : data.taxRegime) : null}
+        />
+        <Row label={t('requisites.legalAddress')} value={data.legalAddress} />
+        <Row label={t('requisites.kbe')} value={data.kbe} />
+        <Row
+          label={t('requisites.vat')}
           value={
             data.vatPayer
-              ? `плательщик${data.vatSeries || data.vatNumber ? ` (св-во ${[data.vatSeries, data.vatNumber].filter(Boolean).join(' № ')})` : ''}`
+              ? data.vatSeries || data.vatNumber
+                ? t('requisites.vatPayerWithCert', {
+                    cert: [data.vatSeries, data.vatNumber].filter(Boolean).join(' № '),
+                  })
+                : t('requisites.vatPayer')
               : null
           }
         />
         <Row
-          label="Директор"
-          value={data.directorName ? `${data.directorName}${data.signBasis ? ` · на основании ${data.signBasis}` : ''}` : null}
+          label={t('requisites.director')}
+          value={
+            data.directorName
+              ? data.signBasis
+                ? t('requisites.directorWithBasis', { name: data.directorName, basis: data.signBasis })
+                : data.directorName
+              : null
+          }
         />
       </div>
       {data.bankAccounts.length > 0 && (
@@ -113,8 +136,10 @@ function RequisitesView({ data, span }: { data: WorkspaceRequisitesDto; span: nu
             {data.bankAccounts.map((a) => (
               <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap', fontSize: '0.85rem' }}>
                 <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600 }}>{a.iban}</span>
-                <span style={{ color: 'var(--on-surface-variant)' }}>{a.bankName} · БИК {a.bik}</span>
-                {a.isPrimary && <Chip tone="success">Основной</Chip>}
+                <span style={{ color: 'var(--on-surface-variant)' }}>
+                  {a.bankName} · {t('requisites.accounts.bikShort', { bik: a.bik })}
+                </span>
+                {a.isPrimary && <Chip tone="success">{t('requisites.accounts.primary')}</Chip>}
               </div>
             ))}
           </div>
@@ -135,8 +160,10 @@ export function RequisitesEditor({
   // Адрес ручек: головное юрлицо доступно и по старому пути /requisites.
   basePath,
   invalidateKeys,
-  title = 'Реквизиты',
-  subtitle = 'Юрформа, БИН, банк, директор — для договоров и счетов. Видимость сотрудникам — тумблер «Реквизиты» справа',
+  // Заголовок и подпись по умолчанию берутся из каталога ВНУТРИ компонента:
+  // значение параметра по умолчанию считается вне рендера, где хука ещё нет.
+  title,
+  subtitle,
   // Имя юрлица правится только у неголовных (у головного имя = название организации).
   nameField,
   headerExtra,
@@ -151,6 +178,14 @@ export function RequisitesEditor({
   nameField?: { value: string; onChange: (v: string) => void };
   headerExtra?: React.ReactNode;
 }) {
+  const tws = useTranslations('workspaces');
+  const t = tws;
+  const tc = useTranslations('common');
+  // Слова основания подписи живут у «Контрагентов»: понятие одно на обе стороны договора
+  const tcp = useTranslations('counterparties');
+  const fmt = useFormatters();
+  const cardTitle = title ?? tws('requisites.title');
+  const cardSubtitle = subtitle ?? tws('requisites.editSubtitle');
   const path = basePath ?? `/workspaces/${workspaceId}/requisites`;
   const accountsPath = `${path}/accounts`;
   const qc = useQueryClient();
@@ -167,8 +202,26 @@ export function RequisitesEditor({
     vatNumber: initial?.vatNumber ?? '',
     vatDate: initial?.vatDate ?? '',
     directorUserId: initial?.directorUserId ?? '',
-    signBasis: initial?.signBasis ?? 'Устава',
+    // ОСНОВАНИЕ ПОДПИСИ — структурой: печатная фраза («…действующего на основании
+    // Приказа № 12-к от 15.01.2026») собирается на выходе, в языке той бумаги,
+    // куда она попадёт. Экран показывает её в языке зрителя.
+    basisKind: initial?.signBasisParts?.kind ?? 'none',
+    basisNumber: initial?.signBasisParts?.number ?? '',
+    basisDate: initial?.signBasisParts?.date ?? '',
+    basisText: initial?.signBasisParts?.text ?? '',
   });
+  // Что уйдёт в бумагу: та же функция, что печатает строку на сервере
+  const basisPreview =
+    composeSignBasis(
+      {
+        kind: form.basisKind,
+        number: form.basisNumber.trim() || null,
+        date: form.basisDate || null,
+        text: form.basisText.trim() || null,
+      },
+      (key, values) => tcp(key, values),
+      (iso) => fmt.date(iso),
+    ) ?? '';
   const accounts = initial?.bankAccounts ?? [];
   const [accIban, setAccIban] = useState('');
   const [accBank, setAccBank] = useState('');
@@ -200,7 +253,17 @@ export function RequisitesEditor({
         vatNumber: form.vatPayer ? form.vatNumber.trim() || null : null,
         vatDate: form.vatPayer ? form.vatDate || null : null,
         directorUserId: form.directorUserId || null,
-        signBasis: form.signBasis.trim() || null,
+        signBasis:
+          form.basisKind === 'none'
+            ? null
+            : ({
+                kind: form.basisKind,
+                ...(signBasisNeedsDetail(form.basisKind) && form.basisNumber.trim()
+                  ? { number: form.basisNumber.trim() }
+                  : {}),
+                ...(signBasisNeedsDetail(form.basisKind) && form.basisDate ? { date: form.basisDate } : {}),
+                ...(form.basisKind === 'custom' ? { text: form.basisText.trim() } : {}),
+              } satisfies SignBasisInput),
       });
     },
     onSuccess: () => void invalidate(),
@@ -241,80 +304,88 @@ export function RequisitesEditor({
 
   return (
     <Card span={span}>
-      <CardHeader title={title} subtitle={subtitle} actions={headerExtra} />
+      <CardHeader title={cardTitle} subtitle={cardSubtitle} actions={headerExtra} />
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {nameField && (
           <Input
-            label="Название юрлица"
-            placeholder="ТОО «Ромашка»"
+            label={t('requisites.entityName')}
+            placeholder={t('requisites.entityNamePlaceholder')}
             maxLength={LEGAL_ENTITY_LIMITS.nameMaxLength}
             value={nameField.value}
             onChange={(e) => nameField.onChange(e.target.value)}
-            hint="Как показывать в списках и выпадашках"
+            hint={t('requisites.entityNameHint')}
           />
         )}
         <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)' }}>
           <Select
-            label="Форма"
+            label={t('requisites.orgForm')}
             value={form.orgForm}
             onChange={(v) => setForm({ ...form, orgForm: v })}
-            options={[{ value: '', label: 'Не указана' }, ...ORG_FORMS.map((f) => ({ value: f.value, label: f.label }))]}
+            options={[
+              { value: '', label: t('requisites.orgFormNone') },
+              ...ORG_FORMS.map((f) => ({ value: f, label: tws(`orgForm.${f}`) })),
+            ]}
           />
           <Select
-            label="Налоговый режим"
+            label={t('requisites.taxRegime')}
             value={form.taxRegime}
             onChange={(v) => setForm({ ...form, taxRegime: v })}
-            options={[{ value: '', label: 'Не указан' }, ...TAX_REGIMES.map((r) => ({ value: r.value, label: r.label }))]}
+            options={[
+              { value: '', label: t('requisites.taxRegimeNone') },
+              ...TAX_REGIMES.map((r) => ({ value: r, label: tws(`taxRegime.${r}`) })),
+            ]}
           />
         </div>
         <Input
-          label="Полное юридическое наименование"
-          placeholder="ТОО «Ромашка»"
+          label={t('requisites.legalNameFull')}
+          placeholder={t('requisites.entityNamePlaceholder')}
           maxLength={REQUISITE_LIMITS.legalNameMaxLength}
           value={form.legalName}
           onChange={(e) => setForm({ ...form, legalName: e.target.value })}
-          hint="Название организации в SuperApp6 — это бренд; в договор идёт юрформа"
+          hint={t('requisites.legalNameHint')}
         />
         <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)' }}>
           <Input
-            label="БИН"
+            label={t('requisites.bin')}
             inputMode="numeric"
-            placeholder="12 цифр"
+            placeholder={t('requisites.binPlaceholder')}
             value={form.bin}
             onChange={(e) => setForm({ ...form, bin: e.target.value.replace(/\D/g, '').slice(0, 12) })}
-            error={form.bin && !isValidIinOrBin(form.bin) ? 'Не сходится контрольная сумма' : undefined}
+            error={form.bin && !isValidIinOrBin(form.bin) ? t('requisites.binError') : undefined}
           />
           <Input
-            label="КБе"
+            label={t('requisites.kbe')}
             inputMode="numeric"
             placeholder="17"
             value={form.kbe}
             onChange={(e) => setForm({ ...form, kbe: e.target.value.replace(/\D/g, '').slice(0, 2) })}
-            error={form.kbe && !isValidKbe(form.kbe) ? 'Две цифры' : undefined}
+            error={form.kbe && !isValidKbe(form.kbe) ? t('requisites.kbeError') : undefined}
           />
         </div>
         <Input
-          label="Юридический адрес"
+          label={t('requisites.legalAddress')}
           maxLength={REQUISITE_LIMITS.addressMaxLength}
           value={form.legalAddress}
           onChange={(e) => setForm({ ...form, legalAddress: e.target.value })}
-          placeholder="г. Алматы, ул. …, офис …"
+          placeholder={t('requisites.legalAddressPlaceholder')}
         />
         <Toggle
           checked={form.vatPayer}
           onChange={(v) => setForm({ ...form, vatPayer: v })}
-          label="Плательщик НДС"
+          label={t('requisites.vatPayerToggle')}
         />
         {form.vatPayer && (
           <div className="grid md:grid-cols-3" style={{ gap: 'var(--spacing-4)' }}>
-            <Input label="Серия свидетельства" value={form.vatSeries} onChange={(e) => setForm({ ...form, vatSeries: e.target.value })} />
-            <Input label="Номер свидетельства" value={form.vatNumber} onChange={(e) => setForm({ ...form, vatNumber: e.target.value })} />
-            <Input label="Дата свидетельства" type="date" value={form.vatDate} onChange={(e) => setForm({ ...form, vatDate: e.target.value })} />
+            <Input label={t('requisites.vatSeries')} value={form.vatSeries} onChange={(e) => setForm({ ...form, vatSeries: e.target.value })} />
+            <Input label={t('requisites.vatNumber')} value={form.vatNumber} onChange={(e) => setForm({ ...form, vatNumber: e.target.value })} />
+            <Input label={t('requisites.vatDate')} type="date" value={form.vatDate} onChange={(e) => setForm({ ...form, vatDate: e.target.value })} />
           </div>
         )}
         <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)' }}>
           <div>
-            <span className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-2)', fontWeight: 600 }}>Директор (из сотрудников)</span>
+            <span className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-2)', fontWeight: 600 }}>
+              {t('requisites.directorPicker')}
+            </span>
             <EntitySelector
               types={['user']}
               options={(members ?? [])
@@ -322,38 +393,72 @@ export function RequisitesEditor({
                 .map((m) => ({ type: 'user' as const, id: m.userId, title: m.userName, firstName: m.userName }))}
               value={form.directorUserId ? [{ type: 'user', id: form.directorUserId }] : []}
               onChange={(next) => setForm({ ...form, directorUserId: next[next.length - 1]?.id ?? '' })}
-              placeholder="Выберите сотрудника…"
+              placeholder={t('requisites.directorPick')}
             />
           </div>
-          <Input
-            label="Действует на основании"
-            value={form.signBasis}
-            maxLength={REQUISITE_LIMITS.signBasisMaxLength}
-            onChange={(e) => setForm({ ...form, signBasis: e.target.value })}
-            placeholder="Устава"
-          />
+          <div className="ui-stack" style={{ gap: 'var(--spacing-2)' }}>
+            <Select
+              label={t('requisites.signBasis')}
+              value={form.basisKind}
+              onChange={(v) => setForm({ ...form, basisKind: v as SignBasisInput['kind'] })}
+              options={[
+                { value: 'none', label: tcp('signBasis.none') },
+                ...SIGN_BASIS_OPTIONS.map((o) => ({ value: o.value, label: tcp(`signBasis.${o.value}`) })),
+                { value: 'custom', label: tcp('signBasis.custom') },
+              ]}
+              hint={basisPreview ? t('requisites.signBasisPreview', { basis: basisPreview }) : undefined}
+            />
+            {signBasisNeedsDetail(form.basisKind) && (
+              <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-2)' }}>
+                <Input
+                  label={t('requisites.signBasisNumber')}
+                  value={form.basisNumber}
+                  maxLength={60}
+                  placeholder={tcp(`signBasisNumberExample.${form.basisKind}`)}
+                  onChange={(e) => setForm({ ...form, basisNumber: e.target.value })}
+                />
+                <Input
+                  label={t('requisites.signBasisDate')}
+                  type="date"
+                  value={form.basisDate}
+                  onChange={(e) => setForm({ ...form, basisDate: e.target.value })}
+                />
+              </div>
+            )}
+            {form.basisKind === 'custom' && (
+              <Input
+                label={tcp('signBasis.custom')}
+                value={form.basisText}
+                maxLength={REQUISITE_LIMITS.signBasisMaxLength}
+                placeholder={t('requisites.signBasisPlaceholder')}
+                onChange={(e) => setForm({ ...form, basisText: e.target.value })}
+              />
+            )}
+          </div>
         </div>
         <div>
           <Button variant="primary" tone="success" icon="save" loading={save.isPending} onClick={() => save.mutate()}>
-            Сохранить реквизиты
+            {t('requisites.save')}
           </Button>
         </div>
 
         <Divider style={{ margin: 'var(--spacing-2) 0' }} />
 
         {/* Банковские счета — список с основным (в документы подставляется основной) */}
-        <CardHeader title="Банковские счета" subtitle="Основной подставляется в счета и договоры" />
+        <CardHeader title={t('requisites.accounts.title')} subtitle={t('requisites.accounts.subtitle')} />
         {accounts.map((a) => (
           <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: 220 }}>
               <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: '0.9rem' }}>{a.iban}</div>
-              <div className="label-sm" style={{ opacity: 0.7 }}>{a.bankName} · БИК {a.bik}</div>
+              <div className="label-sm" style={{ opacity: 0.7 }}>
+                {a.bankName} · {t('requisites.accounts.bikShort', { bik: a.bik })}
+              </div>
             </div>
             {a.isPrimary ? (
-              <Chip tone="success">Основной</Chip>
+              <Chip tone="success">{t('requisites.accounts.primary')}</Chip>
             ) : (
               <Button size="sm" variant="ghost" loading={makePrimary.isPending} onClick={() => makePrimary.mutate(a.id)}>
-                Сделать основным
+                {t('requisites.accounts.makePrimary')}
               </Button>
             )}
             <Button
@@ -363,16 +468,16 @@ export function RequisitesEditor({
               onClick={() =>
                 confirm(
                   {
-                    title: 'Удалить счёт?',
-                    message: `${a.iban} (${a.bankName}) будет удалён из реквизитов.`,
-                    confirmLabel: 'Удалить',
+                    title: t('requisites.accounts.deleteTitle'),
+                    message: t('requisites.accounts.deleteMessage', { iban: a.iban, bank: a.bankName }),
+                    confirmLabel: tc('actions.delete'),
                     danger: true,
                   },
                   () => removeAccount.mutateAsync(a.id).then(() => undefined),
                 )
               }
             >
-              Удалить
+              {tc('actions.delete')}
             </Button>
           </div>
         ))}
@@ -382,20 +487,26 @@ export function RequisitesEditor({
             placeholder="KZ…"
             value={accIban}
             onChange={(e) => setAccIban(e.target.value)}
-            error={accIban && !isValidKzIban(accIbanNorm) ? 'KZ + 18 знаков' : undefined}
+            error={accIban && !isValidKzIban(accIbanNorm) ? t('requisites.accounts.ibanError') : undefined}
           />
-          <Input label="Банк" placeholder="Kaspi Bank" maxLength={REQUISITE_LIMITS.bankNameMaxLength} value={accBank} onChange={(e) => setAccBank(e.target.value)} />
           <Input
-            label="БИК"
+            label={t('requisites.accounts.bankLabel')}
+            placeholder="Kaspi Bank"
+            maxLength={REQUISITE_LIMITS.bankNameMaxLength}
+            value={accBank}
+            onChange={(e) => setAccBank(e.target.value)}
+          />
+          <Input
+            label={t('requisites.accounts.bikLabel')}
             placeholder="CASPKZKA"
             value={accBik}
             onChange={(e) => setAccBik(e.target.value.toUpperCase().slice(0, 8))}
-            error={accBik && !isValidBik(accBik) ? '8 знаков' : undefined}
+            error={accBik && !isValidBik(accBik) ? t('requisites.accounts.bikError') : undefined}
           />
         </div>
         <div>
           <Button variant="outline" size="sm" icon="add" loading={addAccount.isPending} disabled={!accOk} onClick={() => addAccount.mutate()}>
-            Добавить счёт
+            {t('requisites.accounts.add')}
           </Button>
         </div>
       </div>

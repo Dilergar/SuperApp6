@@ -12,16 +12,12 @@
  */
 
 import { useState } from 'react';
-import {
-  SIGN_ACT_STATUS_LABELS,
-  SIGN_LEVEL_LABELS,
-  SIGN_LEVEL_TONE,
-  SIGN_METHOD_LABELS,
-  type SignSummaryDto,
-} from '@superapp/shared';
+import { useTranslations } from 'next-intl';
+import { SIGN_LEVEL_TONE, type SignSummaryDto } from '@superapp/shared';
 import { Button, Card, Chip, Icon } from '@/components/ui';
 import { PersonChip } from '@/app/circles/PersonCard';
 import { apiErrorMessage } from '@/lib/api';
+import { useFormatters } from '@/lib/format';
 import { toastError } from '@/lib/toast';
 import { SignFlowModal } from './SignFlowModal';
 import { fetchSignExport, fetchSignProtocol, saveBlob } from './sign-api';
@@ -33,6 +29,8 @@ export function SignaturesBlock({
   sign: SignSummaryDto;
   onChanged?: () => void;
 }) {
+  const t = useTranslations('sign');
+  const f = useFormatters();
   const actorOf = (id: string | null) => (id ? sign.actors[id] : undefined);
   const [signing, setSigning] = useState(false);
   const [downloading, setDownloading] = useState<'protocol' | 'export' | null>(null);
@@ -47,7 +45,10 @@ export function SignaturesBlock({
     try {
       const blob =
         kind === 'protocol' ? await fetchSignProtocol(sign.requestId) : await fetchSignExport(sign.requestId);
-      saveBlob(blob, kind === 'protocol' ? 'Протокол подписания.pdf' : 'Подписано.zip');
+      saveBlob(
+        blob,
+        kind === 'protocol' ? `${t('protocol.title')}.pdf` : `${t('block.packageFileName')}.zip`,
+      );
     } catch (e) {
       toastError(apiErrorMessage(e));
     } finally {
@@ -59,9 +60,9 @@ export function SignaturesBlock({
     <Card>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-3)' }}>
         <Icon name="signature" size={18} />
-        <b>Подписи</b>
+        <b>{t('block.title')}</b>
         <Chip tone={SIGN_LEVEL_TONE[sign.level] === 'primary' ? 'accent' : 'neutral'}>
-          {SIGN_LEVEL_LABELS[sign.level].short}
+          {t(`level.${sign.level}.short`)}
         </Chip>
       </div>
 
@@ -94,24 +95,24 @@ export function SignaturesBlock({
                 </span>
               )}
               <Chip tone={act.status === 'signed' ? 'success' : act.status === 'pending' ? 'neutral' : 'danger'}>
-                {SIGN_ACT_STATUS_LABELS[act.status]}
+                {t(`actStatus.${act.status}`)}
               </Chip>
             </div>
             {act.status === 'signed' && (
               <div className="body-xs" style={{ opacity: 0.8 }}>
-                {act.method ? SIGN_METHOD_LABELS[act.method].title : SIGN_LEVEL_LABELS[act.level].short}
-                {act.signedAt ? ` · ${new Date(act.signedAt).toLocaleString('ru-RU')}` : ''}
+                {act.method ? t(`method.${act.method}.title`) : t(`level.${act.level}.short`)}
+                {act.signedAt ? ` · ${f.dateTime(act.signedAt)}` : ''}
                 {act.certificate?.issuerCn ? ` · ${act.certificate.issuerCn}` : ''}
               </div>
             )}
             {act.declineReason && (
               <div className="body-xs" style={{ color: 'var(--danger-text)' }}>
-                Причина: {act.declineReason}
+                {t('block.reason', { reason: act.declineReason })}
               </div>
             )}
             {act.checkUrl && (
               <a className="body-xs" href={act.checkUrl} target="_blank" rel="noreferrer">
-                Проверить подпись
+                {t('block.check')}
               </a>
             )}
           </div>
@@ -121,7 +122,7 @@ export function SignaturesBlock({
       <div style={{ display: 'flex', gap: 'var(--spacing-2)', marginTop: 'var(--spacing-3)', flexWrap: 'wrap' }}>
         {sign.myActId && (
           <Button variant="primary" icon="signature" onClick={() => setSigning(true)}>
-            Подписать
+            {t('block.sign')}
           </Button>
         )}
         {/* Штампованная копия — итоговый PDF с полосами и «Листом подписей»:
@@ -132,7 +133,7 @@ export function SignaturesBlock({
             icon="file"
             onClick={() => window.open(sign.stamped!.url!, '_blank', 'noopener')}
           >
-            Скачать со штампами
+            {t('block.downloadStamped')}
           </Button>
         )}
         {sign.canExport && (
@@ -144,7 +145,7 @@ export function SignaturesBlock({
               loading={downloading === 'protocol'}
               disabled={!!downloading}
             >
-              Протокол
+              {t('block.protocol')}
             </Button>
             <Button
               variant="outline"
@@ -153,7 +154,7 @@ export function SignaturesBlock({
               loading={downloading === 'export'}
               disabled={!!downloading}
             >
-              Пакет с подписями
+              {t('block.package')}
             </Button>
           </>
         )}

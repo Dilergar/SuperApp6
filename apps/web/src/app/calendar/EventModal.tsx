@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslations } from 'next-intl';
+import { useFormatters } from '@/lib/format';
 import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
 import { EntitySelector } from '@/components/EntitySelector';
 import type { Principal } from '@/lib/entities';
@@ -15,9 +17,7 @@ import {
   CALENDAR_EVENT_COLORS,
   DEFAULT_EVENT_COLOR,
   DEFAULT_REMINDER_OFFSETS,
-  EVENT_VISIBILITY_OPTIONS,
-  RSVP_META,
-  RESOURCE_BOOKING_STATUS_META,
+  EVENT_VISIBILITY_VALUES,
   type CalendarEventOccurrence,
   type CalendarEventDetail,
   type CalendarEventVisibility,
@@ -28,6 +28,7 @@ import {
   type Circle,
   type Resource,
 } from '@superapp/shared';
+import type { Formatters } from '@superapp/i18n/format';
 import { toInputValue, fromInputValue, startOfDay, endOfDay } from './calendar-lib';
 import { ShareCardModal } from '../messenger/ShareCardModal';
 
@@ -63,6 +64,9 @@ export function EventModal({
   resources: Resource[];
   onClose: (changed: boolean) => void;
 }) {
+  const t = useTranslations('calendar');
+  const tc = useTranslations('common');
+  const f = useFormatters();
   const creating = target.mode === 'create';
   const occ = target.mode === 'event' ? target.occurrence : null;
   const eventId = occ?.eventId ?? null;
@@ -166,7 +170,7 @@ export function EventModal({
 
   const save = async () => {
     if (!title.trim()) {
-      setError('Введите название');
+      setError(t('modal.titleRequired'));
       return;
     }
     setBusyAction(true);
@@ -293,28 +297,28 @@ export function EventModal({
   const footer = loading ? undefined : canEdit ? (
     <>
       {!creating && (
-        <Button variant="ghost" tone="danger" icon="delete" disabled={busyAction} onClick={remove}>Удалить</Button>
+        <Button variant="ghost" tone="danger" icon="delete" disabled={busyAction} onClick={remove}>{tc('actions.delete')}</Button>
       )}
       {!creating && eventId && (
-        <Button variant="ghost" icon="share" onClick={() => setShowForward(true)}>В чат</Button>
+        <Button variant="ghost" icon="share" onClick={() => setShowForward(true)}>{t('modal.toChat')}</Button>
       )}
-      <Button variant="ghost" onClick={close}>Отмена</Button>
-      <Button variant="primary" tone="success" icon="save" loading={busyAction} onClick={save}>Сохранить</Button>
+      <Button variant="ghost" onClick={close}>{tc('actions.cancel')}</Button>
+      <Button variant="primary" tone="success" icon="save" loading={busyAction} onClick={save}>{tc('actions.save')}</Button>
     </>
   ) : isParticipant ? (
     <>
-      {eventId && <Button variant="ghost" icon="share" onClick={() => setShowForward(true)}>В чат</Button>}
+      {eventId && <Button variant="ghost" icon="share" onClick={() => setShowForward(true)}>{t('modal.toChat')}</Button>}
       <Button variant="ghost" tone="danger" icon="close" disabled={busyAction} onClick={() => removeParticipant(meId)}>
-        Убрать из календаря
+        {t('modal.removeFromCalendar')}
       </Button>
       <Button variant="primary" tone="success" icon="save" loading={busyAction} onClick={saveMyReminders}>
-        Сохранить напоминания
+        {t('modal.saveReminders')}
       </Button>
     </>
   ) : (
     <>
-      {eventId && <Button variant="ghost" icon="share" onClick={() => setShowForward(true)}>В чат</Button>}
-      <Button variant="ghost" onClick={close}>Закрыть</Button>
+      {eventId && <Button variant="ghost" icon="share" onClick={() => setShowForward(true)}>{t('modal.toChat')}</Button>}
+      <Button variant="ghost" onClick={close}>{tc('actions.close')}</Button>
     </>
   );
 
@@ -323,7 +327,7 @@ export function EventModal({
       <Modal
         open
         onClose={close}
-        title={creating ? 'Новое событие' : canEdit ? 'Событие' : 'Приглашение'}
+        title={creating ? t('modal.createTitle') : canEdit ? t('modal.eventTitle') : t('modal.inviteTitle')}
         size="md"
         footer={footer}
       >
@@ -339,27 +343,27 @@ export function EventModal({
           <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
             <div style={{ display: 'flex', gap: 'var(--spacing-3)', alignItems: 'flex-end' }}>
               {/* Значок — данные события: выбирает GlyphField, рисует Glyph (глиф-пак) */}
-              <GlyphField label="Значок" value={icon} onChange={setIcon} suggest={title} />
+              <GlyphField label={t('modal.icon')} value={icon} onChange={setIcon} suggest={title} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <Input
                   autoFocus
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Название события"
-                  aria-label="Название события"
+                  placeholder={t('modal.titlePlaceholder')}
+                  aria-label={t('modal.titlePlaceholder')}
                   style={{ fontSize: '1.05rem', fontWeight: 600 }}
                 />
               </div>
             </div>
 
-            <Field label="Когда">
+            <Field label={t('modal.when')}>
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: 165 }}>
                   <Input
                     type={allDay ? 'date' : 'datetime-local'}
                     value={startInput}
                     onChange={(e) => setStartInput(e.target.value)}
-                    aria-label="Начало"
+                    aria-label={t('modal.start')}
                   />
                 </div>
                 <Icon name="arrowRight" size={15} style={{ color: 'var(--muted)' }} />
@@ -368,37 +372,37 @@ export function EventModal({
                     type={allDay ? 'date' : 'datetime-local'}
                     value={endInput}
                     onChange={(e) => setEndInput(e.target.value)}
-                    aria-label="Конец"
+                    aria-label={t('modal.end')}
                   />
                 </div>
                 <Chip tone="accent" icon="clock" selected={allDay} onClick={toggleAllDay}>
-                  весь день
+                  {t('grid.allDay')}
                 </Chip>
               </div>
             </Field>
 
             {!isSeries && (
               <Select
-                label="Повтор"
+                label={t('modal.recurrence')}
                 value={recurrence ?? ''}
                 onChange={(v) => { const next = v || null; setRecurrence(next); if (next) setResourceId(null); }}
                 options={CALENDAR_RECURRENCE_PRESETS.map((r) => ({
                   value: r.rule ?? '',
-                  label: r.label,
+                  label: t(`recurrence.${r.key}`),
                   icon: r.rule ? 'refresh' : undefined,
                 }))}
               />
             )}
             {isSeries && (
-              <Field label="Применить к" hint="Правка серии затрагивает и будущие вхождения">
+              <Field label={t('modal.applyTo')} hint={t('modal.applyToHint')}>
                 <SegmentedControl
-                  aria-label="Область правки серии"
+                  aria-label={t('modal.scopeAria')}
                   value={scope}
                   onChange={setScope}
                   items={[
-                    { key: 'this', label: 'Только это' },
-                    { key: 'this_and_following', label: 'Это и следующие' },
-                    { key: 'all', label: 'Вся серия' },
+                    { key: 'this', label: t('series.thisOne') },
+                    { key: 'this_and_following', label: t('series.thisAndFollowing') },
+                    { key: 'all', label: t('series.whole') },
                   ]}
                 />
               </Field>
@@ -408,26 +412,26 @@ export function EventModal({
             {!isSeries && !recurrence && (bookable.length > 0 || resourceId) && (
               <div>
                 <Select
-                  label="Ресурс"
+                  label={t('modal.resource')}
                   value={resourceId ?? ''}
                   onChange={(v) => setResourceId(v || null)}
                   options={[
-                    { value: '', label: 'Без ресурса' },
+                    { value: '', label: t('modal.noResource') },
                     ...bookable.map((r) => ({ value: r.id, label: r.name, icon: 'folder' as const })),
                   ]}
                 />
                 {detail?.resourceStatus && (
                   <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                     <Chip size="sm" tone={BOOKING_TONE[detail.resourceStatus]}>
-                      Бронь: {RESOURCE_BOOKING_STATUS_META[detail.resourceStatus].label}
+                      {t('modal.booking', { status: t(`bookingStatus.${detail.resourceStatus}`) })}
                     </Chip>
                     {detail.isResourceOwner && detail.resourceStatus === 'pending' && (
                       <>
                         <Button variant="primary" tone="success" size="sm" icon="check" disabled={busyAction} onClick={() => bookingAction('confirm')}>
-                          Подтвердить
+                          {t('modal.confirm')}
                         </Button>
                         <Button variant="matte" tone="danger" size="sm" icon="close" disabled={busyAction} onClick={() => bookingAction('reject')}>
-                          Отклонить
+                          {t('modal.reject')}
                         </Button>
                       </>
                     )}
@@ -437,7 +441,7 @@ export function EventModal({
             )}
 
             {/* Участники */}
-            <Field label="Участники">
+            <Field label={t('modal.participants')}>
               <ParticipantBlocks
                 participants={participants}
                 pendingIds={creating ? pendingUserIds : []}
@@ -447,7 +451,7 @@ export function EventModal({
               />
               <div style={{ marginTop: 'var(--spacing-2)' }}>
                 <Button variant="ghost" size="sm" icon="userAdd" onClick={() => setShowInvite((v) => !v)}>
-                  {showInvite ? 'Скрыть' : 'Позвать'}
+                  {showInvite ? t('modal.inviteHide') : t('modal.inviteShow')}
                 </Button>
                 {showInvite && (
                   <InvitePicker
@@ -465,7 +469,7 @@ export function EventModal({
               </div>
             </Field>
 
-            <Field label="Мои напоминания">
+            <Field label={t('modal.myReminders')}>
               <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
                 {CALENDAR_REMINDER_PRESETS.map((r) => (
                   <Chip
@@ -475,7 +479,7 @@ export function EventModal({
                     selected={reminders.includes(r.minutesBefore)}
                     onClick={() => toggleReminder(r.minutesBefore)}
                   >
-                    {r.label}
+                    {t(`reminder.${r.key}`)}
                   </Chip>
                 ))}
               </div>
@@ -483,28 +487,28 @@ export function EventModal({
 
             <ColorPicker value={color} onChange={setColor} />
 
-            <Input label="Место" icon="location" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Необязательно" />
+            <Input label={t('modal.location')} icon="location" value={location} onChange={(e) => setLocation(e.target.value)} placeholder={t('modal.optional')} />
             <Textarea
-              label="Заметки"
+              label={t('modal.notes')}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Необязательно"
+              placeholder={t('modal.optional')}
               rows={2}
               style={{ resize: 'vertical' }}
             />
 
-            <Field label="Приватность">
+            <Field label={t('modal.privacy')}>
               <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
-                {EVENT_VISIBILITY_OPTIONS.map((v) => (
+                {EVENT_VISIBILITY_VALUES.map((v) => (
                   <Chip
-                    key={v.value}
+                    key={v}
                     size="sm"
                     tone="accent"
-                    selected={visibility === v.value}
-                    onClick={() => setVisibility(v.value)}
-                    title={v.hint}
+                    selected={visibility === v}
+                    onClick={() => setVisibility(v)}
+                    title={t(`visibility.${v}Hint`)}
                   >
-                    {v.label}
+                    {t(`visibility.${v}`)}
                   </Chip>
                 ))}
               </div>
@@ -521,11 +525,11 @@ export function EventModal({
               )}
               <span className="title-md">{detail?.title}</span>
             </div>
-            <div className="body-md">{whenLabel(detail)}</div>
+            <div className="body-md">{whenLabel(detail, f)}</div>
 
             {occ && occ.ownerName && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', flexWrap: 'wrap' }}>
-                <span className="label-caps">Организатор</span>
+                <span className="label-caps">{t('modal.organizer')}</span>
                 <PersonChip size="S" userId={occ.ownerId} firstName={occ.ownerName} />
               </div>
             )}
@@ -540,7 +544,7 @@ export function EventModal({
                 <Chip size="sm" tone="neutral" icon="folder">{occ.resourceName}</Chip>
                 {occ.resourceStatus && (
                   <Chip size="sm" tone={BOOKING_TONE[occ.resourceStatus]}>
-                    {RESOURCE_BOOKING_STATUS_META[occ.resourceStatus].label}
+                    {t(`bookingStatus.${occ.resourceStatus}`)}
                   </Chip>
                 )}
               </div>
@@ -551,7 +555,7 @@ export function EventModal({
 
             {isParticipant && (
               <>
-                <Field label="Ваш ответ">
+                <Field label={t('modal.myAnswer')}>
                   <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
                     {(['accepted', 'tentative', 'declined'] as RsvpStatus[]).map((s) => (
                       <Button
@@ -562,13 +566,13 @@ export function EventModal({
                         disabled={busyAction}
                         onClick={() => doRsvp(s)}
                       >
-                        {RSVP_META[s].label}
+                        {t(`rsvp.${s}`)}
                       </Button>
                     ))}
                   </div>
                 </Field>
 
-                <Field label="Мои напоминания">
+                <Field label={t('modal.myReminders')}>
                   <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
                     {CALENDAR_REMINDER_PRESETS.map((r) => (
                       <Chip
@@ -578,7 +582,7 @@ export function EventModal({
                         selected={reminders.includes(r.minutesBefore)}
                         onClick={() => toggleReminder(r.minutesBefore)}
                       >
-                        {r.label}
+                        {t(`reminder.${r.key}`)}
                       </Chip>
                     ))}
                   </div>
@@ -593,7 +597,7 @@ export function EventModal({
         <ShareCardModal
           refType="event"
           refId={eventId}
-          title={detail?.title || title || occ?.title || 'Событие'}
+          title={detail?.title || title || occ?.title || t('modal.eventTitle')}
           onClose={() => setShowForward(false)}
         />
       )}
@@ -603,19 +607,21 @@ export function EventModal({
 
 /** Цвет события — палитра из shared; свой примитив, потому что в ките нет выбора цвета. */
 function ColorPicker({ value, onChange }: { value: string; onChange: (c: string) => void }) {
+  const t = useTranslations('calendar');
   return (
-    <Field label="Цвет">
-      <div role="radiogroup" aria-label="Цвет события" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+    <Field label={t('modal.color')}>
+      <div role="radiogroup" aria-label={t('modal.colorAria')} style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
         {CALENDAR_EVENT_COLORS.map((c) => {
           const active = value === c.value;
+          const name = t(`color.${c.key}`);
           return (
             <button
               key={c.value}
               type="button"
               role="radio"
               aria-checked={active}
-              aria-label={c.name}
-              title={c.name}
+              aria-label={name}
+              title={name}
               onClick={() => onChange(c.value)}
               style={{
                 width: 26, height: 26, borderRadius: 'var(--radius-sm)', cursor: 'pointer',
@@ -641,12 +647,13 @@ function ParticipantBlocks({
   canManage: boolean;
   onRemove?: (uid: string) => void;
 }) {
+  const t = useTranslations('calendar');
   const pendingPeople = pendingIds.map((id) => {
     const c = contacts.find((x) => x.them.id === id);
     return { userId: id, firstName: c?.them.firstName ?? '?', lastName: c?.them.lastName ?? null, rsvp: 'pending' as RsvpStatus };
   });
   const all = [...participants, ...pendingPeople];
-  if (all.length === 0) return <p className="label-sm" style={{ margin: 0 }}>Пока никого</p>;
+  if (all.length === 0) return <p className="label-sm" style={{ margin: 0 }}>{t('modal.nobodyYet')}</p>;
 
   const groups: RsvpStatus[] = ['accepted', 'tentative', 'pending', 'declined'];
   return (
@@ -656,12 +663,12 @@ function ParticipantBlocks({
         if (!list.length) return null;
         return (
           <div key={g} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <Chip size="sm" tone={RSVP_TONE[g]}>{RSVP_META[g].group}</Chip>
+            <Chip size="sm" tone={RSVP_TONE[g]}>{t(`rsvpGroup.${g}`)}</Chip>
             {list.map((p) => (
               <span key={p.userId} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.125rem' }}>
                 <PersonChip size="S" userId={p.userId} firstName={p.firstName} lastName={p.lastName ?? null} />
                 {canManage && onRemove && (
-                  <IconButton icon="close" label={`Убрать ${p.firstName}`} size={22} iconSize={12} onClick={() => onRemove(p.userId)} />
+                  <IconButton icon="close" label={t('modal.removeParticipant', { name: p.firstName })} size={22} iconSize={12} onClick={() => onRemove(p.userId)} />
                 )}
               </span>
             ))}
@@ -681,6 +688,7 @@ function InvitePicker({
   circles: Circle[];
   onPick: (userIds: string[], circleId: string | null) => void;
 }) {
+  const t = useTranslations('calendar');
   const [sel, setSel] = useState<Principal[]>([]);
   const options = [
     ...contacts.map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole })),
@@ -695,11 +703,11 @@ function InvitePicker({
   };
   return (
     <Card small style={{ marginTop: 'var(--spacing-2)' }}>
-      <EntitySelector types={['user', 'circle']} multi options={options} value={sel} onChange={setSel} placeholder="Люди или Группы из окружения…" />
+      <EntitySelector types={['user', 'circle']} multi options={options} value={sel} onChange={setSel} placeholder={t('modal.invitePlaceholder')} />
       {sel.length > 0 && (
         <div style={{ marginTop: 'var(--spacing-3)' }}>
           <Button variant="primary" tone="success" size="sm" icon="userAdd" onClick={add}>
-            Добавить ({sel.length})
+            {t('modal.addSelected', { n: sel.length })}
           </Button>
         </div>
       )}
@@ -707,11 +715,8 @@ function InvitePicker({
   );
 }
 
-function whenLabel(d: CalendarEventDetail | null): string {
+/** «Четверг, 3 сентября» / «…, 14:35» — правила региона, слова языка зрителя. */
+function whenLabel(d: CalendarEventDetail | null, f: Formatters): string {
   if (!d) return '';
-  const s = new Date(d.startTime);
-  const opts: Intl.DateTimeFormatOptions = d.allDay
-    ? { day: 'numeric', month: 'long', weekday: 'long' }
-    : { day: 'numeric', month: 'long', weekday: 'long', hour: '2-digit', minute: '2-digit' };
-  return s.toLocaleDateString('ru-RU', opts);
+  return d.allDay ? f.date(d.startTime, 'weekday') : f.dateTime(d.startTime, 'weekday');
 }

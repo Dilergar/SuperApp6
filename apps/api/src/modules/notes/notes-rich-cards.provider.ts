@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { NOTE_COLORS, NOTE_REF_TYPE, noteSnippet, type RichCardPayload } from '@superapp/shared';
 import { RichCardRegistry } from '../../core/rich-cards/rich-cards.registry';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { NotesAccessService } from './notes-access.service';
 import { noteUrl } from './notes-dto';
 import { NOTE_LIST_SELECT } from './notes-dto';
@@ -17,6 +18,7 @@ export class NotesRichCardsProvider implements OnModuleInit {
     private readonly registry: RichCardRegistry,
     private readonly db: DatabaseService,
     private readonly acl: NotesAccessService,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -36,8 +38,8 @@ export class NotesRichCardsProvider implements OnModuleInit {
         kind: 'rich_card',
         cardType: NOTE_REF_TYPE,
         ref: { type: NOTE_REF_TYPE, id: noteId },
-        title: 'Заметка',
-        subtitle: 'Нет доступа',
+        title: this.i18n.translate('notes.noteWord'),
+        subtitle: this.i18n.translate('notes.card.noAccess'),
         icon: '📝',
         fields: [],
         status: null,
@@ -46,20 +48,22 @@ export class NotesRichCardsProvider implements OnModuleInit {
       };
     }
     const folder = note.folderId ? await this.db.noteFolder.findUnique({ where: { id: note.folderId }, select: { name: true } }) : null;
-    const color = NOTE_COLORS.find((c) => c.value === note.color)?.name;
+    const colorKey = NOTE_COLORS.find((c) => c.value === note.color)?.key;
     return {
       kind: 'rich_card',
       cardType: NOTE_REF_TYPE,
       ref: { type: NOTE_REF_TYPE, id: noteId },
-      title: note.title || note.plainText.split('\n')[0]?.slice(0, 80) || 'Без названия',
+      title: note.title || note.plainText.split('\n')[0]?.slice(0, 80) || this.i18n.translate('notes.untitled'),
       subtitle: noteSnippet(note.plainText, note.title) || null,
       icon: '📝',
       fields: [
-        ...(folder ? [{ label: 'Папка', value: folder.name }] : []),
-        ...(note.tags.length ? [{ label: 'Теги', value: note.tags.map((t) => `#${t}`).join(' ') }] : []),
-        ...(color ? [{ label: 'Цвет', value: color }] : []),
+        ...(folder ? [{ label: this.i18n.translate('notes.card.folder'), value: folder.name }] : []),
+        ...(note.tags.length
+          ? [{ label: this.i18n.translate('notes.card.tags'), value: note.tags.map((t) => `#${t}`).join(' ') }]
+          : []),
+        ...(colorKey ? [{ label: this.i18n.translate('notes.color.label'), value: this.i18n.translate(`notes.color.${colorKey}`) }] : []),
       ],
-      status: note.pinnedAt ? 'Закреплена' : null,
+      status: note.pinnedAt ? this.i18n.translate('notes.card.pinned') : null,
       actions: [],
       href: noteUrl(note.space, noteId),
     };

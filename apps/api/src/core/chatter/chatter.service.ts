@@ -302,7 +302,7 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
     if (!sink) {
       // Синки регистрируются в onModuleInit потребителей — до старта воркера.
       // Систематическое отсутствие (потребитель удалён) → бэкофф → dead-letter в логах.
-      throw new Error(`нет chat-sink для refType "${row.refType}"`);
+      throw new Error(`no chat sink for refType "${row.refType}"`);
     }
     try {
       await sink.post(this.toDto(row));
@@ -319,7 +319,7 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
           data: { needsChatPost: false },
         });
         throw new JobDiscardError(
-          `chatter ${entryId}: родитель ${row.refType}/${row.refId} удалён — плашка отменена`,
+          `chatter ${entryId}: the parent ${row.refType}/${row.refId} is gone — the plaque is cancelled`,
         );
       }
       throw err;

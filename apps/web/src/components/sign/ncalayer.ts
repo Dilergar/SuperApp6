@@ -24,15 +24,21 @@ export interface NcaLayerSignOptions {
   keyTypes?: ('SIGN' | 'AUTH')[];
   /** Ждать ответа не дольше: человек выбирает сертификат и вводит пароль руками */
   timeoutMs?: number;
+  /** Язык окна NCALayer — он свой, но говорить обязан на языке зрителя */
+  locale?: string;
 }
 
+/**
+ * Отказ NCALayer. Несёт КЛЮЧ каталога (`sign.nca.*`), а не фразу: сообщение
+ * увидит человек, а модуль — не React и хука перевода не имеет.
+ */
 export class NcaLayerError extends Error {
   constructor(
-    message: string,
+    readonly key: string,
     /** true — человек сам закрыл окно выбора: это не сбой, ругаться не нужно */
     readonly cancelled = false,
   ) {
-    super(message);
+    super(key);
   }
 }
 
@@ -43,20 +49,20 @@ export class NcaLayerError extends Error {
  * и без неё юридическое время подписи взялось бы из часов нашего сервера.
  */
 export function signWithNcaLayer(opts: NcaLayerSignOptions): Promise<string> {
-  const { dataBase64, keyTypes = ['SIGN'], timeoutMs = 5 * 60_000 } = opts;
+  const { dataBase64, keyTypes = ['SIGN'], timeoutMs = 5 * 60_000, locale = 'en' } = opts;
 
   return new Promise<string>((resolve, reject) => {
     let socket: WebSocket;
     try {
       socket = new WebSocket(NCALAYER_URL);
     } catch {
-      reject(new NcaLayerError('Не удалось соединиться с NCALayer'));
+      reject(new NcaLayerError('nca.unreachable'));
       return;
     }
 
     const timer = setTimeout(() => {
       cleanup();
-      reject(new NcaLayerError('NCALayer не ответил — окно подписи закрыто или программа зависла'));
+      reject(new NcaLayerError('nca.silent'));
     }, timeoutMs);
 
     const cleanup = () => {
@@ -83,7 +89,7 @@ export function signWithNcaLayer(opts: NcaLayerSignOptions): Promise<string> {
             data: dataBase64,
             signingParams: { decode: 'true', encapsulate: 'false', digested: 'false', tsaProfile: {} },
             signerParams: { extKeyUsageOids: keyTypes.includes('SIGN') ? ['1.3.6.1.5.5.7.3.4'] : [] },
-            locale: 'ru',
+            locale,
           },
         }),
       );
@@ -95,7 +101,7 @@ export function signWithNcaLayer(opts: NcaLayerSignOptions): Promise<string> {
         payload = JSON.parse(String(event.data)) as NcaLayerResponse;
       } catch {
         cleanup();
-        reject(new NcaLayerError('NCALayer прислал непонятный ответ'));
+        reject(new NcaLayerError('nca.badAnswer'));
         return;
       }
       // Диалект ответа отличается между версиями NCALayer, поэтому принимаем оба
@@ -108,8 +114,11 @@ export function signWithNcaLayer(opts: NcaLayerSignOptions): Promise<string> {
 
       cleanup();
       if (status === false || !cms) {
-        const message = payload.message ?? payload.body?.message ?? 'Подпись отменена';
-        reject(new NcaLayerError(message, /отмен|cancel|closed/i.test(message)));
+        // Отмену узнаём по КОДУ протокола, а не по фразе: фраза приходит на языке
+        // окна NCALayer, и разбор её текста ломался бы у каждого второго зрителя.
+        const raw = `${payload.code ?? ''} ${payload.message ?? payload.body?.message ?? ''}`;
+        const cancelled = /cancel|abort|closed/i.test(raw);
+        reject(new NcaLayerError(cancelled ? 'nca.cancelled' : 'nca.notRunning', cancelled));
         return;
       }
       resolve(String(cms));
@@ -117,11 +126,7 @@ export function signWithNcaLayer(opts: NcaLayerSignOptions): Promise<string> {
 
     socket.onerror = () => {
       cleanup();
-      reject(
-        new NcaLayerError(
-          'NCALayer не запущен или не установлен. Скачайте его на pki.gov.kz, запустите и повторите',
-        ),
-      );
+      reject(new NcaLayerError('nca.notRunning'));
     };
   });
 }

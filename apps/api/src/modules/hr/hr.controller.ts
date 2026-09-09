@@ -34,7 +34,7 @@ export class HrController {
   // ---- Выгрузка для инспекции (ст. 62 ЦК: документ живёт вне системы) ----
 
   @Get('export/registry')
-  @ApiOperation({ summary: 'ZIP реестра за период: штампованные PDF + протоколы + опись (Менеджер+)' })
+  @ApiOperation({ summary: 'ZIP of the register for a period: stamped PDFs, signing logs and an inventory (manager+)' })
   async exportRegistry(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -47,7 +47,7 @@ export class HrController {
   }
 
   @Get('export/personal-file/:userId')
-  @ApiOperation({ summary: 'ZIP личного дела сотрудника (Менеджер+)' })
+  @ApiOperation({ summary: 'ZIP of an employee personal file (manager+)' })
   async exportPersonalFile(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -60,21 +60,21 @@ export class HrController {
   // ---- Сводные экраны ----
 
   @Get('deadlines')
-  @ApiOperation({ summary: 'Сводный экран «Кадровые сроки» (Менеджер+)' })
+  @ApiOperation({ summary: 'Summary screen «HR deadlines» (manager+)' })
   async deadlines(@CurrentUser() user: JwtPayload, @Param('workspaceId') workspaceId: string) {
     const data = await this.hr.getDeadlines(user.sub, workspaceId);
     return { success: true, data };
   }
 
   @Get('deadlines/count')
-  @ApiOperation({ summary: 'Счётчик «горит» для бейджа пункта «Сотрудники»' })
+  @ApiOperation({ summary: 'Burning counter for the «Employees» menu badge' })
   async deadlinesCount(@CurrentUser() user: JwtPayload, @Param('workspaceId') workspaceId: string) {
     const data = { count: await this.hr.deadlinesCount(user.sub, workspaceId) };
     return { success: true, data };
   }
 
   @Get('roster-overview')
-  @ApiOperation({ summary: 'Кадровая сводка ростера: фильтры «нет договора / расхождение» (Менеджер+)' })
+  @ApiOperation({ summary: 'HR overview of the roster: «no contract / mismatch» filters (manager+)' })
   async rosterOverview(@CurrentUser() user: JwtPayload, @Param('workspaceId') workspaceId: string) {
     const data = await this.hr.rosterOverview(user.sub, workspaceId);
     return { success: true, data };
@@ -83,7 +83,7 @@ export class HrController {
   // ---- ЕСУТД ----
 
   @Get('esutd')
-  @ApiOperation({ summary: 'Очередь сдачи в ЕСУТД (Менеджер+)' })
+  @ApiOperation({ summary: 'ESUTD filing queue (manager+)' })
   async esutd(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -94,7 +94,7 @@ export class HrController {
   }
 
   @Get('esutd/:submissionId/payload')
-  @ApiOperation({ summary: '«Скопировать сведения» — снимок по перечню Правил № 353' })
+  @ApiOperation({ summary: '«Copy the data» — a snapshot following the list of Rules No. 353' })
   async esutdPayload(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -105,7 +105,7 @@ export class HrController {
   }
 
   @Post('esutd/:submissionId/submitted')
-  @ApiOperation({ summary: 'Отметить сданным (ручной путь; считает окно исправления 30 РД)' })
+  @ApiOperation({ summary: 'Mark as filed (manual path; computes the 30 working day correction window)' })
   async esutdSubmitted(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -118,7 +118,7 @@ export class HrController {
   }
 
   @Post('esutd/:submissionId/not-required')
-  @ApiOperation({ summary: 'Отметить: сдача не требуется' })
+  @ApiOperation({ summary: 'Mark as not requiring a filing' })
   async esutdNotRequired(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -131,14 +131,14 @@ export class HrController {
   // ---- Библиотека кадровых бланков ----
 
   @Get('library')
-  @ApiOperation({ summary: 'Каталог платформенных бланков РК с состоянием установки (Менеджер+)' })
+  @ApiOperation({ summary: 'Catalogue of the platform RK forms with their installation state (manager+)' })
   async libraryList(@CurrentUser() user: JwtPayload, @Param('workspaceId') workspaceId: string) {
     const data = await this.library.list(user.sub, workspaceId);
     return { success: true, data };
   }
 
   @Post('library/install')
-  @ApiOperation({ summary: 'Установить бланк: вид + шаблон + ОПУБЛИКОВАННЫЙ маршрут (мастер)' })
+  @ApiOperation({ summary: 'Install a form: doc type, template and a PUBLISHED route (wizard)' })
   async libraryInstall(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -152,7 +152,7 @@ export class HrController {
   // ---- Массовые действия ----
 
   @Post('batches')
-  @ApiOperation({ summary: 'Массовое кадровое действие по аудитории (потолок 500, Менеджер+)' })
+  @ApiOperation({ summary: 'Bulk HR action over an audience (cap 500, manager+)' })
   async createBatch(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -164,7 +164,7 @@ export class HrController {
   }
 
   @Get('batches/:batchId')
-  @ApiOperation({ summary: 'Прогресс массовой операции' })
+  @ApiOperation({ summary: 'Progress of a bulk operation' })
   async getBatch(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -177,14 +177,14 @@ export class HrController {
   // ---- Кадровые действия ----
 
   @Get('actions/mine')
-  @ApiOperation({ summary: 'Мои действия-заявления (отзыв — ст. 56 п. 4 ТК РК)' })
+  @ApiOperation({ summary: 'My own applications (withdrawal — Labour Code of the RK, art. 56 (4))' })
   async myActions(@CurrentUser() user: JwtPayload, @Param('workspaceId') workspaceId: string) {
     const data = await this.actions.listMine(user.sub, workspaceId);
     return { success: true, data };
   }
 
   @Post('actions')
-  @ApiOperation({ summary: 'Начать кадровое действие: приказ + маршрут (Менеджер+)' })
+  @ApiOperation({ summary: 'Start an HR action: the order and its route (manager+)' })
   async createAction(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -196,7 +196,7 @@ export class HrController {
   }
 
   @Post('actions/:actionId/cancel')
-  @ApiOperation({ summary: 'Отменить действие (Менеджер+; работник — своё увольнение, ст. 56 п. 4)' })
+  @ApiOperation({ summary: 'Cancel an action (manager+; an employee — their own resignation, art. 56 (4))' })
   async cancelAction(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -209,7 +209,7 @@ export class HrController {
   // ---- Страница человека и трудовая карточка ----
 
   @Get('members/:userId')
-  @ApiOperation({ summary: 'Карточка человека: факт + договор + действия + расхождение' })
+  @ApiOperation({ summary: 'Person card: the actual assignment, the contract, the actions and the mismatch' })
   async memberCard(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -220,7 +220,7 @@ export class HrController {
   }
 
   @Put('members/:userId/employment')
-  @ApiOperation({ summary: 'Трудовая карточка: завести/править (Менеджер+)' })
+  @ApiOperation({ summary: 'Employment record: create or edit (manager+)' })
   async upsertEmployment(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -240,7 +240,7 @@ export class HrPersonalController {
   constructor(private readonly hr: HrService) {}
 
   @Get('my-documents')
-  @ApiOperation({ summary: 'Личный архив: подписанное, ознакомленное, вручённое — бессрочно' })
+  @ApiOperation({ summary: 'Personal archive: signed, acknowledged and handed over — kept forever' })
   async myDocuments(@CurrentUser() user: JwtPayload) {
     const data = await this.hr.listMyDocs(user.sub);
     return { success: true, data };

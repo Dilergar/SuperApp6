@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import type { FileDto } from '@superapp/shared';
@@ -9,7 +10,7 @@ import { createDocumentFromFile, documentHref, getDocsStatus, isEditableDocument
 import type { DocsPlace } from '../../lib/docs-api';
 import { docsStatusKey } from '../../lib/queries';
 import { apiErrorMessage } from '../../lib/api';
-import { humanSize } from './files-ui';
+import { useBytes } from '../../lib/format';
 import { Icon, IconButton, toneVars, type IconName } from '@/components/ui';
 import { toastError } from '@/lib/toast';
 
@@ -57,6 +58,8 @@ interface FileChipProps {
  * размер, скачивание. Аналог PersonChip, но для файлов.
  */
 export function FileChip({ file, onRemove, onClick, docPlace }: FileChipProps) {
+  const t = useTranslations('common');
+  const humanSize = useBytes();
   const [busy, setBusy] = useState(false);
   const [opening, setOpening] = useState(false);
   const router = useRouter();
@@ -129,7 +132,7 @@ export function FileChip({ file, onRemove, onClick, docPlace }: FileChipProps) {
   return (
     <div
       onClick={chipClick}
-      title={!onClick && canOpenInEditor ? 'Открыть документ' : undefined}
+      title={!onClick && canOpenInEditor ? t('files.openDocument') : undefined}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -176,27 +179,27 @@ export function FileChip({ file, onRemove, onClick, docPlace }: FileChipProps) {
             type="button"
             onClick={(e) => openDoc(e, true)}
             disabled={opening}
-            title="Открыть только для чтения — ничего не изменится"
+            title={t('files.viewHint')}
             style={docButtonStyle(opening, false)}
           >
-            <Icon name="eye" size={12} /> Просмотр
+            <Icon name="eye" size={12} /> {t('files.view')}
           </button>
           <button
             type="button"
             onClick={(e) => openDoc(e, false)}
             disabled={opening}
-            title="Открыть на правку: изменения сохраняются автоматически и видны всем, кому доступен файл"
+            title={t('files.editHint')}
             style={docButtonStyle(opening, true)}
           >
-            <Icon name="edit" size={12} /> Редактировать
+            <Icon name="edit" size={12} /> {t('actions.edit')}
           </button>
         </>
       )}
       {file.status === 'ready' && (
-        <IconButton icon="download" label="Скачать" size={24} disabled={busy} onClick={download} />
+        <IconButton icon="download" label={t('actions.download')} size={24} disabled={busy} onClick={download} />
       )}
       {onRemove && (
-        <IconButton icon="close" label="Убрать" size={24} onClick={(e) => { e.stopPropagation(); onRemove(); }} />
+        <IconButton icon="close" label={t('actions.remove')} size={24} onClick={(e) => { e.stopPropagation(); onRemove(); }} />
       )}
     </div>
   );

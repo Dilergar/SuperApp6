@@ -500,10 +500,16 @@ async function main() {
     const a = c.json?.data?.actions?.find((x) => x.id === banNow.json.data.id);
     return a?.status === 'failed' ? a : null;
   }, 90000);
+  // Ассерт на ПОВЕДЕНИЕ, а не на фразу: причина отказа переводится при чтении,
+  // а машинный след — ключ причины в хронике человека (`reasonKey`).
+  const banChronicle = await call('GET', `/chatter/hr_member/${ws.id}:${employee.id}`, owner.token);
+  const banEntry = (banChronicle.json?.data?.items ?? []).find(
+    (x) => x.typeKey === 'hr.action_failed' && x.payload?.reasonKey === 'hr.fail.st54Leave',
+  );
   check(
-    'ст. 54: применение в отпуске = failed с причиной (больничные — вручную)',
-    !!banFailed && /ст\. 54/.test(banFailed.failReason ?? '') && /больничн/i.test(banFailed.failReason ?? ''),
-    banFailed?.failReason ?? '',
+    'ст. 54: применение в отпуске = failed с причиной ст. 54 (ключ hr.fail.st54Leave)',
+    !!banFailed && !!banFailed.failReason && !!banEntry,
+    `${banFailed?.status ?? '-'} / ${banEntry ? 'reasonKey ok' : 'нет записи хроники'}`,
   );
   check('сотрудник НЕ уволен', (await call('GET', `/workspaces/${ws.id}/hr/members/${employee.id}`, owner.token)).json.data?.employment?.status === 'active');
 

@@ -3,8 +3,8 @@ import {
   Body, Param, Query, HttpCode, HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { ForbiddenException, BadRequestException } from '@nestjs/common';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { badRequest, forbidden } from '../../shared/errors/api-error';
 import {
   createCurrencySchema,
   updateCurrencySchema,
@@ -37,14 +37,14 @@ export class WalletController {
   // ============================================================
 
   @Get('cards')
-  @ApiOperation({ summary: 'Мои карты (номер полностью — владельцу)' })
+  @ApiOperation({ summary: 'My cards (full number — to the owner)' })
   async listCards(@CurrentUser() user: JwtPayload) {
     const data = await this.cards.list(user.sub);
     return { success: true, data };
   }
 
   @Post('cards')
-  @ApiOperation({ summary: 'Добавить карту (номер + IBAN карт-счёта, срок, имя; БЕЗ CVV)' })
+  @ApiOperation({ summary: 'Add a card (number + card account IBAN, expiry, holder; NO CVV)' })
   async createCard(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
     const dto = createPaymentCardSchema.parse(body);
     const data = await this.cards.create(user.sub, dto);
@@ -52,7 +52,7 @@ export class WalletController {
   }
 
   @Patch('cards/:id')
-  @ApiOperation({ summary: 'Изменить карту (срок, имя, основная); номер не правится' })
+  @ApiOperation({ summary: 'Update a card (expiry, holder, primary); the number is immutable' })
   async updateCard(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() body: unknown) {
     const dto = updatePaymentCardSchema.parse(body);
     const data = await this.cards.update(user.sub, id, dto);
@@ -61,7 +61,7 @@ export class WalletController {
 
   @Delete('cards/:id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Удалить карту' })
+  @ApiOperation({ summary: 'Delete a card' })
   async removeCard(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     await this.cards.remove(user.sub, id);
     return { success: true };
@@ -70,21 +70,21 @@ export class WalletController {
   /** The active workspace, asserting the caller is its owner (B2B wallet is owner-only). */
   private async requireWorkspaceOwner(userId: string): Promise<string> {
     const workspaceId = this.wsContext.activeWorkspaceId;
-    if (!workspaceId) throw new BadRequestException('Откройте организацию (контекст компании не активен)');
+    if (!workspaceId) throw badRequest('workspace.contextRequired');
     const ws = await this.db.workspace.findUnique({ where: { id: workspaceId }, select: { ownerId: true } });
-    if (!ws || ws.ownerId !== userId) throw new ForbiddenException('Только владелец компании управляет её кошельком');
+    if (!ws || ws.ownerId !== userId) throw forbidden('wallet.ownerOnly');
     return workspaceId;
   }
 
   @Get()
-  @ApiOperation({ summary: 'Мой кошелёк — все валюты с балансами (своя всегда первой)' })
+  @ApiOperation({ summary: 'My wallet — every currency with its balance (own currency first)' })
   async getWallet(@CurrentUser() user: JwtPayload) {
     const data = await this.currency.getWallet(user.sub);
     return { success: true, data };
   }
 
   @Get('history')
-  @ApiOperation({ summary: 'История транзакций (курсорная пагинация)' })
+  @ApiOperation({ summary: 'Transaction history (cursor pagination)' })
   async getHistory(
     @CurrentUser() user: JwtPayload,
     @Query('currencyId') currencyId?: string,
@@ -96,14 +96,14 @@ export class WalletController {
   }
 
   @Get('currency')
-  @ApiOperation({ summary: 'Моя выпущенная валюта (или null)' })
+  @ApiOperation({ summary: 'The currency I issued (or null)' })
   async getMyCurrency(@CurrentUser() user: JwtPayload) {
     const data = await this.currency.getMyCurrency(user.sub);
     return { success: true, data };
   }
 
   @Post('currency')
-  @ApiOperation({ summary: 'Создать свою валюту (название + эмодзи)' })
+  @ApiOperation({ summary: 'Create my own currency (name + emoji)' })
   async createCurrency(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const data = createCurrencySchema.parse(body);
     const currency = await this.currency.createCurrency(user.sub, data);
@@ -111,7 +111,7 @@ export class WalletController {
   }
 
   @Patch('currency')
-  @ApiOperation({ summary: 'Изменить валюту (раз в 3 месяца, ретроспективно)' })
+  @ApiOperation({ summary: 'Rename the currency (once per 3 months, retroactive)' })
   async updateCurrency(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const data = updateCurrencySchema.parse(body);
     const currency = await this.currency.renameCurrency(user.sub, data);
@@ -120,14 +120,14 @@ export class WalletController {
 
   @Delete('currency')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Удалить валюту — каскадно сгорает у всех держателей' })
+  @ApiOperation({ summary: 'Delete the currency — it burns for every holder' })
   async deleteCurrency(@CurrentUser() user: JwtPayload) {
     await this.currency.deleteCurrency(user.sub);
     return { success: true };
   }
 
   @Post('currency/mint')
-  @ApiOperation({ summary: 'Выпустить монеты себе на баланс (лимит 10М «на руках»)' })
+  @ApiOperation({ summary: 'Mint coins onto my own balance (10M in-hand cap)' })
   async mint(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const { amount } = mintSchema.parse(body);
     const data = await this.currency.mint(user.sub, amount);
@@ -135,14 +135,14 @@ export class WalletController {
   }
 
   @Get('currency/holders')
-  @ApiOperation({ summary: 'Держатели моей валюты (видно только эмитенту)' })
+  @ApiOperation({ summary: 'Holders of my currency (issuer only)' })
   async getHolders(@CurrentUser() user: JwtPayload) {
     const data = await this.currency.getHolders(user.sub);
     return { success: true, data };
   }
 
   @Post('burn')
-  @ApiOperation({ summary: 'Сжечь чужую валюту со своего баланса (необратимо)' })
+  @ApiOperation({ summary: "Burn someone else's currency from my balance (irreversible)" })
   async burn(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const { currencyId, amount } = burnSchema.parse(body);
     const data = await this.currency.burn(user.sub, currencyId, amount);
@@ -154,7 +154,7 @@ export class WalletController {
   // ============================================================
 
   @Get('company')
-  @ApiOperation({ summary: 'Кошелёк компании: валюта + баланс казны' })
+  @ApiOperation({ summary: 'Company wallet: currency + treasury balance' })
   async companyWallet(@CurrentUser() user: JwtPayload) {
     const workspaceId = await this.requireWorkspaceOwner(user.sub);
     const [currency, treasury] = await Promise.all([
@@ -166,7 +166,7 @@ export class WalletController {
   }
 
   @Post('company/currency')
-  @ApiOperation({ summary: 'Создать валюту компании' })
+  @ApiOperation({ summary: 'Create the company currency' })
   async createCompanyCurrency(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const workspaceId = await this.requireWorkspaceOwner(user.sub);
     const data = createCurrencySchema.parse(body);
@@ -174,7 +174,7 @@ export class WalletController {
   }
 
   @Patch('company/currency')
-  @ApiOperation({ summary: 'Изменить валюту компании' })
+  @ApiOperation({ summary: 'Rename the company currency' })
   async renameCompanyCurrency(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const workspaceId = await this.requireWorkspaceOwner(user.sub);
     const data = updateCurrencySchema.parse(body);
@@ -183,7 +183,7 @@ export class WalletController {
 
   @Delete('company/currency')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Удалить валюту компании (каскадно сгорает)' })
+  @ApiOperation({ summary: 'Delete the company currency (it burns for every holder)' })
   async deleteCompanyCurrency(@CurrentUser() user: JwtPayload) {
     const workspaceId = await this.requireWorkspaceOwner(user.sub);
     await this.currency.deleteCompanyCurrency(workspaceId);
@@ -191,7 +191,7 @@ export class WalletController {
   }
 
   @Post('company/currency/mint')
-  @ApiOperation({ summary: 'Выпустить монеты в казну компании (лимит 10М)' })
+  @ApiOperation({ summary: 'Mint coins into the company treasury (10M cap)' })
   async mintCompany(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const workspaceId = await this.requireWorkspaceOwner(user.sub);
     const { amount } = mintSchema.parse(body);
@@ -199,7 +199,7 @@ export class WalletController {
   }
 
   @Post('company/pay')
-  @ApiOperation({ summary: 'Начислить компанийные коины сотруднику из казны' })
+  @ApiOperation({ summary: 'Pay company coins to an employee from the treasury' })
   async payEmployee(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const workspaceId = await this.requireWorkspaceOwner(user.sub);
     const { userId, amount } = payEmployeeSchema.parse(body);
@@ -207,7 +207,7 @@ export class WalletController {
   }
 
   @Get('company/holders')
-  @ApiOperation({ summary: 'Держатели валюты компании' })
+  @ApiOperation({ summary: 'Holders of the company currency' })
   async companyHolders(@CurrentUser() user: JwtPayload) {
     const workspaceId = await this.requireWorkspaceOwner(user.sub);
     return { success: true, data: await this.currency.getCompanyHolders(workspaceId) };

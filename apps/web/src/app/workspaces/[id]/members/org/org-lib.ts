@@ -6,12 +6,15 @@
 // (PATCH справочников /staff и ручки /org); после любой — один общий refresh.
 // ============================================================
 
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
+import { useTranslations } from 'next-intl';
 import { useQueryClient } from '@tanstack/react-query';
 import { apiErrorMessage } from '@/lib/api';
+import { dm } from '@/lib/dates';
 import { invalidateEntities } from '@/lib/entities';
 import { orgRootKey, workspaceMembersKey, workspaceStaffKey } from '@/lib/queries';
 import { toastError } from '@/lib/toast';
+import type { OrgLayoutLabels } from './org-layout';
 import type { OrgChartDto, OrgManagerDto, OrgPersonLite } from '@superapp/shared';
 
 /** Что выбрано на схеме: должность, рамка отдела, объект (из фильтра), панель «Вне структуры». */
@@ -49,8 +52,43 @@ export function focusNodeId(chart: OrgChartDto, target: OrgFocusTarget | null): 
   return `dept:${target.id}`;
 }
 
-export const personName = (p: OrgPersonLite | undefined, fallback = 'Без имени'): string =>
-  p ? `${p.firstName} ${p.lastName ?? ''}`.trim() || fallback : fallback;
+/** Имя человека из лайт-профиля; пусто — фолбэк каталога (язык зрителя). */
+export function usePersonName(): (p: OrgPersonLite | undefined) => string {
+  const t = useTranslations('staff');
+  return useCallback(
+    (p: OrgPersonLite | undefined) => (p ? `${p.firstName} ${p.lastName ?? ''}`.trim() || t('noName') : t('noName')),
+    [t],
+  );
+}
+
+/** Подпись периода замещения: «01.09–15.09», «с 01.09», «до 15.09», «запасной». */
+export function useDeputyPeriodLabel(): (startsOn?: string | null, endsOn?: string | null) => string {
+  const t = useTranslations('staff');
+  return useCallback(
+    (startsOn?: string | null, endsOn?: string | null) => {
+      if (startsOn && endsOn) return `${dm(startsOn)}–${dm(endsOn)}`;
+      if (startsOn) return t('org.deputyFrom', { date: dm(startsOn) });
+      if (endsOn) return t('org.deputyUntil', { date: dm(endsOn) });
+      return t('org.deputyStanding');
+    },
+    [t],
+  );
+}
+
+/** Слова для чистой раскладки схемы (`layoutOrg` языка не знает). */
+export function useOrgLayoutLabels(): OrgLayoutLabels {
+  const t = useTranslations('staff');
+  const deputyPeriod = useDeputyPeriodLabel();
+  return useMemo(
+    () => ({
+      deptAria: (name: string, count: number) => t('org.deptAria', { name, count }),
+      positionAria: (name: string, count: number, vacant: boolean) =>
+        vacant ? t('org.positionAriaVacant', { name }) : t('org.positionAria', { name, count }),
+      deputyPeriod,
+    }),
+    [t, deputyPeriod],
+  );
+}
 
 /**
  * Человек — вершина структуры: вертикаль упёрлась в корень, и фолбэк вернул ЕГО САМОГО

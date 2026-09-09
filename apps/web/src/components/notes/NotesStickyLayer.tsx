@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/auth';
 import { useNotesLayer } from '@/lib/stores/notes-layer';
+import { LazyNamespace } from '@/i18n/LazyNamespace';
 import { isNotesLayerAllowed } from './note-target-from-path';
 
 // Внутренность — лениво: редактор (ProseMirror) не нужен ни одной странице до первого Alt+N.
@@ -46,5 +47,10 @@ export function NotesStickyLayer() {
   }, [allowed, open, close]);
 
   if (!allowed || !open) return null;
-  return <Inner />;
+  // Словарь Заметок приезжает вместе с самим слоем — отдельным чанком по первому Alt+N.
+  return (
+    <LazyNamespace ns="notes">
+      <Inner />
+    </LazyNamespace>
+  );
 }

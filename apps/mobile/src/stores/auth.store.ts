@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
 import type { AuthTokens, RegisterInput, UserProfile } from '@superapp/shared';
 import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY, apiGet, apiPost, setOnAuthFailure } from '../lib/api';
+import { coerceLocale } from '@superapp/i18n/locale';
+import { deviceLocale, useLocaleStore } from '../i18n/locale';
 
 // Профиль и входные типы — из @superapp/shared, теми же хелперами apiGet<T>/apiPost<T>,
 // что и веб (правило «Контракт API ↔ клиенты»). Прежняя версия держала СВОЮ урезанную
@@ -59,6 +61,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
     await clearTokens();
     set({ isAuthenticated: false, user: null });
+    // Вышли — язык аккаунта больше не наш; экран входа говорит языком устройства.
+    useLocaleStore.getState().setLocale(null);
   },
 
   loadSession: async () => {
@@ -77,7 +81,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   fetchProfile: async () => {
     try {
-      set({ user: await apiGet<UserProfile>('/users/me') });
+      const user = await apiGet<UserProfile>('/users/me');
+      set({ user });
+      // Выбор человека живёт в аккаунте, а не в устройстве: сменил язык в вебе —
+      // телефон открывается уже на нём.
+      useLocaleStore.getState().setLocale(coerceLocale(user.locale, deviceLocale()));
     } catch {
       // Профиль подтянется при следующем заходе — сессию из-за сбоя сети не рвём.
     }

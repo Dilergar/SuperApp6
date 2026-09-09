@@ -1,6 +1,8 @@
 import { BadRequestException, Body, Controller, Post } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
+import { SUPPORTED_LOCALES } from '@superapp/shared';
+import { SOURCE_LOCALE } from '@superapp/i18n';
 import { TemplateRenderService } from './template-render.service';
 import { TemplateCompileError, TemplateDataError } from './template.types';
 
@@ -17,6 +19,8 @@ const b64 = z.string().min(4).max(30_000_000);
 const renderSchema = z.object({
   docxBase64: b64,
   values: z.record(z.unknown()).optional(),
+  /** Язык БУМАГИ: «прописью», месяцы и «Да/Нет» собираются в нём */
+  language: z.enum(SUPPORTED_LOCALES).optional(),
   workspaceId: z.string().uuid().optional(),
   subjectUserId: z.string().uuid().optional(),
   strict: z.boolean().optional(),
@@ -28,6 +32,8 @@ const compileSchema = z.object({
 });
 
 const resolveSchema = z.object({
+  /** Язык БУМАГИ — печатные слова групп собираются в нём */
+  language: z.enum(SUPPORTED_LOCALES).optional(),
   workspaceId: z.string().uuid().optional(),
   subjectUserId: z.string().uuid().optional(),
   /** Внешний контур: группа «Контрагент» из справочника */
@@ -41,21 +47,23 @@ export class TemplatesDevController {
   constructor(private readonly render: TemplateRenderService) {}
 
   @Post('render')
-  @ApiOperation({ summary: '[dev] Заполнить docx: base64 + значения (+ контекст реестра)' })
+  @ApiOperation({ summary: '[dev] Fill a docx: base64 + values (+ registry context)' })
   async devRender(@Body() body: unknown) {
     const dto = renderSchema.parse(body);
     const template = Buffer.from(dto.docxBase64, 'base64');
+    const language = dto.language ?? SOURCE_LOCALE;
     try {
       const result =
         dto.workspaceId || dto.subjectUserId
           ? await this.render.renderForContext(
               template,
-              { workspaceId: dto.workspaceId, subjectUserId: dto.subjectUserId },
+              { language, workspaceId: dto.workspaceId, subjectUserId: dto.subjectUserId },
               (dto.values as Record<string, unknown>) ?? {},
-              { strict: dto.strict },
+              { strict: dto.strict, print: this.render.printFor(language) },
             )
           : this.render.render(template, (dto.values as Record<string, unknown>) ?? {}, {
               strict: dto.strict,
+              print: this.render.printFor(language),
             });
       return {
         success: true,
@@ -63,7 +71,10 @@ export class TemplatesDevController {
       };
     } catch (e) {
       if (e instanceof TemplateCompileError) {
-        throw new BadRequestException({ message: e.message, details: { code: 'template_compile', issues: e.issues } });
+        throw new BadRequestException({
+          message: e.message,
+          details: { code: 'template_compile', issues: this.render.withText(e.issues) },
+        });
       }
       if (e instanceof TemplateDataError) {
         throw new BadRequestException({ message: e.message, details: { code: 'template_data', missing: e.missing } });
@@ -73,7 +84,7 @@ export class TemplatesDevController {
   }
 
   @Post('compile')
-  @ApiOperation({ summary: '[dev] Проверить шаблон: теги + замечания (структура и реестр)' })
+  @ApiOperation({ summary: '[dev] Check a template: tags + issues (structure and registry)' })
   devCompile(@Body() body: unknown) {
     const dto = compileSchema.parse(body);
     const result = this.render.compile(Buffer.from(dto.docxBase64, 'base64'), {
@@ -83,10 +94,11 @@ export class TemplatesDevController {
   }
 
   @Post('resolve')
-  @ApiOperation({ summary: '[dev] Значения групп реестра для контекста (организация/сотрудник)' })
+  @ApiOperation({ summary: '[dev] Registry group values for a context (organization/employee)' })
   async devResolve(@Body() body: unknown) {
     const dto = resolveSchema.parse(body);
     const values = await this.render.resolveContextValues({
+      language: dto.language,
       workspaceId: dto.workspaceId,
       subjectUserId: dto.subjectUserId,
       counterpartyId: dto.counterpartyId,

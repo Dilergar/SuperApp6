@@ -208,13 +208,13 @@ async function main() {
     const ct = await call('POST', `/workspaces/${wsId}/documents/doc-types`, t1, {
       name: `Заявления ${stamp}`,
       category: 'hr',
-      numberFormat: 'ЗАЯВ-{ГГГГ}-{NNN}',
+      numberFormat: 'ЗАЯВ-{YYYY}-{NNN}',
       visibility: 'managers',
       toPersonalFile: true,
     });
     check('вид создан', ct.ok, JSON.stringify(ct.json?.message ?? ct.status));
     const typeId = ct.json?.data?.id;
-    check('формат номера сохранён', ct.json?.data?.numberFormat === 'ЗАЯВ-{ГГГГ}-{NNN}');
+    check('формат номера сохранён', ct.json?.data?.numberFormat === 'ЗАЯВ-{YYYY}-{NNN}');
 
     const types = await call('GET', `/workspaces/${wsId}/documents/doc-types`, t2);
     check('сотрудник ВИДИТ справочник видов', types.ok && (types.json.data ?? []).length === 1, `status ${types.status}`);
@@ -224,10 +224,10 @@ async function main() {
     // ============================================================
     console.log('\n— Шаблон —');
     const blank = buildDocx([
-      'В {Организация.Юрнаименование}',
-      'от {Сотрудник.ФИО}',
-      'Прошу предоставить отпуск с {С|дата:долгая} на {Дней|прописью:число} дней.',
-      'Документ: {Документ.Название} {Документ.Номер}',
+      'В {Organization.LegalName}',
+      'от {Employee.FullName}',
+      'Прошу предоставить отпуск с {From|date:long} на {Days|words:number} дней.',
+      'Документ: {Document.Title} {Document.Number}',
     ]);
     const blankFileId = await uploadDocx(t1, `blank-${stamp}.docx`, blank);
 
@@ -236,13 +236,17 @@ async function main() {
       name: 'Отпуск',
       fileId: blankFileId,
       selfService: true,
+      // ЯЗЫК БЛАНКА — язык самой бумаги: этот бланк написан по-русски, и слова
+      // платформы внутри него («прописью», месяц, «Да/Нет») тоже русские
+      language: 'ru',
       fields: [
-        { key: 'С', label: 'Дата начала', kind: 'date', required: true },
-        { key: 'Дней', label: 'Дней', kind: 'number', required: true },
+        { key: 'From', label: 'Дата начала', kind: 'date', required: true },
+        { key: 'Days', label: 'Дней', kind: 'number', required: true },
       ],
     });
     check('шаблон создан', ctpl.ok, JSON.stringify(ctpl.json?.message ?? ctpl.status));
     const tplId = ctpl.json?.data?.id;
+    check('язык бланка сохранён', ctpl.json?.data?.language === 'ru', String(ctpl.json?.data?.language));
 
     const beforePublish = await call('GET', `/workspaces/${wsId}/documents/available-templates`, t2);
     check('до публикации подать нечего', beforePublish.ok && (beforePublish.json.data ?? []).length === 0);
@@ -277,14 +281,14 @@ async function main() {
     // ============================================================
     console.log('\n— Подача и сборка —');
     const noGrant = await call('POST', `/workspaces/${wsId}/documents`, t3, {
-      templateId: tplId, fields: { С: '2026-09-01', Дней: 14 },
+      templateId: tplId, fields: { From: '2026-09-01', Days: 14 },
     });
     check('без гранта подать нельзя', noGrant.status === 403, `status ${noGrant.status}`);
 
     const cdoc = await call('POST', `/workspaces/${wsId}/documents`, t2, {
       templateId: tplId,
       title: `Заявление на отпуск ${stamp}`,
-      fields: { С: '2026-09-01', Дней: 14 },
+      fields: { From: '2026-09-01', Days: 14 },
     });
     check('документ создан', cdoc.ok, JSON.stringify(cdoc.json?.message ?? cdoc.status));
     const docId = cdoc.json?.data?.id;
@@ -357,7 +361,7 @@ async function main() {
     check('вид с видимостью «отдел сотрудника» создан', depType.ok, JSON.stringify(depType.json?.message ?? depType.status));
     const depTypeId = depType.json?.data?.id;
 
-    const depBlank = await uploadDocx(t1, `spravka-${stamp}.docx`, buildDocx(['Справка {Организация.Юрнаименование}']));
+    const depBlank = await uploadDocx(t1, `spravka-${stamp}.docx`, buildDocx(['Справка {Organization.LegalName}']));
     const depTpl = await call('POST', `/workspaces/${wsId}/documents/templates`, t1, {
       docTypeId: depTypeId, name: 'Справка с места работы', fileId: depBlank, selfService: true,
     });
@@ -432,7 +436,7 @@ async function main() {
     check('правка после возврата РАЗРЕШЕНА', editAgain.ok, `status ${editAgain.status}`);
 
     // Второй заход на маршрут и подпись. Правка НАЗВАНИЯ строкой выше ставит
-    // пересборку бланка (название печатается в {Документ.Название}), и немедленный
+    // пересборку бланка (название печатается в {Document.Title}), и немедленный
     // submit ловит страж «Документ ещё пересобирается» — ретраим, как веб (он
     // гасит кнопку по `rebuilding` и опрашивает карточку; секунды, не 30с+).
     await waitFor('повторная отправка после правки', async () => {
@@ -560,7 +564,7 @@ async function main() {
       //    документ подставлялся любой человек платформы — а рендер печатает его ИИН,
       //    адрес и удостоверение (данные, закрытые от коллег по умолчанию).
       const own = await call('POST', `/workspaces/${wsId}/documents`, t2, {
-        templateId: tplId, title: `Регресс сторона ${stamp}`, fields: { С: '2026-09-01', Дней: 3 },
+        templateId: tplId, title: `Регресс сторона ${stamp}`, fields: { From: '2026-09-01', Days: 3 },
       });
       const ownId = own.json?.data?.id;
       const swap = await call('PATCH', `/workspaces/${wsId}/documents/${ownId}`, t2, { subjectUserId: u3 });
@@ -571,14 +575,14 @@ async function main() {
       const forged = await call('POST', `/workspaces/${wsId}/documents`, t2, {
         templateId: tplId,
         title: `Регресс реквизиты ${stamp}`,
-        fields: { С: '2026-09-01', Дней: 2, Организация: { Юрнаименование: 'ТОО «Подделка»' } },
+        fields: { From: '2026-09-01', Days: 2, Organization: { LegalName: 'ТОО «Подделка»' } },
       });
       const forgedId = forged.json?.data?.id;
       const forgedDoc = await waitFor('сборка с подделкой', async () => {
         const r = await call('GET', `/workspaces/${wsId}/documents/${forgedId}`, t2);
         return r.json?.data?.fileId ? r.json.data : null;
       });
-      check('лишний ключ формы не сохранился', !('Организация' in (forgedDoc?.fields ?? {})),
+      check('лишний ключ формы не сохранился', !('Organization' in (forgedDoc?.fields ?? {})),
         JSON.stringify(Object.keys(forgedDoc?.fields ?? {})));
       if (forgedDoc?.fileId) {
         const dlForged = await call('GET', `/files/${forgedDoc.fileId}/download`, t2);
@@ -643,12 +647,12 @@ async function main() {
     // заводить по архивному виду новое — НЕЛЬЗЯ.
     // ------------------------------------------------------------
     const teamType = await call('POST', `/workspaces/${wsId}/documents/doc-types`, t1, {
-      name: `Объявления ${stamp}`, category: 'general', numberFormat: 'ОБ-{ГГГГ}-{NNN}', visibility: 'team',
+      name: `Объявления ${stamp}`, category: 'general', numberFormat: 'ОБ-{YYYY}-{NNN}', visibility: 'team',
     });
     check('вид «для всей команды» создан', teamType.ok, JSON.stringify(teamType.json?.message ?? teamType.status));
     const teamTypeId = teamType.json?.data?.id;
 
-    const teamBlank = await uploadDocx(t1, `obyav-${stamp}.docx`, buildDocx(['Объявление {Организация.Юрнаименование}']));
+    const teamBlank = await uploadDocx(t1, `obyav-${stamp}.docx`, buildDocx(['Объявление {Organization.LegalName}']));
     const teamTpl = await call('POST', `/workspaces/${wsId}/documents/templates`, t1, {
       docTypeId: teamTypeId, name: 'Объявление', fileId: teamBlank, selfService: true,
     });
@@ -712,7 +716,7 @@ async function main() {
     // ============================================================
     console.log('\n— Внешний контур (смоук) —');
     const extType = await call('POST', `/workspaces/${wsId}/documents/doc-types`, t1, {
-      name: `Договоры ${stamp}`, category: 'external', numberFormat: 'ДОГ-{ГГГГ}-{NNN}',
+      name: `Договоры ${stamp}`, category: 'external', numberFormat: 'ДОГ-{YYYY}-{NNN}',
     });
     check('external-вид создан (подпись по умолчанию ПЭП)', extType.ok && extType.json?.data?.signatureLevel === 'pep', JSON.stringify(extType.json?.message ?? extType.status));
     const extPdfId = await uploadPdf(t1, `contract-${stamp}.pdf`, makeMinimalPdf('Smoke contract'));

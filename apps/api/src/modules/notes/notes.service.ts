@@ -1,11 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 import {
@@ -13,6 +6,7 @@ import {
   NOTE_JOB_TYPES,
   NOTE_LIMITS,
   NOTE_REF_TYPE,
+  SOURCE_LOCALE,
   WORKSPACE_ROLE_RANK,
   canonicalNoteJson,
   deriveNoteTitle,
@@ -46,6 +40,8 @@ import { ChatterService } from '../../core/chatter/chatter.service';
 import { FilesService } from '../../core/files/files.service';
 import { JobsService } from '../../core/jobs/jobs.service';
 import { DatabaseService } from '../../shared/database/database.service';
+import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { fullName } from '../../shared/utils/user-name';
 import { MentionsService } from '../messenger/mentions.service';
 import { NotesAccessService, type NoteScope } from './notes-access.service';
@@ -100,7 +96,13 @@ export class NotesService {
     private readonly files: FilesService,
     private readonly mentions: MentionsService,
     private readonly targets: NoteTargetRegistry,
+    private readonly i18n: I18nService,
   ) {}
+
+  /** Снимок для БД — в языке ИСТОЧНИКА (зритель перерисует его при чтении). */
+  private src(key: string): string {
+    return this.i18n.translateFor(SOURCE_LOCALE, key);
+  }
 
   // ============================================================
   // Левая панель
@@ -145,9 +147,9 @@ export class NotesService {
   }
 
   private async spaceTitle(scope: NoteScope): Promise<string> {
-    if (scope.space.ownerType === 'user') return 'Мои заметки';
+    if (scope.space.ownerType === 'user') return this.i18n.translate('notes.space.personal');
     const ws = await this.db.workspace.findUnique({ where: { id: scope.space.ownerId }, select: { name: true } });
-    return ws?.name ?? 'Организация';
+    return ws?.name ?? this.i18n.translate('notes.space.org');
   }
 
   /** Теги пространства с количеством — раскладка массива в SQL под предикатом видимости */
@@ -245,10 +247,10 @@ export class NotesService {
   /** Заметки, привязанные к сущности (панель на карточке): право на сущность решает модуль-цель */
   async listByTarget(userId: string, targetType: string, targetId: string): Promise<NotesByTargetDto> {
     const resolver = this.targets.get(targetType);
-    if (!resolver) throw new BadRequestException('Неизвестный тип сущности');
+    if (!resolver) throw badRequest('notes.unknownEntity');
     // describe отдаёт null там же, где canView вернул бы false — один поход в модуль-цель
     const described = await resolver.describe(userId, targetId);
-    if (!described) throw new NotFoundException('Сущность не найдена');
+    if (!described) throw notFound('notes.entityNotFound');
     const canAttach = await this.canWriteIn(userId, described.workspaceId);
     const ids = await this.links.noteIdsByTarget(targetType, targetId);
     if (!ids.length) return { items: [], canAttach };
@@ -305,7 +307,16 @@ export class NotesService {
       const scope = scopes.get(row.spaceId);
       const access = scope ? this.acl.noteAccess(scope, row) : null;
       if (!access) continue;
-      out.push(noteListItem(row, access, sharedIds.has(row.id), authors.get(row.createdById), this.snippetOf(row)));
+      out.push(
+        noteListItem(
+          row,
+          access,
+          sharedIds.has(row.id),
+          authors.get(row.createdById),
+          this.snippetOf(row),
+          this.i18n.translate('common.labels.someone'),
+        ),
+      );
     }
     return out;
   }
@@ -337,7 +348,7 @@ export class NotesService {
   /** Заметка по id с проверкой права: чужое = 404 */
   async requireNote(userId: string, noteId: string, need: 'viewer' | 'editor' | 'manager'): Promise<{ note: NoteFullRow; scope: NoteScope; access: NoteAccess }> {
     const note = await this.db.note.findUnique({ where: { id: noteId }, select: NOTE_FULL_SELECT });
-    if (!note) throw new NotFoundException('Заметка не найдена');
+    if (!note) throw notFound('notes.noteNotFound');
     const scope = await this.acl.scopeForSpaceId(userId, note.spaceId);
     const access = this.acl.assertAccess(this.acl.noteAccess(scope, note), need);
     return { note, scope, access };
@@ -359,7 +370,14 @@ export class NotesService {
       this.mentionsWithoutAccess(note, doc),
     ]);
     return {
-      ...noteListItem(note, access, sharedIds.has(note.id), authors.get(note.createdById), this.snippetOf(note)),
+      ...noteListItem(
+        note,
+        access,
+        sharedIds.has(note.id),
+        authors.get(note.createdById),
+        this.snippetOf(note),
+        this.i18n.translate('common.labels.someone'),
+      ),
       spaceId: note.spaceId,
       ownerType: scope.space.ownerType as 'user' | 'workspace',
       ownerId: scope.space.ownerId,
@@ -381,7 +399,7 @@ export class NotesService {
     for (const m of mentioned) if (!(await this.canUserView(m.userId, note))) out.push(m.userId);
     if (!out.length) return [];
     const users = await this.usersLite(out);
-    return out.map((id) => userLite(users.get(id), id));
+    return out.map((id) => userLite(users.get(id), id, this.i18n.translate('common.labels.someone')));
   }
 
   /** Видит ли ДРУГОЙ человек заметку (гранты + членство + авторство) */
@@ -405,7 +423,7 @@ export class NotesService {
       const { folder } = await this.folders.requireFolder(scope, input.folderId, 'editor');
       folderPath = [folder.id, ...folder.ancestorIds];
     } else if (!scope.member) {
-      throw new ForbiddenException('Создавать заметки здесь нельзя');
+      throw forbidden('notes.cannotCreateHere');
     }
     const doc = input.content ?? (input.markdown !== undefined ? markdownToNoteDoc(input.markdown) : emptyNoteDoc());
     const proj = this.project(doc);
@@ -447,7 +465,7 @@ export class NotesService {
 
   async update(userId: string, noteId: string, input: UpdateNoteInput): Promise<NoteSaveResultDto> {
     const { note, scope } = await this.requireNote(userId, noteId, 'editor');
-    if (note.deletedAt) throw new BadRequestException('Заметка в корзине — сначала восстановите её');
+    if (note.deletedAt) throw badRequest('notes.inTrash');
 
     // Перенос: только внутри того же пространства, целевая папка — с правом правки
     let folderChange: { folderId: string | null; folderPath: string[]; toName: string } | null = null;
@@ -456,8 +474,8 @@ export class NotesService {
         const { folder } = await this.folders.requireFolder(scope, input.folderId, 'editor');
         folderChange = { folderId: folder.id, folderPath: [folder.id, ...folder.ancestorIds], toName: folder.name };
       } else {
-        if (!scope.member) throw new ForbiddenException('Вынести в корень может только участник пространства');
-        folderChange = { folderId: null, folderPath: [], toName: 'Корень' };
+        if (!scope.member) throw forbidden('notes.toRootMemberOnly');
+        folderChange = { folderId: null, folderPath: [], toName: this.src('notes.rootName') };
       }
     }
 
@@ -487,10 +505,7 @@ export class NotesService {
       // Status-guarded UPDATE по версии: 0 строк = кто-то сохранил раньше нас.
       const res = await tx.note.updateMany({ where: { id: noteId, version: input.baseVersion, deletedAt: null }, data });
       if (res.count === 0) {
-        throw new ConflictException({
-          message: 'Заметку изменили в другом окне — показана свежая версия',
-          details: { code: NOTE_ERROR_CODES.versionConflict },
-        });
+        throw conflict('notes.versionConflict', undefined, { code: NOTE_ERROR_CODES.versionConflict });
       }
       const fresh = await tx.note.findUniqueOrThrow({ where: { id: noteId }, select: NOTE_FULL_SELECT });
       if (contentChanged && proj) {
@@ -504,7 +519,7 @@ export class NotesService {
       await this.enqueueProjection(tx, fresh);
       if (fresh.title !== note.title) {
         await this.log(tx, scope, noteId, 'note.renamed', { targetName: this.displayTitle(fresh) }, [
-          { field: 'title', label: 'Название', from: note.title || null, to: fresh.title || null },
+          { field: 'title', label: this.src('chatter.fields.note.title'), from: note.title || null, to: fresh.title || null },
         ]);
       }
       if (folderChange) {
@@ -545,7 +560,7 @@ export class NotesService {
     if (!unknown.length) return;
     const owned = new Set((await this.files.getOwnedReadyFiles(userId, unknown)).map((f) => f.id));
     const bad = unknown.filter((id) => !owned.has(id));
-    if (bad.length) throw new BadRequestException('Картинка не найдена или загружена не вами');
+    if (bad.length) throw badRequest('notes.imageNotYours');
   }
 
   /** Связи файлов = картинки в документе: новые привязать (право = editor), исчезнувшие отвязать */
@@ -605,19 +620,23 @@ export class NotesService {
     }
     if (!without.length) return { hints: [], checked: true };
     const users = await this.usersLite(without);
-    return { hints: without.map((id) => userLite(users.get(id), id)), checked: true };
+    return {
+      hints: without.map((id) => userLite(users.get(id), id, this.i18n.translate('common.labels.someone'))),
+      checked: true,
+    };
   }
 
   /** Заголовок для показа: явный, иначе из документа */
   displayTitle(note: { title: string; content?: unknown; plainText: string }): string {
+    const untitled = this.i18n.translate('notes.untitled');
     if (note.title) return note.title;
-    if (note.content) return deriveNoteTitle(note.content as unknown as NoteDoc);
-    return note.plainText.split('\n')[0]?.slice(0, 80) || 'Без названия';
+    if (note.content) return deriveNoteTitle(note.content as unknown as NoteDoc, untitled);
+    return note.plainText.split('\n')[0]?.slice(0, 80) || untitled;
   }
 
   private project(doc: NoteDoc): Projection {
     const v = validateNoteDoc(doc);
-    if (!v.ok) throw new BadRequestException(v.reason);
+    if (!v.ok) throw badRequest(v.reason);
     const canonical = canonicalNoteJson(doc);
     return {
       doc: JSON.parse(canonical) as NoteDoc,
@@ -673,7 +692,7 @@ export class NotesService {
     return rows.map((r) => ({
       version: r.version,
       createdAt: r.createdAt.toISOString(),
-      author: userLite(authors.get(r.createdById), r.createdById),
+      author: userLite(authors.get(r.createdById), r.createdById, this.i18n.translate('common.labels.someone')),
       current: r.version === note.version,
       preview: noteSnippet(noteDocToPlainText(r.content as unknown as NoteDoc), ''),
     }));
@@ -683,7 +702,7 @@ export class NotesService {
   async revision(userId: string, noteId: string, version: number): Promise<NoteDoc> {
     await this.requireNote(userId, noteId, 'viewer');
     const row = await this.db.noteRevision.findUnique({ where: { noteId_version: { noteId, version } }, select: { content: true } });
-    if (!row) throw new NotFoundException('Такой версии нет');
+    if (!row) throw notFound('notes.revisionNotFound');
     return row.content as unknown as NoteDoc;
   }
 
@@ -695,7 +714,7 @@ export class NotesService {
   async restoreRevision(userId: string, noteId: string, version: number): Promise<NoteSaveResultDto> {
     const { note } = await this.requireNote(userId, noteId, 'editor');
     const row = await this.db.noteRevision.findUnique({ where: { noteId_version: { noteId, version } }, select: { content: true } });
-    if (!row) throw new NotFoundException('Такой версии нет');
+    if (!row) throw notFound('notes.revisionNotFound');
     return this.update(userId, noteId, { baseVersion: note.version, content: row.content as unknown as NoteDoc });
   }
 
@@ -738,7 +757,7 @@ export class NotesService {
   /** Удалить навсегда (только из корзины) */
   async purge(userId: string, noteId: string): Promise<void> {
     const { note } = await this.requireNote(userId, noteId, 'manager');
-    if (!note.deletedAt) throw new BadRequestException('Сначала переместите заметку в корзину');
+    if (!note.deletedAt) throw badRequest('notes.trashFirst');
     await this.hardDelete([noteId]);
   }
 

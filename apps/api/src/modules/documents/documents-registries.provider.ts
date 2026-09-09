@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ORG_DOCUMENT_REF_TYPE, type SearchSourceType } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { ApprovalsRegistry } from '../../core/approvals/approvals.registry';
 import { SignRegistry, type SignActFinishedInfo } from '../../core/sign/sign.registry';
 import { ChatterService } from '../../core/chatter/chatter.service';
@@ -38,7 +39,16 @@ export class DocumentsRegistriesProvider implements OnModuleInit {
     private readonly searchRegistry: SearchRegistry,
     private readonly searchProjection: SearchProjectionService,
     private readonly templateFields: TemplateFieldRegistry,
+    private readonly i18n: I18nService,
   ) {}
+
+  /**
+   * Заголовок карточки с номером. «№» — знак РУССКОЙ типографики (в английском
+   * это «No.»), поэтому склейка идёт через каталог, а не через литерал.
+   */
+  private withNumber(title: string, number: string | null): string {
+    return number ? `${title} ${this.i18n.translate('documents.numberLabel', { number })}` : title;
+  }
 
   onModuleInit(): void {
     // ---- Согласования: документ как ПРЕДМЕТ решения ----
@@ -51,7 +61,7 @@ export class DocumentsRegistriesProvider implements OnModuleInit {
         if (!doc) return null;
         if (!(await this.documents.canRequestApproval(userId, doc))) return null;
         return {
-          title: doc.number ? `${doc.title} № ${doc.number}` : doc.title,
+          title: this.withNumber(doc.title, doc.number),
           icon: '📄',
           workspaceId: doc.workspaceId,
           // Отпечаток ТОГО содержимого, которое видит решающий: без него подпись не
@@ -68,7 +78,7 @@ export class DocumentsRegistriesProvider implements OnModuleInit {
         const doc = await this.db.orgDocument.findUnique({ where: { id: refId } });
         if (!doc) return null;
         return {
-          title: doc.number ? `${doc.title} № ${doc.number}` : doc.title,
+          title: this.withNumber(doc.title, doc.number),
           icon: '📄',
           href: `/workspaces/${doc.workspaceId}/documents/${doc.id}`,
         };
@@ -116,7 +126,7 @@ export class DocumentsRegistriesProvider implements OnModuleInit {
         return {
           fileId,
           variant,
-          title: doc.number ? `${doc.title} № ${doc.number}` : doc.title,
+          title: this.withNumber(doc.title, doc.number),
           icon: 'signature',
           workspaceId: doc.workspaceId,
           // Владелец доказательств — ОРГАНИЗАЦИЯ: подписанный приказ не может
@@ -145,7 +155,7 @@ export class DocumentsRegistriesProvider implements OnModuleInit {
         // МИНИМУМ: что за документ и от какой организации. Ни сторон, ни полей,
         // ни содержимого — их приносит тот, у кого файл на руках.
         return {
-          title: doc.number ? `${doc.title} № ${doc.number}` : doc.title,
+          title: this.withNumber(doc.title, doc.number),
           kindLabel: doc.docType.name,
           orgLabel: doc.workspace.name,
         };
@@ -225,22 +235,22 @@ export class DocumentsRegistriesProvider implements OnModuleInit {
     // ---- Глобальный поиск: номер, название, вид ----
     this.searchRegistry.register({
       type: ORG_DOCUMENT_REF_TYPE,
-      label: 'Документы',
+      labelKey: 'documents.breadcrumb',
       search: (viewerId, query, opts) => this.search(viewerId, query, opts),
     });
 
     // ---- Группа полей шаблона «Документ» ----
     // Значения приходят от сервиса при сборке (номер, дата, поля формы), поэтому
     // resolve здесь ничего не отдаёт: группа объявлена ради панели конструктора и
-    // компилятора — чтобы `{Документ.Номер}` не считался опечаткой.
+    // компилятора — чтобы `{Document.Number}` не считался опечаткой.
     this.templateFields.register({
       key: 'document',
-      tagPrefix: 'Документ',
-      label: 'Документ',
+      tagPrefix: 'Document',
+      // `key` — имя БЛАНКА, `id` — латинское имя поля для ключа каталога
       fields: [
-        { key: 'Название', label: 'Название документа', example: 'Заявление на отпуск' },
-        { key: 'Номер', label: 'Регистрационный номер', example: 'ПР-2026-007' },
-        { key: 'Дата', label: 'Дата документа', example: '03.08.2026' },
+        { key: 'Title', id: 'title' },
+        { key: 'Number', id: 'number' },
+        { key: 'Date', id: 'date' },
       ],
       resolve: async () => null,
     });
@@ -385,7 +395,7 @@ export class DocumentsRegistriesProvider implements OnModuleInit {
       items: rows.map((r) => ({
         type: ORG_DOCUMENT_REF_TYPE as SearchSourceType,
         id: r.id,
-        title: r.number ? `${r.title} № ${r.number}` : r.title,
+        title: this.withNumber(r.title, r.number),
         snippet: r.docType.name,
         url: `/workspaces/${r.workspaceId}/documents/${r.id}`,
         chatId: null,
@@ -413,7 +423,7 @@ export class DocumentsRegistriesProvider implements OnModuleInit {
         sourceId: doc.id,
         url: `/workspaces/${doc.workspaceId}/documents/${doc.id}`,
         itemCreatedAt: doc.updatedAt,
-        title: doc.number ? `${doc.title} № ${doc.number}` : doc.title,
+        title: this.withNumber(doc.title, doc.number),
         body: doc.docType.name,
         workspaceId: doc.workspaceId,
       })

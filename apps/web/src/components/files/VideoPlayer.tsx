@@ -3,6 +3,7 @@
 import type { FileDto } from '@superapp/shared';
 import { useFileDisplayUrl } from '../../lib/hooks/useFileUrl';
 import { hasVariant } from './files-ui';
+import { useTranslations } from 'next-intl';
 
 interface VideoPlayerProps {
   file: FileDto;
@@ -14,6 +15,7 @@ interface VideoPlayerProps {
  * (перемотка работает — сервер отдаёт Range/206).
  */
 export function VideoPlayer({ file, maxWidth = '30rem' }: VideoPlayerProps) {
+  const t = useTranslations('common');
   const { url } = useFileDisplayUrl(file);
   const posterAvailable = hasVariant(file, 'poster');
   const { url: posterUrl } = useFileDisplayUrl(posterAvailable ? file : null, 'poster');
@@ -33,7 +35,7 @@ export function VideoPlayer({ file, maxWidth = '30rem' }: VideoPlayerProps) {
           fontSize: '0.8rem',
         }}
       >
-        Загружаю видео…
+        {t('files.loadingVideo')}
       </div>
     );
   }

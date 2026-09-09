@@ -7,6 +7,7 @@
 // ============================================================
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import {
@@ -27,19 +28,23 @@ import {
 // Фильтр обязан покрывать ВСЕ категории реестра: записи категории без чипа
 // («Документы» до 2026-08-03) видны только в общей ленте — то есть найти их
 // в журнале за полгода практически нельзя.
-const CATEGORY_CHIPS: { key: ChatterCategory | null; label: string }[] = [
-  { key: null, label: 'Все' },
-  { key: 'staff', label: 'Сотрудники' },
-  { key: 'hr', label: 'Кадры' },
-  { key: 'tasks', label: 'Задачи' },
-  { key: 'documents', label: 'Документы' },
-  { key: 'drive', label: 'Диск' },
-  { key: 'share', label: 'Ссылки наружу' },
-  { key: 'processes', label: 'Процессы' },
-  { key: 'objects', label: 'Объекты' },
+// Ключ `null` — «Все»; слово к каждой категории даёт каталог
+// (`workspaces.journal.category.*`), реестр несёт только состав фильтра.
+const CATEGORY_CHIPS: (ChatterCategory | null)[] = [
+  null,
+  'staff',
+  'hr',
+  'tasks',
+  'documents',
+  'drive',
+  'share',
+  'processes',
+  'objects',
 ];
 
 export default function WorkspaceJournalPage() {
+  const t = useTranslations('workspaces');
+  const tc = useTranslations('common');
   const { isReady } = useRequireAuth();
   const { id } = useParams<{ id: string }>();
   const [category, setCategory] = useState<ChatterCategory | null>(null);
@@ -79,9 +84,9 @@ export default function WorkspaceJournalPage() {
 
   const header = (
     <PageHeader
-      breadcrumb={wsQuery.data?.name ?? 'Организация'}
-      title="Журнал организации"
-      description="Хроника событий: найм и роли, должности, движение задач — кто, что и когда"
+      breadcrumb={wsQuery.data?.name ?? t('orgFallback')}
+      title={t('journal.title')}
+      description={t('journal.description')}
     />
   );
 
@@ -95,9 +100,9 @@ export default function WorkspaceJournalPage() {
           <Card span={12}>
             <EmptyState
               icon="blocked"
-              title="Организация не открылась"
-              description="Возможно, у вас нет доступа. Обновите страницу или вернитесь к списку организаций."
-              action={<Button variant="matte" icon="dashboard" href="/dashboard">На главную</Button>}
+              title={t('notOpened.title')}
+              description={t('notOpened.description')}
+              action={<Button variant="matte" icon="dashboard" href="/dashboard">{t('toDashboard')}</Button>}
             />
           </Card>
         </BentoGrid>
@@ -113,9 +118,9 @@ export default function WorkspaceJournalPage() {
           <Card span={12}>
             <EmptyState
               icon="lock"
-              title="Журнал доступен с роли Менеджер"
-              description="HR-события организации видны управляющим — так задумано."
-              action={<Button variant="matte" icon="workspace" href={`/workspaces/${id}`}>К организации</Button>}
+              title={t('journal.managerOnly.title')}
+              description={t('journal.managerOnly.description')}
+              action={<Button variant="matte" icon="workspace" href={`/workspaces/${id}`}>{t('toOrg')}</Button>}
             />
           </Card>
         </BentoGrid>
@@ -129,14 +134,14 @@ export default function WorkspaceJournalPage() {
 
       {/* Фильтр-чипы категорий */}
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: 'var(--gap-grid)' }}>
-        {CATEGORY_CHIPS.map((c) => (
+        {CATEGORY_CHIPS.map((key) => (
           <Chip
-            key={c.label}
+            key={key ?? 'all'}
             tone="accent"
-            selected={category === c.key}
-            onClick={() => setCategory(c.key)}
+            selected={category === key}
+            onClick={() => setCategory(key)}
           >
-            {c.label}
+            {t(`journal.category.${key ?? 'all'}`)}
           </Chip>
         ))}
       </div>
@@ -146,9 +151,13 @@ export default function WorkspaceJournalPage() {
           {journalQuery.isError ? (
             <EmptyState
               icon="warningCircle"
-              title="Не удалось загрузить журнал"
-              description="Похоже, сервер не ответил. Попробуйте ещё раз."
-              action={<Button variant="matte" icon="refresh" onClick={() => journalQuery.refetch()}>Повторить</Button>}
+              title={t('journal.loadFailed.title')}
+              description={t('journal.loadFailed.description')}
+              action={
+                <Button variant="matte" icon="refresh" onClick={() => journalQuery.refetch()}>
+                  {tc('actions.retry')}
+                </Button>
+              }
             />
           ) : journalQuery.isPending ? (
             <LoadingBlock />
@@ -157,7 +166,7 @@ export default function WorkspaceJournalPage() {
               <ChronicleFeed
                 entries={entries}
                 actors={actors}
-                emptyText="Пока пусто — здесь появятся найм, смены ролей и движение задач организации"
+                emptyText={t('journal.empty')}
               />
               {journalQuery.hasNextPage && (
                 <div style={{ textAlign: 'center', marginTop: 'var(--spacing-5)' }}>
@@ -167,7 +176,7 @@ export default function WorkspaceJournalPage() {
                     loading={journalQuery.isFetchingNextPage}
                     onClick={() => journalQuery.fetchNextPage()}
                   >
-                    Показать ещё
+                    {t('journal.showMore')}
                   </Button>
                 </div>
               )}

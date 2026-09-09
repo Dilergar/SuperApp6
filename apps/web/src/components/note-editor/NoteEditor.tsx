@@ -4,8 +4,10 @@ import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, 
 import { DOMParser as PMDOMParser, Slice, type Node as PMNode } from 'prosemirror-model';
 import { EditorState, TextSelection, type Transaction } from 'prosemirror-state';
 import { EditorView } from 'prosemirror-view';
+import { useTranslations } from 'next-intl';
 import { canonicalNoteJson, markdownToNoteDoc, type NoteDoc, type NoteSpaceRef } from '@superapp/shared';
 import { toastError } from '@/lib/toast';
+import { noteEditorLabels, setNoteEditorLabels } from './labels';
 import { basePlugins, cmd, insertTextAtCaret, replaceRangeWithNode, runSlashCommand, snapshot, type EditorSnapshot } from './plugins';
 import { fromNoteDoc, noteSchema, toNoteDoc } from './schema';
 import { buildNodeViews, NodeViewPortals, PortalRegistry } from './node-views';
@@ -56,9 +58,19 @@ export interface NoteEditorProps {
 const OUR_KEYS = new Set(['b', 'i', 'u', 'e', 'k', 'z', 'y']);
 
 export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEditor(
-  { value, onChange, compact = false, readOnly = false, placeholder = 'Начните писать…', autoFocus, scope, noteId, onUploadImage, tags, onWikilinkOpen, onTagClick, toolbarExtra, className },
+  { value, onChange, compact = false, readOnly = false, placeholder, autoFocus, scope, noteId, onUploadImage, tags, onWikilinkOpen, onTagClick, toolbarExtra, className },
   ref,
 ) {
+  const t = useTranslations('notes');
+  // Слова для схемы и плагинов кладём ДО построения EditorView: они читаются в
+  // момент отрисовки узла, а хука каталога в тех модулях быть не может (см. labels.ts).
+  setNoteEditorLabels({
+    title: t('editor.titlePlaceholder'),
+    blockedLink: t('editor.linkBlocked'),
+    done: t('editor.done'),
+    imageNoRights: t('editor.imageNoRights'),
+    imageFailed: t('editor.imageFailed'),
+  });
   const mountRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const registry = useMemo(() => new PortalRegistry(), []);
@@ -79,7 +91,7 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
     if (!mount) return;
     const state = EditorState.create({
       doc: fromNoteDoc(value),
-      plugins: basePlugins(placeholder),
+      plugins: basePlugins(placeholder ?? t('editor.placeholder')),
     });
     const view = new EditorView(mount, {
       state,
@@ -253,7 +265,7 @@ function handleDropFiles(view: EditorView, event: DragEvent, upload?: (f: File) 
 
 async function insertImages(view: EditorView, files: File[], upload?: (f: File) => Promise<string>): Promise<void> {
   if (!upload) {
-    toastError('Картинки в эту заметку добавить нельзя: нет прав на файлы');
+    toastError(noteEditorLabels.imageNoRights);
     return;
   }
   for (const file of files) {
@@ -261,7 +273,7 @@ async function insertImages(view: EditorView, files: File[], upload?: (f: File) 
       const fileId = await upload(file);
       cmd.insertImage(fileId, file.name.replace(/\.[a-z0-9]+$/i, '') || null)(view.state, view.dispatch, view);
     } catch (e) {
-      toastError(e instanceof Error ? e.message : 'Не удалось загрузить картинку');
+      toastError(e instanceof Error ? e.message : noteEditorLabels.imageFailed);
     }
   }
 }

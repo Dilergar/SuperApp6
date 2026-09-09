@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { DatabaseService } from '../../shared/database/database.service';
 import { AudiencesRegistry } from '../../core/audiences/audiences.registry';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { ContactsService } from './contacts.service';
 
 /**
@@ -15,6 +16,7 @@ export class ContactsAudiencesProvider implements OnModuleInit {
     private readonly db: DatabaseService,
     private readonly contacts: ContactsService,
     private readonly audiences: AudiencesRegistry,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -29,7 +31,8 @@ export class ContactsAudiencesProvider implements OnModuleInit {
       },
       label: async (circleId) => {
         const c = await this.db.circle.findUnique({ where: { id: circleId }, select: { name: true } });
-        return c ? `Группа «${c.name}»` : null;
+        // Подпись адресата собирается при ЧТЕНИИ в языке зрителя.
+        return c ? this.i18n.translate('circles.groupNamed', { name: c.name }) : null;
       },
     });
   }

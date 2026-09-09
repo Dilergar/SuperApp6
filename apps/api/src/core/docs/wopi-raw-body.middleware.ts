@@ -95,7 +95,7 @@ export function wopiRawBodyMiddleware(maxBytes = FILE_LIMITS.apiSingleRequestMax
         }
         // Обрыв соединения на приёме тела — это не наша ошибка и не 500: клиент уйдёт
         // в ретрай сам, а лишний стек в логе только шумит.
-        logger.warn(`приём тела прерван: ${err.message}`);
+        logger.warn(`reading the body was interrupted: ${err.message}`);
         if (!res.headersSent) res.status(400).end();
         return;
       }

@@ -14,7 +14,8 @@ import type {
 } from '@superapp/shared';
 import { MESSENGER_LIMITS, SEARCH_LIMITS } from '@superapp/shared';
 import { PersonAvatar } from './messenger-ui';
-import { presenceStatusLine } from './presence-ui';
+import { useTranslations } from 'next-intl';
+import { usePresenceLine } from './presence-ui';
 import { MessageList, type MessageListHandle } from './MessageList';
 import { FileAttachmentModal } from './FileAttachmentModal';
 import { VoiceRecordButton } from './VoiceRecordButton';
@@ -113,6 +114,8 @@ export function Conversation({
   /** Телефон, одноколоночный режим: «← к списку чатов» в шапке диалога. */
   onBack?: () => void;
 }) {
+  const t = useTranslations('messenger');
+  const presenceStatusLine = usePresenceLine();
   // Лента виртуализирована (MessageList): прокруткой распоряжается она, а сюда
   // отдаёт две команды — «прижмись к низу» и «покажи вот это сообщение».
   const listRef = useRef<MessageListHandle | null>(null);
@@ -312,7 +315,7 @@ export function Conversation({
   // Start a reply from a bubble's corner menu: stash the quoted target so the
   // composer shows the quoted bar and the next send carries replyToId.
   const startReply = useCallback((m: ChatMessage) => {
-    const fallback = m.type === 'attachment' ? 'Вложения' : '';
+    const fallback = m.type === 'attachment' ? t('attachmentsFallback') : '';
     setReplyingTo({
       id: m.id,
       authorName: m.authorName,
@@ -339,10 +342,10 @@ export function Conversation({
     typingNames.length === 0
       ? null
       : typingNames.length === 1
-        ? `${typingNames[0]} печатает…`
+        ? t('typing.one', { name: typingNames[0] })
         : typingNames.length <= 3
-          ? `${typingNames.join(', ')} печатают…`
-          : `${typingNames.slice(0, 2).join(', ')} и ещё ${typingNames.length - 2} печатают…`;
+          ? t('typing.few', { names: typingNames.join(', ') })
+          : t('typing.many', { names: typingNames.slice(0, 2).join(', '), n: typingNames.length - 2 });
 
   const presenceLabel = isDm ? presenceStatusLine(peerPresence) : null;
   const statusLine = typingLabel ?? presenceLabel;
@@ -371,7 +374,7 @@ export function Conversation({
         }}
       >
         {onBack && (
-          <IconButton icon="arrowLeft" label="К списку чатов" size={34} onClick={onBack} style={{ flexShrink: 0 }} />
+          <IconButton icon="arrowLeft" label={t('chat.backToList')} size={34} onClick={onBack} style={{ flexShrink: 0 }} />
         )}
         <PersonAvatar userId={detail.peerUserId} name={detail.title} avatar={detail.avatar} />
         <div style={{ minWidth: 0, flex: 1 }}>
@@ -399,7 +402,7 @@ export function Conversation({
           ) : (
             detail.type !== 'dm' && (
               <div className="label-sm" style={{ fontSize: '0.72rem', opacity: 0.7 }}>
-                {detail.participants.length} участник(ов)
+                {t('chat.participants', { n: detail.participants.length })}
               </div>
             )
           )}
@@ -407,8 +410,8 @@ export function Conversation({
         {callsEnabled && onStartCall && detail.parentType !== 'office_room' && !activeCall && (
           <button
             onClick={onStartCall}
-            title="Позвонить"
-            aria-label="Позвонить"
+            title={t('chat.call')}
+            aria-label={t('chat.call')}
             style={{
               flexShrink: 0,
               background: 'var(--surface-container-high)',
@@ -427,8 +430,8 @@ export function Conversation({
         )}
         <button
           onClick={() => setShowScheduled(true)}
-          title="Запланированные сообщения"
-          aria-label="Запланированные сообщения"
+          title={t('chat.scheduled')}
+          aria-label={t('chat.scheduled')}
           style={{
             flexShrink: 0,
             background: pendingScheduled > 0 ? 'var(--secondary-container)' : 'var(--surface-container-high)',
@@ -452,8 +455,8 @@ export function Conversation({
         </button>
         <button
           onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
-          title="Поиск в чате"
-          aria-label="Поиск в чате"
+          title={t('chat.search')}
+          aria-label={t('chat.search')}
           style={{
             flexShrink: 0,
             background: searchOpen ? 'var(--secondary-container)' : 'var(--surface-container-high)',
@@ -472,8 +475,8 @@ export function Conversation({
         {detail.type === 'group' && onManage && (detail.myRole === 'owner' || detail.myRole === 'admin') && (
           <button
             onClick={onManage}
-            title="Управление группой"
-            aria-label="Управление группой"
+            title={t('chat.manageGroup')}
+            aria-label={t('chat.manageGroup')}
             style={{
               flexShrink: 0,
               background: 'var(--surface-container-high)',
@@ -505,8 +508,8 @@ export function Conversation({
           }}
         >
           <span className="label-md" style={{ color: 'var(--secondary)', fontWeight: 700 }}>
-            <Icon name="call" size={15} /> Идёт звонок · {activeCall.participantUserIds.length}
-            {activeCall.recording ? ' · ● Запись' : ''}
+            <Icon name="call" size={15} /> {t('chat.callGoing', { n: activeCall.participantUserIds.length })}
+            {activeCall.recording ? t('chat.recordingSuffix') : ''}
           </span>
           {onStartCall && (
             <button
@@ -514,7 +517,7 @@ export function Conversation({
               style={{ padding: '0.3rem 0.9rem', fontSize: '0.8rem' }}
               onClick={onStartCall}
             >
-              Присоединиться
+              {t('chat.join')}
             </button>
           )}
         </div>
@@ -544,10 +547,10 @@ export function Conversation({
                 stepMatch(e.shiftKey ? -1 : 1);
               }
             }}
-            placeholder="Поиск в этом чате…"
+            placeholder={t('chat.searchPlaceholder')}
             maxLength={SEARCH_LIMITS.maxQueryLength}
             autoFocus
-            aria-label="Поиск в чате"
+            aria-label={t('chat.search')}
             style={{
               flex: 1,
               minWidth: 0,
@@ -577,8 +580,8 @@ export function Conversation({
           <button
             onClick={() => stepMatch(-1)}
             disabled={matches.length === 0}
-            title="Предыдущее совпадение"
-            aria-label="Предыдущее совпадение"
+            title={t('chat.prevMatch')}
+            aria-label={t('chat.prevMatch')}
             style={searchStepBtn(matches.length === 0)}
           >
             ↑
@@ -586,16 +589,16 @@ export function Conversation({
           <button
             onClick={() => stepMatch(1)}
             disabled={matches.length === 0}
-            title="Следующее совпадение"
-            aria-label="Следующее совпадение"
+            title={t('chat.nextMatch')}
+            aria-label={t('chat.nextMatch')}
             style={searchStepBtn(matches.length === 0)}
           >
             ↓
           </button>
           <button
             onClick={closeSearch}
-            title="Закрыть поиск"
-            aria-label="Закрыть поиск"
+            title={t('chat.closeSearch')}
+            aria-label={t('chat.closeSearch')}
             style={{
               flexShrink: 0,
               background: 'none',
@@ -625,7 +628,7 @@ export function Conversation({
               background: 'var(--surface-container)',
             }}
           >
-            Ничего не найдено
+            {t('chat.nothingFound')}
           </div>
         )}
 
@@ -670,7 +673,7 @@ export function Conversation({
           />
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--secondary)' }}>
-              Ответ {replyingTo.authorName ? `· ${replyingTo.authorName}` : ''}
+              {replyingTo.authorName ? t('chat.replyTo', { name: replyingTo.authorName }) : t('chat.reply')}
             </div>
             <div
               className="label-sm"
@@ -682,13 +685,13 @@ export function Conversation({
                 textOverflow: 'ellipsis',
               }}
             >
-              {replyingTo.text || 'Сообщение'}
+              {replyingTo.text || t('messageFallback')}
             </div>
           </div>
           <button
             onClick={() => setReplyingTo(null)}
-            title="Отменить ответ"
-            aria-label="Отменить ответ"
+            title={t('chat.cancelReply')}
+            aria-label={t('chat.cancelReply')}
             style={{
               flexShrink: 0,
               background: 'none',
@@ -723,8 +726,8 @@ export function Conversation({
         {onSendAttachments && (
           <button
             onClick={() => setShowAttachFiles(true)}
-            title="Прикрепить файлы"
-            aria-label="Прикрепить файлы"
+            title={t('chat.attachFiles')}
+            aria-label={t('chat.attachFiles')}
             style={{
               flexShrink: 0,
               background: 'var(--surface-container-high)',
@@ -743,8 +746,8 @@ export function Conversation({
         )}
         <button
           onClick={() => setShowAttach(true)}
-          title="Прикрепить карточку"
-          aria-label="Прикрепить карточку"
+          title={t('chat.attachCard')}
+          aria-label={t('chat.attachCard')}
           style={{
             flexShrink: 0,
             background: 'var(--surface-container-high)',
@@ -828,6 +831,7 @@ const Composer = memo(function Composer({
   onSend: (content: string) => void;
   onTypingChange?: (typing: boolean) => void;
 }) {
+  const t = useTranslations('messenger');
   const [draft, setDraft] = useState('');
   const submit = () => {
     const text = draft.trim();
@@ -840,7 +844,7 @@ const Composer = memo(function Composer({
       {/* В текст едет САМ символ (не пометка набора) — сообщение остаётся
           обычной строкой, и её одинаково прочитает мобильное приложение. */}
       <GlyphPickerButton
-        label="Эмодзи"
+        label={t('chat.emoji')}
         only="noto"
         keepOpen
         size={42}
@@ -855,7 +859,7 @@ const Composer = memo(function Composer({
         onChange={setDraft}
         onSend={submit}
         onTypingChange={onTypingChange}
-        placeholder="Написать сообщение..."
+        placeholder={t('chat.composerPlaceholder')}
         maxLength={MESSENGER_LIMITS.maxMessageLength}
       />
       <button
@@ -869,7 +873,7 @@ const Composer = memo(function Composer({
           flexShrink: 0,
         }}
       >
-        Отправить
+        {t('chat.send')}
       </button>
     </>
   );

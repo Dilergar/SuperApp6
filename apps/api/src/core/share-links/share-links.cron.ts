@@ -41,7 +41,7 @@ export class ShareLinksCron {
       }
       if (total > 0) {
         this.logger.log(
-          `Ретеншн гостевых ссылок: удалено ${total} визитов старше ${SHARE_LINK_LIMITS.visitRetentionDays}д`,
+          `Guest-link retention: ${total} visits older than ${SHARE_LINK_LIMITS.visitRetentionDays}d deleted`,
         );
       }
     });

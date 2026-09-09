@@ -29,7 +29,8 @@
       "import": "./dist/chatter.js",
       "require": "./dist/chatter.js",
       "types": "./dist/chatter.d.ts"
-    }
+    },
+    "./messages/*": "./dist/messages/*"
   },
   "scripts": {
     "gen": "node scripts/gen-messages.cjs",

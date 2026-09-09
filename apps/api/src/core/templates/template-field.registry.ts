@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { TemplateFieldGroupDto, TemplateFieldSpecDto } from '@superapp/shared';
+import type { Locale } from '@superapp/i18n';
+import type { TemplateFieldGroupDto } from '@superapp/shared';
+import { I18nService } from '../../shared/i18n/i18n.service';
 
 /**
  * Реестр групп полей шаблона — владельцы данных регистрируют свои группы в
@@ -14,6 +16,13 @@ import type { TemplateFieldGroupDto, TemplateFieldSpecDto } from '@superapp/shar
 
 /** Контекст резолва: чего не хватает — та группа просто отвечает null */
 export interface TemplateFieldContext {
+  /**
+   * ЯЗЫК БЛАНКА, в который поедут значения. Значение группы попадает ВНУТРЬ
+   * бумаги, поэтому слово в нём («ЖШС», «Перевод», «серия … от …») говорит на
+   * языке документа, а не зрителя. Не задан — язык источника: молчаливого
+   * умолчания у бумаги нет, и такой вызов виден в коде.
+   */
+  language?: Locale;
   workspaceId?: string;
   /** Сотрудник-СТОРОНА документа (податель заявления, субъект приказа) */
   subjectUserId?: string;
@@ -34,13 +43,32 @@ export interface TemplateFieldContext {
   legalEntityId?: string;
 }
 
+/**
+ * Поле группы В РЕЕСТРЕ. Слов не хранит: `key` — это ИМЯ ТЕГА внутри бланка
+ * (`{Organization.Bin}`), API-имя поля (модель Salesforce) — одно на все языки
+ * бумаги. Подпись и пример в панели «Что подставить» — интерфейс, и живут они
+ * в каталоге под ключом, собранным по соглашению:
+ *
+ *   templates.fields.<группа>.<id>.label
+ *   templates.fields.<группа>.<id>.example   (необязателен)
+ *
+ * `key` и `id` — одно и то же имя в двух написаниях (`Bin` ↔ `bin`), и второе
+ * нужно потому, что ключ каталога всегда camelCase. Имя тега пишется ЯВНО:
+ * человек ищет `Organization.Bin` по коду и обязан его найти.
+ */
+export interface TemplateFieldSpec {
+  /** То, что стоит в теге после точки: «Bin». Переименование = правка бланков. */
+  key: string;
+  /** Имя поля для ключа каталога (camelCase от `key`). */
+  id: string;
+}
+
 export interface TemplateFieldGroup {
   /** Ключ в коде (латиницей): workspace | employee | document … */
   key: string;
-  /** Префикс тега до точки — то, что пишет сотрудник: «Организация» */
+  /** Префикс тега до точки — то, что пишет сотрудник: «Organization» */
   tagPrefix: string;
-  label: string;
-  fields: TemplateFieldSpecDto[];
+  fields: TemplateFieldSpec[];
   /**
    * Значения группы для подстановки. КОНТРАКТ ЧЕСТНОСТИ: незаполненный
    * реквизит отдаётся null (рендер откажет списком «заполните…»), а не пустой
@@ -64,6 +92,8 @@ export class TemplateFieldRegistry {
   private readonly byPrefix = new Map<string, TemplateFieldGroup>();
   private readonly enrichers: TemplateContextEnricher[] = [];
 
+  constructor(private readonly i18n: I18nService) {}
+
   /** Дополнитель контекста (регистрирует ВЛАДЕЛЕЦ данных, как слои календаря). */
   registerContextEnricher(fn: TemplateContextEnricher): void {
     this.enrichers.push(fn);
@@ -76,7 +106,7 @@ export class TemplateFieldRegistry {
       try {
         out = await fn(out);
       } catch (e) {
-        this.logger.error(`Дополнитель контекста упал: ${(e as Error).message}`);
+        this.logger.error(`a template context enricher failed: ${(e as Error).message}`);
       }
     }
     return out;
@@ -85,20 +115,36 @@ export class TemplateFieldRegistry {
   register(group: TemplateFieldGroup): void {
     if (this.byKey.has(group.key) || this.byPrefix.has(group.tagPrefix)) {
       // Дубль регистрации — ошибка сборки приложения, а не рантайма
-      throw new Error(`TemplateFieldRegistry: группа «${group.key}»/«${group.tagPrefix}» уже зарегистрирована`);
+      throw new Error(`TemplateFieldRegistry: group ${group.key}/${group.tagPrefix} is already registered`);
     }
     this.byKey.set(group.key, group);
     this.byPrefix.set(group.tagPrefix, group);
-    this.logger.log(`Группа полей шаблона: «${group.tagPrefix}» (${group.fields.length} полей)`);
+    this.logger.log(`template field group: ${group.tagPrefix} (${group.fields.length} fields)`);
   }
 
+  /**
+   * Панель «Что подставить» — уже СЛОВАМИ, в языке запроса. Реестр слов не
+   * хранит, поэтому подпись и пример собираются здесь по ключу-соглашению;
+   * пример необязателен, и спрашивать про него каталог надо `has`, иначе
+   * рантайм честно ругался бы пропущенным ключом на каждом поле без примера.
+   */
   list(): TemplateFieldGroupDto[] {
-    return [...this.byKey.values()].map((g) => ({
-      key: g.key,
-      tagPrefix: g.tagPrefix,
-      label: g.label,
-      fields: g.fields,
-    }));
+    return [...this.byKey.values()].map((g) => {
+      const base = `templates.fields.${g.key}`;
+      return {
+        key: g.key,
+        tagPrefix: g.tagPrefix,
+        label: this.i18n.translate(`${base}.label`),
+        fields: g.fields.map((f) => {
+          const exampleKey = `${base}.${f.id}.example`;
+          return {
+            key: f.key,
+            label: this.i18n.translate(`${base}.${f.id}.label`),
+            ...(this.i18n.has(exampleKey) ? { example: this.i18n.translate(exampleKey) } : {}),
+          };
+        }),
+      };
+    });
   }
 
   prefixes(): Set<string> {
@@ -133,7 +179,7 @@ export class TemplateFieldRegistry {
         const values = await group.resolve(ctx);
         if (values) out[group.tagPrefix] = values;
       } catch (e) {
-        this.logger.error(`Резолвер группы «${group.tagPrefix}» упал: ${(e as Error).message}`);
+        this.logger.error(`the resolver of group ${group.tagPrefix} failed: ${(e as Error).message}`);
       }
     }
     return out;

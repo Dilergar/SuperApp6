@@ -104,21 +104,21 @@ class NcaNodeVerifier implements SignVerifierDriver {
       );
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        return this.fail(`верификатор ответил ${res.status}: ${text.slice(0, 200)}`);
+        return this.fail(`the verifier answered ${res.status}: ${text.slice(0, 200)}`);
       }
       json = (await res.json()) as NcaNodeResponse;
     } catch (err) {
       // Недоступный верификатор — это НЕ «подпись плохая», но и не «подпись
       // хорошая»: акт не закрывается, человек пробует ещё раз.
-      this.logger.error(`NCANode недоступен: ${(err as Error).message}`);
-      throw new Error('Сервис проверки подписи временно недоступен');
+      this.logger.error(`NCANode is unreachable: ${(err as Error).message}`);
+      throw new Error('The signature verification service is temporarily unavailable');
     }
 
     if (json.status !== undefined && json.status !== 200 && json.status !== 0) {
-      return this.fail(json.message || 'подпись не принята верификатором');
+      return this.fail(json.message || 'the verifier rejected the signature');
     }
     const signer = json.signers?.[0];
-    if (!signer) return this.fail('в контейнере нет ни одной подписи');
+    if (!signer) return this.fail('the container holds no signature at all');
 
     const certRaw = signer.certificates?.[0] ?? signer.cert ?? null;
     const cert = this.parseCert(certRaw);
@@ -133,13 +133,13 @@ class NcaNodeVerifier implements SignVerifierDriver {
     // «квалифицированную подпись с подтверждённой цепочкой». Молчание = отказ.
     const explicitlyValid = json.valid === true || signer.valid === true;
     const explicitlyInvalid = json.valid === false || signer.valid === false;
-    if (explicitlyInvalid) return this.fail(json.message ?? 'подпись недействительна');
+    if (explicitlyInvalid) return this.fail(json.message ?? 'the signature is invalid');
     if (!explicitlyValid) {
       this.logger.error(
-        `NCANode не подтвердил подпись явно (поля ответа: ${Object.keys(json).join(',')}; ` +
-          `поля подписанта: ${Object.keys(signer).join(',')}) — трактую как отказ`,
+        `NCANode did not confirm the signature explicitly (response fields: ${Object.keys(json).join(',')}; ` +
+          `signer fields: ${Object.keys(signer).join(',')}) — treating it as a rejection`,
       );
-      return this.fail('верификатор не подтвердил подпись (неизвестный формат ответа)');
+      return this.fail('the verifier did not confirm the signature (unknown response shape)');
     }
 
     // Цепочка до корня НУЦ — отдельный вердикт, а не следствие «подпись верна»:
@@ -151,7 +151,7 @@ class NcaNodeVerifier implements SignVerifierDriver {
       : certRaw?.chain === true;
     if (!chainValid) {
       this.logger.warn(
-        `NCANode не подтвердил цепочку сертификата явно (chain=${JSON.stringify(certRaw?.chain ?? null)})`,
+        `NCANode did not confirm the certificate chain explicitly (chain=${JSON.stringify(certRaw?.chain ?? null)})`,
       );
     }
 
@@ -178,7 +178,7 @@ class NcaNodeVerifier implements SignVerifierDriver {
     if (!raw) return null;
     const at = this.parseDate(raw);
     if (!at) {
-      this.logger.error(`NCANode вернул метку времени в неизвестном формате (${String(raw)}) — метка не записана`);
+      this.logger.error(`NCANode returned a timestamp in an unknown format (${String(raw)}) — the mark was not stored`);
       return null;
     }
     return { at, serial: tsp?.serialNumber ?? null };
@@ -289,7 +289,7 @@ class MockVerifier implements SignVerifierDriver {
     } catch {
       return {
         valid: false,
-        reason: 'контейнер не разобран (mock ждёт JSON)',
+        reason: 'the container could not be parsed (the mock expects JSON)',
         cert: EMPTY_CERT,
         chainValid: false,
         ocsp: null,
@@ -306,16 +306,16 @@ class MockVerifier implements SignVerifierDriver {
     return {
       valid: dataMatches && payload.valid !== false,
       reason: !dataMatches
-        ? 'подпись относится к другому содержимому'
+        ? 'the signature covers different content'
         : payload.valid === false
-          ? (payload.reason ?? 'подпись недействительна')
+          ? (payload.reason ?? 'the signature is invalid')
           : undefined,
       cert: {
-        subjectCn: payload.subjectCn ?? 'ТЕСТОВ ТЕСТ ТЕСТОВИЧ',
+        subjectCn: payload.subjectCn ?? 'TESTOV TEST TESTOVICH',
         iin: payload.iin ?? null,
         bin: payload.bin ?? null,
         serial: payload.serial ?? '00mock0000000001',
-        issuerCn: payload.issuerCn ?? 'ҰЛТТЫҚ КУӘЛАНДЫРУШЫ ОРТАЛЫҚ (MOCK)',
+        issuerCn: payload.issuerCn ?? 'NATIONAL CERTIFICATION AUTHORITY (MOCK)',
         notBefore: new Date(now.getTime() - 86_400_000),
         notAfter: new Date(now.getTime() + 365 * 86_400_000),
       },
@@ -356,18 +356,18 @@ export class SignVerifierService {
 
     if (useNcaNode && url) {
       this.driver = new NcaNodeVerifier(url);
-      this.logger.log(`Верификатор ЭЦП: ncanode (${url})`);
+      this.logger.log(`QES verifier: ncanode (${url})`);
     } else {
       this.driver = new MockVerifier();
       if (isProdEnv()) {
         // Не warn, а error: в проде это значит, что ЭЦП принимать НЕЛЬЗЯ, и
         // движок именно так и поступит (см. ecpAccepted).
         this.logger.error(
-          '🚨 Верификатор ЭЦП работает в MOCK — электронная подпись в production ОТВЕРГАЕТСЯ. ' +
-            'Задайте NCANODE_URL (сборка образа — infra/sign-verifier/).',
+          '🚨 The QES verifier runs in MOCK — an electronic signature is REJECTED in production. ' +
+            'Set NCANODE_URL (image build — infra/sign-verifier/).',
         );
       } else {
-        this.logger.log('Верификатор ЭЦП: mock (NCANODE_URL не задан)');
+        this.logger.log('QES verifier: mock (NCANODE_URL is not set)');
       }
     }
   }

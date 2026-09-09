@@ -2,6 +2,7 @@
 
 import { CloseChip, Input, ModalShell, Select, Textarea } from '@/components/ui';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useQuery } from '@tanstack/react-query';
 import {
   SCHEDULED_MESSAGE_LIMITS,
@@ -143,6 +144,8 @@ export function CreateTaskModal({
   /** Called after the rich card is posted (invalidate messages as a fallback). */
   onPosted?: () => void;
 }) {
+  const t = useTranslations('messenger');
+  const tc = useTranslations('common');
   const { contacts, loading, error } = useContacts();
   const [executorId, setExecutorId] = useState<string | null>(null);
   const [title, setTitle] = useState('');
@@ -154,7 +157,7 @@ export function CreateTaskModal({
 
   const submit = async () => {
     if (!executorId || !title.trim()) {
-      setErr('Выберите исполнителя и введите название.');
+      setErr(t('qa.task.pickExecutor'));
       return;
     }
     setBusy(true);
@@ -172,24 +175,24 @@ export function CreateTaskModal({
       onPosted?.();
       onClose();
     } catch (e) {
-      setErr(errMsg(e, 'Не удалось создать задачу'));
+      setErr(errMsg(e, t('qa.task.failed')));
       setBusy(false);
     }
   };
 
   return (
     <DialogFrame
-      title="Создать задачу"
-      subtitle="Поставьте задачу человеку из окружения — её карточка появится в этом чате."
+      title={t('qa.task.title')}
+      subtitle={t('qa.task.subtitle')}
       onClose={onClose}
     >
       {err && <p style={errStyle}>{err}</p>}
 
       <Input
-        label="Задача"
+        label={t('qa.task.label')}
         value={title}
         onChange={(e) => setTitle(e.target.value)}
-        placeholder="Что нужно сделать?"
+        placeholder={t('qa.task.placeholder')}
         autoFocus
         wrapClassName="mb-3"
         style={{ fontSize: '0.95rem', fontWeight: 600 }}
@@ -205,7 +208,7 @@ export function CreateTaskModal({
           }}
         >
           <div className="label-sm" style={{ fontSize: '0.68rem', opacity: 0.6, marginBottom: '0.15rem' }}>
-            Описание (из сообщения)
+            {t('qa.task.descriptionFromMessage')}
           </div>
           <div style={{ fontSize: '0.85rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
             {prefillDescription.trim()}
@@ -214,7 +217,7 @@ export function CreateTaskModal({
       )}
 
       <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>
-        Исполнитель
+        {t('qa.task.executor')}
       </label>
       <div
         style={{
@@ -236,17 +239,17 @@ export function CreateTaskModal({
       </div>
       {executorId && (
         <p className="label-sm" style={{ fontSize: '0.74rem', color: 'var(--secondary)', marginBottom: 'var(--spacing-3)' }}>
-          Исполнитель выбран
+          {t('qa.task.executorPicked')}
         </p>
       )}
 
       <div style={{ marginBottom: 'var(--spacing-4)' }}>
-        <DateTimeField label="Срок (необязательно)" value={due} onChange={setDue} min={minDue} />
+        <DateTimeField label={t('qa.task.due')} value={due} onChange={setDue} min={minDue} />
       </div>
 
       <div style={{ display: 'flex', gap: 'var(--spacing-2)', justifyContent: 'flex-end' }}>
         <button onClick={onClose} className="btn-ghost-inline">
-          Отмена
+          {tc('actions.cancel')}
         </button>
         <button
           onClick={submit}
@@ -254,7 +257,7 @@ export function CreateTaskModal({
           className="btn-success"
           style={{ fontSize: '0.85rem', opacity: busy || !executorId || !title.trim() ? 0.5 : 1 }}
         >
-          {busy ? '…' : 'Создать'}
+          {busy ? '…' : tc('actions.create')}
         </button>
       </div>
     </DialogFrame>
@@ -277,6 +280,8 @@ export function CreateEventModal({
   onClose: () => void;
   onPosted?: () => void;
 }) {
+  const t = useTranslations('messenger');
+  const tc = useTranslations('common');
   const { contacts, loading, error } = useContacts();
   const [title, setTitle] = useState(prefillTitle?.trim().slice(0, 120) ?? '');
   const [start, setStart] = useState('');
@@ -292,7 +297,7 @@ export function CreateEventModal({
   const submit = async () => {
     const startIso = localToIso(start);
     if (!title.trim() || !startIso) {
-      setErr('Введите название и время начала.');
+      setErr(t('qa.event.fillTitleAndStart'));
       return;
     }
     setBusy(true);
@@ -312,35 +317,35 @@ export function CreateEventModal({
       onPosted?.();
       onClose();
     } catch (e) {
-      setErr(errMsg(e, 'Не удалось создать событие'));
+      setErr(errMsg(e, t('qa.event.failed')));
       setBusy(false);
     }
   };
 
   return (
     <DialogFrame
-      title="Создать событие"
-      subtitle="Запланируйте событие и пригласите людей — карточка появится в этом чате."
+      title={t('qa.event.title')}
+      subtitle={t('qa.event.subtitle')}
       onClose={onClose}
     >
       {err && <p style={errStyle}>{err}</p>}
 
       <Input
-        label="Событие"
+        label={t('qa.event.label')}
         value={title}
         onChange={(e) => setTitle(e.target.value)}
-        placeholder="Название события"
+        placeholder={t('qa.event.placeholder')}
         autoFocus
         wrapClassName="mb-3"
         style={{ fontSize: '0.95rem', fontWeight: 600 }}
       />
 
       <div style={{ marginBottom: 'var(--spacing-4)' }}>
-        <DateTimeField label="Начало" value={start} onChange={setStart} min={minStart} />
+        <DateTimeField label={t('qa.event.start')} value={start} onChange={setStart} min={minStart} />
       </div>
 
       <label className="label-md" style={{ display: 'block', marginBottom: 'var(--spacing-2)' }}>
-        Участники (необязательно)
+        {t('qa.event.participants')}
       </label>
       <div
         style={{
@@ -363,7 +368,7 @@ export function CreateEventModal({
 
       <div style={{ display: 'flex', gap: 'var(--spacing-2)', justifyContent: 'flex-end' }}>
         <button onClick={onClose} className="btn-ghost-inline">
-          Отмена
+          {tc('actions.cancel')}
         </button>
         <button
           onClick={submit}
@@ -371,7 +376,7 @@ export function CreateEventModal({
           className="btn-success"
           style={{ fontSize: '0.85rem', opacity: busy || !title.trim() || !start ? 0.5 : 1 }}
         >
-          {busy ? '…' : 'Создать'}
+          {busy ? '…' : tc('actions.create')}
         </button>
       </div>
     </DialogFrame>
@@ -396,6 +401,8 @@ export function ScheduleMessageModal({
   /** Called after a message is scheduled — refetch the scheduled list. */
   onScheduled?: () => void;
 }) {
+  const t = useTranslations('messenger');
+  const tc = useTranslations('common');
   const [content, setContent] = useState(prefillContent ?? '');
   const [when, setWhen] = useState('');
   const [busy, setBusy] = useState(false);
@@ -407,11 +414,11 @@ export function ScheduleMessageModal({
   const submit = async () => {
     const sendAt = localToIso(when);
     if (!content.trim() || !sendAt) {
-      setErr('Введите текст и время отправки.');
+      setErr(t('qa.schedule.fillTextAndTime'));
       return;
     }
     if (new Date(sendAt).getTime() < Date.now() + SCHEDULED_MESSAGE_LIMITS.minLeadSeconds * 1000) {
-      setErr('Выберите время хотя бы на минуту вперёд.');
+      setErr(t('qa.schedule.atLeastMinute'));
       return;
     }
     setBusy(true);
@@ -421,24 +428,24 @@ export function ScheduleMessageModal({
       onScheduled?.();
       onClose();
     } catch (e) {
-      setErr(errMsg(e, 'Не удалось запланировать'));
+      setErr(errMsg(e, t('qa.schedule.failed')));
       setBusy(false);
     }
   };
 
   return (
     <DialogFrame
-      title="Запланировать сообщение"
-      subtitle="Сообщение отправится автоматически в выбранное время."
+      title={t('qa.schedule.title')}
+      subtitle={t('qa.schedule.subtitle')}
       onClose={onClose}
     >
       {err && <p style={errStyle}>{err}</p>}
 
       <Textarea
-        label="Сообщение"
+        label={t('qa.schedule.label')}
         value={content}
         onChange={(e) => setContent(e.target.value)}
-        placeholder="Текст сообщения…"
+        placeholder={t('qa.schedule.placeholder')}
         rows={3}
         autoFocus
         wrapClassName="mb-4"
@@ -446,12 +453,12 @@ export function ScheduleMessageModal({
       />
 
       <div style={{ marginBottom: 'var(--spacing-4)' }}>
-        <DateTimeField label="Когда отправить" value={when} onChange={setWhen} min={minWhen} />
+        <DateTimeField label={t('qa.schedule.when')} value={when} onChange={setWhen} min={minWhen} />
       </div>
 
       <div style={{ display: 'flex', gap: 'var(--spacing-2)', justifyContent: 'flex-end' }}>
         <button onClick={onClose} className="btn-ghost-inline">
-          Отмена
+          {tc('actions.cancel')}
         </button>
         <button
           onClick={submit}
@@ -459,7 +466,7 @@ export function ScheduleMessageModal({
           className="btn-success"
           style={{ fontSize: '0.85rem', opacity: busy || !content.trim() || !when ? 0.5 : 1 }}
         >
-          {busy ? '…' : 'Запланировать'}
+          {busy ? '…' : t('qa.schedule.submit')}
         </button>
       </div>
     </DialogFrame>
@@ -480,6 +487,8 @@ export function AddExpenseModal({
   onClose: () => void;
   onPosted?: () => void;
 }) {
+  const t = useTranslations('messenger');
+  const tc = useTranslations('common');
   const { data: overview } = useQuery({
     queryKey: financeOverviewKey(),
     queryFn: () => fetchFinanceOverview(),
@@ -526,7 +535,7 @@ export function AddExpenseModal({
       onPosted?.();
       onClose();
     } catch (e) {
-      setError(errMsg(e));
+      setError(errMsg(e, t('card.actionFailed')));
     } finally {
       setBusy(false);
     }
@@ -545,9 +554,9 @@ export function AddExpenseModal({
   }, [cats]);
 
   return (
-    <DialogFrame title="Записать расход" subtitle="Трата попадёт в вашу книгу Финансов, карточка — в чат" onClose={onClose}>
+    <DialogFrame title={t('qa.expense.title')} subtitle={t('qa.expense.subtitle')} onClose={onClose}>
       <Input
-        label="Сумма"
+        label={t('qa.expense.amount')}
         inputMode="decimal"
         placeholder="2 500"
         value={amount}
@@ -557,21 +566,21 @@ export function AddExpenseModal({
         style={{ fontSize: '1.3rem', fontFamily: 'var(--font-display)', fontWeight: 700 }}
       />
       <Select
-        label="Со счёта"
+        label={t('qa.expense.account')}
         value={fromId}
         onChange={setFromId}
         className="mb-4"
         options={accounts.map((a) => ({ value: a.id, label: a.name, emoji: a.icon }))}
       />
       <Select
-        label="Категория"
+        label={t('qa.expense.category')}
         value={toId}
         onChange={setToId}
         className="mb-4"
         options={catOptions}
       />
       <Input
-        label="Заметка"
+        label={t('qa.expense.note')}
         placeholder="Magnum…"
         value={note}
         onChange={(e) => setNote(e.target.value)}
@@ -581,14 +590,14 @@ export function AddExpenseModal({
       {error && <p className="label-sm" style={{ color: 'var(--danger)', marginBottom: 'var(--spacing-3)' }}>{error}</p>}
 
       <div style={{ display: 'flex', gap: 'var(--spacing-2)', justifyContent: 'flex-end' }}>
-        <button onClick={onClose} className="btn-ghost-inline">Отмена</button>
+        <button onClick={onClose} className="btn-ghost-inline">{tc('actions.cancel')}</button>
         <button
           onClick={submit}
           disabled={busy || !parseAmount(amount)}
           className="btn-success"
           style={{ fontSize: '0.85rem', opacity: busy || !parseAmount(amount) ? 0.5 : 1 }}
         >
-          {busy ? '…' : 'Записать'}
+          {busy ? '…' : t('qa.expense.submit')}
         </button>
       </div>
     </DialogFrame>

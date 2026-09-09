@@ -29,7 +29,7 @@ function tokenize(src: string): Tok[] {
       while (j < src.length && src[j] !== c) {
         if (src[j] === '\\' && j + 1 < src.length) { s += src[j + 1]; j += 2; } else { s += src[j]; j++; }
       }
-      if (j >= src.length) throw new Error('незакрытая строка');
+      if (j >= src.length) throw new Error('unterminated string');
       toks.push({ t: 'str', v: s });
       i = j + 1;
       continue;
@@ -44,7 +44,7 @@ function tokenize(src: string): Tok[] {
     const pair = src.slice(i, i + 2);
     if (two.includes(pair)) { toks.push({ t: 'op', v: pair }); i += 2; continue; }
     if ('+-*/%!<>()[].,?:'.includes(c)) { toks.push({ t: 'op', v: c }); i++; continue; }
-    throw new Error(`недопустимый символ «${c}»`);
+    throw new Error(`unexpected character «${c}»`);
   }
   return toks;
 }
@@ -90,7 +90,7 @@ class Parser {
   private peek(): Tok | undefined { return this.toks[this.p]; }
   private eat(v?: string): Tok {
     const t = this.toks[this.p];
-    if (!t || (v !== undefined && t.v !== v)) throw new Error(`ожидалось «${v ?? '?'}»`);
+    if (!t || (v !== undefined && t.v !== v)) throw new Error(`expected «${v ?? '?'}»`);
     this.p++;
     return t;
   }
@@ -98,7 +98,7 @@ class Parser {
 
   parse(): Ev {
     const e = this.ternary();
-    if (this.p !== this.toks.length) throw new Error('лишние символы в выражении');
+    if (this.p !== this.toks.length) throw new Error('trailing characters in the expression');
     return e;
   }
   private ternary(): Ev {
@@ -183,7 +183,7 @@ class Parser {
   }
   private primary(): Ev {
     const t = this.peek();
-    if (!t) throw new Error('неожиданный конец выражения');
+    if (!t) throw new Error('unexpected end of the expression');
     if (t.t === 'num') { this.p++; const n = Number(t.v); return () => n; }
     if (t.t === 'str') { this.p++; const s = t.v; return () => s; }
     if (this.isOp('(')) { this.eat('('); const e = this.ternary(); this.eat(')'); return e; }
@@ -200,13 +200,13 @@ class Parser {
         if (!this.isOp(')')) { args.push(this.ternary()); while (this.isOp(',')) { this.eat(','); args.push(this.ternary()); } }
         this.eat(')');
         const fn = FUNCS[name];
-        if (!fn) throw new Error(`неизвестная функция «${name}»`);
+        if (!fn) throw new Error(`unknown function «${name}»`);
         return (ctx) => fn(...args.map((a) => a(ctx)));
       }
       // Идентификатор — корень контекста (form/steps/item/initiator/instance...).
       return (ctx) => member(ctx, name);
     }
-    throw new Error('неверное выражение');
+    throw new Error('invalid expression');
   }
 }
 

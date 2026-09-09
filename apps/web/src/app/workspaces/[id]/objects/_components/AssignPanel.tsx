@@ -5,6 +5,7 @@
 // что и назначение — «назначили, а платить забыли» быть не должно.
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { RATE_TYPES, type StaffingRowDto } from '@superapp/shared';
 import { Button, DatePicker, Input, Modal, Select } from '@/components/ui';
@@ -15,10 +16,8 @@ import { dateToIso, isoToDate, todayIn } from '@/lib/objects-time';
 import { objectStaffingKey } from '@/lib/queries';
 import { staffingApi } from '../objects-api';
 
-const RATE_OPTIONS = RATE_TYPES.filter((r) => !('reserved' in r && r.reserved)).map((r) => ({
-  value: r.value,
-  label: r.label,
-}));
+/** Типы ставок, которые предлагаются человеку (`revenue_share` зарезервирован). */
+const RATE_VALUES = RATE_TYPES.filter((r) => !('reserved' in r && r.reserved)).map((r) => r.value);
 
 function tengeToTiyn(v: string): string | null {
   const clean = v.replace(/\s/g, '').replace(',', '.');
@@ -52,6 +51,9 @@ export function AssignPanel({
   onSaved?: () => void;
 }) {
   const qc = useQueryClient();
+  const t = useTranslations('objects');
+  const tc = useTranslations('common');
+  const rateOptions = RATE_VALUES.map((value) => ({ value, label: t(`rateType.${value}`) }));
   const [user, setUser] = useState<{ type: 'user'; id: string }[]>([]);
   const [startsOn, setStartsOn] = useState<string | undefined>(todayIn(timeZone));
   const [rateShare, setRateShare] = useState('1');
@@ -61,9 +63,9 @@ export function AssignPanel({
   const save = useMutation({
     mutationFn: async () => {
       const tiyn = tengeToTiyn(amount);
-      if (amount.trim() && tiyn === null) throw new Error('Ставка — это число, например 250 000');
+      if (amount.trim() && tiyn === null) throw new Error(t('staffing.rateIsNumber'));
       const share = Number(rateShare.replace(',', '.'));
-      if (!Number.isFinite(share) || share <= 0) throw new Error('Доля ставки — число, например 1 или 0,5');
+      if (!Number.isFinite(share) || share <= 0) throw new Error(t('staffing.shareIsNumber'));
       return staffingApi.assign(workspaceId, objectId, {
         userId: user[0]?.id,
         staffingPositionId: row.staffingPositionId,
@@ -83,11 +85,11 @@ export function AssignPanel({
   });
 
   return (
-    <Modal open={open} onClose={onClose} title={`Назначить на «${row.positionName}»`}>
+    <Modal open={open} onClose={onClose} title={t('staffing.assignTo', { name: row.positionName })}>
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         <div>
           <span className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-2)', fontWeight: 600 }}>
-            Кто
+            {t('attendance.who')}
           </span>
           {/* Тип user КОНТЕКСТНЫЙ: пикер предлагает только своих — сервер чужого отвергнет */}
           <EntitySelector
@@ -95,33 +97,33 @@ export function AssignPanel({
             context={{ workspaceId }}
             value={user}
             onChange={(next) => setUser(next.slice(-1) as { type: 'user'; id: string }[])}
-            placeholder="Выберите сотрудника…"
+            placeholder={t('staffing.personPlaceholder')}
           />
         </div>
         <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)' }}>
-          <DatePicker label="С даты" value={isoToDate(startsOn)} onChange={(d) => setStartsOn(dateToIso(d))} />
+          <DatePicker label={t('staffing.fromDate')} value={isoToDate(startsOn)} onChange={(d) => setStartsOn(dateToIso(d))} />
           <Input
-            label="Доля ставки"
+            label={t('staffing.rateShare')}
             inputMode="decimal"
             value={rateShare}
             onChange={(e) => setRateShare(e.target.value)}
-            hint="1 — целая ставка, 0,5 — половина"
+            hint={t('staffing.rateShareHint')}
           />
         </div>
         <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)' }}>
-          <Select label="Тип ставки" value={rateType} onChange={setRateType} options={RATE_OPTIONS} />
+          <Select label={t('staffing.rateType')} value={rateType} onChange={setRateType} options={rateOptions} />
           <Input
-            label="Ставка"
+            label={t('staffing.rate')}
             placeholder="250 000"
             inputMode="decimal"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            hint={row.plannedRate ? 'Предзаполнено плановой ставкой позиции' : undefined}
+            hint={row.plannedRate ? t('staffing.rateFromPlanned') : undefined}
           />
         </div>
         <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end' }}>
           <Button variant="ghost" onClick={onClose}>
-            Отмена
+            {tc('actions.cancel')}
           </Button>
           <Button
             variant="primary"
@@ -129,7 +131,7 @@ export function AssignPanel({
             disabled={!user[0]?.id}
             onClick={() => save.mutate()}
           >
-            Назначить
+            {t('staffing.assign')}
           </Button>
         </div>
       </div>

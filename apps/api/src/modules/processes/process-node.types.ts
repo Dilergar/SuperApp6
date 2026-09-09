@@ -2,6 +2,9 @@ import type { z } from 'zod';
 import type {
   ProcessDocument,
   ProcessFormField,
+  ProcessNodeField,
+  ProcessNodeInput,
+  ProcessNodeOutput,
   ProcessNodeTypeDto,
   ProcessValidationIssue,
 } from '@superapp/shared';
@@ -10,12 +13,52 @@ import type { NotificationsService } from '../../core/notifications/notification
 import type { DatabaseService } from '../../shared/database/database.service';
 import type { ApprovalsService } from '../../core/approvals/approvals.service';
 
+// ============================================================
+// СЛОВА паспорта ноды живут в каталоге, а не в паспорте.
+//
+// Реестр называет СМЫСЛ (тип ноды, ключи полей, значения списков), каталог —
+// слова. Ключи собираются ПО СОГЛАШЕНИЮ от типа ноды, поэтому новая нода — это
+// её паспорт плюс ветка каталога, а не строка на одном языке у трёх клиентов:
+//
+//   processes.node.<тип>.title                              название в палитре
+//   processes.node.<тип>.description                        описание под названием
+//   processes.node.<тип>.output.<ключ>                      подпись выхода (пусто — нет подписи)
+//   processes.node.<тип>.input.<ключ>                       подпись входного порта
+//   processes.node.<тип>.field.<ключ>.label                  подпись поля
+//   processes.node.<тип>.field.<ключ>.help                   подсказка под полем (необязательна)
+//   processes.node.<тип>.field.<ключ>.placeholder            подсказка в поле (необязательна)
+//   processes.node.<тип>.field.<ключ>.option.<значение>      подпись значения списка
+//
+// Собирает всё это `ProcessNodeRegistry.listTypes()` в языке ЗАПРОСА.
+// ============================================================
+
+/**
+ * Замечание компилятора ДО перевода: `message` несёт КЛЮЧ каталога, `params` —
+ * подстановки. Слова собирает `ProcessesService.renderIssues` в языке запроса:
+ * компилятор — чистая функция и переводчика не имеет.
+ */
+export type RawIssue = ProcessValidationIssue & { params?: Record<string, string | number> };
+
+/** Выход ноды в паспорте: слова — в каталоге */
+export type DescriptorOutput = Omit<ProcessNodeOutput, 'label'>;
+/** Входной порт в паспорте: слова — в каталоге */
+export type DescriptorInput = Omit<ProcessNodeInput, 'label'>;
+/** Поле конфигурации в паспорте: остаются ключ, вид и ЗНАЧЕНИЯ списка */
+export type DescriptorField = Omit<ProcessNodeField, 'label' | 'help' | 'placeholder' | 'options'> & {
+  /** Значения списка (`kind: 'select' | 'multiselect'`); подписи — в каталоге */
+  options?: readonly string[];
+};
+
 /**
  * Паспорт типа ноды — «MCP-описание инструмента» (Принцип 4 / решение по AI-readiness):
  * одна регистрация кормит палитру канваса, серверную валидацию и будущие AI/MCP-поверхности.
- * Сериализуемая часть (ProcessNodeTypeDto) уходит клиенту как есть.
+ * Клиенту уходит `ProcessNodeTypeDto` — тот же паспорт, но со словами из каталога.
  */
-export interface ProcessNodeDescriptor extends ProcessNodeTypeDto {
+export interface ProcessNodeDescriptor
+  extends Omit<ProcessNodeTypeDto, 'title' | 'description' | 'outputs' | 'inputs' | 'fields'> {
+  outputs: DescriptorOutput[];
+  inputs?: DescriptorInput[];
+  fields: DescriptorField[];
   /** Zod-схема config (значения хранятся ИМЕНОВАННО — урок ComfyUI про positional widgets_values). */
   configSchema: z.ZodTypeAny;
   /**

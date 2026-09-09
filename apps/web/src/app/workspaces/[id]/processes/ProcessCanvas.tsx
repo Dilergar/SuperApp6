@@ -25,13 +25,13 @@ import {
 import { FlowCanvas } from '@/components/canvas/FlowCanvas';
 // Порядок важен: свои ноды — ПОСЛЕ общего canvas.css (его тянет FlowCanvas).
 import './process-canvas.css';
-import { PROCESS_STEP_STATUS_LABELS, type ProcessNodeInput, type ProcessNodeTypeDto } from '@superapp/shared';
+import { useTranslations } from 'next-intl';
+import type { ProcessNodeInput, ProcessNodeTypeDto } from '@superapp/shared';
 import { Icon } from '@/components/ui';
 import {
   categoryTone,
   nodeIcon,
   PORT_COLORS,
-  PORT_LABELS,
   portType,
   STEP_STATUS_BADGE,
   STEP_STATUS_COLORS,
@@ -47,6 +47,7 @@ function nodeInputs(t: ProcessNodeTypeDto): ProcessNodeInput[] {
 }
 
 const ProcessNodeView = memo(function ProcessNodeView({ data, selected }: NodeProps<PNode>) {
+  const tr = useTranslations('processes');
   const d = data as PNodeData;
   const t = d.typeDto;
   const tone = categoryTone(t.category);
@@ -81,7 +82,7 @@ const ProcessNodeView = memo(function ProcessNodeView({ data, selected }: NodePr
               return (
                 <Handle key={inp.key} id={inp.key} type="target" position={Position.Bottom} style={{ bottom: -6, left, borderColor: color }}>
                   <span className="pnode-port-label pnode-port-label--bottom" style={{ color }}>
-                    {inp.label ?? PORT_LABELS[inp.type]}
+                    {inp.label ?? inp.type}
                   </span>
                 </Handle>
               );
@@ -107,7 +108,7 @@ const ProcessNodeView = memo(function ProcessNodeView({ data, selected }: NodePr
           className="pnode-badge"
           style={{ background: status?.bg, borderColor: status?.border, color: status?.fg }}
         >
-          {d.stepBadge ?? (d.stepStatus ? PROCESS_STEP_STATUS_LABELS[d.stepStatus] : '')}
+          {d.stepBadge ?? (d.stepStatus ? tr(`stepStatus.${d.stepStatus}`) : '')}
         </span>
       )}
 

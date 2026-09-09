@@ -19,11 +19,11 @@ export function audienceRefSchema<K extends AudienceKind>(kinds: readonly K[]) {
       const id = ref.id as unknown as string;
       const anchorOk = AUDIENCE_KIND_DEFS[type].relative || type === 'user';
       if (isAudienceAnchor(id)) {
-        if (!anchorOk) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Якорь допустим только у относительных адресатов', path: ['id'] });
+        if (!anchorOk) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'validation.audience.anchorNotAllowed', path: ['id'] });
         return;
       }
       if (!uuid.safeParse(id).success) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Ожидается идентификатор', path: ['id'] });
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'validation.audience.idExpected', path: ['id'] });
       }
     });
 }

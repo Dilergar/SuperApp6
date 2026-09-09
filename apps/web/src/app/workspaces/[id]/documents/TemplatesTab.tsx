@@ -9,6 +9,7 @@
 // ============================================================
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DocTemplateDto } from '@superapp/shared';
@@ -41,6 +42,8 @@ export function TemplatesTab({ workspaceId }: { workspaceId: string }) {
     queryFn: () => fetchDocTemplates(workspaceId),
   });
 
+  const tr = useTranslations('documents');
+  const tc = useTranslations('common');
   const publish = useMutation({
     mutationFn: (tplId: string) => documentsApi.publishTemplate(workspaceId, tplId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['workspaces', workspaceId, 'documents'] }),
@@ -51,7 +54,7 @@ export function TemplatesTab({ workspaceId }: { workspaceId: string }) {
     <>
       <div style={{ display: 'flex', justifyContent: 'flex-end', margin: 'var(--gap-grid) 0' }}>
         <Button variant="matte" icon="add" onClick={() => setCreating(true)}>
-          Новый шаблон
+          {tr('templates.new')}
         </Button>
       </div>
 
@@ -66,10 +69,10 @@ export function TemplatesTab({ workspaceId }: { workspaceId: string }) {
           <Card span={12}>
             <EmptyState
               icon="warningCircle"
-              title="Не удалось загрузить шаблоны"
+              title={tr('templates.loadFailed')}
               action={
                 <Button variant="matte" icon="refresh" onClick={() => templatesQuery.refetch()}>
-                  Повторить
+                  {tc('actions.retry')}
                 </Button>
               }
             />
@@ -78,11 +81,11 @@ export function TemplatesTab({ workspaceId }: { workspaceId: string }) {
           <Card span={12}>
             <EmptyState
               icon="filePlus"
-              title="Шаблонов пока нет"
-              description="Шаблон — это бланк с тегами вида {Организация.БИН} плюс форма, которую заполняет сотрудник."
+              title={tr('templates.emptyTitle')}
+              description={tr('templates.emptyText')}
               action={
                 <Button variant="matte" icon="add" onClick={() => setCreating(true)}>
-                  Создать шаблон
+                  {tr('templates.create')}
                 </Button>
               }
             />
@@ -100,7 +103,7 @@ export function TemplatesTab({ workspaceId }: { workspaceId: string }) {
                       icon="edit"
                       onClick={() => router.push(`/workspaces/${workspaceId}/documents/templates/${tpl.id}`)}
                     >
-                      Настроить
+                      {tr('templates.configure')}
                     </Button>
                     {tpl.status !== 'published' && (
                       <Button
@@ -110,7 +113,7 @@ export function TemplatesTab({ workspaceId }: { workspaceId: string }) {
                         loading={publish.isPending}
                         onClick={() => publish.mutate(tpl.id)}
                       >
-                        Опубликовать
+                        {tr('templates.publish')}
                       </Button>
                     )}
                   </div>
@@ -119,25 +122,25 @@ export function TemplatesTab({ workspaceId }: { workspaceId: string }) {
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)' }}>
                 <Chip size="sm">{tpl.docTypeName}</Chip>
                 <Chip size="sm" tone={tpl.status === 'published' ? 'success' : 'neutral'}>
-                  {tpl.status === 'published' ? 'Опубликован' : 'Черновик'}
+                  {tr(tpl.status === 'published' ? 'templates.published' : 'templates.draft')}
                 </Chip>
                 {tpl.selfService && (
                   <Chip size="sm" tone="accent" icon="staff">
-                    Сотрудник подаёт сам
+                    {tr('templates.selfService')}
                   </Chip>
                 )}
                 {tpl.hasRoute ? (
                   <Chip size="sm" icon="processes">
-                    Маршрут настроен
+                    {tr('templates.hasRoute')}
                   </Chip>
                 ) : (
                   <Chip size="sm" icon="warningCircle">
-                    Без маршрута
+                    {tr('templates.noRoute')}
                   </Chip>
                 )}
               </div>
               <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: 'var(--spacing-3)' }}>
-                {tpl.description || `Полей формы: ${tpl.fields.length}`}
+                {tpl.description || tr('templates.fieldsCount', { count: tpl.fields.length })}
               </p>
             </Card>
           ))
@@ -160,6 +163,8 @@ function CreateTemplateModal({
 }) {
   const qc = useQueryClient();
   const router = useRouter();
+  const tr = useTranslations('documents');
+  const tc = useTranslations('common');
   const [name, setName] = useState('');
   const [docTypeId, setDocTypeId] = useState<string | null>(null);
   const [kind, setKind] = useState<'builder' | 'docx'>('builder');
@@ -203,13 +208,13 @@ function CreateTemplateModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="Новый шаблон"
-      subtitle="Бланк собирается в конструкторе или загружается готовым Word-файлом"
+      title={tr('templates.newTitle')}
+      subtitle={tr('templates.newSubtitle')}
       size="md"
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
-            Отмена
+            {tc('actions.cancel')}
           </Button>
           <Button
             icon="check"
@@ -217,50 +222,50 @@ function CreateTemplateModal({
             disabled={!name.trim() || !docTypeId}
             onClick={() => create.mutate()}
           >
-            Создать
+            {tc('actions.create')}
           </Button>
         </>
       }
     >
       <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
         <Input
-          label="Название для сотрудника"
+          label={tr('templates.nameLabel')}
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Отпуск"
-          hint="Так шаблон будет называться в окне «Подать заявление»"
+          placeholder={tr('templates.namePlaceholder')}
+          hint={tr('templates.nameHint')}
         />
         <Select
-          label="Вид документа"
+          label={tr('templates.docType')}
           value={docTypeId}
           onChange={(v) => setDocTypeId(v || null)}
           options={(typesQuery.data ?? []).map((t) => ({ value: t.id, label: t.name }))}
-          placeholder="Выберите вид"
-          hint="От вида зависят нумерация, видимость и правила проверки маршрута"
+          placeholder={tr('templates.docTypePlaceholder')}
+          hint={tr('templates.docTypeHint')}
         />
 
-        <div role="radiogroup" aria-label="Как сделать бланк" style={{ display: 'grid', gap: 'var(--spacing-2)' }}>
+        <div role="radiogroup" aria-label={tr('templates.kindAria')} style={{ display: 'grid', gap: 'var(--spacing-2)' }}>
           <KindOption
             checked={kind === 'builder'}
-            title="Собрать в конструкторе"
-            hint="С нуля прямо здесь: блоки, данные чипами, на выходе PDF. Word не нужен."
+            title={tr('templates.kindBuilder')}
+            hint={tr('templates.kindBuilderHint')}
             onPick={() => setKind('builder')}
           />
           <KindOption
             checked={kind === 'docx'}
-            title="Загрузить Word-бланк"
-            hint="Готовый .docx с тегами вида {Организация.БИН} — правится в редакторе документов."
+            title={tr('templates.kindDocx')}
+            hint={tr('templates.kindDocxHint')}
             onPick={() => setKind('docx')}
           />
         </div>
 
         {kind === 'docx' && (
           <Input
-            label="Бланк .docx"
+            label={tr('templates.docxLabel')}
             type="file"
             accept=".docx"
             onChange={(e) => setFile((e.target as HTMLInputElement).files?.[0] ?? null)}
-            hint="Обычный документ Word с тегами вида {Организация.БИН} — их подскажет конструктор"
+            hint={tr('templates.docxHint')}
           />
         )}
       </div>

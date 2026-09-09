@@ -1,6 +1,8 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { forbidden, notFound } from '../../shared/errors/api-error';
 import type { QuickActionDescriptor, QuickActionScope } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { AccessService } from '../access/access.service';
 import { QuickActionRegistry } from './quick-actions.registry';
 
@@ -15,6 +17,7 @@ export class QuickActionsService {
     private readonly db: DatabaseService,
     private readonly access: AccessService,
     private readonly registry: QuickActionRegistry,
+    private readonly i18n: I18nService,
   ) {}
 
   async listForChat(
@@ -26,10 +29,10 @@ export class QuickActionsService {
       where: { id: chatId },
       select: { id: true, type: true, parentType: true, workspaceId: true },
     });
-    if (!chat) throw new NotFoundException('Чат не найден');
+    if (!chat) throw notFound('chat.notFound');
 
     const ok = await this.access.can({ type: 'user', id: viewerId }, 'chat.view', chatId);
-    if (!ok) throw new ForbiddenException('Нет доступа к чату');
+    if (!ok) throw forbidden('chat.noAccess');
 
     const ctx = {
       viewerId,
@@ -43,7 +46,14 @@ export class QuickActionsService {
     for (const a of this.registry.all()) {
       if (!a.scopes.includes(scope)) continue;
       if (a.isAvailable && !(await a.isAvailable(ctx))) continue;
-      out.push({ key: a.key, label: a.label, icon: a.icon, scopes: a.scopes, description: a.description });
+      // Слово — при ЧТЕНИИ, в языке запроса: реестр знает только ключ.
+      out.push({
+        key: a.key,
+        label: this.i18n.translate(a.labelKey),
+        icon: a.icon,
+        scopes: a.scopes,
+        description: a.descriptionKey ? this.i18n.translate(a.descriptionKey) : undefined,
+      });
     }
     return out;
   }

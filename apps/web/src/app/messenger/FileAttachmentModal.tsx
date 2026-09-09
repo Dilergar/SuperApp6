@@ -2,6 +2,7 @@
 
 import { CloseChip, Input, ModalShell } from '@/components/ui';
 import { useEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { MESSENGER_LIMITS } from '@superapp/shared';
 import type { FileDto } from '@superapp/shared';
 import { useFileUpload } from '@/lib/hooks/useFileUpload';
@@ -23,6 +24,7 @@ export function FileAttachmentModal({
   onSend: (files: FileDto[], caption: string) => void;
   onClose: () => void;
 }) {
+  const t = useTranslations('messenger');
   const [ready, setReady] = useState<FileDto[]>([]);
   const [caption, setCaption] = useState('');
   const [error, setError] = useState('');
@@ -62,7 +64,7 @@ export function FileAttachmentModal({
   const submit = () => {
     if (!ready.length || uploader.busy) return;
     if (ready.length > max) {
-      setError(`Не больше ${max} файлов в одном сообщении`);
+      setError(t('files.tooMany', { max }));
       return;
     }
     committedRef.current = true; // файлы уходят в сообщение — не удалять при закрытии
@@ -87,7 +89,7 @@ export function FileAttachmentModal({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h3 className="title-md">Прикрепить файлы</h3>
+          <h3 className="title-md">{t('files.title')}</h3>
           <CloseChip onClick={onClose} />
         </div>
 
@@ -99,14 +101,14 @@ export function FileAttachmentModal({
             const inFlight = uploader.items.filter((i) => i.status === 'uploading').length;
             const room = max - ready.length - inFlight;
             if (fs.length > room) {
-              setError(`Не больше ${max} файлов в одном сообщении`);
+              setError(t('files.tooMany', { max }));
             }
             uploader.add(fs.slice(0, Math.max(0, room)));
           }}
           paste
           multiple
           compact
-          label="Файлы, фото, видео, документы"
+          label={t('files.dropLabel')}
         />
 
         <UploadProgressList items={uploader.items.filter((i) => i.status !== 'done')} onCancel={uploader.cancel} onRemove={uploader.remove} />
@@ -120,10 +122,10 @@ export function FileAttachmentModal({
         )}
 
         <Input
-          aria-label="Подпись к вложению"
+          aria-label={t('files.captionAria')}
           value={caption}
           onChange={(e) => setCaption(e.target.value)}
-          placeholder="Подпись (необязательно)"
+          placeholder={t('files.captionPlaceholder')}
           maxLength={MESSENGER_LIMITS.maxMessageLength}
           onKeyDown={(e) => {
             if (e.key === 'Enter') submit();
@@ -139,7 +141,7 @@ export function FileAttachmentModal({
           disabled={!ready.length || uploader.busy}
           style={{ opacity: !ready.length || uploader.busy ? 0.6 : 1 }}
         >
-          {uploader.busy ? 'Загрузка…' : `Отправить${ready.length ? ` (${ready.length})` : ''}`}
+          {uploader.busy ? t('files.uploading') : ready.length ? t('files.sendCount', { n: ready.length }) : t('chat.send')}
         </button>
       </div>
     </ModalShell>

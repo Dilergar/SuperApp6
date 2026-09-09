@@ -95,7 +95,8 @@ export interface ApprovalOriginProvider {
  * кнопки у него есть и куда ведёт «открыть целиком».
  */
 export interface InboxSource {
-  label: string;
+  /** Ключ каталога имени источника — слово подставляется при чтении. */
+  labelKey: string;
   /** Только счётчик — путь бейджа, он не имеет права быть дорогим */
   count(userId: string, scope: InboxScope): Promise<number>;
   list(userId: string, limit: number, scope: InboxScope): Promise<InboxItemDto[]>;

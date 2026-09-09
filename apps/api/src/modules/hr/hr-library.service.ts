@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   HR_LIBRARY,
   HR_LIBRARY_MAP,
@@ -6,7 +6,10 @@ import {
   type HrLibraryItem,
   type HrLibraryItemDto,
 } from '@superapp/shared';
+import { SOURCE_LOCALE, coerceLocale, type Locale } from '@superapp/i18n';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
+import { badRequest, notFound } from '../../shared/errors/api-error';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { DocumentsService } from '../documents/documents.service';
 import { ProcessesService } from '../processes/processes.service';
@@ -21,6 +24,16 @@ import { HR_MEMBER_REF_TYPE } from './hr.constants';
  * Подписанта мастер спрашивает ОДИН раз и проставляет во все шаги: маршрут-
  * черновик, который менеджер забыл донастроить, — это действие, которое
  * никогда не применится.
+ *
+ * ЯЗЫК СОБРАННОГО МАРШРУТА — язык ИСТОЧНИКА: имя маршрута, подписи нод и
+ * заголовки шагов ложатся в БД и переживают смену языка того, кто нажал
+ * «Установить» (docs/i18n.md). Переводятся они при чтении — реестром нод и
+ * каталогом, а не этой строкой.
+ *
+ * ЯЗЫК БУМАГИ — свой: формулировки бланков записаны по-русски (`item.language`),
+ * поэтому имя вида и имя шаблона, которые ложатся рядом с бумагой и печатаются
+ * вместе с ней, тоже берутся в этом языке. Название и описание в мастере
+ * установки — наоборот, интерфейс: они в языке зрителя.
  */
 @Injectable()
 export class HrLibraryService {
@@ -32,7 +45,32 @@ export class HrLibraryService {
     private readonly documents: DocumentsService,
     private readonly processes: ProcessesService,
     private readonly hr: HrService,
+    private readonly i18n: I18nService,
   ) {}
+
+  /** Слово в языке источника — снимок, который ложится в документ маршрута */
+  private src(key: string, values?: Record<string, string | number>): string {
+    return this.i18n.translateFor(SOURCE_LOCALE, key, values);
+  }
+
+  /** Ветка каталога бланка: слов в самом каталоге бланков нет (docs/i18n.md) */
+  private itemKey(item: { key: string }, leaf: string): string {
+    return `hr.library.item.${item.key}.${leaf}`;
+  }
+
+  /** Слово ЭКРАНА (мастер установки) — в языке запроса */
+  private itemText(item: { key: string }, leaf: string): string {
+    return this.i18n.translate(this.itemKey(item, leaf));
+  }
+
+  /** Слово БУМАГИ (имя вида, имя шаблона, подписи полей формы) — в языке бланка */
+  private paperText(item: HrLibraryItem, leaf: string): string {
+    return this.i18n.translateFor(this.languageOf(item), this.itemKey(item, leaf));
+  }
+
+  private languageOf(item: HrLibraryItem): Locale {
+    return coerceLocale(item.language, SOURCE_LOCALE);
+  }
 
   async list(viewerId: string, workspaceId: string): Promise<HrLibraryItemDto[]> {
     await this.hr.requireManager(viewerId, workspaceId);
@@ -42,8 +80,9 @@ export class HrLibraryService {
       const inst = byKey.get(item.key);
       return {
         key: item.key,
-        title: item.title,
-        description: item.description,
+        // Витрина мастера — ИНТЕРФЕЙС: слово в языке зрителя
+        title: this.itemText(item, 'title'),
+        description: this.itemText(item, 'description'),
         category: item.docType.category,
         signatureLevel: item.docType.signatureLevel,
         version: item.version,
@@ -64,17 +103,17 @@ export class HrLibraryService {
   async install(actorId: string, workspaceId: string, dto: HrLibraryInstallInput): Promise<HrLibraryItemDto> {
     await this.hr.requireManager(actorId, workspaceId);
     const item = HR_LIBRARY_MAP[dto.key];
-    if (!item) throw new NotFoundException('Такого бланка нет в библиотеке');
+    if (!item) throw notFound('hr.libraryItemNotFound');
     if (dto.signerPositionId) {
       const pos = await this.db.staffPosition.findFirst({
         where: { id: dto.signerPositionId, workspaceId },
         select: { id: true },
       });
-      if (!pos) throw new BadRequestException('Должность подписанта не найдена в этой организации');
+      if (!pos) throw badRequest('hr.librarySignerPositionNotFound');
     }
     if (dto.signerUserId) {
       const role = await this.hr.roleOf(dto.signerUserId, workspaceId);
-      if (!role || role === 'contractor') throw new BadRequestException('Подписант должен работать в организации');
+      if (!role || role === 'contractor') throw badRequest('hr.librarySignerNotEmployed');
     }
 
     const existing = await this.db.docTemplateLibraryInstall.findUnique({
@@ -83,12 +122,14 @@ export class HrLibraryService {
 
     // 1) Вид: одноимённый живой переиспользуем (виды — справочник организации,
     // дубль имени запрещён партиальным уникумом)
+    const docTypeName = this.paperText(item, 'docType');
+    const templateName = this.paperText(item, 'template');
     let docType = await this.db.docType.findFirst({
-      where: { workspaceId, name: item.docType.name, archivedAt: null },
+      where: { workspaceId, name: docTypeName, archivedAt: null },
     });
     if (!docType) {
       const created = await this.documents.createType(actorId, workspaceId, {
-        name: item.docType.name,
+        name: docTypeName,
         category: item.docType.category,
         numberFormat: item.docType.numberFormat,
         visibility: item.docType.visibility,
@@ -111,8 +152,9 @@ export class HrLibraryService {
         where: { id: liveTemplate.id },
         data: {
           builderDoc: item.builderDoc as object,
-          fields: item.template.fields as object[],
+          fields: this.formFields(item) as object[],
           selfService: item.template.selfService,
+          language: this.languageOf(item),
           version: { increment: 1 },
         },
       });
@@ -120,11 +162,13 @@ export class HrLibraryService {
     } else {
       const created = await this.documents.createTemplate(actorId, workspaceId, {
         docTypeId: docType.id,
-        name: item.template.name,
-        description: item.description,
+        name: templateName,
+        description: this.itemText(item, 'description'),
         kind: 'builder',
+        // Язык БУМАГИ у библиотечного бланка свой: тексты ТК РК записаны по-русски
+        language: this.languageOf(item),
         builderDoc: item.builderDoc as never,
-        fields: item.template.fields as never,
+        fields: this.formFields(item) as never,
         selfService: item.template.selfService,
       });
       templateId = created.id;
@@ -170,12 +214,26 @@ export class HrLibraryService {
         actorId,
         actorName: await this.hr.nameOf(actorId),
         typeKey: 'hr.library_installed',
-        payload: { title: item.title },
+        // Вечная запись хроники хранит КЛЮЧ бланка: слово к нему подберёт читатель
+        payload: { titleKey: this.itemKey(item, 'title') },
       })
       .catch(() => undefined);
 
     const list = await this.list(actorId, workspaceId);
     return list.find((i) => i.key === item.key)!;
+  }
+
+  /**
+   * Поля формы подачи с подписями в языке БУМАГИ: ключ поля — имя тега
+   * («{Form.LeavePeriod}»), слово к нему живёт в каталоге.
+   */
+  private formFields(item: HrLibraryItem): { key: string; label: string; kind: string; required?: boolean }[] {
+    return item.template.fields.map((f) => ({
+      key: f.key,
+      label: this.paperText(item, `field.${f.key}`),
+      kind: f.kind,
+      ...(f.required !== undefined ? { required: f.required } : {}),
+    }));
   }
 
   /** Собрать документ-канвас маршрута по декларативной схеме бланка и опубликовать */
@@ -216,7 +274,7 @@ export class HrLibraryService {
     nodes.push({
       id: 'trigger',
       type: 'trigger.document',
-      label: 'Документ отправлен',
+      label: this.src('processes.node.trigger.document.title'),
       config: { templateId },
       position: { x, y: 160 },
     });
@@ -227,53 +285,75 @@ export class HrLibraryService {
       // Заявление согласует РУКОВОДИТЕЛЬ СТОРОНЫ документа — по оргструктуре в момент
       // шага (вершина → владелец), а не подписант организации: поимённый согласующий
       // в 11 бланках был временной заплаткой до появления структуры.
-      addHuman('approve', { kind: 'approval', title: `Согласовать: ${item.template.name}`, assigneeMode: 'subject_manager' }, 'Согласование руководителя');
+      addHuman(
+        'approve',
+        {
+          kind: 'approval',
+          title: this.src('hr.library.step.approveTitle', { name: this.src(this.itemKey(item, 'template')) }),
+          assigneeMode: 'subject_manager',
+        },
+        this.src('hr.library.step.managerApproval'),
+      );
     }
     if (r.employerSign) {
       addHuman(
         'sign_employer',
-        { kind: 'signature', signatureLevel: item.docType.signatureLevel, title: `Подписать: ${item.template.name}`, ...assignee },
-        'Подпись работодателя',
+        {
+          kind: 'signature',
+          signatureLevel: item.docType.signatureLevel,
+          title: this.src('hr.library.step.signTitle', { name: this.src(this.itemKey(item, 'template')) }),
+          ...assignee,
+        },
+        this.src('hr.library.step.employerSign'),
       );
     }
     if (r.subjectSign) {
       addHuman(
         'sign_subject',
-        { kind: 'signature', signatureLevel: item.docType.signatureLevel, title: `Подписать: ${item.template.name}`, assigneeMode: 'subject' },
-        'Подпись работника',
+        {
+          kind: 'signature',
+          signatureLevel: item.docType.signatureLevel,
+          title: this.src('hr.library.step.signTitle', { name: this.src(this.itemKey(item, 'template')) }),
+          assigneeMode: 'subject',
+        },
+        this.src('hr.library.step.subjectSign'),
       );
     }
     if (r.subjectAck) {
       addHuman(
         'ack_subject',
-        { kind: 'acknowledgement', title: `Ознакомиться: ${item.template.name}`, assigneeMode: 'subject' },
-        'Ознакомление работника',
+        {
+          kind: 'acknowledgement',
+          title: this.src('hr.library.step.ackTitle', { name: this.src(this.itemKey(item, 'template')) }),
+          assigneeMode: 'subject',
+        },
+        this.src('hr.library.step.subjectAck'),
       );
     }
     if (r.register) {
-      nodes.push({ id: 'register', type: 'doc.register', label: 'Регистрация номера', config: {}, position: { x: (x += step), y: 160 } });
+      nodes.push({ id: 'register', type: 'doc.register', label: this.src('processes.node.doc.register.title'), config: {}, position: { x: (x += step), y: 160 } });
       link('register');
       prev = { id: 'register', port: 'main' };
     }
     if (r.file) {
-      nodes.push({ id: 'file', type: 'doc.file', label: 'Подшить в дело', config: {}, position: { x: (x += step), y: 160 } });
+      nodes.push({ id: 'file', type: 'doc.file', label: this.src('processes.node.doc.file.title'), config: {}, position: { x: (x += step), y: 160 } });
       link('file');
       prev = { id: 'file', port: 'main' };
     }
     if (r.hrApply) {
-      nodes.push({ id: 'apply', type: 'hr.apply', label: 'Применить кадровое действие', config: {}, position: { x: (x += step), y: 160 } });
+      nodes.push({ id: 'apply', type: 'hr.apply', label: this.src('processes.node.hr.apply.title'), config: {}, position: { x: (x += step), y: 160 } });
       link('apply');
       prev = { id: 'apply', port: 'main' };
     }
-    nodes.push({ id: 'done', type: 'end', label: 'Готово', config: {}, position: { x: (x += step), y: 160 } });
+    nodes.push({ id: 'done', type: 'end', label: this.src('hr.library.step.done'), config: {}, position: { x: (x += step), y: 160 } });
     link('done');
-    nodes.push({ id: 'refused', type: 'end', label: 'Отклонён', config: {}, position: { x: 380, y: 380 } });
+    nodes.push({ id: 'refused', type: 'end', label: this.src('hr.library.step.refused'), config: {}, position: { x: 380, y: 380 } });
 
     const surface = item.docType.category === 'hr' ? 'documents.hr' : 'documents.general';
     try {
       const def = await this.processes.createDefinition(actorId, workspaceId, {
-        name: `Маршрут: ${item.title}`,
-        description: `Установлен из библиотеки кадровых бланков («${item.title}»)`,
+        name: this.src('hr.library.routeName', { title: this.src(this.itemKey(item, 'title')) }),
+        description: this.src('hr.library.routeDescription', { title: this.src(this.itemKey(item, 'title')) }),
         surface,
         document: { nodes, edges, form: [] } as never,
       });
@@ -287,8 +367,8 @@ export class HrLibraryService {
       // Маршрут не собрался (например, ошибка компиляции из-за версии нод) —
       // установка честно падает: бланк без маршрута это действие, которое
       // никогда не применится.
-      this.logger.error(`маршрут библиотеки «${item.key}»: ${(e as Error).message}`);
-      throw new BadRequestException(`Маршрут бланка не опубликовался: ${(e as Error).message}`);
+      this.logger.error(`library route "${item.key}": ${(e as Error).message}`);
+      throw badRequest('hr.libraryRouteNotPublished', { reason: (e as Error).message });
     }
   }
 }

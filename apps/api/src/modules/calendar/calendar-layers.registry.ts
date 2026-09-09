@@ -27,7 +27,7 @@ export class CalendarLayersRegistry {
 
   register(layer: CalendarLayer, provider: CalendarLayerProvider): void {
     if (this.providers.has(layer)) {
-      this.logger.warn(`Провайдер слоя «${layer}» перерегистрирован`);
+      this.logger.warn(`Calendar layer provider "${layer}" was re-registered`);
     }
     this.providers.set(layer, provider);
   }

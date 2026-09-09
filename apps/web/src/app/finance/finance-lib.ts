@@ -2,18 +2,27 @@
 // Финансы — money helpers shared by the finance UI
 // ============================================================
 
+import { formatNumber, type Formatters } from '@superapp/i18n/format';
+import { SOURCE_LOCALE } from '@superapp/shared';
+
 const SYMBOLS: Record<string, string> = { KZT: '₸', USD: '$', EUR: '€', RUB: '₽' };
 
 export const currencySymbol = (code: string): string => SYMBOLS[code] ?? code;
 
-/** Minor units → "12 500,50 ₸" (trailing zero kopecks are dropped). */
+/**
+ * Minor units → "12 500,50 ₸" (trailing zero kopecks are dropped).
+ *
+ * Разделители — из профиля РЕГИОНА, а не из языка: деньги в Казахстане пишутся
+ * одинаково и для того, кто выбрал English. Поэтому функция остаётся чистой.
+ */
 export function formatMoney(minor: number, code: string): string {
   const major = minor / 100;
   const hasCents = Math.abs(major % 1) > 1e-9;
-  return `${major.toLocaleString('ru-RU', {
+  const num = formatNumber(major, { locale: SOURCE_LOCALE }, {
     minimumFractionDigits: hasCents ? 2 : 0,
     maximumFractionDigits: 2,
-  })} ${currencySymbol(code)}`;
+  });
+  return `${num} ${currencySymbol(code)}`;
 }
 
 /** "2 500,50" / "2500.5" → 250050 minor units; null when not a positive number. */
@@ -34,8 +43,17 @@ export function parseSignedMoneyInput(raw: string): number | null {
   return Math.round(value * 100);
 }
 
-/** Короткие дни недели (1=пн … 7=вс) — повторы, «Обзор». */
-export const WEEKDAYS_SHORT = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
+/**
+ * Короткие дни недели в ISO-порядке (1=пн … 7=вс) — повторы, «Обзор».
+ *
+ * Свой массив слов был бы одним языком навсегда: имена дней даёт форматтер
+ * платформы. Порядок здесь ISO, потому что `weekday` повтора хранится в БД
+ * именно так, а `weekdayNames` начинает с первого дня недели РЕГИОНА.
+ */
+export const weekdaysShortIso = (f: Formatters): string[] => {
+  const names = f.weekdayNames('short');
+  return Array.from({ length: 7 }, (_, i) => names[(i + 7 - (f.region.firstDayOfWeek - 1)) % 7]);
+};
 
 /** YYYY-MM-DD → Date по ЛОКАЛЬНОЙ полуночи (для DatePicker кита). */
 export const ymdToDate = (ymd: string | null | undefined): Date | null =>

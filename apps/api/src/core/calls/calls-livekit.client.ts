@@ -127,7 +127,7 @@ export class CallsLivekitClient {
       await this.roomService.removeParticipant(roomName, identity);
     } catch (err) {
       throw new BadGatewayException(
-        `Не удалось исключить участника: ${err instanceof Error ? err.message : 'LiveKit недоступен'}`,
+        `Could not remove the participant: ${err instanceof Error ? err.message : 'LiveKit is unavailable'}`,
       );
     }
   }
@@ -138,7 +138,7 @@ export class CallsLivekitClient {
       await this.roomService.mutePublishedTrack(roomName, identity, trackSid, muted);
     } catch (err) {
       throw new BadGatewayException(
-        `Не удалось изменить mute: ${err instanceof Error ? err.message : 'LiveKit недоступен'}`,
+        `Could not change the mute: ${err instanceof Error ? err.message : 'LiveKit is unavailable'}`,
       );
     }
   }
@@ -170,7 +170,7 @@ export class CallsLivekitClient {
       return await this.egress.startRoomCompositeEgress(roomName, output, { audioOnly: true });
     } catch (err) {
       throw new BadGatewayException(
-        `Не удалось начать запись: ${err instanceof Error ? err.message : 'egress недоступен'}`,
+        `Could not start the recording: ${err instanceof Error ? err.message : 'the egress is unavailable'}`,
       );
     }
   }

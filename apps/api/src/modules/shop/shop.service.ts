@@ -1,10 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-  ForbiddenException,
-  BadRequestException,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
   Shop as ShopDto,
@@ -36,6 +30,8 @@ import { FilesService } from '../../core/files/files.service';
 import { FilesRefRegistry } from '../../core/files/files-ref.registry';
 import { DatabaseService } from '../../shared/database/database.service';
 import { WorkspaceContextService } from '../../shared/context/workspace-context.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
+import { badRequest, forbidden, notFound } from '../../shared/errors/api-error';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../../core/notifications/notifications.service';
 import { AccessService } from '../../core/access/access.service';
@@ -82,6 +78,7 @@ export class ShopService implements OnModuleInit {
     private readonly files: FilesService,
     private readonly filesRegistry: FilesRefRegistry,
     private readonly graphHooks: PersonalGraphRegistry,
+    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -246,11 +243,11 @@ export class ShopService implements OnModuleInit {
   /** View another owner's shop (only the showcases shared with the viewer). */
   async getShopOfUser(viewerId: string, ownerUserId: string): Promise<ShopOverviewDto> {
     const shop = await this.db.shop.findUnique({ where: { ownerType_ownerId: { ownerType: 'user', ownerId: ownerUserId } } });
-    if (!shop) throw new NotFoundException('Магазин не найден');
+    if (!shop) throw notFound('shop.shopNotFound');
     const canManage = await this.canManageShop(viewerId, shop);
     const showcases = await this.listShowcasesFor(viewerId, shop, canManage);
     if (!canManage && showcases.length === 0) {
-      throw new ForbiddenException('Нет доступа к этому магазину');
+      throw forbidden('shop.shopAccessDenied');
     }
     return { shop: await this.serializeShop(shop, viewerId, canManage, showcases.length), showcases };
   }
@@ -291,9 +288,9 @@ export class ShopService implements OnModuleInit {
   async createShowcase(viewerId: string, data: CreateShowcaseInput): Promise<ShowcaseDto> {
     const { ownerType, ownerId } = this.resolveOwner(viewerId);
     const shop = await this.getOrCreateShop(ownerType, ownerId);
-    if (!(await this.canManageShop(viewerId, shop))) throw new ForbiddenException('Нет прав на этот магазин');
+    if (!(await this.canManageShop(viewerId, shop))) throw forbidden('shop.shopManageDenied');
     const count = await this.db.showcase.count({ where: { shopId: shop.id } });
-    if (count >= SHOP_LIMITS.maxShowcases) throw new BadRequestException('Достигнут лимит витрин');
+    if (count >= SHOP_LIMITS.maxShowcases) throw badRequest('shop.showcaseLimit');
     // Create the showcase AND its parent pointer atomically, so a transient projection failure
     // can't leave a showcase that managers/viewers can never reach.
     const row = await this.db.$transaction(async (tx) => {
@@ -380,20 +377,26 @@ export class ShopService implements OnModuleInit {
           scale: c.scale,
           issuerId: c.issuerId,
           issuerName:
-            c.issuerId === ownerId ? 'Моя валюта' : u ? `${u.firstName} ${u.lastName ?? ''}`.trim() : '—',
+            c.issuerId === ownerId
+              ? this.i18n.translate('shop.myCurrency')
+              : u
+                ? `${u.firstName} ${u.lastName ?? ''}`.trim()
+                : '—',
           isOwn: c.issuerId === ownerId,
         };
       })
-      .sort((a, b) => (a.isOwn === b.isOwn ? a.name.localeCompare(b.name, 'ru') : a.isOwn ? -1 : 1));
+      .sort((a, b) =>
+        a.isOwn === b.isOwn ? a.name.localeCompare(b.name, this.i18n.locale) : a.isOwn ? -1 : 1,
+      );
   }
 
   async listListings(viewerId: string, showcaseId: string): Promise<ListingDto[]> {
     const showcase = await this.db.showcase.findUnique({ where: { id: showcaseId } });
-    if (!showcase) throw new NotFoundException('Витрина не найдена');
+    if (!showcase) throw notFound('shop.showcaseNotFound');
     const shop = await this.db.shop.findUnique({ where: { id: showcase.shopId } });
     const canManage = await this.canManageShop(viewerId, shop!);
     if (!canManage && !(await this.canViewShowcase(viewerId, showcaseId))) {
-      throw new ForbiddenException('Нет доступа к витрине');
+      throw forbidden('shop.showcaseAccessDenied');
     }
     const rows = await this.db.listing.findMany({
       where: { showcaseId, ...(canManage ? {} : { status: 'active' }) },
@@ -415,17 +418,17 @@ export class ShopService implements OnModuleInit {
 
   async getListingImages(viewerId: string, listingId: string): Promise<FileDto[]> {
     const listing = await this.db.listing.findUnique({ where: { id: listingId } });
-    if (!listing) throw new NotFoundException('Товар не найден');
+    if (!listing) throw notFound('shop.listingNotFound');
     const canManage = await this.access.can(this.user(viewerId), 'showcase.manage', listing.showcaseId);
     if (!canManage && !(await this.canViewShowcase(viewerId, listing.showcaseId))) {
-      throw new ForbiddenException('Нет доступа к витрине');
+      throw forbidden('shop.showcaseAccessDenied');
     }
     return (await this.files.listLinked('listing', [listingId], 'gallery')).get(listingId) ?? [];
   }
 
   async attachListingImage(viewerId: string, listingId: string, fileId: string): Promise<FileDto[]> {
     const listing = await this.db.listing.findUnique({ where: { id: listingId } });
-    if (!listing) throw new NotFoundException('Товар не найден');
+    if (!listing) throw notFound('shop.listingNotFound');
     await this.loadShowcaseManageable(viewerId, listing.showcaseId);
     await this.files.getOwnedReadyFiles(viewerId, [fileId]); // ready + uploader (профиль enforce'ит движок)
     // Лимит + линковка под блокировкой строки лота: конкурентные attach'и сериализуются
@@ -435,7 +438,7 @@ export class ShopService implements OnModuleInit {
       // Через API движка (countLinkedInTx), не прямым чтением file_links — carve-out закрыт.
       const count = await this.files.countLinkedInTx(tx, 'listing', listingId, 'gallery');
       if (count >= SHOP_LIMITS.maxListingImages) {
-        throw new BadRequestException(`Не больше ${SHOP_LIMITS.maxListingImages} фото у товара`);
+        throw badRequest('shop.imageLimit', { max: SHOP_LIMITS.maxListingImages });
       }
       await this.files.linkManyInTx(tx, viewerId, [fileId], 'listing', listingId, 'gallery');
     });
@@ -444,7 +447,7 @@ export class ShopService implements OnModuleInit {
 
   async removeListingImage(viewerId: string, listingId: string, fileId: string): Promise<void> {
     const listing = await this.db.listing.findUnique({ where: { id: listingId } });
-    if (!listing) throw new NotFoundException('Товар не найден');
+    if (!listing) throw notFound('shop.listingNotFound');
     await this.loadShowcaseManageable(viewerId, listing.showcaseId);
     // Отвязать эту связь и прибрать сироту (системный soft-delete: удаляющий соуправляющий
     // мог быть не загрузившим — Forbidden больше не роняет уборку).
@@ -479,9 +482,9 @@ export class ShopService implements OnModuleInit {
     const showcase = await this.loadShowcaseManageable(viewerId, data.showcaseId);
     const shop = await this.db.shop.findUnique({ where: { id: showcase.shopId } });
     const lines = await this.resolvePrices(shop!, data);
-    if (!lines) throw new BadRequestException('Укажите цену товара');
+    if (!lines) throw badRequest('shop.priceRequired');
     const count = await this.db.listing.count({ where: { showcaseId: data.showcaseId } });
-    if (count >= SHOP_LIMITS.maxListingsPerShowcase) throw new BadRequestException('Достигнут лимит товаров в витрине');
+    if (count >= SHOP_LIMITS.maxListingsPerShowcase) throw badRequest('shop.listingLimit');
 
     const row = await this.db.listing.create({
       data: {
@@ -508,7 +511,7 @@ export class ShopService implements OnModuleInit {
 
   async updateListing(viewerId: string, id: string, data: UpdateListingInput): Promise<ListingDto> {
     const existing = await this.db.listing.findUnique({ where: { id }, include: { showcase: true } });
-    if (!existing) throw new NotFoundException('Товар не найден');
+    if (!existing) throw notFound('shop.listingNotFound');
     await this.loadShowcaseManageable(viewerId, existing.showcaseId);
     const shop = await this.db.shop.findUnique({ where: { id: existing.showcase.shopId } });
     // Resolve the new price (if any) BEFORE the write — read-only validation that the currencies
@@ -554,10 +557,10 @@ export class ShopService implements OnModuleInit {
 
   async deleteListing(viewerId: string, id: string): Promise<void> {
     const existing = await this.db.listing.findUnique({ where: { id } });
-    if (!existing) throw new NotFoundException('Товар не найден');
+    if (!existing) throw notFound('shop.listingNotFound');
     await this.loadShowcaseManageable(viewerId, existing.showcaseId);
     const active = await this.db.order.count({ where: { listingId: id, status: { in: ['funding', 'pending', 'confirmed'] } } });
-    if (active > 0) throw new BadRequestException('Нельзя удалить товар с активным заказом или сбором');
+    if (active > 0) throw badRequest('shop.listingHasActiveOrder');
     await this.db.listing.delete({ where: { id } }); // settled/cancelled orders keep history (listingId → null)
     // Фото галереи (полиморфный FileLink не каскадится) — отвязать и прибрать сироты,
     // иначе публичные картинки удалённого лота вечно висят в квоте и раздаются по ссылке.
@@ -575,22 +578,22 @@ export class ShopService implements OnModuleInit {
    */
   async buy(buyerId: string, listingId: string): Promise<OrderDto> {
     const listing = await this.db.listing.findUnique({ where: { id: listingId }, include: { prices: true, showcase: true } });
-    if (!listing) throw new NotFoundException('Товар не найден');
-    if (listing.crowdfunding) throw new BadRequestException('Это совместная покупка — используйте «Скинуться»');
+    if (!listing) throw notFound('shop.listingNotFound');
+    if (listing.crowdfunding) throw badRequest('shop.useChipIn');
     this.assertSellable(listing);
     if (!(await this.access.can(this.user(buyerId), 'showcase.view', listing.showcaseId))) {
-      throw new ForbiddenException('Нет доступа к этому товару');
+      throw forbidden('shop.listingAccessDenied');
     }
     const shop = await this.db.shop.findUnique({ where: { id: listing.showcase.shopId } });
-    if (!shop) throw new NotFoundException('Магазин не найден');
+    if (!shop) throw notFound('shop.shopNotFound');
     if (shop.ownerType === 'workspace' && listing.withTask) {
-      throw new BadRequestException('Товар «с задачей» в магазине компании пока недоступен');
+      throw badRequest('shop.companyTaskListingUnsupported');
     }
     const sellerId = shop.ownerId; // user id, or workspace id for a company shop (paid into the treasury)
     const sellerType = shop.ownerType as string; // 'user' | 'workspace'
-    if (sellerId === buyerId) throw new BadRequestException('Нельзя купить в собственном магазине');
+    if (sellerId === buyerId) throw badRequest('shop.buyOwnShop');
     const prices = listing.prices;
-    if (prices.length === 0) throw new BadRequestException('У товара не указана цена');
+    if (prices.length === 0) throw badRequest('shop.listingHasNoPrice');
     // Every price currency must still be active — a deleted currency makes the lot unbuyable.
     const activeIds = new Set(
       (
@@ -601,7 +604,7 @@ export class ShopService implements OnModuleInit {
       ).map((c) => c.id),
     );
     if (prices.some((p) => !activeIds.has(p.currencyId))) {
-      throw new BadRequestException('Цена содержит недоступную валюту — покупка невозможна');
+      throw badRequest('shop.priceUnavailableCurrencyBuy');
     }
 
     // All-or-nothing: reserve a unit of stock + snapshot the (possibly discounted) price + freeze one
@@ -662,23 +665,23 @@ export class ShopService implements OnModuleInit {
    */
   async contribute(contributorId: string, listingId: string, lines: ContributionLine[]): Promise<OrderDto> {
     const listing = await this.db.listing.findUnique({ where: { id: listingId }, include: { prices: true, showcase: true } });
-    if (!listing) throw new NotFoundException('Товар не найден');
-    if (!listing.crowdfunding) throw new BadRequestException('Этот лот не краудфандинговый — используйте «Купить»');
+    if (!listing) throw notFound('shop.listingNotFound');
+    if (!listing.crowdfunding) throw badRequest('shop.useBuy');
     this.assertSellable(listing);
     if (!(await this.access.can(this.user(contributorId), 'showcase.view', listing.showcaseId))) {
-      throw new ForbiddenException('Нет доступа к этому товару');
+      throw forbidden('shop.listingAccessDenied');
     }
     const shop = await this.db.shop.findUnique({ where: { id: listing.showcase.shopId } });
-    if (!shop) throw new NotFoundException('Магазин не найден');
+    if (!shop) throw notFound('shop.shopNotFound');
     if (shop.ownerType === 'workspace' && listing.withTask) {
-      throw new BadRequestException('Сбор «с задачей» в магазине компании пока недоступен');
+      throw badRequest('shop.companyTaskCampaignUnsupported');
     }
     const sellerId = shop.ownerId;
     const sellerType = shop.ownerType as string;
-    if (sellerId === contributorId) throw new BadRequestException('Нельзя скидываться в собственном магазине');
+    if (sellerId === contributorId) throw badRequest('shop.chipInOwnShop');
 
     const goalCurrencies = new Set(listing.prices.map((p) => p.currencyId));
-    if (goalCurrencies.size === 0) throw new BadRequestException('У товара не указана цена');
+    if (goalCurrencies.size === 0) throw badRequest('shop.listingHasNoPrice');
     const activeIds = new Set(
       (
         await this.db.currency.findMany({
@@ -688,8 +691,8 @@ export class ShopService implements OnModuleInit {
       ).map((c) => c.id),
     );
     for (const line of lines) {
-      if (!goalCurrencies.has(line.currencyId)) throw new BadRequestException('Вкладывать можно только в валюты цены лота');
-      if (!activeIds.has(line.currencyId)) throw new BadRequestException('Цена содержит недоступную валюту');
+      if (!goalCurrencies.has(line.currencyId)) throw badRequest('shop.pledgeCurrencyMismatch');
+      if (!activeIds.has(line.currencyId)) throw badRequest('shop.priceUnavailableCurrency');
     }
 
     const campaignId = await this.getOrCreateCampaign(listing, shop.id, sellerId, contributorId);
@@ -698,9 +701,9 @@ export class ShopService implements OnModuleInit {
       // Serialise concurrent pledges on this campaign so two contributors can't overfill a currency.
       await tx.$queryRaw`SELECT id FROM orders WHERE id = ${campaignId} FOR UPDATE`;
       const campaign = await tx.order.findUnique({ where: { id: campaignId }, include: ORDER_INCLUDE });
-      if (!campaign || campaign.status !== 'funding') throw new BadRequestException('Кампания уже собрана или закрыта');
+      if (!campaign || campaign.status !== 'funding') throw badRequest('shop.campaignClosed');
       if (campaign.contributions.some((c) => c.contributorId === contributorId)) {
-        throw new BadRequestException('Вы уже вложились — отзовите свой вклад, чтобы изменить');
+        throw badRequest('shop.alreadyPledged');
       }
       // The goal is the campaign's SNAPSHOTTED price (a FOMO discount is locked at creation time).
       const goal = new Map(campaign.prices.map((p) => [p.currencyId, p.amount] as const));
@@ -712,7 +715,7 @@ export class ShopService implements OnModuleInit {
         const have = raised.get(line.currencyId) ?? 0n;
         const remaining = goalAmt - have;
         if (BigInt(line.amount) > remaining) {
-          throw new BadRequestException(`Вклад превышает остаток по валюте (осталось ${remaining})`);
+          throw badRequest('shop.pledgeAboveRemaining', { remaining: String(remaining) });
         }
         await tx.orderContribution.create({
           data: { orderId: campaignId, contributorId, currencyId: line.currencyId, amount: BigInt(line.amount) },
@@ -751,7 +754,7 @@ export class ShopService implements OnModuleInit {
       where: { id: orderId },
       select: { id: true, crowdfunding: true, sellerId: true, titleSnapshot: true },
     });
-    if (!order || !order.crowdfunding) throw new NotFoundException('Кампания не найдена');
+    if (!order || !order.crowdfunding) throw notFound('shop.campaignNotFound');
     await this.db.$transaction(async (tx) => {
       // Same campaign row lock as contribute(): a withdraw can't race the goal-reaching pledge
       // (otherwise the campaign flips to 'pending' while a leg is being released → owner confirms
@@ -759,10 +762,10 @@ export class ShopService implements OnModuleInit {
       await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId} FOR UPDATE`;
       const fresh = await tx.order.findUnique({ where: { id: orderId }, include: { contributions: true } });
       if (!fresh || fresh.status !== 'funding') {
-        throw new BadRequestException('Кампания уже собрана или закрыта — отозвать нельзя');
+        throw badRequest('shop.campaignClosedWithdraw');
       }
       const mine = fresh.contributions.filter((c) => c.contributorId === contributorId);
-      if (mine.length === 0) throw new BadRequestException('Вы не вкладывались в эту кампанию');
+      if (mine.length === 0) throw badRequest('shop.noPledgeOfMine');
       const emptyAfter = fresh.contributions.length === mine.length;
       await this.escrow.release(tx, { refType: 'order', refId: orderId, payerUserId: contributorId });
       await tx.orderContribution.deleteMany({ where: { orderId, contributorId } });
@@ -781,10 +784,10 @@ export class ShopService implements OnModuleInit {
   /** Order / campaign detail (progress per currency + contributors). Party or manager only. */
   async getOrderDetail(viewerId: string, orderId: string): Promise<OrderDto> {
     const order = await this.db.order.findUnique({ where: { id: orderId }, include: ORDER_INCLUDE });
-    if (!order) throw new NotFoundException('Заказ не найден');
+    if (!order) throw notFound('shop.orderNotFound');
     const isParty = order.buyerId === viewerId || order.contributions.some((c) => c.contributorId === viewerId);
     const canManage = await this.access.can(this.user(viewerId), 'showcase.manage', order.showcaseId);
-    if (!isParty && !canManage) throw new ForbiddenException('Нет доступа к заказу');
+    if (!isParty && !canManage) throw forbidden('shop.orderAccessDenied');
     const contributorNames = await this.userMinis(order.contributions.map((c) => c.contributorId));
     return this.serializeOrder(order, await this.currencyMap(order.prices.map((p) => p.currencyId)), { viewerId, contributorNames });
   }
@@ -801,7 +804,7 @@ export class ShopService implements OnModuleInit {
       select: { id: true, status: true },
     });
     if (active) {
-      if (active.status === 'pending') throw new BadRequestException('Кампания уже собрана — ждёт подтверждения владельцем');
+      if (active.status === 'pending') throw badRequest('shop.campaignAwaitsOwner');
       return active.id;
     }
     try {
@@ -856,8 +859,8 @@ export class ShopService implements OnModuleInit {
   async confirmOrder(actorId: string, orderId: string): Promise<OrderDto> {
     const order = await this.loadManageableOrder(actorId, orderId);
     if (order.status !== 'pending') {
-      throw new BadRequestException(
-        order.crowdfunding && order.status === 'funding' ? 'Кампания ещё собирает взносы' : 'Заказ уже обработан',
+      throw badRequest(
+        order.crowdfunding && order.status === 'funding' ? 'shop.campaignStillFunding' : 'shop.orderAlreadyHandled',
       );
     }
     const parties = this.fulfilmentParties(order);
@@ -868,7 +871,7 @@ export class ShopService implements OnModuleInit {
         where: { id: orderId, status: 'pending' },
         data: { status: 'confirmed', confirmedAt: new Date() },
       });
-      if (claimed.count === 0) throw new BadRequestException('Заказ уже обработан');
+      if (claimed.count === 0) throw badRequest('shop.orderAlreadyHandled');
       try {
         const due = new Date(Date.now() + (order.taskDays ?? 7) * 86_400_000);
         const task = await this.tasks.createTask(
@@ -877,7 +880,7 @@ export class ShopService implements OnModuleInit {
           // умолчания (приоритет, allDay, coinPenalty…), а не свой набор, который
           // разъедется с ними при первой правке схемы.
           createTaskSchema.parse({
-            title: `Выдать: ${order.titleSnapshot}`,
+            title: this.i18n.translate('shop.task.deliver', { title: order.titleSnapshot }),
             executorId: order.sellerId,
             observerIds: parties.observerIds.length ? parties.observerIds : undefined,
             dueDate: due.toISOString(),
@@ -909,7 +912,7 @@ export class ShopService implements OnModuleInit {
         where: { id: orderId, status: 'pending' },
         data: { status: 'settled', confirmedAt: new Date(), closedAt: new Date() },
       });
-      if (claimed.count === 0) throw new BadRequestException('Заказ уже обработан');
+      if (claimed.count === 0) throw badRequest('shop.orderAlreadyHandled');
       await this.escrow.capture(tx, { refType: 'order', refId: orderId });
     });
     if (order.itemType === 'nonmaterial' && order.withTask) {
@@ -968,13 +971,13 @@ export class ShopService implements OnModuleInit {
   /** Owner / co-manager rejects → refund everyone (unfreeze). Works on a funding or funded campaign too. */
   async rejectOrder(actorId: string, orderId: string): Promise<OrderDto> {
     const order = await this.loadManageableOrder(actorId, orderId);
-    if (!['pending', 'funding'].includes(order.status)) throw new BadRequestException('Заказ уже обработан');
+    if (!['pending', 'funding'].includes(order.status)) throw badRequest('shop.orderAlreadyHandled');
     await this.db.$transaction(async (tx) => {
       const claimed = await tx.order.updateMany({
         where: { id: orderId, status: { in: ['pending', 'funding'] } },
         data: { status: 'rejected', closedAt: new Date() },
       });
-      if (claimed.count === 0) throw new BadRequestException('Заказ уже обработан');
+      if (claimed.count === 0) throw badRequest('shop.orderAlreadyHandled');
       await this.escrow.releaseAll(tx, { refType: 'order', refId: orderId });
       await this.restoreStock(tx, order.listingId);
     });
@@ -986,16 +989,16 @@ export class ShopService implements OnModuleInit {
   /** Buyer cancels their own still-pending order → refund (unfreeze). Crowdfunding uses withdraw instead. */
   async cancelOrder(buyerId: string, orderId: string): Promise<OrderDto> {
     const order = await this.db.order.findUnique({ where: { id: orderId } });
-    if (!order) throw new NotFoundException('Заказ не найден');
-    if (order.crowdfunding) throw new BadRequestException('Это совместная кампания — отзовите свой вклад');
-    if (order.buyerId !== buyerId) throw new ForbiddenException('Это не ваш заказ');
-    if (order.status !== 'pending') throw new BadRequestException('Заказ уже обработан');
+    if (!order) throw notFound('shop.orderNotFound');
+    if (order.crowdfunding) throw badRequest('shop.withdrawPledgeInstead');
+    if (order.buyerId !== buyerId) throw forbidden('shop.notYourOrder');
+    if (order.status !== 'pending') throw badRequest('shop.orderAlreadyHandled');
     await this.db.$transaction(async (tx) => {
       const claimed = await tx.order.updateMany({
         where: { id: orderId, status: 'pending' },
         data: { status: 'cancelled', closedAt: new Date() },
       });
-      if (claimed.count === 0) throw new BadRequestException('Заказ уже обработан');
+      if (claimed.count === 0) throw badRequest('shop.orderAlreadyHandled');
       await this.escrow.releaseAll(tx, { refType: 'order', refId: orderId });
       await this.restoreStock(tx, order.listingId);
     });
@@ -1010,14 +1013,14 @@ export class ShopService implements OnModuleInit {
    */
   async refundOrder(actorId: string, orderId: string): Promise<OrderDto> {
     const order = await this.loadManageableOrder(actorId, orderId);
-    if (order.status !== 'confirmed') throw new BadRequestException('Вернуть можно только заказ в работе');
+    if (order.status !== 'confirmed') throw badRequest('shop.refundOnlyInProgress');
     await this.db.$transaction(async (tx) => {
       // Status-guarded: a refund racing the fulfilment settle (onFulfillmentDone) — one wins.
       const claimed = await tx.order.updateMany({
         where: { id: orderId, status: 'confirmed' },
         data: { status: 'refunded', closedAt: new Date() },
       });
-      if (claimed.count === 0) throw new BadRequestException('Вернуть можно только заказ в работе');
+      if (claimed.count === 0) throw badRequest('shop.refundOnlyInProgress');
       await this.escrow.releaseAll(tx, { refType: 'order', refId: orderId });
       // Отмена задачи-исполнения — через TasksService (статус + хроника task.cancelled),
       // а не прямым updateMany мимо хроники: движок владеет записями задачи.
@@ -1167,9 +1170,9 @@ export class ShopService implements OnModuleInit {
 
   private async loadManageableOrder(actorId: string, orderId: string): Promise<OrderWithDetail> {
     const order = await this.db.order.findUnique({ where: { id: orderId }, include: ORDER_INCLUDE });
-    if (!order) throw new NotFoundException('Заказ не найден');
+    if (!order) throw notFound('shop.orderNotFound');
     if (!(await this.access.can(this.user(actorId), 'showcase.manage', order.showcaseId))) {
-      throw new ForbiddenException('Нет прав на этот заказ');
+      throw forbidden('shop.orderManageDenied');
     }
     return order;
   }
@@ -1220,7 +1223,7 @@ export class ShopService implements OnModuleInit {
 
   async createWish(ownerId: string, data: CreateWishInput): Promise<WishItemDto> {
     const count = await this.db.wishItem.count({ where: { ownerId } });
-    if (count >= SHOP_LIMITS.maxWishItems) throw new BadRequestException('Достигнут лимит хотелок');
+    if (count >= SHOP_LIMITS.maxWishItems) throw badRequest('shop.wishLimit');
     const row = await this.db.wishItem.create({
       data: {
         ownerId,
@@ -1237,7 +1240,7 @@ export class ShopService implements OnModuleInit {
 
   async updateWish(ownerId: string, id: string, data: UpdateWishInput): Promise<WishItemDto> {
     const wish = await this.db.wishItem.findUnique({ where: { id } });
-    if (!wish || wish.ownerId !== ownerId) throw new NotFoundException('Хотелка не найдена');
+    if (!wish || wish.ownerId !== ownerId) throw notFound('shop.wishNotFound');
     const row = await this.db.wishItem.update({
       where: { id },
       data: {
@@ -1256,14 +1259,14 @@ export class ShopService implements OnModuleInit {
 
   async deleteWish(ownerId: string, id: string): Promise<void> {
     const wish = await this.db.wishItem.findUnique({ where: { id } });
-    if (!wish || wish.ownerId !== ownerId) throw new NotFoundException('Хотелка не найдена');
+    if (!wish || wish.ownerId !== ownerId) throw notFound('shop.wishNotFound');
     await this.db.wishItem.delete({ where: { id } });
   }
 
   /** Owner marks a wish fulfilled (manual; auto-fulfilment happens when a sourced lot settles). */
   async fulfillWish(ownerId: string, id: string): Promise<WishItemDto> {
     const wish = await this.db.wishItem.findUnique({ where: { id } });
-    if (!wish || wish.ownerId !== ownerId) throw new NotFoundException('Хотелка не найдена');
+    if (!wish || wish.ownerId !== ownerId) throw notFound('shop.wishNotFound');
     const row = await this.db.wishItem.update({ where: { id }, data: { status: 'fulfilled', fulfilledAt: new Date() } });
     return this.serializeWish(row);
   }
@@ -1275,7 +1278,7 @@ export class ShopService implements OnModuleInit {
       await this.access.grant({ resourceType: 'wishlist', resourceId: ownerId, relation: 'viewer', subjectType: 'user', subjectId: data.principalId });
     } else {
       const circle = await this.db.circle.findUnique({ where: { id: data.principalId }, select: { ownerId: true } });
-      if (!circle || circle.ownerId !== ownerId) throw new ForbiddenException('Группа не найдена');
+      if (!circle || circle.ownerId !== ownerId) throw forbidden('shop.circleNotFound');
       await this.access.grant({ resourceType: 'wishlist', resourceId: ownerId, relation: 'viewer', subjectType: 'circle', subjectId: data.principalId, subjectRelation: 'member' });
     }
     return this.loadWishlistShares(ownerId);
@@ -1309,7 +1312,7 @@ export class ShopService implements OnModuleInit {
   /** Another person's active wishlist — the viewer needs wishlist.view (or be the owner). */
   async wishlistOf(viewerId: string, ownerId: string): Promise<{ ownerName: string; items: WishItemDto[] }> {
     if (viewerId !== ownerId && !(await this.access.can(this.user(viewerId), 'wishlist.view', ownerId))) {
-      throw new ForbiddenException('Нет доступа к этому вишлисту');
+      throw forbidden('shop.wishlistAccessDenied');
     }
     const rows = await this.db.wishItem.findMany({ where: { ownerId, status: 'active' }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] });
     const u = (await this.userMinis([ownerId])).get(ownerId);
@@ -1324,29 +1327,29 @@ export class ShopService implements OnModuleInit {
    */
   async copyWishToShowcase(copierId: string, wishId: string, data: CopyWishInput): Promise<ListingDto> {
     const wish = await this.db.wishItem.findUnique({ where: { id: wishId } });
-    if (!wish) throw new NotFoundException('Хотелка не найдена');
-    if (wish.status !== 'active') throw new BadRequestException('Хотелка уже исполнена или в архиве');
+    if (!wish) throw notFound('shop.wishNotFound');
+    if (wish.status !== 'active') throw badRequest('shop.wishNotActive');
     if (wish.ownerId !== copierId && !(await this.access.can(this.user(copierId), 'wishlist.view', wish.ownerId))) {
-      throw new ForbiddenException('Нет доступа к этой хотелке');
+      throw forbidden('shop.wishAccessDenied');
     }
     const { ownerType, ownerId } = this.resolveOwner(copierId);
     const shop = await this.getOrCreateShop(ownerType, ownerId);
-    if (!(await this.canManageShop(copierId, shop))) throw new ForbiddenException('Нет прав на магазин');
+    if (!(await this.canManageShop(copierId, shop))) throw forbidden('shop.shopManageDenied');
 
     // Target showcase: an existing one I manage, or a new one named after the wish owner.
     let showcaseId: string;
     if (data.showcaseId) {
       const sc = await this.loadShowcaseManageable(copierId, data.showcaseId);
-      if (sc.shopId !== shop.id) throw new ForbiddenException('Витрина не из вашего магазина');
+      if (sc.shopId !== shop.id) throw forbidden('shop.showcaseOtherShop');
       showcaseId = sc.id;
     } else {
       showcaseId = (await this.createShowcase(copierId, { name: data.newShowcaseName!.trim() })).id;
     }
 
     const lines = await this.resolvePrices(shop, { prices: data.prices });
-    if (!lines) throw new BadRequestException('Укажите цену');
+    if (!lines) throw badRequest('shop.priceRequired');
     const count = await this.db.listing.count({ where: { showcaseId } });
-    if (count >= SHOP_LIMITS.maxListingsPerShowcase) throw new BadRequestException('Достигнут лимит товаров в витрине');
+    if (count >= SHOP_LIMITS.maxListingsPerShowcase) throw badRequest('shop.listingLimit');
 
     const row = await this.db.listing.create({
       data: {
@@ -1411,7 +1414,11 @@ export class ShopService implements OnModuleInit {
         const u = users.get(t.subjectId);
         return { principalType: 'user' as const, principalId: t.subjectId, name: u ? `${u.firstName} ${u.lastName ?? ''}`.trim() : '—' };
       }
-      return { principalType: 'circle' as const, principalId: t.subjectId, name: circles.get(t.subjectId) ?? 'Группа' };
+      return {
+      principalType: 'circle' as const,
+      principalId: t.subjectId,
+      name: circles.get(t.subjectId) ?? this.i18n.translate('shop.group'),
+    };
     });
   }
 
@@ -1437,7 +1444,7 @@ export class ShopService implements OnModuleInit {
   async listStaff(viewerId: string): Promise<ShopStaffDto[]> {
     const { ownerType, ownerId } = this.resolveOwner(viewerId);
     const shop = await this.getOrCreateShop(ownerType, ownerId);
-    if (!(await this.canManageShop(viewerId, shop))) throw new ForbiddenException('Нет прав на этот магазин');
+    if (!(await this.canManageShop(viewerId, shop))) throw forbidden('shop.shopManageDenied');
 
     const showcases = await this.db.showcase.findMany({ where: { shopId: shop.id }, select: { id: true, name: true } });
     const showcaseName = new Map(showcases.map((s) => [s.id, s.name]));
@@ -1479,14 +1486,14 @@ export class ShopService implements OnModuleInit {
   async assignStaff(viewerId: string, data: AssignShopStaffInput): Promise<void> {
     const { ownerType, ownerId } = this.resolveOwner(viewerId);
     const shop = await this.getOrCreateShop(ownerType, ownerId);
-    if (!(await this.canManageShop(viewerId, shop))) throw new ForbiddenException('Нет прав на этот магазин');
+    if (!(await this.canManageShop(viewerId, shop))) throw forbidden('shop.shopManageDenied');
     await this.assertInEnvironment(viewerId, data.userId);
     if (data.scope === 'shop') {
       await this.access.grant({ resourceType: 'shop', resourceId: shop.id, relation: 'manager', subjectType: 'user', subjectId: data.userId });
     } else {
-      if (!data.showcaseId) throw new BadRequestException('Не указана витрина');
+      if (!data.showcaseId) throw badRequest('shop.showcaseRequired');
       const sc = await this.db.showcase.findUnique({ where: { id: data.showcaseId } });
-      if (!sc || sc.shopId !== shop.id) throw new NotFoundException('Витрина не найдена');
+      if (!sc || sc.shopId !== shop.id) throw notFound('shop.showcaseNotFound');
       await this.access.grant({ resourceType: 'showcase', resourceId: data.showcaseId, relation: 'manager', subjectType: 'user', subjectId: data.userId });
     }
   }
@@ -1495,12 +1502,12 @@ export class ShopService implements OnModuleInit {
     // scope и showcaseId приходят сырыми query-параметрами (в отличие от assignStaff,
     // у которого есть Zod-схема). Валидируем здесь — сервис общий для всех вызывающих.
     if (scope !== 'shop' && scope !== 'showcase') {
-      throw new BadRequestException('Некорректная область: shop | showcase');
+      throw badRequest('shop.badScope');
     }
-    if (scope === 'showcase' && !showcaseId) throw new BadRequestException('Не указана витрина');
+    if (scope === 'showcase' && !showcaseId) throw badRequest('shop.showcaseRequired');
     const { ownerType, ownerId } = this.resolveOwner(viewerId);
     const shop = await this.getOrCreateShop(ownerType, ownerId);
-    if (!(await this.canManageShop(viewerId, shop))) throw new ForbiddenException('Нет прав на этот магазин');
+    if (!(await this.canManageShop(viewerId, shop))) throw forbidden('shop.shopManageDenied');
     if (scope === 'shop') {
       await this.access.revoke({ resourceType: 'shop', resourceId: shop.id, relation: 'manager', subjectType: 'user', subjectId: userId });
     } else if (showcaseId) {
@@ -1511,7 +1518,7 @@ export class ShopService implements OnModuleInit {
       // собственной авторизации) как есть — можно было снять права со-управляющего
       // на чужой витрине.
       const sc = await this.db.showcase.findUnique({ where: { id: showcaseId } });
-      if (!sc || sc.shopId !== shop.id) throw new NotFoundException('Витрина не найдена');
+      if (!sc || sc.shopId !== shop.id) throw notFound('shop.showcaseNotFound');
       await this.access.revoke({ resourceType: 'showcase', resourceId: showcaseId, relation: 'manager', subjectType: 'user', subjectId: userId });
     }
   }
@@ -1535,9 +1542,9 @@ export class ShopService implements OnModuleInit {
 
   private async loadShowcaseManageable(viewerId: string, showcaseId: string): Promise<ShowcaseRow> {
     const showcase = await this.db.showcase.findUnique({ where: { id: showcaseId } });
-    if (!showcase) throw new NotFoundException('Витрина не найдена');
+    if (!showcase) throw notFound('shop.showcaseNotFound');
     if (!(await this.access.can(this.user(viewerId), 'showcase.manage', showcaseId))) {
-      throw new ForbiddenException('Нет прав на эту витрину');
+      throw forbidden('shop.showcaseManageDenied');
     }
     return showcase;
   }
@@ -1576,7 +1583,7 @@ export class ShopService implements OnModuleInit {
    * (см. onModuleInit) его бы уже не отозвал — связи-то не было.
    */
   private async assertInEnvironment(ownerId: string, otherId: string): Promise<void> {
-    await this.contacts.assertReachable(ownerId, [otherId], 'Этот человек не в вашем окружении', {
+    await this.contacts.assertReachable(ownerId, [otherId], 'contacts.notInCircle', {
       personalOnly: true,
     });
   }
@@ -1589,13 +1596,13 @@ export class ShopService implements OnModuleInit {
           where: { workspaceId: shop.ownerId, userId: data.principalId },
           select: { userId: true },
         });
-        if (!member) throw new BadRequestException('Поделиться можно только с сотрудником компании');
+        if (!member) throw badRequest('shop.shareCompanyMemberOnly');
       } else {
         await this.assertInEnvironment(shop.ownerId, data.principalId);
       }
     } else {
       const circle = await this.db.circle.findUnique({ where: { id: data.principalId }, select: { ownerId: true } });
-      if (!circle || circle.ownerId !== shop.ownerId) throw new ForbiddenException('Группа не найдена');
+      if (!circle || circle.ownerId !== shop.ownerId) throw forbidden('shop.circleNotFound');
     }
   }
 
@@ -1605,11 +1612,7 @@ export class ShopService implements OnModuleInit {
       where: { issuerType: shop.ownerType, issuerId: shop.ownerId, status: 'active' },
     });
     if (!currency) {
-      throw new BadRequestException(
-        shop.ownerType === 'user'
-          ? 'Сначала создайте свою валюту в Кошельке, чтобы назначать цену'
-          : 'Сначала создайте валюту компании в кошельке организации, чтобы назначать цену',
-      );
+      throw badRequest(shop.ownerType === 'user' ? 'shop.needOwnCurrency' : 'shop.needCompanyCurrency');
     }
     return currency;
   }
@@ -1656,7 +1659,7 @@ export class ShopService implements OnModuleInit {
       );
       for (const line of data.prices) {
         if (!allowed.has(line.currencyId)) {
-          throw new BadRequestException('Цена — только в своей валюте или валюте человека из окружения');
+          throw badRequest('shop.priceCurrencyScope');
         }
       }
       return data.prices.map((l) => ({ currencyId: l.currencyId, amount: l.amount }));
@@ -1674,10 +1677,10 @@ export class ShopService implements OnModuleInit {
 
   /** A lot is sellable only while active and within its availability window. */
   private assertSellable(listing: { status: string; availableFrom: Date | null; availableUntil: Date | null }): void {
-    if (listing.status !== 'active') throw new BadRequestException('Товар недоступен');
+    if (listing.status !== 'active') throw badRequest('shop.listingUnavailable');
     const now = new Date();
-    if (listing.availableFrom && now < listing.availableFrom) throw new BadRequestException('Продажи ещё не начались');
-    if (listing.availableUntil && now > listing.availableUntil) throw new BadRequestException('Продажа закрыта');
+    if (listing.availableFrom && now < listing.availableFrom) throw badRequest('shop.salesNotStarted');
+    if (listing.availableUntil && now > listing.availableUntil) throw badRequest('shop.salesClosed');
   }
 
   /**
@@ -1698,7 +1701,7 @@ export class ShopService implements OnModuleInit {
   /** Atomically reserve one unit of stock (oversell-safe; null limit = ∞). Throws when sold out. */
   private async reserveStock(tx: Prisma.TransactionClient, listingId: string): Promise<void> {
     const n = await tx.$executeRaw`UPDATE "listings" SET "stock_sold" = "stock_sold" + 1 WHERE "id" = ${listingId} AND ("stock_limit" IS NULL OR "stock_sold" < "stock_limit")`;
-    if (n === 0) throw new BadRequestException('Товар распродан');
+    if (n === 0) throw badRequest('shop.soldOut');
   }
 
   /** Release one reserved unit (cancel / reject / refund / expiry). Guarded so it never goes below 0. */
@@ -1716,10 +1719,10 @@ export class ShopService implements OnModuleInit {
     if (!name) {
       if (shop.ownerType === 'user') {
         const u = (await this.userMinis([shop.ownerId])).get(shop.ownerId);
-        name = u ? `${u.firstName} ${u.lastName ?? ''}`.trim() : 'Магазин';
+        name = u ? `${u.firstName} ${u.lastName ?? ''}`.trim() : this.i18n.translate('shop.defaultShopName');
       } else {
         const ws = await this.db.workspace.findUnique({ where: { id: shop.ownerId }, select: { name: true } });
-        name = ws?.name ?? 'Магазин';
+        name = ws?.name ?? this.i18n.translate('shop.defaultShopName');
       }
     }
     return {
@@ -1801,7 +1804,11 @@ export class ShopService implements OnModuleInit {
         const u = users.get(t.subjectId);
         return { principalType: 'user' as const, principalId: t.subjectId, name: u ? `${u.firstName} ${u.lastName ?? ''}`.trim() : '—' };
       }
-      return { principalType: 'circle' as const, principalId: t.subjectId, name: circles.get(t.subjectId) ?? 'Группа' };
+      return {
+      principalType: 'circle' as const,
+      principalId: t.subjectId,
+      name: circles.get(t.subjectId) ?? this.i18n.translate('shop.group'),
+    };
     });
   }
 

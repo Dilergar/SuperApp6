@@ -10,14 +10,15 @@
 // не даст сработать drop.
 // ============================================================
 import { useRef, useState, type ReactNode } from 'react';
+import { useTranslations } from 'next-intl';
 import { Icon, type IconName } from './Icon';
 import { cx, toneVars, type Tone } from './tones';
 
 export interface DropzoneProps {
   onFiles: (files: File[]) => void;
-  /** Текст под иконкой; по умолчанию — «Перетащите файлы или выберите». */
+  /** Текст под иконкой; по умолчанию — фраза каталога `common.dropzone.title`. */
   title?: ReactNode;
-  /** Подпись-капс снизу (например, «МАКС. РАЗМЕР: 20 МБ»). */
+  /** Подпись-капс снизу: потолок размера собирает вызывающий. */
   note?: string;
   icon?: IconName;
   tone?: Tone;
@@ -40,6 +41,7 @@ export function Dropzone({
   className,
   children,
 }: DropzoneProps) {
+  const t = useTranslations('common');
   const [drag, setDrag] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -80,14 +82,14 @@ export function Dropzone({
       </span>
 
       <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--on-surface-variant)' }}>
-        {title ?? (
-          <>
-            Перетащите файлы или{' '}
-            <button type="button" className="ui-dropzone-link" disabled={disabled} onClick={() => inputRef.current?.click()}>
-              выберите
-            </button>
-          </>
-        )}
+        {title ??
+          t.rich('dropzone.title', {
+            pick: (chunk: ReactNode) => (
+              <button type="button" className="ui-dropzone-link" disabled={disabled} onClick={() => inputRef.current?.click()}>
+                {chunk}
+              </button>
+            ),
+          })}
       </div>
 
       {note && <div className="label-caps">{note}</div>}

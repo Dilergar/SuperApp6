@@ -9,12 +9,14 @@
 // такой факт теперь отвергает — 400 «Фактическое окончание раньше начала»).
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useMutation } from '@tanstack/react-query';
 import { ATTENDANCE_OUTCOMES, type ShiftDto } from '@superapp/shared';
 import { Button, Input, Modal, SegmentedControl, Textarea } from '@/components/ui';
 import { apiErrorMessage } from '@/lib/api';
 import { toastError } from '@/lib/toast';
 import { localToIso, timeIn } from '@/lib/objects-time';
+import { dmy } from '@/lib/dates';
 import { shiftsApi } from '../objects-api';
 
 /** «09:05» → минуты от полуночи; неразборчивое — null */
@@ -50,6 +52,8 @@ export function AttendanceModal({
   onClose: () => void;
   onSaved?: () => void;
 }) {
+  const t = useTranslations('objects');
+  const tc = useTranslations('common');
   const [outcome, setOutcome] = useState<string>(shift.attendance?.outcome ?? 'worked');
   const [lateMin, setLateMin] = useState(String(shift.attendance?.lateMin ?? 0));
   const [startAt, setStartAt] = useState(
@@ -73,8 +77,8 @@ export function AttendanceModal({
       let actualEndAt: string | null = null;
 
       if (outcome !== 'absent') {
-        if (startMin === null) throw new Error('Фактическое начало — в формате 09:00');
-        if (endMin === null) throw new Error('Фактическое окончание — в формате 18:00');
+        if (startMin === null) throw new Error(t('attendance.startFormat'));
+        if (endMin === null) throw new Error(t('attendance.endFormat'));
         actualStartAt = localToIso(shift.localDate, startAt, timeZone);
         // Конец РАНЬШЕ начала = смена перевалила за полночь → следующие сутки.
         actualEndAt = localToIso(endMin < startMin ? addDays(shift.localDate, 1) : shift.localDate, endAt, timeZone);
@@ -96,16 +100,16 @@ export function AttendanceModal({
   });
 
   return (
-    <Modal open={open} onClose={onClose} title={`Факт выхода · ${shift.localDate}`}>
+    <Modal open={open} onClose={onClose} title={t('attendance.title', { date: dmy(shift.localDate) })}>
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         <SegmentedControl
           value={outcome}
           onChange={setOutcome}
-          items={ATTENDANCE_OUTCOMES.map((o) => ({ key: o.value, label: o.label }))}
+          items={ATTENDANCE_OUTCOMES.map((o) => ({ key: o.value, label: t(`attendanceOutcome.${o.value}`) }))}
         />
         {outcome === 'late' && (
           <Input
-            label="Опоздание, мин"
+            label={t('attendance.lateMin')}
             inputMode="numeric"
             value={lateMin}
             onChange={(e) => setLateMin(e.target.value)}
@@ -113,23 +117,28 @@ export function AttendanceModal({
         )}
         {outcome !== 'absent' && (
           <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-3)' }}>
-            <Input label="Фактически с" placeholder="09:00" value={startAt} onChange={(e) => setStartAt(e.target.value)} />
             <Input
-              label="Фактически до"
+              label={t('attendance.actualFrom')}
+              placeholder="09:00"
+              value={startAt}
+              onChange={(e) => setStartAt(e.target.value)}
+            />
+            <Input
+              label={t('attendance.actualTo')}
               placeholder="18:00"
               value={endAt}
-              hint={overnight ? 'Следующие сутки — смена через полночь' : undefined}
+              hint={overnight ? t('attendance.overnightHint') : undefined}
               onChange={(e) => setEndAt(e.target.value)}
             />
           </div>
         )}
-        <Textarea label="Комментарий" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
+        <Textarea label={t('attendance.comment')} rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
         <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end' }}>
           <Button variant="ghost" onClick={onClose}>
-            Отмена
+            {tc('actions.cancel')}
           </Button>
           <Button variant="primary" loading={save.isPending} onClick={() => save.mutate()}>
-            Сохранить
+            {tc('actions.save')}
           </Button>
         </div>
       </div>

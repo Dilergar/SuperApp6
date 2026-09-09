@@ -32,7 +32,7 @@ export class RichCardsController {
   constructor(private readonly richCards: RichCardsService) {}
 
   @Post(':actionKey/execute')
-  @ApiOperation({ summary: 'Выполнить действие карточки (re-renders the card)' })
+  @ApiOperation({ summary: 'Run a card action (re-renders the card)' })
   async execute(
     @CurrentUser() user: JwtPayload,
     @Param('actionKey') actionKey: string,
@@ -46,7 +46,7 @@ export class RichCardsController {
   }
 
   @Post('share')
-  @ApiOperation({ summary: 'Поделиться карточкой сущности в чат' })
+  @ApiOperation({ summary: 'Share an entity card into a chat' })
   async share(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const { chatId, refType, refId } = shareSchema.parse(body);
     return {
@@ -56,7 +56,7 @@ export class RichCardsController {
   }
 
   @Get(':refType/:refId')
-  @ApiOperation({ summary: 'Текущая карточка сущности для зрителя' })
+  @ApiOperation({ summary: 'The current entity card as the viewer sees it' })
   async render(
     @CurrentUser() user: JwtPayload,
     @Param('refType') refType: string,

@@ -1,28 +1,17 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useConfirm } from '@/components/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DocumentVersionDto } from '@superapp/shared';
 import { apiErrorMessage } from '@/lib/api';
+import { useBytes, useFormatters } from '@/lib/format';
 import { getDownloadUrl } from '@/lib/files-api';
 import { chronicleKey, documentVersionsKey, fetchChronicle } from '@/lib/queries';
 import { listDocumentVersions, restoreDocumentVersion } from '@/lib/docs-api';
 import type { DocsPlace } from '@/lib/docs-api';
 import { ChronicleFeed } from '@/components/chatter/ChronicleFeed';
-
-const dateFmt = new Intl.DateTimeFormat('ru-RU', {
-  day: '2-digit',
-  month: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-});
-
-function humanSize(bytes: number | null): string {
-  if (!bytes) return '';
-  const mb = bytes / (1024 * 1024);
-  return mb >= 1 ? `${mb.toFixed(1)} МБ` : `${Math.max(Math.round(bytes / 1024), 1)} КБ`;
-}
 
 /**
  * Панель «История» документа: снимки-версии (скачать / вернуть) и лента правок.
@@ -50,6 +39,10 @@ export function DocumentHistory({
   /** Открыть заново — уже с новым содержимым */
   onResumeEditor: () => void;
 }) {
+  const t = useTranslations('docs');
+  const tc = useTranslations('common');
+  const f = useFormatters();
+  const bytes = useBytes();
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [confirm, confirmUI] = useConfirm();
@@ -77,7 +70,7 @@ export function DocumentHistory({
       const { url } = await getDownloadUrl(version.fileId);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${title} (версия ${version.versionNo}).${title.split('.').pop() ?? ''}`;
+      a.download = `${t('versionFile', { title, n: version.versionNo })}.${title.split('.').pop() ?? ''}`;
       a.rel = 'noopener';
       a.click();
     } catch (err) {
@@ -133,11 +126,11 @@ export function DocumentHistory({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
-        <div className="title-sm" style={{ flex: 1 }}>История</div>
+        <div className="title-sm" style={{ flex: 1 }}>{t('history')}</div>
         <button
           type="button"
           onClick={onClose}
-          title="Скрыть историю"
+          title={t('hideHistory')}
           style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '0.9rem' }}
         >
           ✕
@@ -147,11 +140,11 @@ export function DocumentHistory({
       {error && <p className="body-sm" style={{ color: 'var(--danger)' }}>{error}</p>}
 
       <section>
-        <div className="label-md" style={{ marginBottom: 'var(--spacing-2)' }}>Версии</div>
-        {versionsPending && <p className="body-sm">Загрузка…</p>}
+        <div className="label-md" style={{ marginBottom: 'var(--spacing-2)' }}>{t('versions')}</div>
+        {versionsPending && <p className="body-sm">{tc('state.loading')}</p>}
         {!versionsPending && versions.length === 0 && (
           <p className="body-sm" style={{ color: 'var(--on-surface-variant)' }}>
-            Пока нет ни одной — версия создаётся, когда из документа выходит последний редактор.
+            {t('noVersions')}
           </p>
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
@@ -169,14 +162,14 @@ export function DocumentHistory({
             >
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div className="label-md" style={{ fontSize: '0.82rem' }}>
-                  Версия {v.versionNo}
-                  {v.signed && ' · подписана'}
-                  {v.status === 'pending' && ' · готовится'}
+                  {t('versionNo', { n: v.versionNo })}
+                  {v.signed && ` · ${t('versionSigned')}`}
+                  {v.status === 'pending' && ` · ${t('versionPending')}`}
                 </div>
                 <div className="body-sm" style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)' }}>
-                  {dateFmt.format(new Date(v.createdAt))}
-                  {v.size ? ` · ${humanSize(v.size)}` : ''}
-                  {v.reason === 'manual' ? ' · вручную' : ''}
+                  {f.dateTime(v.createdAt, 'dayMonth')}
+                  {v.size ? ` · ${bytes(v.size)}` : ''}
+                  {v.reason === 'manual' ? ` · ${t('versionManual')}` : ''}
                 </div>
               </div>
               {v.status === 'ready' && v.fileId && (
@@ -184,7 +177,7 @@ export function DocumentHistory({
                   <button
                     type="button"
                     onClick={() => void download(v)}
-                    title="Скачать эту версию"
+                    title={t('downloadVersion')}
                     style={chipBtn(false)}
                   >
                     ↓
@@ -194,17 +187,17 @@ export function DocumentHistory({
                       type="button"
                       onClick={() => confirm(
                         {
-                          title: `Вернуть версию ${v.versionNo} как текущую?`,
-                          message: 'Редактор закроется и откроется заново. Нынешнее содержимое останется в истории — возврат можно отменить.',
-                          confirmLabel: 'Вернуть',
+                          title: t('restoreConfirm.title', { n: v.versionNo }),
+                          message: t('restoreConfirm.message'),
+                          confirmLabel: t('restore'),
                         },
                         () => restore.mutate(v.id),
                       )}
                       disabled={restore.isPending}
-                      title="Сделать эту версию текущим содержимым"
+                      title={t('restoreHint')}
                       style={chipBtn(true)}
                     >
-                      {restore.isPending ? '…' : '↩ Вернуть'}
+                      {restore.isPending ? '…' : `↩ ${t('restore')}`}
                     </button>
                   )}
                 </>
@@ -215,11 +208,11 @@ export function DocumentHistory({
       </section>
 
       <section>
-        <div className="label-md" style={{ marginBottom: 'var(--spacing-2)' }}>Правки</div>
+        <div className="label-md" style={{ marginBottom: 'var(--spacing-2)' }}>{t('edits')}</div>
         <ChronicleFeed
           entries={chronicle?.items ?? []}
           actors={chronicle?.actors ?? {}}
-          emptyText="Пока никто не правил"
+          emptyText={t('noEdits')}
         />
       </section>
       {confirmUI}

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { DOC_TEMPLATE_GRANT_KINDS } from '../constants/audiences';
+import { SUPPORTED_LOCALES } from '../constants/i18n';
 import {
   DOC_CATEGORIES,
   DOC_FIELD_KINDS,
@@ -19,11 +20,11 @@ const safeText = (max: number, min = 1) =>
     .trim()
     .min(min)
     .max(max)
-    .refine((v) => !/[<>]/.test(v), { message: 'Символы < и > запрещены' });
+    .refine((v) => !/[<>]/.test(v), { message: 'validation.documents.badCharacters' });
 
-const categoryEnum = z.enum(DOC_CATEGORIES.map((c) => c.value) as [string, ...string[]]);
-const visibilityEnum = z.enum(DOC_VISIBILITIES.map((v) => v.value) as [string, ...string[]]);
-const fieldKindEnum = z.enum(DOC_FIELD_KINDS.map((k) => k.value) as [string, ...string[]]);
+const categoryEnum = z.enum([...DOC_CATEGORIES] as [string, ...string[]]);
+const visibilityEnum = z.enum([...DOC_VISIBILITIES] as [string, ...string[]]);
+const fieldKindEnum = z.enum([...DOC_FIELD_KINDS] as [string, ...string[]]);
 
 /** Ключ поля формы = имя тега в шаблоне ({Дней}), поэтому без точек и фигурных скобок */
 const fieldKeySchema = z
@@ -31,7 +32,7 @@ const fieldKeySchema = z
   .trim()
   .min(1)
   .max(60)
-  .refine((v) => !/[{}.<>|]/.test(v), { message: 'В ключе поля нельзя использовать { } . | < >' });
+  .refine((v) => !/[{}.<>|]/.test(v), { message: 'validation.documents.fieldKey' });
 
 export const docFormFieldSchema = z.object({
   key: fieldKeySchema,
@@ -50,7 +51,7 @@ export const createDocTypeSchema = z.object({
   category: categoryEnum.optional(),
   numberFormat: safeText(DOC_LIMITS.maxNumberFormatLength).nullable().optional(),
   visibility: visibilityEnum.optional(),
-  signatureLevel: z.enum(DOC_SIGNATURE_LEVELS.map((v) => v.value) as [string, ...string[]]).optional(),
+  signatureLevel: z.enum([...DOC_SIGNATURE_LEVELS] as [string, ...string[]]).optional(),
   toPersonalFile: z.boolean().optional(),
   /** Режим обязательного вручения (ст. 61 п. 3 / ст. 65 ТК РК) — КЭДО */
   specialDelivery: z.boolean().optional(),
@@ -73,11 +74,18 @@ export const createDocTemplateSchema = z.object({
   builderDoc: builderDocSchema.optional(),
   fields: z.array(docFormFieldSchema).max(DOC_LIMITS.maxFormFields).optional(),
   selfService: z.boolean().optional(),
+  /**
+   * ЯЗЫК БЛАНКА — язык самой бумаги, а не интерфейса автора. Не задан — язык
+   * документов организации (`Workspace.documentLanguage`).
+   */
+  language: z.enum(SUPPORTED_LOCALES).optional(),
 });
 
 export const updateDocTemplateSchema = z.object({
   name: safeText(DOC_LIMITS.maxNameLength).optional(),
   description: safeText(500).nullable().optional(),
+  /** Язык бланка: сменить можно, пока по нему не подан ни один документ */
+  language: z.enum(SUPPORTED_LOCALES).optional(),
   fields: z.array(docFormFieldSchema).max(DOC_LIMITS.maxFormFields).optional(),
   selfService: z.boolean().optional(),
   /**

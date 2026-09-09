@@ -2,7 +2,8 @@
 
 import { Icon } from '@/components/ui';
 import type { ChatSummary, PresenceInfo } from '@superapp/shared';
-import { PersonAvatar, formatListTime } from './messenger-ui';
+import { useTranslations } from 'next-intl';
+import { PersonAvatar, useListTime } from './messenger-ui';
 import { OnlineDot } from './presence-ui';
 import { stripMentions } from './mention-render';
 
@@ -33,6 +34,8 @@ export function ChatList({
    *  surrounding container provides it (no doubled surface / radius). */
   embedded?: boolean;
 }) {
+  const t = useTranslations('messenger');
+  const tc = useTranslations('common');
   return (
     <div
       style={{
@@ -54,25 +57,25 @@ export function ChatList({
           gap: 'var(--spacing-2)',
         }}
       >
-        <h2 className="title-md" style={{ fontSize: '1.1rem' }}>Чаты</h2>
+        <h2 className="title-md" style={{ fontSize: '1.1rem' }}>{t('list.title')}</h2>
         <button
           onClick={onNewChat}
           className="btn-success"
           style={{ fontSize: '0.78rem', padding: '0.35rem 0.9rem' }}
         >
-          + Новый чат
+          + {t('list.newChat')}
         </button>
       </div>
 
       {/* List */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '0 var(--spacing-2) var(--spacing-2)' }}>
-        {loading && <p className="label-sm" style={{ padding: 'var(--spacing-4)' }}>Загрузка...</p>}
+        {loading && <p className="label-sm" style={{ padding: 'var(--spacing-4)' }}>{tc('state.loading')}</p>}
 
         {!loading && chats.length === 0 && (
           <div style={{ padding: 'var(--spacing-8) var(--spacing-4)', textAlign: 'center' }}>
-            <p className="label-md" style={{ marginBottom: 'var(--spacing-1)' }}>Пока нет чатов</p>
+            <p className="label-md" style={{ marginBottom: 'var(--spacing-1)' }}>{t('list.empty')}</p>
             <p className="label-sm" style={{ opacity: 0.7 }}>
-              Нажмите «Новый чат», чтобы написать кому-то из окружения
+              {t('list.emptyHint')}
             </p>
           </div>
         )}
@@ -106,13 +109,15 @@ function ChatRow({
   peerOnline: boolean;
   onSelect: () => void;
 }) {
+  const t = useTranslations('messenger');
+  const listTime = useListTime();
   const last = chat.lastMessage;
   const mineLast = !!last && last.authorId === currentUserId && !last.deleted && last.type !== 'system';
   const isMulti = chat.type !== 'dm';
 
   let preview: string;
-  if (!last) preview = isMulti && chat.memberCount != null ? `${chat.memberCount} участник(ов)` : 'Нет сообщений';
-  else if (last.deleted) preview = 'Сообщение удалено';
+  if (!last) preview = isMulti && chat.memberCount != null ? t('chat.participants', { n: chat.memberCount }) : t('list.noMessages');
+  else if (last.deleted) preview = t('list.messageDeleted');
   else preview = stripMentions(last.text);
   // In group/context, prefix a non-mine, non-system last message with the author.
   const previewAuthor =
@@ -150,7 +155,7 @@ function ChatRow({
         {!isMulti && peerOnline && <OnlineDot />}
         {isMulti && (
           <span
-            title={chat.type === 'group' ? 'Группа' : 'Чат задачи'}
+            title={chat.type === 'group' ? t('list.group') : t('list.taskChat')}
             style={{
               position: 'absolute',
               bottom: -3,
@@ -167,7 +172,7 @@ function ChatRow({
         )}
         {chat.pinned && (
           <span
-            title="Закреплён"
+            title={t('list.pinned')}
             style={{ position: 'absolute', top: -4, left: -4, fontSize: '0.6rem', transform: 'none' }}
           ><Icon name="flag" size={15} /></span>
         )}
@@ -188,7 +193,7 @@ function ChatRow({
             {chat.title}
           </span>
           <span className="label-sm" style={{ fontSize: '0.68rem', flexShrink: 0 }}>
-            {last ? formatListTime(last.createdAt) : ''}
+            {last ? listTime(last.createdAt) : ''}
           </span>
         </div>
 
@@ -206,7 +211,7 @@ function ChatRow({
               opacity: last?.deleted ? 0.7 : 1,
             }}
           >
-            {mineLast && <span style={{ marginRight: '0.25rem', color: 'var(--on-surface-variant)', fontWeight: 600 }}>Вы:</span>}
+            {mineLast && <span style={{ marginRight: '0.25rem', color: 'var(--on-surface-variant)', fontWeight: 600 }}>{t('list.you')}</span>}
             {previewAuthor && <span style={{ color: 'var(--on-surface-variant)', fontWeight: 600 }}>{previewAuthor}</span>}
             {preview}
           </span>

@@ -73,10 +73,10 @@ export class NotesRegistriesProvider implements OnModuleInit {
     // ---- Кнопка меню сообщения: текст сообщения — в заметку (форма на клиенте)
     this.quickActions.register({
       key: 'notes.from-message',
-      label: 'В заметку',
+      labelKey: 'notes.quickAction.label',
       icon: '📝',
       scopes: ['message'],
-      description: 'Сохранить сообщение цитатой в новую или существующую заметку',
+      descriptionKey: 'notes.quickAction.description',
     });
   }
 

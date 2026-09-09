@@ -1,0 +1,117 @@
+{
+  "card": {
+    "cancel": "Withdraw the request",
+    "cancelArmed": "Withdraw for sure?",
+    "everyoneNeeded": " · everyone is needed",
+    "fingerprint": "{kind} · fingerprint",
+    "notOpened": "The request did not open",
+    "notOpenedHint": "It may have been withdrawn, or you have no access to its subject.",
+    "openSubject": "Open the subject",
+    "route": "The route",
+    "routeOneStep": "One step",
+    "routeSteps": "{n, plural, one {# step} other {# steps}} one after another",
+    "step": "Step {index} · {title}",
+    "title": "Request"
+  },
+  "commentPlaceholder": "What exactly to fix",
+  "decision": {
+    "approved": "Approve",
+    "rejected": "Decline",
+    "returned": "Send back"
+  },
+  "decisionDone": {
+    "approved": "Approved",
+    "rejected": "Declined",
+    "returned": "Sent back for rework"
+  },
+  "decisionVerb": {
+    "rejected": "declined",
+    "returned": "sent it back"
+  },
+  "inboxTitle": "Awaiting decision",
+  "kind": {
+    "acknowledgement": {
+      "action": "Acknowledge",
+      "done": "acknowledged",
+      "waiting": "Awaiting acknowledgement"
+    },
+    "approval": {
+      "action": "Approve",
+      "done": "approved",
+      "waiting": "Awaiting approval"
+    },
+    "signature": {
+      "action": "Sign",
+      "done": "signed",
+      "waiting": "Awaiting signature"
+    }
+  },
+  "mine": {
+    "active": "In progress",
+    "archived": "Finished",
+    "cancel": "Withdraw",
+    "cancelArmed": "Withdraw for sure?",
+    "emptyActive": "You have not sent anything",
+    "emptyActiveHint": "Send a document down a route — and you will see here who has it now.",
+    "emptyArchived": "No finished requests",
+    "emptyArchivedHint": "Approved, declined and cancelled requests land here.",
+    "openSubject": "Open the request subject",
+    "tabsAria": "Which requests to show"
+  },
+  "overdue": "Overdue",
+  "overdueSuffix": " · overdue",
+  "reason": "Reason",
+  "sign": "Sign",
+  "signEcp": "Sign with a QES",
+  "signatureKind": {
+    "ecp": "Qualified electronic signature",
+    "internal": "Internal approval in SuperApp6",
+    "sms": "Confirmed by an SMS code"
+  },
+  "someone": "An employee",
+  "source": {
+    "acknowledgements": "Acknowledgements",
+    "signatures": "Signatures"
+  },
+  "sourceLabel": "Approvals",
+  "stack": {
+    "asks": "Asks: ",
+    "due": "Due",
+    "dueLine": "{label} · {date}",
+    "empty": "Nothing is waiting",
+    "emptyHint": "Every decision is made.",
+    "loadFailed": "The stack did not load",
+    "loadFailedHint": "This is a connection failure, not an empty stack.",
+    "next": "Next",
+    "openFull": "Open in full",
+    "position": "{index} of {total}",
+    "prev": "Back",
+    "tabInbox": "On me",
+    "tabMine": "My requests",
+    "tabsAria": "Decisions"
+  },
+  "status": {
+    "approved": "Approved",
+    "cancelled": "Cancelled",
+    "pending": "Awaiting decision",
+    "rejected": "Declined",
+    "returned": "Sent back"
+  },
+  "stepOverdue": "Overdue",
+  "stepStatus": {
+    "active": "Awaiting decision",
+    "approved": "Done",
+    "rejected": "Declined",
+    "returned": "Sent back",
+    "skipped": "Skipped",
+    "skippedLower": "skipped",
+    "waiting": "Waiting its turn",
+    "waitingLower": "waiting its turn"
+  },
+  "summary": {
+    "stepOf": "Step {index} of {total} · {waiting}"
+  },
+  "toAssignee": "the assignee",
+  "toSelectedGroup": "the selected group",
+  "waitingFor": "Waiting for:"
+}

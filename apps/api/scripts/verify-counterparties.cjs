@@ -60,7 +60,7 @@ async function main() {
     kbe: '17',
     taxRegime: 'simplified',
     directorName: 'Иванов Иван',
-    signBasis: 'Устава',
+    signBasis: { kind: 'ustav' },
     vatPayer: false,
     phone: '+7 727 244 00 00',
     email: 'info@romashka.kz',
@@ -76,13 +76,18 @@ async function main() {
   // Фактический адрес: пусто = совпадает с юридическим — резолвер шаблонов
   // подставляет юрадрес (контракт честности группы «Контрагент»)
   const resolved = (
-    await call('POST', '/templates/dev/resolve', owner.token, { workspaceId: ws.id, counterpartyId: cp.id })
-  ).json?.data?.values?.['Контрагент'];
+    await call('POST', '/templates/dev/resolve', owner.token, {
+      workspaceId: ws.id,
+      counterpartyId: cp.id,
+      // Язык БУМАГИ: налоговый режим печатается его словом, а не словом запроса
+      language: 'ru',
+    })
+  ).json?.data?.values?.['Counterparty'];
   check(
     'пустой фактический адрес падает на юридический (теги шаблонов)',
-    resolved?.['Фактический адрес'] === 'г. Астана, пр. Абая, 1' &&
-      resolved?.['Налоговый режим'] === 'Упрощённая декларация',
-    JSON.stringify({ addr: resolved?.['Фактический адрес'], regime: resolved?.['Налоговый режим'] }),
+    resolved?.['ActualAddress'] === 'г. Астана, пр. Абая, 1' &&
+      resolved?.['TaxRegime'] === 'Упрощённая декларация',
+    JSON.stringify({ addr: resolved?.['ActualAddress'], regime: resolved?.['TaxRegime'] }),
   );
   const patched = await call('PATCH', `${base}/${cp.id}`, owner.token, { actualAddress: 'г. Астана, ул. Сыганак, 5' });
   check('фактический адрес сохраняется правкой', patched.ok && patched.json?.data?.actualAddress === 'г. Астана, ул. Сыганак, 5');

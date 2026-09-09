@@ -7,6 +7,7 @@
 // показывала вчерашний день, то есть ровно в ночную смену форма врала.
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useMutation } from '@tanstack/react-query';
 import { ATTENDANCE_OUTCOMES } from '@superapp/shared';
 import { Button, DatePicker, Input, Modal, SegmentedControl, Textarea } from '@/components/ui';
@@ -34,6 +35,8 @@ export function UnplannedAttendanceModal({
   onClose: () => void;
   onSaved?: () => void;
 }) {
+  const t = useTranslations('objects');
+  const tc = useTranslations('common');
   const [userId, setUserId] = useState(people[0]?.userId ?? '');
   const [localDate, setLocalDate] = useState<string | undefined>(todayIn(timeZone));
   const [outcome, setOutcome] = useState('worked');
@@ -42,8 +45,8 @@ export function UnplannedAttendanceModal({
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!userId) throw new Error('Выберите сотрудника');
-      if (!localDate) throw new Error('Укажите дату');
+      if (!userId) throw new Error(t('attendance.pickPerson'));
+      if (!localDate) throw new Error(t('attendance.pickDate'));
       return shiftsApi.markUnplanned(workspaceId, objectId, {
         userId,
         localDate,
@@ -60,11 +63,11 @@ export function UnplannedAttendanceModal({
   });
 
   return (
-    <Modal open={open} onClose={onClose} title="Внеплановый выход">
+    <Modal open={open} onClose={onClose} title={t('attendance.unplanned')}>
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         <div>
           <span className="label-sm" style={{ display: 'block', marginBottom: 'var(--spacing-2)', fontWeight: 600 }}>
-            Кто
+            {t('attendance.who')}
           </span>
           {/* Человек в интерфейсе — КАРТОЧКА, а не строка выпадашки. Список — только
               люди этого объекта: пикер не предлагает того, кого сервер отвергнет. */}
@@ -87,26 +90,31 @@ export function UnplannedAttendanceModal({
               </button>
             ))}
             {people.length === 0 && (
-              <span className="label-sm">В объекте пока никто не работает — сначала назначьте людей.</span>
+              <span className="label-sm">{t('attendance.nobodyHere')}</span>
             )}
           </div>
         </div>
-        <DatePicker label="Дата" value={isoToDate(localDate)} onChange={(d) => setLocalDate(dateToIso(d))} />
+        <DatePicker label={t('attendance.date')} value={isoToDate(localDate)} onChange={(d) => setLocalDate(dateToIso(d))} />
         <SegmentedControl
           value={outcome}
           onChange={setOutcome}
-          items={ATTENDANCE_OUTCOMES.map((o) => ({ key: o.value, label: o.label }))}
+          items={ATTENDANCE_OUTCOMES.map((o) => ({ key: o.value, label: t(`attendanceOutcome.${o.value}`) }))}
         />
         {outcome === 'late' && (
-          <Input label="Опоздание, мин" inputMode="numeric" value={lateMin} onChange={(e) => setLateMin(e.target.value)} />
+          <Input
+            label={t('attendance.lateMin')}
+            inputMode="numeric"
+            value={lateMin}
+            onChange={(e) => setLateMin(e.target.value)}
+          />
         )}
-        <Textarea label="Комментарий" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
+        <Textarea label={t('attendance.comment')} rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
         <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end' }}>
           <Button variant="ghost" onClick={onClose}>
-            Отмена
+            {tc('actions.cancel')}
           </Button>
           <Button variant="primary" loading={save.isPending} disabled={!userId} onClick={() => save.mutate()}>
-            Записать
+            {t('attendance.record')}
           </Button>
         </div>
       </div>

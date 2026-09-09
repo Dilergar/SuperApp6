@@ -5,9 +5,10 @@ import type {
   BuilderListItemBlock,
   TemplateIssueDto,
 } from '@superapp/shared';
+import { DOC_FORM_TAG_PREFIX } from '@superapp/shared';
 import { applyFormatterChain, TemplateFormatError, isKnownFormatter } from './template-formatters';
 import { TemplateDataError } from './template.types';
-import type { TemplateValues } from './template.types';
+import type { TemplatePrint, TemplateValues } from './template.types';
 
 /**
  * Второй драйвер core/templates: блочный документ (BuilderDoc) → печатный HTML.
@@ -21,6 +22,10 @@ import type { TemplateValues } from './template.types';
  * СПИСКОМ (TemplateDataError); мягкий режим (черновики, превью) рисует на месте
  * значения видимую метку ‹Группа.Поле› — слово «undefined» в документе
  * невозможно ни в одном режиме.
+ *
+ * СЛОВ у драйвера нет: «М.П.», «№ … от …», БИН в шапке и метка неверного
+ * формата печатаются ВНУТРИ бумаги, поэтому берутся из каталога в языке БЛАНКА
+ * (`TemplatePrint`), а не в языке зрителя.
  */
 
 export interface BuilderRenderAssets {
@@ -32,6 +37,8 @@ export interface BuilderRenderOptions {
   strict?: boolean;
   assets?: BuilderRenderAssets;
   title?: string;
+  /** Язык бланка и его слова — обязателен: молчаливого языка по умолчанию нет */
+  print: TemplatePrint;
 }
 
 export interface BuilderHtmlResult {
@@ -89,6 +96,7 @@ interface RenderCtx {
   values: TemplateValues;
   strict: boolean;
   assets: BuilderRenderAssets;
+  print: TemplatePrint;
   missing: string[];
   replaced: number;
 }
@@ -98,10 +106,10 @@ function lookup(ctx: RenderCtx, path: string): unknown {
   const dot = path.indexOf('.');
   const group = path.slice(0, dot);
   const field = path.slice(dot + 1);
-  if (group === 'Форма') {
+  if (group === DOC_FORM_TAG_PREFIX) {
     const flat = ctx.values[field];
     if (flat !== undefined) return flat;
-    const grouped = ctx.values['Форма'];
+    const grouped = ctx.values[DOC_FORM_TAG_PREFIX];
     return grouped && typeof grouped === 'object' ? (grouped as Record<string, unknown>)[field] : undefined;
   }
   const bag = ctx.values[group];
@@ -127,13 +135,13 @@ function renderChip(ctx: RenderCtx, props: { path: string; format?: string }): s
   const value = lookup(ctx, props.path);
   if (value === undefined || value === null) return missingMark(ctx, props.path);
   try {
-    const text = applyFormatterChain(value, parseFormat(props.format), props.path);
+    const text = applyFormatterChain(value, parseFormat(props.format), props.path, ctx.print);
     ctx.replaced += 1;
     return esc(text);
   } catch (e) {
     if (e instanceof TemplateFormatError) {
       if (ctx.strict) throw e;
-      return missingMark(ctx, props.path, 'неверный формат');
+      return missingMark(ctx, props.path, ctx.print.t('templates.print.badFormat'));
     }
     throw e;
   }
@@ -176,22 +184,30 @@ function renderList(ctx: RenderCtx, type: string, items: BuilderListItemBlock[])
 
 /** Шапка-бланк из значений группы «Организация» — витрина: null-поля просто пропускаются */
 function renderRequisites(ctx: RenderCtx, props?: { showLogo?: boolean }): string {
-  const org = (ctx.values['Организация'] ?? {}) as Record<string, unknown>;
+  const org = (ctx.values['Organization'] ?? {}) as Record<string, unknown>;
   const val = (k: string): string | null => {
     const v = org[k];
     return typeof v === 'string' && v.trim() ? esc(v.trim()) : null;
   };
-  const name = val('Юрнаименование') ?? val('Название');
+  const name = val('LegalName') ?? val('Name');
   const lines: string[] = [];
   if (props?.showLogo !== false && ctx.assets.logoDataUri) {
     lines.push(`<img class="r-logo" src="${ctx.assets.logoDataUri}" alt="" />`);
   }
-  lines.push(`<div class="r-name">${name ?? missingMark(ctx, 'Организация.Юрнаименование')}</div>`);
-  const bin = val('БИН');
-  const addr = val('Юрадрес');
-  const line2 = [bin ? `БИН ${bin}` : null, addr].filter(Boolean).join(' · ');
+  lines.push(`<div class="r-name">${name ?? missingMark(ctx, 'Organization.LegalName')}</div>`);
+  // Подписи реквизитов ПЕЧАТАЮТСЯ в шапке: «БИН» по-казахски это «БСН»
+  const bin = val('Bin');
+  const bik = val('Bik');
+  const iik = val('Iik');
+  const line2 = [bin ? ctx.print.t('templates.print.bin', { value: bin }) : null, val('LegalAddress')]
+    .filter(Boolean)
+    .join(' · ');
   if (line2) lines.push(`<div class="r-line">${line2}</div>`);
-  const bank = [val('Банк'), val('БИК') ? `БИК ${val('БИК')}` : null, val('ИИК') ? `ИИК ${val('ИИК')}` : null]
+  const bank = [
+    val('Bank'),
+    bik ? ctx.print.t('templates.print.bik', { value: bik }) : null,
+    iik ? ctx.print.t('templates.print.iik', { value: iik }) : null,
+  ]
     .filter(Boolean)
     .join(' · ');
   if (bank) lines.push(`<div class="r-line">${bank}</div>`);
@@ -199,20 +215,25 @@ function renderRequisites(ctx: RenderCtx, props?: { showLogo?: boolean }): strin
 }
 
 function renderDocMeta(ctx: RenderCtx, props?: { align?: string }): string {
-  const docBag = (ctx.values['Документ'] ?? {}) as Record<string, unknown>;
-  const number = typeof docBag['Номер'] === 'string' && docBag['Номер'] ? esc(docBag['Номер'] as string) : '_______';
-  let date = '«___» ____________ ____ г.';
-  const raw = docBag['Дата'];
+  const docBag = (ctx.values['Document'] ?? {}) as Record<string, unknown>;
+  const number =
+    typeof docBag['Number'] === 'string' && docBag['Number']
+      ? esc(docBag['Number'] as string)
+      : ctx.print.t('templates.print.numberBlank');
+  // Незарегистрированный документ печатается с прочерками под номер и дату
+  let date = ctx.print.t('templates.print.dateBlank');
+  const raw = docBag['Date'];
   if (raw !== undefined && raw !== null && raw !== '') {
     try {
-      date = esc(applyFormatterChain(raw, [{ key: 'дата' }], 'Документ.Дата'));
+      date = esc(applyFormatterChain(raw, [{ key: 'date' }], 'Document.Date', ctx.print));
       ctx.replaced += 1;
     } catch {
       /* дата не разобралась — остаётся прочерк-линия, документ не падает */
     }
   }
   const cls = props?.align && props.align !== 'justify' ? ` a-${props.align}` : '';
-  return `<p class="doc-meta${cls}">№ ${number} от ${date}</p>`;
+  // Порядок «№ … от …» принадлежит ЯЗЫКУ бумаги, поэтому строку собирает каталог
+  return `<p class="doc-meta${cls}">${ctx.print.t('templates.print.docMeta', { number, date })}</p>`;
 }
 
 function renderSignature(
@@ -221,20 +242,20 @@ function renderSignature(
 ): string {
   let name = '';
   if (props.nameSource === 'subject') {
-    const v = lookup(ctx, 'Сотрудник.ФИО');
-    name = typeof v === 'string' && v ? esc(v) : missingMark(ctx, 'Сотрудник.ФИО');
+    const v = lookup(ctx, 'Employee.FullName');
+    name = typeof v === 'string' && v ? esc(v) : missingMark(ctx, 'Employee.FullName');
   } else if (props.nameSource === 'director') {
-    const v = lookup(ctx, 'Организация.Директор');
-    name = typeof v === 'string' && v ? esc(v) : missingMark(ctx, 'Организация.Директор');
+    const v = lookup(ctx, 'Organization.Director');
+    name = typeof v === 'string' && v ? esc(v) : missingMark(ctx, 'Organization.Director');
   } else if (props.nameSource === 'counterparty') {
     // Внешний контур ЭДО: подпись второй стороны — подписант контрагента
     // (контактное лицо; без него — руководитель из карточки справочника).
-    const v = lookup(ctx, 'Контрагент.Подписант');
-    name = typeof v === 'string' && v ? esc(v) : missingMark(ctx, 'Контрагент.Подписант');
+    const v = lookup(ctx, 'Counterparty.Signer');
+    name = typeof v === 'string' && v ? esc(v) : missingMark(ctx, 'Counterparty.Signer');
   } else if (props.nameSource === 'custom') {
     name = esc(props.customName ?? '');
   }
-  const stamp = props.stamp ? `<div class="sig-stamp">М.П.</div>` : '';
+  const stamp = props.stamp ? `<div class="sig-stamp">${esc(ctx.print.t('templates.print.stamp'))}</div>` : '';
   return (
     `<table class="sig"><tbody><tr>` +
     `<td class="sig-role">${esc(props.role)}${stamp}</td>` +
@@ -325,20 +346,22 @@ function renderBlocks(ctx: RenderCtx, blocks: BuilderBlock[]): string {
 export function renderBuilderHtml(
   doc: BuilderDoc,
   values: TemplateValues,
-  opts?: BuilderRenderOptions,
+  opts: BuilderRenderOptions,
 ): BuilderHtmlResult {
   const ctx: RenderCtx = {
     values,
-    strict: opts?.strict !== false,
-    assets: opts?.assets ?? {},
+    strict: opts.strict !== false,
+    assets: opts.assets ?? {},
+    print: opts.print,
     missing: [],
     replaced: 0,
   };
   const body = renderBlocks(ctx, doc.blocks);
   if (ctx.strict && ctx.missing.length) throw new TemplateDataError(ctx.missing);
+  // lang — язык БЛАНКА: по нему Chromium расставляет переносы (`hyphens: auto`)
   const html =
-    `<!doctype html><html lang="ru"><head><meta charset="utf-8" />` +
-    `<title>${esc(opts?.title ?? 'Документ')}</title>` +
+    `<!doctype html><html lang="${opts.print.language}"><head><meta charset="utf-8" />` +
+    `<title>${esc(opts.title ?? opts.print.t('templates.print.documentFallback'))}</title>` +
     `<style>${PRINT_CSS}</style></head><body>${body}</body></html>`;
   return { html, missing: ctx.missing, replaced: ctx.replaced };
 }
@@ -363,17 +386,32 @@ export function checkBuilderDoc(
       const dot = path.indexOf('.');
       const group = path.slice(0, dot);
       const field = path.slice(dot + 1);
-      if (group === 'Форма') {
+      if (group === DOC_FORM_TAG_PREFIX) {
         if (!formFieldKeys.includes(field)) {
-          issues.push({ code: 'unknown_field', message: `Поле «${path}» не объявлено в форме подачи`, tag: path });
+          issues.push({
+            code: 'unknown_field',
+            messageKey: 'templates.fieldNotInForm',
+            params: { path },
+            tag: path,
+          });
         }
       } else if (!isKnownPath(path)) {
-        issues.push({ code: 'unknown_field', message: `Поле «${path}» неизвестно реестру данных`, tag: path });
+        issues.push({
+          code: 'unknown_field',
+          messageKey: 'templates.fieldNotInRegistry',
+          params: { path },
+          tag: path,
+        });
       }
       if (item.props.format) {
         const chain = parseFormat(item.props.format);
         if (!chain.length) {
-          issues.push({ code: 'unknown_formatter', message: `«${path}»: неизвестный формат «${item.props.format}»`, tag: path });
+          issues.push({
+            code: 'unknown_formatter',
+            messageKey: 'templates.unknownFormatter',
+            params: { formatter: item.props.format, tag: path },
+            tag: path,
+          });
         }
       }
     }

@@ -4,6 +4,8 @@ import { DatabaseService } from '../../shared/database/database.service';
 import { NotificationsService } from '../../core/notifications/notifications.service';
 import { JobsRegistry } from '../../core/jobs/jobs.registry';
 import { CALLS_SESSION_SUMMARIZE_JOB } from '../../core/calls/calls.service';
+import { SOURCE_LOCALE } from '@superapp/shared';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { MessengerService } from './messenger.service';
 
 /**
@@ -33,7 +35,13 @@ export class ChatCallsListener implements OnModuleInit {
     private readonly messenger: MessengerService,
     private readonly notifications: NotificationsService,
     private readonly jobsRegistry: JobsRegistry,
+    private readonly i18n: I18nService,
   ) {}
+
+  /** Снимок плашки звонка в языке источника (перерисовывается при чтении). */
+  private src(key: string, params?: Record<string, string | number>): string {
+    return this.i18n.translateFor(SOURCE_LOCALE, key, params);
+  }
 
   onModuleInit() {
     // Итоговая плашка звонка чата — джоб core/jobs (ставит core/calls в tx закрытия сессии):
@@ -152,8 +160,8 @@ export class ChatCallsListener implements OnModuleInit {
       const absent = chat.members.map((m) => m.userId).filter((id) => !joined.includes(id));
       if (absent.length) {
         // Второй участник так и не подключился — «пропущенный» (отклонение тоже, как в Telegram)
-        await this.messenger.postChatSystemMessage(chatId, 'call.missed', 'Пропущенный звонок');
-        const fromName = (await this.nameOf(p.startedById)) ?? 'собеседника';
+        await this.messenger.postChatSystemMessage(chatId, 'call.missed', { typeKey: 'call.missed' });
+        const fromName = (await this.nameOf(p.startedById)) ?? this.src('messenger.somebody');
         for (const userId of absent) {
           // Ни звонящему, ни тому, кто сам завершил (нажал «Отклонить»), — «Пропущенный» не шлём
           if (userId === p.startedById || userId === p.endedById) continue;
@@ -173,22 +181,34 @@ export class ChatCallsListener implements OnModuleInit {
         return;
       }
     }
-    await this.messenger.postChatSystemMessage(
-      chatId,
-      'call.ended',
-      `Звонок · ${this.formatCallDuration(p.firstJoinedAt ?? p.startedAt, p.endedAt)}`,
-    );
+    await this.messenger.postChatSystemMessage(chatId, 'call.ended', {
+      typeKey: 'call.ended',
+      // Длительность — тоже СЛОВА («5 мин»): кладём её ключом каталога, иначе
+      // казахоязычный читатель навсегда получит английскую единицу.
+      values: this.callDurationValues(p.firstJoinedAt ?? p.startedAt, p.endedAt),
+    });
   }
 
-  /** Длительность разговора: от первого реального входа до завершения (не от старта дозвона). */
-  private formatCallDuration(fromIso?: string | null, toIso?: string | null): string {
+  /**
+   * Длительность разговора: от первого реального входа до завершения (не от старта
+   * дозвона). Возвращает КЛЮЧ и числа, а не готовую строку: `resolveLabelKeys`
+   * подставит `duration` в языке того, кто читает плашку.
+   */
+  private callDurationValues(
+    fromIso?: string | null,
+    toIso?: string | null,
+  ): Record<string, string | number> {
     const from = fromIso ? Date.parse(fromIso) : NaN;
     const to = toIso ? Date.parse(toIso) : Date.now();
     const sec = Number.isFinite(from) ? Math.max(0, Math.round((to - from) / 1000)) : 0;
-    if (sec < 60) return `${sec} сек`;
+    if (sec < 60) return { durationKey: 'messenger.duration.sec', n: sec };
     const min = Math.round(sec / 60);
-    if (min < 60) return `${min} мин`;
-    return `${Math.floor(min / 60)} ч ${min % 60} мин`;
+    if (min < 60) return { durationKey: 'messenger.duration.min', n: min };
+    return {
+      durationKey: 'messenger.duration.hourMin',
+      h: Math.floor(min / 60),
+      m: min % 60,
+    };
   }
 
   private async nameOf(userId?: string): Promise<string | null> {

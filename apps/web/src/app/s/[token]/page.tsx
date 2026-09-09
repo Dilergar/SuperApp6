@@ -16,6 +16,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import {
   SHARE_LINK_ERROR_CODES,
   SHARE_LINK_LIMITS,
@@ -43,50 +44,38 @@ import { ShareGuestError, ShareGuestShell } from '../_components/ShareGuestShell
 import { ShareDriveView } from '../_components/ShareDriveView';
 import { ShareDocView } from '../_components/ShareDocView';
 import { ShareSignView, type ShareSignGuestView } from './ShareSignView';
+import { formatCountdown, useFormatters } from '@/lib/format';
 
 type Stage = 'loading' | 'password' | 'identity' | 'ready' | 'error';
 
-/** Текст ошибки из конверта API — локальный, чтобы не тащить клиент с перехватчиками */
-function guestErrText(err: unknown): string {
+/**
+ * Текст ошибки из конверта API — локальный, чтобы не тащить клиент с перехватчиками.
+ * Фразу сервер уже перевёл в языке запроса; общий фолбэк приходит ПАРАМЕТРОМ —
+ * функция не React и каталога не знает.
+ */
+function guestErrText(err: unknown, fallback: string): string {
   const msg = (err as { response?: { data?: { message?: unknown } } })?.response?.data?.message;
-  return typeof msg === 'string' && msg ? msg : 'Что-то пошло не так — попробуйте ещё раз';
+  return typeof msg === 'string' && msg ? msg : fallback;
 }
 
-const DEAD_LINK_TEXT: Record<string, { title: string; description: string }> = {
-  [SHARE_LINK_ERROR_CODES.notFound]: {
-    title: 'Ссылка не найдена',
-    description: 'Возможно, адрес скопирован не полностью или ссылку удалили.',
-  },
-  [SHARE_LINK_ERROR_CODES.revoked]: {
-    title: 'Доступ по ссылке закрыт',
-    description: 'Тот, кто поделился, отозвал эту ссылку. Попросите новую.',
-  },
-  [SHARE_LINK_ERROR_CODES.expired]: {
-    title: 'Срок действия ссылки истёк',
-    description: 'Ссылка была временной. Попросите новую у того, кто ею поделился.',
-  },
-  [SHARE_LINK_ERROR_CODES.exhausted]: {
-    title: 'Лимит открытий исчерпан',
-    description: 'Эту ссылку можно было открыть ограниченное число раз.',
-  },
-  [SHARE_LINK_ERROR_CODES.refGone]: {
-    title: 'Объект больше недоступен',
-    description: 'Его удалили или переместили в корзину.',
-  },
-  [SHARE_LINK_ERROR_CODES.sessionInvalid]: {
-    title: 'Сессия просмотра истекла',
-    description: 'Обновите страницу, чтобы открыть ссылку заново.',
-  },
-};
-
-const FALLBACK_ERROR = {
-  title: 'Не удалось открыть ссылку',
-  description: 'Попробуйте обновить страницу через минуту.',
+/**
+ * Тупик ссылки → ВЕТКА каталога (`share.guest.dead.<ветка>`), а не пара фраз:
+ * слова у каждого тупика свои, но берутся они одним правилом, и новый код отказа
+ * стоит одной строки здесь плюс двух ключей в каталоге.
+ */
+const DEAD_LINK_BRANCH: Record<string, string> = {
+  [SHARE_LINK_ERROR_CODES.notFound]: 'notFound',
+  [SHARE_LINK_ERROR_CODES.revoked]: 'revoked',
+  [SHARE_LINK_ERROR_CODES.expired]: 'expired',
+  [SHARE_LINK_ERROR_CODES.exhausted]: 'exhausted',
+  [SHARE_LINK_ERROR_CODES.refGone]: 'refGone',
+  [SHARE_LINK_ERROR_CODES.sessionInvalid]: 'sessionInvalid',
 };
 
 const storageKey = (token: string) => `share:${token}`;
 
 export default function SharePage() {
+  const t = useTranslations('share');
   const params = useParams<{ token: string }>();
   const token = params?.token ?? '';
 
@@ -124,12 +113,12 @@ export default function SharePage() {
           // Подбор заблокирован: без срока человек не поймёт, ждать ему минуту или день.
           // «мин.» не склоняется — числа тут любые.
           const min = Math.max(1, Math.ceil((details?.retryInSec ?? 0) / 60));
-          setPasswordError(`Слишком много неверных попыток. Попробуйте через ${min} мин.`);
+          setPasswordError(t('guest.passwordLocked', { min }));
           setStage('password');
         } else if (code === SHARE_LINK_ERROR_CODES.passwordWrong) {
           const left = details?.attemptsLeft;
           setPasswordError(
-            typeof left === 'number' ? `Неверный пароль — осталось попыток: ${left}` : 'Неверный пароль',
+            typeof left === 'number' ? t('guest.passwordWrongLeft', { n: left }) : t('guest.passwordWrong'),
           );
           setStage('password');
         } else if (code === SHARE_LINK_ERROR_CODES.passwordRequired) {
@@ -201,13 +190,18 @@ export default function SharePage() {
   }
 
   if (stage === 'error') {
-    const text = (errorCode && DEAD_LINK_TEXT[errorCode]) || FALLBACK_ERROR;
-    return <ShareGuestError title={text.title} description={text.description} />;
+    const branch = (errorCode && DEAD_LINK_BRANCH[errorCode]) || 'fallback';
+    return (
+      <ShareGuestError
+        title={t(`guest.dead.${branch}.title`)}
+        description={t(`guest.dead.${branch}.description`)}
+      />
+    );
   }
 
   if (stage === 'password') {
     return (
-      <ShareGuestShell title="Ссылка защищена паролем" subtitle="Введите пароль, который вам передали">
+      <ShareGuestShell title={t('guest.passwordTitle')} subtitle={t('guest.passwordSubtitle')}>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -222,7 +216,7 @@ export default function SharePage() {
           }}
         >
           <Input
-            label="Пароль"
+            label={t('guest.passwordLabel')}
             type="password"
             value={password}
             autoFocus
@@ -232,7 +226,7 @@ export default function SharePage() {
           />
           <div style={{ marginTop: 'var(--spacing-5)' }}>
             <Button type="submit" variant="primary" block loading={busy} disabled={!password}>
-              {identityRequired ? 'Далее' : 'Открыть'}
+              {identityRequired ? t('guest.next') : t('guest.open')}
             </Button>
           </div>
         </form>
@@ -279,6 +273,8 @@ function IdentityStep({
   onDone: (identity: { verifyToken: string; guestName: string }) => Promise<void> | void;
   onPasswordRejected: (message: string) => void;
 }) {
+  const t = useTranslations('share');
+  const tc = useTranslations('common');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -293,8 +289,8 @@ function IdentityStep({
   // Тикающий таймер ресенда — серверное значение, по секунде вниз.
   useEffect(() => {
     if (resendIn <= 0) return;
-    const t = setTimeout(() => setResendIn((v) => v - 1), 1000);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setResendIn((v) => v - 1), 1000);
+    return () => clearTimeout(timer);
   }, [resendIn]);
 
   const normalized = normalizePhone(phone);
@@ -319,14 +315,14 @@ function IdentityStep({
         code === SHARE_LINK_ERROR_CODES.passwordLocked
       ) {
         // Пароль ссылки не подошёл — возвращаем человека на шаг пароля с причиной.
-        onPasswordRejected(guestErrText(err));
+        onPasswordRejected(guestErrText(err, t('guest.genericError')));
         return;
       }
       const details = apiErrorDetails(err);
       if (typeof details?.resendInSec === 'number' && details.resendInSec > 0) {
         setResendIn(details.resendInSec);
       }
-      setError(guestErrText(err));
+      setError(guestErrText(err, t('guest.genericError')));
     } finally {
       setSending(false);
     }
@@ -343,8 +339,8 @@ function IdentityStep({
       const details = apiErrorDetails(err);
       setCodeError(
         typeof details?.attemptsLeft === 'number'
-          ? `Неверный код — осталось попыток: ${details.attemptsLeft}`
-          : guestErrText(err),
+          ? t('guest.codeWrongLeft', { n: details.attemptsLeft })
+          : guestErrText(err, t('guest.genericError')),
       );
       setCode('');
     } finally {
@@ -355,8 +351,8 @@ function IdentityStep({
   if (challenge) {
     return (
       <ShareGuestShell
-        title="Введите код из SMS"
-        subtitle={`Код отправлен на ${challenge.phoneMasked}`}
+        title={tc('otp.title')}
+        subtitle={t('guest.codeSentTo', { phone: challenge.phoneMasked })}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)', alignItems: 'center' }}>
           <CodeInput
@@ -373,7 +369,7 @@ function IdentityStep({
           )}
           {devCode && (
             <p className="meta" style={{ margin: 0 }}>
-              [dev] код: {devCode}
+              {t('guest.devCode', { code: devCode })}
             </p>
           )}
           {(checking || busy) && <Spinner />}
@@ -385,10 +381,10 @@ function IdentityStep({
               loading={sending}
               onClick={() => void requestCode()}
             >
-              {resendIn > 0 ? `Отправить ещё раз через ${resendIn} с` : 'Отправить ещё раз'}
+              {resendIn > 0 ? tc('otp.resendIn', { time: formatCountdown(resendIn) }) : tc('otp.resend')}
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setChallenge(null)}>
-              ← Изменить номер
+              ← {tc('otp.changeNumber')}
             </Button>
           </div>
         </div>
@@ -398,8 +394,8 @@ function IdentityStep({
 
   return (
     <ShareGuestShell
-      title="Представьтесь, пожалуйста"
-      subtitle="Тот, кто поделился ссылкой, попросил подтверждать, кто её открывает"
+      title={t('guest.identityTitle')}
+      subtitle={t('guest.identitySubtitle')}
     >
       <form
         onSubmit={(e) => {
@@ -409,25 +405,25 @@ function IdentityStep({
         style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}
       >
         <Input
-          label="Как вас зовут"
+          label={t('guest.nameLabel')}
           value={name}
           autoFocus
           maxLength={SHARE_LINK_LIMITS.guestNameMaxLength}
           onChange={(e) => setName(e.target.value)}
         />
         <Input
-          label="Номер телефона"
+          label={t('guest.phoneLabel')}
           type="tel"
           inputMode="tel"
           placeholder="+7 7__ ___ __ __"
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
-          hint="Пока поддерживаются казахстанские мобильные номера"
+          hint={t('guest.phoneHint')}
           error={error ?? undefined}
         />
         <div style={{ marginTop: 'var(--spacing-2)' }}>
           <Button type="submit" variant="primary" block loading={sending} disabled={!name.trim() || !phoneOk}>
-            Получить код
+            {t('guest.getCode')}
           </Button>
         </div>
       </form>
@@ -445,12 +441,10 @@ function ShareContent({
   token: string;
   onRefresh: () => void;
 }) {
+  const t = useTranslations('share');
+  const f = useFormatters();
   const until = session.linkExpiresAt
-    ? `Доступно до ${new Date(session.linkExpiresAt).toLocaleDateString('ru-RU', {
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-      })}`
+    ? t('guest.availableUntil', { date: f.date(session.linkExpiresAt, 'long') })
     : undefined;
 
   if (session.refType === 'drive_node') {
@@ -484,8 +478,8 @@ function ShareContent({
   // клиент — нет. Честная заглушка лучше пустого экрана.
   return (
     <ShareGuestError
-      title="Эта ссылка не поддерживается"
-      description="Обновите страницу позже — возможно, приложение ещё не знает такой тип содержимого."
+      title={t('guest.unsupported.title')}
+      description={t('guest.unsupported.description')}
     />
   );
 }

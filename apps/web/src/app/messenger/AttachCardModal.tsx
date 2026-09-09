@@ -2,6 +2,9 @@
 
 import { CloseChip, Glyph, ModalShell } from '@/components/ui';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
+import type { Formatters } from '@superapp/i18n/format';
+import { useFormatters } from '@/lib/format';
 import type {
   CalendarRangeResponse,
   Listing,
@@ -23,10 +26,10 @@ import { errMsg } from './ShareCardModal';
 
 type TabKey = 'tasks' | 'calendar' | 'shop';
 
-const TABS: { key: TabKey; label: string }[] = [
-  { key: 'tasks', label: 'Задачи' },
-  { key: 'calendar', label: 'Календарь' },
-  { key: 'shop', label: 'Магазин' },
+const TABS: { key: TabKey; labelKey: string }[] = [
+  { key: 'tasks', labelKey: 'attachCard.tasks' },
+  { key: 'calendar', labelKey: 'attachCard.calendar' },
+  { key: 'shop', labelKey: 'attachCard.shop' },
 ];
 
 /** A pickable entity row: what to render + how to share it. */
@@ -51,6 +54,7 @@ export function AttachCardModal({
   onClose: () => void;
   onShared?: () => void;
 }) {
+  const t = useTranslations('messenger');
   const [tab, setTab] = useState<TabKey>('tasks');
 
   return (
@@ -77,11 +81,11 @@ export function AttachCardModal({
             marginBottom: 'var(--spacing-1)',
           }}
         >
-          <h3 className="title-md">Отправить карточку</h3>
+          <h3 className="title-md">{t('attachCard.title')}</h3>
           <CloseChip onClick={onClose} />
         </div>
         <p className="label-sm" style={{ opacity: 0.7, marginBottom: 'var(--spacing-4)' }}>
-          Выберите свою задачу, событие или товар — карточка появится в этом чате.
+          {t('attachCard.subtitle')}
         </p>
 
         {/* Service tabs */}
@@ -95,10 +99,10 @@ export function AttachCardModal({
             borderRadius: 'var(--radius-md)',
           }}
         >
-          {TABS.map((t) => (
+          {TABS.map((entry) => (
             <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
+              key={entry.key}
+              onClick={() => setTab(entry.key)}
               style={{
                 flex: 1,
                 padding: '0.45rem 0.8rem',
@@ -107,13 +111,13 @@ export function AttachCardModal({
                 border: 'none',
                 cursor: 'pointer',
                 borderRadius: 'var(--radius-sm)',
-                background: tab === t.key ? 'var(--surface)' : 'none',
-                color: tab === t.key ? 'var(--on-surface)' : 'var(--on-surface-variant)',
-                boxShadow: tab === t.key ? 'var(--shadow-card)' : 'none',
+                background: tab === entry.key ? 'var(--surface)' : 'none',
+                color: tab === entry.key ? 'var(--on-surface)' : 'var(--on-surface-variant)',
+                boxShadow: tab === entry.key ? 'var(--shadow-card)' : 'none',
                 transition: 'background 0.15s ease',
               }}
             >
-              {t.label}
+              {t(entry.labelKey)}
             </button>
           ))}
         </div>
@@ -136,6 +140,11 @@ function EntityList({
   chatId: string;
   onShared?: () => void;
 }) {
+  const t = useTranslations('messenger');
+  const tc = useTranslations('common');
+  // Дата события в подзаголовке — форматтерами языка и региона: своя строка
+  // `toLocaleDateString('ru-RU')` зашивала бы и язык, и страну навсегда.
+  const fmt = useFormatters();
   const [items, setItems] = useState<PickItem[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
@@ -146,13 +155,13 @@ function EntityList({
     let active = true;
     setItems(null);
     setLoadError(null);
-    loadEntities(tab)
+    loadEntities(tab, fmt)
       .then((rows) => active && setItems(rows))
-      .catch((e) => active && setLoadError(errMsg(e, 'Не удалось загрузить')));
+      .catch((e) => active && setLoadError(errMsg(e, t('attachCard.loadFailed'))));
     return () => {
       active = false;
     };
-  }, [tab]);
+  }, [tab, fmt, t]);
 
   const share = async (item: PickItem) => {
     if (sharing) return;
@@ -163,14 +172,14 @@ function EntityList({
       setShared((s) => new Set(s).add(item.key));
       onShared?.();
     } catch (e) {
-      setShareError(errMsg(e));
+      setShareError(errMsg(e, t('card.actionFailed')));
     } finally {
       setSharing(null);
     }
   };
 
   if (items === null && !loadError) {
-    return <p className="label-sm" style={{ opacity: 0.7, padding: 'var(--spacing-3)' }}>Загрузка…</p>;
+    return <p className="label-sm" style={{ opacity: 0.7, padding: 'var(--spacing-3)' }}>{tc('state.loading')}</p>;
   }
   if (loadError) {
     return <p className="label-sm" style={{ color: 'var(--danger)', padding: 'var(--spacing-3)' }}>{loadError}</p>;
@@ -178,7 +187,7 @@ function EntityList({
   if (items && items.length === 0) {
     return (
       <p className="label-sm" style={{ opacity: 0.7, padding: 'var(--spacing-3)' }}>
-        {tab === 'tasks' ? 'Задач пока нет.' : tab === 'calendar' ? 'Предстоящих событий нет.' : 'Товаров пока нет.'}
+        {tab === 'tasks' ? t('attachCard.emptyTasks') : tab === 'calendar' ? t('attachCard.emptyCalendar') : t('attachCard.emptyShop')}
       </p>
     );
   }
@@ -227,7 +236,7 @@ function EntityList({
               </span>
               {done ? (
                 <span className="label-sm" style={{ fontSize: '0.72rem', color: 'var(--secondary)', flexShrink: 0 }}>
-                  Отправлено
+                  {t('attachCard.sent')}
                 </span>
               ) : sharing === item.key ? (
                 <span className="label-sm" style={{ fontSize: '0.72rem', opacity: 0.6, flexShrink: 0 }}>…</span>
@@ -244,9 +253,9 @@ function EntityList({
 // Per-tab loaders. Each maps a service's "my entities" list into PickItems.
 // ============================================================
 
-async function loadEntities(tab: TabKey): Promise<PickItem[]> {
+async function loadEntities(tab: TabKey, fmt: Formatters): Promise<PickItem[]> {
   if (tab === 'tasks') return loadTasks();
-  if (tab === 'calendar') return loadEvents();
+  if (tab === 'calendar') return loadEvents(fmt);
   return loadListings();
 }
 
@@ -266,7 +275,7 @@ async function loadTasks(): Promise<PickItem[]> {
   }));
 }
 
-async function loadEvents(): Promise<PickItem[]> {
+async function loadEvents(fmt: Formatters): Promise<PickItem[]> {
   // GET /calendar/events?from&to&layers=events → { items: CalendarItem[] }.
   // Window: now → +60 days. Keep only events I own/organize (no overlay ownerName),
   // dedupe recurring occurrences by their event id.
@@ -289,7 +298,7 @@ async function loadEvents(): Promise<PickItem[]> {
       key: it.eventId,
       icon: 'calendar',
       title: it.title,
-      subtitle: fmtWhen(it.start),
+      subtitle: fmtWhen(it.start, fmt),
       refType: 'event' as const,
       refId: it.eventId,
     });
@@ -325,13 +334,8 @@ async function loadListings(): Promise<PickItem[]> {
   return out;
 }
 
-function fmtWhen(iso: string): string {
+function fmtWhen(iso: string, fmt: Formatters): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('ru-RU', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return fmt.dateTime(d, 'dayMonth');
 }

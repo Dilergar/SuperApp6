@@ -4,6 +4,7 @@
 // Alert — матовая плашка сообщения (успех / предупреждение / ошибка / инфо).
 // ============================================================
 import type { ReactNode } from 'react';
+import { useTranslations } from 'next-intl';
 import { Icon, type IconName } from './Icon';
 import { cx, toneVars, type Tone } from './tones';
 
@@ -30,6 +31,7 @@ const TONE_ICON: Record<Tone, IconName> = {
 };
 
 export function Alert({ children, tone = 'accent', title, icon, onClose, action, className }: AlertProps) {
+  const t = useTranslations('common');
   return (
     <div
       className={cx(className)}
@@ -59,7 +61,7 @@ export function Alert({ children, tone = 'accent', title, icon, onClose, action,
         <button
           type="button"
           onClick={onClose}
-          aria-label="Закрыть"
+          aria-label={t('a11y.close')}
           style={{ border: 'none', background: 'transparent', color: 'inherit', cursor: 'pointer', padding: 0, opacity: 0.7, display: 'inline-flex' }}
         >
           <Icon name="close" size={14} />

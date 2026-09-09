@@ -43,25 +43,21 @@ export function checkHrRoute(doc: ProcessDocument): ProcessValidationIssue[] {
   const kinds = doc.nodes.map(decisionKind).filter((k): k is string => !!k);
 
   const has = (type: string) => doc.nodes.some((n) => n.type === type);
-  const warn = (ruleKey: string, message: string): void => {
-    issues.push({ severity: 'warning', ruleKey, message });
+  // Правило называет КЛЮЧ каталога: слова собирает сервис в языке запроса
+  // (`ProcessesService.renderIssues`), а не автор правила.
+  const warn = (ruleKey: string, messageKey: string): void => {
+    issues.push({ severity: 'warning', ruleKey, message: messageKey });
   };
 
   // 1. Приказ. Заявление сотрудника — основание, но кадровым документом является
   //    ПРИКАЗ; без него в личном деле остаётся бумага, которая ничего не решает.
   if (!has('doc.generate')) {
-    warn(
-      HR_RULES.orderRequired,
-      'По кадровому учёту РК основанием является приказ: добавьте «Сформировать документ», иначе в деле останется только заявление',
-    );
+    warn(HR_RULES.orderRequired, 'processes.rule.hr.orderRequired');
   }
 
   // 2. Подпись руководителя. Неподписанный приказ силы не имеет.
   if (!kinds.includes('signature')) {
-    warn(
-      HR_RULES.signatureRequired,
-      'Приказ должен быть подписан руководителем: добавьте шаг «Решение человека» с видом «Подписать»',
-    );
+    warn(HR_RULES.signatureRequired, 'processes.rule.hr.signatureRequired');
   }
 
   // 2а. ЧЕМ подписан. Нажатие кнопки в SuperApp6 — это `internal`, у него нет
@@ -74,29 +70,23 @@ export function checkHrRoute(doc: ProcessDocument): ProcessValidationIssue[] {
     return level !== 'ecp';
   });
   if (signatureNodes.length > 0 && weakSignature.length === signatureNodes.length) {
-    warn(
-      HR_RULES.ecpRequired,
-      'Кадровый документ подписывается ЭЦП (ст. 33 ТК РК): в шаге «Подписать» выберите «Чем подписывать → ЭЦП», иначе подписью будет нажатие кнопки',
-    );
+    warn(HR_RULES.ecpRequired, 'processes.rule.hr.ecpRequired');
   }
 
   // 3. Ознакомление. По ТК РК работника знакомят с приказом под роспись —
   //    именно этого пункта чаще всего не хватает при трудовой проверке.
   if (!kinds.includes('acknowledgement')) {
-    warn(
-      HR_RULES.acknowledgeRequired,
-      'Сотрудника нужно ознакомить с приказом: добавьте шаг «Решение человека» с видом «Ознакомиться»',
-    );
+    warn(HR_RULES.acknowledgeRequired, 'processes.rule.hr.acknowledgeRequired');
   }
 
   // 4. Регистрация номера. Без номера документа нет в книге регистрации.
   if (!has('doc.register')) {
-    warn(HR_RULES.registerRequired, 'Приказу нужен номер: добавьте шаг «Регистрация», иначе документ не попадёт в книгу регистрации');
+    warn(HR_RULES.registerRequired, 'processes.rule.hr.registerRequired');
   }
 
   // 5. Личное дело. Документ, который никуда не подшит, при проверке не найти.
   if (!has('doc.file')) {
-    warn(HR_RULES.personalFileRequired, 'Подписанный документ стоит подшить в личное дело: добавьте шаг «Подшить в дело»');
+    warn(HR_RULES.personalFileRequired, 'processes.rule.hr.personalFileRequired');
   }
 
   return issues;

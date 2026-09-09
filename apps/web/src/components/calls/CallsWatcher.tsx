@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/lib/stores/auth';
 import { callsStatusKey } from '@/lib/queries';
 import { getCallsStatus } from '@/lib/calls-api';
+import { LazyNamespace } from '@/i18n/LazyNamespace';
 
 // Внутренность — лениво: она тянет socket.io-client, messenger-api и messenger-ui,
 // а CallsWatcher смонтирован в Providers, то есть в корневом графе КАЖДОЙ страницы.
@@ -31,5 +32,9 @@ export function CallsWatcher() {
     staleTime: 5 * 60 * 1000,
   });
   if (!isAuthenticated || !meId || !statusQ.data?.enabled) return null;
-  return <IncomingCallWatcher meId={meId} />;
+  return (
+    <LazyNamespace ns="calls">
+      <IncomingCallWatcher meId={meId} />
+    </LazyNamespace>
+  );
 }

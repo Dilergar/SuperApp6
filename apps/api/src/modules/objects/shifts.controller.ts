@@ -43,7 +43,7 @@ export class ShiftsController {
   // ---- Шаблоны (статические пути ДО :tplId) ----
 
   @Get('shift-templates')
-  @ApiOperation({ summary: 'Шаблоны смен организации (+ объекта)' })
+  @ApiOperation({ summary: 'Shift templates of the organization (+ of the site)' })
   async templates(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -55,7 +55,7 @@ export class ShiftsController {
   }
 
   @Post('shift-templates')
-  @ApiOperation({ summary: 'Создать шаблон смены' })
+  @ApiOperation({ summary: 'Create a shift template' })
   async createTemplate(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -67,7 +67,7 @@ export class ShiftsController {
   }
 
   @Patch('shift-templates/:tplId')
-  @ApiOperation({ summary: 'Изменить шаблон (уже поставленные смены не меняются)' })
+  @ApiOperation({ summary: 'Change a template (the shifts already put on the board do not change)' })
   async updateTemplate(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -81,7 +81,7 @@ export class ShiftsController {
 
   @Delete('shift-templates/:tplId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Убрать шаблон (архив)' })
+  @ApiOperation({ summary: 'Remove a template (archive)' })
   async archiveTemplate(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -94,7 +94,7 @@ export class ShiftsController {
   // ---- Ротации ----
 
   @Get('objects/:objectId/shift-patterns')
-  @ApiOperation({ summary: 'Ротации объекта (2/2, 5/2)' })
+  @ApiOperation({ summary: 'Rotations of the site (2/2, 5/2)' })
   async patterns(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -105,7 +105,7 @@ export class ShiftsController {
   }
 
   @Post('objects/:objectId/shift-patterns')
-  @ApiOperation({ summary: 'Создать ротацию (сразу порождает смены на горизонт)' })
+  @ApiOperation({ summary: 'Create a rotation (it spawns the shifts up to the horizon at once)' })
   async createPattern(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -119,7 +119,7 @@ export class ShiftsController {
 
   @Delete('shift-patterns/:patId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Убрать ротацию (будущие черновики снимаются)' })
+  @ApiOperation({ summary: 'Remove a rotation (future drafts are taken off)' })
   async archivePattern(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -131,7 +131,7 @@ export class ShiftsController {
 
   @Post('shift-patterns/:patId/generate')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Догенерировать смены по ротации (идемпотентно)' })
+  @ApiOperation({ summary: 'Generate the missing shifts of a rotation (idempotent)' })
   async generate(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -146,7 +146,7 @@ export class ShiftsController {
   // ---- Смены ----
 
   @Get('objects/:objectId/shifts')
-  @ApiOperation({ summary: 'Сетка смен объекта за период (черновики — только планировщику)' })
+  @ApiOperation({ summary: 'The shift board of the site for a period (drafts — only for the planner)' })
   async board(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -159,7 +159,7 @@ export class ShiftsController {
   }
 
   @Post('objects/:objectId/shifts')
-  @ApiOperation({ summary: 'Поставить смену' })
+  @ApiOperation({ summary: 'Put a shift on the board' })
   async createShift(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -173,7 +173,7 @@ export class ShiftsController {
 
   @Post('objects/:objectId/shifts/publish')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Опубликовать график за период (дайджест сотрудникам)' })
+  @ApiOperation({ summary: 'Publish the schedule for a period (a digest to the employees)' })
   async publish(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -186,7 +186,7 @@ export class ShiftsController {
   }
 
   @Get('objects/:objectId/attendance')
-  @ApiOperation({ summary: 'Табель объекта за период (свои строки — всем, чужие — управляющему)' })
+  @ApiOperation({ summary: 'The timesheet of the site for a period (own rows — to everybody, other rows — to the manager)' })
   async attendanceList(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -199,7 +199,7 @@ export class ShiftsController {
   }
 
   @Patch('attendance/:attId')
-  @ApiOperation({ summary: 'Исправить запись табеля (включая внеплановый выход)' })
+  @ApiOperation({ summary: 'Fix a timesheet record (including an unplanned attendance)' })
   async attendanceUpdate(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -213,7 +213,7 @@ export class ShiftsController {
 
   @Delete('attendance/:attId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Удалить ошибочную запись табеля' })
+  @ApiOperation({ summary: 'Delete a wrong timesheet record' })
   async attendanceRemove(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -224,7 +224,7 @@ export class ShiftsController {
   }
 
   @Post('objects/:objectId/attendance')
-  @ApiOperation({ summary: 'Внеплановый выход (смены в плане не было)' })
+  @ApiOperation({ summary: 'An unplanned attendance (there was no shift in the plan)' })
   async markUnplanned(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -237,7 +237,7 @@ export class ShiftsController {
   }
 
   @Post('objects/:objectId/attendance/gate')
-  @ApiOperation({ summary: 'Событие пропускной системы (source=access_control)' })
+  @ApiOperation({ summary: 'An event of the access control system (source=access_control)' })
   async gate(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -250,7 +250,7 @@ export class ShiftsController {
   }
 
   @Patch('shifts/:shiftId')
-  @ApiOperation({ summary: 'Изменить смену (время, человек, заметка)' })
+  @ApiOperation({ summary: 'Change a shift (the time, the person, the note)' })
   async updateShift(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -264,7 +264,7 @@ export class ShiftsController {
 
   @Post('shifts/:shiftId/cancel')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Отменить смену' })
+  @ApiOperation({ summary: 'Cancel a shift' })
   async cancelShift(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -276,7 +276,7 @@ export class ShiftsController {
 
   @Post('shifts/:shiftId/take')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '«Возьму»: занять открытую смену подходящей должности' })
+  @ApiOperation({ summary: '«I will take it»: take an open shift of a matching position' })
   async takeShift(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -287,7 +287,7 @@ export class ShiftsController {
   }
 
   @Post('shifts/:shiftId/attendance')
-  @ApiOperation({ summary: 'Отметить факт по смене (вышел / опоздал / не вышел)' })
+  @ApiOperation({ summary: 'Mark the attendance of a shift (came in / late / no-show)' })
   async markAttendance(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,

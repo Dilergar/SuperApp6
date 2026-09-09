@@ -39,14 +39,14 @@ export class ProcessesController {
   constructor(private processes: ProcessesService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Процессы организации (команда; admins-процессы — admin+)' })
+  @ApiOperation({ summary: 'The processes of the organization (the team; admins-only processes need admin+)' })
   async list(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const data = await this.processes.listDefinitions(user.sub, id);
     return { success: true, data };
   }
 
   @Get('node-types')
-  @ApiOperation({ summary: 'Палитра нод (паспорта типов; ?surface= режет её под предметную область)' })
+  @ApiOperation({ summary: 'The node palette (type descriptors; ?surface= trims it to a domain)' })
   async nodeTypes(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -60,7 +60,7 @@ export class ProcessesController {
   }
 
   @Get('inbox')
-  @ApiOperation({ summary: 'Входящие: задачи моих отделов в очереди (решения — в общей стопке «Ждут решения»)' })
+  @ApiOperation({ summary: 'Inbox: the queued tasks of my departments (decisions live in the shared decision stack)' })
   async inbox(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const data = await this.processes.listInbox(user.sub, id);
     return { success: true, data };
@@ -69,14 +69,14 @@ export class ProcessesController {
   // ----- Ф3: сейф кредов (manager+) -----
 
   @Get('credentials')
-  @ApiOperation({ summary: 'Креды организации для HTTP-нод (без секретов; manager+)' })
+  @ApiOperation({ summary: 'The credentials of the organization for HTTP nodes (without the secrets; manager+)' })
   async listCredentials(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const data = await this.processes.listCredentials(user.sub, id);
     return { success: true, data };
   }
 
   @Post('credentials')
-  @ApiOperation({ summary: 'Добавить креды в сейф (секрет шифруется; manager+)' })
+  @ApiOperation({ summary: 'Add a credential to the safe (the secret is encrypted; manager+)' })
   async createCredential(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() body: unknown) {
     const data = createProcessCredentialSchema.parse(body);
     const res = await this.processes.createCredential(user.sub, id, data);
@@ -85,14 +85,14 @@ export class ProcessesController {
 
   @Delete('credentials/:credId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Удалить креды (manager+)' })
+  @ApiOperation({ summary: 'Delete a credential (manager+)' })
   async deleteCredential(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Param('credId') credId: string) {
     await this.processes.deleteCredential(user.sub, id, credId);
     return { success: true };
   }
 
   @Get('instances')
-  @ApiOperation({ summary: 'Журнал запущенных процессов (manager+ — все; остальные — свои)' })
+  @ApiOperation({ summary: 'The log of started processes (manager+ sees all, the rest see their own)' })
   async listInstances(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -104,7 +104,7 @@ export class ProcessesController {
   }
 
   @Get('instances/:instId')
-  @ApiOperation({ summary: 'Запущенный процесс: шаги, тайминг, канвас закреплённой версии' })
+  @ApiOperation({ summary: 'A started process: the steps, the timing and the canvas of the pinned version' })
   async getInstance(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -115,7 +115,7 @@ export class ProcessesController {
   }
 
   @Get('instances/:instId/status')
-  @ApiOperation({ summary: 'Тонкий статус инстанса (P7): статусы шагов без документа/анкеты — для поллинга' })
+  @ApiOperation({ summary: 'A thin instance status (P7): step statuses without the document or the form — for polling' })
   async getInstanceStatus(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -127,7 +127,7 @@ export class ProcessesController {
 
   @Post('instances/:instId/cancel')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Отменить процесс (инициатор или manager+); открытые задачи отменяются' })
+  @ApiOperation({ summary: 'Cancel a process (the initiator or manager+); the open tasks are cancelled' })
   async cancelInstance(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -138,7 +138,7 @@ export class ProcessesController {
   }
 
   @Post('instances/:instId/steps/:stepId/claim')
-  @ApiOperation({ summary: 'Забрать задачу отдела из очереди (член отдела) → создаётся задача' })
+  @ApiOperation({ summary: 'Take a department task from the queue (a member of the department) — a task is created' })
   async claimStep(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -151,7 +151,7 @@ export class ProcessesController {
 
   @Post('instances/:instId/steps/:stepId/decide')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Решение по шагу: approved | rejected | returned (причина обязательна на двух последних)' })
+  @ApiOperation({ summary: 'A decision on a step: approved | rejected | returned (the reason is mandatory for the last two)' })
   async decideStep(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -166,7 +166,7 @@ export class ProcessesController {
 
   @Post('instances/:instId/steps/:stepId/reassign')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Переназначить исполнителя шага на другого сотрудника (manager+)' })
+  @ApiOperation({ summary: 'Reassign the step to another employee (manager+)' })
   async reassignStep(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -180,7 +180,7 @@ export class ProcessesController {
   }
 
   @Post()
-  @ApiOperation({ summary: 'Создать процесс (manager+; создаётся черновик Старт→Конец)' })
+  @ApiOperation({ summary: 'Create a process (manager+; a draft start-to-end is created)' })
   async create(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -192,7 +192,7 @@ export class ProcessesController {
   }
 
   @Get(':defId')
-  @ApiOperation({ summary: 'Процесс: документ последней версии + мягкая валидация' })
+  @ApiOperation({ summary: 'A process: the document of the latest version plus a soft validation' })
   async get(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -203,7 +203,7 @@ export class ProcessesController {
   }
 
   @Patch(':defId')
-  @ApiOperation({ summary: 'Обновить мета процесса: имя/описание/видимость (manager+)' })
+  @ApiOperation({ summary: 'Update the process meta: the name, the description and the visibility (manager+)' })
   async update(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -216,7 +216,7 @@ export class ProcessesController {
   }
 
   @Put(':defId/document')
-  @ApiOperation({ summary: 'Сохранить документ канваса (manager+; правка published → новый черновик)' })
+  @ApiOperation({ summary: 'Save the canvas document (manager+; editing a published one starts a new draft)' })
   async saveDocument(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -229,7 +229,7 @@ export class ProcessesController {
   }
 
   @Get(':defId/report')
-  @ApiOperation({ summary: 'Отчёт «время по шагам/отделам» (manager+)' })
+  @ApiOperation({ summary: 'The report of the time spent by steps and departments (manager+)' })
   async report(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -241,7 +241,7 @@ export class ProcessesController {
 
   @Post(':defId/validate')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Проверить документ (компиляция + членство исполнителей)' })
+  @ApiOperation({ summary: 'Validate the document (the compilation plus the membership of the assignees)' })
   async validate(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -253,7 +253,7 @@ export class ProcessesController {
 
   @Post(':defId/publish')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Опубликовать черновик (manager+; активна одна версия, инстансы доживают на своих)' })
+  @ApiOperation({ summary: 'Publish the draft (manager+; one version is active, the running instances stay on theirs)' })
   async publish(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -270,7 +270,7 @@ export class ProcessesController {
 
   @Delete(':defId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Архивировать процесс (manager+; запущенные инстансы блокируют)' })
+  @ApiOperation({ summary: 'Archive a process (manager+; running instances block it)' })
   async archive(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -281,7 +281,7 @@ export class ProcessesController {
   }
 
   @Post(':defId/start')
-  @ApiOperation({ summary: 'Запустить процесс (команда; анкета валидируется по форме версии)' })
+  @ApiOperation({ summary: 'Start a process (the team; the form is validated against the version form)' })
   async start(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,

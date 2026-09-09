@@ -1,15 +1,9 @@
-import {
-  BadRequestException,
-  Controller,
-  HttpCode,
-  Post,
-  Req,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Controller, HttpCode, Post, Req } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import type { WebhookEvent } from 'livekit-server-sdk';
 import { Public } from '../../shared/decorators/public.decorator';
+import { badRequest, unauthorized } from '../../shared/errors/api-error';
 import { CallsLivekitClient } from './calls-livekit.client';
 import { CallsService } from './calls.service';
 
@@ -31,7 +25,7 @@ export class CallsWebhookController {
   @Post('livekit/webhook')
   @HttpCode(200)
   async webhook(@Req() req: Request): Promise<{ success: true }> {
-    if (!this.livekit.enabled) throw new BadRequestException('Звонки не подключены');
+    if (!this.livekit.enabled) throw badRequest('calls.notConnected');
     const raw = Buffer.isBuffer(req.body)
       ? req.body.toString('utf8')
       : typeof req.body === 'string'
@@ -41,7 +35,7 @@ export class CallsWebhookController {
     try {
       event = await this.livekit.webhookReceiver.receive(raw, req.headers.authorization);
     } catch {
-      throw new UnauthorizedException('Невалидная подпись вебхука LiveKit');
+      throw unauthorized('calls.badWebhookSignature');
     }
     await this.calls.handleWebhook(event);
     return { success: true };

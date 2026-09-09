@@ -21,89 +21,54 @@ export const PROCESS_LIMITS = {
   maxSubprocessDepth: 5,
 } as const;
 
-export const PROCESS_NODE_CATEGORY_LABELS: Record<string, string> = {
-  trigger: 'Триггеры запуска',
-  flow: 'Логика',
-  people: 'Люди',
-  service: 'Сервисы',
-  ai: 'AI',
-  integration: 'Интеграции',
-};
+// ============================================================
+// Реестры Процессов несут СМЫСЛ (значения), слова живут в каталоге `processes`:
+// `processes.category.<ключ>`, `.instanceStatus.<статус>`, `.stepStatus.<статус>`,
+// `.versionStatus.<статус>`, `.visibility.<ключ>`, `.event.<тип>`,
+// `.triggerType.<тип>`, `.credentialType.<тип>`, `.scheduleUnit.<ключ>`,
+// `.delayUnit.<ключ>`, `.conditionOp.<ключ>`, `.common.onError.option.<ключ>`.
+// ============================================================
 
-export const PROCESS_INSTANCE_STATUS_LABELS: Record<string, string> = {
-  running: 'Идёт',
-  done: 'Завершён',
-  cancelled: 'Отменён',
-  error: 'Ошибка',
-};
+export const PROCESS_NODE_CATEGORIES = ['trigger', 'flow', 'people', 'service', 'ai', 'integration'] as const;
 
-export const PROCESS_STEP_STATUS_LABELS: Record<string, string> = {
-  active: 'В работе',
-  done: 'Готово',
-  error: 'Ошибка',
-  cancelled: 'Отменён',
-};
+export const PROCESS_INSTANCE_STATUSES = ['running', 'done', 'cancelled', 'error'] as const;
 
-export const PROCESS_VERSION_STATUS_LABELS: Record<string, string> = {
-  draft: 'Черновик',
-  published: 'Опубликована',
-  superseded: 'Архивная',
-};
+export const PROCESS_STEP_STATUSES = ['active', 'done', 'error', 'cancelled'] as const;
 
-export const PROCESS_VISIBILITY_LABELS: Record<string, string> = {
-  team: 'Вся команда',
-  admins: 'Только админы',
-};
+export const PROCESS_VERSION_STATUSES = ['draft', 'published', 'superseded'] as const;
+
+export const PROCESS_VISIBILITIES = ['team', 'admins'] as const;
 
 /** Ф3: события платформы, на которые можно повесить триггер запуска процесса (workspace-скоуп резолвится сервером). */
 export const PROCESS_EVENT_TYPES = [
-  { value: 'workspace.invitation.accepted', label: 'Принят новый сотрудник' },
-  { value: 'workspace.member.removed', label: 'Сотрудник уволен' },
-  { value: 'workspace.position.assigned', label: 'Назначена должность' },
-  { value: 'workspace.position.certified', label: 'Сотрудник аттестован' },
-  { value: 'task.completed', label: 'Задача завершена' },
-  { value: 'task.created', label: 'Создана задача' },
-  { value: 'shop.order.placed', label: 'Оформлен заказ' },
-  { value: 'shop.order.funded', label: 'Краудфандинг собран' },
-  { value: 'shop.order.confirmed', label: 'Заказ подтверждён' },
-  { value: 'finance.transaction.created', label: 'Записана операция в Финансах' },
+  'workspace.invitation.accepted',
+  'workspace.member.removed',
+  'workspace.position.assigned',
+  'workspace.position.certified',
+  'task.completed',
+  'task.created',
+  'shop.order.placed',
+  'shop.order.funded',
+  'shop.order.confirmed',
+  'finance.transaction.created',
 ] as const;
 
-export const PROCESS_TRIGGER_TYPE_LABELS: Record<string, string> = {
-  event: 'Событие',
-  schedule: 'Расписание',
-  webhook: 'Внешний вебхук',
-};
+export const PROCESS_TRIGGER_TYPES = ['event', 'schedule', 'webhook'] as const;
 
 /** Ф2: поведение шага при ошибке (n8n On Error). Умолчание — «Остановить процесс» (как раньше). */
-export const PROCESS_ONERROR_OPTIONS = [
-  { value: 'stop', label: 'Остановить процесс' },
-  { value: 'continue', label: 'Продолжить (игнорировать ошибку)' },
-  { value: 'errorOutput', label: 'Уйти в ветку «Ошибка»' },
-] as const;
-export type ProcessOnError = (typeof PROCESS_ONERROR_OPTIONS)[number]['value'];
+export const PROCESS_ONERROR_OPTIONS = ['stop', 'continue', 'errorOutput'] as const;
+export type ProcessOnError = (typeof PROCESS_ONERROR_OPTIONS)[number];
 
 /** Ф2: границы повторов при сбое (Retry On Fail) — только для нод внешнего I/O. */
 export const PROCESS_RETRY_MAX_TRIES = 5;
 export const PROCESS_RETRY_WAIT_MAX_MS = 10_000;
 
-export const PROCESS_SCHEDULE_UNITS = [
-  { value: 'hours', label: 'часов' },
-  { value: 'days', label: 'дней' },
-] as const;
+export const PROCESS_SCHEDULE_UNITS = ['hours', 'days'] as const;
 
-export const PROCESS_CREDENTIAL_TYPE_LABELS: Record<string, string> = {
-  header: 'Заголовок (токен в заголовке)',
-  bearer: 'Bearer-токен',
-  basic: 'Логин/пароль (Basic)',
-};
+export const PROCESS_CREDENTIAL_TYPES = ['header', 'bearer', 'basic'] as const;
 
 /** Единицы паузы (нода «Пауза»). */
-export const PROCESS_DELAY_UNITS = [
-  { value: 'minutes', label: 'минут' },
-  { value: 'hours', label: 'часов' },
-  { value: 'days', label: 'дней' },
-] as const;
+export const PROCESS_DELAY_UNITS = ['minutes', 'hours', 'days'] as const;
 
 export const PROCESS_DELAY_UNIT_MS: Record<string, number> = {
   minutes: 60_000,
@@ -113,15 +78,15 @@ export const PROCESS_DELAY_UNIT_MS: Record<string, number> = {
 
 /** Операторы ноды «Если» (сравнение полей анкеты — без языка выражений). */
 export const PROCESS_CONDITION_OPS = [
-  { value: 'eq', label: '=' },
-  { value: 'ne', label: '≠' },
-  { value: 'gt', label: '>' },
-  { value: 'gte', label: '≥' },
-  { value: 'lt', label: '<' },
-  { value: 'lte', label: '≤' },
-  { value: 'contains', label: 'содержит' },
-  { value: 'empty', label: 'пусто' },
-  { value: 'not_empty', label: 'не пусто' },
+  'eq',
+  'ne',
+  'gt',
+  'gte',
+  'lt',
+  'lte',
+  'contains',
+  'empty',
+  'not_empty',
 ] as const;
 
-export type ProcessConditionOp = (typeof PROCESS_CONDITION_OPS)[number]['value'];
+export type ProcessConditionOp = (typeof PROCESS_CONDITION_OPS)[number];

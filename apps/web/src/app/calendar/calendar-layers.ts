@@ -13,7 +13,8 @@ import type { IconName, Tone } from '@/components/ui';
 
 export interface LayerToggle {
   key: CalendarLayerKey;
-  label: string;
+  /** Ключ каталога подписи тумблера — слово подставляет страница. */
+  labelKey: string;
   icon: IconName;
   tone: Tone;
 }
@@ -21,7 +22,7 @@ export interface LayerToggle {
 /** Тумблеры панели управления — прямо из shared-реестра. */
 export const LAYER_TOGGLES: LayerToggle[] = CALENDAR_LAYER_KEYS.map((key) => ({
   key,
-  label: CALENDAR_LAYER_REGISTRY[key].label,
+  labelKey: CALENDAR_LAYER_REGISTRY[key].labelKey,
   icon: CALENDAR_LAYER_REGISTRY[key].icon as IconName,
   tone: CALENDAR_LAYER_REGISTRY[key].tone as Tone,
 }));

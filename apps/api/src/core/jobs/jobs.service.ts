@@ -309,7 +309,7 @@ export class JobsService {
     >`
       UPDATE jobs
       SET status = 'discarded', lease_until = NULL, finished_at = ${ts(now)}, updated_at = ${ts(now)},
-          last_error = COALESCE(last_error, 'аренда истекла (краш инстанса?)')
+          last_error = COALESCE(last_error, 'the lease expired (an instance crash?)')
       WHERE status = 'executing' AND lease_until < ${ts(now)} AND attempts >= max_attempts
       RETURNING id, type, attempts, payload, last_error AS "lastError"
     `;
@@ -409,10 +409,10 @@ export class JobsService {
     const rows = await this.listUnhandled();
     for (const r of rows) {
       this.logger.warn(
-        `${r.count} джоб(ов) типа "${r.type}" без обработчика на этом инстансе ` +
-          `(старейшему ${Math.round(r.oldestAgeSec / 3600)}ч). Это либо выключенная фича ` +
-          `(проверьте её переменные окружения), либо удалённый тип — тогда чистить ` +
-          `осознанно через purgeUnhandled.`,
+        `${r.count} job(s) of type "${r.type}" have no handler on this instance ` +
+          `(the oldest is ${Math.round(r.oldestAgeSec / 3600)}h old). Either the feature is off ` +
+          `(check its environment variables), or the type was removed — then clean it up ` +
+          `deliberately via purgeUnhandled.`,
       );
     }
   }
@@ -425,7 +425,7 @@ export class JobsService {
    */
   async purgeUnhandled(type: string): Promise<number> {
     if (this.registry.get(type)) {
-      throw new Error(`тип "${type}" ЗАРЕГИСТРИРОВАН на этом инстансе — чистить нечего`);
+      throw new Error(`type "${type}" IS registered on this instance — there is nothing to clean up`);
     }
     // ТОЛЬКО available: `executing` не трогаем, потому что «нет обработчика ЗДЕСЬ» не
     // значит «нет нигде» — при мульти-инстансе или раскатке релиза этот джоб прямо
@@ -439,10 +439,10 @@ export class JobsService {
         status: 'cancelled',
         finishedAt: new Date(),
         leaseUntil: null,
-        lastError: 'тип джоба снят с обслуживания (purgeUnhandled)',
+        lastError: 'the job type was retired (purgeUnhandled)',
       },
     });
-    if (res.count > 0) this.logger.warn(`purgeUnhandled: похоронено ${res.count} джоб(ов) типа "${type}"`);
+    if (res.count > 0) this.logger.warn(`purgeUnhandled: buried ${res.count} job(s) of type "${type}"`);
     return res.count;
   }
 

@@ -1,12 +1,5 @@
-import {
-  BadRequestException,
-  ConflictException,
-  HttpException,
-  Injectable,
-  Logger,
-  ServiceUnavailableException,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { ApiError, badRequest, conflict, tooMany, unauthorized } from '../../shared/errors/api-error';
 import { createHmac, createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import * as bcrypt from 'bcrypt';
 import type { Prisma } from '@prisma/client';
@@ -88,15 +81,15 @@ export class VerifyService {
     }
     if (this.testPhones.size > 0 && isProd && !allowInProd) {
       this.logger.error(
-        `🚨 VERIFY_TEST_PHONES задана в production (${this.testPhones.size} номеров) — ИГНОРИРУЮ. ` +
-          'Фиксированный код + отключённые лимиты = мгновенный захват этих аккаунтов. ' +
-          'Если это осознанный прод-смоук — VERIFY_TEST_PHONES_ALLOW_PROD=true.',
+        `🚨 VERIFY_TEST_PHONES is set in production (${this.testPhones.size} numbers) — IGNORING it. ` +
+          'A fixed code plus disabled limits means those accounts can be taken over instantly. ' +
+          'If this is a deliberate production smoke test — VERIFY_TEST_PHONES_ALLOW_PROD=true.',
       );
       this.testPhones.clear();
     } else if (this.testPhones.size > 0 && isProd) {
       this.logger.warn(
-        `⚠️  VERIFY_TEST_PHONES активна в production (${this.testPhones.size} номеров с фиксированным кодом) ` +
-          'по явному VERIFY_TEST_PHONES_ALLOW_PROD=true.',
+        `⚠️  VERIFY_TEST_PHONES is active in production (${this.testPhones.size} numbers with a fixed code) ` +
+          'by an explicit VERIFY_TEST_PHONES_ALLOW_PROD=true.',
       );
     }
   }
@@ -144,9 +137,9 @@ export class VerifyService {
       const existing = await this.db.user.findUnique({ where: { phone }, select: { deletionScheduledAt: true, deletedAt: true } });
       if (existing) {
         if (existing.deletionScheduledAt && !existing.deletedAt) {
-          throw new ConflictException('Этот номер привязан к аккаунту, помеченному на удаление. Войдите, чтобы восстановить его.');
+          throw conflict('auth.phoneOnDeletedAccount');
         }
-        throw new ConflictException('Этот номер телефона уже зарегистрирован');
+        throw conflict('auth.phoneTaken');
       }
       return this.startChain(phone, purpose, null, ip);
     }
@@ -176,17 +169,17 @@ export class VerifyService {
     ip?: string,
   ): Promise<VerifyStartResponse> {
     const user = await this.db.user.findUnique({ where: { id: userId }, select: { phone: true, password: true, deletedAt: true } });
-    if (!user || user.deletedAt) throw new UnauthorizedException('Пользователь не найден');
+    if (!user || user.deletedAt) throw unauthorized('auth.userNotFound');
     if (!(await bcrypt.compare(password, user.password))) {
-      throw new UnauthorizedException('Неверный пароль');
+      throw unauthorized('auth.wrongPassword');
     }
 
     let phone = user.phone;
     if (purpose === 'phone_change_new') {
-      if (!newPhone) throw new BadRequestException('Укажите новый номер телефона');
-      if (newPhone === user.phone) throw new BadRequestException('Это ваш текущий номер');
+      if (!newPhone) throw badRequest('verify.newPhoneRequired');
+      if (newPhone === user.phone) throw badRequest('verify.samePhone');
       const taken = await this.db.user.findUnique({ where: { phone: newPhone }, select: { id: true } });
-      if (taken) throw new ConflictException('Этот номер уже привязан к другому аккаунту');
+      if (taken) throw conflict('verify.phoneTakenOther');
       phone = newPhone;
     }
     return this.startChain(phone, purpose, userId, ip);
@@ -234,7 +227,7 @@ export class VerifyService {
     // номер аккаунта щит не нужен (пампинг им не сделать), иначе легаси-аккаунт с
     // не-казахстанским номером навсегда остался бы без смены пароля.
     if (CLIENT_CHOSEN_PURPOSES.has(purpose) && !isKzMobilePhone(phone)) {
-      throw new BadRequestException('Пока поддерживаются только казахстанские мобильные номера (+7 7XX XXX XX XX)');
+      throw badRequest('verify.kzOnly');
     }
 
     // Двойной клик / ретрай клиента: проверка кулдауна и вставка строки не атомарны,
@@ -248,15 +241,13 @@ export class VerifyService {
       token = await this.redis.acquireLock(lockKey, 15_000);
     } catch (err) {
       lockWorks = false; // Redis недоступен — идём без замка (кэш не источник отказа)
-      this.logger.warn(`Redis-лок ${lockKey} недоступен (${(err as Error).message}) — старт без него`);
+      this.logger.warn(`The Redis lock ${lockKey} is unavailable (${(err as Error).message}) — starting without it`);
     }
     if (lockWorks && !token) {
-      throw new HttpException(
-        {
-          message: `Код уже отправляется. Повторите через ${VERIFY_LIMITS.resendCooldownSec} сек`,
-          details: { resendInSec: VERIFY_LIMITS.resendCooldownSec, code: VERIFY_ERROR_CODES.cooldown },
-        },
-        429,
+      throw tooMany(
+        'verify.sending',
+        { sec: VERIFY_LIMITS.resendCooldownSec },
+        { resendInSec: VERIFY_LIMITS.resendCooldownSec, code: VERIFY_ERROR_CODES.cooldown },
       );
     }
     try {
@@ -298,25 +289,13 @@ export class VerifyService {
         // challengeId НАРУЖУ НЕ ОТДАЁМ: он давал бы всякому, кто знает номер, id чужой
         // живой цепочки — а с ним пятью неверными check её код можно сжечь. Клиент,
         // который цепочку начинал, помнит её id сам (sessionStorage).
-        throw new HttpException(
-          {
-            message: `Код уже отправлен. Повторная отправка через ${waitSec} сек`,
-            details: { resendInSec: waitSec, code: VERIFY_ERROR_CODES.cooldown },
-          },
-          429,
-        );
+        throw tooMany('verify.alreadySentWait', { sec: waitSec }, { resendInSec: waitSec, code: VERIFY_ERROR_CODES.cooldown });
       }
       if (active.sendCount >= VERIFY_LIMITS.maxSendsPerChain) {
-        throw new HttpException(
-          {
-            message: 'Слишком много отправок этого кода. Подождите 10 минут и запросите новый',
-            details: {
-              resendInSec: Math.ceil((active.expiresAt.getTime() - now.getTime()) / 1000),
-              code: VERIFY_ERROR_CODES.cooldown,
-            },
-          },
-          429,
-        );
+        throw tooMany('verify.tooManySends', undefined, {
+          resendInSec: Math.ceil((active.expiresAt.getTime() - now.getTime()) / 1000),
+          code: VERIFY_ERROR_CODES.cooldown,
+        });
       }
     }
 
@@ -336,8 +315,8 @@ export class VerifyService {
     if (delivery === 'sms') {
       const sent = await this.sms.send(phone, buildOtpSmsText(code, process.env.VERIFY_SMS_ORIGIN_DOMAIN || undefined));
       if (!sent.ok) {
-        this.logger.error(`SMS не отправлена (${this.sms.driver.name}): ${sent.error}`);
-        throw new ServiceUnavailableException('Не удалось отправить SMS. Попробуйте ещё раз через минуту');
+        this.logger.error(`The SMS was not sent (${this.sms.driver.name}): ${sent.error}`);
+        throw new ApiError(HttpStatus.SERVICE_UNAVAILABLE, { code: 'verify.smsFailed' });
       }
       providerMessageId = sent.providerMessageId ?? null;
       // Глобальный бюджет тратится по ФАКТУ отправки (упавший провайдер не должен
@@ -408,11 +387,11 @@ export class VerifyService {
 
     const ch = await this.db.verifyChallenge.findUnique({ where: { id: challengeId } });
     // Единое сообщение для «нет такой цепочки» и истёкших.
-    if (!ch || ch.consumedAt) throw this.chainDead('Код неверен или истёк. Запросите новый');
-    if (ch.verifiedAt) throw this.chainDead('Код уже подтверждён');
-    if (ch.expiresAt.getTime() <= Date.now()) throw this.chainDead('Код истёк. Запросите новый');
+    if (!ch || ch.consumedAt) throw this.chainDead('verify.codeWrongOrExpired');
+    if (ch.verifiedAt) throw this.chainDead('verify.alreadyVerified');
+    if (ch.expiresAt.getTime() <= Date.now()) throw this.chainDead('verify.codeExpired');
     if (ch.attempts >= VERIFY_LIMITS.maxAttempts) {
-      throw this.chainDead('Слишком много неверных попыток. Запросите новый код');
+      throw this.chainDead('verify.tooManyAttempts');
     }
 
     const expected = Buffer.from(ch.codeHash, 'hex');
@@ -427,10 +406,11 @@ export class VerifyService {
       });
       const fresh = await this.db.verifyChallenge.findUnique({ where: { id: challengeId }, select: { attempts: true } });
       const left = Math.max(0, VERIFY_LIMITS.maxAttempts - (fresh?.attempts ?? VERIFY_LIMITS.maxAttempts));
-      throw new BadRequestException({
-        message: left > 0 ? `Неверный код. Осталось попыток: ${left}` : 'Слишком много неверных попыток. Запросите новый код',
-        details: { attemptsLeft: left, code: left > 0 ? VERIFY_ERROR_CODES.codeWrong : VERIFY_ERROR_CODES.chainDead },
-      });
+      throw badRequest(
+        left > 0 ? 'verify.wrongCodeLeft' : 'verify.tooManyAttempts',
+        left > 0 ? { left } : undefined,
+        { attemptsLeft: left, code: left > 0 ? VERIFY_ERROR_CODES.codeWrong : VERIFY_ERROR_CODES.chainDead },
+      );
     }
 
     // Гонка двух верных check: verifiedAt ставит ровно один.
@@ -439,7 +419,7 @@ export class VerifyService {
       where: { id: challengeId, verifiedAt: null, consumedAt: null },
       data: { verifiedAt: new Date(), verifyTokenHash: this.hashToken(verifyToken) },
     });
-    if (count === 0) throw this.chainDead('Код уже подтверждён');
+    if (count === 0) throw this.chainDead('verify.alreadyVerified');
     return { verifyToken };
   }
 
@@ -460,10 +440,7 @@ export class VerifyService {
     const tokenHash = this.hashToken(opts.verifyToken);
     const ch = await tx.verifyChallenge.findUnique({ where: { verifyTokenHash: tokenHash } });
     const fail = () =>
-      new BadRequestException({
-        message: 'Подтверждение недействительно или устарело. Запросите код заново',
-        details: { code: VERIFY_ERROR_CODES.tokenStale },
-      });
+      badRequest('auth.verifyStale', undefined, { code: VERIFY_ERROR_CODES.tokenStale });
 
     if (!ch || !ch.verifiedAt || ch.consumedAt) throw fail();
     if (ch.purpose !== opts.purpose) throw fail();
@@ -514,10 +491,10 @@ export class VerifyService {
       this.db.verifyChallenge.aggregate({ _sum: { sendCount: true }, where: window(dayAgo) }),
     ]);
     if ((hour._sum.sendCount ?? 0) >= VERIFY_LIMITS.phoneHourlyMax) {
-      throw new HttpException({ message: 'Слишком много SMS на этот номер. Попробуйте через час', details: { code: VERIFY_ERROR_CODES.cooldown } }, 429);
+      throw tooMany('verify.tooManySmsHour', undefined, { code: VERIFY_ERROR_CODES.cooldown });
     }
     if ((day._sum.sendCount ?? 0) >= VERIFY_LIMITS.phoneDailyMax) {
-      throw new HttpException({ message: 'Дневной лимит SMS на этот номер исчерпан. Попробуйте завтра', details: { code: VERIFY_ERROR_CODES.cooldown } }, 429);
+      throw tooMany('verify.dailySmsLimit', undefined, { code: VERIFY_ERROR_CODES.cooldown });
     }
 
     // Redis-эшелоны — best-effort (упал → warn и пропуск: номерные БД-потолки держат).
@@ -528,20 +505,20 @@ export class VerifyService {
       if (ip && !this.isDevEnv) {
         const ipCount = await this.slidingCount(`verify:ip:${ip}:start`, 3600, true);
         if (ipCount > VERIFY_LIMITS.ipStartHourlyMax) {
-          throw new HttpException({ message: 'Слишком много запросов. Попробуйте позже' }, 429);
+          throw tooMany('verify.tooManyRequests');
         }
       }
       const budget = this.hourlyBudget();
       const global = await this.slidingCount('verify:global', 3600, false);
       if (global >= budget) {
         this.logger.error(
-          `🚨 Глобальный SMS-бюджет исчерпан (${global}/${budget} за час) — возможен SMS-пампинг или инцидент. Отправка остановлена.`,
+          `🚨 The global SMS budget is used up (${global}/${budget} per hour) — possibly SMS pumping or an incident. Sending is stopped.`,
         );
-        throw new ServiceUnavailableException('Отправка SMS временно недоступна. Попробуйте позже');
+        throw new ApiError(HttpStatus.SERVICE_UNAVAILABLE, { code: 'verify.smsUnavailable' });
       }
     } catch (err) {
       if (err instanceof HttpException) throw err;
-      this.logger.warn(`Redis-лимиты недоступны (${(err as Error).message}) — пропускаю IP/глобальный эшелон`);
+      this.logger.warn(`The Redis limits are unavailable (${(err as Error).message}) — skipping the IP and global tiers`);
     }
   }
 
@@ -550,11 +527,11 @@ export class VerifyService {
     try {
       const n = await this.slidingCount(`verify:ip:${ip}:check`, 300, true);
       if (n > VERIFY_LIMITS.ipCheckPer5MinMax) {
-        throw new HttpException({ message: 'Слишком много попыток. Подождите 5 минут' }, 429);
+        throw tooMany('verify.tooManyChecks');
       }
     } catch (err) {
       if (err instanceof HttpException) throw err;
-      this.logger.warn(`Redis-лимит проверок недоступен: ${(err as Error).message}`);
+      this.logger.warn(`The Redis check limit is unavailable: ${(err as Error).message}`);
     }
   }
 
@@ -567,7 +544,7 @@ export class VerifyService {
     try {
       await this.slidingCount('verify:global', 3600, true);
     } catch (err) {
-      this.logger.warn(`Не удалось учесть SMS в бюджете: ${(err as Error).message}`);
+      this.logger.warn(`Could not account the SMS against the budget: ${(err as Error).message}`);
     }
   }
 
@@ -604,8 +581,9 @@ export class VerifyService {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  private chainDead(message: string): BadRequestException {
-    return new BadRequestException({ message, details: { code: VERIFY_ERROR_CODES.chainDead } });
+  /** Цепочка мертва: слово подберёт фильтр по ключу, машинный код остаётся прежним. */
+  private chainDead(key: string): ApiError {
+    return badRequest(key, undefined, { code: VERIFY_ERROR_CODES.chainDead });
   }
 
   // ------------------------------------------------------------------

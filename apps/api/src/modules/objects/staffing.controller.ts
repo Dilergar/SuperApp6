@@ -31,7 +31,7 @@ export class StaffingController {
   constructor(private staffing: StaffingService) {}
 
   @Get('objects/:objectId/staffing')
-  @ApiOperation({ summary: 'Таблица штатного расписания за период (деньги — по правам)' })
+  @ApiOperation({ summary: 'The staffing table for a period (the money — by rights)' })
   async table(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -45,7 +45,7 @@ export class StaffingController {
   }
 
   @Post('objects/:objectId/staffing/positions')
-  @ApiOperation({ summary: 'Добавить штатную единицу (должность × объект)' })
+  @ApiOperation({ summary: 'Add a staffing unit (a position × a site)' })
   async createUnit(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -58,7 +58,7 @@ export class StaffingController {
   }
 
   @Post('objects/:objectId/staffing/assign')
-  @ApiOperation({ summary: 'Назначить человека на штатную единицу (со ставкой, одной транзакцией)' })
+  @ApiOperation({ summary: 'Assign a person to a staffing unit (with the rate, in one transaction)' })
   async assign(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -71,7 +71,7 @@ export class StaffingController {
   }
 
   @Patch('staffing/positions/:spId')
-  @ApiOperation({ summary: 'Изменить штатную единицу' })
+  @ApiOperation({ summary: 'Change a staffing unit' })
   async updateUnit(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -85,7 +85,7 @@ export class StaffingController {
 
   @Delete('staffing/positions/:spId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Убрать штатную единицу (архив; действующие назначения — 409)' })
+  @ApiOperation({ summary: 'Remove a staffing unit (archive; live assignments — 409)' })
   async archiveUnit(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -96,7 +96,7 @@ export class StaffingController {
   }
 
   @Post('staffing/positions/:spId/rates')
-  @ApiOperation({ summary: 'Плановая ставка единицы с даты (закрывает предыдущую)' })
+  @ApiOperation({ summary: 'The planned rate of a unit as of a date (closes the previous one)' })
   async setUnitRate(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -109,7 +109,7 @@ export class StaffingController {
   }
 
   @Patch('staffing/assignments/:aId')
-  @ApiOperation({ summary: 'Изменить назначение: даты, доля ставки' })
+  @ApiOperation({ summary: 'Change an assignment: the dates, the share of the rate' })
   async updateAssignment(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -123,7 +123,7 @@ export class StaffingController {
 
   @Post('staffing/assignments/:aId/close')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Закрыть назначение датой (остаётся в истории)' })
+  @ApiOperation({ summary: 'Close an assignment as of a date (stays in the history)' })
   async closeAssignment(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -136,7 +136,7 @@ export class StaffingController {
   }
 
   @Get('staffing/assignments/:aId/rates')
-  @ApiOperation({ summary: 'История ставок назначения (только с правом на деньги)' })
+  @ApiOperation({ summary: 'The rate history of an assignment (only with the right to the money)' })
   async rates(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -147,7 +147,7 @@ export class StaffingController {
   }
 
   @Post('staffing/assignments/:aId/rates')
-  @ApiOperation({ summary: 'Фактическая ставка человека с даты (закрывает предыдущую)' })
+  @ApiOperation({ summary: 'The actual rate of a person as of a date (closes the previous one)' })
   async setRate(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,

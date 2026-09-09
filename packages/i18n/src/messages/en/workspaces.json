@@ -1,0 +1,330 @@
+{
+  "breadcrumb": "Organizations",
+  "card": {
+    "city": "City",
+    "email": "E-mail",
+    "industry": "Industry",
+    "members": "Employees",
+    "membersShort": "{n, plural, one {# person} other {# people}}",
+    "phone": "Phone",
+    "website": "Website"
+  },
+  "home": {
+    "service": {
+      "calendar": {
+        "desc": "Shared shifts, bookings and events",
+        "title": "Calendar of the organization"
+      },
+      "counterparties": {
+        "desc": "The directory of outside parties: details, contacts, documents",
+        "title": "Counterparties"
+      },
+      "deadlines": {
+        "desc": "ESUTD, hand-overs, settlements, probation periods",
+        "title": "HR deadlines"
+      },
+      "documents": {
+        "desc": "Applications, orders, contracts with counterparties",
+        "title": "Documents"
+      },
+      "journal": {
+        "desc": "The chronicle: hiring, roles, positions, tasks",
+        "title": "The journal"
+      },
+      "links": {
+        "desc": "What the team shared with people who have no account",
+        "title": "Guest links"
+      },
+      "members": {
+        "desc": "The roster, positions, departments, sites",
+        "title": "Employees"
+      },
+      "office": {
+        "desc": "Video meetings and stand-ups of the organization",
+        "title": "Virtual office"
+      },
+      "processes": {
+        "desc": "The builder of business processes on a canvas",
+        "title": "Processes"
+      },
+      "tasks": {
+        "desc": "Work tasks as a separate service",
+        "title": "Tasks of the organization"
+      },
+      "wallet": {
+        "desc": "The currency, the treasury, the payouts",
+        "title": "Company wallet"
+      }
+    },
+    "services": {
+      "subtitle": "Everything work-related — inside one organization",
+      "title": "Services"
+    },
+    "soon": "soon",
+    "stat": {
+      "created": "Created",
+      "members": "Employees",
+      "tasks": "Tasks"
+    },
+    "submitDocument": "Submit a document"
+  },
+  "journal": {
+    "category": {
+      "all": "All",
+      "documents": "Documents",
+      "drive": "Drive",
+      "hr": "HR",
+      "objects": "Sites",
+      "processes": "Processes",
+      "share": "Guest links",
+      "staff": "Employees",
+      "tasks": "Tasks"
+    },
+    "description": "The chronicle of events: hiring and roles, positions, the movement of tasks — who, what and when",
+    "empty": "Nothing here yet — hiring, role changes and the movement of the organization tasks will show up here",
+    "loadFailed": {
+      "description": "Looks like the server did not answer. Try again.",
+      "title": "Could not load the journal"
+    },
+    "managerOnly": {
+      "description": "The HR events of the organization are visible to the managers — by design.",
+      "title": "The journal is open from the Manager role"
+    },
+    "showMore": "Show more",
+    "title": "The journal of the organization"
+  },
+  "legalEntities": {
+    "add": "Legal entity",
+    "archive": "To the archive",
+    "archiveMessage": "«{name}» will stop being offered in new contracts and sites. The existing records are kept.",
+    "archiveTitle": "To the archive?",
+    "archived": "In the archive",
+    "binShort": "BIN {bin}",
+    "emptyAction": "Add a legal entity",
+    "emptyDescription": "Add an LLP or a sole proprietor — the contracts will be made on its behalf",
+    "emptyTitle": "No legal entities yet",
+    "head": "The head one",
+    "hideArchive": "Hide the archive",
+    "makeHead": "Make it the head one",
+    "makeHeadMessage": "The details of «{name}» will be used everywhere a legal entity is not picked explicitly. The previous head one stays in the list as an ordinary one.",
+    "makeHeadTitle": "Make it the head one?",
+    "newName": "Name",
+    "newNameHint": "Fill in the details after it is created",
+    "newNamePlaceholder": "LLP «Romashka-South»",
+    "newTitle": "A new legal entity",
+    "noRequisites": "The details are not filled in",
+    "restore": "Restore",
+    "showArchive": "Show the archive",
+    "subtitle": "The LLPs and sole proprietors of the organization: details, accounts, the parties of the contracts. The head one is used by default",
+    "title": "Legal entities"
+  },
+  "links": {
+    "description": "What the team shared with people who have no SuperApp6 account — and who exactly shared it",
+    "empty": "A link shows up here as soon as somebody on the team shares a file, a folder or a document outside.",
+    "managerOnly": {
+      "description": "Guest links are seen and closed by the managers — by design. Everyone has their own links in the profile.",
+      "title": "The section is open from the Manager role"
+    },
+    "myLinks": "My links",
+    "subtitle": "What the team of «{name}» shared outside. Any of them can be revoked, other people’s included.",
+    "title": "Guest links"
+  },
+  "notOpened": {
+    "description": "Maybe you have no access. Refresh the page or go back to the list of organizations.",
+    "descriptionGone": "Maybe you have no access, or it is gone. Refresh the page.",
+    "title": "The organization did not open"
+  },
+  "orgFallback": "Organization",
+  "orgForm": {
+    "ao": "JSC",
+    "branch": "Branch / representative office",
+    "fond": "Foundation / NGO",
+    "gu": "State institution",
+    "institution": "Institution",
+    "ip": "Sole proprietor",
+    "kh": "Farm enterprise",
+    "other": "Other",
+    "pk": "Production co-operative",
+    "too": "LLP"
+  },
+  "orgFormLegal": {
+    "ao": "{name} Joint-Stock Company",
+    "fond": "{name} Foundation",
+    "gu": "{name} State Institution",
+    "institution": "{name} Institution",
+    "ip": "Sole proprietor {name}",
+    "kh": "{name} Peasant Farm",
+    "pk": "{name} Production Cooperative",
+    "too": "{name} Limited Liability Partnership"
+  },
+  "panel": {
+    "accept": "Accept",
+    "acceptToJoin": "Accept the invitation to join an organization.",
+    "archive": "Archive · {n}",
+    "archivedLine": "Archived · {n} members",
+    "create": "Create",
+    "createFailed": "Could not create the organization",
+    "days": "{n, plural, one {# day} other {# days}}",
+    "hiredAsTrainee": "You are hired as a Trainee",
+    "invitation": "Invitation",
+    "inviteFailed": "Could not handle the invitation",
+    "lessThanDay": "less than a day",
+    "nameAria": "Organization name",
+    "none": "You have no organizations yet.",
+    "purgeLine": "Will be deleted for good on {moment} · {left} left",
+    "purgeMoment": "{date} at {time}",
+    "reject": "Decline",
+    "restore": "Restore",
+    "title": "Organizations"
+  },
+  "profile": {
+    "anketa": {
+      "about": "About the company",
+      "city": "City",
+      "email": "E-mail",
+      "industry": "Industry",
+      "logo": "Logo",
+      "logoRemoved": "The logo is removed",
+      "logoUpdated": "The logo is updated",
+      "name": "Name",
+      "phone": "Phone",
+      "save": "Save the details",
+      "saved": "The details are saved",
+      "subtitle": "The name and the logo are always visible to every employee",
+      "title": "Company data",
+      "website": "Website"
+    },
+    "back": "Organization home",
+    "section": {
+      "anketa": "Details",
+      "card": "Card",
+      "notifications": "Notifications",
+      "security": "Security",
+      "settings": "Settings",
+      "stats": "Statistics",
+      "subscription": "Subscription"
+    },
+    "sectionTitle": {
+      "anketa": "The company details",
+      "card": "The company card",
+      "notifications": "Notifications",
+      "security": "Security",
+      "settings": "Settings",
+      "stats": "Statistics",
+      "subscription": "Subscription"
+    },
+    "security": {
+      "danger": {
+        "subtitle": "Deactivation hides the organization. The data is kept",
+        "title": "The danger zone"
+      },
+      "deactivate": "Deactivate the organization",
+      "deactivateConfirmMessage": "The organization goes to the archive for {n, plural, one {# day} other {# days}} — it can be brought back from the «Archive» block on the home page. After that it is deleted for good.",
+      "deactivateConfirmTitle": "Deactivate the organization?",
+      "transfer": {
+        "action": "Transfer",
+        "confirmMessage": "You will hand the owner rights to another employee. Only they will be able to give them back.",
+        "confirmTitle": "Transfer the ownership?",
+        "pick": "Pick an employee…",
+        "subtitle": "The new owner gets full rights, you become an administrator",
+        "title": "Transfer the ownership"
+      }
+    },
+    "settings": {
+      "subtitle": "More settings of the organization will come later",
+      "timezone": "Time zone",
+      "title": "General settings"
+    },
+    "subscription": {
+      "free": "Free",
+      "subtitle": "Paid plans for organizations will come later",
+      "title": "The current plan of the organization",
+      "upgrade": "Upgrade (soon)"
+    },
+    "title": "Profile",
+    "viewAs": {
+      "aria": "Whose eyes to look at the card with",
+      "member": "As the employees see it",
+      "owner": "As you see it"
+    },
+    "visibility": {
+      "city": "City",
+      "contactEmail": "E-mail",
+      "contactPhone": "Phone",
+      "description": "Description",
+      "industry": "Industry",
+      "requisites": "Company details",
+      "subtitle": "What the employees see in the company card. The name and the logo are always visible",
+      "title": "Visibility for the employees",
+      "website": "Website"
+    }
+  },
+  "requisites": {
+    "accounts": {
+      "add": "Add an account",
+      "bankLabel": "Bank",
+      "bikError": "8 characters",
+      "bikLabel": "BIC",
+      "bikShort": "BIC {bik}",
+      "deleteMessage": "{iban} ({bank}) will be removed from the details.",
+      "deleteTitle": "Delete the account?",
+      "ibanError": "KZ + 18 characters",
+      "makePrimary": "Make it the main one",
+      "primary": "Main",
+      "subtitle": "The main one goes into the invoices and the contracts",
+      "title": "Bank accounts"
+    },
+    "bin": "BIN",
+    "binError": "The checksum does not add up",
+    "binPlaceholder": "12 digits",
+    "director": "Director",
+    "directorPick": "Pick an employee…",
+    "directorPicker": "The director (from the employees)",
+    "directorWithBasis": "{name} · acting on the ground of {basis}",
+    "documentLanguage": "The language of the documents",
+    "documentLanguageHint": "The language of the papers of the organization: contracts, orders and invoices are printed in it. Every form can override it.",
+    "editSubtitle": "The legal form, the BIN, the bank, the director — for contracts and invoices. The toggle «Company details» on the right decides what the employees see",
+    "entityName": "The name of the legal entity",
+    "entityNameHint": "How to show it in lists and pickers",
+    "entityNamePlaceholder": "LLP «Romashka»",
+    "entitySubtitle": "The legal form, the BIN, the bank, the director: they go into the contracts and the invoices of this legal entity",
+    "forEntity": "Company details — {name}",
+    "kbe": "KBe",
+    "kbeError": "Two digits",
+    "legalAddress": "Legal address",
+    "legalAddressPlaceholder": "Almaty, … street, office …",
+    "legalName": "Legal name",
+    "legalNameFull": "The full legal name",
+    "legalNameHint": "The name in SuperApp6 is the brand; the contract takes the legal form",
+    "orgForm": "Legal form",
+    "orgFormNone": "Not stated",
+    "save": "Save the details",
+    "signBasis": "Acts on the ground of",
+    "signBasisDate": "The date of the document",
+    "signBasisNumber": "The number of the document",
+    "signBasisPlaceholder": "A power of attorney no. 5 of 01.02.2026",
+    "signBasisPreview": "In the document: {basis}",
+    "taxRegime": "Tax regime",
+    "taxRegimeNone": "Not stated",
+    "title": "Company details",
+    "vat": "VAT",
+    "vatDate": "Certificate date",
+    "vatNumber": "Certificate number",
+    "vatPayer": "a payer",
+    "vatPayerToggle": "A VAT payer",
+    "vatPayerWithCert": "a payer (certificate {cert})",
+    "vatSeries": "Certificate series",
+    "viewSubtitle": "For contracts and invoices"
+  },
+  "taxRegime": {
+    "astana_hub": "Astana Hub",
+    "general": "The general regime",
+    "other": "Other",
+    "patent": "A patent",
+    "retail": "The retail tax",
+    "simplified": "A simplified declaration",
+    "snr_kh": "The special regime for farm enterprises"
+  },
+  "toDashboard": "To the home page",
+  "toOrg": "To the organization"
+}

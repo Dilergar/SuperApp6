@@ -1,6 +1,8 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import type { PresenceInfo } from '@superapp/shared';
+import { useFormatters } from '@/lib/format';
 
 // ============================================================
 // Presence presentation helpers (Phase 4) — shared between the
@@ -9,49 +11,44 @@ import type { PresenceInfo } from '@superapp/shared';
 // ============================================================
 
 /**
- * Russian relative "был(а) в сети" formatter:
- *   только что / N мин назад / N ч назад / dd.MM в HH:MM.
+ * «Был(а) в сети» относительным временем НА ЯЗЫКЕ ЗРИТЕЛЯ.
+ *
+ * Раньше здесь жил свой русский склонятель (`plural(n, 'мин', 'мин', 'мин')`) и
+ * `toLocaleDateString('ru-RU')` — то есть и язык, и регион были зашиты навсегда.
+ * Множественное число — правило ЯЗЫКА, и живёт оно ICU-веткой в каталоге.
  */
-export function formatLastSeen(iso: string): string {
-  const then = new Date(iso).getTime();
-  const now = Date.now();
-  const diffSec = Math.max(0, Math.floor((now - then) / 1000));
+export function useLastSeen(): (iso: string) => string {
+  const t = useTranslations('common');
+  const f = useFormatters();
+  return (iso: string) => {
+    const diffSec = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+    if (diffSec < 60) return t('presence.justNow');
 
-  if (diffSec < 60) return 'только что';
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return t('presence.minutesAgo', { n: diffMin });
 
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin} ${plural(diffMin, 'мин', 'мин', 'мин')} назад`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return t('presence.hoursAgo', { n: diffHr });
 
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr} ${plural(diffHr, 'час', 'часа', 'часов')} назад`;
-
-  const d = new Date(iso);
-  const date = d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
-  const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-  return `${date} в ${time}`;
-}
-
-/** Russian plural picker (1 мин / 2 минуты-form / 5 минут-form). */
-function plural(n: number, one: string, few: string, many: string): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return one;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
-  return many;
+    return t('presence.at', { date: f.date(iso, 'dayMonth'), time: f.time(iso) });
+  };
 }
 
 /**
- * Single-line status string for a DM peer, by priority:
- *   contextual ("На тренировке до 19:00") > online ("в сети") >
- *   lastSeen ("был(а) в сети <relative>") > null.
- * Typing is handled by the caller (it outranks all of these).
+ * Строка присутствия собеседника, по приоритету:
+ *   контекст («На тренировке до 19:00») > в сети > был(а) в сети > ничего.
+ * Печатает — забота вызывающего (это сильнее всего перечисленного).
  */
-export function presenceStatusLine(p: PresenceInfo | null | undefined): string | null {
-  if (!p) return null;
-  if (p.contextual) return p.contextual.label;
-  if (p.online) return 'в сети';
-  if (p.lastSeen) return `был(а) в сети ${formatLastSeen(p.lastSeen)}`;
-  return null;
+export function usePresenceLine(): (p: PresenceInfo | null | undefined) => string | null {
+  const t = useTranslations('common');
+  const lastSeen = useLastSeen();
+  return (p) => {
+    if (!p) return null;
+    if (p.contextual) return p.contextual.label;
+    if (p.online) return t('presence.online');
+    if (p.lastSeen) return t('presence.lastSeen', { when: lastSeen(p.lastSeen) });
+    return null;
+  };
 }
 
 /**

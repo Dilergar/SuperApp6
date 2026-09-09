@@ -1,0 +1,345 @@
+{
+  "fields": {
+    "counterparty": {
+      "actualAddress": {
+        "example": "Astana, Abai ave. 1",
+        "label": "Actual address"
+      },
+      "bank": {
+        "example": "Kaspi Bank JSC",
+        "label": "Bank"
+      },
+      "bik": {
+        "example": "CASPKZKA",
+        "label": "BIK"
+      },
+      "bin": {
+        "example": "123456789012",
+        "label": "BIN (legal entity)"
+      },
+      "binOrIin": {
+        "example": "123456789012",
+        "label": "BIN or IIN (the Р-1 box)"
+      },
+      "director": {
+        "example": "Ivan Ivanov",
+        "label": "Director (full name)"
+      },
+      "ground": {
+        "example": "the Articles of Association",
+        "label": "Ground of the signature"
+      },
+      "iik": {
+        "example": "KZ86125KZT5004100100",
+        "label": "IIK (IBAN of the primary account)"
+      },
+      "iin": {
+        "example": "850101300123",
+        "label": "IIN (sole proprietor, individual)"
+      },
+      "kbe": {
+        "example": "17",
+        "label": "KBe"
+      },
+      "label": "Counterparty",
+      "legalAddress": {
+        "example": "Astana, Abai ave. 1",
+        "label": "Legal address"
+      },
+      "legalName": {
+        "example": "Romashka LLP",
+        "label": "Legal name"
+      },
+      "name": {
+        "example": "Romashka",
+        "label": "Name (working name)"
+      },
+      "orgForm": {
+        "example": "LLP",
+        "label": "Legal form"
+      },
+      "signer": {
+        "example": "Ivan Ivanov",
+        "label": "Signer (contact person)"
+      },
+      "signerPhone": {
+        "example": "+7 777 123 45 67",
+        "label": "Signer phone"
+      },
+      "signerPosition": {
+        "example": "Director",
+        "label": "Signer position"
+      },
+      "taxRegime": {
+        "example": "Simplified declaration",
+        "label": "Tax regime"
+      },
+      "vatCertificate": {
+        "example": "series 60001 no. 0031205 of 01.01.2026",
+        "label": "VAT certificate"
+      }
+    },
+    "document": {
+      "date": {
+        "example": "03.08.2026",
+        "label": "Document date"
+      },
+      "label": "Document",
+      "number": {
+        "example": "ORD-2026-007",
+        "label": "Registration number"
+      },
+      "title": {
+        "example": "A leave application",
+        "label": "Document title"
+      }
+    },
+    "employee": {
+      "address": {
+        "example": "Almaty, Samal-2, 33",
+        "label": "Home address"
+      },
+      "birthDate": {
+        "example": "31.12.1990",
+        "label": "Date of birth"
+      },
+      "branch": {
+        "example": "The Abai branch",
+        "label": "Site (branch)"
+      },
+      "branchHead": {
+        "example": "Seitzhanov Yerlan",
+        "label": "Site head (full name)"
+      },
+      "branchHeadPosition": {
+        "example": "Site manager",
+        "label": "Site head position"
+      },
+      "department": {
+        "example": "The sales department",
+        "label": "Department"
+      },
+      "firstName": {
+        "example": "Askar",
+        "label": "Given name"
+      },
+      "fullName": {
+        "example": "Akhmetov Askar Bolatuly",
+        "label": "Full name (surname, given name, patronymic)"
+      },
+      "idDocument": {
+        "example": "no. 038000000 issued by the MIA of the RK on 01.02.2020",
+        "label": "ID document (one line)"
+      },
+      "idIssuedAt": {
+        "example": "01.02.2020",
+        "label": "Date of issue"
+      },
+      "idIssuedBy": {
+        "example": "the MIA of the RK",
+        "label": "Issued by"
+      },
+      "idNumber": {
+        "example": "038000000",
+        "label": "ID number"
+      },
+      "iin": {
+        "example": "901231300123",
+        "label": "IIN"
+      },
+      "label": "Employee",
+      "lastName": {
+        "example": "Akhmetov",
+        "label": "Surname"
+      },
+      "manager": {
+        "example": "Ivanova Aigul Serikovna",
+        "label": "Manager (full name)"
+      },
+      "managerPosition": {
+        "example": "Head of the sales department",
+        "label": "Manager position"
+      },
+      "middleName": {
+        "example": "Bolatuly",
+        "label": "Patronymic"
+      },
+      "phone": {
+        "example": "+7 700 123 45 67",
+        "label": "Phone"
+      },
+      "position": {
+        "example": "Floor manager",
+        "label": "Position"
+      }
+    },
+    "employment_contract": {
+      "branch": {
+        "example": "The Abai branch",
+        "label": "Place of work (branch)"
+      },
+      "date": {
+        "example": "01.09.2026",
+        "label": "Contract date"
+      },
+      "endDate": {
+        "example": "30.09.2026",
+        "label": "Termination date"
+      },
+      "label": "Employment contract",
+      "number": {
+        "example": "EC-2026-014",
+        "label": "Contract number"
+      },
+      "personnelNumber": {
+        "example": "0042",
+        "label": "Personnel number"
+      },
+      "position": {
+        "example": "Floor manager",
+        "label": "Position under the contract"
+      },
+      "probationUntil": {
+        "example": "01.12.2026",
+        "label": "Probation period (until)"
+      },
+      "rate": {
+        "example": "1",
+        "label": "Rate"
+      },
+      "salary": {
+        "example": "250 000",
+        "label": "Salary, tenge"
+      },
+      "schedule": {
+        "example": "5/2, 09:00–18:00",
+        "label": "Working hours"
+      },
+      "startDate": {
+        "example": "01.09.2026",
+        "label": "Start date"
+      },
+      "term": {
+        "example": "for an indefinite term",
+        "label": "Contract term"
+      }
+    },
+    "hr_action": {
+      "days": {
+        "example": "14",
+        "label": "Days (calendar, leave)"
+      },
+      "effectiveFrom": {
+        "example": "01.09.2026",
+        "label": "Effective from"
+      },
+      "effectiveTo": {
+        "example": "14.09.2026",
+        "label": "End date (leave)"
+      },
+      "ground": {
+        "example": "art. 56 of the Labour Code of the RK",
+        "label": "Ground for termination (article of the Labour Code of the RK)"
+      },
+      "kind": {
+        "example": "Transfer",
+        "label": "Action type"
+      },
+      "label": "HR action",
+      "newBranch": {
+        "example": "The Abai branch",
+        "label": "New branch"
+      },
+      "newPosition": {
+        "example": "Senior manager",
+        "label": "New position"
+      },
+      "salary": {
+        "example": "300 000",
+        "label": "New salary, tenge"
+      }
+    },
+    "hr_signer": {
+      "fullName": {
+        "example": "Akhmetov Askar Bolatuly",
+        "label": "Signer full name"
+      },
+      "label": "Signer (from the route)",
+      "position": {
+        "example": "Director",
+        "label": "Signer position"
+      }
+    },
+    "workspace": {
+      "bank": {
+        "example": "Halyk Bank of Kazakhstan JSC",
+        "label": "Bank"
+      },
+      "bik": {
+        "example": "HSBKKZKX",
+        "label": "BIK"
+      },
+      "bin": {
+        "example": "123456789012",
+        "label": "BIN"
+      },
+      "director": {
+        "example": "Askar Akhmetov",
+        "label": "Director (full name)"
+      },
+      "ground": {
+        "example": "the Articles of Association",
+        "label": "Ground of the signature"
+      },
+      "iik": {
+        "example": "KZ86125KZT5004100100",
+        "label": "IIK (IBAN of the primary account)"
+      },
+      "kbe": {
+        "example": "17",
+        "label": "KBe"
+      },
+      "label": "Organization",
+      "legalAddress": {
+        "example": "Almaty, Abai st. 1",
+        "label": "Legal address"
+      },
+      "legalName": {
+        "example": "Romashka LLP",
+        "label": "Legal name"
+      },
+      "name": {
+        "example": "Romashka",
+        "label": "Name (brand)"
+      },
+      "orgForm": {
+        "example": "LLP",
+        "label": "Legal form"
+      },
+      "vatCertificate": {
+        "example": "series 60001 no. 0031205 of 01.01.2026",
+        "label": "VAT certificate"
+      }
+    }
+  },
+  "print": {
+    "badFormat": "wrong format",
+    "bik": "BIK {value}",
+    "bin": "BIN {value}",
+    "dateBlank": "«___» ____________ ____",
+    "dateRange": "from {from} to {to}",
+    "docMeta": "No. {number} of {date}",
+    "documentFallback": "Document",
+    "iik": "IIK {value}",
+    "no": "No",
+    "number": "No. {value}",
+    "numberBlank": "_______",
+    "pageOf": "page {page} of {total}",
+    "signerPositionDefault": "Director",
+    "stamp": "Seal",
+    "vatDate": "of {value}",
+    "vatNumber": "no. {value}",
+    "vatSeries": "series {value}",
+    "yes": "Yes"
+  }
+}

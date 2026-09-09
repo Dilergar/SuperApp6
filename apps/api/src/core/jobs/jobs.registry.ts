@@ -91,7 +91,7 @@ export class JobsRegistry {
         cap = Math.floor(rawCap);
       } else {
         this.logger.warn(
-          `queueConcurrency=${String(rawCap)} у типа "${type}" некорректен — беру ${cap}`,
+          `queueConcurrency=${String(rawCap)} of type "${type}" is invalid — using ${cap}`,
         );
       }
     }

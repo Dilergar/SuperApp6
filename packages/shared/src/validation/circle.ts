@@ -2,12 +2,12 @@ import { z } from 'zod';
 import { cardVisibilityObjectSchema } from './card-visibility';
 import { CONTACT_LIMITS } from '../constants/contacts';
 
-const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Цвет должен быть в формате #RRGGBB');
+const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'validation.calendar.color');
 // Значок Группы: тот же формат, что у остальных сервисов (см. FIN/SHOP/WALLET_LIMITS).
 const iconSchema = z.string().max(64);
 
 export const createCircleSchema = z.object({
-  name: z.string().min(1, 'Название группы обязательно').max(100),
+  name: z.string().min(1, 'validation.circle.nameRequired').max(100),
   icon: iconSchema.optional(),
   color: hexColor.optional(),
   sortOrder: z.number().int().min(0).optional(),
@@ -42,7 +42,7 @@ export const reorderCirclesSchema = z.object({
     .max(CONTACT_LIMITS.maxCirclesPerUser)
     .refine(
       (list) => new Set(list.map((c) => c.id)).size === list.length,
-      'Группа указана дважды'
+      'validation.circle.duplicate'
     ),
 });
 

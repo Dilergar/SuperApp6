@@ -56,7 +56,7 @@ export class SignDevProvider implements OnModuleInit {
       },
       describeForVerify: async (refId: string) => {
         const stub = await this.db.fileObject.findUnique({ where: { id: refId }, select: { name: true } });
-        return stub ? { title: stub.name, kindLabel: 'Тестовый документ', orgLabel: null } : null;
+        return stub ? { title: stub.name, kindLabel: 'Test document', orgLabel: null } : null;
       },
     };
     this.registry.register(SIGN_DEV_REF_TYPE, provider);
@@ -83,7 +83,7 @@ export class SignDevController {
    */
   @Post('expire')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '[dev] Истечь заявку на подпись сейчас' })
+  @ApiOperation({ summary: '[dev] Expire a signing request right now' })
   async expire(@Body() body: unknown) {
     if (!isDevEnv()) throw new NotFoundException();
     const requestId = String((body as { requestId?: string })?.requestId ?? '');
@@ -102,18 +102,18 @@ export class SignDevController {
    */
   @Post('requests')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '[dev] Тестовая заявка на подпись' })
+  @ApiOperation({ summary: '[dev] A test signing request' })
   async createRequest(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
     if (!isDevEnv()) throw new NotFoundException();
     const dto = signDevRequestSchema.parse(body);
 
-    const title = dto.title ?? `Тестовый документ ${new Date().toISOString().slice(0, 19)}`;
+    const title = dto.title ?? `Test document ${new Date().toISOString().slice(0, 19)}`;
     // `pdf` — сьют приносит ГОТОВЫЕ байты минимального PDF (ASCII): только с
     // PDF-предметом проверяется джоб штампа (не-PDF он честно пропускает).
-    if (dto.pdf && !dto.body) throw new BadRequestException('pdf: передайте байты PDF в body');
+    if (dto.pdf && !dto.body) throw new BadRequestException('pdf: pass the PDF bytes in body');
     const ext = dto.pdf ? 'pdf' : 'txt';
     const mime = dto.pdf ? 'application/pdf' : 'text/plain';
-    const bytes = Buffer.from(dto.body ?? `${title}\n\nСодержимое тестового документа.\n${randomUUID()}\n`, 'utf8');
+    const bytes = Buffer.from(dto.body ?? `${title}\n\nThe body of a test document.\n${randomUUID()}\n`, 'utf8');
     // Предмет — ОБЫЧНЫЙ файл (профиль `generic`), а не профиль доказательств:
     // подписывают всегда чужой живой документ, и `sign_subject` носит только
     // замороженная копия, которую движок делает сам. Разница не косметическая —
@@ -147,13 +147,13 @@ export class SignDevController {
   /** [dev] Отозвать заявку — сьют проверяет сервисный `cancelRequest` без потребителя */
   @Post('cancel')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '[dev] Отозвать тестовую заявку' })
+  @ApiOperation({ summary: '[dev] Cancel a test signing request' })
   async cancel(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
     if (!isDevEnv()) throw new NotFoundException();
     const requestId = String((body as { requestId?: string })?.requestId ?? '');
     const request = await this.db.signRequest.findUnique({ where: { id: requestId }, select: { createdById: true } });
     // Полигон не дыра даже в dev: отзывать можно только своё.
-    if (!request || request.createdById !== user.sub) throw new NotFoundException('Заявка не найдена');
+    if (!request || request.createdById !== user.sub) throw new NotFoundException('The request was not found');
     await this.sign.cancelRequest(user.sub, requestId);
     return { success: true, data: { cancelled: true } };
   }
@@ -165,7 +165,7 @@ export class SignDevController {
    */
   @Post('state')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '[dev] Состояние тестовой заявки' })
+  @ApiOperation({ summary: '[dev] The state of a test signing request' })
   async state(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
     if (!isDevEnv()) throw new NotFoundException();
     const requestId = String((body as { requestId?: string })?.requestId ?? '');
@@ -173,7 +173,7 @@ export class SignDevController {
       where: { id: requestId },
       select: { createdById: true, status: true, suppressOutcomeNotify: true, stampedFileId: true, stampedSha256: true },
     });
-    if (!request || request.createdById !== user.sub) throw new NotFoundException('Заявка не найдена');
+    if (!request || request.createdById !== user.sub) throw new NotFoundException('The request was not found');
     return {
       success: true,
       data: {

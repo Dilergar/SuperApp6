@@ -9,14 +9,9 @@
 // ============================================================
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useMutation } from '@tanstack/react-query';
-import {
-  ORG_DEPUTY_KIND_LABELS,
-  STAFF_ASSIGNMENT_STATUS_LABELS,
-  type OrgChartDto,
-  type OrgChartPositionDto,
-  type OrgDeputyDto,
-} from '@superapp/shared';
+import type { OrgChartDto, OrgChartPositionDto, OrgDeputyDto } from '@superapp/shared';
 import {
   Button, Chip, CloseChip, DatePicker, Divider, EmptyState, GlyphField, Icon, IconButton, Input, Select,
   SegmentedControl, Textarea, useConfirm,
@@ -28,8 +23,7 @@ import {
   setBranchHead, setDepartmentHead, updateDepartment, updatePosition,
 } from '@/lib/org-api';
 import { PersonChip } from '@/app/circles/PersonCard';
-import { deputyPeriodLabel } from './org-layout';
-import { personName, showApiError, useOrgRefresh, type OrgSelection } from './org-lib';
+import { showApiError, useDeputyPeriodLabel, useOrgRefresh, usePersonName, type OrgSelection } from './org-lib';
 
 const NO_DEPT = '__none__';
 const ALL_BRANCHES = '__all__';
@@ -99,6 +93,9 @@ function PositionPanel({
   workspaceId: string; chart: OrgChartDto; position: OrgChartPositionDto; canEdit: boolean;
   onSelect: (sel: OrgSelection | null) => void; onClose: () => void;
 }) {
+  const t = useTranslations('staff');
+  const tc = useTranslations('common');
+  const personName = usePersonName();
   const refresh = useOrgRefresh(workspaceId);
   const [confirm, confirmUI] = useConfirm();
   /** Правка — по требованию: панель открывается фактами (см. ниже) */
@@ -150,7 +147,7 @@ function PositionPanel({
   const canEditThis =
     canEdit && (chart.scope.kind === 'all' || (!!p.departmentId && chart.scope.departmentIds.includes(p.departmentId)));
   const superior = p.superiorPositionId ? chart.positions.find((x) => x.id === p.superiorPositionId) : null;
-  const deptOptions = [{ value: NO_DEPT, label: 'Без отдела' }, ...chart.departments.map((d) => ({ value: d.id, label: d.name }))];
+  const deptOptions = [{ value: NO_DEPT, label: t('org.noDepartment') }, ...chart.departments.map((d) => ({ value: d.id, label: d.name }))];
   // Пикер не предлагает того, что сервер отвергнет: саму должность — нельзя
   const positionOptions = useMemo(
     () => chart.positions.filter((x) => x.id !== p.id).map((x) => ({ type: 'position', id: x.id, title: x.name, icon: x.glyph })),
@@ -164,11 +161,11 @@ function PositionPanel({
         <div className="opanel-row" style={{ flexWrap: 'wrap' }}>
           {p.headsDepartmentIds.map((id) => {
             const d = chart.departments.find((x) => x.id === id);
-            return d ? <Chip key={id} tone="accent" icon="department" onClick={() => onSelect({ type: 'department', id })}>Руководит: {d.name}</Chip> : null;
+            return d ? <Chip key={id} tone="accent" icon="department" onClick={() => onSelect({ type: 'department', id })}>{t('org.leadsName', { name: d.name })}</Chip> : null;
           })}
           {p.headsBranchIds.map((id) => {
             const b = chart.branches.find((x) => x.id === id);
-            return b ? <Chip key={id} tone="accent" icon="branch" onClick={() => onSelect({ type: 'branch', id })}>Руководит объектом: {b.name}</Chip> : null;
+            return b ? <Chip key={id} tone="accent" icon="branch" onClick={() => onSelect({ type: 'branch', id })}>{t('org.panel.leadsBranch', { name: b.name })}</Chip> : null;
           })}
         </div>
       )}
@@ -182,16 +179,16 @@ function PositionPanel({
           {p.departmentId && <Chip tone="neutral" icon="department">{chart.departments.find((d) => d.id === p.departmentId)?.name}</Chip>}
           {superior && (
             <Button variant="ghost" size="sm" icon="arrowUp" onClick={() => onSelect({ type: 'position', id: superior.id })}>
-              Подчиняется: {superior.name}
+              {t('org.panel.reportsTo', { name: superior.name })}
             </Button>
           )}
-          {!superior && <Chip tone="neutral" icon="crown">Вершина структуры</Chip>}
-          {p.vacant && <Chip tone="waiting">Вакансия</Chip>}
-          {p.reportsToPositionId && <Chip size="sm" tone="neutral">напрямую, не по структуре</Chip>}
+          {!superior && <Chip tone="neutral" icon="crown">{t('org.panel.topOfStructure')}</Chip>}
+          {p.vacant && <Chip tone="waiting">{t('org.vacancyChip')}</Chip>}
+          {p.reportsToPositionId && <Chip size="sm" tone="neutral">{t('org.panel.directNotByStructure')}</Chip>}
         </div>
         {canEditThis && !editing && (
           <div className="opanel-row">
-            <Button variant="outline" size="sm" icon="edit" onClick={() => setEditing(true)}>Изменить должность</Button>
+            <Button variant="outline" size="sm" icon="edit" onClick={() => setEditing(true)}>{t('org.panel.editPosition')}</Button>
           </div>
         )}
       </section>
@@ -201,27 +198,27 @@ function PositionPanel({
           <div className="opanel-row" style={{ alignItems: 'flex-end' }}>
             <GlyphField value={glyph} onChange={setGlyph} suggest={name} size={40} />
             <div className="grow">
-              <Input label="Название" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required />
+              <Input label={tc('labels.name')} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required />
             </div>
           </div>
-          <Select label="Отдел" value={deptId} onChange={setDeptId} options={deptOptions} />
+          <Select label={t('term.department')} value={deptId} onChange={setDeptId} options={deptOptions} />
           <div>
-            <div className="ui-field-label label-caps" style={{ marginBottom: '0.375rem' }}>Подчиняется напрямую</div>
-            <EntitySelector value={reportsTo} onChange={setReportsTo} types={['position']} multi={false} options={positionOptions} placeholder="По структуре — руководитель отдела или объекта" context={{ workspaceId }} />
+            <div className="ui-field-label label-caps" style={{ marginBottom: '0.375rem' }}>{t('org.panel.reportsToDirect')}</div>
+            <EntitySelector value={reportsTo} onChange={setReportsTo} types={['position']} multi={false} options={positionOptions} placeholder={t('org.reportsToPlaceholder')} context={{ workspaceId }} />
             <p className="label-sm" style={{ margin: '0.375rem 0 0' }}>
               {reportsTo.length
-                ? 'Эта должность подчинится выбранной напрямую — сильнее дерева отделов.'
+                ? t('org.panel.reportsToChosen')
                 : superior
-                  ? `Пусто — как сейчас: по структуре руководит «${superior.name}».`
-                  : 'Пусто — по структуре руководителя нет: должность будет вершиной.'}
+                  ? t('org.panel.reportsToEmptyWith', { name: superior.name })
+                  : t('org.panel.reportsToEmptyNone')}
             </p>
           </div>
           <div className="opanel-row">
             <Button variant="primary" tone="success" size="sm" icon="save" disabled={!dirty || !name.trim()} loading={save.isPending} onClick={() => save.mutate()}>
-              Сохранить
+              {tc('actions.save')}
             </Button>
             <Button variant="ghost" size="sm" onClick={() => { setEditing(false); setName(p.name); setGlyph(p.glyph); setDeptId(p.departmentId ?? NO_DEPT); setReportsTo(p.reportsToPositionId ? [{ type: 'position', id: p.reportsToPositionId }] : []); }}>
-              Отмена
+              {tc('actions.cancel')}
             </Button>
           </div>
         </section>
@@ -232,10 +229,10 @@ function PositionPanel({
       {/* Держатели */}
       <section className="opanel-section">
         <div className="opanel-section-title">
-          <span className="label-caps">Держатели · {p.holders.length}</span>
+          <span className="label-caps">{t('org.panel.holders', { n: p.holders.length })}</span>
         </div>
         {p.holders.length === 0 ? (
-          <p className="label-sm" style={{ margin: 0 }}>Никто не назначен — вакансия.</p>
+          <p className="label-sm" style={{ margin: 0 }}>{t('org.panel.noHolders')}</p>
         ) : (
           p.holders.map((h) => {
             const person = chart.people[h.userId];
@@ -243,20 +240,29 @@ function PositionPanel({
             return (
               <div key={h.assignmentId} className="opanel-row">
                 <div className="grow" style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', flexWrap: 'wrap' }}>
-                  <PersonChip size="S" userId={h.userId} firstName={person?.firstName ?? 'Без имени'} lastName={person?.lastName ?? null} avatar={person?.avatar ?? null} />
+                  <PersonChip size="S" userId={h.userId} firstName={person?.firstName ?? t('noName')} lastName={person?.lastName ?? null} avatar={person?.avatar ?? null} />
                   {branch && <Chip size="sm" tone="neutral" icon="branch">{branch.name}</Chip>}
-                  {h.status === 'training' && <Chip size="sm" tone="waiting">{STAFF_ASSIGNMENT_STATUS_LABELS.training}</Chip>}
-                  {h.isPrimary && <Chip size="sm" tone="neutral">основное</Chip>}
+                  {h.status === 'training' && <Chip size="sm" tone="waiting">{t('assignmentStatus.training')}</Chip>}
+                  {h.isPrimary && <Chip size="sm" tone="neutral">{t('member.primary')}</Chip>}
                 </div>
                 {/* Тот же значок, что у «снять назначение» в ростере: одно действие —
                     один знак (тонкий прочерк `remove` для деструктива не читался) */}
                 {canEdit && (
                   <IconButton
                     icon="close"
-                    label={`Снять ${personName(person)} с должности`}
+                    label={t('org.panel.unassignAria', { name: personName(person) })}
                     variant="danger"
                     onClick={() => confirm(
-                      { title: 'Снять с должности?', message: `${personName(person)} перестанет держать должность «${p.name}»${branch ? ` в объекте «${branch.name}»` : ''}.`, confirmLabel: 'Снять', danger: true },
+                      {
+                        title: t('org.panel.unassignTitle'),
+                        message: t('org.panel.unassignMessage', {
+                          name: personName(person),
+                          position: p.name,
+                          branchSuffix: branch ? t('org.panel.unassignBranchSuffix', { name: branch.name }) : '',
+                        }),
+                        confirmLabel: t('org.panel.unassignConfirm'),
+                        danger: true,
+                      },
                       () => unassign.mutateAsync(h.assignmentId),
                     )}
                   />
@@ -273,10 +279,10 @@ function PositionPanel({
       {/* Заместители */}
       <section className="opanel-section">
         <div className="opanel-section-title">
-          <span className="label-caps">Заместители · {deputies.length}</span>
+          <span className="label-caps">{t('org.panel.deputies', { n: deputies.length })}</span>
         </div>
         {deputies.length === 0 ? (
-          <p className="label-sm" style={{ margin: 0 }}>Заместителей нет.</p>
+          <p className="label-sm" style={{ margin: 0 }}>{t('org.panel.noDeputies')}</p>
         ) : (
           deputies.map((d) => (
             <DeputyRow key={d.id} workspaceId={workspaceId} chart={chart} deputy={d} canEdit={canManageDeputies} onSelect={onSelect} confirm={confirm} />
@@ -284,7 +290,7 @@ function PositionPanel({
         )}
         {canManageDeputies && <DeputyForm workspaceId={workspaceId} chart={chart} positionId={p.id} />}
         {!canEdit && iAmHolder && (
-          <p className="label-sm" style={{ margin: 0 }}>Это ваша должность — заместителя на время отпуска вы ставите сами.</p>
+          <p className="label-sm" style={{ margin: 0 }}>{t('org.panel.yourPositionHint')}</p>
         )}
       </section>
 
@@ -300,11 +306,16 @@ function PositionPanel({
               icon="delete"
               loading={remove.isPending}
               onClick={() => confirm(
-                { title: 'Удалить должность?', message: `«${p.name}» исчезнет из справочника. Должность, которая руководит отделом или объектом, сначала нужно снять с руководства.`, confirmLabel: 'Удалить', danger: true },
+                {
+                  title: t('org.panel.deletePositionTitle'),
+                  message: t('org.panel.deletePositionMessage', { name: p.name }),
+                  confirmLabel: tc('actions.delete'),
+                  danger: true,
+                },
                 () => remove.mutateAsync(),
               )}
             >
-              Удалить должность
+              {t('org.panel.deletePosition')}
             </Button>
           </div>
         </>
@@ -316,6 +327,8 @@ function PositionPanel({
 
 /** Назначить человека на должность: человек (ростер организации) + объект */
 function AssignForm({ workspaceId, chart, positionId, onDone }: { workspaceId: string; chart: OrgChartDto; positionId: string; onDone: () => void }) {
+  const t = useTranslations('staff');
+  const tc = useTranslations('common');
   const [open, setOpen] = useState(false);
   const [who, setWho] = useState<Principal[]>([]);
   const defaultBranch = chart.branches.find((b) => b.isDefault)?.id ?? chart.branches[0]?.id ?? '';
@@ -328,17 +341,17 @@ function AssignForm({ workspaceId, chart, positionId, onDone }: { workspaceId: s
   if (!open) {
     return (
       <div className="opanel-row">
-        <Button variant="outline" size="sm" icon="userAdd" onClick={() => setOpen(true)}>Назначить человека</Button>
+        <Button variant="outline" size="sm" icon="userAdd" onClick={() => setOpen(true)}>{t('org.panel.assignPerson')}</Button>
       </div>
     );
   }
   return (
     <div className="opanel-note" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-      <EntitySelector value={who} onChange={setWho} types={['user']} multi={false} placeholder="Кого назначить…" context={{ workspaceId }} />
-      <Select label="Объект" value={branchId} onChange={setBranchId} options={chart.branches.map((b) => ({ value: b.id, label: b.name, icon: 'branch' as const }))} />
+      <EntitySelector value={who} onChange={setWho} types={['user']} multi={false} placeholder={t('org.panel.whoToAssign')} context={{ workspaceId }} />
+      <Select label={t('term.branch')} value={branchId} onChange={setBranchId} options={chart.branches.map((b) => ({ value: b.id, label: b.name, icon: 'branch' as const }))} />
       <div className="opanel-row">
-        <Button variant="primary" tone="success" size="sm" icon="check" disabled={!who.length || !branchId} loading={assign.isPending} onClick={() => assign.mutate()}>Назначить</Button>
-        <Button variant="ghost" size="sm" onClick={() => { setOpen(false); setWho([]); }}>Отмена</Button>
+        <Button variant="primary" tone="success" size="sm" icon="check" disabled={!who.length || !branchId} loading={assign.isPending} onClick={() => assign.mutate()}>{t('member.assign')}</Button>
+        <Button variant="ghost" size="sm" onClick={() => { setOpen(false); setWho([]); }}>{tc('actions.cancel')}</Button>
       </div>
     </div>
   );
@@ -351,6 +364,9 @@ function DeputyRow({
   onSelect: (sel: OrgSelection | null) => void;
   confirm: ReturnType<typeof useConfirm>[0];
 }) {
+  const t = useTranslations('staff');
+  const personName = usePersonName();
+  const deputyPeriodLabel = useDeputyPeriodLabel();
   const refresh = useOrgRefresh(workspaceId);
   const remove = useMutation({ mutationFn: () => deleteOrgDeputy(workspaceId, d.id), onSuccess: refresh, onError: showApiError });
   const person = d.deputyUserId ? chart.people[d.deputyUserId] : undefined;
@@ -359,25 +375,30 @@ function DeputyRow({
       <div className="grow" style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', flexWrap: 'wrap' }}>
           {d.deputyUserId ? (
-            <PersonChip size="S" userId={d.deputyUserId} firstName={person?.firstName ?? 'Без имени'} lastName={person?.lastName ?? null} avatar={person?.avatar ?? null} />
+            <PersonChip size="S" userId={d.deputyUserId} firstName={person?.firstName ?? t('noName')} lastName={person?.lastName ?? null} avatar={person?.avatar ?? null} />
           ) : d.deputyPositionId ? (
             <Chip tone="neutral" icon="position" onClick={() => onSelect({ type: 'position', id: d.deputyPositionId! })}>{d.deputyPositionName}</Chip>
           ) : null}
           <Chip size="sm" tone={d.kind === 'temporary' ? 'warning' : 'neutral'}>
-            {d.kind === 'temporary' ? deputyPeriodLabel(d.startsOn, d.endsOn) : ORG_DEPUTY_KIND_LABELS.standing}
+            {d.kind === 'temporary' ? deputyPeriodLabel(d.startsOn, d.endsOn) : t('deputyKind.standing')}
           </Chip>
-          {d.kind === 'temporary' && d.activeToday && <Chip size="sm" tone="success">сегодня</Chip>}
-          <Chip size="sm" tone="neutral" icon="branch">{d.branchName ?? 'все объекты'}</Chip>
+          {d.kind === 'temporary' && d.activeToday && <Chip size="sm" tone="success">{t('org.panel.todayChip')}</Chip>}
+          <Chip size="sm" tone="neutral" icon="branch">{d.branchName ?? t('org.panel.allBranches')}</Chip>
         </div>
         {d.note && <p className="label-sm" style={{ margin: 0 }}>{d.note}</p>}
       </div>
       {canEdit && (
         <IconButton
           icon="remove"
-          label="Убрать заместителя"
+          label={t('org.panel.removeDeputy')}
           variant="danger"
           onClick={() => confirm(
-            { title: 'Убрать заместителя?', message: 'Замещение перестанет действовать сразу.', confirmLabel: 'Убрать', danger: true },
+            {
+              title: t('org.panel.removeDeputyTitle'),
+              message: t('org.panel.removeDeputyMessage'),
+              confirmLabel: t('org.panel.removeConfirm'),
+              danger: true,
+            },
             () => remove.mutateAsync(),
           )}
         />
@@ -388,6 +409,8 @@ function DeputyRow({
 
 /** Форма заместителя: человек ИЛИ должность · объект · без дат или период · комментарий */
 function DeputyForm({ workspaceId, chart, positionId }: { workspaceId: string; chart: OrgChartDto; positionId: string }) {
+  const t = useTranslations('staff');
+  const tc = useTranslations('common');
   const refresh = useOrgRefresh(workspaceId);
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<'user' | 'position'>('user');
@@ -420,46 +443,46 @@ function DeputyForm({ workspaceId, chart, positionId }: { workspaceId: string; c
   if (!open) {
     return (
       <div className="opanel-row">
-        <Button variant="outline" size="sm" icon="add" onClick={() => setOpen(true)}>Добавить заместителя</Button>
+        <Button variant="outline" size="sm" icon="add" onClick={() => setOpen(true)}>{t('org.panel.addDeputy')}</Button>
       </div>
     );
   }
   return (
     <div className="opanel-note" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
       <SegmentedControl
-        aria-label="Кто замещает"
+        aria-label={t('org.panel.whoDeputisesAria')}
         value={mode}
         onChange={(m) => { setMode(m); setTarget([]); }}
-        items={[{ key: 'user', label: 'Человек', icon: 'user' }, { key: 'position', label: 'Должность', icon: 'position' }]}
+        items={[{ key: 'user', label: t('org.panel.modePerson'), icon: 'user' }, { key: 'position', label: t('term.position'), icon: 'position' }]}
       />
       {mode === 'user' ? (
-        <EntitySelector value={target} onChange={setTarget} types={['user']} multi={false} placeholder="Кто замещает…" context={{ workspaceId }} />
+        <EntitySelector value={target} onChange={setTarget} types={['user']} multi={false} placeholder={t('org.panel.whoDeputises')} context={{ workspaceId }} />
       ) : (
-        <EntitySelector value={target} onChange={setTarget} types={['position']} multi={false} options={positionOptions} placeholder="Какая должность замещает…" context={{ workspaceId }} />
+        <EntitySelector value={target} onChange={setTarget} types={['position']} multi={false} options={positionOptions} placeholder={t('org.panel.whichPositionDeputises')} context={{ workspaceId }} />
       )}
       <Select
-        label="Объект"
+        label={t('term.branch')}
         value={branchId}
         onChange={setBranchId}
-        options={[{ value: ALL_BRANCHES, label: 'Во всех объектах' }, ...chart.branches.map((b) => ({ value: b.id, label: b.name, icon: 'branch' as const }))]}
+        options={[{ value: ALL_BRANCHES, label: t('org.panel.inAllBranches') }, ...chart.branches.map((b) => ({ value: b.id, label: b.name, icon: 'branch' as const }))]}
       />
       <SegmentedControl
-        aria-label="Вид замещения"
+        aria-label={t('org.panel.deputyKindAria')}
         value={kind}
         onChange={setKind}
-        items={[{ key: 'standing', label: 'Без дат' }, { key: 'temporary', label: 'Период' }]}
+        items={[{ key: 'standing', label: t('org.panel.kindStanding') }, { key: 'temporary', label: t('org.panel.kindTemporary') }]}
       />
-      <p className="label-sm" style={{ margin: 0 }}>{ORG_DEPUTY_KIND_LABELS[kind]}</p>
+      <p className="label-sm" style={{ margin: 0 }}>{t(`deputyKind.${kind}`)}</p>
       {kind === 'temporary' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.5rem' }}>
-          <DatePicker label="С" value={startsOn} onChange={setStartsOn} clearable />
-          <DatePicker label="По" value={endsOn} onChange={setEndsOn} clearable error={periodBad ? 'Конец раньше начала' : null} />
+          <DatePicker label={t('org.panel.from')} value={startsOn} onChange={setStartsOn} clearable />
+          <DatePicker label={t('org.panel.to')} value={endsOn} onChange={setEndsOn} clearable error={periodBad ? t('org.panel.endBeforeStart') : null} />
         </div>
       )}
-      <Textarea label="Комментарий" value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={300} />
+      <Textarea label={t('org.panel.note')} value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={300} />
       <div className="opanel-row">
-        <Button variant="primary" tone="success" size="sm" icon="check" disabled={!target.length || periodBad} loading={create.isPending} onClick={() => create.mutate()}>Добавить</Button>
-        <Button variant="ghost" size="sm" onClick={reset}>Отмена</Button>
+        <Button variant="primary" tone="success" size="sm" icon="check" disabled={!target.length || periodBad} loading={create.isPending} onClick={() => create.mutate()}>{tc('actions.add')}</Button>
+        <Button variant="ghost" size="sm" onClick={reset}>{tc('actions.cancel')}</Button>
       </div>
     </div>
   );
@@ -473,6 +496,8 @@ function DepartmentPanel({
   workspaceId: string; chart: OrgChartDto; departmentId: string; canEdit: boolean;
   onSelect: (sel: OrgSelection | null) => void; onClose: () => void;
 }) {
+  const t = useTranslations('staff');
+  const tc = useTranslations('common');
   const d = chart.departments.find((x) => x.id === departmentId)!;
   const refresh = useOrgRefresh(workspaceId);
   const [confirm, confirmUI] = useConfirm();
@@ -491,7 +516,7 @@ function DepartmentPanel({
     }
     return out;
   }, [chart.departments, d.id]);
-  const parentOptions = [{ value: NO_DEPT, label: 'Без родителя (верхний уровень)' }, ...chart.departments.filter((x) => !descendants.has(x.id)).map((x) => ({ value: x.id, label: x.name }))];
+  const parentOptions = [{ value: NO_DEPT, label: t('org.noParent') }, ...chart.departments.filter((x) => !descendants.has(x.id)).map((x) => ({ value: x.id, label: x.name }))];
   const positionOptions = useMemo(() => chart.positions.map((x) => ({ type: 'position', id: x.id, title: x.name, icon: x.glyph })), [chart.positions]);
   const members = chart.positions.filter((p) => p.departmentId === d.id);
   const headPos = d.headPositionId ? chart.positions.find((p) => p.id === d.headPositionId) : null;
@@ -519,30 +544,34 @@ function DepartmentPanel({
       <section className="opanel-section">
         <div className="opanel-row" style={{ flexWrap: 'wrap' }}>
           {headPos ? (
-            <Button variant="ghost" size="sm" icon="crown" onClick={() => onSelect({ type: 'position', id: headPos.id })}>Руководит: {headPos.name}</Button>
+            <Button variant="ghost" size="sm" icon="crown" onClick={() => onSelect({ type: 'position', id: headPos.id })}>{t('org.leadsName', { name: headPos.name })}</Button>
           ) : (
-            <Chip tone="neutral">Руководитель не назначен</Chip>
+            <Chip tone="neutral">{t('org.panel.headNotSet')}</Chip>
           )}
-          {d.parentId && <Chip tone="neutral" icon="department">внутри «{chart.departments.find((x) => x.id === d.parentId)?.name}»</Chip>}
+          {d.parentId && (
+            <Chip tone="neutral" icon="department">
+              {t('org.panel.insideDepartment', { name: chart.departments.find((x) => x.id === d.parentId)?.name ?? '' })}
+            </Chip>
+          )}
         </div>
         {canEdit && !editing && (
           <div className="opanel-row">
-            <Button variant="outline" size="sm" icon="edit" onClick={() => setEditing(true)}>Изменить отдел</Button>
+            <Button variant="outline" size="sm" icon="edit" onClick={() => setEditing(true)}>{t('org.panel.editDepartment')}</Button>
           </div>
         )}
       </section>
 
       {canEdit && editing ? (
         <section className="opanel-section">
-          <Input label="Название" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required />
-          <Select label="Родительский отдел" value={parentId} onChange={setParentId} options={parentOptions} />
+          <Input label={tc('labels.name')} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required />
+          <Select label={t('org.parentDepartment')} value={parentId} onChange={setParentId} options={parentOptions} />
           <div>
-            <div className="ui-field-label label-caps" style={{ marginBottom: '0.375rem' }}>Руководитель (должность)</div>
-            <EntitySelector value={head} onChange={setHead} types={['position']} multi={false} options={positionOptions} placeholder="Выберите должность…" context={{ workspaceId }} />
+            <div className="ui-field-label label-caps" style={{ marginBottom: '0.375rem' }}>{t('org.panel.headPosition')}</div>
+            <EntitySelector value={head} onChange={setHead} types={['position']} multi={false} options={positionOptions} placeholder={t('org.panel.pickPosition')} context={{ workspaceId }} />
           </div>
           <div className="opanel-row" style={{ flexWrap: 'wrap' }}>
-            <Button variant="primary" tone="success" size="sm" icon="save" disabled={!dirty || !name.trim()} loading={save.isPending} onClick={() => save.mutate()}>Сохранить</Button>
-            <Button variant="ghost" size="sm" onClick={() => { setEditing(false); setName(d.name); setParentId(d.parentId ?? NO_DEPT); setHead(d.headPositionId ? [{ type: 'position', id: d.headPositionId }] : []); }}>Отмена</Button>
+            <Button variant="primary" tone="success" size="sm" icon="save" disabled={!dirty || !name.trim()} loading={save.isPending} onClick={() => save.mutate()}>{tc('actions.save')}</Button>
+            <Button variant="ghost" size="sm" onClick={() => { setEditing(false); setName(d.name); setParentId(d.parentId ?? NO_DEPT); setHead(d.headPositionId ? [{ type: 'position', id: d.headPositionId }] : []); }}>{tc('actions.cancel')}</Button>
             {d.headPositionId && (
               <Button
                 variant="outline"
@@ -550,11 +579,16 @@ function DepartmentPanel({
                 icon="remove"
                 loading={unsetHead.isPending}
                 onClick={() => confirm(
-                  { title: 'Снять руководителя отдела?', message: `Должность «${headPos?.name ?? ''}» перестанет руководить отделом «${d.name}»; подчинённые перейдут к руководителю родительского отдела или объекта.`, confirmLabel: 'Снять', danger: true },
+                  {
+                    title: t('org.panel.unsetHeadTitle'),
+                    message: t('org.panel.unsetHeadMessage', { position: headPos?.name ?? '', department: d.name }),
+                    confirmLabel: t('org.panel.unassignConfirm'),
+                    danger: true,
+                  },
                   () => unsetHead.mutateAsync(),
                 )}
               >
-                Снять руководителя
+                {t('org.panel.unsetHead')}
               </Button>
             )}
           </div>
@@ -563,11 +597,9 @@ function DepartmentPanel({
 
       <Divider />
       <section className="opanel-section">
-        <span className="label-caps">Должности · {members.length}</span>
+        <span className="label-caps">{t('org.panel.positionsCount', { n: members.length })}</span>
         {members.length === 0 ? (
-          <p className="label-sm" style={{ margin: 0 }}>
-            В отделе пока нет должностей, поэтому рамки на схеме у него нет. Добавьте должность кнопкой «+ Должность» (отдел подставится) или выберите этот отдел в карточке существующей должности.
-          </p>
+          <p className="label-sm" style={{ margin: 0 }}>{t('org.panel.departmentEmpty')}</p>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem' }}>
             {members.map((p) => (
@@ -589,17 +621,18 @@ function DepartmentPanel({
               loading={remove.isPending}
               onClick={() => confirm(
                 {
-                  title: 'Удалить отдел?',
-                  message: `«${d.name}» исчезнет из справочника; должности останутся без отдела${
-                    chart.departments.some((x) => x.parentId === d.id) ? ', а подотделы перейдут к его родителю' : ''
-                  }.`,
-                  confirmLabel: 'Удалить',
+                  title: t('org.panel.deleteDepartmentTitle'),
+                  message: t('org.panel.deleteDepartmentMessage', {
+                    name: d.name,
+                    childrenSuffix: chart.departments.some((x) => x.parentId === d.id) ? t('org.panel.deleteDepartmentChildren') : '',
+                  }),
+                  confirmLabel: tc('actions.delete'),
                   danger: true,
                 },
                 () => remove.mutateAsync(),
               )}
             >
-              Удалить отдел
+              {t('org.panel.deleteDepartment')}
             </Button>
           </div>
         </>
@@ -617,6 +650,8 @@ function BranchPanel({
   workspaceId: string; chart: OrgChartDto; branchId: string; canEdit: boolean;
   onSelect: (sel: OrgSelection | null) => void; onClose: () => void;
 }) {
+  const t = useTranslations('staff');
+  const tc = useTranslations('common');
   const b = chart.branches.find((x) => x.id === branchId)!;
   const refresh = useOrgRefresh(workspaceId);
   const [confirm, confirmUI] = useConfirm();
@@ -635,8 +670,10 @@ function BranchPanel({
   return (
     <PanelShell icon="branch" title={b.name} onClose={onClose}>
       <div className="opanel-row" style={{ flexWrap: 'wrap' }}>
-        {b.isDefault && <Chip tone="accent">Основной объект</Chip>}
-        <Chip tone="neutral" icon="people">{inBranch.reduce((n, p) => n + p.holders.filter((h) => h.branchId === b.id).length, 0)} чел.</Chip>
+        {b.isDefault && <Chip tone="accent">{t('org.panel.mainBranch')}</Chip>}
+        <Chip tone="neutral" icon="people">
+          {t('peopleCount', { n: inBranch.reduce((n, p) => n + p.holders.filter((h) => h.branchId === b.id).length, 0) })}
+        </Chip>
       </div>
       {/* Факт первым; правку объекта сервер отдаёт только полновластным ролям
           (`requireAll`), поэтому кнопка стоит по области, а не по «есть ли вообще
@@ -644,14 +681,14 @@ function BranchPanel({
       <section className="opanel-section">
         <div className="opanel-row" style={{ flexWrap: 'wrap' }}>
           {headPos ? (
-            <Button variant="ghost" size="sm" icon="crown" onClick={() => onSelect({ type: 'position', id: headPos.id })}>Руководит: {headPos.name}</Button>
+            <Button variant="ghost" size="sm" icon="crown" onClick={() => onSelect({ type: 'position', id: headPos.id })}>{t('org.leadsName', { name: headPos.name })}</Button>
           ) : (
-            <Chip tone="neutral">Руководитель не назначен</Chip>
+            <Chip tone="neutral">{t('org.panel.headNotSet')}</Chip>
           )}
         </div>
         {canEditBranch && !editing && (
           <div className="opanel-row">
-            <Button variant="outline" size="sm" icon="edit" onClick={() => setEditing(true)}>Изменить руководителя</Button>
+            <Button variant="outline" size="sm" icon="edit" onClick={() => setEditing(true)}>{t('org.panel.editBranchHead')}</Button>
           </div>
         )}
       </section>
@@ -659,12 +696,12 @@ function BranchPanel({
       {canEditBranch && editing ? (
         <section className="opanel-section">
           <div>
-            <div className="ui-field-label label-caps" style={{ marginBottom: '0.375rem' }}>Руководитель объекта (должность)</div>
-            <EntitySelector value={head} onChange={setHead} types={['position']} multi={false} options={positionOptions} placeholder="Выберите должность…" context={{ workspaceId }} />
-            <p className="label-sm" style={{ margin: '0.375rem 0 0' }}>Должности без отдела в этом объекте подчиняются руководителю объекта.</p>
+            <div className="ui-field-label label-caps" style={{ marginBottom: '0.375rem' }}>{t('org.panel.branchHeadPosition')}</div>
+            <EntitySelector value={head} onChange={setHead} types={['position']} multi={false} options={positionOptions} placeholder={t('org.panel.pickPosition')} context={{ workspaceId }} />
+            <p className="label-sm" style={{ margin: '0.375rem 0 0' }}>{t('org.panel.branchHeadHint')}</p>
           </div>
           <div className="opanel-row" style={{ flexWrap: 'wrap' }}>
-            <Button variant="primary" tone="success" size="sm" icon="save" disabled={!dirty} loading={save.isPending} onClick={() => save.mutate()}>Сохранить</Button>
+            <Button variant="primary" tone="success" size="sm" icon="save" disabled={!dirty} loading={save.isPending} onClick={() => save.mutate()}>{tc('actions.save')}</Button>
             {b.headPositionId && (
               <Button
                 variant="outline"
@@ -672,25 +709,30 @@ function BranchPanel({
                 icon="remove"
                 loading={unsetHead.isPending}
                 onClick={() => confirm(
-                  { title: 'Снять руководителя объекта?', message: `Должность «${headPos?.name ?? ''}» перестанет руководить объектом «${b.name}».`, confirmLabel: 'Снять', danger: true },
+                  {
+                    title: t('org.panel.unsetBranchHeadTitle'),
+                    message: t('org.panel.unsetBranchHeadMessage', { position: headPos?.name ?? '', branch: b.name }),
+                    confirmLabel: t('org.panel.unassignConfirm'),
+                    danger: true,
+                  },
                   () => unsetHead.mutateAsync(),
                 )}
               >
-                Снять руководителя
+                {t('org.panel.unsetHead')}
               </Button>
             )}
-            <Button variant="ghost" size="sm" onClick={() => { setEditing(false); setHead(b.headPositionId ? [{ type: 'position', id: b.headPositionId }] : []); }}>Отмена</Button>
+            <Button variant="ghost" size="sm" onClick={() => { setEditing(false); setHead(b.headPositionId ? [{ type: 'position', id: b.headPositionId }] : []); }}>{tc('actions.cancel')}</Button>
           </div>
         </section>
       ) : null}
       <Divider />
       <section className="opanel-section">
-        <span className="label-caps">Адрес, название, основной объект</span>
+        <span className="label-caps">{t('org.panel.branchMetaTitle')}</span>
         <div className="opanel-row">
-          <Button variant="outline" size="sm" icon="branch" href={`/workspaces/${workspaceId}/members/branches`}>Раздел «Объекты»</Button>
+          <Button variant="outline" size="sm" icon="branch" href={`/workspaces/${workspaceId}/members/branches`}>{t('org.panel.branchSection')}</Button>
         </div>
       </section>
-      {inBranch.length === 0 && <EmptyState icon="branch" title="В объекте никто не назначен" />}
+      {inBranch.length === 0 && <EmptyState icon="branch" title={t('org.panel.branchEmpty')} />}
       {confirmUI}
     </PanelShell>
   );

@@ -7,6 +7,8 @@ import {
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
+import { useFormatters } from '@/lib/format';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { useIsMobile } from '@/lib/hooks/useIsMobile';
 import { apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
@@ -44,9 +46,8 @@ import {
   addMonths,
   isToday,
   dayKey,
-  fmtTime,
   fmtDayHeader,
-  WEEKDAYS_SHORT,
+  weekdaysShort,
   isEvent,
   isTask,
   isFinance,
@@ -75,28 +76,19 @@ const canDragItem = (i: CalendarItem): boolean => {
   return false; // платежи и любые чужие слои — read-only
 };
 
-const VIEWS: { key: CalendarView; label: string }[] = [
-  { key: 'month', label: 'Месяц' },
-  { key: 'week', label: 'Неделя' },
-  { key: 'day', label: 'День' },
-  { key: 'agenda', label: 'Повестка' },
-  { key: 'year', label: 'Год' },
-];
+/** Пилюля вида называет РАЗДЕЛ; слово ему даёт каталог (`calendar.view.<key>`). */
+const VIEWS: CalendarView[] = ['month', 'week', 'day', 'agenda', 'year'];
 
 const LAYERS_LS = 'sa6_cal_layers';
 const WEEKNUMS_LS = 'sa6_cal_weeknums';
 const PANEL_LS = 'sa6_cal_panel';
 
-/** Русская форма «платёж/платежа/платежей» для агрегата ячейки месяца. */
-function pluralPayments(n: number): string {
-  const m10 = n % 10;
-  const m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return 'платёж';
-  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return 'платежа';
-  return 'платежей';
-}
+// Формы «платёж/платежа/платежей» больше нет в коде: множественное число —
+// правило ЯЗЫКА, и живёт оно ICU-веткой plural в каталоге (`calendar.grid.payments`).
 
 export default function CalendarPage() {
+  const t = useTranslations('calendar');
+  const f = useFormatters();
   const { isReady, user } = useRequireAuth();
   const queryClient = useQueryClient();
   const [view, setView] = useState<CalendarView>('month');
@@ -161,7 +153,7 @@ export default function CalendarPage() {
       setLayerMeta(range.layers ?? {});
       setError('');
     } catch {
-      setError('Не удалось загрузить календарь');
+      setError(t('grid.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -331,14 +323,14 @@ export default function CalendarPage() {
   return (
     <>
       <PageHeader
-        breadcrumb="Календарь"
-        title={viewLabel(view, anchor)}
+        breadcrumb={t('breadcrumb')}
+        title={viewLabel(view, anchor, f, t('agendaRange'))}
         actions={
           <>
-            <IconButton icon="caretLeft" label="Предыдущий период" size={34} variant="outline" round={false} onClick={() => step(-1)} />
-            <Button size="sm" variant="outline" onClick={() => setAnchor(new Date())}>Сегодня</Button>
-            <IconButton icon="caretRight" label="Следующий период" size={34} variant="outline" round={false} onClick={() => step(1)} />
-            <Button variant="primary" tone="success" icon="add" onClick={() => createAt(nextHalfHour(), false)}>Событие</Button>
+            <IconButton icon="caretLeft" label={t('grid.prevPeriod')} size={34} variant="outline" round={false} onClick={() => step(-1)} />
+            <Button size="sm" variant="outline" onClick={() => setAnchor(new Date())}>{t('grid.today')}</Button>
+            <IconButton icon="caretRight" label={t('grid.nextPeriod')} size={34} variant="outline" round={false} onClick={() => step(1)} />
+            <Button variant="primary" tone="success" icon="add" onClick={() => createAt(nextHalfHour(), false)}>{t('actions.newEvent')}</Button>
           </>
         }
       />
@@ -346,16 +338,16 @@ export default function CalendarPage() {
       <div className="ui-stack" style={{ gap: 'var(--spacing-3)', marginBottom: 'var(--gap-grid)' }}>
         {/* Вид + слои + инструменты — одна полоса управления над сеткой */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
-          <SegmentedControl items={VIEWS.map((v) => ({ key: v.key, label: v.label }))} value={view} onChange={(k) => setView(k as typeof view)} aria-label="Вид календаря" />
+          <SegmentedControl items={VIEWS.map((v) => ({ key: v, label: t(`view.${v}`) }))} value={view} onChange={(k) => setView(k as typeof view)} aria-label={t('view.aria')} />
           <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap', alignItems: 'center' }}>
             {/* Тумблеры слоёв — из shared-реестра: новый слой появляется здесь сам */}
             {LAYER_TOGGLES.map((l) => (
               <Chip key={l.key} tone={l.tone} icon={l.icon} selected={layers[l.key] !== false} onClick={() => toggleLayer(l.key)}>
-                {l.label}
+                {t(l.labelKey.replace('calendar.', ''))}
               </Chip>
             ))}
             {view === 'month' && (
-              <Chip tone="neutral" selected={weekNums} onClick={toggleWeekNums} title="Номера недель в сетке">
+              <Chip tone="neutral" selected={weekNums} onClick={toggleWeekNums} title={t('grid.weekNumbers')}>
                 №
               </Chip>
             )}
@@ -366,10 +358,10 @@ export default function CalendarPage() {
               каждого элемента управления есть поверхность (пилюля вида слева,
               матовые чипы слоёв в середине). */}
           <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
-            <Button size="sm" variant="outline" icon="target" onClick={() => setShowSmart(true)}>Подобрать</Button>
-            <Button size="sm" variant="outline" icon="folder" onClick={() => setShowResources(true)}>Ресурсы</Button>
+            <Button size="sm" variant="outline" icon="target" onClick={() => setShowSmart(true)}>{t('actions.smartMatch')}</Button>
+            <Button size="sm" variant="outline" icon="folder" onClick={() => setShowResources(true)}>{t('actions.resources')}</Button>
             <Button size="sm" variant="outline" icon="link" onClick={() => setShowGoogle(true)}>Google</Button>
-            <Button size="sm" variant="outline" icon="share" onClick={() => setShowShare(true)}>Поделиться</Button>
+            <Button size="sm" variant="outline" icon="share" onClick={() => setShowShare(true)}>{t('actions.share')}</Button>
           </div>
         </div>
 
@@ -384,7 +376,7 @@ export default function CalendarPage() {
 
         {sources.length > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', flexWrap: 'wrap' }}>
-            <span className="label-caps">Чужие календари</span>
+            <span className="label-caps">{t('grid.otherCalendars')}</span>
             {sources.map((s) => {
               const on = overlays.has(s.userId);
               return (
@@ -393,7 +385,7 @@ export default function CalendarPage() {
                   type="button"
                   onClick={() => toggleOverlay(s.userId)}
                   aria-pressed={on}
-                  title={on ? 'Скрыть слой' : 'Показать слой'}
+                  title={on ? t('layer.hide') : t('layer.show')}
                   style={{
                     display: 'inline-flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer',
                     padding: '0.1875rem 0.5rem 0.1875rem 0.25rem', borderRadius: 'var(--radius-pill)',
@@ -402,7 +394,7 @@ export default function CalendarPage() {
                   }}
                 >
                   <PersonChip size="S" userId={s.userId} firstName={s.firstName} lastName={s.lastName ?? null} />
-                  <span className="label-sm">{s.accessLevel === 'detailed' ? 'детально' : 'занят'}</span>
+                  <span className="label-sm">{s.accessLevel === 'detailed' ? t('access.shortDetailed') : t('access.shortBusy')}</span>
                 </button>
               );
             })}
@@ -420,7 +412,7 @@ export default function CalendarPage() {
               <TriagePanel items={visible} undated={undated} onEvent={openEvent} onTask={openTask} onClose={() => setPanel(false)} />
             </div>
           ) : (
-            <IconButton icon="caretRight" label="Показать планнер" size={34} variant="outline" round={false} onClick={() => setPanel(true)} />
+            <IconButton icon="caretRight" label={t('grid.showPlanner')} size={34} variant="outline" round={false} onClick={() => setPanel(true)} />
           )}
           <div style={{ flex: 1, minWidth: 0 }}>
             {loading ? (
@@ -503,6 +495,8 @@ function MonthView({
   onDropDay: (d: Date) => void;
   onMore: (d: Date) => void;
 }) {
+  const t = useTranslations('calendar');
+  const f = useFormatters();
   const start = startOfWeek(startOfMonth(anchor));
   const weeks = Array.from({ length: 6 }, (_, w) => Array.from({ length: 7 }, (_, i) => addDays(start, w * 7 + i)));
   const byDay = groupByDay(items);
@@ -515,7 +509,7 @@ function MonthView({
           уезжали за правый край под горизонтальный скролл. */}
       <div style={{ display: 'grid', gridTemplateColumns: `${weekNums ? '30px ' : ''}repeat(7, minmax(0, 1fr))`, gap: '0.25rem' }}>
         {weekNums && <div className="label-caps" style={{ textAlign: 'center', padding: '0.25rem 0 0.375rem' }}>№</div>}
-        {WEEKDAYS_SHORT.map((w) => (
+        {weekdaysShort(f).map((w) => (
           <div key={w} className="label-caps" style={{ textAlign: 'center', padding: '0.25rem 0 0.375rem' }}>{w}</div>
         ))}
         {weeks.map((row) => (
@@ -571,7 +565,7 @@ function MonthView({
                       onClick={(e) => { e.stopPropagation(); onMore(d); }}
                       style={{ border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', padding: '0 5px', color: 'var(--primary-dim)', fontWeight: 700 }}
                     >
-                      +{hidden} ещё
+                      {t('grid.moreItems', { n: hidden })}
                     </button>
                   )}
                 </div>
@@ -607,10 +601,12 @@ function buildDayChips(list: CalendarItem[]): {
 
 /** Агрегат платежей дня: «2 платежа · 30 000 ₸» (одна валюта) / «3 платежа». */
 function FinAggChip({ items, onOpen }: { items: CalendarFinanceItem[]; onOpen: () => void }) {
+  const t = useTranslations('calendar');
   const currencies = new Set(items.map((i) => i.currencyCode));
+  const count = t('grid.payments', { n: items.length });
   const label = currencies.size === 1
-    ? `${items.length} ${pluralPayments(items.length)} · ${formatMoney(items.reduce((s, i) => s + i.amount, 0), items[0].currencyCode)}`
-    : `${items.length} ${pluralPayments(items.length)}`;
+    ? `${count} · ${formatMoney(items.reduce((s, i) => s + i.amount, 0), items[0].currencyCode)}`
+    : count;
   return (
     <button
       type="button"
@@ -631,6 +627,7 @@ function FinAggChip({ items, onOpen }: { items: CalendarFinanceItem[]; onOpen: (
 }
 
 function ItemChip({ item, onEvent, onTask }: { item: CalendarItem; onEvent: (o: CalendarEventOccurrence) => void; onTask: (t: CalendarTaskItem) => void }) {
+  const f = useFormatters();
   const router = useRouter();
   const color = itemColor(item);
   const done = isTask(item) && item.status === 'done';
@@ -660,7 +657,7 @@ function ItemChip({ item, onEvent, onTask }: { item: CalendarItem; onEvent: (o: 
         <>
           {/* Значок, выбранный человеком, — данные: рисует его Glyph */}
           {item.icon && <Glyph value={item.icon} size={13} />}
-          {!item.allDay && <span style={{ opacity: 0.7, flexShrink: 0 }}>{fmtTime(item.start)}</span>}
+          {!item.allDay && <span style={{ opacity: 0.7, flexShrink: 0 }}>{f.time(item.start)}</span>}
         </>
       ) : (
         // Платежи и любые чужие слои: мини-значок записи, запасной — иконка её слоя
@@ -723,6 +720,8 @@ function TimeGridView({
     window.addEventListener('pointerup', up);
   };
 
+  const t = useTranslations('calendar');
+  const f = useFormatters();
   const byDay = groupByDay(items);
   const now = new Date();
 
@@ -732,7 +731,7 @@ function TimeGridView({
       <div style={{ display: 'grid', gridTemplateColumns: `52px repeat(${days.length}, minmax(0, 1fr))` }}>
         <div />
         {days.map((d) => {
-          const h = fmtDayHeader(d);
+          const h = fmtDayHeader(d, f);
           return (
             <div key={d.toISOString()} style={{ textAlign: 'center', padding: 'var(--spacing-2)' }}>
               <div className="label-caps">{h.weekday}</div>
@@ -744,7 +743,7 @@ function TimeGridView({
 
       {/* All-day band */}
       <div style={{ display: 'grid', gridTemplateColumns: `52px repeat(${days.length}, minmax(0, 1fr))`, borderTop: '1px solid var(--divider)', borderBottom: '1px solid var(--divider)', minHeight: 30 }}>
-        <div className="label-caps" style={{ padding: '4px 6px', alignSelf: 'center' }}>весь день</div>
+        <div className="label-caps" style={{ padding: '4px 6px', alignSelf: 'center' }}>{t('grid.allDay')}</div>
         {days.map((d) => {
           const all = (byDay.get(dayKey(d)) ?? []).filter(isAllDayItem);
           return (
@@ -815,12 +814,12 @@ function TimeGridView({
                         {item.icon && <Glyph value={item.icon} size={12} />}
                         <span style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.title}</span>
                       </div>
-                      <div style={{ fontSize: '0.62rem', opacity: 0.75 }}>{fmtTime(item.start)}</div>
+                      <div style={{ fontSize: '0.62rem', opacity: 0.75 }}>{f.time(item.start)}</div>
                       {drag && (
                         <div
                           onPointerDown={(e) => startResize(item, e)}
                           onClick={(e) => e.stopPropagation()}
-                          title="Потяни, чтобы изменить длительность"
+                          title={t('grid.dragToResize')}
                           style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 7, cursor: 'ns-resize' }}
                         />
                       )}
@@ -865,13 +864,15 @@ function AgendaView({
   onEvent: (o: CalendarEventOccurrence) => void;
   onTask: (t: CalendarTaskItem) => void;
 }) {
+  const t = useTranslations('calendar');
+  const f = useFormatters();
   const byDay = groupByDay(items);
   const days = Array.from({ length: 31 }, (_, i) => addDays(startOfDay(anchor), i)).filter((d) => (byDay.get(dayKey(d)) ?? []).length > 0);
 
   if (days.length === 0) {
     return (
       <Card>
-        <EmptyState icon="calendar" title="На ближайшие 30 дней ничего нет" description="Свободный месяц — или пора что-нибудь запланировать." />
+        <EmptyState icon="calendar" title={t('grid.agendaEmpty')} description={t('grid.agendaEmptyHint')} />
       </Card>
     );
   }
@@ -884,8 +885,8 @@ function AgendaView({
           <Card key={d.toISOString()} small>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginBottom: 'var(--spacing-2)' }}>
               <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.125rem', color: isToday(d) ? 'var(--primary-dim)' : 'var(--on-surface)' }}>{d.getDate()}</span>
-              <span className="label-sm">{d.toLocaleDateString('ru-RU', { weekday: 'long', month: 'long' })}</span>
-              {isToday(d) && <Chip size="sm" tone="accent">сегодня</Chip>}
+              <span className="label-sm">{`${f.weekday(d, 'long')}, ${f.month(d)}`}</span>
+              {isToday(d) && <Chip size="sm" tone="accent">{t('grid.todayChip')}</Chip>}
             </div>
             <div className="ui-stack" style={{ gap: '0.25rem' }}>
               {list.map((it, idx) => <AgendaRow key={chipKey(it, idx)} item={it} onEvent={onEvent} onTask={onTask} />)}
@@ -899,9 +900,11 @@ function AgendaView({
 
 function AgendaRow({ item, onEvent, onTask }: { item: CalendarItem; onEvent: (o: CalendarEventOccurrence) => void; onTask: (t: CalendarTaskItem) => void }) {
   const router = useRouter();
+  const t = useTranslations('calendar');
+  const f = useFormatters();
   const color = itemColor(item);
   const done = isTask(item) && item.status === 'done';
-  const timeLabel = isAllDayItem(item) ? 'весь день' : fmtTime(item.start);
+  const timeLabel = isAllDayItem(item) ? t('grid.allDay') : f.time(item.start);
   return (
     <button
       onClick={() => { if (isEvent(item)) onEvent(item); else if (isTask(item)) onTask(item); else router.push(itemHref(item)); }}
@@ -919,7 +922,7 @@ function AgendaRow({ item, onEvent, onTask }: { item: CalendarItem; onEvent: (o:
         <span className="label-sm" style={{ flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{formatMoney(item.amount, item.currencyCode)}</span>
       )}
       {isTask(item) && (
-        <Chip size="sm" tone={item.overdue ? 'danger' : 'neutral'}>{item.overdue ? 'просрочено' : 'задача'}</Chip>
+        <Chip size="sm" tone={item.overdue ? 'danger' : 'neutral'}>{item.overdue ? t('grid.overdueChip') : t('grid.taskChip')}</Chip>
       )}
       {isEvent(item) && item.location && (
         <span className="label-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
@@ -936,6 +939,9 @@ function AgendaRow({ item, onEvent, onTask }: { item: CalendarItem; onEvent: (o:
 // ============================================================
 
 function TaskPopover({ task, onClose }: { task: CalendarTaskItem; onClose: (changed: boolean) => void }) {
+  const t = useTranslations('calendar');
+  const tt = useTranslations('tasks');
+  const f = useFormatters();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   // Тон берётся из общего реестра статусов, а не из своей копии карты: раньше
@@ -963,9 +969,9 @@ function TaskPopover({ task, onClose }: { task: CalendarTaskItem; onClose: (chan
       size="sm"
       footer={
         <>
-          <Button variant="outline" icon="tasks" href={`/tasks/${task.taskId}`}>Открыть задачу</Button>
+          <Button variant="outline" icon="tasks" href={`/tasks/${task.taskId}`}>{t('actions.openTask')}</Button>
           {canComplete && (
-            <Button variant="primary" tone="success" icon="check" loading={busy} onClick={complete}>Выполнено</Button>
+            <Button variant="primary" tone="success" icon="check" loading={busy} onClick={complete}>{t('actions.taskDone')}</Button>
           )}
         </>
       }
@@ -973,15 +979,10 @@ function TaskPopover({ task, onClose }: { task: CalendarTaskItem; onClose: (chan
       <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
         {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
         <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
-          <Chip size="sm" tone={st.tone}>{st.label}</Chip>
+          <Chip size="sm" tone={st.tone}>{tt(`status.${task.status}`)}</Chip>
           <Chip size="sm" tone={task.overdue ? 'danger' : 'neutral'} icon="clock">
-            {new Date(task.dueDate).toLocaleString('ru-RU', {
-              day: 'numeric',
-              month: 'short',
-              hour: task.allDay ? undefined : '2-digit',
-              minute: task.allDay ? undefined : '2-digit',
-            })}
-            {task.overdue ? ' · просрочено' : ''}
+            {task.allDay ? f.date(task.dueDate, 'dayMonthLong') : f.dateTime(task.dueDate, 'dayMonthLong')}
+            {task.overdue ? t('grid.overdueSuffix') : ''}
           </Chip>
           {task.coinReward ? <Chip size="sm" tone="warning" icon="coins">{task.coinReward}</Chip> : null}
         </div>
@@ -991,23 +992,25 @@ function TaskPopover({ task, onClose }: { task: CalendarTaskItem; onClose: (chan
 }
 
 function RecurrenceScopeDialog({ onPick, onCancel }: { onPick: (scope: 'this' | 'all') => void; onCancel: () => void }) {
+  const t = useTranslations('calendar');
+  const tc = useTranslations('common');
   return (
     <Modal
       open
       onClose={onCancel}
-      title="Повторяющееся событие"
-      subtitle="Изменить только это вхождение или всю серию?"
+      title={t('series.title')}
+      subtitle={t('series.subtitle')}
       size="sm"
       footer={
         <>
-          <Button variant="ghost" onClick={onCancel}>Отмена</Button>
-          <Button variant="outline" onClick={() => onPick('this')}>Только это</Button>
-          <Button variant="primary" onClick={() => onPick('all')}>Вся серия</Button>
+          <Button variant="ghost" onClick={onCancel}>{tc('actions.cancel')}</Button>
+          <Button variant="outline" onClick={() => onPick('this')}>{t('series.thisOne')}</Button>
+          <Button variant="primary" onClick={() => onPick('all')}>{t('series.whole')}</Button>
         </>
       }
     >
       <p className="body-md" style={{ margin: 0 }}>
-        «Только это» создаст исключение в серии — остальные вхождения останутся на своих местах.
+        {t('series.hint')}
       </p>
     </Modal>
   );
@@ -1056,6 +1059,8 @@ function YearMonthCard({
   onDay: (d: Date) => void;
   onMonth: (d: Date) => void;
 }) {
+  const t = useTranslations('calendar');
+  const f = useFormatters();
   const first = new Date(year, month, 1);
   const start = startOfWeek(first);
   const days = Array.from({ length: 42 }, (_, i) => addDays(start, i));
@@ -1064,13 +1069,13 @@ function YearMonthCard({
       <button
         type="button"
         onClick={() => onMonth(first)}
-        title="Открыть месяц"
+        title={t('grid.openMonth')}
         style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, marginBottom: 'var(--spacing-2)', fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '0.9375rem', color: 'var(--on-surface)' }}
       >
-        {cap(first.toLocaleDateString('ru-RU', { month: 'long' }))}
+        {cap(f.month(first))}
       </button>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
-        {WEEKDAYS_SHORT.map((w) => (
+        {weekdaysShort(f).map((w) => (
           <div key={w} aria-hidden style={{ textAlign: 'center', fontSize: '0.58rem', color: 'var(--muted)', fontWeight: 700 }}>{w[0]}</div>
         ))}
         {days.map((d) => {
@@ -1081,7 +1086,7 @@ function YearMonthCard({
               key={d.toISOString()}
               type="button"
               onClick={() => onDay(d)}
-              title={n > 0 ? `Записей: ${n}` : undefined}
+              title={n > 0 ? t('grid.entriesCount', { n }) : undefined}
               style={{
                 height: 22, border: 'none', cursor: 'pointer', borderRadius: 'var(--radius-sm)',
                 background: yearHeat(n),
@@ -1111,6 +1116,8 @@ function MiniMonth({
   onPick: (d: Date) => void;
   onShift: (dir: 1 | -1) => void;
 }) {
+  const t = useTranslations('calendar');
+  const f = useFormatters();
   const busy = useMemo(() => {
     const s = new Set<string>();
     for (const it of items) for (const d of itemDays(it)) s.add(dayKey(d));
@@ -1121,15 +1128,15 @@ function MiniMonth({
   return (
     <Card className="density-compact" small>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-2)' }}>
-        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '0.9375rem' }}>{viewLabel('month', anchor)}</span>
+        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '0.9375rem' }}>{viewLabel('month', anchor, f, t('agendaRange'))}</span>
         <span style={{ display: 'inline-flex', gap: 2 }}>
-          <IconButton icon="caretLeft" label="Предыдущий месяц" size={24} iconSize={12} onClick={() => onShift(-1)} />
-          <IconButton icon="caretRight" label="Следующий месяц" size={24} iconSize={12} onClick={() => onShift(1)} />
+          <IconButton icon="caretLeft" label={t('grid.prevMonth')} size={24} iconSize={12} onClick={() => onShift(-1)} />
+          <IconButton icon="caretRight" label={t('grid.nextMonth')} size={24} iconSize={12} onClick={() => onShift(1)} />
         </span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '18px repeat(7, 1fr)', gap: 1 }}>
         <div aria-hidden />
-        {WEEKDAYS_SHORT.map((w) => (
+        {weekdaysShort(f).map((w) => (
           <div key={w} aria-hidden style={{ textAlign: 'center', fontSize: '0.58rem', color: 'var(--muted)', fontWeight: 700 }}>{w[0]}</div>
         ))}
         {weeks.map((row) => (
@@ -1143,7 +1150,7 @@ function MiniMonth({
                   key={d.toISOString()}
                   type="button"
                   onClick={() => onPick(d)}
-                  title={d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}
+                  title={f.date(d, 'dayMonthLong')}
                   style={{
                     position: 'relative', height: 24, border: 'none', cursor: 'pointer',
                     borderRadius: 'var(--radius-sm)', fontSize: '0.68rem',
@@ -1178,22 +1185,25 @@ function DayModal({
   onTask: (t: CalendarTaskItem) => void;
   onCreate: () => void;
 }) {
+  const t = useTranslations('calendar');
+  const tc = useTranslations('common');
+  const f = useFormatters();
   const list = groupByDay(items).get(dayKey(day)) ?? [];
   return (
     <Modal
       open
       onClose={onClose}
-      title={cap(day.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' }))}
+      title={cap(f.date(day, 'weekday'))}
       size="sm"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Закрыть</Button>
-          <Button variant="primary" tone="success" icon="add" onClick={onCreate}>Событие</Button>
+          <Button variant="ghost" onClick={onClose}>{tc('actions.close')}</Button>
+          <Button variant="primary" tone="success" icon="add" onClick={onCreate}>{t('actions.newEvent')}</Button>
         </>
       }
     >
       {list.length === 0 ? (
-        <p className="body-md" style={{ margin: 0 }}>В этот день пусто.</p>
+        <p className="body-md" style={{ margin: 0 }}>{t('grid.dayEmpty')}</p>
       ) : (
         <div className="density-compact ui-stack" style={{ gap: '0.25rem' }}>
           {list.map((it, idx) => (

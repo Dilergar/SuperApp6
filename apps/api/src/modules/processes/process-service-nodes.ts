@@ -13,14 +13,14 @@ export async function loadCredentialSecret(
   credentialId: string,
 ): Promise<{ type: string; secret: Record<string, string> }> {
   const cred = await ctx.deps.db.processCredential.findUnique({ where: { id: credentialId } });
-  if (!cred || cred.workspaceId !== ctx.workspaceId) throw new Error('Креды не найдены в сейфе');
+  if (!cred || cred.workspaceId !== ctx.workspaceId) throw new Error('the credential is not in the safe');
   return { type: cred.type, secret: JSON.parse(decryptSecret(cred.data)) as Record<string, string> };
 }
 
 /** Любое поле-ключ из креда (token у bearer, headerValue у header, password у basic). */
 export function credentialKey(secret: Record<string, string>): string {
   const key = secret.token ?? secret.headerValue ?? secret.password;
-  if (!key) throw new Error('В кредах нет токена/ключа');
+  if (!key) throw new Error('the credential carries no token or key');
   return key;
 }
 
@@ -33,31 +33,22 @@ export function credentialKey(secret: Record<string, string>): string {
 export const httpNode: ProcessNodeProvider = {
   descriptor: {
     type: 'service.http',
-    title: 'HTTP-запрос',
-    description:
-      'Вызывает внешний API (Kaspi, 1С, любой REST). Поддерживает подстановки {{form.поле}} в URL/теле, заголовки и креды из сейфа. Ответ доступен следующим шагам.',
     category: 'integration',
     icon: 'globe',
     tier: 'standard',
     io: true, // внешний HTTP → исполняется вне инстанс-лока (P3)
     // success/error — поток; astool — подключение к AI-Агенту как инструмент (один узел = действие И инструмент, модель n8n).
     outputs: [
-      { key: 'success', label: 'Успех' },
-      { key: 'error', label: 'Ошибка' },
-      { key: 'astool', label: 'как инструмент', type: 'ai_tool' },
+      { key: 'success' },
+      { key: 'error' },
+      { key: 'astool', type: 'ai_tool' }
     ],
     fields: [
-      {
-        key: 'method',
-        label: 'Метод',
-        kind: 'select',
-        required: true,
-        options: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((m) => ({ value: m, label: m })),
-      },
-      { key: 'url', label: 'URL', kind: 'text', placeholder: 'https://api.example.kz/orders?since={{form.date}}', help: 'Для обычной ноды — обязательно. Как инструмент агента: URL подставляет сам агент (GET, чтение).' },
-      { key: 'headers', label: 'Заголовки (JSON)', kind: 'textarea', placeholder: '{"Accept": "application/json"}' },
-      { key: 'body', label: 'Тело запроса', kind: 'textarea', placeholder: '{"sum": {{form.sum}}}' },
-      { key: 'credentialId', label: 'Креды (из сейфа)', kind: 'credential' },
+      { key: 'method', kind: 'select', required: true, options: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] },
+      { key: 'url', kind: 'text' },
+      { key: 'headers', kind: 'textarea' },
+      { key: 'body', kind: 'textarea' },
+      { key: 'credentialId', kind: 'credential' }
     ],
     configSchema: z.object({
       method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
@@ -69,8 +60,10 @@ export const httpNode: ProcessNodeProvider = {
     auto: true,
     tool: {
       name: 'http_get',
-      description: 'Получить данные по публичному HTTPS-URL (GET, только чтение). Возвращает тело ответа.',
-      schema: { type: 'object', properties: { url: { type: 'string', description: 'Полный https URL' } }, required: ['url'] },
+      // Описание инструмента читает МОДЕЛЬ, а не человек — оно остаётся английским
+      // (тот же довод, что у промптов: язык модели не следует за языком зрителя).
+      description: 'Fetch data from a public HTTPS URL (GET, read only). Returns the response body.',
+      schema: { type: 'object', properties: { url: { type: 'string', description: 'A full https URL' } }, required: ['url'] },
       async execute(_ctx, input) {
         // URL выбирает LLM (prompt-injectable) → жёсткая SSRF-проверка обязательна.
         const res = await safeFetch(String(input.url ?? ''), { headers: { 'User-Agent': 'SuperApp6-Processes/1' } }, { timeoutMs: 15_000 });
@@ -81,7 +74,7 @@ export const httpNode: ProcessNodeProvider = {
   async run(ctx) {
     const cfg = ctx.config as { method: string; url?: string; headers?: string; body?: string; credentialId?: string };
     try {
-      if (!cfg.url) return { kind: 'complete', outputKey: 'error', output: { error: 'Укажите URL' } };
+      if (!cfg.url) return { kind: 'complete', outputKey: 'error', output: { error: 'the URL is missing' } };
       const url = assertPublicUrlShallow(ctx.render(cfg.url));
       const headers: Record<string, string> = { 'User-Agent': 'SuperApp6-Processes/1' };
       if (cfg.headers) {
@@ -91,14 +84,14 @@ export const httpNode: ProcessNodeProvider = {
             for (const [k, v] of Object.entries(parsed)) headers[k] = String(v);
           }
         } catch {
-          throw new Error('Заголовки должны быть JSON');
+          throw new Error('the headers must be JSON');
         }
       }
 
       // Креды из сейфа организации.
       if (cfg.credentialId) {
         const cred = await ctx.deps.db.processCredential.findUnique({ where: { id: cfg.credentialId } });
-        if (!cred || cred.workspaceId !== ctx.workspaceId) throw new Error('Креды не найдены');
+        if (!cred || cred.workspaceId !== ctx.workspaceId) throw new Error('the credential was not found');
         const secret = JSON.parse(decryptSecret(cred.data)) as Record<string, string>;
         if (cred.type === 'bearer') headers['Authorization'] = `Bearer ${secret.token}`;
         else if (cred.type === 'basic') headers['Authorization'] = `Basic ${Buffer.from(`${secret.username}:${secret.password}`).toString('base64')}`;

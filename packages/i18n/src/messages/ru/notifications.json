@@ -1,707 +1,707 @@
 {
-  "contact": {
-    "invitation": {
-      "received": {
-        "title": "{fromName} хочет добавить вас в контакты",
-        "body": "{message}",
-        "label": "Запрос в окружение"
-      },
-      "accepted": {
-        "title": "{byName} принял ваше приглашение",
-        "label": "Запрос принят"
-      },
-      "rejected": {
-        "title": "{byName} отклонил ваше приглашение",
-        "label": "Запрос отклонён"
-      },
-      "cancelled": {
-        "title": "Приглашение отменено",
-        "label": "Запрос отменён"
-      },
-      "expired": {
-        "title": "Приглашение для {toPhone} истекло",
-        "body": "Его можно отправить повторно",
-        "label": "Запрос истёк"
-      }
-    },
-    "linked": {
-      "title": "{otherName} теперь в ваших контактах",
-      "label": "Новый контакт"
-    },
-    "removed": {
-      "title": "Контакт удалён",
-      "label": "Контакт удалён"
-    }
-  },
-  "task": {
-    "assigned": {
-      "title": "Вам назначена задача: {taskTitle}",
-      "label": "Мне поставили задачу"
-    },
-    "completed": {
-      "title": "Задача выполнена: {taskTitle}",
-      "label": "Задача завершена"
-    },
+  "approval": {
     "due_soon": {
-      "title": "Скоро дедлайн: {taskTitle}",
-      "label": "Срок близко"
-    },
-    "submitted": {
-      "title": "{byName} сдал(а) задачу на проверку: {taskTitle}",
-      "label": "Работа сдана на проверку"
-    },
-    "accepted": {
-      "title": "Задача принята: {taskTitle}",
-      "label": "Работа принята"
-    },
-    "returned": {
-      "title": "Задача возвращена в работу: {taskTitle}",
-      "label": "Работа возвращена"
+      "body": "{stepTitle} — до {deadlineLabel}",
+      "label": "Срок решения близко",
+      "title": "Скоро срок: «{refTitle}»"
     },
     "overdue": {
-      "title": "Просрочена задача: {taskTitle}",
-      "label": "Задача просрочена"
-    }
-  },
-  "wallet": {
-    "coins": {
-      "received": {
-        "title": "Вы заработали {amount} {currencyName}",
-        "body": "За задачу «{taskTitle}»",
-        "label": "Получены коины"
-      }
-    }
-  },
-  "calendar": {
-    "event": {
-      "invited": {
-        "title": "Приглашение на событие: {eventTitle}",
-        "label": "Приглашение на событие"
-      },
-      "reminder": {
-        "title": "Напоминание: {eventTitle}",
-        "label": "Напоминание о событии"
-      },
-      "rsvp": {
-        "title": "{byName}: {rsvpLabel} — {eventTitle}",
-        "collapsed": "{n, plural, one {# ответ} few {# ответа} many {# ответов} other {# ответов}} — {eventTitle}",
-        "label": "Ответ на приглашение"
-      },
-      "updated": {
-        "title": "Событие изменено: {eventTitle}",
-        "label": "Событие изменено"
-      },
-      "cancelled": {
-        "title": "Событие отменено: {eventTitle}",
-        "label": "Событие отменено"
-      }
+      "body": "{stepTitle}",
+      "label": "Решение просрочено",
+      "title": "Просрочено решение по «{refTitle}»"
     },
-    "resource": {
-      "requested": {
-        "title": "Заявка на «{resourceName}»: {eventTitle}",
-        "label": "Запрос брони ресурса"
-      },
-      "confirmed": {
-        "title": "Бронь подтверждена: {resourceName}",
-        "label": "Бронь подтверждена"
-      },
-      "rejected": {
-        "title": "Бронь отклонена: {resourceName}",
-        "label": "Бронь отклонена"
-      }
-    }
-  },
-  "workspace": {
-    "invitation": {
-      "received": {
-        "title": "{workspaceName} приглашает вас на работу",
-        "body": "{message}",
-        "label": "Приглашение в организацию"
-      },
-      "accepted": {
-        "title": "{byName} принял(а) приглашение в {workspaceName}",
-        "label": "Приглашение принято"
-      },
-      "rejected": {
-        "title": "{byName} отклонил(а) приглашение в {workspaceName}",
-        "label": "Приглашение отклонено"
-      }
+    "requested": {
+      "body": "{stepTitle}",
+      "label": "Ждут моего решения",
+      "title": "{actionLabel}: «{refTitle}»"
     },
-    "member": {
-      "removed": {
-        "title": "Вас исключили из организации {workspaceName}",
-        "label": "Исключение из организации"
-      }
+    "resolved": {
+      "body": "{comment}",
+      "label": "По моей заявке принято решение",
+      "title": "{outcomeLabel}: «{refTitle}»"
     },
-    "role": {
-      "changed": {
-        "title": "Ваша роль в {workspaceName} изменена: {role}",
-        "label": "Роль изменена"
-      }
-    },
-    "position": {
-      "assigned": {
-        "title": "Вам назначена должность в {workspaceName}: {positionName}",
-        "body": "{branchName}",
-        "label": "Назначена должность"
-      },
-      "certified": {
-        "title": "Вы аттестованы по должности {positionName} в {workspaceName}",
-        "label": "Аттестация пройдена"
-      }
-    },
-    "archive": {
-      "expiring": {
-        "title": "Организация «{workspaceName}» будет удалена через {daysWord}",
-        "body": "Она в архиве. Восстановите её, если удалять не нужно — после {purgeDate} вернуть будет нельзя.",
-        "label": "Скоро удаление архива организации"
-      }
-    }
-  },
-  "objects": {
-    "shifts": {
-      "published": {
-        "title": "График опубликован: {branchName}",
-        "body": "{periodLabel} — смен: {count}",
-        "label": "График опубликован"
-      }
-    },
-    "shift": {
-      "changed": {
-        "title": "Смена изменена: {dateLabel}",
-        "collapsed": "Изменено {n, plural, one {# ваша смена} few {# ваши смены} many {# ваших смен} other {# ваших смен}}",
-        "label": "Смена изменена"
-      },
-      "taken": {
-        "title": "Открытую смену взяли: {dateLabel}",
-        "label": "Открытую смену взяли"
-      }
-    }
-  },
-  "staff": {
-    "head": {
-      "assigned": {
-        "title": "Вы руководите {unitLabel} в {workspaceName}",
-        "body": "Должность «{positionName}» назначена руководящей — согласования и заявления подчинённых теперь приходят вам.",
-        "label": "Назначение руководителем"
-      }
-    },
-    "deputy": {
-      "assigned": {
-        "title": "Вы — заместитель по должности «{positionName}» в {workspaceName}",
-        "body": "{periodLabel}",
-        "label": "Назначение заместителем"
-      }
-    }
-  },
-  "shop": {
-    "order": {
-      "placed": {
-        "title": "Новый заказ: {title}",
-        "label": "Новый заказ"
-      },
-      "confirmed": {
-        "title": "Заказ подтверждён: {title}",
-        "label": "Заказ подтверждён"
-      },
-      "rejected": {
-        "title": "Заказ отклонён: {title}",
-        "label": "Заказ отклонён"
-      },
-      "cancelled": {
-        "title": "Покупатель отменил заказ: {title}",
-        "label": "Заказ отменён"
-      },
-      "funded": {
-        "title": "Сбор собран: {title} — подтвердите",
-        "label": "Сбор собран"
-      }
-    }
-  },
-  "mention": {
-    "received": {
-      "title": "{mentionerName} упомянул(а) вас",
-      "body": "{snippet}",
-      "label": "Упоминание"
+    "unassigned": {
+      "body": "{stepTitle} — в «{assigneeLabel}» нет ни одного сотрудника",
+      "label": "Решать некому",
+      "title": "Некому решать: «{refTitle}»"
     }
   },
   "auth": {
     "password": {
       "changed": {
-        "title": "Пароль изменён",
         "body": "Если это были не вы — срочно смените пароль и завершите чужие сессии.",
-        "label": "Пароль изменён"
+        "label": "Пароль изменён",
+        "title": "Пароль изменён"
       }
     },
     "phone": {
       "changed": {
-        "title": "Номер телефона изменён",
         "body": "Новый номер входа: {newPhoneMasked}. Если это были не вы — свяжитесь с нами.",
-        "label": "Номер изменён"
+        "label": "Номер изменён",
+        "title": "Номер телефона изменён"
       }
     }
   },
-  "files": {
-    "scan": {
-      "infected": {
-        "title": "Файл «{name}» заражён и заблокирован",
-        "label": "Заражённый файл заблокирован"
-      }
-    }
-  },
-  "voice": {
-    "transcript": {
-      "ready": {
-        "title": "Расшифровка «{title}» готова",
-        "label": "Расшифровка готова"
+  "calendar": {
+    "event": {
+      "cancelled": {
+        "label": "Событие отменено",
+        "title": "Событие отменено: {eventTitle}"
       },
-      "failed": {
-        "title": "Не удалось расшифровать «{title}»",
-        "label": "Расшифровка не удалась"
+      "invited": {
+        "label": "Приглашение на событие",
+        "title": "Приглашение на событие: {eventTitle}"
+      },
+      "reminder": {
+        "label": "Напоминание о событии",
+        "title": "Напоминание: {eventTitle}"
+      },
+      "rsvp": {
+        "collapsed": "{n, plural, one {# ответ} few {# ответа} many {# ответов} other {# ответов}} — {eventTitle}",
+        "label": "Ответ на приглашение",
+        "title": "{byName}: {rsvp, select, accepted {Приду} declined {Не приду} tentative {Может быть} other {Не ответил}} — {eventTitle}"
+      },
+      "updated": {
+        "label": "Событие изменено",
+        "title": "Событие изменено: {eventTitle}"
+      }
+    },
+    "resource": {
+      "confirmed": {
+        "label": "Бронь подтверждена",
+        "title": "Бронь подтверждена: {resourceName}"
+      },
+      "rejected": {
+        "label": "Бронь отклонена",
+        "title": "Бронь отклонена: {resourceName}"
+      },
+      "requested": {
+        "label": "Запрос брони ресурса",
+        "title": "Заявка на «{resourceName}»: {eventTitle}"
       }
     }
   },
   "call": {
     "missed": {
-      "title": "Пропущенный звонок от {fromName}",
       "collapsed": "{fromName}: {n, plural, one {# пропущенный звонок} few {# пропущенных звонка} many {# пропущенных звонков} other {# пропущенных звонков}}",
-      "label": "Пропущенный звонок"
+      "label": "Пропущенный звонок",
+      "title": "Пропущенный звонок от {fromName}"
     },
     "recording": {
+      "failed": {
+        "label": "Запись звонка не удалась",
+        "title": "Не удалось записать звонок"
+      },
       "ready": {
-        "title": "Запись звонка «{title}» — в Журнале звонков",
-        "label": "Запись звонка готова"
+        "label": "Запись звонка готова",
+        "title": "Запись звонка «{title}» — в Журнале звонков"
+      }
+    }
+  },
+  "channel": {
+    "chat": "Чат",
+    "email": "Почта",
+    "inapp": "В приложении",
+    "push": "Push",
+    "sms": "SMS"
+  },
+  "chat": {
+    "prefix": "Уведомление: {title}"
+  },
+  "contact": {
+    "invitation": {
+      "accepted": {
+        "label": "Запрос принят",
+        "title": "{byName} принял ваше приглашение"
+      },
+      "cancelled": {
+        "label": "Запрос отменён",
+        "title": "Приглашение отменено"
+      },
+      "expired": {
+        "body": "Его можно отправить повторно",
+        "label": "Запрос истёк",
+        "title": "Приглашение для {toPhone} истекло"
+      },
+      "received": {
+        "body": "{message}",
+        "label": "Запрос в окружение",
+        "title": "{fromName} хочет добавить вас в контакты"
+      },
+      "rejected": {
+        "label": "Запрос отклонён",
+        "title": "{byName} отклонил ваше приглашение"
+      }
+    },
+    "linked": {
+      "label": "Новый контакт",
+      "title": "{otherName} теперь в ваших контактах"
+    },
+    "removed": {
+      "label": "Контакт удалён",
+      "title": "Контакт удалён"
+    }
+  },
+  "document": {
+    "counterparty_declined": {
+      "body": "{reasonLabel}",
+      "label": "Контрагент отказал",
+      "title": "Контрагент отказал: «{title}»"
+    },
+    "counterparty_signed": {
+      "body": "{signerLabel}",
+      "label": "Контрагент подписал",
+      "title": "Контрагент подписал: «{title}»"
+    },
+    "external_expired": {
+      "body": "Документ вернулся в черновик — отправьте его заново",
+      "label": "Срок подписания истёк",
+      "title": "Срок подписания истёк: «{title}»"
+    },
+    "internal_declined": {
+      "body": "{signerLabel}{reasonLabel}",
+      "label": "Наш подписант отказал",
+      "title": "Подписант отказал: «{title}»"
+    },
+    "resolved": {
+      "body": "{numberLabel}",
+      "label": "Маршрут документа завершён",
+      "title": "{outcomeLabel}: «{title}»"
+    }
+  },
+  "drive": {
+    "shared": {
+      "body": "«{nodeName}» — {role, select, viewer {смотрит} editor {правит} manager {управляет доступом} other {{role}}}",
+      "label": "Доступ на Диске",
+      "title": "{ownerName} открыл(а) вам доступ"
+    }
+  },
+  "files": {
+    "scan": {
+      "infected": {
+        "label": "Заражённый файл заблокирован",
+        "title": "Файл «{name}» заражён и заблокирован"
+      }
+    }
+  },
+  "finance": {
+    "book": {
+      "shared": {
+        "body": "Роль: {roleLabel}",
+        "label": "Мне открыли финансовую книгу",
+        "title": "{ownerName} открыл(а) вам доступ к финансам"
+      }
+    },
+    "budget": {
+      "exceeded": {
+        "body": "{spent} из {limit} за {period}",
+        "label": "Лимит превышен",
+        "title": "Лимит «{categoryName}» превышен"
+      },
+      "warning": {
+        "body": "{spent} из {limit} за {period}",
+        "label": "Лимит почти исчерпан",
+        "title": "Лимит «{categoryName}» почти исчерпан"
+      }
+    },
+    "debt": {
+      "paid": {
+        "body": "{amount}",
+        "label": "Долг выплачен",
+        "title": "Долг «{debtName}» полностью выплачен 🎉"
+      },
+      "payment_due": {
+        "body": "{amount} — подтвердите оплату в Финансах",
+        "label": "Платёж по долгу",
+        "title": "Сегодня платёж по «{debtName}»"
+      }
+    },
+    "recurring": {
+      "due": {
+        "body": "{amount}",
+        "label": "Повтор ждёт подтверждения",
+        "title": "Подтвердите операцию «{title}»"
+      },
+      "recorded": {
+        "body": "{amount}",
+        "label": "Повтор записан",
+        "title": "Записано: {title}"
+      }
+    }
+  },
+  "hr": {
+    "action": {
+      "applied": {
+        "body": "{targetName} · с {effectiveAt}",
+        "label": "Кадровое действие применено",
+        "title": "{kindLabel}: применено"
       },
       "failed": {
-        "title": "Не удалось записать звонок",
-        "label": "Запись звонка не удалась"
+        "body": "{reason}",
+        "label": "Кадровое действие не применилось",
+        "title": "{kindLabel}: не применено"
+      },
+      "withdrawn": {
+        "body": "Отзыв безусловен весь срок уведомления (ст. 56 п. 4 ТК РК). {note}",
+        "label": "Заявление отозвано",
+        "title": "{targetName} отозвал(а) заявление"
+      }
+    },
+    "campaign": {
+      "assigned": {
+        "body": "{workspaceName}",
+        "label": "Документ на ознакомление",
+        "title": "Ознакомьтесь: «{title}»"
+      },
+      "done": {
+        "body": "Ознакомились {acknowledged} из {total}",
+        "label": "Кампания ознакомления завершена",
+        "title": "Кампания завершена: «{title}»"
+      },
+      "reminder": {
+        "label": "Напоминание об ознакомлении",
+        "title": "Документ ждёт ознакомления: «{title}»"
+      }
+    },
+    "contract": {
+      "expiring": {
+        "body": "{targetName} · до {until}. Уведомите в последний рабочий день, иначе автопродление (ст. 30 ТК РК)",
+        "label": "Договор заканчивается",
+        "title": "Срочный договор заканчивается"
+      }
+    },
+    "delivery": {
+      "due": {
+        "body": "Вручить в течение 3 рабочих дней со дня издания (ст. 61 п. 3 ТК РК)",
+        "label": "Акт ждёт вручения",
+        "title": "Акт ждёт вручения: «{title}»"
+      }
+    },
+    "esutd": {
+      "due_soon": {
+        "body": "{kindLabel} · {targetName} · {state, select, overdue {просрочено на {days, plural, one {# рабочий день} few {# рабочих дня} many {# рабочих дней} other {# рабочих дней}}} today {срок сегодня} left {осталось {days, plural, one {# рабочий день} few {# рабочих дня} many {# рабочих дней} other {# рабочих дней}}} other {осталось {daysLeft}}}",
+        "label": "Срок сдачи в ЕСУТД",
+        "title": "ЕСУТД: подходит срок сдачи"
+      }
+    },
+    "probation": {
+      "ending": {
+        "body": "{targetName} · до {until}. Не уведомили до истечения — работник считается прошедшим (ст. 37 ТК РК)",
+        "label": "Испытательный срок заканчивается",
+        "title": "Испытательный срок заканчивается"
+      }
+    }
+  },
+  "mention": {
+    "received": {
+      "body": "{snippet}",
+      "label": "Упоминание",
+      "title": "{mentionerName} упомянул(а) вас"
+    }
+  },
+  "messenger": {
+    "scheduled": {
+      "sent": {
+        "body": "{snippet}",
+        "label": "Отложенное сообщение отправлено",
+        "title": "Напоминание отправлено"
+      }
+    }
+  },
+  "meta": {
+    "actorsMore": "{name} и ещё {n, plural, one {# человек} few {# человека} many {# человек} other {# человек}}",
+    "collapsed": "{n, plural, one {и ещё #} few {и ещё #} many {и ещё #} other {и ещё #}}"
+  },
+  "note": {
+    "shared": {
+      "body": "«{noteName}» — {role, select, viewer {читает} editor {правит} manager {управляет доступом} other {{role}}}",
+      "label": "Доступ к заметке",
+      "title": "{ownerName} поделил(ась) заметкой"
+    }
+  },
+  "objects": {
+    "shift": {
+      "changed": {
+        "collapsed": "Изменено {n, plural, one {# ваша смена} few {# ваши смены} many {# ваших смен} other {# ваших смен}}",
+        "label": "Смена изменена",
+        "title": "Смена изменена: {dateLabel}"
+      },
+      "taken": {
+        "label": "Открытую смену взяли",
+        "title": "Открытую смену взяли: {dateLabel}"
+      }
+    },
+    "shifts": {
+      "published": {
+        "body": "{periodLabel} — смен: {count}",
+        "label": "График опубликован",
+        "title": "График опубликован: {branchName}"
       }
     }
   },
   "office": {
     "meeting": {
       "invited": {
-        "title": "{byName} приглашает вас на встречу «{roomName}»",
-        "label": "Приглашение на встречу"
+        "label": "Приглашение на встречу",
+        "title": "{byName} приглашает вас на встречу «{roomName}»"
       }
     }
-  },
-  "process": {
-    "finished": {
-      "title": "Процесс «{processName}» завершён",
-      "label": "Процесс завершён"
-    },
-    "failed": {
-      "title": "Процесс «{processName}» остановлен с ошибкой",
-      "body": "{error}",
-      "label": "Процесс остановился с ошибкой"
-    },
-    "step": {
-      "notify": {
-        "title": "{title}",
-        "body": "{message}",
-        "label": "Уведомление из процесса"
-      },
-      "overdue": {
-        "title": "Просрочен шаг: {title}",
-        "body": "Процесс «{processName}»",
-        "label": "Шаг процесса просрочен"
-      }
-    },
-    "approval": {
-      "requested": {
-        "title": "Нужно ваше решение: {title}",
-        "body": "Процесс «{processName}»",
-        "label": "Одобрение в процессе"
-      }
-    },
-    "task": {
-      "queued": {
-        "title": "Новая задача отдела: {title}",
-        "body": "{departmentName} · процесс «{processName}»",
-        "label": "Задача в очереди отдела"
-      }
-    }
-  },
-  "finance": {
-    "budget": {
-      "warning": {
-        "title": "Лимит «{categoryName}» почти исчерпан",
-        "body": "{spent} из {limit} за {periodLabel}",
-        "label": "Лимит почти исчерпан"
-      },
-      "exceeded": {
-        "title": "Лимит «{categoryName}» превышен",
-        "body": "{spent} из {limit} за {periodLabel}",
-        "label": "Лимит превышен"
-      }
-    },
-    "debt": {
-      "payment_due": {
-        "title": "Сегодня платёж по «{debtName}»",
-        "body": "{amount} — подтвердите оплату в Финансах",
-        "label": "Платёж по долгу"
-      },
-      "paid": {
-        "title": "Долг «{debtName}» полностью выплачен 🎉",
-        "body": "{amount}",
-        "label": "Долг выплачен"
-      }
-    },
-    "recurring": {
-      "due": {
-        "title": "Подтвердите операцию «{title}»",
-        "body": "{amount}",
-        "label": "Повтор ждёт подтверждения"
-      },
-      "recorded": {
-        "title": "Записано: {title}",
-        "body": "{amount}",
-        "label": "Повтор записан"
-      }
-    },
-    "book": {
-      "shared": {
-        "title": "{ownerName} открыл(а) вам доступ к финансам",
-        "body": "Роль: {roleLabel}",
-        "label": "Мне открыли финансовую книгу"
-      }
-    }
-  },
-  "drive": {
-    "shared": {
-      "title": "{ownerName} открыл(а) вам доступ",
-      "body": "«{nodeName}» — {roleLabel}",
-      "label": "Доступ на Диске"
-    }
-  },
-  "note": {
-    "shared": {
-      "title": "{ownerName} поделил(ась) заметкой",
-      "body": "«{noteName}» — {roleLabel}",
-      "label": "Доступ к заметке"
-    }
-  },
-  "share": {
-    "link": {
-      "opened": {
-        "title": "Ссылку открыли",
-        "body": "«{targetName}»{labelSuffix}{guestSuffix}",
-        "collapsed": "Ссылку открыли {n, plural, one {# раз} few {# раза} many {# раз} other {# раз}}",
-        "label": "Ссылку наружу открыли"
-      }
-    }
-  },
-  "document": {
-    "resolved": {
-      "title": "{outcomeLabel}: «{title}»",
-      "body": "{numberLabel}",
-      "label": "Маршрут документа завершён"
-    },
-    "counterparty_signed": {
-      "title": "Контрагент подписал: «{title}»",
-      "body": "{signerLabel}",
-      "label": "Контрагент подписал"
-    },
-    "counterparty_declined": {
-      "title": "Контрагент отказал: «{title}»",
-      "body": "{reasonLabel}",
-      "label": "Контрагент отказал"
-    },
-    "internal_declined": {
-      "title": "Подписант отказал: «{title}»",
-      "body": "{signerLabel}{reasonLabel}",
-      "label": "Наш подписант отказал"
-    },
-    "external_expired": {
-      "title": "Срок подписания истёк: «{title}»",
-      "body": "Документ вернулся в черновик — отправьте его заново",
-      "label": "Срок подписания истёк"
-    }
-  },
-  "approval": {
-    "requested": {
-      "title": "{actionLabel}: «{refTitle}»",
-      "body": "{stepTitle}",
-      "label": "Ждут моего решения"
-    },
-    "due_soon": {
-      "title": "Скоро срок: «{refTitle}»",
-      "body": "{stepTitle} — до {deadlineLabel}",
-      "label": "Срок решения близко"
-    },
-    "overdue": {
-      "title": "Просрочено решение по «{refTitle}»",
-      "body": "{stepTitle}",
-      "label": "Решение просрочено"
-    },
-    "resolved": {
-      "title": "{outcomeLabel}: «{refTitle}»",
-      "body": "{comment}",
-      "label": "По моей заявке принято решение"
-    },
-    "unassigned": {
-      "title": "Некому решать: «{refTitle}»",
-      "body": "{stepTitle} — в «{assigneeLabel}» нет ни одного сотрудника",
-      "label": "Решать некому"
-    }
-  },
-  "sign": {
-    "requested": {
-      "title": "Подпишите: «{refTitle}»",
-      "body": "{levelLabel}",
-      "label": "Нужна подпись"
-    },
-    "completed": {
-      "title": "Документ подписан: «{refTitle}»",
-      "body": "{signersLabel}",
-      "label": "Документ подписан"
-    },
-    "declined": {
-      "title": "Отказ от подписи: «{refTitle}»",
-      "body": "{reason}",
-      "label": "Отказ от подписи"
-    }
-  },
-  "hr": {
-    "action": {
-      "applied": {
-        "title": "{kindLabel}: применено",
-        "body": "{targetName} · с {effectiveAt}",
-        "label": "Кадровое действие применено"
-      },
-      "failed": {
-        "title": "{kindLabel}: не применено",
-        "body": "{reason}",
-        "label": "Кадровое действие не применилось"
-      },
-      "withdrawn": {
-        "title": "{targetName} отозвал(а) заявление",
-        "body": "Отзыв безусловен весь срок уведомления (ст. 56 п. 4 ТК РК). {note}",
-        "label": "Заявление отозвано"
-      }
-    },
-    "esutd": {
-      "due_soon": {
-        "title": "ЕСУТД: подходит срок сдачи",
-        "body": "{kindLabel} · {targetName} · {state, select, overdue {просрочено на {days, plural, one {# рабочий день} few {# рабочих дня} many {# рабочих дней} other {# рабочих дней}}} today {срок сегодня} left {осталось {days, plural, one {# рабочий день} few {# рабочих дня} many {# рабочих дней} other {# рабочих дней}}} other {осталось {daysLeft}}}",
-        "label": "Срок сдачи в ЕСУТД"
-      }
-    },
-    "campaign": {
-      "assigned": {
-        "title": "Ознакомьтесь: «{title}»",
-        "body": "{workspaceName}",
-        "label": "Документ на ознакомление"
-      },
-      "reminder": {
-        "title": "Документ ждёт ознакомления: «{title}»",
-        "label": "Напоминание об ознакомлении"
-      },
-      "done": {
-        "title": "Кампания завершена: «{title}»",
-        "body": "Ознакомились {acknowledged} из {total}",
-        "label": "Кампания ознакомления завершена"
-      }
-    },
-    "delivery": {
-      "due": {
-        "title": "Акт ждёт вручения: «{title}»",
-        "body": "Вручить в течение 3 рабочих дней со дня издания (ст. 61 п. 3 ТК РК)",
-        "label": "Акт ждёт вручения"
-      }
-    },
-    "probation": {
-      "ending": {
-        "title": "Испытательный срок заканчивается",
-        "body": "{targetName} · до {until}. Не уведомили до истечения — работник считается прошедшим (ст. 37 ТК РК)",
-        "label": "Испытательный срок заканчивается"
-      }
-    },
-    "contract": {
-      "expiring": {
-        "title": "Срочный договор заканчивается",
-        "body": "{targetName} · до {until}. Уведомите в последний рабочий день, иначе автопродление (ст. 30 ТК РК)",
-        "label": "Договор заканчивается"
-      }
-    }
-  },
-  "messenger": {
-    "scheduled": {
-      "sent": {
-        "title": "Напоминание отправлено",
-        "body": "{snippet}",
-        "label": "Отложенное сообщение отправлено"
-      }
-    }
-  },
-  "system": {
-    "welcome": {
-      "title": "Добро пожаловать в SuperApp6!",
-      "label": "Добро пожаловать"
-    },
-    "announcement": {
-      "title": "{title}",
-      "label": "Объявление"
-    }
-  },
-  "service": {
-    "tasks": "Задачи",
-    "calendar": "Календарь",
-    "messenger": "Мессенджер",
-    "contacts": "Моё окружение",
-    "shop": "Магазин",
-    "wallet": "Кошелёк",
-    "finances": "Финансы",
-    "recorder": "Диктофон",
-    "drive": "Диск",
-    "notes": "Заметки",
-    "share": "Ссылки наружу",
-    "workspaces": "Организации",
-    "staff": "Орг. структура",
-    "objects": "Объекты",
-    "documents": "Документооборот",
-    "approvals": "Ждут решения",
-    "sign": "Подпись",
-    "hr": "КЭДО",
-    "processes": "Процессы",
-    "office": "Виртуальный офис",
-    "security": "Безопасность аккаунта",
-    "system": "Платформа"
-  },
-  "channel": {
-    "inapp": "В приложении",
-    "push": "Push",
-    "sms": "SMS",
-    "email": "Почта",
-    "chat": "Чат"
-  },
-  "priority": {
-    "critical": "Всегда",
-    "high": "Адресно мне",
-    "normal": "Ход дел",
-    "low": "Для сведения"
-  },
-  "meta": {
-    "collapsed": "{n, plural, one {и ещё #} few {и ещё #} many {и ещё #} other {и ещё #}}",
-    "actorsMore": "{name} и ещё {n, plural, one {# человек} few {# человека} many {# человек} other {# человек}}"
-  },
-  "push": {
-    "summaryTitle": "{n, plural, one {# новое уведомление} few {# новых уведомления} many {# новых уведомлений} other {# новых уведомлений}}",
-    "summaryBody": "{first}"
-  },
-  "sms": {
-    "text": "SuperApp6: {title}"
-  },
-  "chat": {
-    "prefix": "Уведомление: {title}"
   },
   "page": {
-    "title": "Уведомления",
+    "allContexts": "Везде",
+    "allServices": "Все сервисы",
     "breadcrumb": "Платформа",
     "description": "Одна лента на всё: личное и каждая организация",
-    "settingsLink": "Настройки уведомлений",
     "filters": {
       "context": "Контекст",
       "service": "Сервис",
       "state": "Показывать"
     },
-    "allContexts": "Везде",
-    "allServices": "Все сервисы",
+    "settingsLink": "Настройки уведомлений",
     "state": {
       "all": "Все",
-      "unread": "Непрочитанные",
+      "archived": "Готово",
       "mentions": "Упоминания",
       "saved": "Сохранённые",
       "snoozed": "Отложенные",
-      "archived": "Готово"
-    }
-  },
-  "settings": {
-    "title": "Уведомления",
-    "description": "Что приходит и как — для личного и каждой организации отдельно",
-    "quiet": {
-      "title": "Тишина",
-      "description": "Push и SMS подождут до утра; в приложении всё приходит. Критичные пробиваются.",
-      "enable": "Не беспокоить ночью",
-      "from": "С",
-      "to": "До",
-      "weekends": "И в выходные целиком",
-      "timezone": "По вашему времени ({tz})",
-      "activeNow": "Сейчас тихо",
-      "save": "Сохранить",
-      "saved": "Тишина сохранена"
+      "unread": "Непрочитанные"
     },
-    "devices": {
-      "title": "Устройства",
-      "description": "Куда приходят push-уведомления",
-      "browser": "Уведомления в этом браузере",
-      "browserHint": "Приходят, даже когда вкладка закрыта",
-      "blocked": "Уведомления запрещены в настройках браузера",
-      "unsupported": "Этот браузер не поддерживает push-уведомления",
-      "empty": "Устройств пока нет",
-      "remove": "Удалить",
-      "lastSeen": "Последний визит {time}",
-      "disabled": "Отключено",
-      "platform": {
-        "web": "Браузер",
-        "ios": "iPhone",
-        "android": "Android"
-      }
-    },
-    "contexts": {
-      "title": "Что приходит",
-      "description": "У каждой организации свой набор; личное — отдельно",
-      "personal": "Личное"
-    },
-    "matrix": {
-      "service": "Сервис",
-      "inapp": "В приложении",
-      "push": "Push",
-      "expand": "Показать типы",
-      "collapse": "Скрыть типы",
-      "locked": "Обязательно",
-      "lockedHint": "Обязательно в организации — отключить нельзя",
-      "empty": "Для этого контекста настроек пока нет"
-    },
-    "sms": {
-      "title": "SMS для важного",
-      "description": "Только для критичных уведомлений и только на казахстанский номер. За счёт организации или платформы."
-    },
-    "always": {
-      "title": "Всегда приходят",
-      "description": "Их отключить нельзя: безопасность, сроки закона, подписи",
-      "show": "Показать список",
-      "hide": "Скрыть список"
-    },
-    "copy": {
-      "button": "Применить ко всем моим организациям",
-      "confirmTitle": "Применить ко всем организациям?",
-      "confirmMessage": "Настройки этой организации будут скопированы в остальные. Их текущие настройки заменятся.",
-      "done": "Применено к {n, plural, one {# организации} few {# организациям} many {# организациям} other {# организациям}}",
-      "none": "Других организаций у вас нет"
-    }
+    "title": "Уведомления"
   },
   "policy": {
-    "title": "Политика уведомлений",
+    "confirmMessage": "Сотрудники не смогут отключить запертые уведомления.",
+    "confirmTitle": "Сделать уведомления обязательными?",
     "description": "Дефолты для сотрудников и то, что им нельзя отключить. Личные настройки сильнее дефолта, но не замка.",
     "legend": {
-      "default_on": "Вкл по умолчанию — сотрудник может отключить",
       "default_off": "Выкл по умолчанию — сотрудник может включить",
+      "default_on": "Вкл по умолчанию — сотрудник может отключить",
       "locked_on": "Обязательно — отключить нельзя"
     },
     "mode": {
-      "registry": "По умолчанию платформы",
-      "default_on": "Вкл",
       "default_off": "Выкл",
-      "locked_on": "Обязательно"
+      "default_on": "Вкл",
+      "locked_on": "Обязательно",
+      "registry": "По умолчанию платформы"
     },
+    "noAccess": "Политику настраивает администратор организации",
+    "notLockable": "Нельзя сделать обязательным",
     "reset": "Сбросить к умолчанию платформы",
     "save": "Сохранить политику",
     "saved": "Политика сохранена",
-    "confirmTitle": "Сделать уведомления обязательными?",
-    "confirmMessage": "Сотрудники не смогут отключить запертые уведомления.",
-    "notLockable": "Нельзя сделать обязательным",
-    "noAccess": "Политику настраивает администратор организации"
+    "title": "Политика уведомлений"
+  },
+  "priority": {
+    "critical": "Всегда",
+    "high": "Адресно мне",
+    "low": "Для сведения",
+    "normal": "Ход дел"
+  },
+  "process": {
+    "approval": {
+      "requested": {
+        "body": "Процесс «{processName}»",
+        "label": "Одобрение в процессе",
+        "title": "Нужно ваше решение: {title}"
+      }
+    },
+    "failed": {
+      "body": "{error}",
+      "label": "Процесс остановился с ошибкой",
+      "title": "Процесс «{processName}» остановлен с ошибкой"
+    },
+    "finished": {
+      "label": "Процесс завершён",
+      "title": "Процесс «{processName}» завершён"
+    },
+    "step": {
+      "notify": {
+        "body": "{message}",
+        "label": "Уведомление из процесса",
+        "title": "{title}"
+      },
+      "overdue": {
+        "body": "Процесс «{processName}»",
+        "label": "Шаг процесса просрочен",
+        "title": "Просрочен шаг: {title}"
+      }
+    },
+    "task": {
+      "queued": {
+        "body": "{departmentName} · процесс «{processName}»",
+        "label": "Задача в очереди отдела",
+        "title": "Новая задача отдела: {title}"
+      }
+    }
+  },
+  "push": {
+    "summaryBody": "{first}",
+    "summaryTitle": "{n, plural, one {# новое уведомление} few {# новых уведомления} many {# новых уведомлений} other {# новых уведомлений}}"
+  },
+  "service": {
+    "approvals": "Ждут решения",
+    "calendar": "Календарь",
+    "contacts": "Моё окружение",
+    "documents": "Документооборот",
+    "drive": "Диск",
+    "finances": "Финансы",
+    "hr": "КЭДО",
+    "messenger": "Мессенджер",
+    "notes": "Заметки",
+    "objects": "Объекты",
+    "office": "Виртуальный офис",
+    "processes": "Процессы",
+    "recorder": "Диктофон",
+    "security": "Безопасность аккаунта",
+    "share": "Ссылки наружу",
+    "shop": "Магазин",
+    "sign": "Подпись",
+    "staff": "Орг. структура",
+    "system": "Платформа",
+    "tasks": "Задачи",
+    "wallet": "Кошелёк",
+    "workspaces": "Организации"
+  },
+  "settings": {
+    "always": {
+      "description": "Их отключить нельзя: безопасность, сроки закона, подписи",
+      "hide": "Скрыть список",
+      "show": "Показать список",
+      "title": "Всегда приходят"
+    },
+    "contexts": {
+      "description": "У каждой организации свой набор; личное — отдельно",
+      "personal": "Личное",
+      "title": "Что приходит"
+    },
+    "copy": {
+      "button": "Применить ко всем моим организациям",
+      "confirmMessage": "Настройки этой организации будут скопированы в остальные. Их текущие настройки заменятся.",
+      "confirmTitle": "Применить ко всем организациям?",
+      "done": "Применено к {n, plural, one {# организации} few {# организациям} many {# организациям} other {# организациям}}",
+      "none": "Других организаций у вас нет"
+    },
+    "description": "Что приходит и как — для личного и каждой организации отдельно",
+    "devices": {
+      "blocked": "Уведомления запрещены в настройках браузера",
+      "browser": "Уведомления в этом браузере",
+      "browserHint": "Приходят, даже когда вкладка закрыта",
+      "description": "Куда приходят push-уведомления",
+      "disabled": "Отключено",
+      "empty": "Устройств пока нет",
+      "lastSeen": "Последний визит {time}",
+      "platform": {
+        "android": "Android",
+        "ios": "iPhone",
+        "web": "Браузер"
+      },
+      "remove": "Удалить",
+      "title": "Устройства",
+      "unsupported": "Этот браузер не поддерживает push-уведомления"
+    },
+    "matrix": {
+      "collapse": "Скрыть типы",
+      "empty": "Для этого контекста настроек пока нет",
+      "expand": "Показать типы",
+      "inapp": "В приложении",
+      "locked": "Обязательно",
+      "lockedHint": "Обязательно в организации — отключить нельзя",
+      "push": "Push",
+      "service": "Сервис"
+    },
+    "quiet": {
+      "activeNow": "Сейчас тихо",
+      "description": "Push и SMS подождут до утра; в приложении всё приходит. Критичные пробиваются.",
+      "enable": "Не беспокоить ночью",
+      "from": "С",
+      "save": "Сохранить",
+      "saved": "Тишина сохранена",
+      "timezone": "По вашему времени ({tz})",
+      "title": "Тишина",
+      "to": "До",
+      "weekends": "И в выходные целиком"
+    },
+    "sms": {
+      "description": "Только для критичных уведомлений и только на казахстанский номер. За счёт организации или платформы.",
+      "title": "SMS для важного"
+    },
+    "title": "Уведомления"
+  },
+  "share": {
+    "link": {
+      "opened": {
+        "body": "«{targetName}»{labelSuffix}{guestSuffix}",
+        "collapsed": "Ссылку открыли {n, plural, one {# раз} few {# раза} many {# раз} other {# раз}}",
+        "label": "Ссылку наружу открыли",
+        "title": "Ссылку открыли"
+      }
+    }
+  },
+  "shop": {
+    "order": {
+      "cancelled": {
+        "label": "Заказ отменён",
+        "title": "Покупатель отменил заказ: {title}"
+      },
+      "confirmed": {
+        "label": "Заказ подтверждён",
+        "title": "Заказ подтверждён: {title}"
+      },
+      "funded": {
+        "label": "Сбор собран",
+        "title": "Сбор собран: {title} — подтвердите"
+      },
+      "placed": {
+        "label": "Новый заказ",
+        "title": "Новый заказ: {title}"
+      },
+      "rejected": {
+        "label": "Заказ отклонён",
+        "title": "Заказ отклонён: {title}"
+      }
+    }
+  },
+  "sign": {
+    "completed": {
+      "body": "{signersLabel}",
+      "label": "Документ подписан",
+      "title": "Документ подписан: «{refTitle}»"
+    },
+    "declined": {
+      "body": "{reason}",
+      "label": "Отказ от подписи",
+      "title": "Отказ от подписи: «{refTitle}»"
+    },
+    "requested": {
+      "body": "{level, select, ecp {Электронная цифровая подпись} other {Простая электронная подпись}}",
+      "label": "Нужна подпись",
+      "title": "Подпишите: «{refTitle}»"
+    }
+  },
+  "sms": {
+    "text": "SuperApp6: {title}"
+  },
+  "staff": {
+    "deputy": {
+      "assigned": {
+        "body": "{periodLabel}",
+        "label": "Назначение заместителем",
+        "title": "Вы — заместитель по должности «{positionName}» в {workspaceName}"
+      }
+    },
+    "head": {
+      "assigned": {
+        "body": "Должность «{positionName}» назначена руководящей — согласования и заявления подчинённых теперь приходят вам.",
+        "label": "Назначение руководителем",
+        "title": "Вы руководите {unitLabel} в {workspaceName}"
+      }
+    }
+  },
+  "system": {
+    "announcement": {
+      "label": "Объявление",
+      "title": "{title}"
+    },
+    "welcome": {
+      "label": "Добро пожаловать",
+      "title": "Добро пожаловать в SuperApp6!"
+    }
+  },
+  "task": {
+    "accepted": {
+      "label": "Работа принята",
+      "title": "Задача принята: {taskTitle}"
+    },
+    "assigned": {
+      "label": "Мне поставили задачу",
+      "title": "Вам назначена задача: {taskTitle}"
+    },
+    "completed": {
+      "label": "Задача завершена",
+      "title": "Задача выполнена: {taskTitle}"
+    },
+    "due_soon": {
+      "label": "Срок близко",
+      "title": "Скоро дедлайн: {taskTitle}"
+    },
+    "overdue": {
+      "label": "Задача просрочена",
+      "title": "Просрочена задача: {taskTitle}"
+    },
+    "returned": {
+      "label": "Работа возвращена",
+      "title": "Задача возвращена в работу: {taskTitle}"
+    },
+    "submitted": {
+      "label": "Работа сдана на проверку",
+      "title": "{byName} сдал(а) задачу на проверку: {taskTitle}"
+    }
+  },
+  "voice": {
+    "transcript": {
+      "failed": {
+        "label": "Расшифровка не удалась",
+        "title": "Не удалось расшифровать «{title}»"
+      },
+      "ready": {
+        "label": "Расшифровка готова",
+        "title": "Расшифровка «{title}» готова"
+      }
+    }
+  },
+  "wallet": {
+    "coins": {
+      "received": {
+        "body": "За задачу «{taskTitle}»",
+        "label": "Получены коины",
+        "title": "Вы заработали {amount} {currencyName}"
+      }
+    }
+  },
+  "workspace": {
+    "archive": {
+      "expiring": {
+        "body": "Она в архиве. Восстановите её, если удалять не нужно — после {purgeDate} вернуть будет нельзя.",
+        "label": "Скоро удаление архива организации",
+        "title": "Организация «{workspaceName}» будет удалена через {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}"
+      }
+    },
+    "invitation": {
+      "accepted": {
+        "label": "Приглашение принято",
+        "title": "{byName} принял(а) приглашение в {workspaceName}"
+      },
+      "received": {
+        "body": "{message}",
+        "label": "Приглашение в организацию",
+        "title": "{workspaceName} приглашает вас на работу"
+      },
+      "rejected": {
+        "label": "Приглашение отклонено",
+        "title": "{byName} отклонил(а) приглашение в {workspaceName}"
+      }
+    },
+    "member": {
+      "removed": {
+        "label": "Исключение из организации",
+        "title": "Вас исключили из организации {workspaceName}"
+      }
+    },
+    "position": {
+      "assigned": {
+        "body": "{branchName}",
+        "label": "Назначена должность",
+        "title": "Вам назначена должность в {workspaceName}: {positionName}"
+      },
+      "certified": {
+        "label": "Аттестация пройдена",
+        "title": "Вы аттестованы по должности {positionName} в {workspaceName}"
+      }
+    },
+    "role": {
+      "changed": {
+        "label": "Роль изменена",
+        "title": "Ваша роль в {workspaceName} изменена: {role}"
+      }
+    }
   }
 }

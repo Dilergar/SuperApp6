@@ -14,21 +14,21 @@ export class ResourcesController {
   constructor(private resources: ResourcesService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Мои ресурсы + те, что мне доступны для брони' })
+  @ApiOperation({ summary: 'My resources plus the ones I may book' })
   async list(@CurrentUser() user: JwtPayload) {
     const data = await this.resources.list(user.sub);
     return { success: true, data };
   }
 
   @Get('requests')
-  @ApiOperation({ summary: 'Входящие заявки на бронь моих ресурсов' })
+  @ApiOperation({ summary: 'Incoming booking requests for my resources' })
   async requests(@CurrentUser() user: JwtPayload) {
     const data = await this.resources.incomingRequests(user.sub);
     return { success: true, data };
   }
 
   @Post()
-  @ApiOperation({ summary: 'Создать ресурс' })
+  @ApiOperation({ summary: 'Create a resource' })
   async create(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
     const data = createResourceSchema.parse(body);
     const resource = await this.resources.create(user.sub, data);
@@ -36,7 +36,7 @@ export class ResourcesController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Обновить ресурс (владелец)' })
+  @ApiOperation({ summary: 'Update a resource (owner)' })
   async update(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -49,14 +49,14 @@ export class ResourcesController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Удалить ресурс (владелец)' })
+  @ApiOperation({ summary: 'Delete a resource (owner)' })
   async remove(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     await this.resources.remove(user.sub, id);
     return { success: true };
   }
 
   @Get(':id/schedule')
-  @ApiOperation({ summary: 'Расписание ресурса за период' })
+  @ApiOperation({ summary: 'The resource schedule for a period' })
   async schedule(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -69,7 +69,7 @@ export class ResourcesController {
 
   @Post('bookings/:eventId/confirm')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Подтвердить бронь (владелец ресурса)' })
+  @ApiOperation({ summary: 'Confirm a booking (resource owner)' })
   async confirm(@CurrentUser() user: JwtPayload, @Param('eventId') eventId: string) {
     await this.resources.confirm(user.sub, eventId);
     return { success: true };
@@ -77,7 +77,7 @@ export class ResourcesController {
 
   @Post('bookings/:eventId/reject')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Отклонить бронь (владелец ресурса)' })
+  @ApiOperation({ summary: 'Decline a booking (resource owner)' })
   async reject(@CurrentUser() user: JwtPayload, @Param('eventId') eventId: string) {
     await this.resources.reject(user.sub, eventId);
     return { success: true };

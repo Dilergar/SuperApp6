@@ -5,23 +5,23 @@ const noHtml = (s: string) => !/[<>]/.test(s);
 
 const currencyNameSchema = z
   .string()
-  .min(1, 'Название валюты обязательно')
+  .min(1, 'validation.wallet.currencyNameRequired')
   .max(WALLET_LIMITS.maxCurrencyNameLength)
-  .refine(noHtml, 'Недопустимые символы');
+  .refine(noHtml, 'validation.wallet.badCharacters');
 
 // Emoji / short symbol — no tickers. Reject HTML and whitespace-only.
 const iconSchema = z
   .string()
-  .min(1, 'Выберите иконку')
+  .min(1, 'validation.wallet.iconRequired')
   .max(WALLET_LIMITS.maxIconLength)
-  .refine((s) => s.trim().length > 0, 'Выберите иконку')
-  .refine(noHtml, 'Недопустимые символы');
+  .refine((s) => s.trim().length > 0, 'validation.wallet.iconRequired')
+  .refine(noHtml, 'validation.wallet.badCharacters');
 
 // Positive integers only; no fractional coins. Bounded by the emission cap.
 const amountSchema = z
   .number()
-  .int('Только целые монеты')
-  .positive('Сумма должна быть больше 0')
+  .int('validation.wallet.wholeCoins')
+  .positive('validation.wallet.amountPositive')
   .max(WALLET_LIMITS.maxTxnAmount);
 
 export const createCurrencySchema = z
@@ -32,7 +32,7 @@ export const updateCurrencySchema = z
   .object({ name: currencyNameSchema.optional(), icon: iconSchema.optional() })
   .strict()
   .refine((d) => d.name !== undefined || d.icon !== undefined, {
-    message: 'Нечего обновлять',
+    message: 'validation.wallet.nothingToUpdate',
   });
 
 export const mintSchema = z.object({ amount: amountSchema }).strict();

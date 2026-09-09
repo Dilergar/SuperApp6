@@ -1,0 +1,41 @@
+{
+  "breadcrumb": "Wallet",
+  "company": {
+    "amount": "Amount",
+    "amountPositive": "The amount is a whole number greater than zero",
+    "backToOrg": "To the organization",
+    "createSubtitle": "It pays task rewards and buys in the organization shop",
+    "createTitle": "Create the company currency",
+    "created": "The company currency is created",
+    "description": "The internal currency for employee rewards and the company shop",
+    "held": "Held",
+    "holders": "Holders",
+    "holdersCount": "Holders",
+    "holdersEmpty": "Nobody has coins yet",
+    "holdersEmptyHint": "Pay the first employee — they will show up here.",
+    "holdersSubtitle": "Who holds the organization currency",
+    "issuedBy": "{name} — issued by the organization",
+    "mint": "Mint",
+    "mintTitle": "Mint into the treasury",
+    "minted": "{amount} minted into the treasury",
+    "namePlaceholder": "BonusCoin, for example",
+    "nameRequired": "Enter the name",
+    "ownerOnly": "Owner only",
+    "ownerOnlyHint": "The company wallet is managed by the owner of the organization.",
+    "paid": "Paid to the employee",
+    "pay": "Pay",
+    "paySubtitle": "It is taken from the organization treasury",
+    "payTitle": "Pay an employee",
+    "pickEmployee": "Pick an employee",
+    "pickEmployeePlaceholder": "Pick an employee…",
+    "title": "Company wallet",
+    "treasury": "Treasury"
+  },
+  "entryType": {
+    "burn": "Burn",
+    "currency_deleted": "The currency was deleted",
+    "mint": "Mint",
+    "reversal": "Refund",
+    "transfer": "Transfer"
+  }
+}

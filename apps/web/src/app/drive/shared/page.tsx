@@ -3,23 +3,25 @@
 // «Доступно мне» — чужие диски, где зрителю что-то открыли. Переход подставляет
 // ?space=, поэтому ссылка на чужой диск переживает обновление страницы и шарится.
 
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { Card, EmptyState, Icon, PageHeader } from '@/components/ui';
 import { useDrive } from '../drive-shell';
 
 export default function DriveSharedPage() {
+  const t = useTranslations('drive');
   const { overview } = useDrive();
   const spaces = overview?.sharedWithMe ?? [];
 
   return (
     <>
-      <PageHeader breadcrumb="Диск" title="Доступно мне" />
+      <PageHeader breadcrumb={t('breadcrumb')} title={t('page.shared')} />
       <Card>
         {spaces.length === 0 ? (
           <EmptyState
             icon="share"
-            title="Вам пока ничего не открывали"
-            description="Здесь появятся диски, к которым вам дали доступ"
+            title={t('page.sharedEmpty')}
+            description={t('page.sharedEmptyHint')}
           />
         ) : (
           <ul style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

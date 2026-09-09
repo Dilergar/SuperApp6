@@ -25,40 +25,40 @@ export class OrgController {
   constructor(private readonly org: OrgService) {}
 
   @Get('chart')
-  @ApiOperation({ summary: 'Цельный граф оргструктуры (фильтр объекта — ?branchId)' })
+  @ApiOperation({ summary: 'The whole org chart (filter by site — ?branchId)' })
   async chart(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Query() query: unknown) {
     const q = orgChartQuerySchema.parse(query ?? {});
     return { success: true, data: await this.org.chart(user.sub, id, q) };
   }
 
   @Get('unassigned')
-  @ApiOperation({ summary: '«Вне структуры»: люди без назначений, вакансии, несколько корней' })
+  @ApiOperation({ summary: 'Outside the structure: people with no assignments, vacancies, several roots' })
   async unassigned(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     return { success: true, data: await this.org.unassigned(user.sub, id) };
   }
 
   @Get('my-scope')
-  @ApiOperation({ summary: 'Область правки структуры текущего пользователя' })
+  @ApiOperation({ summary: 'The editing scope of the current user' })
   async myScope(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     return { success: true, data: await this.org.myScope(user.sub, id) };
   }
 
   @Get('deputies')
-  @ApiOperation({ summary: 'Заместители (?positionId, ?activeOnly)' })
+  @ApiOperation({ summary: 'Deputies (?positionId, ?activeOnly)' })
   async deputies(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Query() query: unknown) {
     const q = listStaffDeputiesQuerySchema.parse(query ?? {});
     return { success: true, data: await this.org.listDeputies(user.sub, id, q) };
   }
 
   @Post('deputies')
-  @ApiOperation({ summary: 'Назначить заместителя (сам · руководитель · управляющий)' })
+  @ApiOperation({ summary: 'Appoint a deputy (self, own manager or an org manager)' })
   async createDeputy(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() body: unknown) {
     const dto = createStaffDeputySchema.parse(body);
     return { success: true, data: await this.org.createDeputy(user.sub, id, dto) };
   }
 
   @Patch('deputies/:deputyId')
-  @ApiOperation({ summary: 'Изменить период/комментарий замещения' })
+  @ApiOperation({ summary: 'Change the period or the note of a deputy' })
   async updateDeputy(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -71,21 +71,21 @@ export class OrgController {
 
   @Delete('deputies/:deputyId')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Снять заместителя' })
+  @ApiOperation({ summary: 'Remove a deputy' })
   async deleteDeputy(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Param('deputyId') deputyId: string) {
     await this.org.deleteDeputy(user.sub, id, deputyId);
     return { success: true };
   }
 
   @Post('setup')
-  @ApiOperation({ summary: 'Мастер «Соберём структуру»: вершина + руководители отделов/объектов' })
+  @ApiOperation({ summary: 'Setup wizard: the top position plus the heads of departments and sites' })
   async setup(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() body: unknown) {
     const dto = orgSetupSchema.parse(body);
     return { success: true, data: await this.org.setup(user.sub, id, dto) };
   }
 
   @Get('people/:userId/line')
-  @ApiOperation({ summary: '«Место в структуре» человека: должности, руководитель, команда, цепочка' })
+  @ApiOperation({ summary: 'The place of a person in the structure: positions, manager, team, chain' })
   async line(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,

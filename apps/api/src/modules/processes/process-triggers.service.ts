@@ -5,7 +5,9 @@ import {
   WORKSPACE_ROLE_RANK,
   type WorkspaceRole,
 } from '@superapp/shared';
+import { SOURCE_LOCALE } from '@superapp/i18n';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { ProcessesService } from './processes.service';
 import { evalCondition } from './process-builtin-nodes';
@@ -23,13 +25,14 @@ export class ProcessTriggerRouter implements OnModuleInit {
     private db: DatabaseService,
     private events: EventBusService,
     private processes: ProcessesService,
+    private i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
     for (const evt of PROCESS_EVENT_TYPES) {
-      this.events.on(evt.value).subscribe((event) => {
-        void this.onEvent(evt.value, event.payload as Record<string, unknown>).catch((err) =>
-          this.logger.error(`event trigger ${evt.value}: ${err?.message ?? err}`),
+      this.events.on(evt).subscribe((event) => {
+        void this.onEvent(evt, event.payload as Record<string, unknown>).catch((err) =>
+          this.logger.error(`event trigger ${evt}: ${err?.message ?? err}`),
         );
       });
     }
@@ -94,7 +97,7 @@ export class ProcessTriggerRouter implements OnModuleInit {
       select: { role: true },
     });
     if (rows.length === 0) {
-      this.logger.warn(`trigger ${t.id}: «от имени» ${t.runAsUserId} больше не сотрудник — запуск пропущен`);
+      this.logger.warn(`trigger ${t.id}: the runAs user ${t.runAsUserId} is no longer an employee — the run is skipped`);
       return false;
     }
     const publisherRank = Number((t.config as { publisherRank?: number } | null)?.publisherRank ?? 0);
@@ -104,8 +107,8 @@ export class ProcessTriggerRouter implements OnModuleInit {
     const rank = Math.max(...rows.map((r) => WORKSPACE_ROLE_RANK[r.role as WorkspaceRole] ?? 0));
     if (rank > publisherRank) {
       this.logger.warn(
-        `trigger ${t.id}: «от имени» ${t.runAsUserId} повышен после публикации (${rank} > ${publisherRank}) — ` +
-          'запуск пропущен, переопубликуйте процесс',
+        `trigger ${t.id}: the runAs user ${t.runAsUserId} was promoted after the publication (${rank} > ${publisherRank}) — ` +
+          'the run is skipped, republish the process',
       );
       return false;
     }
@@ -216,7 +219,7 @@ export class ProcessTriggerRouter implements OnModuleInit {
       text,
       chatId: String(chat.id),
       fromId: from.id != null ? String(from.id) : '',
-      fromName: [first, last].filter(Boolean).join(' ') || uname || 'Гость',
+      fromName: [first, last].filter(Boolean).join(' ') || uname || this.i18n.translateFor(SOURCE_LOCALE, 'common.labels.someone'),
       messageId: msg.message_id != null ? String(msg.message_id) : '',
     };
     const nodeId = ((trigger.config ?? {}) as { nodeId?: string }).nodeId;

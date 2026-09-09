@@ -80,17 +80,17 @@ class KazinfotehDriver implements SmsDriver {
       if (!this.formatLogged) {
         this.formatLogged = true;
         this.logger.log(
-          `Kazinfoteh: первый ответ шлюза (сверьте разбор) — HTTP ${res.status}, ` +
-            `распознано accepted=${accepted}, messageId=${idMatch?.[1] ?? '—'}; тело: ${body.slice(0, 500)}`,
+          `Kazinfoteh: the first gateway response (verify the parsing) — HTTP ${res.status}, ` +
+            `parsed accepted=${accepted}, messageId=${idMatch?.[1] ?? '—'}; body: ${body.slice(0, 500)}`,
         );
       }
       if (!accepted) {
-        this.logger.warn(`Kazinfoteh отказ: HTTP ${res.status} ${body.slice(0, 300)}`);
+        this.logger.warn(`Kazinfoteh refused: HTTP ${res.status} ${body.slice(0, 300)}`);
         return { ok: false, error: `provider status ${codeMatch?.[1] ?? res.status}` };
       }
       return { ok: true, providerMessageId: idMatch?.[1]?.trim() };
     } catch (err) {
-      this.logger.warn(`Kazinfoteh недоступен: ${(err as Error).message}`);
+      this.logger.warn(`Kazinfoteh is unavailable: ${(err as Error).message}`);
       return { ok: false, error: (err as Error).message };
     }
   }
@@ -134,8 +134,8 @@ export class VerifySmsService {
       this.driver = new MockDriver();
       if (isProdEnv()) {
         this.logger.warn(
-          '⚠️  SMS_DRIVER не задан в production: SMS не отправляются (коды в лог НЕ пишутся). ' +
-            'Реальные пользователи не смогут зарегистрироваться — настройте SMS_DRIVER=kazinfoteh.',
+          '⚠️  SMS_DRIVER is not set in production: no SMS is sent (and codes are NOT written to the log). ' +
+            'Real users will not be able to sign up — configure SMS_DRIVER=kazinfoteh.',
         );
       }
     }

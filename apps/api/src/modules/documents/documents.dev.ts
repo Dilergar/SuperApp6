@@ -1,6 +1,7 @@
-import { BadRequestException, Body, Controller, Param, Post } from '@nestjs/common';
+import { Body, Controller, Param, Post } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
+import { badRequest } from '../../shared/errors/api-error';
 import { CurrentUser, type JwtPayload } from '../../shared/decorators/current-user.decorator';
 import { DatabaseService } from '../../shared/database/database.service';
 import { DocumentsService } from './documents.service';
@@ -29,7 +30,7 @@ export class DocumentsDevController {
    * подшивку ПРЯМЫМ чтением узла, а не только записью хроники.
    */
   @Post(':documentId/state')
-  @ApiOperation({ summary: '[dev] Служебные поля карточки (узлы Диска подшивки)' })
+  @ApiOperation({ summary: '[dev] Service fields of the card (the Drive nodes of the filing)' })
   async state(@CurrentUser() user: JwtPayload, @Param('documentId') documentId: string) {
     await this.documents.get(user.sub, documentId); // право смотреть = право дёрнуть dev-путь
     const row = await this.db.orgDocument.findUniqueOrThrow({
@@ -40,7 +41,7 @@ export class DocumentsDevController {
   }
 
   @Post(':documentId/register')
-  @ApiOperation({ summary: '[dev] Присвоить номер — то же, что нода «Регистрация»' })
+  @ApiOperation({ summary: '[dev] Assign the number — the same as the «Registration» node' })
   async register(@CurrentUser() user: JwtPayload, @Param('documentId') documentId: string) {
     // Право смотреть документ = право дёрнуть его дев-путь: полигон не должен быть
     // дырой даже в разработке.
@@ -50,7 +51,7 @@ export class DocumentsDevController {
   }
 
   @Post(':documentId/file')
-  @ApiOperation({ summary: '[dev] Подшить в дело — то же, что нода «Подшить в дело»' })
+  @ApiOperation({ summary: '[dev] File the document — the same as the «File» node' })
   async file(@CurrentUser() user: JwtPayload, @Param('documentId') documentId: string) {
     await this.documents.get(user.sub, documentId);
     await this.documents.systemMarkSigned(documentId);
@@ -59,7 +60,7 @@ export class DocumentsDevController {
   }
 
   @Post(':documentId/resolve')
-  @ApiOperation({ summary: '[dev] Итог маршрута — то же, что хук возврата из согласований' })
+  @ApiOperation({ summary: '[dev] The outcome of the route — the same as the hook back from the approvals' })
   async resolve(
     @CurrentUser() user: JwtPayload,
     @Param('documentId') documentId: string,
@@ -72,7 +73,7 @@ export class DocumentsDevController {
   }
 
   @Post(':documentId/generate-child')
-  @ApiOperation({ summary: '[dev] Сформировать производный документ — нода «Сформировать документ»' })
+  @ApiOperation({ summary: '[dev] Build a derived document — the «Build a document» node' })
   async generateChild(
     @CurrentUser() user: JwtPayload,
     @Param('documentId') documentId: string,
@@ -85,7 +86,7 @@ export class DocumentsDevController {
       title: dto.title,
       actorId: user.sub,
     });
-    if (!id) throw new BadRequestException('Производный документ не создан');
+    if (!id) throw badRequest('documents.derivedNotCreated');
     return { success: true, data: { documentId: id } };
   }
 }

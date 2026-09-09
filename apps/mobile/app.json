@@ -17,7 +17,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.superapp6.app",
       "infoPlist": {
-        "NSContactsUsageDescription": "SuperApp6 нужен доступ к контактам для добавления людей в ваше окружение"
+        "NSContactsUsageDescription": "SuperApp6 uses your contacts to add people to your Circle"
       }
     },
     "android": {
@@ -32,6 +32,11 @@
       "expo-router",
       "expo-contacts",
       "expo-secure-store"
-    ]
+    ],
+    "locales": {
+      "en": "./locales/en.json",
+      "kk": "./locales/kk.json",
+      "ru": "./locales/ru.json"
+    }
   }
 }
